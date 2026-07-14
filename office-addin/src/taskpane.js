@@ -20,35 +20,14 @@ Office.onReady((info) => {
 });
 
 async function encryptDocument() {
-    try {
-        const password = document.getElementById("txt-password").value;
-        if (!password) {
-            throw new Error("Veuillez entrer un mot de passe.");
-        }
-
-        document.getElementById("status").innerText = "Extraction du contenu...";
-        document.getElementById("btn-encrypt").disabled = true;
-
-        await Word.run(async (context) => {
-            const body = context.document.body;
-            body.load("text");
-            await context.sync();
-
-            const textLength = body.text.length;
-
-            // PROTOTYPE: Log extraction results but don't actually encrypt
-            console.log("[Elium Prototype] Extraction réussie.");
-            console.log("[Elium Prototype] Longueur du texte:", textLength, "caractères.");
-            console.log("[Elium Prototype] Mot de passe fourni:", "*".repeat(password.length));
-
-            document.getElementById("status").innerText =
-                `⚠ Prototype: ${textLength} caractères extraits. ` +
-                `Le chiffrement réel n'est pas encore implémenté.`;
-        });
-    } catch (error) {
-        console.error("[Elium]", error);
-        document.getElementById("status").innerText = "Erreur : " + error.message;
-    } finally {
-        document.getElementById("btn-encrypt").disabled = false;
-    }
+    // GARDE-FOU: le chiffrement n'est pas implémenté dans ce prototype.
+    // On échoue immédiatement, avant toute lecture du document, pour ne
+    // jamais laisser croire à un traitement (même partiel) du contenu.
+    const status = document.getElementById("status");
+    status.style.color = "#c0392b";
+    status.style.fontWeight = "bold";
+    status.innerText =
+        "❌ Chiffrement NON implémenté — ce prototype ne protège aucune donnée. " +
+        "N'utilisez pas ce bouton en production.";
+    return;
 }

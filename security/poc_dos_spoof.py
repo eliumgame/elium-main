@@ -56,6 +56,7 @@ package.MAX_ENTRY_BYTES = 8
 try:
     read_elium(blob)
     print(PWN, "Oversized entry accepted — no memory cap enforced at read.")
+    assert False, "SECURITY REGRESSION: oversized entry accepted at read, no memory cap enforced"
 except EliumError:
     print(BLK, "Oversized entry rejected at read (capped, declared-size not trusted).")
 finally:
@@ -77,6 +78,7 @@ for name,data in cases.items():
         print(BLK,f"{name:18}-> clean EliumError: {type(e).__name__}")
     except Exception as e:
         print(PWN,f"{name:18}-> UNHANDLED {type(e).__name__}: {e}")
+        assert False, f"SECURITY REGRESSION: malformed input '{name}' caused an unhandled {type(e).__name__}: {e}"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 11 — Deeply-nested document → JSON/recursion DoS")
@@ -92,8 +94,10 @@ try:
         extract_text(res["document"]["doc"]); print(INF,"parsed + extract_text survived depth=%d"%depth)
     except RecursionError:
         print(PWN,"extract_text() RecursionError on nested document (unhandled crash path).")
+        assert False, "SECURITY REGRESSION: extract_text() RecursionError on deeply-nested document (unhandled DoS)"
 except RecursionError:
     print(PWN,"json.loads RecursionError on deeply-nested document (unhandled).")
+    assert False, "SECURITY REGRESSION: json.loads RecursionError on deeply-nested document (unhandled DoS)"
 except EliumError as e:
     print(BLK,"rejected:",type(e).__name__)
 

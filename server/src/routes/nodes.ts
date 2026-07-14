@@ -226,7 +226,8 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     if (b.nameEncrypted !== undefined || b.metaEncrypted !== undefined) {
       await requireNodePerm(req, id, "node.rename");
     }
-    if (b.parentId !== undefined) {
+    const isMove = b.parentId !== undefined;
+    if (isMove) {
       const access = await requireNodePerm(req, id, "node.move");
       if (b.parentId) {
         const target = await requireNodePerm(req, b.parentId, "node.create");
@@ -250,8 +251,32 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       sets.push(`parent_id = $${i++}`);
       params.push(b.parentId);
     }
-    const node = await queryOne(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, params);
-    if (!node) throw notFound();
+
+    const node = await withTx(async (c) => {
+      const { rows } = await c.query(`UPDATE nodes SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, params);
+      if (!rows[0]) throw notFound();
+      if (isMove) {
+        // A folder-inherited ACL grant is materialized (fanned out) onto every
+        // descendant at share time (see the deep-share flow) — moving a node
+        // out of that ancestor's subtree must not leave those rows behind, or
+        // a principal who only had access via the OLD ancestor share keeps a
+        // live node_keys row (and live decrypt capability via its wrapped
+        // key) after the node moved somewhere they were never granted access
+        // to. Direct grants made specifically on this subtree
+        // (inherited_from IS NULL — including the owner's own key row) are
+        // kept; re-sharing at the new location is a separate, explicit action.
+        await c.query(
+          `WITH RECURSIVE sub AS (
+             SELECT id FROM nodes WHERE id = $1
+             UNION ALL
+             SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+           )
+           DELETE FROM node_keys WHERE node_id IN (SELECT id FROM sub) AND inherited_from IS NOT NULL`,
+          [id],
+        );
+      }
+      return rows[0];
+    });
     await audit(node.org_id as string, user.id, "node.update", node.kind as string, id, {}, req.ip);
     return { node: nodeMetaDto(node) };
   });
@@ -441,6 +466,12 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       }
       // Storage quota: a new version ADDS `size` bytes (prior versions are kept).
       // NULL quota = unlimited. Checked in-tx just before the version is recorded.
+      // The lock above is per-NODE, not per-org, so two concurrent uploads to
+      // TWO DIFFERENT nodes of the same org would otherwise both read `used`
+      // before either commits and both pass the check, overrunning the quota.
+      // An org-scoped advisory lock serializes the check+insert critical
+      // section across nodes; it auto-releases at transaction end/rollback.
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [access.orgId]);
       const { rows: q } = await c.query(
         `SELECT o.storage_quota_bytes AS quota,
                 COALESCE((SELECT SUM(v.size_bytes) FROM node_versions v

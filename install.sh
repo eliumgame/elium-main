@@ -13,6 +13,7 @@
 #   bash install.sh drive --local       # Drive en local (http://localhost, sans TLS)
 #   bash install.sh suite               # suite bureautique dans le navigateur
 #   bash install.sh update | status | backup | help
+#   bash install.sh restore <timestamp> # restaure une sauvegarde de backups/
 #
 # Options de « drive » :
 #   --domain <fqdn>     domaine public (HTTPS automatique via Caddy/Let's Encrypt)
@@ -84,7 +85,7 @@ prompt() {
 # --- Arguments --------------------------------------------------------------
 CMD="${1:-menu}"; [ $# -gt 0 ] && shift || true
 DOMAIN=""; LOCAL=0; EMAIL=""; STORAGE="fs"; QUOTA_GB=""; HTTP_PORT="80"
-ASSUME_YES=0; DRY_RUN=0
+ASSUME_YES=0; DRY_RUN=0; ARG1=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -96,7 +97,9 @@ while [ $# -gt 0 ]; do
     --yes|-y) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) CMD="help"; shift ;;
-    *) warn "Option inconnue ignorée : $1"; shift ;;
+    -*) warn "Option inconnue ignorée : $1"; shift ;;
+    # Positional argument (e.g. the <timestamp> for `restore`).
+    *) ARG1="$1"; shift ;;
   esac
 done
 
@@ -114,8 +117,21 @@ deploy_drive() {
 
   # Domaine / mode local
   if [ "$LOCAL" != "1" ] && [ -z "$DOMAIN" ]; then
-    local existing; existing="$(read_env SITE_ADDRESS)"
-    DOMAIN="$(prompt "Domaine public (vide = local sans TLS)" "${existing#:*}")"
+    local existing default_domain; existing="$(read_env SITE_ADDRESS)"
+    # SITE_ADDRESS=":PORT" is the marker a previous `--local` run wrote; it is
+    # not a real domain, so default to empty here rather than leaking the raw
+    # port into the "Domaine public" prompt (which would otherwise be accepted
+    # as a literal domain, pushing a re-run into PRODUCTION mode with Caddy
+    # trying to get a Let's Encrypt certificate for e.g. "80").
+    # NB: a plain `${existing#:*}`/`${existing#:}` prefix-strip does NOT work
+    # here — bash's shortest-match `#` removes only the leading ":" either
+    # way, leaving the port digits (e.g. "80") behind. A `case` match is
+    # needed to drop the whole marker.
+    case "$existing" in
+      :*) default_domain="" ;;
+      *)  default_domain="$existing" ;;
+    esac
+    DOMAIN="$(prompt "Domaine public (vide = local sans TLS)" "$default_domain")"
   fi
   local site cors origin
   if [ "$LOCAL" = "1" ] || [ -z "$DOMAIN" ]; then
@@ -130,7 +146,7 @@ deploy_drive() {
   fi
 
   # Stockage
-  if [ "$ASSUME_YES" != "1" ] && [ -z "${STORAGE_SET:-}" ]; then
+  if [ "$ASSUME_YES" != "1" ]; then
     STORAGE="$(prompt "Stockage des blobs : fs (volume) ou s3 (MinIO)" "$STORAGE")"
   fi
   [ "$STORAGE" = "s3" ] || [ "$STORAGE" = "fs" ] || die "Stockage invalide : $STORAGE (attendu fs ou s3)."
@@ -194,7 +210,9 @@ deploy_drive() {
   say "  • Accès        : $bold$origin$rst"
   say "  • État         : bash install.sh status"
   say "  • Journaux     : $DC logs -f api"
-  [ "$STORAGE" = "s3" ] && say "  • Console MinIO: http://localhost:9001 (créez le bucket ${bold}elium-blobs${rst})"
+  # MinIO n'a volontairement AUCUN port publié (docker-compose.yml) : la
+  # console n'est joignable que via un tunnel SSH, jamais exposée publiquement.
+  [ "$STORAGE" = "s3" ] && say "  • Console MinIO: non exposée publiquement — tunnel : ${bold}ssh -L 9001:localhost:9001 <user>@<vps>${rst} puis http://localhost:9001 (créez le bucket ${bold}elium-blobs${rst})"
   say ""
   say "  Prochaine étape : ouvrez $origin, créez le 1er compte (= propriétaire),"
   say "  puis votre organisation. Activez la 2FA dans l'onglet ${bold}Sécurité${rst}."
@@ -255,7 +273,52 @@ do_backup() {
   warn "Conservez-les sur un support chiffré. Sans les clés côté clients, elles restent illisibles (zéro-connaissance)."
 }
 
-show_help() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
+do_restore() {
+  detect_compose; [ -n "$DC" ] || die "Docker Compose requis."
+  local out="$SCRIPT_DIR/backups"
+  local ts="${1:-$ARG1}"
+
+  if [ -z "$ts" ] && [ "$ASSUME_YES" != "1" ]; then
+    if [ -d "$out" ]; then
+      say "Sauvegardes disponibles dans $out :"
+      # shellcheck disable=SC2012
+      ls -1 "$out" 2>/dev/null | sed -n 's/^elium-db-\(.*\)\.sql\.gz$/  \1/p'
+    fi
+    ts="$(prompt "Timestamp de la sauvegarde à restaurer" "")"
+  fi
+  [ -n "$ts" ] || die "Usage : bash install.sh restore <timestamp> (voir les fichiers backups/elium-db-<timestamp>.sql.gz)."
+
+  local db_file="$out/elium-db-$ts.sql.gz" blobs_file="$out/elium-blobs-$ts.tar.gz"
+  [ -f "$db_file" ]    || die "Sauvegarde base introuvable : $db_file"
+  [ -f "$blobs_file" ] || die "Sauvegarde blobs introuvable : $blobs_file"
+
+  hr
+  warn "Cette opération va ÉCRASER l'état actuel (base de données ET blobs) avec la sauvegarde du $ts."
+  if [ "$ASSUME_YES" != "1" ]; then
+    local c; c="$(prompt "Tapez 'restore' pour confirmer, autre chose pour annuler" "")"
+    [ "$c" = "restore" ] || die "Restauration annulée."
+  fi
+
+  info "Arrêt du service api…"
+  $DC stop api
+
+  info "Restauration de Postgres depuis $db_file…"
+  gunzip -c "$db_file" | $DC exec -T db psql -U elium elium
+
+  info "Restauration des blobs depuis $blobs_file…"
+  # `run --rm` (pas `exec`) : le service `api` vient d'être arrêté ci-dessus,
+  # `exec` échouerait sur un conteneur non démarré. `run` en crée un nouveau,
+  # éphémère, monté sur les mêmes volumes — même pattern que do_backup().
+  gunzip -c "$blobs_file" | $DC run --rm -T api sh -c 'cd /data && tar xzf -'
+
+  info "Redémarrage de la pile…"
+  $DC up -d
+
+  hr
+  ok "${bold}Restauration depuis $ts terminée.${rst} Vérifiez : bash install.sh status"
+}
+
+show_help() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
 
 menu() {
   hr
@@ -267,7 +330,8 @@ menu() {
   say "  4) Mettre à jour la pile Drive"
   say "  5) État de la pile"
   say "  6) Sauvegarder (base + blobs)"
-  say "  7) Aide"
+  say "  7) Restaurer une sauvegarde"
+  say "  8) Aide"
   say "  0) Quitter"
   hr
   local c; c="$(prompt "Votre choix" "1")"
@@ -278,19 +342,21 @@ menu() {
     4) do_update ;;
     5) do_status ;;
     6) do_backup ;;
-    7) show_help ;;
+    7) do_restore ;;
+    8) show_help ;;
     0) exit 0 ;;
     *) die "Choix invalide." ;;
   esac
 }
 
 case "$CMD" in
-  menu)   menu ;;
-  drive)  deploy_drive ;;
-  suite)  run_suite ;;
-  update) do_update ;;
-  status) do_status ;;
-  backup) do_backup ;;
+  menu)    menu ;;
+  drive)   deploy_drive ;;
+  suite)   run_suite ;;
+  update)  do_update ;;
+  status)  do_status ;;
+  backup)  do_backup ;;
+  restore) do_restore ;;
   help|-h|--help) show_help ;;
   *) die "Commande inconnue : $CMD (essayez : bash install.sh help)" ;;
 esac

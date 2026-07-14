@@ -564,6 +564,10 @@ function runText(el: XmlEl): string {
     for (const c of n.children) {
       if (!isEl(c)) continue;
       if (c.name === "w:t") out += te(c);
+      // Word writes tracked-change deletions with <w:delText> instead of
+      // <w:t> precisely so plain readers won't resurrect the deleted text —
+      // but Elium preserves it (see inlineFromParagraph's w:del handling).
+      else if (c.name === "w:delText") out += te(c);
       else if (c.name === "w:tab") out += "\t";
       else if (c.name === "w:br" || c.name === "w:cr") out += "\n";
       else walk(c);
@@ -626,6 +630,20 @@ function runMarks(r: XmlEl): { type: string; attrs?: Record<string, unknown> }[]
       marks.push(MARK_ELS[c.name]);
     }
   }
+  // textStyle: colour / font family / font size, mirroring the writer's
+  // runProps (w:color, w:rFonts, w:sz) so a document written by Elium and
+  // re-imported keeps its character formatting instead of silently losing it.
+  const tsAttrs: Record<string, unknown> = {};
+  const color = firstChild(rpr, "w:color")?.attrs["w:val"];
+  if (color && /^[0-9a-fA-F]{6}$/.test(color)) tsAttrs.color = `#${color.toLowerCase()}`;
+  const rFonts = firstChild(rpr, "w:rFonts");
+  const fam = rFonts?.attrs["w:ascii"] || rFonts?.attrs["w:hAnsi"];
+  if (fam) tsAttrs.fontFamily = fam;
+  // w:sz is in half-points; the writer converts px → half-points as px * 1.5
+  // (runProps: `Math.round(px * 1.5)`), so the inverse here is halfPoints / 1.5.
+  const szVal = Number(firstChild(rpr, "w:sz")?.attrs["w:val"]);
+  if (Number.isFinite(szVal) && szVal > 0) tsAttrs.fontSize = `${Math.round(szVal / 1.5)}px`;
+  if (Object.keys(tsAttrs).length) marks.push({ type: "textStyle", attrs: tsAttrs });
   return marks;
 }
 
@@ -679,6 +697,27 @@ function inlineFromParagraph(
       const href = rId ? rels[rId] : undefined;
       const linkMark = href ? [{ type: "link", attrs: { href } }] : [];
       for (const r of children(c, "w:r")) handleRun(r, linkMark);
+    } else if (c.name === "w:ins" || c.name === "w:del") {
+      // Real Word documents with track-changes on wrap inserted/deleted runs
+      // one level deeper, inside <w:ins>/<w:del> rather than as direct <w:r>
+      // children of the paragraph — without this branch that text was never
+      // read at all (silent data loss on import). Map to Elium's own
+      // insertion/deletion marks (TrackChanges.ts) using the w:author/w:date
+      // straight off the element, so track-changes state round-trips too.
+      const trackMark = [
+        {
+          type: c.name === "w:ins" ? "insertion" : "deletion",
+          attrs: { author: c.attrs["w:author"] ?? "", ts: c.attrs["w:date"] ?? "" },
+        },
+      ];
+      for (const r of children(c, "w:r")) handleRun(r, trackMark);
+      // A tracked change can itself wrap a hyperlink (nested one level further).
+      for (const hl of children(c, "w:hyperlink")) {
+        const rId = hl.attrs["r:id"];
+        const href = rId ? rels[rId] : undefined;
+        const linkMark = href ? [{ type: "link", attrs: { href } }] : [];
+        for (const r of children(hl, "w:r")) handleRun(r, [...trackMark, ...linkMark]);
+      }
     }
   }
   return { nodes, pageBreak, figure };

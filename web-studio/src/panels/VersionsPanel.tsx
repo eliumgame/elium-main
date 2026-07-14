@@ -4,6 +4,8 @@ import { Save, RotateCcw, Trash2, Clock } from "lucide-react";
 import { Button, EmptyState } from "../ui/components";
 import { listVersions, saveVersion, deleteVersion, versionDoc, type DocumentVersion } from "../format/versions-store";
 import { docKeyOf } from "../format/doc-key";
+import { profileOf } from "../format/profiles";
+import { hasVaultSecret } from "../crypto/local-vault";
 import type { Studio } from "../studio/types";
 import { useDialogs } from "../ui/dialogs";
 
@@ -30,6 +32,20 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
 
   const snapshot = useCallback(
     async (label: string) => {
+      // Mirror App.tsx's autosave guard: honour the profile the instant it's
+      // chosen (not just the last-persisted `protection.encrypted`), so a
+      // version snapshot taken right after switching to a protected profile
+      // — but before the document's password has been entered on a real save
+      // — is refused instead of being written to IndexedDB in the clear.
+      const needsSecret = studio.file.manifest.protection.encrypted || profileOf(studio.file.manifest.profile).encrypted;
+      if (needsSecret && !hasVaultSecret(studio.versionSecret)) {
+        await alert({
+          title: "Mot de passe requis",
+          message:
+            "Ce document est protégé : enregistrez-le d'abord (le mot de passe sera demandé) avant de créer une version, sinon elle serait stockée en clair.",
+        });
+        return;
+      }
       setBusy(true);
       try {
         await saveVersion(docKey, label, studio.file.document.doc, new Date().toISOString(), studio.versionSecret);
@@ -38,7 +54,7 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
         setBusy(false);
       }
     },
-    [docKey, studio, reload],
+    [docKey, studio, reload, alert],
   );
 
   const onSnapshot = async () => {
@@ -53,6 +69,17 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
     let doc;
     try { doc = await versionDoc(v, studio.versionSecret); }
     catch { await alert({ title: "Restauration impossible", message: "Impossible de déchiffrer cette version (mot de passe du document requis)." }); return; }
+    // Same guard as snapshot(): the pre-restore auto-snapshot must not write
+    // the current state in the clear if the document is actually protected.
+    const needsSecret = studio.file.manifest.protection.encrypted || profileOf(studio.file.manifest.profile).encrypted;
+    if (needsSecret && !hasVaultSecret(studio.versionSecret)) {
+      await alert({
+        title: "Mot de passe requis",
+        message:
+          "Ce document est protégé : enregistrez-le d'abord (le mot de passe sera demandé) avant de restaurer une version, sinon l'état actuel serait sauvegardé en clair.",
+      });
+      return;
+    }
     await saveVersion(docKey, "Avant restauration", studio.file.document.doc, new Date().toISOString(), studio.versionSecret);
     editor.commands.setContent(doc);
     studio.onDocChange(doc);

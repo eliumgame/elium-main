@@ -103,6 +103,12 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         # Headers de sécurité
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "style-src 'self' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com",
+        )
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 

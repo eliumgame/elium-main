@@ -1,6 +1,13 @@
 # Edge reverse proxy for Elium Drive Entreprise.
 # Set SITE_ADDRESS to your domain (e.g. drive.example.com) in prod to get
 # automatic HTTPS. Defaults to :80 locally.
+
+# Global options. ACME_EMAIL is optional: when unset/empty, Caddy just skips
+# registering an ACME account email (no error) and still issues certs fine.
+{
+	email {$ACME_EMAIL}
+}
+
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
 

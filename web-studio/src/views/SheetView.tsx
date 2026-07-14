@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home, Plus, Minus, Download, Upload, Save, Table2, FileSpreadsheet,
   Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type,
+  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2,
 } from "lucide-react";
 import { useUndoable } from "../ui/useUndoable";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
@@ -12,7 +12,7 @@ import { formatValue, NUM_FORMATS } from "../sheet/format";
 import SheetChart from "../sheet/SheetChart";
 import CondFormatModal from "../sheet/CondFormatModal";
 import { buildCondFormatter } from "../sheet/condformat";
-import { emptyWorkbook, emptySheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule } from "../sheet/model";
+import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule } from "../sheet/model";
 import { loadWorkbook, saveWorkbook } from "../sheet/sheet-store";
 import { importXlsx } from "../sheet/xlsx-import";
 import { csvToWorkbook } from "../sheet/csv";
@@ -505,6 +505,30 @@ export default function SheetView({
       return { ...w, sheets };
     });
   };
+  // Delete the active sheet, with a confirmation prompt (matches the
+  // DialogsProvider pattern already used by renameSheet/applyFilter above).
+  // A workbook must always keep at least one sheet — attempting to remove
+  // the last one shows a clear error instead of silently doing nothing.
+  const removeActiveSheet = async () => {
+    if (wb.sheets.length <= 1) {
+      await dialogs.alert({
+        title: "Impossible de supprimer",
+        message: "Un classeur doit toujours contenir au moins une feuille.",
+      });
+      return;
+    }
+    const name = wb.sheets[wb.active].name;
+    const ok = await dialogs.confirm({
+      title: "Supprimer la feuille",
+      message: `Supprimer définitivement la feuille « ${name} » ? Cette action est irréversible.`,
+      confirmLabel: "Supprimer",
+      danger: true,
+    });
+    if (!ok) return;
+    update((w) => removeSheet(w, w.active) ?? w);
+    setSel({ c: 0, r: 0 });
+    setAnchor({ c: 0, r: 0 });
+  };
 
   const exportCsv = () => {
     const c = createCalc((ref) => sheet.cells[ref], crossSheets);
@@ -892,6 +916,7 @@ export default function SheetView({
           </button>
         ))}
         <button className="sheet-tab sheet-tab--add" onClick={addSheet} title="Ajouter une feuille"><Plus size={14} /></button>
+        <button className="sheet-tab sheet-tab--add" onClick={removeActiveSheet} title="Supprimer la feuille"><Trash2 size={14} /></button>
       </div>
 
       {condOpen && (

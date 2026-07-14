@@ -14,11 +14,18 @@
  *   - AEAD additional data = the schema string
  */
 
+import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { toHex, fromHex, sha256Hex } from "../format/canonical";
 
 export const RECIPIENTS_SCHEMA = "elium-recipients/1";
 const AAD = new TextEncoder().encode(RECIPIENTS_SCHEMA);
 const HKDF_INFO = new TextEncoder().encode("elium-recipients/1/wrap");
+// Subkeys derived from the (wrapped) CEK material when `cascade` is set —
+// mirror of elium-crypto.ts's k_aes/k_cha derivation, so secure_max gets the
+// same two-layer AEAD whether the body is protected by a password or by
+// recipient keys. Byte-compatible with crypto/recipients.py.
+const HKDF_INFO_AES = new TextEncoder().encode("elium-recipients/1/cek-aes");
+const HKDF_INFO_CHA = new TextEncoder().encode("elium-recipients/1/cek-cha");
 const HKDF_SALT = new Uint8Array(32); // RFC 5869: no salt → HashLen zero bytes
 const EC = { name: "ECDH", namedCurve: "P-256" } as const;
 
@@ -36,7 +43,9 @@ interface RecipientEntry {
 interface RecipientEnvelope {
   schema: typeof RECIPIENTS_SCHEMA;
   alg: string;
+  cascade?: boolean;
   contentNonce: string;
+  cascadeNonce?: string;
   content: string;
   recipients: RecipientEntry[];
 }
@@ -107,21 +116,59 @@ async function wrapKey(shared: Uint8Array): Promise<CryptoKey> {
   return subtle().importKey("raw", bits, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
+/** HKDF-SHA256(material, info) -> 32 raw bytes, used to expand the CEK material into cascade subkeys. */
+async function deriveSubkey(material: Uint8Array, info: Uint8Array): Promise<Uint8Array> {
+  const base = await subtle().importKey("raw", material as unknown as BufferSource, "HKDF", false, ["deriveBits"]);
+  const bits = await subtle().deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: HKDF_SALT as unknown as BufferSource, info: info as unknown as BufferSource },
+    base,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
 async function aesKey(raw: Uint8Array, usage: KeyUsage[]): Promise<CryptoKey> {
   return subtle().importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM" }, false, usage);
 }
 
 // --- encrypt / decrypt ----------------------------------------------------
 
-export async function encryptForRecipients(payload: Uint8Array, recipientPublicHexes: string[]): Promise<Uint8Array> {
+/**
+ * Encrypt `payload` for every recipient. `cascade=true` adds a
+ * ChaCha20-Poly1305 layer on top of the AES-256-GCM body encryption (same
+ * construction as elium-crypto.ts's secure_max cascade), so secure_max gets
+ * the same protection level whether the body is protected by a password or
+ * by recipient keys. Byte-compatible with crypto/recipients.py.
+ */
+export async function encryptForRecipients(
+  payload: Uint8Array,
+  recipientPublicHexes: string[],
+  cascade = false,
+): Promise<Uint8Array> {
   if (!recipientPublicHexes.length) throw new Error("Aucun destinataire fourni.");
 
-  const cek = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  // Wrapped per-recipient below. Without cascade it IS the AES-256-GCM key
+  // directly; with cascade it is expanded (HKDF) into two subkeys.
+  const cekMaterial = globalThis.crypto.getRandomValues(new Uint8Array(32));
   const contentNonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const cekKey = await aesKey(cek, ["encrypt"]);
-  const content = new Uint8Array(
-    await subtle().encrypt({ name: "AES-GCM", iv: contentNonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, cekKey, payload as unknown as BufferSource),
-  );
+
+  let content: Uint8Array;
+  let cascadeNonce: Uint8Array | undefined;
+  if (cascade) {
+    const kAes = await deriveSubkey(cekMaterial, HKDF_INFO_AES);
+    const kCha = await deriveSubkey(cekMaterial, HKDF_INFO_CHA);
+    const kAesKey = await aesKey(kAes, ["encrypt"]);
+    const inner = new Uint8Array(
+      await subtle().encrypt({ name: "AES-GCM", iv: contentNonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, kAesKey, payload as unknown as BufferSource),
+    );
+    cascadeNonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    content = chacha20poly1305(kCha, cascadeNonce, AAD).encrypt(inner);
+  } else {
+    const cekKey = await aesKey(cekMaterial, ["encrypt"]);
+    content = new Uint8Array(
+      await subtle().encrypt({ name: "AES-GCM", iv: contentNonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, cekKey, payload as unknown as BufferSource),
+    );
+  }
 
   const recipients: RecipientEntry[] = [];
   for (const pubHex of recipientPublicHexes) {
@@ -131,7 +178,7 @@ export async function encryptForRecipients(payload: Uint8Array, recipientPublicH
     const wk = await wrapKey(shared);
     const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
     const wrapped = new Uint8Array(
-      await subtle().encrypt({ name: "AES-GCM", iv: nonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, wk, cek as unknown as BufferSource),
+      await subtle().encrypt({ name: "AES-GCM", iv: nonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, wk, cekMaterial as unknown as BufferSource),
     );
     const epk = new Uint8Array(await subtle().exportKey("raw", eph.publicKey));
     recipients.push({ fpr: await recipientFingerprint(pubHex), epk: toHex(epk), nonce: toHex(nonce), wrap: toHex(wrapped) });
@@ -139,8 +186,10 @@ export async function encryptForRecipients(payload: Uint8Array, recipientPublicH
 
   const env: RecipientEnvelope = {
     schema: RECIPIENTS_SCHEMA,
-    alg: "ecdh-es-p256+aes-256-gcm",
+    alg: "ecdh-es-p256+aes-256-gcm" + (cascade ? "+chacha20-poly1305-cascade" : ""),
+    cascade,
     contentNonce: toHex(contentNonce),
+    ...(cascadeNonce ? { cascadeNonce: toHex(cascadeNonce) } : {}),
     content: toHex(content),
     recipients,
   };
@@ -164,15 +213,28 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
   const priv = await importPrivate(kp);
   const myFpr = await recipientFingerprint(kp.publicHex);
   const ordered = [...(env.recipients ?? [])].sort((a, b) => Number(a.fpr !== myFpr) - Number(b.fpr !== myFpr));
+  const cascade = !!env.cascade;
 
   for (const r of ordered) {
     try {
       const shared = await ecdh(priv, await importPublic(r.epk));
       const wk = await wrapKey(shared);
-      const cek = new Uint8Array(
+      const cekMaterial = new Uint8Array(
         await subtle().decrypt({ name: "AES-GCM", iv: fromHex(r.nonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, wk, fromHex(r.wrap) as unknown as BufferSource),
       );
-      const cekKey = await aesKey(cek, ["decrypt"]);
+      if (cascade) {
+        const kAes = await deriveSubkey(cekMaterial, HKDF_INFO_AES);
+        const kCha = await deriveSubkey(cekMaterial, HKDF_INFO_CHA);
+        const inner = chacha20poly1305(kCha, fromHex(env.cascadeNonce!), AAD).decrypt(fromHex(env.content));
+        const kAesKey = await aesKey(kAes, ["decrypt"]);
+        const out = await subtle().decrypt(
+          { name: "AES-GCM", iv: fromHex(env.contentNonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource },
+          kAesKey,
+          inner as unknown as BufferSource,
+        );
+        return new Uint8Array(out);
+      }
+      const cekKey = await aesKey(cekMaterial, ["decrypt"]);
       const out = await subtle().decrypt(
         { name: "AES-GCM", iv: fromHex(env.contentNonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource },
         cekKey,

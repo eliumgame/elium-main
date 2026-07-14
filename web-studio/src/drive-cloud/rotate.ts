@@ -59,19 +59,30 @@ async function principalPublicKey(
   }
 }
 
+/** Outcome of a catch-up pass: how many versions got fixed vs. are still stale. */
+export interface CatchUpResult {
+  fixed: number;
+  remaining: number;
+}
+
 /**
  * Finish a previously interrupted rotation: re-encrypt version blobs whose
- * epoch lags the node's, using the prev-key slot to read them. Returns the
- * number of versions brought up to date.
+ * epoch lags the node's, using the prev-key slot to read them. `remaining`
+ * counts versions still stale afterwards (either genuinely more than one
+ * epoch behind the prev-key slot — nothing more we can do from here — or a
+ * transient failure); the caller MUST check it (see rotateNode) before
+ * rotating again, since the prev-key slot is a single level and a further
+ * rotation overwrites it.
  */
-export async function catchUpStaleVersions(ctx: OpsCtx, entry: DriveEntry, currentKey: Uint8Array): Promise<number> {
-  if (entry.kind !== "file" || !entry.prevKeyWrapped || !entry.prevKeyNonce) return 0;
+export async function catchUpStaleVersions(ctx: OpsCtx, entry: DriveEntry, currentKey: Uint8Array): Promise<CatchUpResult> {
+  if (entry.kind !== "file" || !entry.prevKeyWrapped || !entry.prevKeyNonce) return { fixed: 0, remaining: 0 };
   const epoch = entry.keyEpoch ?? 1;
   const { versions } = (await ctx.api.listVersions(entry.id)) as unknown as { versions: VersionInfo[] };
   const stale = versions.filter((v) => v.keyEpoch < epoch);
-  if (!stale.length) return 0;
+  if (!stale.length) return { fixed: 0, remaining: 0 };
   const prevKey = await decryptContent(currentKey, entry.prevKeyNonce, fromHex(entry.prevKeyWrapped));
   let fixed = 0;
+  let remaining = 0;
   for (const v of stale) {
     try {
       const { bytes, nonceHex } = await ctx.api.getVersionContent(entry.id, v.id);
@@ -80,23 +91,39 @@ export async function catchUpStaleVersions(ctx: OpsCtx, entry: DriveEntry, curre
       await ctx.api.putVersionContent(entry.id, v.id, enc.ciphertext, enc.nonceHex);
       fixed++;
     } catch {
-      /* a version we cannot read (older epoch than the prev slot) stays as-is */
+      /* a version we cannot read (older epoch than the prev slot), or a
+         transient failure — either way it stays stale, so it must count
+         toward `remaining` instead of being silently dropped. */
+      remaining++;
     }
   }
-  return fixed;
+  return { fixed, remaining };
 }
 
 /**
  * Rotate one node's CEK: new key, new crypto-ACL (current principals only —
  * call AFTER revoking), re-encrypted name/meta/content/versions/collab log.
  */
-export async function rotateNode(ctx: OpsCtx, entry: DriveEntry): Promise<{ ok: boolean; revokedLinks: number }> {
+export async function rotateNode(ctx: OpsCtx, entry: DriveEntry): Promise<{ ok: boolean; revokedLinks: number; blockedOnStaleVersions?: boolean }> {
   const oldKey = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!oldKey) return { ok: false, revokedLinks: 0 }; // cannot rotate what we cannot decrypt
 
   // Level any stragglers from an interrupted previous rotation first, so no
-  // version ever ends up more than one epoch behind the prev-key slot.
-  await catchUpStaleVersions(ctx, entry, oldKey).catch(() => 0);
+  // version ever ends up more than one epoch behind the prev-key slot. The
+  // slot (`prevKeyWrapped`) is a SINGLE level, not a stack: rotating again
+  // unconditionally would overwrite it, and any version this pass failed to
+  // catch up (network hiccup, not just "genuinely too old") would become
+  // PERMANENTLY unrecoverable. Refuse to proceed instead — the caller sees
+  // this node reported as "skipped" (rotateTree) and can retry.
+  let caughtUp: CatchUpResult;
+  try {
+    caughtUp = await catchUpStaleVersions(ctx, entry, oldKey);
+  } catch {
+    return { ok: false, revokedLinks: 0, blockedOnStaleVersions: true };
+  }
+  if (caughtUp.remaining > 0) {
+    return { ok: false, revokedLinks: 0, blockedOnStaleVersions: true };
+  }
 
   const newKey = generateNodeKey();
 

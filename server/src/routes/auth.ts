@@ -28,6 +28,11 @@ import { badRequest, unauthorized, conflict } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
 const MFA_LOGIN_PURPOSE = "mfa-login";
+// Shared verbatim across every /login/verify failure branch (unknown email,
+// expired/reused/decoy challenge, bad signature) so the response text itself
+// can never be used to enumerate which emails have an account — only the
+// (oracle-free) challenge-response outcome distinguishes them.
+const LOGIN_FAILURE_MESSAGE = "E-mail ou mot de passe incorrect, ou session de connexion expirée.";
 
 /** Verify a submitted 6-digit TOTP OR consume a one-time backup code. */
 async function verifySecondFactor(userId: string, code: string): Promise<boolean> {
@@ -36,9 +41,17 @@ async function verifySecondFactor(userId: string, code: string): Promise<boolean
     `SELECT mfa_secret_enc, mfa_secret_nonce FROM users WHERE id = $1 AND mfa_enabled = true`,
     [userId],
   );
-  if (u?.mfa_secret_enc && u.mfa_secret_nonce) {
-    const secret = decryptServerSecret(u.mfa_secret_enc, u.mfa_secret_nonce);
-    if (/^\d{6}$/.test(norm) && verifyTotp(secret, norm)) return true;
+  if (u?.mfa_secret_enc && u.mfa_secret_nonce && /^\d{6}$/.test(norm)) {
+    try {
+      const secret = decryptServerSecret(u.mfa_secret_enc, u.mfa_secret_nonce);
+      if (verifyTotp(secret, norm)) return true;
+    } catch {
+      // The stored secret failed to decrypt (e.g. TOKEN_SECRET was rotated
+      // since enrollment). Don't crash the request with an uncaught 500 —
+      // fall through to the backup-code path below, which still works
+      // (backup codes are hashed, not encrypted under TOKEN_SECRET) and is
+      // the account's only remaining way out of a permanent lockout.
+    }
   }
   // Backup code fallback: single-use, matched by hash, then burned.
   const used = await queryOne<{ id: string }>(
@@ -163,7 +176,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // --- Prelogin: fetch the client KDF salt/params for an email -------------
   // Returns generic (non-existence-revealing) defaults for unknown emails so an
   // attacker cannot enumerate accounts.
-  app.post("/prelogin", async (req) => {
+  app.post("/prelogin", rl(30), async (req) => {
     const { email } = z.object({ email: z.string().email().max(320) }).parse(req.body);
     const row = await queryOne<{ kdf_salt: string; kdf_params: unknown }>(
       `SELECT kdf_salt, kdf_params FROM users WHERE email = $1 AND status = 'active'`,
@@ -212,7 +225,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       [b.challengeId],
     );
     if (!ch || ch.used_at || new Date(ch.expires_at).getTime() < Date.now()) {
-      throw unauthorized("Défi de connexion invalide ou expiré.");
+      throw unauthorized(LOGIN_FAILURE_MESSAGE);
     }
     const row = await queryOne<{
       id: string;
@@ -236,7 +249,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       !row.auth_sign_public_hex ||
       !verifyEd25519(ch.nonce, b.signature, row.auth_sign_public_hex)
     ) {
-      throw unauthorized("E-mail ou mot de passe incorrect.");
+      throw unauthorized(LOGIN_FAILURE_MESSAGE);
     }
 
     if (row.mfa_enabled) {
@@ -275,7 +288,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Refresh -------------------------------------------------------------
-  app.post("/refresh", async (req) => {
+  app.post("/refresh", rl(60), async (req) => {
     const { refreshToken } = z.object({ refreshToken: z.string().min(10) }).parse(req.body);
     const h = hashToken(refreshToken);
     const s = await queryOne<{ id: string; user_id: string; expires_at: string; revoked_at: string | null }>(
@@ -301,7 +314,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Logout --------------------------------------------------------------
-  app.post("/logout", async (req) => {
+  app.post("/logout", rl(30), async (req) => {
     const parsed = z.object({ refreshToken: z.string().optional() }).safeParse(req.body ?? {});
     if (parsed.success && parsed.data.refreshToken) {
       await query(`UPDATE sessions SET revoked_at = now() WHERE refresh_token_hash = $1`, [
@@ -385,7 +398,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Regenerate backup codes (requires a valid second factor) ------------
-  app.post("/mfa/backup-codes", { preHandler: authenticate }, async (req) => {
+  app.post("/mfa/backup-codes", { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
     const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
     const user = requireUser(req);
     if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");

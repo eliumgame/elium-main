@@ -57,6 +57,7 @@ class EliumPackageError(EliumError):
 MAX_ENTRY_BYTES = 128 * 1024 * 1024   # 128 MiB per uncompressed entry
 MAX_TOTAL_BYTES = 384 * 1024 * 1024   # 384 MiB total uncompressed
 MAX_JSON_DEPTH = 200                  # reject pathologically nested JSON
+MAX_ZIP_ENTRIES = 10_000              # reject archives with pathological entry counts
 
 
 class EliumPasswordRequired(EliumPackageError):
@@ -164,6 +165,16 @@ def write_elium(
     if profile not in VALID_PROFILES:
         raise EliumPackageError(f"Profil inconnu : {profile}")
 
+    # Guard against a silent-plaintext foot-gun: passing `recipients` on a
+    # profile that isn't encrypted used to be accepted silently, writing the
+    # document in the clear as if no recipients had been requested at all.
+    if recipients and not PROFILES[profile]["encrypted"]:
+        raise EliumPackageError(
+            f"Le profil « {profile} » n'est pas chiffré : des destinataires ont été "
+            "fournis mais seraient ignorés et le document serait écrit EN CLAIR. "
+            "Utilisez un profil chiffré (protected, encrypted ou secure_max)."
+        )
+
     signatures = signatures or []
     journal = journal or empty_journal()
     resource_index = resource_index or []
@@ -193,7 +204,14 @@ def write_elium(
         else:
             payload = document_json
         if use_recipients:
-            content_bytes = encrypt_for_recipients(payload, recipients)  # type: ignore[arg-type]
+            # secure_max additionally cascades a ChaCha20-Poly1305 layer on top
+            # of AES-256-GCM, same as the password path (EliumContainer.encode
+            # below) — the profile's protection level must not silently drop
+            # to single-layer AEAD just because recipients were used instead
+            # of a password.
+            content_bytes = encrypt_for_recipients(  # type: ignore[arg-type]
+                payload, recipients, cascade=(profile == "secure_max")
+            )
             recipient_fprs = [recipient_fingerprint(p) for p in recipients]  # type: ignore[union-attr]
         else:
             if not password:
@@ -255,8 +273,11 @@ def write_elium(
 
 def _check_archive_limits(zf: zipfile.ZipFile) -> None:
     """Refuse archives whose declared uncompressed size could exhaust memory."""
+    infolist = zf.infolist()
+    if len(infolist) > MAX_ZIP_ENTRIES:
+        raise EliumPackageError("Trop d'entrées dans l'archive .elium (protection DoS).")
     total = 0
-    for info in zf.infolist():
+    for info in infolist:
         if info.file_size > MAX_ENTRY_BYTES:
             raise EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).")
         total += info.file_size

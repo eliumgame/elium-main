@@ -33,6 +33,13 @@ export default function RolesPanel() {
   const orgId = d.currentOrg?.id ?? "";
   const canManage = d.currentOrg?.roleKey === "owner" || d.currentOrg?.roleKey === "admin";
 
+  // A role id from the previous org means nothing in the new one — drop the
+  // selection explicitly rather than relying on `selected` silently resolving
+  // to null once `d.roles` is refetched for the new org.
+  useEffect(() => {
+    setSelectedId(null);
+  }, [d.currentOrg?.id]);
+
   useEffect(() => {
     d.api.permissionCatalog().then((res) => {
       const list = Array.isArray(res) ? res : res.permissions;

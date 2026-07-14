@@ -69,3 +69,19 @@ export function emptyWorkbook(): Workbook {
 export function emptySheet(name: string): SheetData {
   return { name, rows: 20, cols: 8, cells: {} };
 }
+
+/**
+ * Remove the sheet at `index` from the workbook. Sheets have no stable id in
+ * this model (they're addressed by index, like renameSheet/switchSheet in
+ * SheetView.tsx), so `index` doubles as the identifier.
+ *
+ * Guard: a workbook must always keep at least one sheet, so removing the
+ * last remaining one is refused — returns `null` (same "refuse, don't touch
+ * anything" pattern the caller already uses for a duplicate rename).
+ */
+export function removeSheet(wb: Workbook, index: number): Workbook | null {
+  if (wb.sheets.length <= 1 || index < 0 || index >= wb.sheets.length) return null;
+  const sheets = wb.sheets.filter((_, i) => i !== index);
+  const active = Math.max(0, Math.min(wb.active > index ? wb.active - 1 : wb.active, sheets.length - 1));
+  return { ...wb, sheets, active };
+}

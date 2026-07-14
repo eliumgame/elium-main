@@ -26,6 +26,26 @@ if (isProd && tokenSecret.length < 32) {
   throw new Error("TOKEN_SECRET doit faire au moins 32 caractères en production.");
 }
 
+// Guard against a placeholder committed to the repo (deploy/.env.example,
+// docker-compose.yml's `${VAR:-default}` fallbacks) slipping unedited into a
+// real deployment — `cp deploy/.env.example .env` without editing it passes
+// the length/presence checks above (the placeholder IS 32+ chars) but is a
+// PUBLIC, grep-able string, so the deployment would be trivially crackable
+// regardless of TOKEN_SECRET's nominal length.
+const KNOWN_PLACEHOLDER_SUBSTRINGS = ["CHANGE_ME", "change-me", "change_me"];
+if (isProd && KNOWN_PLACEHOLDER_SUBSTRINGS.some((p) => tokenSecret.includes(p))) {
+  throw new Error(
+    "TOKEN_SECRET est encore une valeur d'exemple (deploy/.env.example) — générez un vrai secret aléatoire (voir install.sh).",
+  );
+}
+
+const databaseUrl = env("DATABASE_URL", "postgres://elium:elium@localhost:5432/elium");
+if (isProd && /:(elium|CHANGE_ME[^@]*|change-me[^@]*)@/i.test(databaseUrl)) {
+  throw new Error(
+    "DATABASE_URL utilise encore un mot de passe par défaut/exemple — définissez POSTGRES_PASSWORD dans .env (voir install.sh).",
+  );
+}
+
 export const config = {
   isProd,
   port: num("PORT", 8787),
@@ -35,7 +55,7 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
 
-  databaseUrl: env("DATABASE_URL", "postgres://elium:elium@localhost:5432/elium"),
+  databaseUrl,
 
   tokenSecret,
   accessTokenTtl: num("ACCESS_TOKEN_TTL_SECONDS", 900),

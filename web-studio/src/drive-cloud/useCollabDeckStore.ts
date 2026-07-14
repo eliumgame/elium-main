@@ -23,7 +23,7 @@ const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9
 export const colorForId = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]!; };
 export const initialsOf = (s: string) => { const p = s.split(/[@\s.]+/).filter(Boolean); return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?"; };
 
-const STATUS_MAP: Record<CollabStatus, DeckStatus> = { connecting: "connecting", open: "open", closed: "closed" };
+const STATUS_MAP: Record<CollabStatus, DeckStatus> = { connecting: "connecting", open: "open", closed: "closed", revoked: "revoked" };
 
 export interface CollabDeckStoreOpts {
   api: DriveApi;
@@ -36,6 +36,9 @@ export interface CollabDeckStoreOpts {
 export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: CollabDeckStoreOpts): DeckStore {
   const [status, setStatus] = useState<CollabStatus>("connecting");
   const [canWrite, setCanWrite] = useState(false);
+  // Revoked access closes the deck for good — never writable, even if the
+  // last known `canWrite` (from before the revocation) was true.
+  const writable = canWrite && status !== "revoked";
   const [slides, setSlides] = useState<Slide[]>([]);
   const [theme, setTheme] = useState<SlideTheme>("light");
   const [transition, setTransition] = useState<SlideTransition>("fade");
@@ -102,7 +105,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
 
   // --- element ops on the active slide's `elements` Y.Array ---
   const withActiveEls = (fn: (arr: Y.Array<YMap>) => void) => {
-    if (!canWrite) return;
+    if (!writable) return;
     const m = slideAt(activeRef.current); if (!m) return;
     ydoc.transact(() => fn(ensureElementsY(m)));
   };
@@ -126,11 +129,11 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   // --- slide + deck ops ---
   const setActive = (i: number) => setActiveState(i);
   const setDeckField = (patch: Partial<Deck>) => {
-    if (!canWrite) return;
+    if (!writable) return;
     ydoc.transact(() => { if (patch.theme !== undefined) deckMap.set("theme", patch.theme); if (patch.transition !== undefined) deckMap.set("transition", patch.transition); });
   };
   const replaceDeck = (d: Deck) => {
-    if (!canWrite) return;
+    if (!writable) return;
     ydoc.transact(() => {
       const arr = ySlides();
       if (arr) arr.delete(0, arr.length);
@@ -142,28 +145,28 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     setActiveState(0);
   };
   const patchSlide = (patch: Partial<Slide>) => {
-    if (!canWrite) return;
+    if (!writable) return;
     const m = slideAt(activeRef.current); if (!m) return;
     ydoc.transact(() => { for (const [k, v] of Object.entries(patch)) { if (k === "elements" || k === "shapes") continue; m.set(k, v as unknown); } });
   };
   const addSlide = (blank = false) => {
-    if (!canWrite) return;
+    if (!writable) return;
     ydoc.transact(() => ySlides().insert(activeRef.current + 1, [slideToY(blank ? blankSlide() : emptySlide("title-content"))]));
     setActiveState((a) => a + 1);
   };
   const insertSlide = (slide: Slide) => {
-    if (!canWrite) return;
+    if (!writable) return;
     ydoc.transact(() => ySlides().insert(activeRef.current + 1, [slideToY(slide)]));
     setActiveState((a) => a + 1);
   };
   const removeSlide = (i: number) => {
-    if (!canWrite) return;
+    if (!writable) return;
     const arr = ySlides(); if (arr.length <= 1) return;
     ydoc.transact(() => arr.delete(i, 1));
     setActiveState((a) => Math.max(0, Math.min(a, arr.length - 2)));
   };
   const moveSlide = (i: number, dir: -1 | 1) => {
-    if (!canWrite) return;
+    if (!writable) return;
     const j = i + dir; const arr = ySlides();
     if (j < 0 || j >= arr.length) return;
     const s = yToSlide(arr.get(i));
@@ -171,7 +174,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     setActiveState(j);
   };
   const duplicateSlide = (i: number) => {
-    if (!canWrite) return;
+    if (!writable) return;
     const s = yToSlide(ySlides().get(i));
     const dup: Slide = { ...s, id: newSlideId(), elements: (s.elements ?? []).map((e) => ({ ...e, id: newElementId(), morphKey: e.morphKey ?? e.id })) };
     ydoc.transact(() => ySlides().insert(i + 1, [slideToY(dup)]));
@@ -181,7 +184,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const deck: Deck = { slides, active, theme, transition };
 
   return {
-    deck, active, canWrite, collaborative: true,
+    deck, active, canWrite: writable, collaborative: true,
     setActive, setDeckField, replaceDeck,
     addSlide, insertSlide, removeSlide, moveSlide, duplicateSlide, patchSlide,
     updateEl, addEl, removeEl, reorderEl,

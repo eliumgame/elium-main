@@ -68,3 +68,21 @@ jobs:
     - name: Typecheck
       working-directory: ./server
       run: npm run typecheck
+
+  server-e2e:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Install server dependencies
+      working-directory: ./server
+      run: npm ci
+    - name: Install Web Studio dependencies
+      working-directory: ./web-studio
+      run: npm ci
+    - name: Run multi-user E2E (embedded Postgres, real Fastify app, real SDK)
+      working-directory: ./web-studio
+      run: npm run test:e2e

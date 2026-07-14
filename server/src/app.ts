@@ -48,6 +48,29 @@ export async function buildApp(): Promise<FastifyInstance> {
   // (no buffering) so multi-GB blobs stream straight to storage.
   app.addContentTypeParser("application/octet-stream", (_req, payload, done) => done(null, payload));
 
+  // The instance-wide `bodyLimit` above is sized for blob uploads (maxBlobBytes,
+  // 2 GiB by default) — without this override every JSON route (including
+  // unauthenticated ones like /auth/register) would inherit that same 2 GiB
+  // ceiling on its request body, a trivial memory-exhaustion vector. Give JSON
+  // bodies their own, much smaller cap.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string", bodyLimit: config.maxJsonBytes },
+    (_req, body, done) => {
+      if (body === "") {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body as string));
+      } catch (err) {
+        const parseError = err as Error & { statusCode?: number };
+        parseError.statusCode = 400;
+        done(parseError, undefined);
+      }
+    },
+  );
+
   // Uniform error handling.
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ApiError) {

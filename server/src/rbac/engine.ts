@@ -99,6 +99,26 @@ export async function resolveNodeAccess(userId: string, nodeId: string): Promise
   if (!node) return null;
 
   const orgCtx = await loadOrgContext(userId, node.org_id);
+  // A user who is not an ACTIVE member of the node's org — never joined, or
+  // deprovisioned/suspended (e.g. via SCIM) — gets NO access at all, even to
+  // nodes they nominally own or hold a leftover direct/group ACL entry on.
+  // `loadOrgContext` already filters `memberships.status = 'active'`, so this
+  // is the single source of truth for "still part of this org"; without this
+  // short-circuit, a suspended member's `node_keys` rows (and node ownership)
+  // would silently keep granting access after deprovisioning.
+  if (!orgCtx) {
+    return {
+      nodeId: node.id,
+      orgId: node.org_id,
+      ownerUserId: node.owner_user_id,
+      kind: node.kind,
+      trashed: node.trashed_at != null,
+      isOwner: false,
+      permissions: new Set(),
+      accessible: false,
+    };
+  }
+
   const groupIds = await userGroupIds(userId, node.org_id);
 
   // ACL rows on the node and its ancestors, matching the user or their groups.

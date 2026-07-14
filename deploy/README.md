@@ -61,13 +61,27 @@ sauvegardes héritent du chiffrement E2E ; stockez-les sur un support lui aussi
 chiffré. Une perte du couple (Postgres, blobs) sans les clés côté clients rend
 les données irrécupérables — c'est le prix du zéro-connaissance.
 
+```bash
+bash install.sh backup                  # écrit backups/elium-db-<ts>.sql.gz + elium-blobs-<ts>.tar.gz
+bash install.sh restore <timestamp>     # restaure ce couple (écrase l'état actuel, demande confirmation)
+```
+`restore` arrête `api`, restaure Postgres puis les blobs à partir des deux
+fichiers correspondants, puis relance la pile. Utilisez-le pour un VPS
+perdu/corrompu, en repartant d'une sauvegarde connue.
+
 ## Stockage objet S3 / MinIO (optionnel)
 Par défaut les blobs chiffrés sont écrits sur le volume `blobs` (driver `fs`).
 Pour utiliser un stockage objet S3-compatible :
 ```bash
 # dans .env : STORAGE_DRIVER=s3  (+ S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET)
 docker compose --profile s3 up -d --build
-# créer le bucket une fois (console MinIO sur http://VPS:9001)
+```
+Le service `minio` n'a volontairement **aucun port publié** (pas d'exposition
+publique). Pour créer le bucket une fois via la console web, ouvrez un tunnel
+SSH depuis votre poste :
+```bash
+ssh -L 9001:localhost:9001 <user>@<vps>
+# puis ouvrez http://localhost:9001 en local
 ```
 L'API écrit/télécharge les blobs **en streaming** (multipart), sans les
 bufferiser en mémoire — adapté aux fichiers volumineux. Les blobs restent du

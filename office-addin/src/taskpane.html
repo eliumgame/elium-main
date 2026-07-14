@@ -39,8 +39,10 @@
     </div>
     <p>Sécurisez votre document actuel directement dans l'éditeur.</p>
 
-    <input type="password" id="txt-password" placeholder="Mot de passe" style="width: 100%; padding: 8px; margin-top: 10px; box-sizing: border-box;" />
-    <button id="btn-encrypt">Chiffrer le document (.elium)</button>
+    <input type="password" id="txt-password" placeholder="Mot de passe" style="width: 100%; padding: 8px; margin-top: 10px; box-sizing: border-box;" disabled />
+    <small style="display:block; color:#856404; margin-top:4px;">Champ désactivé : sans effet réel, le chiffrement n'est pas implémenté.</small>
+    <button id="btn-encrypt" disabled>Chiffrer le document (.elium)</button>
+    <small style="display:block; color:#856404; margin-top:4px;">Bouton désactivé : fonctionnalité non implémentée dans ce prototype.</small>
     <div id="status">Prêt. (Mode démonstration)</div>
 
     <script src="taskpane.js"></script>

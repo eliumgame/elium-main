@@ -12,9 +12,9 @@
 > sécurité & cryptographie, exploitation, état d'avancement (fait / reste / à
 > améliorer) et feuille de route.
 >
-> **Vérifié à la dernière mise à jour (2026-07-12)** : E2E multi-utilisateurs
-> **87/87** · vitest **179/179** · pytest **62/62** · typecheck + builds verts ·
-> MSI de bureau à jour.
+> **Vérifié à la dernière mise à jour (2026-07-15)** : E2E multi-utilisateurs
+> **87/87** (désormais gaté en CI, job `server-e2e`) · vitest **204/204** ·
+> pytest **66/66** · typecheck + builds verts · MSI de bureau à jour.
 
 ---
 
@@ -520,7 +520,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   profond (membre/équipe/lien), versions, corbeille, journal d'audit,
   co-édition temps réel chiffrée, recouvrement d'org, **+ Phase 2** (rotation de
   clés, MFA, quotas, rate-limiting, padding). Testé de bout en bout (E2E 87/87,
-  vrai Postgres + vraie API + vrai SDK).
+  vrai Postgres + vraie API + vrai SDK), gaté en CI (job `server-e2e`).
 - **Fait aussi** : **SSO (OIDC)** + **SCIM** (provisioning/déprovisioning) en
   restant zéro-connaissance (§4.5), validés E2E.
 - **Reste** : mode **présentation** dans l'éditeur de diapos *collaboratif* (le
@@ -546,11 +546,15 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8
   poignées, guides magnétiques, mode présentateur, transitions, export PPTX.
-- **Reste** : **animations par élément** (modèle `SlideAnim` présent, lecture à
-  câbler) ; **import PPTX** ; **vraie vue présentateur** (2ᵉ écran :
-  notes + minuteur + diapo suivante).
-- **À améliorer** : transition **« Morph »** = dégradé approché (interpolation
-  par élément à faire).
+  **Animations par élément** câblées de bout en bout (lecture pas-à-pas au
+  clic, keyframes CSS, rejouées en mode présentateur ET en mode public).
+  **Vraie vue présentateur** (2ᵉ écran) : fenêtre popup séparée synchronisée
+  par `BroadcastChannel`, avec notes, minuteur et diapo suivante. **Import
+  PPTX** (`web-studio/src/slides/pptx-import.ts`) : formes, texte, images,
+  tableaux, groupes. Transition **« Morph »** = interpolation réelle par
+  élément (position/taille/rotation/opacité), pas un simple fondu.
+- **Reste** : **galerie de modèles** riche (au-delà des quelques mises en page
+  de base déjà fournies par `templates.ts`).
 
 ### Suite locale — PDF
 - **Fait** : lecteur + annotation + édition de texte, persistance `.elium`,
@@ -580,9 +584,12 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ## 12. Feuille de route
 
-1. **Présentations v2 dual-plateforme** : animations par élément, vraie vue
-   présentateur (2ᵉ écran), morph par interpolation, import PPTX, galerie de
-   modèles — sur les **deux** éditeurs (local + collaboratif).
+1. **Présentations v2 — parité dual-plateforme** : animations par élément,
+   vraie vue présentateur (2ᵉ écran), morph par interpolation et import PPTX
+   sont déjà livrés sur l'éditeur **local** (§11) ; reste à porter le rejeu des
+   animations/transitions sur l'éditeur **collaboratif** (Drive), où le
+   réglage est aujourd'hui stocké mais pas rejoué, et à enrichir la galerie de
+   modèles sur les **deux** éditeurs.
 2. **Parité fonctionnelle** : export XLSX (Tableur), pagination écran (Documents),
    couche texte de lecture PDF.
 3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes.

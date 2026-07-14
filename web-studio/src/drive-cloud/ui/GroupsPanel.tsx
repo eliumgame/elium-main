@@ -55,6 +55,16 @@ export default function GroupsPanel() {
 
   useEffect(() => { void reloadGroups(); }, [reloadGroups]);
 
+  // A group id (and its fetched members/key) from the previous org means
+  // nothing in the new one — drop the selection explicitly rather than
+  // relying on it silently self-healing once `groups` is refetched.
+  useEffect(() => {
+    setSelectedId(null);
+    setMembers([]);
+    setMyWrapped(null);
+    setCreating(false);
+  }, [d.currentOrg?.id]);
+
   const openGroup = useCallback(async (id: string) => {
     setSelectedId(id);
     setCreating(false);

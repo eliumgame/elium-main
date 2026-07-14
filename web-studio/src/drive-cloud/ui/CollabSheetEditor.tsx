@@ -37,6 +37,9 @@ export default function CollabSheetEditor({
 }) {
   const [status, setStatus] = useState<CollabStatus>("connecting");
   const [canWrite, setCanWrite] = useState(false);
+  // Revoked access closes the sheet for good — never writable, even if the
+  // last known `canWrite` (from before the revocation) was true.
+  const writable = canWrite && status !== "revoked";
   const [sheets, setSheets] = useState<SheetSnap[]>([]);
   const [active, setActive] = useState(0);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -159,12 +162,16 @@ export default function CollabSheetEditor({
     else if (e.key === "ArrowLeft") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.max(0, s.c - 1) })); }
     else if (e.key === "ArrowRight" || e.key === "Tab") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.min(sheet.cols - 1, s.c + 1) })); }
     else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); setCell(a1(sel.r, sel.c), ""); }
-    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && canWrite) { beginEdit(sel.r, sel.c, e.key); }
+    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && writable) { beginEdit(sel.r, sel.c, e.key); }
   };
 
   const selRef = a1(sel.r, sel.c);
   const selStyle = sheet?.styles[selRef];
-  const statusLabel = status === "open" ? "Connecté" : status === "connecting" ? "Connexion…" : "Hors ligne";
+  const statusLabel =
+    status === "open" ? "Connecté" :
+    status === "connecting" ? "Connexion…" :
+    status === "revoked" ? "Accès révoqué — document fermé" :
+    "Hors ligne";
 
   return (
     <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -185,7 +192,7 @@ export default function CollabSheetEditor({
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
 
-        {canWrite && (
+        {writable && (
           <div className="dc-doc__toolbar">
             <button className={`icon-btn ${selStyle?.bold ? "is-active" : ""}`} title="Gras" onMouseDown={(e) => { e.preventDefault(); patchStyle({ bold: !selStyle?.bold }); }}><Bold size={16} /></button>
             <button className={`icon-btn ${selStyle?.italic ? "is-active" : ""}`} title="Italique" onMouseDown={(e) => { e.preventDefault(); patchStyle({ italic: !selStyle?.italic }); }}><Italic size={16} /></button>
@@ -210,8 +217,8 @@ export default function CollabSheetEditor({
             ref={inputRef}
             className="dc-sheet__fxinput"
             value={editing ? editing.draft : (sheet?.cells[selRef] ?? "")}
-            readOnly={!canWrite}
-            onFocus={() => { if (canWrite && !editing) setEditing({ ref: selRef, draft: sheet?.cells[selRef] ?? "" }); }}
+            readOnly={!writable}
+            onFocus={() => { if (writable && !editing) setEditing({ ref: selRef, draft: sheet?.cells[selRef] ?? "" }); }}
             onChange={(e) => setEditing({ ref: selRef, draft: e.target.value })}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitEdit(true); } else if (e.key === "Escape") setEditing(null); }}
             onBlur={() => commitEdit(false)}
@@ -253,7 +260,7 @@ export default function CollabSheetEditor({
                           className={`dc-sheet__cell ${isSel ? "is-sel" : ""}`}
                           style={style}
                           onMouseDown={() => { if (!isEditing) { commitEdit(false); setSel({ r, c }); } }}
-                          onDoubleClick={() => canWrite && beginEdit(r, c)}
+                          onDoubleClick={() => writable && beginEdit(r, c)}
                           title={peer ? `${peer.name} est ici` : undefined}
                         >
                           {isEditing ? (
@@ -286,7 +293,7 @@ export default function CollabSheetEditor({
           {sheets.map((s, i) => (
             <button key={i} className={`dc-sheet__tab ${i === active ? "is-active" : ""}`} onClick={() => { commitEdit(false); setActive(i); setSel({ r: 0, c: 0 }); }}>{s.name}</button>
           ))}
-          {canWrite && <button className="icon-btn" title="Ajouter une feuille" onClick={addSheet}><Plus size={15} /></button>}
+          {writable && <button className="icon-btn" title="Ajouter une feuille" onClick={addSheet}><Plus size={15} /></button>}
         </div>
       </div>
     </div>

@@ -7,7 +7,8 @@
 # =============================================================================
 services:
   db:
-    image: postgres:16-alpine
+    # Pin deliberately; bump via a reviewed PR
+    image: postgres:16.4-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: elium
@@ -46,11 +47,20 @@ services:
       S3_FORCE_PATH_STYLE: "true"
     volumes:
       - blobs:/data/blobs
+    healthcheck:
+      # wget ships with BusyBox in the node:alpine base image, no extra
+      # package required.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Optional S3-compatible object storage. Enable with STORAGE_DRIVER=s3 and
   # `docker compose --profile s3 up -d`. Create the bucket once (mc / console).
   minio:
-    image: minio/minio:latest
+    # Pin deliberately; bump via a reviewed PR
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
     profiles: ["s3"]
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -73,16 +83,20 @@ services:
     restart: unless-stopped
 
   caddy:
-    image: caddy:2-alpine
+    # Pin deliberately; bump via a reviewed PR
+    image: caddy:2.8-alpine
     restart: unless-stopped
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS::80}
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

@@ -15,13 +15,17 @@ export interface CollabHandlers {
   onReady?: (canWrite: boolean) => void;
   onRemoteUpdate?: (update: Uint8Array, author: string | null, seq: number | null) => void;
   onAwareness?: (payload: unknown, from: string) => void;
-  onStatus?: (status: "connecting" | "open" | "closed") => void;
+  onStatus?: (status: "connecting" | "open" | "closed" | "revoked") => void;
   /** A new peer joined the room — re-broadcast local presence so they see us. */
   onPeerJoin?: (userId: string) => void;
   /**
    * The relay evicted the room after a key rotation (close code 4001): the
-   * in-memory node key is stale. Return the freshly unwrapped key to resume
-   * (the channel swaps it in and reconnects), or null if we lost access.
+   * in-memory node key is stale. Must resolve to one of:
+   *   - the freshly unwrapped key: the channel swaps it in and reconnects.
+   *   - null: access was CONFIRMED revoked (e.g. a 403/404 fetching the node) —
+   *     we stop for good and report status "revoked".
+   *   - throws: a transient failure (network/timeout/5xx) unrelated to actual
+   *     revocation — NOT treated as revoked; retried like an ordinary reconnect.
    */
   refetchKey?: () => Promise<Uint8Array | null>;
 }
@@ -80,13 +84,24 @@ export class EncryptedCollabChannel {
 
   private async rekeyAndReconnect(): Promise<void> {
     if (!this.handlers.refetchKey) return; // no rekey path — stay closed
+    if (this.closedByUser) return;
+    let fresh: Uint8Array | null;
     try {
-      const fresh = await this.handlers.refetchKey();
-      if (!fresh) return; // access revoked — do not loop on the relay
-      this.nodeKey = fresh;
+      fresh = await this.handlers.refetchKey();
     } catch {
+      // refetchKey threw: a transient failure (network/timeout/5xx), NOT a
+      // confirmed revocation. Do not give up — retry like an ordinary
+      // reconnect rather than mislabeling a hiccup as "access revoked".
+      setTimeout(() => void this.rekeyAndReconnect(), 1500);
       return;
     }
+    if (!fresh) {
+      // refetchKey resolved to null: access was CONFIRMED revoked (e.g. a
+      // 403/404 looking up the node) — do not loop on the relay.
+      this.handlers.onStatus?.("revoked");
+      return;
+    }
+    this.nodeKey = fresh;
     await this.reconnect();
   }
 

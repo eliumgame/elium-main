@@ -14,7 +14,7 @@ export interface CollabUser {
   name: string;
   color: string;
 }
-export type CollabStatus = "connecting" | "open" | "closed";
+export type CollabStatus = "connecting" | "open" | "closed" | "revoked";
 
 export class EncryptedYjsProvider {
   readonly doc: Y.Doc;

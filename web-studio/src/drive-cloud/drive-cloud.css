@@ -261,6 +261,7 @@
 .dc-doc__status--open { color: #16a34a; background: rgba(22,163,74,.12); }
 .dc-doc__status--connecting { color: var(--text-soft); background: var(--surface-3); }
 .dc-doc__status--closed { color: #dc2626; background: rgba(220,38,38,.12); }
+.dc-doc__status--revoked { color: #dc2626; background: rgba(220,38,38,.16); border: 1px solid rgba(220,38,38,.4); font-weight: 800; }
 .dc-doc__peers { display: flex; align-items: center; }
 .dc-doc__peers .dc-doc-av + .dc-doc-av { margin-left: -8px; }
 .dc-doc-av { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 800; border: 2px solid var(--surface); }

@@ -37,12 +37,18 @@ def repack(blob: bytes, replace: dict[str, bytes]) -> bytes:
 
 # ---------------------------------------------------------------------------
 line("ATTACK 1 — Tamper an unencrypted/LOCKED document undetected")
-# Build a 'locked' document (profile claims read-only + alteration detection)
+# Build a 'locked' document, SEALED by its author. The seal — an Ed25519 anchor
+# over manifest+signatures+journal (§6.3) — is the actual tamper-evidence
+# mechanism; the plain per-content contentHash is keyless by design and is
+# EXPECTED to be foolable by an attacker who can rewrite the manifest (that is
+# exactly why the seal exists — see DOCUMENTATION.md F-1 and test_seal.py).
+author1 = generate_identity()
 doc = create_document_model(text_to_doc("Je vends ma voiture pour 10000 euros."))
 journal = append_event(empty_journal(), "document.created", data={"title": "Contrat"})
-blob = write_elium(doc, profile="locked", title="Contrat", journal=journal)
+blob = write_elium(doc, profile="locked", title="Contrat", journal=journal,
+                   seal_private_key_hex=author1["privateKeyHex"])
 orig = read_elium(blob)
-print(INF, "Original content intact?", orig["integrity"]["contentIntact"], "| profile locked")
+print(INF, "Original content intact?", orig["integrity"]["contentIntact"], "| seal:", orig["seal"]["verdict"], "| profile locked")
 
 # Attacker: change the price, then RECOMPUTE the manifest hash and rewrite manifest.
 zin = zipfile.ZipFile(io.BytesIO(blob))
@@ -56,33 +62,44 @@ res = read_elium(forged)
 from elium.format.document import extract_text
 shown = extract_text(res["document"]["doc"]).strip()
 intact = res["integrity"]["contentIntact"]
+seal_verdict1 = res["seal"]["verdict"]
 print(INF, "Tampered content now reads:", repr(shown))
-print(INF, "read_elium reports contentIntact =", intact, "| unchecked =", res["integrity"]["unchecked"])
-if intact and "1 euro" in shown:
-    print(PWN, "Document silently altered; integrity still reports INTACT. 'locked' detection bypassed.")
+print(INF, "read_elium reports contentIntact =", intact, "(legacy keyless check, expected to be fooled) | seal.verdict =", seal_verdict1)
+if intact and "1 euro" in shown and seal_verdict1 != "broken":
+    print(PWN, "Document silently altered; integrity still reports INTACT and the seal does not catch it either.")
 else:
-    print(BLK, "Alteration detected.")
+    print(BLK, "Alteration detected by the seal (seal.verdict == 'broken'), even though the legacy keyless contentHash check alone is fooled as documented.")
+assert seal_verdict1 == "broken", "SECURITY REGRESSION: a sealed 'locked' document was hash-recomputed & tampered but seal.verdict != 'broken'"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 2 — Rewrite the ENTIRE tracking journal undetected")
+author2 = generate_identity()
 j = empty_journal()
 j = append_event(j, "document.created", data={"title": "Contrat"})
 j = append_event(j, "signature.added", actor={"name": "Alice"}, data={"sig": "real"})
-blob2 = write_elium(doc, profile="tracked", title="Contrat", journal=j)
-print(INF, "Genuine journal valid?", verify_journal(read_elium(blob2)["journal"]))
+blob2 = write_elium(doc, profile="tracked", title="Contrat", journal=j,
+                    seal_private_key_hex=author2["privateKeyHex"])
+orig2 = read_elium(blob2)
+print(INF, "Genuine journal valid?", verify_journal(orig2["journal"]), "| seal:", orig2["seal"]["verdict"])
 
 # Attacker rebuilds a brand-new, fully consistent chain that hides Alice and adds a fake event.
+# verify_journal() alone is a keyless self-consistency check: any freshly-built
+# chain will always pass it — that's expected, not a bug (see journal.py). The
+# seal is what actually binds the journal's content to the sealed document.
 fake = empty_journal()
 fake = append_event(fake, "document.created", data={"title": "Contrat"})
 fake = append_event(fake, "signature.added", actor={"name": "Mallory"}, data={"sig": "forged"})
 fake = append_event(fake, "document.locked", data={"final": True})
 forged2 = repack(blob2, {ENTRY_JOURNAL: json.dumps(fake, indent=2, ensure_ascii=False).encode()})
-v = verify_journal(read_elium(forged2)["journal"])
-print(INF, "Forged journal verify_journal ->", v)
-if v["valid"]:
-    print(PWN, "Entire history rewritten (Alice erased, Mallory inserted); chain still 'VALIDE'.")
+res2 = read_elium(forged2)
+v = verify_journal(res2["journal"])
+seal_verdict2 = res2["seal"]["verdict"]
+print(INF, "Forged journal verify_journal ->", v, "| seal.verdict =", seal_verdict2)
+if v["valid"] and seal_verdict2 != "broken":
+    print(PWN, "Entire history rewritten (Alice erased, Mallory inserted); chain 'VALIDE' and the seal does not catch it.")
 else:
-    print(BLK, "Rewrite detected.")
+    print(BLK, "Rewrite detected by the seal (seal.verdict == 'broken'), even though the keyless chain re-verifies as 'VALIDE' on its own as documented.")
+assert seal_verdict2 == "broken", "SECURITY REGRESSION: a fully-rewritten journal was accepted by the seal (seal.verdict != 'broken')"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 3 — Forge a 'valid' signature with the attacker's OWN key")
@@ -90,7 +107,7 @@ signer = {"name": "Directeur Financier", "role": "CFO", "org": "ACME"}
 victim_id = generate_identity()
 real_proof = create_proof("sig-1", doc, signer, victim_id["privateKeyHex"])
 real_sig = {"id": "sig-1", "kind": "drawn", "signer": signer, "proof": real_proof}
-print(INF, "Genuine signature verdict (no trusted key):", verify_proof(real_sig, doc))
+print(INF, "Genuine signature verdict (trusted key supplied):", verify_proof(real_sig, doc, trusted_key_hex=victim_id["publicKeyHex"]))
 
 # Attacker modifies the doc AND re-signs with a brand-new identity, keeping the victim's displayed name.
 attacker_id = generate_identity()
@@ -99,26 +116,33 @@ forged_proof = create_proof("sig-1", tampered_doc, signer, attacker_id["privateK
 forged_sig = {"id": "sig-1", "kind": "drawn", "signer": signer, "proof": forged_proof}
 verdict_no_trust = verify_proof(forged_sig, tampered_doc)
 verdict_trust = verify_proof(forged_sig, tampered_doc, trusted_key_hex=victim_id["publicKeyHex"])
-print(INF, "Forged sig verdict, NO trusted key supplied :", verdict_no_trust)
+print(INF, "Forged sig verdict, NO trusted key supplied :", verdict_no_trust,
+      "(expected 'valid' by design — an ad-hoc signature always verifies mathematically absent a trust anchor; UX must show 'clé non vérifiée')")
 print(INF, "Forged sig verdict, victim's key supplied   :", verdict_trust)
-if verdict_no_trust == "valid":
-    print(PWN, "Attacker's forged signature shows 'Signature valide' under a victim's name & role.")
+if verdict_trust == "valid":
+    print(PWN, "Attacker's forged signature shows 'valide' even when checked against the VICTIM's own trusted key.")
 else:
-    print(BLK, "Forgery rejected without a trusted key.")
+    print(BLK, f"Forgery rejected once checked against the victim's trusted key (verdict={verdict_trust}).")
+assert verdict_trust != "valid", "SECURITY REGRESSION: a forged signature (attacker's own key) verifies as 'valid' against the victim's trusted key"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 4 — Strip a signature from a signed document undetected")
+author4 = generate_identity()
 blob4 = write_elium(doc, profile="signed", title="Contrat", signatures=[real_sig],
-                    journal=append_event(empty_journal(), "signature.added", actor={"name": "Alice"}))
-print(INF, "Original signature count:", len(read_elium(blob4)["signatures"]))
+                    journal=append_event(empty_journal(), "signature.added", actor={"name": "Alice"}),
+                    seal_private_key_hex=author4["privateKeyHex"])
+orig4 = read_elium(blob4)
+print(INF, "Original signature count:", len(orig4["signatures"]), "| seal:", orig4["seal"]["verdict"])
 stripped = repack(blob4, {ENTRY_SIGNATURES: json.dumps([], indent=2, ensure_ascii=False).encode()})
 # also fix manifest features.signatures if we wanted to be thorough; reader doesn't cross-check it
 res4 = read_elium(stripped)
-print(INF, "After stripping -> signatures:", len(res4["signatures"]), "| integrity intact:", res4["integrity"]["contentIntact"])
-if len(res4["signatures"]) == 0 and res4["integrity"]["contentIntact"]:
-    print(PWN, "Signature removed with no integrity/format complaint.")
+seal_verdict4 = res4["seal"]["verdict"]
+print(INF, "After stripping -> signatures:", len(res4["signatures"]), "| integrity intact:", res4["integrity"]["contentIntact"], "| seal.verdict =", seal_verdict4)
+if len(res4["signatures"]) == 0 and seal_verdict4 != "broken":
+    print(PWN, "Signature removed with no seal complaint.")
 else:
-    print(BLK, "Signature removal detected.")
+    print(BLK, "Signature removal detected by the seal (seal.verdict == 'broken').")
+assert seal_verdict4 == "broken", "SECURITY REGRESSION: a stripped signature goes undetected by the seal (seal.verdict != 'broken')"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 5 — Metadata & PII leak from an ENCRYPTED file (no password)")
@@ -150,12 +174,14 @@ if leaks:
     print(PWN, "metadataEncrypted still leaks:", leaks)
 else:
     print(BLK, "metadataEncrypted=True: title/signers/actors absent from the clear entries (no leak).")
+assert not leaks, f"SECURITY REGRESSION: metadataEncrypted=True still leaks {leaks} in clear entries"
 
 # ---------------------------------------------------------------------------
 line("ATTACK 6 — Does the ENCRYPTION itself hold? (positive control)")
 try:
     read_elium(enc_blob, password="wrong password")
     print(PWN, "Decrypted with WRONG password!")
+    assert False, "SECURITY REGRESSION: wrong password decrypted the file"
 except EliumError as e:
     print(BLK, "Wrong password rejected:", type(e).__name__)
 # tamper one ciphertext byte
@@ -166,6 +192,7 @@ try:
     bad = repack(enc_blob, {"content/document.elium": bytes(ct)})
     read_elium(bad, password="correct horse battery staple")
     print(PWN, "Tampered ciphertext decrypted without error!")
+    assert False, "SECURITY REGRESSION: tampered ciphertext decrypted without error (AEAD/HMAC not enforced)"
 except EliumError as e:
     print(BLK, "Ciphertext tamper rejected (AEAD/HMAC):", type(e).__name__)
 
@@ -202,5 +229,6 @@ elif py == ts:
     print(BLK, f"Bounds identical (t<={py['tmax']}, m<={py['mmax']} KiB): no interop gap, no DoS asymmetry.")
 else:
     print(PWN, f"Bound divergence Python {py} vs Web {ts}: interop break + memory-DoS asymmetry.")
+assert py is not None and ts is not None and py == ts, f"SECURITY REGRESSION: KDF bounds missing or diverged (python={py}, web={ts})"
 
 print("\nDone.\n")

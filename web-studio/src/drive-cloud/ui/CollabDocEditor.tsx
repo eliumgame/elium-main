@@ -118,9 +118,13 @@ export default function CollabDocEditor({
     return () => provider.destroy();
   }, [provider]);
 
+  // Revoked access closes the document for good — never editable, even if
+  // the last known `canWrite` (from before the revocation) was true.
+  const writable = canWrite && status !== "revoked";
+
   useEffect(() => {
-    if (editor) editor.setEditable(canWrite);
-  }, [editor, canWrite]);
+    if (editor) editor.setEditable(writable);
+  }, [editor, writable]);
 
   useEffect(() => {
     const refresh = () => {
@@ -138,7 +142,11 @@ export default function CollabDocEditor({
     return () => provider.awareness.off("change", refresh);
   }, [provider]);
 
-  const statusLabel = status === "open" ? "Connecté" : status === "connecting" ? "Connexion…" : "Hors ligne";
+  const statusLabel =
+    status === "open" ? "Connecté" :
+    status === "connecting" ? "Connexion…" :
+    status === "revoked" ? "Accès révoqué — document fermé" :
+    "Hors ligne";
 
   return (
     <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -158,7 +166,7 @@ export default function CollabDocEditor({
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
-        {canWrite && editor && <Toolbar editor={editor} />}
+        {writable && editor && <Toolbar editor={editor} />}
         <div className="dc-doc__body">
           <div className="dc-doc__page">
             <EditorContent editor={editor} />

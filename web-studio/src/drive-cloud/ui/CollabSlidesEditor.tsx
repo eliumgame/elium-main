@@ -20,7 +20,11 @@ export default function CollabSlidesEditor({
   const store = useCollabDeckStore({ api, nodeId, nodeKey, user, ...(refetchKey ? { refetchKey } : {}) });
   const status = store.status ?? "connecting";
   const { me, peers } = store.presence!;
-  const statusLabel = status === "open" ? "Connecté" : status === "connecting" ? "Connexion…" : "Hors ligne";
+  const statusLabel =
+    status === "open" ? "Connecté" :
+    status === "connecting" ? "Connexion…" :
+    status === "revoked" ? "Accès révoqué — document fermé" :
+    "Hors ligne";
   const uniquePeers = [...new Map(peers.map((p) => [p.name + p.color, p])).values()];
 
   const statusNode = (

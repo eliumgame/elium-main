@@ -154,7 +154,7 @@ class EliumContainer:
 
         try:
             header = json.loads(header_bytes.decode("utf-8"))
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
             raise EliumFormatError("Public Header is corrupted.") from e
 
         if header.get("version") != VERSION:
@@ -248,6 +248,9 @@ class EliumContainer:
         manifest_bytes = inner_data[4:4+manifest_len]
         payload = inner_data[4+manifest_len:]
 
-        manifest = json.loads(manifest_bytes.decode("utf-8"))
+        try:
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
+            raise EliumFormatError("Inner manifest is corrupted.") from e
 
         return payload, manifest, header

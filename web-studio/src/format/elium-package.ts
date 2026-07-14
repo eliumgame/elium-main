@@ -168,6 +168,17 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   const def = profileOf(file.manifest.profile);
   const secure = !!opts.encryptMetadata && def.encrypted;
 
+  // Guard against a silent-plaintext foot-gun: passing `recipients` on a
+  // profile that isn't encrypted used to be accepted silently, writing the
+  // document in the clear as if no recipients had been requested at all.
+  if (opts.recipients?.length && !def.encrypted) {
+    throw new EliumPackageError(
+      `Le profil « ${file.manifest.profile} » n'est pas chiffré : des destinataires ont été ` +
+        "fournis mais seraient ignorés et le document serait écrit EN CLAIR. " +
+        "Utilisez un profil chiffré (protected, encrypted ou secure_max).",
+    );
+  }
+
   const useRecipients = def.encrypted && !!opts.recipients?.length;
   let contentBytes: Uint8Array;
   let recipientFprs: string[] | undefined;
@@ -185,7 +196,9 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
       : strToU8(JSON.stringify(file.document));
     if (useRecipients) {
       // Recipient envelope replaces the password container as the body cipher.
-      contentBytes = await encryptForRecipients(payload, opts.recipients!);
+      // secure_max cascades a ChaCha20-Poly1305 layer here too, same as the
+      // password path just below.
+      contentBytes = await encryptForRecipients(payload, opts.recipients!, file.manifest.profile === "secure_max");
       recipientFprs = await Promise.all(opts.recipients!.map((p) => recipientFingerprint(p)));
     } else {
       if (!opts.password && !opts.keyfile) throw new EliumPasswordRequired();

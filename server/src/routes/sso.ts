@@ -92,7 +92,9 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Public: verify an OIDC ID token and open a session ------------------
-  app.post("/auth/sso/verify", async (req) => {
+  // Rate-limited like /auth/login/* — it's an unauthenticated endpoint doing
+  // non-trivial signature verification (RS/ES/EdDSA against a configured JWKS).
+  app.post("/auth/sso/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
     const b = z.object({ orgId: z.string().uuid(), idToken: z.string().min(10).max(8192) }).parse(req.body);
     const org = await queryOne<{ sso_config: OidcConfig | null }>(`SELECT sso_config FROM organizations WHERE id = $1`, [b.orgId]);
     if (!org?.sso_config) throw badRequest("SSO non configuré pour cette organisation.");

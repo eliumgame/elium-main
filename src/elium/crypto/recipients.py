@@ -24,14 +24,21 @@ from typing import Any
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from elium.core.exceptions import EliumSecurityError
+from elium.crypto.primitives import derive_subkey
 
 RECIPIENTS_SCHEMA = "elium-recipients/1"
 _AAD = RECIPIENTS_SCHEMA.encode("utf-8")
 _HKDF_INFO = b"elium-recipients/1/wrap"
+# Subkeys derived from the (wrapped) CEK material when `cascade=True` — mirror
+# of EliumContainer's k_aes/k_cha derivation (container.py), so secure_max
+# gets the same two-layer AEAD whether the body is protected by a password or
+# by recipient keys.
+_HKDF_INFO_AES = b"elium-recipients/1/cek-aes"
+_HKDF_INFO_CHA = b"elium-recipients/1/cek-cha"
 _CURVE = ec.SECP256R1()
 
 
@@ -79,14 +86,34 @@ def _wrap_key(shared: bytes) -> bytes:
 
 # --- encrypt / decrypt ------------------------------------------------------
 
-def encrypt_for_recipients(payload: bytes, recipient_public_hexes: list[str]) -> bytes:
-    """Encrypt `payload` for every recipient. Returns a self-describing JSON blob."""
+def encrypt_for_recipients(
+    payload: bytes, recipient_public_hexes: list[str], *, cascade: bool = False
+) -> bytes:
+    """Encrypt `payload` for every recipient. Returns a self-describing JSON blob.
+
+    `cascade=True` adds a ChaCha20-Poly1305 layer on top of the AES-256-GCM
+    body encryption (same construction as EliumContainer's secure_max cascade,
+    container.py), so secure_max gets the same protection level regardless of
+    whether the body is protected by a password or by recipient keys.
+    """
     if not recipient_public_hexes:
         raise EliumSecurityError("Aucun destinataire fourni.")
 
-    cek = os.urandom(32)
+    # This is the material wrapped per-recipient below. Without cascade it IS
+    # the AES-256-GCM key directly; with cascade it is expanded (HKDF) into
+    # two independent subkeys, mirroring derive_subkey() in container.py.
+    cek_material = os.urandom(32)
     content_nonce = os.urandom(12)
-    content_ct = AESGCM(cek).encrypt(content_nonce, payload, _AAD)
+    cascade_nonce: bytes | None = None
+
+    if cascade:
+        k_aes = derive_subkey(cek_material, _HKDF_INFO_AES)
+        k_cha = derive_subkey(cek_material, _HKDF_INFO_CHA)
+        content_ct = AESGCM(k_aes).encrypt(content_nonce, payload, _AAD)
+        cascade_nonce = os.urandom(12)
+        content_ct = ChaCha20Poly1305(k_cha).encrypt(cascade_nonce, content_ct, _AAD)
+    else:
+        content_ct = AESGCM(cek_material).encrypt(content_nonce, payload, _AAD)
 
     recipients: list[dict[str, str]] = []
     for pub_hex in recipient_public_hexes:
@@ -95,7 +122,7 @@ def encrypt_for_recipients(payload: bytes, recipient_public_hexes: list[str]) ->
         shared = eph.exchange(ec.ECDH(), recipient_pub)
         wrap_key = _wrap_key(shared)
         wrap_nonce = os.urandom(12)
-        wrapped = AESGCM(wrap_key).encrypt(wrap_nonce, cek, _AAD)
+        wrapped = AESGCM(wrap_key).encrypt(wrap_nonce, cek_material, _AAD)
         epk = eph.public_key().public_bytes(
             serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
         )
@@ -108,11 +135,14 @@ def encrypt_for_recipients(payload: bytes, recipient_public_hexes: list[str]) ->
 
     envelope: dict[str, Any] = {
         "schema": RECIPIENTS_SCHEMA,
-        "alg": "ecdh-es-p256+aes-256-gcm",
+        "alg": "ecdh-es-p256+aes-256-gcm" + ("+chacha20-poly1305-cascade" if cascade else ""),
+        "cascade": cascade,
         "contentNonce": content_nonce.hex(),
         "content": content_ct.hex(),
         "recipients": recipients,
     }
+    if cascade_nonce is not None:
+        envelope["cascadeNonce"] = cascade_nonce.hex()
     return json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
@@ -137,6 +167,7 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
     # (a sender might mislabel fingerprints; ECDH+AEAD still gates correctness).
     entries = env.get("recipients", [])
     ordered = sorted(entries, key=lambda r: r.get("fpr") != my_fpr)
+    cascade = bool(env.get("cascade"))
 
     last_err: Exception | None = None
     for r in ordered:
@@ -144,9 +175,16 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
             epk = _load_public(r["epk"])
             shared = priv.exchange(ec.ECDH(), epk)
             wrap_key = _wrap_key(shared)
-            cek = AESGCM(wrap_key).decrypt(bytes.fromhex(r["nonce"]), bytes.fromhex(r["wrap"]), _AAD)
+            cek_material = AESGCM(wrap_key).decrypt(bytes.fromhex(r["nonce"]), bytes.fromhex(r["wrap"]), _AAD)
             content_nonce = bytes.fromhex(env["contentNonce"])
-            return AESGCM(cek).decrypt(content_nonce, bytes.fromhex(env["content"]), _AAD)
+            content_ct = bytes.fromhex(env["content"])
+            if cascade:
+                k_aes = derive_subkey(cek_material, _HKDF_INFO_AES)
+                k_cha = derive_subkey(cek_material, _HKDF_INFO_CHA)
+                cascade_nonce = bytes.fromhex(env["cascadeNonce"])
+                content_ct = ChaCha20Poly1305(k_cha).decrypt(cascade_nonce, content_ct, _AAD)
+                return AESGCM(k_aes).decrypt(content_nonce, content_ct, _AAD)
+            return AESGCM(cek_material).decrypt(content_nonce, content_ct, _AAD)
         except Exception as e:  # noqa: BLE001 — try the next recipient entry
             last_err = e
             continue

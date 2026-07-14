@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
+import { ApiError } from "../api";
 import { listFolder, createFolder, createCollabDoc, createCollabSheet, createCollabSlides, uploadFile, renameNode, downloadFile, nodeKeyFrom, triggerDownload, type DriveEntry, type OpsCtx } from "../ops";
 import ShareDialog from "./ShareDialog";
 import CollabDocEditor from "./CollabDocEditor";
@@ -64,6 +65,14 @@ export default function DriveBrowser() {
       roleIdByKey: d.roleIdByKey,
     };
   }, [d.api, d.keys, d.user, d.currentOrg, d.roleIdByKey]);
+
+  // The breadcrumb holds node ids from whichever org we were browsing. Those
+  // ids don't exist in a differently-scoped org, so switching orgs must drop
+  // back to the root — otherwise the crumbs keep showing the old org's folder
+  // names while the (failed) reload silently empties the listing.
+  useEffect(() => {
+    setPath([]);
+  }, [d.currentOrg?.id]);
 
   const currentId = path.length ? path[path.length - 1]!.id : null;
 
@@ -261,13 +270,30 @@ export default function DriveBrowser() {
           onClose: () => setCollab(null),
           // After a key rotation the relay evicts the room; re-unwrap our
           // (freshly re-wrapped) node key and resume seamlessly.
+          //
+          // getNode() failing does NOT necessarily mean access was revoked —
+          // it can just as well be a transient network hiccup, a timeout, or a
+          // server 5xx during the rotation. Only a confirmed 403/404 (or the
+          // server telling us we have no key share for the node) means access
+          // was actually revoked; anything else is retried a few times before
+          // giving up, and if still failing, the error is rethrown so the
+          // caller (EncryptedCollabChannel) treats it like an ordinary
+          // reconnect instead of a permanent, definitive closure.
           refetchKey: async () => {
-            try {
-              const { myWrappedKey } = await ctx.api.getNode(collab.entry.id);
-              return await nodeKeyFrom(ctx, myWrappedKey);
-            } catch {
-              return null; // access revoked
+            const attempts = 3;
+            for (let i = 0; i < attempts; i++) {
+              try {
+                const { myWrappedKey } = await ctx.api.getNode(collab.entry.id);
+                return await nodeKeyFrom(ctx, myWrappedKey);
+              } catch (e) {
+                if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+                  return null; // access genuinely revoked — stop for good
+                }
+                if (i === attempts - 1) throw e; // transient — let the caller retry later
+                await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+              }
             }
+            return null;
           },
         };
         if (collab.kind === "sheet") return <CollabSheetEditor key={collab.entry.id} {...common} />;

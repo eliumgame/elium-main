@@ -13,7 +13,7 @@
  */
 import type { Deck, Slide, SlideElement } from "./model";
 
-export type DeckStatus = "connecting" | "open" | "closed";
+export type DeckStatus = "connecting" | "open" | "closed" | "revoked";
 
 /** A collaborator's live presence (collab backend only). */
 export interface DeckPeer {

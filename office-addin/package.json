@@ -1,0 +1,15 @@
+{
+  "name": "elium-word-addin",
+  "version": "1.0.0",
+  "description": "Elium Secure Container Word Add-in",
+  "scripts": {
+    "start": "office-addin-debugging start manifest.xml",
+    "stop": "office-addin-debugging stop manifest.xml"
+  },
+  "dependencies": {
+    "@microsoft/office-js": "^1.1.89"
+  },
+  "devDependencies": {
+    "office-addin-debugging": "^5.0.12"
+  }
+}

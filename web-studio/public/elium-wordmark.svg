@@ -1,0 +1,24 @@
+<svg width="560" height="160" viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Elium">
+  <defs>
+    <linearGradient id="wmBadge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon (badge) -->
+  <g transform="translate(16,16) scale(0.5)">
+    <rect x="0" y="0" width="256" height="256" rx="52" fill="url(#wmBadge)"/>
+    <path d="M70 46 h62 l34 34 v98 a8 8 0 0 1 -8 8 H70 a8 8 0 0 1 -8 -8 V54 a8 8 0 0 1 8 -8 z" fill="#ffffff"/>
+    <path d="M132 46 l34 34 h-26 a8 8 0 0 1 -8 -8 z" fill="#dbe7ff"/>
+    <rect x="82" y="96" width="84" height="10" rx="5" fill="#93b4f5"/>
+    <rect x="82" y="118" width="84" height="10" rx="5" fill="#bcd0f7"/>
+    <rect x="82" y="140" width="54" height="10" rx="5" fill="#bcd0f7"/>
+    <circle cx="154" cy="154" r="30" fill="#16a34a" stroke="#ffffff" stroke-width="6"/>
+    <path d="M141 154 l9 10 l17 -20" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="168" y="102" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="76" font-weight="700" fill="#1d4ed8" letter-spacing="-1">Elium</text>
+  <text x="170" y="132" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="500" fill="#64748b" letter-spacing="2">DOCUMENTS SIGNÉS · LOCAL-FIRST</text>
+</svg>

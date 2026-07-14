@@ -1,0 +1,14 @@
+{
+  "name": "Elium Studio",
+  "short_name": "Elium",
+  "description": "Éditeur de documents local-first : rédigez, signez et protégez vos documents au format .elium, 100% dans votre navigateur.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#eef1f6",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

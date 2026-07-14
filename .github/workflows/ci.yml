@@ -1,0 +1,70 @@
+name: Elium CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.12', '3.13']
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[dev]
+    - name: Lint with ruff
+      run: |
+        pip install ruff
+        ruff check src/ tests/
+    - name: Run Pytest with coverage
+      run: |
+        pytest tests/python -v --cov=elium --cov-report=term-missing
+
+  web-studio-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Install dependencies
+      working-directory: ./web-studio
+      run: npm ci
+    - name: Lint (ESLint)
+      working-directory: ./web-studio
+      run: npm run lint
+    - name: Build Web Studio
+      working-directory: ./web-studio
+      run: npm run build
+    - name: Run Web Studio Tests
+      working-directory: ./web-studio
+      run: npm test
+
+  server-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Install dependencies
+      working-directory: ./server
+      run: npm install
+    - name: Lint (ESLint)
+      working-directory: ./server
+      run: npm run lint
+    - name: Typecheck
+      working-directory: ./server
+      run: npm run typecheck

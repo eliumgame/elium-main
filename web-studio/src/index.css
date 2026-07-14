@@ -1,0 +1,68 @@
+/* Design tokens canoniques du workspace (charte graphique v1.1) — doivent
+   précéder toute autre règle. Les variables --el-* y sont la source de vérité ;
+   l'ancien jeu --bg / --primary ci-dessous reste en place le temps de la
+   migration progressive des composants (cf. TODO § Design System). */
+@import "./ui/tokens.css";
+
+/* Anciens noms de variables : désormais de simples ALIAS des tokens --el-*
+   (source de vérité unique, charte v1.1). Fin de l'indigo : --primary pointe sur
+   le bleu de marque. Le thème sombre est entièrement piloté par tokens.css, donc
+   plus aucun bloc [data-theme="dark"] ici. Rayons/ombres/polices proviennent des
+   alias de compatibilité de tokens.css. Ces alias garantissent zéro régression
+   pendant la migration progressive des composants vers --el-*. */
+:root {
+  --bg:            var(--el-app-canvas);
+  --surface:       var(--el-surface);
+  --surface-2:     var(--el-surface-2);
+  --surface-3:     var(--el-surface-3);
+  --border:        var(--el-border);
+  --border-strong: var(--el-border-strong);
+
+  --text:       var(--el-text);
+  --text-soft:  var(--el-text-soft);
+  --text-muted: var(--el-text-muted);
+
+  /* primaire = bleu de marque ; pour les FONDS de bouton, les composants
+     utilisent --el-primary-btn (texte blanc >= 4.5:1 en sombre, cf. charte §12.1) */
+  --primary:     var(--el-primary);
+  --primary-600: var(--el-primary-hover);
+  --primary-50:  var(--el-primary-50);
+  --primary-100: var(--el-primary-100);
+
+  /* --info sert de TEXTE (badges, alertes) -> variante AA --el-info-text */
+  --info:    var(--el-info-text);  --info-bg:    var(--el-info-bg);
+  --success: var(--el-success);    --success-bg: var(--el-success-bg);
+  --warning: var(--el-warning);    --warning-bg: var(--el-warning-bg);
+  --danger:  var(--el-danger);     --danger-bg:  var(--el-danger-bg);
+  --neutral: var(--el-neutral);    --neutral-bg: var(--el-neutral-bg);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font-family: inherit; cursor: pointer; border: none; outline: none; background: none; }
+input, select, textarea { font-family: inherit; font-size: 14px; }
+a { color: var(--primary); }
+code { font-family: var(--mono); }
+
+/* Anneau de focus clavier global (charte §13/§14.2) : visible uniquement à la
+   navigation clavier (:focus-visible), jamais au clic souris. Restaure un focus
+   perceptible sur les contrôles que le reset `button { outline:none }` masquait. */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible,
+[role="button"]:focus-visible, [role="tab"]:focus-visible, [contenteditable="true"]:focus-visible {
+  outline: 2px solid var(--el-focus-ring);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.muted { color: var(--text-muted); font-size: 13px; }

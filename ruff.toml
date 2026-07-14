@@ -1,0 +1,20 @@
+target-version = "py39"
+line-length = 120
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "UP",   # pyupgrade
+]
+ignore = [
+    "S101",  # Use of assert (OK in tests)
+    "S311",  # Standard pseudo-random generators
+]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]

@@ -1,0 +1,48 @@
+<!--
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  ELIUM OFFICE ADD-IN — PROTOTYPE                           ║
+    ║                                                            ║
+    ║  ⚠ STATUS: Non-fonctionnel                                 ║
+    ║  Ce module est un prototype de démonstration uniquement.    ║
+    ║  Le chiffrement réel n'est PAS implémenté dans cette       ║
+    ║  version. Il affiche uniquement l'interface utilisateur.    ║
+    ║                                                            ║
+    ║  TODO:                                                     ║
+    ║  - Intégrer la bibliothèque crypto WebAssembly             ║
+    ║  - Implémenter encode/decode via API locale                ║
+    ║  - Ajouter gestion des fichiers binaires                   ║
+    ╚══════════════════════════════════════════════════════════════╝
+-->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Elium Secure Container</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f8f9fa; }
+        h1 { font-size: 1.2rem; color: #2c3e50; }
+        .warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 10px; margin: 10px 0; font-size: 0.85rem; color: #856404; }
+        button { background-color: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; margin-top: 10px; width: 100%; }
+        button:hover { background-color: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #status { margin-top: 15px; font-size: 0.9rem; color: #7f8c8d; }
+    </style>
+</head>
+<body>
+    <h1>Elium Word Extension</h1>
+    <div class="warning">
+        ⚠ <strong>Prototype</strong> — Le chiffrement réel n'est pas encore implémenté.
+        Cette extension est une démonstration de l'interface utilisateur uniquement.
+    </div>
+    <p>Sécurisez votre document actuel directement dans l'éditeur.</p>
+
+    <input type="password" id="txt-password" placeholder="Mot de passe" style="width: 100%; padding: 8px; margin-top: 10px; box-sizing: border-box;" />
+    <button id="btn-encrypt">Chiffrer le document (.elium)</button>
+    <div id="status">Prêt. (Mode démonstration)</div>
+
+    <script src="taskpane.js"></script>
+</body>
+</html>

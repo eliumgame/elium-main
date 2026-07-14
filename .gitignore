@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+*.egg
+
+# Node.js
+node_modules/
+*.tgz
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing / Debug
+*.elium
+.pytest_cache/
+.coverage
+htmlcov/
+scratch_*.py
+scratch_*.cjs
+
+# Environment
+.env
+.env.local
+
+# Installer / Build artifacts
+installer/output/
+installer/staging/
+*.msi
+*.exe
+!*.bat
+*.spec
+
+# Misc
+.elium-main/
+.ruff_cache/

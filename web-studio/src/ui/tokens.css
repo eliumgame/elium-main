@@ -1,0 +1,315 @@
+/* ======================================================================
+   Elium Design Tokens — source de vérité unique du workspace
+   Thème clair sous :root, sombre sous [data-theme="dark"].
+   Nommage --el-*. Hex alignés exactement sur la charte graphique (v1.1).
+   Architecture deux niveaux : primitives (échelles) + sémantiques (alias).
+   ====================================================================== */
+
+:root {
+  /* --- Primitives : Elium Blue (ancres 500=#3b82f6, 700=#1d4ed8) ------- */
+  --el-blue-50:  #eff6ff;
+  --el-blue-100: #dbeafe;
+  --el-blue-200: #bfdbfe;
+  --el-blue-300: #93c5fd;
+  --el-blue-400: #60a5fa;
+  --el-blue-500: #3b82f6;
+  --el-blue-600: #2563eb;
+  --el-blue-700: #1d4ed8;
+  --el-blue-800: #1e40af;
+  --el-blue-900: #1e3a8a;
+
+  /* --- Primitives : Elium Seal / Green (ancre 600=#16a34a) ------------- */
+  --el-green-50:  #f0fdf4;
+  --el-green-100: #dcfce7;
+  --el-green-200: #bbf7d0;
+  --el-green-300: #86efac;
+  --el-green-400: #4ade80;
+  --el-green-500: #22c55e;
+  --el-green-600: #16a34a;
+  --el-green-700: #15803d;
+  --el-green-800: #166534;
+  --el-green-900: #14532d;
+
+  /* --- Primitives : Slate (chrome / textes / bordures) ---------------- */
+  --el-slate-50:  #f8fafc;
+  --el-slate-100: #f1f5f9;
+  --el-slate-200: #e2e8f0;
+  --el-slate-300: #cbd5e1;
+  --el-slate-400: #94a3b8;
+  --el-slate-500: #64748b;
+  --el-slate-600: #475569;
+  --el-slate-700: #334155;
+  --el-slate-800: #1e293b;
+  --el-slate-900: #0f172a;
+
+  /* --- Primitives : Amber (avertissement) ----------------------------- */
+  --el-amber-50:  #fffbeb;
+  --el-amber-200: #fde68a;
+  --el-amber-500: #f59e0b;
+  --el-amber-700: #b45309;
+  --el-amber-900: #7c2d12;
+
+  /* --- Primitives : Red (danger) -------------------------------------- */
+  --el-red-50:  #fef2f2;
+  --el-red-200: #fecaca;
+  --el-red-400: #f87171;
+  --el-red-500: #ef4444;   /* hover danger en sombre (était hex orphelin) */
+  --el-red-600: #dc2626;
+  --el-red-700: #b91c1c;
+  --el-red-900: #7f1d1d;
+
+  /* --- Primitives : Cyan (info, distinct du bleu de marque) ----------- */
+  --el-cyan-50:  #ecfeff;
+  --el-cyan-400: #22d3ee;
+  --el-cyan-600: #0891b2;
+  --el-cyan-700: #0e7490;  /* texte info lisible en clair (>= 4.5:1) */
+  --el-cyan-900: #164e63;
+
+  /* --- Primitives : Violet (chiffrement / parapheur) ------------------ */
+  --el-violet-500: #7c3aed;
+  --el-violet-300: #a78bfa;
+
+  /* ==================================================================== */
+  /* SÉMANTIQUES — surfaces et chrome (clair)                              */
+  /* ==================================================================== */
+  --el-bg:           #eef1f6;   /* app canvas hors rampe, intentionnel */
+  --el-app-canvas:   #eef1f6;
+  --el-surface:      #ffffff;
+  --el-surface-2:    #f8fafc;
+  --el-surface-3:    #f1f5f9;
+  --el-border:       #e2e8f0;
+  --el-border-strong:#cbd5e1;
+  --el-border-control:#6b7686;  /* hors-rampe intentionnel, seuil 3:1 controles */
+
+  --el-text:      #0f172a;
+  --el-text-soft: #475569;
+  --el-text-muted:#586675;      /* corrigé AA (ancien #94a3b8 échouait) */
+
+  /* --- Sémantiques : primaire de marque (clair = bleu 700) ------------ */
+  --el-primary:        #1d4ed8;  /* accent : bordures, anneaux, texte d'accent */
+  --el-primary-btn:    #1d4ed8;  /* FOND du bouton primaire (texte blanc 6.7:1) */
+  --el-primary-hover:  #1e40af;
+  --el-primary-text:   #1d4ed8;  /* liens / accents sur fond clair */
+  --el-primary-50:     #eff6ff;
+  --el-primary-100:    #dbeafe;
+  --el-primary-contrast:#ffffff; /* texte sur fond primaire */
+
+  /* --- Sémantiques : sceau (accent secondaire de marque) -------------- */
+  --el-seal:    #16a34a;
+  --el-seal-bg: #f0fdf4;
+
+  /* --- Sémantiques : signalétique ------------------------------------- */
+  --el-info:      #0891b2;  --el-info-bg:    #ecfeff;  /* cyan = FONDS uniquement */
+  --el-info-text: #0e7490;  /* cyan TEXTE (>= 4.5:1 sur info-bg et blanc) */
+  --el-success:   #15803d;  --el-success-bg: #f0fdf4;
+  --el-warning:   #b45309;  --el-warning-bg: #fffbeb;
+  --el-danger:    #dc2626;  --el-danger-bg:  #fef2f2;
+  --el-danger-hover:#b91c1c;
+  --el-neutral:   #475569;  --el-neutral-bg: #f1f5f9;
+
+  /* --- Sémantiques : statut documentaire ------------------------------ */
+  --el-status-valid:     #15803d;
+  --el-status-modified:  #b45309;
+  --el-status-invalid:   #dc2626;
+  --el-status-unknown:   #475569;
+  --el-status-visual:    #0e7490;  /* texte de badge lisible (était #0891b2) */
+  --el-status-encrypted: #7c3aed;
+  --el-status-locked:    #475569;
+
+  /* --- Focus & anneaux ------------------------------------------------- */
+  --el-focus-ring: #1d4ed8;
+  --el-ring-width: 3px;
+  --el-ring:        0 0 0 var(--el-ring-width) var(--el-primary-100);
+  --el-ring-danger: 0 0 0 var(--el-ring-width) rgba(220,38,38,0.20);
+
+  /* ==================================================================== */
+  /* TYPOGRAPHIE                                                           */
+  /* ==================================================================== */
+  --el-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --el-mono: "JetBrains Mono", "Courier New", monospace;
+
+  --el-fs-2xs: 11px;
+  --el-fs-xs:  12px;
+  --el-fs-sm:  13px;
+  --el-fs-md:  14px;
+  --el-fs-lg:  16px;
+  --el-fs-xl:  18px;
+  --el-fs-2xl: 22px;
+  --el-fs-3xl: 28px;
+  --el-fs-4xl: 34px;
+
+  --el-lh-tight: 1.25;
+  --el-lh-base:  1.55;
+  --el-lh-prose: 1.65;
+
+  --el-fw-regular:  400;
+  --el-fw-medium:   500;
+  --el-fw-semibold: 600;
+  --el-fw-bold:     700;
+  --el-fw-heavy:    800;
+
+  --el-ls-tight: -0.02em;
+  --el-ls-caps:   0.06em;
+
+  /* ==================================================================== */
+  /* ESPACEMENT (base 4px)                                                 */
+  /* ==================================================================== */
+  --el-sp-0:  0;
+  --el-sp-1:  2px;
+  --el-sp-2:  4px;
+  --el-sp-3:  8px;
+  --el-sp-4:  12px;
+  --el-sp-5:  16px;
+  --el-sp-6:  20px;
+  --el-sp-7:  24px;
+  --el-sp-8:  32px;
+  --el-sp-9:  48px;
+  --el-sp-10: 64px;
+
+  /* ==================================================================== */
+  /* RAYONS                                                                */
+  /* ==================================================================== */
+  --el-radius-xs:    4px;
+  --el-radius-sm:    6px;
+  --el-radius-md:    8px;
+  --el-radius-lg:    12px;
+  --el-radius-xl:    16px;
+  --el-radius-pill:  999px;
+  --el-radius-round: 50%;
+
+  /* ==================================================================== */
+  /* ÉLÉVATION (clair)                                                     */
+  /* ==================================================================== */
+  --el-elev-0: none;
+  --el-elev-1: 0 1px 2px rgba(15,23,42,0.06);
+  --el-elev-2: 0 2px 4px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.08);
+  --el-elev-3: 0 4px 12px rgba(15,23,42,0.10), 0 2px 4px rgba(15,23,42,0.06);
+  --el-elev-4: 0 12px 28px rgba(15,23,42,0.14), 0 4px 8px rgba(15,23,42,0.08);
+  --el-elev-5: 0 20px 48px rgba(15,23,42,0.18), 0 8px 16px rgba(15,23,42,0.10);
+  --el-elev-6: 0 32px 64px rgba(15,23,42,0.24);
+
+  /* ==================================================================== */
+  /* MOTION                                                                */
+  /* ==================================================================== */
+  --el-motion-instant: 80ms;
+  --el-motion-fast:    140ms;
+  --el-motion-base:    200ms;
+  --el-motion-slow:    280ms;
+  --el-ease-standard:   cubic-bezier(0.2, 0, 0, 1);
+  --el-ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --el-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --el-ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ==================================================================== */
+  /* Z-INDEX                                                               */
+  /* ==================================================================== */
+  --el-z-base:     0;
+  --el-z-sticky:   10;
+  --el-z-panel:    20;
+  --el-z-dropdown: 1000;
+  --el-z-popover:  1100;
+  --el-z-overlay:  1200;
+  --el-z-modal:    1300;
+  --el-z-toast:    1400;
+  --el-z-max:      2147483000;  /* dernier recours : portail/drag-preview */
+
+  /* ==================================================================== */
+  /* LAYOUT                                                                */
+  /* ==================================================================== */
+  --el-w-prose:     720px;
+  --el-w-home:      900px;
+  --el-w-container: 1280px;
+  --el-w-wide:      1600px;
+  --el-ctl-sm: 28px;
+  --el-ctl-md: 32px;
+  --el-ctl-lg: 40px;
+  --el-panel-w:           320px;
+  --el-panel-w-lg:        400px;
+  --el-panel-w-collapsed: 48px;
+  --el-nav-w:      240px;
+  --el-nav-w-rail: 64px;
+
+  /* --- Compatibilité : alias des anciens noms relevés ----------------- */
+  --r:         var(--el-radius-lg);
+  --r-sm:      var(--el-radius-md);
+  --shadow-sm: var(--el-elev-1);
+  --shadow:    var(--el-elev-3);
+  --shadow-lg: var(--el-elev-5);
+  --font:      var(--el-font);
+  --mono:      var(--el-mono);
+}
+
+/* ====================================================================== */
+/* THÈME SOMBRE — ne remappe que les sémantiques + élévations            */
+/* ====================================================================== */
+:root[data-theme="dark"] {
+  --el-bg:            #0d1117;
+  --el-app-canvas:    #0d1117;
+  --el-surface:       #161b22;
+  --el-surface-2:     #1c2230;
+  --el-surface-3:     #232c3b;
+  --el-border:        #2a3343;
+  --el-border-strong: #3a465a;
+  --el-border-control:#5b6b82;
+
+  --el-text:      #e6edf3;
+  --el-text-soft: #aeb9c7;
+  --el-text-muted:#7d8896;   /* déjà conforme AA en sombre */
+
+  /* Accent primaire sombre = haut du badge (#3b82f6) ; le FOND du bouton
+     primaire est assombri à #2563eb pour garder un texte blanc >= 4.5:1
+     (blanc sur #3b82f6 = 3.68:1, échec ; blanc sur #2563eb = 5.17:1, OK). */
+  --el-primary:        #3b82f6;
+  --el-primary-btn:    #2563eb;
+  --el-primary-hover:  #60a5fa;
+  --el-primary-text:   #93c5fd;  /* liens / accents lisibles sur fond sombre */
+  --el-primary-50:     #15233f;
+  --el-primary-100:    #1c2c4d;
+  --el-primary-contrast:#ffffff;
+
+  --el-seal:    #22c55e;
+  --el-seal-bg: #0f2a1a;
+
+  --el-info:      #22d3ee;  --el-info-bg:    #0c2a33;
+  --el-info-text: #22d3ee;  /* sur info-bg sombre = 8.33:1 */
+  --el-success:   #22c55e;  --el-success-bg: #0f2a1a;
+  --el-warning:   #f59e0b;  --el-warning-bg: #36280a;
+  --el-danger:    #f87171;  --el-danger-bg:  #3a1717;
+  --el-danger-hover:#ef4444;
+  --el-neutral:   #9aa6b2;  --el-neutral-bg: #222b3a;
+
+  --el-status-valid:     #22c55e;
+  --el-status-modified:  #f59e0b;
+  --el-status-invalid:   #f87171;
+  --el-status-unknown:   #9aa6b2;
+  --el-status-visual:    #22d3ee;
+  --el-status-encrypted: #a78bfa;
+  --el-status-locked:    #9aa6b2;
+
+  --el-focus-ring:  #93c5fd;
+  --el-ring:        0 0 0 var(--el-ring-width) rgba(59,130,246,0.45);
+  --el-ring-danger: 0 0 0 var(--el-ring-width) rgba(248,113,113,0.30);
+
+  /* Élévations sombres : opacités noires renforcées */
+  --el-elev-1: 0 1px 2px rgba(0,0,0,0.40);
+  --el-elev-2: 0 2px 4px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.50);
+  --el-elev-3: 0 4px 12px rgba(0,0,0,0.50), 0 2px 4px rgba(0,0,0,0.40);
+  --el-elev-4: 0 12px 28px rgba(0,0,0,0.55), 0 4px 8px rgba(0,0,0,0.45);
+  --el-elev-5: 0 20px 48px rgba(0,0,0,0.60), 0 8px 16px rgba(0,0,0,0.45);
+  --el-elev-6: 0 32px 64px rgba(0,0,0,0.70);
+}
+
+/* ====================================================================== */
+/* Préférences d'accessibilité système                                    */
+/* tokens.css ne couvre que les DURÉES. La neutralisation des transforms   */
+/* d'entrée et le bloc @media (forced-colors: active) relèvent du CSS      */
+/* composants (App.css migré) — cf. charte §9 et §14.5.                    */
+/* ====================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --el-motion-instant: 0.01ms;
+    --el-motion-fast:    0.01ms;
+    --el-motion-base:    0.01ms;
+    --el-motion-slow:    0.01ms;
+  }
+}

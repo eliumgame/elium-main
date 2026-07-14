@@ -1,0 +1,8 @@
+# Shell scripts MUST keep LF endings — a CRLF script fails on Linux/VPS with
+# "bad interpreter". Force LF regardless of the checkout platform.
+*.sh    text eol=lf
+install.sh text eol=lf
+
+# Windows batch files stay CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf

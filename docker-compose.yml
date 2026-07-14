@@ -1,0 +1,96 @@
+# =============================================================================
+# Elium Drive Entreprise — single-VPS deployment.
+#   caddy (TLS edge) -> web (static SPA) + api (Fastify REST + WS relay)
+#   api -> db (Postgres) + blobs volume (encrypted content at rest via LUKS)
+# All content, file names and keys stored here are ciphertext (E2E). See
+# deploy/README.md. Copy deploy/.env.example to .env before `docker compose up`.
+# =============================================================================
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: elium
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-elium}
+      POSTGRES_DB: elium
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elium -d elium"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATABASE_URL: postgres://elium:${POSTGRES_PASSWORD:-elium}@db:5432/elium
+      TOKEN_SECRET: ${TOKEN_SECRET:?Set a strong TOKEN_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # Storage: "fs" (blobs volume) by default, or "s3" to use the MinIO service
+      # below (start it with: docker compose --profile s3 up -d).
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-fs}
+      STORAGE_FS_ROOT: /data/blobs
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-elium-blobs}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-elium}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-elium-secret-change-me}
+      S3_FORCE_PATH_STYLE: "true"
+    volumes:
+      - blobs:/data/blobs
+
+  # Optional S3-compatible object storage. Enable with STORAGE_DRIVER=s3 and
+  # `docker compose --profile s3 up -d`. Create the bucket once (mc / console).
+  minio:
+    image: minio/minio:latest
+    profiles: ["s3"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-elium}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-elium-secret-change-me}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./web-studio
+      args:
+        VITE_API_BASE: /api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS::80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  blobs:
+  miniodata:
+  caddy_data:
+  caddy_config:

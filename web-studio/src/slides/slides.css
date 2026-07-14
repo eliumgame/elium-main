@@ -1,0 +1,157 @@
+/* ============================================================================
+   Élium Présentations — free-canvas editor (PowerPoint-style object model).
+   Reuses .slides-app / .slides-body / .slides-rail / .sheet-bar / .present-*
+   from App.css; adds the canvas, element, toolbar and thumbnail styles here.
+   ========================================================================== */
+
+/* --- Modal variant: the shared editor mounted inside the Drive collab card --- */
+.slides-app--modal { height: 100%; min-height: 0; border-radius: 16px; overflow: hidden; }
+.slides-app--modal .sheet-bar { border-top-left-radius: 16px; border-top-right-radius: 16px; }
+.slides-app--modal .sheet-bar__title { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Presenter view (2nd-screen speaker window) --------------------------- */
+.pv { position: fixed; inset: 0; background: #0b0f19; color: #e5e7eb; display: grid; grid-template-columns: minmax(0, 2.3fr) minmax(280px, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 14px; padding: 16px; }
+.pv--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #94a3b8; }
+.pv__bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; }
+.pv__badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; color: #93c5fd; background: rgba(59,130,246,.16); padding: 5px 11px; border-radius: 999px; }
+.pv__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; font-weight: 600; }
+.pv__timer { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 700; }
+.pv__main { min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.pv__stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.pv__frame { height: 100%; max-height: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+.pv__controls { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.pv__controls .icon-btn { color: #e5e7eb; background: rgba(255,255,255,.08); width: 42px; height: 42px; }
+.pv__controls .icon-btn:hover { background: rgba(255,255,255,.16); }
+.pv__pos { font-variant-numeric: tabular-nums; font-weight: 600; color: #cbd5e1; min-width: 140px; text-align: center; }
+.pv__side { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.pv__label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
+.pv__next { width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.4); flex: none; }
+.pv__end { display: grid; place-items: center; height: 100%; background: #1e293b; color: #94a3b8; font-size: 13px; }
+.pv__notes { flex: 1; min-height: 0; overflow: auto; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 12px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; color: #e2e8f0; }
+.pv__notes-empty { color: #64748b; font-style: italic; }
+.pv__banner { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: #1d4ed8; color: #fff; padding: 8px 16px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+
+/* --- Presenter entrance animations (composed with the element's --rot) ----- */
+.sv-hidden { visibility: hidden; }
+.sv-anim { animation-duration: var(--anim-dur, 500ms); animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
+@keyframes sv-a-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sv-a-up { from { opacity: 0; transform: translateY(9%) rotate(var(--rot)); } to { opacity: 1; transform: translateY(0) rotate(var(--rot)); } }
+@keyframes sv-a-down { from { opacity: 0; transform: translateY(-9%) rotate(var(--rot)); } to { opacity: 1; transform: translateY(0) rotate(var(--rot)); } }
+@keyframes sv-a-left { from { opacity: 0; transform: translateX(9%) rotate(var(--rot)); } to { opacity: 1; transform: translateX(0) rotate(var(--rot)); } }
+@keyframes sv-a-right { from { opacity: 0; transform: translateX(-9%) rotate(var(--rot)); } to { opacity: 1; transform: translateX(0) rotate(var(--rot)); } }
+@keyframes sv-a-zoom { from { opacity: 0; transform: scale(.6) rotate(var(--rot)); } to { opacity: 1; transform: scale(1) rotate(var(--rot)); } }
+@keyframes sv-a-flyin { from { opacity: 0; transform: translate(-14%, 6%) rotate(var(--rot)); } to { opacity: 1; transform: translate(0, 0) rotate(var(--rot)); } }
+@keyframes sv-a-spin { from { opacity: 0; transform: rotate(calc(var(--rot) - 200deg)) scale(.7); } to { opacity: 1; transform: rotate(var(--rot)) scale(1); } }
+.sv-anim--fade { animation-name: sv-a-fade; }
+.sv-anim--slide-up { animation-name: sv-a-up; }
+.sv-anim--slide-down { animation-name: sv-a-down; }
+.sv-anim--slide-left { animation-name: sv-a-left; }
+.sv-anim--slide-right { animation-name: sv-a-right; }
+.sv-anim--zoom { animation-name: sv-a-zoom; }
+.sv-anim--flyin { animation-name: sv-a-flyin; }
+.sv-anim--spin { animation-name: sv-a-spin; }
+@media (prefers-reduced-motion: reduce) { .sv-anim { animation: none !important; } }
+
+/* --- Insert / element toolbar --------------------------------------------- */
+.sv-toolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 7px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.sv-sep { width: 1px; height: 22px; background: var(--border); margin: 0 5px; }
+.sv-toolbar .sv-num { width: 58px; max-width: 58px; padding: 5px 7px; text-align: center; }
+.sv-toolbar .sv-shape-text { width: auto; max-width: 130px; }
+.sv-menu { position: relative; }
+.sv-menu__pop { position: absolute; top: 110%; left: 0; z-index: var(--el-z-dropdown, 1000); min-width: 180px; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-lg, 0 12px 30px rgba(2,6,23,.16)); display: flex; flex-direction: column; gap: 1px; }
+.sv-menu__item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: none; background: none; border-radius: 7px; cursor: pointer; color: var(--text); font-size: 13px; text-align: left; }
+.sv-menu__item:hover { background: var(--surface-3); }
+.sv-colors { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; min-width: 0; width: 150px; }
+.sv-swatch { width: 22px; height: 22px; border-radius: 5px; border: 1px solid var(--border-strong); cursor: pointer; }
+.sv-anim-pop { min-width: 240px; gap: 8px; padding: 12px; }
+.sv-anim-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.sv-anim-row .input { width: 130px; padding: 5px 7px; }
+.sv-anim-hint { font-size: 11px; color: var(--text-soft); }
+.sv-toolbar .icon-btn.is-active, .sheet-bar .icon-btn.is-active { color: #fff; background: var(--primary); }
+
+/* Background picker + template gallery */
+.sv-bg-pop { min-width: 252px; gap: 8px; padding: 12px; }
+.sv-bg-pop--right { left: auto; right: 0; }
+.sv-bg-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); margin-top: 2px; }
+.sv-bg-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.sv-bg-swatches .sv-swatch { width: 26px; height: 26px; }
+.sv-swatch--grad { border: 1px solid var(--border-strong); background-size: cover; }
+.sv-swatch--pick { position: relative; overflow: hidden; display: grid; place-items: center; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.sv-swatch--pick input { position: absolute; inset: -4px; opacity: 0; cursor: pointer; }
+.sv-bg-grad { display: flex; align-items: center; gap: 6px; }
+.sv-bg-grad input[type="color"] { width: 30px; height: 28px; padding: 0; border: 1px solid var(--border-strong); border-radius: 6px; background: none; cursor: pointer; }
+.sv-tpl-pop { min-width: 210px; }
+.sv-tpl-item { display: flex; align-items: center; gap: 10px; padding: 6px 9px; border: none; background: none; border-radius: 7px; cursor: pointer; color: var(--text); font-size: 13px; text-align: left; width: 100%; }
+.sv-tpl-item:hover { background: var(--surface-3); }
+.sv-tpl-preview { width: 34px; height: 20px; border-radius: 3px; border: 1px solid var(--border-strong); background: #fff; flex: none; background-size: cover; }
+
+/* Table + chart elements */
+.ce-table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
+.ce-td { border: 1px solid #cbd5e1; padding: 3px 8px; vertical-align: middle; overflow: hidden; outline: none; }
+.ce-td--head { font-weight: 700; background: rgba(148, 163, 184, .16); }
+.ce--table.is-editing .ce-td { cursor: text; }
+.ce-chart { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; }
+.ce-chart .chart-svg { width: 100%; height: auto; max-height: 100%; }
+/* chart sub-styles available in every slide context (editor / thumbnail / presenter window) */
+.slide-cv .chart-axis { stroke: var(--border-strong, #cbd5e1); stroke-width: 1; }
+.slide-cv .chart-label { font-size: 9px; fill: var(--text-muted, #64748b); }
+.slide-cv .chart-empty { color: var(--text-muted, #64748b); font-size: 12px; padding: 24px; text-align: center; }
+
+/* Chart data editor popover */
+.sv-chart-pop { min-width: 250px; gap: 8px; padding: 12px; }
+.sv-chart-points { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; }
+.sv-chart-row { display: flex; align-items: center; gap: 6px; }
+.sv-chart-row .input:first-child { flex: 1; min-width: 0; }
+.sv-chart-row .sv-num { width: 66px; max-width: 66px; }
+
+/* --- Stage ---------------------------------------------------------------- */
+.sv-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 22px; overflow: auto; background: var(--surface-2); }
+.sv-canvas-wrap { position: relative; width: 100%; max-width: min(100%, calc((100vh - 240px) * 16 / 9)); aspect-ratio: 16 / 9; border-radius: 10px; box-shadow: var(--shadow, 0 10px 30px rgba(2,6,23,.14)); overflow: hidden; }
+.sv-hint { color: var(--text-muted); font-size: 12px; text-align: center; }
+.sv-notes { width: 100%; max-width: min(100%, calc((100vh - 240px) * 16 / 9)); resize: vertical; font-size: 13px; }
+
+/* --- The canvas + elements ------------------------------------------------ */
+.slide-cv { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.slide-cv.is-editable { cursor: default; }
+.ce { position: absolute; box-sizing: border-box; }
+.slide-cv.is-editable .ce { cursor: move; }
+
+.ce-text { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; line-height: 1.25; padding: 2px 4px; }
+.ce-text p { margin: 0; }
+.ce-text ul, .ce-text ol { margin: 0; padding-left: 1.3em; }
+.ce-text--edit { outline: none; cursor: text; user-select: text; }
+.ce--text.is-selected .ce-text { pointer-events: none; }
+.ce--text.is-editing .ce-text { pointer-events: auto; }
+
+.ce-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ce-shape-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #0f172a; padding: 4px; pointer-events: none; }
+
+.ce-img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; }
+.ce-imgph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border: 1.5px dashed var(--border-strong); color: var(--text-muted); font-size: 13px; }
+
+/* selection + handles */
+.ce.is-selected { outline: 1.5px solid var(--primary); z-index: 50; }
+.ce-h { position: absolute; width: 10px; height: 10px; background: #fff; border: 1.5px solid var(--primary); border-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.25); z-index: 60; }
+.ce-h--nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.ce-h--ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.ce-h--sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.ce-h--se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.ce-h--n { left: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+.ce-h--s { left: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+.ce-h--e { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.ce-h--w { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.ce-rot { position: absolute; top: -24px; left: calc(50% - 7px); width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 1.5px solid var(--primary); cursor: grab; z-index: 60; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.ce-rot::after { content: ""; position: absolute; left: calc(50% - 0.5px); top: 13px; width: 1px; height: 11px; background: var(--primary); }
+
+/* smart guides */
+.cv-guide { position: absolute; z-index: 70; pointer-events: none; }
+.cv-guide--v { top: 0; bottom: 0; width: 1px; background: #f43f5e; box-shadow: 0 0 0 .5px rgba(244,63,94,.4); }
+.cv-guide--h { left: 0; right: 0; height: 1px; background: #f43f5e; box-shadow: 0 0 0 .5px rgba(244,63,94,.4); }
+
+/* --- Rail thumbnails ------------------------------------------------------ */
+.sv-thumb { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; }
+.sv-thumb__canvas { position: relative; flex: 1; aspect-ratio: 16 / 9; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #fff; }
+.sv-add-row { display: flex; gap: 6px; padding: 8px; }
+
+/* --- Presenter ------------------------------------------------------------ */
+.sv-present-canvas { position: relative; width: min(92vw, 1180px); aspect-ratio: 16 / 9; box-shadow: 0 20px 60px rgba(0,0,0,.5); border-radius: 6px; overflow: hidden; }

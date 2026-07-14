@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Elium v4 — Installeur Windows MSI (WiX Toolset 3.x)
+
+  Produit un .msi professionnel :
+    - installation par machine dans Program Files\Elium (dossier modifiable)
+    - assistant en français : Bienvenue, Licence, Dossier, Installation, Fin
+    - raccourcis Menu Démarrer + Bureau, icône de marque
+    - association des fichiers .elium (double-clic -> ouverture dans l'app)
+    - case « Lancer Elium » en fin d'installation
+    - mises à niveau majeures propres (remplace l'ancienne version)
+
+  Compilation : installer\build_msi.bat  (candle + light, extensions UI/Util)
+  Pré-requis : staging\Elium.exe (PyInstaller) et assets générés
+               (.venv\Scripts\python.exe installer\make_msi_assets.py)
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <?define Version = "4.0.0" ?>
+  <?define Publisher = "Elium Authors" ?>
+  <?define AppUrl = "https://github.com/elium-project/elium" ?>
+  <!-- UpgradeCode : NE JAMAIS CHANGER (identité du produit entre versions). -->
+  <?define UpgradeCode = "26104BBE-D1BC-41CB-B215-9D2D9C5CC667" ?>
+
+  <Product Id="*"
+           Name="Elium"
+           Language="1036"
+           Codepage="1252"
+           Version="$(var.Version)"
+           Manufacturer="$(var.Publisher)"
+           UpgradeCode="$(var.UpgradeCode)">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Elium $(var.Version) — éditeur de documents .elium signés, local-first"
+             Comments="Installe Elium (application autonome : aucun pré-requis)" />
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="Une version plus récente d'Elium est déjà installée." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Icône produit (Panneau de configuration + raccourcis + association). -->
+    <Icon Id="elium.ico" SourceFile="..\brand\elium.ico" />
+    <Property Id="ARPPRODUCTICON" Value="elium.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="$(var.AppUrl)" />
+    <!-- ARPNOMODIFY est deja fourni par WixUI_InstallDir. -->
+
+    <!-- Assistant graphique : Bienvenue -> Licence -> Dossier -> Installer -> Fin. -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="assets\license.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="assets\msi-banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="assets\msi-dialog.bmp" />
+    <UIRef Id="WixUI_InstallDir" />
+
+    <!-- Case « Lancer Elium » sur l'écran final. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Lancer Elium" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#EliumExe]" />
+    <CustomAction Id="LaunchApplication" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication">
+        WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed
+      </Publish>
+    </UI>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Elium">
+
+          <!-- Application autonome (Python + crypto + Web Studio embarqués). -->
+          <Component Id="MainExecutable" Guid="6A0A2B0B-0D1A-4552-9C1F-D51C429AE1FE">
+            <File Id="EliumExe" Source="staging\Elium.exe" KeyPath="yes">
+              <Shortcut Id="StartMenuShortcut"
+                        Directory="ProgramMenuFolder"
+                        Name="Elium"
+                        Description="Éditeur de documents .elium signés"
+                        WorkingDirectory="INSTALLFOLDER"
+                        Icon="elium.ico"
+                        Advertise="yes" />
+              <Shortcut Id="DesktopShortcut"
+                        Directory="DesktopFolder"
+                        Name="Elium"
+                        Description="Éditeur de documents .elium signés"
+                        WorkingDirectory="INSTALLFOLDER"
+                        Icon="elium.ico"
+                        Advertise="yes" />
+            </File>
+
+            <!-- Association .elium : double-clic dans l'Explorateur -> Elium. -->
+            <ProgId Id="Elium.Document" Description="Document Elium" Icon="EliumIco" IconIndex="0">
+              <Extension Id="elium" ContentType="application/x-elium">
+                <Verb Id="open" Command="Ouvrir" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
+              </Extension>
+            </ProgId>
+          </Component>
+
+          <!-- Icône de marque installée (DefaultIcon de l'association .elium). -->
+          <Component Id="BrandIcon" Guid="DD873A03-1F0A-415A-BBB6-CB9E0B01ED5E">
+            <File Id="EliumIco" Source="..\brand\elium.ico" KeyPath="yes" />
+          </Component>
+
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <Feature Id="Complete" Title="Elium" Level="1" AllowAdvertise="no" Display="expand"
+             Description="Application Elium complète.">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="BrandIcon" />
+    </Feature>
+
+  </Product>
+</Wix>

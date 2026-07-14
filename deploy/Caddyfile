@@ -1,0 +1,16 @@
+# Edge reverse proxy for Elium Drive Entreprise.
+# Set SITE_ADDRESS to your domain (e.g. drive.example.com) in prod to get
+# automatic HTTPS. Defaults to :80 locally.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# API + WebSocket collaboration relay -> the api service.
+	handle /api/* {
+		reverse_proxy api:8787
+	}
+
+	# Everything else -> the static web app (SPA).
+	handle {
+		reverse_proxy web:80
+	}
+}

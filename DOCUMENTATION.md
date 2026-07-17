@@ -157,22 +157,26 @@ Volumes persistants : `pgdata`, `blobs`, `caddy_data`, `caddy_config`.
 ### 2.6 Mises à jour automatiques (application de bureau)
 
 L'app de bureau Windows se met à jour **toute seule** depuis les GitHub Releases,
-sans intervention et sans invite UAC. Le mainteneur publie une version en poussant
-un **tag** ; les apps installées la récupèrent et l'appliquent.
+sans intervention et sans invite UAC. **Modèle « push = publication »** : chaque push
+sur `master` (hors docs) publie automatiquement une nouvelle version ; les apps
+installées la récupèrent et l'appliquent. Aucun tag manuel.
 
-**Publier une version (mainteneur)**
-```bash
-python installer/stamp_version.py 4.1.0   # optionnel en local ; le CI le refait
-git tag v4.1.0 && git push origin v4.1.0  # -> déclenche .github/workflows/release.yml
-```
-Le workflow (runner `windows-latest`) : stampe la version + le `codeHash`, build le
-Web Studio, produit `Elium.exe` (PyInstaller), le MSI (WiX, best-effort), le paquet
-`web.zip`, puis **signe** `latest.json` (Ed25519) et crée la Release avec ces assets.
+**Publier une version (mainteneur)** : `git push origin master`. C'est tout.
+`.github/workflows/release.yml` (runner `windows-latest`) calcule la version
+(`majeur.mineur` de `src/elium/__init__.py` + numéro de run), stampe version + `codeHash`,
+build le Web Studio, produit `Elium.exe` (PyInstaller), le MSI (WiX, best-effort), le
+paquet `web.zip`, **signe** `latest.json` (Ed25519) et crée la GitHub Release `vX.Y.Z`.
 
-**Setup unique** : générer la paire de clés (`python scripts/gen_update_keypair.py`),
-coller la **clé publique** dans `installer/updater.py` (`UPDATE_PUBLIC_KEY_HEX`) et la
-**clé privée** dans le secret de dépôt GitHub Actions `UPDATE_SIGNING_KEY`. Ne jamais
-committer la clé privée (couverte par `.gitignore`).
+**Setup unique (2 actions, une fois pour toutes)** :
+1. **Repo PUBLIC** — sinon les assets de Release ne sont pas téléchargeables par les
+   utilisateurs (un repo privé exige une authentification que l'app n'a pas). Le code
+   d'Elium peut être public sans risque : la sécurité est *zero-knowledge*, elle ne
+   dépend pas du secret du code.
+2. **Secret `UPDATE_SIGNING_KEY`** — clé privée Ed25519 (`scripts/gen_update_keypair.py`
+   → fichier local `update-private-key.hex`) dans *Settings ▸ Secrets ▸ Actions*. La clé
+   publique correspondante est embarquée dans `installer/updater.py`. Ne jamais committer
+   la clé privée (couverte par `.gitignore`). Tant que ce secret est absent, `release.yml`
+   s'exécute mais **ne publie pas** (run vert, sans échec).
 
 **Côté client** (`installer/updater.py`, embarqué dans l'exe) : au lancement puis
 périodiquement, l'app **détecte** une màj (télécharge `latest.json` + `.sig`, **vérifie

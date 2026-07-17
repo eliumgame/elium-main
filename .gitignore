@@ -46,6 +46,18 @@ installer/staging/
 *.exe
 !*.bat
 *.spec
+# ...mais les specs PyInstaller doivent etre versionnees (le CI en a besoin).
+!installer/elium.spec
+!Elium.spec
+
+# Update signing / release artifacts (NE JAMAIS committer la cle privee)
+update-private-key.hex
+*update-private*.hex
+*update-private*.pem
+update_signing_key*
+web.zip
+latest.json
+latest.json.sig
 
 # Misc
 .elium-main/

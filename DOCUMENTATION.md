@@ -96,6 +96,8 @@ Options de `drive` : `--domain <fqdn>` · `--local` · `--email <acme>` ·
 - **Tout OS (navigateur)** : `bash install.sh suite` → `http://localhost:3100`.
 - **Reconstruire le MSI** : `installer/build.bat` (exe PyInstaller) puis
   `installer/build_msi.bat /nopause` (MSI WiX) → `installer/output/`.
+- **Mises à jour** : une fois installée, l'app se met à jour **automatiquement**
+  depuis les GitHub Releases — voir §2.6.
 
 ### 2.2 Drive entreprise sur un VPS (production)
 1. **DNS** : un enregistrement **A/AAAA** `drive.exemple.fr` → IP du VPS. Le
@@ -151,6 +153,56 @@ Volumes persistants : `pgdata`, `blobs`, `caddy_data`, `caddy_config`.
   `Upgrade`.
 - **API ne démarre pas** : souvent `TOKEN_SECRET` absent (l'API refuse de
   démarrer en prod sans secret ≥ 32 car.). `docker compose logs api`.
+
+### 2.6 Mises à jour automatiques (application de bureau)
+
+L'app de bureau Windows se met à jour **toute seule** depuis les GitHub Releases,
+sans intervention et sans invite UAC. Le mainteneur publie une version en poussant
+un **tag** ; les apps installées la récupèrent et l'appliquent.
+
+**Publier une version (mainteneur)**
+```bash
+python installer/stamp_version.py 4.1.0   # optionnel en local ; le CI le refait
+git tag v4.1.0 && git push origin v4.1.0  # -> déclenche .github/workflows/release.yml
+```
+Le workflow (runner `windows-latest`) : stampe la version + le `codeHash`, build le
+Web Studio, produit `Elium.exe` (PyInstaller), le MSI (WiX, best-effort), le paquet
+`web.zip`, puis **signe** `latest.json` (Ed25519) et crée la Release avec ces assets.
+
+**Setup unique** : générer la paire de clés (`python scripts/gen_update_keypair.py`),
+coller la **clé publique** dans `installer/updater.py` (`UPDATE_PUBLIC_KEY_HEX`) et la
+**clé privée** dans le secret de dépôt GitHub Actions `UPDATE_SIGNING_KEY`. Ne jamais
+committer la clé privée (couverte par `.gitignore`).
+
+**Côté client** (`installer/updater.py`, embarqué dans l'exe) : au lancement puis
+périodiquement, l'app **détecte** une màj (télécharge `latest.json` + `.sig`, **vérifie
+la signature** avec la clé publique embarquée, compare les versions) — **sans rien
+télécharger**. Si une màj existe, une **carte discrète avec un seul bouton** apparaît
+(« Mettre à jour »). Au clic : téléchargement avec **barre de progression animée**
+(endpoints `/__update__`, `POST /__update__/start`), puis :
+- **màj web** (cas courant) : `web.zip` vérifié (sha256 du manifeste signé) est déposé
+  dans `%LOCALAPPDATA%\Elium\web\<version>\` ; la carte propose **« Recharger »** (un
+  clic applique la nouvelle interface). Léger, sans admin.
+- **màj exe** (le lanceur/Python a changé, détecté via `codeHash`) : le nouvel
+  `Elium.exe` vérifié est déposé dans `%LOCALAPPDATA%\Elium\bin\` ; la carte propose
+  **« Redémarrer Elium »** (`POST /__update__/restart` ferme la fenêtre et relance le
+  nouvel exe — handoff). Sinon appliqué au prochain démarrage. Aucun UAC, rien dans
+  `Program Files`. UI servie en CSS/JS externes (CSP-safe), aucun style/script inline.
+
+Le MSI reste l'installeur canonique pour une **install fraîche** ; l'auto-update
+maintient à jour entre deux MSI. Journal : `%LOCALAPPDATA%\Elium\update.log`.
+Désactiver : variable d'environnement `ELIUM_NO_UPDATE=1`.
+
+**Rotation de la clé de signature** : publier d'abord une version *transitoire* qui
+embarque la **nouvelle** clé publique (signée avec l'**ancienne** clé, donc acceptée
+par le parc actuel) ; une fois cette version largement déployée, basculer le secret
+`UPDATE_SIGNING_KEY` vers la nouvelle clé privée pour les releases suivantes.
+
+**Sécurité** : le serveur/CDN n'est jamais une racine de confiance — une màj n'est
+appliquée que si la signature Ed25519 du manifeste **et** le sha256 de l'artefact sont
+valides ; sinon l'artefact est jeté et l'app reste sur sa version courante. (La
+signature Authenticode du binaire — qui supprime l'avertissement SmartScreen — n'est
+pas incluse ; elle est orthogonale et peut s'ajouter avec un certificat de code.)
 
 ---
 

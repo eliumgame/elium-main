@@ -79,9 +79,14 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
     monkeypatch.setenv("ELIUM_CURRENT_VERSION", "4.0.0")
     monkeypatch.delenv("ELIUM_NO_UPDATE", raising=False)
+    # Force le placeholder pour que ces tests prennent le chemin WEB de façon
+    # déterministe, même si le build a déjà stampé un vrai BUILD_CODE_HASH
+    # (cas du CI de release, qui stampe avant de lancer pytest).
+    monkeypatch.setattr(updater, "BUILD_CODE_HASH", updater._CODE_HASH_PLACEHOLDER)
+    updater._pending_manifest = None
     # repart d'un statut propre
     updater._status.clear()
-    updater._status.update({"state": "idle", "version": None})
+    updater._status.update({"state": "idle", "version": None, "kind": None, "progress": 0})
     return tmp_path
 
 

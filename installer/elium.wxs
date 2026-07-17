@@ -18,7 +18,7 @@
 
   <?define Version = "4.0.0" ?>
   <?define Publisher = "Elium Authors" ?>
-  <?define AppUrl = "https://github.com/elium-project/elium" ?>
+  <?define AppUrl = "https://github.com/eliumgame/elium-main" ?>
   <!-- UpgradeCode : NE JAMAIS CHANGER (identité du produit entre versions). -->
   <?define UpgradeCode = "26104BBE-D1BC-41CB-B215-9D2D9C5CC667" ?>
 

@@ -16,6 +16,7 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.gitignore'
+      - '.github/**'   # les tweaks de workflow/CI ne publient pas de release
   workflow_dispatch:
 
 permissions:
@@ -56,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.has_key == 'true'
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Installer les dépendances Python
         if: steps.guard.outputs.has_key == 'true'

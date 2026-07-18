@@ -26,8 +26,14 @@ import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from 
 import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, unauthorized, conflict } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { config } from "../config.js";
 
 const MFA_LOGIN_PURPOSE = "mfa-login";
+// Standard client KDF parameters (mirror of DEFAULT_KDF_PARAMS in
+// web-studio/src/drive-cloud/kdf.ts). The prelogin DECOY must return these so
+// an unknown email is shape-identical to a real account (real accounts store
+// these same values at registration).
+const DECOY_KDF_PARAMS = { alg: "argon2id", t: 3, m: 262144, p: 4 } as const;
 // Shared verbatim across every /login/verify failure branch (unknown email,
 // expired/reused/decoy challenge, bad signature) so the response text itself
 // can never be used to enumerate which emails have an account — only the
@@ -183,8 +189,16 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       [email],
     );
     if (row) return { kdfSalt: row.kdf_salt, kdfParams: row.kdf_params };
-    // Deterministic decoy salt derived from the email so responses are stable.
-    return { kdfSalt: sha256Hex(`decoy|${email.toLowerCase()}`), kdfParams: {} };
+    // Decoy for an unknown email must be INDISTINGUISHABLE from a real account,
+    // or the response shape itself is an enumeration oracle:
+    //  - a 16-byte (32 hex) salt, exactly like a real random one — NOT a 32-byte
+    //    (64 hex) sha256 digest, whose length alone would betray the decoy;
+    //  - the standard Argon2id params a real client stores — NOT `{}`.
+    // Peppered with the server secret (so an attacker cannot recompute the
+    // expected decoy salt for an email and compare) yet deterministic per email
+    // (a real account returns the same salt on every prelogin).
+    const decoySalt = sha256Hex(`${config.tokenSecret}|prelogin-decoy|${email.toLowerCase()}`).slice(0, 32);
+    return { kdfSalt: decoySalt, kdfParams: DECOY_KDF_PARAMS };
   });
 
   // --- Login step 1: fetch a challenge -------------------------------------

@@ -17,8 +17,22 @@ import {
   AlignLeft, AlignCenter, AlignRight, Link2,
 } from "lucide-react";
 import { buildExtensions } from "../../editor/extensions";
+import { CSS_PX_PER_MM, type PageMetrics, type PageInfo, type PaginationOptions } from "../../editor/Pagination";
+import { DEFAULT_PAGE } from "../../format/document";
+import { pageSizeMm } from "../../format/pageSizes";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import type { DriveApi } from "../api";
+
+// Collaborative docs have no per-document page model, so they paginate on the
+// standard A4 geometry (same DEFAULT_PAGE as the local editor) — parity with the
+// local Documents surface (dual-platform rule).
+const COLLAB_PAGE = pageSizeMm(DEFAULT_PAGE.format, DEFAULT_PAGE.orientation);
+const COLLAB_METRICS: PageMetrics = {
+  pageContentPx: Math.max(0, (COLLAB_PAGE.height - DEFAULT_PAGE.margins.top - DEFAULT_PAGE.margins.bottom) * CSS_PX_PER_MM),
+  gapPx: 40,
+  marginLeftPx: DEFAULT_PAGE.margins.left * CSS_PX_PER_MM,
+  marginRightPx: DEFAULT_PAGE.margins.right * CSS_PX_PER_MM,
+};
 
 const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9", "#dc2626", "#0d9488"];
 function colorFor(id: string): string {
@@ -94,6 +108,15 @@ export default function CollabDocEditor({
   const [peers, setPeers] = useState<CollabUser[]>([]);
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorFor(user.id) }), [user.id, user.name]);
+
+  // On-screen pagination (parity with the local Documents editor).
+  const [pageInfo, setPageInfo] = useState<PageInfo>({ pageCount: 1, currentPage: 1 });
+  const [paginationOpts] = useState<PaginationOptions>(() => ({
+    getMetrics: () => COLLAB_METRICS,
+    onInfo: (i) =>
+      setPageInfo((prev) => (prev.pageCount === i.pageCount && prev.currentPage === i.currentPage ? prev : i)),
+  }));
+
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
     () => new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, { onStatus: setStatus, onReady: setCanWrite, ...(refetchKey ? { refetchKey } : {}) }),
@@ -105,6 +128,7 @@ export default function CollabDocEditor({
       editable: true,
       author: me.name,
       disableHistory: true,
+      pagination: paginationOpts,
       extra: [
         Collaboration.configure({ document: ydoc }),
         CollaborationCaret.configure({ provider: provider as unknown as { awareness: unknown } }),
@@ -163,12 +187,24 @@ export default function CollabDocEditor({
             ))}
           </div>
           <div className="dc-doc__spacer" />
+          <span className="badge badge--neutral" title="Pagination">Page {pageInfo.currentPage} / {pageInfo.pageCount}</span>
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
         {writable && editor && <Toolbar editor={editor} />}
         <div className="dc-doc__body">
-          <div className="dc-doc__page">
+          <div
+            className="dc-doc__page"
+            style={{
+              width: `${COLLAB_PAGE.width}mm`,
+              maxWidth: "none",
+              minHeight: `${COLLAB_PAGE.height}mm`,
+              paddingTop: `${DEFAULT_PAGE.margins.top}mm`,
+              paddingRight: `${DEFAULT_PAGE.margins.right}mm`,
+              paddingBottom: `${DEFAULT_PAGE.margins.bottom}mm`,
+              paddingLeft: `${DEFAULT_PAGE.margins.left}mm`,
+            }}
+          >
             <EditorContent editor={editor} />
           </div>
         </div>

@@ -87,13 +87,6 @@ doit vérifier `result.seal.verdict !== "broken"` elle-même avant utilisation.
 Les interfaces livrées (CLI, Web Studio) affichent le verdict à l'utilisateur ;
 elles ne bloquent pas non plus l'ouverture, par cohérence avec ce principe.
 
-## Statut de l'add-in Office (prototype)
-
-`office-addin/` est un **prototype non fonctionnel** : le chiffrement n'y est
-**pas implémenté** (voir l'avertissement dans `taskpane.js`/`taskpane.html` et
-dans `manifest.xml`). Il ne doit pas être distribué ni utilisé en pensant
-bénéficier de la même sécurité que l'application principale (Web Studio/CLI).
-
 ## Stockage des clés
 
 - La **clé privée Ed25519** du Web Studio n'est **jamais** stockée en clair : elle

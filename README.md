@@ -46,7 +46,6 @@ elium-main/
 │       ├── panels/ views/  # Inspecteur (Signatures, Sécurité, Suivi, Export, Infos) + écrans
 │       └── ui/             # Design system
 ├── desktop/                # Lanceur/tableau de bord PySide6 (hérité)
-├── office-addin/           # Prototype Word (roadmap Microsoft 365)
 └── tests/                  # Tests Python + interop
 ```
 

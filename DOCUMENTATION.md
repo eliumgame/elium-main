@@ -679,8 +679,8 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   partagés entre l'éditeur local et Drive au lieu d'être dupliqués). Résultat :
   bundle principal **1,28 Mo → 242 ko**, chunk PDF **1,47 Mo → 40 ko** ; lazy-load
   vérifié au navigateur (l'accueil ne charge que `index` + `vendor-react`).
-- **À améliorer** : Add-in Office = **prototype non fonctionnel** (chiffrement
-  non implémenté ; ne pas distribuer).
+- **Abandonné** : add-in Office/Microsoft 365 — l'idée est écartée ; le prototype
+  (`office-addin/`) a été supprimé du dépôt.
 
 ---
 
@@ -698,10 +698,9 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    1,28 Mo → 242 ko ; chunk PDF 1,47 Mo → 40 ko ; lazy-load vérifié). Les seuls
    chunks résiduels > 500 ko sont des vendors irréductibles chargés à la demande
    (pdf-lib, worker pdf.js).
-4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
-   (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en
-   packages ; conversion DOCX/PDF ↔ `.elium`. Toute fonction en ligne reste
-   **opt-in** et conforme RGPD.
+4. **Add-in Microsoft 365 : ABANDONNÉ** — l'idée d'un add-in Office est écartée
+   (prototype `office-addin/` supprimé). La suite reste **100 % locale** ; toute
+   éventuelle fonction en ligne future resterait **opt-in** et conforme RGPD.
 
 ---
 
@@ -748,7 +747,7 @@ sans action explicite. Minimisation des données, transparence (badges de
 protection), pas de télémétrie. Le Drive entreprise, lui, est auto-hébergé et
 zéro-connaissance : les données restent chez vous, chiffrées de bout en bout.
 Détail légal : [PRIVACY_RGPD.md](PRIVACY_RGPD.md). Toute fonctionnalité en ligne
-future (horodatage qualifié, add-in) reste **opt-in**.
+future (p. ex. horodatage qualifié) reste **opt-in**.
 
 ---
 

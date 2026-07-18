@@ -43,7 +43,7 @@ elle peut devenir identifiante si elle est reliée à une personne hors bande.
 ## 4. Services en ligne (roadmap)
 
 À ce jour Elium **n'envoie rien en ligne**. Les fonctionnalités futures
-(horodatage qualifié, invitations à signer, partage, Microsoft 365) seront :
+(horodatage qualifié, invitations à signer, partage) seront :
 
 - **opt-in** et clairement signalées avant tout envoi de données ;
 - accompagnées d'une information sur les données transmises, leur finalité, leur

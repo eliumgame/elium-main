@@ -671,9 +671,16 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 - **Fait** : **ESLint 9 (flat config) + Prettier** sur web-studio et server,
   câblés en CI (lint vert). Le **MSI a été retiré de l'historique git**
   (`git filter-repo` ; dépôt 13,2 Mo → ~1 Mo) — à distribuer via GitHub Releases.
-- **À améliorer** : `AutoFilter réel` livré (Tableur) ; reste le code-splitting
-  partiel des vues lourdes. Add-in Office = **prototype non fonctionnel**
-  (chiffrement non implémenté ; ne pas distribuer).
+- **Fait** : **code-splitting des vues lourdes** — HomeView reste eager ; les
+  vues Studio (tiptap), Tableur, Présentations, PDF et Drive sont en `import()`
+  paresseux, et les gros vendors sont scindés en chunks à la demande
+  (`manualChunks` dans `vite.config.ts` : `vendor-react`, `vendor-pdf-lib`,
+  `vendor-pdfjs`, `vendor-tiptap`, `vendor-yjs`, `vendor-lowlight` ; tiptap/yjs
+  partagés entre l'éditeur local et Drive au lieu d'être dupliqués). Résultat :
+  bundle principal **1,28 Mo → 242 ko**, chunk PDF **1,47 Mo → 40 ko** ; lazy-load
+  vérifié au navigateur (l'accueil ne charge que `index` + `vendor-react`).
+- **À améliorer** : Add-in Office = **prototype non fonctionnel** (chiffrement
+  non implémenté ; ne pas distribuer).
 
 ---
 
@@ -687,7 +694,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    en collaboratif.
 2. **PDF avancé : LIVRÉ** — formulaires (AcroForm) + fusion/division
    multi-fichiers.
-3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
+3. **Qualité : code-splitting des vues lourdes — LIVRÉ** (bundle principal
+   1,28 Mo → 242 ko ; chunk PDF 1,47 Mo → 40 ko ; lazy-load vérifié). Les seuls
+   chunks résiduels > 500 ko sont des vendors irréductibles chargés à la demande
+   (pdf-lib, worker pdf.js).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en
    packages ; conversion DOCX/PDF ↔ `.elium`. Toute fonction en ligne reste

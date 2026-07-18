@@ -2,9 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { X, Lock } from "lucide-react";
 import { Button } from "./ui/components";
 import HomeView from "./views/HomeView";
-import StudioView from "./views/StudioView";
-import SheetView from "./views/SheetView";
-import SlidesView from "./views/SlidesView";
+// Heavy per-app views are code-split: their editors (tiptap, sheet & slides
+// engines, pdf/cloud SDKs) stay out of the main bundle and load on demand.
+const StudioView = lazy(() => import("./views/StudioView"));   // rich-text editor (tiptap)
+const SheetView = lazy(() => import("./views/SheetView"));      // spreadsheet engine
+const SlidesView = lazy(() => import("./views/SlidesView"));    // slides engine
 const PdfView = lazy(() => import("./pdf/PdfView")); // pdf.js stays out of the main bundle
 const DriveCloudView = lazy(() => import("./views/DriveCloudView")); // cloud SDK out of the main bundle
 const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // public share-link opener
@@ -988,19 +990,23 @@ export default function App() {
           </div>
         </div>
       ) : mode === "sheet" ? (
-        <SheetView
-          key={`sheet-${appKey}`}
-          onHome={() => setMode("home")}
-          initial={appView?.kind === "sheet" ? (appView.data as Workbook) : undefined}
-          onExportElium={(data, title) => exportAppElium("sheet", data, title)}
-        />
+        <Suspense fallback={<div className="pdf-loading">Chargement du Tableur…</div>}>
+          <SheetView
+            key={`sheet-${appKey}`}
+            onHome={() => setMode("home")}
+            initial={appView?.kind === "sheet" ? (appView.data as Workbook) : undefined}
+            onExportElium={(data, title) => exportAppElium("sheet", data, title)}
+          />
+        </Suspense>
       ) : mode === "slides" ? (
-        <SlidesView
-          key={`slides-${appKey}`}
-          onHome={() => setMode("home")}
-          initial={appView?.kind === "slides" ? (appView.data as Deck) : undefined}
-          onExportElium={(data, title) => exportAppElium("slides", data, title)}
-        />
+        <Suspense fallback={<div className="pdf-loading">Chargement des Présentations…</div>}>
+          <SlidesView
+            key={`slides-${appKey}`}
+            onHome={() => setMode("home")}
+            initial={appView?.kind === "slides" ? (appView.data as Deck) : undefined}
+            onExportElium={(data, title) => exportAppElium("slides", data, title)}
+          />
+        </Suspense>
       ) : mode === "pdf" ? (
         <Suspense fallback={<div className="pdf-loading">Chargement du lecteur PDF…</div>}>
           <PdfView
@@ -1028,7 +1034,9 @@ export default function App() {
           vaultSecret={vaultSecret}
         />
       ) : (
-        <StudioView key={`${editorKey}-${editable}`} studio={studio} />
+        <Suspense fallback={<div className="pdf-loading">Chargement de l'éditeur…</div>}>
+          <StudioView key={`${editorKey}-${editable}`} studio={studio} />
+        </Suspense>
       )}
 
       {settingsOpen && (

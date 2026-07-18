@@ -637,7 +637,15 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   (calque texte pdf.js `TextLayer` par-dessus le rendu canvas — additif, la page
   s'affiche même si le calque échoue ; surlignage des occurrences + navigation
   ‹/›, matcher pur `pdf/search.ts` testé).
-- **Reste** : **AcroForm** (formulaires) ; **fusion/division** multi-fichiers.
+  **Formulaires AcroForm** : détection des champs à la lecture (`pdf/forms.ts`,
+  `readFields` sur les annotations pdf.js), remplissage via un calque
+  (`pdf/FormLayer.tsx` — texte, cases à cocher, boutons radio, listes) avec
+  bascule « Formulaire », et écriture à l'export via pdf-lib (`fillForm`,
+  **aplatissement optionnel** ; remplissage pur préservant l'interactivité).
+  Valeurs persistées dans le `.elium`. Testé (lecteur pur + write-back pdf-lib
+  + round-trip réel pdf.js→readFields→fillForm qui verrouille le nom de
+  propriété `buttonValue` des radios).
+- **Reste** : **fusion/division** multi-fichiers.
 
 ### Cœur Python & format
 - **Fait** : parité `.elium` Python↔TS (format, sceau, signatures, chiffrement),
@@ -667,7 +675,8 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    (dont graphiques natifs), galerie de modèles, multi-sélection/groupes/
    copier-coller. Améliorations possibles : fusion texte caractère-par-caractère
    en collaboratif.
-2. **PDF avancé** : formulaires (AcroForm) + fusion/division multi-fichiers.
+2. **PDF avancé** : formulaires (AcroForm) **livré** ; reste la fusion/division
+   multi-fichiers.
 3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en

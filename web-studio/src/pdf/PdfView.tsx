@@ -8,15 +8,17 @@ import {
   Home, Upload, Download, Save, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Search, X,
   FileText, FileType, MousePointer2, Type, Highlighter, Pencil, Square, Circle, Minus,
   Image as ImageIcon, Eraser, Trash2, Copy, ArrowUp, ArrowDown, FilePlus, Undo2, Redo2, ShieldCheck, RotateCw,
-  Bold, Italic, Underline, TextCursorInput,
+  Bold, Italic, Underline, TextCursorInput, FormInput,
 } from "lucide-react";
 import { downloadBlob } from "../export/exporters";
 import { useUndoable } from "../ui/useUndoable";
 import { useDialogs } from "../ui/dialogs";
 import PageEditLayer, { type Draft } from "./PageEditLayer";
 import TextEditLayer from "./TextEditLayer";
+import FormLayer from "./FormLayer";
 import { buildEditedPdf } from "./pdf-save";
-import { type Anno, type PageRef, type PdfDoc, type EditedText, type Tool, newId, TOOL_DEFAULTS, base64ToBytes, bytesToBase64, serializePdfDoc } from "./model";
+import { hasFormFields, type RawWidget } from "./forms";
+import { type Anno, type PageRef, type PdfDoc, type EditedText, type FormValue, type Tool, newId, TOOL_DEFAULTS, base64ToBytes, bytesToBase64, serializePdfDoc } from "./model";
 import { allFontNames, registerCustomFont, getCustomFont, isCustomFont, DEFAULT_FONT } from "../ui/fonts";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -162,15 +164,21 @@ export default function PdfView({ onHome, initial, onExportElium }: {
 }) {
   const dialogs = useDialogs();
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
-  // pages + annotations share one undo/redo history.
+  // pages + annotations + form values share one undo/redo history.
   const { value: docState, set: setDocState, setQuiet: setDocQuiet, checkpoint, undo, redo, canUndo, canRedo, reset: resetDoc } =
-    useUndoable<{ pages: PageRef[]; annos: Record<string, Anno[]>; textEdits: Record<string, EditedText[]> }>({ pages: [], annos: {}, textEdits: {} });
+    useUndoable<{ pages: PageRef[]; annos: Record<string, Anno[]>; textEdits: Record<string, EditedText[]>; formValues: Record<string, FormValue> }>({ pages: [], annos: {}, textEdits: {}, formValues: {} });
   const pages = docState.pages;
   const annos = docState.annos;
   const textEdits = docState.textEdits ?? {};
+  const formValues = docState.formValues ?? {};
   const [textMode, setTextMode] = useState(false); // Adobe-style "edit existing text" mode
+  const [formMode, setFormMode] = useState(false);  // fill AcroForm fields
+  const [formCount, setFormCount] = useState(0);     // detected fillable fields (gates the toggle)
+  const [flattenForm, setFlattenForm] = useState(true); // bake fields into content on export
   const setPageEdits = (pageId: string, next: EditedText[]) =>
     setDocQuiet((s) => ({ ...s, textEdits: { ...(s.textEdits ?? {}), [pageId]: next } }));
+  const setFormValue = (name: string, value: FormValue) =>
+    setDocQuiet((s) => ({ ...s, formValues: { ...(s.formValues ?? {}), [name]: value } }));
   const [pageDims, setPageDims] = useState<{ w: number; h: number }[]>([]);
   const [scale, setScale] = useState(1.3);
   const [cur, setCur] = useState(1);
@@ -211,7 +219,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
 
   // Load PDF bytes into the viewer. `restore` reuses a persisted page order +
   // annotations (re-opening an .elium); otherwise pages map 1:1 to the source.
-  const loadBytes = useCallback(async (buf: Uint8Array, fileName: string, restore?: { pages: PageRef[]; annos: Record<string, Anno[]>; textEdits: Record<string, EditedText[]> }) => {
+  const loadBytes = useCallback(async (buf: Uint8Array, fileName: string, restore?: { pages: PageRef[]; annos: Record<string, Anno[]>; textEdits: Record<string, EditedText[]>; formValues: Record<string, FormValue> }) => {
     setBusy(true); setErr("");
     try {
       bytesRef.current = buf.slice();
@@ -220,13 +228,18 @@ export default function PdfView({ onHome, initial, onExportElium }: {
       taskRef.current = task;
       const d = await task.promise;
       const dims: { w: number; h: number }[] = [];
+      let formFields = 0;
       for (let i = 1; i <= d.numPages; i++) {
-        const vp = (await d.getPage(i)).getViewport({ scale: 1 });
+        const page = await d.getPage(i);
+        const vp = page.getViewport({ scale: 1 });
         dims.push({ w: vp.width, h: vp.height });
+        try { if (hasFormFields((await page.getAnnotations()) as RawWidget[])) formFields++; } catch { /* annotations best-effort */ }
       }
       setDoc(d);
       setPageDims(dims);
-      resetDoc(restore ?? { pages: Array.from({ length: d.numPages }, (_, i) => ({ id: newId("pg"), from: i })), annos: {}, textEdits: {} });
+      setFormCount(formFields);
+      setFormMode(false);
+      resetDoc(restore ?? { pages: Array.from({ length: d.numPages }, (_, i) => ({ id: newId("pg"), from: i })), annos: {}, textEdits: {}, formValues: {} });
       setName(fileName);
       setCur(1); setPageInput("1"); setSel(null); setEditId(null);
     } catch {
@@ -245,7 +258,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
     initedRef.current = true;
     // Re-register imported fonts so text annotations render + re-embed correctly.
     if (initial.fonts) for (const [n, b64] of Object.entries(initial.fonts)) registerCustomFont(n, base64ToBytes(b64));
-    void loadBytes(base64ToBytes(initial.pdf), initial.name || "document.pdf", { pages: initial.pages, annos: initial.annos, textEdits: initial.textEdits ?? {} });
+    void loadBytes(base64ToBytes(initial.pdf), initial.name || "document.pdf", { pages: initial.pages, annos: initial.annos, textEdits: initial.textEdits ?? {}, formValues: initial.formValues ?? {} });
   }, [initial, loadBytes]);
 
   useEffect(() => () => { void taskRef.current?.destroy(); }, []);
@@ -340,7 +353,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
     if (!bytesRef.current) return;
     setSaving(true);
     try {
-      const out = await buildEditedPdf(bytesRef.current, pages, annos, textEdits);
+      const out = await buildEditedPdf(bytesRef.current, pages, annos, textEdits, { formValues, flattenForm });
       const base = (name || "document.pdf").replace(/\.pdf$/i, "");
       downloadBlob(`${base}-modifié.pdf`, "application/pdf", out);
     } catch {
@@ -367,7 +380,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
     };
     for (const list of Object.values(annos)) for (const a of list) if (a.type === "text") scanFont(a.fontFamily);
     for (const list of Object.values(textEdits)) for (const e of list) scanFont(e.fontFamily);
-    onExportElium(serializePdfDoc(name || "document.pdf", bytesRef.current, pages, annos, textEdits, fonts), title.trim() || base);
+    onExportElium(serializePdfDoc(name || "document.pdf", bytesRef.current, pages, annos, textEdits, fonts, formValues), title.trim() || base);
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openFile(f); };
@@ -466,11 +479,29 @@ export default function PdfView({ onHome, initial, onExportElium }: {
           <button
             className={`eb eb--sm ${textMode ? "eb--primary" : "eb--outline"}`}
             title="Modifier le texte existant du PDF (zones éditables)"
-            onClick={() => { setTextMode((v) => !v); setSel(null); setEditId(null); setTool("select"); }}
+            onClick={() => { setTextMode((v) => !v); setFormMode(false); setSel(null); setEditId(null); setTool("select"); }}
           >
             <TextCursorInput size={14} /> Modifier le texte
           </button>
-          {textMode ? (
+          {formCount > 0 && (
+            <button
+              className={`eb eb--sm ${formMode ? "eb--primary" : "eb--outline"}`}
+              title="Remplir les champs de formulaire (AcroForm)"
+              onClick={() => { setFormMode((v) => !v); setTextMode(false); setSel(null); setEditId(null); setTool("select"); }}
+            >
+              <FormInput size={14} /> Formulaire
+            </button>
+          )}
+          {formMode ? (
+            <>
+              <span className="pdf-tools__hint">Remplissez les champs détectés, puis exportez.</span>
+              <span className="pdf-tools__sep" />
+              <label className="pdf-flatten" title="Aplatir : les champs deviennent du contenu figé (rendu identique partout, non re-modifiable).">
+                <input type="checkbox" checked={flattenForm} onChange={(e) => setFlattenForm(e.target.checked)} />
+                Aplatir à l'export
+              </label>
+            </>
+          ) : textMode ? (
             <span className="pdf-tools__hint">Cliquez une ligne de texte pour la modifier, puis réenregistrez.</span>
           ) : (
             <>
@@ -551,7 +582,18 @@ export default function PdfView({ onHome, initial, onExportElium }: {
                   <PdfPage key={pr.id} doc={doc} from={pr.from} dims={dims} scale={scale} rotate={rot} index={i}
                     onText={(idx, text) => { pageTexts.current[idx] = text; }}
                     highlight={search.open ? search.query : ""}>
-                    {rot !== 0 ? null : textMode ? (
+                    {rot !== 0 ? null : formMode ? (
+                      pr.from != null ? (
+                        <FormLayer
+                          doc={doc}
+                          from={pr.from}
+                          scale={scale}
+                          values={formValues}
+                          onChange={setFormValue}
+                          onBeginChange={checkpoint}
+                        />
+                      ) : null
+                    ) : textMode ? (
                       pr.from != null ? (
                         <TextEditLayer
                           doc={doc}

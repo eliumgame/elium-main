@@ -44,6 +44,9 @@ export interface EditedText {
   italic?: boolean;
 }
 
+/** Value held by an AcroForm field: text/choice → string, checkbox → boolean, radio → selected export value (string). */
+export type FormValue = string | boolean;
+
 /** A page in the (editable) output order. `from` indexes the source doc; null = inserted blank. */
 export interface PageRef {
   id: string;
@@ -66,6 +69,8 @@ export interface PdfDoc {
   annos: Record<string, Anno[]>;
   /** Edited lines of the original text, per page (Adobe-style text editing). */
   textEdits?: Record<string, EditedText[]>;
+  /** Filled AcroForm values keyed by fully-qualified field name (survive a round-trip). */
+  formValues?: Record<string, FormValue>;
   /** Imported fonts referenced by text annotations (name → base64 ttf/otf), so they survive a round-trip. */
   fonts?: Record<string, string>;
 }
@@ -104,6 +109,7 @@ export function serializePdfDoc(
   annos: Record<string, Anno[]>,
   textEdits?: Record<string, EditedText[]>,
   fonts?: Record<string, string>,
+  formValues?: Record<string, FormValue>,
 ): PdfDoc {
   // Persist only lines actually changed, to keep the payload small.
   const edits: Record<string, EditedText[]> = {};
@@ -114,6 +120,7 @@ export function serializePdfDoc(
   return {
     v: 1, name, pdf: bytesToBase64(bytes), pages, annos,
     ...(Object.keys(edits).length ? { textEdits: edits } : {}),
+    ...(formValues && Object.keys(formValues).length ? { formValues } : {}),
     ...(fonts && Object.keys(fonts).length ? { fonts } : {}),
   };
 }

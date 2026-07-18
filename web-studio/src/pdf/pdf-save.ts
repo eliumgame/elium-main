@@ -5,9 +5,10 @@
  * pdf-lib's bottom-left space (y → pageHeight − y). Targets unrotated pages.
  */
 import { PDFDocument, rgb, degrees, type PDFPage, type PDFFont, type PDFImage } from "pdf-lib";
-import type { Anno, PageRef, EditedText } from "./model";
+import type { Anno, PageRef, EditedText, FormValue } from "./model";
 import { HIGHLIGHT_COLOR, WHITEOUT_COLOR, newId } from "./model";
 import { embedFont } from "./fonts";
+import { fillForm } from "./forms";
 
 /**
  * Turn each *changed* edited line into a white cover over the original + a text
@@ -99,13 +100,50 @@ async function drawAnno(page: PDFPage, a: Anno, H: number, fontCache: Map<string
   }
 }
 
+/**
+ * True when `pages` reproduces the source 1:1 (no reorder / delete / duplicate /
+ * insert-blank / rotation) and no overlay/text edits exist — i.e. the only change
+ * is form filling, so we can return the filled document untouched (keeping fields
+ * interactive when not flattened, instead of losing them through copyPages).
+ */
+function isPureFormFill(
+  pages: PageRef[],
+  srcCount: number,
+  annosByPage: Record<string, Anno[]>,
+  textEditsByPage: Record<string, EditedText[]>,
+): boolean {
+  if (pages.length !== srcCount) return false;
+  for (let i = 0; i < pages.length; i++) {
+    if (pages[i].from !== i || pages[i].rotate) return false;
+  }
+  for (const list of Object.values(annosByPage)) if (list?.length) return false;
+  for (const list of Object.values(textEditsByPage)) if (list?.some((e) => e.text !== e.original)) return false;
+  return true;
+}
+
 export async function buildEditedPdf(
   originalBytes: Uint8Array,
   pages: PageRef[],
   annosByPage: Record<string, Anno[]>,
   textEditsByPage: Record<string, EditedText[]> = {},
+  opts: { formValues?: Record<string, FormValue>; flattenForm?: boolean } = {},
 ): Promise<Uint8Array> {
-  const src = await PDFDocument.load(originalBytes);
+  const { formValues, flattenForm = true } = opts;
+
+  // Form filling runs first, on the original bytes where the AcroForm is intact.
+  // For a pure fill we return the filled document as-is (honouring the flatten
+  // choice). When combined with structural/overlay edits we must flatten so the
+  // filled values survive copyPages (which drops the AcroForm), then feed the
+  // flattened bytes into the page pipeline below.
+  let workingBytes = originalBytes;
+  if (formValues && Object.keys(formValues).length) {
+    const probe = await PDFDocument.load(originalBytes);
+    const pureFill = isPureFormFill(pages, probe.getPageCount(), annosByPage, textEditsByPage);
+    workingBytes = await fillForm(originalBytes, formValues, pureFill ? flattenForm : true);
+    if (pureFill) return workingBytes;
+  }
+
+  const src = await PDFDocument.load(workingBytes);
   const out = await PDFDocument.create();
   const fontCache = new Map<string, PDFFont>();
   const imgCache = new Map<string, PDFImage>();

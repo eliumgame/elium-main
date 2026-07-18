@@ -948,6 +948,19 @@
 .pdf-tools .tool-color { border: 1px solid var(--border); }
 .pdf-stroke input { width: 90px; }
 
+/* Couche de remplissage de formulaire (AcroForm) */
+.pdf-form-layer { z-index: 3; }
+.pdf-form-input {
+  box-sizing: border-box; border: 1px solid var(--primary); border-radius: 2px;
+  background: rgba(219, 234, 254, .45); color: #0f172a; padding: 0 3px; font-size: 12px;
+  line-height: 1.1; outline: none; overflow: hidden;
+}
+.pdf-form-input:focus { background: rgba(219, 234, 254, .85); box-shadow: 0 0 0 2px var(--primary); }
+.pdf-form-input:read-only { background: rgba(226, 232, 240, .5); border-style: dashed; }
+.pdf-form-check { accent-color: var(--primary); cursor: pointer; margin: 0; }
+.pdf-flatten { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-soft); cursor: pointer; }
+.pdf-flatten input { accent-color: var(--primary); }
+
 /* Couche d'annotation */
 .pdf-edit-layer { position: absolute; inset: 0; }
 .pdf-edit-layer.is-drawing { cursor: crosshair; }

@@ -82,6 +82,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     if ((err as { statusCode?: number }).statusCode === 429) {
       return reply.status(429).send({ error: { code: "rate_limited", message: "Trop de requêtes." } });
     }
+    // Body-limit rejection (e.g. a JSON body over maxJsonBytes) must surface as
+    // 413, and a malformed body (unparseable JSON) as 400 — not a generic 500.
+    if ((err as { statusCode?: number }).statusCode === 413) {
+      return reply.status(413).send({ error: { code: "payload_too_large", message: "Contenu trop volumineux." } });
+    }
+    if ((err as { statusCode?: number }).statusCode === 400) {
+      return reply.status(400).send({ error: { code: "bad_request", message: "Requête invalide." } });
+    }
     req.log.error({ err }, "unhandled error");
     return reply.status(500).send({ error: { code: "internal", message: "Erreur interne du serveur." } });
   });

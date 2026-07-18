@@ -576,7 +576,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   profond (membre/équipe/lien), versions, corbeille, journal d'audit,
   co-édition temps réel chiffrée, recouvrement d'org, **+ Phase 2** (rotation de
   clés, MFA, quotas, rate-limiting, padding). Testé de bout en bout (E2E 87/87,
-  vrai Postgres + vraie API + vrai SDK), gaté en CI (job `server-e2e`).
+  vrai Postgres + vraie API + vrai SDK), gaté en CI (job `server-e2e`), plus une
+  **suite unitaire serveur** (93 tests vitest : auth/anti-énumération/anti-lockout
+  MFA, RBAC, tokens, TOTP, OIDC, durcissement corps/secrets) gatée en CI
+  (job `server-checks`).
 - **Fait aussi** : **SSO (OIDC)** + **SCIM** (provisioning/déprovisioning) en
   restant zéro-connaissance (§4.5), validés E2E.
 - **Fait aussi** : l'éditeur de diapos *collaboratif* partage l'éditeur unifié
@@ -658,8 +661,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    sont livrés sur les **deux** éditeurs (local + collaboratif, via `SlidesEditor`
    unifié). Reste : multi-sélection + groupes + copier/coller entre diapos.
 2. **Parité fonctionnelle** : couche texte de lecture PDF.
-3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes ;
-   harnais de tests serveur sur elium-main.
+3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en
    packages ; conversion DOCX/PDF ↔ `.elium`. Toute fonction en ligne reste

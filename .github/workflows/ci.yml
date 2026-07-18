@@ -76,6 +76,9 @@ jobs:
     - name: Typecheck
       working-directory: ./server
       run: npm run typecheck
+    - name: Test (Vitest)
+      working-directory: ./server
+      run: npm test
 
   server-e2e:
     runs-on: ubuntu-latest

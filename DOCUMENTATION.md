@@ -586,10 +586,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ### Suite locale — Documents
 - **Fait** : éditeur riche complet, suivi des modifications, import/export DOCX,
-  sceau & signatures.
-- **Reste** : **pagination écran réelle** (feuilles A4 empilées ; piste Paged.js).
+  sceau & signatures, **pagination écran réelle** (feuilles A4/Letter empilées,
+  sauts de page automatiques + numéro de page en direct — `editor/Pagination.ts`,
+  moteur pur `planPages` ; portée aussi sur l'éditeur collaboratif Drive).
 - **À améliorer** : suivi des modifications non exporté en `w:ins`/`w:del` DOCX ;
-  import DOCV ne relit pas toujours couleur/police/taille ; polices importées non
+  import DOCX ne relit pas toujours couleur/police/taille ; polices importées non
   persistées dans le `.elium`.
 
 ### Suite locale — Tableur
@@ -604,13 +605,18 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   poignées, guides magnétiques, mode présentateur, transitions, export PPTX.
   **Animations par élément** câblées de bout en bout (lecture pas-à-pas au
   clic, keyframes CSS, rejouées en mode présentateur ET en mode public).
-  **Vraie vue présentateur** (2ᵉ écran) : fenêtre popup séparée synchronisée
-  par `BroadcastChannel`, avec notes, minuteur et diapo suivante. **Import
-  PPTX** (`web-studio/src/slides/pptx-import.ts`) : formes, texte, images,
-  tableaux, groupes. Transition **« Morph »** = interpolation réelle par
-  élément (position/taille/rotation/opacité), pas un simple fondu.
+  **Déclencheurs d'animation** honorés à la lecture : au clic / avec la
+  précédente / après la précédente (+ délai), le nombre de clics étant dérivé
+  des déclencheurs (`slides/playback.ts`). **Vraie vue présentateur** (2ᵉ écran) :
+  fenêtre popup séparée synchronisée par `BroadcastChannel`, avec notes, minuteur
+  et diapo suivante. **Import PPTX** (`web-studio/src/slides/pptx-import.ts`) :
+  formes, texte, images, tableaux, **graphiques**, groupes. **Graphiques PPTX
+  natifs `<c:chart>`** (barres/lignes/secteurs) à l'export ET à l'import — de
+  vrais graphiques éditables, plus une image aplatie. Transition **« Morph »** =
+  interpolation réelle par élément (position/taille/rotation/opacité).
 - **Reste** : **galerie de modèles** riche (au-delà des quelques mises en page
-  de base déjà fournies par `templates.ts`).
+  de base déjà fournies par `templates.ts`) ; multi-sélection + groupes +
+  copier/coller entre diapos.
 
 ### Suite locale — PDF
 - **Fait** : lecteur + annotation + édition de texte, persistance `.elium`,
@@ -646,8 +652,8 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    animations/transitions sur l'éditeur **collaboratif** (Drive), où le
    réglage est aujourd'hui stocké mais pas rejoué, et à enrichir la galerie de
    modèles sur les **deux** éditeurs.
-2. **Parité fonctionnelle** : export XLSX (Tableur), pagination écran (Documents),
-   couche texte de lecture PDF.
+2. **Parité fonctionnelle** : export XLSX (Tableur), couche texte de lecture PDF,
+   export DOCX du suivi des modifications (`w:ins`/`w:del`).
 3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes.
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en

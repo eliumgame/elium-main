@@ -16,6 +16,7 @@ import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type Shee
 import { loadWorkbook, saveWorkbook } from "../sheet/sheet-store";
 import { importXlsx } from "../sheet/xlsx-import";
 import { csvToWorkbook } from "../sheet/csv";
+import { workbookToXlsx } from "../sheet/xlsx-export";
 import { rowVisible as filterRowVisible, visibleRowsInRange } from "../sheet/filter";
 import { downloadBlob } from "../export/exporters";
 
@@ -545,6 +546,13 @@ export default function SheetView({
     }
     downloadBlob(`${sheet.name || "feuille"}.csv`, "text/csv;charset=utf-8", new TextEncoder().encode(lines.join("\r\n")));
   };
+  const exportXlsx = () => {
+    downloadBlob(
+      "classeur.xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      workbookToXlsx(wb),
+    );
+  };
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -693,6 +701,7 @@ export default function SheetView({
         <div className="sheet-bar__spacer" />
         <button className="eb eb--sm eb--outline" onClick={() => fileRef.current?.click()}><Upload size={14} /> Importer</button>
         <button className="eb eb--sm eb--outline" onClick={exportCsv}><Download size={14} /> CSV</button>
+        <button className="eb eb--sm eb--outline" onClick={exportXlsx}><Download size={14} /> XLSX</button>
         <button className="eb eb--sm eb--primary" onClick={saveElium}><Save size={14} /> .elium</button>
         <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={onImportFile} />
       </div>

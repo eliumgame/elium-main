@@ -596,10 +596,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme
-  conditionnelle, tri, filtre, import XLSX/CSV. **AutoFilter réel** — tri, copie
-  et export CSV ne considèrent que les lignes visibles (`sheet/filter.ts`).
-- **Reste** : **export XLSX** (asymétrie avec l'import) ; fusion de cellules,
-  validation de données, plages nommées, tableaux croisés.
+  conditionnelle, tri, filtre, **import ET export XLSX** + CSV. L'export
+  (`sheet/xlsx-export.ts`) produit un paquet OPC valide (valeurs, chaînes,
+  formules `<f>` avec `fullCalcOnLoad`, formats de nombre + styles), round-trip
+  testé. **AutoFilter réel** — tri, copie et export CSV ne considèrent que les
+  lignes visibles (`sheet/filter.ts`).
+- **Reste** : fusion de cellules, validation de données, plages nommées,
+  tableaux croisés.
 
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8
@@ -653,7 +656,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    animations/transitions sur l'éditeur **collaboratif** (Drive), où le
    réglage est aujourd'hui stocké mais pas rejoué, et à enrichir la galerie de
    modèles sur les **deux** éditeurs.
-2. **Parité fonctionnelle** : export XLSX (Tableur), couche texte de lecture PDF.
+2. **Parité fonctionnelle** : couche texte de lecture PDF.
 3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes.
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en

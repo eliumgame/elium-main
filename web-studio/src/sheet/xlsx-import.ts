@@ -66,13 +66,20 @@ function parseSheet(doc: Document | null, shared: string[], name: string): Sheet
       sh.cells[ref.toUpperCase()] = "=" + f.textContent;
       continue;
     }
+    const t = c.getAttribute("t");
+    if (t === "inlineStr") {
+      // Inline strings carry their text in <is><t> and have NO <v> element —
+      // must be handled before the <v> guard below (else they'd be dropped).
+      const txt = textOf(c);
+      if (txt) sh.cells[ref.toUpperCase()] = txt;
+      continue;
+    }
     const v = c.getElementsByTagName("v")[0];
     if (!v || v.textContent == null) continue;
-    const t = c.getAttribute("t");
     if (t === "s") {
       const idx = parseInt(v.textContent, 10);
       sh.cells[ref.toUpperCase()] = shared[idx] ?? "";
-    } else if (t === "str" || t === "inlineStr") {
+    } else if (t === "str") {
       sh.cells[ref.toUpperCase()] = textOf(c);
     } else {
       sh.cells[ref.toUpperCase()] = v.textContent;

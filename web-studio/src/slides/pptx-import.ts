@@ -12,6 +12,7 @@ import { unzipSync, strFromU8 } from "fflate";
 import {
   newSlideId, newElementId,
   type Deck, type Slide, type SlideElement, type ShapeKind, type ElementType,
+  type ChartData, type ChartKind,
 } from "./model";
 
 const PRST_TO_KIND: Record<string, ShapeKind> = {
@@ -198,9 +199,37 @@ function parseSp(block: string, cx: number, cy: number): SlideElement | null {
   }, g);
 }
 
-function parseGraphicFrame(block: string, cx: number, cy: number): SlideElement | null {
-  if (!/<a:tbl\b/.test(block)) return null; // charts / SmartArt / OLE → skip (degrade)
+/** Parse a DrawingML chart part (literal or cached data) back to ChartData. */
+function parseChart(xml: string): ChartData | null {
+  const kind: ChartKind = /<c:pieChart\b/.test(xml) ? "pie" : /<c:lineChart\b/.test(xml) ? "line" : "bar";
+  const ptValues = (blockXml: string): string[] =>
+    [...blockXml.matchAll(/<c:pt\b[^>]*>\s*<c:v>([\s\S]*?)<\/c:v>/g)].map((m) => unescapeXml(m[1]!.trim()));
+  const catBlock = /<c:cat>([\s\S]*?)<\/c:cat>/.exec(xml)?.[1] ?? "";
+  const valBlock = /<c:val>([\s\S]*?)<\/c:val>/.exec(xml)?.[1] ?? "";
+  const labels = ptValues(catBlock);
+  const values = ptValues(valBlock).map((v) => Number(v) || 0);
+  // Title: the chart's own <c:title> rich text if present, else the series name.
+  const titleRich = /<c:title>[\s\S]*?<a:t>([\s\S]*?)<\/a:t>/.exec(xml)?.[1];
+  const serTx = /<c:tx>\s*<c:v>([\s\S]*?)<\/c:v>/.exec(xml)?.[1];
+  const title = unescapeXml((titleRich ?? serTx ?? "").trim()) || undefined;
+  if (!labels.length && !values.length) return null;
+  return { kind, labels, values, ...(title ? { title } : {}) };
+}
+
+function parseGraphicFrame(
+  block: string, cx: number, cy: number, rels: Map<string, string>, media: Record<string, Uint8Array>,
+): SlideElement | null {
   const g = firstXfrm(block, cx, cy);
+  // Native chart: <a:graphicData uri=".../chart"><c:chart r:id="rIdN"/> → resolve
+  // the referenced chart part and rebuild a chart element (inverse of pptx.ts).
+  if (/<c:chart\b/.test(block)) {
+    const rId = attr(/<c:chart\b[^>]*\/?>/.exec(block)?.[0] ?? "", "r:id");
+    const target = rId ? rels.get(rId) : undefined;
+    const bytes = target ? media[resolveMedia(target)] : undefined;
+    const data = bytes ? parseChart(strFromU8(bytes)) : null;
+    return data ? el({ type: "chart", chart: data }, g) : null;
+  }
+  if (!/<a:tbl\b/.test(block)) return null; // SmartArt / OLE → skip (degrade)
   const trs = [...block.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((m) => m[1]!);
   const cells = trs.map((tr) =>
     [...tr.matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g)].map((m) =>
@@ -221,7 +250,7 @@ function parseSpTree(spTree: string, cx: number, cy: number, rels: Map<string, s
     try {
       if (tag === "p:pic") { const e = parsePic(block, cx, cy, rels, media); if (e) out.push(e); }
       else if (tag === "p:cxnSp") out.push(parseCxn(block, cx, cy));
-      else if (tag === "p:graphicFrame") { const e = parseGraphicFrame(block, cx, cy); if (e) out.push(e); }
+      else if (tag === "p:graphicFrame") { const e = parseGraphicFrame(block, cx, cy, rels, media); if (e) out.push(e); }
       else if (tag === "p:sp") { const e = parseSp(block, cx, cy); if (e) out.push(e); }
       else if (tag === "p:grpSp") {
         // recurse: strip the group's own nvGrpSpPr/grpSpPr, parse remaining children

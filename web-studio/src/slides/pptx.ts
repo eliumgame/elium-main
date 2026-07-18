@@ -9,7 +9,7 @@
  * PowerPoint, LibreOffice Impress and Google Slides.
  */
 import { zipSync, strToU8 } from "fflate";
-import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind } from "./model";
+import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData } from "./model";
 import { bodyHtmlOf } from "./model";
 
 const CX = 12192000; // 13.333in in EMU (16:9 width)
@@ -18,6 +18,7 @@ const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const CT = "http://schemas.openxmlformats.org/package/2006/content-types";
+const C = "http://schemas.openxmlformats.org/drawingml/2006/chart"; // DrawingML charts
 const REL = "http://schemas.openxmlformats.org/package/2006/relationships";
 
 function xmlEsc(s: string): string {
@@ -257,12 +258,16 @@ function elementXml(el: SlideElement, id: number, colors: { title: string; body:
       + `</a:graphicData></a:graphic></p:graphicFrame>`;
   }
 
-  if (el.type === "chart") {
-    // Degrade: a titled placeholder box (native <c:chart> parts are out of scope).
-    const title = el.chart?.title || "Graphique";
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Graphique ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>`
-      + `<p:spPr>${xfrm(x, y, w, h, rot)}<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="F1F5F9"/></a:solidFill><a:ln><a:solidFill><a:srgbClr val="CBD5E1"/></a:solidFill></a:ln></p:spPr>`
-      + `<p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="fr-FR" sz="1400"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill></a:rPr><a:t>${xmlEsc(title)}</a:t></a:r></a:p></p:txBody></p:sp>`;
+  if (el.type === "chart" && el.chart) {
+    // Native DrawingML chart: a graphicFrame referencing a c:chart part (built
+    // + wired into the slide rels by addChart). Editable in PowerPoint, not a
+    // flat picture. graphicFrame has no rotation (charts aren't rotated in PPTX).
+    const rId = addChart(el.chart);
+    return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Graphique ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>`
+      + `<p:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></p:xfrm>`
+      + `<a:graphic><a:graphicData uri="${C}">`
+      + `<c:chart xmlns:c="${C}" xmlns:r="${R}" r:id="${rId}"/>`
+      + `</a:graphicData></a:graphic></p:graphicFrame>`;
   }
 
   if (el.type === "shape") {
@@ -359,18 +364,74 @@ function slideXml(slide: Slide, colors: { bg: string; title: string; body: strin
     + `</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
 }
 
-// Image relationships are per-slide (rId local to each slide's .rels), but media
-// FILE NAMES must be globally unique across the deck — otherwise slide 2's
-// "image1" would collide with slide 1's and pick up the wrong bytes.
-let _slideRels: { rId: string; target: string }[] = [];
+// Image/chart relationships are per-slide (rId local to each slide's .rels), but
+// the referenced FILE NAMES must be globally unique across the deck — otherwise
+// slide 2's "image1"/"chart1" would collide with slide 1's and pick up the wrong
+// bytes. `type` lets deckToPptx emit each relationship with the right rel type.
+let _slideRels: { rId: string; target: string; type: string }[] = [];
+// Chart parts collected across the whole deck (global names chart1.xml, …).
+let _charts: { name: string; xml: string }[] = [];
 function addImage(dataUrl: string, media: { name: string; bytes: Uint8Array }[]): string | null {
   const dec = dataUrlToBytes(dataUrl);
   if (!dec) return null;
   const name = `image${media.length + 1}.${dec.ext}`; // global monotonic name
   media.push({ name, bytes: dec.bytes });
   const rId = `rId${_slideRels.length + 2}`; // rId1 is the layout (per-slide)
-  _slideRels.push({ rId, target: `../media/${name}` });
+  _slideRels.push({ rId, target: `../media/${name}`, type: T.image });
   return rId;
+}
+function addChart(data: ChartData): string {
+  const name = `chart${_charts.length + 1}.xml`; // global monotonic name
+  _charts.push({ name, xml: chartXml(data) });
+  const rId = `rId${_slideRels.length + 2}`; // rId1 is the layout (per-slide)
+  _slideRels.push({ rId, target: `../charts/${name}`, type: T.chart });
+  return rId;
+}
+
+// A self-contained DrawingML chart part with LITERAL data (c:strLit / c:numLit):
+// it renders natively in PowerPoint/LibreOffice with no embedded workbook, so
+// the part needs no relationships of its own. Categories/values are paired up to
+// the shorter of the two lists.
+function chartXml(data: ChartData): string {
+  const n = Math.min(data.labels?.length ?? 0, data.values?.length ?? 0);
+  const cats = (data.labels ?? []).slice(0, n);
+  const vals = (data.values ?? []).slice(0, n);
+  const AX_CAT = 111111111, AX_VAL = 222222222;
+  const strLit = (arr: string[]) =>
+    `<c:strLit><c:ptCount val="${arr.length}"/>`
+    + arr.map((v, i) => `<c:pt idx="${i}"><c:v>${xmlEsc(v)}</c:v></c:pt>`).join("")
+    + `</c:strLit>`;
+  const numLit = (arr: number[]) =>
+    `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${arr.length}"/>`
+    + arr.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("")
+    + `</c:numLit>`;
+  const catVal = `<c:cat>${strLit(cats)}</c:cat><c:val>${numLit(vals)}</c:val>`;
+  const serHead = `<c:idx val="0"/><c:order val="0"/><c:tx><c:v>${xmlEsc(data.title || "Série 1")}</c:v></c:tx>`;
+  const axes =
+    `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>`
+    + `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
+
+  let plot: string;
+  if (data.kind === "pie") {
+    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${serHead}${catVal}</c:ser></c:pieChart>`;
+  } else if (data.kind === "line") {
+    plot = `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>`
+      + `<c:ser>${serHead}<c:marker><c:symbol val="circle"/></c:marker>${catVal}<c:smooth val="0"/></c:ser>`
+      + `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
+  } else {
+    plot = `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>`
+      + `<c:ser>${serHead}${catVal}</c:ser>`
+      + `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
+  }
+
+  const title = data.title
+    ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${xmlEsc(data.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
+    : `<c:autoTitleDeleted val="1"/>`;
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<c:chartSpace xmlns:c="${C}" xmlns:a="${A}" xmlns:r="${R}">`
+    + `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>`
+    + `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`;
 }
 
 const RELS = (rels: { id: string; type: string; target: string }[]) =>
@@ -384,6 +445,7 @@ const T = {
   slideLayout: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
   theme: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
   image: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+  chart: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
 };
 
 function themeXml(): string {
@@ -424,19 +486,23 @@ const LAYOUT_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
 /** Serialise a deck to a .pptx byte array. */
 export function deckToPptx(deck: Deck): Uint8Array {
   _slideRels = [];
+  _charts = [];
   const media: { name: string; bytes: Uint8Array }[] = [];
   const files: Record<string, Uint8Array> = {};
   const n = deck.slides.length;
 
-  // Slides (+ per-slide rels & media).
+  // Slides (+ per-slide rels & media & chart parts).
   deck.slides.forEach((slide, i) => {
     _slideRels = [];
     const xml = slideXml(slide, themeColors(deck.theme ?? "light"), media);
     files[`ppt/slides/slide${i + 1}.xml`] = strToU8(xml);
     const rels = [{ id: "rId1", type: T.slideLayout, target: "../slideLayouts/slideLayout1.xml" },
-      ..._slideRels.map((r) => ({ id: r.rId, type: T.image, target: r.target }))];
+      ..._slideRels.map((r) => ({ id: r.rId, type: r.type, target: r.target }))];
     files[`ppt/slides/_rels/slide${i + 1}.xml.rels`] = strToU8(RELS(rels));
   });
+
+  // Chart parts (literal-data, no own relationships → no .rels file needed).
+  for (const c of _charts) files[`ppt/charts/${c.name}`] = strToU8(c.xml);
 
   // Media (deduped by name across slides).
   const seen = new Set<string>();
@@ -484,6 +550,7 @@ export function deckToPptx(deck: Deck): Uint8Array {
     `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`,
     `<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`,
     ...deck.slides.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`),
+    ..._charts.map((c) => `<Override PartName="/ppt/charts/${c.name}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`),
   ].join("");
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT}">`

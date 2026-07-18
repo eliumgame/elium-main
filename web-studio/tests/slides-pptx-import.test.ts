@@ -41,16 +41,19 @@ describe("PPTX import (round-trip through the exporter)", () => {
     expect(d2.slides[1]!.elements!.length).toBe(1);
   });
 
-  it("round-trips a table and degrades a chart to a placeholder shape", () => {
+  it("round-trips a table and a native chart (c:chart, editable)", () => {
     const e = d2.slides[2]!.elements!;
     const tbl = e.find((x) => x.type === "table");
     expect(tbl).toBeTruthy();
     expect(tbl!.table!.cells).toEqual([["A", "B"], ["1", "2"]]);
-    // charts export as a titled placeholder (native c:chart is out of scope) →
-    // they come back as a rounded-rectangle shape carrying the title.
-    const deg = e.find((x) => x.type === "shape" && x.shape === "roundRect");
-    expect(deg).toBeTruthy();
-    expect(deg!.text).toBe("Ventes");
+    // Charts now export as a native <c:chart> part and come back as a real
+    // chart element (kind, labels, values and title preserved).
+    const chart = e.find((x) => x.type === "chart");
+    expect(chart).toBeTruthy();
+    expect(chart!.chart!.kind).toBe("bar");
+    expect(chart!.chart!.labels).toEqual(["X", "Y"]);
+    expect(chart!.chart!.values).toEqual([3, 7]);
+    expect(chart!.chart!.title).toBe("Ventes");
   });
 
   it("recovers the slide background colour", () => {

@@ -96,3 +96,60 @@ describe("PPTX export", () => {
     expect(rels).toContain("../media/image1.png");
   });
 });
+
+function chartDeck(kind: "bar" | "line" | "pie"): Deck {
+  return {
+    theme: "light",
+    active: 0,
+    slides: [
+      {
+        id: "sc", title: "", body: "", layout: "blank",
+        elements: [
+          { id: "c1", type: "chart", x: 10, y: 12, w: 80, h: 70,
+            chart: { kind, title: "Ventes", labels: ["Jan", "Fév", "Mar"], values: [12, 19, 9] } },
+        ],
+      },
+    ],
+  };
+}
+
+describe("PPTX native charts (c:chart)", () => {
+  it("emits a native chart part wired into the slide, rels and content types", () => {
+    const zip = unzipSync(deckToPptx(chartDeck("bar")));
+    // The chart part exists and carries the data + a bar plot.
+    const chart = strFromU8(zip["ppt/charts/chart1.xml"]);
+    expect(chart).toContain("<c:barChart>");
+    expect(chart).toContain("<c:barDir val=\"col\"/>");
+    for (const label of ["Jan", "Fév", "Mar"]) expect(chart).toContain(`<c:v>${label}</c:v>`);
+    for (const v of ["12", "19", "9"]) expect(chart).toContain(`<c:v>${v}</c:v>`);
+    expect(chart).toContain("Ventes"); // series/title text
+
+    // The slide references it via a graphicFrame + c:chart r:id (NOT a picture).
+    const slide = strFromU8(zip["ppt/slides/slide1.xml"]);
+    expect(slide).toContain("<p:graphicFrame>");
+    expect(slide).toMatch(/<c:chart[^>]*r:id="rId\d+"/);
+
+    // The relationship is a chart relationship pointing at the part.
+    const rels = strFromU8(zip["ppt/slides/_rels/slide1.xml.rels"]);
+    expect(rels).toContain("../charts/chart1.xml");
+    expect(rels).toContain("/relationships/chart");
+
+    // Content types declare the chart part.
+    const ct = strFromU8(zip["[Content_Types].xml"]);
+    expect(ct).toContain("/ppt/charts/chart1.xml");
+    expect(ct).toContain("drawingml.chart+xml");
+  });
+
+  it("maps chart kind to the right plot element", () => {
+    expect(strFromU8(unzipSync(deckToPptx(chartDeck("pie")))["ppt/charts/chart1.xml"])).toContain("<c:pieChart>");
+    expect(strFromU8(unzipSync(deckToPptx(chartDeck("line")))["ppt/charts/chart1.xml"])).toContain("<c:lineChart>");
+  });
+
+  it("gives each chart across slides a globally unique part name", () => {
+    const deck = chartDeck("bar");
+    deck.slides.push({ ...chartDeck("pie").slides[0], id: "sc2" });
+    const zip = unzipSync(deckToPptx(deck));
+    expect(Object.keys(zip)).toContain("ppt/charts/chart1.xml");
+    expect(Object.keys(zip)).toContain("ppt/charts/chart2.xml");
+  });
+});

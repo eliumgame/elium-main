@@ -7,12 +7,15 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
-import { X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download } from "lucide-react";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import type { DriveApi } from "../api";
 import { createCalc } from "../../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../../sheet/format";
 import type { CellStyle, NumFmt } from "../../sheet/model";
+import { workbookToXlsx } from "../../sheet/xlsx-export";
+import { collabSheetsToWorkbook } from "../collab-sheet-export";
+import { downloadBlob } from "../../export/exporters";
 
 const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9", "#dc2626", "#0d9488"];
 const colorFor = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]!; };
@@ -165,6 +168,15 @@ export default function CollabSheetEditor({
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && writable) { beginEdit(sel.r, sel.c, e.key); }
   };
 
+  // Export the current CRDT state as a real .xlsx (same package as the local
+  // Tableur — dual-platform parity). Available read-only too; exporting reads.
+  const exportXlsx = () => {
+    if (!sheets.length) return;
+    const wb = collabSheetsToWorkbook(sheets, active);
+    const base = (title || "classeur").replace(/\.[^.]+$/, "");
+    downloadBlob(`${base}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbookToXlsx(wb));
+  };
+
   const selRef = a1(sel.r, sel.c);
   const selStyle = sheet?.styles[selRef];
   const statusLabel =
@@ -189,6 +201,9 @@ export default function CollabSheetEditor({
           </div>
           <div className="dc-doc__spacer" />
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
+          <button className="eb eb--sm eb--outline" onClick={exportXlsx} disabled={!sheets.length} title="Exporter en XLSX">
+            <Download size={14} /> XLSX
+          </button>
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
 

@@ -605,7 +605,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   (`sheet/xlsx-export.ts`) produit un paquet OPC valide (valeurs, chaînes,
   formules `<f>` avec `fullCalcOnLoad`, formats de nombre + styles), round-trip
   testé. **AutoFilter réel** — tri, copie et export CSV ne considèrent que les
-  lignes visibles (`sheet/filter.ts`).
+  lignes visibles (`sheet/filter.ts`). **Parité dual-plateforme** : l'éditeur
+  Tableur *collaboratif* (Drive) exporte aussi en XLSX — un pont pur
+  (`drive-cloud/collab-sheet-export.ts`) reconstruit un `Workbook` depuis l'état
+  CRDT puis réutilise `workbookToXlsx` (testé).
 - **Reste** : fusion de cellules, validation de données, plages nommées,
   tableaux croisés.
 

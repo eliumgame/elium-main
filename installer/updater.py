@@ -149,6 +149,20 @@ def is_newer(remote: str, local: str) -> bool:
         return False
 
 
+def effective_version() -> str:
+    """Version RÉELLEMENT active = max(version de l'exe, overlay web déjà appliqué).
+
+    Indispensable : une màj web ne remplace que le dossier web (l'exe garde sa version).
+    Comparer une nouvelle version à la seule version de l'exe re-proposerait en boucle une
+    màj web déjà installée (bug de la carte qui revient après « Recharger »).
+    """
+    base = current_version()
+    ptr = _read_pointer()
+    if ptr and is_newer(ptr, base):
+        return ptr
+    return base
+
+
 # --------------------------------------------------------------------------- #
 # Réseau + crypto
 # --------------------------------------------------------------------------- #
@@ -216,7 +230,7 @@ def check_for_update() -> Optional[dict[str, Any]]:
     if not manifest:
         return None
     remote = str(manifest.get("version", ""))
-    if not remote or not is_newer(remote, current_version()):
+    if not remote or not is_newer(remote, effective_version()):
         return None
     return manifest
 
@@ -494,6 +508,7 @@ def relaunch_pending_exe() -> bool:
 _status: dict[str, Any] = {"state": "idle", "version": None, "kind": None, "progress": 0}
 _pending_manifest: Optional[dict[str, Any]] = None
 _apply_lock = threading.Lock()
+_last_check_monotonic = 0.0  # throttle des re-vérifications (secondes monotoniques)
 
 
 def get_status() -> dict[str, Any]:
@@ -524,6 +539,7 @@ def check_only() -> dict[str, Any]:
         _log(f"check_only: {exc}")
         return _publish("error")
     if not manifest:
+        _pending_manifest = None
         return _publish("up-to-date")
     _pending_manifest = manifest
     kind = "exe" if _needs_exe(manifest) else "web"
@@ -601,4 +617,30 @@ def check_and_apply(on_status: Optional[Callable[[dict[str, Any]], None]] = None
 
 def start_background_check() -> None:
     """Lance la DÉTECTION dans un thread daemon (n'impacte jamais le démarrage)."""
+    global _last_check_monotonic
+    try:
+        _last_check_monotonic = time.monotonic()
+    except Exception:
+        pass
     threading.Thread(target=check_only, daemon=True).start()
+
+
+def on_navigation() -> None:
+    """Appelé quand une page est (re)chargée. Corrige la boucle « Recharger » :
+    après application d'une màj web, on efface un état de màj périmé pour ne pas
+    ré-afficher la carte, puis on re-vérifie (throttlé). `effective_version()` garantit
+    qu'une version déjà appliquée n'est jamais re-proposée.
+    Ne perturbe PAS un téléchargement en cours ni une màj exe prête à redémarrer."""
+    global _last_check_monotonic
+    state = _status.get("state")
+    if state in ("downloading", "exe-ready"):
+        return
+    if state in ("web-ready", "available", "error", "up-to-date"):
+        _publish("idle")
+    try:
+        now = time.monotonic()
+    except Exception:
+        now = 0.0
+    if now - _last_check_monotonic < 30:
+        return
+    start_background_check()

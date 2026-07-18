@@ -344,6 +344,14 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         is_navigation = clean in ("/", "/index.html") or not os.path.splitext(clean)[1]
         self.directory = str(_resolve_serving_dir(refresh=is_navigation))
 
+        # (Re)chargement de page -> ré-évalue l'état de màj (évite la carte « Recharger »
+        # qui revient en boucle une fois la màj web appliquée).
+        if is_navigation and updater is not None:
+            try:
+                updater.on_navigation()
+            except Exception:
+                pass
+
         # SPA fallback : sert index.html pour les routes non-fichier.
         path = self.translate_path(self.path)
         if not os.path.exists(path) and not os.path.splitext(clean)[1]:

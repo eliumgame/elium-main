@@ -84,6 +84,7 @@ def env(tmp_path, monkeypatch):
     # (cas du CI de release, qui stampe avant de lancer pytest).
     monkeypatch.setattr(updater, "BUILD_CODE_HASH", updater._CODE_HASH_PLACEHOLDER)
     updater._pending_manifest = None
+    updater._last_check_monotonic = 0.0
     # repart d'un statut propre
     updater._status.clear()
     updater._status.update({"state": "idle", "version": None, "kind": None, "progress": 0})
@@ -191,6 +192,36 @@ def test_corrupted_artifact_hash_blocks_update(env, monkeypatch):
 
     assert status["state"] == "error"             # sha256 mismatch -> artefact jeté
     assert updater.active_web_dir() is None
+
+
+def test_no_reoffer_after_web_update_applied(env, monkeypatch):
+    """Régression : la carte ne doit PAS revenir en boucle après une màj web appliquée."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    manifest_path = _publish(env / "release", priv, "4.1.0")
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+
+    assert updater.check_only()["state"] == "available"
+    assert updater.check_and_apply()["state"] == "web-ready"
+    assert updater.active_web_dir() is not None            # overlay 4.1.0 appliqué
+
+    # La version effective reflète l'overlay, donc plus rien de « plus récent ».
+    assert updater.effective_version() == "4.1.0"
+    assert updater.check_for_update() is None              # ne re-propose pas 4.1.0
+    assert updater.check_only()["state"] == "up-to-date"
+
+
+def test_on_navigation_clears_stale_ready(env, monkeypatch):
+    """Un rechargement efface l'état « web-ready » périmé (pas de carte en boucle)."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    manifest_path = _publish(env / "release", priv, "4.1.0")
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+    updater.check_and_apply()
+    assert updater.get_status()["state"] == "web-ready"
+
+    updater.on_navigation()   # simule le reload après clic « Recharger »
+    assert updater.get_status()["state"] in ("idle", "up-to-date")
 
 
 def test_no_update_when_not_newer(env, monkeypatch):

@@ -21,7 +21,7 @@ import {
   elementsOf, newElementId, newSlideId, newTextElement, newShapeElement, newImageElement, newTableElement, newChartElement, REF_H,
   type Slide, type SlideElement, type SlideTheme, type SlideTransition, type ShapeKind, type AnimEffect, type ChartKind, type ChartData,
 } from "./model";
-import { ANIM_EFFECTS, revealAt, maxStep } from "./playback";
+import { ANIM_EFFECTS, ANIM_TRIGGERS, revealAt, maxStep } from "./playback";
 import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from "./templates";
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
@@ -456,13 +456,21 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                               {ANIM_EFFECTS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
                             </select>
                           </label>
-                          <label className="sv-anim-row"><span>Ordre au clic</span>
+                          <label className="sv-anim-row"><span>Ordre</span>
                             <input className="input" type="number" min={0} max={50} value={a.order} onChange={(e) => upsertAnim(sel.id, { order: Number(e.target.value) })} />
+                          </label>
+                          <label className="sv-anim-row"><span>Déclencheur</span>
+                            <select className="input" value={a.trigger ?? "onClick"} onChange={(e) => upsertAnim(sel.id, { trigger: e.target.value as import("./model").AnimTrigger })}>
+                              {ANIM_TRIGGERS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                            </select>
                           </label>
                           <label className="sv-anim-row"><span>Durée (ms)</span>
                             <input className="input" type="number" min={100} max={5000} step={50} value={a.durationMs ?? 500} onChange={(e) => upsertAnim(sel.id, { durationMs: Number(e.target.value) })} />
                           </label>
-                          <div className="sv-anim-hint">0 = avec la diapo · 1, 2… = clics successifs</div>
+                          <label className="sv-anim-row"><span>Délai (ms)</span>
+                            <input className="input" type="number" min={0} max={10000} step={50} value={a.delayMs ?? 0} onChange={(e) => upsertAnim(sel.id, { delayMs: Number(e.target.value) })} />
+                          </label>
+                          <div className="sv-anim-hint">Ordre = séquence de lecture · « au clic » attend un clic, « avec/après la précédente » partagent son clic</div>
                           <button className="eb eb--sm eb--ghost" onClick={() => { removeAnim(sel.id); setAnimMenu(false); }}><Trash2 size={13} /> Retirer l'animation</button>
                         </>
                       );

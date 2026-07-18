@@ -52,6 +52,61 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
     ],
   },
   {
+    id: "agenda", label: "Sommaire",
+    build: () => [
+      t({ type: "text", x: 7, y: 8, w: 86, h: 14, html: "<p>Sommaire</p>", fontSize: 40, valign: "top" }),
+      t({ type: "text", x: 7, y: 24, w: 86, h: 66, html: "<ol><li>Introduction</li><li>Contexte</li><li>Proposition</li><li>Prochaines étapes</li></ol>", fontSize: 26, valign: "top" }),
+    ],
+  },
+  {
+    id: "compare", label: "Comparaison",
+    build: () => [
+      t({ type: "text", x: 6, y: 7, w: 88, h: 12, html: "<p>Comparaison</p>", fontSize: 36, valign: "top" }),
+      t({ type: "shape", shape: "roundRect", x: 6, y: 24, w: 42, h: 62, fill: "#eff6ff", stroke: "#3b82f6", strokeWidth: 2, radius: 14 }),
+      t({ type: "shape", shape: "roundRect", x: 52, y: 24, w: 42, h: 62, fill: "#fef2f2", stroke: "#ef4444", strokeWidth: 2, radius: 14 }),
+      t({ type: "text", x: 8, y: 27, w: 38, h: 10, html: "<p>Option A</p>", fontSize: 24, align: "center", valign: "middle" }),
+      t({ type: "text", x: 54, y: 27, w: 38, h: 10, html: "<p>Option B</p>", fontSize: 24, align: "center", valign: "middle" }),
+      t({ type: "text", x: 9, y: 39, w: 36, h: 44, html: "<ul><li>Avantage</li><li>Avantage</li></ul>", fontSize: 20, valign: "top" }),
+      t({ type: "text", x: 55, y: 39, w: 36, h: 44, html: "<ul><li>Avantage</li><li>Avantage</li></ul>", fontSize: 20, valign: "top" }),
+    ],
+  },
+  {
+    id: "stat", label: "Chiffre clé", background: "linear-gradient(160deg, #0f766e, #134e4a)",
+    build: () => [
+      t({ type: "text", x: 10, y: 30, w: 80, h: 26, html: "<p>87 %</p>", fontSize: 96, color: "#ffffff", align: "center", valign: "middle" }),
+      t({ type: "text", x: 12, y: 60, w: 76, h: 12, html: "<p>de satisfaction client</p>", fontSize: 26, color: "#99f6e4", align: "center", valign: "top" }),
+    ],
+  },
+  {
+    id: "image-caption", label: "Image + légende",
+    build: () => [
+      t({ type: "text", x: 6, y: 7, w: 88, h: 12, html: "<p>Titre</p>", fontSize: 36, valign: "top" }),
+      t({ type: "shape", shape: "roundRect", x: 6, y: 22, w: 55, h: 64, fill: "#f1f5f9", stroke: "#cbd5e1", strokeWidth: 2, radius: 12, text: "Image" }),
+      t({ type: "text", x: 64, y: 26, w: 30, h: 56, html: "<ul><li>Point clé</li><li>Point clé</li><li>Point clé</li></ul>", fontSize: 22, valign: "top" }),
+    ],
+  },
+  {
+    id: "timeline", label: "Étapes",
+    build: () => [
+      t({ type: "text", x: 6, y: 8, w: 88, h: 12, html: "<p>Étapes</p>", fontSize: 36, valign: "top" }),
+      t({ type: "shape", shape: "roundRect", x: 5, y: 34, w: 20, h: 32, fill: "#eef2ff", stroke: "#6366f1", strokeWidth: 2, radius: 12, text: "1" }),
+      t({ type: "shape", shape: "roundRect", x: 29, y: 34, w: 20, h: 32, fill: "#eef2ff", stroke: "#6366f1", strokeWidth: 2, radius: 12, text: "2" }),
+      t({ type: "shape", shape: "roundRect", x: 53, y: 34, w: 20, h: 32, fill: "#eef2ff", stroke: "#6366f1", strokeWidth: 2, radius: 12, text: "3" }),
+      t({ type: "shape", shape: "roundRect", x: 77, y: 34, w: 18, h: 32, fill: "#eef2ff", stroke: "#6366f1", strokeWidth: 2, radius: 12, text: "4" }),
+      t({ type: "text", x: 5, y: 68, w: 20, h: 10, html: "<p>Étape</p>", fontSize: 16, align: "center", valign: "top" }),
+      t({ type: "text", x: 29, y: 68, w: 20, h: 10, html: "<p>Étape</p>", fontSize: 16, align: "center", valign: "top" }),
+      t({ type: "text", x: 53, y: 68, w: 20, h: 10, html: "<p>Étape</p>", fontSize: 16, align: "center", valign: "top" }),
+      t({ type: "text", x: 77, y: 68, w: 18, h: 10, html: "<p>Étape</p>", fontSize: 16, align: "center", valign: "top" }),
+    ],
+  },
+  {
+    id: "closing", label: "Remerciements", background: "linear-gradient(160deg, #1e293b, #0f172a)",
+    build: () => [
+      t({ type: "text", x: 10, y: 38, w: 80, h: 18, html: "<p>Merci</p>", fontSize: 64, color: "#f8fafc", align: "center", valign: "middle" }),
+      t({ type: "text", x: 12, y: 60, w: 76, h: 10, html: "<p>Des questions ?</p>", fontSize: 24, color: "#94a3b8", align: "center", valign: "top" }),
+    ],
+  },
+  {
     id: "blank", label: "Vierge", build: () => [],
   },
 ];

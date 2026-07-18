@@ -579,8 +579,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   vrai Postgres + vraie API + vrai SDK), gaté en CI (job `server-e2e`).
 - **Fait aussi** : **SSO (OIDC)** + **SCIM** (provisioning/déprovisioning) en
   restant zéro-connaissance (§4.5), validés E2E.
-- **Reste** : mode **présentation** dans l'éditeur de diapos *collaboratif* (le
-  réglage de transition y est stocké mais pas rejoué).
+- **Fait aussi** : l'éditeur de diapos *collaboratif* partage l'éditeur unifié
+  `SlidesEditor` → animations, **mode présentateur** (2ᵉ écran), transitions et
+  morph y sont rejoués comme en local (plus de « transition stockée mais pas
+  rejouée »).
 - **À améliorer** : fusion caractère-par-caractère des champs texte collaboratifs
   (actuellement LWW par champ).
 
@@ -618,9 +620,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   natifs `<c:chart>`** (barres/lignes/secteurs) à l'export ET à l'import — de
   vrais graphiques éditables, plus une image aplatie. Transition **« Morph »** =
   interpolation réelle par élément (position/taille/rotation/opacité).
-- **Reste** : **galerie de modèles** riche (au-delà des quelques mises en page
-  de base déjà fournies par `templates.ts`) ; multi-sélection + groupes +
-  copier/coller entre diapos.
+  **Galerie de modèles** enrichie (12 mises en page : titre, sommaire,
+  comparaison, chiffre clé, deux colonnes, étapes, citation, remerciements…).
+- **Reste** : multi-sélection + groupes + copier/coller entre diapos
+  (redimensionnement proportionnel).
 
 ### Suite locale — PDF
 - **Fait** : lecteur + annotation + édition de texte, persistance `.elium`,
@@ -650,14 +653,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ## 12. Feuille de route
 
-1. **Présentations v2 — parité dual-plateforme** : animations par élément,
-   vraie vue présentateur (2ᵉ écran), morph par interpolation et import PPTX
-   sont déjà livrés sur l'éditeur **local** (§11) ; reste à porter le rejeu des
-   animations/transitions sur l'éditeur **collaboratif** (Drive), où le
-   réglage est aujourd'hui stocké mais pas rejoué, et à enrichir la galerie de
-   modèles sur les **deux** éditeurs.
+1. **Présentations v2 — parité dual-plateforme** : animations par élément, vraie
+   vue présentateur (2ᵉ écran), morph, import PPTX et galerie de modèles enrichie
+   sont livrés sur les **deux** éditeurs (local + collaboratif, via `SlidesEditor`
+   unifié). Reste : multi-sélection + groupes + copier/coller entre diapos.
 2. **Parité fonctionnelle** : couche texte de lecture PDF.
-3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes.
+3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes ;
+   harnais de tests serveur sur elium-main.
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en
    packages ; conversion DOCX/PDF ↔ `.elium`. Toute fonction en ligne reste

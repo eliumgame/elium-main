@@ -645,7 +645,14 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   Valeurs persistées dans le `.elium`. Testé (lecteur pur + write-back pdf-lib
   + round-trip réel pdf.js→readFields→fillForm qui verrouille le nom de
   propriété `buttonValue` des radios).
-- **Reste** : **fusion/division** multi-fichiers.
+  **Fusion / division multi-fichiers** (`pdf/merge-split.ts`) : « Fusionner »
+  ajoute d'autres PDF à la suite (pdf-lib `copyPages` — l'ordre des pages
+  actuelles et leurs éditions sont conservés en tête, on étend simplement la
+  liste de pages), « Extraire » exporte une plage de pages (`parsePageRange`
+  pur : « 1-3, 5 ») de l'ordre édité courant dans un nouveau PDF. Testé
+  (parsing, fusion préservant l'ordre, extraction).
+- **Fait** : lecteur/annotation/édition/formulaires/fusion/division — le socle
+  PDF est complet.
 
 ### Cœur Python & format
 - **Fait** : parité `.elium` Python↔TS (format, sceau, signatures, chiffrement),
@@ -675,7 +682,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    (dont graphiques natifs), galerie de modèles, multi-sélection/groupes/
    copier-coller. Améliorations possibles : fusion texte caractère-par-caractère
    en collaboratif.
-2. **PDF avancé** : formulaires (AcroForm) **livré** ; reste la fusion/division
+2. **PDF avancé : LIVRÉ** — formulaires (AcroForm) + fusion/division
    multi-fichiers.
 3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office

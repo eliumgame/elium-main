@@ -8,7 +8,7 @@ import {
   Home, Upload, Download, Save, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Search, X,
   FileText, FileType, MousePointer2, Type, Highlighter, Pencil, Square, Circle, Minus,
   Image as ImageIcon, Eraser, Trash2, Copy, ArrowUp, ArrowDown, FilePlus, Undo2, Redo2, ShieldCheck, RotateCw,
-  Bold, Italic, Underline, TextCursorInput, FormInput,
+  Bold, Italic, Underline, TextCursorInput, FormInput, Combine, Scissors,
 } from "lucide-react";
 import { downloadBlob } from "../export/exporters";
 import { useUndoable } from "../ui/useUndoable";
@@ -18,6 +18,7 @@ import TextEditLayer from "./TextEditLayer";
 import FormLayer from "./FormLayer";
 import { buildEditedPdf } from "./pdf-save";
 import { hasFormFields, type RawWidget } from "./forms";
+import { mergePdfs, extractPages, parsePageRange } from "./merge-split";
 import { type Anno, type PageRef, type PdfDoc, type EditedText, type FormValue, type Tool, newId, TOOL_DEFAULTS, base64ToBytes, bytesToBase64, serializePdfDoc } from "./model";
 import { allFontNames, registerCustomFont, getCustomFont, isCustomFont, DEFAULT_FONT } from "../ui/fonts";
 
@@ -196,6 +197,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
+  const mergeInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bytesRef = useRef<Uint8Array | null>(null);
   const taskRef = useRef<ReturnType<typeof pdfjs.getDocument> | null>(null);
@@ -364,6 +366,47 @@ export default function PdfView({ onHome, initial, onExportElium }: {
   };
   const downloadOriginal = () => { if (bytesRef.current) downloadBlob(name || "document.pdf", "application/pdf", bytesRef.current); };
 
+  // --- merge / split -------------------------------------------------------
+  // Append one or more PDFs to the current document. Merging at the source level
+  // keeps the current pages (and their edits) at the front — copyPages preserves
+  // order — so we just extend the page list with the appended pages.
+  const onMergePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length || !bytesRef.current || !doc) return;
+    setBusy(true); setErr("");
+    try {
+      const prevCount = doc.numPages;
+      const picked = await Promise.all(files.map(async (f) => new Uint8Array(await f.arrayBuffer())));
+      const merged = await mergePdfs([bytesRef.current, ...picked]);
+      const appended: PageRef[] = Array.from({ length: merged.pageCount - prevCount }, (_, k) => ({ id: newId("pg"), from: prevCount + k }));
+      await loadBytes(merged.bytes, name, { pages: [...pages, ...appended], annos, textEdits, formValues });
+    } catch {
+      setErr("Échec de la fusion (fichier illisible ou protégé ?).");
+      setBusy(false);
+    }
+  };
+
+  // Extract a page range (in the current, edited order) into a new PDF download.
+  const extractRange = async () => {
+    if (!bytesRef.current) return;
+    const spec = await dialogs.prompt({ title: "Extraire des pages", label: `Plage de pages (1–${pages.length}), ex. « 1-3, 5 »`, defaultValue: `1-${pages.length}` });
+    if (spec === null) return;
+    const idxs = parsePageRange(spec, pages.length);
+    if (!idxs.length) { setErr("Plage de pages invalide."); return; }
+    setSaving(true); setErr("");
+    try {
+      const full = await buildEditedPdf(bytesRef.current, pages, annos, textEdits, { formValues, flattenForm });
+      const extracted = await extractPages(full, idxs);
+      const base = (name || "document.pdf").replace(/\.pdf$/i, "");
+      downloadBlob(`${base}-pages.pdf`, "application/pdf", extracted);
+    } catch {
+      setErr("Échec de l'extraction.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Save as a sealed/encrypted .elium (durable, re-editable, signable).
   const saveElium = async () => {
     if (!bytesRef.current || !onExportElium) return;
@@ -469,12 +512,20 @@ export default function PdfView({ onHome, initial, onExportElium }: {
         {doc && <button className="eb eb--sm eb--outline" onClick={downloadOriginal} title="Télécharger l'original"><Download size={14} /></button>}
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" hidden onChange={onPick} />
         <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
+        <input ref={mergeInputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
       </div>
 
       {doc && (
         <div className="pdf-tools">
           <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={undo} disabled={!canUndo}><Undo2 size={16} /></button>
           <button className="icon-btn" title="Rétablir (Ctrl+Y)" onClick={redo} disabled={!canRedo}><Redo2 size={16} /></button>
+          <span className="pdf-tools__sep" />
+          <button className="eb eb--sm eb--outline" title="Fusionner d'autres PDF à la suite" onClick={() => mergeInputRef.current?.click()}>
+            <Combine size={14} /> Fusionner
+          </button>
+          <button className="eb eb--sm eb--outline" title="Extraire une plage de pages dans un nouveau PDF" onClick={extractRange} disabled={saving}>
+            <Scissors size={14} /> Extraire
+          </button>
           <span className="pdf-tools__sep" />
           <button
             className={`eb eb--sm ${textMode ? "eb--primary" : "eb--outline"}`}

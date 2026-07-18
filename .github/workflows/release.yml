@@ -46,8 +46,11 @@ jobs:
         id: ver
         shell: bash
         run: |
-          BASE=$(grep -oE '[0-9]+\.[0-9]+' src/elium/__init__.py | head -1)
-          echo "version=${BASE}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          # Version sémantique = le __version__ EXACT de __init__.py. Bumpez-le
+          # pour publier une nouvelle release (une re-push sans bump est un no-op,
+          # voir l'étape « Publier » ci-dessous).
+          VER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' src/elium/__init__.py | head -1)
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         if: steps.guard.outputs.has_key == 'true'
@@ -128,6 +131,10 @@ jobs:
           MSI="installer/output/Elium-${V}-Setup.msi"
           ASSETS=(installer/staging/Elium.exe web.zip dist/latest.json dist/latest.json.sig)
           if [ -f "$MSI" ]; then ASSETS+=("$MSI"); fi
+          if gh release view "v${V}" >/dev/null 2>&1; then
+            echo "::notice::Release v${V} existe déjà — bumpez __version__ dans src/elium/__init__.py pour publier une nouvelle version."
+            exit 0
+          fi
           gh release create "v${V}" "${ASSETS[@]}" \
             --target "${{ github.sha }}" \
             --title "Elium ${V}" \

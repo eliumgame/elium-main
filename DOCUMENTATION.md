@@ -633,9 +633,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ### Suite locale — PDF
 - **Fait** : lecteur + annotation + édition de texte, persistance `.elium`,
-  rotation de pages correcte.
-- **Reste** : couche texte de **sélection/recherche** en lecture (Ctrl+F) ;
-  **AcroForm** (formulaires) ; **fusion/division** multi-fichiers.
+  rotation de pages correcte, **couche texte sélectionnable + recherche Ctrl+F**
+  (calque texte pdf.js `TextLayer` par-dessus le rendu canvas — additif, la page
+  s'affiche même si le calque échoue ; surlignage des occurrences + navigation
+  ‹/›, matcher pur `pdf/search.ts` testé).
+- **Reste** : **AcroForm** (formulaires) ; **fusion/division** multi-fichiers.
 
 ### Cœur Python & format
 - **Fait** : parité `.elium` Python↔TS (format, sceau, signatures, chiffrement),
@@ -665,7 +667,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    (dont graphiques natifs), galerie de modèles, multi-sélection/groupes/
    copier-coller. Améliorations possibles : fusion texte caractère-par-caractère
    en collaboratif.
-2. **Parité fonctionnelle** : couche texte de lecture PDF.
+2. **PDF avancé** : formulaires (AcroForm) + fusion/division multi-fichiers.
 3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
+import { TextLayer } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { spanMatches, findMatches, type PdfMatch } from "./search";
 import {
-  Home, Upload, Download, Save, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight,
+  Home, Upload, Download, Save, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Search, X,
   FileText, FileType, MousePointer2, Type, Highlighter, Pencil, Square, Circle, Minus,
   Image as ImageIcon, Eraser, Trash2, Copy, ArrowUp, ArrowDown, FilePlus, Undo2, Redo2, ShieldCheck, RotateCw,
   Bold, Italic, Underline, TextCursorInput,
@@ -35,11 +37,13 @@ const TOOLS: { tool: Tool; icon: React.ReactNode; label: string }[] = [
 ];
 
 /** One rendered page (source or inserted blank), rasterised lazily; children overlay it. */
-function PdfPage({ doc, from, dims, scale, rotate = 0, index, children }: {
+function PdfPage({ doc, from, dims, scale, rotate = 0, index, children, onText, highlight }: {
   doc: PDFDocumentProxy; from: number | null; dims: { w: number; h: number }; scale: number; rotate?: number; index: number; children: React.ReactNode;
+  onText?: (index: number, text: string) => void; highlight?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const done = useRef<string | null>(null);
 
@@ -74,13 +78,39 @@ function PdfPage({ doc, from, dims, scale, rotate = 0, index, children }: {
       const vp = page.getViewport({ scale, rotation: (page.rotate + rotate) % 360 });
       const task = page.render({ canvas, canvasContext: ctx, viewport: vp });
       try { await task.promise; done.current = key; } catch { /* cancelled */ }
+
+      // Selectable/searchable text layer, laid OVER the canvas (additive — the
+      // page still renders even if the text layer fails). pdf.js needs
+      // --scale-factor to position the transparent spans.
+      const textDiv = textRef.current;
+      if (textDiv && !cancelled) {
+        try {
+          textDiv.replaceChildren();
+          textDiv.style.setProperty("--scale-factor", String(scale));
+          const tc = await page.getTextContent();
+          if (cancelled) return;
+          await new TextLayer({ textContentSource: tc, container: textDiv, viewport: vp }).render();
+          onText?.(index, tc.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+        } catch { /* text layer is best-effort */ }
+      }
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, scale, rotate, doc, from, dims.w, dims.h]);
+
+  // Coarse search highlight: mark spans that contain the query.
+  useEffect(() => {
+    const textDiv = textRef.current;
+    if (!textDiv) return;
+    for (const span of textDiv.querySelectorAll("span")) {
+      span.classList.toggle("pdf-hit", !!highlight && spanMatches(span.textContent ?? "", highlight));
+    }
+  }, [highlight, visible, scale]);
 
   return (
     <div ref={wrapRef} className="pdf-page" data-page={index + 1} style={{ width: dims.w * scale, height: dims.h * scale }}>
       <canvas ref={canvasRef} />
+      <div ref={textRef} className="pdf-textlayer" aria-hidden />
       {children}
     </div>
   );
@@ -162,6 +192,23 @@ export default function PdfView({ onHome, initial, onExportElium }: {
   const bytesRef = useRef<Uint8Array | null>(null);
   const taskRef = useRef<ReturnType<typeof pdfjs.getDocument> | null>(null);
 
+  // In-reader text search (selectable text layer + Ctrl+F).
+  const pageTexts = useRef<string[]>([]);
+  const [search, setSearch] = useState<{ open: boolean; query: string; matches: PdfMatch[]; idx: number }>({ open: false, query: "", matches: [], idx: 0 });
+  const runSearch = (query: string) => {
+    const matches = findMatches(pageTexts.current, query);
+    setSearch((s) => ({ ...s, query, matches, idx: 0 }));
+    if (matches[0]) goTo(matches[0].page + 1);
+  };
+  const stepSearch = (delta: number) => {
+    setSearch((s) => {
+      if (!s.matches.length) return s;
+      const idx = (s.idx + delta + s.matches.length) % s.matches.length;
+      goTo(s.matches[idx]!.page + 1);
+      return { ...s, idx };
+    });
+  };
+
   // Load PDF bytes into the viewer. `restore` reuses a persisted page order +
   // annotations (re-opening an .elium); otherwise pages map 1:1 to the source.
   const loadBytes = useCallback(async (buf: Uint8Array, fileName: string, restore?: { pages: PageRef[]; annos: Record<string, Anno[]>; textEdits: Record<string, EditedText[]> }) => {
@@ -224,11 +271,13 @@ export default function PdfView({ onHome, initial, onExportElium }: {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       const inField = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if ((e.ctrlKey || e.metaKey) && !inField) {
+      if ((e.ctrlKey || e.metaKey)) {
         const k = e.key.toLowerCase();
-        if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
-        if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); redo(); return; }
+        if (k === "f") { e.preventDefault(); setSearch((s) => ({ ...s, open: true })); return; }
+        if (!inField && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+        if (!inField && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); redo(); return; }
       }
+      if (e.key === "Escape" && search.open) { setSearch((s) => ({ ...s, open: false })); return; }
       if (editId) return;
       if ((e.key === "Delete" || e.key === "Backspace") && sel && !inField) {
         removeAnno(sel.pageId, sel.id); setSel(null);
@@ -236,7 +285,7 @@ export default function PdfView({ onHome, initial, onExportElium }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sel, editId, undo, redo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel, editId, undo, redo, search.open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- page operations (all recorded) --------------------------------------
   const move = (i: number, dir: -1 | 1) => setDocState((s) => {
@@ -368,6 +417,25 @@ export default function PdfView({ onHome, initial, onExportElium }: {
               <span className="pdf-nav__total">/ {pages.length}</span>
               <button className="icon-btn" title="Page suivante" onClick={() => goTo(cur + 1)} disabled={cur >= pages.length}><ChevronRight size={16} /></button>
             </div>
+            <div className="pdf-search">
+              {search.open ? (
+                <>
+                  <Search size={14} />
+                  <input
+                    className="pdf-search__input" autoFocus placeholder="Rechercher dans le document…" value={search.query}
+                    onChange={(e) => runSearch(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); } if (e.key === "Escape") setSearch((s) => ({ ...s, open: false })); }}
+                    aria-label="Rechercher dans le PDF"
+                  />
+                  <span className="pdf-search__count">{search.matches.length ? `${search.idx + 1}/${search.matches.length}` : search.query ? "0" : ""}</span>
+                  <button className="icon-btn" title="Précédent (Maj+Entrée)" onClick={() => stepSearch(-1)} disabled={!search.matches.length}><ChevronLeft size={16} /></button>
+                  <button className="icon-btn" title="Suivant (Entrée)" onClick={() => stepSearch(1)} disabled={!search.matches.length}><ChevronRight size={16} /></button>
+                  <button className="icon-btn" title="Fermer (Échap)" onClick={() => setSearch((s) => ({ ...s, open: false, query: "" }))}><X size={16} /></button>
+                </>
+              ) : (
+                <button className="icon-btn" title="Rechercher (Ctrl+F)" onClick={() => setSearch((s) => ({ ...s, open: true }))}><Search size={16} /></button>
+              )}
+            </div>
             <div className="pdf-zoom">
               <button className="icon-btn" title="Dézoomer" onClick={() => zoom(-0.2)}><ZoomOut size={16} /></button>
               <span className="pdf-zoom__val">{Math.round(scale * 100)} %</span>
@@ -480,7 +548,9 @@ export default function PdfView({ onHome, initial, onExportElium }: {
                 const dims = dimsFor(pr);
                 const rot = pr.rotate ?? 0;
                 return (
-                  <PdfPage key={pr.id} doc={doc} from={pr.from} dims={dims} scale={scale} rotate={rot} index={i}>
+                  <PdfPage key={pr.id} doc={doc} from={pr.from} dims={dims} scale={scale} rotate={rot} index={i}
+                    onText={(idx, text) => { pageTexts.current[idx] = text; }}
+                    highlight={search.open ? search.query : ""}>
                     {rot !== 0 ? null : textMode ? (
                       pr.from != null ? (
                         <TextEditLayer

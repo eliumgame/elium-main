@@ -920,6 +920,18 @@
 .pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 16px; }
 .pdf-page { position: relative; background: #fff; box-shadow: var(--shadow); border-radius: 2px; }
 .pdf-page canvas { display: block; width: 100%; height: 100%; border-radius: 2px; }
+
+/* Selectable/searchable text layer, laid transparently over the page canvas
+   (pdf.js positions the spans via --scale-factor). Additive: the page still
+   renders from the canvas even if this layer fails. */
+.pdf-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; z-index: 2; text-align: initial; opacity: 1; }
+.pdf-textlayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0; }
+.pdf-textlayer ::selection { background: rgba(37, 99, 235, 0.35); }
+.pdf-textlayer .pdf-hit { background: rgba(250, 204, 21, 0.55); border-radius: 2px; }
+
+.pdf-search { display: inline-flex; align-items: center; gap: 4px; }
+.pdf-search__input { width: 220px; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.pdf-search__count { min-width: 42px; text-align: center; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .pdf-page__num { position: absolute; bottom: 6px; right: 8px; font-size: 11px; color: #64748b; background: rgba(255,255,255,.85); border-radius: 4px; padding: 1px 6px; pointer-events: none; }
 .pdf-empty {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;

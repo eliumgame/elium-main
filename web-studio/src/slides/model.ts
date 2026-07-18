@@ -42,6 +42,8 @@ export interface SlideElement {
   rotation?: number; // degrees, clockwise
   opacity?: number; // 0..1 (default 1)
   locked?: boolean;
+  /** Grouping tag — elements sharing a groupId select/move/delete together. */
+  groupId?: string;
   /** Stable pairing tag for the Morph transition across consecutive slides.
    *  Duplicating a slide preserves it (while minting a fresh `id`), so a
    *  duplicate-then-nudge morph pairs elements even though ids differ. */

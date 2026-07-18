@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
 import type { RevealState } from "./playback";
+import { selectionAfterClick, marqueeHits, resizeGeometry, type Rect } from "./selection";
 import SheetChart from "../sheet/SheetChart";
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -83,8 +84,8 @@ export interface SlideCanvasProps {
   theme: SlideTheme;
   scale: number; // px per REF_H (for font sizing); provided by parent measuring
   editable?: boolean;
-  selectedId?: string | null;
-  onSelect?: (id: string | null) => void;
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
   onChange?: (id: string, patch: Partial<SlideElement>, commit: boolean) => void;
   onBeginChange?: () => void;
   /** Presenter playback: hides not-yet-revealed elements, animates entering ones. */
@@ -161,56 +162,64 @@ function ElementView({ el, scale, editing, onEditInput, onCellEdit }: { el: Slid
   return <div className="ce-text" style={style} dangerouslySetInnerHTML={{ __html: el.html ?? "" }} />;
 }
 
-export default function SlideCanvas({ slide, elements, theme, scale, editable, selectedId, onSelect, onChange, onBeginChange, reveal }: SlideCanvasProps) {
+export default function SlideCanvas({ slide, elements, theme, scale, editable, selectedIds, onSelectionChange, onChange, onBeginChange, reveal }: SlideCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
-  const drag = useRef<{ id: string; mode: DragMode; sx: number; sy: number; o: SlideElement; cx: number; cy: number; rect: DOMRect } | null>(null);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  const drag = useRef<
+    | { kind: "move"; sx: number; sy: number; rect: DOMRect; items: { id: string; o: SlideElement }[] }
+    | { kind: "handle"; id: string; mode: DragMode; sx: number; sy: number; rect: DOMRect; o: SlideElement; cx: number; cy: number }
+    | null
+  >(null);
 
-  useEffect(() => { if (selectedId == null) setEditingId(null); }, [selectedId]);
+  const sel = selectedIds ?? [];
+  const selSet = new Set(sel);
+  // Leave in-place text editing whenever the edited element is no longer the
+  // sole selection.
+  useEffect(() => {
+    if (editingId && !(sel.length === 1 && sel[0] === editingId)) setEditingId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds]);
 
-  const begin = useCallback((e: React.MouseEvent, elId: string, mode: DragMode) => {
+  // --- Move (drag): the whole current selection moves together --------------
+  const beginMove = useCallback((e: React.MouseEvent, elId: string) => {
     if (!editable) return;
     e.preventDefault(); e.stopPropagation();
-    const rect = boxRef.current?.getBoundingClientRect();
-    const o = elements.find((x) => x.id === elId);
-    if (!rect || !o) return;
-    onSelect?.(elId);
+    const rect = boxRef.current?.getBoundingClientRect(); if (!rect) return;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const nextSel = selectionAfterClick(elements, selectedIds ?? [], elId, additive);
+    onSelectionChange?.(nextSel);
+    if (additive) return; // shift/ctrl-click toggles selection; no drag
+    const moving = new Set(nextSel);
+    const items = elements.filter((x) => moving.has(x.id)).map((x) => ({ id: x.id, o: { ...x } }));
+    if (!items.length) return;
     onBeginChange?.();
-    drag.current = { id: elId, mode, sx: e.clientX, sy: e.clientY, o: { ...o }, cx: o.x + o.w / 2, cy: o.y + o.h / 2, rect };
-
+    drag.current = { kind: "move", sx: e.clientX, sy: e.clientY, rect, items };
     const move = (ev: MouseEvent) => {
-      const d = drag.current; if (!d) return;
+      const d = drag.current; if (!d || d.kind !== "move") return;
       const dxp = ((ev.clientX - d.sx) / d.rect.width) * 100;
       const dyp = ((ev.clientY - d.sy) / d.rect.height) * 100;
-      const g: Guide[] = [];
-      if (d.mode === "move") {
-        let nx = clamp(d.o.x + dxp, -d.o.w + 5, 100 - 5);
-        let ny = clamp(d.o.y + dyp, -d.o.h + 5, 100 - 5);
-        // snap centre / edges to slide guides
-        const cx = nx + d.o.w / 2, cy = ny + d.o.h / 2;
+      if (d.items.length === 1) {
+        // single element → snap to slide centre / edges with guides
+        const o = d.items[0]!.o;
+        let nx = clamp(o.x + dxp, -o.w + 5, 100 - 5);
+        let ny = clamp(o.y + dyp, -o.h + 5, 100 - 5);
+        const g: Guide[] = [];
+        const cx = nx + o.w / 2, cy = ny + o.h / 2;
         const snap = (val: number, target: number) => (Math.abs(val - target) < 1.2 ? target : null);
-        for (const t of [50, 0, 100]) { const s = snap(cx, t); if (s != null) { nx = s - d.o.w / 2; g.push({ x: t }); break; } }
-        for (const t of [0, 100]) { if (Math.abs(nx - t) < 1.2) { nx = t; g.push({ x: t }); } if (Math.abs(nx + d.o.w - t) < 1.2) { nx = t - d.o.w; g.push({ x: t }); } }
-        for (const t of [50, 0, 100]) { const s = snap(cy, t); if (s != null) { ny = s - d.o.h / 2; g.push({ y: t }); break; } }
-        for (const t of [0, 100]) { if (Math.abs(ny - t) < 1.2) { ny = t; g.push({ y: t }); } if (Math.abs(ny + d.o.h - t) < 1.2) { ny = t - d.o.h; g.push({ y: t }); } }
+        for (const t of [50, 0, 100]) { const s = snap(cx, t); if (s != null) { nx = s - o.w / 2; g.push({ x: t }); break; } }
+        for (const t of [0, 100]) { if (Math.abs(nx - t) < 1.2) { nx = t; g.push({ x: t }); } if (Math.abs(nx + o.w - t) < 1.2) { nx = t - o.w; g.push({ x: t }); } }
+        for (const t of [50, 0, 100]) { const s = snap(cy, t); if (s != null) { ny = s - o.h / 2; g.push({ y: t }); break; } }
+        for (const t of [0, 100]) { if (Math.abs(ny - t) < 1.2) { ny = t; g.push({ y: t }); } if (Math.abs(ny + o.h - t) < 1.2) { ny = t - o.h; g.push({ y: t }); } }
         setGuides(g);
-        onChange?.(d.id, { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 }, false);
-      } else if (d.mode === "rotate") {
-        const cxPx = d.rect.left + (d.cx / 100) * d.rect.width;
-        const cyPx = d.rect.top + (d.cy / 100) * d.rect.height;
-        let ang = (Math.atan2(ev.clientY - cyPx, ev.clientX - cxPx) * 180) / Math.PI + 90;
-        if (!ev.shiftKey) ang = Math.round(ang / 15) * 15;
-        onChange?.(d.id, { rotation: Math.round(ang) }, false);
+        onChange?.(d.items[0]!.id, { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 }, false);
       } else {
-        // resize — adjust the relevant edges
-        const m = d.mode.slice(7);
-        let { x, y, w, h } = d.o;
-        if (m.includes("e")) w = clamp(d.o.w + dxp, 3, 100 - d.o.x);
-        if (m.includes("s")) h = clamp(d.o.h + dyp, 3, 100 - d.o.y);
-        if (m.includes("w")) { const nx = clamp(d.o.x + dxp, 0, d.o.x + d.o.w - 3); w = d.o.w + (d.o.x - nx); x = nx; }
-        if (m.includes("n")) { const ny = clamp(d.o.y + dyp, 0, d.o.y + d.o.h - 3); h = d.o.h + (d.o.y - ny); y = ny; }
-        onChange?.(d.id, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 }, false);
+        for (const it of d.items) {
+          const nx = clamp(it.o.x + dxp, -it.o.w + 5, 100 - 5);
+          const ny = clamp(it.o.y + dyp, -it.o.h + 5, 100 - 5);
+          onChange?.(it.id, { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 }, false);
+        }
       }
     };
     const up = () => {
@@ -218,19 +227,82 @@ export default function SlideCanvas({ slide, elements, theme, scale, editable, s
       setGuides([]);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-      if (d) onChange?.(d.id, {}, true); // commit checkpoint
+      if (d && d.kind === "move" && d.items[0]) onChange?.(d.items[0].id, {}, true); // commit checkpoint
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
-  }, [editable, elements, onSelect, onChange, onBeginChange]);
+  }, [editable, elements, selectedIds, onSelectionChange, onChange, onBeginChange]);
+
+  // --- Handles (resize/rotate) on the single selected element ---------------
+  const beginHandle = useCallback((e: React.MouseEvent, elId: string, mode: DragMode) => {
+    if (!editable) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = boxRef.current?.getBoundingClientRect();
+    const o = elements.find((x) => x.id === elId);
+    if (!rect || !o) return;
+    onBeginChange?.();
+    drag.current = { kind: "handle", id: elId, mode, sx: e.clientX, sy: e.clientY, o: { ...o }, cx: o.x + o.w / 2, cy: o.y + o.h / 2, rect };
+    const move = (ev: MouseEvent) => {
+      const d = drag.current; if (!d || d.kind !== "handle") return;
+      const dxp = ((ev.clientX - d.sx) / d.rect.width) * 100;
+      const dyp = ((ev.clientY - d.sy) / d.rect.height) * 100;
+      if (d.mode === "rotate") {
+        const cxPx = d.rect.left + (d.cx / 100) * d.rect.width;
+        const cyPx = d.rect.top + (d.cy / 100) * d.rect.height;
+        let ang = (Math.atan2(ev.clientY - cyPx, ev.clientX - cxPx) * 180) / Math.PI + 90;
+        if (!ev.shiftKey) ang = Math.round(ang / 15) * 15;
+        onChange?.(d.id, { rotation: Math.round(ang) }, false);
+      } else {
+        // resize — Shift keeps the aspect ratio on corner handles
+        const r = resizeGeometry(d.o, d.mode.slice(7), dxp, dyp, ev.shiftKey);
+        onChange?.(d.id, r, false);
+      }
+    };
+    const up = () => {
+      const d = drag.current; drag.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      if (d && d.kind === "handle") onChange?.(d.id, {}, true);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }, [editable, elements, onChange, onBeginChange]);
+
+  // --- Marquee (rubber-band) selection on the empty canvas ------------------
+  const beginMarquee = useCallback((e: React.MouseEvent) => {
+    if (!editable) return;
+    const rect = boxRef.current?.getBoundingClientRect(); if (!rect) return;
+    setEditingId(null);
+    const sx = ((e.clientX - rect.left) / rect.width) * 100;
+    const sy = ((e.clientY - rect.top) / rect.height) * 100;
+    let moved = false;
+    setMarquee({ x: sx, y: sy, w: 0, h: 0 });
+    const move = (ev: MouseEvent) => {
+      const w = ((ev.clientX - rect.left) / rect.width) * 100 - sx;
+      const h = ((ev.clientY - rect.top) / rect.height) * 100 - sy;
+      if (Math.abs(w) > 0.6 || Math.abs(h) > 0.6) moved = true;
+      const box = { x: sx, y: sy, w, h };
+      setMarquee(box);
+      onSelectionChange?.(marqueeHits(elements, box));
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      setMarquee(null);
+      if (!moved) onSelectionChange?.([]); // a bare click clears the selection
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }, [editable, elements, onSelectionChange]);
 
   const bg = slideBackground(slide, theme);
   const baseColor = themeText(theme);
+  const single = sel.length === 1;
 
   return (
-    <div ref={boxRef} className={`slide-cv ${editable ? "is-editable" : ""}`} style={{ background: bg, color: baseColor }} onMouseDown={() => { if (editable) { onSelect?.(null); setEditingId(null); } }}>
+    <div ref={boxRef} className={`slide-cv ${editable ? "is-editable" : ""}`} style={{ background: bg, color: baseColor }} onMouseDown={(e) => { if (editable && e.target === e.currentTarget) beginMarquee(e); }}>
       {elements.map((elm) => {
-        const selected = editable && selectedId === elm.id;
+        const selected = editable && selSet.has(elm.id);
         const editing = editingId === elm.id;
         const hidden = reveal?.hidden.has(elm.id) ?? false;
         const anim = reveal?.entering.get(elm.id);
@@ -247,8 +319,8 @@ export default function SlideCanvas({ slide, elements, theme, scale, editable, s
             key={elm.id}
             className={`ce ce--${elm.type} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${hidden ? "sv-hidden" : ""} ${anim ? `sv-anim sv-anim--${anim.effect}` : ""}`}
             style={box}
-            onMouseDown={(e) => { if (!editing) begin(e, elm.id, "move"); }}
-            onDoubleClick={(e) => { if (editable && (elm.type === "text" || elm.type === "table")) { e.stopPropagation(); onSelect?.(elm.id); setEditingId(elm.id); } }}
+            onMouseDown={(e) => { if (!editing) beginMove(e, elm.id); }}
+            onDoubleClick={(e) => { if (editable && (elm.type === "text" || elm.type === "table")) { e.stopPropagation(); onSelectionChange?.([elm.id]); setEditingId(elm.id); } }}
           >
             <ElementView
               el={elm}
@@ -262,11 +334,11 @@ export default function SlideCanvas({ slide, elements, theme, scale, editable, s
                 onChange?.(elm.id, { table: { ...t, cells } }, false);
               }}
             />
-            {selected && !editing && (
+            {selected && !editing && single && (
               <>
-                <span className="ce-rot" onMouseDown={(e) => begin(e, elm.id, "rotate")} title="Pivoter" />
+                <span className="ce-rot" onMouseDown={(e) => beginHandle(e, elm.id, "rotate")} title="Pivoter" />
                 {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((h) => (
-                  <span key={h} className={`ce-h ce-h--${h}`} onMouseDown={(e) => begin(e, elm.id, `resize-${h}`)} />
+                  <span key={h} className={`ce-h ce-h--${h}`} onMouseDown={(e) => beginHandle(e, elm.id, `resize-${h}`)} />
                 ))}
               </>
             )}
@@ -276,6 +348,17 @@ export default function SlideCanvas({ slide, elements, theme, scale, editable, s
       {editable && guides.map((g, i) => (
         <div key={i} className={`cv-guide ${g.x != null ? "cv-guide--v" : "cv-guide--h"}`} style={g.x != null ? { left: `${g.x}%` } : { top: `${g.y}%` }} />
       ))}
+      {editable && marquee && (
+        <div
+          className="cv-marquee"
+          style={{
+            left: `${Math.min(marquee.x, marquee.x + marquee.w)}%`,
+            top: `${Math.min(marquee.y, marquee.y + marquee.h)}%`,
+            width: `${Math.abs(marquee.w)}%`,
+            height: `${Math.abs(marquee.h)}%`,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -625,8 +625,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   interpolation réelle par élément (position/taille/rotation/opacité).
   **Galerie de modèles** enrichie (12 mises en page : titre, sommaire,
   comparaison, chiffre clé, deux colonnes, étapes, citation, remerciements…).
-- **Reste** : multi-sélection + groupes + copier/coller entre diapos
-  (redimensionnement proportionnel).
+  **Multi-sélection + groupes** (Maj-clic, cadre de sélection façon marquee,
+  Ctrl+G / Ctrl+Maj+G), **copier/coller/dupliquer** entre diapos (Ctrl+C/V/D,
+  Ctrl+A tout sélectionner) et **redimensionnement proportionnel** (Maj sur une
+  poignée d'angle) — `slides/selection.ts` (logique pure testée), partagé par
+  les deux éditeurs.
 
 ### Suite locale — PDF
 - **Fait** : lecteur + annotation + édition de texte, persistance `.elium`,
@@ -656,10 +659,12 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ## 12. Feuille de route
 
-1. **Présentations v2 — parité dual-plateforme** : animations par élément, vraie
-   vue présentateur (2ᵉ écran), morph, import PPTX et galerie de modèles enrichie
-   sont livrés sur les **deux** éditeurs (local + collaboratif, via `SlidesEditor`
-   unifié). Reste : multi-sélection + groupes + copier/coller entre diapos.
+1. **Présentations v2 — parité dual-plateforme : LIVRÉ** sur les deux éditeurs
+   (local + collaboratif, via `SlidesEditor` unifié) : animations par élément +
+   déclencheurs, vraie vue présentateur (2ᵉ écran), morph, import/export PPTX
+   (dont graphiques natifs), galerie de modèles, multi-sélection/groupes/
+   copier-coller. Améliorations possibles : fusion texte caractère-par-caractère
+   en collaboratif.
 2. **Parité fonctionnelle** : couche texte de lecture PDF.
 3. **Qualité** : code-splitting des vues lourdes (chunks > 500 ko).
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office

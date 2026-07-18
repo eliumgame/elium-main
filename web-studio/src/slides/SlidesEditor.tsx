@@ -11,7 +11,7 @@ import {
   Home, Plus, Play, Trash2, X, Presentation, Image as ImageIcon, Copy,
   Type, Square, Circle, Triangle, Minus, ArrowRight, Diamond, Star, ChevronRight, ChevronLeft,
   Undo2, Redo2, Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight,
-  BringToFront, SendToBack, LayoutTemplate, Hexagon, RotateCw, Baseline, Sparkles, MonitorPlay, Upload,
+  BringToFront, SendToBack, LayoutTemplate, Hexagon, RotateCw, Baseline, Sparkles, MonitorPlay, Upload, Group, Ungroup,
   Palette, LayoutGrid, Table as TableIcon, BarChart3, Plus as PlusIcon, Minus as MinusIcon,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
@@ -26,6 +26,7 @@ import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from ".
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
 import SlideCanvas from "./canvas";
+import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import type { DeckStore } from "./store";
 import "./slides.css";
@@ -84,7 +85,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [presentStep, setPresentStep] = useState(0);
   const [morphFrom, setMorphFrom] = useState<number | null>(null);
   const prevIdxRef = useRef(0);
-  const [selId, setSelId] = useState<string | null>(null);
+  const [selIds, setSelIds] = useState<string[]>([]);
+  const setSelId = (id: string | null) => setSelIds(id ? [id] : []);
+  const clipboard = useRef<SlideElement[]>([]);
   const [shapeMenu, setShapeMenu] = useState(false);
   const [colorMenu, setColorMenu] = useState(false);
   const [animMenu, setAnimMenu] = useState(false);
@@ -101,7 +104,33 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
   const active = deck.slides[activeIdx];
   const elements = active ? (active.elements ?? elementsOf(active)) : [];
+  const selId = selIds.length ? selIds[selIds.length - 1]! : null; // primary = last selected (drives the format toolbar)
   const sel = elements.find((e) => e.id === selId) ?? null;
+
+  // --- multi-selection ops (groups, copy/paste, duplicate) ---
+  const copySelection = () => { if (selIds.length) clipboard.current = elements.filter((e) => selIds.includes(e.id)); };
+  const pasteClipboard = () => {
+    if (!clipboard.current.length) return;
+    const copies = cloneElements(clipboard.current, newElementId, 3, 3);
+    copies.forEach((c) => store.addEl(c));
+    setSelIds(copies.map((c) => c.id));
+  };
+  const duplicateSelection = () => {
+    const src = elements.filter((e) => selIds.includes(e.id));
+    if (!src.length) return;
+    const copies = cloneElements(src, newElementId, 3, 3);
+    copies.forEach((c) => store.addEl(c));
+    setSelIds(copies.map((c) => c.id));
+  };
+  const groupSelection = () => {
+    if (selIds.length < 2) return;
+    const gid = newElementId();
+    selIds.forEach((id, i) => store.updateEl(id, { groupId: gid }, i === selIds.length - 1));
+  };
+  const ungroupSelection = () => selIds.forEach((id, i) => store.updateEl(id, { groupId: undefined }, i === selIds.length - 1));
+  const removeSelection = () => { const ids = [...selIds]; ids.forEach((id) => store.removeEl(id)); setSelIds([]); };
+  const canGroup = selIds.length >= 2;
+  const canUngroup = selIds.some((id) => elements.find((e) => e.id === id)?.groupId);
   const theme = deck.theme ?? "light";
 
   useEffect(() => { setSelId(null); }, [activeIdx]);
@@ -109,12 +138,6 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
   // --- composed element helpers on top of the store ---
   const addEl = (elm: SlideElement) => { store.addEl(elm); setSelId(elm.id); };
-  const removeEl = (id: string) => { store.removeEl(id); setSelId(null); };
-  const duplicateEl = (id: string) => {
-    const src = elements.find((e) => e.id === id); if (!src) return;
-    const copy: SlideElement = { ...src, id: newElementId(), x: Math.min(src.x + 3, 90), y: Math.min(src.y + 3, 90) };
-    store.addEl(copy); setSelId(copy.id);
-  };
   const alignSlide = (dir: "l" | "c" | "r" | "t" | "m" | "b") => {
     if (!sel) return; const p: Partial<SlideElement> = {};
     if (dir === "l") p.x = 2; if (dir === "c") p.x = 50 - sel.w / 2; if (dir === "r") p.x = 98 - sel.w;
@@ -233,16 +256,22 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
       if (presenting) return;
       const t = e.target as HTMLElement;
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if ((e.ctrlKey || e.metaKey) && !typing && store.undo && store.redo) {
+      if ((e.ctrlKey || e.metaKey) && !typing) {
         const k = e.key.toLowerCase();
-        if (k === "z" && !e.shiftKey) { e.preventDefault(); store.undo(); }
-        else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); store.redo(); }
+        if (k === "z" && !e.shiftKey && store.undo) { e.preventDefault(); store.undo(); }
+        else if ((k === "y" || (k === "z" && e.shiftKey)) && store.redo) { e.preventDefault(); store.redo(); }
+        else if (k === "c" && selIds.length) { e.preventDefault(); copySelection(); }
+        else if (k === "x" && selIds.length && canWrite) { e.preventDefault(); copySelection(); removeSelection(); }
+        else if (k === "v" && canWrite) { e.preventDefault(); pasteClipboard(); }
+        else if (k === "d" && selIds.length && canWrite) { e.preventDefault(); duplicateSelection(); }
+        else if (k === "g" && canWrite) { e.preventDefault(); if (e.shiftKey) ungroupSelection(); else groupSelection(); }
+        else if (k === "a" && elements.length) { e.preventDefault(); setSelIds(elements.map((el) => el.id)); }
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && selId && !typing && canWrite) { e.preventDefault(); removeEl(selId); }
+      if ((e.key === "Delete" || e.key === "Backspace") && selIds.length && !typing && canWrite) { e.preventDefault(); removeSelection(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [store, presenting, selId, canWrite]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [store, presenting, selIds, elements, canWrite]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // presenter nav (step through element animations, then between slides)
   useEffect(() => {
@@ -478,8 +507,10 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   </div>
                 )}
               </div>
-              <button className="icon-btn" title="Dupliquer" onClick={() => duplicateEl(sel.id)}><Copy size={15} /></button>
-              <button className="icon-btn icon-btn--danger" title="Supprimer" onClick={() => removeEl(sel.id)}><Trash2 size={15} /></button>
+              {canGroup && <button className="icon-btn" title="Grouper (Ctrl+G)" onClick={groupSelection}><Group size={15} /></button>}
+              {canUngroup && <button className="icon-btn" title="Dégrouper (Ctrl+Maj+G)" onClick={ungroupSelection}><Ungroup size={15} /></button>}
+              <button className="icon-btn" title="Dupliquer (Ctrl+D)" onClick={duplicateSelection}><Copy size={15} /></button>
+              <button className="icon-btn icon-btn--danger" title="Supprimer (Suppr)" onClick={removeSelection}><Trash2 size={15} /></button>
             </>
           )}
         </div>
@@ -539,14 +570,14 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 theme={theme}
                 scale={scale}
                 editable={canWrite}
-                selectedId={selId}
-                onSelect={setSelId}
+                selectedIds={selIds}
+                onSelectionChange={setSelIds}
                 onChange={(id, patch, commit) => store.updateEl(id, patch, commit)}
                 onBeginChange={store.beginChange}
               />
             )}
           </div>
-          <div className="sv-hint">Cliquez pour sélectionner · double-cliquez un texte pour l'éditer · glissez pour déplacer · poignées pour redimensionner/pivoter</div>
+          <div className="sv-hint">Cliquez (Maj = multi-sélection) · glissez pour un cadre de sélection · double-cliquez un texte pour l'éditer · Ctrl+C/V/D, Ctrl+G groupe · poignées (Maj = proportionnel)</div>
           <textarea
             className="input sv-notes"
             rows={2}

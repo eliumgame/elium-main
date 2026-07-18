@@ -147,6 +147,7 @@
 .cv-guide { position: absolute; z-index: 70; pointer-events: none; }
 .cv-guide--v { top: 0; bottom: 0; width: 1px; background: #f43f5e; box-shadow: 0 0 0 .5px rgba(244,63,94,.4); }
 .cv-guide--h { left: 0; right: 0; height: 1px; background: #f43f5e; box-shadow: 0 0 0 .5px rgba(244,63,94,.4); }
+.cv-marquee { position: absolute; z-index: 65; pointer-events: none; border: 1px solid var(--primary, #2563eb); background: rgba(37, 99, 235, 0.12); border-radius: 2px; }
 
 /* --- Rail thumbnails ------------------------------------------------------ */
 .sv-thumb { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; }

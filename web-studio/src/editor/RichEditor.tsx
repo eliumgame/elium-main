@@ -12,6 +12,10 @@ import type {
   SignatureVerdict,
 } from "../format/types";
 import { pageSizeMm } from "../format/pageSizes";
+import { CSS_PX_PER_MM, type PageMetrics, type PageInfo, type PaginationOptions } from "./Pagination";
+
+/** Visual gap drawn between two page sheets, in px. */
+const SHEET_GAP_PX = 40;
 
 interface RichEditorProps {
   documentModel: EliumDocumentModel;
@@ -54,9 +58,19 @@ export default function RichEditor({
   const pageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // On-screen pagination: the plugin reads live page metrics through this ref
+  // (updated each render below) and reports the page count back into state.
+  const metricsRef = useRef<PageMetrics | null>(null);
+  const [pageInfo, setPageInfo] = useState<PageInfo>({ pageCount: 1, currentPage: 1 });
+  const paginationOpts = useRef<PaginationOptions>({
+    getMetrics: () => metricsRef.current,
+    onInfo: (i) =>
+      setPageInfo((prev) => (prev.pageCount === i.pageCount && prev.currentPage === i.currentPage ? prev : i)),
+  }).current;
+
   const editor = useEditor(
     {
-      extensions: buildExtensions({ editable, author: commentAuthor }),
+      extensions: buildExtensions({ editable, author: commentAuthor, pagination: paginationOpts }),
       content: documentModel.doc,
       editable,
       editorProps: { attributes: { class: "elium-prose" } },
@@ -131,6 +145,16 @@ export default function RichEditor({
   const pageClass = `elium-page${numberedHeadings ? " elium-page--numbered" : ""}`;
   const { width: pageWidthMm, height: pageHeightMm } = pageSizeMm(page.format, page.orientation);
 
+  // Refresh the pagination metrics from the current page geometry. `mm` renders
+  // at a fixed 96px/25.4 in CSS, so the printable content height and side
+  // margins convert deterministically (no DOM measurement / zoom assumptions).
+  metricsRef.current = {
+    pageContentPx: Math.max(0, (pageHeightMm - page.margins.top - page.margins.bottom) * CSS_PX_PER_MM),
+    gapPx: SHEET_GAP_PX,
+    marginLeftPx: page.margins.left * CSS_PX_PER_MM,
+    marginRightPx: page.margins.right * CSS_PX_PER_MM,
+  };
+
   // Expand header/footer field tokens for display ({titre}, {date}).
   const renderField = (tpl: string) =>
     tpl.replace(/\{titre\}/gi, docTitle ?? "").replace(/\{date\}/gi, new Date().toLocaleDateString("fr-FR"));
@@ -180,7 +204,7 @@ export default function RichEditor({
         </div>
       </div>
 
-      <EditorStatusBar editor={editor} />
+      <EditorStatusBar editor={editor} pageInfo={pageInfo} />
 
       <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
     </div>

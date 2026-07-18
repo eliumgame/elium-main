@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
+import type { PageInfo } from "./Pagination";
 
 /** Counts words in a plain-text string (whitespace-separated, Unicode-friendly). */
 function countWords(text: string): number {
@@ -19,7 +20,7 @@ interface Stats {
  * Bottom status bar showing live word/character counts for the whole document,
  * and for the current selection when there is one. Read-only friendly.
  */
-export default function EditorStatusBar({ editor }: { editor: Editor | null }) {
+export default function EditorStatusBar({ editor, pageInfo }: { editor: Editor | null; pageInfo?: PageInfo }) {
   const [stats, setStats] = useState<Stats>({ words: 0, chars: 0, selWords: 0, selChars: 0 });
 
   useEffect(() => {
@@ -51,6 +52,14 @@ export default function EditorStatusBar({ editor }: { editor: Editor | null }) {
 
   return (
     <div className="editor-statusbar" role="status" aria-live="polite">
+      {pageInfo && (
+        <>
+          <span>
+            Page {pageInfo.currentPage.toLocaleString("fr-FR")} sur {pageInfo.pageCount.toLocaleString("fr-FR")}
+          </span>
+          <span className="editor-statusbar__sep">·</span>
+        </>
+      )}
       <span>{stats.words.toLocaleString("fr-FR")} mot{plural(stats.words)}</span>
       <span className="editor-statusbar__sep">·</span>
       <span>{stats.chars.toLocaleString("fr-FR")} caractère{plural(stats.chars)}</span>

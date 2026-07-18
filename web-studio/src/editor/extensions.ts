@@ -22,6 +22,7 @@ import { Indent, PageBreak, TableOfContents, Figure, Comment, Footnote, Footnote
 import { BUILTIN_FONTS } from "../ui/fonts";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
+import { Pagination, type PaginationOptions } from "./Pagination";
 
 const lowlight = createLowlight(common);
 
@@ -35,6 +36,8 @@ export function buildExtensions(
     /** Extra extensions appended (e.g. Collaboration + CollaborationCaret).
      *  Kept as a param so Yjs never enters the main non-collaborative bundle. */
     extra?: Extensions;
+    /** On-screen pagination (page sheets + live page count). Document editor only. */
+    pagination?: PaginationOptions;
   } = { editable: true },
 ): Extensions {
   return [
@@ -72,6 +75,7 @@ export function buildExtensions(
     Placeholder.configure({
       placeholder: "Rédigez votre document… Utilisez la barre d'outils pour la mise en forme.",
     }),
+    ...(opts.pagination ? [Pagination.configure(opts.pagination)] : []),
     ...(opts.extra ?? []),
   ];
 }

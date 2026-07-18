@@ -209,6 +209,7 @@ interface WriteCtx {
   media: Record<string, Uint8Array>; // word/media/<file> -> bytes
   relCount: number;
   drawingId: number;
+  changeId: number; // unique w:id per tracked-change (w:ins/w:del) element
   footnotes?: { id: string; text: string }[]; // collected for numbering + a notes section
 }
 
@@ -254,9 +255,31 @@ function runProps(marks: { type: string; attrs?: Record<string, unknown> }[]): s
   return p.length ? `<w:rPr>${p.join("")}</w:rPr>` : "";
 }
 
-function runXml(text: string, marks: { type: string; attrs?: Record<string, unknown> }[]): string {
+/** `w:id`/`w:author`/`w:date` attributes for a w:ins/w:del element. */
+function trackAttrs(ctx: WriteCtx, m: { attrs?: Record<string, unknown> }): string {
+  const author = String(m.attrs?.author || "Elium");
+  const ts = String(m.attrs?.ts || "");
+  return `w:id="${++ctx.changeId}" w:author="${xmlEsc(author)}"${ts ? ` w:date="${xmlEsc(ts)}"` : ""}`;
+}
+
+function runXml(
+  text: string,
+  marks: { type: string; attrs?: Record<string, unknown> }[],
+  ctx: WriteCtx,
+): string {
   if (!text) return "";
-  return `<w:r>${runProps(marks)}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>`;
+  const del = marks.find((m) => m.type === "deletion");
+  const ins = marks.find((m) => m.type === "insertion");
+  // insertion/deletion are w:ins/w:del WRAPPERS, not run properties.
+  const body = marks.filter((m) => m.type !== "insertion" && m.type !== "deletion");
+  if (del) {
+    // Deleted text uses <w:delText> (not <w:t>) so plain readers that ignore
+    // track-changes don't resurrect the removed text.
+    const run = `<w:r>${runProps(body)}<w:delText xml:space="preserve">${xmlEsc(text)}</w:delText></w:r>`;
+    return `<w:del ${trackAttrs(ctx, del)}>${run}</w:del>`;
+  }
+  const run = `<w:r>${runProps(body)}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>`;
+  return ins ? `<w:ins ${trackAttrs(ctx, ins)}>${run}</w:ins>` : run;
 }
 
 function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
@@ -278,9 +301,9 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
             href,
             "External",
           );
-          return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks)}</w:hyperlink>`;
+          return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks, ctx)}</w:hyperlink>`;
         }
-        return runXml(c.text ?? "", marks);
+        return runXml(c.text ?? "", marks, ctx);
       }
       return "";
     })
@@ -467,7 +490,7 @@ const NUMBERING_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 /** Serialize an Elium file to a .docx byte array. */
 export function docToDocx(file: EliumFile): Uint8Array {
-  const ctx: WriteCtx = { rels: [], media: {}, relCount: 100, drawingId: 1 };
+  const ctx: WriteCtx = { rels: [], media: {}, relCount: 100, drawingId: 1, changeId: 0 };
   const doc = file.document.doc;
   const headings = collectHeadings(doc);
 

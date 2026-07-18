@@ -125,3 +125,37 @@ describe("DOCX round-trip (export → import)", () => {
     expect(JSON.stringify(doc)).toContain('"bold"');
   });
 });
+
+describe("DOCX tracked-changes export (w:ins / w:del)", () => {
+  const tracked: ProseMirrorNode = {
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [
+        { type: "text", text: "Gardé " },
+        { type: "text", text: "ajouté", marks: [{ type: "insertion", attrs: { author: "Alice", ts: "2026-07-18T10:00:00.000Z" } }] },
+        { type: "text", text: " et " },
+        { type: "text", text: "supprimé", marks: [{ type: "deletion", attrs: { author: "Bob", ts: "2026-07-18T11:00:00.000Z" } }] },
+        { type: "text", text: "." },
+      ] },
+    ],
+  };
+
+  it("writes insertions as <w:ins> and deletions as <w:del>/<w:delText>", async () => {
+    const doc = strFromU8(unzipSync(docToDocx(await fileWith(tracked)))["word/document.xml"]);
+    expect(doc).toMatch(/<w:ins [^>]*w:author="Alice"[^>]*>[\s\S]*?<w:t[^>]*>ajouté<\/w:t>[\s\S]*?<\/w:ins>/);
+    expect(doc).toMatch(/<w:del [^>]*w:author="Bob"[^>]*>[\s\S]*?<w:delText[^>]*>supprimé<\/w:delText>[\s\S]*?<\/w:del>/);
+    expect(doc).toContain('w:date="2026-07-18T10:00:00.000Z"');
+    // Deleted text must NOT be emitted as a normal run (plain readers ignore w:delText).
+    expect(doc).not.toContain('<w:t xml:space="preserve">supprimé</w:t>');
+  });
+
+  it("round-trips the tracked-change marks (export → import)", async () => {
+    const { doc } = docxToDoc(docToDocx(await fileWith(tracked)));
+    const para = (doc.content ?? []).find((n) => n.type === "paragraph");
+    const runs = (para?.content ?? []) as { text?: string; marks?: { type: string; attrs?: Record<string, unknown> }[] }[];
+    const ins = runs.find((r) => r.text === "ajouté");
+    const del = runs.find((r) => r.text === "supprimé");
+    expect(ins?.marks?.some((m) => m.type === "insertion" && m.attrs?.author === "Alice")).toBe(true);
+    expect(del?.marks?.some((m) => m.type === "deletion" && m.attrs?.author === "Bob")).toBe(true);
+  });
+});

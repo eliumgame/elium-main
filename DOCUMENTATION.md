@@ -589,9 +589,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   sceau & signatures, **pagination écran réelle** (feuilles A4/Letter empilées,
   sauts de page automatiques + numéro de page en direct — `editor/Pagination.ts`,
   moteur pur `planPages` ; portée aussi sur l'éditeur collaboratif Drive).
-- **À améliorer** : suivi des modifications non exporté en `w:ins`/`w:del` DOCX ;
-  import DOCX ne relit pas toujours couleur/police/taille ; polices importées non
-  persistées dans le `.elium`.
+  **Suivi des modifications exporté en DOCX** : insertions → `<w:ins>`,
+  suppressions → `<w:del>`/`<w:delText>` (auteur + date), round-trip testé.
+- **À améliorer** : import DOCX ne relit pas toujours couleur/police/taille ;
+  polices importées non persistées dans le `.elium`.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme
@@ -652,8 +653,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    animations/transitions sur l'éditeur **collaboratif** (Drive), où le
    réglage est aujourd'hui stocké mais pas rejoué, et à enrichir la galerie de
    modèles sur les **deux** éditeurs.
-2. **Parité fonctionnelle** : export XLSX (Tableur), couche texte de lecture PDF,
-   export DOCX du suivi des modifications (`w:ins`/`w:del`).
+2. **Parité fonctionnelle** : export XLSX (Tableur), couche texte de lecture PDF.
 3. **Qualité** : interop Python↔TS en CI ; code-splitting des vues lourdes.
 4. **Microsoft 365 (cible future, après consolidation locale)** : add-in Office
    (Word/Excel/PowerPoint/Outlook) réutilisant `format` + `sign` extraits en

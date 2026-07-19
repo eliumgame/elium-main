@@ -618,9 +618,14 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   lignes visibles (`sheet/filter.ts`). **Parité dual-plateforme** : l'éditeur
   Tableur *collaboratif* (Drive) exporte aussi en XLSX — un pont pur
   (`drive-cloud/collab-sheet-export.ts`) reconstruit un `Workbook` depuis l'état
-  CRDT puis réutilise `workbookToXlsx` (testé).
-- **Reste** : fusion de cellules, validation de données, plages nommées,
-  tableaux croisés.
+  CRDT puis réutilise `workbookToXlsx` (testé). **Validation de données**
+  (`sheet/validation.ts`, pur + testé) : règles par plage (liste déroulante,
+  nombre, longueur de texte, date avec opérateurs), validation *souple* — les
+  cellules invalides sont marquées en rouge avec info-bulle, jamais refusées ;
+  UI `ValidationModal` + datalist d'auto-complétion pour les listes. Vérifié
+  bout-en-bout au navigateur. (Portée = Tableur local, comme la mise en forme
+  conditionnelle ; l'éditeur collaboratif reste un éditeur de cellules allégé.)
+- **Reste** : fusion de cellules, plages nommées, tableaux croisés.
 
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8

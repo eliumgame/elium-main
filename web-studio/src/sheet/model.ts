@@ -38,6 +38,22 @@ export interface CondRule {
   scale?: { min: string; max: string; mid?: string }; // colour scale (op="colorScale")
 }
 
+/** Data-validation kinds and numeric/length/date comparison operators. */
+export type ValidationType = "list" | "number" | "textLength" | "date";
+export type ValidationOp = "between" | "notBetween" | "gt" | "lt" | "ge" | "le" | "eq" | "ne";
+
+/** A data-validation rule over a rectangular range. Invalid entries are flagged (soft, non-blocking). */
+export interface DataValidation {
+  id: string;
+  c0: number; r0: number; c1: number; r1: number; // target range (inclusive)
+  type: ValidationType;
+  op?: ValidationOp;     // number / textLength / date
+  v1?: string;           // threshold / lower bound
+  v2?: string;           // upper bound (between / notBetween)
+  list?: string[];       // allowed values (type = "list")
+  allowBlank?: boolean;  // empty cells pass (default true)
+}
+
 export interface SheetData {
   name: string;
   rows: number;
@@ -46,6 +62,7 @@ export interface SheetData {
   styles?: Record<string, CellStyle>; // "A1" -> formatting
   charts?: ChartSpec[];
   condFormats?: CondRule[]; // conditional formatting rules
+  validations?: DataValidation[]; // data-validation rules
   filter?: { col: number; query: string }; // view filter (hides non-matching rows)
   colWidths?: Record<number, number>; // column index -> width px (default DEFAULT_COL_W)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling

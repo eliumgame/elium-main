@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home, Plus, Minus, Download, Upload, Save, Table2, FileSpreadsheet,
   Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2,
+  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks,
 } from "lucide-react";
 import { useUndoable } from "../ui/useUndoable";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
@@ -11,8 +11,10 @@ import { createCalc, indexToCol, parseRef, isError, rewriteRefs, renameSheetRefs
 import { formatValue, NUM_FORMATS } from "../sheet/format";
 import SheetChart from "../sheet/SheetChart";
 import CondFormatModal from "../sheet/CondFormatModal";
+import ValidationModal from "../sheet/ValidationModal";
 import { buildCondFormatter } from "../sheet/condformat";
-import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule } from "../sheet/model";
+import { buildValidator, validationAt } from "../sheet/validation";
+import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule, type DataValidation } from "../sheet/model";
 import { loadWorkbook, saveWorkbook } from "../sheet/sheet-store";
 import { importXlsx } from "../sheet/xlsx-import";
 import { csvToWorkbook } from "../sheet/csv";
@@ -265,6 +267,7 @@ export default function SheetView({
 
   const [freezeOpen, setFreezeOpen] = useState(false);
   const [condOpen, setCondOpen] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
   const setFreeze = (rows: number, cols: number) => {
     patchSheet((sh) => (rows === 0 && cols === 0 ? { ...sh, freeze: undefined } : { ...sh, freeze: { rows, cols } }));
     setFreezeOpen(false);
@@ -692,6 +695,16 @@ export default function SheetView({
   const removeCondRule = (id: string) =>
     patchSheet((sh) => ({ ...sh, condFormats: (sh.condFormats ?? []).filter((r) => r.id !== id) }));
 
+  // --- data validation (soft: invalid cells are flagged, not refused) ---
+  const validator = useMemo(
+    () => buildValidator(sheet.validations, (c, r) => sheet.cells[cellRef(c, r)] ?? ""),
+    [sheet],
+  );
+  const addValidation = (v: Omit<DataValidation, "id" | "c0" | "r0" | "c1" | "r1">) =>
+    patchSheet((sh) => ({ ...sh, validations: [...(sh.validations ?? []), { ...v, id: newId("dv"), c0, r0, c1, r1 }] }));
+  const removeValidation = (id: string) =>
+    patchSheet((sh) => ({ ...sh, validations: (sh.validations ?? []).filter((v) => v.id !== id) }));
+
   return (
     <div className="sheet-app">
       <div className="sheet-bar">
@@ -782,6 +795,7 @@ export default function SheetView({
         </div>
         <div className="tool-group">
           <button className={`icon-btn ${(sheet.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={15} /></button>
+          <button className={`icon-btn ${(sheet.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={15} /></button>
         </div>
         {sheet.filter && (
           <span className="sheet-filter-chip">
@@ -834,28 +848,38 @@ export default function SheetView({
                   const st = sheet.styles?.[ref];
                   const active = sel.c === c && sel.r === r;
                   if (active && editing) {
+                    const dv = validationAt(sheet.validations, c, r);
+                    const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
                     return (
                       <td key={c} className="is-selected" style={stickyStyle(c, r)}>
                         <input
                           className="sheet-cell-input"
                           autoFocus
                           value={draft}
+                          list={listId}
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={onEditKeyDown}
                           onFocus={(e) => e.target.select()}
                           onBlur={commitEdit}
                           onPaste={onPaste}
                         />
+                        {listId && (
+                          <datalist id={listId}>
+                            {dv!.list!.map((opt) => <option key={opt} value={opt} />)}
+                          </datalist>
+                        )}
                       </td>
                     );
                   }
                   const val = sheet.cells[ref] != null ? calc.valueOf(ref) : "";
                   const numeric = typeof val === "number";
+                  const invalid = validator(c, r);
                   const cls = [
                     inSel(c, r) ? (active ? "is-selected" : "is-range") : "",
                     inFill(c, r) ? "is-fill" : "",
                     isError(val) ? "is-err" : "",
                     numeric && !st?.align ? "is-num" : "",
+                    invalid ? "is-invalid" : "",
                   ].filter(Boolean).join(" ");
                   const showHandle = c === c1 && r === r1 && !editing;
                   const cf = condFmt(c, r);
@@ -874,6 +898,7 @@ export default function SheetView({
                       key={c}
                       className={cls}
                       style={cellStyle}
+                      title={invalid ?? undefined}
                       onMouseDown={(e) => { selectCell(c, r, e.shiftKey); dragging.current = true; gridRef.current?.focus(); }}
                       onMouseEnter={() => { if (fillRef.current) { fillToRef.current = { c, r }; setFillTo({ c, r }); } else if (dragging.current) setSel({ c, r }); }}
                       onDoubleClick={() => { selectCell(c, r); startEdit(); }}
@@ -935,6 +960,16 @@ export default function SheetView({
           onAdd={addCondRule}
           onRemove={removeCondRule}
           onClose={() => setCondOpen(false)}
+        />
+      )}
+
+      {validationOpen && (
+        <ValidationModal
+          rangeLabel={`${cellRef(c0, r0)}:${cellRef(c1, r1)}`}
+          validations={sheet.validations ?? []}
+          onAdd={addValidation}
+          onRemove={removeValidation}
+          onClose={() => setValidationOpen(false)}
         />
       )}
     </div>

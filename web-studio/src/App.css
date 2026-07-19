@@ -712,6 +712,9 @@
 .sheet-fill-handle:hover { transform: scale(1.4); transform-origin: bottom right; }
 .sheet-grid td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
 .sheet-grid td.is-err { color: var(--danger); font-weight: 600; }
+.sheet-grid td.is-invalid { box-shadow: inset 0 0 0 2px var(--danger); }
+.sheet-grid td.is-invalid::after { content: ""; position: absolute; top: 0; right: 0; border: 5px solid transparent; border-top-color: var(--danger); border-right-color: var(--danger); }
+.sheet-grid td { position: relative; }
 .sheet-grid td.is-range { background: var(--primary-50); }
 .sheet-grid td.is-selected { padding: 0; outline: 2px solid var(--primary); outline-offset: -2px; }
 .sheet-grid td { user-select: none; }

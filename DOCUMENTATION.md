@@ -596,6 +596,16 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   moteur pur `planPages` ; portée aussi sur l'éditeur collaboratif Drive).
   **Suivi des modifications exporté en DOCX** : insertions → `<w:ins>`,
   suppressions → `<w:del>`/`<w:delText>` (auteur + date), round-trip testé.
+  **Journal de suivi entièrement câblé** (`format/document.ts` `recordSave`) : en
+  plus de `document.created`/`protection.enabled`/`document.locked`/
+  `signature.added`, les événements `document.opened`, `export`,
+  `signature.validated` et `document.modified` sont désormais émis. Les
+  événements de consultation (ouverture, export, validation de signature) sont
+  **mis en file en mémoire et versés dans le journal au moment du save**, juste
+  avant le (re)scellement — de sorte que consulter un document scellé ne mute ni
+  ne casse jamais son sceau ; `document.modified` = une entrée par sauvegarde.
+  Round-trip testé (le sceau couvre le journal enrichi ; l'altération d'un
+  événement casse le sceau).
 - **À améliorer** : import DOCX ne relit pas toujours couleur/police/taille ;
   polices importées non persistées dans le `.elium`.
 

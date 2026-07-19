@@ -106,10 +106,52 @@ export async function setProfile(file: EliumFile, profile: EliumProfile): Promis
   };
 }
 
+/** Whether the tracking journal is active for this file (profile opts in, or a journal already exists). */
+export function tracksJournal(file: EliumFile): boolean {
+  return profileOf(file.manifest.profile).tracking || file.journal.events.length > 0;
+}
+
 /** Append a "document.modified" event (only when tracking is active). */
 export async function recordModification(file: EliumFile): Promise<EliumFile> {
-  if (!(profileOf(file.manifest.profile).tracking || file.journal.events.length)) return file;
+  if (!tracksJournal(file)) return file;
   const journal = await appendEvent(file.journal, "document.modified", {});
+  return { ...file, journal };
+}
+
+/**
+ * A read-time event queued in memory during a session (document opened, exported,
+ * signature validated). It carries its real timestamp; the events are only
+ * appended to the journal at save time — see `recordSave`.
+ */
+export type SessionJournalType = "document.opened" | "export" | "signature.validated";
+export interface PendingJournalEvent {
+  type: SessionJournalType;
+  at: string;
+  data?: Record<string, unknown>;
+  actor?: { name?: string; fingerprint?: string };
+}
+
+/**
+ * Flush the queued session events, then append one "document.modified" for this
+ * save — in order, and only when tracking is active. Called right before the file
+ * is (re)sealed, so the seal covers the new journal.
+ *
+ * Read-time events are queued rather than appended live on purpose: the seal signs
+ * a hash of the journal, so mutating it while merely viewing a sealed document
+ * would break the seal until the next save. Queuing defers every such event to the
+ * save that re-anchors (re-seals) them.
+ */
+export async function recordSave(file: EliumFile, pending: PendingJournalEvent[] = []): Promise<EliumFile> {
+  if (!tracksJournal(file)) return file;
+  let journal = file.journal;
+  for (const p of pending) {
+    journal = await appendEvent(journal, p.type, {
+      at: p.at,
+      ...(p.data && Object.keys(p.data).length ? { data: p.data } : {}),
+      ...(p.actor && Object.keys(p.actor).length ? { actor: p.actor } : {}),
+    });
+  }
+  journal = await appendEvent(journal, "document.modified", {});
   return { ...file, journal };
 }
 

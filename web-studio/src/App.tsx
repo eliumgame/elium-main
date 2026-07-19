@@ -21,7 +21,7 @@ import IdentityBackupModal from "./components/IdentityBackupModal";
 import IdentityImportModal from "./components/IdentityImportModal";
 import { getTheme, setTheme as persistTheme, type Theme } from "./ui/theme";
 import { useDialogs } from "./ui/dialogs";
-import { createEliumFile, setProfile, addSignature, removeSignature as removeSig } from "./format/document";
+import { createEliumFile, setProfile, addSignature, removeSignature as removeSig, recordSave, tracksJournal, type PendingJournalEvent } from "./format/document";
 import { docKeyOf } from "./format/doc-key";
 import {
   readEliumPackage, writeEliumPackage, looksLikeV4Package, EliumPasswordRequired, EliumRecipientKeyRequired,
@@ -33,7 +33,7 @@ import {
 } from "./crypto/recipient-key-store";
 import { verifyJournal, type JournalVerdict } from "./format/journal";
 import { profileOf } from "./format/profiles";
-import { randomId, fromHex } from "./format/canonical";
+import { randomId, fromHex, nowIso } from "./format/canonical";
 import { strToU8, strFromU8 } from "fflate";
 import { verifyProof, createProof } from "./sign/proof";
 import { verifySeal, type SealVerdict } from "./sign/seal";
@@ -308,8 +308,23 @@ export default function App() {
     setToast("Coffre local réinitialisé");
   }, [dialogs]);
 
+  // Tracking journal — read-time events (opened / export / signature.validated)
+  // are queued here and flushed into the (sealed) journal at the next save, so
+  // merely viewing a sealed document never mutates and breaks its seal.
+  const pendingJournalRef = useRef<PendingJournalEvent[]>([]);
+  const validatedSigRef = useRef<Set<string>>(new Set()); // sig ids already logged this session
+  const queueJournal = useCallback((ev: PendingJournalEvent) => { pendingJournalRef.current.push(ev); }, []);
+
   const recompute = useCallback(async (f: EliumFile, trusted: string) => {
-    setVerdicts(await computeVerdicts(f, trusted));
+    const verds = await computeVerdicts(f, trusted);
+    setVerdicts(verds);
+    // Log the first authentic validation of each signature this session (flushed at save).
+    for (const s of f.signatures) {
+      if (verds[s.id] === "valid" && !validatedSigRef.current.has(s.id)) {
+        validatedSigRef.current.add(s.id);
+        pendingJournalRef.current.push({ type: "signature.validated", at: nowIso(), data: { id: s.id } });
+      }
+    }
     setJournalVerdict(await verifyJournal(f.journal));
     const sv = await verifySeal(f.manifest, f.signatures, f.journal, trusted || undefined);
     setSealVerdict(sv);
@@ -361,13 +376,17 @@ export default function App() {
   const [appView, setAppView] = useState<{ kind: "sheet" | "slides" | "pdf"; data: unknown } | null>(null);
   const [appKey, setAppKey] = useState(0);
 
-  const loadFile = useCallback(async (f: EliumFile, integ: IntegrityVerdict) => {
+  const loadFile = useCallback(async (f: EliumFile, integ: IntegrityVerdict, opened = false) => {
+    // Fresh session for this file: reset the pending journal queue.
+    pendingJournalRef.current = [];
+    validatedSigRef.current = new Set();
+    if (opened && tracksJournal(f)) queueJournal({ type: "document.opened", at: nowIso() });
     setFile(f);
     setIntegrity(integ);
     setSelectedSig(null);
     await recompute(f, trustedKey);
     setEditorKey((k) => k + 1);
-  }, [recompute, trustedKey]);
+  }, [recompute, trustedKey, queueJournal]);
 
   // --- Home actions -------------------------------------------------------
 
@@ -461,7 +480,7 @@ export default function App() {
         }
       }
       setPassword(pwd ?? "");
-      await loadFile(result.file, result.integrity);
+      await loadFile(result.file, result.integrity, true); // opened from disk → log document.opened at save
       setMode("viewer");
     } catch (e) {
       setError(msg(e));
@@ -850,24 +869,31 @@ export default function App() {
         setPassword(got.password);
         keyfileRef.current = got.keyfile;
       }
+      // Flush the queued session events (opened / export / signature.validated)
+      // and one document.modified into the journal, THEN seal — so the seal covers
+      // the new journal. Queuing (rather than logging live) keeps a viewed sealed
+      // document's seal intact until this save re-anchors it.
+      const f2 = await recordSave(file, pendingJournalRef.current);
+      pendingJournalRef.current = [];
       // Seal the file with the user's identity (tamper-evidence anchor) when available.
       let sealKey: string | undefined;
       if (identity) sealKey = (await ensurePrivateKey()) ?? undefined;
-      const bytes = await writeEliumPackage(file, {
+      const bytes = await writeEliumPackage(f2, {
         password: useRecipients ? undefined : pwd || undefined,
         keyfile: useRecipients ? undefined : keyfileRef.current,
         recipients: useRecipients ? recipients : undefined,
         sealPrivateKeyHex: sealKey,
-        encryptMetadata: !!file.manifest.protection.metadataEncrypted,
+        encryptMetadata: !!f2.manifest.protection.metadataEncrypted,
       });
-      downloadBlob(`${file.manifest.title || "document"}.elium`, "application/x-elium", bytes);
+      setFile(f2);
+      downloadBlob(`${f2.manifest.title || "document"}.elium`, "application/x-elium", bytes);
       // Mirror into the local Drive library (best-effort, this browser only).
       try {
         await putDriveDoc(
           {
-            id: docKeyOf(file.manifest),
-            title: file.manifest.title || "Document",
-            profile: file.manifest.profile,
+            id: docKeyOf(f2.manifest),
+            title: f2.manifest.title || "Document",
+            profile: f2.manifest.profile,
             savedAt: new Date().toISOString(),
             size: bytes.length,
             bytes,
@@ -877,7 +903,7 @@ export default function App() {
       } catch {
         /* la bibliothèque locale est best-effort */
       }
-      await recompute(file, trustedKey);
+      await recompute(f2, trustedKey);
       if (sealKey) setSealVerdict("valid");
       const how = useRecipients ? ` pour ${recipients.length} destinataire(s)` : keyfileRef.current ? " et fichier-clé" : "";
       setToast(sealKey ? `Document enregistré et scellé${how} (.elium)` : `Document enregistré${how} (.elium)`);
@@ -905,10 +931,12 @@ export default function App() {
           docToDocx(file),
         );
       }
+      // Log the export (flushed into the journal at the next save).
+      if (tracksJournal(file)) queueJournal({ type: "export", at: nowIso(), data: { format: kind } });
     } catch (e) {
       setError(msg(e));
     }
-  }, [file, trustedKey]);
+  }, [file, trustedKey, queueJournal]);
 
   const goHome = useCallback(() => setMode("home"), []);
   const toViewer = useCallback(async () => {

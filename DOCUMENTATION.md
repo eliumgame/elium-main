@@ -701,6 +701,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   partagés entre l'éditeur local et Drive au lieu d'être dupliqués). Résultat :
   bundle principal **1,28 Mo → 242 ko**, chunk PDF **1,47 Mo → 40 ko** ; lazy-load
   vérifié au navigateur (l'accueil ne charge que `index` + `vendor-react`).
+- **Fait** : **couverture de tests élargie** — recherche/remplacer éditeur
+  (`editor/Search.ts`), rapport de preuve (`buildProofReport`), importers
+  texte/HTML ; **adaptateur storage S3/MinIO** testé (ByteCounter + round-trip
+  put/get/stream sur bucket en mémoire, sans endpoint réel) ; server 101 tests.
 - **Abandonné** : add-in Office/Microsoft 365 — l'idée est écartée ; le prototype
   (`office-addin/`) a été supprimé du dépôt.
 

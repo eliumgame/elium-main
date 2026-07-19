@@ -3,19 +3,26 @@ import getpass
 import json
 import os
 import sys
+import uuid
 
 from elium.core.container import EliumContainer
 from elium.core.exceptions import EliumError, EliumFormatError, EliumSecurityError
 from elium.crypto.primitives import load_private_key, load_public_key
-from elium.format.document import create_document_model, extract_text, text_to_doc
-from elium.format.journal import append_event, empty_journal, verify_journal
+from elium.format.document import (
+    create_document_model,
+    create_journal,
+    extract_text,
+    record_signature_added,
+    text_to_doc,
+)
+from elium.format.journal import verify_journal
 from elium.format.package import (
     EliumPasswordRequired,
     read_elium,
     write_elium,
 )
 from elium.format.profiles import PROFILES, VALID_PROFILES
-from elium.format.proof import verify_proof
+from elium.format.proof import create_proof, verify_proof
 
 # --- Legacy v3 container -------------------------------------------------
 
@@ -87,9 +94,7 @@ def cmd_doc_create(args: argparse.Namespace) -> None:
     document = create_document_model(text_to_doc(text))
 
     profile = args.profile
-    journal = empty_journal()
-    if PROFILES[profile]["tracking"]:
-        journal = append_event(journal, "document.created", data={"title": title})
+    journal = create_journal(profile, title)
 
     recipients = args.recipient or None
     password = args.password
@@ -194,6 +199,68 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
         print(f"Rapport de preuve écrit : {args.report}")
 
 
+def cmd_doc_sign(args: argparse.Namespace) -> None:
+    with open(args.file, "rb") as f:
+        blob = f.read()
+    password = args.password
+    rkey = getattr(args, "recipient_key", None)
+    try:
+        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+    except EliumPasswordRequired:
+        password = getpass.getpass("Mot de passe du document: ")
+        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+
+    with open(args.key, encoding="utf-8") as f:
+        private_key_hex = f.read().strip()
+
+    signer: dict[str, str] = {"name": args.name}
+    if args.role:
+        signer["role"] = args.role
+    if args.org:
+        signer["org"] = args.org
+
+    model = result["document"]
+    sig_id = "sig-" + uuid.uuid4().hex[:12]
+    proof = create_proof(sig_id, model, signer, private_key_hex)
+    signature = {
+        "id": sig_id,
+        "kind": "typed",
+        "signer": signer,
+        "proof": proof,
+        "level": "advanced",
+        "createdAt": proof["signedAt"],
+    }
+    signatures = list(result["signatures"]) + [signature]
+
+    manifest = result["manifest"]
+    profile = manifest["profile"]
+    journal = result["journal"]
+    record_signature_added(journal, profile, signature)
+
+    seal_key = None
+    if args.seal_key:
+        with open(args.seal_key, encoding="utf-8") as f:
+            seal_key = f.read().strip()
+
+    out = write_elium(
+        model,
+        profile=profile,
+        title=manifest["title"],
+        language=manifest.get("language", "fr"),
+        signatures=signatures,
+        journal=journal,
+        created_at=manifest.get("createdAt"),
+        doc_id=manifest.get("docId"),
+        password=password,
+        seal_private_key_hex=seal_key,
+    )
+    output = args.output or args.file
+    with open(output, "wb") as f:
+        f.write(out)
+    sealed = "  · re-scellé" if seal_key else ""
+    print(f"Signature ajoutée ({signer['name']}) → {output}{sealed}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="elium", description="Elium — format documentaire & conteneur sécurisé")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -233,6 +300,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
     p.add_argument("--text", action="store_true", help="Afficher le contenu texte")
     p.set_defaults(func=cmd_doc_open)
+
+    p = sub.add_parser("doc-sign", help="Ajouter une signature (preuve Ed25519) à un document .elium (v4)")
+    p.add_argument("file")
+    p.add_argument("--key", required=True, help="Fichier contenant la clé privée Ed25519 (hex) du signataire")
+    p.add_argument("--name", required=True, help="Nom du signataire")
+    p.add_argument("--role", help="Rôle du signataire")
+    p.add_argument("--org", help="Organisation du signataire")
+    p.add_argument("--password", help="Mot de passe (documents chiffrés)")
+    p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
+                   help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
+    p.add_argument("--seal-key", dest="seal_key",
+                   help="Fichier avec la clé privée Ed25519 (hex) pour re-sceller le document")
+    p.add_argument("--output", help="Fichier de sortie (défaut : réécrit le fichier d'entrée)")
+    p.set_defaults(func=cmd_doc_sign)
 
     p = sub.add_parser("doc-verify", help="Vérifier intégrité, journal et signatures d'un .elium (v4)")
     p.add_argument("file")

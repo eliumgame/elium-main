@@ -9,10 +9,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "tsx tests/e2e-multiuser.ts",
-    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\"",
-    "lint:fix": "eslint --fix \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\"",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\""
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint --fix \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
@@ -49,6 +49,8 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
@@ -58,6 +60,7 @@
     "eslint-config-prettier": "^9.1.2",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^17.7.0",
+    "jsdom": "^25.0.1",
     "prettier": "^3.9.5",
     "tsx": "^4.23.0",
     "typescript": "^5.3.3",

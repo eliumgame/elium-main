@@ -581,7 +581,14 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   MFA, RBAC, tokens, TOTP, OIDC, durcissement corps/secrets) gatée en CI
   (job `server-checks`).
 - **Fait aussi** : **SSO (OIDC)** + **SCIM** (provisioning/déprovisioning) en
-  restant zéro-connaissance (§4.5), validés E2E.
+  restant zéro-connaissance (§4.5), validés E2E. **UI d'administration livrée** :
+  onglet « SSO & SCIM » (`drive-cloud/ui/SsoScimPanel.tsx`) — configuration du
+  fournisseur d'identité (issuer, client ID, JWKS, domaines autorisés,
+  activation/désactivation) et génération du jeton SCIM + endpoint affiché.
+  Vérifié par tests de composants (SDK mocké, sans backend).
+- **À améliorer** : le **recouvrement d'org** a son SDK/serveur mais pas encore
+  d'UI (l'emballage de la clé privée d'org côté client demande une conception
+  crypto dédiée).
 - **Fait aussi** : l'éditeur de diapos *collaboratif* partage l'éditeur unifié
   `SlidesEditor` → animations, **mode présentateur** (2ᵉ écran), transitions et
   morph y sont rejoués comme en local (plus de « transition stockée mais pas

@@ -93,6 +93,10 @@ export class DriveApi {
   getTokens(): Tokens | null {
     return this.tokens;
   }
+  /** The API base URL (already includes the `/api` prefix), e.g. to display the SCIM endpoint. */
+  get serverUrl(): string {
+    return this.baseUrl;
+  }
 
   private url(path: string, query?: Query): string {
     const u = this.baseUrl + path;

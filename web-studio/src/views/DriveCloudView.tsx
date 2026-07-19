@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import {
-  Home, Cloud, LogOut, Building2, Plus, Files, Users, Users2, ShieldHalf, ChevronDown, Check, Trash2, ScrollText, ShieldCheck,
+  Home, Cloud, LogOut, Building2, Plus, Files, Users, Users2, ShieldHalf, ChevronDown, Check, Trash2, ScrollText, ShieldCheck, Fingerprint,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
 import { DriveProvider, useDrive } from "../drive-cloud/session";
@@ -18,8 +18,9 @@ import RolesPanel from "../drive-cloud/ui/RolesPanel";
 import TrashPanel from "../drive-cloud/ui/TrashPanel";
 import AuditPanel from "../drive-cloud/ui/AuditPanel";
 import SecurityPanel from "../drive-cloud/ui/SecurityPanel";
+import SsoScimPanel from "../drive-cloud/ui/SsoScimPanel";
 
-type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security";
+type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso";
 
 const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode }[] = [
   { key: "files", label: "Fichiers", subtitle: "Vos dossiers et fichiers chiffrés", icon: <Files size={18} /> },
@@ -29,6 +30,7 @@ const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode }[
   { key: "trash", label: "Corbeille", subtitle: "Éléments supprimés, restaurables", icon: <Trash2 size={18} /> },
   { key: "audit", label: "Journal d'audit", subtitle: "L'activité de l'organisation", icon: <ScrollText size={18} /> },
   { key: "security", label: "Sécurité", subtitle: "Vérification en deux étapes (2FA)", icon: <ShieldCheck size={18} /> },
+  { key: "sso", label: "SSO & SCIM", subtitle: "Fournisseur d'identité et provisioning", icon: <Fingerprint size={18} /> },
 ];
 
 function initials(s: string): string {
@@ -141,6 +143,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
               {tab === "trash" && <TrashPanel />}
               {tab === "audit" && <AuditPanel />}
               {tab === "security" && <SecurityPanel />}
+              {tab === "sso" && <SsoScimPanel />}
             </main>
           </>
         )}

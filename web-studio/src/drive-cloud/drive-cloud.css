@@ -400,3 +400,15 @@
 .dc-auth__server-row { display: flex; gap: 8px; align-items: center; }
 .dc-auth__server-row .input { flex: 1; font-family: ui-monospace, monospace; font-size: 13px; }
 .dc-auth__server-cur code { font-family: ui-monospace, monospace; }
+
+/* SSO & SCIM admin panel */
+.dc-sso { display: flex; flex-direction: column; gap: 16px; max-width: 680px; }
+.dc-sso__card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+.dc-sso__title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+.dc-sso__form { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.dc-sso__form textarea.input { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+.dc-sso__actions { display: flex; gap: 8px; margin-top: 4px; }
+.dc-sso__copyrow { display: flex; align-items: center; gap: 6px; }
+.dc-sso__code { flex: 1; font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; overflow-x: auto; white-space: nowrap; }
+.dc-sso__code--secret { letter-spacing: .5px; }
+.dc-sso__ok { color: #16a34a; font-size: 13px; margin: 8px 0; }

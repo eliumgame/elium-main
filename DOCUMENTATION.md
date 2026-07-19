@@ -676,6 +676,18 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   l'identifiant unique du document (index local versions/Parapheur/pinning), avec
   repli sur `createdAt` pour les fichiers hérités (`docKeyOf`) — hors sous-ensemble
   signé du sceau.
+- **Fait** : **parité du journal Python** (`format/document.py` : `create_journal`,
+  `record_save`/`record_modification`/`record_profile`/`record_signature_added`,
+  garde `tracks_journal`) — les événements verrouillage/signature sont émis comme
+  côté TS. **Nouvelle commande `elium doc-sign`** (ajoute une preuve Ed25519 à un
+  `.elium`, journalise `signature.added`, préserve `docId`, re-scelle en option).
+- **Fait** : **interop cross-langage étendue** — au-delà du format, les tests
+  couvrent désormais **sceau, preuve de signature, journal et chiffrement des
+  métadonnées** dans les deux sens (Python↔TS), prouvant que `sealMessage`, la
+  preuve, le JSON canonique et l'enveloppe `elium-secure/1` sont byte-for-byte
+  identiques. **Gardes de sécurité testées** : bornes KDF v3, keyfile au niveau
+  paquet, path-traversal de `elium open` (sans évasion, cross-platform). 113 tests
+  Python.
 
 ### Outillage & distribution
 - **Fait** : **ESLint 9 (flat config) + Prettier** sur web-studio et server,

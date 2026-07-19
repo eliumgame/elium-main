@@ -74,9 +74,16 @@ export function newId(prefix: string): string {
   return `${prefix}-${Math.abs(Date.now() ^ Math.floor(Math.random() * 1e9)).toString(36)}`;
 }
 
+/** A workbook-scoped named range: `name` resolves to `ref` (e.g. "Feuille1!$A$1:$B$2") in formulas. */
+export interface NamedRange {
+  name: string;
+  ref: string;
+}
+
 export interface Workbook {
   sheets: SheetData[];
   active: number; // index into sheets
+  names?: NamedRange[]; // defined names usable in formulas
 }
 
 export function emptyWorkbook(): Workbook {

@@ -625,7 +625,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   UI `ValidationModal` + datalist d'auto-complétion pour les listes. Vérifié
   bout-en-bout au navigateur. (Portée = Tableur local, comme la mise en forme
   conditionnelle ; l'éditeur collaboratif reste un éditeur de cellules allégé.)
-- **Reste** : fusion de cellules, plages nommées, tableaux croisés.
+  **Plages nommées** (`formula.ts` `applyNamedRanges`, pur + testé) : un nom
+  (ex. `SALAIRES`) résout vers une référence absolue qualifiée
+  (`'Feuille 1'!$A$1:$A$3`) et s'emploie dans les formules (`=SUM(SALAIRES)`).
+  Pré-traitement par tokenizer (chaînes, noms de fonctions, qualificateurs de
+  feuille et adresses préservés), injecté dans `createCalc` sans toucher au cœur
+  de l'évaluateur ; UI `NamedRangesModal`. Vérifié bout-en-bout au navigateur.
+- **Reste** : fusion de cellules, tableaux croisés.
 
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8

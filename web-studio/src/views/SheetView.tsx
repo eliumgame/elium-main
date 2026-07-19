@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home, Plus, Minus, Download, Upload, Save, Table2, FileSpreadsheet,
   Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks,
+  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks, Tag,
 } from "lucide-react";
 import { useUndoable } from "../ui/useUndoable";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
 import { useDialogs } from "../ui/dialogs";
-import { createCalc, indexToCol, parseRef, isError, rewriteRefs, renameSheetRefs, FUNCTIONS, type RefMap } from "../sheet/formula";
+import { createCalc, indexToCol, parseRef, isError, rewriteRefs, renameSheetRefs, quoteSheetName, FUNCTIONS, type RefMap } from "../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../sheet/format";
 import SheetChart from "../sheet/SheetChart";
 import CondFormatModal from "../sheet/CondFormatModal";
 import ValidationModal from "../sheet/ValidationModal";
+import NamedRangesModal from "../sheet/NamedRangesModal";
 import { buildCondFormatter } from "../sheet/condformat";
 import { buildValidator, validationAt } from "../sheet/validation";
 import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule, type DataValidation } from "../sheet/model";
@@ -98,7 +99,12 @@ export default function SheetView({
     }),
     [wb],
   );
-  const calc = useMemo(() => createCalc((ref) => sheet.cells[ref], crossSheets), [sheet, crossSheets]);
+  // Workbook-scoped defined names (resolved before every formula evaluation).
+  const nameResolver = useMemo(() => {
+    const map = new Map((wb.names ?? []).map((n) => [n.name.toUpperCase(), n.ref]));
+    return map.size ? (name: string) => map.get(name) : undefined;
+  }, [wb.names]);
+  const calc = useMemo(() => createCalc((ref) => sheet.cells[ref], crossSheets, nameResolver), [sheet, crossSheets, nameResolver]);
   const activeRef = cellRef(sel.c, sel.r);
 
   const r0 = Math.min(anchor.r, sel.r), r1 = Math.max(anchor.r, sel.r);
@@ -268,6 +274,7 @@ export default function SheetView({
   const [freezeOpen, setFreezeOpen] = useState(false);
   const [condOpen, setCondOpen] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
+  const [namesOpen, setNamesOpen] = useState(false);
   const setFreeze = (rows: number, cols: number) => {
     patchSheet((sh) => (rows === 0 && cols === 0 ? { ...sh, freeze: undefined } : { ...sh, freeze: { rows, cols } }));
     setFreezeOpen(false);
@@ -535,7 +542,7 @@ export default function SheetView({
   };
 
   const exportCsv = () => {
-    const c = createCalc((ref) => sheet.cells[ref], crossSheets);
+    const c = createCalc((ref) => sheet.cells[ref], crossSheets, nameResolver);
     const lines: string[] = [];
     for (let r = 0; r < sheet.rows; r++) {
       if (!rowVisible(r)) continue; // export only the rows the filter shows
@@ -705,6 +712,17 @@ export default function SheetView({
   const removeValidation = (id: string) =>
     patchSheet((sh) => ({ ...sh, validations: (sh.validations ?? []).filter((v) => v.id !== id) }));
 
+  // --- named ranges (workbook-scoped) ---
+  const absCell = (c: number, r: number) => `$${indexToCol(c)}$${r + 1}`;
+  const addName = (name: string) => {
+    const clean = name.trim();
+    const single = c0 === c1 && r0 === r1;
+    const ref = `${quoteSheetName(sheet.name)}!${single ? absCell(c0, r0) : `${absCell(c0, r0)}:${absCell(c1, r1)}`}`;
+    update((w) => ({ ...w, names: [...(w.names ?? []).filter((n) => n.name.toUpperCase() !== clean.toUpperCase()), { name: clean, ref }] }));
+  };
+  const removeName = (name: string) =>
+    update((w) => ({ ...w, names: (w.names ?? []).filter((n) => n.name !== name) }));
+
   return (
     <div className="sheet-app">
       <div className="sheet-bar">
@@ -796,6 +814,7 @@ export default function SheetView({
         <div className="tool-group">
           <button className={`icon-btn ${(sheet.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={15} /></button>
           <button className={`icon-btn ${(sheet.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={15} /></button>
+          <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={15} /></button>
         </div>
         {sheet.filter && (
           <span className="sheet-filter-chip">
@@ -970,6 +989,16 @@ export default function SheetView({
           onAdd={addValidation}
           onRemove={removeValidation}
           onClose={() => setValidationOpen(false)}
+        />
+      )}
+
+      {namesOpen && (
+        <NamedRangesModal
+          rangeLabel={`${quoteSheetName(sheet.name)}!${cellRef(c0, r0)}:${cellRef(c1, r1)}`}
+          names={wb.names ?? []}
+          onAdd={addName}
+          onRemove={removeName}
+          onClose={() => setNamesOpen(false)}
         />
       )}
     </div>

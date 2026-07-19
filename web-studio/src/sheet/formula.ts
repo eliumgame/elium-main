@@ -208,6 +208,53 @@ export function renameSheetRefs(formula: string, oldName: string, newName: strin
   return out;
 }
 
+/**
+ * Substitute defined names with their target reference before evaluation, using
+ * the same tokeniser discipline as rewriteRefs: string literals, quoted sheet
+ * names, function names (`word(`), sheet qualifiers (`word!`) and bare cell
+ * addresses are left untouched — only free identifiers that resolve to a name
+ * are replaced. Names are workbook-scoped; `resolve` returns the target ref
+ * (e.g. "Feuille1!$A$1:$B$2") for a given upper-cased name, or undefined.
+ */
+export function applyNamedRanges(formula: string, resolve: (name: string) => string | undefined): string {
+  let out = "";
+  let i = 0;
+  const n = formula.length;
+  while (i < n) {
+    const c = formula[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n && formula[j] !== '"') j++;
+      out += formula.slice(i, Math.min(j + 1, n));
+      i = j + 1;
+      continue;
+    }
+    if (c === "'") {
+      let j = i + 1;
+      while (j < n) { if (formula[j] === "'") { if (formula[j + 1] === "'") { j += 2; continue; } break; } j++; }
+      out += formula.slice(i, Math.min(j + 1, n));
+      i = j + 1;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9_$.]/.test(formula[j])) j++;
+      const word = formula.slice(i, j);
+      const after = formula.slice(j).match(/^\s*/)?.[0].length ?? 0;
+      const nextCh = formula[j + after];
+      const isAddr = /^\$?[A-Za-z]+\$?[0-9]+$/.test(word);
+      if (nextCh === "(" || nextCh === "!" || isAddr) { out += word; i = j; continue; }
+      const target = resolve(word.toUpperCase());
+      out += target !== undefined ? target : word;
+      i = j;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 // --- Coercion -------------------------------------------------------------
 
 function toNumber(v: CellValue): number {
@@ -958,7 +1005,11 @@ export interface CrossSheet {
  * sheet. The cache/cycle key is `context + ref`, so the same address on two
  * sheets stays distinct.
  */
-export function createCalc(getRaw: (ref: string) => string | undefined, cross?: CrossSheet) {
+export function createCalc(
+  getRaw: (ref: string) => string | undefined,
+  cross?: CrossSheet,
+  names?: (name: string) => string | undefined,
+) {
   const cache = new Map<string, CellValue>();
   const visiting = new Set<string>();
 
@@ -986,7 +1037,8 @@ export function createCalc(getRaw: (ref: string) => string | undefined, cross?: 
           if (!cross || !cross.hasSheet(sheet)) return { error: "#REF" };
           return valueOf(sheet, ref); // qualified → named sheet
         };
-        return evaluate(parseFormula(tokenize(raw.slice(1))), resolve);
+        const body = names ? applyNamedRanges(raw.slice(1), names) : raw.slice(1);
+        return evaluate(parseFormula(tokenize(body)), resolve);
       } catch (e) {
         return { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
       }

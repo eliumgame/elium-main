@@ -25,6 +25,8 @@ import { buildRegistration, prepareLogin, unlockAccount, signLoginChallenge, typ
 import type { LoginResponse } from "../src/drive-cloud/types";
 import * as ops from "../src/drive-cloud/ops";
 import { encryptContent, decryptContent, decryptName } from "../src/drive-cloud/node-crypto";
+import { promoteRecoveryAdmin, restoreNodeAccess, withOrgKey, decryptRecoveryNodeNames } from "../src/drive-cloud/recovery";
+import type { RecoveryContext } from "../src/drive-cloud/recovery";
 import { revokeShareWithRotation } from "../src/drive-cloud/rotate";
 import { EncryptedYjsProvider } from "../src/drive-cloud/collab-provider";
 import { generateRecipientKeypair, encryptForRecipients } from "../src/crypto/recipients";
@@ -603,6 +605,69 @@ async function main(): Promise<void> {
     ok("SCIM réactivé : accès org rétabli", ((await bob.api.listRoles(org.id)).roles as unknown[]).length >= 7);
 
     // =========================================================================
+    section("Recouvrement d'organisation (clé d'org)");
+    // A third user, Carol, joins as ADMIN (admin role includes recovery.perform),
+    // but holds NO wrapped org key yet — only the creator (Alice) got one.
+    const carol = await newUser(base, "carol@acme.fr", "Carol");
+    const inviteC = await alice.api.invite(org.id, { email: carol.user.email, roleId: roleIdByKey["admin"]! });
+    await carol.api.acceptInvite(inviteC.token);
+    const carolRoles = (await carol.api.listRoles(org.id)).roles as RoleDef[];
+    const carolRoleIdByKey: Record<string, string> = Object.fromEntries(carolRoles.map((r) => [r.key, r.id]));
+
+    await expectStatus("recouvrement : admin sans clé encore → 404", carol.api.getRecoveryKey(org.id), 404);
+    await expectStatus("recouvrement : éditeur (Bob) refusé (recovery.perform)", bob.api.getRecoveryKey(org.id), 403);
+    await expectStatus("recouvrement : liste des nœuds refusée à l'éditeur", bob.api.listRecoveryNodes(org.id), 403);
+
+    // Alice (owner, holds the org key since creation) promotes Carol — the org
+    // private key is unwrapped in Alice's browser and re-wrapped to Carol.
+    const ctxAliceRec: RecoveryContext = { api: alice.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: alice.keys.recipient };
+    await promoteRecoveryAdmin(ctxAliceRec, { userId: carol.user.id, publicHex: carol.user.p256PublicHex });
+    const recAdmins = (await alice.api.listRecoveryAdmins(org.id)).admins;
+    ok("Carol promue administratrice de recouvrement (Alice + Carol listées)",
+      recAdmins.some((a) => a.userId === carol.user.id) && recAdmins.some((a) => a.userId === alice.user.id),
+      recAdmins.map((a) => a.email).join(","));
+
+    // Carol can now unwrap the org key — byte-identical to the real one.
+    const ctxCarolRec: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: carol.keys.recipient };
+    const carolOrgPriv = await withOrgKey(ctxCarolRec, async (kp) => kp.privateHex);
+    ok("Carol déballe la clé privée d'org (identique à l'originale)", carolOrgPriv === orgKp.privateHex);
+
+    // Alice creates a private file Bob cannot see.
+    const rhFolder = await ops.createFolder(ctxA, null, "RH confidentiel");
+    const payslip = enc.encode("Fiche de paie — CONFIDENTIEL");
+    await ops.uploadFile(ctxA, rhFolder.id, new File([payslip as unknown as BlobPart], "paie.txt"));
+    const payslipFile = (await ops.listFolder(ctxA, rhFolder.id)).find((e) => e.name === "paie.txt")!;
+    await expectStatus("Bob ne voit pas le fichier RH non partagé (404)", bob.api.getNode(payslipFile.id), 404);
+
+    // Carol browses the org tree through recovery and decrypts names with the org key.
+    const recNodes = (await carol.api.listRecoveryNodes(org.id)).nodes;
+    const recPayslip = recNodes.find((n) => n.id === payslipFile.id)!;
+    ok("recouvrement : le fichier RH figure dans l'arborescence, avec sa clé d'org", !!recPayslip && !!recPayslip.orgWrappedKey);
+    const recNames = await decryptRecoveryNodeNames(ctxCarolRec, recNodes);
+    ok("recouvrement : Carol déchiffre le nom du fichier via la clé d'org", recNames.get(payslipFile.id) === "paie.txt", recNames.get(payslipFile.id));
+
+    // Carol restores Bob's cryptographic access to that file.
+    await restoreNodeAccess(ctxCarolRec, {
+      nodeId: payslipFile.id,
+      orgWrappedKey: recPayslip.orgWrappedKey,
+      targetUserId: bob.user.id,
+      targetPublicHex: bob.user.p256PublicHex,
+      roleId: carolRoleIdByKey["editor"]!,
+    });
+
+    // Bob now decrypts the file — via the org recovery path, without Alice sharing.
+    const bobPayslipNode = await bob.api.getNode(payslipFile.id);
+    ok("recouvrement : Bob a désormais accès au fichier RH", !!bobPayslipNode.myWrappedKey);
+    const bobPayslipKey = bobPayslipNode.myWrappedKey ? await ops.nodeKeyFrom(ctxB, bobPayslipNode.myWrappedKey) : null;
+    const bobPayslipCt = await bob.api.getContent(payslipFile.id);
+    ok("recouvrement : Bob déchiffre le contenu restauré (identique à l'original)",
+      !!bobPayslipKey && eq(await decryptContent(bobPayslipKey, bobPayslipCt.nonceHex, bobPayslipCt.bytes), payslip));
+
+    // An editor cannot perform a grant himself (recovery.perform is required).
+    await expectStatus("recouvrement : grant refusé à l'éditeur (recovery.perform)",
+      bob.api.recoveryGrant(org.id, { nodeId: payslipFile.id, targetUserId: bob.user.id, roleId: carolRoleIdByKey["editor"]!, wrappedKey: {} }), 403);
+
+    // =========================================================================
     section("Journal d'audit");
     const audit = await alice.api.listAudit(org.id, { limit: 200 });
     const actions = new Set((audit.entries as { action: string }[]).map((e) => e.action));
@@ -610,6 +675,8 @@ async function main(): Promise<void> {
     ok("audit trace création/partage/révocation/rotation",
       actions.has("node.create") && actions.has("node.share") && actions.has("node.unshare")
       && actions.has("node.key.rotate") && actions.has("collab.compact"), [...actions].join(","));
+    ok("audit trace le recouvrement (promotion + grant)",
+      actions.has("recovery.admin.grant") && actions.has("recovery.grant"), [...actions].join(","));
     await expectStatus("Bob : audit refusé (audit.view)", bob.api.listAudit(org.id), 403);
   } finally {
     provA?.destroy();

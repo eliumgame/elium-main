@@ -80,6 +80,28 @@ export interface NodeMeta {
   myWrappedKey?: WrappedKey | null;
 }
 
+/** A node as seen through the org recovery lens: its org-wrapped CEK travels
+ *  with it so a recovery admin can decrypt the (still-encrypted) name and, on a
+ *  grant, recover the CEK. Only holders of the org private key can use it. */
+export interface RecoveryNode {
+  id: string;
+  parentId: string | null;
+  kind: "folder" | "file";
+  appKind: string | null;
+  nameEncrypted: string;
+  nameNonce: string;
+  trashed: boolean;
+  orgWrappedKey: WrappedKey;
+}
+
+/** A member who holds a wrapped copy of the org private key (can recover). */
+export interface RecoveryAdmin {
+  userId: string;
+  email: string;
+  displayName: string;
+  since: string;
+}
+
 export interface VersionInfo {
   id: string;
   versionNo: number;

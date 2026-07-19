@@ -412,3 +412,26 @@
 .dc-sso__code { flex: 1; font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; overflow-x: auto; white-space: nowrap; }
 .dc-sso__code--secret { letter-spacing: .5px; }
 .dc-sso__ok { color: #16a34a; font-size: 13px; margin: 8px 0; }
+
+/* --- Recovery panel ------------------------------------------------------- */
+.dc-rec__warn { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--warning, #f59e0b); border-radius: 12px;
+  background: var(--warning-bg, rgba(245, 158, 11, .1)); color: var(--text); }
+.dc-rec__warn > svg { color: var(--warning, #d97706); flex: none; margin-top: 1px; }
+.dc-rec__warn p { margin: 0; font-size: 13px; line-height: 1.5; }
+.dc-rec__promote { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.dc-rec__promote .tool-select { flex: 1; }
+.dc-rec__search { display: flex; align-items: center; gap: 8px; margin: 12px 0 10px; }
+.dc-rec__search > svg { color: var(--text-soft); flex: none; }
+.dc-rec__search .input { flex: 1; }
+.dc-rec__tree { max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.dc-rec__node { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: none; background: none; cursor: pointer;
+  border-bottom: 1px solid var(--border); color: var(--text); font-size: 13.5px; text-align: left; }
+.dc-rec__node:last-child { border-bottom: none; }
+.dc-rec__node:hover { background: var(--surface-3); }
+.dc-rec__node.is-active { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); font-weight: 600; }
+.dc-rec__node > svg { flex: none; color: var(--text-soft); }
+.dc-rec__node.is-active > svg { color: var(--primary); }
+.dc-rec__nodename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-rec__path { color: var(--text-soft); font-size: 12px; flex: none; }
+.dc-rec__grant { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.dc-rec__grant .field { flex: 1; min-width: 160px; }

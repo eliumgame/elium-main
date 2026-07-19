@@ -418,4 +418,67 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     await audit(orgId, actor.id, "recovery.grant", "node", b.nodeId, { targetUserId: b.targetUserId, roleId: b.roleId }, req.ip);
     return { ok: true };
   });
+
+  // --- Recovery: list the admins who hold a wrapped org private key ---------
+  // These are the people who CAN perform recovery (they can unwrap the org key).
+  app.get("/:orgId/recovery/admins", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireOrgPerm(req, orgId, "recovery.perform");
+
+    const rows = await query<{ user_id: string; email: string; display_name: string; created_at: string }>(
+      `SELECT k.admin_user_id AS user_id, u.email, u.display_name, k.created_at
+         FROM org_recovery_keys k
+         JOIN users u ON u.id = k.admin_user_id
+        WHERE k.org_id = $1
+        ORDER BY k.created_at`,
+      [orgId],
+    );
+    return {
+      admins: rows.map((r) => ({ userId: r.user_id, email: r.email, displayName: r.display_name, since: r.created_at })),
+    };
+  });
+
+  // --- Recovery: list every org node with its org-wrapped CEK ---------------
+  // Gated by recovery.perform. Names/metadata stay ENCRYPTED on the wire; only a
+  // holder of the org PRIVATE key (a recovery admin) can decrypt `org_wrapped_key`
+  // client-side to read a name or recover a CEK. This is what lets an admin browse
+  // the whole tree — including nodes they have no personal share on — to restore a
+  // member's access. Zero-knowledge is preserved: the server still sees only
+  // ciphertext and opaque envelopes.
+  app.get("/:orgId/recovery/nodes", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireOrgPerm(req, orgId, "recovery.perform");
+
+    const rows = await query<{
+      id: string;
+      parent_id: string | null;
+      kind: string;
+      app_kind: string | null;
+      name_encrypted: Buffer | null;
+      name_nonce: Buffer | null;
+      trashed_at: string | null;
+      org_wrapped_key: unknown;
+    }>(
+      `SELECT n.id, n.parent_id, n.kind, n.app_kind, n.name_encrypted, n.name_nonce, n.trashed_at,
+              nk.wrapped_key AS org_wrapped_key
+         FROM nodes n
+         JOIN node_keys nk
+           ON nk.node_id = n.id AND nk.principal_type = 'org' AND nk.principal_id = $1
+        WHERE n.org_id = $1
+        ORDER BY n.created_at`,
+      [orgId],
+    );
+    return {
+      nodes: rows.map((n) => ({
+        id: n.id,
+        parentId: n.parent_id,
+        kind: n.kind,
+        appKind: n.app_kind ?? null,
+        nameEncrypted: n.name_encrypted ? Buffer.from(n.name_encrypted).toString("hex") : "",
+        nameNonce: n.name_nonce ? Buffer.from(n.name_nonce).toString("hex") : "",
+        trashed: !!n.trashed_at,
+        orgWrappedKey: n.org_wrapped_key,
+      })),
+    };
+  });
 }

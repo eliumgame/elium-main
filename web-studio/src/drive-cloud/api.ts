@@ -16,6 +16,8 @@ import type {
   PermissionDef,
   KeyShareInput,
   PrincipalType,
+  RecoveryAdmin,
+  RecoveryNode,
 } from "./types";
 import type { RegistrationPayload } from "./account";
 import type { WrappedKey } from "./node-crypto";
@@ -320,6 +322,14 @@ export class DriveApi {
   }
   recoveryGrant(orgId: string, body: { nodeId: string; targetUserId: string; roleId: string; wrappedKey: WrappedKey }) {
     return this.json<{ ok: boolean }>("POST", `/orgs/${orgId}/recovery/grant`, { body });
+  }
+  /** List the members who hold a wrapped org private key (can perform recovery). */
+  listRecoveryAdmins(orgId: string) {
+    return this.json<{ admins: RecoveryAdmin[] }>("GET", `/orgs/${orgId}/recovery/admins`);
+  }
+  /** List every org node with its org-wrapped CEK (recovery admins only). */
+  listRecoveryNodes(orgId: string) {
+    return this.json<{ nodes: RecoveryNode[] }>("GET", `/orgs/${orgId}/recovery/nodes`);
   }
 
   // === Roles ===============================================================

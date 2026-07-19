@@ -12,9 +12,9 @@
 > sécurité & cryptographie, exploitation, état d'avancement (fait / reste / à
 > améliorer) et feuille de route.
 >
-> **Vérifié à la dernière mise à jour (2026-07-15)** : E2E multi-utilisateurs
-> **87/87** (désormais gaté en CI, job `server-e2e`) · vitest **204/204** ·
-> pytest **66/66** · typecheck + builds verts · MSI de bureau à jour.
+> **Vérifié à la dernière mise à jour (2026-07-19)** : E2E multi-utilisateurs
+> **113/113** (gaté en CI, job `server-e2e`) · vitest **328** (web) + **101**
+> (serveur) · pytest **113/113** · typecheck + builds + lint verts.
 
 ---
 
@@ -300,23 +300,34 @@ qu'une enveloppe opaque). Chaque nœud reçoit en plus une **part de clé « org
 (sa CEK emballée vers la clé publique d'org) — un détenteur de la clé privée
 d'org peut donc, en principe, restaurer l'accès à n'importe quel nœud.
 
-**Fait (fondations)** : génération + emballage à la création, part de clé d'org
-sur chaque nœud, et **endpoints serveur + méthodes SDK typées** — `GET
-…/recovery-key` (récupérer sa propre clé privée d'org emballée), `POST
-…/recovery/admins` (ré-emballer la clé privée d'org vers un autre admin), `POST
-…/recovery/grant` (restaurer l'accès d'un membre à un nœud), gardés par la
-permission `recovery.perform`. Création d'org + placement de la part d'org
-exercés en E2E.
+**Fondations** : génération + emballage à la création, part de clé d'org sur
+chaque nœud (préservée à chaque **rotation de clé**), et endpoints serveur +
+méthodes SDK typées — `GET …/recovery-key` (récupérer sa propre clé privée d'org
+emballée), `POST …/recovery/admins` (ré-emballer la clé privée d'org vers un
+autre admin), `POST …/recovery/grant` (restaurer l'accès d'un membre à un nœud),
+`GET …/recovery/admins` (lister les administrateurs de recouvrement), `GET
+…/recovery/nodes` (arborescence de l'org + CEK emballées vers l'org), tous gardés
+par la permission `recovery.perform`.
 
-**Reste (chantier séparé — conception crypto dédiée)** : l'**UI interactive de
-recouvrement**. Le flux côté client — un admin **déballe** la clé privée d'org
-avec sa clé P-256, puis la **ré-emballe** vers un admin promu, ou s'en sert pour
-déballer la part d'org d'un nœud et **ré-emballer** cette CEK vers un membre à
-ré-autoriser — manipule le secret le plus sensible de l'org en mémoire. Il est
-**volontairement différé** le temps d'une conception crypto dédiée
-(maniement/effacement de la clé, formats d'enveloppe, garde-fous UX) plutôt que
-codé à la hâte (risque crypto). Les endpoints `recovery/admins` et
-`recovery/grant` ne sont donc encore ni câblés à une UI ni couverts par un test.
+**UI interactive — LIVRÉE.** La conception crypto côté client
+(`web-studio/src/drive-cloud/recovery.ts`) est isolée dans un helper `withOrgKey`
+qui **déballe** la clé privée d'org depuis la clé P-256 de l'admin, l'utilise le
+temps d'**une seule opération scopée**, puis efface le scalaire brut (zeroization
+best-effort ; le format d'enveloppe est celui, audité, de `crypto/recipients.ts`
+— aucune crypto maison). Deux flux :
+- **Promouvoir un administrateur de recouvrement** — ré-emballe la clé privée
+  d'org vers un autre admin (`promoteRecoveryAdmin`).
+- **Restaurer l'accès à un nœud** — déballe la part d'org du nœud pour récupérer
+  sa CEK, puis la ré-emballe vers le membre cible (`restoreNodeAccess`).
+L'onglet **« Recouvrement »** (`ui/RecoveryPanel.tsx`, visible aux seuls
+détenteurs de `recovery.perform`) liste les administrateurs de recouvrement, en
+promeut de nouveaux, et laisse **parcourir l'arborescence de l'org** (noms
+déchiffrés localement avec la clé d'org) pour rendre à un membre l'accès chiffré
+à un fichier. **Zéro-connaissance préservé** : le serveur ne voit que des
+enveloppes opaques ; seuls les détenteurs de la clé privée d'org déchiffrent.
+Couvert de bout en bout (E2E : promotion d'un 2ᵉ admin, restauration d'accès,
+déchiffrement effectif du contenu recouvré, négatifs de permission) + tests
+unitaires de la crypto de recouvrement.
 
 ### 4.5 SSO (OIDC) & SCIM — en restant zéro-connaissance
 - **SSO (OIDC)** : le serveur vérifie un **jeton d'identité** signé par l'IdP
@@ -596,23 +607,25 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 ### Drive entreprise
 - **Fait** : auth zéro-connaissance sans oracle, RBAC granulaire, partage
   profond (membre/équipe/lien), versions, corbeille, journal d'audit,
-  co-édition temps réel chiffrée, **fondations du recouvrement d'org** (§4.4),
-  **+ Phase 2** (rotation de clés, MFA, quotas, rate-limiting, padding). Testé de
-  bout en bout (E2E 87/87,
-  vrai Postgres + vraie API + vrai SDK), gaté en CI (job `server-e2e`), plus une
-  **suite unitaire serveur** (93 tests vitest : auth/anti-énumération/anti-lockout
-  MFA, RBAC, tokens, TOTP, OIDC, durcissement corps/secrets) gatée en CI
-  (job `server-checks`).
+  co-édition temps réel chiffrée, **recouvrement d'org** (fondations **+ UI
+  interactive**, §4.4), **+ Phase 2** (rotation de clés, MFA, quotas,
+  rate-limiting, padding). Testé de bout en bout (E2E 113/113, vrai Postgres +
+  vraie API + vrai SDK), gaté en CI (job `server-e2e`), plus une **suite unitaire
+  serveur** (101 tests vitest : auth/anti-énumération/anti-lockout MFA, RBAC,
+  tokens, TOTP, OIDC, durcissement corps/secrets) gatée en CI (job `server-checks`).
 - **Fait aussi** : **SSO (OIDC)** + **SCIM** (provisioning/déprovisioning) en
   restant zéro-connaissance (§4.5), validés E2E. **UI d'administration livrée** :
   onglet « SSO & SCIM » (`drive-cloud/ui/SsoScimPanel.tsx`) — configuration du
   fournisseur d'identité (issuer, client ID, JWKS, domaines autorisés,
   activation/désactivation) et génération du jeton SCIM + endpoint affiché.
   Vérifié par tests de composants (SDK mocké, sans backend).
-- **Reste** : l'**UI interactive de recouvrement d'org** — SDK/serveur livrés,
-  mais l'emballage de la clé privée d'org côté client demande une conception
-  crypto dédiée (§4.4) ; les endpoints `recovery/admins`/`recovery/grant` ne sont
-  ni câblés à une UI ni testés. Feuille de route §12.
+- **Fait aussi** : **recouvrement d'org — UI interactive** (`drive-cloud/recovery.ts`
+  + `ui/RecoveryPanel.tsx`, onglet « Recouvrement ») : déballage/ré-emballage de
+  la clé privée d'org côté client avec effacement mémoire best-effort, promotion
+  d'administrateurs de recouvrement, et restauration d'accès à un nœud (parcours
+  de l'arborescence, noms déchiffrés via la clé d'org). Couvert E2E (promotion,
+  restauration, déchiffrement du contenu recouvré, négatifs de permission) + tests
+  unitaires crypto (§4.4).
 - **Fait aussi** : l'éditeur de diapos *collaboratif* partage l'éditeur unifié
   `SlidesEditor` → animations, **mode présentateur** (2ᵉ écran), transitions et
   morph y sont rejoués comme en local (plus de « transition stockée mais pas
@@ -773,12 +786,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 4. **Add-in Microsoft 365 : ABANDONNÉ** — l'idée d'un add-in Office est écartée
    (prototype `office-addin/` supprimé). La suite reste **100 % locale** ; toute
    éventuelle fonction en ligne future resterait **opt-in** et conforme RGPD.
-5. **Recouvrement d'org — UI interactive (À FAIRE)** : câbler `recovery/admins`
-   (ré-emballer la clé privée d'org vers un admin promu) et `recovery/grant`
-   (restaurer l'accès d'un membre à un nœud) à une interface, sur une
-   **conception crypto dédiée** du maniement de la clé privée d'org côté client
-   (déballage/ré-emballage, effacement mémoire, garde-fous UX) + couverture E2E.
-   Les fondations (clés, part d'org par nœud, endpoints, SDK) sont livrées — §4.4.
+5. **Recouvrement d'org — UI interactive : LIVRÉ** — conception crypto côté
+   client (`recovery.ts` : `withOrgKey` + effacement mémoire best-effort) et
+   onglet « Recouvrement » (`ui/RecoveryPanel.tsx`) : promotion d'administrateurs
+   de recouvrement + restauration d'accès à un nœud, couverts E2E + tests
+   unitaires (§4.4).
 
 ---
 

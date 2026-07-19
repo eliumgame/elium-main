@@ -4,9 +4,9 @@
  * (Fichiers / Membres / Rôles), and the active panel. All content is
  * end-to-end encrypted; this view only orchestrates the panels.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Home, Cloud, LogOut, Building2, Plus, Files, Users, Users2, ShieldHalf, ChevronDown, Check, Trash2, ScrollText, ShieldCheck, Fingerprint,
+  Home, Cloud, LogOut, Building2, Plus, Files, Users, Users2, ShieldHalf, ChevronDown, Check, Trash2, ScrollText, ShieldCheck, Fingerprint, LifeBuoy,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
 import { DriveProvider, useDrive } from "../drive-cloud/session";
@@ -19,15 +19,19 @@ import TrashPanel from "../drive-cloud/ui/TrashPanel";
 import AuditPanel from "../drive-cloud/ui/AuditPanel";
 import SecurityPanel from "../drive-cloud/ui/SecurityPanel";
 import SsoScimPanel from "../drive-cloud/ui/SsoScimPanel";
+import RecoveryPanel from "../drive-cloud/ui/RecoveryPanel";
 
-type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso";
+type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso" | "recovery";
 
-const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode }[] = [
+// `perm` (optional) gates a tab behind an org permission; tabs without it are
+// always shown (the server still enforces access when a panel loads).
+const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode; perm?: string }[] = [
   { key: "files", label: "Fichiers", subtitle: "Vos dossiers et fichiers chiffrés", icon: <Files size={18} /> },
   { key: "members", label: "Membres", subtitle: "Les personnes de votre organisation", icon: <Users size={18} /> },
   { key: "groups", label: "Équipes", subtitle: "Groupes d'employés pour partager en masse", icon: <Users2 size={18} /> },
   { key: "roles", label: "Rôles & permissions", subtitle: "Qui peut faire quoi, dans le détail", icon: <ShieldHalf size={18} /> },
   { key: "trash", label: "Corbeille", subtitle: "Éléments supprimés, restaurables", icon: <Trash2 size={18} /> },
+  { key: "recovery", label: "Recouvrement", subtitle: "Recouvrer les fichiers via la clé d'organisation", icon: <LifeBuoy size={18} />, perm: "recovery.perform" },
   { key: "audit", label: "Journal d'audit", subtitle: "L'activité de l'organisation", icon: <ScrollText size={18} /> },
   { key: "security", label: "Sécurité", subtitle: "Vérification en deux étapes (2FA)", icon: <ShieldCheck size={18} /> },
   { key: "sso", label: "SSO & SCIM", subtitle: "Fournisseur d'identité et provisioning", icon: <Fingerprint size={18} /> },
@@ -96,6 +100,14 @@ function Workspace({ onHome }: { onHome: () => void }) {
   const active = NAV.find((n) => n.key === tab)!;
   const hasOrg = d.orgs.length > 0;
 
+  // Current member's org permissions (owner bypasses everything server-side).
+  const perms = useMemo(() => {
+    const role = d.roles.find((r) => r.id === d.currentOrg?.roleId);
+    return new Set(role?.permissions ?? []);
+  }, [d.roles, d.currentOrg?.roleId]);
+  const can = (p: string) => d.currentOrg?.roleKey === "owner" || perms.has(p);
+  const nav = NAV.filter((n) => !n.perm || can(n.perm));
+
   return (
     <div className="dc-app">
       <aside className="dc-sidebar">
@@ -103,7 +115,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
         {hasOrg && <div className="dc-sidebar__org"><OrgSwitcher /></div>}
         {hasOrg && (
           <nav className="dc-nav">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <button key={n.key} className={`dc-nav__item ${tab === n.key ? "is-active" : ""}`} onClick={() => setTab(n.key)}>
                 {n.icon} <span>{n.label}</span>
               </button>
@@ -144,6 +156,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
               {tab === "audit" && <AuditPanel />}
               {tab === "security" && <SecurityPanel />}
               {tab === "sso" && <SsoScimPanel />}
+              {tab === "recovery" && <RecoveryPanel />}
             </main>
           </>
         )}

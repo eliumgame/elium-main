@@ -52,11 +52,11 @@ declare module "@tiptap/core" {
   }
 }
 
-function escapeRegex(s: string): string {
+export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildRegex(term: string, opts: SearchOptions): RegExp | null {
+export function buildRegex(term: string, opts: SearchOptions): RegExp | null {
   if (!term) return null;
   try {
     const pattern = opts.useRegex ? term : escapeRegex(term);
@@ -66,7 +66,7 @@ function buildRegex(term: string, opts: SearchOptions): RegExp | null {
   }
 }
 
-function findMatches(doc: PMNode, term: string, opts: SearchOptions): SearchMatch[] {
+export function findMatches(doc: PMNode, term: string, opts: SearchOptions): SearchMatch[] {
   const re = buildRegex(term, opts);
   if (!re) return [];
   const matches: SearchMatch[] = [];

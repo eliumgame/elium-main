@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home, Plus, Minus, Download, Upload, Save, Table2, FileSpreadsheet,
   Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks, Tag,
+  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks, Tag, Combine,
 } from "lucide-react";
 import { useUndoable } from "../ui/useUndoable";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
@@ -15,6 +15,7 @@ import ValidationModal from "../sheet/ValidationModal";
 import NamedRangesModal from "../sheet/NamedRangesModal";
 import { buildCondFormatter } from "../sheet/condformat";
 import { buildValidator, validationAt } from "../sheet/validation";
+import { isCovered, spanAt, toggleMerge } from "../sheet/merges";
 import { emptyWorkbook, emptySheet, removeSheet, newId, type Workbook, type SheetData, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule, type DataValidation } from "../sheet/model";
 import { loadWorkbook, saveWorkbook } from "../sheet/sheet-store";
 import { importXlsx } from "../sheet/xlsx-import";
@@ -815,6 +816,13 @@ export default function SheetView({
           <button className={`icon-btn ${(sheet.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={15} /></button>
           <button className={`icon-btn ${(sheet.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={15} /></button>
           <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={15} /></button>
+          <button
+            className="icon-btn"
+            title="Fusionner / annuler la fusion des cellules sélectionnées"
+            onClick={() => patchSheet((sh) => ({ ...sh, merges: toggleMerge(sh.merges, { c0, r0, c1, r1 }) }))}
+          >
+            <Combine size={15} />
+          </button>
         </div>
         {sheet.filter && (
           <span className="sheet-filter-chip">
@@ -864,13 +872,15 @@ export default function SheetView({
                 <th className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`} style={rowheadStyle(r)}>{r + 1}</th>
                 {Array.from({ length: sheet.cols }, (_, c) => {
                   const ref = cellRef(c, r);
+                  if (isCovered(sheet.merges, c, r)) return null; // hidden by a merge (origin cell spans it)
+                  const span = spanAt(sheet.merges, c, r);
                   const st = sheet.styles?.[ref];
                   const active = sel.c === c && sel.r === r;
                   if (active && editing) {
                     const dv = validationAt(sheet.validations, c, r);
                     const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
                     return (
-                      <td key={c} className="is-selected" style={stickyStyle(c, r)}>
+                      <td key={c} className="is-selected" style={stickyStyle(c, r)} colSpan={span?.colSpan} rowSpan={span?.rowSpan}>
                         <input
                           className="sheet-cell-input"
                           autoFocus
@@ -918,6 +928,8 @@ export default function SheetView({
                       className={cls}
                       style={cellStyle}
                       title={invalid ?? undefined}
+                      colSpan={span?.colSpan}
+                      rowSpan={span?.rowSpan}
                       onMouseDown={(e) => { selectCell(c, r, e.shiftKey); dragging.current = true; gridRef.current?.focus(); }}
                       onMouseEnter={() => { if (fillRef.current) { fillToRef.current = { c, r }; setFillTo({ c, r }); } else if (dragging.current) setSel({ c, r }); }}
                       onDoubleClick={() => { selectCell(c, r); startEdit(); }}

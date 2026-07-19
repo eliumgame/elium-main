@@ -631,7 +631,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   Pré-traitement par tokenizer (chaînes, noms de fonctions, qualificateurs de
   feuille et adresses préservés), injecté dans `createCalc` sans toucher au cœur
   de l'évaluateur ; UI `NamedRangesModal`. Vérifié bout-en-bout au navigateur.
-- **Reste** : fusion de cellules, tableaux croisés.
+  **Fusion de cellules** (`sheet/merges.ts`, pur + testé) : la cellule en haut à
+  gauche s'étend (`colSpan`/`rowSpan`), les cellules couvertes sont masquées ;
+  bouton bascule fusionner/annuler sur la sélection (`toggleMerge` : fusionne une
+  plage multi-cellules, annule toute fusion recoupée). Vérifié bout-en-bout.
+- **Reste** : tableaux croisés dynamiques.
 
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8

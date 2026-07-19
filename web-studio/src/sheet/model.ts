@@ -54,6 +54,9 @@ export interface DataValidation {
   allowBlank?: boolean;  // empty cells pass (default true)
 }
 
+/** A merged range: the top-left cell (c0,r0) spans the whole rectangle. */
+export interface MergeRect { c0: number; r0: number; c1: number; r1: number; }
+
 export interface SheetData {
   name: string;
   rows: number;
@@ -63,6 +66,7 @@ export interface SheetData {
   charts?: ChartSpec[];
   condFormats?: CondRule[]; // conditional formatting rules
   validations?: DataValidation[]; // data-validation rules
+  merges?: MergeRect[]; // merged cell ranges (top-left cell spans; others are hidden)
   filter?: { col: number; query: string }; // view filter (hides non-matching rows)
   colWidths?: Record<number, number>; // column index -> width px (default DEFAULT_COL_W)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling

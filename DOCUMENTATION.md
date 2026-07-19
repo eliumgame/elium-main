@@ -13,7 +13,7 @@
 > améliorer) et feuille de route.
 >
 > **Vérifié à la dernière mise à jour (2026-07-19)** : E2E multi-utilisateurs
-> **113/113** (gaté en CI, job `server-e2e`) · vitest **328** (web) + **101**
+> **113/113** (gaté en CI, job `server-e2e`) · vitest **338** (web) + **101**
 > (serveur) · pytest **113/113** · typecheck + builds + lint verts.
 
 ---
@@ -630,8 +630,17 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   `SlidesEditor` → animations, **mode présentateur** (2ᵉ écran), transitions et
   morph y sont rejoués comme en local (plus de « transition stockée mais pas
   rejouée »).
-- **À améliorer** : fusion caractère-par-caractère des champs texte collaboratifs
-  (actuellement LWW par champ).
+- **Fait aussi** : **fusion texte caractère-par-caractère** dans l'éditeur
+  Présentations collaboratif — les champs texte (contenu des éléments texte,
+  titres, notes) sont désormais des **`Y.Text`** et non plus des chaînes LWW ;
+  l'écriture applique un **diff minimal** (`collab-slides-crdt.ts` `syncYText`)
+  au lieu d'un `.set` de la chaîne entière, si bien que deux personnes qui tapent
+  dans le même champ fusionnent au caractère près au lieu de s'écraser. Lecture
+  inchangée (`Y.Map.toJSON()`/`String()` restituent la chaîne). Testé (deux pairs,
+  éditions concurrentes non chevauchantes → les deux survivent).
+- **À améliorer** : le Tableur collaboratif reste en LWW par cellule (valeur
+  entière validée à la sortie de cellule) — suffisant pour des cellules courtes ;
+  une liaison `Y.Text` par cellule serait un raffinement.
 
 ### Suite locale — Documents
 - **Fait** : éditeur riche complet, suivi des modifications, import/export DOCX,
@@ -650,8 +659,19 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   ne casse jamais son sceau ; `document.modified` = une entrée par sauvegarde.
   Round-trip testé (le sceau couvre le journal enrichi ; l'altération d'un
   événement casse le sceau).
-- **À améliorer** : import DOCX ne relit pas toujours couleur/police/taille ;
-  polices importées non persistées dans le `.elium`.
+- **Fait aussi** : **fidélité d'import DOCX** — au-delà du `rPr` en ligne, le
+  lecteur résout désormais la mise en forme portée par **`styles.xml`**
+  (`docDefaults`, styles de paragraphe et de caractère, héritage `w:basedOn`),
+  cas fréquent des documents produits par Word : couleur, police et taille sont
+  restituées (le `rPr` en ligne l'emporte toujours). Le **surlignage** est aussi
+  réimporté (`w:highlight` nommé + `w:shd` par teinte hexadécimale). Couleur/
+  police/taille arrivent en marques `textStyle`/`highlight` → **persistées dans le
+  `.elium`** (elles survivent à un save/reload). Round-trip testé (styles, styles
+  de caractère, surlignage, persistance `.elium`). *(L'embarquement des fichiers
+  de police eux-mêmes reste hors périmètre : c'est le nom de police qui est
+  conservé, pas le binaire.)*
+- **À améliorer** : polices de caractères *embarquées* (binaire `.ttf`) non
+  incorporées dans le `.elium` — seul le nom de la police est conservé.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme
@@ -679,7 +699,14 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   gauche s'étend (`colSpan`/`rowSpan`), les cellules couvertes sont masquées ;
   bouton bascule fusionner/annuler sur la sélection (`toggleMerge` : fusionne une
   plage multi-cellules, annule toute fusion recoupée). Vérifié bout-en-bout.
-- **Reste** : tableaux croisés dynamiques.
+  **Tableaux croisés dynamiques** (`sheet/pivot.ts`, pur + testé) : à partir de la
+  plage sélectionnée (1ʳᵉ ligne = en-têtes), regroupement par un champ en lignes +
+  un champ optionnel en colonnes, agrégation **somme / nombre / moyenne / min /
+  max** avec totaux de ligne/colonne/général ; le résultat est écrit dans une
+  **nouvelle feuille**. UI `PivotModal` (bouton dédié dans la barre d'outils).
+  Totaux calculés sur le groupe brut (moyenne/min/max corrects, pas des cellules
+  déjà agrégées). Vérifié bout-en-bout.
+- **Reste** : —
 
 ### Suite locale — Présentations
 - **Fait** : refonte canvas libre à objets (rotation/z-order/opacité), 8
@@ -775,8 +802,8 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    (local + collaboratif, via `SlidesEditor` unifié) : animations par élément +
    déclencheurs, vraie vue présentateur (2ᵉ écran), morph, import/export PPTX
    (dont graphiques natifs), galerie de modèles, multi-sélection/groupes/
-   copier-coller. Améliorations possibles : fusion texte caractère-par-caractère
-   en collaboratif.
+   copier-coller, **+ fusion texte caractère-par-caractère en collaboratif
+   (LIVRÉ : `Y.Text` + diff minimal)**.
 2. **PDF avancé : LIVRÉ** — formulaires (AcroForm) + fusion/division
    multi-fichiers.
 3. **Qualité : code-splitting des vues lourdes — LIVRÉ** (bundle principal
@@ -791,8 +818,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
    onglet « Recouvrement » (`ui/RecoveryPanel.tsx`) : promotion d'administrateurs
    de recouvrement + restauration d'accès à un nœud, couverts E2E + tests
    unitaires (§4.4).
-
----
+6. **Tableur — tableaux croisés dynamiques : LIVRÉ** (`sheet/pivot.ts` + `PivotModal`) —
+   dernière fonctionnalité tableur manquante ; le Tableur est désormais complet
+   côté fonctionnalités (reste hors périmètre : macros).
+7. **Import DOCX — fidélité : LIVRÉ** — résolution de `styles.xml`
+   (docDefaults + styles ¶/caractère + `w:basedOn`) et surlignage ; couleur/
+   police/taille désormais persistées dans le `.elium`. Reste : embarquement du
+   binaire des polices.
 
 ## 13. Guide développeur
 

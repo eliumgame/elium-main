@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { slideToY, yToSlide, ensureElementsY, elToY } from "../src/drive-cloud/collab-slides-crdt";
-import type { Slide, SlideElement } from "../src/slides/model";
+import { slideToY, yToSlide, ensureElementsY, elToY, ensureYText, syncYText } from "../src/drive-cloud/collab-slides-crdt";
+import type { Slide } from "../src/slides/model";
 
 type YMap = Y.Map<unknown>;
 
@@ -96,6 +96,47 @@ describe("collab slides CRDT (de)serialization", () => {
       const e2 = s.elements!.find((e) => e.id === "e2")!;
       expect(e1.x).toBe(42); // A's edit survived on both
       expect(e2.x).toBe(88); // B's edit survived on both
+    }
+  });
+
+  it("merges two peers typing in the SAME text element character-by-character (not LWW)", () => {
+    const slide: Slide = {
+      id: "s1", title: "", body: "", bodyHtml: "", layout: "blank",
+      elements: [{ id: "e1", type: "text", x: 10, y: 10, w: 40, h: 20, html: "Hello world" }],
+    };
+    const A = new Y.Doc();
+    seedDoc(A, slide);
+    const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));
+    const htmlY = (doc: Y.Doc) => elementsY(slideAt0(doc)).toArray()[0]!.get("html") as Y.Text;
+
+    // Concurrent, non-overlapping edits: A inserts "dear " mid-string, B appends "!".
+    A.transact(() => syncYText(htmlY(A), "Hello dear world"));
+    B.transact(() => syncYText(htmlY(B), "Hello world!"));
+    Y.applyUpdate(A, Y.encodeStateAsUpdate(B));
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));
+
+    // Both survive on both peers (whole-field LWW would have lost one).
+    for (const doc of [A, B]) {
+      expect(yToSlide(slideAt0(doc)).elements![0]!.html).toBe("Hello dear world!");
+    }
+  });
+
+  it("merges concurrent edits to a slide title (Y.Text field)", () => {
+    const slide: Slide = { id: "s1", title: "Rapport", body: "", bodyHtml: "", layout: "title" };
+    const A = new Y.Doc();
+    seedDoc(A, slide);
+    const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));
+    const titleY = (doc: Y.Doc) => ensureYText(slideAt0(doc), "title");
+
+    A.transact(() => syncYText(titleY(A), "Mon Rapport")); // prepend "Mon "
+    B.transact(() => syncYText(titleY(B), "Rapport final")); // append " final"
+    Y.applyUpdate(A, Y.encodeStateAsUpdate(B));
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));
+
+    for (const doc of [A, B]) {
+      expect(yToSlide(slideAt0(doc)).title).toBe("Mon Rapport final");
     }
   });
 

@@ -126,6 +126,74 @@ describe("DOCX round-trip (export → import)", () => {
   });
 });
 
+type Run = { text?: string; marks?: { type: string; attrs?: Record<string, unknown> }[] };
+function findRun(node: ProseMirrorNode, text: string): Run | undefined {
+  if (node.type === "text" && (node as Run).text === text) return node as Run;
+  for (const c of node.content ?? []) {
+    const hit = findRun(c, text);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+const ts = (r: Run | undefined) => r?.marks?.find((m) => m.type === "textStyle")?.attrs ?? {};
+const hasMark = (r: Run | undefined, type: string) => !!r?.marks?.some((m) => m.type === type);
+
+const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+
+describe("DOCX import — style-based & highlight formatting (third-party docs)", () => {
+  it("recovers colour / font / size from styles.xml (docDefaults, paragraph & character styles)", () => {
+    const styles =
+      `<?xml version="1.0"?><w:styles ${W}>` +
+      "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\"/><w:sz w:val=\"24\"/></w:rPr></w:rPrDefault></w:docDefaults>" +
+      "<w:style w:type=\"paragraph\" w:styleId=\"Body\"><w:rPr><w:color w:val=\"123456\"/></w:rPr></w:style>" +
+      "<w:style w:type=\"character\" w:styleId=\"Accent\"><w:rPr><w:b/><w:color w:val=\"FF0000\"/></w:rPr></w:style>" +
+      "</w:styles>";
+    const docXml =
+      `<?xml version="1.0"?><w:document ${W}><w:body>` +
+      "<w:p><w:pPr><w:pStyle w:val=\"Body\"/></w:pPr>" +
+      "<w:r><w:t>texte du corps</w:t></w:r>" +
+      "<w:r><w:rPr><w:rStyle w:val=\"Accent\"/></w:rPr><w:t>accentué</w:t></w:r>" +
+      "<w:r><w:rPr><w:color w:val=\"00ff00\"/></w:rPr><w:t>vert inline</w:t></w:r>" +
+      "</w:p></w:body></w:document>";
+    const bytes = zipSync({ "word/document.xml": strToU8(docXml), "word/styles.xml": strToU8(styles) });
+    const { doc } = docxToDoc(bytes);
+
+    // Paragraph style + docDefaults inherited by a plain run.
+    expect(ts(findRun(doc, "texte du corps"))).toEqual({ color: "#123456", fontFamily: "Calibri", fontSize: "16px" });
+    // Character style overrides the paragraph colour and adds bold; font/size still inherited.
+    const acc = findRun(doc, "accentué");
+    expect(hasMark(acc, "bold")).toBe(true);
+    expect(ts(acc)).toMatchObject({ color: "#ff0000", fontFamily: "Calibri", fontSize: "16px" });
+    // Inline rPr wins over both styles.
+    expect(ts(findRun(doc, "vert inline"))).toMatchObject({ color: "#00ff00" });
+  });
+
+  it("recovers highlight from w:highlight (named) and w:shd (fill hex)", () => {
+    const docXml =
+      `<?xml version="1.0"?><w:document ${W}><w:body><w:p>` +
+      "<w:r><w:rPr><w:highlight w:val=\"yellow\"/></w:rPr><w:t>surligné</w:t></w:r>" +
+      "<w:r><w:rPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"ff0000\"/></w:rPr><w:t>fond rouge</w:t></w:r>" +
+      "</w:p></w:body></w:document>";
+    const { doc } = docxToDoc(zipSync({ "word/document.xml": strToU8(docXml) }));
+    const surl = findRun(doc, "surligné");
+    expect(surl?.marks?.find((m) => m.type === "highlight")?.attrs?.color).toBe("#fff34d");
+    const fond = findRun(doc, "fond rouge");
+    expect(fond?.marks?.find((m) => m.type === "highlight")?.attrs?.color).toBe("#ff0000");
+  });
+
+  it("persists imported font/colour/size through an .elium save/reload", async () => {
+    const docXml =
+      `<?xml version="1.0"?><w:document ${W}><w:body><w:p>` +
+      "<w:r><w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"30\"/><w:color w:val=\"334455\"/></w:rPr><w:t>stylé</w:t></w:r>" +
+      "</w:p></w:body></w:document>";
+    const { doc, title } = docxToDoc(zipSync({ "word/document.xml": strToU8(docXml) }));
+    // Round-trip the imported doc through the .elium document model (JSON).
+    const file = await createEliumFile({ title: title || "Import", profile: "standard", doc });
+    const revived = JSON.parse(JSON.stringify(file.document.doc)) as ProseMirrorNode;
+    expect(ts(findRun(revived, "stylé"))).toEqual({ fontFamily: "Georgia", fontSize: "20px", color: "#334455" });
+  });
+});
+
 describe("DOCX tracked-changes export (w:ins / w:del)", () => {
   const tracked: ProseMirrorNode = {
     type: "doc",

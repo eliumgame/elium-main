@@ -781,6 +781,10 @@
 .cf-swatch { width: 26px; height: 18px; flex-shrink: 0; border-radius: 4px; border: 1px solid var(--border-strong); }
 .cf-rule__desc { flex: 1; font-size: 13px; color: var(--text-soft); }
 .cf-empty { font-size: 13px; color: var(--text-muted); margin: 6px 0 0; }
+.pivot-form { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.pivot-row { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
+.pivot-row__lbl { font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.pivot-row .settings__select { width: 100%; }
 .sheet-tabs { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--surface); border-top: 1px solid var(--border); overflow-x: auto; }
 .sheet-tab { padding: 5px 12px; border-radius: var(--r-sm); font-size: 13px; font-weight: 600; color: var(--text-soft); background: var(--surface-2); white-space: nowrap; }
 .sheet-tab.is-active { background: var(--primary-50); color: var(--primary); }

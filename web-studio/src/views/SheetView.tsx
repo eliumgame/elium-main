@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Home, Plus, Minus, Download, Upload, Save, Table2, FileSpreadsheet,
   Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks, Tag, Combine,
+  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2, Type, Trash2, ListChecks, Tag, Combine, TableProperties,
 } from "lucide-react";
 import { useUndoable } from "../ui/useUndoable";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
@@ -13,6 +13,8 @@ import SheetChart from "../sheet/SheetChart";
 import CondFormatModal from "../sheet/CondFormatModal";
 import ValidationModal from "../sheet/ValidationModal";
 import NamedRangesModal from "../sheet/NamedRangesModal";
+import PivotModal from "../sheet/PivotModal";
+import { computePivot, pivotToSheet, type PivotConfig, type PivotInput } from "../sheet/pivot";
 import { buildCondFormatter } from "../sheet/condformat";
 import { buildValidator, validationAt } from "../sheet/validation";
 import { isCovered, spanAt, toggleMerge } from "../sheet/merges";
@@ -276,6 +278,7 @@ export default function SheetView({
   const [condOpen, setCondOpen] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
+  const [pivotOpen, setPivotOpen] = useState(false);
   const setFreeze = (rows: number, cols: number) => {
     patchSheet((sh) => (rows === 0 && cols === 0 ? { ...sh, freeze: undefined } : { ...sh, freeze: { rows, cols } }));
     setFreezeOpen(false);
@@ -492,6 +495,42 @@ export default function SheetView({
   const switchSheet = (i: number) => {
     commitEdit();
     update((w) => ({ ...w, active: i }));
+    setSel({ c: 0, r: 0 });
+    setAnchor({ c: 0, r: 0 });
+  };
+
+  // --- pivot table ---------------------------------------------------------
+  // Field names for the pivot builder = the first row of the current selection.
+  const pivotHeaders = (): string[] => {
+    const h: string[] = [];
+    for (let c = c0; c <= c1; c++) h.push(calc.display(cellRef(c, r0)));
+    return h;
+  };
+  // Resolve the selection (below its header row) into a value grid for pivoting.
+  const buildPivotInput = (): PivotInput => {
+    const headers = pivotHeaders();
+    const rows: (string | number | boolean | null)[][] = [];
+    for (let r = r0 + 1; r <= r1; r++) {
+      const row: (string | number | boolean | null)[] = [];
+      for (let c = c0; c <= c1; c++) {
+        const v = calc.valueOf(cellRef(c, r));
+        row.push(isError(v) ? null : (v as string | number | boolean));
+      }
+      rows.push(row);
+    }
+    return { headers, rows };
+  };
+  const uniqueSheetName = (base: string): string => {
+    const names = new Set(wb.sheets.map((s) => s.name));
+    if (!names.has(base)) return base;
+    let i = 2;
+    while (names.has(`${base} ${i}`)) i++;
+    return `${base} ${i}`;
+  };
+  const createPivot = (cfg: PivotConfig) => {
+    const sheet = pivotToSheet(computePivot(buildPivotInput(), cfg), uniqueSheetName("TCD"));
+    update((w) => ({ ...w, sheets: [...w.sheets, sheet], active: w.sheets.length }));
+    setPivotOpen(false);
     setSel({ c: 0, r: 0 });
     setAnchor({ c: 0, r: 0 });
   };
@@ -816,6 +855,7 @@ export default function SheetView({
           <button className={`icon-btn ${(sheet.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={15} /></button>
           <button className={`icon-btn ${(sheet.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={15} /></button>
           <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={15} /></button>
+          <button className="icon-btn" title="Tableau croisé dynamique" onClick={() => setPivotOpen(true)}><TableProperties size={15} /></button>
           <button
             className="icon-btn"
             title="Fusionner / annuler la fusion des cellules sélectionnées"
@@ -1011,6 +1051,15 @@ export default function SheetView({
           onAdd={addName}
           onRemove={removeName}
           onClose={() => setNamesOpen(false)}
+        />
+      )}
+
+      {pivotOpen && (
+        <PivotModal
+          headers={pivotHeaders()}
+          rangeLabel={`${cellRef(c0, r0)}:${cellRef(c1, r1)}`}
+          onCreate={createPivot}
+          onClose={() => setPivotOpen(false)}
         />
       )}
     </div>

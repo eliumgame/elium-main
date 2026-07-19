@@ -14,7 +14,7 @@ import {
   blankSlide, emptySlide, newSlideId, newElementId,
   type Deck, type Slide, type SlideElement, type SlideTheme, type SlideTransition,
 } from "../slides/model";
-import { slideToY, yToSlide, ensureElementsY, elToY } from "./collab-slides-crdt";
+import { slideToY, yToSlide, ensureElementsY, elToY, ensureYText, syncYText, EL_TEXT_FIELDS, SLIDE_TEXT_FIELDS } from "./collab-slides-crdt";
 import type { DeckStore, DeckStatus, DeckPeer } from "../slides/store";
 
 type YMap = Y.Map<unknown>;
@@ -110,7 +110,14 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     ydoc.transact(() => fn(ensureElementsY(m)));
   };
   const updateEl = (id: string, patch: Partial<SlideElement>) => withActiveEls((arr) => {
-    for (const em of arr.toArray()) if (em.get("id") === id) { for (const [k, v] of Object.entries(patch)) if (v !== undefined) em.set(k, v as unknown); break; }
+    for (const em of arr.toArray()) if (em.get("id") === id) {
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) continue;
+        if (EL_TEXT_FIELDS.has(k) && typeof v === "string") syncYText(ensureYText(em, k), v);
+        else em.set(k, v as unknown);
+      }
+      break;
+    }
   });
   const addEl = (el: SlideElement) => withActiveEls((arr) => arr.push([elToY(el)]));
   const removeEl = (id: string) => withActiveEls((arr) => {
@@ -147,7 +154,13 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const patchSlide = (patch: Partial<Slide>) => {
     if (!writable) return;
     const m = slideAt(activeRef.current); if (!m) return;
-    ydoc.transact(() => { for (const [k, v] of Object.entries(patch)) { if (k === "elements" || k === "shapes") continue; m.set(k, v as unknown); } });
+    ydoc.transact(() => {
+      for (const [k, v] of Object.entries(patch)) {
+        if (k === "elements" || k === "shapes") continue;
+        if (SLIDE_TEXT_FIELDS.has(k) && typeof v === "string") syncYText(ensureYText(m, k), v);
+        else m.set(k, v as unknown);
+      }
+    });
   };
   const addSlide = (blank = false) => {
     if (!writable) return;

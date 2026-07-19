@@ -635,46 +635,132 @@ function relTargets(zip: Record<string, Uint8Array>): Record<string, string> {
   return out;
 }
 
-const MARK_ELS: Record<string, { type: string }> = {
-  "w:b": { type: "bold" },
-  "w:i": { type: "italic" },
-  "w:u": { type: "underline" },
-  "w:strike": { type: "strike" },
+/** Character formatting distilled from a <w:rPr> (inline or from a style). */
+interface RunProps {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  color?: string; // "#rrggbb"
+  fontFamily?: string;
+  fontSizeHalf?: number; // raw w:sz value (half-points)
+  highlight?: string; // "#rrggbb"
+}
+
+// Word's fixed named-highlight palette → approximate hex.
+const HIGHLIGHT_HEX: Record<string, string> = {
+  yellow: "#fff34d", green: "#4dff4d", cyan: "#4dffff", magenta: "#ff4dff",
+  blue: "#4d4dff", red: "#ff4d4d", darkYellow: "#b3b300", darkGreen: "#008000",
+  darkCyan: "#008080", darkBlue: "#000080", darkMagenta: "#800080", darkRed: "#800000",
+  lightGray: "#c0c0c0", darkGray: "#808080", black: "#000000", white: "#ffffff",
 };
 
-function runMarks(r: XmlEl): { type: string; attrs?: Record<string, unknown> }[] {
-  const rpr = firstChild(r, "w:rPr");
-  if (!rpr) return [];
-  const marks: { type: string; attrs?: Record<string, unknown> }[] = [];
-  for (const c of rpr.children) {
-    if (isEl(c) && MARK_ELS[c.name]) {
-      // <w:b w:val="false"/> disables the mark.
-      if (c.attrs["w:val"] === "false" || c.attrs["w:val"] === "0") continue;
-      marks.push(MARK_ELS[c.name]);
-    }
-  }
-  // textStyle: colour / font family / font size, mirroring the writer's
-  // runProps (w:color, w:rFonts, w:sz) so a document written by Elium and
-  // re-imported keeps its character formatting instead of silently losing it.
-  const tsAttrs: Record<string, unknown> = {};
+/** Read a <w:rPr> element into RunProps (shared by inline runs and styles). */
+function parseRunProps(rpr: XmlEl | undefined): RunProps {
+  const props: RunProps = {};
+  if (!rpr) return props;
+  const toggle = (name: string): boolean | undefined => {
+    const el = firstChild(rpr, name);
+    if (!el) return undefined;
+    const v = el.attrs["w:val"];
+    return !(v === "false" || v === "0"); // present with no val ⇒ on
+  };
+  const b = toggle("w:b"); if (b !== undefined) props.bold = b;
+  const i = toggle("w:i"); if (i !== undefined) props.italic = i;
+  const u = firstChild(rpr, "w:u"); if (u) props.underline = u.attrs["w:val"] !== "none";
+  const s = toggle("w:strike"); if (s !== undefined) props.strike = s;
   const color = firstChild(rpr, "w:color")?.attrs["w:val"];
-  if (color && /^[0-9a-fA-F]{6}$/.test(color)) tsAttrs.color = `#${color.toLowerCase()}`;
+  if (color && /^[0-9a-fA-F]{6}$/.test(color)) props.color = `#${color.toLowerCase()}`;
   const rFonts = firstChild(rpr, "w:rFonts");
   const fam = rFonts?.attrs["w:ascii"] || rFonts?.attrs["w:hAnsi"];
-  if (fam) tsAttrs.fontFamily = fam;
-  // w:sz is in half-points; the writer converts px → half-points as px * 1.5
-  // (runProps: `Math.round(px * 1.5)`), so the inverse here is halfPoints / 1.5.
-  const szVal = Number(firstChild(rpr, "w:sz")?.attrs["w:val"]);
-  if (Number.isFinite(szVal) && szVal > 0) tsAttrs.fontSize = `${Math.round(szVal / 1.5)}px`;
-  if (Object.keys(tsAttrs).length) marks.push({ type: "textStyle", attrs: tsAttrs });
+  if (fam) props.fontFamily = fam;
+  const sz = Number(firstChild(rpr, "w:sz")?.attrs["w:val"]);
+  if (Number.isFinite(sz) && sz > 0) props.fontSizeHalf = sz;
+  const hl = firstChild(rpr, "w:highlight")?.attrs["w:val"];
+  if (hl && hl !== "none") props.highlight = HIGHLIGHT_HEX[hl] ?? "#fff34d";
+  const shdFill = firstChild(rpr, "w:shd")?.attrs["w:fill"];
+  if (shdFill && /^[0-9a-fA-F]{6}$/.test(shdFill)) props.highlight = `#${shdFill.toLowerCase()}`;
+  return props;
+}
+
+/** Later (higher-priority) props override earlier ones. */
+function mergeProps(...list: RunProps[]): RunProps {
+  const out: RunProps = {};
+  for (const p of list)
+    for (const k of Object.keys(p) as (keyof RunProps)[]) if (p[k] !== undefined) (out as Record<string, unknown>)[k] = p[k];
+  return out;
+}
+
+function propsToMarks(p: RunProps): { type: string; attrs?: Record<string, unknown> }[] {
+  const marks: { type: string; attrs?: Record<string, unknown> }[] = [];
+  if (p.bold) marks.push({ type: "bold" });
+  if (p.italic) marks.push({ type: "italic" });
+  if (p.underline) marks.push({ type: "underline" });
+  if (p.strike) marks.push({ type: "strike" });
+  const ts: Record<string, unknown> = {};
+  if (p.color) ts.color = p.color;
+  if (p.fontFamily) ts.fontFamily = p.fontFamily;
+  // w:sz is half-points; the writer used px * 1.5, so invert with / 1.5.
+  if (p.fontSizeHalf) ts.fontSize = `${Math.round(p.fontSizeHalf / 1.5)}px`;
+  if (Object.keys(ts).length) marks.push({ type: "textStyle", attrs: ts });
+  if (p.highlight) marks.push({ type: "highlight", attrs: { color: p.highlight } });
   return marks;
+}
+
+/** Resolves paragraph/character style ids to their effective run properties,
+ *  following w:basedOn inheritance, over the document's rPr defaults. Real Word
+ *  documents carry most colour/font/size on styles rather than inline — without
+ *  this, that formatting is silently lost on import. */
+interface StyleResolver {
+  docDefaults: RunProps;
+  styleProps: (styleId: string | undefined) => RunProps;
+}
+
+function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
+  const raw = zip["word/styles.xml"];
+  const docDefaults: RunProps = {};
+  const rprById = new Map<string, RunProps>();
+  const basedOn = new Map<string, string>();
+  if (raw) {
+    const root = parseXml(strFromU8(raw));
+    const dd = firstDescendant(root, "w:docDefaults");
+    if (dd) Object.assign(docDefaults, parseRunProps(firstDescendant(dd, "w:rPr")));
+    for (const st of descendants(root, "w:style")) {
+      const id = st.attrs["w:styleId"];
+      if (!id) continue;
+      rprById.set(id, parseRunProps(firstChild(st, "w:rPr")));
+      const base = firstChild(st, "w:basedOn")?.attrs["w:val"];
+      if (base) basedOn.set(id, base);
+    }
+  }
+  const cache = new Map<string, RunProps>();
+  const resolve = (id: string, seen: Set<string>): RunProps => {
+    const cached = cache.get(id);
+    if (cached) return cached;
+    if (seen.has(id)) return {};
+    seen.add(id);
+    const base = basedOn.get(id);
+    const merged = mergeProps(base ? resolve(base, seen) : {}, rprById.get(id) ?? {});
+    cache.set(id, merged);
+    return merged;
+  };
+  return { docDefaults, styleProps: (id) => (id ? resolve(id, new Set()) : {}) };
 }
 
 function inlineFromParagraph(
   p: XmlEl,
   rels: Record<string, string>,
   zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
+  baseProps: RunProps,
 ): { nodes: ProseMirrorNode[]; pageBreak: boolean; figure?: ProseMirrorNode } {
+  // Effective run marks = paragraph base ⊕ the run's character style ⊕ inline
+  // rPr (inline wins). This is what recovers colour/font/size set via styles.
+  const runMarks = (r: XmlEl): { type: string; attrs?: Record<string, unknown> }[] => {
+    const rpr = firstChild(r, "w:rPr");
+    const rStyleId = rpr ? firstChild(rpr, "w:rStyle")?.attrs["w:val"] : undefined;
+    return propsToMarks(mergeProps(baseProps, sty.styleProps(rStyleId), parseRunProps(rpr)));
+  };
   const nodes: ProseMirrorNode[] = [];
   let pageBreak = false;
   let figure: ProseMirrorNode | undefined;
@@ -756,10 +842,17 @@ function paragraphNode(
   p: XmlEl,
   rels: Record<string, string>,
   zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
 ): ProseMirrorNode[] {
   const ppr = firstChild(p, "w:pPr");
   const style = ppr ? firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "" : "";
-  const { nodes, pageBreak, figure } = inlineFromParagraph(p, rels, zip);
+  const headingMatch = /^Heading(\d)$/i.exec(style) || /^Titre(\d)$/i.exec(style);
+  // Base run props inherited by every run: doc defaults, plus the paragraph
+  // style's rPr for BODY paragraphs only — headings render their own weight/size
+  // via the heading node, so inheriting the heading style's bold/size as marks
+  // would double up (inline rPr on a heading run is still honored).
+  const baseProps = headingMatch ? sty.docDefaults : mergeProps(sty.docDefaults, sty.styleProps(style));
+  const { nodes, pageBreak, figure } = inlineFromParagraph(p, rels, zip, sty, baseProps);
   const out: ProseMirrorNode[] = [];
 
   if (figure) {
@@ -769,7 +862,6 @@ function paragraphNode(
     return out;
   }
 
-  const headingMatch = /^Heading(\d)$/i.exec(style) || /^Titre(\d)$/i.exec(style);
   const align = alignFrom(p);
   const attrs: Record<string, unknown> = {};
   if (align) attrs.textAlign = align;
@@ -788,12 +880,12 @@ function paragraphNode(
   return out;
 }
 
-function tableNode(tbl: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>): ProseMirrorNode {
+function tableNode(tbl: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>, sty: StyleResolver): ProseMirrorNode {
   const rows = children(tbl, "w:tr").map((tr, rowIdx) => ({
     type: "tableRow",
     content: children(tr, "w:tc").map((tc) => {
       const span = Number(firstDescendant(tc, "w:gridSpan")?.attrs["w:val"] ?? 1);
-      const cellBlocks = children(tc, "w:p").flatMap((p) => paragraphNode(p, rels, zip));
+      const cellBlocks = children(tc, "w:p").flatMap((p) => paragraphNode(p, rels, zip, sty));
       return {
         type: rowIdx === 0 ? "tableHeader" : "tableCell",
         attrs: span > 1 ? { colspan: span } : {},
@@ -812,6 +904,7 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
 
   const rels = relTargets(zip);
   const numFmt = parseNumbering(zip);
+  const sty = buildStyleResolver(zip);
   const root = parseXml(strFromU8(docRaw));
   const body = firstDescendant(root, "w:body");
   const content: ProseMirrorNode[] = [];
@@ -831,7 +924,7 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
         const numId = firstDescendant(c, "w:numId")?.attrs["w:val"];
         if (numId) {
           const kind = numFmt[numId] ?? "bullet";
-          const para = paragraphNode(c, rels, zip).find((n) => n.type === "paragraph" || n.type === "heading") ?? { type: "paragraph" };
+          const para = paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? { type: "paragraph" };
           if (listKind && listKind !== kind) {
             flushList(listItems, listKind);
             listItems = [];
@@ -845,14 +938,14 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
           listItems = [];
           listKind = null;
         }
-        content.push(...paragraphNode(c, rels, zip));
+        content.push(...paragraphNode(c, rels, zip, sty));
       } else if (c.name === "w:tbl") {
         if (listKind) {
           flushList(listItems, listKind);
           listItems = [];
           listKind = null;
         }
-        content.push(tableNode(c, rels, zip));
+        content.push(tableNode(c, rels, zip, sty));
       }
     }
     if (listKind) flushList(listItems, listKind);

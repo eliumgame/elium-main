@@ -313,7 +313,13 @@ signature déclaratif local (suivi des statuts).
   Le propriétaire d'organisation dispose des pleines permissions sur tout nœud
   de l'org (il détient la clé de recouvrement).
 - **Stockage** : driver `fs` (volume, LUKS recommandé) **ou `s3`/MinIO**,
-  upload/download **en streaming** (sans bufferisation).
+  upload/download **en streaming** (sans bufferisation). **Zéro configuration
+  manuelle quel que soit le driver** : au démarrage, `fs` crée son dossier et
+  `s3`/MinIO **crée son bucket** s'il manque (best-effort, idempotent, tolère un
+  MinIO encore en démarrage ; sur un S3 externe verrouillé, un bucket
+  pré-existant est simplement détecté). Les **sauvegardes sont
+  storage-agnostiques** (fs, MinIO intégré, ou note explicite pour un S3
+  externe) — voir [§10](#10-exploitation-vps).
 
 ### 4.2 Authentification (zéro-connaissance, sans oracle)
 - Le mot de passe ne quitte **jamais** le navigateur. Argon2id (t=3, m=256 MiB,
@@ -625,10 +631,15 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 
 ## 10. Exploitation (VPS)
 
-- **Sauvegardes** : `bash install.sh backup` → `backups/elium-db-*.sql.gz` +
-  `elium-blobs-*.tar.gz`. Sauvegardez **base ET blobs ensemble** (ils se
-  référencent), sur un support chiffré. Sans les clés côté clients, elles
-  restent illisibles (zéro-connaissance).
+- **Sauvegardes (storage-agnostiques)** : `bash install.sh backup` →
+  `backups/elium-db-*.sql.gz` + `elium-blobs-*.tar.gz` (+ un marqueur `.meta`
+  du backend). La sauvegarde des blobs s'adapte au driver : **volume `fs`**,
+  **MinIO intégré** (volume `miniodata`), ou **S3 externe** (les blobs se
+  sauvegardent côté fournisseur — la base, clés emballées + méta, reste
+  sauvegardée localement). `restore <ts>` relit le marqueur et replace les blobs
+  au bon endroit. Sauvegardez **base ET blobs ensemble** (ils se référencent),
+  sur un support chiffré. Sans les clés côté clients, elles restent illisibles
+  (zéro-connaissance).
 - **Mises à jour automatiques** (recommandé) : `bash install.sh auto-update on`
   installe un timer systemd (repli cron) qui applique **les releases signées**
   (vérif Ed25519), avec **health-check + rollback automatique** — voir

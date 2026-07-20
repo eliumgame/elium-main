@@ -12,6 +12,8 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { config } from "../config.js";
@@ -35,6 +37,39 @@ export class S3Storage implements BlobStorage {
 
   newKey(): string {
     return randomBytes(24).toString("hex");
+  }
+
+  /**
+   * Ensure the bucket exists so an S3/MinIO deployment needs no manual bucket
+   * creation (parity with the `fs` driver, which just makes its directory).
+   * Best-effort: if HeadBucket says it is already there we do nothing; if it is
+   * missing we try to create it; any failure (e.g. an external S3 that forbids
+   * CreateBucket but where the bucket already exists) is swallowed by the
+   * caller — writes will still work if the bucket is present.
+   */
+  async init(): Promise<void> {
+    // MinIO may still be booting on a fresh `--profile s3` deploy (the api does
+    // not depend on it), so tolerate transient connection errors with a few
+    // retries. HeadBucket present ⇒ done; otherwise create it. A create that
+    // races another node (bucket already exists) is treated as success.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+        return; // exists and reachable
+      } catch (headErr) {
+        try {
+          await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+          return; // created
+        } catch (createErr) {
+          const name = (createErr as { name?: string })?.name ?? "";
+          if (name === "BucketAlreadyOwnedByYou" || name === "BucketAlreadyExists") return;
+          lastErr = createErr ?? headErr;
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("Initialisation du bucket S3 impossible.");
   }
 
   async put(key: string, data: Buffer): Promise<void> {

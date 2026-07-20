@@ -128,3 +128,42 @@ describe("S3Storage — adapter over an in-memory bucket", () => {
     await expect(s.putStream("k4", Readable.from([Buffer.from("0123456789")]), 4)).rejects.toThrow();
   });
 });
+
+describe("S3Storage.init — bucket bootstrap (parity with fs auto-setup)", () => {
+  it("no-ops when the bucket already exists (HeadBucket ok, no create)", async () => {
+    // beforeEach's mock returns {} for HeadBucketCommand ⇒ bucket present.
+    const spy = vi.spyOn(S3Client.prototype, "send");
+    await new S3Storage().init();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cmds = spy.mock.calls.map((c: any[]) => c[0].constructor.name);
+    expect(cmds).toContain("HeadBucketCommand");
+    expect(cmds).not.toContain("CreateBucketCommand");
+  });
+
+  it("creates the bucket when missing (HeadBucket fails → CreateBucket)", async () => {
+    let created = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(S3Client.prototype, "send").mockImplementation(async (cmd: any) => {
+      const name = cmd.constructor.name;
+      if (name === "HeadBucketCommand") throw Object.assign(new Error("NotFound"), { name: "NotFound" });
+      if (name === "CreateBucketCommand") {
+        created = true;
+        return {};
+      }
+      return {};
+    });
+    await new S3Storage().init();
+    expect(created).toBe(true);
+  });
+
+  it("treats an already-owned bucket as success (create races)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(S3Client.prototype, "send").mockImplementation(async (cmd: any) => {
+      const name = cmd.constructor.name;
+      if (name === "HeadBucketCommand") throw Object.assign(new Error("NotFound"), { name: "NotFound" });
+      if (name === "CreateBucketCommand") throw Object.assign(new Error("owned"), { name: "BucketAlreadyOwnedByYou" });
+      return {};
+    });
+    await expect(new S3Storage().init()).resolves.toBeUndefined();
+  });
+});

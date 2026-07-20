@@ -92,16 +92,28 @@ Pour utiliser un stockage objet S3-compatible :
 # dans .env : STORAGE_DRIVER=s3  (+ S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET)
 docker compose --profile s3 up -d --build
 ```
-Le service `minio` n'a volontairement **aucun port publié** (pas d'exposition
-publique). Pour créer le bucket une fois via la console web, ouvrez un tunnel
-SSH depuis votre poste :
+Le **bucket est créé automatiquement au démarrage** de l'API (best-effort,
+idempotent) — aucune étape manuelle, quel que soit le stockage (parité avec le
+driver `fs` qui crée son dossier). Le service `minio` n'a volontairement **aucun
+port publié** (pas d'exposition publique) ; pour **inspecter** la console, ouvrez
+un tunnel SSH depuis votre poste :
 ```bash
 ssh -L 9001:localhost:9001 <user>@<vps>
 # puis ouvrez http://localhost:9001 en local
 ```
+Sur un **S3 externe** verrouillé qui interdit `CreateBucket`, créez le bucket
+au préalable côté fournisseur : l'API détecte alors qu'il existe déjà et démarre
+normalement (l'échec d'auto-création est best-effort, jamais bloquant).
+
 L'API écrit/télécharge les blobs **en streaming** (multipart), sans les
 bufferiser en mémoire — adapté aux fichiers volumineux. Les blobs restent du
 chiffré E2E ; MinIO/S3 ne voit jamais de clair.
+
+**Sauvegardes storage-agnostiques** : `bash install.sh backup` détecte le
+backend et sauvegarde les blobs qu'ils soient sur le volume `fs` **ou** sur le
+MinIO intégré ; `restore` les replace au bon endroit (marqueur `.meta`). Pour un
+**S3 externe**, les blobs se sauvegardent côté fournisseur (la base — clés
+emballées + méta — reste sauvegardée localement).
 
 ## Durcissement Phase 2 — livré (2026-07-11)
 - ✅ **MFA (TOTP)**, **login sans oracle** (défi-réponse Ed25519),

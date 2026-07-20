@@ -10,6 +10,14 @@ import { FsStorage } from "./fs.js";
 import { S3Storage } from "./s3.js";
 
 export interface BlobStorage {
+  /**
+   * Prepare the backend so blobs can be written with zero manual setup — the
+   * `fs` driver creates its root dir, the `s3` driver ensures its bucket
+   * exists. Best-effort and idempotent: called once at startup, failures are
+   * logged and never crash the server (a locked-down external S3 may forbid
+   * bucket creation but already have the bucket).
+   */
+  init?(): Promise<void>;
   put(key: string, data: Buffer): Promise<void>;
   get(key: string): Promise<Buffer>;
   /** Stream bytes in; returns the number of bytes written. Enforces `maxBytes`. */

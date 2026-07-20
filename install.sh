@@ -336,7 +336,7 @@ deploy_drive() {
   say "  • Journaux     : $DC logs -f api"
   # MinIO n'a volontairement AUCUN port publié (docker-compose.yml) : la
   # console n'est joignable que via un tunnel SSH, jamais exposée publiquement.
-  [ "$STORAGE" = "s3" ] && say "  • Console MinIO: non exposée publiquement — tunnel : ${bold}ssh -L 9001:localhost:9001 <user>@<vps>${rst} puis http://localhost:9001 (créez le bucket ${bold}elium-blobs${rst})"
+  [ "$STORAGE" = "s3" ] && say "  • Stockage S3  : bucket ${bold}$(read_env S3_BUCKET)${rst} créé automatiquement au démarrage (aucune étape manuelle). Console MinIO non exposée — tunnel d'inspection : ${bold}ssh -L 9001:localhost:9001 <user>@<vps>${rst} puis http://localhost:9001"
   say ""
   say "  Prochaine étape : ouvrez $origin, créez le 1er compte (= propriétaire),"
   say "  puis votre organisation. Activez la 2FA dans l'onglet ${bold}Sécurité${rst}."
@@ -618,16 +618,50 @@ do_status() {
   else warn "API non joignable directement (normal si seul Caddy est exposé) — testez via votre domaine."; fi
 }
 
+# Détecte comment sont stockés les blobs, quel que soit le driver :
+#   fs          -> volume Docker `blobs` (monté /data/blobs dans api)
+#   s3-minio    -> MinIO intégré (volume `miniodata`, /data)
+#   s3-external -> S3 distant (AWS…), hors de portée d'un tar local
+blob_backend() {
+  local driver endpoint
+  driver="$(read_env STORAGE_DRIVER)"; [ -n "$driver" ] || driver="fs"
+  if [ "$driver" != "s3" ]; then echo "fs"; return 0; fi
+  endpoint="$(read_env S3_ENDPOINT)"
+  case "$endpoint" in
+    ""|*minio*) echo "s3-minio" ;;
+    *)          echo "s3-external" ;;
+  esac
+}
+
 do_backup() {
   detect_compose; [ -n "$DC" ] || die "Docker Compose requis."
-  local ts out; ts="$(date -u '+%Y%m%d-%H%M%S')"; out="$SCRIPT_DIR/backups"
+  local ts out backend; ts="$(date -u '+%Y%m%d-%H%M%S')"; out="$SCRIPT_DIR/backups"
   mkdir -p "$out"
+  backend="$(blob_backend)"
+
   info "Sauvegarde Postgres…"
   $DC exec -T db pg_dump -U elium elium | gzip > "$out/elium-db-$ts.sql.gz"
-  info "Sauvegarde des blobs chiffrés…"
-  $DC run --rm -T -v "$out:/backup" api sh -c 'cd /data && tar czf - blobs' > "$out/elium-blobs-$ts.tar.gz" 2>/dev/null \
-    || $DC exec -T api sh -c 'cd /data && tar czf - blobs' > "$out/elium-blobs-$ts.tar.gz"
-  ok "Sauvegardes écrites dans $out (base + blobs, chiffrés E2E)."
+
+  case "$backend" in
+    s3-minio)
+      info "Sauvegarde des blobs chiffrés (MinIO intégré)…"
+      # tar de tout le volume de données MinIO (buckets + métadonnées) ; live OK
+      # (les blobs sont immuables, écrits une fois sous une clé aléatoire).
+      $DC --profile s3 exec -T minio sh -c 'cd /data && tar czf - .' > "$out/elium-blobs-$ts.tar.gz" ;;
+    s3-external)
+      warn "Stockage S3 EXTERNE : les blobs vivent hors de ce serveur — sauvegardez le bucket côté fournisseur."
+      warn "La base (clés emballées + métadonnées, chiffrées E2E) est bien sauvegardée ici."
+      : > "$out/elium-blobs-$ts.tar.gz" ;;  # marqueur vide (garde la paire db+blobs cohérente)
+    *)
+      info "Sauvegarde des blobs chiffrés (volume fs)…"
+      $DC run --rm -T -v "$out:/backup" api sh -c 'cd /data && tar czf - blobs' > "$out/elium-blobs-$ts.tar.gz" 2>/dev/null \
+        || $DC exec -T api sh -c 'cd /data && tar czf - blobs' > "$out/elium-blobs-$ts.tar.gz" ;;
+  esac
+  # Marqueur : indique à `restore` OÙ replacer les blobs (le format interne de
+  # l'archive diffère selon le backend). Absent ⇒ restauration en mode `fs`.
+  printf 'backend=%s\n' "$backend" > "$out/elium-blobs-$ts.meta"
+
+  ok "Sauvegardes écrites dans $out (base + blobs, chiffrés E2E ; backend : $backend)."
   warn "Conservez-les sur un support chiffré. Sans les clés côté clients, elles restent illisibles (zéro-connaissance)."
 }
 
@@ -646,12 +680,20 @@ do_restore() {
   fi
   [ -n "$ts" ] || die "Usage : bash install.sh restore <timestamp> (voir les fichiers backups/elium-db-<timestamp>.sql.gz)."
 
-  local db_file="$out/elium-db-$ts.sql.gz" blobs_file="$out/elium-blobs-$ts.tar.gz"
+  local db_file="$out/elium-db-$ts.sql.gz" blobs_file="$out/elium-blobs-$ts.tar.gz" meta_file="$out/elium-blobs-$ts.meta"
   [ -f "$db_file" ]    || die "Sauvegarde base introuvable : $db_file"
   [ -f "$blobs_file" ] || die "Sauvegarde blobs introuvable : $blobs_file"
+  # Backend d'origine de la sauvegarde (marqueur écrit par do_backup). Absent
+  # (anciennes sauvegardes) ⇒ fs.
+  local backend="fs"
+  [ -f "$meta_file" ] && backend="$(sed -n 's/^backend=//p' "$meta_file" | head -n1)"
+  [ -n "$backend" ] || backend="fs"
+
+  # Profil compose pour joindre MinIO le cas échéant.
+  local profile=(); [ "$(read_env STORAGE_DRIVER)" = "s3" ] && profile=(--profile s3)
 
   hr
-  warn "Cette opération va ÉCRASER l'état actuel (base de données ET blobs) avec la sauvegarde du $ts."
+  warn "Cette opération va ÉCRASER l'état actuel (base de données ET blobs) avec la sauvegarde du $ts (backend : $backend)."
   if [ "$ASSUME_YES" != "1" ]; then
     local c; c="$(prompt "Tapez 'restore' pour confirmer, autre chose pour annuler" "")"
     [ "$c" = "restore" ] || die "Restauration annulée."
@@ -663,14 +705,25 @@ do_restore() {
   info "Restauration de Postgres depuis $db_file…"
   gunzip -c "$db_file" | $DC exec -T db psql -U elium elium
 
-  info "Restauration des blobs depuis $blobs_file…"
-  # `run --rm` (pas `exec`) : le service `api` vient d'être arrêté ci-dessus,
-  # `exec` échouerait sur un conteneur non démarré. `run` en crée un nouveau,
-  # éphémère, monté sur les mêmes volumes — même pattern que do_backup().
-  gunzip -c "$blobs_file" | $DC run --rm -T api sh -c 'cd /data && tar xzf -'
+  case "$backend" in
+    s3-minio)
+      info "Restauration des blobs (MinIO intégré) depuis $blobs_file…"
+      # Arrêter MinIO le temps de réécrire son volume de données, puis relancer.
+      $DC "${profile[@]}" stop minio 2>/dev/null || true
+      gunzip -c "$blobs_file" | $DC "${profile[@]}" run --rm -T minio sh -c 'cd /data && tar xzf -'
+      $DC "${profile[@]}" up -d minio ;;
+    s3-external)
+      warn "Sauvegarde issue d'un S3 EXTERNE : les blobs ne sont pas restaurés ici (restaurez le bucket côté fournisseur)." ;;
+    *)
+      info "Restauration des blobs (volume fs) depuis $blobs_file…"
+      # `run --rm` (pas `exec`) : le service `api` vient d'être arrêté ci-dessus,
+      # `exec` échouerait sur un conteneur non démarré. `run` en crée un nouveau,
+      # éphémère, monté sur les mêmes volumes — même pattern que do_backup().
+      gunzip -c "$blobs_file" | $DC run --rm -T api sh -c 'cd /data && tar xzf -' ;;
+  esac
 
   info "Redémarrage de la pile…"
-  $DC up -d
+  $DC "${profile[@]}" up -d
 
   hr
   ok "${bold}Restauration depuis $ts terminée.${rst} Vérifiez : bash install.sh status"

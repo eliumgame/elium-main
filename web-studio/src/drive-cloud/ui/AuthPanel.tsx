@@ -48,7 +48,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
           <span className="dc-auth__logo"><Cloud size={22} /> Elium Drive</span>
           <span className="dc-chip dc-chip--light">Entreprise</span>
         </div>
-        <h1 className="dc-auth__headline">Le Drive chiffré<br />de votre entreprise.</h1>
+        <h1 className="dc-auth__headline">Le Drive chiffré <br />de votre entreprise.</h1>
         <p className="dc-auth__lede">Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, sur votre propre serveur.</p>
         <ul className="dc-auth__features">
           <li><ShieldCheck size={18} /> <span><b>Zéro-connaissance</b> — le serveur ne voit que du chiffré.</span></li>

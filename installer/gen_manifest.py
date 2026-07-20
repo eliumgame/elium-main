@@ -61,6 +61,7 @@ def _load_private_key(args) -> Ed25519PrivateKey:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Génère et signe latest.json.")
     parser.add_argument("--version", required=True)
+    parser.add_argument("--commit", default="", help="SHA du commit publié (pour l'auto-update serveur VPS).")
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--exe")
     parser.add_argument("--web")
@@ -91,6 +92,12 @@ def main() -> int:
 
     manifest = {
         "version": version,
+        # SHA du commit publié : consommé par l'auto-update du Drive VPS
+        # (install.sh self-update) pour se déployer sur le commit EXACT signé,
+        # sans faire confiance à une ref git mutable. Champ additif : le client
+        # de bureau (installer/updater.py) l'ignore, la signature couvrant les
+        # octets exacts du manifeste reste valide dans les deux cas.
+        "commit": args.commit,
         "pubDate": datetime.now(timezone.utc).isoformat(),
         "codeHash": compute_code_hash(repo_root()),
         "notes": args.notes,

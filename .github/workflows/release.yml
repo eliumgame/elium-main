@@ -116,7 +116,7 @@ jobs:
           set -e
           V="${{ steps.ver.outputs.version }}"
           MSI="installer/output/Elium-${V}-Setup.msi"
-          ARGS=(--version "$V" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
+          ARGS=(--version "$V" --commit "${{ github.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
           if [ -f "$MSI" ]; then ARGS+=(--msi "$MSI"); fi
           python installer/gen_manifest.py "${ARGS[@]}"
 

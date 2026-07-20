@@ -48,6 +48,11 @@ if (isProd && /:(elium|CHANGE_ME[^@]*|change-me[^@]*)@/i.test(databaseUrl)) {
 
 export const config = {
   isProd,
+  // Deployed application version, stamped into .env by install.sh (from
+  // src/elium/__init__.py) and surfaced at /api/health so operators — and the
+  // VPS auto-updater — can confirm which version is actually running. "dev"
+  // when unset (local `npm run dev`).
+  version: env("ELIUM_VERSION", "dev"),
   port: num("PORT", 8787),
   host: env("HOST", "0.0.0.0"),
   corsOrigins: env("CORS_ORIGINS", "http://localhost:3100,http://localhost:5173")

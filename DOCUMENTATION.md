@@ -208,6 +208,50 @@ valides ; sinon l'artefact est jeté et l'app reste sur sa version courante. (La
 signature Authenticode du binaire — qui supprime l'avertissement SmartScreen — n'est
 pas incluse ; elle est orthogonale et peut s'ajouter avec un certificat de code.)
 
+### 2.7 Mises à jour automatiques (serveur Drive VPS)
+
+Le Drive déployé sur un VPS se met à jour **tout seul**, selon **le même modèle
+« push = publication »** et **la même racine de confiance** que l'app de bureau :
+une mise à jour n'est appliquée que si la **signature Ed25519** du manifeste de
+release (`latest.json`) se vérifie avec la **clé publique embarquée** — jamais sur
+la seule foi de GitHub/CDN.
+
+**Activer (une fois)** — à la fin de `install.sh drive`, une invite propose de
+l'activer (recommandé, activé par défaut en production). Sinon, à tout moment :
+```bash
+bash install.sh auto-update on       # installe un timer systemd (repli cron)
+bash install.sh auto-update status   # planification + version déployée + journal
+bash install.sh auto-update now       # forcer une passe immédiate
+bash install.sh auto-update off       # désactiver
+```
+
+**Ce que fait chaque passe** (`install.sh self-update`, appelée par le timer, par
+défaut toutes les 30 min avec délai aléatoire) :
+1. **Télécharge** `latest.json` + `.sig` depuis la dernière GitHub Release.
+2. **Vérifie la signature Ed25519** avec la clé publique embarquée (via `openssl`,
+   reconstruite depuis le hex brut — miroir de `installer/updater.py`). Signature
+   invalide ⇒ **refus**, aucune modification.
+3. Compare la version publiée à la version déployée (`src/elium/__init__.py`). Si
+   ce n'est pas plus récent ⇒ ne fait rien.
+4. **Refuse d'écraser** un arbre git modifié localement (protège les
+   personnalisations d'opérateur) ; **sauvegarde la base** avant migration.
+5. Bascule sur le **commit EXACT signé** (champ `commit` du manifeste ; repli sur
+   le tag `vX.Y.Z`), après avoir vérifié qu'il est **contenu dans `origin/master`**
+   (défense en profondeur contre une ref poussée par erreur).
+6. Reconstruit la pile (`docker compose up -d --build`), rejoue les **migrations
+   idempotentes**, puis **health-check** `/api/health`.
+7. **Rollback automatique** en cas d'échec de santé : retour au commit précédent,
+   reconstruction, health-check. Tout est journalisé dans `deploy/auto-update.log`.
+
+**Sécurité & robustesse** : le commit déployé est celui **signé** (pas une ref
+git mutable) ; l'API expose sa version réelle à `/api/health` (via `ELIUM_VERSION`,
+écrit dans `.env`) pour confirmer ce qui tourne ; le `.env` (secrets) n'est jamais
+touché ; la clé **privée** de signature reste hors du VPS (secret CI
+`UPDATE_SIGNING_KEY`). **Désactiver ponctuellement** : `ELIUM_NO_UPDATE=1`.
+**Pré-requis** : déploiement **par `git clone`** (pas un tarball) + `openssl` +
+`docker compose`. *(Optimisation future possible : images pré-construites publiées
+sur un registre — GHCR — pour éviter la reconstruction sur le VPS.)*
+
 ---
 
 ## 3. La suite bureautique locale
@@ -585,8 +629,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   `elium-blobs-*.tar.gz`. Sauvegardez **base ET blobs ensemble** (ils se
   référencent), sur un support chiffré. Sans les clés côté clients, elles
   restent illisibles (zéro-connaissance).
-- **Mises à jour** : `bash install.sh update` (git pull + rebuild + restart,
-  migrations rejouées).
+- **Mises à jour automatiques** (recommandé) : `bash install.sh auto-update on`
+  installe un timer systemd (repli cron) qui applique **les releases signées**
+  (vérif Ed25519), avec **health-check + rollback automatique** — voir
+  [§2.7](#27-mises-à-jour-automatiques-serveur-drive-vps). État & journal :
+  `bash install.sh auto-update status` (journal `deploy/auto-update.log`).
+- **Mise à jour manuelle** : `bash install.sh update` (git pull + rebuild +
+  restart, migrations rejouées).
 - **Rotation des secrets** — ⚠️ : changer `TOKEN_SECRET` **déconnecte toutes les
   sessions** et **rend illisibles les secrets MFA existants** (ré-enrôlement
   requis) ; cela n'affecte pas les données (chiffrées côté client). Ne le faire
@@ -779,6 +828,15 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
 - **Fait** : **ESLint 9 (flat config) + Prettier** sur web-studio et server,
   câblés en CI (lint vert). Le **MSI a été retiré de l'historique git**
   (`git filter-repo` ; dépôt 13,2 Mo → ~1 Mo) — à distribuer via GitHub Releases.
+- **Fait** : **auto-update du serveur Drive (VPS)** — `install.sh` télécharge le
+  manifeste de release **signé** (`latest.json`), **vérifie la signature Ed25519**
+  (openssl, même clé que l'app de bureau), se déploie sur le **commit exact signé**
+  (contenu dans `origin/master`), reconstruit, rejoue les migrations idempotentes,
+  **health-check** et **rollback automatique** ; planifié par timer systemd (repli
+  cron). `/api/health` expose la version réelle (`ELIUM_VERSION`). Commandes :
+  `bash install.sh auto-update on|off|status|now` (§2.7). Fonctions crypto
+  (vérif de signature, parsing, comparaison semver) validées contre le manifeste
+  de production réel.
 - **Fait** : **code-splitting des vues lourdes** — HomeView reste eager ; les
   vues Studio (tiptap), Tableur, Présentations, PDF et Drive sont en `import()`
   paresseux, et les gros vendors sont scindés en chunks à la demande
@@ -882,6 +940,8 @@ future (p. ex. horodatage qualifié) reste **opt-in**.
 | `TOKEN_SECRET` | Signature jetons **et** chiffrement secrets MFA au repos | *(généré)* |
 | `POSTGRES_PASSWORD` | Mot de passe Postgres | *(généré)* |
 | `CORS_ORIGINS` | Origines navigateur autorisées (CSV) | origine du site |
+| `ELIUM_VERSION` | Version déployée, exposée à `/api/health` (écrite par install.sh) | *(généré)* |
+| `UPDATE_INTERVAL_MIN` | Intervalle de l'auto-update (minutes) | `30` |
 | `STORAGE_DRIVER` | `fs` (volume) ou `s3` (MinIO/S3) | `fs` |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` | Identifiants + bucket S3 | `elium`/*(généré)*/`elium-blobs` |
 | `RUN_MIGRATIONS` | Migrations au démarrage | `true` |

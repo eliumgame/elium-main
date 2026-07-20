@@ -94,7 +94,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.status(500).send({ error: { code: "internal", message: "Erreur interne du serveur." } });
   });
 
-  app.get("/api/health", async () => ({ ok: true, service: "elium-server", version: "0.1.0" }));
+  app.get("/api/health", async () => ({ ok: true, service: "elium-server", version: config.version }));
 
   await app.register(authRoutes, { prefix: "/api/auth" });
   await app.register(userRoutes, { prefix: "/api/users" });

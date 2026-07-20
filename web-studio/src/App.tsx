@@ -77,7 +77,19 @@ function Toast({ tone, message, onClose }: { tone: "danger" | "success"; message
 }
 
 export default function App() {
-  const [mode, setMode] = useState<StudioMode>("home");
+  // An org invite link (?invite=…) must land directly on the Drive onboarding:
+  // the DriveCloud session reads that token and auto-accepts it after auth.
+  // Without this, invitees hit the local-suite home page and the invite is only
+  // picked up if they happen to open the Drive manually (confirmed on the live
+  // deployment) — a dead end for the primary "click the invite" journey.
+  const [mode, setMode] = useState<StudioMode>(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("invite")) return "drive-cloud";
+    } catch {
+      /* ignore — fall through to home */
+    }
+    return "home";
+  });
   const dialogs = useDialogs();
   const [file, setFile] = useState<EliumFile | null>(null);
   const [password, setPassword] = useState("");

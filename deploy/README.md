@@ -45,6 +45,22 @@ docker compose up -d --build
   `RUN_MIGRATIONS=false`.
 - Vérifier la santé : `curl -k https://SITE_ADDRESS/api/health`.
 
+## Mises à jour automatiques (signées)
+Le serveur se maintient à jour tout seul depuis les GitHub Releases **signées**
+(Ed25519), avec **health-check + rollback automatique** — même racine de confiance
+que l'app de bureau (la signature, jamais le CDN).
+```bash
+bash install.sh auto-update on        # timer systemd (repli cron), toutes les 30 min
+bash install.sh auto-update status    # planification + version déployée + journal
+bash install.sh auto-update now       # forcer une passe immédiate
+bash install.sh auto-update off       # désactiver (ou ELIUM_NO_UPDATE=1 ponctuellement)
+```
+Chaque passe vérifie la signature du manifeste, se déploie sur le **commit exact
+signé** (contenu dans `origin/master`), reconstruit la pile, rejoue les migrations
+idempotentes, puis vérifie `/api/health` — et revient à la version précédente en
+cas d'échec. Journal : `deploy/auto-update.log`. Pré-requis : déploiement par
+`git clone` + `openssl`. Détail : [../DOCUMENTATION.md §2.7](../DOCUMENTATION.md#27-mises-à-jour-automatiques-serveur-drive-vps).
+
 ## Services
 | Service | Rôle | Port |
 |---------|------|------|

@@ -24,6 +24,7 @@ import {
   IndexEntry, IndexBlock, MergeField,
 } from "./wordExtensions";
 import { CharFormat, Subscript, Superscript } from "./charFormat";
+import { ParagraphFormat } from "./paragraphFormat";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
 import { Pagination, type PaginationOptions } from "./Pagination";
@@ -79,6 +80,7 @@ export function buildExtensions(
     Superscript,
     Subscript,
     CharFormat,
+    ParagraphFormat,
     Comment,
     Insertion,
     Deletion,

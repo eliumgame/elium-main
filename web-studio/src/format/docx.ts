@@ -473,12 +473,70 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
     .join("");
 }
 
-function paraProps(opts: { style?: string; align?: string; indent?: number; numId?: number; ilvl?: number; shade?: boolean }): string {
+/** Word paragraph properties, including the full Paragraphe dialog set. */
+function paraProps(opts: {
+  style?: string;
+  align?: string;
+  indent?: number;
+  numId?: number;
+  ilvl?: number;
+  shade?: boolean;
+  /** Attributes of the source paragraph/heading node, when there is one. */
+  attrs?: Record<string, unknown>;
+}): string {
   const p: string[] = [];
+  const a = opts.attrs ?? {};
+  const px = (v: unknown): number | null => {
+    const n = parseFloat(String(v ?? ""));
+    return Number.isFinite(n) ? n : null;
+  };
+  /** px → twips (1px = 0.75pt = 15 twips). */
+  const twips = (v: number) => Math.round(v * 15);
+
   if (opts.style) p.push(`<w:pStyle w:val="${opts.style}"/>`);
   if (opts.numId != null) p.push(`<w:numPr><w:ilvl w:val="${opts.ilvl ?? 0}"/><w:numId w:val="${opts.numId}"/></w:numPr>`);
+
+  // Enchaînements — Word reads these before spacing/indent.
+  if (a.keepNext) p.push("<w:keepNext/>");
+  if (a.keepLines) p.push("<w:keepLines/>");
+  if (a.pageBreakBefore) p.push("<w:pageBreakBefore/>");
+
+  // Paragraph borders.
+  const borders = a.borders as { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean; color?: string; width?: number } | undefined;
+  if (borders) {
+    const color = hex6(borders.color) ?? "cbd5e1";
+    // w:sz is in eighths of a point: px → pt (×0.75) → ×8.
+    const sz = Math.max(2, Math.round((Number(borders.width) || 1) * 6));
+    const sides = (["top", "left", "bottom", "right"] as const)
+      .filter((s) => borders[s])
+      .map((s) => `<w:${s} w:val="single" w:sz="${sz}" w:space="4" w:color="${color}"/>`)
+      .join("");
+    if (sides) p.push(`<w:pBdr>${sides}</w:pBdr>`);
+  }
+
+  // Shading: the code-block flag keeps its dark fill; otherwise the paragraph's.
+  const shading = hex6(a.shading);
   if (opts.shade) p.push('<w:shd w:val="clear" w:color="auto" w:fill="0f172a"/>');
-  if (opts.indent) p.push(`<w:ind w:left="${opts.indent * 480}"/>`);
+  else if (shading) p.push(`<w:shd w:val="clear" w:color="auto" w:fill="${shading}"/>`);
+
+  // Spacing before/after.
+  const before = px(a.spaceBefore);
+  const after = px(a.spaceAfter);
+  if (before != null || after != null) {
+    p.push(
+      `<w:spacing${before != null ? ` w:before="${twips(before)}"` : ""}${after != null ? ` w:after="${twips(after)}"` : ""}/>`,
+    );
+  }
+
+  // Indents: level indent, plus first-line or hanging.
+  const first = px(a.firstLineIndent);
+  const left = opts.indent ? opts.indent * 480 : 0;
+  const indentAttrs: string[] = [];
+  if (left) indentAttrs.push(`w:left="${left}"`);
+  if (first != null && first > 0) indentAttrs.push(`w:firstLine="${twips(first)}"`);
+  if (first != null && first < 0) indentAttrs.push(`w:hanging="${twips(-first)}"`);
+  if (indentAttrs.length) p.push(`<w:ind ${indentAttrs.join(" ")}/>`);
+
   if (opts.align && opts.align !== "left") {
     const jc = opts.align === "justify" ? "both" : opts.align;
     p.push(`<w:jc w:val="${jc}"/>`);
@@ -542,11 +600,12 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       return `<w:p>${paraProps({
         align: String(node.attrs?.textAlign ?? ""),
         indent: Number(node.attrs?.indent) || 0,
+        attrs: node.attrs,
         ...(list ? { numId: list.numId, ilvl: list.ilvl } : {}),
       })}${inlineRuns(node, ctx)}</w:p>`;
     case "heading": {
       const level = Math.min(4, Number(node.attrs?.level ?? 1));
-      return `<w:p>${paraProps({ style: `Heading${level}`, align: String(node.attrs?.textAlign ?? "") })}${anchorXml(node, ctx)}${inlineRuns(node, ctx)}</w:p>`;
+      return `<w:p>${paraProps({ style: `Heading${level}`, align: String(node.attrs?.textAlign ?? ""), attrs: node.attrs })}${anchorXml(node, ctx)}${inlineRuns(node, ctx)}</w:p>`;
     }
     case "tableOfContents": {
       const items = headings

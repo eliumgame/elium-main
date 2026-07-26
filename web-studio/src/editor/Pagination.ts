@@ -47,6 +47,12 @@ export interface MeasuredBlock {
   isSectionBreak?: boolean;
   /** For a section break: does it start a new page (`continuous` does not)? */
   breaksPage?: boolean;
+  /** Word's "saut de page avant" — always starts a new page. */
+  pageBreakBefore?: boolean;
+  /** Word's "lignes solidaires" — never split this block across two pages. */
+  keepLines?: boolean;
+  /** Word's "paragraphes solidaires" — keep this block with the NEXT one. */
+  keepNext?: boolean;
 }
 
 /** One rendered sheet: where it sits in the flow and which section it belongs to. */
@@ -107,6 +113,17 @@ export function planPages(blocks: MeasuredBlock[], metrics: PageMetrics | Sectio
 
   const metricsFor = (i: number | undefined): SectionMetrics => perSection[i ?? 0] ?? first;
 
+  // Resolve the `keepNext` chains here rather than at measurement time: it is
+  // pure list arithmetic, so it belongs with the planner (and stays testable
+  // without a DOM). A block keeps with the run that follows it, so its group
+  // height is the sum up to the first block that does not keep next.
+  const groupHeights = new Array<number>(blocks.length).fill(0);
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (!blocks[i]!.keepNext) continue;
+    const next = blocks[i + 1];
+    groupHeights[i] = next ? next.height + (next.keepNext ? groupHeights[i + 1]! : 0) : 0;
+  }
+
   let section = 0;
   let m = metricsFor(0);
   let used = 0;
@@ -125,7 +142,7 @@ export function planPages(blocks: MeasuredBlock[], metrics: PageMetrics | Sectio
 
   openPage(0, m, display);
 
-  for (const b of blocks) {
+  for (const [blockIndex, b] of blocks.entries()) {
     // Clamp: a stale index (measurement and section list can be one frame apart)
     // must not invent a section change, and therefore not invent a page.
     const bSection = Math.max(0, Math.min(perSection.length - 1, b.sectionIndex ?? 0));
@@ -174,7 +191,21 @@ export function planPages(blocks: MeasuredBlock[], metrics: PageMetrics | Sectio
       continue;
     }
 
-    if (used > 0 && used + b.height > m.pageContentPx) {
+    // "Saut de page avant" is unconditional.
+    if (b.pageBreakBefore && used > 0) {
+      spacers.push({ pos: b.pos, height: Math.max(0, m.pageContentPx - used) + m.gapPx });
+      closePage(m);
+      index += 1;
+      display += 1;
+      used = 0;
+      openPage(section, m, display);
+    }
+
+    // "Paragraphes solidaires": a block that must stay with the next one is
+    // measured together with the run it anchors, so the whole group moves.
+    const groupHeight = b.keepNext ? b.height + groupHeights[blockIndex]! : b.height;
+
+    if (used > 0 && used + groupHeight > m.pageContentPx) {
       spacers.push({ pos: b.pos, height: m.pageContentPx - used + m.gapPx });
       closePage(m);
       index += 1;
@@ -185,6 +216,9 @@ export function planPages(blocks: MeasuredBlock[], metrics: PageMetrics | Sectio
       used += b.height;
     }
     pageStartByPos.set(b.pos, display);
+    // "Lignes solidaires" forbids splitting the block: it has already been moved
+    // to a fresh page above, so overflowing here means it is taller than a whole
+    // page and must simply spill (Word does the same).
     while (used > m.pageContentPx) {
       used -= m.pageContentPx;
       closePage(m);
@@ -223,6 +257,9 @@ function measureBlocks(view: EditorView): MeasuredBlock[] {
       height,
       isPageBreak: node.type.name === "pageBreak",
       sectionIndex: section,
+      pageBreakBefore: node.attrs?.pageBreakBefore === true,
+      keepLines: node.attrs?.keepLines === true,
+      keepNext: node.attrs?.keepNext === true,
       ...(isSectionBreak
         ? { isSectionBreak: true, breaksPage: String(node.attrs.kind ?? "nextPage") !== "continuous" }
         : {}),

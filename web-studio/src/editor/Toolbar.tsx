@@ -8,7 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  RemoveFormatting, Palette, ChevronUp,
+  RemoveFormatting, Palette, ChevronUp, Pilcrow,
 } from "lucide-react";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
 import { isSuggesting } from "./TrackChanges";
@@ -72,6 +72,7 @@ interface ToolbarProps {
   onOpenCompare?: () => void;
   onOpenMailMerge?: () => void;
   onOpenFont?: () => void;
+  onOpenParagraph?: () => void;
 }
 
 /**
@@ -172,7 +173,7 @@ export default function Toolbar({
   editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
-  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont,
+  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -441,6 +442,7 @@ export default function Toolbar({
               <Cmd title="Liste de tâches" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}><ListChecks size={17} /></Cmd>
               <Cmd title="Citation" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={17} /></Cmd>
               <Cmd title="Bloc de code" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><Code2 size={17} /></Cmd>
+              <Cmd title="Paragraphe… (espacement, retraits, enchaînements, bordures)" onClick={() => onOpenParagraph?.()}><Pilcrow size={17} /></Cmd>
             </Group>
 
             <Group title="Alignement">

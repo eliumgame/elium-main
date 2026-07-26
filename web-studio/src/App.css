@@ -243,14 +243,35 @@
 /* ======================================================================
    STUDIO LAYOUT
    ====================================================================== */
-.studio { display: flex; flex-direction: column; height: 100%; }
-.studio__body { flex: 1; display: flex; min-height: 0; }
+.studio { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+/* `min-width: 0` matters: without it the flex items refuse to shrink below the
+   width of the A4 sheet, so the whole studio (top bar included) grew to ~870px
+   and the PAGE scrolled instead of the editor. `position: relative` anchors the
+   side panes when they turn into overlays on narrow screens. */
+.studio__body { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 
-.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); z-index: 5; }
-.topbar__left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-.topbar__center { display: flex; justify-content: center; flex: 2; }
-.topbar__right { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: flex-end; }
-.title-input { font-size: 15px; font-weight: 600; border: 1px solid transparent; border-radius: 7px; padding: 6px 9px; background: transparent; color: var(--text); min-width: 120px; max-width: 320px; }
+/* Volet de navigation (plan du document). */
+.studio__outline {
+  width: 264px; flex: 0 0 264px; min-width: 0;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden;
+}
+
+.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); z-index: 5; min-width: 0; }
+.topbar__left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.topbar__center { display: flex; justify-content: center; flex: 2 1 auto; min-width: 0; }
+/* `min-width: 0` here too: the action buttons were an unshrinkable 412px block. */
+.topbar__right { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; justify-content: flex-end; }
+/* Flex item of .topbar__left: `min-width: 0` lets it shrink on narrow screens
+   (it used to floor at 120px and push the whole bar past the viewport). No
+   `width` — a percentage against the auto-sized parent resolves to the input's
+   intrinsic size and blows the layout up. */
+/* Flex item of .topbar__left. The basis is 0 on purpose: an <input> reports a
+   wide intrinsic size, so `flex-basis: auto` made it claim ~1150px and pushed the
+   whole bar past the viewport. Basis 0 + grow means it simply fills whatever the
+   bar has left, and `min-width: 0` lets it shrink on narrow screens. */
+.title-input { font-size: 15px; font-weight: 600; border: 1px solid transparent; border-radius: 7px; padding: 6px 9px; background: transparent; color: var(--text); flex: 1 1 0; min-width: 0; max-width: 320px; text-overflow: ellipsis; }
 .title-input:hover { background: var(--surface-3); }
 .title-input:focus { border-color: var(--border-strong); background: var(--surface); }
 .title-input--ro { cursor: default; }
@@ -300,7 +321,7 @@
 .tool-color:hover { background: var(--surface-3); }
 .tool-color input { width: 22px; height: 22px; border: none; background: none; padding: 0; cursor: pointer; }
 
-.editor-scroll { flex: 1; overflow: auto; padding: 32px; background: var(--bg); }
+.editor-scroll { flex: 1; overflow: auto; min-width: 0; padding: 32px; background: var(--bg); }
 @media (max-width: 920px) { .editor-scroll { padding: 16px; } }
 
 /* Physical width/min-height are set inline (see RichEditor.tsx + format/pageSizes.ts)
@@ -465,10 +486,47 @@
 .sig-pad__canvas { width: 100%; height: 200px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface); touch-action: none; cursor: crosshair; }
 .sig-upload { padding: 16px 0; }
 
+/* ======================================================================
+   RESPONSIVE — studio (barre du haut, volets, feuille)
+
+   Sous 820px il n'y a plus la place de mettre trois colonnes côte à côte :
+   les volets latéraux passent en SURIMPRESSION au-dessus de l'éditeur plutôt
+   que de lui voler sa largeur (ils gardent leurs boutons de bascule dans le
+   ruban, onglet Affichage). La feuille, elle, est mise à l'échelle pour tenir
+   dans la largeur — voir `--elium-page-scale`, posé par RichEditor.
+   ====================================================================== */
 @media (max-width: 980px) { .inspector { width: 290px; } }
+
 @media (max-width: 820px) {
   .sig-creator { grid-template-columns: 1fr; }
   .topbar__center { display: none; }
+
+  .studio__outline,
+  .inspector {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 6;
+    box-shadow: var(--shadow-lg);
+  }
+  .studio__outline { left: 0; width: min(300px, 86vw); flex-basis: auto; }
+  .inspector { right: 0; width: min(340px, 92vw); }
+}
+
+@media (max-width: 720px) {
+  .topbar { gap: 8px; padding: 8px 10px; }
+  .title-input { font-size: 14px; max-width: 100%; }
+  .editor-scroll { padding: 12px 8px; }
+}
+
+/* Très petits écrans : les boutons d'action deviennent des icônes seules — le
+   libellé est masqué, jamais tronqué (le title/aria-label reste lisible par les
+   lecteurs d'écran et en info-bulle). */
+@media (max-width: 560px) {
+  .topbar .eb__label { display: none; }
+  .topbar .eb { padding: 7px 9px; }
+  .editor-statusbar { font-size: 11px; gap: 6px; flex-wrap: wrap; }
+  .editor-statusbar__sel { flex-basis: 100%; }
 }
 
 /* --- Branding ------------------------------------------------------------- */
@@ -618,7 +676,31 @@
   background: var(--surface); border-top: 1px solid var(--border);
 }
 .editor-statusbar__sep { opacity: .5; }
-.editor-statusbar__sel { margin-left: auto; color: var(--text-soft); }
+.editor-statusbar__sel { color: var(--text-soft); }
+
+/* Contrôle de zoom, à droite de la barre d'état (comme Word). */
+.editor-zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.editor-zoom__btn {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 5px; color: var(--text-muted);
+}
+.editor-zoom__btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.editor-zoom__btn:disabled { opacity: .35; cursor: default; }
+.editor-zoom__slider { width: 96px; accent-color: var(--primary); }
+.editor-zoom__select {
+  height: 24px; padding: 0 4px; font-size: 11.5px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-soft); max-width: 130px;
+}
+
+/* Enveloppe de zoom : réserve l'empreinte MISE À L'ÉCHELLE de la feuille (un
+   transform n'occupe pas de place dans le flux) et centre la page. */
+.elium-zoom { margin: 0 auto; }
+
+@media (max-width: 720px) {
+  .editor-zoom__slider { display: none; }
+  .editor-zoom__select { max-width: 104px; }
+}
 
 /* --- Editor: footnotes ---------------------------------------------------- */
 .elium-fn-ref {

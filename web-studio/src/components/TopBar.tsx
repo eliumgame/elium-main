@@ -31,19 +31,25 @@ export default function TopBar({ studio }: { studio: Studio }) {
         <button className="icon-btn" onClick={() => studio.openSettings()} title="Paramètres" aria-label="Paramètres">
           <Settings size={18} />
         </button>
+        {/* Les libellés sont dans un span pour pouvoir disparaître sur très
+            petit écran sans perdre l'info-bulle ni le nom accessible. */}
         {studio.editable ? (
           <>
-            <Button variant="ghost" size="sm" onClick={() => studio.toViewer()} title="Aperçu / vérification">
-              <Eye size={16} /> Aperçu
+            <Button variant="ghost" size="sm" onClick={() => studio.toViewer()} title="Aperçu / vérification" aria-label="Aperçu">
+              <Eye size={16} /> <span className="eb__label">Aperçu</span>
             </Button>
-            <Button size="sm" onClick={() => studio.save()} disabled={studio.busy}>
-              <Save size={16} /> {studio.busy ? "…" : "Enregistrer"}
+            <Button size="sm" onClick={() => studio.save()} disabled={studio.busy} title="Enregistrer" aria-label="Enregistrer">
+              <Save size={16} /> <span className="eb__label">{studio.busy ? "…" : "Enregistrer"}</span>
             </Button>
           </>
         ) : (
           <>
-            <Button variant="ghost" size="sm" onClick={() => studio.goHome()}><Home size={16} /> Accueil</Button>
-            <Button size="sm" onClick={() => studio.toEditor()}><Pencil size={16} /> Éditer</Button>
+            <Button variant="ghost" size="sm" onClick={() => studio.goHome()} title="Accueil" aria-label="Accueil">
+              <Home size={16} /> <span className="eb__label">Accueil</span>
+            </Button>
+            <Button size="sm" onClick={() => studio.toEditor()} title="Éditer" aria-label="Éditer">
+              <Pencil size={16} /> <span className="eb__label">Éditer</span>
+            </Button>
           </>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { buildExtensions } from "./extensions";
 import Toolbar from "./Toolbar";
@@ -13,6 +13,7 @@ import CompareModal from "./CompareModal";
 import MailMergeModal from "./MailMergeModal";
 import { ensureListSchemeStyles } from "./listSchemeStyles";
 import { setMergePreview, setPageResolver } from "./wordExtensions";
+import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocumentModel,
@@ -134,6 +135,23 @@ export default function RichEditor({
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
   type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
+
+  // --- Zoom ---------------------------------------------------------------
+  // The sheet has a physical width, so on a narrow pane it cannot fit: the zoom
+  // fits it to the width instead of forcing horizontal scrolling. Applied as a
+  // transform, which leaves layout (and therefore pagination) untouched.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [zoomMode, setZoomMode] = useState<ZoomMode>("fitWidth");
+  const [manualZoom, setManualZoom] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  /** Unscaled height of the sheet, measured — drives the scaled footprint. */
+  const [sheetHeight, setSheetHeight] = useState(0);
+
+  /** A manual zoom from the UI also leaves any fit mode. */
+  const setZoomFromUi = useCallback((z: number) => {
+    setZoomMode("manual");
+    setManualZoom(clampZoom(z));
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -206,6 +224,61 @@ export default function RichEditor({
   const renderField = (tpl: string) =>
     tpl.replace(/\{titre\}/gi, docTitle ?? "").replace(/\{date\}/gi, new Date().toLocaleDateString("fr-FR"));
 
+  // Recompute the zoom whenever the pane, the page geometry or the content
+  // height changes. `fitWidth` is the default so a phone shows a readable page
+  // straight away; on a roomy screen it resolves to (at most) 100%.
+  const pageWidthPx = pageWidthMm * CSS_PX_PER_MM;
+  const pageHeightPx = pageHeightMm * CSS_PX_PER_MM;
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    const sheet = pageRef.current;
+    if (!scroll) return;
+    const recompute = () => {
+      const style = getComputedStyle(scroll);
+      const gutter = parseFloat(style.paddingLeft) || 0;
+      const input = {
+        viewportWidth: scroll.clientWidth,
+        viewportHeight: scroll.clientHeight,
+        pageWidth: pageWidthPx,
+        pageHeight: pageHeightPx,
+        gutter,
+      };
+      // "fitWidth" never magnifies beyond 100%: a document is not meant to be
+      // blown up just because the window is wide.
+      const raw = resolveZoom(zoomMode, manualZoom, input);
+      const next = zoomMode === "fitWidth" ? Math.min(1, raw) : raw;
+      setZoom((prev) => (Math.abs(prev - next) < 0.005 ? prev : next));
+      const h = sheet?.offsetHeight ?? 0;
+      setSheetHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+    };
+    recompute();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(recompute) : null;
+    ro?.observe(scroll);
+    if (sheet) ro?.observe(sheet);
+    // `resize` as well as the observer: ResizeObserver only delivers while the
+    // page is producing frames, so a window resize in a background tab (or a
+    // host that is not compositing) would otherwise leave the zoom stale.
+    window.addEventListener("resize", recompute);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", recompute);
+    };
+  }, [zoomMode, manualZoom, pageWidthPx, pageHeightPx, pageInfo.pageCount]);
+
+  // Ctrl/Cmd + wheel zooms, like every document editor.
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoomMode("manual");
+      setManualZoom((z) => stepZoom(z, e.deltaY < 0 ? 1 : -1));
+    };
+    scroll.addEventListener("wheel", onWheel, { passive: false });
+    return () => scroll.removeEventListener("wheel", onWheel);
+  }, []);
+
   return (
     <div className="editor-shell">
       {editable && (
@@ -241,7 +314,32 @@ export default function RichEditor({
         />
       )}
 
-      <div className="editor-scroll" onClick={handleScrollClick}>
+      <div className="editor-scroll" ref={scrollRef} onClick={handleScrollClick}>
+        {/* Zoom in two layers. The OUTER box reserves the scaled footprint in
+            layout px (a transform occupies no space, so without it the scroll
+            area would still reserve the full-size sheet). The INNER box carries
+            the transform. Layout inside the sheet is therefore never scaled,
+            which is what keeps the pagination engine measuring true block
+            heights — its page plan is identical at every zoom level. */}
+        <div
+          className="elium-zoom"
+          style={
+            zoom === 1
+              ? { width: `${pageWidthMm}mm` }
+              : {
+                  width: `${Math.round(pageWidthPx * zoom)}px`,
+                  height: sheetHeight > 0 ? `${Math.round(sheetHeight * zoom)}px` : undefined,
+                }
+          }
+        >
+        <div
+          className="elium-zoom__inner"
+          style={
+            zoom === 1
+              ? undefined
+              : { width: `${pageWidthMm}mm`, transform: `scale(${zoom})`, transformOrigin: "top left" }
+          }
+        >
         <div
           ref={pageRef}
           className={pageClass}
@@ -269,9 +367,18 @@ export default function RichEditor({
             onRemove={onRemoveSignature}
           />
         </div>
+        </div>
+        </div>
       </div>
 
-      <EditorStatusBar editor={editor} pageInfo={pageInfo} />
+      <EditorStatusBar
+        editor={editor}
+        pageInfo={pageInfo}
+        zoom={zoom}
+        zoomMode={zoomMode}
+        onZoom={setZoomFromUi}
+        onZoomMode={setZoomMode}
+      />
       {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
 
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}

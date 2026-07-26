@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { Minus, Plus } from "lucide-react";
 import type { PageInfo } from "./Pagination";
+import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS, stepZoom, zoomLabel, type ZoomMode } from "./zoom";
 
 /** Counts words in a plain-text string (whitespace-separated, Unicode-friendly). */
 function countWords(text: string): number {
@@ -20,7 +22,17 @@ interface Stats {
  * Bottom status bar showing live word/character counts for the whole document,
  * and for the current selection when there is one. Read-only friendly.
  */
-export default function EditorStatusBar({ editor, pageInfo }: { editor: Editor | null; pageInfo?: PageInfo }) {
+export default function EditorStatusBar({
+  editor, pageInfo, zoom, zoomMode, onZoom, onZoomMode,
+}: {
+  editor: Editor | null;
+  pageInfo?: PageInfo;
+  /** Effective zoom (1 = 100%). When omitted the zoom control is not shown. */
+  zoom?: number;
+  zoomMode?: ZoomMode;
+  onZoom?: (z: number) => void;
+  onZoomMode?: (m: ZoomMode) => void;
+}) {
   const [stats, setStats] = useState<Stats>({ words: 0, chars: 0, selWords: 0, selChars: 0 });
 
   useEffect(() => {
@@ -68,6 +80,63 @@ export default function EditorStatusBar({ editor, pageInfo }: { editor: Editor |
           sélection : {stats.selWords.toLocaleString("fr-FR")} mot{plural(stats.selWords)} ·{" "}
           {stats.selChars.toLocaleString("fr-FR")} car.
         </span>
+      )}
+
+      {zoom != null && onZoom && onZoomMode && (
+        <div className="editor-zoom" role="group" aria-label="Zoom">
+          <button
+            type="button"
+            className="editor-zoom__btn"
+            title="Réduire le zoom"
+            aria-label="Réduire le zoom"
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => onZoom(stepZoom(zoom, -1))}
+          >
+            <Minus size={13} />
+          </button>
+          <input
+            className="editor-zoom__slider"
+            type="range"
+            min={MIN_ZOOM * 100}
+            max={MAX_ZOOM * 100}
+            step={5}
+            value={Math.round(zoom * 100)}
+            onChange={(e) => onZoom(Number(e.target.value) / 100)}
+            aria-label="Niveau de zoom"
+            title={`Zoom : ${zoomLabel(zoom)}`}
+          />
+          <button
+            type="button"
+            className="editor-zoom__btn"
+            title="Agrandir le zoom"
+            aria-label="Agrandir le zoom"
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => onZoom(stepZoom(zoom, 1))}
+          >
+            <Plus size={13} />
+          </button>
+          <select
+            className="editor-zoom__select"
+            aria-label="Zoom"
+            title="Zoom"
+            value={zoomMode === "manual" ? String(Math.round(zoom * 100)) : zoomMode}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "fitWidth" || v === "fitPage") onZoomMode(v);
+              else onZoom(Number(v) / 100);
+            }}
+          >
+            {/* A manual value off the preset list still needs to be selectable. */}
+            {zoomMode === "manual" && !ZOOM_STEPS.some((s) => Math.round(s * 100) === Math.round(zoom * 100)) && (
+              <option value={String(Math.round(zoom * 100))}>{zoomLabel(zoom)}</option>
+            )}
+            {ZOOM_STEPS.map((s) => (
+              <option key={s} value={String(Math.round(s * 100))}>{zoomLabel(s)}</option>
+            ))}
+            <option value="fitWidth">Largeur de la page</option>
+            <option value="fitPage">Page entière</option>
+          </select>
+        </div>
       )}
     </div>
   );

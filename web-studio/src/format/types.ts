@@ -78,7 +78,8 @@ export interface EliumResource {
   name: string;
   mime: string;
   size: number;
-  kind: "image" | "attachment";
+  /** `font` carries an embedded typeface binary (see format/embedded-fonts.ts). */
+  kind: "image" | "attachment" | "font";
 }
 
 // --- Signatures -----------------------------------------------------------

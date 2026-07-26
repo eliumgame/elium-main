@@ -886,6 +886,24 @@
 /* --- Ruban : compteur de colonnes dans la barre contextuelle --------------- */
 .elx-colcount { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* --- Dialogue : Police ----------------------------------------------------- */
+.fontdlg__toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.fontdlg__toggle {
+  padding: 5px 10px; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  background: var(--surface); color: var(--text-soft);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.fontdlg__toggle:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+.fontdlg__toggle.is-active {
+  background: var(--primary-50); color: var(--primary); border-color: var(--primary);
+}
+.fontdlg__toggle:disabled { opacity: .45; cursor: default; }
+.fontdlg__preview {
+  padding: 14px 16px; min-height: 62px; display: flex; align-items: center;
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text); font-size: 17px; overflow-wrap: anywhere;
+}
+
 /* --- Dialogue : renvoi ----------------------------------------------------- */
 .xref-preview {
   margin: 0; padding: 10px 12px;

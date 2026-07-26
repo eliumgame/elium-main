@@ -23,7 +23,7 @@ import {
   ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
   IndexEntry, IndexBlock, MergeField,
 } from "./wordExtensions";
-import { BUILTIN_FONTS } from "../ui/fonts";
+import { CharFormat, Subscript, Superscript } from "./charFormat";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
 import { Pagination, type PaginationOptions } from "./Pagination";
@@ -74,6 +74,11 @@ export function buildExtensions(
     IndexEntry,
     IndexBlock,
     MergeField,
+    // Full character formatting (exposant/indice, petites majuscules, casse,
+    // espacement…) — see charFormat.ts.
+    Superscript,
+    Subscript,
+    CharFormat,
     Comment,
     Insertion,
     Deletion,
@@ -94,29 +99,6 @@ export function buildExtensions(
   ];
 }
 
-export const CODE_LANGUAGES = [
-  "plaintext",
-  "javascript",
-  "typescript",
-  "python",
-  "json",
-  "bash",
-  "html",
-  "css",
-  "sql",
-  "markdown",
-];
-
-// Unified with the app-wide font registry (same families everywhere + imports).
-export const FONT_FAMILIES = [
-  { label: "Par défaut", value: "" },
-  ...BUILTIN_FONTS.map((f) => ({ label: f.name, value: f.css })),
-];
-
-export const FONT_SIZES = ["8px", "9px", "10px", "11px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px", "40px", "48px", "64px"];
-
-export const LINE_HEIGHTS = [
-  { label: "Simple", value: "1.3" },
-  { label: "1,5", value: "1.6" },
-  { label: "Double", value: "2.1" },
-];
+// Typography choices now live in ./typography.ts (they were creating an import
+// cycle from here). Re-exported so existing importers keep working.
+export { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";

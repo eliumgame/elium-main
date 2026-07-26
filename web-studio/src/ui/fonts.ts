@@ -35,16 +35,40 @@ export const BUILTIN_FONTS: FontDef[] = [
 
 export const DEFAULT_FONT = BUILTIN_FONTS[0].name;
 
-// Fonts imported by the user this session (name → file bytes). Embedded into
-// exports; registered as a FontFace so they also render in the editors.
+// Fonts imported by the user (name → file bytes). Embedded into the `.elium`
+// itself (see format/embedded-fonts.ts) and into exports; registered as a
+// FontFace so they render in the editors.
 const customFonts = new Map<string, Uint8Array>();
+/** Original filename per family, so the package keeps the real extension. */
+const customFontFiles = new Map<string, string>();
 
-export function registerCustomFont(name: string, bytes: Uint8Array): void {
+export function registerCustomFont(name: string, bytes: Uint8Array, filename?: string): void {
   customFonts.set(name, bytes);
+  // Default to .ttf only when the caller has no filename to offer.
+  customFontFiles.set(name, filename ?? `${name}.ttf`);
   try {
     const ff = new FontFace(name, bytes as unknown as ArrayBuffer);
     void ff.load().then((loaded) => (globalThis as unknown as { document?: Document }).document?.fonts?.add(loaded)).catch(() => {});
   } catch { /* FontFace unavailable (non-DOM env) */ }
+}
+
+/** Filename a family was imported under (drives the embedded MIME/format). */
+export function customFontFilename(name: string): string {
+  return customFontFiles.get(name) ?? `${name}.ttf`;
+}
+
+/**
+ * Re-register every font carried by a freshly opened document, so the text
+ * renders in the typeface it was written in even on a machine where that font is
+ * not installed. Idempotent: a family already registered is left alone.
+ */
+export function registerEmbeddedFonts(
+  fonts: { family: string; filename: string; bytes: Uint8Array }[],
+): void {
+  for (const f of fonts) {
+    if (customFonts.has(f.family)) continue;
+    registerCustomFont(f.family, f.bytes, f.filename);
+  }
 }
 
 export function isCustomFont(name: string): boolean {
@@ -74,4 +98,16 @@ export function fontCss(name: string | undefined): string {
 /** Closest standard PDF family for `name` (for export embedding). */
 export function pdfFamilyOf(name: string | undefined): "helvetica" | "times" | "courier" {
   return BUILTIN_FONTS.find((f) => f.name === name)?.pdf ?? "helvetica";
+}
+
+/**
+ * Every imported font the registry can hand to the package writer. Built-in
+ * families are system fonts — there is no binary to embed and no need to.
+ */
+export function embeddableFonts(): { family: string; filename: string; bytes: Uint8Array }[] {
+  return [...customFonts.entries()].map(([family, bytes]) => ({
+    family,
+    filename: customFontFilename(family),
+    bytes,
+  }));
 }

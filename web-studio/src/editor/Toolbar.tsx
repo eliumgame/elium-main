@@ -7,14 +7,17 @@ import {
   Indent, Outdent, SeparatorHorizontal, Combine, Split, Plus, Trash2, ListTree, MessageSquarePlus,
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
-  GitCompareArrows, Users, Braces, ChevronDown,
+  GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
+  RemoveFormatting, Palette, ChevronUp,
 } from "lucide-react";
-import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./extensions";
+import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
 import { isSuggesting } from "./TrackChanges";
 import { useDialogs } from "../ui/dialogs";
 import { customFontNames, registerCustomFont, fontCss } from "../ui/fonts";
 import { LIST_SCHEMES, schemeById } from "./listSchemes";
 import { clampColumns } from "./wordExtensions";
+import { FONT_ACCEPT, fontNameFromFilename } from "../format/embedded-fonts";
+import { CASE_LABELS } from "./charFormat";
 
 /**
  * The Documents ribbon.
@@ -68,6 +71,7 @@ interface ToolbarProps {
   onOpenSectionBreak?: () => void;
   onOpenCompare?: () => void;
   onOpenMailMerge?: () => void;
+  onOpenFont?: () => void;
 }
 
 /**
@@ -168,7 +172,7 @@ export default function Toolbar({
   editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
-  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge,
+  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -179,8 +183,8 @@ export default function Toolbar({
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f || !editor) return;
-    const name = f.name.replace(/\.(ttf|otf)$/i, "");
-    registerCustomFont(name, new Uint8Array(await f.arrayBuffer()));
+    const name = fontNameFromFilename(f.name);
+    registerCustomFont(name, new Uint8Array(await f.arrayBuffer()), f.name);
     setFontTick((t) => t + 1);
     editor.chain().focus().setFontFamily(fontCss(name)).run();
   }, [editor]);
@@ -315,8 +319,8 @@ export default function Toolbar({
                 {FONT_FAMILIES.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
                 {customFontNames().map((n) => <option key={n} value={fontCss(n)}>{n}</option>)}
               </select>
-              <Cmd title="Importer une police (.ttf/.otf)" onClick={() => fontInputRef.current?.click()}><Type size={16} /></Cmd>
-              <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
+              <Cmd title="Importer une police (.ttf, .otf, .woff, .woff2)" onClick={() => fontInputRef.current?.click()}><Type size={16} /></Cmd>
+              <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} hidden onChange={importFont} />
               <select
                 className="elx-select elx-select--size"
                 title="Taille"
@@ -338,6 +342,39 @@ export default function Toolbar({
               <Cmd title="Souligné (Ctrl+U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><Underline size={17} /></Cmd>
               <Cmd title="Barré" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={17} /></Cmd>
               <Cmd title="Surlignage" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}><Highlighter size={17} /></Cmd>
+              <Cmd title="Exposant (Ctrl+Maj+=)" active={editor.isActive("superscript")} onClick={() => editor.chain().focus().toggleSuperscript().run()}><Superscript size={17} /></Cmd>
+              <Cmd title="Indice (Ctrl+=)" active={editor.isActive("subscript")} onClick={() => editor.chain().focus().toggleSubscript().run()}><SubscriptIcon size={17} /></Cmd>
+              <Cmd title="Agrandir la police (Ctrl+Maj+>)" onClick={() => editor.chain().focus().growFontSize().run()}><ChevronUp size={17} /></Cmd>
+              <Cmd title="Réduire la police (Ctrl+Maj+<)" onClick={() => editor.chain().focus().shrinkFontSize().run()}><ChevronDown size={17} /></Cmd>
+              <Dropdown title="Modifier la casse" icon={<CaseSensitive size={17} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Modifier la casse</div>
+                    {(["sentence", "lower", "upper", "title", "toggle"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className="elx-menu__item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          editor.chain().focus().changeCase(mode).run();
+                          close();
+                        }}
+                      >
+                        {CASE_LABELS[mode]}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </Dropdown>
+              <Cmd
+                title="Effacer la mise en forme (Ctrl+Espace)"
+                disabled={editor.state.selection.empty}
+                onClick={() => editor.chain().focus().clearCharFormatting().run()}
+              >
+                <RemoveFormatting size={17} />
+              </Cmd>
+              <Cmd title="Police… (toutes les options de caractère)" onClick={() => onOpenFont?.()}><Palette size={17} /></Cmd>
               <label className="elx-colorbtn" title="Couleur du texte">
                 <input
                   type="color"

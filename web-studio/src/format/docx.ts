@@ -24,6 +24,7 @@ import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } f
 import { buildIndexJson } from "../editor/indexing";
 import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/sections";
 import { formatSizeMm } from "./pageSizes";
+import { fontResources } from "./embedded-fonts";
 
 // =========================================================================
 // XML helpers
@@ -322,17 +323,38 @@ function runProps(marks: { type: string; attrs?: Record<string, unknown> }[]): s
   const mark = (t: string) => marks.find((m) => m.type === t);
   if (has("bold")) p.push("<w:b/>");
   if (has("italic")) p.push("<w:i/>");
-  if (has("underline") || has("link")) p.push('<w:u w:val="single"/>');
   if (has("strike")) p.push("<w:strike/>");
+  // Exposant / indice are Word's `w:vertAlign`.
+  if (has("superscript")) p.push('<w:vertAlign w:val="superscript"/>');
+  if (has("subscript")) p.push('<w:vertAlign w:val="subscript"/>');
   if (has("code")) p.push('<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/>');
   // textStyle → real colour / font / size (px → half-points = px * 1.5)
   const ts = mark("textStyle");
   const tsColor = ts ? hex6(ts.attrs?.color) : null;
   if (ts) {
-    const fam = String(ts.attrs?.fontFamily ?? "").split(",")[0].replace(/['"]/g, "").trim();
+    const a = ts.attrs ?? {};
+    const fam = String(a.fontFamily ?? "").split(",")[0].replace(/['"]/g, "").trim();
     if (fam) p.push(`<w:rFonts w:ascii="${xmlEsc(fam)}" w:hAnsi="${xmlEsc(fam)}"/>`);
-    const px = parseFloat(String(ts.attrs?.fontSize ?? ""));
+    const px = parseFloat(String(a.fontSize ?? ""));
     if (px) p.push(`<w:sz w:val="${Math.round(px * 1.5)}"/>`);
+    // Word's own names for the rest of the Police dialog.
+    if (a.smallCaps) p.push("<w:smallCaps/>");
+    if (a.allCaps) p.push("<w:caps/>");
+    if (a.doubleStrike) p.push("<w:dstrike/>");
+    // Character spacing is in twentieths of a point: px → pt (×0.75) → ×20.
+    const spacingPx = parseFloat(String(a.letterSpacing ?? ""));
+    if (Number.isFinite(spacingPx) && spacingPx !== 0) p.push(`<w:spacing w:val="${Math.round(spacingPx * 15)}"/>`);
+    // Raised/lowered position is in half-points.
+    const posPx = parseFloat(String(a.textPosition ?? ""));
+    if (Number.isFinite(posPx) && posPx !== 0) p.push(`<w:position w:val="${Math.round(posPx * 1.5)}"/>`);
+  }
+  // Underline: the style attribute refines it; a link is underlined by default.
+  const underlineStyle = String(ts?.attrs?.underlineStyle ?? "");
+  const DOCX_UNDERLINE: Record<string, string> = {
+    single: "single", double: "double", dotted: "dotted", dashed: "dash", wavy: "wave",
+  };
+  if (has("underline") || has("link")) {
+    p.push(`<w:u w:val="${DOCX_UNDERLINE[underlineStyle] ?? "single"}"/>`);
   }
   // highlight → preset name if no colour, else real fill via shading
   const hl = mark("highlight");
@@ -880,7 +902,76 @@ export function docToDocx(file: EliumFile): Uint8Array {
   };
   for (const [name, bytes] of Object.entries(ctx.media)) files[`word/media/${name}`] = bytes;
 
+  // Embedded typefaces: a real `fontTable.xml` plus one obfuscated font part per
+  // family, so Word renders the document in its own fonts on a machine that does
+  // not have them installed (previously only the font NAME travelled).
+  const fonts = fontResources(file.resourceIndex)
+    .map((meta) => ({ meta, bytes: file.resources.get(meta.id) }))
+    .filter((f): f is { meta: (typeof f)["meta"]; bytes: Uint8Array } => !!f.bytes)
+    // Word only reads `.odttf` (obfuscated TrueType/OpenType) font parts.
+    .filter((f) => f.meta.ext === "ttf" || f.meta.ext === "otf");
+
+  if (fonts.length) {
+    const fontRels: string[] = [];
+    const fontEntries: string[] = [];
+    fonts.forEach((f, i) => {
+      const guid = fontGuid(f.meta.id);
+      const part = `font${i + 1}.odttf`;
+      files[`word/fonts/${part}`] = obfuscateFont(f.bytes, guid);
+      const rid = `rIdFont${i + 1}`;
+      fontRels.push(
+        `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="fonts/${part}"/>`,
+      );
+      fontEntries.push(
+        `<w:font w:name="${xmlEsc(f.meta.family)}">` +
+          `<w:embedRegular r:id="${rid}" w:fontKey="{${guid.toUpperCase()}}"/>` +
+          `</w:font>`,
+      );
+    });
+    files["word/fontTable.xml"] = strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+        `<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ` +
+        `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${fontEntries.join("")}</w:fonts>`,
+    );
+    // The font parts and the table hang off document.xml.rels.
+    files["word/_rels/document.xml.rels"] = strToU8(
+      documentRels.replace(
+        "</Relationships>",
+        `<Relationship Id="rIdFontTable" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>${fontRels.join("")}</Relationships>`,
+      ),
+    );
+    files["[Content_Types].xml"] = strToU8(
+      contentTypes.replace(
+        "</Types>",
+        `<Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/>` +
+          `<Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/></Types>`,
+      ),
+    );
+  }
+
   return zipSync(files, { level: 6 });
+}
+
+/** A stable GUID for a font part, derived from its content hash. */
+function fontGuid(resourceId: string): string {
+  const hex = (resourceId.replace(/[^0-9a-f]/gi, "") + "0".repeat(32)).slice(0, 32).toLowerCase();
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Word's font "obfuscation" (ECMA-376 §15.2.13): the first 32 bytes are XORed
+ * with the GUID's bytes, taken in reverse order, twice. It is not encryption —
+ * just the format Word insists on for embedded font parts.
+ */
+function obfuscateFont(bytes: Uint8Array, guid: string): Uint8Array {
+  const hex = guid.replace(/-/g, "");
+  const key = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) key[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  key.reverse();
+  const out = new Uint8Array(bytes);
+  const n = Math.min(32, out.length);
+  for (let i = 0; i < n; i++) out[i] = out[i]! ^ key[i % 16]!;
+  return out;
 }
 
 // =========================================================================

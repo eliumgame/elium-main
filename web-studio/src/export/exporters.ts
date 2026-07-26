@@ -20,6 +20,17 @@ import { buildIndexJson, type IndexGroup } from "../editor/indexing";
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
 import { sectionBreakLabelFor } from "../editor/sections";
 import { pageSizeOf } from "../format/pageSizes";
+import { fontFaceCss, fontResources } from "../format/embedded-fonts";
+
+/** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
+function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof btoa === "function") {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  return Buffer.from(bytes).toString("base64");
+}
 
 function esc(s: string): string {
   return s
@@ -174,12 +185,31 @@ function inlineHtml(node: ProseMirrorNode): string {
       case "code": html = `<code>${html}</code>`; break;
       case "highlight": html = `<mark>${html}</mark>`; break;
       case "link": html = `<a href="${safeHref(String(mark.attrs?.href ?? "#"))}">${html}</a>`; break;
+      case "superscript": html = `<sup>${html}</sup>`; break;
+      case "subscript": html = `<sub>${html}</sub>`; break;
       case "textStyle": {
         const a = mark.attrs ?? {};
+        // Underline/strike decoration styles are combined into one declaration:
+        // `text-decoration-line` cannot be set twice in the same rule.
+        const lines = [
+          a.underlineStyle && a.underlineStyle !== "none" ? "underline" : "",
+          a.doubleStrike ? "line-through" : "",
+        ].filter(Boolean);
+        const decoStyle = a.doubleStrike
+          ? "double"
+          : a.underlineStyle && a.underlineStyle !== "none" && a.underlineStyle !== "single"
+            ? String(a.underlineStyle)
+            : "";
         const style = [
           a.color ? `color:${safeCss(String(a.color))}` : "",
           a.fontFamily ? `font-family:${safeCss(String(a.fontFamily))}` : "",
           a.fontSize ? `font-size:${safeCss(String(a.fontSize))}` : "",
+          a.smallCaps ? "font-variant-caps:small-caps" : "",
+          a.allCaps ? "text-transform:uppercase" : "",
+          a.letterSpacing ? `letter-spacing:${safeCss(String(a.letterSpacing))}` : "",
+          a.textPosition ? `vertical-align:${safeCss(String(a.textPosition))}` : "",
+          lines.length ? `text-decoration-line:${lines.join(" ")}` : "",
+          decoStyle ? `text-decoration-style:${decoStyle}` : "",
         ].filter((s) => s && !s.endsWith(":")).join(";");
         if (style) html = `<span style="${style}">${html}</span>`;
         break;
@@ -604,9 +634,24 @@ function pageCss(file: EliumFile): string {
 @media print{body{max-width:none;margin:0;padding:0}}`;
 }
 
+/**
+ * `@font-face` rules for the typefaces the document carries, inlined as data
+ * URLs. Without them an exported HTML/PDF falls back to a system font on any
+ * machine that lacks the original — the whole point of embedding.
+ */
+function embeddedFontCss(file: EliumFile): string {
+  const fonts = fontResources(file.resourceIndex)
+    .map((meta) => {
+      const bytes = file.resources.get(meta.id);
+      return bytes ? { family: meta.family, ext: meta.ext, base64: bytesToBase64(bytes) } : null;
+    })
+    .filter((f): f is { family: string; ext: string; base64: string } => f !== null);
+  return fonts.length ? fontFaceCss(fonts) : "";
+}
+
 export function buildStandaloneHtml(file: EliumFile, verdicts?: Record<string, SignatureVerdict>): string {
   return `<!doctype html><html lang="${esc(file.manifest.language)}"><head><meta charset="utf-8">
-<title>${esc(file.manifest.title)}</title><style>${PRINT_CSS}${LIST_SCHEME_CSS}${pageCss(file)}</style></head>
+<title>${esc(file.manifest.title)}</title><style>${embeddedFontCss(file)}${PRINT_CSS}${LIST_SCHEME_CSS}${pageCss(file)}</style></head>
 <body><h1>${esc(file.manifest.title)}</h1>${docToHtml(file.document)}${signaturesHtml(file.signatures, verdicts)}</body></html>`;
 }
 

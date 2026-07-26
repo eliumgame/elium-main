@@ -39,6 +39,8 @@ import { verifyProof, createProof } from "./sign/proof";
 import { verifySeal, type SealVerdict } from "./sign/seal";
 import { checkSealPin, pinSeal, repinSeal, type SealPinCheck } from "./sign/seal-pinning";
 import { importToDoc } from "./format/importers";
+import { fontResources, syncEmbeddedFonts } from "./format/embedded-fonts";
+import { embeddableFonts, registerEmbeddedFonts } from "./ui/fonts";
 import { docToDocx, docxToDoc } from "./format/docx";
 import { putDriveDoc, reencryptDriveVault } from "./format/drive-store";
 import { putDraft, getDraft, resolveDraft, type DraftContent } from "./format/drafts-store";
@@ -393,6 +395,17 @@ export default function App() {
     pendingJournalRef.current = [];
     validatedSigRef.current = new Set();
     if (opened && tracksJournal(f)) queueJournal({ type: "document.opened", at: nowIso() });
+    // Re-register the typefaces the document carries BEFORE it renders, so text
+    // never flashes in a fallback font (or stays in one, on a machine that does
+    // not have the original installed).
+    registerEmbeddedFonts(
+      fontResources(f.resourceIndex)
+        .map((meta) => {
+          const bytes = f.resources.get(meta.id);
+          return bytes ? { family: meta.family, filename: `${meta.family}.${meta.ext}`, bytes } : null;
+        })
+        .filter((x): x is { family: string; filename: string; bytes: Uint8Array } => x !== null),
+    );
     setFile(f);
     setIntegrity(integ);
     setSelectedSig(null);
@@ -885,8 +898,11 @@ export default function App() {
       // and one document.modified into the journal, THEN seal — so the seal covers
       // the new journal. Queuing (rather than logging live) keeps a viewed sealed
       // document's seal intact until this save re-anchors it.
-      const f2 = await recordSave(file, pendingJournalRef.current);
+      const f1 = await recordSave(file, pendingJournalRef.current);
       pendingJournalRef.current = [];
+      // Carry the binaries of any imported font the text actually uses, so the
+      // document renders in its own typefaces on a machine that lacks them.
+      const f2 = await syncEmbeddedFonts(f1, embeddableFonts());
       // Seal the file with the user's identity (tamper-evidence anchor) when available.
       let sealKey: string | undefined;
       if (identity) sealKey = (await ensurePrivateKey()) ?? undefined;

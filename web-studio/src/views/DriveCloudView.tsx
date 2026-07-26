@@ -147,7 +147,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
                 <p className="dc-header__sub">{active.subtitle}</p>
               </div>
             </header>
-            <main className="dc-main">
+            <main className={`dc-main ${tab === "files" ? "dc-main--files" : ""}`}>
               {tab === "files" && <DriveBrowser />}
               {tab === "members" && <MembersPanel />}
               {tab === "groups" && <GroupsPanel />}

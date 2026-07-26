@@ -83,40 +83,51 @@
    WORKSPACE SHELL — sidebar + content
    ========================================================================== */
 .dc-loading { display: flex; gap: 10px; align-items: center; justify-content: center; height: 100vh; color: var(--text-soft); }
+/* Le Drive parle la même langue que les autres plans de travail : rampe sombre
+   à gauche (cf. src/ui/workspace.css), aire de travail claire à droite. */
 .dc-app { display: flex; height: 100vh; background: var(--surface-2); }
 
 .dc-sidebar {
   width: 264px; flex: none; display: flex; flex-direction: column; gap: 14px;
-  padding: 16px 14px; background: var(--surface); border-right: 1px solid var(--border); }
-.dc-sidebar__brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; color: var(--text); padding: 4px 6px; }
-.dc-sidebar__brand > svg { color: var(--primary); }
+  padding: 14px 12px; background: var(--x-chrome, #1b1f27); border-right: 1px solid var(--x-chrome-line, #363d4b);
+  color: var(--x-chrome-text, #e7ebf2); }
+.dc-sidebar__brand {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px 10px;
+  font-weight: 700; font-size: 15px; letter-spacing: -.01em;
+  color: var(--x-chrome-text, #e7ebf2); border-bottom: 1px solid var(--x-chrome-line, #363d4b); }
+.dc-sidebar__brand > svg { color: var(--x-accent, #4f8cff); }
 .dc-sidebar__org { }
 .dc-sidebar__spacer { flex: 1; }
 
-.dc-nav { display: flex; flex-direction: column; gap: 3px; }
+.dc-nav { display: flex; flex-direction: column; gap: 2px; }
 .dc-nav__item {
-  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 10px 12px;
-  border: none; background: none; border-radius: 10px; color: var(--text-soft); font-size: 14px; font-weight: 600; cursor: pointer; transition: .12s; }
-.dc-nav__item:hover { background: var(--surface-3); color: var(--text); }
-.dc-nav__item.is-active { background: var(--primary-50, #eff6ff); color: var(--primary); }
-.dc-nav__item.is-active svg { color: var(--primary); }
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 9px 11px;
+  border: 1px solid transparent; background: none; border-radius: 9px;
+  color: var(--x-chrome-soft, #a7b0c0); font-size: 13.5px; font-weight: 550; cursor: pointer;
+  transition: background var(--el-motion-fast) var(--el-ease-standard), color var(--el-motion-fast) var(--el-ease-standard); }
+.dc-nav__item:hover { background: var(--x-chrome-3, #2c323f); color: var(--x-chrome-text, #e7ebf2); }
+.dc-nav__item.is-active {
+  background: var(--x-accent-soft, rgba(79,140,255,.16));
+  border-color: var(--x-accent-line, rgba(79,140,255,.5));
+  color: #d6e5ff; }
+.dc-nav__item.is-active svg { color: var(--x-accent, #4f8cff); }
 
 .dc-sidebar__foot { display: flex; flex-direction: column; gap: 8px; }
-.dc-userchip { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.dc-userchip { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--x-chrome-line, #363d4b); border-radius: 11px; background: var(--x-chrome-2, #232833); }
 .dc-userchip__meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.dc-userchip__name { font-size: 13px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-userchip__mail { font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-sidebar__home { display: inline-flex; align-items: center; gap: 8px; justify-content: center; padding: 8px; border: none; background: none; color: var(--text-soft); font-size: 13px; cursor: pointer; border-radius: 9px; }
-.dc-sidebar__home:hover { background: var(--surface-3); color: var(--text); }
+.dc-userchip__name { font-size: 12.5px; font-weight: 650; color: var(--x-chrome-text, #e7ebf2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-userchip__mail { font-size: 11px; color: var(--x-chrome-mute, #7d8798); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-sidebar__home { display: inline-flex; align-items: center; gap: 8px; justify-content: center; padding: 8px; border: none; background: none; color: var(--x-chrome-soft, #a7b0c0); font-size: 12.5px; cursor: pointer; border-radius: 9px; }
+.dc-sidebar__home:hover { background: var(--x-chrome-3, #2c323f); color: var(--x-chrome-text, #e7ebf2); }
 
 /* Org switcher */
 .dc-orgswitch { position: relative; }
 .dc-orgswitch__btn {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; cursor: pointer;
-  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 14px; }
-.dc-orgswitch__btn:hover { border-color: var(--border-strong); }
+  border: 1px solid var(--x-chrome-line, #363d4b); border-radius: 11px; background: var(--x-chrome-2, #232833); color: var(--x-chrome-text, #e7ebf2); font-weight: 650; font-size: 13.5px; }
+.dc-orgswitch__btn:hover { border-color: var(--x-accent-line, rgba(79,140,255,.5)); }
 .dc-orgswitch__name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-orgswitch__btn > svg:last-child { color: var(--text-muted); }
+.dc-orgswitch__btn > svg:last-child { color: var(--x-chrome-mute, #7d8798); }
 .dc-orgswitch__menu {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: var(--el-z-dropdown, 1000);
   padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow-lg, 0 12px 30px rgba(2,6,23,.16)); }
@@ -132,6 +143,9 @@
 .dc-header__title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: var(--text); }
 .dc-header__sub { margin: 3px 0 0; color: var(--text-soft); font-size: 13.5px; }
 .dc-main { flex: 1; min-height: 0; overflow: auto; padding: 24px 30px; }
+/* Le navigateur de fichiers gère son propre défilement et colle sa barre
+   d'état en bas : il lui faut une colonne flex, pas une zone qui défile. */
+.dc-main--files { display: flex; flex-direction: column; overflow: hidden; padding: 16px 20px; }
 
 /* Errors / helpers */
 .dc-error { color: #dc2626; font-size: 13px; margin: 8px 0; }

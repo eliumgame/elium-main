@@ -19,6 +19,7 @@ import { markerText, schemeById, schemesCss, type ListScheme } from "../editor/l
 import { buildIndexJson, type IndexGroup } from "../editor/indexing";
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
 import { sectionBreakLabelFor } from "../editor/sections";
+import { pageSizeOf } from "../format/pageSizes";
 
 function esc(s: string): string {
   return s
@@ -589,7 +590,11 @@ function pageCss(file: EliumFile): string {
   const page = file.document.page;
   if (!page) return "";
   const title = file.manifest.title;
-  const size = page.format === "Letter" ? "letter" : "A4";
+  // Explicit millimetres rather than a named keyword: `size: A4` cannot express
+  // A5, Legal, Tabloid or a custom sheet, and the orientation is already baked
+  // into the width/height pair.
+  const { width: pw, height: ph } = pageSizeOf(page);
+  const size = `${pw}mm ${ph}mm`;
   const m = page.margins ?? { top: 20, right: 20, bottom: 20, left: 20 };
   const boxes: string[] = [];
   if (page.header) boxes.push(`@top-center{content:${cssStr(expandTokens(page.header, title))};font-size:9pt;color:#64748b}`);

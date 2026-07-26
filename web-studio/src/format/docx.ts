@@ -23,6 +23,7 @@ import { abstractNumXml, matchSchemeId, schemeById, type ListScheme } from "../e
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
 import { buildIndexJson } from "../editor/indexing";
 import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/sections";
+import { formatSizeMm } from "./pageSizes";
 
 // =========================================================================
 // XML helpers
@@ -709,18 +710,26 @@ const tw = (mm: number) => Math.round(mm * 56.6929); // mm → twips
 /** `w:sectPr` body for one section: page size, margins and numbering restart. */
 function sectPrBody(
   page: PageSettings,
-  opts: { orientation?: "portrait" | "landscape"; type?: SectionBreakKind; restartAt?: number | null } = {},
+  opts: {
+    format?: PageSettings["format"];
+    orientation?: "portrait" | "landscape";
+    customWidthMm?: number;
+    customHeightMm?: number;
+    margins?: { top: number; right: number; bottom: number; left: number };
+    type?: SectionBreakKind;
+    restartAt?: number | null;
+  } = {},
 ): string {
-  const letter = page?.format === "Letter";
-  let pw = letter ? 12240 : 11906;
-  let ph = letter ? 15840 : 16838;
+  // Real millimetres from the format table, so A3/A5/Legal/Tabloid and custom
+  // sheets export at their true size instead of being coerced to A4 or Letter.
+  const portrait = formatSizeMm(opts.format ?? page?.format ?? "A4", {
+    widthMm: opts.customWidthMm ?? page?.customWidthMm,
+    heightMm: opts.customHeightMm ?? page?.customHeightMm,
+  });
   const landscape = (opts.orientation ?? page?.orientation) === "landscape";
-  if (landscape) {
-    const t = pw;
-    pw = ph;
-    ph = t;
-  }
-  const mg = page?.margins ?? { top: 25, right: 20, bottom: 25, left: 20 };
+  const pw = tw(landscape ? portrait.height : portrait.width);
+  const ph = tw(landscape ? portrait.width : portrait.height);
+  const mg = opts.margins ?? page?.margins ?? { top: 25, right: 20, bottom: 25, left: 20 };
   // The first section has no meaningful type; Word ignores it there anyway.
   const type = opts.type && opts.type !== "nextPage" ? `<w:type w:val="${opts.type}"/>` : "";
   const pgNum = opts.restartAt != null ? `<w:pgNumType w:start="${opts.restartAt}"/>` : "";
@@ -783,7 +792,13 @@ export function docToDocx(file: EliumFile): Uint8Array {
   const sectPrFor = (cols: string): string => {
     const setup = sections[eliumIdx]?.setup;
     return `<w:sectPr>${sectPrBody(page, {
+      // Each section exports at ITS OWN sheet size and margins, not the
+      // document's — that is what makes a landscape or A5 section real in Word.
+      format: setup?.format,
       orientation: setup?.orientation,
+      customWidthMm: setup?.customWidthMm,
+      customHeightMm: setup?.customHeightMm,
+      margins: setup?.margins,
       type: currentType,
       restartAt: setup?.restartNumbering ? setup.startAt : null,
     })}${cols}</w:sectPr>`;

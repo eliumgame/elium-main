@@ -256,7 +256,12 @@ export interface SectionBreakAttrs {
   kind: SectionBreakKind;
   /** Page-setup overrides for the section that STARTS at this break. Empty
    *  fields inherit the document's own page settings. */
+  format?: string;
   orientation?: "portrait" | "landscape" | "";
+  customWidthMm?: number;
+  customHeightMm?: number;
+  /** Per-section margins in mm; omitted = inherit the document's. */
+  margins?: { top: number; right: number; bottom: number; left: number };
   /** Restart page numbering at `startAt` from this section on. */
   restartNumbering?: boolean;
   startAt?: number;
@@ -283,7 +288,11 @@ export const SectionBreak = Node.create({
   addAttributes() {
     return {
       kind: { default: "nextPage" as SectionBreakKind },
+      format: { default: "" },
       orientation: { default: "" },
+      customWidthMm: { default: null },
+      customHeightMm: { default: null },
+      margins: { default: null },
       restartNumbering: { default: false },
       startAt: { default: 1 },
       header: { default: "" },

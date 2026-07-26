@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Modal, Button, Field } from "../ui/components";
 import { sectionBreakLabelFor, type SectionBreakKind } from "./sections";
+import { PAGE_FORMATS, PAGE_FORMAT_LABELS } from "../format/pageSizes";
+import type { PageFormat } from "../format/types";
 
 const KINDS: SectionBreakKind[] = ["nextPage", "continuous", "evenPage", "oddPage"];
 
@@ -20,19 +22,35 @@ const HINTS: Record<SectionBreakKind, string> = {
  */
 export default function SectionBreakModal({ editor, onClose }: { editor: Editor; onClose: () => void }) {
   const [kind, setKind] = useState<SectionBreakKind>("nextPage");
+  const [format, setFormat] = useState<PageFormat | "">("");
   const [orientation, setOrientation] = useState<"" | "portrait" | "landscape">("");
+  const [ownMargins, setOwnMargins] = useState(false);
+  const [margins, setMargins] = useState({ top: 25, right: 20, bottom: 25, left: 20 });
   const [restart, setRestart] = useState(false);
   const [startAt, setStartAt] = useState(1);
   const [header, setHeader] = useState("");
   const [footer, setFooter] = useState("");
 
   const insert = () => {
+    const clamp = (v: number) => Math.min(60, Math.max(5, Math.round(v) || 20));
     editor
       .chain()
       .focus()
       .insertSectionBreak({
         kind,
+        format,
         orientation,
+        // Only sent when the user opted in — otherwise the section inherits.
+        ...(ownMargins
+          ? {
+              margins: {
+                top: clamp(margins.top),
+                right: clamp(margins.right),
+                bottom: clamp(margins.bottom),
+                left: clamp(margins.left),
+              },
+            }
+          : {}),
         restartNumbering: restart,
         startAt: Math.max(1, Math.round(startAt) || 1),
         header,
@@ -69,6 +87,14 @@ export default function SectionBreakModal({ editor, onClose }: { editor: Editor;
 
         <section className="settings__section">
           <h3 className="settings__title">Mise en page de la nouvelle section</h3>
+          <Field label="Format" hint="Chaque section peut avoir son propre format de feuille.">
+            <select className="settings__select" value={format} onChange={(e) => setFormat(e.target.value as PageFormat | "")}>
+              <option value="">Comme le document</option>
+              {PAGE_FORMATS.filter((f) => f !== "Custom").map((f) => (
+                <option key={f} value={f}>{PAGE_FORMAT_LABELS[f]}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Orientation" hint="« Comme le document » conserve le réglage global.">
             <select
               className="settings__select"
@@ -80,6 +106,27 @@ export default function SectionBreakModal({ editor, onClose }: { editor: Editor;
               <option value="landscape">Paysage</option>
             </select>
           </Field>
+
+          <label className="checkbox-row">
+            <input type="checkbox" checked={ownMargins} onChange={(e) => setOwnMargins(e.target.checked)} />
+            <span>Marges propres à cette section (mm)</span>
+          </label>
+          {ownMargins && (
+            <div className="settings__margin-grid">
+              {(["top", "right", "bottom", "left"] as const).map((side) => (
+                <Field key={side} label={{ top: "Haut", right: "Droite", bottom: "Bas", left: "Gauche" }[side]}>
+                  <input
+                    type="number"
+                    className="settings__input settings__margin-input"
+                    min={5}
+                    max={60}
+                    value={margins[side]}
+                    onChange={(e) => setMargins((m) => ({ ...m, [side]: Number(e.target.value) }))}
+                  />
+                </Field>
+              ))}
+            </div>
+          )}
           <Field label="En-tête de section (facultatif)" hint="Jetons : {titre}, {date}.">
             <input className="settings__input" value={header} onChange={(e) => setHeader(e.target.value)} placeholder="Vide = celui du document" />
           </Field>

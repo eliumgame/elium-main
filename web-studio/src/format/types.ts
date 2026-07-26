@@ -37,7 +37,17 @@ export interface ProseMirrorNode {
   text?: string;
 }
 
-export type PageFormat = "A4" | "Letter";
+export type PageFormat =
+  | "A3"
+  | "A4"
+  | "A5"
+  | "A6"
+  | "B5"
+  | "Letter"
+  | "Legal"
+  | "Executive"
+  | "Tabloid"
+  | "Custom";
 export type PageOrientation = "portrait" | "landscape";
 
 export interface PageSettings {
@@ -45,6 +55,9 @@ export interface PageSettings {
   orientation: PageOrientation;
   /** Margins in millimetres. */
   margins: { top: number; right: number; bottom: number; left: number };
+  /** Portrait dimensions used when `format === "Custom"` (millimetres). */
+  customWidthMm?: number;
+  customHeightMm?: number;
   header?: string;
   footer?: string;
   showPageNumbers?: boolean;

@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Modal, Button, Field } from "../ui/components";
 import type { PageSettings } from "../format/types";
+import {
+  DEFAULT_CUSTOM_MM, MAX_PAGE_MM, MIN_PAGE_MM, PAGE_FORMATS, PAGE_FORMAT_LABELS, pageSizeOf,
+} from "../format/pageSizes";
 
 interface PageSettingsModalProps {
   page: PageSettings;
@@ -26,7 +29,11 @@ const MARGIN_PRESETS: { label: string; margins: PageSettings["margins"] }[] = [
  * change is pushed straight into the document's page settings (persisted in
  * the .elium).
  */
+const clampPageMm = (v: number) =>
+  Number.isFinite(v) ? Math.min(MAX_PAGE_MM, Math.max(MIN_PAGE_MM, Math.round(v))) : DEFAULT_CUSTOM_MM.width;
+
 export default function PageSettingsModal({ page, onUpdate, onClose }: PageSettingsModalProps) {
+  const size = pageSizeOf(page);
   // Convenience UI toggle only — the model always keeps 4 independent margins.
   const [symmetric, setSymmetric] = useState(
     () => page.margins.top === page.margins.bottom && page.margins.left === page.margins.right,
@@ -71,13 +78,14 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
           <div className="settings__row">
             <select
               className="settings__select"
-              style={{ maxWidth: 160 }}
+              style={{ maxWidth: 220 }}
               value={page.format}
               onChange={(e) => onUpdate({ format: e.target.value as PageSettings["format"] })}
               aria-label="Format de page"
             >
-              <option value="A4">A4</option>
-              <option value="Letter">Letter (US)</option>
+              {PAGE_FORMATS.map((f) => (
+                <option key={f} value={f}>{PAGE_FORMAT_LABELS[f]}</option>
+              ))}
             </select>
             <select
               className="settings__select"
@@ -90,6 +98,38 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
               <option value="landscape">Paysage</option>
             </select>
           </div>
+
+          {page.format === "Custom" && (
+            <div className="settings__margin-grid">
+              <Field label="Largeur (mm)">
+                <input
+                  type="number"
+                  className="settings__input settings__margin-input"
+                  min={MIN_PAGE_MM}
+                  max={MAX_PAGE_MM}
+                  value={page.customWidthMm ?? DEFAULT_CUSTOM_MM.width}
+                  onChange={(e) => onUpdate({ customWidthMm: Number(e.target.value) })}
+                  onBlur={(e) => onUpdate({ customWidthMm: clampPageMm(Number(e.target.value)) })}
+                />
+              </Field>
+              <Field label="Hauteur (mm)">
+                <input
+                  type="number"
+                  className="settings__input settings__margin-input"
+                  min={MIN_PAGE_MM}
+                  max={MAX_PAGE_MM}
+                  value={page.customHeightMm ?? DEFAULT_CUSTOM_MM.height}
+                  onChange={(e) => onUpdate({ customHeightMm: Number(e.target.value) })}
+                  onBlur={(e) => onUpdate({ customHeightMm: clampPageMm(Number(e.target.value)) })}
+                />
+              </Field>
+            </div>
+          )}
+
+          <p className="muted">
+            Feuille actuelle : <b>{size.width} × {size.height} mm</b>
+            {page.orientation === "landscape" ? " (paysage)" : ""}
+          </p>
         </section>
 
         <section className="settings__section">

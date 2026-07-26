@@ -327,6 +327,21 @@
 /* Physical width/min-height are set inline (see RichEditor.tsx + format/pageSizes.ts)
    so every format×orientation combination sizes correctly, including Letter+landscape. */
 .elium-page { position: relative; background: var(--surface); margin: 0 auto; box-shadow: var(--shadow); border-radius: 2px; }
+
+/* Sections de géométries différentes : le conteneur devient transparent et
+   CHAQUE page est dessinée comme sa propre feuille, à la taille et à la position
+   de sa section (issues du plan de pagination). Le texte, lui, reste une colonne
+   continue, décalée par section (voir `sectionInsetDecorations`). */
+.elium-page--stacked { background: none; box-shadow: none; }
+.elium-sheets { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.elium-sheet {
+  position: absolute;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  border-radius: 2px;
+}
+.elium-page--stacked > *:not(.elium-sheets) { position: relative; z-index: 1; }
+@media print { .elium-sheets { display: none !important; } }
 .elium-page__header { position: absolute; top: 8mm; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--text-muted); }
 .elium-page__footer { position: absolute; bottom: 8mm; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--text-muted); }
 

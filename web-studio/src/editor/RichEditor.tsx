@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { buildExtensions } from "./extensions";
 import Toolbar from "./Toolbar";
@@ -14,6 +14,7 @@ import MailMergeModal from "./MailMergeModal";
 import { ensureListSchemeStyles } from "./listSchemeStyles";
 import { setMergePreview, setPageResolver } from "./wordExtensions";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
+import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocumentModel,
@@ -21,8 +22,12 @@ import type {
   ProseMirrorNode,
   SignatureVerdict,
 } from "../format/types";
-import { pageSizeMm } from "../format/pageSizes";
-import { CSS_PX_PER_MM, pageAt, type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions } from "./Pagination";
+import { pageSizeOf } from "../format/pageSizes";
+import {
+  CSS_PX_PER_MM, pageAt,
+  type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions,
+  type SectionInset, type SectionMetrics,
+} from "./Pagination";
 
 /** Visual gap drawn between two page sheets, in px. */
 const SHEET_GAP_PX = 40;
@@ -81,14 +86,31 @@ export default function RichEditor({
   // On-screen pagination: the plugin reads live page metrics through this ref
   // (updated each render below) and reports the page count back into state.
   const metricsRef = useRef<PageMetrics | null>(null);
+  const sectionMetricsRef = useRef<SectionMetrics[] | null>(null);
+  const sectionInsetsRef = useRef<SectionInset[]>([]);
   const planRef = useRef<PagePlan | null>(null);
   const [pageInfo, setPageInfo] = useState<PageInfo>({ pageCount: 1, currentPage: 1 });
+  const [plan, setPlan] = useState<PagePlan | null>(null);
   const paginationOpts = useRef<PaginationOptions>({
     getMetrics: () => metricsRef.current,
+    getSectionMetrics: () => sectionMetricsRef.current,
+    getSectionInsets: () => sectionInsetsRef.current,
     onInfo: (i) =>
       setPageInfo((prev) => (prev.pageCount === i.pageCount && prev.currentPage === i.currentPage ? prev : i)),
-    onPlan: (plan) => {
-      planRef.current = plan;
+    onPlan: (p) => {
+      planRef.current = p;
+      // Mixed-geometry documents draw one sheet per planned page, so the layer
+      // needs the plan in React state (uniform documents ignore it).
+      setPlan((prev) =>
+        prev &&
+        prev.pages.length === p.pages.length &&
+        prev.pages.every(
+          (q, i) =>
+            q.top === p.pages[i]!.top && q.height === p.pages[i]!.height && q.sectionIndex === p.pages[i]!.sectionIndex,
+        )
+          ? prev
+          : p,
+      );
     },
   }).current;
 
@@ -204,21 +226,60 @@ export default function RichEditor({
   };
 
   const page = documentModel.page;
+
+  // --- Sections -----------------------------------------------------------
+  // Every section resolves to its own physical geometry. When they all agree
+  // (the usual case) the editor keeps the single-sheet fast path; when they
+  // differ, the sheet stack below draws one sheet per page at ITS section's
+  // size, and the text of each section is inset to its own content width.
+  const sections = useMemo(() => splitSections(documentModel.doc, page), [documentModel.doc, page]);
+  const geometries = useMemo(() => sections.map((s) => sectionGeometry(s.setup)), [sections]);
+  const mixedGeometry = useMemo(() => hasMixedGeometry(sections), [sections]);
+
   // Physical size is computed (not hard-coded per format×orientation CSS class)
   // so every format/orientation combination — including Letter + landscape —
   // renders correctly on screen, matching what DOCX/PDF export already do.
+  // With mixed sections the container takes the WIDEST sheet.
   const pageClass = `elium-page${numberedHeadings ? " elium-page--numbered" : ""}`;
-  const { width: pageWidthMm, height: pageHeightMm } = pageSizeMm(page.format, page.orientation);
+  const docSize = pageSizeOf(page);
+  const widest = geometries.reduce((max, g) => Math.max(max, g.widthMm), docSize.width);
+  const pageWidthMm = mixedGeometry ? widest : docSize.width;
+  const pageHeightMm = mixedGeometry ? (geometries[0]?.heightMm ?? docSize.height) : docSize.height;
+  /** Margins of the first section — what the single sheet uses for padding. */
+  const baseMargins = mixedGeometry ? geometries[0]?.margins ?? page.margins : page.margins;
 
   // Refresh the pagination metrics from the current page geometry. `mm` renders
   // at a fixed 96px/25.4 in CSS, so the printable content height and side
   // margins convert deterministically (no DOM measurement / zoom assumptions).
   metricsRef.current = {
-    pageContentPx: Math.max(0, (pageHeightMm - page.margins.top - page.margins.bottom) * CSS_PX_PER_MM),
+    pageContentPx: Math.max(0, (pageHeightMm - baseMargins.top - baseMargins.bottom) * CSS_PX_PER_MM),
     gapPx: SHEET_GAP_PX,
-    marginLeftPx: page.margins.left * CSS_PX_PER_MM,
-    marginRightPx: page.margins.right * CSS_PX_PER_MM,
+    marginLeftPx: baseMargins.left * CSS_PX_PER_MM,
+    marginRightPx: baseMargins.right * CSS_PX_PER_MM,
   };
+
+  // Per-section metrics + insets, only when the geometries actually differ.
+  sectionMetricsRef.current = mixedGeometry
+    ? geometries.map((g, i) => ({
+        pageContentPx: Math.max(0, (g.heightMm - g.margins.top - g.margins.bottom) * CSS_PX_PER_MM),
+        pageTotalPx: g.heightMm * CSS_PX_PER_MM,
+        gapPx: SHEET_GAP_PX,
+        marginLeftPx: g.margins.left * CSS_PX_PER_MM,
+        marginRightPx: g.margins.right * CSS_PX_PER_MM,
+        restartAt: sections[i]?.setup.restartNumbering ? sections[i]!.setup.startAt : null,
+      }))
+    : null;
+  // The container is padded with the FIRST section's margins, so a section's
+  // extra inset is the difference: half the width gap plus its own margin delta.
+  sectionInsetsRef.current = mixedGeometry
+    ? geometries.map((g) => {
+        const sidePx = ((widest - g.widthMm) / 2) * CSS_PX_PER_MM;
+        return {
+          leftPx: Math.max(0, Math.round(sidePx + (g.margins.left - baseMargins.left) * CSS_PX_PER_MM)),
+          rightPx: Math.max(0, Math.round(sidePx + (g.margins.right - baseMargins.right) * CSS_PX_PER_MM)),
+        };
+      })
+    : [];
 
   // Expand header/footer field tokens for display ({titre}, {date}).
   const renderField = (tpl: string) =>
@@ -342,19 +403,48 @@ export default function RichEditor({
         >
         <div
           ref={pageRef}
-          className={pageClass}
+          className={`${pageClass}${mixedGeometry ? " elium-page--stacked" : ""}`}
           style={{
             width: `${pageWidthMm}mm`,
             minHeight: `${pageHeightMm}mm`,
-            paddingTop: `${page.margins.top}mm`,
-            paddingRight: `${page.margins.right}mm`,
-            paddingBottom: `${page.margins.bottom}mm`,
-            paddingLeft: `${page.margins.left}mm`,
+            paddingTop: `${baseMargins.top}mm`,
+            paddingRight: `${baseMargins.right}mm`,
+            paddingBottom: `${baseMargins.bottom}mm`,
+            paddingLeft: `${baseMargins.left}mm`,
           }}
         >
-          {page.header && <div className="elium-page__header">{renderField(page.header)}</div>}
+          {/* Mixed sections: the container is transparent and each page is drawn
+              as its OWN sheet, at its section's width/height and offset (taken
+              from the pagination plan). Uniform documents keep the single sheet. */}
+          {mixedGeometry && plan && (
+            <div className="elium-sheets" aria-hidden="true">
+              {plan.pages.map((p, i) => {
+                const g = geometries[Math.min(p.sectionIndex, geometries.length - 1)] ?? geometries[0];
+                if (!g) return null;
+                return (
+                  <div
+                    key={`${i}-${p.top}`}
+                    className="elium-sheet"
+                    style={{
+                      top: `${p.top}px`,
+                      height: `${p.height}px`,
+                      width: `${g.widthMm}mm`,
+                      left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+          {/* Header/footer of the FIRST section (the sheet the reader starts on);
+              per-section header text is honoured by the DOCX/PDF export. */}
+          {(sections[0]?.setup.header || page.header) && (
+            <div className="elium-page__header">{renderField(sections[0]?.setup.header || page.header || "")}</div>
+          )}
           <EditorContent editor={editor} />
-          {page.footer && <div className="elium-page__footer">{renderField(page.footer)}</div>}
+          {(sections[0]?.setup.footer || page.footer) && (
+            <div className="elium-page__footer">{renderField(sections[0]?.setup.footer || page.footer || "")}</div>
+          )}
 
           <SignatureLayer
             pageRef={pageRef}

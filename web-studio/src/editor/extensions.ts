@@ -19,6 +19,10 @@ import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import type { Extensions } from "@tiptap/react";
 import { Indent, PageBreak, TableOfContents, Figure, Comment, Footnote, FootnotesList, ParagraphStyle, Bookmark } from "./customExtensions";
+import {
+  ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
+  IndexEntry, IndexBlock, MergeField,
+} from "./wordExtensions";
 import { BUILTIN_FONTS } from "../ui/fonts";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
@@ -60,6 +64,16 @@ export function buildExtensions(
     Footnote,
     FootnotesList,
     Bookmark,
+    // Word-parity set (multilevel lists, columns/sections, renvois, index,
+    // publipostage) — see wordExtensions.ts.
+    ListSchemes,
+    ColumnSection,
+    SectionBreak,
+    RefAnchors,
+    CrossReference,
+    IndexEntry,
+    IndexBlock,
+    MergeField,
     Comment,
     Insertion,
     Deletion,

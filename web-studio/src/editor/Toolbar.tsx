@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import {
   Bold, Italic, Underline, Strikethrough, Code2, Heading1, Heading2, Heading3,
@@ -6,12 +6,15 @@ import {
   Highlighter, Table as TableIcon, Image as ImageIcon, Minus, Undo2, Redo2, Link2, PenLine,
   Indent, Outdent, SeparatorHorizontal, Combine, Split, Plus, Trash2, ListTree, MessageSquarePlus,
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
-  PanelLeft, PanelRight, Search,
+  PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
+  GitCompareArrows, Users, Braces, ChevronDown,
 } from "lucide-react";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./extensions";
 import { isSuggesting } from "./TrackChanges";
 import { useDialogs } from "../ui/dialogs";
 import { customFontNames, registerCustomFont, fontCss } from "../ui/fonts";
+import { LIST_SCHEMES, schemeById } from "./listSchemes";
+import { clampColumns } from "./wordExtensions";
 
 /**
  * The Documents ribbon.
@@ -25,12 +28,14 @@ import { customFontNames, registerCustomFont, fontCss } from "../ui/fonts";
  * behind a tab would make table editing miserable.
  */
 
-type RibbonTab = "home" | "insert" | "layout" | "review" | "view";
+type RibbonTab = "home" | "insert" | "layout" | "references" | "merge" | "review" | "view";
 
 const TABS: { id: RibbonTab; label: string }[] = [
   { id: "home", label: "Accueil" },
   { id: "insert", label: "Insertion" },
   { id: "layout", label: "Mise en page" },
+  { id: "references", label: "Références" },
+  { id: "merge", label: "Publipostage" },
   { id: "review", label: "Révision" },
   { id: "view", label: "Affichage" },
 ];
@@ -56,6 +61,69 @@ interface ToolbarProps {
   onToggleInspector?: () => void;
   /** Find & replace bar. */
   onToggleFind?: () => void;
+  /** Word-parity dialogs, hosted by the editor shell. */
+  onOpenCrossRef?: () => void;
+  onOpenIndexEntry?: () => void;
+  onOpenColumns?: () => void;
+  onOpenSectionBreak?: () => void;
+  onOpenCompare?: () => void;
+  onOpenMailMerge?: () => void;
+}
+
+/**
+ * A ribbon button that opens a small panel (galleries, quick choices). Closes on
+ * outside click and on Escape, like the rest of the workspace chrome.
+ */
+function Dropdown({
+  label, title, icon, children, align = "left", big,
+}: {
+  label?: string;
+  title: string;
+  icon: React.ReactNode;
+  children: (close: () => void) => React.ReactNode;
+  align?: "left" | "right";
+  big?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="elx-drop" ref={wrapRef}>
+      <button
+        type="button"
+        className={`elx-cmd ${big ? "elx-cmd--big" : ""} ${open ? "is-active" : ""}`}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+        aria-label={title}
+        aria-expanded={open}
+      >
+        <span className="elx-cmd__icon">{icon}</span>
+        {label && <span className="elx-cmd__label">{label}</span>}
+        <ChevronDown size={11} aria-hidden="true" />
+      </button>
+      {open && <div className={`elx-menu ${align === "right" ? "elx-menu--right" : ""}`}>{children(() => setOpen(false))}</div>}
+    </div>
+  );
 }
 
 function newCommentId(): string {
@@ -99,7 +167,8 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 export default function Toolbar({
   editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
-  inspectorOpen, onToggleInspector, onToggleFind,
+  inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
+  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -155,6 +224,17 @@ export default function Toolbar({
     editor.chain().focus().insertBookmark(label).run();
   }, [editor, prompt]);
 
+  const addMergeField = useCallback(async () => {
+    if (!editor) return;
+    const field = await prompt({
+      title: "Champ de fusion",
+      label: "Nom du champ",
+      placeholder: "ex. Nom",
+    });
+    if (!field?.trim()) return;
+    editor.chain().focus().insertMergeField(field.trim()).run();
+  }, [editor, prompt]);
+
   if (!editor) return <div className="elx-ribbon elx-ribbon--loading" />;
 
   // Named paragraph-style picker: maps block type + named paragraph variant.
@@ -167,6 +247,21 @@ export default function Toolbar({
     if (ds === "subtitle" || ds === "lead") return ds;
     return "";
   };
+  // Scheme of the list the cursor sits in — inherited from the outermost list,
+  // which is where the attribute lives.
+  const currentListScheme = ((): string | null => {
+    const $from = editor.state.selection.$from;
+    for (let d = 1; d <= $from.depth; d++) {
+      const node = $from.node(d);
+      if (node.type.name === "bulletList" || node.type.name === "orderedList") {
+        return schemeById(node.attrs.listScheme)?.id ?? null;
+      }
+    }
+    return null;
+  })();
+
+  const columnCount = editor.isActive("columnSection") ? clampColumns(Number(editor.getAttributes("columnSection").count)) : 1;
+
   const applyStyle = (val: string) => {
     const chain = editor.chain().focus();
     switch (val) {
@@ -270,6 +365,42 @@ export default function Toolbar({
             <Group title="Paragraphe">
               <Cmd title="Liste à puces" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={17} /></Cmd>
               <Cmd title="Liste numérotée" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={17} /></Cmd>
+              <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Bibliothèque de listes</div>
+                    {LIST_SCHEMES.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={`elx-menu__item ${currentListScheme === s.id ? "is-active" : ""}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          editor.chain().focus().setListScheme(s.id).run();
+                          close();
+                        }}
+                      >
+                        <span className="elx-listprev" aria-hidden="true">
+                          {s.preview.map((p, i) => <span key={i}>{p} texte</span>)}
+                        </span>
+                        <span>{s.label}</span>
+                      </button>
+                    ))}
+                    <div className="elx-menu__sep" />
+                    <button
+                      type="button"
+                      className={`elx-menu__item ${!currentListScheme ? "is-active" : ""}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        editor.chain().focus().setListScheme(null).run();
+                        close();
+                      }}
+                    >
+                      Marqueurs par défaut
+                    </button>
+                  </>
+                )}
+              </Dropdown>
               <Cmd title="Liste de tâches" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}><ListChecks size={17} /></Cmd>
               <Cmd title="Citation" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={17} /></Cmd>
               <Cmd title="Bloc de code" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><Code2 size={17} /></Cmd>
@@ -325,12 +456,168 @@ export default function Toolbar({
           </>
         )}
 
+        {tab === "references" && (
+          <>
+            <Group title="Table des matières">
+              <Cmd big label="Table des matières" title="Insérer une table des matières qui se met à jour" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={19} /></Cmd>
+              <Cmd
+                big
+                label="Numéroter"
+                title="Numéroter les titres (1. / 1.1 / 1.1.1)"
+                active={!!numberedHeadings}
+                onClick={() => onToggleNumberedHeadings?.()}
+              >
+                <Hash size={19} />
+              </Cmd>
+            </Group>
+
+            <Group title="Renvois">
+              <Cmd big label="Renvoi" title="Insérer un renvoi vers un titre, un signet, une figure, un tableau ou une note" onClick={() => onOpenCrossRef?.()}><CornerDownRight size={19} /></Cmd>
+              <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}><BookmarkIcon size={17} /></Cmd>
+            </Group>
+
+            <Group title="Notes">
+              <Cmd big label="Note" title="Insérer une note de bas de page" onClick={addFootnote}><Superscript size={19} /></Cmd>
+            </Group>
+
+            <Group title="Index">
+              <Cmd
+                big
+                label="Marquer"
+                title="Marquer une entrée d'index"
+                onClick={() => onOpenIndexEntry?.()}
+              >
+                <ScanSearch size={19} />
+              </Cmd>
+              <Cmd big label="Index" title="Insérer l'index alphabétique" onClick={() => editor.chain().focus().insertIndexBlock().run()}><ListTree size={19} /></Cmd>
+            </Group>
+          </>
+        )}
+
+        {tab === "merge" && (
+          <>
+            <Group title="Publipostage">
+              <Cmd big label="Assistant" title="Source de données, aperçu et fusion" onClick={() => onOpenMailMerge?.()}><Users size={19} /></Cmd>
+            </Group>
+            <Group title="Champs">
+              <Cmd
+                big
+                label="Champ"
+                title="Insérer un champ de fusion (nommez-le librement)"
+                onClick={addMergeField}
+              >
+                <Braces size={19} />
+              </Cmd>
+            </Group>
+          </>
+        )}
+
         {tab === "layout" && (
           <>
             <Group title="Page">
               <Cmd big label="Mise en page" title="Format, marges, en-tête, pied de page" onClick={() => onOpenPageSettings?.()}><FileCog size={19} /></Cmd>
-              <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}><SeparatorHorizontal size={17} /></Cmd>
             </Group>
+
+            <Group title="Colonnes">
+              <Dropdown big label="Colonnes" title="Disposer le texte en colonnes" icon={<Columns size={19} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Colonnes</div>
+                    {[1, 2, 3, 4].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`elx-menu__item ${columnCount === n ? "is-active" : ""}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          const chain = editor.chain().focus();
+                          if (n <= 1) chain.unsetColumns().run();
+                          else if (editor.isActive("columnSection")) chain.updateColumns({ count: n }).run();
+                          else chain.setColumns({ count: n }).run();
+                          close();
+                        }}
+                      >
+                        <span className="elx-listprev" aria-hidden="true">
+                          <span>{"▌".repeat(n)}</span>
+                        </span>
+                        <span>{n === 1 ? "Une (pleine largeur)" : `${n} colonnes`}</span>
+                      </button>
+                    ))}
+                    <div className="elx-menu__sep" />
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onOpenColumns?.();
+                        close();
+                      }}
+                    >
+                      Autres colonnes…
+                    </button>
+                  </>
+                )}
+              </Dropdown>
+            </Group>
+
+            <Group title="Sauts">
+              <Dropdown big label="Sauts" title="Saut de page ou de section" icon={<SplitSquareVertical size={19} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Sauts de page</div>
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        editor.chain().focus().insertPageBreak().run();
+                        close();
+                      }}
+                    >
+                      Saut de page
+                    </button>
+                    <div className="elx-menu__sep" />
+                    <div className="elx-menu__title">Sauts de section</div>
+                    {([
+                      ["nextPage", "Page suivante"],
+                      ["continuous", "Continu"],
+                      ["evenPage", "Page paire"],
+                      ["oddPage", "Page impaire"],
+                    ] as const).map(([kind, label]) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        className="elx-menu__item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          editor
+                            .chain()
+                            .focus()
+                            .insertSectionBreak({ kind, orientation: "", restartNumbering: false, startAt: 1, header: "", footer: "" })
+                            .run();
+                          close();
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <div className="elx-menu__sep" />
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onOpenSectionBreak?.();
+                        close();
+                      }}
+                    >
+                      Saut de section paramétré…
+                    </button>
+                  </>
+                )}
+              </Dropdown>
+            </Group>
+
             <Group title="Titres">
               <Cmd
                 big
@@ -375,6 +662,16 @@ export default function Toolbar({
                 <MessageSquarePlus size={19} />
               </Cmd>
             </Group>
+            <Group title="Comparer">
+              <Cmd
+                big
+                label="Comparer"
+                title="Comparer avec une autre version et voir les différences en suggestions"
+                onClick={() => onOpenCompare?.()}
+              >
+                <GitCompareArrows size={19} />
+              </Cmd>
+            </Group>
             <Group title="Analyse">
               <Cmd big label="Statistiques" title="Mots, lisibilité, structure" onClick={() => onOpenStats?.()}><BarChart3 size={19} /></Cmd>
             </Group>
@@ -396,8 +693,38 @@ export default function Toolbar({
       </div>
 
       {/* Contextual strips — always visible when they apply, whatever the tab. */}
-      {(editor.isActive("figure") || editor.isActive("table") || editor.isActive("codeBlock") || isSuggesting(editor.state)) && (
+      {(editor.isActive("figure") || editor.isActive("table") || editor.isActive("codeBlock") || editor.isActive("columnSection") || isSuggesting(editor.state)) && (
         <div className="elx-optionbar">
+          {editor.isActive("columnSection") && (
+            <>
+              <span className="elx-optionbar__title"><Columns size={13} /> Colonnes</span>
+              {[1, 2, 3, 4].map((n) => (
+                <Cmd
+                  key={n}
+                  title={n === 1 ? "Une colonne (supprimer les colonnes)" : `${n} colonnes`}
+                  active={columnCount === n}
+                  onClick={() => {
+                    const chain = editor.chain().focus();
+                    if (n <= 1) chain.unsetColumns().run();
+                    else chain.updateColumns({ count: n }).run();
+                  }}
+                >
+                  <span className="elx-colcount">{n}</span>
+                </Cmd>
+              ))}
+              <Cmd
+                title="Ligne séparatrice"
+                active={editor.getAttributes("columnSection").separator === true}
+                onClick={() =>
+                  editor.chain().focus().updateColumns({ separator: !(editor.getAttributes("columnSection").separator === true) }).run()
+                }
+              >
+                <SeparatorHorizontal size={16} style={{ transform: "rotate(90deg)" }} />
+              </Cmd>
+              <Cmd title="Autres colonnes…" onClick={() => onOpenColumns?.()}><FileCog size={16} /></Cmd>
+            </>
+          )}
+
           {editor.isActive("figure") && (
             <>
               <span className="elx-optionbar__title"><ImageIcon size={13} /> Image</span>

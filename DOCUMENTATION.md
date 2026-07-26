@@ -266,6 +266,17 @@ complet (regex, casse, tout remplacer). **Import/export DOCX** sans dépendance.
 Export HTML/Markdown/PDF. Modèle de page (A4/Letter, marges, en-tête/pied,
 numérotation) appliqué à l'écran, à l'impression et au DOCX.
 
+**Parité Word** (ruban à 7 onglets — Accueil, Insertion, Mise en page,
+Références, Publipostage, Révision, Affichage) : **listes multiniveaux**
+(7 schémas de numérotation, dont juridique `Article I. / Section 1.01 / (a)`),
+**colonnes** et **sauts de section** (page suivante / continu / paire / impaire,
+orientation et reprise de numérotation par section), **renvois** auto-actualisés
+(titre, signet, figure, tableau, note ; texte, numéro, page, ci-dessus/ci-dessous),
+**index** (marquage d'entrées et sous-entrées + index alphabétique paginé),
+**comparaison de documents** (le diff arrive en suggestions dans le flux de
+révision existant) et **publipostage** (source CSV/TSV, champs, aperçu par
+enregistrement, fusion).
+
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
 `IFERROR`/`IFNA`, références absolues `$A$1` et **inter-feuilles** `Feuille2!A1`
@@ -730,8 +741,74 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   de caractère, surlignage, persistance `.elium`). *(L'embarquement des fichiers
   de police eux-mêmes reste hors périmètre : c'est le nom de police qui est
   conservé, pas le binaire.)*
+- **Fait aussi** : **parité Word sur la structure documentaire** — six chantiers,
+  chacun adossé à un module pur testé et exporté en constructions Word *natives*
+  (des champs que Word met à jour lui-même, pas du texte figé) :
+  - **Listes multiniveaux** (`editor/listSchemes.ts`) : 7 schémas
+    (`1./1.1/1.1.1`, `1./a./i.`, `I./A./1.`, `Article I./Section 1.01/(a)`,
+    `Chapitre 1/1.1/a)`, deux jeux de puces), galerie dans le ruban avec aperçu.
+    **Une seule table de données** pilote les trois surfaces : la CSS d'écran et
+    d'export est *générée* depuis elle (`schemesCss`, compteurs CSS + indentation
+    négative en grille à deux colonnes, donc un marqueur long ne chevauche jamais
+    le texte), les exports Markdown/texte via `markerText`, et le DOCX via de
+    vrais niveaux `numbering.xml` (`abstractNumXml`, 9 niveaux, `w:isLgl` pour la
+    numérotation juridique). Le schéma vit sur la liste la plus externe et est
+    *hérité* par les sous-listes : une sous-liste créée avec Tab prend le niveau
+    suivant sans plomberie d'attribut. Écriture ET relecture DOCX corrigées au
+    passage : le `w:ilvl` suit désormais l'imbrication (il était figé à 0) et
+    l'import reconstruit l'arbre imbriqué depuis les paragraphes plats de Word
+    (`ListBuilder`), en retrouvant le schéma par `matchSchemeId`.
+  - **Colonnes et sauts de section** (`editor/sections.ts`) : nœud
+    `columnSection` (colonnes *réelles* — CSS multi-colonnes à l'écran, à
+    l'impression et en `w:cols` DOCX) et nœud `sectionBreak` portant l'orientation,
+    l'en-tête/pied et la reprise de numérotation de la section qu'il ouvre. Le
+    modèle OOXML est respecté finement : un `w:sectPr` décrit la section qu'il
+    *termine*, donc chaque frontière porte le type de la section qui se referme —
+    et la section qui suit un bloc de colonnes reste `continuous`, sans quoi Word
+    insérerait un saut de page fantôme. Round-trip testé, y compris l'absence de
+    saut parasite autour des colonnes.
+  - **Renvois** (`editor/crossref.ts`) : nœud `crossReference` qui ne stocke que
+    la cible et le mode d'affichage, et **recalcule son texte à chaque rendu** —
+    il ne peut pas devenir périmé (même principe que la table des matières). Cinq
+    modes (texte, numéro, page, ci-dessus/ci-dessous, texte + page). Les titres,
+    figures et tableaux reçoivent une ancre `refId` *au moment* où un renvoi les
+    vise (comme Word pose un signet caché), donc la référence survit à un
+    déplacement. Export en vrais champs `REF`/`PAGEREF` avec
+    `bookmarkStart`/`bookmarkEnd`, réimport des commutateurs `\p`/`\n`.
+  - **Index** (`editor/indexing.ts`) : marques d'entrée (terme + sous-entrée,
+    visibles en édition, jamais imprimées) et bloc `indexBlock` qui se reconstruit
+    en direct — regroupement par initiale avec repli des accents, tri français,
+    numéros de page dédoublonnés. « Marquer tout » marque chaque occurrence du
+    terme. Export en champs `XE` réels ; le rendu de l'index est borné par un
+    signet repère `_EliumIndex` pour se replier en un seul nœud au réimport.
+  - **Comparaison de documents** (`editor/compare.ts`) : diff bloc (LCS sur des
+    signatures incluant le contenu, préfixe/suffixe communs élagués, garde-fou de
+    taille) puis affinage — les conteneurs (listes, tableaux, citations, colonnes)
+    *descendent* au lieu d'être remplacés en bloc, et les blocs feuilles reçoivent
+    un diff **au mot** qui préserve les marques de mise en forme de chaque jeton
+    survivant. Le résultat est un document unique dont les différences portent les
+    marques `insertion`/`deletion` : il atterrit dans le flux de révision qui
+    existe déjà (accepter/refuser). Invariants testés : refuser tout restitue
+    l'original, accepter tout donne la révision. Compare `.elium` (mot de passe
+    demandé si besoin), `.docx`, `.md`, `.txt`, `.html`.
+  - **Publipostage** (`editor/mailmerge.ts`) : analyse CSV/TSV conforme RFC 4180
+    (guillemets, séparateurs et retours à la ligne inclus, BOM, CRLF, en-têtes
+    vides ou dupliqués réparés), nœud `mergeField`, aperçu **dans le document**
+    enregistrement par enregistrement, exclusion sélective, fusion vers un
+    document unique séparé par des sauts de page. `{Champ}` écrit en texte brut
+    est honoré aussi. Export en vrais champs `MERGEFIELD` quand le document n'est
+    pas fusionné.
+  - **Parité dual-plateforme** : les extensions étant partagées
+    (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
+    Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
+    section, renvois et index. Comparaison et publipostage restent sur la surface
+    locale : les deux produisent un nouveau document à partir de fichiers, ce qui
+    n'a pas de sens dans un document partagé en direct.
 - **À améliorer** : polices de caractères *embarquées* (binaire `.ttf`) non
-  incorporées dans le `.elium` — seul le nom de la police est conservé.
+  incorporées dans le `.elium` — seul le nom de la police est conservé. La
+  géométrie de page *par section* (format et marges différents d'une section à
+  l'autre) est honorée à l'export DOCX/PDF mais pas encore à l'écran, où toutes
+  les feuilles partagent la géométrie du document.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme

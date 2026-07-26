@@ -5,6 +5,14 @@ import Toolbar from "./Toolbar";
 import EditorStatusBar from "./EditorStatusBar";
 import FindReplaceBar from "./FindReplaceBar";
 import StatsDialog from "./StatsDialog";
+import CrossRefModal from "./CrossRefModal";
+import IndexEntryModal from "./IndexEntryModal";
+import ColumnsModal from "./ColumnsModal";
+import SectionBreakModal from "./SectionBreakModal";
+import CompareModal from "./CompareModal";
+import MailMergeModal from "./MailMergeModal";
+import { ensureListSchemeStyles } from "./listSchemeStyles";
+import { setMergePreview, setPageResolver } from "./wordExtensions";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocumentModel,
@@ -13,7 +21,7 @@ import type {
   SignatureVerdict,
 } from "../format/types";
 import { pageSizeMm } from "../format/pageSizes";
-import { CSS_PX_PER_MM, type PageMetrics, type PageInfo, type PaginationOptions } from "./Pagination";
+import { CSS_PX_PER_MM, pageAt, type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions } from "./Pagination";
 
 /** Visual gap drawn between two page sheets, in px. */
 const SHEET_GAP_PX = 40;
@@ -72,11 +80,15 @@ export default function RichEditor({
   // On-screen pagination: the plugin reads live page metrics through this ref
   // (updated each render below) and reports the page count back into state.
   const metricsRef = useRef<PageMetrics | null>(null);
+  const planRef = useRef<PagePlan | null>(null);
   const [pageInfo, setPageInfo] = useState<PageInfo>({ pageCount: 1, currentPage: 1 });
   const paginationOpts = useRef<PaginationOptions>({
     getMetrics: () => metricsRef.current,
     onInfo: (i) =>
       setPageInfo((prev) => (prev.pageCount === i.pageCount && prev.currentPage === i.currentPage ? prev : i)),
+    onPlan: (plan) => {
+      planRef.current = plan;
+    },
   }).current;
 
   const editor = useEditor(
@@ -96,9 +108,32 @@ export default function RichEditor({
     return () => onEditorReady?.(null);
   }, [editor, onEditorReady]);
 
+  // The multilevel-list rules are generated from the scheme table, so inject
+  // them once rather than duplicating them by hand in the stylesheet.
+  useEffect(() => {
+    ensureListSchemeStyles();
+  }, []);
+
+  // Page numbers for renvois and the generated index come from the pagination
+  // plan — the same numbers the reader sees in the status bar.
+  useEffect(() => {
+    if (!editor) return;
+    setPageResolver((pos) => {
+      const plan = planRef.current;
+      return plan ? pageAt(plan, editor.state, pos) : 1;
+    });
+    return () => {
+      setPageResolver(null);
+      setMergePreview(null);
+    };
+  }, [editor]);
+
   // Find (Ctrl/Cmd+F) and replace (Ctrl/Cmd+H) — intercept the browser default.
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
+  // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
+  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | null;
+  const [dialog, setDialog] = useState<WordDialog>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -188,6 +223,12 @@ export default function RichEditor({
           inspectorOpen={inspectorOpen}
           onToggleInspector={onToggleInspector}
           onToggleFind={() => setFind((f) => ({ open: !f.open, replace: f.replace }))}
+          onOpenCrossRef={() => setDialog("xref")}
+          onOpenIndexEntry={() => setDialog("index")}
+          onOpenColumns={() => setDialog("columns")}
+          onOpenSectionBreak={() => setDialog("section")}
+          onOpenCompare={() => setDialog("compare")}
+          onOpenMailMerge={() => setDialog("merge")}
         />
       )}
 
@@ -232,6 +273,33 @@ export default function RichEditor({
 
       <EditorStatusBar editor={editor} pageInfo={pageInfo} />
       {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
+
+      {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "columns" && <ColumnsModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "section" && <SectionBreakModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "compare" && (
+        <CompareModal
+          editor={editor}
+          onApply={(merged) => {
+            // Replaces the content with the merged document; the differences are
+            // ordinary tracked changes, so the Révision tab resolves them.
+            editor.chain().focus().setContent(merged as never).run();
+            onDocChange(editor.getJSON() as ProseMirrorNode);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {editor && dialog === "merge" && (
+        <MailMergeModal
+          editor={editor}
+          onMerged={(merged) => {
+            editor.chain().focus().setContent(merged as never).run();
+            onDocChange(editor.getJSON() as ProseMirrorNode);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
 
       <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
     </div>

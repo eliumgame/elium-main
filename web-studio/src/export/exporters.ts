@@ -15,6 +15,10 @@ import type {
   SignatureVerdict,
 } from "../format/types";
 import { verifyJournal } from "../format/journal";
+import { markerText, schemeById, schemesCss, type ListScheme } from "../editor/listSchemes";
+import { buildIndexJson, type IndexGroup } from "../editor/indexing";
+import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
+import { sectionBreakLabelFor } from "../editor/sections";
 
 function esc(s: string): string {
   return s
@@ -48,8 +52,9 @@ interface Heading {
 
 /**
  * Collect H1–H3 in document order; the nth such heading gets a stable id
- * `toc-h-{n}`. The HTML heading renderer uses the same H1–H3 counter, so the
- * TOC anchors line up with the heading ids.
+ * `toc-h-{n}` — or its own renvoi anchor when one was stamped, so a
+ * cross-reference and the TOC point at the same element. The HTML heading
+ * renderer uses the same H1–H3 counter, so the anchors line up.
  */
 function collectHeadings(doc: ProseMirrorNode): Heading[] {
   const out: Heading[] = [];
@@ -58,13 +63,67 @@ function collectHeadings(doc: ProseMirrorNode): Heading[] {
       const level = Number(node.attrs?.level ?? 1);
       if (level <= 3) {
         const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
-        out.push({ level, text: text || "Sans titre", slug: `toc-h-${out.length}` });
+        const refId = String(node.attrs?.refId ?? "");
+        out.push({ level, text: text || "Sans titre", slug: refId || `toc-h-${out.length}` });
       }
     }
     (node.content ?? []).forEach(walk);
   };
   walk(doc);
   return out;
+}
+
+// --- Index ----------------------------------------------------------------
+
+function indexHtml(groups: IndexGroup[]): string {
+  if (!groups.length) return "";
+  const body = groups
+    .map((g) => {
+      const entries = g.entries
+        .map((e) => {
+          const pages = e.pages.length ? `<span class="elium-index__pages">${esc(e.pages.join(", "))}</span>` : "";
+          const subs = e.subs.length
+            ? `<ul class="elium-index__sublist">${e.subs
+                .map(
+                  (s) =>
+                    `<li>${esc(s.term)}${s.pages.length ? ` <span class="elium-index__pages">${esc(s.pages.join(", "))}</span>` : ""}</li>`,
+                )
+                .join("")}</ul>`
+            : "";
+          return `<li>${esc(e.term)} ${pages}${subs}</li>`;
+        })
+        .join("");
+      return `<div class="elium-index__letter">${esc(g.letter)}</div><ul class="elium-index__list">${entries}</ul>`;
+    })
+    .join("");
+  return `<section class="elium-index"><h2 class="elium-index__title">Index</h2>${body}</section>`;
+}
+
+function indexText(groups: IndexGroup[]): string {
+  if (!groups.length) return "Index\n";
+  const lines: string[] = ["Index"];
+  for (const g of groups) {
+    lines.push("", g.letter);
+    for (const e of g.entries) {
+      lines.push(`  ${e.term}${e.pages.length ? `  ${e.pages.join(", ")}` : ""}`);
+      for (const s of e.subs) lines.push(`    ${s.term}${s.pages.length ? `  ${s.pages.join(", ")}` : ""}`);
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
+// --- Cross-references -----------------------------------------------------
+
+/** Resolved text of a renvoi, from the live document (never a stale cache). */
+function xrefText(node: ProseMirrorNode, targets: RefTarget[]): string {
+  const anchor = String(node.attrs?.targetId ?? "");
+  const target = targets.find((t) => t.anchorId === anchor);
+  if (!target) return String(node.attrs?.cached ?? "") || "renvoi introuvable";
+  const display = (String(node.attrs?.display ?? "text") || "text") as RefDisplay;
+  // No layout engine here, so a page-number renvoi keeps the page Elium's own
+  // pagination computed when it was inserted.
+  if (display === "page" || display === "full") return String(node.attrs?.cached ?? "") || referenceLabel(target, display, null);
+  return referenceLabel(target, display, null);
 }
 
 /** Collect footnotes in document order so refs and the notes list can be numbered. */
@@ -92,6 +151,11 @@ interface HtmlCtx {
   headings: Heading[];
   hi: number;
   footnotes: { id: string; text: string }[];
+  targets: RefTarget[];
+  index: IndexGroup[];
+  /** Multilevel scheme inherited from the enclosing list, and its depth. */
+  listScheme: ListScheme | null;
+  listDepth: number;
 }
 
 // --- HTML -----------------------------------------------------------------
@@ -133,6 +197,12 @@ function blockStyle(node: ProseMirrorNode): string {
   return parts.length ? ` style="${parts.join(";")}"` : "";
 }
 
+/** `id`/anchor attribute for a renvoi target (heading, figure, table). */
+function refIdAttr(node: ProseMirrorNode): string {
+  const refId = String(node.attrs?.refId ?? "");
+  return refId ? ` id="${esc(refId)}"` : "";
+}
+
 function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
   const kids = (node.content ?? []).map((c) => nodeHtml(c, ctx)).join("");
   switch (node.type) {
@@ -140,7 +210,8 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
     case "paragraph": return `<p${blockStyle(node)}>${kids || "<br>"}</p>`;
     case "heading": {
       const level = Number(node.attrs?.level ?? 1);
-      const id = level <= 3 ? ` id="${ctx.headings[ctx.hi++]?.slug ?? ""}"` : "";
+      const slug = level <= 3 ? ctx.headings[ctx.hi++]?.slug ?? "" : String(node.attrs?.refId ?? "");
+      const id = slug ? ` id="${esc(slug)}"` : "";
       return `<h${level}${id}${blockStyle(node)}>${kids}</h${level}>`;
     }
     case "tableOfContents": return tocHtml(ctx.headings);
@@ -156,9 +227,47 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       return `<section class="elium-footnotes"><hr><ol>${items}</ol></section>`;
     }
     case "bookmark": return `<a id="${esc(String(node.attrs?.id ?? ""))}" class="elium-bookmark"></a>`;
+    case "crossReference": {
+      const anchor = esc(String(node.attrs?.targetId ?? ""));
+      return `<a class="elium-xref" href="#${anchor}">${esc(xrefText(node, ctx.targets))}</a>`;
+    }
+    // Index marks never print (Word's XE fields do not either).
+    case "indexEntry": return "";
+    case "indexBlock": return indexHtml(ctx.index);
     case "pageBreak": return '<div class="elium-page-break" style="page-break-after:always"></div>';
-    case "bulletList": return `<ul>${kids}</ul>`;
-    case "orderedList": return `<ol>${kids}</ol>`;
+    case "sectionBreak": {
+      // A section boundary that starts a page is a page break in the exported
+      // flow; a continuous one changes nothing visually.
+      const kind = String(node.attrs?.kind ?? "nextPage");
+      if (kind === "continuous") return "";
+      return `<div class="elium-page-break" style="page-break-after:always" data-section-break="${esc(kind)}"></div>`;
+    }
+    case "columnSection": {
+      const count = Math.max(1, Math.min(4, Math.round(Number(node.attrs?.count) || 2)));
+      const gap = Number(node.attrs?.gapMm) || 8;
+      const rule = node.attrs?.separator ? ";column-rule:1px solid #cbd5e1" : "";
+      return `<div class="elium-columns" style="column-count:${count};column-gap:${gap}mm${rule}">${kids}</div>`;
+    }
+    case "mergeField": return `<span class="elium-mergefield">«${esc(String(node.attrs?.field ?? ""))}»</span>`;
+    case "bulletList":
+    case "orderedList": {
+      // The scheme lives on the outermost list and is inherited downwards, the
+      // same rule the generated CSS applies, so screen and export agree.
+      const kind = node.type === "bulletList" ? "bullet" : "ordered";
+      const declared = schemeById(node.attrs?.listScheme) ?? ctx.listScheme;
+      const scheme = declared && declared.kind === kind ? declared : null;
+      const prevScheme = ctx.listScheme;
+      const prevDepth = ctx.listDepth;
+      ctx.listScheme = declared;
+      ctx.listDepth = prevScheme ? prevDepth + 1 : 0;
+      const inner = (node.content ?? []).map((c) => nodeHtml(c, ctx)).join("");
+      ctx.listScheme = prevScheme;
+      ctx.listDepth = prevDepth;
+      const attr = scheme ? ` data-list-scheme="${esc(scheme.id)}"` : "";
+      const tag = kind === "bullet" ? "ul" : "ol";
+      const start = kind === "ordered" && Number(node.attrs?.start) > 1 ? ` start="${Number(node.attrs?.start)}"` : "";
+      return `<${tag}${attr}${start}>${inner}</${tag}>`;
+    }
     case "listItem": return `<li>${kids}</li>`;
     case "taskList": return `<ul class="task-list">${kids}</ul>`;
     case "taskItem": return `<li class="task-item"><input type="checkbox" disabled ${node.attrs?.checked ? "checked" : ""}> ${kids}</li>`;
@@ -176,9 +285,9 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const style = w ? ` style="width:${w}"` : "";
       const img = `<img src="${esc(String(node.attrs?.src ?? ""))}" alt="${esc(String(node.attrs?.alt ?? ""))}">`;
       const cap = kids.trim() ? `<figcaption>${kids}</figcaption>` : "";
-      return `<figure class="elium-figure elium-figure--${align}"${style}>${img}${cap}</figure>`;
+      return `<figure class="elium-figure elium-figure--${align}"${style}${refIdAttr(node)}>${img}${cap}</figure>`;
     }
-    case "table": return `<table>${kids}</table>`;
+    case "table": return `<table${refIdAttr(node)}>${kids}</table>`;
     case "tableRow": return `<tr>${kids}</tr>`;
     case "tableHeader": return `<th${spanAttrs(node)}>${kids}</th>`;
     case "tableCell": return `<td${spanAttrs(node)}>${kids}</td>`;
@@ -198,7 +307,15 @@ function nodeHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
 }
 
 export function docToHtml(model: EliumDocumentModel): string {
-  return blockHtml(model.doc, { headings: collectHeadings(model.doc), hi: 0, footnotes: collectFootnotes(model.doc) });
+  return blockHtml(model.doc, {
+    headings: collectHeadings(model.doc),
+    hi: 0,
+    footnotes: collectFootnotes(model.doc),
+    targets: collectTargetsJson(model.doc),
+    index: buildIndexJson(model.doc),
+    listScheme: null,
+    listDepth: 0,
+  });
 }
 
 // --- Markdown -------------------------------------------------------------
@@ -225,37 +342,94 @@ function tocMd(headings: Heading[]): string {
   return `## Table des matières\n${lines.join("\n")}\n`;
 }
 
-function nodeMd(node: ProseMirrorNode, depth = 0, headings: Heading[] = [], fns: { id: string; text: string }[] = []): string {
-  const inline = (n: ProseMirrorNode) => (n.content ?? []).map((c) => (c.type === "text" || c.type === "hardBreak" ? inlineMd(c) : nodeMd(c, depth, headings, fns))).join("");
+interface FlatCtx {
+  headings: Heading[];
+  fns: { id: string; text: string }[];
+  targets: RefTarget[];
+  index: IndexGroup[];
+  /** Multilevel scheme inherited from the enclosing list. */
+  scheme: ListScheme | null;
+  /** 1-based counter stack of the enclosing lists, for `1.2.3` markers. */
+  counters: number[];
+}
+
+const emptyFlatCtx = (doc: ProseMirrorNode): FlatCtx => ({
+  headings: collectHeadings(doc),
+  fns: collectFootnotes(doc),
+  targets: collectTargetsJson(doc),
+  index: buildIndexJson(doc),
+  scheme: null,
+  counters: [],
+});
+
+/**
+ * Markers for a Markdown/text list. With a multilevel scheme the real marker is
+ * rendered ("1.1", "Article II."); without one, Markdown's own conventions are
+ * kept so the output stays valid Markdown.
+ */
+function listMarkers(node: ProseMirrorNode, ctx: FlatCtx): { markerAt: (i: number) => string; scheme: ListScheme | null } {
+  const kind = node.type === "bulletList" ? "bullet" : "ordered";
+  const declared = schemeById(node.attrs?.listScheme) ?? ctx.scheme;
+  const scheme = declared && declared.kind === kind ? declared : null;
+  const depth = ctx.counters.length;
+  const start = Math.max(1, Number(node.attrs?.start) || 1);
+  const markerAt = (i: number): string => {
+    const n = start + i;
+    if (!scheme) return kind === "bullet" ? "-" : `${n}.`;
+    return markerText(scheme, depth, [...ctx.counters, n]);
+  };
+  return { markerAt, scheme: declared };
+}
+
+function listMd(node: ProseMirrorNode, ctx: FlatCtx): string {
+  const { markerAt, scheme } = listMarkers(node, ctx);
+  const depth = ctx.counters.length;
+  const start = Math.max(1, Number(node.attrs?.start) || 1);
+  const lines = (node.content ?? []).map((li, i) => {
+    const inner = nodeMd(li, { ...ctx, scheme, counters: [...ctx.counters, start + i] }).trim();
+    return `${"  ".repeat(depth)}${markerAt(i)} ${inner}`;
+  });
+  return lines.join("\n") + "\n";
+}
+
+function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
+  const inline = (n: ProseMirrorNode) =>
+    (n.content ?? []).map((c) => (c.type === "text" || c.type === "hardBreak" ? inlineMd(c) : nodeMd(c, ctx))).join("");
   switch (node.type) {
-    case "doc": return (node.content ?? []).map((c) => nodeMd(c, depth, headings, fns)).join("\n");
+    case "doc": return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
     case "paragraph": return inline(node) + "\n";
     case "heading": return `${"#".repeat(Number(node.attrs?.level ?? 1))} ${inline(node)}\n`;
-    case "tableOfContents": return tocMd(headings);
-    case "footnote": return `[^${fnNum(fns, node.attrs?.id) || "?"}]`;
-    case "footnotesList": return fns.length ? "\n" + fns.map((f, i) => `[^${i + 1}]: ${f.text}`).join("\n") + "\n" : "";
+    case "tableOfContents": return tocMd(ctx.headings);
+    case "footnote": return `[^${fnNum(ctx.fns, node.attrs?.id) || "?"}]`;
+    case "footnotesList": return ctx.fns.length ? "\n" + ctx.fns.map((f, i) => `[^${i + 1}]: ${f.text}`).join("\n") + "\n" : "";
     case "bookmark": return "";
-    case "bulletList": return (node.content ?? []).map((li) => `${"  ".repeat(depth)}- ${nodeMd(li, depth + 1, headings, fns).trim()}`).join("\n") + "\n";
-    case "orderedList": return (node.content ?? []).map((li, i) => `${"  ".repeat(depth)}${i + 1}. ${nodeMd(li, depth + 1, headings, fns).trim()}`).join("\n") + "\n";
+    case "crossReference": return `[${xrefText(node, ctx.targets)}](#${String(node.attrs?.targetId ?? "")})`;
+    case "indexEntry": return "";
+    case "indexBlock": return `## ${indexText(ctx.index).replace(/^Index\n/, "Index\n\n")}`;
+    case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
+    case "bulletList":
+    case "orderedList": return listMd(node, ctx);
     case "listItem": case "taskItem": return inline(node);
-    case "taskList": return (node.content ?? []).map((li) => `- [${li.attrs?.checked ? "x" : " "}] ${nodeMd(li, depth + 1, headings, fns).trim()}`).join("\n") + "\n";
+    case "taskList": return (node.content ?? []).map((li) => `- [${li.attrs?.checked ? "x" : " "}] ${nodeMd(li, ctx).trim()}`).join("\n") + "\n";
     case "blockquote": return inline(node).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
     case "codeBlock": return "```" + (node.attrs?.language ?? "") + "\n" + (node.content ?? []).map((c) => c.text ?? "").join("") + "\n```\n";
     case "horizontalRule": return "---\n";
     case "pageBreak": return "\n";
+    case "sectionBreak": return "\n---\n";
+    case "columnSection": return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
     case "image": return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n`;
     case "figure": {
       const cap = inline(node).trim();
       return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n${cap ? `*${cap}*\n` : ""}`;
     }
-    case "table": return tableMd(node);
+    case "table": return tableMd(node, ctx);
     default: return inline(node);
   }
 }
 
-function tableMd(table: ProseMirrorNode): string {
+function tableMd(table: ProseMirrorNode, ctx: FlatCtx): string {
   const rows = (table.content ?? []).map((row) =>
-    (row.content ?? []).map((cell) => (cell.content ?? []).map((c) => nodeMd(c).trim()).join(" ")),
+    (row.content ?? []).map((cell) => (cell.content ?? []).map((c) => nodeMd(c, ctx).trim()).join(" ")),
   );
   if (!rows.length) return "";
   const head = rows[0];
@@ -266,14 +440,14 @@ function tableMd(table: ProseMirrorNode): string {
 }
 
 export function docToMarkdown(model: EliumDocumentModel): string {
-  return nodeMd(model.doc, 0, collectHeadings(model.doc), collectFootnotes(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return nodeMd(model.doc, emptyFlatCtx(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }
 
 // --- Plain text -----------------------------------------------------------
 
-function inlineText(node: ProseMirrorNode, fns: { id: string; text: string }[] = []): string {
+function inlineText(node: ProseMirrorNode, ctx: FlatCtx): string {
   return (node.content ?? []).map((c) =>
-    c.type === "text" ? c.text ?? "" : c.type === "hardBreak" ? "\n" : nodeText(c, [], fns),
+    c.type === "text" ? c.text ?? "" : c.type === "hardBreak" ? "\n" : nodeText(c, ctx),
   ).join("");
 }
 
@@ -283,35 +457,55 @@ function tocText(headings: Heading[]): string {
   return `Table des matières\n${lines.join("\n")}\n`;
 }
 
-function nodeText(node: ProseMirrorNode, headings: Heading[] = [], fns: { id: string; text: string }[] = []): string {
+function listText(node: ProseMirrorNode, ctx: FlatCtx): string {
+  const { markerAt, scheme } = listMarkers(node, ctx);
+  const depth = ctx.counters.length;
+  const start = Math.max(1, Number(node.attrs?.start) || 1);
+  return (
+    (node.content ?? [])
+      .map((li, i) => {
+        const inner = nodeText(li, { ...ctx, scheme, counters: [...ctx.counters, start + i] }).trim();
+        return `${"  ".repeat(depth)}${markerAt(i)} ${inner}`;
+      })
+      .join("\n") + "\n"
+  );
+}
+
+function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
   switch (node.type) {
-    case "doc": return (node.content ?? []).map((c) => nodeText(c, headings, fns)).join("\n");
-    case "paragraph": return inlineText(node, fns) + "\n";
-    case "heading": return inlineText(node, fns) + "\n";
-    case "tableOfContents": return tocText(headings);
-    case "footnote": return `[${fnNum(fns, node.attrs?.id) || "?"}]`;
-    case "footnotesList": return fns.length ? "\n" + fns.map((f, i) => `[${i + 1}] ${f.text}`).join("\n") + "\n" : "";
+    case "doc": return (node.content ?? []).map((c) => nodeText(c, ctx)).join("\n");
+    case "paragraph": return inlineText(node, ctx) + "\n";
+    case "heading": return inlineText(node, ctx) + "\n";
+    case "tableOfContents": return tocText(ctx.headings);
+    case "footnote": return `[${fnNum(ctx.fns, node.attrs?.id) || "?"}]`;
+    case "footnotesList": return ctx.fns.length ? "\n" + ctx.fns.map((f, i) => `[${i + 1}] ${f.text}`).join("\n") + "\n" : "";
     case "bookmark": return "";
-    case "bulletList": return (node.content ?? []).map((li) => `- ${nodeText(li, headings, fns).trim()}`).join("\n") + "\n";
-    case "orderedList": return (node.content ?? []).map((li, i) => `${i + 1}. ${nodeText(li, headings, fns).trim()}`).join("\n") + "\n";
-    case "taskList": return (node.content ?? []).map((li) => `[${li.attrs?.checked ? "x" : " "}] ${nodeText(li, headings, fns).trim()}`).join("\n") + "\n";
-    case "listItem": case "taskItem": return inlineText(node, fns);
-    case "blockquote": return inlineText(node, fns).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
+    case "crossReference": return xrefText(node, ctx.targets);
+    case "indexEntry": return "";
+    case "indexBlock": return indexText(ctx.index);
+    case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
+    case "bulletList":
+    case "orderedList": return listText(node, ctx);
+    case "taskList": return (node.content ?? []).map((li) => `[${li.attrs?.checked ? "x" : " "}] ${nodeText(li, ctx).trim()}`).join("\n") + "\n";
+    case "listItem": case "taskItem": return inlineText(node, ctx);
+    case "blockquote": return inlineText(node, ctx).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
     case "codeBlock": return (node.content ?? []).map((c) => c.text ?? "").join("") + "\n";
     case "horizontalRule": return "----\n";
     case "pageBreak": return "\f\n";
+    case "sectionBreak": return `\n— ${sectionBreakLabelFor(node.attrs?.kind)} —\n`;
+    case "columnSection": return (node.content ?? []).map((c) => nodeText(c, ctx)).join("");
     case "image": return `[image: ${node.attrs?.alt ?? ""}]\n`;
     case "figure": {
-      const cap = inlineText(node, fns).trim();
+      const cap = inlineText(node, ctx).trim();
       return `[image: ${node.attrs?.alt ?? ""}]${cap ? ` — ${cap}` : ""}\n`;
     }
-    case "table": return tableMd(node);
-    default: return inlineText(node, fns);
+    case "table": return tableMd(node, ctx);
+    default: return inlineText(node, ctx);
   }
 }
 
 export function docToText(model: EliumDocumentModel): string {
-  return nodeText(model.doc, collectHeadings(model.doc), collectFootnotes(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return nodeText(model.doc, emptyFlatCtx(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }
 
 // --- Signatures appendix --------------------------------------------------
@@ -359,7 +553,26 @@ const PRINT_CSS = `
   .elium-footnotes{margin-top:32px;font-size:13px;color:#475569;page-break-inside:avoid}
   .elium-footnotes ol{padding-left:20px;margin:8px 0} .elium-footnotes li{margin:3px 0}
   .elium-fn-ref{font-weight:600} .elium-fn-ref a{color:#1d4ed8;text-decoration:none} .elium-fn-back{text-decoration:none;color:#94a3b8}
+  .elium-columns{margin:14px 0}
+  .elium-columns > *{break-inside:avoid-column}
+  .elium-xref{color:#1d4ed8;text-decoration:none}
+  .elium-mergefield{white-space:nowrap}
+  .elium-index{margin-top:32px;page-break-inside:auto}
+  .elium-index__title{font-size:1.2em;margin-bottom:8px}
+  .elium-index__letter{margin-top:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;font-size:.85em}
+  .elium-index__list,.elium-index__sublist{list-style:none;margin:0;padding:0}
+  .elium-index__sublist{padding-left:16px}
+  .elium-index__list li{margin:2px 0}
+  .elium-index__pages{color:#64748b;font-size:.9em}
 `;
+
+/**
+ * Multilevel-list rules, generated from the SAME scheme table the editor uses
+ * (`listSchemes.ts`), so an exported document numbers its lists exactly as the
+ * screen did. Scoped to bare `ol`/`ul` because the export has no `.elium-prose`
+ * wrapper.
+ */
+const LIST_SCHEME_CSS = schemesCss("");
 
 /** A CSS string literal (escaped) for use in @page margin boxes. */
 function cssStr(s: string): string {
@@ -388,7 +601,7 @@ function pageCss(file: EliumFile): string {
 
 export function buildStandaloneHtml(file: EliumFile, verdicts?: Record<string, SignatureVerdict>): string {
   return `<!doctype html><html lang="${esc(file.manifest.language)}"><head><meta charset="utf-8">
-<title>${esc(file.manifest.title)}</title><style>${PRINT_CSS}${pageCss(file)}</style></head>
+<title>${esc(file.manifest.title)}</title><style>${PRINT_CSS}${LIST_SCHEME_CSS}${pageCss(file)}</style></head>
 <body><h1>${esc(file.manifest.title)}</h1>${docToHtml(file.document)}${signaturesHtml(file.signatures, verdicts)}</body></html>`;
 }
 

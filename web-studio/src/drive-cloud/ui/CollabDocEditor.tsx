@@ -6,7 +6,7 @@
  * presence. Content lives entirely as encrypted CRDT updates (no plaintext ever
  * reaches the server). Undo/redo is owned by the CRDT (Collaboration).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -14,10 +14,16 @@ import * as Y from "yjs";
 import {
   X, Wifi, WifiOff, Loader, Undo2, Redo2, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Quote, Code2, Highlighter,
-  AlignLeft, AlignCenter, AlignRight, Link2,
+  AlignLeft, AlignCenter, AlignRight, Link2, SplitSquareVertical, CornerDownRight,
+  ScanSearch, ListTree,
 } from "lucide-react";
 import { buildExtensions } from "../../editor/extensions";
-import { CSS_PX_PER_MM, type PageMetrics, type PageInfo, type PaginationOptions } from "../../editor/Pagination";
+import { LIST_SCHEMES, schemeById } from "../../editor/listSchemes";
+import { clampColumns, setPageResolver } from "../../editor/wordExtensions";
+import { ensureListSchemeStyles } from "../../editor/listSchemeStyles";
+import CrossRefModal from "../../editor/CrossRefModal";
+import IndexEntryModal from "../../editor/IndexEntryModal";
+import { CSS_PX_PER_MM, pageAt, type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions } from "../../editor/Pagination";
 import { DEFAULT_PAGE } from "../../format/document";
 import { pageSizeMm } from "../../format/pageSizes";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
@@ -45,7 +51,15 @@ function initials(s: string): string {
   return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?";
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
+function Toolbar({
+  editor,
+  onCrossRef,
+  onIndexEntry,
+}: {
+  editor: Editor;
+  onCrossRef: () => void;
+  onIndexEntry: () => void;
+}) {
   const btn = (active: boolean, title: string, run: () => void, icon: React.ReactNode) => (
     <button
       type="button"
@@ -64,6 +78,18 @@ function Toolbar({ editor }: { editor: Editor }) {
     if (url === "") chain().unsetLink().run();
     else chain().setLink({ href: url }).run();
   };
+  // Scheme of the enclosing list (it lives on the outermost list of the tree).
+  const currentScheme = ((): string | null => {
+    const $from = editor.state.selection.$from;
+    for (let d = 1; d <= $from.depth; d++) {
+      const node = $from.node(d);
+      if (node.type.name === "bulletList" || node.type.name === "orderedList") {
+        return schemeById(node.attrs.listScheme)?.id ?? null;
+      }
+    }
+    return null;
+  })();
+  const columnCount = editor.isActive("columnSection") ? clampColumns(Number(editor.getAttributes("columnSection").count)) : 1;
   return (
     <div className="dc-doc__toolbar">
       {btn(false, "Annuler", () => chain().undo().run(), <Undo2 size={16} />)}
@@ -88,6 +114,48 @@ function Toolbar({ editor }: { editor: Editor }) {
       {btn(editor.isActive({ textAlign: "center" }), "Centrer", () => chain().setTextAlign("center").run(), <AlignCenter size={16} />)}
       {btn(editor.isActive({ textAlign: "right" }), "Aligner à droite", () => chain().setTextAlign("right").run(), <AlignRight size={16} />)}
       {btn(editor.isActive("link"), "Lien", setLink, <Link2 size={16} />)}
+      <span className="dc-doc__tbsep" />
+      {/* Word-parity structure, same extensions as the local editor (dual-platform
+          rule): multilevel lists, columns, section breaks, renvois and index. */}
+      <select
+        className="dc-doc__tbselect"
+        title="Liste à plusieurs niveaux"
+        value={currentScheme ?? ""}
+        onChange={(e) => chain().setListScheme(e.target.value || null).run()}
+      >
+        <option value="">Marqueurs par défaut</option>
+        {LIST_SCHEMES.map((s) => (
+          <option key={s.id} value={s.id}>{s.label}</option>
+        ))}
+      </select>
+      <select
+        className="dc-doc__tbselect"
+        title="Colonnes"
+        value={columnCount}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (n <= 1) chain().unsetColumns().run();
+          else if (editor.isActive("columnSection")) chain().updateColumns({ count: n }).run();
+          else chain().setColumns({ count: n }).run();
+        }}
+      >
+        <option value={1}>1 colonne</option>
+        <option value={2}>2 colonnes</option>
+        <option value={3}>3 colonnes</option>
+        <option value={4}>4 colonnes</option>
+      </select>
+      {btn(
+        false,
+        "Saut de section (page suivante)",
+        () =>
+          chain()
+            .insertSectionBreak({ kind: "nextPage", orientation: "", restartNumbering: false, startAt: 1, header: "", footer: "" })
+            .run(),
+        <SplitSquareVertical size={16} />,
+      )}
+      {btn(false, "Insérer un renvoi", onCrossRef, <CornerDownRight size={16} />)}
+      {btn(false, "Marquer une entrée d'index", onIndexEntry, <ScanSearch size={16} />)}
+      {btn(false, "Insérer l'index", () => chain().insertIndexBlock().run(), <ListTree size={16} />)}
     </div>
   );
 }
@@ -111,11 +179,16 @@ export default function CollabDocEditor({
 
   // On-screen pagination (parity with the local Documents editor).
   const [pageInfo, setPageInfo] = useState<PageInfo>({ pageCount: 1, currentPage: 1 });
+  const planRef = useRef<PagePlan | null>(null);
   const [paginationOpts] = useState<PaginationOptions>(() => ({
     getMetrics: () => COLLAB_METRICS,
     onInfo: (i) =>
       setPageInfo((prev) => (prev.pageCount === i.pageCount && prev.currentPage === i.currentPage ? prev : i)),
+    onPlan: (plan) => {
+      planRef.current = plan;
+    },
   }));
+  const [dialog, setDialog] = useState<"xref" | "index" | null>(null);
 
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
@@ -141,6 +214,21 @@ export default function CollabDocEditor({
     void provider.connect();
     return () => provider.destroy();
   }, [provider]);
+
+  // Same generated multilevel-list CSS and page-number source as the local
+  // editor, so a document authored on either surface renders identically.
+  useEffect(() => {
+    ensureListSchemeStyles();
+  }, []);
+
+  useEffect(() => {
+    if (!editor) return;
+    setPageResolver((pos) => {
+      const plan = planRef.current;
+      return plan ? pageAt(plan, editor.state, pos) : 1;
+    });
+    return () => setPageResolver(null);
+  }, [editor]);
 
   // Revoked access closes the document for good — never editable, even if
   // the last known `canWrite` (from before the revocation) was true.
@@ -191,7 +279,9 @@ export default function CollabDocEditor({
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
-        {writable && editor && <Toolbar editor={editor} />}
+        {writable && editor && (
+          <Toolbar editor={editor} onCrossRef={() => setDialog("xref")} onIndexEntry={() => setDialog("index")} />
+        )}
         <div className="dc-doc__body">
           <div
             className="dc-doc__page"
@@ -208,6 +298,8 @@ export default function CollabDocEditor({
             <EditorContent editor={editor} />
           </div>
         </div>
+        {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
+        {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
       </div>
     </div>
   );

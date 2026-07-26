@@ -138,6 +138,12 @@ export interface PaginationOptions {
   getMetrics: () => PageMetrics | null;
   /** Report the live page count + current page to the surrounding UI. */
   onInfo?: (info: PageInfo) => void;
+  /**
+   * Hand out the freshly computed plan. Features that need the page a given
+   * position sits on — cross-references showing a page number, the generated
+   * index — resolve it through `pageAt` on this plan rather than re-measuring.
+   */
+  onPlan?: (plan: PagePlan) => void;
 }
 
 /** The TipTap extension. Enabled only when `getMetrics` is provided. */
@@ -175,6 +181,7 @@ export const Pagination = Extension.create<PaginationOptions>({
             if (!m) return;
             const plan = planPages(measureBlocks(view), m);
             const currentPage = pageAt(plan, view.state, view.state.selection.head);
+            options.onPlan?.(plan);
             options.onInfo?.({ pageCount: plan.pageCount, currentPage });
             const sig = plan.spacers.map((s) => `${s.pos}:${Math.round(s.height)}`).join(",") + `#${plan.pageCount}`;
             if (sig === lastSig) return; // stable → don't dispatch again (no loop)

@@ -4,14 +4,25 @@
  * The writer builds a valid .docx ZIP with fflate; the reader parses
  * `word/document.xml` with a small built-in XML parser so it works identically
  * in the browser and in Node (tests). Scope: paragraphs, headings, alignment,
- * indentation, bold/italic/underline/strike, hyperlinks, bullet/ordered lists,
- * blockquotes, code blocks, tables, images/figures (embedded media) and page
- * breaks. Comment annotations are dropped on export (the annotated text stays),
- * matching the HTML/Markdown exporters.
+ * indentation, bold/italic/underline/strike, hyperlinks, bullet/ordered lists
+ * (including real multilevel schemes), blockquotes, code blocks, tables,
+ * images/figures (embedded media), page breaks, section breaks, newspaper
+ * columns, bookmarks, cross-references, index marks and mail-merge fields.
+ * Comment annotations are dropped on export (the annotated text stays), matching
+ * the HTML/Markdown exporters.
+ *
+ * Word-native constructs are emitted as real FIELDS rather than frozen text —
+ * `REF`/`PAGEREF` for renvois, `XE` for index marks, `MERGEFIELD` for merge
+ * fields, `w:numPr` + `numbering.xml` levels for multilevel lists — so Word
+ * renumbers and updates them itself.
  */
 
 import { unzipSync, zipSync, strToU8, strFromU8 } from "fflate";
-import type { EliumFile, ProseMirrorNode } from "./types";
+import type { EliumFile, PageSettings, ProseMirrorNode } from "./types";
+import { abstractNumXml, matchSchemeId, schemeById, type ListScheme } from "../editor/listSchemes";
+import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
+import { buildIndexJson } from "../editor/indexing";
+import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/sections";
 
 // =========================================================================
 // XML helpers
@@ -211,6 +222,85 @@ interface WriteCtx {
   drawingId: number;
   changeId: number; // unique w:id per tracked-change (w:ins/w:del) element
   footnotes?: { id: string; text: string }[]; // collected for numbering + a notes section
+  /** scheme id (or "#bullet" / "#ordered" for unstyled lists) -> w:numId */
+  numIds: Map<string, number>;
+  /** <w:abstractNum> fragments, in numbering.xml order */
+  abstracts: string[];
+  /** unique w:id for bookmarkStart/End pairs */
+  bookmarkSeq: number;
+  /** anchor id -> the Word bookmark name it was exported under */
+  bookmarkNames: Map<string, string>;
+  /** names already taken, so a sanitised label never collides */
+  usedBookmarks: Set<string>;
+  /** referenceable targets of the document, for renvoi label fallbacks */
+  targets: RefTarget[];
+  /** the document's index, computed once (marks live all over the document) */
+  indexGroups: ReturnType<typeof buildIndexJson>;
+}
+
+/**
+ * A list with no explicit scheme still needs per-level formats in Word, or every
+ * nesting depth would render with the level-0 marker. These two schemes are the
+ * app's own defaults — the same cascades the editor CSS shows on screen — so an
+ * unstyled list looks identical in Elium and in Word.
+ */
+const DEFAULT_BULLET_SCHEME = schemeById("bullets")!;
+const DEFAULT_ORDERED_SCHEME = schemeById("cascade")!;
+
+/**
+ * Allocate (once) the `w:numId` for a list and define its `abstractNum` levels
+ * from the scheme table, so Word owns the numbering and renumbers it itself.
+ */
+function numIdFor(ctx: WriteCtx, scheme: ListScheme | null, kind: "bullet" | "ordered"): number {
+  const effective = scheme ?? (kind === "bullet" ? DEFAULT_BULLET_SCHEME : DEFAULT_ORDERED_SCHEME);
+  const existing = ctx.numIds.get(effective.id);
+  if (existing != null) return existing;
+  const id = ctx.numIds.size + 1;
+  ctx.numIds.set(effective.id, id);
+  ctx.abstracts.push(abstractNumXml(effective, id));
+  return id;
+}
+
+/** `numbering.xml` for exactly the lists this document used. */
+function numberingXml(ctx: WriteCtx): string {
+  const nums = [...ctx.numIds.values()]
+    .map((id) => `<w:num w:numId="${id}"><w:abstractNumId w:val="${id}"/></w:num>`)
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${ctx.abstracts.join("")}${nums}</w:numbering>`;
+}
+
+/** Word bookmark names: ≤40 chars, word characters only, never digit-initial. */
+function bookmarkNameFor(ctx: WriteCtx, anchorId: string, label?: string): string {
+  const existing = ctx.bookmarkNames.get(anchorId);
+  if (existing) return existing;
+  let base = (label ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 34);
+  if (!base || /^[0-9]/.test(base)) base = base ? `_${base}` : `_Ref${ctx.bookmarkNames.size + 1}`;
+  let name = base;
+  let n = 2;
+  while (ctx.usedBookmarks.has(name)) name = `${base}_${n++}`;
+  ctx.usedBookmarks.add(name);
+  ctx.bookmarkNames.set(anchorId, name);
+  return name;
+}
+
+/** A `w:bookmarkStart`/`w:bookmarkEnd` pair wrapping nothing (a point anchor). */
+function bookmarkXml(ctx: WriteCtx, name: string): string {
+  const id = ++ctx.bookmarkSeq;
+  return `<w:bookmarkStart w:id="${id}" w:name="${xmlEsc(name)}"/><w:bookmarkEnd w:id="${id}"/>`;
+}
+
+/** A simple Word field with its cached result — `instr` drives the live update. */
+function fieldXml(instr: string, cachedText: string, rPr = ""): string {
+  const run = cachedText
+    ? `<w:r>${rPr}<w:t xml:space="preserve">${xmlEsc(cachedText)}</w:t></w:r>`
+    : "";
+  return `<w:fldSimple w:instr="${xmlEsc(instr)}">${run}</w:fldSimple>`;
 }
 
 function addRel(ctx: WriteCtx, type: string, target: string, mode?: string): string {
@@ -282,6 +372,21 @@ function runXml(
   return ins ? `<w:ins ${trackAttrs(ctx, ins)}>${run}</w:ins>` : run;
 }
 
+/** REF / PAGEREF instruction for a renvoi, per its display mode. */
+function refInstr(name: string, display: RefDisplay): string {
+  // \h = hyperlink to the bookmark; \p = "above/below" relative position;
+  // \n = paragraph number only. These are Word's own switches, so the field
+  // updates natively (F9) instead of staying frozen text.
+  switch (display) {
+    case "page": return ` PAGEREF ${name} \\h `;
+    case "aboveBelow": return ` REF ${name} \\p \\h `;
+    case "number": return ` REF ${name} \\n \\h `;
+    case "full": return ` REF ${name} \\h `;
+    case "text":
+    default: return ` REF ${name} \\h `;
+  }
+}
+
 function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
   return (node.content ?? [])
     .map((c) => {
@@ -289,6 +394,41 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
       if (c.type === "footnote") {
         const n = (ctx.footnotes ?? []).findIndex((f) => f.id === String(c.attrs?.id)) + 1;
         return `<w:r><w:rPr><w:vertAlign w:val="superscript"/><w:color w:val="1d4ed8"/></w:rPr><w:t xml:space="preserve">[${n || "?"}]</w:t></w:r>`;
+      }
+      // A signet becomes a real Word bookmark (named after its label, so it
+      // shows up usefully in Word's own bookmark list).
+      if (c.type === "bookmark") {
+        const id = String(c.attrs?.id ?? "");
+        if (!id) return "";
+        return bookmarkXml(ctx, bookmarkNameFor(ctx, id, String(c.attrs?.label ?? "")));
+      }
+      // A renvoi becomes a REF/PAGEREF field with its current text cached, so it
+      // reads correctly before the first update and refreshes natively after.
+      if (c.type === "crossReference") {
+        const anchor = String(c.attrs?.targetId ?? "");
+        if (!anchor) return "";
+        const display = (String(c.attrs?.display ?? "text") || "text") as RefDisplay;
+        const target = ctx.targets.find((t) => t.anchorId === anchor);
+        const cached = String(c.attrs?.cached ?? "") || (target ? referenceLabel(target, display, null) : "");
+        const name = bookmarkNameFor(ctx, anchor, target?.kind === "bookmark" ? target.text : "");
+        return fieldXml(refInstr(name, display), cached);
+      }
+      // An index mark becomes an XE field: invisible in the text, and Word can
+      // build its own index from it.
+      if (c.type === "indexEntry") {
+        const term = String(c.attrs?.term ?? "").trim();
+        if (!term) return "";
+        const sub = String(c.attrs?.sub ?? "").trim();
+        // Word's XE syntax separates sub-entries with a colon.
+        const entry = sub ? `${term}:${sub}` : term;
+        return `<w:fldSimple w:instr="${xmlEsc(` XE "${entry.replace(/"/g, "'")}" `)}"/>`;
+      }
+      // A merge field becomes a real MERGEFIELD, so Word's own mail merge can
+      // drive the document.
+      if (c.type === "mergeField") {
+        const field = String(c.attrs?.field ?? "").trim();
+        if (!field) return "";
+        return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
       }
       if (c.type === "text") {
         const marks = c.marks ?? [];
@@ -358,13 +498,32 @@ function drawingXml(ctx: WriteCtx, src: string, alt: string): string {
   );
 }
 
-function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[], list?: { numId: number; ilvl: number }): string {
+/** Where a block sits inside a list: which numbering, at which level, and the
+ *  scheme inherited from the outermost list of the tree. */
+interface ListCtx {
+  numId: number;
+  ilvl: number;
+  scheme: ListScheme | null;
+}
+
+/** The bookmark a renvoi target needs, when one points at this block. */
+function anchorXml(node: ProseMirrorNode, ctx: WriteCtx): string {
+  const refId = String(node.attrs?.refId ?? "");
+  if (!refId) return "";
+  return bookmarkXml(ctx, bookmarkNameFor(ctx, refId));
+}
+
+function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[], list?: ListCtx): string {
   switch (node.type) {
     case "paragraph":
-      return `<w:p>${paraProps({ align: String(node.attrs?.textAlign ?? ""), indent: Number(node.attrs?.indent) || 0, ...(list ?? {}) })}${inlineRuns(node, ctx)}</w:p>`;
+      return `<w:p>${paraProps({
+        align: String(node.attrs?.textAlign ?? ""),
+        indent: Number(node.attrs?.indent) || 0,
+        ...(list ? { numId: list.numId, ilvl: list.ilvl } : {}),
+      })}${inlineRuns(node, ctx)}</w:p>`;
     case "heading": {
       const level = Math.min(4, Number(node.attrs?.level ?? 1));
-      return `<w:p>${paraProps({ style: `Heading${level}`, align: String(node.attrs?.textAlign ?? "") })}${inlineRuns(node, ctx)}</w:p>`;
+      return `<w:p>${paraProps({ style: `Heading${level}`, align: String(node.attrs?.textAlign ?? "") })}${anchorXml(node, ctx)}${inlineRuns(node, ctx)}</w:p>`;
     }
     case "tableOfContents": {
       const items = headings
@@ -374,13 +533,25 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
     }
     case "bulletList":
     case "orderedList": {
-      const numId = node.type === "bulletList" ? 1 : 2;
+      const kind = node.type === "bulletList" ? "bullet" : "ordered";
+      // The scheme lives on the outermost list and is inherited downwards — the
+      // same rule the generated CSS follows, so screen and Word agree. It only
+      // applies to its own kind: a bullet sublist inside a numbered outline
+      // keeps plain bullets.
+      const declared = schemeById(node.attrs?.listScheme) ?? list?.scheme ?? null;
+      const scheme = declared && declared.kind === kind ? declared : null;
+      const numId = numIdFor(ctx, scheme, kind);
+      const ilvl = Math.min(8, list ? list.ilvl + 1 : 0);
+      const childCtx: ListCtx = { numId, ilvl, scheme: declared };
       return (node.content ?? [])
         .map((li) =>
           (li.content ?? [])
             .map((child) =>
-              child.type === "paragraph"
-                ? blockXml(child, ctx, headings, { numId, ilvl: 0 })
+              // Paragraphs become items at this level; a nested list recurses
+              // one level deeper. Anything else (a quote, a table…) is written
+              // as an ordinary block so it is not numbered as an item.
+              child.type === "paragraph" || child.type === "bulletList" || child.type === "orderedList"
+                ? blockXml(child, ctx, headings, childCtx)
                 : blockXml(child, ctx, headings),
             )
             .join(""),
@@ -416,17 +587,70 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       const align = String(node.attrs?.align ?? "center");
       const img = drawingXml(ctx, String(node.attrs?.src ?? ""), String(node.attrs?.alt ?? ""));
       const caption = (node.content ?? []).map((c) => (c.type === "text" ? c.text ?? "" : "")).join("");
-      const imgP = `<w:p>${paraProps({ align })}${img}</w:p>`;
+      const imgP = `<w:p>${paraProps({ align })}${anchorXml(node, ctx)}${img}</w:p>`;
       const capP = caption
         ? `<w:p>${paraProps({ align })}<w:r><w:rPr><w:i/><w:color w:val="64748b"/></w:rPr><w:t xml:space="preserve">${xmlEsc(caption)}</w:t></w:r></w:p>`
         : "";
       return imgP + capP;
     }
     case "table":
-      return tableXml(node, ctx, headings);
+      // bookmarkStart/End are valid block-level siblings, so the anchor can sit
+      // right before the table without inserting an empty paragraph.
+      return anchorXml(node, ctx) + tableXml(node, ctx, headings);
+    case "columnSection":
+      // Columns are section properties in Word, and a `w:sectPr` is only valid
+      // on a TOP-LEVEL paragraph — docToDocx handles those boundaries. Reached
+      // here only for a nested column block (inside a table cell, say), which
+      // Word cannot express at all: the content is written without columns
+      // rather than emitting invalid markup.
+      return (node.content ?? []).map((c) => blockXml(c, ctx, headings)).join("");
+    case "indexBlock":
+      return indexXml(ctx);
+    case "sectionBreak":
+      // Emitted by docToDocx, which owns the section boundaries (a sectPr
+      // describes the section it ENDS, so it cannot be produced in isolation).
+      return "";
     default:
       return (node.content ?? []).map((c) => blockXml(c, ctx, headings, list)).join("");
   }
+}
+
+/** Marks the generated index so a re-import can fold it back into one node. */
+const INDEX_BOOKMARK = "_EliumIndex";
+
+/**
+ * The generated index, written as ordinary Word paragraphs (letter headings,
+ * entries, sub-entries, page numbers) fenced by a marker bookmark.
+ *
+ * The XE marks in the text are exported too, so a Word user can insert their own
+ * INDEX field and let Word rebuild it; these paragraphs are the rendering Elium
+ * already computed, so the exported file reads correctly as-is.
+ */
+function indexXml(ctx: WriteCtx): string {
+  const groups = ctx.indexGroups;
+  const parts: string[] = [];
+  const id = ++ctx.bookmarkSeq;
+  parts.push(`<w:bookmarkStart w:id="${id}" w:name="${INDEX_BOOKMARK}"/>`);
+  parts.push(`<w:p>${paraProps({ style: "Heading1" })}<w:r><w:t>Index</w:t></w:r></w:p>`);
+  for (const group of groups) {
+    parts.push(
+      `<w:p>${paraProps({ style: "Heading3" })}<w:r><w:t xml:space="preserve">${xmlEsc(group.letter)}</w:t></w:r></w:p>`,
+    );
+    for (const entry of group.entries) {
+      const pages = entry.pages.length ? `\t${entry.pages.join(", ")}` : "";
+      parts.push(
+        `<w:p>${paraProps({ indent: 1 })}<w:r><w:t xml:space="preserve">${xmlEsc(entry.term + pages)}</w:t></w:r></w:p>`,
+      );
+      for (const sub of entry.subs) {
+        const subPages = sub.pages.length ? `\t${sub.pages.join(", ")}` : "";
+        parts.push(
+          `<w:p>${paraProps({ indent: 2 })}<w:r><w:t xml:space="preserve">${xmlEsc(sub.term + subPages)}</w:t></w:r></w:p>`,
+        );
+      }
+    }
+  }
+  parts.push(`<w:bookmarkEnd w:id="${id}"/>`);
+  return parts.join("");
 }
 
 function tableXml(table: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[]): string {
@@ -480,18 +704,51 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>
 </w:styles>`;
 
-const NUMBERING_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>
-<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>
-<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
-<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
-</w:numbering>`;
+const tw = (mm: number) => Math.round(mm * 56.6929); // mm → twips
+
+/** `w:sectPr` body for one section: page size, margins and numbering restart. */
+function sectPrBody(
+  page: PageSettings,
+  opts: { orientation?: "portrait" | "landscape"; type?: SectionBreakKind; restartAt?: number | null } = {},
+): string {
+  const letter = page?.format === "Letter";
+  let pw = letter ? 12240 : 11906;
+  let ph = letter ? 15840 : 16838;
+  const landscape = (opts.orientation ?? page?.orientation) === "landscape";
+  if (landscape) {
+    const t = pw;
+    pw = ph;
+    ph = t;
+  }
+  const mg = page?.margins ?? { top: 25, right: 20, bottom: 25, left: 20 };
+  // The first section has no meaningful type; Word ignores it there anyway.
+  const type = opts.type && opts.type !== "nextPage" ? `<w:type w:val="${opts.type}"/>` : "";
+  const pgNum = opts.restartAt != null ? `<w:pgNumType w:start="${opts.restartAt}"/>` : "";
+  return (
+    type +
+    `<w:pgSz w:w="${pw}" w:h="${ph}"${landscape ? ' w:orient="landscape"' : ""}/>` +
+    `<w:pgMar w:top="${tw(mg.top)}" w:right="${tw(mg.right)}" w:bottom="${tw(mg.bottom)}" w:left="${tw(mg.left)}" w:header="709" w:footer="709" w:gutter="0"/>` +
+    pgNum
+  );
+}
 
 /** Serialize an Elium file to a .docx byte array. */
 export function docToDocx(file: EliumFile): Uint8Array {
-  const ctx: WriteCtx = { rels: [], media: {}, relCount: 100, drawingId: 1, changeId: 0 };
   const doc = file.document.doc;
+  const ctx: WriteCtx = {
+    rels: [],
+    media: {},
+    relCount: 100,
+    drawingId: 1,
+    changeId: 0,
+    numIds: new Map(),
+    abstracts: [],
+    bookmarkSeq: 0,
+    bookmarkNames: new Map(),
+    usedBookmarks: new Set([INDEX_BOOKMARK]),
+    targets: collectTargetsJson(doc),
+    indexGroups: buildIndexJson(doc),
+  };
   const headings = collectHeadings(doc);
 
   // Collect footnotes so refs can be numbered and listed in a Notes section.
@@ -507,7 +764,53 @@ export function docToDocx(file: EliumFile): Uint8Array {
   const titleP = title
     ? `<w:p>${paraProps({ style: "Heading1" })}<w:r><w:t xml:space="preserve">${xmlEsc(title)}</w:t></w:r></w:p>`
     : "";
-  const bodyInner = (doc.content ?? []).map((n) => blockXml(n, ctx, headings)).join("");
+  // Sections. In OOXML a `w:sectPr` describes the section it ENDS, and its
+  // `w:type` says how THAT section began — so each boundary carries the type of
+  // the section closing at it, not the one starting. `currentType` tracks that.
+  //
+  // Newspaper columns are section properties too: a column block closes the
+  // running section as single-column, forms its own section, then closes that
+  // one with the column count. Both boundaries are continuous, so nothing
+  // page-breaks — including the section that follows, which is why its type has
+  // to stay `continuous` as well.
+  const page = file.document.page;
+  const sections = splitSections(doc, page);
+  const blocks = doc.content ?? [];
+  const parts: string[] = [];
+  let eliumIdx = 0; // index into `sections` (advanced only by real breaks)
+  let currentType: SectionBreakKind = "nextPage";
+
+  const sectPrFor = (cols: string): string => {
+    const setup = sections[eliumIdx]?.setup;
+    return `<w:sectPr>${sectPrBody(page, {
+      orientation: setup?.orientation,
+      type: currentType,
+      restartAt: setup?.restartNumbering ? setup.startAt : null,
+    })}${cols}</w:sectPr>`;
+  };
+  const boundary = (cols: string): string => `<w:p><w:pPr>${sectPrFor(cols)}</w:pPr></w:p>`;
+
+  for (const block of blocks) {
+    if (block.type === "sectionBreak") {
+      parts.push(boundary(""));
+      currentType = normalizeKind(block.attrs?.kind);
+      eliumIdx += 1;
+      continue;
+    }
+    if (block.type === "columnSection") {
+      const count = Math.max(1, Math.min(4, Math.round(Number(block.attrs?.count) || 2)));
+      const gapTw = tw(Number(block.attrs?.gapMm) || 8);
+      const sep = block.attrs?.separator ? ' w:sep="true"' : "";
+      parts.push(boundary('<w:cols w:num="1"/>'));
+      currentType = "continuous";
+      parts.push((block.content ?? []).map((n) => blockXml(n, ctx, headings)).join(""));
+      parts.push(boundary(`<w:cols w:num="${count}" w:space="${gapTw}"${sep}/>`));
+      currentType = "continuous";
+      continue;
+    }
+    parts.push(blockXml(block, ctx, headings));
+  }
+  const bodyInner = parts.join("");
   const notesXml = footnotes.length
     ? `<w:p>${paraProps({ style: "Heading2" })}<w:r><w:t xml:space="preserve">Notes</w:t></w:r></w:p>`
       + footnotes.map((f, i) =>
@@ -515,16 +818,8 @@ export function docToDocx(file: EliumFile): Uint8Array {
         ).join("")
     : "";
 
-  // Page setup (format/orientation/margins) from the document's PageSettings.
-  const page = file.document.page;
-  const letter = page?.format === "Letter";
-  let pw = letter ? 12240 : 11906, ph = letter ? 15840 : 16838;
-  const landscape = page?.orientation === "landscape";
-  if (landscape) { const t = pw; pw = ph; ph = t; }
-  const tw = (mm: number) => Math.round(mm * 56.6929); // mm → twips
-  const mg = page?.margins ?? { top: 25, right: 20, bottom: 25, left: 20 };
-  const sectPr = `<w:sectPr><w:pgSz w:w="${pw}" w:h="${ph}"${landscape ? ' w:orient="landscape"' : ""}/>`
-    + `<w:pgMar w:top="${tw(mg.top)}" w:right="${tw(mg.right)}" w:bottom="${tw(mg.bottom)}" w:left="${tw(mg.left)}" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr>`;
+  // Page setup of the LAST section (format/orientation/margins/numbering).
+  const sectPr = sectPrFor("");
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document ${NS}><w:body>${titleP}${bodyInner}${notesXml}${sectPr}</w:body></w:document>`;
 
@@ -565,7 +860,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     "docProps/core.xml": strToU8(coreXml),
     "word/document.xml": strToU8(documentXml),
     "word/styles.xml": strToU8(STYLES_XML),
-    "word/numbering.xml": strToU8(NUMBERING_XML),
+    "word/numbering.xml": strToU8(numberingXml(ctx)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };
   for (const [name, bytes] of Object.entries(ctx.media)) files[`word/media/${name}`] = bytes;
@@ -600,29 +895,64 @@ function runText(el: XmlEl): string {
   return out;
 }
 
-interface NumFmtMap {
-  [numId: string]: "bullet" | "ordered";
+interface NumDef {
+  kind: "bullet" | "ordered";
+  /** The Elium multilevel scheme this numbering matches, when recognised. */
+  scheme: string | null;
 }
+type NumFmtMap = Record<string, NumDef>;
 
 function parseNumbering(zip: Record<string, Uint8Array>): NumFmtMap {
   const out: NumFmtMap = {};
   const raw = zip["word/numbering.xml"];
   if (!raw) return out;
   const root = parseXml(strFromU8(raw));
-  const abstractFmt: Record<string, string> = {};
+  const abstractDef: Record<string, NumDef> = {};
   for (const an of descendants(root, "w:abstractNum")) {
     const id = an.attrs["w:abstractNumId"];
-    const lvl = firstDescendant(an, "w:lvl");
-    const fmt = lvl ? firstChild(lvl, "w:numFmt")?.attrs["w:val"] : undefined;
-    if (id) abstractFmt[id] = fmt ?? "bullet";
+    if (!id) continue;
+    // Read every level, so a multilevel list authored in Word can be matched
+    // back to the matching Elium scheme instead of degrading to a plain list.
+    const levels = children(an, "w:lvl")
+      .map((lvl) => ({
+        ilvl: Number(lvl.attrs["w:ilvl"] ?? 0),
+        fmt: firstChild(lvl, "w:numFmt")?.attrs["w:val"] ?? "bullet",
+        text: firstChild(lvl, "w:lvlText")?.attrs["w:val"] ?? "",
+      }))
+      .sort((a, b) => a.ilvl - b.ilvl);
+    const first = levels[0];
+    abstractDef[id] = {
+      kind: (first?.fmt ?? "bullet") === "bullet" ? "bullet" : "ordered",
+      scheme: matchSchemeId(levels.map((l) => ({ fmt: l.fmt, text: l.text }))),
+    };
   }
   for (const num of descendants(root, "w:num")) {
     const numId = num.attrs["w:numId"];
     const aId = firstChild(num, "w:abstractNumId")?.attrs["w:val"];
-    const fmt = aId != null ? abstractFmt[aId] : "bullet";
-    if (numId) out[numId] = fmt === "bullet" ? "bullet" : "ordered";
+    if (numId) out[numId] = (aId != null ? abstractDef[aId] : undefined) ?? { kind: "bullet", scheme: null };
   }
   return out;
+}
+
+/** A Word field instruction mapped to the Elium inline node it becomes. */
+function fieldNode(instr: string): ProseMirrorNode | null {
+  const text = instr.trim();
+  let m = /^(PAGEREF|REF)\s+(\S+)((?:\s+\\[a-zA-Z])*)/i.exec(text);
+  if (m) {
+    const switches = (m[3] ?? "").toLowerCase();
+    const display: RefDisplay =
+      m[1]!.toUpperCase() === "PAGEREF" ? "page" : switches.includes("\\p") ? "aboveBelow" : switches.includes("\\n") ? "number" : "text";
+    return { type: "crossReference", attrs: { targetId: m[2]!, kind: "bookmark", display, cached: "" } };
+  }
+  m = /^MERGEFIELD\s+"?([^"\\]+?)"?\s*(\\|$)/i.exec(text);
+  if (m) return { type: "mergeField", attrs: { field: m[1]!.trim() } };
+  m = /^XE\s+"([^"]*)"/i.exec(text);
+  if (m) {
+    // Word separates an index sub-entry from its parent with a colon.
+    const [term, ...rest] = m[1]!.split(":");
+    return { type: "indexEntry", attrs: { term: (term ?? "").trim(), sub: rest.join(":").trim() } };
+  }
+  return null;
 }
 
 function relTargets(zip: Record<string, Uint8Array>): Record<string, string> {
@@ -798,10 +1128,51 @@ function inlineFromParagraph(
     if (text) pushText(text, [...runMarks(r), ...extra]);
   };
 
+  // Word fields come in two shapes: the self-contained <w:fldSimple>, and the
+  // "complex" form spread over fldChar begin / instrText / separate / end runs.
+  // Both are mapped to the matching Elium node; the field's cached result runs
+  // are dropped, since the node recomputes its own text.
+  let fieldDepth = 0;
+  let fieldInstr = "";
+
   for (const c of p.children) {
     if (!isEl(c)) continue;
-    if (c.name === "w:r") handleRun(c);
-    else if (c.name === "w:hyperlink") {
+    if (c.name === "w:r") {
+      const fldChar = firstChild(c, "w:fldChar")?.attrs["w:fldCharType"];
+      if (fldChar === "begin") {
+        fieldDepth += 1;
+        if (fieldDepth === 1) fieldInstr = "";
+        continue;
+      }
+      if (fldChar === "end") {
+        fieldDepth = Math.max(0, fieldDepth - 1);
+        if (fieldDepth === 0) {
+          const node = fieldNode(fieldInstr);
+          if (node) nodes.push(node);
+          fieldInstr = "";
+        }
+        continue;
+      }
+      if (fieldDepth > 0) {
+        const instr = firstChild(c, "w:instrText");
+        if (instr) fieldInstr += te(instr);
+        continue; // instruction and cached-result runs alike
+      }
+      handleRun(c);
+    } else if (c.name === "w:fldSimple") {
+      const node = fieldNode(c.attrs["w:instr"] ?? "");
+      if (node) nodes.push(node);
+      // Unknown field: keep its cached text so nothing is silently lost.
+      else for (const r of children(c, "w:r")) handleRun(r);
+    } else if (c.name === "w:bookmarkStart") {
+      // Word litters documents with internal bookmarks (_GoBack, _Toc…) and
+      // Elium's own anchors are underscore-prefixed too: only named,
+      // user-visible signets are imported.
+      const name = c.attrs["w:name"] ?? "";
+      if (name && !name.startsWith("_")) {
+        nodes.push({ type: "bookmark", attrs: { id: name, label: name } });
+      }
+    } else if (c.name === "w:hyperlink") {
       const rId = c.attrs["r:id"];
       const href = rId ? rels[rId] : undefined;
       const linkMark = href ? [{ type: "link", attrs: { href } }] : [];
@@ -896,6 +1267,83 @@ function tableNode(tbl: XmlEl, rels: Record<string, string>, zip: Record<string,
   return { type: "table", content: rows };
 }
 
+/**
+ * Rebuilds nested lists from Word's flat paragraphs + `w:ilvl`.
+ *
+ * Word stores every list item as a top-level paragraph tagged with its numbering
+ * id and level; the nesting is implicit. This keeps a stack of open lists so
+ * `1 / 1.1 / 1.1.1` comes back as real nested `bulletList` / `orderedList`
+ * nodes, and stamps the recognised multilevel scheme on the outermost one.
+ */
+class ListBuilder {
+  private stack: { list: ProseMirrorNode; level: number; kind: "bullet" | "ordered" }[] = [];
+
+  constructor(private readonly out: ProseMirrorNode[]) {}
+
+  add(item: ProseMirrorNode, level: number, def: NumDef): void {
+    const kind = def.kind;
+    // Close any list deeper than this item.
+    while (this.stack.length && this.stack[this.stack.length - 1]!.level > level) this.stack.pop();
+
+    let top = this.stack[this.stack.length - 1];
+    // Same level but a different marker kind ⇒ a sibling list, not a nesting.
+    if (top && top.level === level && top.kind !== kind) {
+      this.stack.pop();
+      top = this.stack[this.stack.length - 1];
+    }
+
+    if (!top || top.level < level) {
+      const list: ProseMirrorNode = {
+        type: kind === "bullet" ? "bulletList" : "orderedList",
+        ...(def.scheme && !top ? { attrs: { listScheme: def.scheme } } : {}),
+        content: [],
+      };
+      if (!top) {
+        this.out.push(list);
+      } else {
+        // Nest inside the last item of the enclosing list (Word's own model).
+        const items = top.list.content ?? [];
+        const last = items[items.length - 1];
+        if (last) (last.content = last.content ?? []).push(list);
+        else items.push({ type: "listItem", content: [list] });
+      }
+      this.stack.push({ list, level, kind });
+      top = this.stack[this.stack.length - 1];
+    }
+
+    (top!.list.content = top!.list.content ?? []).push(item);
+  }
+
+  close(): void {
+    this.stack = [];
+  }
+}
+
+/** Section properties read off a `w:sectPr`. */
+interface ReadSectPr {
+  type: SectionBreakKind;
+  orientation: "portrait" | "landscape";
+  columns: number;
+  gapMm: number;
+  separator: boolean;
+  restartAt: number | null;
+}
+
+function readSectPr(sectPr: XmlEl): ReadSectPr {
+  const cols = firstChild(sectPr, "w:cols");
+  const pgSz = firstChild(sectPr, "w:pgSz");
+  const space = Number(cols?.attrs["w:space"] ?? 0);
+  const start = firstChild(sectPr, "w:pgNumType")?.attrs["w:start"];
+  return {
+    type: normalizeKind(firstChild(sectPr, "w:type")?.attrs["w:val"] ?? "nextPage"),
+    orientation: pgSz?.attrs["w:orient"] === "landscape" ? "landscape" : "portrait",
+    columns: Math.max(1, Math.min(4, Math.round(Number(cols?.attrs["w:num"] ?? 1) || 1))),
+    gapMm: space > 0 ? Math.round(space / 56.6929) : 8,
+    separator: cols?.attrs["w:sep"] === "true" || cols?.attrs["w:sep"] === "1",
+    restartAt: start != null && Number.isFinite(Number(start)) ? Math.max(1, Number(start)) : null,
+  };
+}
+
 /** Parse a .docx byte array into a title + ProseMirror document node. */
 export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorNode } {
   const zip = unzipSync(bytes);
@@ -909,46 +1357,112 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
   const body = firstDescendant(root, "w:body");
   const content: ProseMirrorNode[] = [];
 
-  const flushList = (items: ProseMirrorNode[], kind: "bullet" | "ordered") => {
-    if (!items.length) return;
-    content.push({ type: kind === "bullet" ? "bulletList" : "orderedList", content: items });
+  // Blocks of the section currently being read; flushed into `content` when the
+  // section's `w:sectPr` is met (a sectPr describes the section it ENDS).
+  let section: ProseMirrorNode[] = [];
+  let sectionIdx = 0;
+  let prevOrientation: "portrait" | "landscape" = "portrait";
+  let builder = new ListBuilder(section);
+
+  const startSection = () => {
+    section = [];
+    builder = new ListBuilder(section);
   };
 
-  let listItems: ProseMirrorNode[] = [];
-  let listKind: "bullet" | "ordered" | null = null;
+  const closeSection = (props: ReadSectPr) => {
+    builder.close();
+    let blocks = section;
+    // Newspaper columns: the whole section becomes one column block.
+    if (props.columns > 1 && blocks.length) {
+      blocks = [
+        {
+          type: "columnSection",
+          attrs: { count: props.columns, gapMm: props.gapMm, separator: props.separator },
+          content: blocks,
+        },
+      ];
+    }
+    // A section boundary only becomes a visible break when the user would have
+    // asked for one: a page-starting type, a different orientation, or a
+    // numbering restart. The continuous, same-orientation sections that merely
+    // delimit a column range carry no break of their own.
+    const meaningful =
+      props.type !== "continuous" || props.orientation !== prevOrientation || props.restartAt != null;
+    if (sectionIdx > 0 && meaningful && props.columns <= 1) {
+      content.push({
+        type: "sectionBreak",
+        attrs: {
+          kind: props.type,
+          orientation: props.orientation === prevOrientation ? "" : props.orientation,
+          restartNumbering: props.restartAt != null,
+          startAt: props.restartAt ?? 1,
+          header: "",
+          footer: "",
+        },
+      });
+    }
+    content.push(...blocks);
+    prevOrientation = props.orientation;
+    sectionIdx += 1;
+    startSection();
+  };
 
   if (body) {
+    // The generated index is fenced by a marker bookmark so it folds back into
+    // one node instead of the paragraphs it was rendered as.
+    let indexFenceId: string | null = null;
+
     for (const c of body.children) {
       if (!isEl(c)) continue;
+
+      if (c.name === "w:bookmarkStart" && c.attrs["w:name"] === INDEX_BOOKMARK) {
+        indexFenceId = c.attrs["w:id"] ?? "";
+        section.push({ type: "indexBlock" });
+        continue;
+      }
+      if (indexFenceId != null) {
+        if (c.name === "w:bookmarkEnd" && (c.attrs["w:id"] ?? "") === indexFenceId) indexFenceId = null;
+        continue; // skip the rendered index paragraphs
+      }
+
       if (c.name === "w:p") {
-        const numId = firstDescendant(c, "w:numId")?.attrs["w:val"];
-        if (numId) {
-          const kind = numFmt[numId] ?? "bullet";
-          const para = paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? { type: "paragraph" };
-          if (listKind && listKind !== kind) {
-            flushList(listItems, listKind);
-            listItems = [];
-          }
-          listKind = kind;
-          listItems.push({ type: "listItem", content: [para] });
+        const ppr = firstChild(c, "w:pPr");
+        const sectPr = ppr ? firstChild(ppr, "w:sectPr") : undefined;
+        const numPr = ppr ? firstChild(ppr, "w:numPr") : undefined;
+        const numId = numPr ? firstChild(numPr, "w:numId")?.attrs["w:val"] : undefined;
+
+        if (numId && numPr) {
+          const def = numFmt[numId] ?? { kind: "bullet" as const, scheme: null };
+          const level = Math.max(0, Math.min(8, Number(firstChild(numPr, "w:ilvl")?.attrs["w:val"] ?? 0) || 0));
+          const para =
+            paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? { type: "paragraph" };
+          builder.add({ type: "listItem", content: [para] }, level, def);
           continue;
         }
-        if (listKind) {
-          flushList(listItems, listKind);
-          listItems = [];
-          listKind = null;
-        }
-        content.push(...paragraphNode(c, rels, zip, sty));
-      } else if (c.name === "w:tbl") {
-        if (listKind) {
-          flushList(listItems, listKind);
-          listItems = [];
-          listKind = null;
-        }
-        content.push(tableNode(c, rels, zip, sty));
+
+        builder.close();
+        // A paragraph holding only a sectPr is a pure boundary marker.
+        const blocksHere = paragraphNode(c, rels, zip, sty);
+        const isMarker = !!sectPr && blocksHere.every((n) => n.type === "paragraph" && !(n.content ?? []).length);
+        if (!isMarker) section.push(...blocksHere);
+        if (sectPr) closeSection(readSectPr(sectPr));
+        continue;
+      }
+
+      if (c.name === "w:tbl") {
+        builder.close();
+        section.push(tableNode(c, rels, zip, sty));
+        continue;
+      }
+
+      if (c.name === "w:sectPr") {
+        // The body-level sectPr closes the last section.
+        closeSection(readSectPr(c));
       }
     }
-    if (listKind) flushList(listItems, listKind);
+    // Anything left after the final sectPr (or a body with none at all).
+    builder.close();
+    content.push(...section);
   }
 
   // Title: prefer docProps/core.xml dc:title.

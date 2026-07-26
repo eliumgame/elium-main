@@ -378,6 +378,79 @@
 }
 .pdfx-check input, .elx-check input { accent-color: var(--x-accent); }
 
+/* --- menus déroulants du ruban (galeries, listes de choix) ----------------
+   Un bouton de ruban qui ouvre un panneau : la galerie de listes multiniveaux
+   et le choix des colonnes. Le conteneur porte .elx-drop (position: relative)
+   et le panneau .elx-menu. */
+
+.pdfx-drop, .elx-drop { position: relative; display: inline-flex; }
+
+.pdfx-menu, .elx-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: var(--el-z-dropdown, 40);
+  min-width: 210px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--x-chrome-2);
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius-sm);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .42);
+}
+.pdfx-menu--right, .elx-menu--right { left: auto; right: 0; }
+
+.pdfx-menu__title, .elx-menu__title {
+  padding: 4px 8px 6px;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--x-chrome-mute);
+}
+
+.pdfx-menu__item, .elx-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--x-radius-sm);
+  background: none;
+  color: var(--x-chrome-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-menu__item:hover, .elx-menu__item:hover { background: var(--x-chrome-3); }
+.pdfx-menu__item.is-active, .elx-menu__item.is-active {
+  background: var(--x-accent-soft);
+  border-color: var(--x-accent-line);
+  color: #fff;
+}
+.pdfx-menu__sep, .elx-menu__sep { height: 1px; margin: 5px 4px; background: var(--x-chrome-line); }
+
+/* Aperçu d'un schéma de liste : les trois premiers niveaux, en escalier. */
+.elx-listprev {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 74px;
+  flex: 0 0 auto;
+  padding: 4px 5px;
+  background: var(--x-chrome);
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 4px;
+  font-family: var(--mono, monospace);
+  font-size: 9.5px;
+  line-height: 1.25;
+  color: var(--x-chrome-soft);
+}
+.elx-listprev span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.elx-listprev span:nth-child(2) { padding-left: 7px; }
+.elx-listprev span:nth-child(3) { padding-left: 14px; }
+
 /* ==========================================================================
    Corps : rail + panneau + canevas + inspecteur
    ========================================================================== */

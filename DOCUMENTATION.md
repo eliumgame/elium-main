@@ -266,6 +266,25 @@ complet (regex, casse, tout remplacer). **Import/export DOCX** sans dépendance.
 Export HTML/Markdown/PDF. Modèle de page (A4/Letter, marges, en-tête/pied,
 numérotation) appliqué à l'écran, à l'impression et au DOCX.
 
+**Mise en forme complète** : côté caractère — exposant, indice, petites
+majuscules, majuscules, soulignement simple/double/pointillé/tirets/ondulé, barré
+double, espacement des caractères, position surélevée/abaissée, modifier la casse
+(5 modes), effacer la mise en forme, agrandir/réduire — dans un **dialogue
+Police** à aperçu vivant. Côté paragraphe — espacement avant/après, retrait de
+première ligne et négatif, **enchaînements** (paragraphes solidaires, lignes
+solidaires, saut de page avant, réellement honorés par la pagination écran),
+bordures par côté et trame de fond — dans un **dialogue Paragraphe**.
+**Polices embarquées** : le binaire `.ttf/.otf/.woff/.woff2` voyage dans le
+`.elium` (ressource adressée par contenu, donc couverte par le sceau et chiffrée
+avec le document) et est réenregistré à l'ouverture ; export en `@font-face`
+data-URL (HTML/PDF) et en `fontTable.xml` + parts `.odttf` (DOCX).
+**Zoom** : paliers 50–200 %, largeur de la page, page entière, curseur dans la
+barre d'état, Ctrl+molette, ajustement automatique sur écran étroit.
+**Formats de page** : A3, A4, A5, A6, B5, Letter, Legal, Executive, Tabloid et
+personnalisé (mm), avec **géométrie par section à l'écran** — une section paysage
+ou A5 est dessinée à sa propre taille, casse à sa propre hauteur et peut
+recommencer la numérotation.
+
 **Parité Word** (ruban à 7 onglets — Accueil, Insertion, Mise en page,
 Références, Publipostage, Révision, Affichage) : **listes multiniveaux**
 (7 schémas de numérotation, dont juridique `Article I. / Section 1.01 / (a)`),
@@ -804,11 +823,21 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     section, renvois et index. Comparaison et publipostage restent sur la surface
     locale : les deux produisent un nouveau document à partir de fichiers, ce qui
     n'a pas de sens dans un document partagé en direct.
-- **À améliorer** : polices de caractères *embarquées* (binaire `.ttf`) non
-  incorporées dans le `.elium` — seul le nom de la police est conservé. La
-  géométrie de page *par section* (format et marges différents d'une section à
-  l'autre) est honorée à l'export DOCX/PDF mais pas encore à l'écran, où toutes
-  les feuilles partagent la géométrie du document.
+- **Fait aussi** : **polices embarquées**, **zoom**, **formats de page étendus**,
+  **géométrie de page par section à l'écran**, **mise en forme des caractères et
+  des paragraphes complète** — voir §3.1. Les deux points « à améliorer » de la
+  livraison précédente (binaire de police non embarqué, géométrie par section
+  seulement à l'export) sont donc clos. Le CSS de la page d'accueil, perdu par
+  mégarde lors de la réécriture du module PDF, a aussi été reconstruit, et l'audit
+  responsive a trouvé une chaîne flex sans `min-width: 0` qui faisait défiler la
+  PAGE au lieu de l'éditeur sous 820 px.
+- **Reste** (parité Word, par ordre de valeur décroissante) : galerie de **styles
+  nommés** avec gestionnaire ; **légendes** auto-numérotées + table des
+  illustrations ; **notes de fin** ; **taquets de tabulation** (demandent une
+  règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
+  formes** ; **filigrane** ; **styles de tableau** (trame, tri, alignement de
+  cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
+  dictionnaire hors-ligne) ; règle graduée et quadrillage.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme

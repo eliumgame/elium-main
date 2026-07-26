@@ -54,7 +54,7 @@ UPDATE_PUBLIC_KEY_HEX = "137934bb39b4e6a7de258019fc980db1024bd6f5fa47e4f38bc8468
 # installer/stamp_version.py). Sert à décider web-only vs exe complet : si le manifeste
 # annonce un codeHash différent, c'est que le lanceur/Python a changé -> màj exe.
 # Reste le placeholder en dev/non-stampé -> on n'applique alors que les màj web.
-BUILD_CODE_HASH = "__BUILD_CODE_HASH__"
+BUILD_CODE_HASH = "af16f6706fbeac36765c85cd0f289b5708c1de2078bab0f435519a0c6f002dcc"
 _CODE_HASH_PLACEHOLDER = "__BUILD_CODE_HASH__"
 
 # URL « latest » stable : pointe toujours sur le dernier Release non-préversion.

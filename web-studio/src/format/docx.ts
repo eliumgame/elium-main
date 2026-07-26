@@ -25,6 +25,7 @@ import { buildIndexJson } from "../editor/indexing";
 import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/sections";
 import { formatSizeMm } from "./pageSizes";
 import { fontResources } from "./embedded-fonts";
+import { mergeStyles, stylesXml } from "../editor/styles";
 
 // =========================================================================
 // XML helpers
@@ -330,6 +331,10 @@ function runProps(marks: { type: string; attrs?: Record<string, unknown> }[]): s
   if (has("code")) p.push('<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/>');
   // textStyle → real colour / font / size (px → half-points = px * 1.5)
   const ts = mark("textStyle");
+  // A named character style is referenced, not inlined — Word then shows it in
+  // its own styles pane and re-applies it wholesale.
+  const charStyleId = String(ts?.attrs?.styleId ?? "");
+  if (charStyleId) p.push(`<w:rStyle w:val="${xmlEsc(charStyleId)}"/>`);
   const tsColor = ts ? hex6(ts.attrs?.color) : null;
   if (ts) {
     const a = ts.attrs ?? {};
@@ -598,6 +603,7 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
   switch (node.type) {
     case "paragraph":
       return `<w:p>${paraProps({
+        ...(node.attrs?.styleId ? { style: String(node.attrs.styleId) } : {}),
         align: String(node.attrs?.textAlign ?? ""),
         indent: Number(node.attrs?.indent) || 0,
         attrs: node.attrs,
@@ -605,7 +611,10 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       })}${inlineRuns(node, ctx)}</w:p>`;
     case "heading": {
       const level = Math.min(4, Number(node.attrs?.level ?? 1));
-      return `<w:p>${paraProps({ style: `Heading${level}`, align: String(node.attrs?.textAlign ?? ""), attrs: node.attrs })}${anchorXml(node, ctx)}${inlineRuns(node, ctx)}</w:p>`;
+      // The paragraph's own named style when it has one, else the built-in for
+      // its level — so `w:pStyle` always points at a style styles.xml defines.
+      const styleId = String(node.attrs?.styleId ?? "") || `Titre${level}`;
+      return `<w:p>${paraProps({ style: styleId, align: String(node.attrs?.textAlign ?? ""), attrs: node.attrs })}${anchorXml(node, ctx)}${inlineRuns(node, ctx)}</w:p>`;
     }
     case "tableOfContents": {
       const items = headings
@@ -776,16 +785,6 @@ function collectHeadings(doc: ProseMirrorNode): { level: number; text: string }[
   return out;
 }
 
-const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
-<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="36"/></w:rPr></w:style>
-<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:sz w:val="30"/></w:rPr></w:style>
-<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>
-<w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="3"/></w:pPr><w:rPr><w:b/><w:sz w:val="24"/></w:rPr></w:style>
-<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>
-</w:styles>`;
-
 const tw = (mm: number) => Math.round(mm * 56.6929); // mm → twips
 
 /** `w:sectPr` body for one section: page size, margins and numbering restart. */
@@ -955,7 +954,9 @@ export function docToDocx(file: EliumFile): Uint8Array {
     "_rels/.rels": strToU8(rootRels),
     "docProps/core.xml": strToU8(coreXml),
     "word/document.xml": strToU8(documentXml),
-    "word/styles.xml": strToU8(STYLES_XML),
+    // Real <w:style> definitions, so Word shows the document's styles in ITS
+    // own gallery instead of receiving formatting baked into every run.
+    "word/styles.xml": strToU8(stylesXml(mergeStyles(file.document.styles as never))),
     "word/numbering.xml": strToU8(numberingXml(ctx)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };

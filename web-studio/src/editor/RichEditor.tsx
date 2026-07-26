@@ -7,6 +7,7 @@ import FindReplaceBar from "./FindReplaceBar";
 import StatsDialog from "./StatsDialog";
 import FontDialog from "./FontDialog";
 import ParagraphDialog from "./ParagraphDialog";
+import StylesManager from "./StylesManager";
 import CrossRefModal from "./CrossRefModal";
 import IndexEntryModal from "./IndexEntryModal";
 import ColumnsModal from "./ColumnsModal";
@@ -15,10 +16,12 @@ import CompareModal from "./CompareModal";
 import MailMergeModal from "./MailMergeModal";
 import { ensureListSchemeStyles } from "./listSchemeStyles";
 import { setMergePreview, setPageResolver } from "./wordExtensions";
+import { setStyleRegistry } from "./styleExtension";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
+  EliumDocStyle,
   EliumDocumentModel,
   EliumSignature,
   ProseMirrorNode,
@@ -58,6 +61,8 @@ interface RichEditorProps {
   onToggleInspector?: () => void;
   /** Document title, used to expand the {titre} token in header/footer. */
   docTitle?: string;
+  /** Persist the document's own named styles. */
+  onStylesChange?: (styles: EliumDocStyle[]) => void;
 }
 
 export default function RichEditor({
@@ -81,6 +86,7 @@ export default function RichEditor({
   inspectorOpen,
   onToggleInspector,
   docTitle,
+  onStylesChange,
 }: RichEditorProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -139,6 +145,12 @@ export default function RichEditor({
     ensureListSchemeStyles();
   }, []);
 
+  // Publish the document's own named styles to the style commands. Kept out of
+  // the extension options so editing a style does not rebuild the editor.
+  useEffect(() => {
+    setStyleRegistry(documentModel.styles as never);
+  }, [documentModel.styles]);
+
   // Page numbers for renvois and the generated index come from the pagination
   // plan — the same numbers the reader sees in the status bar.
   useEffect(() => {
@@ -157,7 +169,7 @@ export default function RichEditor({
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
-  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | null;
+  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
 
   // --- Zoom ---------------------------------------------------------------
@@ -367,6 +379,7 @@ export default function RichEditor({
           onOpenMailMerge={() => setDialog("merge")}
           onOpenFont={() => setDialog("font")}
           onOpenParagraph={() => setDialog("paragraph")}
+          onOpenStyles={() => setDialog("styles")}
         />
       )}
 
@@ -477,6 +490,14 @@ export default function RichEditor({
 
       {editor && dialog === "font" && <FontDialog editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "paragraph" && <ParagraphDialog editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "styles" && (
+        <StylesManager
+          editor={editor}
+          custom={documentModel.styles ?? []}
+          onChange={(styles) => onStylesChange?.(styles)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "columns" && <ColumnsModal editor={editor} onClose={() => setDialog(null)} />}

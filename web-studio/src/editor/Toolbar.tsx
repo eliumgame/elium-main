@@ -18,6 +18,8 @@ import { LIST_SCHEMES, schemeById } from "./listSchemes";
 import { clampColumns } from "./wordExtensions";
 import { FONT_ACCEPT, fontNameFromFilename } from "../format/embedded-fonts";
 import { CASE_LABELS } from "./charFormat";
+import { resolveStyle, styleCss } from "./styles";
+import { styleRegistry } from "./styleExtension";
 
 /**
  * The Documents ribbon.
@@ -73,6 +75,7 @@ interface ToolbarProps {
   onOpenMailMerge?: () => void;
   onOpenFont?: () => void;
   onOpenParagraph?: () => void;
+  onOpenStyles?: () => void;
 }
 
 /**
@@ -173,7 +176,7 @@ export default function Toolbar({
   editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
-  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph,
+  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -242,16 +245,21 @@ export default function Toolbar({
 
   if (!editor) return <div className="elx-ribbon elx-ribbon--loading" />;
 
-  // Named paragraph-style picker: maps block type + named paragraph variant.
-  const currentStyle = (): string => {
-    if (editor.isActive("heading", { level: 1 })) return "h1";
-    if (editor.isActive("heading", { level: 2 })) return "h2";
-    if (editor.isActive("heading", { level: 3 })) return "h3";
-    if (editor.isActive("blockquote")) return "quote";
-    const ds = editor.getAttributes("paragraph").dataStyle as string | null;
-    if (ds === "subtitle" || ds === "lead") return ds;
-    return "";
-  };
+  // Which named style is in force where the cursor sits? The `styleId` attribute
+  // is authoritative; a bare heading with no style falls back to its level's
+  // built-in so the gallery still highlights the right entry.
+  const currentStyleId = ((): string => {
+    const charStyle = editor.getAttributes("textStyle").styleId;
+    if (typeof charStyle === "string" && charStyle) return charStyle;
+    const type = editor.isActive("heading") ? "heading" : "paragraph";
+    const id = editor.getAttributes(type).styleId;
+    if (typeof id === "string" && id) return id;
+    if (editor.isActive("heading")) {
+      const level = Number(editor.getAttributes("heading").level) || 1;
+      return `Titre${Math.min(4, level)}`;
+    }
+    return "Normal";
+  })();
   // Scheme of the list the cursor sits in — inherited from the outermost list,
   // which is where the attribute lives.
   const currentListScheme = ((): string | null => {
@@ -267,18 +275,24 @@ export default function Toolbar({
 
   const columnCount = editor.isActive("columnSection") ? clampColumns(Number(editor.getAttributes("columnSection").count)) : 1;
 
-  const applyStyle = (val: string) => {
-    const chain = editor.chain().focus();
-    switch (val) {
-      case "h1": chain.setHeading({ level: 1 }).run(); break;
-      case "h2": chain.setHeading({ level: 2 }).run(); break;
-      case "h3": chain.setHeading({ level: 3 }).run(); break;
-      case "quote": chain.toggleBlockquote().run(); break;
-      case "subtitle": chain.setParagraph().updateAttributes("paragraph", { dataStyle: "subtitle" }).run(); break;
-      case "lead": chain.setParagraph().updateAttributes("paragraph", { dataStyle: "lead" }).run(); break;
-      default: chain.setParagraph().updateAttributes("paragraph", { dataStyle: null }).run(); break;
+  // The gallery shows the styles flagged `quick`, previewed with their own CSS.
+  const registry = styleRegistry();
+  const quickStyles = registry.filter((s) => s.quick);
+  const styleSampleCss = (id: string): React.CSSProperties => {
+    const css = styleCss(resolveStyle(registry, id));
+    const out: Record<string, string> = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      const value = decl.slice(i + 1).trim();
+      // Margins would space the menu rows out; the sample is about type only.
+      if (!prop || !value || prop.startsWith("margin")) continue;
+      out[prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = value;
     }
+    return out as React.CSSProperties;
   };
+
 
   return (
     <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
@@ -386,15 +400,44 @@ export default function Toolbar({
             </Group>
 
             <Group title="Styles">
-              <select className="elx-select" title="Style de paragraphe" value={currentStyle()} onChange={(e) => applyStyle(e.target.value)}>
-                <option value="">Normal</option>
-                <option value="h1">Titre 1</option>
-                <option value="h2">Titre 2</option>
-                <option value="h3">Titre 3</option>
-                <option value="subtitle">Sous-titre</option>
-                <option value="lead">Accroche</option>
-                <option value="quote">Citation</option>
-              </select>
+              {/* Word's Quick Style gallery: every entry previews itself. */}
+              <Dropdown title="Galerie de styles" icon={<Type size={17} />} label="Styles" big>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Styles rapides</div>
+                    {quickStyles.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={`elx-menu__item ${currentStyleId === s.id ? "is-active" : ""}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          editor.chain().focus().applyNamedStyle(s.id).run();
+                          close();
+                        }}
+                        title={s.kind === "character" ? "Style de caractère" : "Style de paragraphe"}
+                      >
+                        <span className="elx-stylesample">
+                          <span style={{ all: "unset", ...styleSampleCss(s.id) }}>{s.name}</span>
+                        </span>
+                      </button>
+                    ))}
+                    <div className="elx-menu__sep" />
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onOpenStyles?.();
+                        close();
+                      }}
+                    >
+                      Gérer les styles…
+                    </button>
+                  </>
+                )}
+              </Dropdown>
+              <Cmd title="Citation" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={17} /></Cmd>
               <Cmd title="Titre 1" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={17} /></Cmd>
               <Cmd title="Titre 2" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={17} /></Cmd>
               <Cmd title="Titre 3" active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={17} /></Cmd>

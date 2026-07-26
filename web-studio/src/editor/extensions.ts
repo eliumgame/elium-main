@@ -25,6 +25,7 @@ import {
 } from "./wordExtensions";
 import { CharFormat, Subscript, Superscript } from "./charFormat";
 import { ParagraphFormat } from "./paragraphFormat";
+import { NamedStyles } from "./styleExtension";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
 import { Pagination, type PaginationOptions } from "./Pagination";
@@ -81,6 +82,7 @@ export function buildExtensions(
     Subscript,
     CharFormat,
     ParagraphFormat,
+    NamedStyles,
     Comment,
     Insertion,
     Deletion,

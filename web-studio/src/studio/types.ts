@@ -6,6 +6,7 @@ import type {
   ProseMirrorNode,
   SignatureVerdict,
   PageSettings,
+  EliumDocStyle,
 } from "../format/types";
 import type { IntegrityVerdict } from "../format/elium-package";
 import type { JournalVerdict } from "../format/journal";
@@ -47,6 +48,8 @@ export interface Studio {
   generateRecipientKey(): Promise<void>;
   forgetRecipientKey(): void;
   updatePage(patch: Partial<PageSettings>): void;
+  /** Replace the document's own named styles. */
+  updateStyles(styles: EliumDocStyle[]): void;
   openSignatureCreator(): void;
   createSignature(draft: SignatureDraft): Promise<void>;
   updateSignature(sig: EliumSignature): void;

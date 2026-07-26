@@ -68,6 +68,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
           onToggleOutline={() => setOutlineOpen((v) => !v)}
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen((v) => !v)}
+          onStylesChange={studio.updateStyles}
         />
         <InspectorPanel
           studio={studio}

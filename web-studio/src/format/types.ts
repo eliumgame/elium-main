@@ -65,10 +65,28 @@ export interface PageSettings {
   numberedHeadings?: boolean;
 }
 
-/** The editable document: page setup + ProseMirror content. */
+/**
+ * A named style carried by the document (see editor/styles.ts for the model and
+ * the built-in set). Only the document's OWN styles are stored — built-ins live
+ * in code, and a document entry with a built-in id redefines it.
+ */
+export interface EliumDocStyle {
+  id: string;
+  name: string;
+  kind: "paragraph" | "character";
+  basedOn?: string;
+  block?: { type: "paragraph" | "heading"; level?: number };
+  char?: Record<string, unknown>;
+  para?: Record<string, unknown>;
+  quick?: boolean;
+}
+
+/** The editable document: page setup + named styles + ProseMirror content. */
 export interface EliumDocumentModel {
   schema: typeof ELIUM_DOC_SCHEMA;
   page: PageSettings;
+  /** Document-defined named styles (optional; absent in older files). */
+  styles?: EliumDocStyle[];
   doc: ProseMirrorNode; // root node, type === "doc"
 }
 

@@ -56,7 +56,7 @@ import { EliumCryptoEngine } from "./crypto/elium-crypto";
 import { exportHtml, exportMarkdown, exportText, exportPdf, exportProofReport, downloadBlob } from "./export/exporters";
 import type { Template } from "./editor/templates";
 import type {
-  EliumFile, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings,
+  EliumFile, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings, EliumDocStyle,
 } from "./format/types";
 import type { ExportKind, Studio, StudioMode } from "./studio/types";
 
@@ -615,6 +615,11 @@ export default function App() {
     setToast("Clé de réception oubliée");
   }, []);
 
+  /** Replace the document's own named styles (Styles manager). */
+  const updateStyles = useCallback((styles: EliumDocStyle[]) => {
+    setFile((prev) => (prev ? { ...prev, document: { ...prev.document, styles } } : prev));
+  }, []);
+
   const updatePage = useCallback((patch: Partial<PageSettings>) => {
     setFile((prev) => {
       if (!prev) return prev;
@@ -986,7 +991,7 @@ export default function App() {
         versionSecret: { password, keyfile: keyfileRef.current },
         vaultSecret,
         recipients, recipientPublic,
-        setTitle, setTrustedKey: setTrusted, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage,
+        setTitle, setTrustedKey: setTrusted, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
         createSignature, updateSignature, removeSignature, selectSignature: setSelectedSig,

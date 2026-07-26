@@ -5,6 +5,7 @@ import { DialogsProvider } from './ui/dialogs';
 import { applyTheme, getTheme } from './ui/theme';
 import './index.css';
 import './App.css';
+import './ui/workspace.css';
 
 applyTheme(getTheme());
 

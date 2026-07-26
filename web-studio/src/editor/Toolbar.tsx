@@ -4,13 +4,36 @@ import {
   Bold, Italic, Underline, Strikethrough, Code2, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, Quote, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Highlighter, Table as TableIcon, Image as ImageIcon, Minus, Undo2, Redo2, Link2, PenLine,
-  Indent, Outdent, SeparatorHorizontal, Combine, Split, Plus, Trash2, ListTree, MessageSquarePlus, Superscript,
-  Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type,
+  Indent, Outdent, SeparatorHorizontal, Combine, Split, Plus, Trash2, ListTree, MessageSquarePlus,
+  Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
+  PanelLeft, PanelRight, Search,
 } from "lucide-react";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./extensions";
 import { isSuggesting } from "./TrackChanges";
 import { useDialogs } from "../ui/dialogs";
 import { customFontNames, registerCustomFont, fontCss } from "../ui/fonts";
+
+/**
+ * The Documents ribbon.
+ *
+ * Same command surface as before, reorganised into Word-style tabs and dressed
+ * in the shared workspace language (`.elx-*`, see src/ui/workspace.css) so
+ * Documents, PDF, Tableur and Présentations look like one product.
+ *
+ * Contextual strips (image, table, code block, tracked changes) sit below the
+ * ribbon and appear on selection regardless of the active tab — losing them
+ * behind a tab would make table editing miserable.
+ */
+
+type RibbonTab = "home" | "insert" | "layout" | "review" | "view";
+
+const TABS: { id: RibbonTab; label: string }[] = [
+  { id: "home", label: "Accueil" },
+  { id: "insert", label: "Insertion" },
+  { id: "layout", label: "Mise en page" },
+  { id: "review", label: "Révision" },
+  { id: "view", label: "Affichage" },
+];
 
 interface ToolbarProps {
   editor: Editor | null;
@@ -23,6 +46,16 @@ interface ToolbarProps {
   onToggleNumberedHeadings?: () => void;
   /** Opens the page-setup dialog (format, header/footer, page numbers). */
   onOpenPageSettings?: () => void;
+  /** Opens the statistics dialog. */
+  onOpenStats?: () => void;
+  /** Navigation pane (document outline). */
+  outlineOpen?: boolean;
+  onToggleOutline?: () => void;
+  /** Right-hand inspector (comments, signatures, versions…). */
+  inspectorOpen?: boolean;
+  onToggleInspector?: () => void;
+  /** Find & replace bar. */
+  onToggleFind?: () => void;
 }
 
 function newCommentId(): string {
@@ -31,15 +64,16 @@ function newCommentId(): string {
   return `cm-${Math.abs(Date.now() ^ Math.floor(Math.random() * 1e9)).toString(36)}`;
 }
 
-function ToolButton({
-  active, disabled, onClick, title, children,
+function Cmd({
+  active, disabled, onClick, title, label, big, danger, children,
 }: {
-  active?: boolean; disabled?: boolean; onClick: () => void; title: string; children: React.ReactNode;
+  active?: boolean; disabled?: boolean; onClick: () => void; title: string;
+  label?: string; big?: boolean; danger?: boolean; children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      className={`tool-btn ${active ? "is-active" : ""}`}
+      className={`elx-cmd ${big ? "elx-cmd--big" : ""} ${active ? "is-active" : ""} ${danger ? "is-danger" : ""}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
@@ -47,15 +81,31 @@ function ToolButton({
       aria-label={title}
       aria-pressed={active}
     >
-      {children}
+      <span className="elx-cmd__icon">{children}</span>
+      {label && <span className="elx-cmd__label">{label}</span>}
     </button>
   );
 }
 
-export default function Toolbar({ editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings, onToggleNumberedHeadings, onOpenPageSettings }: ToolbarProps) {
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="elx-group">
+      <div className="elx-group__items">{children}</div>
+      <div className="elx-group__title">{title}</div>
+    </div>
+  );
+}
+
+export default function Toolbar({
+  editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
+  onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
+  inspectorOpen, onToggleInspector, onToggleFind,
+}: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
   const [fontTick, setFontTick] = useState(0);
+  const [tab, setTab] = useState<RibbonTab>("home");
+
   const importFont = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -65,6 +115,7 @@ export default function Toolbar({ editor, onInsertImage, onAddSignature, comment
     setFontTick((t) => t + 1);
     editor.chain().focus().setFontFamily(fontCss(name)).run();
   }, [editor]);
+
   const setLink = useCallback(async () => {
     if (!editor) return;
     const prev = editor.getAttributes("link").href as string | undefined;
@@ -104,7 +155,7 @@ export default function Toolbar({ editor, onInsertImage, onAddSignature, comment
     editor.chain().focus().insertBookmark(label).run();
   }, [editor, prompt]);
 
-  if (!editor) return <div className="toolbar toolbar--loading" />;
+  if (!editor) return <div className="elx-ribbon elx-ribbon--loading" />;
 
   // Named paragraph-style picker: maps block type + named paragraph variant.
   const currentStyle = (): string => {
@@ -130,205 +181,280 @@ export default function Toolbar({ editor, onInsertImage, onAddSignature, comment
   };
 
   return (
-    <div className="toolbar" role="toolbar" aria-label="Mise en forme">
-      <div className="tool-group">
-        <ToolButton title="Annuler" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>
-          <Undo2 size={16} />
-        </ToolButton>
-        <ToolButton title="Rétablir" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}>
-          <Redo2 size={16} />
-        </ToolButton>
-      </div>
-
-      <div className="tool-group">
-        <select
-          key={`ff-${fontTick}`}
-          className="tool-select"
-          title="Police"
-          value={editor.getAttributes("textStyle").fontFamily ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) editor.chain().focus().setFontFamily(v).run();
-            else editor.chain().focus().unsetFontFamily().run();
-          }}
-        >
-          {FONT_FAMILIES.map((f) => (
-            <option key={f.label} value={f.value}>{f.label}</option>
-          ))}
-          {customFontNames().map((n) => (
-            <option key={n} value={fontCss(n)}>{n}</option>
-          ))}
-        </select>
-        <button type="button" className="icon-btn" title="Importer une police (.ttf/.otf)" onClick={() => fontInputRef.current?.click()}>
-          <Type size={15} />
-        </button>
-        <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
-        <select
-          className="tool-select tool-select--sm"
-          title="Taille"
-          value={editor.getAttributes("textStyle").fontSize ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) editor.chain().focus().setFontSize(v).run();
-            else editor.chain().focus().unsetFontSize().run();
-          }}
-        >
-          <option value="">Taille</option>
-          {FONT_SIZES.map((s) => <option key={s} value={s}>{s.replace("px", "")}</option>)}
-        </select>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Gras" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={16} /></ToolButton>
-        <ToolButton title="Italique" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={16} /></ToolButton>
-        <ToolButton title="Souligné" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><Underline size={16} /></ToolButton>
-        <ToolButton title="Barré" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></ToolButton>
-        <ToolButton title="Surlignage" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}><Highlighter size={16} /></ToolButton>
-        <label className="tool-color" title="Couleur du texte">
-          <PenLine size={16} />
-          <input
-            type="color"
-            value={(editor.getAttributes("textStyle").color as string) ?? "#1f2937"}
-            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          />
-        </label>
-      </div>
-
-      <div className="tool-group">
-        <select
-          className="tool-select"
-          title="Style de paragraphe"
-          value={currentStyle()}
-          onChange={(e) => applyStyle(e.target.value)}
-        >
-          <option value="">Normal</option>
-          <option value="h1">Titre 1</option>
-          <option value="h2">Titre 2</option>
-          <option value="h3">Titre 3</option>
-          <option value="subtitle">Sous-titre</option>
-          <option value="lead">Accroche</option>
-          <option value="quote">Citation</option>
-        </select>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Titre 1" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={16} /></ToolButton>
-        <ToolButton title="Titre 2" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={16} /></ToolButton>
-        <ToolButton title="Titre 3" active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></ToolButton>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Liste à puces" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={16} /></ToolButton>
-        <ToolButton title="Liste numérotée" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></ToolButton>
-        <ToolButton title="Liste de tâches" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></ToolButton>
-        <ToolButton title="Citation" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={16} /></ToolButton>
-        <ToolButton title="Bloc de code" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><Code2 size={16} /></ToolButton>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Aligner à gauche" active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()}><AlignLeft size={16} /></ToolButton>
-        <ToolButton title="Centrer" active={editor.isActive({ textAlign: "center" })} onClick={() => editor.chain().focus().setTextAlign("center").run()}><AlignCenter size={16} /></ToolButton>
-        <ToolButton title="Aligner à droite" active={editor.isActive({ textAlign: "right" })} onClick={() => editor.chain().focus().setTextAlign("right").run()}><AlignRight size={16} /></ToolButton>
-        <ToolButton title="Justifier" active={editor.isActive({ textAlign: "justify" })} onClick={() => editor.chain().focus().setTextAlign("justify").run()}><AlignJustify size={16} /></ToolButton>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}><Outdent size={16} /></ToolButton>
-        <ToolButton title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}><Indent size={16} /></ToolButton>
-        <select
-          className="tool-select tool-select--sm"
-          title="Interligne"
-          value={editor.getAttributes("paragraph").lineHeight ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) editor.chain().focus().setLineHeight(v).run();
-            else editor.chain().focus().unsetLineHeight().run();
-          }}
-        >
-          <option value="">Interligne</option>
-          {LINE_HEIGHTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-        </select>
-      </div>
-
-      <div className="tool-group">
-        <ToolButton title="Lien" active={editor.isActive("link")} onClick={setLink}><Link2 size={16} /></ToolButton>
-        <ToolButton title="Image" onClick={onInsertImage}><ImageIcon size={16} /></ToolButton>
-        <ToolButton title="Tableau" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={16} /></ToolButton>
-        <ToolButton title="Séparateur" onClick={() => editor.chain().focus().setHorizontalRule().run()}><Minus size={16} /></ToolButton>
-        <ToolButton title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}><SeparatorHorizontal size={16} /></ToolButton>
-        <ToolButton title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={16} /></ToolButton>
-        <ToolButton
-          title="Commenter la sélection"
-          disabled={editor.state.selection.empty}
-          onClick={addComment}
-        >
-          <MessageSquarePlus size={16} />
-        </ToolButton>
-        <ToolButton title="Note de bas de page" onClick={addFootnote}><Superscript size={16} /></ToolButton>
-        <ToolButton title="Signet (cible de renvoi)" onClick={addBookmark}><BookmarkIcon size={16} /></ToolButton>
-        <ToolButton title="Numéroter les titres (1. / 1.1 / 1.1.1)" active={!!numberedHeadings} onClick={() => onToggleNumberedHeadings?.()}><Hash size={16} /></ToolButton>
-        <ToolButton title="Mise en page (format, en-tête, pied)" onClick={() => onOpenPageSettings?.()}><FileCog size={16} /></ToolButton>
-        <ToolButton title="Suivi des modifications (mode suggestion)" active={isSuggesting(editor.state)} onClick={() => editor.chain().focus().toggleSuggesting().run()}><Pencil size={16} /></ToolButton>
-      </div>
-
-      {editor.isActive("figure") && (
-        <div className="tool-group tool-group--context">
-          <ToolButton title="Aligner à gauche (habillage)" active={editor.getAttributes("figure").align === "left"} onClick={() => editor.chain().focus().setFigureAlign("left").run()}><AlignLeft size={16} /></ToolButton>
-          <ToolButton title="Centrer" active={editor.getAttributes("figure").align === "center"} onClick={() => editor.chain().focus().setFigureAlign("center").run()}><AlignCenter size={16} /></ToolButton>
-          <ToolButton title="Aligner à droite (habillage)" active={editor.getAttributes("figure").align === "right"} onClick={() => editor.chain().focus().setFigureAlign("right").run()}><AlignRight size={16} /></ToolButton>
-          <select
-            className="tool-select tool-select--sm"
-            title="Largeur de l'image"
-            value={(editor.getAttributes("figure").width as string) || ""}
-            onChange={(e) => editor.chain().focus().setFigureWidth(e.target.value).run()}
+    <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
+      <div className="elx-tabs" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`elx-tab ${tab === t.id ? "is-active" : ""}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setTab(t.id)}
           >
-            <option value="">Auto</option>
-            <option value="25%">25 %</option>
-            <option value="50%">50 %</option>
-            <option value="75%">75 %</option>
-            <option value="100%">100 %</option>
-          </select>
-        </div>
-      )}
-
-      {editor.isActive("table") && (
-        <div className="tool-group tool-group--context">
-          <ToolButton title="Insérer une ligne" onClick={() => editor.chain().focus().addRowAfter().run()}><Plus size={16} /></ToolButton>
-          <ToolButton title="Insérer une colonne" onClick={() => editor.chain().focus().addColumnAfter().run()}><Plus size={16} style={{ transform: "rotate(90deg)" }} /></ToolButton>
-          <ToolButton title="Fusionner les cellules" onClick={() => editor.chain().focus().mergeCells().run()}><Combine size={16} /></ToolButton>
-          <ToolButton title="Scinder la cellule" onClick={() => editor.chain().focus().splitCell().run()}><Split size={16} /></ToolButton>
-          <ToolButton title="Supprimer la ligne" onClick={() => editor.chain().focus().deleteRow().run()}><Minus size={16} /></ToolButton>
-          <ToolButton title="Supprimer la colonne" onClick={() => editor.chain().focus().deleteColumn().run()}><Minus size={16} style={{ transform: "rotate(90deg)" }} /></ToolButton>
-          <ToolButton title="Supprimer le tableau" onClick={() => editor.chain().focus().deleteTable().run()}><Trash2 size={16} /></ToolButton>
-        </div>
-      )}
-
-      {editor.isActive("codeBlock") && (
-        <div className="tool-group tool-group--context">
-          <select
-            className="tool-select"
-            title="Langage du bloc de code"
-            value={(editor.getAttributes("codeBlock").language as string) || "plaintext"}
-            onChange={(e) => editor.chain().focus().updateAttributes("codeBlock", { language: e.target.value }).run()}
-          >
-            {CODE_LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </div>
-      )}
-
-      {isSuggesting(editor.state) && (
-        <div className="tool-group tool-group--context">
-          <span className="tool-suggest-label">Suivi</span>
-          <ToolButton title="Accepter toutes les modifications" onClick={() => editor.chain().focus().acceptAllChanges().run()}><Check size={16} /></ToolButton>
-          <ToolButton title="Refuser toutes les modifications" onClick={() => editor.chain().focus().rejectAllChanges().run()}><X size={16} /></ToolButton>
-        </div>
-      )}
-
-      <div className="tool-group tool-group--end">
-        <button type="button" className="tool-btn tool-btn--accent" onClick={onAddSignature} title="Ajouter une signature">
-          <PenLine size={16} /> Signer
-        </button>
+            {t.label}
+          </button>
+        ))}
       </div>
+
+      <div className="elx-ribbon__body">
+        <Group title="Édition">
+          <Cmd title="Annuler (Ctrl+Z)" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}><Undo2 size={17} /></Cmd>
+          <Cmd title="Rétablir (Ctrl+Y)" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}><Redo2 size={17} /></Cmd>
+        </Group>
+
+        {tab === "home" && (
+          <>
+            <Group title="Police">
+              <select
+                key={`ff-${fontTick}`}
+                className="elx-select elx-select--font"
+                title="Police"
+                value={editor.getAttributes("textStyle").fontFamily ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) editor.chain().focus().setFontFamily(v).run();
+                  else editor.chain().focus().unsetFontFamily().run();
+                }}
+              >
+                {FONT_FAMILIES.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+                {customFontNames().map((n) => <option key={n} value={fontCss(n)}>{n}</option>)}
+              </select>
+              <Cmd title="Importer une police (.ttf/.otf)" onClick={() => fontInputRef.current?.click()}><Type size={16} /></Cmd>
+              <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
+              <select
+                className="elx-select elx-select--size"
+                title="Taille"
+                value={editor.getAttributes("textStyle").fontSize ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) editor.chain().focus().setFontSize(v).run();
+                  else editor.chain().focus().unsetFontSize().run();
+                }}
+              >
+                <option value="">Taille</option>
+                {FONT_SIZES.map((s) => <option key={s} value={s}>{s.replace("px", "")}</option>)}
+              </select>
+            </Group>
+
+            <Group title="Caractère">
+              <Cmd title="Gras (Ctrl+B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={17} /></Cmd>
+              <Cmd title="Italique (Ctrl+I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={17} /></Cmd>
+              <Cmd title="Souligné (Ctrl+U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><Underline size={17} /></Cmd>
+              <Cmd title="Barré" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={17} /></Cmd>
+              <Cmd title="Surlignage" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}><Highlighter size={17} /></Cmd>
+              <label className="elx-colorbtn" title="Couleur du texte">
+                <input
+                  type="color"
+                  value={(editor.getAttributes("textStyle").color as string) ?? "#1f2937"}
+                  onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+                />
+              </label>
+            </Group>
+
+            <Group title="Styles">
+              <select className="elx-select" title="Style de paragraphe" value={currentStyle()} onChange={(e) => applyStyle(e.target.value)}>
+                <option value="">Normal</option>
+                <option value="h1">Titre 1</option>
+                <option value="h2">Titre 2</option>
+                <option value="h3">Titre 3</option>
+                <option value="subtitle">Sous-titre</option>
+                <option value="lead">Accroche</option>
+                <option value="quote">Citation</option>
+              </select>
+              <Cmd title="Titre 1" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={17} /></Cmd>
+              <Cmd title="Titre 2" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={17} /></Cmd>
+              <Cmd title="Titre 3" active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={17} /></Cmd>
+            </Group>
+
+            <Group title="Paragraphe">
+              <Cmd title="Liste à puces" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={17} /></Cmd>
+              <Cmd title="Liste numérotée" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={17} /></Cmd>
+              <Cmd title="Liste de tâches" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}><ListChecks size={17} /></Cmd>
+              <Cmd title="Citation" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={17} /></Cmd>
+              <Cmd title="Bloc de code" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><Code2 size={17} /></Cmd>
+            </Group>
+
+            <Group title="Alignement">
+              <Cmd title="Aligner à gauche" active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()}><AlignLeft size={17} /></Cmd>
+              <Cmd title="Centrer" active={editor.isActive({ textAlign: "center" })} onClick={() => editor.chain().focus().setTextAlign("center").run()}><AlignCenter size={17} /></Cmd>
+              <Cmd title="Aligner à droite" active={editor.isActive({ textAlign: "right" })} onClick={() => editor.chain().focus().setTextAlign("right").run()}><AlignRight size={17} /></Cmd>
+              <Cmd title="Justifier" active={editor.isActive({ textAlign: "justify" })} onClick={() => editor.chain().focus().setTextAlign("justify").run()}><AlignJustify size={17} /></Cmd>
+              <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}><Outdent size={17} /></Cmd>
+              <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}><Indent size={17} /></Cmd>
+              <select
+                className="elx-select elx-select--size"
+                title="Interligne"
+                value={editor.getAttributes("paragraph").lineHeight ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) editor.chain().focus().setLineHeight(v).run();
+                  else editor.chain().focus().unsetLineHeight().run();
+                }}
+              >
+                <option value="">Interligne</option>
+                {LINE_HEIGHTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              </select>
+            </Group>
+
+            <Group title="Rechercher">
+              <Cmd title="Rechercher et remplacer (Ctrl+F)" onClick={() => onToggleFind?.()}><Search size={17} /></Cmd>
+            </Group>
+          </>
+        )}
+
+        {tab === "insert" && (
+          <>
+            <Group title="Illustrations">
+              <Cmd big label="Image" title="Insérer une image" onClick={onInsertImage}><ImageIcon size={19} /></Cmd>
+              <Cmd big label="Tableau" title="Insérer un tableau 3×3" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={19} /></Cmd>
+            </Group>
+            <Group title="Liens">
+              <Cmd title="Lien" active={editor.isActive("link")} onClick={setLink}><Link2 size={17} /></Cmd>
+              <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}><BookmarkIcon size={17} /></Cmd>
+            </Group>
+            <Group title="Éléments">
+              <Cmd title="Séparateur" onClick={() => editor.chain().focus().setHorizontalRule().run()}><Minus size={17} /></Cmd>
+              <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}><SeparatorHorizontal size={17} /></Cmd>
+              <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>
+              <Cmd title="Note de bas de page" onClick={addFootnote}><Superscript size={17} /></Cmd>
+            </Group>
+            <Group title="Signature">
+              <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>
+            </Group>
+          </>
+        )}
+
+        {tab === "layout" && (
+          <>
+            <Group title="Page">
+              <Cmd big label="Mise en page" title="Format, marges, en-tête, pied de page" onClick={() => onOpenPageSettings?.()}><FileCog size={19} /></Cmd>
+              <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}><SeparatorHorizontal size={17} /></Cmd>
+            </Group>
+            <Group title="Titres">
+              <Cmd
+                big
+                label="Numéroter"
+                title="Numéroter les titres (1. / 1.1 / 1.1.1)"
+                active={!!numberedHeadings}
+                onClick={() => onToggleNumberedHeadings?.()}
+              >
+                <Hash size={19} />
+              </Cmd>
+            </Group>
+            <Group title="Retrait">
+              <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}><Outdent size={17} /></Cmd>
+              <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}><Indent size={17} /></Cmd>
+            </Group>
+          </>
+        )}
+
+        {tab === "review" && (
+          <>
+            <Group title="Suivi">
+              <Cmd
+                big
+                label="Suggestions"
+                title="Suivi des modifications (mode suggestion)"
+                active={isSuggesting(editor.state)}
+                onClick={() => editor.chain().focus().toggleSuggesting().run()}
+              >
+                <Pencil size={19} />
+              </Cmd>
+              <Cmd title="Accepter toutes les modifications" onClick={() => editor.chain().focus().acceptAllChanges().run()}><Check size={17} /></Cmd>
+              <Cmd title="Refuser toutes les modifications" danger onClick={() => editor.chain().focus().rejectAllChanges().run()}><X size={17} /></Cmd>
+            </Group>
+            <Group title="Commentaires">
+              <Cmd
+                big
+                label="Commenter"
+                title="Commenter la sélection"
+                disabled={editor.state.selection.empty}
+                onClick={addComment}
+              >
+                <MessageSquarePlus size={19} />
+              </Cmd>
+            </Group>
+            <Group title="Analyse">
+              <Cmd big label="Statistiques" title="Mots, lisibilité, structure" onClick={() => onOpenStats?.()}><BarChart3 size={19} /></Cmd>
+            </Group>
+          </>
+        )}
+
+        {tab === "view" && (
+          <>
+            <Group title="Volets">
+              <Cmd big label="Plan" title="Volet de navigation (plan du document)" active={!!outlineOpen} onClick={() => onToggleOutline?.()}><PanelLeft size={19} /></Cmd>
+              <Cmd big label="Inspecteur" title="Volet de droite (commentaires, signatures, versions)" active={!!inspectorOpen} onClick={() => onToggleInspector?.()}><PanelRight size={19} /></Cmd>
+            </Group>
+            <Group title="Document">
+              <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>
+              <Cmd title="Statistiques" onClick={() => onOpenStats?.()}><BarChart3 size={17} /></Cmd>
+            </Group>
+          </>
+        )}
+      </div>
+
+      {/* Contextual strips — always visible when they apply, whatever the tab. */}
+      {(editor.isActive("figure") || editor.isActive("table") || editor.isActive("codeBlock") || isSuggesting(editor.state)) && (
+        <div className="elx-optionbar">
+          {editor.isActive("figure") && (
+            <>
+              <span className="elx-optionbar__title"><ImageIcon size={13} /> Image</span>
+              <Cmd title="Aligner à gauche (habillage)" active={editor.getAttributes("figure").align === "left"} onClick={() => editor.chain().focus().setFigureAlign("left").run()}><AlignLeft size={16} /></Cmd>
+              <Cmd title="Centrer" active={editor.getAttributes("figure").align === "center"} onClick={() => editor.chain().focus().setFigureAlign("center").run()}><AlignCenter size={16} /></Cmd>
+              <Cmd title="Aligner à droite (habillage)" active={editor.getAttributes("figure").align === "right"} onClick={() => editor.chain().focus().setFigureAlign("right").run()}><AlignRight size={16} /></Cmd>
+              <select
+                className="elx-select elx-select--size"
+                title="Largeur de l'image"
+                value={(editor.getAttributes("figure").width as string) || ""}
+                onChange={(e) => editor.chain().focus().setFigureWidth(e.target.value).run()}
+              >
+                <option value="">Auto</option>
+                <option value="25%">25 %</option>
+                <option value="50%">50 %</option>
+                <option value="75%">75 %</option>
+                <option value="100%">100 %</option>
+              </select>
+            </>
+          )}
+
+          {editor.isActive("table") && (
+            <>
+              <span className="elx-optionbar__title"><TableIcon size={13} /> Tableau</span>
+              <Cmd title="Insérer une ligne" onClick={() => editor.chain().focus().addRowAfter().run()}><Plus size={16} /></Cmd>
+              <Cmd title="Insérer une colonne" onClick={() => editor.chain().focus().addColumnAfter().run()}><Plus size={16} style={{ transform: "rotate(90deg)" }} /></Cmd>
+              <Cmd title="Fusionner les cellules" onClick={() => editor.chain().focus().mergeCells().run()}><Combine size={16} /></Cmd>
+              <Cmd title="Scinder la cellule" onClick={() => editor.chain().focus().splitCell().run()}><Split size={16} /></Cmd>
+              <Cmd title="Supprimer la ligne" onClick={() => editor.chain().focus().deleteRow().run()}><Minus size={16} /></Cmd>
+              <Cmd title="Supprimer la colonne" onClick={() => editor.chain().focus().deleteColumn().run()}><Minus size={16} style={{ transform: "rotate(90deg)" }} /></Cmd>
+              <Cmd title="Supprimer le tableau" danger onClick={() => editor.chain().focus().deleteTable().run()}><Trash2 size={16} /></Cmd>
+            </>
+          )}
+
+          {editor.isActive("codeBlock") && (
+            <>
+              <span className="elx-optionbar__title"><Code2 size={13} /> Code</span>
+              <select
+                className="elx-select"
+                title="Langage du bloc de code"
+                value={(editor.getAttributes("codeBlock").language as string) || "plaintext"}
+                onChange={(e) => editor.chain().focus().updateAttributes("codeBlock", { language: e.target.value }).run()}
+              >
+                {CODE_LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </>
+          )}
+
+          {isSuggesting(editor.state) && (
+            <>
+              <span className="elx-optionbar__title"><Pencil size={13} /> Suivi actif</span>
+              <Cmd title="Accepter toutes les modifications" onClick={() => editor.chain().focus().acceptAllChanges().run()}><Check size={16} /></Cmd>
+              <Cmd title="Refuser toutes les modifications" danger onClick={() => editor.chain().focus().rejectAllChanges().run()}><X size={16} /></Cmd>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

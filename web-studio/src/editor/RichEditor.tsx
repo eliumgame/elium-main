@@ -4,6 +4,7 @@ import { buildExtensions } from "./extensions";
 import Toolbar from "./Toolbar";
 import EditorStatusBar from "./EditorStatusBar";
 import FindReplaceBar from "./FindReplaceBar";
+import StatsDialog from "./StatsDialog";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocumentModel,
@@ -33,6 +34,12 @@ interface RichEditorProps {
   numberedHeadings?: boolean;
   onToggleNumberedHeadings?: () => void;
   onOpenPageSettings?: () => void;
+  /** Navigation pane state, owned by the view. */
+  outlineOpen?: boolean;
+  onToggleOutline?: () => void;
+  /** Right inspector state, owned by the view. */
+  inspectorOpen?: boolean;
+  onToggleInspector?: () => void;
   /** Document title, used to expand the {titre} token in header/footer. */
   docTitle?: string;
 }
@@ -53,6 +60,10 @@ export default function RichEditor({
   numberedHeadings,
   onToggleNumberedHeadings,
   onOpenPageSettings,
+  outlineOpen,
+  onToggleOutline,
+  inspectorOpen,
+  onToggleInspector,
   docTitle,
 }: RichEditorProps) {
   const pageRef = useRef<HTMLDivElement>(null);
@@ -87,6 +98,7 @@ export default function RichEditor({
 
   // Find (Ctrl/Cmd+F) and replace (Ctrl/Cmd+H) — intercept the browser default.
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
+  const [statsOpen, setStatsOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -162,7 +174,21 @@ export default function RichEditor({
   return (
     <div className="editor-shell">
       {editable && (
-        <Toolbar editor={editor} onInsertImage={handleInsertImage} onAddSignature={onAddSignatureRequest} commentAuthor={commentAuthor} numberedHeadings={numberedHeadings} onToggleNumberedHeadings={onToggleNumberedHeadings} onOpenPageSettings={onOpenPageSettings} />
+        <Toolbar
+          editor={editor}
+          onInsertImage={handleInsertImage}
+          onAddSignature={onAddSignatureRequest}
+          commentAuthor={commentAuthor}
+          numberedHeadings={numberedHeadings}
+          onToggleNumberedHeadings={onToggleNumberedHeadings}
+          onOpenPageSettings={onOpenPageSettings}
+          onOpenStats={() => setStatsOpen(true)}
+          outlineOpen={outlineOpen}
+          onToggleOutline={onToggleOutline}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={onToggleInspector}
+          onToggleFind={() => setFind((f) => ({ open: !f.open, replace: f.replace }))}
+        />
       )}
 
       {find.open && editor && (
@@ -205,6 +231,7 @@ export default function RichEditor({
       </div>
 
       <EditorStatusBar editor={editor} pageInfo={pageInfo} />
+      {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
 
       <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
     </div>

@@ -6,6 +6,7 @@ import InspectorPanel from "../panels/InspectorPanel";
 import VerificationBanner from "../components/VerificationBanner";
 import PageSettingsModal from "../components/PageSettingsModal";
 import CommandPalette from "../components/CommandPalette";
+import OutlinePanel from "../editor/OutlinePanel";
 import type { Studio } from "../studio/types";
 
 export default function StudioView({ studio }: { studio: Studio }) {
@@ -15,6 +16,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
   const [pageSettingsOpen, setPageSettingsOpen] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const commentAuthor = studio.identity ? `Clé ${studio.identity.fingerprint.slice(0, 8)}` : "Vous";
 
   // Keyboard shortcuts: Ctrl/Cmd+K (command palette), Ctrl/Cmd+\ (toggle inspector).
@@ -25,7 +27,8 @@ export default function StudioView({ studio }: { studio: Studio }) {
         setCmdkOpen((v) => !v);
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "\\") {
         e.preventDefault();
-        setInspectorOpen((v) => !v);
+        if (e.shiftKey) setOutlineOpen((v) => !v);
+        else setInspectorOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -37,6 +40,11 @@ export default function StudioView({ studio }: { studio: Studio }) {
       <TopBar studio={studio} />
       {!studio.editable && <VerificationBanner studio={studio} />}
       <div className="studio__body">
+        {outlineOpen && (
+          <aside className="studio__outline elx">
+            <OutlinePanel editor={editor} />
+          </aside>
+        )}
         <RichEditor
           documentModel={studio.file.document}
           editable={studio.editable}
@@ -56,6 +64,10 @@ export default function StudioView({ studio }: { studio: Studio }) {
             studio.updatePage({ numberedHeadings: !(studio.file.document.page.numberedHeadings ?? false) })
           }
           onOpenPageSettings={() => setPageSettingsOpen(true)}
+          outlineOpen={outlineOpen}
+          onToggleOutline={() => setOutlineOpen((v) => !v)}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={() => setInspectorOpen((v) => !v)}
         />
         <InspectorPanel
           studio={studio}

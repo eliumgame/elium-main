@@ -74,6 +74,21 @@ def main() -> int:
         rf'\g<1>{full}\g<2>',
         count=1,
     )
+    # Le lockfile porte la version du paquet racine à DEUX endroits ("version" de
+    # premier niveau, et packages[""].version). `npm ci` refuse de tourner si elle
+    # diverge de package.json — un bump non répercuté ici casse la CI.
+    _sub_in_file(
+        root / "web-studio" / "package-lock.json",
+        r'^(  "version":\s*")[^"]*(")',
+        rf'\g<1>{full}\g<2>',
+        count=1,
+    )
+    _sub_in_file(
+        root / "web-studio" / "package-lock.json",
+        r'^(      "version":\s*")[^"]*(")',
+        rf'\g<1>{full}\g<2>',
+        count=1,
+    )
     _sub_in_file(
         root / "installer" / "elium.wxs",
         r'(<\?define Version = ")[^"]*(" \?>)',

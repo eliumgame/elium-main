@@ -13,7 +13,7 @@ const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // pub
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
 import type { Deck } from "./slides/model";
-import type { PdfDoc } from "./pdf/model";
+import type { PdfFile } from "./pdf/model/persist";
 import SignatureCreator, { type SignatureDraft } from "./sign/SignatureCreator";
 import PasswordModal, { type SecretResult } from "./components/PasswordModal";
 import SettingsModal from "./components/SettingsModal";
@@ -1052,7 +1052,7 @@ export default function App() {
           <PdfView
             key={`pdf-${appKey}`}
             onHome={() => setMode("home")}
-            initial={appView?.kind === "pdf" ? (appView.data as PdfDoc) : undefined}
+            initial={appView?.kind === "pdf" ? (appView.data as PdfFile) : undefined}
             onExportElium={(data, title) => exportAppElium("pdf", data, title)}
           />
         </Suspense>

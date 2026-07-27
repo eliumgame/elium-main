@@ -26,6 +26,7 @@ export interface StructureCounts {
   tables: number;
   images: number;
   footnotes: number;
+  endnotes: number;
   comments: number;
   links: number;
   pages: number;

@@ -19,6 +19,7 @@ import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import type { Extensions } from "@tiptap/react";
 import { Indent, PageBreak, TableOfContents, Figure, Comment, Footnote, FootnotesList, ParagraphStyle, Bookmark } from "./customExtensions";
+import { Endnote, EndnotesList } from "./noteExtensions";
 import {
   ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
   IndexEntry, IndexBlock, MergeField,
@@ -66,6 +67,8 @@ export function buildExtensions(
     Figure,
     Footnote,
     FootnotesList,
+    Endnote,
+    EndnotesList,
     Bookmark,
     // Word-parity set (multilevel lists, columns/sections, renvois, index,
     // publipostage) — see wordExtensions.ts.

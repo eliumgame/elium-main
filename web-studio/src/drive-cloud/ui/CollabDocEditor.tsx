@@ -6,7 +6,7 @@
  * presence. Content lives entirely as encrypted CRDT updates (no plaintext ever
  * reaches the server). Undo/redo is owned by the CRDT (Collaboration).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
@@ -15,7 +15,7 @@ import {
   X, Wifi, WifiOff, Loader, Undo2, Redo2, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Quote, Code2, Highlighter,
   AlignLeft, AlignCenter, AlignRight, Link2, SplitSquareVertical, CornerDownRight,
-  ScanSearch, ListTree, Tag,
+  ScanSearch, ListTree, Tag, StickyNote, ArrowLeftRight,
 } from "lucide-react";
 import { buildExtensions } from "../../editor/extensions";
 import { LIST_SCHEMES, schemeById } from "../../editor/listSchemes";
@@ -30,6 +30,7 @@ import { DEFAULT_PAGE } from "../../format/document";
 import { pageSizeMm } from "../../format/pageSizes";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import type { DriveApi } from "../api";
+import { useDialogs } from "../../ui/dialogs";
 
 // Collaborative docs have no per-document page model, so they paginate on the
 // standard A4 geometry (same DEFAULT_PAGE as the local editor) — parity with the
@@ -58,11 +59,13 @@ function Toolbar({
   onCrossRef,
   onIndexEntry,
   onCaption,
+  onEndnote,
 }: {
   editor: Editor;
   onCrossRef: () => void;
   onIndexEntry: () => void;
   onCaption: () => void;
+  onEndnote: () => void;
 }) {
   const btn = (active: boolean, title: string, run: () => void, icon: React.ReactNode) => (
     <button
@@ -161,6 +164,13 @@ function Toolbar({
       {btn(false, "Marquer une entrée d'index", onIndexEntry, <ScanSearch size={16} />)}
       {btn(false, "Insérer l'index", () => chain().insertIndexBlock().run(), <ListTree size={16} />)}
       {btn(false, "Insérer une légende numérotée", onCaption, <Tag size={16} />)}
+      {btn(false, "Insérer une note de fin (numérotation i, ii, iii)", onEndnote, <StickyNote size={16} />)}
+      {btn(
+        false,
+        "Convertir les notes de bas de page en notes de fin",
+        () => chain().convertNotesTo("endnote").run(),
+        <ArrowLeftRight size={16} />,
+      )}
       <select
         className="dc-doc__tbselect"
         title="Table des illustrations"
@@ -192,6 +202,7 @@ export default function CollabDocEditor({
   onClose: () => void;
   refetchKey?: () => Promise<Uint8Array | null>;
 }) {
+  const { prompt } = useDialogs();
   const [status, setStatus] = useState<CollabStatus>("connecting");
   const [canWrite, setCanWrite] = useState(false);
   const [peers, setPeers] = useState<CollabUser[]>([]);
@@ -275,6 +286,15 @@ export default function CollabDocEditor({
     return () => provider.awareness.off("change", refresh);
   }, [provider]);
 
+  // Même invite que la surface locale (règle de parité dual-plateforme) : le
+  // texte de la note voyage dans l'attribut du nœud, donc rien à synchroniser.
+  const addEndnote = useCallback(async () => {
+    if (!editor) return;
+    const text = await prompt({ title: "Note de fin", label: "Texte de la note", multiline: true });
+    if (text === null) return;
+    editor.chain().focus().insertEndnote(text).run();
+  }, [editor, prompt]);
+
   const statusLabel =
     status === "open" ? "Connecté" :
     status === "connecting" ? "Connexion…" :
@@ -306,6 +326,7 @@ export default function CollabDocEditor({
             onCrossRef={() => setDialog("xref")}
             onIndexEntry={() => setDialog("index")}
             onCaption={() => setDialog("caption")}
+            onEndnote={addEndnote}
           />
         )}
         <div className="dc-doc__body">

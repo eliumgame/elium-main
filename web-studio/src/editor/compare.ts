@@ -73,6 +73,7 @@ const STRUCTURAL = new Set([
   "horizontalRule",
   "tableOfContents",
   "footnotesList",
+  "endnotesList",
   "indexBlock",
   "tableOfFigures",
   "image",

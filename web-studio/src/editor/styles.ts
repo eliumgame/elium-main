@@ -430,14 +430,21 @@ export function styleToDocxXml(style: DocStyle): string {
   );
 }
 
-/** The whole `styles.xml` part for a document's effective style set. */
-export function stylesXml(styles: DocStyle[]): string {
+/**
+ * The whole `styles.xml` part for a document's effective style set.
+ *
+ * `extra` takes already-serialised `<w:style>` fragments the writer owns — the
+ * footnote/endnote styles come from `format/docx-notes.ts`, and importing them
+ * here would point the dependency from `editor/` back into `format/`.
+ */
+export function stylesXml(styles: DocStyle[], extra = ""): string {
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
     `<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
     styles.map(styleToDocxXml).join("") +
     // The table style the writer references for grids.
     `<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>` +
+    extra +
     `</w:styles>`
   );
 }

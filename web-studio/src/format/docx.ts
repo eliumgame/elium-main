@@ -27,6 +27,11 @@ import { formatSizeMm } from "./pageSizes";
 import { fontResources } from "./embedded-fonts";
 import { mergeStyles, stylesXml } from "../editor/styles";
 import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } from "../editor/captions";
+import { collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
+import {
+  NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
+  notesRelXml,
+} from "./docx-notes";
 
 // =========================================================================
 // XML helpers
@@ -225,7 +230,8 @@ interface WriteCtx {
   relCount: number;
   drawingId: number;
   changeId: number; // unique w:id per tracked-change (w:ins/w:del) element
-  footnotes?: { id: string; text: string }[]; // collected for numbering + a notes section
+  footnotes?: NoteEntry[]; // collectées pour la numérotation et footnotes.xml
+  endnotes?: NoteEntry[]; // idem pour endnotes.xml
   /** scheme id (or "#bullet" / "#ordered" for unstyled lists) -> w:numId */
   numIds: Map<string, number>;
   /** <w:abstractNum> fragments, in numbering.xml order */
@@ -422,9 +428,15 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
   return (node.content ?? [])
     .map((c) => {
       if (c.type === "hardBreak") return "<w:r><w:br/></w:r>";
-      if (c.type === "footnote") {
-        const n = (ctx.footnotes ?? []).findIndex((f) => f.id === String(c.attrs?.id)) + 1;
-        return `<w:r><w:rPr><w:vertAlign w:val="superscript"/><w:color w:val="1d4ed8"/></w:rPr><w:t xml:space="preserve">[${n || "?"}]</w:t></w:r>`;
+      // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
+      // renumérote, les place en bas de page ou en fin de document, et les
+      // expose dans son propre gestionnaire de notes.
+      if (c.type === "footnote" || c.type === "endnote") {
+        const kind: NoteKind = c.type;
+        const pool = (kind === "endnote" ? ctx.endnotes : ctx.footnotes) ?? [];
+        const entry = pool.find((f) => f.id === String(c.attrs?.id));
+        if (!entry) return "";
+        return noteReferenceXml(kind, entry.number);
       }
       // A signet becomes a real Word bookmark (named after its label, so it
       // shows up usefully in Word's own bookmark list).
@@ -878,14 +890,12 @@ export function docToDocx(file: EliumFile): Uint8Array {
   };
   const headings = collectHeadings(doc);
 
-  // Collect footnotes so refs can be numbered and listed in a Notes section.
-  const footnotes: { id: string; text: string }[] = [];
-  const walkFn = (n: ProseMirrorNode) => {
-    if (n.type === "footnote") footnotes.push({ id: String(n.attrs?.id ?? footnotes.length + 1), text: String(n.attrs?.text ?? "") });
-    (n.content ?? []).forEach(walkFn);
-  };
-  walkFn(doc);
+  // Les deux familles de notes passent par le collecteur partagé : leur
+  // numérotation est ainsi exactement celle affichée à l'écran.
+  const footnotes = collectNotesJson(doc, "footnote");
+  const endnotes = collectNotesJson(doc, "endnote");
   ctx.footnotes = footnotes;
+  ctx.endnotes = endnotes;
 
   const title = file.manifest.title?.trim();
   const titleP = title
@@ -907,6 +917,12 @@ export function docToDocx(file: EliumFile): Uint8Array {
   let eliumIdx = 0; // index into `sections` (advanced only by real breaks)
   let currentType: SectionBreakKind = "nextPage";
 
+  // Déclaré une fois : le format de numérotation de chaque famille présente,
+  // pour que Word affiche les mêmes marqueurs que l'écran (romains minuscules
+  // pour les notes de fin).
+  const notePr =
+    (footnotes.length ? notePrXml("footnote") : "") + (endnotes.length ? notePrXml("endnote") : "");
+
   const sectPrFor = (cols: string): string => {
     const setup = sections[eliumIdx]?.setup;
     return `<w:sectPr>${sectPrBody(page, {
@@ -919,7 +935,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
       margins: setup?.margins,
       type: currentType,
       restartAt: setup?.restartNumbering ? setup.startAt : null,
-    })}${cols}</w:sectPr>`;
+    })}${notePr}${cols}</w:sectPr>`;
   };
   const boundary = (cols: string): string => `<w:p><w:pPr>${sectPrFor(cols)}</w:pPr></w:p>`;
 
@@ -944,23 +960,26 @@ export function docToDocx(file: EliumFile): Uint8Array {
     parts.push(blockXml(block, ctx, headings));
   }
   const bodyInner = parts.join("");
-  const notesXml = footnotes.length
-    ? `<w:p>${paraProps({ style: "Heading2" })}<w:r><w:t xml:space="preserve">Notes</w:t></w:r></w:p>`
-      + footnotes.map((f, i) =>
-          `<w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t xml:space="preserve">[${i + 1}] </w:t></w:r><w:r><w:t xml:space="preserve">${xmlEsc(f.text)}</w:t></w:r></w:p>`,
-        ).join("")
-    : "";
+  // Plus de section « Notes » factice dans le corps : les notes vivent dans
+  // footnotes.xml / endnotes.xml, donc Word les rend lui-même au bon endroit.
+  const notesXml = "";
 
   // Page setup of the LAST section (format/orientation/margins/numbering).
   const sectPr = sectPrFor("");
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document ${NS}><w:body>${titleP}${bodyInner}${notesXml}${sectPr}</w:body></w:document>`;
 
+  // Les parties de notes sont déclarées avant les autres relations, pour que
+  // leurs rId restent stables d'un export à l'autre.
+  const noteRels =
+    (footnotes.length ? notesRelXml("footnote", `rId${ctx.relCount++}`) : "") +
+    (endnotes.length ? notesRelXml("endnote", `rId${ctx.relCount++}`) : "");
+
   const baseRels =
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
     '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
   const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${ctx.rels.join("")}</Relationships>`;
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${noteRels}${ctx.rels.join("")}</Relationships>`;
 
   const mediaDefaults = Object.keys(ctx.media)
     .map((f) => f.split(".").pop() ?? "png")
@@ -973,7 +992,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Default Extension="xml" ContentType="application/xml"/>${mediaDefaults}
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -994,10 +1013,14 @@ export function docToDocx(file: EliumFile): Uint8Array {
     "word/document.xml": strToU8(documentXml),
     // Real <w:style> definitions, so Word shows the document's styles in ITS
     // own gallery instead of receiving formatting baked into every run.
-    "word/styles.xml": strToU8(stylesXml(mergeStyles(file.document.styles as never))),
+    "word/styles.xml": strToU8(stylesXml(mergeStyles(file.document.styles as never), noteStylesXml())),
     "word/numbering.xml": strToU8(numberingXml(ctx)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };
+  // Les vraies parties de notes : Word les renumérote et les place lui-même.
+  if (footnotes.length) files[NOTE_PART.footnote] = strToU8(notesPartXml("footnote", footnotes));
+  if (endnotes.length) files[NOTE_PART.endnote] = strToU8(notesPartXml("endnote", endnotes));
+
   for (const [name, bytes] of Object.entries(ctx.media)) files[`word/media/${name}`] = bytes;
 
   // Embedded typefaces: a real `fontTable.xml` plus one obfuscated font part per

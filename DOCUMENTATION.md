@@ -316,9 +316,11 @@ orientation et reprise de numérotation par section), **renvois** auto-actualis�
 **index** (marquage d'entrées et sous-entrées + index alphabétique paginé),
 **comparaison de documents** (le diff arrive en suggestions dans le flux de
 révision existant), **publipostage** (source CSV/TSV, champs, aperçu par
-enregistrement, fusion) et **légendes auto-numérotées** avec **table des
+enregistrement, fusion), **légendes auto-numérotées** avec **table des
 illustrations** (numérotation par étiquette recalculée en continu, renvois vers
-les légendes, champs `SEQ` et `TOC \c` à l'export).
+les légendes, champs `SEQ` et `TOC \c` à l'export) et **notes de fin** en plus
+des notes de bas de page (marqueurs romains minuscules comme Word, conversion
+d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`).
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -858,10 +860,32 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     table, donc Word peut les mettre à jour lui-même. Le titre passe par
     `figureTableTitle`, qui applique le pluriel français (« Table des tableaux »,
     pas « tableaus »).
+  - **Notes** (`editor/notes.ts`, `editor/noteExtensions.ts`, `format/docx-notes.ts`) :
+    les deux familles sortent d'**une seule fabrique** paramétrée par la famille,
+    parce que la seule chose qui doit absolument rester commune est la
+    numérotation — une deuxième boucle aurait fini par afficher dans la liste un
+    marqueur différent de celui de l'appel. Les notes de bas de page se numérotent
+    en chiffres arabes, les notes de fin en **romains minuscules**, exactement
+    comme Word, et le `w:numFmt` exporté déclare la même chose pour que le
+    document ouvert dans Word ressemble à ce qu'on avait à l'écran. `convertNotes`
+    convertit une famille dans l'autre (fonction pure) : la liste de destination
+    est ajoutée si elle manque, celle d'origine retirée quand elle n'a plus rien à
+    lister. Les notes de fin sont aussi des cibles de renvoi.
+
+    **L'export DOCX des notes était en trompe-l'œil** : il écrivait « [1] » en
+    exposant et un titre « Notes » suivi de paragraphes, si bien que Word ne
+    voyait aucune note — ni renumérotation, ni placement en bas de page, ni
+    présence dans son gestionnaire de notes. `format/docx-notes.ts` produit
+    désormais les vraies parties `footnotes.xml`/`endnotes.xml` avec leurs
+    `w:footnoteReference`/`w:endnoteReference`, les deux notes réservées
+    (séparateur et séparateur de continuation, ids -1 et 0 — c'est pourquoi les
+    notes réelles commencent à 1), les styles `FootnoteText`/`EndnoteText` et le
+    `w:endnotePr` en fin de document. Les quatre surfaces (écran, HTML, Markdown,
+    DOCX) passent par le même collecteur : il y en avait trois différentes avant.
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
-    section, renvois, index, légendes et table des illustrations. Comparaison et publipostage restent sur la surface
+    section, renvois, index, légendes, table des illustrations, notes de fin et conversion des notes. Comparaison et publipostage restent sur la surface
     locale : les deux produisent un nouveau document à partir de fichiers, ce qui
     n'a pas de sens dans un document partagé en direct.
 - **Fait aussi** : **polices embarquées**, **zoom**, **formats de page étendus**,
@@ -876,8 +900,8 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **notes de fin** ;
-  **taquets de tabulation** (demandent une règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
+- **Reste** (parité Word, par ordre de valeur décroissante) : **taquets de
+  tabulation** (demandent une règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
   formes** ; **filigrane** ; **styles de tableau** (trame, tri, alignement de
   cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
   dictionnaire hors-ligne) ; règle graduée et quadrillage.

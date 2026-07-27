@@ -731,9 +731,45 @@
   font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
   color: var(--text-muted); font-weight: 700; margin-bottom: 6px;
 }
-.elium-footnotes__list { margin: 0; padding-left: 1.5em; }
+/* Pas de `list-style` : les deux familles écrivent leur marqueur à la main (les
+   notes de fin sont en romains minuscules, ce qu'aucune valeur CSS ne rend).
+   Laisser la puce du navigateur afficherait DEUX numéros par ligne. */
+.elium-footnotes__list { margin: 0; padding-left: 0; list-style: none; }
 .elium-footnotes__item { margin: 3px 0; }
 .elium-footnotes__empty { color: var(--text-muted); font-style: italic; }
+
+/* --- Editor: notes de fin ------------------------------------------------- */
+/* Même langage visuel que les notes de bas de page, dans une teinte distincte :
+   les deux familles peuvent coexister dans un document et doivent se
+   différencier d'un coup d'œil. */
+.elium-en-ref {
+  color: var(--accent, #7c3aed); font-weight: 700; font-size: .7em;
+  vertical-align: super; cursor: help; padding: 0 1px; user-select: none;
+}
+.ProseMirror-selectednode.elium-en-ref { outline: 2px solid var(--accent, #7c3aed); border-radius: 2px; }
+.elium-endnotes {
+  margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--border-strong);
+  font-size: 13px; color: var(--text-soft); user-select: none;
+}
+.elium-endnotes__title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-muted); font-weight: 700; margin-bottom: 6px;
+}
+.elium-endnotes__list { margin: 0; padding-left: 0; list-style: none; }
+.elium-endnotes__item { margin: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+.elium-endnotes__item.is-linked { cursor: pointer; border-radius: 4px; }
+.elium-endnotes__item.is-linked:hover { background: var(--surface-2); }
+.elium-endnotes__mark, .elium-footnotes__mark {
+  flex: none; min-width: 2.2em; text-align: right;
+  color: var(--accent, #7c3aed); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.elium-footnotes__mark { color: var(--primary); }
+.elium-endnotes__text, .elium-footnotes__text { min-width: 0; }
+.elium-endnotes__empty { color: var(--text-muted); font-style: italic; }
+/* La liste des notes de bas de page passe aussi en marqueurs explicites. */
+.elium-footnotes__item { display: flex; gap: 8px; align-items: baseline; }
+.elium-footnotes__item.is-linked { cursor: pointer; border-radius: 4px; }
+.elium-footnotes__item.is-linked:hover { background: var(--surface-2); }
 
 /* --- Editor: styles de paragraphe nommés ---------------------------------- */
 .elium-prose .elium-pstyle--subtitle {

@@ -24,6 +24,7 @@ import { fontFaceCss, fontResources } from "../format/embedded-fonts";
 import {
   buildFigureTable, captionPrefix, collectCaptionsJson, figureTableTitle, type CaptionEntry,
 } from "../editor/captions";
+import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 
 /** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -141,17 +142,15 @@ function xrefText(node: ProseMirrorNode, targets: RefTarget[]): string {
   return referenceLabel(target, display, null);
 }
 
-/** Collect footnotes in document order so refs and the notes list can be numbered. */
-function collectFootnotes(doc: ProseMirrorNode): { id: string; text: string }[] {
-  const out: { id: string; text: string }[] = [];
-  const walk = (n: ProseMirrorNode) => {
-    if (n.type === "footnote") out.push({ id: String(n.attrs?.id ?? out.length + 1), text: String(n.attrs?.text ?? "") });
-    (n.content ?? []).forEach(walk);
-  };
-  walk(doc);
-  return out;
-}
-const fnNum = (fns: { id: string }[], id: unknown): number => fns.findIndex((f) => f.id === String(id)) + 1;
+/**
+ * La note désignée par un identifiant, dans la famille donnée.
+ *
+ * La numérotation vient de `collectNotesJson`, comme à l'écran et comme à
+ * l'export DOCX : une quatrième implémentation locale finirait par afficher un
+ * marqueur différent de celui que l'auteur a sous les yeux.
+ */
+const noteOf = (notes: NoteEntry[], id: unknown): NoteEntry | null =>
+  notes.find((n) => n.id === String(id)) ?? null;
 
 function tocHtml(headings: Heading[]): string {
   const inner = headings.length
@@ -165,7 +164,8 @@ function tocHtml(headings: Heading[]): string {
 interface HtmlCtx {
   headings: Heading[];
   hi: number;
-  footnotes: { id: string; text: string }[];
+  footnotes: NoteEntry[];
+  endnotes: NoteEntry[];
   targets: RefTarget[];
   index: IndexGroup[];
   captions: CaptionEntry[];
@@ -250,16 +250,32 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       return `<h${level}${id}${blockStyle(node)}>${kids}</h${level}>`;
     }
     case "tableOfContents": return tocHtml(ctx.headings);
-    case "footnote": {
-      const n = fnNum(ctx.footnotes, node.attrs?.id);
-      return `<sup class="elium-fn-ref" id="fnref-${n}"><a href="#fn-${n}">${n || "?"}</a></sup>`;
+    case "footnote":
+    case "endnote": {
+      const kind: NoteKind = node.type;
+      const entry = noteOf(kind === "endnote" ? ctx.endnotes : ctx.footnotes, node.attrs?.id);
+      if (!entry) return "";
+      const p = kind === "endnote" ? "en" : "fn";
+      const cls = kind === "endnote" ? "elium-en-ref" : "elium-fn-ref";
+      return `<sup class="${cls}" id="${p}ref-${entry.number}">` +
+        `<a href="#${p}-${entry.number}">${esc(entry.marker)}</a></sup>`;
     }
-    case "footnotesList": {
-      if (!ctx.footnotes.length) return "";
-      const items = ctx.footnotes
-        .map((f, i) => `<li id="fn-${i + 1}">${esc(f.text)} <a class="elium-fn-back" href="#fnref-${i + 1}">↩</a></li>`)
+    case "footnotesList":
+    case "endnotesList": {
+      const kind: NoteKind = node.type === "endnotesList" ? "endnote" : "footnote";
+      const notes = kind === "endnote" ? ctx.endnotes : ctx.footnotes;
+      if (!notes.length) return "";
+      const p = kind === "endnote" ? "en" : "fn";
+      const cls = kind === "endnote" ? "elium-endnotes" : "elium-footnotes";
+      // Le marqueur est écrit à la main : aucune valeur de `list-style` ne rend
+      // des romains minuscules suivis du texte comme le fait Word.
+      const items = notes
+        .map((n) => `<li id="${p}-${n.number}" value="${n.number}">` +
+          `<span class="${cls}__mark">${esc(n.marker)}</span> ${esc(n.text)} ` +
+          `<a class="elium-fn-back" href="#${p}ref-${n.number}">↩</a></li>`)
         .join("");
-      return `<section class="elium-footnotes"><hr><ol>${items}</ol></section>`;
+      return `<section class="${cls}"><hr><div class="${cls}__title">${esc(NOTE_TITLES[kind])}</div>` +
+        `<ol class="${cls}__list">${items}</ol></section>`;
     }
     case "bookmark": return `<a id="${esc(String(node.attrs?.id ?? ""))}" class="elium-bookmark"></a>`;
     case "crossReference": {
@@ -363,7 +379,8 @@ export function docToHtml(model: EliumDocumentModel): string {
   return blockHtml(model.doc, {
     headings: collectHeadings(model.doc),
     hi: 0,
-    footnotes: collectFootnotes(model.doc),
+    footnotes: collectNotesJson(model.doc, "footnote"),
+    endnotes: collectNotesJson(model.doc, "endnote"),
     targets: collectTargetsJson(model.doc),
     index: buildIndexJson(model.doc),
     captions: collectCaptionsJson(model.doc),
@@ -398,7 +415,8 @@ function tocMd(headings: Heading[]): string {
 
 interface FlatCtx {
   headings: Heading[];
-  fns: { id: string; text: string }[];
+  fns: NoteEntry[];
+  ens: NoteEntry[];
   targets: RefTarget[];
   index: IndexGroup[];
   captions: CaptionEntry[];
@@ -410,7 +428,8 @@ interface FlatCtx {
 
 const emptyFlatCtx = (doc: ProseMirrorNode): FlatCtx => ({
   headings: collectHeadings(doc),
-  fns: collectFootnotes(doc),
+  fns: collectNotesJson(doc, "footnote"),
+  ens: collectNotesJson(doc, "endnote"),
   targets: collectTargetsJson(doc),
   index: buildIndexJson(doc),
   captions: collectCaptionsJson(doc),
@@ -466,8 +485,24 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
     case "paragraph": return inline(node) + "\n";
     case "heading": return `${"#".repeat(Number(node.attrs?.level ?? 1))} ${inline(node)}\n`;
     case "tableOfContents": return tocMd(ctx.headings);
-    case "footnote": return `[^${fnNum(ctx.fns, node.attrs?.id) || "?"}]`;
-    case "footnotesList": return ctx.fns.length ? "\n" + ctx.fns.map((f, i) => `[^${i + 1}]: ${f.text}`).join("\n") + "\n" : "";
+    case "footnote":
+    case "endnote": {
+      // Markdown n'a qu'une syntaxe de note : les notes de fin sont préfixées
+      // pour que les deux familles ne se télescopent pas dans le même espace de
+      // noms (`[^1]` d'un côté, `[^en-i]` de l'autre).
+      const kind: NoteKind = node.type;
+      const entry = noteOf(kind === "endnote" ? ctx.ens : ctx.fns, node.attrs?.id);
+      if (!entry) return "";
+      return `[^${kind === "endnote" ? `en-${entry.marker}` : entry.marker}]`;
+    }
+    case "footnotesList":
+    case "endnotesList": {
+      const kind: NoteKind = node.type === "endnotesList" ? "endnote" : "footnote";
+      const notes = kind === "endnote" ? ctx.ens : ctx.fns;
+      if (!notes.length) return "";
+      const key = (n: NoteEntry) => (kind === "endnote" ? `en-${n.marker}` : n.marker);
+      return `\n### ${NOTE_TITLES[kind]}\n` + notes.map((n) => `[^${key(n)}]: ${n.text}`).join("\n") + "\n";
+    }
     case "bookmark": return "";
     case "crossReference": return `[${xrefText(node, ctx.targets)}](#${String(node.attrs?.targetId ?? "")})`;
     case "indexEntry": return "";
@@ -551,8 +586,19 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
     case "paragraph": return inlineText(node, ctx) + "\n";
     case "heading": return inlineText(node, ctx) + "\n";
     case "tableOfContents": return tocText(ctx.headings);
-    case "footnote": return `[${fnNum(ctx.fns, node.attrs?.id) || "?"}]`;
-    case "footnotesList": return ctx.fns.length ? "\n" + ctx.fns.map((f, i) => `[${i + 1}] ${f.text}`).join("\n") + "\n" : "";
+    case "footnote":
+    case "endnote": {
+      const kind: NoteKind = node.type;
+      const entry = noteOf(kind === "endnote" ? ctx.ens : ctx.fns, node.attrs?.id);
+      return entry ? `[${entry.marker}]` : "";
+    }
+    case "footnotesList":
+    case "endnotesList": {
+      const kind: NoteKind = node.type === "endnotesList" ? "endnote" : "footnote";
+      const notes = kind === "endnote" ? ctx.ens : ctx.fns;
+      if (!notes.length) return "";
+      return `\n${NOTE_TITLES[kind]}\n` + notes.map((n) => `[${n.marker}] ${n.text}`).join("\n") + "\n";
+    }
     case "bookmark": return "";
     case "crossReference": return xrefText(node, ctx.targets);
     case "indexEntry": return "";
@@ -632,7 +678,14 @@ const PRINT_CSS = `
   .elium-figure--left{float:left;margin:6px 18px 10px 0;max-width:48%}
   .elium-figure--right{float:right;margin:6px 0 10px 18px;max-width:48%}
   .elium-footnotes{margin-top:32px;font-size:13px;color:#475569;page-break-inside:avoid}
-  .elium-footnotes ol{padding-left:20px;margin:8px 0} .elium-footnotes li{margin:3px 0}
+  /* list-style:none — le marqueur est écrit à la main (romains minuscules pour
+     les notes de fin) ; la puce du navigateur ferait un double numéro. */
+  .elium-footnotes ol{padding-left:20px;margin:8px 0;list-style:none} .elium-footnotes li{margin:3px 0}
+  .elium-endnotes{margin-top:32px;font-size:13px;color:#475569;page-break-before:always}
+  .elium-endnotes__title,.elium-footnotes__title{font-weight:700;color:#0f172a;margin:8px 0 4px}
+  .elium-endnotes__list{padding-left:20px;margin:8px 0;list-style:none}
+  .elium-endnotes__list li{margin:3px 0}
+  .elium-endnotes__mark,.elium-footnotes__mark{font-weight:600;color:#1d4ed8;margin-right:4px}
   .elium-fn-ref{font-weight:600} .elium-fn-ref a{color:#1d4ed8;text-decoration:none} .elium-fn-back{text-decoration:none;color:#94a3b8}
   .elium-columns{margin:14px 0}
   .elium-columns > *{break-inside:avoid-column}

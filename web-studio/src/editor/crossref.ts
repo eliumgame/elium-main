@@ -13,9 +13,10 @@
  * reference keeps pointing at the right object when content is reordered.
  */
 
+import { noteMarker } from "./notes";
 import type { ProseMirrorNode } from "../format/types";
 
-export type RefKind = "bookmark" | "heading" | "figure" | "table" | "footnote" | "caption";
+export type RefKind = "bookmark" | "heading" | "figure" | "table" | "footnote" | "caption" | "endnote";
 
 export type RefDisplay = "text" | "number" | "page" | "aboveBelow" | "full";
 
@@ -25,6 +26,7 @@ export const REF_KIND_LABELS: Record<RefKind, string> = {
   figure: "Figure",
   table: "Tableau",
   footnote: "Note de bas de page",
+  endnote: "Note de fin",
   caption: "Légende",
 };
 
@@ -83,6 +85,7 @@ function scanTargets(walk: Walker): RefTarget[] {
   let figureNo = 0;
   let tableNo = 0;
   let footnoteNo = 0;
+  let endnoteNo = 0;
   // Captions are numbered per label, exactly as captions.ts does it — a renvoi
   // to "Figure 3" must say the same number the caption itself displays.
   const captionCounters = new Map<string, number>();
@@ -165,17 +168,22 @@ function scanTargets(walk: Walker): RefTarget[] {
         });
         break;
       }
-      case "footnote": {
-        footnoteNo += 1;
+      case "footnote":
+      case "endnote": {
+        // Le marqueur suit la famille : arabe pour les notes de bas de page,
+        // romain minuscule pour les notes de fin, comme à l'écran.
+        const kind = type === "endnote" ? "endnote" : "footnote";
+        const marker = kind === "endnote" ? noteMarker("endnote", (endnoteNo += 1)) : String((footnoteNo += 1));
         const noteText = shorten(String(attrs.text ?? ""));
+        const name = kind === "endnote" ? "Note de fin" : "Note";
         out.push({
           anchorId: String(attrs.id ?? ""),
-          kind: "footnote",
-          label: noteText ? `Note ${footnoteNo} — ${noteText}` : `Note ${footnoteNo}`,
-          number: String(footnoteNo),
+          kind,
+          label: noteText ? `${name} ${marker} — ${noteText}` : `${name} ${marker}`,
+          number: marker,
           text: noteText,
           pos,
-          key: `footnote:${pos}`,
+          key: `${kind}:${pos}`,
         });
         break;
       }

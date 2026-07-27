@@ -10,7 +10,7 @@ import { averageSentenceLength, formatMinutes, keywords, readability, textStats 
 
 /** Structural counts read straight from the document tree. */
 export function structureOf(editor: Editor | null) {
-  const counts = { headings: 0, tables: 0, images: 0, footnotes: 0, links: 0, lists: 0, codeBlocks: 0 };
+  const counts = { headings: 0, tables: 0, images: 0, footnotes: 0, endnotes: 0, links: 0, lists: 0, codeBlocks: 0 };
   if (!editor) return counts;
   editor.state.doc.descendants((node) => {
     switch (node.type.name) {
@@ -18,6 +18,7 @@ export function structureOf(editor: Editor | null) {
       case "table": counts.tables++; break;
       case "image": case "figure": counts.images++; break;
       case "footnote": counts.footnotes++; break;
+      case "endnote": counts.endnotes++; break;
       case "bulletList": case "orderedList": case "taskList": counts.lists++; break;
       case "codeBlock": counts.codeBlocks++; break;
       default: break;
@@ -72,6 +73,7 @@ export default function StatsDialog({ editor, pages, onClose }: {
     ["Tableaux", structure.tables],
     ["Images", structure.images],
     ["Notes de bas de page", structure.footnotes],
+    ["Notes de fin", structure.endnotes],
     ["Listes", structure.lists],
     ["Liens", structure.links],
     ["Blocs de code", structure.codeBlocks],

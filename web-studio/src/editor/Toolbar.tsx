@@ -8,6 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
+  StickyNote, ArrowLeftRight,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
@@ -225,6 +226,13 @@ export default function Toolbar({
     const text = await prompt({ title: "Note de bas de page", label: "Texte de la note", multiline: true });
     if (text === null) return;
     editor.chain().focus().insertFootnote(text).run();
+  }, [editor, prompt]);
+
+  const addEndnote = useCallback(async () => {
+    if (!editor) return;
+    const text = await prompt({ title: "Note de fin", label: "Texte de la note", multiline: true });
+    if (text === null) return;
+    editor.chain().focus().insertEndnote(text).run();
   }, [editor, prompt]);
 
   const addBookmark = useCallback(async () => {
@@ -533,6 +541,7 @@ export default function Toolbar({
               <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}><SeparatorHorizontal size={17} /></Cmd>
               <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>
               <Cmd title="Note de bas de page" onClick={addFootnote}><Superscript size={17} /></Cmd>
+              <Cmd title="Note de fin" onClick={addEndnote}><StickyNote size={17} /></Cmd>
             </Group>
             <Group title="Signature">
               <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>
@@ -562,6 +571,30 @@ export default function Toolbar({
 
             <Group title="Notes">
               <Cmd big label="Note" title="Insérer une note de bas de page" onClick={addFootnote}><Superscript size={19} /></Cmd>
+              <Cmd big label="Note de fin" title="Insérer une note de fin (numérotation i, ii, iii)" onClick={addEndnote}><StickyNote size={19} /></Cmd>
+              <Dropdown title="Convertir les notes" icon={<ArrowLeftRight size={17} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Convertir les notes</div>
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { editor.chain().focus().convertNotesTo("endnote").run(); close(); }}
+                    >
+                      Notes de bas de page → notes de fin
+                    </button>
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { editor.chain().focus().convertNotesTo("footnote").run(); close(); }}
+                    >
+                      Notes de fin → notes de bas de page
+                    </button>
+                  </>
+                )}
+              </Dropdown>
             </Group>
 
             <Group title="Légendes">

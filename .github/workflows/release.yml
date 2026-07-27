@@ -27,6 +27,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Historique ET tags complets : installer/changelog.py dérive les
+          # nouveautés de `git log <tag précédent>..HEAD`. Un checkout
+          # superficiel (le défaut) donnerait une liste vide, donc une carte de
+          # mise à jour muette sur ce qu'elle apporte.
+          fetch-depth: 0
 
       - name: Vérifier le secret de signature
         id: guard
@@ -112,11 +118,22 @@ jobs:
         shell: bash
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          # Nécessaire pour relire le manifeste de la release précédente.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           V="${{ steps.ver.outputs.version }}"
           MSI="installer/output/Elium-${V}-Setup.msi"
+          # Historique des nouveautés : on récupère d'abord le manifeste DÉJÀ
+          # publié pour empiler dessus, sinon la carte de mise à jour ne pourrait
+          # annoncer que la dernière version au lieu de tout ce que l'utilisateur
+          # n'a pas encore. Best-effort : une première release n'a pas de passé.
+          gh release download --pattern latest.json --dir prev -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          PREV=""
+          if [ -f prev/latest.json ]; then PREV="--prev-manifest prev/latest.json"; fi
+          python installer/changelog.py --version "$V" --out dist/changelog.json $PREV
           ARGS=(--version "$V" --commit "${{ github.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
+          ARGS+=(--changelog-file dist/changelog.json)
           if [ -f "$MSI" ]; then ARGS+=(--msi "$MSI"); fi
           python installer/gen_manifest.py "${ARGS[@]}"
 

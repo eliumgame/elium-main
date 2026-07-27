@@ -68,6 +68,11 @@ def main() -> int:
     parser.add_argument("--msi")
     parser.add_argument("--out", default=".")
     parser.add_argument("--notes", default="")
+    parser.add_argument(
+        "--changelog-file",
+        default="",
+        help="JSON {changes, history} produit par installer/changelog.py.",
+    )
     parser.add_argument("--key")
     parser.add_argument("--key-file")
     args = parser.parse_args()
@@ -75,6 +80,19 @@ def main() -> int:
     version = args.version.lstrip("vV")
     tag = f"v{version}"
     priv = _load_private_key(args)
+
+    changes: list[str] = []
+    history: list[dict] = []
+    if args.changelog_file:
+        try:
+            data = json.loads(Path(args.changelog_file).read_text(encoding="utf-8"))
+            changes = [str(c) for c in (data.get("changes") or []) if str(c).strip()]
+            history = list(data.get("history") or [])
+            print(f"  [ok]   changelog : {len(changes)} nouveauté(s), {len(history)} version(s)")
+        except (OSError, ValueError) as exc:
+            # Un changelog manquant ne doit pas faire échouer une release : la
+            # mise à jour reste installable, seule la liste des nouveautés manque.
+            print(f"  [warn] changelog illisible ({exc}) : manifeste sans notes détaillées")
 
     artifacts: dict[str, dict] = {}
     for kind, value in (("exe", args.exe), ("web", args.web), ("msi", args.msi)):
@@ -101,6 +119,14 @@ def main() -> int:
         "pubDate": datetime.now(timezone.utc).isoformat(),
         "codeHash": compute_code_hash(repo_root()),
         "notes": args.notes,
+        # Nouveautés de CETTE version, et historique par version. La carte de
+        # mise à jour n'affiche ainsi pas seulement la dernière release mais tout
+        # ce que l'utilisateur n'a pas encore. Les deux champs sont DANS la charge
+        # signée : un intermédiaire ne peut pas réécrire ce que l'app annonce.
+        # Champs additifs — un client antérieur les ignore sans que la signature
+        # cesse d'être valide, puisqu'elle couvre les octets exacts du manifeste.
+        "changes": changes,
+        "history": history,
         "artifacts": artifacts,
     }
 

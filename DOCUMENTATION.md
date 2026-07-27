@@ -182,7 +182,29 @@ paquet `web.zip`, **signe** `latest.json` (Ed25519) et crée la GitHub Release `
 périodiquement, l'app **détecte** une màj (télécharge `latest.json` + `.sig`, **vérifie
 la signature** avec la clé publique embarquée, compare les versions) — **sans rien
 télécharger**. Si une màj existe, une **carte discrète avec un seul bouton** apparaît
-(« Mettre à jour »). Au clic : téléchargement avec **barre de progression animée**
+(« Mettre à jour »).
+
+La carte annonce **l'ensemble des nouveautés apportées**, pas seulement la dernière
+release : le manifeste signé transporte un **historique par version**
+(`history: [{version, date, changes[]}]`), et `updater.release_notes()` le réduit à
+ce qui est strictement postérieur à la version installée. Qui saute trois versions
+voit donc les trois. Le sous-titre résume l'ampleur (« 3 versions, 12 nouveautés »)
+et un bouton « Voir les nouveautés » déroule la liste groupée par version. Les deux
+champs sont **dans la charge signée** : un intermédiaire ne peut pas réécrire ce que
+l'app annonce. Champs additifs — un client antérieur les ignore sans invalider la
+signature, et un manifeste sans `history` retombe sur `changes`.
+
+La liste est construite en CI par `installer/changelog.py` depuis
+`git log <tag précédent>..HEAD` : les sujets de commit sont rendus lisibles
+(« feat(documents): styles nommés » → « Documents : styles nommés »), la plomberie
+est écartée (`chore`, `ci`, `docs`, y compris `fix(ci)`), et l'historique de la
+release précédente est empilé plutôt que reconstruit. `release.yml` a donc besoin de
+`fetch-depth: 0` — un checkout superficiel n'a ni historique ni tags, donc aucune
+nouveauté à annoncer. `changelog.version_tuple` est la **source unique** de la
+comparaison de versions ; `updater.py` s'y délègue, pour que la carte et le
+téléchargeur ne puissent pas divorcer sur ce qui est « plus récent ».
+
+Au clic : téléchargement avec **barre de progression animée**
 (endpoints `/__update__`, `POST /__update__/start`), puis :
 - **màj web** (cas courant) : `web.zip` vérifié (sha256 du manifeste signé) est déposé
   dans `%LOCALAPPDATA%\Elium\web\<version>\` ; la carte propose **« Recharger »** (un

@@ -36,6 +36,8 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import changelog
+
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -127,19 +129,15 @@ def current_version() -> str:
 
 
 def _version_tuple(v: str) -> tuple:
-    """Parse 'v4.1.0' / '4.0.1-rc' en une clé comparable (préversion < version finale)."""
-    v = v.strip()
-    if v.lower().startswith("v"):
-        v = v[1:]
-    core, _, pre = v.partition("-")
-    parts = []
-    for chunk in core.split("."):
-        digits = "".join(ch for ch in chunk if ch.isdigit())
-        parts.append(int(digits) if digits else 0)
-    while len(parts) < 3:
-        parts.append(0)
-    # (major, minor, patch, prerelease-flag) : une finale (1) > une préversion (0).
-    return (parts[0], parts[1], parts[2], 0 if pre else 1)
+    """
+    Parse 'v4.1.0' / '4.0.1-rc' en une clé comparable (préversion < version finale).
+
+    Délègue à `changelog.version_tuple`, source unique de cette comparaison : la
+    carte de mise à jour trie l'historique avec la même fonction, et deux
+    implémentations divergentes voudraient dire que l'interface et le
+    téléchargeur ne s'accordent pas sur ce qui est « plus récent ».
+    """
+    return changelog.version_tuple(v)
 
 
 def is_newer(remote: str, local: str) -> bool:
@@ -505,7 +503,15 @@ def relaunch_pending_exe() -> bool:
 #           | web-ready | exe-ready | error
 #   kind  : "web" | "exe" (comment la màj s'appliquera)
 #   progress : 0-100 pendant le téléchargement
-_status: dict[str, Any] = {"state": "idle", "version": None, "kind": None, "progress": 0}
+#   releases : [{version, date, changes[]}] — tout ce que l'utilisateur n'a pas
+#              encore, de la plus récente à la plus ancienne (pas seulement la
+#              dernière release), pour que la carte annonce l'ensemble des
+#              nouveautés apportées.
+#   summary  : « 3 versions, 12 nouveautés »
+_status: dict[str, Any] = {
+    "state": "idle", "version": None, "kind": None, "progress": 0,
+    "releases": [], "summary": "", "notes": "",
+}
 _pending_manifest: Optional[dict[str, Any]] = None
 _apply_lock = threading.Lock()
 _last_check_monotonic = 0.0  # throttle des re-vérifications (secondes monotoniques)
@@ -516,9 +522,41 @@ def get_status() -> dict[str, Any]:
 
 
 def _publish(state: str, *, version: Optional[str] = None,
-             kind: Optional[str] = None, progress: int = 0) -> dict[str, Any]:
+             kind: Optional[str] = None, progress: int = 0,
+             releases: Optional[list] = None, summary: Optional[str] = None,
+             notes: Optional[str] = None) -> dict[str, Any]:
     _status.update({"state": state, "version": version, "kind": kind, "progress": progress})
+    # Les nouveautés PERSISTENT d'un état à l'autre : elles sont calculées une
+    # fois à la détection, et la carte continue de les afficher pendant le
+    # téléchargement puis sur l'écran « prête ».
+    if releases is not None:
+        _status["releases"] = releases
+    if summary is not None:
+        _status["summary"] = summary
+    if notes is not None:
+        _status["notes"] = notes
     return get_status()
+
+
+def release_notes(manifest: dict[str, Any], local_version: str = "") -> list[dict[str, Any]]:
+    """
+    Nouveautés à annoncer : l'historique du manifeste réduit à ce qui est plus
+    récent que la version installée.
+
+    Un manifeste antérieur à `history` n'a que `changes` (ou rien) : on retombe
+    alors sur une entrée unique pour la version proposée, plutôt que de n'afficher
+    aucune information.
+    """
+    local = local_version or effective_version()
+    history = manifest.get("history") or []
+    if history:
+        return changelog.changes_since(history, local)
+    changes = manifest.get("changes") or []
+    if not changes:
+        return []
+    return [changelog.build_entry(
+        str(manifest.get("version", "")), str(manifest.get("pubDate", "")), changes,
+    )]
 
 
 def _needs_exe(manifest: dict[str, Any]) -> bool:
@@ -544,7 +582,12 @@ def check_only() -> dict[str, Any]:
     _pending_manifest = manifest
     kind = "exe" if _needs_exe(manifest) else "web"
     _log(f"check_only: màj {manifest.get('version')} disponible ({kind})")
-    return _publish("available", version=str(manifest.get("version")), kind=kind)
+    releases = release_notes(manifest)
+    return _publish(
+        "available", version=str(manifest.get("version")), kind=kind,
+        releases=releases, summary=changelog.summarize(releases),
+        notes=str(manifest.get("notes") or ""),
+    )
 
 
 def _apply(manifest: dict[str, Any]) -> dict[str, Any]:

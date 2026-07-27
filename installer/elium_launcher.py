@@ -95,6 +95,42 @@ UPDATE_CSS = """
   color: var(--el-text-muted, #586675); font-size: 12.5px; cursor: pointer; font-family: inherit;
 }
 .elium-upd-later:hover { color: var(--el-text-soft, #475569); text-decoration: underline; }
+/* Nouveautés : ce que la mise à jour apporte, replié par défaut pour que la
+   carte reste discrète, et déroulant sur toutes les versions non installées. */
+.elium-upd-more {
+  margin-top: 12px; width: 100%; background: none; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--el-border, #e2e8f0); border-radius: var(--el-radius-md, 8px);
+  color: var(--el-text-soft, #475569); font-size: 12.5px; font-weight: 600;
+  padding: 8px 12px; display: none; align-items: center; justify-content: center; gap: 6px;
+  transition: background .14s ease, border-color .14s ease;
+}
+.elium-upd-more.on { display: flex; }
+.elium-upd-more:hover { background: var(--el-surface-2, #f8fafc); border-color: var(--el-border-strong, #cbd5e1); }
+/* `inline-block` explicite : le bouton étant `display: flex`, le chevron est de
+   toute façon blockifié, mais l'écrire garde la rotation valide si le bouton
+   cessait d'être flex — `transform` ne s'applique pas à un inline non remplacé. */
+.elium-upd-more .chev { display: inline-block; transition: transform .18s ease; font-size: 10px; }
+.elium-upd-more.open .chev { transform: rotate(180deg); }
+.elium-upd-notes {
+  display: none; margin-top: 10px; max-height: 216px; overflow-y: auto;
+  border-top: 1px solid var(--el-border, #e2e8f0); padding-top: 10px;
+  font-size: 12.5px; line-height: 1.5; color: var(--el-text-soft, #475569);
+  overscroll-behavior: contain;
+}
+.elium-upd-notes.open { display: block; }
+.elium-upd-relv {
+  font-weight: 700; color: var(--el-text, #0f172a); font-size: 12px;
+  margin: 10px 0 4px; display: flex; align-items: baseline; gap: 8px;
+}
+.elium-upd-notes .elium-upd-relv:first-child { margin-top: 0; }
+.elium-upd-reld { font-weight: 500; color: var(--el-text-muted, #586675); font-size: 11px; }
+.elium-upd-list { margin: 0; padding-left: 17px; }
+.elium-upd-list li { margin: 3px 0; }
+/* Une barre de défilement discrète : la liste peut être longue. */
+.elium-upd-notes::-webkit-scrollbar { width: 8px; }
+.elium-upd-notes::-webkit-scrollbar-thumb {
+  background: var(--el-border-strong, #cbd5e1); border-radius: 999px;
+}
 .elium-upd-spin {
   width: 22px; height: 22px; flex: none;
   border: 2.5px solid var(--el-surface-3, #f1f5f9);
@@ -112,7 +148,8 @@ UPDATE_CSS = """
 
 UPDATE_JS = """
 (function () {
-  var card, badge, spin, title, sub, track, bar, btn, later, dismissed = false;
+  var card, badge, spin, title, sub, track, bar, btn, later, more, notes;
+  var dismissed = false, expanded = false, notesKey = '';
   function build() {
     card = document.createElement('div'); card.id = 'elium-upd';
     var head = document.createElement('div'); head.className = 'elium-upd-head';
@@ -129,22 +166,70 @@ UPDATE_JS = """
     later = document.createElement('button'); later.className = 'elium-upd-later';
     later.textContent = 'Plus tard'; later.style.display = 'none';
     later.onclick = function () { dismissed = true; card.classList.remove('show'); };
-    card.appendChild(head); card.appendChild(track); card.appendChild(btn); card.appendChild(later);
+    notes = document.createElement('div'); notes.className = 'elium-upd-notes';
+    more = document.createElement('button'); more.className = 'elium-upd-more';
+    more.onclick = function () { expanded = !expanded; syncNotes(); };
+    card.appendChild(head); card.appendChild(track); card.appendChild(more);
+    card.appendChild(notes); card.appendChild(btn); card.appendChild(later);
     document.body.appendChild(card);
   }
   function post(path) {
     return fetch(path, { method: 'POST' }).then(function (r) { return r.json(); }).catch(function () {});
   }
   function set(icon, t, s) { badge.textContent = icon; title.textContent = t; sub.textContent = s; }
+  function syncNotes() {
+    more.classList.toggle('open', expanded);
+    notes.classList.toggle('open', expanded);
+    more.firstChild.nodeValue = expanded ? 'Masquer les nouveautes ' : 'Voir les nouveautes ';
+  }
+  // On ne reconstruit la liste que si la charge a REELLEMENT change : la carte
+  // interroge le statut toutes les 2 s, et rebatir a chaque tour arracherait le
+  // defilement sous le doigt de qui est en train de lire.
+  function fillNotes(releases) {
+    var key = JSON.stringify(releases || []);
+    if (key === notesKey) return;
+    notesKey = key;
+    notes.replaceChildren();
+    var total = 0;
+    (releases || []).forEach(function (rel) {
+      var items = rel.changes || [];
+      if (!items.length) return;
+      var h = document.createElement('div'); h.className = 'elium-upd-relv';
+      var v = document.createElement('span'); v.textContent = 'Version ' + (rel.version || '');
+      h.appendChild(v);
+      if (rel.date) {
+        var d = document.createElement('span'); d.className = 'elium-upd-reld';
+        d.textContent = rel.date; h.appendChild(d);
+      }
+      notes.appendChild(h);
+      var ul = document.createElement('ul'); ul.className = 'elium-upd-list';
+      items.forEach(function (c) {
+        var li = document.createElement('li'); li.textContent = c; ul.appendChild(li);
+      });
+      notes.appendChild(ul);
+      total += items.length;
+    });
+    var chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '\\u25BC';
+    more.replaceChildren(document.createTextNode('Voir les nouveautes '), chev);
+    more.classList.toggle('on', total > 0);
+    if (!total) expanded = false;
+    syncNotes();
+  }
   function render(st) {
     if (!card) { if (!document.body) return; build(); }
     var s = st.state;
     var showBtn = false, showTrack = false, showSpin = false, showLater = false;
     card.classList.remove('ready', 'err');
+    // Les nouveautes restent affichees de la detection jusqu'a l'ecran « prete » :
+    // c'est la meme mise a jour, l'utilisateur ne doit pas les perdre en route.
+    fillNotes(st.releases);
     if (s === 'available') {
       if (dismissed) { card.classList.remove('show'); return; }
-      badge.style.display = ''; set('\\u{1F504}', 'Mise a jour disponible',
-        'Version ' + (st.version || '') + ' \\u2014 installez-la en un clic');
+      badge.style.display = '';
+      // Le resume (« 3 versions, 12 nouveautes ») dit d'emblee l'ampleur de ce
+      // qui arrive ; a defaut on retombe sur le simple numero de version.
+      set('\\u{1F504}', 'Mise a jour disponible', 'Version ' + (st.version || '') +
+        (st.summary ? ' \\u2014 ' + st.summary : ' \\u2014 installez-la en un clic'));
       btn.textContent = 'Mettre a jour'; btn.disabled = false; showBtn = true; showLater = true;
       btn.onclick = function () { btn.disabled = true; post('/__update__/start'); };
     } else if (s === 'downloading') {

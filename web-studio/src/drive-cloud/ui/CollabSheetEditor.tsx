@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download } from "lucide-react";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
+import { cellsSnapshot, migrateCells, setCellText, type YCells } from "../collab-sheet-crdt";
 import type { DriveApi } from "../api";
 import { createCalc } from "../../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../../sheet/format";
@@ -60,7 +61,9 @@ export default function CollabSheetEditor({
       name: String(ys.get("name") ?? "Feuille"),
       rows: Number(ys.get("rows") ?? 20),
       cols: Number(ys.get("cols") ?? 8),
-      cells: Object.fromEntries((ys.get("cells") as Y.Map<string>)?.entries?.() ?? []) as Record<string, string>,
+      // `cellsSnapshot` accepte les deux formes : Y.Text (nouveau) et chaîne
+      // (documents déjà partagés avant la bascule).
+      cells: cellsSnapshot(ys.get("cells") as YCells | undefined),
       styles: Object.fromEntries((ys.get("styles") as Y.Map<CellStyle>)?.entries?.() ?? []) as Record<string, CellStyle>,
     }));
 
@@ -77,6 +80,14 @@ export default function CollabSheetEditor({
           s.set("cells", new Y.Map()); s.set("styles", new Y.Map());
           ySheets.push([s]);
         });
+      }
+      // Bascule des cellules héritées vers Y.Text, une fois à l'ouverture : sans
+      // cette passe, une cellule jamais rééditée resterait en
+      // dernier-écrivain-gagne pour toujours. Idempotent, donc sûr même si
+      // plusieurs pairs l'exécutent.
+      for (const ys of ySheets.toArray()) {
+        const cells = ys.get("cells") as YCells | undefined;
+        if (cells) migrateCells(ydoc, cells);
       }
       setSheets(snapshot());
     });
@@ -120,8 +131,9 @@ export default function CollabSheetEditor({
   const setCell = (ref: string, raw: string) => {
     const ys = yActive(); if (!ys) return;
     ydoc.transact(() => {
-      const cells = ys.get("cells") as Y.Map<string>;
-      if (raw.trim() === "") cells.delete(ref); else cells.set(ref, raw);
+      // Fusion caractère par caractère : deux personnes dans la MÊME cellule ne
+      // s'écrasent plus, là où un `Y.Map` de chaînes perdait la frappe de l'un.
+      setCellText(ys.get("cells") as YCells, ref, raw);
     });
   };
   const patchStyle = (patch: Partial<CellStyle>) => {

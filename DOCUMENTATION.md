@@ -757,9 +757,25 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   dans le même champ fusionnent au caractère près au lieu de s'écraser. Lecture
   inchangée (`Y.Map.toJSON()`/`String()` restituent la chaîne). Testé (deux pairs,
   éditions concurrentes non chevauchantes → les deux survivent).
-- **À améliorer** : le Tableur collaboratif reste en LWW par cellule (valeur
-  entière validée à la sortie de cellule) — suffisant pour des cellules courtes ;
-  une liaison `Y.Text` par cellule serait un raffinement.
+- Le **Tableur collaboratif** est passé au **`Y.Text` par cellule**
+  (`drive-cloud/collab-sheet-crdt.ts`). Chaque cellule était une chaîne dans un
+  `Y.Map` : toute écriture remplaçait la valeur entière, donc deux personnes
+  tapant dans la **même** cellule s'écrasaient — la frappe de l'un disparaissait
+  sans trace. `setCellText` réutilise le `syncYText` des présentations, qui réduit
+  le changement au plus petit remplacement possible, si bien que deux
+  modifications à des endroits différents de la même formule fusionnent. Testé
+  avec deux pairs hors ligne sur la même cellule : les deux survivent, et les
+  pairs convergent.
+
+  **Migration** : les documents déjà partagés contiennent des chaînes. La lecture
+  accepte les deux formes, la première écriture convertit la cellule, et
+  `migrateCells` bascule tout le document une fois à l'ouverture — sans quoi une
+  cellule jamais rééditée resterait en dernier-écrivain-gagne pour toujours. La
+  passe est idempotente, donc sûre même si plusieurs pairs l'exécutent.
+
+  À noter : `Y.Map.observe` ne signale que les ajouts et suppressions de clés, pas
+  la frappe DANS un `Y.Text` — c'est `observeDeep` qui est requis, sans quoi
+  l'affichage resterait figé pendant que le pair tape.
 
 ### Suite locale — Documents
 - **Fait** : éditeur riche complet, suivi des modifications, import/export DOCX,

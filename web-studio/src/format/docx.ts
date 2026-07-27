@@ -30,6 +30,7 @@ import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } fro
 import { collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
 import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornaments";
+import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import {
   NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
   notesRelXml,
@@ -821,21 +822,20 @@ function tableXml(table: ProseMirrorNode, ctx: WriteCtx, headings: { level: numb
         .map((cell) => {
           const inner = (cell.content ?? []).map((c) => blockXml(c, ctx, headings)).join("") || "<w:p/>";
           const span = Number(cell.attrs?.colspan ?? 1);
-          const tcPr = `<w:tcPr><w:tcW w:w="2400" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}</w:tcPr>`;
+          // L'alignement vertical de la cellule ; « top » est le défaut OOXML et
+          // n'a donc pas besoin d'être écrit.
+          const tcPr =
+            `<w:tcPr><w:tcW w:w="2400" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}` +
+            `${vAlignXml(cell.attrs?.vAlign)}</w:tcPr>`;
           return `<w:tc>${tcPr}${inner}</w:tc>`;
         })
         .join("");
       return `<w:tr>${cells}</w:tr>`;
     })
     .join("");
-  const tblPr =
-    '<w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/>' +
-    '<w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/>' +
-    '<w:left w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/>' +
-    '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/>' +
-    '<w:right w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/>' +
-    '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/>' +
-    '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="cbd5e1"/></w:tblBorders></w:tblPr>';
+  // Filets, ajustement et bandes viennent du style du tableau — et `w:tblLook`
+  // avec eux, sans quoi un tableau à lignes alternées s'ouvre uniformément gris.
+  const tblPr = tablePrXml(table.attrs?.tableStyle, table.attrs?.tableFit);
   return `<w:tbl>${tblPr}${grid}${body}</w:tbl>`;
 }
 

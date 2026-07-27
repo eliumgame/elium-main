@@ -22,6 +22,7 @@ import { Indent, PageBreak, TableOfContents, Figure, Comment, Footnote, Footnote
 import { Endnote, EndnotesList } from "./noteExtensions";
 import { Tab, TabStops } from "./tabExtension";
 import { Ornaments } from "./ornamentExtensions";
+import { TableStyles } from "./tableStyleExtension";
 import {
   ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
   IndexEntry, IndexBlock, MergeField,
@@ -74,6 +75,7 @@ export function buildExtensions(
     TabStops,
     Tab,
     Ornaments,
+    TableStyles,
     Bookmark,
     // Word-parity set (multilevel lists, columns/sections, renvois, index,
     // publipostage) — see wordExtensions.ts.

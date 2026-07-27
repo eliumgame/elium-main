@@ -9,6 +9,7 @@ import {
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
   StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets,
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical, ArrowDownAZ, ArrowUpAZ,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
@@ -22,6 +23,7 @@ import { FONT_ACCEPT, fontNameFromFilename } from "../format/embedded-fonts";
 import { CASE_LABELS } from "./charFormat";
 import { resolveStyle, styleCss } from "./styles";
 import { styleRegistry } from "./styleExtension";
+import { DEFAULT_TABLE_STYLE, TABLE_FIT_LABELS, TABLE_STYLES } from "./tableStyles";
 
 /**
  * The Documents ribbon.
@@ -140,6 +142,21 @@ function Dropdown({
       {open && <div className={`elx-menu ${align === "right" ? "elx-menu--right" : ""}`}>{children(() => setOpen(false))}</div>}
     </div>
   );
+}
+
+/**
+ * L'index de colonne de la cellule où se trouve le curseur.
+ *
+ * Le tri porte sur « la colonne du curseur » : sans cela il faudrait un dialogue
+ * pour choisir la colonne, alors que le curseur la désigne déjà.
+ */
+function currentCellIndex(editor: Editor): number {
+  const $from = editor.state.selection.$from;
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d);
+    if (node.type.name === "tableCell" || node.type.name === "tableHeader") return $from.index(d - 1);
+  }
+  return 0;
 }
 
 function newCommentId(): string {
@@ -962,6 +979,52 @@ export default function Toolbar({
               <Cmd title="Supprimer la ligne" onClick={() => editor.chain().focus().deleteRow().run()}><Minus size={16} /></Cmd>
               <Cmd title="Supprimer la colonne" onClick={() => editor.chain().focus().deleteColumn().run()}><Minus size={16} style={{ transform: "rotate(90deg)" }} /></Cmd>
               <Cmd title="Supprimer le tableau" danger onClick={() => editor.chain().focus().deleteTable().run()}><Trash2 size={16} /></Cmd>
+              <span className="elx-optionbar__sep" />
+              <select
+                className="elx-select"
+                title="Style du tableau"
+                value={(editor.getAttributes("table").tableStyle as string) || DEFAULT_TABLE_STYLE}
+                onChange={(e) => editor.chain().focus().setTableStyle(e.target.value as never).run()}
+              >
+                {TABLE_STYLES.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+              <select
+                className="elx-select"
+                title="Ajustement automatique"
+                value={(editor.getAttributes("table").tableFit as string) || "auto"}
+                onChange={(e) => editor.chain().focus().setTableFit(e.target.value as never).run()}
+              >
+                {(Object.keys(TABLE_FIT_LABELS) as (keyof typeof TABLE_FIT_LABELS)[]).map((f) => (
+                  <option key={f} value={f}>{TABLE_FIT_LABELS[f]}</option>
+                ))}
+              </select>
+              {/* Alignement vertical dans la cellule : les trois valeurs de w:vAlign. */}
+              <Cmd
+                title="Aligner en haut de la cellule"
+                active={(editor.getAttributes("tableCell").vAlign ?? "top") === "top"}
+                onClick={() => editor.chain().focus().setCellVAlign("top").run()}
+              ><AlignStartVertical size={16} /></Cmd>
+              <Cmd
+                title="Centrer verticalement dans la cellule"
+                active={editor.getAttributes("tableCell").vAlign === "center"}
+                onClick={() => editor.chain().focus().setCellVAlign("center").run()}
+              ><AlignCenterVertical size={16} /></Cmd>
+              <Cmd
+                title="Aligner en bas de la cellule"
+                active={editor.getAttributes("tableCell").vAlign === "bottom"}
+                onClick={() => editor.chain().focus().setCellVAlign("bottom").run()}
+              ><AlignEndVertical size={16} /></Cmd>
+              <span className="elx-optionbar__sep" />
+              <Cmd
+                title="Trier ce tableau sur la colonne du curseur (croissant)"
+                onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "asc").run()}
+              ><ArrowDownAZ size={16} /></Cmd>
+              <Cmd
+                title="Trier ce tableau sur la colonne du curseur (décroissant)"
+                onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "desc").run()}
+              ><ArrowUpAZ size={16} /></Cmd>
             </>
           )}
 

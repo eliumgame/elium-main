@@ -322,7 +322,8 @@ les légendes, champs `SEQ` et `TOC \c` à l'export) et **notes de fin** en plus
 des notes de bas de page (marqueurs romains minuscules comme Word, conversion
 d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`), plus
 une **règle graduée** interactive, de vrais **taquets de tabulation**, un
-**catalogue de symboles**, la **lettrine** et le **filigrane**.
+**catalogue de symboles**, la **lettrine**, le **filigrane** et les **styles de
+tableau** (trames alternées, tri, alignement de cellule, ajustement).
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -925,6 +926,29 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     une forme **VML** dans une partie d'en-tête, référencée par
     `w:headerReference` — sans cette référence la partie existe dans le fichier
     et n'apparaît sur aucune page.
+  - **Styles de tableau** (`editor/tableStyles.ts`, `editor/tableStyleExtension.ts`) :
+    un style de tableau n'est pas une couleur posée sur chaque cellule mais une
+    **règle** (« première ligne accentuée, une ligne de corps sur deux tramée »)
+    qui doit rester vraie quand on insère ou supprime une ligne. Les trames sont
+    donc des **décorations** recalculées depuis la position, comme la numérotation
+    des notes se déduit de l'ordre du document ; les stocker par cellule aurait
+    voulu dire les recalculer à chaque édition, et l'oublier une fois suffit pour
+    obtenir deux lignes grises côte à côte. La bande se compte depuis la première
+    ligne de **corps**, pour qu'ajouter un en-tête n'inverse pas tout.
+
+    Le tri porte sur la colonne du curseur, compare les nombres numériquement
+    (« 9 » avant « 10 », et les formats français « 1 234,50 » ou « 12,5 % » sont
+    lus), est **stable** à égalité, et ne rend qu'une **permutation d'indices** :
+    ce sont les vrais nœuds de ligne qui sont réordonnés, avec toute leur mise en
+    forme, au lieu d'être reconstruits depuis du texte.
+
+    Un piège à connaître : le tableau redimensionnable de TipTap est rendu par une
+    **vue de nœud** qui reconstruit son `<table>` et ignore aussi bien
+    `renderHTML` que les attributs de décoration posés sur le tableau. Le style et
+    l'ajustement voyagent donc en classes sur les **lignes**, que le CSS remonte au
+    tableau avec `:has()`. Le générateur émet les deux formes de sélecteur —
+    l'attribut pour l'export HTML, le marqueur de ligne pour l'éditeur — depuis la
+    même table de styles, sans quoi l'écran et l'export divergeraient.
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
@@ -943,8 +967,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; **styles de tableau** (trame, tri, alignement de
-  cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
+- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; **vérification orthographique** (nécessite un
   dictionnaire hors-ligne) ; quadrillage.
 
 ### Suite locale — Tableur

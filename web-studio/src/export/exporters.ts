@@ -26,6 +26,9 @@ import {
 } from "../editor/captions";
 import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 import { clampDropLines, watermarkCss } from "../editor/ornaments";
+import {
+  fitCss, isBandedColumn, rowClasses, tableStyleById, tableStylesCss,
+} from "../editor/tableStyles";
 
 /** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -366,7 +369,35 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const cap = kids.trim() ? `<figcaption>${kids}</figcaption>` : "";
       return `<figure class="elium-figure elium-figure--${align}"${style}${refIdAttr(node)}>${img}${cap}</figure>`;
     }
-    case "table": return `<table${refIdAttr(node)}>${kids}</table>`;
+    case "table": {
+      // Le style ET les trames sortent ici : à l'écran les bandes sont des
+      // décorations calculées, mais un HTML exporté n'a pas de plugin pour les
+      // recalculer — les classes doivent donc être écrites.
+      const style = tableStyleById(node.attrs?.tableStyle);
+      const fit = fitCss(node.attrs?.tableFit);
+      const rows = node.content ?? [];
+      const hasHeader = ((rows[0]?.content ?? [])[0]?.type ?? "") === "tableHeader";
+      const bodyHtml = rows
+        .map((row, i) => {
+          const cls = rowClasses(style, i, hasHeader);
+          const cells = (row.content ?? [])
+            .map((cell, j) => {
+              const tag = cell.type === "tableHeader" ? "th" : "td";
+              const span = Number(cell.attrs?.colspan ?? 1);
+              const v = String(cell.attrs?.vAlign ?? "top");
+              const attrs =
+                (span > 1 ? ` colspan="${span}"` : "") +
+                (v !== "top" ? ` data-valign="${esc(v)}"` : "") +
+                (isBandedColumn(style, j) ? ' class="is-banded-col"' : "");
+              return `<${tag}${attrs}>${(cell.content ?? []).map((c) => blockHtml(c, ctx)).join("")}</${tag}>`;
+            })
+            .join("");
+          return `<tr${cls.length ? ` class="${cls.join(" ")}"` : ""}>${cells}</tr>`;
+        })
+        .join("");
+      const styleAttr = fit ? ` style="${esc(fit)}"` : "";
+      return `<table${refIdAttr(node)} data-table-style="${style.id}"${styleAttr}>${bodyHtml}</table>`;
+    }
     case "tableRow": return `<tr>${kids}</tr>`;
     case "tableHeader": return `<th${spanAttrs(node)}>${kids}</th>`;
     case "tableCell": return `<td${spanAttrs(node)}>${kids}</td>`;
@@ -721,7 +752,7 @@ const PRINT_CSS = `
  * screen did. Scoped to bare `ol`/`ul` because the export has no `.elium-prose`
  * wrapper.
  */
-const LIST_SCHEME_CSS = schemesCss("");
+const LIST_SCHEME_CSS = schemesCss("") + tableStylesCss("");
 
 /** A CSS string literal (escaped) for use in @page margin boxes. */
 function cssStr(s: string): string {

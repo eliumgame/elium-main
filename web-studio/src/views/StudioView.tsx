@@ -69,6 +69,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen((v) => !v)}
           onStylesChange={studio.updateStyles}
+          onWatermarkChange={studio.updateWatermark}
         />
         <InspectorPanel
           studio={studio}

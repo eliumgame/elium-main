@@ -8,7 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  StickyNote, ArrowLeftRight, Ruler,
+  StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
@@ -79,6 +79,8 @@ interface ToolbarProps {
   onOpenParagraph?: () => void;
   onOpenStyles?: () => void;
   onOpenCaption?: () => void;
+  onOpenSymbol?: () => void;
+  onOpenWatermark?: () => void;
   /** Règle graduée : visible et bascule. */
   rulerVisible?: boolean;
   onToggleRuler?: () => void;
@@ -183,7 +185,7 @@ export default function Toolbar({
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
   onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
-  rulerVisible, onToggleRuler,
+  onOpenSymbol, onOpenWatermark, rulerVisible, onToggleRuler,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -546,6 +548,41 @@ export default function Toolbar({
               <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>
               <Cmd title="Note de bas de page" onClick={addFootnote}><Superscript size={17} /></Cmd>
               <Cmd title="Note de fin" onClick={addEndnote}><StickyNote size={17} /></Cmd>
+              <Cmd title="Insérer un symbole" onClick={() => onOpenSymbol?.()}><Sigma size={17} /></Cmd>
+            </Group>
+            <Group title="Ornements">
+              <Dropdown big label="Lettrine" title="Lettrine (première lettre agrandie)" icon={<Baseline size={19} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Lettrine</div>
+                    {([["drop", "Dans le texte"], ["margin", "Dans la marge"]] as const).map(([k, label]) => (
+                      <div key={k} className="elx-menu__group">
+                        <div className="elx-menu__sub">{label}</div>
+                        {[2, 3, 4, 5].map((n) => (
+                          <button
+                            key={`${k}${n}`}
+                            type="button"
+                            className="elx-menu__item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => { editor.chain().focus().setDropCap(k, n).run(); close(); }}
+                          >
+                            {n} lignes
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { editor.chain().focus().setDropCap("none").run(); close(); }}
+                    >
+                      Aucune lettrine
+                    </button>
+                  </>
+                )}
+              </Dropdown>
+              <Cmd big label="Filigrane" title="Filigrane du document" onClick={() => onOpenWatermark?.()}><Droplets size={19} /></Cmd>
             </Group>
             <Group title="Signature">
               <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>

@@ -1394,3 +1394,47 @@
 }
 .elium-tab.has-leader { color: var(--text-muted); }
 .elium-tab__leader { display: block; overflow: hidden; white-space: nowrap; letter-spacing: 1px; }
+
+/* --- Editor: symboles et filigrane ---------------------------------------- */
+.symdlg { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.symdlg__bar { display: flex; gap: 8px; align-items: center; }
+.symdlg__bar .settings__input { flex: 1 1 0; min-width: 0; }
+.symdlg__label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-muted); font-weight: 700;
+}
+.symdlg__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px; max-height: 88px; overflow-y: auto;
+}
+.symdlg__grid--main { max-height: 260px; }
+.symdlg__cell {
+  height: 38px; display: grid; place-items: center; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 18px; line-height: 1; font-family: inherit;
+  color: var(--text); transition: background .12s ease, border-color .12s ease;
+}
+.symdlg__cell:hover { background: var(--surface-3); border-color: var(--primary); }
+/* Un caractère invisible s'affiche par un symbole de substitution, sans quoi la
+   case paraîtrait vide et non cliquable. */
+.symdlg__cell.is-invisible { color: var(--text-muted); font-size: 14px; }
+.symdlg__empty { grid-column: 1 / -1; color: var(--text-muted); font-style: italic; font-size: 13px; }
+
+.wmdlg__presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.wmdlg__preset {
+  cursor: pointer; font-family: inherit; font-size: 11.5px; font-weight: 600;
+  padding: 4px 9px; border-radius: 999px; color: var(--text-soft);
+  background: var(--surface-2); border: 1px solid var(--border);
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.wmdlg__preset:hover { background: var(--surface-3); }
+.wmdlg__preset.is-active { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* L'aperçu utilise EXACTEMENT le rendu de la feuille : un aperçu approximatif
+   serait pire que pas d'aperçu, l'opacité et l'angle se jugeant à l'œil. */
+.wmdlg__preview {
+  width: 100%; max-height: 220px; border: 1px solid var(--border);
+  border-radius: 6px; background-color: var(--surface);
+  background-size: 100% 100%; background-repeat: no-repeat;
+  display: grid; place-items: center;
+}
+.wmdlg__preview-text { color: var(--text-muted); font-size: 12px; }

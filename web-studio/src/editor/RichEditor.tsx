@@ -21,6 +21,9 @@ import { setStyleRegistry } from "./styleExtension";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import Ruler from "./Ruler";
+import SymbolModal from "./SymbolModal";
+import WatermarkModal from "./WatermarkModal";
+import { watermarkCss } from "./ornaments";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocStyle,
@@ -28,6 +31,7 @@ import type {
   EliumSignature,
   ProseMirrorNode,
   SignatureVerdict,
+  EliumWatermark,
 } from "../format/types";
 import { pageSizeOf } from "../format/pageSizes";
 import {
@@ -65,6 +69,8 @@ interface RichEditorProps {
   docTitle?: string;
   /** Persist the document's own named styles. */
   onStylesChange?: (styles: EliumDocStyle[]) => void;
+  /** Le filigrane appartient au document : c'est la vue qui le persiste. */
+  onWatermarkChange?: (mark: EliumWatermark) => void;
 }
 
 export default function RichEditor({
@@ -89,6 +95,7 @@ export default function RichEditor({
   onToggleInspector,
   docTitle,
   onStylesChange,
+  onWatermarkChange,
 }: RichEditorProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -171,7 +178,7 @@ export default function RichEditor({
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
-  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | null;
+  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | "symbol" | "watermark" | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
 
   // --- Zoom ---------------------------------------------------------------
@@ -386,6 +393,8 @@ export default function RichEditor({
           onOpenParagraph={() => setDialog("paragraph")}
           onOpenStyles={() => setDialog("styles")}
           onOpenCaption={() => setDialog("caption")}
+          onOpenSymbol={() => setDialog("symbol")}
+          onOpenWatermark={() => setDialog("watermark")}
           rulerVisible={rulerVisible}
           onToggleRuler={() => setRulerVisible((v) => !v)}
         />
@@ -449,6 +458,18 @@ export default function RichEditor({
             paddingRight: `${baseMargins.right}mm`,
             paddingBottom: `${baseMargins.bottom}mm`,
             paddingLeft: `${baseMargins.left}mm`,
+            // Le filigrane est un FOND, pas un élément : il ne doit être ni
+            // sélectionnable, ni dans le flux, ni compté par la pagination — et
+            // un fond s'imprime, contrairement à un pseudo-élément positionné
+            // que certains moteurs escamotent. Il se répète pour couvrir chaque
+            // page d'un document à feuille unique.
+            backgroundImage: watermarkCss(
+              documentModel.watermark as never,
+              pageWidthMm,
+              pageHeightMm,
+            ) || undefined,
+            backgroundRepeat: "repeat-y",
+            backgroundPosition: "top center",
           }}
         >
           {/* Mixed sections: the container is transparent and each page is drawn
@@ -520,6 +541,16 @@ export default function RichEditor({
         />
       )}
       {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
+      {dialog === "watermark" && (
+        <WatermarkModal
+          value={documentModel.watermark as never}
+          pageWidthMm={pageWidthMm}
+          pageHeightMm={pageHeightMm}
+          onApply={(mark) => onWatermarkChange?.(mark as never)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "columns" && <ColumnsModal editor={editor} onClose={() => setDialog(null)} />}

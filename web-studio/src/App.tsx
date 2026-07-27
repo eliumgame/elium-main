@@ -57,6 +57,7 @@ import { exportHtml, exportMarkdown, exportText, exportPdf, exportProofReport, d
 import type { Template } from "./editor/templates";
 import type {
   EliumFile, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings, EliumDocStyle,
+  EliumWatermark,
 } from "./format/types";
 import type { ExportKind, Studio, StudioMode } from "./studio/types";
 
@@ -620,6 +621,10 @@ export default function App() {
     setFile((prev) => (prev ? { ...prev, document: { ...prev.document, styles } } : prev));
   }, []);
 
+  const updateWatermark = useCallback((watermark: EliumWatermark) => {
+    setFile((prev) => (prev ? { ...prev, document: { ...prev.document, watermark } } : prev));
+  }, []);
+
   const updatePage = useCallback((patch: Partial<PageSettings>) => {
     setFile((prev) => {
       if (!prev) return prev;
@@ -991,7 +996,7 @@ export default function App() {
         versionSecret: { password, keyfile: keyfileRef.current },
         vaultSecret,
         recipients, recipientPublic,
-        setTitle, setTrustedKey: setTrusted, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles,
+        setTitle, setTrustedKey: setTrusted, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
         createSignature, updateSignature, removeSignature, selectSignature: setSelectedSig,

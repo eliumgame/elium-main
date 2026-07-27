@@ -25,6 +25,7 @@ import {
   buildFigureTable, captionPrefix, collectCaptionsJson, figureTableTitle, type CaptionEntry,
 } from "../editor/captions";
 import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
+import { clampDropLines, watermarkCss } from "../editor/ornaments";
 
 /** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -242,7 +243,16 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
   const kids = (node.content ?? []).map((c) => nodeHtml(c, ctx)).join("");
   switch (node.type) {
     case "doc": return kids;
-    case "paragraph": return `<p${blockStyle(node)}>${kids || "<br>"}</p>`;
+    case "paragraph": {
+      // La lettrine passe par un attribut et une variable CSS : `::first-letter`
+      // ne peut pas être stylé en ligne, donc la règle vit dans la feuille.
+      const drop = node.attrs?.dropCap;
+      const dropAttr =
+        drop === "drop" || drop === "margin"
+          ? ` data-drop-cap="${drop}" style="--elium-dropcap:${(clampDropLines(node.attrs?.dropCapLines) * 1.5).toFixed(2)}em"`
+          : "";
+      return `<p${dropAttr}${blockStyle(node)}>${kids || "<br>"}</p>`;
+    }
     case "heading": {
       const level = Number(node.attrs?.level ?? 1);
       const slug = level <= 3 ? ctx.headings[ctx.hi++]?.slug ?? "" : String(node.attrs?.refId ?? "");
@@ -656,7 +666,7 @@ function signaturesHtml(signatures: EliumSignature[], verdicts?: Record<string, 
 }
 
 const PRINT_CSS = `
-  *{box-sizing:border-box} body{font-family:Inter,system-ui,Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:760px;margin:32px auto;padding:0 24px}
+  *{box-sizing:border-box} body{font-family:Inter,system-ui,Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:760px;margin:32px auto;padding:0 24px;background-repeat:repeat-y;background-position:top center}
   h1,h2,h3,h4{line-height:1.25} table{border-collapse:collapse;width:100%;margin:12px 0} th,td{border:1px solid #cbd5e1;padding:6px 10px;text-align:left}
   th{background:#f1f5f9} blockquote{border-left:3px solid #cbd5e1;margin:12px 0;padding:4px 16px;color:#475569}
   pre{background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow:auto} code{font-family:'Courier New',monospace}
@@ -686,6 +696,11 @@ const PRINT_CSS = `
   .elium-endnotes__list{padding-left:20px;margin:8px 0;list-style:none}
   .elium-endnotes__list li{margin:3px 0}
   .elium-endnotes__mark,.elium-footnotes__mark{font-weight:600;color:#1d4ed8;margin-right:4px}
+  /* Lettrine : ::first-letter ne peut pas être stylé en ligne, d'où la règle
+     ici et la taille passée en variable CSS par le paragraphe. */
+  p[data-drop-cap]::first-letter{float:left;font-size:var(--elium-dropcap,4.5em);
+    line-height:1;padding-right:.06em;margin-top:.05em;margin-bottom:-.08em;font-weight:600}
+  p[data-drop-cap="margin"]::first-letter{margin-left:-.7em}
   .elium-fn-ref{font-weight:600} .elium-fn-ref a{color:#1d4ed8;text-decoration:none} .elium-fn-back{text-decoration:none;color:#94a3b8}
   .elium-columns{margin:14px 0}
   .elium-columns > *{break-inside:avoid-column}
@@ -753,8 +768,13 @@ function embeddedFontCss(file: EliumFile): string {
 }
 
 export function buildStandaloneHtml(file: EliumFile, verdicts?: Record<string, SignatureVerdict>): string {
+  // Le filigrane est un fond de page : il s'imprime, ne se sélectionne pas et
+  // n'entre pas dans le flux — trois propriétés qu'un élément n'aurait pas.
+  const size = pageSizeOf(file.document.page);
+  const mark = watermarkCss(file.document.watermark as never, size.width, size.height);
+  const markCss = mark ? `body{background-image:${mark}}` : "";
   return `<!doctype html><html lang="${esc(file.manifest.language)}"><head><meta charset="utf-8">
-<title>${esc(file.manifest.title)}</title><style>${embeddedFontCss(file)}${PRINT_CSS}${LIST_SCHEME_CSS}${pageCss(file)}</style></head>
+<title>${esc(file.manifest.title)}</title><style>${embeddedFontCss(file)}${PRINT_CSS}${LIST_SCHEME_CSS}${pageCss(file)}${markCss}</style></head>
 <body><h1>${esc(file.manifest.title)}</h1>${docToHtml(file.document)}${signaturesHtml(file.signatures, verdicts)}</body></html>`;
 }
 

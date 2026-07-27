@@ -7,6 +7,7 @@ import type {
   SignatureVerdict,
   PageSettings,
   EliumDocStyle,
+  EliumWatermark,
 } from "../format/types";
 import type { IntegrityVerdict } from "../format/elium-package";
 import type { JournalVerdict } from "../format/journal";
@@ -50,6 +51,8 @@ export interface Studio {
   updatePage(patch: Partial<PageSettings>): void;
   /** Replace the document's own named styles. */
   updateStyles(styles: EliumDocStyle[]): void;
+  /** Le filigrane appartient au document entier, pas à un nœud. */
+  updateWatermark(mark: EliumWatermark): void;
   openSignatureCreator(): void;
   createSignature(draft: SignatureDraft): Promise<void>;
   updateSignature(sig: EliumSignature): void;

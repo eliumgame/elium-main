@@ -321,7 +321,8 @@ illustrations** (numérotation par étiquette recalculée en continu, renvois ve
 les légendes, champs `SEQ` et `TOC \c` à l'export) et **notes de fin** en plus
 des notes de bas de page (marqueurs romains minuscules comme Word, conversion
 d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`), plus
-une **règle graduée** interactive et de vrais **taquets de tabulation**.
+une **règle graduée** interactive, de vrais **taquets de tabulation**, un
+**catalogue de symboles**, la **lettrine** et le **filigrane**.
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -906,6 +907,24 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     différée passe par `setTimeout` **autant que** par `requestAnimationFrame` :
     rAF ne se déclenche pas quand la page ne composite pas (onglet caché, volet
     d'aperçu), et la tabulation resterait large de zéro.
+  - **Ornements** (`editor/ornaments.ts`, `editor/ornamentExtensions.ts`) :
+    **symboles** (sept groupes, recherche par nom ou par point de code, récents ;
+    les caractères invisibles portent un nom et un glyphe de substitution, sans
+    quoi leur case paraîtrait vide et non cliquable) ; **lettrine** en attribut de
+    paragraphe et non en nœud — la lettre reste du texte normal, éditable et
+    cherchable, là où un nœud l'aurait sortie du flux ; **filigrane** appartenant
+    au document entier.
+
+    Trois contraintes de rendu à connaître. La lettrine passe par
+    `::first-letter`, qui **ne peut pas** être stylé en ligne : la règle vit donc
+    dans la feuille injectée et le paragraphe ne transmet que la taille, en
+    variable CSS. Le filigrane est un **fond** de feuille et pas un élément : il
+    ne doit être ni sélectionnable, ni dans le flux, ni compté par la pagination,
+    et un fond s'imprime là où un pseudo-élément positionné est escamoté par
+    certains moteurs. Enfin Word **ne lit pas** un filigrane en SVG : il attend
+    une forme **VML** dans une partie d'en-tête, référencée par
+    `w:headerReference` — sans cette référence la partie existe dans le fichier
+    et n'apparaît sur aucune page.
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
@@ -924,8 +943,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **insertion de symboles** et lettrine ; **zones de texte /
-  formes** ; **filigrane** ; **styles de tableau** (trame, tri, alignement de
+- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; **styles de tableau** (trame, tri, alignement de
   cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
   dictionnaire hors-ligne) ; quadrillage.
 

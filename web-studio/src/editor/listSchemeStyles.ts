@@ -6,6 +6,7 @@
  * export can never drift from each other — they all render from the same source.
  */
 import { schemesCss } from "./listSchemes";
+import { dropCapStyleSheet } from "./ornamentExtensions";
 
 const STYLE_ID = "elium-list-schemes";
 
@@ -14,6 +15,8 @@ export function ensureListSchemeStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = schemesCss(".elium-prose");
+  // La lettrine passe par `::first-letter`, qui ne peut pas être stylé en ligne :
+  // sa règle doit donc vivre dans une feuille, comme les schémas de liste.
+  style.textContent = schemesCss(".elium-prose") + dropCapStyleSheet();
   document.head.appendChild(style);
 }

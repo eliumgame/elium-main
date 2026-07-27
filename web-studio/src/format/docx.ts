@@ -29,6 +29,7 @@ import { mergeStyles, stylesXml } from "../editor/styles";
 import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } from "../editor/captions";
 import { collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
+import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornaments";
 import {
   NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
   notesRelXml,
@@ -525,6 +526,13 @@ function paraProps(opts: {
   if (a.keepLines) p.push("<w:keepLines/>");
   if (a.pageBreakBefore) p.push("<w:pageBreakBefore/>");
 
+  // Lettrine : `w:framePr` ouvre la séquence de `w:pPr` dans le schéma OOXML.
+  const drop = dropCapXml(
+    a.dropCap === "drop" || a.dropCap === "margin" ? a.dropCap : "none",
+    Number(a.dropCapLines ?? 0),
+  );
+  if (drop) p.push(drop);
+
   // Taquets de tabulation : avant les bordures, dans l'ordre du schéma OOXML
   // (`w:tabs` précède `w:pBdr` dans la séquence de `w:pPr`), sans quoi Word
   // signale un document à réparer.
@@ -927,6 +935,16 @@ export function docToDocx(file: EliumFile): Uint8Array {
   let eliumIdx = 0; // index into `sections` (advanced only by real breaks)
   let currentType: SectionBreakKind = "nextPage";
 
+  // Filigrane : Word ne lit pas un filigrane en SVG, il attend une forme VML
+  // dans un EN-TÊTE. C'est ce qui le fait apparaître sur toutes les pages.
+  const mark = normalizeWatermark(file.document.watermark);
+  const markVml = watermarkVml(mark);
+  const headerId = markVml ? `rId${ctx.relCount++}` : "";
+
+  // Sans `w:headerReference`, la partie d'en-tête existe mais Word ne l'affiche
+  // sur aucune page : le filigrane serait dans le fichier et invisible.
+  const headerRef = headerId ? `<w:headerReference w:type="default" r:id="${headerId}"/>` : "";
+
   // Déclaré une fois : le format de numérotation de chaque famille présente,
   // pour que Word affiche les mêmes marqueurs que l'écran (romains minuscules
   // pour les notes de fin).
@@ -945,7 +963,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
       margins: setup?.margins,
       type: currentType,
       restartAt: setup?.restartNumbering ? setup.startAt : null,
-    })}${notePr}${cols}</w:sectPr>`;
+    })}${headerRef}${notePr}${cols}</w:sectPr>`;
   };
   const boundary = (cols: string): string => `<w:p><w:pPr>${sectPrFor(cols)}</w:pPr></w:p>`;
 
@@ -981,6 +999,10 @@ export function docToDocx(file: EliumFile): Uint8Array {
 
   // Les parties de notes sont déclarées avant les autres relations, pour que
   // leurs rId restent stables d'un export à l'autre.
+  const headerRel = markVml
+    ? `<Relationship Id="${headerId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
+    : "";
+
   const noteRels =
     (footnotes.length ? notesRelXml("footnote", `rId${ctx.relCount++}`) : "") +
     (endnotes.length ? notesRelXml("endnote", `rId${ctx.relCount++}`) : "");
@@ -989,7 +1011,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
     '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
   const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${noteRels}${ctx.rels.join("")}</Relationships>`;
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${headerRel}${noteRels}${ctx.rels.join("")}</Relationships>`;
 
   const mediaDefaults = Object.keys(ctx.media)
     .map((f) => f.split(".").pop() ?? "png")
@@ -1002,7 +1024,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Default Extension="xml" ContentType="application/xml"/>${mediaDefaults}
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1027,6 +1049,16 @@ export function docToDocx(file: EliumFile): Uint8Array {
     "word/numbering.xml": strToU8(numberingXml(ctx)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };
+  if (markVml) {
+    // Le VML vit dans son propre espace de noms : sans les déclarations `v:` et
+    // `o:`, Word rejette la partie.
+    files["word/header1.xml"] = strToU8(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        `<w:hdr ${NS} xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">` +
+        `${markVml}</w:hdr>`,
+    );
+  }
+
   // Les vraies parties de notes : Word les renumérote et les place lui-même.
   if (footnotes.length) files[NOTE_PART.footnote] = strToU8(notesPartXml("footnote", footnotes));
   if (endnotes.length) files[NOTE_PART.endnote] = strToU8(notesPartXml("endnote", endnotes));

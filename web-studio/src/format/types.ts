@@ -82,11 +82,27 @@ export interface EliumDocStyle {
 }
 
 /** The editable document: page setup + named styles + ProseMirror content. */
+/** Filigrane du document (voir `editor/ornaments.ts` pour son rendu). */
+export interface EliumWatermark {
+  kind: "none" | "text";
+  text: string;
+  angle: number;
+  opacity: number;
+  color: string;
+  sizePt: number;
+}
+
 export interface EliumDocumentModel {
   schema: typeof ELIUM_DOC_SCHEMA;
   page: PageSettings;
   /** Document-defined named styles (optional; absent in older files). */
   styles?: EliumDocStyle[];
+  /**
+   * Filigrane du document. Il appartient au document entier, pas à un nœud : il
+   * se dessine en fond de feuille et ne doit ni être sélectionnable ni compter
+   * dans la pagination. Absent des fichiers antérieurs.
+   */
+  watermark?: EliumWatermark;
   doc: ProseMirrorNode; // root node, type === "doc"
 }
 

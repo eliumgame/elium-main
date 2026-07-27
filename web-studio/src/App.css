@@ -1342,3 +1342,55 @@
    sous .pdfx. Seul le fallback de chargement paresseux reste ici, car App.tsx
    le rend avant que le module ne soit téléchargé. */
 .pdf-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 14px; }
+
+/* --- Editor: règle graduée et taquets ------------------------------------- */
+/* La règle vit hors de la zone de défilement : elle reste visible quand on
+   descend dans le document, comme dans Word. */
+.elium-ruler {
+  display: flex; align-items: stretch; gap: 6px; flex: none;
+  padding: 4px 8px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  overflow: hidden; user-select: none;
+}
+.elium-ruler__picker {
+  flex: none; width: 22px; height: 22px; align-self: center;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 4px; color: var(--primary); font-size: 13px; line-height: 1;
+  font-family: inherit; transition: background .14s ease, border-color .14s ease;
+}
+.elium-ruler__picker:hover { background: var(--surface-3); border-color: var(--primary); }
+.elium-ruler__page { display: flex; align-items: stretch; height: 20px; margin: 0 auto; }
+.elium-ruler__margin { flex: none; background: var(--surface-3); border-radius: 2px; }
+.elium-ruler__track {
+  position: relative; flex: none; height: 20px; cursor: copy;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.elium-ruler__tick {
+  position: absolute; bottom: 0; width: 1px; height: 4px;
+  background: var(--text-muted); transform: translateX(-.5px);
+}
+.elium-ruler__tick.is-major { height: 8px; background: var(--text-soft); }
+.elium-ruler__label {
+  position: absolute; top: 1px; transform: translateX(-50%);
+  font-size: 8.5px; color: var(--text-muted); line-height: 1;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+/* Le marqueur dépasse sous la règle, comme dans Word, pour rester saisissable
+   sans recouvrir les graduations. */
+.elium-ruler__stop {
+  position: absolute; bottom: -3px; transform: translateX(-50%);
+  color: var(--primary); font-size: 12px; line-height: 1; cursor: grab;
+  padding: 0 2px;
+}
+.elium-ruler__stop.is-dragging { cursor: grabbing; color: var(--accent, #7c3aed); }
+.elium-ruler__stop.is-bar { color: var(--text-soft); font-weight: 700; }
+
+/* La tabulation est un atome dont la largeur est calculée par sa vue de nœud :
+   aucune propriété CSS ne sait exprimer un taquet à position libre. */
+.elium-tab {
+  display: inline-block; overflow: hidden; white-space: pre;
+  vertical-align: baseline;
+}
+.elium-tab.has-leader { color: var(--text-muted); }
+.elium-tab__leader { display: block; overflow: hidden; white-space: nowrap; letter-spacing: 1px; }

@@ -20,6 +20,7 @@ import { setMergePreview, setPageResolver } from "./wordExtensions";
 import { setStyleRegistry } from "./styleExtension";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
+import Ruler from "./Ruler";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
   EliumDocStyle,
@@ -178,6 +179,9 @@ export default function RichEditor({
   // fits it to the width instead of forcing horizontal scrolling. Applied as a
   // transform, which leaves layout (and therefore pagination) untouched.
   const scrollRef = useRef<HTMLDivElement>(null);
+  // La règle est masquée par défaut : elle ne sert qu'à qui pose des taquets,
+  // et elle mange de la hauteur utile sur un petit écran.
+  const [rulerVisible, setRulerVisible] = useState(false);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fitWidth");
   const [manualZoom, setManualZoom] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -382,6 +386,8 @@ export default function RichEditor({
           onOpenParagraph={() => setDialog("paragraph")}
           onOpenStyles={() => setDialog("styles")}
           onOpenCaption={() => setDialog("caption")}
+          rulerVisible={rulerVisible}
+          onToggleRuler={() => setRulerVisible((v) => !v)}
         />
       )}
 
@@ -391,6 +397,19 @@ export default function RichEditor({
           canReplace={editable}
           startWithReplace={find.replace}
           onClose={() => setFind({ open: false, replace: false })}
+        />
+      )}
+
+      {/* La règle vit HORS de la zone de défilement : elle doit rester visible
+          quand on descend dans le document, comme dans Word. Elle reçoit le zoom
+          pour que ses graduations tombent bien au-dessus de la feuille. */}
+      {rulerVisible && (
+        <Ruler
+          editor={editor}
+          widthMm={pageWidthMm}
+          marginLeftMm={baseMargins.left}
+          marginRightMm={baseMargins.right}
+          zoom={zoom}
         />
       )}
 

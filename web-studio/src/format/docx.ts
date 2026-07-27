@@ -28,6 +28,7 @@ import { fontResources } from "./embedded-fonts";
 import { mergeStyles, stylesXml } from "../editor/styles";
 import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } from "../editor/captions";
 import { collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
+import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
 import {
   NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
   notesRelXml,
@@ -428,6 +429,9 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
   return (node.content ?? [])
     .map((c) => {
       if (c.type === "hardBreak") return "<w:r><w:br/></w:r>";
+      // Une vraie tabulation Word : c'est `w:tabs` du paragraphe qui dit où elle
+      // s'arrête, donc rien à calculer ici.
+      if (c.type === "tab") return "<w:r><w:tab/></w:r>";
       // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
       // renumérote, les place en bas de page ou en fin de document, et les
       // expose dans son propre gestionnaire de notes.
@@ -520,6 +524,12 @@ function paraProps(opts: {
   if (a.keepNext) p.push("<w:keepNext/>");
   if (a.keepLines) p.push("<w:keepLines/>");
   if (a.pageBreakBefore) p.push("<w:pageBreakBefore/>");
+
+  // Taquets de tabulation : avant les bordures, dans l'ordre du schéma OOXML
+  // (`w:tabs` précède `w:pBdr` dans la séquence de `w:pPr`), sans quoi Word
+  // signale un document à réparer.
+  const tabs = tabsXml(normalizeStops(a.tabStops));
+  if (tabs) p.push(tabs);
 
   // Paragraph borders.
   const borders = a.borders as { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean; color?: string; width?: number } | undefined;
@@ -1332,6 +1342,11 @@ function inlineFromParagraph(
     for (const br of descendants(r, "w:br")) {
       if (br.attrs["w:type"] === "page") pageBreak = true;
     }
+    // Une tabulation devient le nœud `tab`, pas un caractère : sa largeur se
+    // recalcule depuis les taquets du paragraphe. Word écrit presque toujours la
+    // tabulation seule dans son run (`<w:r><w:tab/></w:r>`), donc la pousser
+    // avant le texte du run respecte l'ordre du document.
+    for (const _t of children(r, "w:tab")) nodes.push({ type: "tab" });
     // embedded image?
     const blip = firstDescendant(r, "a:blip");
     if (blip && !figure) {
@@ -1444,6 +1459,17 @@ function paragraphNode(
 ): ProseMirrorNode[] {
   const ppr = firstChild(p, "w:pPr");
   const style = ppr ? firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "" : "";
+  // Taquets du paragraphe : relus en millimètres, la même unité que la règle.
+  const tabsEl = ppr ? firstChild(ppr, "w:tabs") : undefined;
+  const tabStops = tabsEl
+    ? stopsFromAttrs(
+        children(tabsEl, "w:tab").map((t) => ({
+          val: t.attrs["w:val"],
+          pos: t.attrs["w:pos"],
+          leader: t.attrs["w:leader"],
+        })),
+      )
+    : [];
   const headingMatch = /^Heading(\d)$/i.exec(style) || /^Titre(\d)$/i.exec(style);
   // Base run props inherited by every run: doc defaults, plus the paragraph
   // style's rPr for BODY paragraphs only — headings render their own weight/size
@@ -1463,6 +1489,7 @@ function paragraphNode(
   const align = alignFrom(p);
   const attrs: Record<string, unknown> = {};
   if (align) attrs.textAlign = align;
+  if (tabStops.length) attrs.tabStops = tabStops;
 
   if (headingMatch) {
     out.push({ type: "heading", attrs: { level: Math.min(4, Number(headingMatch[1])), ...attrs }, content: nodes });

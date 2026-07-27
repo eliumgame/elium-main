@@ -320,7 +320,8 @@ enregistrement, fusion), **légendes auto-numérotées** avec **table des
 illustrations** (numérotation par étiquette recalculée en continu, renvois vers
 les légendes, champs `SEQ` et `TOC \c` à l'export) et **notes de fin** en plus
 des notes de bas de page (marqueurs romains minuscules comme Word, conversion
-d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`).
+d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`), plus
+une **règle graduée** interactive et de vrais **taquets de tabulation**.
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -882,6 +883,29 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     notes réelles commencent à 1), les styles `FootnoteText`/`EndnoteText` et le
     `w:endnotePr` en fin de document. Les quatre surfaces (écran, HTML, Markdown,
     DOCX) passent par le même collecteur : il y en avait trois différentes avant.
+  - **Taquets et règle** (`editor/tabs.ts`, `editor/tabExtension.ts`,
+    `editor/Ruler.tsx`) : une tabulation n'est **pas** un caractère `	`. Sa
+    largeur dépend de sa position sur la ligne et du taquet suivant, ce qu'aucune
+    propriété CSS n'exprime (`tab-size` ne connaît que des taquets réguliers).
+    C'est donc un nœud en ligne dont la vue mesure sa propre position et se donne
+    la largeur menant au taquet suivant ; le *choix* du taquet reste une fonction
+    pure. Les cinq alignements de Word sont là (gauche, centré, droite, décimal,
+    barre) avec leurs points de conduite, et un taquet `bar` ne reçoit pas la
+    tabulation — c'est un filet, pas une destination. À défaut de taquet
+    explicite, repli sur la grille Word de 1,25 cm.
+
+    La règle vit **hors** de la zone de défilement, pour rester visible quand on
+    descend dans le document. Un clic pose un taquet du type choisi par le
+    sélecteur de gauche, un glisser le déplace, un double-clic le retire.
+
+    Deux pièges méritent d'être notés. Les positions sont **quantifiées au
+    dixième de millimètre** parce que l'OOXML stocke les taquets en twips :
+    0,01 mm ne survit pas à l'aller-retour (40 mm → 2268 twips → 40,005 mm), et
+    chaque cycle ouverture/enregistrement aurait décalé les taquets, la dérive
+    s'accumulant. Un test rejoue trois cycles pour le vérifier. Et la mesure
+    différée passe par `setTimeout` **autant que** par `requestAnimationFrame` :
+    rAF ne se déclenche pas quand la page ne composite pas (onglet caché, volet
+    d'aperçu), et la tabulation resterait large de zéro.
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
@@ -900,11 +924,10 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **taquets de
-  tabulation** (demandent une règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
+- **Reste** (parité Word, par ordre de valeur décroissante) : **insertion de symboles** et lettrine ; **zones de texte /
   formes** ; **filigrane** ; **styles de tableau** (trame, tri, alignement de
   cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
-  dictionnaire hors-ligne) ; règle graduée et quadrillage.
+  dictionnaire hors-ligne) ; quadrillage.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme

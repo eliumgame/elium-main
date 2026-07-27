@@ -8,7 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  StickyNote, ArrowLeftRight,
+  StickyNote, ArrowLeftRight, Ruler,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
@@ -79,6 +79,9 @@ interface ToolbarProps {
   onOpenParagraph?: () => void;
   onOpenStyles?: () => void;
   onOpenCaption?: () => void;
+  /** Règle graduée : visible et bascule. */
+  rulerVisible?: boolean;
+  onToggleRuler?: () => void;
 }
 
 /**
@@ -180,6 +183,7 @@ export default function Toolbar({
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
   onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
+  rulerVisible, onToggleRuler,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -837,6 +841,17 @@ export default function Toolbar({
             <Group title="Volets">
               <Cmd big label="Plan" title="Volet de navigation (plan du document)" active={!!outlineOpen} onClick={() => onToggleOutline?.()}><PanelLeft size={19} /></Cmd>
               <Cmd big label="Inspecteur" title="Volet de droite (commentaires, signatures, versions)" active={!!inspectorOpen} onClick={() => onToggleInspector?.()}><PanelRight size={19} /></Cmd>
+            </Group>
+            <Group title="Afficher">
+              <Cmd
+                big
+                label="Règle"
+                title="Règle graduée (poser des taquets de tabulation)"
+                active={!!rulerVisible}
+                onClick={() => onToggleRuler?.()}
+              >
+                <Ruler size={19} />
+              </Cmd>
             </Group>
             <Group title="Document">
               <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>

@@ -8,7 +8,7 @@ import {
 } from "./crossref";
 import { pageOfPos } from "./wordExtensions";
 
-const KIND_ORDER: RefKind[] = ["heading", "bookmark", "figure", "table", "footnote"];
+const KIND_ORDER: RefKind[] = ["heading", "caption", "bookmark", "figure", "table", "footnote"];
 const DISPLAYS: RefDisplay[] = ["text", "number", "page", "aboveBelow", "full"];
 
 /**

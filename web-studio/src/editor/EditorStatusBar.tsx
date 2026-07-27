@@ -38,6 +38,11 @@ export default function EditorStatusBar({
   useEffect(() => {
     if (!editor) return;
     const update = () => {
+      // A destroyed editor can still receive one last effect (StrictMode's
+      // double-mount, or the remount App performs after loading a file) and its
+      // schema is gone by then. The status bar must never be what takes the app
+      // down, so it bails out rather than reading a dead editor.
+      if (editor.isDestroyed) return;
       const text = editor.getText({ blockSeparator: "\n" });
       const { from, to, empty } = editor.state.selection;
       let selWords = 0;

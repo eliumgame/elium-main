@@ -74,6 +74,7 @@ const STRUCTURAL = new Set([
   "tableOfContents",
   "footnotesList",
   "indexBlock",
+  "tableOfFigures",
   "image",
 ]);
 

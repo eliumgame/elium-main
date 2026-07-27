@@ -886,6 +886,30 @@
 /* --- Ruban : compteur de colonnes dans la barre contextuelle --------------- */
 .elx-colcount { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* --- Editor: légendes ------------------------------------------------------
+   Le préfixe « Figure 3 — » est calculé, jamais stocké : il est rendu par la vue
+   de nœud et n'est pas éditable, seul le texte de la légende l'est. */
+.elium-prose .elium-caption {
+  font-size: 13px; font-style: italic; color: var(--text-muted);
+  text-align: center; margin-top: .4em;
+}
+.elium-caption__prefix { font-style: normal; font-weight: 600; color: var(--text-soft); user-select: none; }
+.elium-caption__text { font-style: italic; }
+
+/* --- Editor: table des illustrations --------------------------------------- */
+.elium-figtable {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2, var(--bg)); padding: 14px 18px; margin: 18px 0;
+  user-select: none;
+}
+.elium-figtable__title { font-weight: 700; margin-bottom: 8px; color: var(--text); }
+.elium-figtable__list { list-style: none; margin: 0; padding: 0; }
+.elium-figtable__row { display: flex; align-items: baseline; gap: 10px; margin: 3px 0; font-size: 13.5px; }
+.elium-figtable__row a { color: var(--primary); text-decoration: none; cursor: pointer; flex: 1; min-width: 0; }
+.elium-figtable__row a:hover { text-decoration: underline; }
+.elium-figtable__page { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.elium-figtable__empty { color: var(--text-muted); font-size: 13px; font-style: italic; }
+
 /* --- Gestionnaire de styles ------------------------------------------------ */
 .stylemgr { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 16px; align-items: start; }
 .stylemgr__list {

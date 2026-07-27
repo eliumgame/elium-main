@@ -8,8 +8,9 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  RemoveFormatting, Palette, ChevronUp, Pilcrow,
+  RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
+import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
 import { isSuggesting } from "./TrackChanges";
 import { useDialogs } from "../ui/dialogs";
@@ -76,6 +77,7 @@ interface ToolbarProps {
   onOpenFont?: () => void;
   onOpenParagraph?: () => void;
   onOpenStyles?: () => void;
+  onOpenCaption?: () => void;
 }
 
 /**
@@ -176,7 +178,7 @@ export default function Toolbar({
   editor, onInsertImage, onAddSignature, commentAuthor = "Vous", numberedHeadings,
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
-  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles,
+  onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -560,6 +562,43 @@ export default function Toolbar({
 
             <Group title="Notes">
               <Cmd big label="Note" title="Insérer une note de bas de page" onClick={addFootnote}><Superscript size={19} /></Cmd>
+            </Group>
+
+            <Group title="Légendes">
+              <Cmd big label="Légende" title="Insérer une légende numérotée" onClick={() => onOpenCaption?.()}><Tag size={19} /></Cmd>
+              <Dropdown title="Table des illustrations" icon={<GalleryVerticalEnd size={17} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Table des illustrations</div>
+                    {["Figure", "Tableau", "Équation"].map((l) => (
+                      <button
+                        key={l}
+                        type="button"
+                        className="elx-menu__item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          editor.chain().focus().insertTableOfFigures(l).run();
+                          close();
+                        }}
+                      >
+                        {figureTableTitle(l)}
+                      </button>
+                    ))}
+                    <div className="elx-menu__sep" />
+                    <button
+                      type="button"
+                      className="elx-menu__item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        editor.chain().focus().insertTableOfFigures("").run();
+                        close();
+                      }}
+                    >
+                      Toutes les légendes
+                    </button>
+                  </>
+                )}
+              </Dropdown>
             </Group>
 
             <Group title="Index">

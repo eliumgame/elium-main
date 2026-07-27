@@ -15,7 +15,7 @@
 
 import type { ProseMirrorNode } from "../format/types";
 
-export type RefKind = "bookmark" | "heading" | "figure" | "table" | "footnote";
+export type RefKind = "bookmark" | "heading" | "figure" | "table" | "footnote" | "caption";
 
 export type RefDisplay = "text" | "number" | "page" | "aboveBelow" | "full";
 
@@ -25,6 +25,7 @@ export const REF_KIND_LABELS: Record<RefKind, string> = {
   figure: "Figure",
   table: "Tableau",
   footnote: "Note de bas de page",
+  caption: "Légende",
 };
 
 export const REF_DISPLAY_LABELS: Record<RefDisplay, string> = {
@@ -82,6 +83,9 @@ function scanTargets(walk: Walker): RefTarget[] {
   let figureNo = 0;
   let tableNo = 0;
   let footnoteNo = 0;
+  // Captions are numbered per label, exactly as captions.ts does it — a renvoi
+  // to "Figure 3" must say the same number the caption itself displays.
+  const captionCounters = new Map<string, number>();
 
   walk((type, attrs, text, pos) => {
     switch (type) {
@@ -128,6 +132,22 @@ function scanTargets(walk: Walker): RefTarget[] {
           text: `Tableau ${tableNo}`,
           pos,
           key: `table:${pos}`,
+        });
+        break;
+      }
+      case "caption": {
+        const label = String(attrs.label ?? "Figure").replace(/\s+/g, " ").trim() || "Figure";
+        const n = (captionCounters.get(label) ?? 0) + 1;
+        captionCounters.set(label, n);
+        const caption = shorten(text);
+        out.push({
+          anchorId: String(attrs.refId ?? "") || "",
+          kind: "caption",
+          label: caption ? `${label} ${n} — ${caption}` : `${label} ${n}`,
+          number: `${label} ${n}`,
+          text: caption,
+          pos,
+          key: `caption:${pos}`,
         });
         break;
       }
@@ -226,5 +246,7 @@ export function newAnchorId(kind: RefKind): string {
     c && typeof c.randomUUID === "function"
       ? c.randomUUID()
       : Math.abs(Date.now() ^ Math.floor(Math.random() * 1e9)).toString(36);
-  return `${kind === "heading" ? "ref-h" : kind === "figure" ? "ref-fig" : "ref-tbl"}-${rand}`;
+  const prefix =
+    kind === "heading" ? "ref-h" : kind === "figure" ? "ref-fig" : kind === "caption" ? "ref-cap" : "ref-tbl";
+  return `${prefix}-${rand}`;
 }

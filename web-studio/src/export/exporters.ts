@@ -21,6 +21,9 @@ import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } f
 import { sectionBreakLabelFor } from "../editor/sections";
 import { pageSizeOf } from "../format/pageSizes";
 import { fontFaceCss, fontResources } from "../format/embedded-fonts";
+import {
+  buildFigureTable, captionPrefix, collectCaptionsJson, figureTableTitle, type CaptionEntry,
+} from "../editor/captions";
 
 /** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -165,6 +168,7 @@ interface HtmlCtx {
   footnotes: { id: string; text: string }[];
   targets: RefTarget[];
   index: IndexGroup[];
+  captions: CaptionEntry[];
   /** Multilevel scheme inherited from the enclosing list, and its depth. */
   listScheme: ListScheme | null;
   listDepth: number;
@@ -265,6 +269,24 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
     // Index marks never print (Word's XE fields do not either).
     case "indexEntry": return "";
     case "indexBlock": return indexHtml(ctx.index);
+    case "caption": {
+      // The number is derived, so it is rendered here rather than stored.
+      const label = String(node.attrs?.label ?? "Figure");
+      const text = (node.content ?? []).map((c) => c.text ?? "").join("").replace(/\s+/g, " ").trim();
+      const entry = ctx.captions.find((c) => c.label === label && c.text === text);
+      const id = node.attrs?.refId ? ` id="${esc(String(node.attrs.refId))}"` : "";
+      return `<p class="elium-caption"${id}><span class="elium-caption__prefix">${esc(captionPrefix(label, entry?.number ?? 1))}</span>${kids}</p>`;
+    }
+    case "tableOfFigures": {
+      const label = String(node.attrs?.label ?? "");
+      const rows = buildFigureTable(ctx.captions, label || null, null);
+      const title = figureTableTitle(label);
+      if (!rows.length) return "";
+      const items = rows
+        .map((r) => `<li>${esc(`${captionPrefix(r.label, r.number)}${r.text}`)}</li>`)
+        .join("");
+      return `<nav class="elium-figtable"><div class="elium-figtable__title">${esc(title)}</div><ol>${items}</ol></nav>`;
+    }
     case "pageBreak": return '<div class="elium-page-break" style="page-break-after:always"></div>';
     case "sectionBreak": {
       // A section boundary that starts a page is a page break in the exported
@@ -344,6 +366,7 @@ export function docToHtml(model: EliumDocumentModel): string {
     footnotes: collectFootnotes(model.doc),
     targets: collectTargetsJson(model.doc),
     index: buildIndexJson(model.doc),
+    captions: collectCaptionsJson(model.doc),
     listScheme: null,
     listDepth: 0,
   });
@@ -378,6 +401,7 @@ interface FlatCtx {
   fns: { id: string; text: string }[];
   targets: RefTarget[];
   index: IndexGroup[];
+  captions: CaptionEntry[];
   /** Multilevel scheme inherited from the enclosing list. */
   scheme: ListScheme | null;
   /** 1-based counter stack of the enclosing lists, for `1.2.3` markers. */
@@ -389,6 +413,7 @@ const emptyFlatCtx = (doc: ProseMirrorNode): FlatCtx => ({
   fns: collectFootnotes(doc),
   targets: collectTargetsJson(doc),
   index: buildIndexJson(doc),
+  captions: collectCaptionsJson(doc),
   scheme: null,
   counters: [],
 });
@@ -423,6 +448,16 @@ function listMd(node: ProseMirrorNode, ctx: FlatCtx): string {
   return lines.join("\n") + "\n";
 }
 
+/** Table of figures for the Markdown / plain-text exporters. */
+function figureTableFlat(node: ProseMirrorNode, ctx: FlatCtx, markdown: boolean): string {
+  const label = String(node.attrs?.label ?? "");
+  const rows = buildFigureTable(ctx.captions, label || null, null);
+  const title = figureTableTitle(label);
+  if (!rows.length) return "";
+  const lines = rows.map((r) => `${markdown ? "- " : "  "}${captionPrefix(r.label, r.number)}${r.text}`);
+  return `${markdown ? "## " : ""}${title}\n${lines.join("\n")}\n`;
+}
+
 function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
   const inline = (n: ProseMirrorNode) =>
     (n.content ?? []).map((c) => (c.type === "text" || c.type === "hardBreak" ? inlineMd(c) : nodeMd(c, ctx))).join("");
@@ -437,6 +472,14 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
     case "crossReference": return `[${xrefText(node, ctx.targets)}](#${String(node.attrs?.targetId ?? "")})`;
     case "indexEntry": return "";
     case "indexBlock": return `## ${indexText(ctx.index).replace(/^Index\n/, "Index\n\n")}`;
+    case "caption": {
+      // The number is derived from document order, never stored.
+      const label = String(node.attrs?.label ?? "Figure");
+      const text = inline(node).trim();
+      const entry = ctx.captions.find((c) => c.label === label && c.text === text.replace(/\s+/g, " ").trim());
+      return `*${captionPrefix(label, entry?.number ?? 1)}${text}*\n`;
+    }
+    case "tableOfFigures": return figureTableFlat(node, ctx, true);
     case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
     case "bulletList":
     case "orderedList": return listMd(node, ctx);
@@ -514,6 +557,13 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
     case "crossReference": return xrefText(node, ctx.targets);
     case "indexEntry": return "";
     case "indexBlock": return indexText(ctx.index);
+    case "caption": {
+      const label = String(node.attrs?.label ?? "Figure");
+      const text = inlineText(node, ctx).trim();
+      const entry = ctx.captions.find((c) => c.label === label && c.text === text.replace(/\s+/g, " ").trim());
+      return `${captionPrefix(label, entry?.number ?? 1)}${text}\n`;
+    }
+    case "tableOfFigures": return figureTableFlat(node, ctx, false);
     case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
     case "bulletList":
     case "orderedList": return listText(node, ctx);

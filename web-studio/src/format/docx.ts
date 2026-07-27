@@ -26,6 +26,7 @@ import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/s
 import { formatSizeMm } from "./pageSizes";
 import { fontResources } from "./embedded-fonts";
 import { mergeStyles, stylesXml } from "../editor/styles";
+import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } from "../editor/captions";
 
 // =========================================================================
 // XML helpers
@@ -239,6 +240,8 @@ interface WriteCtx {
   targets: RefTarget[];
   /** the document's index, computed once (marks live all over the document) */
   indexGroups: ReturnType<typeof buildIndexJson>;
+  /** the document's captions, numbered once (numbers are derived, not stored) */
+  captions: ReturnType<typeof collectCaptionsJson>;
 }
 
 /**
@@ -697,6 +700,40 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       return (node.content ?? []).map((c) => blockXml(c, ctx, headings)).join("");
     case "indexBlock":
       return indexXml(ctx);
+    case "caption": {
+      // Word numbers captions with a SEQ field, so it renumbers them itself when
+      // the document is edited there — the label and the text are plain runs.
+      const label = String(node.attrs?.label ?? "Figure").replace(/\s+/g, " ").trim() || "Figure";
+      const entry = ctx.captions.find((c) => c.label === label && c.text === (node.content ?? []).map((x) => x.text ?? "").join("").replace(/\s+/g, " ").trim());
+      const number = entry?.number ?? 1;
+      const anchor = anchorXml(node, ctx);
+      return (
+        `<w:p>${paraProps({ style: "Legende", align: "center", attrs: node.attrs })}${anchor}` +
+        `<w:r><w:t xml:space="preserve">${xmlEsc(label)} </w:t></w:r>` +
+        fieldXml(seqInstr(label), String(number)) +
+        `<w:r><w:t xml:space="preserve"> — </w:t></w:r>` +
+        inlineRuns(node, ctx) +
+        `</w:p>`
+      );
+    }
+    case "tableOfFigures": {
+      // A real TOC field scoped to one caption family, with the rows Elium
+      // already computed as its cached result.
+      const label = String(node.attrs?.label ?? "");
+      const rows = label ? ctx.captions.filter((c) => c.label === label) : ctx.captions;
+      const title = figureTableTitle(label);
+      const body = rows
+        .map(
+          (r) =>
+            `<w:p>${paraProps({ indent: 1 })}<w:r><w:t xml:space="preserve">${xmlEsc(`${r.label} ${r.number} — ${r.text}`)}</w:t></w:r></w:p>`,
+        )
+        .join("");
+      return (
+        `<w:p>${paraProps({ style: "Titre2" })}<w:r><w:t xml:space="preserve">${xmlEsc(title)}</w:t></w:r></w:p>` +
+        `<w:p>${fieldXml(figureTableInstr(label || null), "")}</w:p>` +
+        body
+      );
+    }
     case "sectionBreak":
       // Emitted by docToDocx, which owns the section boundaries (a sectPr
       // describes the section it ENDS, so it cannot be produced in isolation).
@@ -837,6 +874,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     usedBookmarks: new Set([INDEX_BOOKMARK]),
     targets: collectTargetsJson(doc),
     indexGroups: buildIndexJson(doc),
+    captions: collectCaptionsJson(doc),
   };
   const headings = collectHeadings(doc);
 

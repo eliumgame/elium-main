@@ -370,7 +370,7 @@ export const RefAnchors = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: ["heading", "figure", "table"],
+        types: ["heading", "figure", "table", "caption"],
         attributes: {
           refId: {
             default: null,

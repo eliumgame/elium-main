@@ -8,6 +8,7 @@ import StatsDialog from "./StatsDialog";
 import FontDialog from "./FontDialog";
 import ParagraphDialog from "./ParagraphDialog";
 import StylesManager from "./StylesManager";
+import CaptionModal from "./CaptionModal";
 import CrossRefModal from "./CrossRefModal";
 import IndexEntryModal from "./IndexEntryModal";
 import ColumnsModal from "./ColumnsModal";
@@ -169,7 +170,7 @@ export default function RichEditor({
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
-  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | null;
+  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
 
   // --- Zoom ---------------------------------------------------------------
@@ -380,6 +381,7 @@ export default function RichEditor({
           onOpenFont={() => setDialog("font")}
           onOpenParagraph={() => setDialog("paragraph")}
           onOpenStyles={() => setDialog("styles")}
+          onOpenCaption={() => setDialog("caption")}
         />
       )}
 
@@ -498,6 +500,7 @@ export default function RichEditor({
           onClose={() => setDialog(null)}
         />
       )}
+      {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "columns" && <ColumnsModal editor={editor} onClose={() => setDialog(null)} />}

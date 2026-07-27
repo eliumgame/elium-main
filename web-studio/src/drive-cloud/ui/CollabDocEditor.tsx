@@ -15,7 +15,7 @@ import {
   X, Wifi, WifiOff, Loader, Undo2, Redo2, Bold, Italic, Underline, Strikethrough,
   Heading1, Heading2, Heading3, List, ListOrdered, Quote, Code2, Highlighter,
   AlignLeft, AlignCenter, AlignRight, Link2, SplitSquareVertical, CornerDownRight,
-  ScanSearch, ListTree,
+  ScanSearch, ListTree, Tag,
 } from "lucide-react";
 import { buildExtensions } from "../../editor/extensions";
 import { LIST_SCHEMES, schemeById } from "../../editor/listSchemes";
@@ -23,6 +23,8 @@ import { clampColumns, setPageResolver } from "../../editor/wordExtensions";
 import { ensureListSchemeStyles } from "../../editor/listSchemeStyles";
 import CrossRefModal from "../../editor/CrossRefModal";
 import IndexEntryModal from "../../editor/IndexEntryModal";
+import CaptionModal from "../../editor/CaptionModal";
+import { CAPTION_LABELS, figureTableTitle } from "../../editor/captions";
 import { CSS_PX_PER_MM, pageAt, type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions } from "../../editor/Pagination";
 import { DEFAULT_PAGE } from "../../format/document";
 import { pageSizeMm } from "../../format/pageSizes";
@@ -55,10 +57,12 @@ function Toolbar({
   editor,
   onCrossRef,
   onIndexEntry,
+  onCaption,
 }: {
   editor: Editor;
   onCrossRef: () => void;
   onIndexEntry: () => void;
+  onCaption: () => void;
 }) {
   const btn = (active: boolean, title: string, run: () => void, icon: React.ReactNode) => (
     <button
@@ -156,6 +160,23 @@ function Toolbar({
       {btn(false, "Insérer un renvoi", onCrossRef, <CornerDownRight size={16} />)}
       {btn(false, "Marquer une entrée d'index", onIndexEntry, <ScanSearch size={16} />)}
       {btn(false, "Insérer l'index", () => chain().insertIndexBlock().run(), <ListTree size={16} />)}
+      {btn(false, "Insérer une légende numérotée", onCaption, <Tag size={16} />)}
+      <select
+        className="dc-doc__tbselect"
+        title="Table des illustrations"
+        value=""
+        onChange={(e) => {
+          if (!e.target.value) return;
+          chain().insertTableOfFigures(e.target.value === "__all" ? "" : e.target.value).run();
+          e.target.value = "";
+        }}
+      >
+        <option value="">Table des illustrations…</option>
+        {CAPTION_LABELS.map((l) => (
+          <option key={l} value={l}>{figureTableTitle(l)}</option>
+        ))}
+        <option value="__all">Toutes les légendes</option>
+      </select>
     </div>
   );
 }
@@ -188,7 +209,7 @@ export default function CollabDocEditor({
       planRef.current = plan;
     },
   }));
-  const [dialog, setDialog] = useState<"xref" | "index" | null>(null);
+  const [dialog, setDialog] = useState<"xref" | "index" | "caption" | null>(null);
 
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
@@ -280,7 +301,12 @@ export default function CollabDocEditor({
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
         </header>
         {writable && editor && (
-          <Toolbar editor={editor} onCrossRef={() => setDialog("xref")} onIndexEntry={() => setDialog("index")} />
+          <Toolbar
+            editor={editor}
+            onCrossRef={() => setDialog("xref")}
+            onIndexEntry={() => setDialog("index")}
+            onCaption={() => setDialog("caption")}
+          />
         )}
         <div className="dc-doc__body">
           <div
@@ -300,6 +326,7 @@ export default function CollabDocEditor({
         </div>
         {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
         {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
+        {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       </div>
     </div>
   );

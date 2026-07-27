@@ -293,8 +293,10 @@ orientation et reprise de numérotation par section), **renvois** auto-actualis�
 (titre, signet, figure, tableau, note ; texte, numéro, page, ci-dessus/ci-dessous),
 **index** (marquage d'entrées et sous-entrées + index alphabétique paginé),
 **comparaison de documents** (le diff arrive en suggestions dans le flux de
-révision existant) et **publipostage** (source CSV/TSV, champs, aperçu par
-enregistrement, fusion).
+révision existant), **publipostage** (source CSV/TSV, champs, aperçu par
+enregistrement, fusion) et **légendes auto-numérotées** avec **table des
+illustrations** (numérotation par étiquette recalculée en continu, renvois vers
+les légendes, champs `SEQ` et `TOC \c` à l'export).
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -817,10 +819,27 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     document unique séparé par des sauts de page. `{Champ}` écrit en texte brut
     est honoré aussi. Export en vrais champs `MERGEFIELD` quand le document n'est
     pas fusionné.
+  - **Légendes** (`editor/captions.ts`, `editor/captionExtension.ts`) : le nœud
+    `caption` ne stocke **que** l'étiquette et le texte saisi — le préfixe
+    « Figure 3 — » est une vue de nœud non éditable recalculée depuis le document,
+    donc jamais périmée et jamais mêlée au texte de l'auteur. La numérotation est
+    dérivée par étiquette dans l'ordre du document, si bien qu'insérer une légende
+    en amont renumérote la suite et la table des illustrations dans le même
+    battement. `tableOfFigures` est un bloc atomique qui se reconstruit à chaque
+    édition, filtre par étiquette et résout les numéros de page via le moteur de
+    pagination. Le placement suit Word : la légende se pose *à côté* de l'élément
+    légendé (`captionInsertPos`), en remontant hors du bloc courant jusqu'à un
+    conteneur qui l'accepte — sans quoi la commande serait perdue dès que le
+    curseur se trouve déjà dans une légende, et « au-dessus » ne voudrait rien
+    dire. Les légendes sont aussi des cibles de renvoi. À l'export : champs `SEQ`
+    réels avec le numéro courant en résultat mis en cache, et `TOC \c` pour la
+    table, donc Word peut les mettre à jour lui-même. Le titre passe par
+    `figureTableTitle`, qui applique le pluriel français (« Table des tableaux »,
+    pas « tableaus »).
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
-    section, renvois et index. Comparaison et publipostage restent sur la surface
+    section, renvois, index, légendes et table des illustrations. Comparaison et publipostage restent sur la surface
     locale : les deux produisent un nouveau document à partir de fichiers, ce qui
     n'a pas de sens dans un document partagé en direct.
 - **Fait aussi** : **polices embarquées**, **zoom**, **formats de page étendus**,
@@ -830,11 +849,13 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   seulement à l'export) sont donc clos. Le CSS de la page d'accueil, perdu par
   mégarde lors de la réécriture du module PDF, a aussi été reconstruit, et l'audit
   responsive a trouvé une chaîne flex sans `min-width: 0` qui faisait défiler la
-  PAGE au lieu de l'éditeur sous 820 px.
-- **Reste** (parité Word, par ordre de valeur décroissante) : galerie de **styles
-  nommés** avec gestionnaire ; **légendes** auto-numérotées + table des
-  illustrations ; **notes de fin** ; **taquets de tabulation** (demandent une
-  règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
+  PAGE au lieu de l'éditeur sous 820 px. La barre d'état lisait par ailleurs un
+  éditeur déjà détruit lors du remontage qui suit l'ouverture d'un fichier : sans
+  garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
+  faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
+  La barre d'état sort maintenant si l'éditeur est détruit.
+- **Reste** (parité Word, par ordre de valeur décroissante) : **notes de fin** ;
+  **taquets de tabulation** (demandent une règle graduée) ; **insertion de symboles** et lettrine ; **zones de texte /
   formes** ; **filigrane** ; **styles de tableau** (trame, tri, alignement de
   cellule, ajustement automatique) ; **vérification orthographique** (nécessite un
   dictionnaire hors-ligne) ; règle graduée et quadrillage.

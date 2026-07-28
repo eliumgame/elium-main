@@ -47,7 +47,7 @@ jobs:
             echo "has_key=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Calculer la version (majeur.mineur de __init__.py + numéro de run)
+      - name: Lire la version exacte de src/elium/__init__.py
         if: steps.guard.outputs.has_key == 'true'
         id: ver
         shell: bash
@@ -155,7 +155,10 @@ jobs:
           ASSETS=(installer/staging/Elium.exe web.zip dist/latest.json dist/latest.json.sig)
           if [ -f "$MSI" ]; then ASSETS+=("$MSI"); fi
           if gh release view "v${V}" >/dev/null 2>&1; then
-            echo "::notice::Release v${V} existe déjà — bumpez __version__ dans src/elium/__init__.py pour publier une nouvelle version."
+            # Avertissement et non simple notice : un job vert sans release
+            # publiée est exactement le cas qui passe inaperçu.
+            echo "::warning title=Aucune release publiée::v${V} existe déjà. Bumpez __version__ dans src/elium/__init__.py (ou lancez installer/stamp_version.py X.Y.Z) pour publier."
+            echo "### ⚠️ Aucune release publiée — v${V} existe déjà" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           gh release create "v${V}" "${ASSETS[@]}" \

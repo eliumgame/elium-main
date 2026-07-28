@@ -10,7 +10,7 @@ import {
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
   StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets, SpellCheck,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, ArrowDownAZ, ArrowUpAZ,
-  RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
+  RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
@@ -191,9 +191,61 @@ function Cmd({
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * Un groupe du ruban.
+ *
+ * `dense` range les petites commandes sur DEUX rangées, comme le groupe Police de
+ * Word : le ruban occupe déjà ~110 px de hauteur, et sur une seule rangée un
+ * groupe de treize icônes faisait 453 px de large — de quoi pousser la moitié de
+ * l'onglet Accueil hors de l'écran.
+ */
+/**
+ * Le ruban défile horizontalement quand il ne tient pas — mais rien ne le disait.
+ *
+ * `overflow-x: auto` sans indicateur, c'est la moitié de l'onglet Accueil
+ * invisible et personne pour deviner qu'elle existe. Ce crochet suit la position
+ * de défilement et expose de quel côté il reste des commandes, pour afficher un
+ * dégradé et un chevron cliquable.
+ */
+function useRibbonScroll() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  const sync = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setEdges({ left: el.scrollLeft > 2, right: el.scrollLeft < max - 2 });
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    // Le contenu change d'onglet en onglet et la fenêtre se redimensionne : les
+    // deux modifient ce qui dépasse.
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", sync);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      ro?.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [sync]);
+
+  const nudge = useCallback((dir: -1 | 1) => {
+    const el = ref.current;
+    if (el) el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.6), behavior: "smooth" });
+  }, []);
+
+  return { ref, edges, nudge, sync };
+}
+
+function Group({ title, dense, children }: { title: string; dense?: boolean; children: React.ReactNode }) {
   return (
-    <div className="elx-group">
+    <div className={`elx-group${dense ? " elx-group--dense" : ""}`}>
       <div className="elx-group__items">{children}</div>
       <div className="elx-group__title">{title}</div>
     </div>
@@ -211,6 +263,9 @@ export default function Toolbar({
   const fontInputRef = useRef<HTMLInputElement>(null);
   const [fontTick, setFontTick] = useState(0);
   const [tab, setTab] = useState<RibbonTab>("home");
+  const { ref: ribbonRef, edges, nudge, sync: syncRibbon } = useRibbonScroll();
+  // Chaque onglet a sa propre largeur de contenu : ce qui dépasse change avec lui.
+  useEffect(() => { syncRibbon(); }, [tab, syncRibbon]);
 
   const importFont = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -347,7 +402,25 @@ export default function Toolbar({
         ))}
       </div>
 
-      <div className="elx-ribbon__body">
+      {/* Le ruban défile quand il ne tient pas ; les chevrons et les dégradés
+          disent de quel côté il reste des commandes — sans eux, la moitié de
+          l'onglet Accueil était invisible sans aucun indice. */}
+      <div className={`elx-ribbon__scroller${edges.left ? " has-left" : ""}${edges.right ? " has-right" : ""}`}>
+        {edges.left && (
+          <button type="button" className="elx-ribbon__nudge elx-ribbon__nudge--left"
+            onMouseDown={(e) => e.preventDefault()} onClick={() => nudge(-1)}
+            title="Commandes précédentes" aria-label="Commandes précédentes">
+            <ChevronLeft size={15} />
+          </button>
+        )}
+        {edges.right && (
+          <button type="button" className="elx-ribbon__nudge elx-ribbon__nudge--right"
+            onMouseDown={(e) => e.preventDefault()} onClick={() => nudge(1)}
+            title="Commandes suivantes" aria-label="Commandes suivantes">
+            <ChevronRight size={15} />
+          </button>
+        )}
+      <div className="elx-ribbon__body" ref={ribbonRef}>
         <Group title="Édition">
           <Cmd title="Annuler (Ctrl+Z)" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}><Undo2 size={17} /></Cmd>
           <Cmd title="Rétablir (Ctrl+Y)" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}><Redo2 size={17} /></Cmd>
@@ -387,7 +460,7 @@ export default function Toolbar({
               </select>
             </Group>
 
-            <Group title="Caractère">
+            <Group title="Caractère" dense>
               <Cmd title="Gras (Ctrl+B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={17} /></Cmd>
               <Cmd title="Italique (Ctrl+I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={17} /></Cmd>
               <Cmd title="Souligné (Ctrl+U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><Underline size={17} /></Cmd>
@@ -479,7 +552,7 @@ export default function Toolbar({
               <Cmd title="Titre 3" active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={17} /></Cmd>
             </Group>
 
-            <Group title="Paragraphe">
+            <Group title="Paragraphe" dense>
               <Cmd title="Liste à puces" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={17} /></Cmd>
               <Cmd title="Liste numérotée" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={17} /></Cmd>
               <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />}>
@@ -524,7 +597,7 @@ export default function Toolbar({
               <Cmd title="Paragraphe… (espacement, retraits, enchaînements, bordures)" onClick={() => onOpenParagraph?.()}><Pilcrow size={17} /></Cmd>
             </Group>
 
-            <Group title="Alignement">
+            <Group title="Alignement" dense>
               <Cmd title="Aligner à gauche" active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()}><AlignLeft size={17} /></Cmd>
               <Cmd title="Centrer" active={editor.isActive({ textAlign: "center" })} onClick={() => editor.chain().focus().setTextAlign("center").run()}><AlignCenter size={17} /></Cmd>
               <Cmd title="Aligner à droite" active={editor.isActive({ textAlign: "right" })} onClick={() => editor.chain().focus().setTextAlign("right").run()}><AlignRight size={17} /></Cmd>
@@ -927,6 +1000,7 @@ export default function Toolbar({
             </Group>
           </>
         )}
+      </div>
       </div>
 
       {/* Contextual strips — always visible when they apply, whatever the tab. */}

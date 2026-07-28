@@ -259,6 +259,28 @@
 }
 .pdfx-group:last-child, .elx-group:last-child { border-right: 0; }
 .pdfx-group__items, .elx-group__items { display: flex; align-items: flex-start; gap: 2px; }
+/* Groupe DENSE : deux rangées de petites commandes, empilées colonne par colonne,
+   comme le groupe Police de Word. Le ruban occupe déjà ~110 px de hauteur : sur
+   une seule rangée, un groupe de 13 icônes faisait 453 px de large et poussait
+   la moitié de l'onglet Accueil hors de l'écran. Deux rangées tiennent dans la
+   même hauteur qu'un gros bouton et divisent la largeur par deux. */
+.pdfx-group--dense .pdfx-group__items, .elx-group--dense .elx-group__items {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 2px;
+}
+/* Une commande qui doit rester sur toute la hauteur du groupe (un sélecteur, une
+   galerie) traverse les deux rangées. */
+.pdfx-group--dense .pdfx-cmd--tall, .elx-group--dense .elx-cmd--tall { grid-row: span 2; }
+/* Deux rangées doivent tenir dans la hauteur d'un GROS bouton (50 px), sinon le
+   ruban grandit et vole de la hauteur au document : 34 px × 2 en faisaient 131
+   au lieu de 111. À 24 px, les deux rangées font exactement 50 px. */
+.pdfx-group--dense .pdfx-cmd, .elx-group--dense .elx-cmd {
+  height: 24px; min-width: 26px; padding: 0 4px; gap: 0;
+}
+.pdfx-group--dense .pdfx-cmd--tall, .elx-group--dense .elx-cmd--tall { height: 50px; }
 .pdfx-group__title, .elx-group__title {
   font-size: 9.5px;
   letter-spacing: .07em;
@@ -1378,3 +1400,31 @@
   .dcx-col-date, .dcx-col-size { display: none; }
   .dcx-row td:nth-child(2), .dcx-row td:nth-child(3) { display: none; }
 }
+
+/* --- Ruban : affordance de défilement -------------------------------------- */
+/* `overflow-x: auto` sans indicateur, c'est la moitié d'un onglet invisible sans
+   que rien ne le signale. Le dégradé dit qu'il reste du contenu, le chevron
+   permet d'y aller sans molette horizontale. */
+.elx-ribbon__scroller { position: relative; min-width: 0; }
+.elx-ribbon__scroller::before,
+.elx-ribbon__scroller::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 34px;
+  pointer-events: none; opacity: 0; transition: opacity .15s ease; z-index: 2;
+}
+.elx-ribbon__scroller::before {
+  left: 0; background: linear-gradient(90deg, var(--x-chrome-2, #f8fafc), transparent);
+}
+.elx-ribbon__scroller::after {
+  right: 0; background: linear-gradient(270deg, var(--x-chrome-2, #f8fafc), transparent);
+}
+.elx-ribbon__scroller.has-left::before, .elx-ribbon__scroller.has-right::after { opacity: 1; }
+.elx-ribbon__nudge {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+  display: grid; place-items: center; width: 22px; height: 44px; cursor: pointer;
+  border: 1px solid var(--x-chrome-line); border-radius: var(--x-radius-sm, 6px);
+  background: var(--x-chrome-1, #fff); color: var(--x-chrome-soft);
+  box-shadow: var(--x-shadow-sm, 0 1px 3px rgba(15, 23, 42, .12));
+}
+.elx-ribbon__nudge:hover { background: var(--x-chrome-3); color: var(--x-chrome-text); }
+.elx-ribbon__nudge--left { left: 2px; }
+.elx-ribbon__nudge--right { right: 2px; }

@@ -1545,3 +1545,10 @@
   }
   .editor-body { position: relative; }
 }
+
+/* Un pied de dialogue qui n'offre que « Fermer » n'est compréhensible que si l'on
+   sait que tout est déjà appliqué : on l'écrit, plutôt que de le laisser deviner. */
+.modal-live {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11.5px;
+}

@@ -38,7 +38,11 @@ export default function WatermarkModal({
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={() => { onApply(normalizeWatermark({ ...mark, kind: "none" })); onClose(); }}>
+          {/* Ce dialogue n'applique QUE sur son bouton d'action : il doit donc
+              offrir « Annuler ». C'était le seul de sa famille à n'avoir aucun
+              moyen visible de renoncer — Échap marchait, sans que rien ne le dise. */}
+          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={() => { onApply(normalizeWatermark({ ...mark, kind: "none" })); onClose(); }}>
             Aucun filigrane
           </Button>
           <Button onClick={() => { onApply(normalizeWatermark({ ...mark, kind: "text" })); onClose(); }}>

@@ -229,6 +229,9 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
           </div>
         </section>
       </div>
+        <p className="settings__hint modal-live">
+          Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
+        </p>
     </Modal>
   );
 }

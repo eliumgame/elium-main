@@ -179,6 +179,9 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
           </div>
         </section>
       </div>
+        <p className="settings__hint modal-live">
+          Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
+        </p>
     </Modal>
   );
 }

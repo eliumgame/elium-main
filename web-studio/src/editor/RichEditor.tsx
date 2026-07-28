@@ -21,6 +21,7 @@ import { setStyleRegistry } from "./styleExtension";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import Ruler from "./Ruler";
+import ProofingPanel from "./ProofingPanel";
 import SymbolModal from "./SymbolModal";
 import WatermarkModal from "./WatermarkModal";
 import { watermarkCss } from "./ornaments";
@@ -189,6 +190,7 @@ export default function RichEditor({
   // La règle est masquée par défaut : elle ne sert qu'à qui pose des taquets,
   // et elle mange de la hauteur utile sur un petit écran.
   const [rulerVisible, setRulerVisible] = useState(false);
+  const [proofingOpen, setProofingOpen] = useState(false);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fitWidth");
   const [manualZoom, setManualZoom] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -394,6 +396,8 @@ export default function RichEditor({
           onOpenStyles={() => setDialog("styles")}
           onOpenCaption={() => setDialog("caption")}
           onOpenSymbol={() => setDialog("symbol")}
+          proofingOpen={proofingOpen}
+          onToggleProofing={() => setProofingOpen((v) => !v)}
           onOpenWatermark={() => setDialog("watermark")}
           rulerVisible={rulerVisible}
           onToggleRuler={() => setRulerVisible((v) => !v)}
@@ -422,6 +426,7 @@ export default function RichEditor({
         />
       )}
 
+      <div className="editor-body">
       <div className="editor-scroll" ref={scrollRef} onClick={handleScrollClick}>
         {/* Zoom in two layers. The OUTER box reserves the scaled footprint in
             layout px (a transform occupies no space, so without it the scroll
@@ -518,6 +523,13 @@ export default function RichEditor({
         </div>
         </div>
         </div>
+      </div>
+
+      {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
+          dedans : il doit rester visible pendant qu'on parcourt le document. */}
+      {editor && proofingOpen && (
+        <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />
+      )}
       </div>
 
       <EditorStatusBar

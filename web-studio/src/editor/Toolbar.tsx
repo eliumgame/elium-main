@@ -8,7 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets,
+  StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets, SpellCheck,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, ArrowDownAZ, ArrowUpAZ,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd,
 } from "lucide-react";
@@ -82,6 +82,9 @@ interface ToolbarProps {
   onOpenStyles?: () => void;
   onOpenCaption?: () => void;
   onOpenSymbol?: () => void;
+  /** Volet du correcteur. */
+  proofingOpen?: boolean;
+  onToggleProofing?: () => void;
   onOpenWatermark?: () => void;
   /** Règle graduée : visible et bascule. */
   rulerVisible?: boolean;
@@ -202,7 +205,7 @@ export default function Toolbar({
   onToggleNumberedHeadings, onOpenPageSettings, onOpenStats, outlineOpen, onToggleOutline,
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
   onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
-  onOpenSymbol, onOpenWatermark, rulerVisible, onToggleRuler,
+  onOpenSymbol, onOpenWatermark, rulerVisible, onToggleRuler, proofingOpen, onToggleProofing,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -882,6 +885,17 @@ export default function Toolbar({
                 onClick={() => onOpenCompare?.()}
               >
                 <GitCompareArrows size={19} />
+              </Cmd>
+            </Group>
+            <Group title="Correction">
+              <Cmd
+                big
+                label="Correcteur"
+                title="Correcteur : typographie française, répétitions, mots inconnus"
+                active={!!proofingOpen}
+                onClick={() => onToggleProofing?.()}
+              >
+                <SpellCheck size={19} />
               </Cmd>
             </Group>
             <Group title="Analyse">

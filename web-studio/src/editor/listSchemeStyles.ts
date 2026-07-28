@@ -8,6 +8,7 @@
 import { schemesCss } from "./listSchemes";
 import { dropCapStyleSheet } from "./ornamentExtensions";
 import { tableStylesCss } from "./tableStyles";
+import { proofingCss } from "./proofingExtension";
 
 const STYLE_ID = "elium-list-schemes";
 
@@ -18,6 +19,7 @@ export function ensureListSchemeStyles(): void {
   style.id = STYLE_ID;
   // La lettrine passe par `::first-letter`, qui ne peut pas être stylé en ligne :
   // sa règle doit donc vivre dans une feuille, comme les schémas de liste.
-  style.textContent = schemesCss(".elium-prose") + dropCapStyleSheet() + tableStylesCss();
+  style.textContent =
+    schemesCss(".elium-prose") + dropCapStyleSheet() + tableStylesCss() + proofingCss();
   document.head.appendChild(style);
 }

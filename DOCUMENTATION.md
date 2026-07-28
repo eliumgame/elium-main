@@ -322,8 +322,9 @@ les légendes, champs `SEQ` et `TOC \c` à l'export) et **notes de fin** en plus
 des notes de bas de page (marqueurs romains minuscules comme Word, conversion
 d'une famille à l'autre, **vraies** parties `footnotes.xml`/`endnotes.xml`), plus
 une **règle graduée** interactive, de vrais **taquets de tabulation**, un
-**catalogue de symboles**, la **lettrine**, le **filigrane** et les **styles de
-tableau** (trames alternées, tri, alignement de cellule, ajustement).
+**catalogue de symboles**, la **lettrine**, le **filigrane**, les **styles de
+tableau** (trames alternées, tri, alignement de cellule, ajustement) et un
+**correcteur** (typographie française, répétitions, capitales, mots inconnus).
 
 ### 3.2 Tableur
 Moteur de formules `tokenize → parse (AST) → evaluate`, ~59 fonctions,
@@ -965,6 +966,34 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
     tableau avec `:has()`. Le générateur émet les deux formes de sélecteur —
     l'attribut pour l'export HTML, le marqueur de ligne pour l'éditeur — depuis la
     même table de styles, sans quoi l'écran et l'export divergeraient.
+  - **Correcteur** (`editor/proofing.ts`, `editor/proofingExtension.ts`,
+    `editor/ProofingPanel.tsx`) : le partage des rôles est explicite.
+    L'**orthographe** proprement dite est confiée au correcteur **natif** du
+    navigateur (`spellcheck` + `lang="fr"`), qui utilise les dictionnaires du
+    système : c'est ce qui permet de vérifier réellement l'orthographe hors ligne
+    sans embarquer plusieurs mégaoctets de Hunspell dans le paquet. Elium prend
+    tout ce que le navigateur ne sait pas faire : typographie française (espace
+    fine insécable avant `; : ! ?`, espaces doubles, espace manquante après la
+    ponctuation), mots répétés, capitale de début de phrase, guillemets non
+    fermés, dictionnaire personnel et liste à ignorer.
+
+    La détection de **mots inconnus** est **désactivée sans dictionnaire**, et
+    c'est délibéré : un dictionnaire partiel signalerait la moitié d'un texte
+    correct et l'auteur cesserait de regarder les soulignements. Une liste de mots
+    ou un `.dic` Hunspell s'importe depuis le volet (compteur et drapeaux
+    ignorés), et les suggestions viennent d'une distance de Levenshtein **bornée à
+    deux** — au-delà, une proposition n'aide plus, et la borne évite de parcourir
+    intégralement un gros dictionnaire.
+
+    Les problèmes sont des **décorations** recalculées par bloc, jamais stockées :
+    un texte corrigé ailleurs ne doit pas garder un soulignement fantôme. Piège à
+    connaître — les réglages (dictionnaire, mot ignoré, règle coupée) vivent hors
+    du document, et ProseMirror ne recalcule ses décorations que sur un nouvel
+    état : le plugin dispatche donc une transaction vide à chaque changement de
+    réglage, sans quoi le volet listerait des problèmes que le texte ne souligne
+    pas. Les corrections s'appliquent **par position**, pas par
+    recherche-remplacement : deux fautes identiques dans deux paragraphes se
+    corrigent séparément.
   - **Parité dual-plateforme** : les extensions étant partagées
     (`buildExtensions`), tout cela existe aussi dans l'éditeur *collaboratif*
     Drive, dont la barre d'outils expose listes multiniveaux, colonnes, saut de
@@ -983,8 +1012,7 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; **vérification orthographique** (nécessite un
-  dictionnaire hors-ligne) ; quadrillage.
+- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; quadrillage.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme

@@ -8,7 +8,7 @@ import {
   Superscript, Bookmark as BookmarkIcon, Hash, FileCog, Pencil, Check, X, Type, BarChart3,
   PanelLeft, PanelRight, Search, Columns, SplitSquareVertical, CornerDownRight, ScanSearch,
   GitCompareArrows, Users, Braces, ChevronDown, Subscript as SubscriptIcon, CaseSensitive,
-  StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets, SpellCheck,
+  StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets, SpellCheck, Frame,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, ArrowDownAZ, ArrowUpAZ,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -676,6 +676,29 @@ export default function Toolbar({
                 )}
               </Dropdown>
               <Cmd big label="Filigrane" title="Filigrane du document" onClick={() => onOpenWatermark?.()}><Droplets size={19} /></Cmd>
+              <Dropdown big label="Zone de texte" title="Insérer une zone de texte flottante" icon={<Frame size={19} />}>
+                {(close) => (
+                  <>
+                    <div className="elx-menu__title">Zone de texte</div>
+                    {([
+                      ["square", "Habillage carré (le texte coule autour)"],
+                      ["inline", "Dans le texte"],
+                      ["front", "Devant le texte (libre)"],
+                      ["behind", "Derrière le texte (libre)"],
+                    ] as const).map(([wrap, label]) => (
+                      <button
+                        key={wrap}
+                        type="button"
+                        className="elx-menu__item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { editor.chain().focus().insertTextBox({ wrap }).run(); close(); }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </Dropdown>
             </Group>
             <Group title="Signature">
               <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>

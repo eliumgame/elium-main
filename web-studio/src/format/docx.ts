@@ -31,6 +31,7 @@ import { collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes
 import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
 import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornaments";
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
+import { textBoxShapeType, textBoxVml } from "../editor/textBox";
 import {
   NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
   notesRelXml,
@@ -218,7 +219,12 @@ const NS =
   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
   'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ' +
   'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
-  'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" ' +
+  // VML : indispensable pour les zones de texte et le filigrane. Sans ces deux
+  // espaces de noms, Word refuse la partie qui les contient.
+  'xmlns:v="urn:schemas-microsoft-com:vml" ' +
+  'xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+  'xmlns:w10="urn:schemas-microsoft-com:office:word"';
 
 const EMU_PER_PX = 9525;
 const MAX_CONTENT_EMU = 6 * 914400; // ~6 inch content width
@@ -235,6 +241,10 @@ interface WriteCtx {
   changeId: number; // unique w:id per tracked-change (w:ins/w:del) element
   footnotes?: NoteEntry[]; // collectées pour la numérotation et footnotes.xml
   endnotes?: NoteEntry[]; // idem pour endnotes.xml
+  /** Une zone de texte a été écrite : le `v:shapetype` doit être déclaré. */
+  needsTextBoxType?: boolean;
+  /** Identifiants uniques des formes de zone de texte. */
+  textBoxSeq: number;
   /** scheme id (or "#bullet" / "#ordered" for unstyled lists) -> w:numId */
   numIds: Map<string, number>;
   /** <w:abstractNum> fragments, in numbering.xml order */
@@ -722,6 +732,15 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       // bookmarkStart/End are valid block-level siblings, so the anchor can sit
       // right before the table without inserting an empty paragraph.
       return anchorXml(node, ctx) + tableXml(node, ctx, headings);
+    case "textBox": {
+      // Word lit les zones de texte en VML (`v:shape` + `v:textbox`) : c'est un
+      // dialecte hérité, mais c'est la forme que toutes les versions ouvrent sans
+      // broncher, contrairement à DrawingML dont le support varie. Le contenu est
+      // du XML de blocs ordinaire — une zone contient du document normal.
+      ctx.needsTextBoxType = true;
+      const inner = (node.content ?? []).map((c) => blockXml(c, ctx, headings)).join("");
+      return textBoxVml(node.attrs, node.attrs, inner, `EliumTextBox${++ctx.textBoxSeq}`);
+    }
     case "columnSection":
       // Columns are section properties in Word, and a `w:sectPr` is only valid
       // on a TOP-LEVEL paragraph — docToDocx handles those boundaries. Reached
@@ -900,6 +919,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     numIds: new Map(),
     abstracts: [],
     bookmarkSeq: 0,
+    textBoxSeq: 0,
     bookmarkNames: new Map(),
     usedBookmarks: new Set([INDEX_BOOKMARK]),
     targets: collectTargetsJson(doc),
@@ -987,7 +1007,9 @@ export function docToDocx(file: EliumFile): Uint8Array {
     }
     parts.push(blockXml(block, ctx, headings));
   }
-  const bodyInner = parts.join("");
+  // Le `v:shapetype` de la zone de texte se déclare UNE fois : sans lui, Word
+  // ouvre le fichier mais dessine des formes vides.
+  const bodyInner = (ctx.needsTextBoxType ? textBoxShapeType() : "") + parts.join("");
   // Plus de section « Notes » factice dans le corps : les notes vivent dans
   // footnotes.xml / endnotes.xml, donc Word les rend lui-même au bon endroit.
   const notesXml = "";
@@ -1054,7 +1076,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     // `o:`, Word rejette la partie.
     files["word/header1.xml"] = strToU8(
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-        `<w:hdr ${NS} xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">` +
+        `<w:hdr ${NS}>` +
         `${markVml}</w:hdr>`,
     );
   }

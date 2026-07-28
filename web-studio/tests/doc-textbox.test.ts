@@ -4,6 +4,11 @@ import {
   isFloating, mmToPt, normalizeGeometry, normalizeStyle, textBoxCss, textBoxShapeType, textBoxVml,
   wrapVml,
 } from "../src/editor/textBox";
+import { strFromU8, unzipSync } from "fflate";
+import { docToDocx } from "../src/format/docx";
+import { createEliumFile } from "../src/format/document";
+import { docToHtml } from "../src/export/exporters";
+import type { ProseMirrorNode } from "../src/format/types";
 
 describe("Zone de texte — géométrie", () => {
   it("retombe sur les valeurs par défaut", () => {
@@ -168,5 +173,75 @@ describe("Zone de texte — OOXML", () => {
     // Sans cette déclaration, Word ouvre le fichier mais dessine des formes vides.
     expect(textBoxShapeType()).toContain('id="_x0000_t202"');
     expect(textBoxShapeType()).toContain('o:spt="202"');
+  });
+});
+
+describe("Zone de texte — export", () => {
+  const p = (t: string): ProseMirrorNode => ({ type: "paragraph", content: [{ type: "text", text: t }] });
+  const box = (attrs: Record<string, unknown>, ...kids: ProseMirrorNode[]): ProseMirrorNode =>
+    ({ type: "textBox", attrs, content: kids });
+  const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
+  const model = (d: ProseMirrorNode) => ({
+    schema: "elium-doc/1" as const,
+    page: {
+      format: "A4" as const, orientation: "portrait" as const,
+      margins: { top: 25, right: 20, bottom: 25, left: 20 },
+    },
+    doc: d,
+  });
+
+  it("rend la zone en HTML avec le même style que l'écran", () => {
+    const html = docToHtml(model(doc(box({ wrap: "square", side: "right", widthMm: 70 }, p("Encadré")))));
+    expect(html).toContain("elium-textbox--square");
+    expect(html).toContain("float:right");
+    expect(html).toContain("width:70mm");
+    expect(html).toContain("Encadré");
+  });
+
+  it("conserve du contenu de bloc, pas du texte plat", () => {
+    const html = docToHtml(model(doc(box({}, p("un"), { type: "bulletList", content: [
+      { type: "listItem", content: [p("a")] },
+    ] }))));
+    expect(html).toContain("<ul");
+    expect(html).toContain("<li");
+  });
+
+  it("écrit une forme VML en DOCX, avec son type déclaré une seule fois", async () => {
+    const file = await createEliumFile({
+      title: "T", profile: "standard",
+      doc: doc(box({ wrap: "front", x: 20, y: 30 }, p("A")), box({ wrap: "square" }, p("B"))),
+    });
+    const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
+    // Le shapetype canonique, une fois : sans lui Word dessine des formes vides.
+    expect(xml.match(/<v:shapetype/g)).toHaveLength(1);
+    expect(xml).toContain('type="#_x0000_t202"');
+    expect(xml.match(/<v:textbox/g)).toHaveLength(2);
+    expect(xml).toContain("<w:txbxContent>");
+    // Deux formes, deux identifiants distincts.
+    expect(xml).toContain("EliumTextBox1");
+    expect(xml).toContain("EliumTextBox2");
+  });
+
+  it("déclare les espaces de noms VML sur le document", async () => {
+    const file = await createEliumFile({ title: "T", profile: "standard", doc: doc(box({}, p("A"))) });
+    const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
+    // Sans ces déclarations, Word refuse la partie qui contient du VML.
+    expect(xml).toContain('xmlns:v="urn:schemas-microsoft-com:vml"');
+    expect(xml).toContain('xmlns:w10="urn:schemas-microsoft-com:office:word"');
+  });
+
+  it("ne déclare aucun shapetype sans zone de texte", async () => {
+    const file = await createEliumFile({ title: "T", profile: "standard", doc: doc(p("rien")) });
+    const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
+    expect(xml).not.toContain("v:shapetype");
+  });
+
+  it("porte l'habillage jusqu'à Word", async () => {
+    const file = await createEliumFile({
+      title: "T", profile: "standard", doc: doc(box({ wrap: "behind" }, p("A"))),
+    });
+    const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
+    expect(xml).toContain("z-index:-251658240");
+    expect(xml).toContain('<w10:wrap type="none"/>');
   });
 });

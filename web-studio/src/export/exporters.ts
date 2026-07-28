@@ -26,6 +26,7 @@ import {
 } from "../editor/captions";
 import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 import { clampDropLines, watermarkCss } from "../editor/ornaments";
+import { normalizeGeometry, normalizeStyle, textBoxCss } from "../editor/textBox";
 import {
   fitCss, isBandedColumn, rowClasses, tableStyleById, tableStylesCss,
 } from "../editor/tableStyles";
@@ -246,6 +247,13 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
   const kids = (node.content ?? []).map((c) => nodeHtml(c, ctx)).join("");
   switch (node.type) {
     case "doc": return kids;
+    case "textBox": {
+      // Le style vient du MÊME générateur que l'écran : deux feuilles séparées
+      // finiraient par placer la zone à deux endroits différents.
+      const g = normalizeGeometry(node.attrs);
+      const st = normalizeStyle(node.attrs);
+      return `<div class="elium-textbox elium-textbox--${g.wrap}" style="${esc(textBoxCss(g, st))}">${kids}</div>`;
+    }
     case "paragraph": {
       // La lettrine passe par un attribut et une variable CSS : `::first-letter`
       // ne peut pas être stylé en ligne, donc la règle vit dans la feuille.

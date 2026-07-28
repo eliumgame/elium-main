@@ -702,6 +702,14 @@
    dans une barre de 35 px qui passait à deux lignes sur écran étroit — donc
    décalait l'éditeur — avec des chiffres proportionnels qui faisaient sauter
    toute la rangée à chaque frappe. */
+/* --- Responsive par CONTENEUR ---------------------------------------------- */
+/* Les points de rupture sur la FENÊTRE sont faux ici : la largeur réellement
+   disponible pour l'éditeur dépend des volets ouverts. À 1280 px de fenêtre avec
+   l'inspecteur (340) et le correcteur (290) ouverts, la colonne ne fait plus que
+   ~650 px — et une media query voyait toujours 1280, donc ne repliait rien.
+   `container-type: inline-size` fait juger chaque composant sur SA place. */
+.editor-shell { container-type: inline-size; container-name: editor; }
+
 .statusbar {
   display: flex; align-items: stretch; flex: none;
   height: 26px; padding: 0 8px;
@@ -743,14 +751,15 @@
 }
 .statusbar__select:hover { border-color: var(--border-strong); color: var(--text); }
 
-/* Repli progressif : on retire les éléments les moins utiles plutôt que de
-   passer la barre sur deux lignes. */
-@media (max-width: 900px) { .statusbar__thin { display: none; } }
-@media (max-width: 720px) {
+/* Repli progressif, jugé sur la largeur du CONTENEUR et non de la fenêtre : la
+   barre se replie dès que la colonne d'édition se resserre, volets ouverts ou
+   fenêtre réduite, sans distinction. */
+@container editor (max-width: 900px) { .statusbar__thin { display: none; } }
+@container editor (max-width: 720px) {
   .statusbar__slider { display: none; }
   .statusbar__item { padding: 0 6px; }
 }
-@media (max-width: 560px) {
+@container editor (max-width: 560px) {
   .statusbar__item--page, .statusbar__item--page + .statusbar__div { display: none; }
 }
 
@@ -1561,3 +1570,35 @@
   margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
   color: var(--text-muted); font-size: 11.5px;
 }
+
+/* --- Editor: zones de texte ------------------------------------------------ */
+/* Une zone de texte est un CONTENEUR de blocs : son contenu reste du document
+   ordinaire, éditable et cherchable. Le style vient de `textBox.ts` (attribut
+   `style` en ligne) pour que l'écran et l'export HTML rendent la même chose. */
+.elium-textbox { position: relative; }
+.elium-textbox__content > :first-child { margin-top: 0; }
+.elium-textbox__content > :last-child { margin-bottom: 0; }
+/* Les poignées n'apparaissent qu'au survol ou quand le curseur est dedans :
+   sinon elles encombrent la page en lecture. */
+.elium-textbox__grip, .elium-textbox__resize {
+  position: absolute; opacity: 0; transition: opacity .12s ease;
+  user-select: none; z-index: 2;
+}
+.elium-textbox:hover .elium-textbox__grip,
+.elium-textbox:hover .elium-textbox__resize,
+.elium-textbox:focus-within .elium-textbox__grip,
+.elium-textbox:focus-within .elium-textbox__resize { opacity: 1; }
+.elium-textbox__grip {
+  top: -9px; left: 50%; transform: translateX(-50%);
+  width: 30px; height: 8px; border-radius: 4px; cursor: grab;
+  background: var(--primary); box-shadow: var(--shadow-sm);
+}
+.elium-textbox__grip:active { cursor: grabbing; }
+.elium-textbox__resize {
+  right: -5px; bottom: -5px; width: 12px; height: 12px; border-radius: 3px;
+  cursor: nwse-resize; background: var(--surface);
+  border: 2px solid var(--primary);
+}
+/* Une zone derrière le texte reste atteignable au clic malgré son z-index. */
+.elium-textbox--behind { pointer-events: auto; }
+.ProseMirror-selectednode.elium-textbox { outline: 2px solid var(--primary); outline-offset: 2px; }

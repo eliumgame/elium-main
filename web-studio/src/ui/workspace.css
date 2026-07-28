@@ -1428,3 +1428,25 @@
 .elx-ribbon__nudge:hover { background: var(--x-chrome-3); color: var(--x-chrome-text); }
 .elx-ribbon__nudge--left { left: 2px; }
 .elx-ribbon__nudge--right { right: 2px; }
+
+/* --- Ruban : repli sur la largeur du CONTENEUR ------------------------------ */
+/* Les règles ci-dessus jugent sur la fenêtre. C'est insuffisant : à 1280 px de
+   fenêtre avec l'inspecteur et le correcteur ouverts, la colonne d'édition ne
+   fait plus que ~650 px, et le ruban gardait ses libellés — donc débordait. Ces
+   règles-ci jugent sur la place réellement disponible (conteneur `editor`,
+   déclaré sur `.editor-shell`), et s'ajoutent aux précédentes : le premier des
+   deux critères atteint replie le ruban. */
+@container editor (max-width: 1180px) {
+  .elx-cmd__label { display: none; }
+  .elx-cmd--big { min-width: 40px; height: 34px; }
+  .elx-group--dense .elx-cmd--tall { height: 34px; }
+}
+@container editor (max-width: 900px) {
+  .elx-group__title { display: none; }
+  .elx-group { padding: 0 6px; }
+}
+@container editor (max-width: 700px) {
+  /* Dernier recours : les groupes les moins utilisés cèdent la place, plutôt que
+     de laisser le ruban défiler sur trois écrans de large. */
+  .elx-ribbon__body .elx-group--optional { display: none; }
+}

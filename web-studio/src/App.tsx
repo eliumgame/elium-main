@@ -641,10 +641,11 @@ export default function App() {
   }, []);
 
   const setTrusted = useCallback((k: string) => {
-    setTrustedKey(k);
-    localStorage.setItem("elium_trusted_key", k);
+    const normalized = k.trim();
+    setTrustedKey(normalized);
+    localStorage.setItem("elium_trusted_key", normalized);
     setFile((prev) => {
-      if (prev) computeVerdicts(prev, k).then(setVerdicts);
+      if (prev) computeVerdicts(prev, normalized).then(setVerdicts);
       return prev;
     });
   }, []);

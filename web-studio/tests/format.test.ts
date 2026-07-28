@@ -77,6 +77,7 @@ describe("signature proof", () => {
   it("attributes trust to the right key", async () => {
     const { model, id, sig } = await sign();
     expect(await verifyProof(sig, model, id.publicKeyHex)).toBe("valid");
+    expect(await verifyProof(sig, model, `  ${id.publicKeyHex}  `)).toBe("valid");
     expect(await verifyProof(sig, model, "00".repeat(32))).toBe("unknown_key");
   });
 

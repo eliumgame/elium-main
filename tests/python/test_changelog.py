@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -261,3 +262,33 @@ class TestUpdaterIntegration:
         assert st["progress"] == 42
         assert st["releases"] == releases
         assert st["summary"] == "1 version, 1 nouveauté"
+
+
+class TestCliOutput:
+    """La CLI est ce que le CI appelle : son échec bloquait toute la publication."""
+
+    def test_cree_le_dossier_de_sortie_absent(self, tmp_path):
+        # En CI, `dist/` n'existe pas encore quand cette étape tourne : sans mkdir,
+        # l'écriture levait FileNotFoundError et `set -e` tuait la release.
+        out = tmp_path / "dist" / "changelog.json"
+        assert not out.parent.exists()
+        rc = changelog._main(["--version", "4.1.99", "--since", "", "--out", str(out)])
+        assert rc == 0
+        assert out.is_file()
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert "changes" in data and "history" in data
+
+    def test_ecrit_dans_le_dossier_courant_sans_prefixe(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        rc = changelog._main(["--version", "4.1.99", "--since", "", "--out", "changelog.json"])
+        assert rc == 0
+        assert (tmp_path / "changelog.json").is_file()
+
+    def test_manifeste_precedent_illisible_ne_leve_pas(self, tmp_path):
+        out = tmp_path / "d" / "cl.json"
+        rc = changelog._main([
+            "--version", "4.1.99", "--since", "", "--out", str(out),
+            "--prev-manifest", str(tmp_path / "absent.json"),
+        ])
+        assert rc == 0
+        assert out.is_file()

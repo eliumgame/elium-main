@@ -341,7 +341,14 @@ def _main(argv: list[str] | None = None) -> int:
     }
     text = json.dumps(payload, indent=2, ensure_ascii=False)
     if args.out:
-        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        out_path = Path(args.out)
+        # Le dossier de sortie n'existe pas forcément : en CI, `dist/` n'est créé
+        # que par gen_manifest.py, APRÈS cette étape. Sans ce mkdir, l'écriture
+        # levait FileNotFoundError et `set -e` faisait échouer toute la
+        # publication — la release n'était jamais créée.
+        if out_path.parent != Path(""):
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text + "\n", encoding="utf-8")
         print(f"  [ok]   {args.out} : {len(entry['changes'])} nouveauté(s) pour {version}, "
               f"{len(payload['history'])} version(s) d'historique")
     else:

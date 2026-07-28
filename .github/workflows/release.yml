@@ -131,9 +131,15 @@ jobs:
           gh release download --pattern latest.json --dir prev -R "$GITHUB_REPOSITORY" 2>/dev/null || true
           PREV=""
           if [ -f prev/latest.json ]; then PREV="--prev-manifest prev/latest.json"; fi
-          python installer/changelog.py --version "$V" --out dist/changelog.json $PREV
+          # La liste des nouveautés est un CONFORT : si elle échoue, la mise à
+          # jour doit rester publiable, seules les notes détaillées manquent.
+          # `set -e` est actif, d'où le `||` explicite — sans lui, un changelog
+          # en échec emporte toute la publication.
+          mkdir -p dist
+          python installer/changelog.py --version "$V" --out dist/changelog.json $PREV \
+            || echo "::warning::changelog indisponible — manifeste publié sans notes détaillées"
           ARGS=(--version "$V" --commit "${{ github.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
-          ARGS+=(--changelog-file dist/changelog.json)
+          if [ -f dist/changelog.json ]; then ARGS+=(--changelog-file dist/changelog.json); fi
           if [ -f "$MSI" ]; then ARGS+=(--msi "$MSI"); fi
           python installer/gen_manifest.py "${ARGS[@]}"
 

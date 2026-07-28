@@ -708,7 +708,12 @@
    l'inspecteur (340) et le correcteur (290) ouverts, la colonne ne fait plus que
    ~650 px — et une media query voyait toujours 1280, donc ne repliait rien.
    `container-type: inline-size` fait juger chaque composant sur SA place. */
-.editor-shell { container-type: inline-size; container-name: editor; }
+/* `size` et non `inline-size` : le chrome doit réagir aux DEUX axes. Une fenêtre
+   basse est aussi contraignante qu'une fenêtre étroite — règle graduée, ruban et
+   marges volent de la hauteur au document, et rien ne s'adaptait à cela.
+   `.editor-shell` tient sa hauteur de son parent flex, donc la déclarer
+   `size` ne la fait pas s'effondrer. */
+.editor-shell { container-type: size; container-name: editor; }
 
 .statusbar {
   display: flex; align-items: stretch; flex: none;
@@ -762,6 +767,16 @@
 @container editor (max-width: 560px) {
   .statusbar__item--page, .statusbar__item--page + .statusbar__div { display: none; }
 }
+
+/* Contraintes de HAUTEUR : on rend de la place au document plutôt que de le
+   réduire à une bande de trois lignes. */
+@container editor (max-height: 620px) {
+  /* La règle graduée est un confort : elle part la première. */
+  .elium-ruler { display: none; }
+  .statusbar { height: 22px; font-size: 11px; }
+}
+/* Le repli VERTICAL du ruban vit dans workspace.css, où sont ses règles de
+   base : App.css se charge avant, donc à spécificité égale il perdait. */
 
 /* Volet du correcteur : liste bornée. */
 .proof__more { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 2px 2px 0; }

@@ -1450,3 +1450,14 @@
      de laisser le ruban défiler sur trois écrans de large. */
   .elx-ribbon__body .elx-group--optional { display: none; }
 }
+
+/* Contrainte de HAUTEUR : le ruban se compacte pour rendre de la place au
+   document. Ces règles vivent ici et non dans App.css : workspace.css se charge
+   en dernier, donc à spécificité égale c'est lui qui gagne. */
+@container editor (max-height: 520px) {
+  .elx-ribbon__body { padding: 3px 8px 2px; }
+  .elx-group__title { display: none; }
+  .elx-cmd--big { height: 30px; min-width: 34px; }
+  .elx-cmd__label { display: none; }
+  .elx-group--dense .elx-cmd--tall { height: 30px; }
+}

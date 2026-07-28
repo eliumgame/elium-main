@@ -258,9 +258,14 @@
   overflow-y: auto; overflow-x: hidden;
 }
 
-.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); z-index: 5; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 7px 16px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); z-index: 5; min-width: 0; }
 .topbar__left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
-.topbar__center { display: flex; justify-content: center; flex: 2 1 auto; min-width: 0; }
+/* La zone centrale ne GRANDIT PAS : elle prenait 646 px pour 93 px de contenu —
+   un seul badge d'état — avec `flex: 2`, soit deux fois la priorité de croissance
+   du titre, qui se retrouvait à 320 px. Le titre est le contrôle utile : c'est lui
+   qui doit absorber l'espace libre, et l'état se lit très bien juste à sa droite
+   plutôt qu'au centre exact d'une barre vide. */
+.topbar__center { display: flex; align-items: center; justify-content: flex-start; flex: 0 1 auto; min-width: 0; }
 /* `min-width: 0` here too: the action buttons were an unshrinkable 412px block. */
 .topbar__right { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; justify-content: flex-end; }
 /* Flex item of .topbar__left: `min-width: 0` lets it shrink on narrow screens
@@ -297,7 +302,11 @@
 .secure-toggle { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; cursor: pointer; }
 .secure-toggle input { margin-top: 3px; flex: none; }
 
-.status-badges { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; }
+/* Pas de retour à la ligne DANS la topbar : les badges passaient à deux rangées
+   sous 560 px, faisant grandir la barre de 49 à 59 px — donc décaler tout le
+   contenu. Ils restent sur une ligne et le dernier se tronque proprement. */
+.status-badges { display: flex; gap: 7px; flex-wrap: nowrap; justify-content: flex-start; min-width: 0; }
+.status-badges > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ======================================================================
    EDITOR

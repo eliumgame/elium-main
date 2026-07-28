@@ -15,6 +15,9 @@ import {
   setProofingEnabled, type DocIssue,
 } from "./proofingExtension";
 
+/** Problèmes montrés par famille avant de devoir cliquer « Afficher plus ». */
+const PAGE = 25;
+
 export default function ProofingPanel({
   editor,
   onClose,
@@ -24,6 +27,8 @@ export default function ProofingPanel({
 }) {
   const [issues, setIssues] = useState<DocIssue[]>([]);
   const [settings, setSettings] = useState(() => proofingSettings());
+  // Nombre de problèmes montrés PAR FAMILLE ; « Afficher plus » l'augmente.
+  const [limit, setLimit] = useState(PAGE);
 
   const refresh = useCallback(() => {
     if (editor.isDestroyed) return;
@@ -70,6 +75,14 @@ export default function ProofingPanel({
     setDictionary(parseDictionary(raw));
   }, []);
 
+  /**
+   * Les problèmes affichés, bornés par famille.
+   *
+   * Un document long produit des milliers de problèmes : les rendre tous a figé
+   * le navigateur (4807 nœuds DOM mesurés sur 200 paragraphes). On en montre donc
+   * un nombre borné et on DIT combien restent — une troncature silencieuse
+   * laisserait croire que tout est listé.
+   */
   const grouped = useMemo(() => {
     const by = new Map<IssueKind, DocIssue[]>();
     for (const i of issues) {
@@ -77,8 +90,12 @@ export default function ProofingPanel({
       list.push(i);
       by.set(i.kind, list);
     }
-    return [...by.entries()];
-  }, [issues]);
+    return [...by.entries()].map(([kind, list]) => ({
+      kind,
+      total: list.length,
+      shown: list.slice(0, limit),
+    }));
+  }, [issues, limit]);
 
   return (
     <div className="proof">
@@ -116,12 +133,12 @@ export default function ProofingPanel({
 
       {!issues.length && <div className="proof__empty">Rien à signaler dans ce document.</div>}
 
-      {grouped.map(([kind, list]) => (
+      {grouped.map(({ kind, total, shown }) => (
         <section key={kind} className="proof__group">
           <div className="proof__group-title">
-            {ISSUE_LABELS[kind]} <span className="proof__badge">{list.length}</span>
+            {ISSUE_LABELS[kind]} <span className="proof__badge">{total}</span>
           </div>
-          {list.map((issue) => (
+          {shown.map((issue) => (
             <div key={`${issue.docFrom}-${issue.kind}`} className="proof__item">
               <button type="button" className="proof__snippet" onClick={() => jump(issue)} title={issue.message}>
                 {issue.text.replace(/\s+/g, "␣")}
@@ -161,8 +178,19 @@ export default function ProofingPanel({
               </div>
             </div>
           ))}
+          {total > shown.length && (
+            <div className="proof__more">
+              {total - shown.length} de plus dans cette famille
+            </div>
+          )}
         </section>
       ))}
+
+      {issues.length > limit && (
+        <button type="button" className="proof__showmore" onClick={() => setLimit((l) => l + PAGE)}>
+          Afficher plus de problèmes
+        </button>
+      )}
 
       <div className="proof__foot">
         <Button variant="ghost" onClick={refresh}>Réanalyser</Button>

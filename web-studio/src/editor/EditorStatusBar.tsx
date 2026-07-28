@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Plus, Maximize2 } from "lucide-react";
 import type { PageInfo } from "./Pagination";
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS, stepZoom, zoomLabel, type ZoomMode } from "./zoom";
 
@@ -18,12 +18,26 @@ interface Stats {
   selChars: number;
 }
 
+const fr = (n: number) => n.toLocaleString("fr-FR");
+
 /**
- * Bottom status bar showing live word/character counts for the whole document,
- * and for the current selection when there is one. Read-only friendly.
+ * Bottom status bar: pagination, live counts, and the zoom control.
+ *
+ * Reworked to look like a status bar rather than a row of loose text. Three
+ * things drove the layout:
+ *   - **Real dividers**, not a "·" character at half opacity.
+ *   - **Tabular figures**, so the bar does not twitch as the counts grow while
+ *     typing — a proportional "5 407" is wider than "5 408" and the whole row
+ *     shifted on every keystroke.
+ *   - **No wrapping**: the bar keeps a fixed height and drops its least useful
+ *     items on narrow screens instead of growing to two lines, which used to
+ *     shove the editor up and down.
+ *
+ * The counts are a button: clicking them opens the statistics dialog, the way
+ * Word's word count does.
  */
 export default function EditorStatusBar({
-  editor, pageInfo, zoom, zoomMode, onZoom, onZoomMode,
+  editor, pageInfo, zoom, zoomMode, onZoom, onZoomMode, onOpenStats,
 }: {
   editor: Editor | null;
   pageInfo?: PageInfo;
@@ -32,6 +46,8 @@ export default function EditorStatusBar({
   zoomMode?: ZoomMode;
   onZoom?: (z: number) => void;
   onZoomMode?: (m: ZoomMode) => void;
+  /** Opens the statistics dialog when the counts are clicked. */
+  onOpenStats?: () => void;
 }) {
   const [stats, setStats] = useState<Stats>({ words: 0, chars: 0, selWords: 0, selChars: 0 });
 
@@ -68,30 +84,52 @@ export default function EditorStatusBar({
   const hasSel = stats.selChars > 0;
 
   return (
-    <div className="editor-statusbar" role="status" aria-live="polite">
+    <div className="statusbar" role="status" aria-live="polite">
       {pageInfo && (
         <>
-          <span>
-            Page {pageInfo.currentPage.toLocaleString("fr-FR")} sur {pageInfo.pageCount.toLocaleString("fr-FR")}
+          <span className="statusbar__item statusbar__item--page">
+            Page <b>{fr(pageInfo.currentPage)}</b> sur <b>{fr(pageInfo.pageCount)}</b>
           </span>
-          <span className="editor-statusbar__sep">·</span>
+          <span className="statusbar__div" aria-hidden="true" />
         </>
       )}
-      <span>{stats.words.toLocaleString("fr-FR")} mot{plural(stats.words)}</span>
-      <span className="editor-statusbar__sep">·</span>
-      <span>{stats.chars.toLocaleString("fr-FR")} caractère{plural(stats.chars)}</span>
+
+      <button
+        type="button"
+        className="statusbar__item statusbar__item--counts"
+        onClick={() => onOpenStats?.()}
+        title="Statistiques du document"
+      >
+        <b>{fr(stats.words)}</b> mot{plural(stats.words)}
+        <span className="statusbar__thin">{fr(stats.chars)} car.</span>
+      </button>
+
       {hasSel && (
-        <span className="editor-statusbar__sel">
-          sélection : {stats.selWords.toLocaleString("fr-FR")} mot{plural(stats.selWords)} ·{" "}
-          {stats.selChars.toLocaleString("fr-FR")} car.
-        </span>
+        <>
+          <span className="statusbar__div" aria-hidden="true" />
+          <span className="statusbar__item statusbar__sel">
+            <b>{fr(stats.selWords)}</b> mot{plural(stats.selWords)} sélectionné{plural(stats.selWords)}
+            <span className="statusbar__thin">{fr(stats.selChars)} car.</span>
+          </span>
+        </>
       )}
 
       {zoom != null && onZoom && onZoomMode && (
-        <div className="editor-zoom" role="group" aria-label="Zoom">
+        <div className="statusbar__zoom" role="group" aria-label="Zoom">
+          <span className="statusbar__div" aria-hidden="true" />
           <button
             type="button"
-            className="editor-zoom__btn"
+            className="statusbar__btn"
+            title="Ajuster à la largeur de la page"
+            aria-label="Ajuster à la largeur de la page"
+            aria-pressed={zoomMode === "fitWidth"}
+            onClick={() => onZoomMode("fitWidth")}
+          >
+            <Maximize2 size={13} />
+          </button>
+          <button
+            type="button"
+            className="statusbar__btn"
             title="Réduire le zoom"
             aria-label="Réduire le zoom"
             disabled={zoom <= MIN_ZOOM}
@@ -100,7 +138,7 @@ export default function EditorStatusBar({
             <Minus size={13} />
           </button>
           <input
-            className="editor-zoom__slider"
+            className="statusbar__slider"
             type="range"
             min={MIN_ZOOM * 100}
             max={MAX_ZOOM * 100}
@@ -112,7 +150,7 @@ export default function EditorStatusBar({
           />
           <button
             type="button"
-            className="editor-zoom__btn"
+            className="statusbar__btn"
             title="Agrandir le zoom"
             aria-label="Agrandir le zoom"
             disabled={zoom >= MAX_ZOOM}
@@ -121,7 +159,7 @@ export default function EditorStatusBar({
             <Plus size={13} />
           </button>
           <select
-            className="editor-zoom__select"
+            className="statusbar__select"
             aria-label="Zoom"
             title="Zoom"
             value={zoomMode === "manual" ? String(Math.round(zoom * 100)) : zoomMode}
@@ -138,7 +176,7 @@ export default function EditorStatusBar({
             {ZOOM_STEPS.map((s) => (
               <option key={s} value={String(Math.round(s * 100))}>{zoomLabel(s)}</option>
             ))}
-            <option value="fitWidth">Largeur de la page</option>
+            <option value="fitWidth">Largeur</option>
             <option value="fitPage">Page entière</option>
           </select>
         </div>

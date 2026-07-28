@@ -540,8 +540,6 @@
 @media (max-width: 560px) {
   .topbar .eb__label { display: none; }
   .topbar .eb { padding: 7px 9px; }
-  .editor-statusbar { font-size: 11px; gap: 6px; flex-wrap: wrap; }
-  .editor-statusbar__sel { flex-basis: 100%; }
 }
 
 /* --- Branding ------------------------------------------------------------- */
@@ -684,39 +682,77 @@
   box-shadow: 0 0 0 1px var(--el-amber-700);
 }
 
-/* --- Editor: barre d'état (compteur de mots) ------------------------------ */
-.editor-statusbar {
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-  padding: 5px 16px; font-size: 12px; color: var(--text-muted);
-  background: var(--surface); border-top: 1px solid var(--border);
-}
-.editor-statusbar__sep { opacity: .5; }
-.editor-statusbar__sel { color: var(--text-soft); }
-
-/* Contrôle de zoom, à droite de la barre d'état (comme Word). */
-.editor-zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
-.editor-zoom__btn {
-  display: grid; place-items: center; width: 22px; height: 22px;
-  border-radius: 5px; color: var(--text-muted);
-}
-.editor-zoom__btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
-.editor-zoom__btn:disabled { opacity: .35; cursor: default; }
-.editor-zoom__slider { width: 96px; accent-color: var(--primary); }
-.editor-zoom__select {
-  height: 24px; padding: 0 4px; font-size: 11.5px;
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--surface); color: var(--text-soft); max-width: 130px;
-}
-
 /* Enveloppe de zoom : réserve l'empreinte MISE À L'ÉCHELLE de la feuille (un
    transform n'occupe pas de place dans le flux) et centre la page. */
 .elium-zoom { margin: 0 auto; }
 
+/* --- Editor: barre d'état (compteur de mots) ------------------------------ */
+/* --- Editor: barre d'état -------------------------------------------------- */
+/* Une VRAIE barre d'état : hauteur fixe et fine, séparateurs à 1 px, chiffres
+   tabulaires. Avant, c'étaient des `span` séparés par un « · » à demi-opacité
+   dans une barre de 35 px qui passait à deux lignes sur écran étroit — donc
+   décalait l'éditeur — avec des chiffres proportionnels qui faisaient sauter
+   toute la rangée à chaque frappe. */
+.statusbar {
+  display: flex; align-items: stretch; flex: none;
+  height: 26px; padding: 0 8px;
+  font-size: 11.5px; color: var(--text-muted);
+  background: var(--surface-2); border-top: 1px solid var(--border);
+  /* Pas de retour à la ligne : la hauteur doit rester constante. */
+  flex-wrap: nowrap; overflow: hidden; white-space: nowrap; user-select: none;
+}
+.statusbar__item {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 9px; border: 0; background: none; font: inherit; color: inherit;
+  /* Les compteurs changent à chaque frappe : sans chiffres tabulaires, la barre
+     tremble parce que « 5 407 » et « 5 408 » n'ont pas la même largeur. */
+  font-variant-numeric: tabular-nums;
+}
+.statusbar__item b { font-weight: 700; color: var(--text-soft); }
+.statusbar__thin { color: var(--text-muted); opacity: .75; }
+/* Les compteurs sont cliquables, comme le compteur de mots de Word. */
+.statusbar__item--counts { cursor: pointer; border-radius: 4px; }
+.statusbar__item--counts:hover { background: var(--surface-3); color: var(--text); }
+.statusbar__item--counts:hover b { color: var(--text); }
+.statusbar__sel, .statusbar__sel b { color: var(--primary); }
+/* Séparateur : un filet, pas un caractère de ponctuation. */
+.statusbar__div { flex: none; width: 1px; margin: 6px 0; background: var(--border); }
+.statusbar__zoom { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
+.statusbar__btn {
+  display: grid; place-items: center; width: 22px; height: 22px; align-self: center;
+  border: 0; background: none; border-radius: 4px; color: var(--text-muted); cursor: pointer;
+}
+.statusbar__btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.statusbar__btn[aria-pressed="true"] { background: var(--surface-3); color: var(--primary); }
+.statusbar__btn:disabled { opacity: .3; cursor: default; }
+.statusbar__slider { width: 84px; accent-color: var(--primary); margin: 0 2px; }
+.statusbar__select {
+  height: 20px; align-self: center; padding: 0 4px; font-size: 11px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--surface); color: var(--text-soft); cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.statusbar__select:hover { border-color: var(--border-strong); color: var(--text); }
+
+/* Repli progressif : on retire les éléments les moins utiles plutôt que de
+   passer la barre sur deux lignes. */
+@media (max-width: 900px) { .statusbar__thin { display: none; } }
 @media (max-width: 720px) {
-  .editor-zoom__slider { display: none; }
-  .editor-zoom__select { max-width: 104px; }
+  .statusbar__slider { display: none; }
+  .statusbar__item { padding: 0 6px; }
+}
+@media (max-width: 560px) {
+  .statusbar__item--page, .statusbar__item--page + .statusbar__div { display: none; }
 }
 
+/* Volet du correcteur : liste bornée. */
+.proof__more { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 2px 2px 0; }
+.proof__showmore {
+  margin: 0 10px 8px; padding: 7px 10px; width: calc(100% - 20px); cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-soft);
+}
+.proof__showmore:hover { background: var(--surface-3); border-color: var(--primary); color: var(--primary); }
 /* --- Editor: footnotes ---------------------------------------------------- */
 .elium-fn-ref {
   color: var(--primary); font-weight: 700; font-size: .7em;

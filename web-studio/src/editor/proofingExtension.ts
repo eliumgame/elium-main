@@ -44,6 +44,8 @@ const listeners = new Set<Listener>();
 
 /** Signale un changement de réglage aux vues qui en dépendent. */
 function notify(): void {
+  // Tout changement de réglage périme le cache d'analyse.
+  bumpEpoch();
   for (const fn of listeners) fn();
 }
 
@@ -116,6 +118,42 @@ export function loadPersonal(wordsList: Iterable<string>): void {
 const SKIP_BLOCKS = new Set(["codeBlock", "mergeField", "tableOfContents", "indexBlock"]);
 
 /**
+ * Cache d'analyse, par nœud de bloc.
+ *
+ * Les nœuds ProseMirror sont **immuables et partagés** d'un état au suivant :
+ * après une frappe, tous les paragraphes sauf un sont littéralement le même objet.
+ * Sans ce cache, chaque frappe relançait toutes les expressions régulières sur
+ * tout le document — mesuré à 63 ms par touche sur 200 blocs, soit quatre fois le
+ * budget d'une image à 60 Hz. Avec, seul le bloc modifié est réanalysé.
+ *
+ * `epoch` invalide tout quand un réglage change (dictionnaire chargé, mot ignoré,
+ * règle coupée) : le cache est indexé sur le nœud, pas sur les réglages.
+ */
+let epoch = 0;
+let cache = new WeakMap<object, { epoch: number; issues: ProofIssue[] }>();
+
+function bumpEpoch(): void {
+  epoch += 1;
+  // Une nouvelle carte plutôt qu'un vidage : un WeakMap ne se vide pas, et
+  // garder les anciennes entrées retiendrait des nœuds morts.
+  cache = new WeakMap();
+}
+
+/** L'analyse d'un bloc, mise en cache sur le nœud lui-même. */
+function issuesFor(node: object, text: string): ProofIssue[] {
+  const hit = cache.get(node);
+  if (hit && hit.epoch === epoch) return hit.issues;
+  const issues = checkText(text, {
+    personal: state.personal,
+    ignored: state.ignored,
+    dictionary: state.dictionary,
+    disabled: state.disabled,
+  });
+  cache.set(node, { epoch, issues });
+  return issues;
+}
+
+/**
  * Tous les problèmes d'un document, en coordonnées absolues.
  *
  * Exporté pour le volet : il doit lister exactement ce qui est souligné, donc il
@@ -135,12 +173,7 @@ export function collectIssues(doc: {
     if (!node.isTextblock) return true;
     const text = node.textContent;
     if (!text) return false;
-    const issues = checkText(text, {
-      personal: state.personal,
-      ignored: state.ignored,
-      dictionary: state.dictionary,
-      disabled: state.disabled,
-    });
+    const issues = issuesFor(node as unknown as object, text);
     for (const issue of issues) {
       // +1 : la position du bloc désigne son ouverture, son contenu commence
       // juste après. Oublier ce décalage souligne un caractère trop à gauche.

@@ -539,6 +539,7 @@ export default function RichEditor({
         zoomMode={zoomMode}
         onZoom={setZoomFromUi}
         onZoomMode={setZoomMode}
+              onOpenStats={() => setStatsOpen(true)}
       />
       {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
 

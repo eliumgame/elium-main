@@ -72,13 +72,37 @@ export interface ProofOptions {
   /** Mots ignorés pour cette session. */
   ignored?: Iterable<string>;
   /**
-   * Dictionnaire de référence. Sans lui, la détection de mots inconnus est
-   * **désactivée** : un dictionnaire partiel produirait un tapis de faux positifs,
-   * bien pire qu'aucune détection.
+   * Dictionnaire de référence : une liste de mots, ou un vérificateur complet
+   * (`dict/index.ts`). Sans lui, la détection de mots inconnus est **désactivée** :
+   * ne rien détecter vaut mieux qu'un tapis de faux positifs.
    */
-  dictionary?: Iterable<string> | null;
+  dictionary?: Iterable<string> | SpellChecker | null;
   /** Règles désactivées. */
   disabled?: Iterable<IssueKind>;
+  /**
+   * Signaler TOUT mot absent du dictionnaire.
+   *
+   * Par défaut, un dictionnaire qui se déclare **partiel** (le dictionnaire
+   * embarqué) travaille en mode *prudent* : un mot inconnu n'est signalé que si une
+   * correction plausible existe. C'est ce qui évite de souligner le vocabulaire
+   * spécialisé de l'auteur — le défaut qui fait cesser de lire les soulignements.
+   * Le mode strict est là pour une relecture exhaustive.
+   */
+  strict?: boolean;
+}
+
+/**
+ * Le contrat d'un dictionnaire vu par le correcteur.
+ *
+ * Volontairement minimal : le correcteur n'a pas à savoir si les formes viennent
+ * d'une liste importée, du dictionnaire embarqué ou d'un futur service — il
+ * demande « connu ? » et « quoi à la place ? ».
+ */
+export interface SpellChecker {
+  known(word: string): boolean;
+  suggest(word: string, limit?: number): string[];
+  /** Vrai si la couverture est incomplète : le mode prudent s'applique alors. */
+  partial?: boolean;
 }
 
 /** Repli d'un mot pour la comparaison : minuscules, sans accents. */
@@ -282,32 +306,66 @@ function checkQuotes(text: string): ProofIssue[] {
 /**
  * Mots absents du dictionnaire.
  *
- * Ne fait rien sans dictionnaire : c'est délibéré, un dictionnaire partiel
- * signalerait la moitié d'un texte correct et l'auteur cesserait de regarder les
- * soulignements. Le correcteur natif du navigateur couvre ce cas par défaut.
+ * Ne fait rien sans dictionnaire : c'est délibéré, ne rien détecter vaut mieux que
+ * signaler la moitié d'un texte correct — l'auteur cesserait de regarder les
+ * soulignements.
+ *
+ * Avec un dictionnaire **partiel** (l'embarqué), le mode prudent ne signale un mot
+ * inconnu que si une correction plausible existe. Un mot rare mais bien orthographié
+ * n'a, par construction, aucun voisin à une faute près dans le dictionnaire : c'est
+ * ce qui le distingue d'une faute de frappe.
  */
-function checkUnknown(text: string, dict: Set<string>, allowed: Set<string>): ProofIssue[] {
-  if (!dict.size) return [];
+function checkUnknown(
+  text: string,
+  checker: SpellChecker,
+  allowed: Set<string>,
+  strict: boolean,
+): ProofIssue[] {
   const out: ProofIssue[] = [];
+  const prudent = checker.partial === true && !strict;
   for (const w of words(text)) {
     // Les nombres, les sigles tout en capitales et les mots de deux lettres ou
     // moins ne sont pas des fautes exploitables.
     if (w.text.length <= 2) continue;
     if (/^\p{Lu}+$/u.test(w.text)) continue;
-    if (has(allowed, w.text) || has(dict, w.text)) continue;
+    if (has(allowed, w.text) || checker.known(w.text)) continue;
     // Une forme élidée : on teste aussi la partie après l'apostrophe.
     const tail = w.text.split(/[’']/).pop() ?? w.text;
-    if (tail !== w.text && (has(dict, tail) || has(allowed, tail))) continue;
+    if (tail !== w.text && (checker.known(tail) || has(allowed, tail))) continue;
+    const suggestions = checker.suggest(w.text, 5);
+    if (prudent && !suggestions.length) continue;
     out.push({
       kind: "unknown-word",
       from: w.from,
       to: w.to,
       text: w.text,
       message: `« ${w.text} » est absent du dictionnaire`,
-      suggestions: suggest(w.text, dict).slice(0, 5),
+      suggestions,
     });
   }
   return out;
+}
+
+/** Vrai si l'objet fourni est un vérificateur, et non une simple liste de mots. */
+function isChecker(d: unknown): d is SpellChecker {
+  return !!d && typeof (d as SpellChecker).known === "function";
+}
+
+/**
+ * Un vérificateur bâti sur une liste de mots.
+ *
+ * Les listes fournies à la main sont comparées **sans accents ni casse** (voir
+ * `foldWord`) : elles viennent de sources hétérogènes où l'accentuation est
+ * inégale, et une comparaison stricte y produirait des fautes imaginaires. Une
+ * liste explicite n'est pas déclarée partielle : ce qui n'y est pas est signalé.
+ */
+function setChecker(list: Iterable<string> | null | undefined): SpellChecker | null {
+  const set = toSet(list);
+  if (!set.size) return null;
+  return {
+    known: (word) => has(set, word),
+    suggest: (word, limit = 5) => suggest(word, set).slice(0, limit),
+  };
 }
 
 /**
@@ -360,7 +418,7 @@ export function checkText(text: string, opts: ProofOptions = {}): ProofIssue[] {
   if (!src) return [];
   const off = toSet(opts.disabled as Iterable<string> | undefined);
   const allowed = new Set([...toSet(opts.personal), ...toSet(opts.ignored)]);
-  const dict = toSet(opts.dictionary);
+  const checker = isChecker(opts.dictionary) ? opts.dictionary : setChecker(opts.dictionary);
   const enabled = (k: IssueKind) => !off.has(k);
 
   const issues: ProofIssue[] = [];
@@ -370,7 +428,9 @@ export function checkText(text: string, opts: ProofOptions = {}): ProofIssue[] {
   if (enabled("space-after-punct")) issues.push(...checkSpaceAfterPunct(src));
   if (enabled("capital")) issues.push(...checkCapital(src));
   if (enabled("unpaired-quote")) issues.push(...checkQuotes(src));
-  if (enabled("unknown-word")) issues.push(...checkUnknown(src, dict, allowed));
+  if (enabled("unknown-word") && checker) {
+    issues.push(...checkUnknown(src, checker, allowed, opts.strict === true));
+  }
 
   // Les mots explicitement ignorés ne doivent plus rien produire, quelle que
   // soit la règle qui les a signalés.

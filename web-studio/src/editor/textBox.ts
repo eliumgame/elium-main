@@ -42,6 +42,14 @@ export interface TextBoxGeometry {
   heightMm: number;
   wrap: WrapMode;
   side: FloatSide;
+  /**
+   * Rotation en degrés (0–359).
+   *
+   * Portée par la géométrie commune parce qu'une forme et une zone de texte se
+   * tournent de la même façon : Word les fait pivoter toutes les deux, et deux
+   * modèles de rotation auraient divergé dès le premier export.
+   */
+  rotation: number;
 }
 
 /** Taille minimale exploitable : en deçà, la zone n'est plus saisissable. */
@@ -57,6 +65,7 @@ export const DEFAULT_GEOMETRY: TextBoxGeometry = {
   heightMm: 0,
   wrap: "square",
   side: "right",
+  rotation: 0,
 };
 
 export interface TextBoxStyle {
@@ -112,6 +121,9 @@ export function normalizeGeometry(raw: unknown): TextBoxGeometry {
     })(),
     wrap,
     side: r.side === "left" ? "left" : "right",
+    // Un tour complet ramène à zéro : garder 360 ferait deux valeurs pour le même
+    // angle, et la comparaison d'attributs croirait à un changement.
+    rotation: ((Math.round(num(r.rotation, 0)) % 360) + 360) % 360,
   };
 }
 
@@ -136,6 +148,38 @@ export function isFloating(wrap: unknown): boolean {
 }
 
 /**
+ * Le placement d'un objet flottant : habillage, position, plan.
+ *
+ * Extrait pour que les **formes** l'utilisent tel quel (`shapes.ts`) : une forme
+ * et une zone de texte s'habillent exactement de la même façon, et deux tables de
+ * placement auraient fini par se contredire.
+ */
+export function wrapCss(geometry: unknown): string[] {
+  const g = normalizeGeometry(geometry);
+  const parts: string[] = [];
+  switch (g.wrap) {
+    case "inline":
+      // Dans le flux : la largeur reste imposée, mais rien ne flotte.
+      parts.push("display:block", `margin:2mm ${g.side === "right" ? "0 2mm auto" : "auto 2mm 0"}`);
+      break;
+    case "square":
+      parts.push(`float:${g.side}`, g.side === "right" ? "margin:0 0 3mm 4mm" : "margin:0 4mm 3mm 0");
+      break;
+    case "front":
+    case "behind":
+      // Hors du flux : la pagination l'ignore, ce qui est le but d'une zone
+      // posée librement.
+      parts.push("position:absolute", `left:${g.x}mm`, `top:${g.y}mm`);
+      parts.push(g.wrap === "front" ? "z-index:3" : "z-index:0");
+      break;
+  }
+  // La rotation est une transformation, donc elle ne change ni la place occupée
+  // ni la pagination : un encadré tourné de 15° ne repousse pas le texte.
+  if (g.rotation) parts.push(`transform:rotate(${g.rotation}deg)`);
+  return parts;
+}
+
+/**
  * Le style en ligne d'une zone à l'écran et en HTML.
  *
  * Un seul générateur pour les deux surfaces : deux feuilles séparées finiraient
@@ -154,23 +198,7 @@ export function textBoxCss(geometry: unknown, style: unknown): string {
   else parts.push("border:0");
   if (s.fill) parts.push(`background:${s.fill}`);
   if (s.radius > 0) parts.push(`border-radius:${s.radius}px`);
-
-  switch (g.wrap) {
-    case "inline":
-      // Dans le flux : la largeur reste imposée, mais rien ne flotte.
-      parts.push("display:block", `margin:2mm ${g.side === "right" ? "0 2mm auto" : "auto 2mm 0"}`);
-      break;
-    case "square":
-      parts.push(`float:${g.side}`, g.side === "right" ? "margin:0 0 3mm 4mm" : "margin:0 4mm 3mm 0");
-      break;
-    case "front":
-    case "behind":
-      // Hors du flux : la pagination l'ignore, ce qui est le but d'une zone
-      // posée librement.
-      parts.push("position:absolute", `left:${g.x}mm`, `top:${g.y}mm`);
-      parts.push(g.wrap === "front" ? "z-index:3" : "z-index:0");
-      break;
-  }
+  parts.push(...wrapCss(g));
   return parts.join(";");
 }
 
@@ -227,7 +255,9 @@ export function textBoxVml(geometry: unknown, style: unknown, inner: string, id:
     ? [`margin-left:${mmToPt(g.x)}pt`, `margin-top:${mmToPt(g.y)}pt`,
        "mso-position-horizontal-relative:page", "mso-position-vertical-relative:page"]
     : [];
-  const shapeStyle = [posStyle, ...dims, ...place].filter(Boolean).join(";");
+  // `rotation` est le nom VML de l'angle : Word le lit en degrés, comme à l'écran.
+  const spin = g.rotation ? [`rotation:${g.rotation}`] : [];
+  const shapeStyle = [posStyle, ...dims, ...place, ...spin].filter(Boolean).join(";");
   const stroke = s.borderWidth > 0
     ? ` strokecolor="${esc(s.borderColor)}" strokeweight="${(s.borderWidth * 0.75).toFixed(2)}pt"`
     : ' stroked="f"';

@@ -11,6 +11,7 @@ import {
   StickyNote, ArrowLeftRight, Ruler, Sigma, Baseline, Droplets, SpellCheck, Frame,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, ArrowDownAZ, ArrowUpAZ,
   RemoveFormatting, Palette, ChevronUp, Pilcrow, Tag, GalleryVerticalEnd, ChevronLeft, ChevronRight,
+  Shapes, Grid3x3, Magnet, RotateCw, Settings2, BringToFront, SendToBack,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
@@ -24,6 +25,9 @@ import { CASE_LABELS } from "./charFormat";
 import { resolveStyle, styleCss } from "./styles";
 import { styleRegistry } from "./styleExtension";
 import { DEFAULT_TABLE_STYLE, TABLE_FIT_LABELS, TABLE_STYLES } from "./tableStyles";
+import ShapeGallery from "./ShapeGallery";
+import { WRAP_LABELS, WRAP_MODES, type WrapMode } from "./textBox";
+import { DASH_LABELS, shapeDef, type DashStyle } from "./shapes";
 
 /**
  * The Documents ribbon.
@@ -89,6 +93,14 @@ interface ToolbarProps {
   /** Règle graduée : visible et bascule. */
   rulerVisible?: boolean;
   onToggleRuler?: () => void;
+  /** Quadrillage : affichage, alignement, et le dialogue d'options. */
+  gridVisible?: boolean;
+  gridSnap?: boolean;
+  onToggleGrid?: () => void;
+  onToggleGridSnap?: () => void;
+  onOpenGrid?: () => void;
+  /** Dialogue « Format de la forme » (sert aussi aux zones de texte). */
+  onOpenShapeFormat?: () => void;
 }
 
 /**
@@ -258,6 +270,7 @@ export default function Toolbar({
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
   onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
   onOpenSymbol, onOpenWatermark, rulerVisible, onToggleRuler, proofingOpen, onToggleProofing,
+  gridVisible, gridSnap, onToggleGrid, onToggleGridSnap, onOpenGrid, onOpenShapeFormat,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -630,6 +643,16 @@ export default function Toolbar({
             <Group title="Illustrations">
               <Cmd big label="Image" title="Insérer une image" onClick={onInsertImage}><ImageIcon size={19} /></Cmd>
               <Cmd big label="Tableau" title="Insérer un tableau 3×3" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={19} /></Cmd>
+              {/* La galerie complète : lignes, rectangles, formes de base, flèches,
+                  organigramme, étoiles et bulles — chaque vignette est le vrai tracé. */}
+              <Dropdown big label="Formes" title="Insérer une forme" icon={<Shapes size={19} />} align="left">
+                {(close) => (
+                  <ShapeGallery
+                    onPick={(kind) => editor.chain().focus().insertShape({ kind }).run()}
+                    onClose={close}
+                  />
+                )}
+              </Dropdown>
             </Group>
             <Group title="Liens">
               <Cmd title="Lien" active={editor.isActive("link")} onClick={setLink}><Link2 size={17} /></Cmd>
@@ -1016,6 +1039,23 @@ export default function Toolbar({
               >
                 <Ruler size={19} />
               </Cmd>
+              <Cmd
+                big
+                label="Quadrillage"
+                title="Quadrillage de la feuille (repère d'écran, non imprimé)"
+                active={!!gridVisible}
+                onClick={() => onToggleGrid?.()}
+              >
+                <Grid3x3 size={19} />
+              </Cmd>
+              <Cmd
+                title="Aligner les objets sur le quadrillage (Alt pour l'ignorer ponctuellement)"
+                active={!!gridSnap}
+                onClick={() => onToggleGridSnap?.()}
+              >
+                <Magnet size={17} />
+              </Cmd>
+              <Cmd title="Options du quadrillage…" onClick={() => onOpenGrid?.()}><Settings2 size={17} /></Cmd>
             </Group>
             <Group title="Document">
               <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}><ListTree size={17} /></Cmd>
@@ -1027,8 +1067,155 @@ export default function Toolbar({
       </div>
 
       {/* Contextual strips — always visible when they apply, whatever the tab. */}
-      {(editor.isActive("figure") || editor.isActive("table") || editor.isActive("codeBlock") || editor.isActive("columnSection") || isSuggesting(editor.state)) && (
+      {(editor.isActive("figure") || editor.isActive("table") || editor.isActive("codeBlock") || editor.isActive("columnSection") || editor.isActive("shape") || editor.isActive("textBox") || isSuggesting(editor.state)) && (
         <div className="elx-optionbar">
+          {/* Forme et zone de texte partagent leur barre : même géométrie, même
+              habillage. Deux barres auraient dupliqué chaque commande. */}
+          {(editor.isActive("shape") || editor.isActive("textBox")) && (() => {
+            const target = editor.isActive("shape") ? "shape" : "textBox";
+            const attrs = editor.getAttributes(target);
+            const isShape = target === "shape";
+            const def = shapeDef(attrs.kind);
+            const set = (patch: Record<string, unknown>) =>
+              editor.chain().focus().updateAttributes(target, patch).run();
+            const rotation = Number(attrs.rotation ?? 0);
+            return (
+              <>
+                <span className="elx-optionbar__title">
+                  {isShape ? <Shapes size={13} /> : <Frame size={13} />} {isShape ? def.label : "Zone de texte"}
+                </span>
+                {/* Habillage : c'est le réglage qui décide de tout le reste (une
+                    forme dans le flux n'a pas de position libre). */}
+                <select
+                  className="elx-select"
+                  title="Habillage"
+                  value={String(attrs.wrap ?? "square")}
+                  onChange={(e) => set({ wrap: e.target.value as WrapMode })}
+                >
+                  {WRAP_MODES.map((w) => (
+                    <option key={w} value={w}>{WRAP_LABELS[w]}</option>
+                  ))}
+                </select>
+                <Cmd
+                  title="Mettre au premier plan (devant le texte)"
+                  active={attrs.wrap === "front"}
+                  onClick={() => set({ wrap: "front" })}
+                ><BringToFront size={16} /></Cmd>
+                <Cmd
+                  title="Mettre à l'arrière-plan (derrière le texte)"
+                  active={attrs.wrap === "behind"}
+                  onClick={() => set({ wrap: "behind" })}
+                ><SendToBack size={16} /></Cmd>
+                <span className="elx-optionbar__sep" />
+                {isShape ? (
+                  <>
+                    <label className="elx-colorbtn" title="Remplissage de la forme">
+                      <input
+                        type="color"
+                        value={String(attrs.fill || "#dbeafe")}
+                        onChange={(e) => set({ fill: e.target.value })}
+                      />
+                    </label>
+                    <Cmd
+                      title={attrs.fill ? "Aucun remplissage" : "Remplir la forme"}
+                      active={!attrs.fill}
+                      onClick={() => set({ fill: attrs.fill ? "" : "#dbeafe" })}
+                    ><Droplets size={16} /></Cmd>
+                    <label className="elx-colorbtn" title="Couleur du contour">
+                      <input
+                        type="color"
+                        value={String(attrs.strokeColor || "#2563eb")}
+                        onChange={(e) => set({ strokeColor: e.target.value })}
+                      />
+                    </label>
+                    <select
+                      className="elx-select elx-select--size"
+                      title="Épaisseur du contour"
+                      value={Number(attrs.strokeWidth ?? 1)}
+                      onChange={(e) => set({ strokeWidth: Number(e.target.value) })}
+                    >
+                      {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
+                        <option key={w} value={w}>{w === 0 ? "Sans" : `${w} px`}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="elx-select"
+                      title="Type de trait"
+                      value={String(attrs.dash ?? "solid")}
+                      onChange={(e) => set({ dash: e.target.value as DashStyle })}
+                    >
+                      {(Object.keys(DASH_LABELS) as DashStyle[]).map((d) => (
+                        <option key={d} value={d}>{DASH_LABELS[d]}</option>
+                      ))}
+                    </select>
+                    {def.adj && (
+                      <input
+                        className="elx-range"
+                        type="range"
+                        title={def.adj.label}
+                        min={def.adj.min}
+                        max={def.adj.max}
+                        value={Number(attrs.adj ?? def.adj.default)}
+                        onChange={(e) => editor.chain().focus().setShapeAdj(Number(e.target.value)).run()}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <label className="elx-colorbtn" title="Remplissage de l'encadré">
+                      <input
+                        type="color"
+                        value={String(attrs.fill || "#f8fafc")}
+                        onChange={(e) => set({ fill: e.target.value })}
+                      />
+                    </label>
+                    <label className="elx-colorbtn" title="Couleur du filet">
+                      <input
+                        type="color"
+                        value={String(attrs.borderColor || "#cbd5e1")}
+                        onChange={(e) => set({ borderColor: e.target.value })}
+                      />
+                    </label>
+                    <select
+                      className="elx-select elx-select--size"
+                      title="Épaisseur du filet"
+                      value={Number(attrs.borderWidth ?? 1)}
+                      onChange={(e) => set({ borderWidth: Number(e.target.value) })}
+                    >
+                      {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
+                        <option key={w} value={w}>{w === 0 ? "Sans" : `${w} px`}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                <span className="elx-optionbar__sep" />
+                {/* Rotation par quarts : le geste fin est à la poignée, ici c'est
+                    le réglage rapide. */}
+                <Cmd
+                  title="Faire pivoter de 90° (Format… pour un angle libre)"
+                  onClick={() => set({ rotation: (rotation + 90) % 360 })}
+                ><RotateCw size={16} /></Cmd>
+                {rotation !== 0 && (
+                  <Cmd title={`Redresser (${rotation}°)`} onClick={() => set({ rotation: 0 })}>
+                    <RemoveFormatting size={16} />
+                  </Cmd>
+                )}
+                <Cmd title="Format de la forme…" onClick={() => onOpenShapeFormat?.()}><Settings2 size={16} /></Cmd>
+                <Cmd
+                  title={isShape ? "Supprimer la forme" : "Supprimer la zone de texte (le contenu part avec elle)"}
+                  danger
+                  onClick={() => editor.chain().focus().deleteNode(target).run()}
+                ><Trash2 size={16} /></Cmd>
+                {!isShape && (
+                  <Cmd
+                    title="Retirer l'encadré en gardant son contenu dans le texte"
+                    onClick={() => editor.chain().focus().unwrapTextBox().run()}
+                  ><Combine size={16} /></Cmd>
+                )}
+              </>
+            );
+          })()}
+
           {editor.isActive("columnSection") && (
             <>
               <span className="elx-optionbar__title"><Columns size={13} /> Colonnes</span>

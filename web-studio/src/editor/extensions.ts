@@ -25,6 +25,7 @@ import { Ornaments } from "./ornamentExtensions";
 import { TableStyles } from "./tableStyleExtension";
 import { Proofing } from "./proofingExtension";
 import { TextBox } from "./textBoxExtension";
+import { Shape } from "./shapeExtension";
 import {
   ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
   IndexEntry, IndexBlock, MergeField,
@@ -80,6 +81,7 @@ export function buildExtensions(
     TableStyles,
     Proofing,
     TextBox,
+    Shape,
     Bookmark,
     // Word-parity set (multilevel lists, columns/sections, renvois, index,
     // publipostage) — see wordExtensions.ts.

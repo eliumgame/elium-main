@@ -28,6 +28,13 @@ import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "..
 import { clampDropLines, watermarkCss } from "../editor/ornaments";
 import { normalizeGeometry, normalizeStyle, textBoxCss } from "../editor/textBox";
 import {
+  DEFAULT_SHAPE_HEIGHT_MM, clampAdj, normalizeShapeStyle, shapeContainerCss, shapeDef, shapeSvg,
+  vAlignCss,
+} from "../editor/shapes";
+// Le quadrillage n'est PAS exporté : dans Word comme ici, c'est un repère
+// d'écran qui ne s'imprime pas. L'exporter ferait apparaître une grille sur un
+// document livré au lecteur.
+import {
   fitCss, isBandedColumn, rowClasses, tableStyleById, tableStylesCss,
 } from "../editor/tableStyles";
 
@@ -177,6 +184,8 @@ interface HtmlCtx {
   /** Multilevel scheme inherited from the enclosing list, and its depth. */
   listScheme: ListScheme | null;
   listDepth: number;
+  /** Compteur de formes : chaque dégradé a besoin d'un identifiant qui lui est propre. */
+  shapeSeq: number;
 }
 
 // --- HTML -----------------------------------------------------------------
@@ -253,6 +262,23 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const g = normalizeGeometry(node.attrs);
       const st = normalizeStyle(node.attrs);
       return `<div class="elium-textbox elium-textbox--${g.wrap}" style="${esc(textBoxCss(g, st))}">${kids}</div>`;
+    }
+    case "shape": {
+      // Le dessin est le SVG de `shapes.ts`, celui-là même qu'affiche l'éditeur :
+      // un second tracé pour l'export aurait fini par diverger du premier.
+      const def = shapeDef(node.attrs?.kind);
+      const g = normalizeGeometry(node.attrs);
+      const st = normalizeShapeStyle(node.attrs);
+      const h = g.heightMm > 0 ? g.heightMm : DEFAULT_SHAPE_HEIGHT_MM;
+      const adj = clampAdj(def.kind, node.attrs?.adj);
+      const svg = shapeSvg(def.kind, g.widthMm, h, st, adj, `x${ctx.shapeSeq++}`);
+      const text = def.line
+        ? ""
+        : `<div class="elium-shape__content" style="padding:${st.padMm}mm;justify-content:${esc(vAlignCss(st.vAlign))}">${kids}</div>`;
+      return (
+        `<div class="elium-shape elium-shape--${g.wrap}" style="${esc(shapeContainerCss(g, st, h))}">` +
+        `<div class="elium-shape__art">${svg}</div>${text}</div>`
+      );
     }
     case "paragraph": {
       // La lettrine passe par un attribut et une variable CSS : `::first-letter`
@@ -435,6 +461,7 @@ export function docToHtml(model: EliumDocumentModel): string {
     captions: collectCaptionsJson(model.doc),
     listScheme: null,
     listDepth: 0,
+    shapeSeq: 0,
   });
 }
 
@@ -726,6 +753,14 @@ const PRINT_CSS = `
   .elium-figure--center{text-align:center} .elium-figure--center figcaption{text-align:center}
   .elium-figure--left{float:left;margin:6px 18px 10px 0;max-width:48%}
   .elium-figure--right{float:right;margin:6px 0 10px 18px;max-width:48%}
+  /* Encadrés et formes : le placement et le dessin arrivent en style EN LIGNE
+     (mêmes générateurs que l'écran) ; il ne reste ici que la mise en couches. */
+  .elium-textbox{position:relative}
+  .elium-shape{position:relative;page-break-inside:avoid}
+  .elium-shape__art{position:absolute;inset:0;pointer-events:none}
+  .elium-shape__art svg{display:block;width:100%;height:100%;overflow:visible}
+  .elium-shape__content{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;text-align:center}
+  .elium-shape__content > *{margin:0}
   .elium-footnotes{margin-top:32px;font-size:13px;color:#475569;page-break-inside:avoid}
   /* list-style:none — le marqueur est écrit à la main (romains minuscules pour
      les notes de fin) ; la puce du navigateur ferait un double numéro. */

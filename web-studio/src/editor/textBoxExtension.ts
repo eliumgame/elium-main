@@ -11,6 +11,7 @@
  */
 import { Node, mergeAttributes } from "@tiptap/core";
 import { CSS_PX_PER_MM } from "./Pagination";
+import { activeGrid, snapDrag, snapMm } from "./grid";
 import {
   DEFAULT_GEOMETRY, DEFAULT_STYLE, MIN_HEIGHT_MM, MIN_WIDTH_MM, isFloating, normalizeGeometry,
   normalizeStyle, textBoxCss, type FloatSide, type TextBoxStyle, type WrapMode,
@@ -162,14 +163,14 @@ export const TextBox = Node.create({
       /** Suivi d'un glisser, terminé même si la souris sort de la zone. */
       const drag = (
         e: MouseEvent,
-        onMove: (dxMm: number, dyMm: number) => void,
+        onMove: (dxMm: number, dyMm: number, ev: MouseEvent) => void,
       ) => {
         e.preventDefault();
         e.stopPropagation();
         const x0 = e.clientX;
         const y0 = e.clientY;
         const move = (ev: MouseEvent) => {
-          onMove((ev.clientX - x0) / CSS_PX_PER_MM, (ev.clientY - y0) / CSS_PX_PER_MM);
+          onMove((ev.clientX - x0) / CSS_PX_PER_MM, (ev.clientY - y0) / CSS_PX_PER_MM, ev);
         };
         const up = () => {
           window.removeEventListener("mousemove", move);
@@ -181,7 +182,12 @@ export const TextBox = Node.create({
 
       grip.addEventListener("mousedown", (e) => {
         const g = normalizeGeometry(current.attrs);
-        drag(e, (dx, dy) => write({ x: Math.max(0, g.x + dx), y: Math.max(0, g.y + dy) }));
+        drag(e, (dx, dy, ev) => {
+          // Alignement sur le quadrillage, Alt pour poser librement — même geste
+          // que pour les formes, et que dans Word.
+          const p = snapDrag(Math.max(0, g.x + dx), Math.max(0, g.y + dy), ev.altKey);
+          write({ x: p.x, y: p.y });
+        });
       });
 
       handle.addEventListener("mousedown", (e) => {
@@ -189,12 +195,16 @@ export const TextBox = Node.create({
         // La hauteur automatique (0) devient explicite dès qu'on la tire, sinon
         // le redimensionnement vertical n'aurait aucun effet visible.
         const h0 = g.heightMm > 0 ? g.heightMm : dom.getBoundingClientRect().height / CSS_PX_PER_MM;
-        drag(e, (dx, dy) =>
+        drag(e, (dx, dy, ev) => {
+          const grid = activeGrid();
+          const snap = grid?.snap && !ev.altKey;
+          const w = Math.max(MIN_WIDTH_MM, g.widthMm + dx);
+          const h = Math.max(MIN_HEIGHT_MM, h0 + dy);
           write({
-            widthMm: Math.max(MIN_WIDTH_MM, g.widthMm + dx),
-            heightMm: Math.max(MIN_HEIGHT_MM, h0 + dy),
-          }),
-        );
+            widthMm: snap ? Math.max(MIN_WIDTH_MM, snapMm(w, grid!.spacingXMm)) : w,
+            heightMm: snap ? Math.max(MIN_HEIGHT_MM, snapMm(h, grid!.spacingYMm)) : h,
+          });
+        });
       });
 
       return {

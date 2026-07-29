@@ -14,6 +14,9 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { checkText, type IssueKind, type ProofIssue } from "./proofing";
+import {
+  embeddedDictionary, listDictionary, mergeDictionaries, type DictLang, type SpellChecker,
+} from "./dict";
 
 /** Un problème replacé dans les coordonnées du document. */
 export interface DocIssue extends ProofIssue {
@@ -27,7 +30,16 @@ interface ProofState {
   enabled: boolean;
   personal: Set<string>;
   ignored: Set<string>;
-  dictionary: Set<string> | null;
+  /** Langue du dictionnaire embarqué. */
+  lang: DictLang;
+  /** Dictionnaire embarqué actif (coupé = pas de détection de mots inconnus). */
+  embedded: boolean;
+  /** Liste de mots importée, qui complète l'embarqué. */
+  imported: string[] | null;
+  /** Signaler TOUT mot inconnu, et non les seuls corrigibles. */
+  strict: boolean;
+  /** Laisser AUSSI le correcteur du navigateur souligner. */
+  native: boolean;
   disabled: Set<IssueKind>;
 }
 
@@ -35,9 +47,39 @@ const state: ProofState = {
   enabled: true,
   personal: new Set(),
   ignored: new Set(),
-  dictionary: null,
+  lang: "fr",
+  // Actif par défaut : un correcteur qu'il faut allumer ne corrige personne. Le
+  // dictionnaire ne se construit qu'à la première analyse (voir `dict/index.ts`).
+  embedded: true,
+  imported: null,
+  strict: false,
+  // Coupé par défaut : notre dictionnaire souligne déjà les mots inconnus, et deux
+  // soulignements ondulés sous le même mot n'aident personne.
+  native: false,
   disabled: new Set(),
 };
+
+/**
+ * Le dictionnaire courant, mis en cache.
+ *
+ * Reconstruit uniquement quand un réglage de dictionnaire change : la fusion et la
+ * construction paresseuse ne doivent pas être refaites à chaque bloc analysé.
+ */
+let checker: SpellChecker | null = null;
+let checkerKey = "";
+
+function currentChecker(): SpellChecker | null {
+  const key = `${state.embedded ? state.lang : ""}|${state.imported?.length ?? 0}`;
+  if (checker && checkerKey === key) return checker;
+  const embedded = state.embedded ? embeddedDictionary(state.lang) : null;
+  const imported = state.imported?.length ? listDictionary(state.imported) : null;
+  checker =
+    embedded && imported
+      ? mergeDictionaries(embedded, imported)
+      : embedded ?? imported ?? null;
+  checkerKey = key;
+  return checker;
+}
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -46,7 +88,64 @@ const listeners = new Set<Listener>();
 function notify(): void {
   // Tout changement de réglage périme le cache d'analyse.
   bumpEpoch();
+  savePrefs();
   for (const fn of listeners) fn();
+}
+
+// --- Persistance des préférences ------------------------------------------
+
+/**
+ * Les réglages du correcteur sont des préférences d'APPLICATION, pas du contenu de
+ * document : ils vivent donc sur l'appareil, pas dans le fichier `.elium`. Sans
+ * cela, le dictionnaire personnel serait à reconstituer à chaque ouverture — le
+ * genre de détail qui fait abandonner un correcteur.
+ *
+ * Le dictionnaire personnel peut contenir des noms propres : il reste local, n'est
+ * jamais envoyé, et le volet permet de le vider.
+ */
+const PREFS_KEY = "elium.proofing.v1";
+
+function savePrefs(): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        enabled: state.enabled,
+        lang: state.lang,
+        embedded: state.embedded,
+        strict: state.strict,
+        native: state.native,
+        personal: [...state.personal],
+        disabled: [...state.disabled],
+      }),
+    );
+  } catch {
+    // Un stockage indisponible (mode privé, quota) ne doit pas casser la frappe.
+  }
+}
+
+/** Recharge les réglages persistés. À appeler une fois au démarrage de l'éditeur. */
+export function loadProofingPrefs(): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof p.enabled === "boolean") state.enabled = p.enabled;
+    if (p.lang === "fr" || p.lang === "en") state.lang = p.lang;
+    if (typeof p.embedded === "boolean") state.embedded = p.embedded;
+    if (typeof p.strict === "boolean") state.strict = p.strict;
+    if (typeof p.native === "boolean") state.native = p.native;
+    if (Array.isArray(p.personal)) {
+      state.personal = new Set(p.personal.map((w) => String(w).trim()).filter(Boolean));
+    }
+    if (Array.isArray(p.disabled)) state.disabled = new Set(p.disabled as IssueKind[]);
+    bumpEpoch();
+    for (const fn of listeners) fn();
+  } catch {
+    // Des préférences illisibles valent mieux ignorées que fatales.
+  }
 }
 
 /** S'abonne aux changements de réglage du correcteur. */
@@ -59,13 +158,32 @@ export function onProofingChange(fn: Listener): () => void {
 export function proofingSettings(): {
   enabled: boolean;
   hasDictionary: boolean;
+  /** Étiquette du dictionnaire actif (« Français (embarqué) + … »). */
+  dictionaryLabel: string;
+  /** Nombre de formes couvertes. */
+  dictionarySize: number;
+  lang: DictLang;
+  embedded: boolean;
+  imported: number;
+  strict: boolean;
+  native: boolean;
   personalSize: number;
+  ignoredSize: number;
   disabled: IssueKind[];
 } {
+  const d = currentChecker();
   return {
     enabled: state.enabled,
-    hasDictionary: Boolean(state.dictionary?.size),
+    hasDictionary: Boolean(d),
+    dictionaryLabel: d?.label ?? "Aucun",
+    dictionarySize: d?.size ?? 0,
+    lang: state.lang,
+    embedded: state.embedded,
+    imported: state.imported?.length ?? 0,
+    strict: state.strict,
+    native: state.native,
     personalSize: state.personal.size,
+    ignoredSize: state.ignored.size,
     disabled: [...state.disabled],
   };
 }
@@ -83,9 +201,55 @@ export function setRuleEnabled(kind: IssueKind, on: boolean): void {
   notify();
 }
 
-/** Charge le dictionnaire de référence (voir `parseDictionary`). */
+/**
+ * Charge une liste de mots importée (voir `parseDictionary`).
+ *
+ * Elle **complète** le dictionnaire embarqué au lieu de le remplacer : un fichier
+ * de vocabulaire métier n'a aucune raison de faire perdre le français.
+ */
 export function setDictionary(wordsList: Iterable<string> | null): void {
-  state.dictionary = wordsList ? new Set(wordsList) : null;
+  state.imported = wordsList ? [...wordsList] : null;
+  notify();
+}
+
+/** Change la langue du dictionnaire embarqué. */
+export function setDictionaryLang(lang: DictLang): void {
+  state.lang = lang;
+  notify();
+}
+
+/** Active ou coupe le dictionnaire embarqué (la détection de mots inconnus). */
+export function setEmbeddedDictionary(on: boolean): void {
+  state.embedded = Boolean(on);
+  notify();
+}
+
+/** Bascule entre relecture prudente (par défaut) et relecture exhaustive. */
+export function setStrictSpelling(on: boolean): void {
+  state.strict = Boolean(on);
+  notify();
+}
+
+/** Laisse aussi le correcteur du navigateur souligner (double soulignement). */
+export function setNativeSpelling(on: boolean): void {
+  state.native = Boolean(on);
+  notify();
+}
+
+/** Les mots ignorés pour la session, pour les afficher ou les vider. */
+export function ignoredWords(): string[] {
+  return [...state.ignored].sort((a, b) => a.localeCompare(b, "fr"));
+}
+
+/** Oublie les mots ignorés (ils redeviennent signalables). */
+export function clearIgnored(): void {
+  state.ignored = new Set();
+  notify();
+}
+
+/** Retire un mot du dictionnaire personnel. */
+export function removeFromPersonal(word: string): void {
+  state.personal.delete(String(word ?? "").trim());
   notify();
 }
 
@@ -146,7 +310,8 @@ function issuesFor(node: object, text: string): ProofIssue[] {
   const issues = checkText(text, {
     personal: state.personal,
     ignored: state.ignored,
-    dictionary: state.dictionary,
+    dictionary: currentChecker(),
+    strict: state.strict,
     disabled: state.disabled,
   });
   cache.set(node, { epoch, issues });
@@ -186,6 +351,33 @@ export function collectIssues(doc: {
 
 const proofingKey = new PluginKey("eliumProofing");
 
+// --- Correction au clic droit ---------------------------------------------
+
+/** Une demande de correction : le problème visé et l'endroit où l'ouvrir. */
+export interface ProofRequest {
+  issue: DocIssue;
+  x: number;
+  y: number;
+}
+
+let requestListener: ((request: ProofRequest) => void) | null = null;
+
+/**
+ * S'abonne aux clics droits sur un mot souligné.
+ *
+ * Corriger une faute doit se faire là où elle est : ouvrir un volet, y retrouver la
+ * ligne et cliquer la suggestion fait trois gestes pour un mot. Le clic droit est
+ * le geste attendu — c'est celui de Word — et il vaut mieux le servir nous-mêmes
+ * que de laisser le menu du navigateur proposer les suggestions d'un autre
+ * dictionnaire que le nôtre.
+ */
+export function onProofRequest(fn: (request: ProofRequest) => void): () => void {
+  requestListener = fn;
+  return () => {
+    if (requestListener === fn) requestListener = null;
+  };
+}
+
 export const Proofing = Extension.create({
   name: "eliumProofing",
 
@@ -206,13 +398,32 @@ export const Proofing = Extension.create({
         },
         props: {
           attributes: () => ({
-            // Le correcteur NATIF du navigateur reste chargé de l'orthographe :
-            // il utilise les dictionnaires du système, donc hors ligne et sans
-            // embarquer plusieurs mégaoctets. `lang` est ce qui le fait vérifier
-            // en français plutôt que dans la langue de l'interface.
-            lang: "fr",
-            spellcheck: state.enabled ? "true" : "false",
+            // `lang` reste posé : il sert à la césure, à la synthèse vocale et aux
+            // lecteurs d'écran, pas seulement au correcteur.
+            lang: state.lang,
+            // Le correcteur du navigateur est COUPÉ par défaut : le dictionnaire
+            // embarqué souligne déjà les mots inconnus, et deux soulignements
+            // ondulés sous le même mot, avec deux menus contextuels différents,
+            // n'aident personne. Il reste activable pour qui préfère les
+            // dictionnaires de son système.
+            spellcheck: state.native ? "true" : "false",
           }),
+          handleDOMEvents: {
+            contextmenu: (view, event) => {
+              if (!requestListener || !state.enabled) return false;
+              const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+              if (!at) return false;
+              // Le problème sous le curseur, s'il y en a un : sinon le menu du
+              // navigateur doit garder la main (copier, coller, inspecter…).
+              const hit = collectIssues(view.state.doc as never).find(
+                (i) => at.pos >= i.docFrom && at.pos <= i.docTo,
+              );
+              if (!hit) return false;
+              event.preventDefault();
+              requestListener({ issue: hit, x: event.clientX, y: event.clientY });
+              return true;
+            },
+          },
           decorations: (editorState) => {
             const decos = collectIssues(editorState.doc as never).map((issue) =>
               Decoration.inline(issue.docFrom, issue.docTo, {
@@ -241,6 +452,6 @@ export function proofingCss(scope = ".elium-prose"): string {
     `${scope} .elium-proof--repeated{${wavy("var(--danger, #dc2626)")}}`,
     // Les fautes de typographie sont moins graves : teinte plus douce.
     `${scope} .elium-proof--double-space,${scope} .elium-proof--space-before-punct,` +
-      `${scope} .elium-proof--space-after-punct{${wavy("var(--accent, #7c3aed)")}}`,
+      `${scope} .elium-proof--space-after-punct{${wavy("var(--accent)")}}`,
   ].join("\n");
 }

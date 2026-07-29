@@ -33,6 +33,10 @@ import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornament
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
 import {
+  clampAdj, dashFromOoxml, defaultAdj, emuToMm, kindFromPrst, shapeDef, shapeXml,
+} from "../editor/shapes";
+import { gridSettingsXml } from "../editor/grid";
+import {
   NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
   notesRelXml,
 } from "./docx-notes";
@@ -224,7 +228,14 @@ const NS =
   // espaces de noms, Word refuse la partie qui les contient.
   'xmlns:v="urn:schemas-microsoft-com:vml" ' +
   'xmlns:o="urn:schemas-microsoft-com:office:office" ' +
-  'xmlns:w10="urn:schemas-microsoft-com:office:word"';
+  'xmlns:w10="urn:schemas-microsoft-com:office:word" ' +
+  // Les formes voyagent en DrawingML `wps:wsp` avec un repli VML dans un
+  // `mc:AlternateContent` : sans `mc` ni `wps`, Word rejette la partie. `wp14`
+  // est déclaré parce que `mc:Ignorable` doit nommer des préfixes existants.
+  'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" ' +
+  'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" ' +
+  'xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" ' +
+  'mc:Ignorable="wp14"';
 
 const EMU_PER_PX = 9525;
 const MAX_CONTENT_EMU = 6 * 914400; // ~6 inch content width
@@ -245,6 +256,8 @@ interface WriteCtx {
   needsTextBoxType?: boolean;
   /** Identifiants uniques des formes de zone de texte. */
   textBoxSeq: number;
+  /** Identifiants uniques des formes (`wp:docPr/@id` doit être unique dans le document). */
+  shapeSeq: number;
   /** scheme id (or "#bullet" / "#ordered" for unstyled lists) -> w:numId */
   numIds: Map<string, number>;
   /** <w:abstractNum> fragments, in numbering.xml order */
@@ -741,6 +754,14 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
       const inner = (node.content ?? []).map((c) => blockXml(c, ctx, headings)).join("");
       return textBoxVml(node.attrs, node.attrs, inner, `EliumTextBox${++ctx.textBoxSeq}`);
     }
+    case "shape": {
+      // Deux branches dans un `mc:AlternateContent` : DrawingML d'abord — c'est
+      // ce qui fait arriver la forme dans Word comme une VRAIE forme préréglée,
+      // éditable, et non comme un tracé mort — puis le VML pour les lecteurs qui
+      // ignorent `wps`. Le contenu est du XML de blocs ordinaire.
+      const inner = (node.content ?? []).map((c) => blockXml(c, ctx, headings)).join("");
+      return shapeXml(node.attrs?.kind, node.attrs, node.attrs, inner, ++ctx.shapeSeq, node.attrs?.adj);
+    }
     case "columnSection":
       // Columns are section properties in Word, and a `w:sectPr` is only valid
       // on a TOP-LEVEL paragraph — docToDocx handles those boundaries. Reached
@@ -873,6 +894,28 @@ function collectHeadings(doc: ProseMirrorNode): { level: number; text: string }[
 
 const tw = (mm: number) => Math.round(mm * 56.6929); // mm → twips
 
+/**
+ * `word/settings.xml` — les réglages du document.
+ *
+ * Nouvelle partie du paquet, introduite pour le **quadrillage** : Word garde la
+ * grille de dessin dans les réglages, pas dans le corps. L'ordre des éléments est
+ * imposé par le schéma (`CT_Settings` est une séquence) — le taquet par défaut et
+ * le zoom encadrent la grille exactement là où Word les écrit, sinon la partie est
+ * rejetée alors que chaque élément est valide isolément.
+ */
+function settingsXml(page: PageSettings | undefined): string {
+  const grid = (page as { grid?: unknown } | undefined)?.grid;
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    `<w:settings ${NS}>` +
+    '<w:zoom w:percent="100"/>' +
+    '<w:defaultTabStop w:val="709"/>' +
+    gridSettingsXml(grid) +
+    '<w:characterSpacingControl w:val="compressPunctuation"/>' +
+    "</w:settings>"
+  );
+}
+
 /** `w:sectPr` body for one section: page size, margins and numbering restart. */
 function sectPrBody(
   page: PageSettings,
@@ -920,6 +963,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     abstracts: [],
     bookmarkSeq: 0,
     textBoxSeq: 0,
+    shapeSeq: 0,
     bookmarkNames: new Map(),
     usedBookmarks: new Set([INDEX_BOOKMARK]),
     targets: collectTargetsJson(doc),
@@ -1031,7 +1075,10 @@ export function docToDocx(file: EliumFile): Uint8Array {
 
   const baseRels =
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
-    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
+    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' +
+    // La partie des réglages porte le quadrillage : sans la relation, Word
+    // l'ignore purement et simplement.
+    '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>';
   const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${headerRel}${noteRels}${ctx.rels.join("")}</Relationships>`;
 
@@ -1046,7 +1093,8 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Default Extension="xml" ContentType="application/xml"/>${mediaDefaults}
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1069,6 +1117,8 @@ export function docToDocx(file: EliumFile): Uint8Array {
     // own gallery instead of receiving formatting baked into every run.
     "word/styles.xml": strToU8(stylesXml(mergeStyles(file.document.styles as never), noteStylesXml())),
     "word/numbering.xml": strToU8(numberingXml(ctx)),
+    // Les réglages : le quadrillage (pas, lignes affichées, origine) y vit.
+    "word/settings.xml": strToU8(settingsXml(page)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };
   if (markVml) {
@@ -1511,6 +1561,10 @@ function paragraphNode(
   zip: Record<string, Uint8Array>,
   sty: StyleResolver,
 ): ProseMirrorNode[] {
+  // Une forme ou une zone de texte prend la place du paragraphe qui la porte.
+  const floating = floatingFromParagraph(p, rels, zip, sty);
+  if (floating) return [floating];
+
   const ppr = firstChild(p, "w:pPr");
   const style = ppr ? firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "" : "";
   // Taquets du paragraphe : relus en millimètres, la même unité que la règle.
@@ -1557,6 +1611,222 @@ function paragraphNode(
   }
   if (pageBreak) out.push({ type: "pageBreak" });
   return out;
+}
+
+// --- Relecture des objets flottants (formes, zones de texte) ---------------
+
+/** Points en millimètres — l'unité de VML est le point typographique. */
+function ptToMm(pt: unknown): number {
+  const n = Number(String(pt ?? "").replace(/pt$/i, ""));
+  return Number.isFinite(n) ? Math.round((n / 72) * 25.4 * 10) / 10 : 0;
+}
+
+/** Une propriété d'un attribut `style` de VML/CSS. */
+function styleProp(style: string, name: string): string {
+  const m = new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, "i").exec(style);
+  return m ? m[1]!.trim() : "";
+}
+
+/** L'habillage lu sur un objet flottant DrawingML. */
+function wrapFromAnchor(anchor: XmlEl | undefined): { wrap: string; x: number; y: number } {
+  if (!anchor) return { wrap: "inline", x: 0, y: 0 };
+  const behind = anchor.attrs["behindDoc"] === "1";
+  const square = !!firstChild(anchor, "wp:wrapSquare");
+  const offset = (axis: "H" | "V"): number => {
+    const pos = firstDescendant(anchor, `wp:position${axis}`);
+    const off = pos ? firstChild(pos, "wp:posOffset") : undefined;
+    return off ? emuToMm(te(off)) : 0;
+  };
+  return {
+    wrap: square ? "square" : behind ? "behind" : "front",
+    x: offset("H"),
+    y: offset("V"),
+  };
+}
+
+/** La première couleur d'un remplissage DrawingML (uni ou dégradé). */
+function dmlFill(sp: XmlEl | undefined): { fill: string; fill2: string; gradient: "" | "linear" | "radial" } {
+  if (!sp) return { fill: "", fill2: "", gradient: "" };
+  if (firstChild(sp, "a:noFill")) return { fill: "", fill2: "", gradient: "" };
+  const grad = firstChild(sp, "a:gradFill");
+  if (grad) {
+    const stops = descendants(grad, "a:srgbClr").map((c) => `#${c.attrs["val"] ?? ""}`);
+    return {
+      fill: /^#[0-9a-f]{6}$/i.test(stops[0] ?? "") ? stops[0]! : "",
+      fill2: /^#[0-9a-f]{6}$/i.test(stops[1] ?? "") ? stops[1]! : "",
+      gradient: firstDescendant(grad, "a:path") ? "radial" : "linear",
+    };
+  }
+  const solid = firstChild(sp, "a:solidFill");
+  const hex = solid ? `#${firstDescendant(solid, "a:srgbClr")?.attrs["val"] ?? ""}` : "";
+  return { fill: /^#[0-9a-f]{6}$/i.test(hex) ? hex : "", fill2: "", gradient: "" };
+}
+
+/**
+ * Une forme DrawingML (`wps:wsp`) relue en nœud `shape`.
+ *
+ * Sans cette relecture, une forme exportée puis réouverte revenait en rectangle
+ * nu : la géométrie préréglée est justement ce qui permet de retrouver LA forme,
+ * et pas seulement sa boîte. Un `txBox="1"` désigne une vraie zone de texte de
+ * Word, pas une forme — c'est la distinction que fait Word lui-même, donc elle
+ * décide ici du type de nœud produit.
+ */
+function shapeFromWsp(
+  p: XmlEl,
+  wsp: XmlEl,
+  rels: Record<string, string>,
+  zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
+): ProseMirrorNode | null {
+  const sp = firstChild(wsp, "wps:spPr");
+  const prst = firstDescendant(wsp, "a:prstGeom")?.attrs["prst"] ?? "";
+  const isTextBox = firstChild(wsp, "wps:cNvSpPr")?.attrs["txBox"] === "1";
+  const kind = kindFromPrst(prst);
+  const ext = firstDescendant(wsp, "a:ext");
+  const widthMm = emuToMm(ext?.attrs["cx"]);
+  const heightMm = emuToMm(ext?.attrs["cy"]);
+  const rotRaw = Number(firstDescendant(wsp, "a:xfrm")?.attrs["rot"] ?? 0);
+  const rotation = Number.isFinite(rotRaw) ? Math.round(rotRaw / 60000) % 360 : 0;
+  const { wrap, x, y } = wrapFromAnchor(firstDescendant(p, "wp:anchor"));
+  const txbx = firstDescendant(wsp, "w:txbxContent");
+  const content = txbx ? children(txbx, "w:p").flatMap((q) => paragraphNode(q, rels, zip, sty)) : [];
+
+  const { fill, fill2, gradient } = dmlFill(sp);
+  const ln = sp ? firstChild(sp, "a:ln") : undefined;
+  const noLine = !!(ln && firstChild(ln, "a:noFill"));
+  const strokeHex = ln ? `#${firstDescendant(ln, "a:srgbClr")?.attrs["val"] ?? ""}` : "";
+  const strokeEmu = Number(ln?.attrs["w"] ?? 0);
+  const dash = dashFromOoxml(firstDescendant(ln ?? wsp, "a:prstDash")?.attrs["val"]);
+  const geo = { x, y, widthMm: widthMm || 40, heightMm: heightMm || 25, wrap, rotation };
+
+  // Une zone de texte de Word reste une zone de texte : elle a son propre nœud,
+  // avec ses bordures et son remplissage.
+  if (isTextBox && (!kind || kind === "rect" || kind === "roundRect")) {
+    return {
+      type: "textBox",
+      attrs: {
+        ...geo,
+        borderWidth: noLine || !strokeEmu ? 0 : Math.max(1, Math.round((strokeEmu / 36000 / 25.4) * 96)),
+        ...(/^#[0-9a-f]{6}$/i.test(strokeHex) ? { borderColor: strokeHex } : {}),
+        fill,
+      },
+      content: content.length ? content : [{ type: "paragraph" }],
+    };
+  }
+  if (!kind) return null;
+  const def = shapeDef(kind);
+  const adjRaw = firstDescendant(wsp, "a:gd")?.attrs["fmla"] ?? "";
+  const adjVal = /val\s+(-?\d+)/.exec(adjRaw);
+  return {
+    type: "shape",
+    attrs: {
+      kind,
+      adj: adjVal ? clampAdj(kind, Number(adjVal[1]) / 1000) : defaultAdj(kind),
+      ...geo,
+      fill,
+      ...(fill2 ? { fill2 } : {}),
+      gradient,
+      ...(/^#[0-9a-f]{6}$/i.test(strokeHex) ? { strokeColor: strokeHex } : {}),
+      strokeWidth: noLine ? 0 : strokeEmu ? Math.max(1, Math.round((strokeEmu / 36000 / 25.4) * 96)) : 1,
+      dash,
+      shadow: !!firstDescendant(wsp, "a:outerShdw"),
+      vAlign:
+        firstChild(wsp, "wps:bodyPr")?.attrs["anchor"] === "t"
+          ? "top"
+          : firstChild(wsp, "wps:bodyPr")?.attrs["anchor"] === "b"
+            ? "bottom"
+            : "middle",
+    },
+    content: def.line ? [] : content,
+  };
+}
+
+/**
+ * Une forme VML relue en nœud.
+ *
+ * Word écrit encore ses zones de texte en VML (`#_x0000_t202`), et c'est aussi
+ * notre branche de repli. Un tracé VML quelconque ne peut PAS être ramené à une
+ * forme préréglée — il revient donc en rectangle, en conservant taille, couleurs
+ * et contenu plutôt que d'être perdu.
+ */
+function shapeFromVml(
+  v: XmlEl,
+  rels: Record<string, string>,
+  zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
+): ProseMirrorNode | null {
+  const style = v.attrs["style"] ?? "";
+  const wrapEl = firstDescendant(v, "w10:wrap")?.attrs["type"] ?? "";
+  const zIndex = Number(styleProp(style, "z-index") || 0);
+  const wrap =
+    wrapEl === "inline"
+      ? "inline"
+      : wrapEl === "square"
+        ? "square"
+        : zIndex < 0
+          ? "behind"
+          : "front";
+  const widthMm = ptToMm(styleProp(style, "width"));
+  const heightMm = ptToMm(styleProp(style, "height"));
+  const x = ptToMm(styleProp(style, "margin-left"));
+  const y = ptToMm(styleProp(style, "margin-top"));
+  const rotation = Math.round(Number(styleProp(style, "rotation") || 0)) % 360;
+  const txbx = firstDescendant(v, "w:txbxContent");
+  const content = txbx ? children(txbx, "w:p").flatMap((q) => paragraphNode(q, rels, zip, sty)) : [];
+  const fillcolor = v.attrs["fillcolor"] ?? "";
+  const strokecolor = v.attrs["strokecolor"] ?? "";
+  const stroked = v.attrs["stroked"] !== "f";
+  const weight = ptToMm(v.attrs["strokeweight"] ?? "");
+  const geo = { x, y, widthMm: widthMm || 60, heightMm: heightMm || 0, wrap, rotation };
+  const isTextBox = (v.attrs["type"] ?? "").includes("t202") || !!txbx;
+  if (isTextBox) {
+    return {
+      type: "textBox",
+      attrs: {
+        ...geo,
+        borderWidth: stroked ? Math.max(1, Math.round((weight / 25.4) * 96)) : 0,
+        ...(/^#[0-9a-f]{6}$/i.test(strokecolor) ? { borderColor: strokecolor } : {}),
+        fill: /^#[0-9a-f]{6}$/i.test(fillcolor) ? fillcolor : "",
+      },
+      content: content.length ? content : [{ type: "paragraph" }],
+    };
+  }
+  return {
+    type: "shape",
+    attrs: {
+      kind: "rect",
+      adj: defaultAdj("rect"),
+      ...geo,
+      heightMm: heightMm || 25,
+      fill: /^#[0-9a-f]{6}$/i.test(fillcolor) ? fillcolor : "",
+      ...(/^#[0-9a-f]{6}$/i.test(strokecolor) ? { strokeColor: strokecolor } : {}),
+      strokeWidth: stroked ? Math.max(1, Math.round((weight / 25.4) * 96)) : 0,
+    },
+    content: [],
+  };
+}
+
+/**
+ * L'objet flottant d'un paragraphe, s'il y en a un.
+ *
+ * Un paragraphe qui ne porte qu'une forme n'est PAS un paragraphe : le rendre
+ * comme tel laisserait un paragraphe vide à sa place et perdrait la forme. Le
+ * DrawingML est lu en premier — dans un `mc:AlternateContent` les deux branches
+ * décrivent le même objet, et c'est la moderne qui porte la géométrie.
+ */
+function floatingFromParagraph(
+  p: XmlEl,
+  rels: Record<string, string>,
+  zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
+): ProseMirrorNode | null {
+  const wsp = firstDescendant(p, "wps:wsp");
+  if (wsp) return shapeFromWsp(p, wsp, rels, zip, sty);
+  const v = firstDescendant(p, "v:shape") ?? firstDescendant(p, "v:rect");
+  // Le `v:shapetype` déclaratif n'est pas une forme, et le filigrane vit dans un
+  // en-tête : ni l'un ni l'autre n'arrive ici.
+  if (v && v.name !== "v:shapetype") return shapeFromVml(v, rels, zip, sty);
+  return null;
 }
 
 function tableNode(tbl: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>, sty: StyleResolver): ProseMirrorNode {

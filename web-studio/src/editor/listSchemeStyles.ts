@@ -7,7 +7,7 @@
  */
 import { schemesCss } from "./listSchemes";
 import { dropCapStyleSheet } from "./ornamentExtensions";
-import { tableStylesCss } from "./tableStyles";
+import { tableGridlinesCss, tableStylesCss } from "./tableStyles";
 import { proofingCss } from "./proofingExtension";
 
 const STYLE_ID = "elium-list-schemes";
@@ -20,6 +20,9 @@ export function ensureListSchemeStyles(): void {
   // La lettrine passe par `::first-letter`, qui ne peut pas être stylé en ligne :
   // sa règle doit donc vivre dans une feuille, comme les schémas de liste.
   style.textContent =
-    schemesCss(".elium-prose") + dropCapStyleSheet() + tableStylesCss() + proofingCss();
+    schemesCss(".elium-prose") + dropCapStyleSheet() + tableStylesCss() +
+    // Le quadrillage des tableaux : déduit de la même table de styles, donc
+    // toujours d'accord avec les filets qu'ils dessinent (ou pas).
+    tableGridlinesCss() + proofingCss();
   document.head.appendChild(style);
 }

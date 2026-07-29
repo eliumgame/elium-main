@@ -233,6 +233,21 @@
 .library-card__date { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
 
 .home__section-title { display: flex; align-items: center; gap: 8px; font-size: 18px; margin-bottom: 14px; }
+/* Action discrète alignée à droite du titre de section (« tout supprimer »). */
+.home__section-action {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-muted); font-family: inherit;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.home__section-action:hover { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+/* Bouton « afficher plus/moins » pleine largeur sous une grille. */
+.home__more {
+  margin-top: 12px; width: 100%; padding: 10px; border-radius: var(--r-sm);
+  border: 1px dashed var(--border-strong); background: none; color: var(--text-soft);
+  font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.home__more:hover { background: var(--surface-2); color: var(--text); border-color: var(--primary); }
 .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
 .template-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; text-align: left; transition: all 0.15s; box-shadow: var(--shadow-sm); }
 .template-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow); }
@@ -367,7 +382,10 @@
 @media print { .elium-page-gap { display: none !important; } }
 
 /* ProseMirror content */
-.elium-prose { outline: none; min-height: 220mm; color: var(--text); }
+/* Corps à 15px (~11 pt) : la valeur héritée de 13px était trop dense pour un
+   traitement de texte — Word/Docs tournent autour de 15px équivalent. Les titres
+   et le code gardent leur taille absolue. */
+.elium-prose { outline: none; min-height: 220mm; color: var(--text); font-size: 15px; }
 .elium-prose:focus { outline: none; }
 .elium-prose > * + * { margin-top: 0.7em; }
 .elium-prose h1 { font-size: 26px; font-weight: 800; }
@@ -812,10 +830,10 @@
    les deux familles peuvent coexister dans un document et doivent se
    différencier d'un coup d'œil. */
 .elium-en-ref {
-  color: var(--accent, #7c3aed); font-weight: 700; font-size: .7em;
+  color: var(--accent); font-weight: 700; font-size: .7em;
   vertical-align: super; cursor: help; padding: 0 1px; user-select: none;
 }
-.ProseMirror-selectednode.elium-en-ref { outline: 2px solid var(--accent, #7c3aed); border-radius: 2px; }
+.ProseMirror-selectednode.elium-en-ref { outline: 2px solid var(--accent); border-radius: 2px; }
 .elium-endnotes {
   margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--border-strong);
   font-size: 13px; color: var(--text-soft); user-select: none;
@@ -830,7 +848,7 @@
 .elium-endnotes__item.is-linked:hover { background: var(--surface-2); }
 .elium-endnotes__mark, .elium-footnotes__mark {
   flex: none; min-width: 2.2em; text-align: right;
-  color: var(--accent, #7c3aed); font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 .elium-footnotes__mark { color: var(--primary); }
 .elium-endnotes__text, .elium-footnotes__text { min-width: 0; }
@@ -1452,7 +1470,7 @@
   color: var(--primary); font-size: 12px; line-height: 1; cursor: grab;
   padding: 0 2px;
 }
-.elium-ruler__stop.is-dragging { cursor: grabbing; color: var(--accent, #7c3aed); }
+.elium-ruler__stop.is-dragging { cursor: grabbing; color: var(--accent); }
 .elium-ruler__stop.is-bar { color: var(--text-soft); font-weight: 700; }
 
 /* La tabulation est un atome dont la largeur est calculée par sa vue de nœud :
@@ -1532,6 +1550,30 @@
   background: var(--surface); color: var(--text-soft); font-weight: 600;
 }
 .proof__import:hover { background: var(--surface-3); border-color: var(--primary); }
+/* Deuxième rangée d'options (dictionnaire embarqué, mode, correcteur natif) :
+   plus discrète que la barre principale, en petites cases à cocher. */
+.proof__bar--options { padding-top: 0; gap: 12px; font-size: 11.5px; }
+.proof__select {
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text); font-family: inherit; font-size: 12px;
+}
+/* Dictionnaire personnel et mots ignorés : des puces retirables. */
+.proof__lexicon { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
+.proof__chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 6px; }
+.proof__chip {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--primary-50, #eff6ff); color: var(--primary); font-size: 11.5px; font-weight: 600;
+}
+.proof__chip:hover { background: var(--danger, #dc2626); color: #fff; border-color: transparent; }
+.proof__chip--muted {
+  cursor: default; background: var(--surface-3); color: var(--text-muted); border-color: var(--border);
+}
+.proof__chip--muted:hover { background: var(--surface-3); color: var(--text-muted); }
+.proof__link {
+  margin-left: auto; background: none; border: 0; cursor: pointer;
+  color: var(--primary); font-size: 11px; font-weight: 600; text-decoration: underline;
+}
 .proof__hint {
   margin: 0 10px 8px; padding: 8px 10px; border-radius: 6px;
   background: var(--surface-3); color: var(--text-muted); line-height: 1.45; font-size: 11.5px;
@@ -1617,3 +1659,111 @@
 /* Une zone derrière le texte reste atteignable au clic malgré son z-index. */
 .elium-textbox--behind { pointer-events: auto; }
 .ProseMirror-selectednode.elium-textbox { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* --- Editor: formes -------------------------------------------------------- */
+/* Le dessin est un SVG posé SOUS le texte de la forme, jamais une bordure CSS :
+   sinon le contour serait tracé deux fois, une fois par le chemin et une fois par
+   la boîte. Taille, placement et rotation viennent de `shapes.ts` (style en ligne). */
+.elium-shape { position: relative; }
+.elium-shape__art { position: absolute; inset: 0; pointer-events: none; }
+.elium-shape__art svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.elium-shape__content {
+  position: relative; display: flex; flex-direction: column; height: 100%;
+  overflow: hidden; text-align: center;
+}
+.elium-shape__content > :first-child { margin-top: 0; }
+.elium-shape__content > :last-child { margin-bottom: 0; }
+/* Les poignées n'apparaissent qu'au survol ou quand le curseur est dedans. */
+.elium-shape__grip, .elium-shape__resize, .elium-shape__rotate {
+  position: absolute; opacity: 0; transition: opacity .12s ease; user-select: none; z-index: 3;
+}
+.elium-shape:hover .elium-shape__grip,
+.elium-shape:hover .elium-shape__resize,
+.elium-shape:hover .elium-shape__rotate,
+.elium-shape:focus-within .elium-shape__grip,
+.elium-shape:focus-within .elium-shape__resize,
+.elium-shape:focus-within .elium-shape__rotate { opacity: 1; }
+.elium-shape__grip {
+  top: -9px; left: 50%; transform: translateX(-50%);
+  width: 30px; height: 8px; border-radius: 4px; cursor: grab;
+  background: var(--primary); box-shadow: var(--shadow-sm);
+}
+.elium-shape__grip:active { cursor: grabbing; }
+.elium-shape__resize {
+  right: -5px; bottom: -5px; width: 12px; height: 12px; border-radius: 3px;
+  cursor: nwse-resize; background: var(--surface); border: 2px solid var(--primary);
+}
+.elium-shape__rotate {
+  top: -26px; left: 50%; transform: translateX(-50%);
+  width: 14px; height: 14px; border-radius: 50%; cursor: grab;
+  background: var(--surface); border: 2px solid var(--accent);
+}
+/* Le fil qui relie la poignée de rotation à la forme, pour qu'on comprenne
+   qu'elle lui appartient. */
+.elium-shape__rotate::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 12px;
+  background: var(--accent); transform: translateX(-50%);
+}
+.elium-shape--behind { pointer-events: auto; }
+/* Une ligne n'a pas de zone de texte : sa poignée de taille suffit. */
+.elium-shape--line .elium-shape__content { display: none; }
+.ProseMirror-selectednode.elium-shape { outline: 2px dashed var(--primary); outline-offset: 3px; }
+
+/* --- Editor: quadrillage --------------------------------------------------- */
+/* La grille est un FOND posé en couche négative : `isolation` fait de la feuille
+   une racine d'empilement, ce qui place la grille au-dessus du fond de page (et
+   du filigrane) mais sous tout le contenu — sans toucher aux autres couches. */
+.elium-page { isolation: isolate; }
+.elium-grid { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+@media print { .elium-grid { display: none !important; } }
+/* Le quadrillage des tableaux est GÉNÉRÉ depuis la table des styles
+   (`tableStyles.ts` → `tableGridlinesCss`, injecté par `listSchemeStyles.ts`) :
+   seuls les styles sans filets sont concernés, et l'écrire à la main ici aurait
+   fait une seconde liste à tenir à jour. */
+
+/* Réglages : libellés en ligne des dialogues (quadrillage, filigrane, forme). */
+.settings__label { font-size: 12px; color: var(--text-soft); min-width: 108px; }
+.settings__unit { font-size: 12px; color: var(--text-muted); }
+.settings__value { font-size: 12px; color: var(--text-soft); min-width: 46px; }
+.settings__input--num { max-width: 96px; font-family: inherit; }
+.settings__check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--text-soft); cursor: pointer;
+}
+.griddlg__preview {
+  height: 120px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background-color: var(--surface); display: flex; align-items: center; justify-content: center;
+}
+.griddlg__empty { font-size: 12px; color: var(--text-muted); }
+/* L'aperçu du dialogue de forme : le SVG du générateur, à la proportion réelle
+   de la forme — un aperçu carré pour une forme allongée tromperait sur le rendu. */
+.shapedlg__preview {
+  max-width: 320px; max-height: 180px; margin: 0 auto;
+  border: 1px dashed var(--border); border-radius: var(--r-sm); padding: 6px;
+}
+.shapedlg__preview svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* --- Correcteur : menu au clic droit -------------------------------------- */
+/* Posé en coordonnées de fenêtre (voir ProofPopover), au-dessus de tout le reste
+   du chrome de l'éditeur. */
+.proofpop {
+  position: fixed; z-index: var(--el-z-popover, 80); min-width: 190px; max-width: 260px;
+  padding: 5px; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--border); box-shadow: var(--el-elev-4, 0 12px 30px rgba(15, 23, 42, .22));
+}
+.proofpop__head {
+  display: flex; flex-direction: column; gap: 1px; padding: 5px 8px 7px;
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.proofpop__kind { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.proofpop__word { font-weight: 700; color: var(--text); }
+.proofpop__item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 8px; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  color: var(--text); font-family: inherit; font-size: 12.5px;
+}
+.proofpop__item:hover { background: var(--surface-3); }
+.proofpop__item--fix { color: var(--primary); font-weight: 600; }
+.proofpop__item--fix:hover { background: var(--primary); color: #fff; }
+.proofpop__sep { height: 1px; margin: 4px 4px; background: var(--border); }
+.proofpop__empty { padding: 6px 8px; color: var(--text-muted); font-style: italic; font-size: 12px; }

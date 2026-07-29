@@ -13,6 +13,9 @@ import { useDialogs } from "../ui/dialogs";
 import type { VaultSecret } from "../crypto/local-vault";
 import "../drive-cloud/drive-cloud.css";
 
+/** Brouillons montrés avant de devoir cliquer « afficher les autres ». */
+const DRAFT_PREVIEW = 6;
+
 export default function HomeView({
   onCreate,
   onOpen,
@@ -42,6 +45,10 @@ export default function HomeView({
   const [library, setLibrary] = useState<ResolvedDriveEntry[]>([]);
   const [libQuery, setLibQuery] = useState("");
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
+  // Les brouillons auto-enregistrés s'accumulent vite (un par édition) et
+  // finissaient par noyer l'accueil. On n'en montre que les plus récents, avec un
+  // bouton pour tout déplier — la page reste une page d'accueil, pas une corbeille.
+  const [showAllDrafts, setShowAllDrafts] = useState(false);
   const { confirm, alert } = useDialogs();
 
   const reloadLibrary = () => {
@@ -60,6 +67,23 @@ export default function HomeView({
     e.stopPropagation();
     if (!(await confirm({ title: "Supprimer le brouillon", message: "Supprimer définitivement ce brouillon auto-enregistré ?", danger: true, confirmLabel: "Supprimer" }))) return;
     await deleteDraft(id);
+    reloadDrafts();
+  };
+
+  const clearAllDrafts = async () => {
+    if (
+      !(await confirm({
+        title: "Vider les brouillons",
+        message: `Supprimer définitivement les ${drafts.length} brouillons auto-enregistrés ? Les documents que vous avez déjà exportés en .elium ne sont pas concernés.`,
+        danger: true,
+        confirmLabel: "Tout supprimer",
+      }))
+    )
+      return;
+    // Séquentiel plutôt qu'en parallèle : la suppression touche IndexedDB, et
+    // lancer N transactions concurrentes sur le même store est une source de
+    // courses inutile pour un geste ponctuel.
+    for (const d of drafts) await deleteDraft(d.id);
     reloadDrafts();
   };
 
@@ -181,15 +205,27 @@ export default function HomeView({
         </div>
       </section>
 
-      {drafts.length > 0 && (
+      {drafts.length > 0 && (() => {
+        // Les plus récents d'abord, puis plafonnés : un accueil, pas une corbeille.
+        const ts = (v: DraftEntry["updatedAt"]) => new Date(v).getTime() || 0;
+        const sorted = [...drafts].sort((a, b) => ts(b.updatedAt) - ts(a.updatedAt));
+        const shown = showAllDrafts ? sorted : sorted.slice(0, DRAFT_PREVIEW);
+        const hidden = sorted.length - shown.length;
+        return (
         <section className="home__section">
-          <h2 className="home__section-title"><History size={18} /> Récupération automatique</h2>
+          <h2 className="home__section-title">
+            <History size={18} /> Récupération automatique
+            <span className="badge badge--neutral">{drafts.length}</span>
+            <button type="button" className="home__section-action" onClick={clearAllDrafts}>
+              <Trash2 size={13} /> Tout supprimer
+            </button>
+          </h2>
           <p className="muted">
             Brouillons enregistrés automatiquement pendant l'édition (jamais perdus en cas de fermeture).
             Ils restent ici jusqu'à ce que vous les supprimiez.
           </p>
           <div className="library-grid">
-            {drafts.map((d) => (
+            {shown.map((d) => (
               <div
                 key={d.id}
                 className="library-card"
@@ -240,8 +276,14 @@ export default function HomeView({
               </div>
             ))}
           </div>
+          {(hidden > 0 || showAllDrafts) && (
+            <button type="button" className="home__more" onClick={() => setShowAllDrafts((v) => !v)}>
+              {showAllDrafts ? "Afficher moins" : `Afficher les ${hidden} autres brouillons`}
+            </button>
+          )}
         </section>
-      )}
+        );
+      })()}
 
       {library.length > 0 && (
         <section className="home__section">

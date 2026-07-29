@@ -197,6 +197,34 @@ export function tableStylesCss(scope = ".elium-prose"): string {
   return rules.join("\n");
 }
 
+/**
+ * Le quadrillage des tableaux : les limites des cellules SANS bordure.
+ *
+ * C'est l'autre « quadrillage » de Word, et il ne concerne que les styles dont
+ * les filets sont absents : dessiner un pointillé sur un tableau déjà bordé
+ * doublerait ses traits. La liste des styles concernés est DÉDUITE de la table —
+ * ajouter un style sans filets le rendra quadrillable sans rien toucher ici.
+ *
+ * Tracé en `outline`, pas en `border` : une bordure participe à la mise en page
+ * (`border-collapse` la fusionne, et les colonnes se décaleraient à l'affichage
+ * du quadrillage), un contour se superpose sans rien déplacer.
+ */
+export function tableGridlinesCss(scope = ".elium-tablegrid .elium-prose"): string {
+  const rules: string[] = [];
+  for (const s of TABLE_STYLES) {
+    if (s.innerBorders && s.outerBorders) continue;
+    for (const sel of [
+      `${scope} table[data-table-style="${s.id}"]`,
+      `${scope} table:has(> tbody > tr.tstyle-${s.id})`,
+    ]) {
+      rules.push(`${sel} td,${sel} th{outline:1px dashed var(--border-strong,#cbd5e1);outline-offset:-1px}`);
+    }
+  }
+  // Un repère d'écran : il ne s'imprime pas, comme dans Word.
+  rules.push("@media print{.elium-tablegrid table td,.elium-tablegrid table th{outline:none !important}}");
+  return rules.join("\n");
+}
+
 /** Le `w:tblPr` d'un tableau, style et ajustement compris. */
 export function tablePrXml(styleId: unknown, fit: unknown): string {
   const s = tableStyleById(styleId);

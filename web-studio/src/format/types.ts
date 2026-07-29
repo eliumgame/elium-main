@@ -13,6 +13,10 @@
  *  - Integrity (tamper detection) and the activity journal are first-class.
  */
 
+// Le modèle du quadrillage vit dans `editor/grid.ts` (avec son rendu et son
+// OOXML) : le redéclarer ici en aurait fait deux définitions à faire coïncider.
+import type { GridSettings } from "../editor/grid";
+
 export const ELIUM_FORMAT = "elium";
 export const ELIUM_FORMAT_VERSION = 4;
 export const ELIUM_MIMETYPE = "application/x-elium";
@@ -63,6 +67,16 @@ export interface PageSettings {
   showPageNumbers?: boolean;
   /** Auto-number H1–H3 headings (1. / 1.1 / 1.1.1), purely presentational. */
   numberedHeadings?: boolean;
+  /**
+   * Quadrillage : grille de dessin, alignement des objets, quadrillage des
+   * tableaux (voir `editor/grid.ts` pour le modèle et le rendu).
+   *
+   * Appartient à la page parce que le pas de la grille se raisonne en
+   * millimètres de feuille, comme les marges — et parce que Word le range lui
+   * aussi dans les réglages du document (`settings.xml`). Absent des fichiers
+   * antérieurs : `normalizeGrid(undefined)` rend les valeurs par défaut.
+   */
+  grid?: GridSettings;
 }
 
 /**

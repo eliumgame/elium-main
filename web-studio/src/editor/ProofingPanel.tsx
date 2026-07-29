@@ -7,12 +7,14 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Check, EyeOff, BookPlus, X, Upload } from "lucide-react";
+import { Check, EyeOff, BookPlus, X, Upload, Trash2, BookOpen } from "lucide-react";
 import { Button } from "../ui/components";
 import { ISSUE_LABELS, parseDictionary, summarize, type IssueKind } from "./proofing";
+import { DICT_LANGS, type DictLang } from "./dict";
 import {
-  addToPersonal, collectIssues, ignoreWord, onProofingChange, proofingSettings, setDictionary,
-  setProofingEnabled, type DocIssue,
+  addToPersonal, clearIgnored, collectIssues, ignoreWord, ignoredWords, onProofingChange,
+  personalWords, proofingSettings, removeFromPersonal, setDictionary, setDictionaryLang,
+  setEmbeddedDictionary, setNativeSpelling, setProofingEnabled, setStrictSpelling, type DocIssue,
 } from "./proofingExtension";
 
 /** Problèmes montrés par famille avant de devoir cliquer « Afficher plus ». */
@@ -27,6 +29,8 @@ export default function ProofingPanel({
 }) {
   const [issues, setIssues] = useState<DocIssue[]>([]);
   const [settings, setSettings] = useState(() => proofingSettings());
+  const [personal, setPersonal] = useState<string[]>(() => personalWords());
+  const [ignored, setIgnored] = useState<string[]>(() => ignoredWords());
   // Nombre de problèmes montrés PAR FAMILLE ; « Afficher plus » l'augmente.
   const [limit, setLimit] = useState(PAGE);
 
@@ -34,6 +38,8 @@ export default function ProofingPanel({
     if (editor.isDestroyed) return;
     setIssues(collectIssues(editor.state.doc as never));
     setSettings(proofingSettings());
+    setPersonal(personalWords());
+    setIgnored(ignoredWords());
   }, [editor]);
 
   useEffect(() => {
@@ -115,17 +121,67 @@ export default function ProofingPanel({
           />
           Correction active
         </label>
-        <label className="proof__import" title="Charger une liste de mots ou un fichier .dic">
+        {/* La langue décide du dictionnaire embarqué : un texte anglais vérifié en
+            français serait souligné de bout en bout. */}
+        <select
+          className="proof__select"
+          title="Langue du dictionnaire"
+          value={settings.lang}
+          onChange={(e) => setDictionaryLang(e.target.value as DictLang)}
+        >
+          {DICT_LANGS.map((l) => (
+            <option key={l.id} value={l.id}>{l.label}</option>
+          ))}
+        </select>
+        <label className="proof__import" title="Compléter avec une liste de mots ou un fichier .dic">
           <Upload size={13} />
-          Dictionnaire
+          Importer
           <input type="file" accept=".dic,.txt,.lst,text/plain" onChange={importDictionary} hidden />
         </label>
       </div>
 
-      {!settings.hasDictionary && (
+      <div className="proof__bar proof__bar--options">
+        <label className="proof__toggle" title="Dictionnaire orthographique embarqué (hors ligne)">
+          <input
+            type="checkbox"
+            checked={settings.embedded}
+            onChange={(e) => setEmbeddedDictionary(e.target.checked)}
+          />
+          Dictionnaire embarqué
+        </label>
+        {/* Prudent = ne signaler que ce qui est corrigeable. C'est le défaut : un
+            lexique embarqué ne couvre pas tout le vocabulaire d'un auteur. */}
+        <label
+          className="proof__toggle"
+          title="Signaler tout mot absent du dictionnaire, même sans correction plausible"
+        >
+          <input
+            type="checkbox"
+            checked={settings.strict}
+            onChange={(e) => setStrictSpelling(e.target.checked)}
+          />
+          Relecture exhaustive
+        </label>
+        <label className="proof__toggle" title="Laisser aussi le correcteur du navigateur souligner">
+          <input
+            type="checkbox"
+            checked={settings.native}
+            onChange={(e) => setNativeSpelling(e.target.checked)}
+          />
+          Correcteur du navigateur
+        </label>
+      </div>
+
+      {settings.hasDictionary ? (
         <p className="proof__hint">
-          L'orthographe est vérifiée par le correcteur du navigateur (soulignement rouge natif).
-          Chargez un dictionnaire pour que Elium signale aussi les mots inconnus dans cette liste.
+          <BookOpen size={12} /> {settings.dictionaryLabel} — {settings.dictionarySize.toLocaleString("fr-FR")} formes
+          {settings.imported > 0 && `, dont ${settings.imported.toLocaleString("fr-FR")} importées`}.
+          {!settings.strict && " Mode prudent : seuls les mots corrigeables sont signalés."}
+        </p>
+      ) : (
+        <p className="proof__hint">
+          Aucun dictionnaire actif : seules la typographie, les répétitions et les capitales sont
+          vérifiées. Réactivez le dictionnaire embarqué pour signaler les mots inconnus.
         </p>
       )}
 
@@ -190,6 +246,49 @@ export default function ProofingPanel({
         <button type="button" className="proof__showmore" onClick={() => setLimit((l) => l + PAGE)}>
           Afficher plus de problèmes
         </button>
+      )}
+
+      {/* Dictionnaire personnel et mots ignorés : deux listes que l'auteur remplit
+          en corrigeant, et qu'il doit pouvoir revoir et défaire — un mot ajouté
+          par erreur ne doit pas rester accepté pour toujours. */}
+      {(personal.length > 0 || ignored.length > 0) && (
+        <section className="proof__group proof__lexicon">
+          {personal.length > 0 && (
+            <>
+              <div className="proof__group-title">
+                Dictionnaire personnel <span className="proof__badge">{personal.length}</span>
+              </div>
+              <div className="proof__chips">
+                {personal.map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    className="proof__chip"
+                    title={`Retirer « ${w} » du dictionnaire personnel`}
+                    onClick={() => removeFromPersonal(w)}
+                  >
+                    {w} <Trash2 size={11} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {ignored.length > 0 && (
+            <>
+              <div className="proof__group-title">
+                Mots ignorés <span className="proof__badge">{ignored.length}</span>
+                <button type="button" className="proof__link" onClick={clearIgnored}>
+                  Tout réafficher
+                </button>
+              </div>
+              <div className="proof__chips">
+                {ignored.map((w) => (
+                  <span key={w} className="proof__chip proof__chip--muted">{w}</span>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
       )}
 
       <div className="proof__foot">

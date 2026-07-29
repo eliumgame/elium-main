@@ -29,6 +29,15 @@
   --primary-50:  var(--el-primary-50);
   --primary-100: var(--el-primary-100);
 
+  /* Accent secondaire = violet de chiffrement/parapheur de la charte. Thème-
+     conscient (clair #7c3aed / sombre #a78bfa) : plusieurs composants (notes,
+     règle, poignée de rotation des formes, correcteur) l'appelaient jusqu'ici
+     avec un repli #7c3aed en dur, qui ne suivait pas le thème sombre. */
+  --accent: var(--el-status-encrypted);
+
+  /* Rayon générique : alias du rayon large de la charte, aligné sur --r. */
+  --radius: var(--el-radius-lg);
+
   /* --info sert de TEXTE (badges, alertes) -> variante AA --el-info-text */
   --info:    var(--el-info-text);  --info-bg:    var(--el-info-bg);
   --success: var(--el-success);    --success-bg: var(--el-success-bg);

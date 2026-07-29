@@ -22,8 +22,13 @@ import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import Ruler from "./Ruler";
 import ProofingPanel from "./ProofingPanel";
+import ProofPopover from "./ProofPopover";
+import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofingExtension";
 import SymbolModal from "./SymbolModal";
 import WatermarkModal from "./WatermarkModal";
+import GridModal from "./GridModal";
+import ShapeFormatModal from "./ShapeFormatModal";
+import { gridBackground, normalizeGrid, setActiveGrid, type GridSettings } from "./grid";
 import { watermarkCss } from "./ornaments";
 import SignatureLayer from "../sign/SignatureLayer";
 import type {
@@ -72,6 +77,8 @@ interface RichEditorProps {
   onStylesChange?: (styles: EliumDocStyle[]) => void;
   /** Le filigrane appartient au document : c'est la vue qui le persiste. */
   onWatermarkChange?: (mark: EliumWatermark) => void;
+  /** Le quadrillage est un réglage de page : la vue le persiste comme les marges. */
+  onGridChange?: (grid: GridSettings) => void;
 }
 
 export default function RichEditor({
@@ -97,6 +104,7 @@ export default function RichEditor({
   docTitle,
   onStylesChange,
   onWatermarkChange,
+  onGridChange,
 }: RichEditorProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -153,7 +161,15 @@ export default function RichEditor({
   // them once rather than duplicating them by hand in the stylesheet.
   useEffect(() => {
     ensureListSchemeStyles();
+    // Les réglages du correcteur (langue, mode, dictionnaire personnel) sont des
+    // préférences d'appareil : les recharger évite de reconstituer sa liste de mots
+    // à chaque ouverture.
+    loadProofingPrefs();
   }, []);
+
+  // Correction au clic droit : le geste attendu sur un mot souligné.
+  const [proofRequest, setProofRequest] = useState<ProofRequest | null>(null);
+  useEffect(() => onProofRequest(setProofRequest), []);
 
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
@@ -179,7 +195,7 @@ export default function RichEditor({
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
-  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | "symbol" | "watermark" | null;
+  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | "symbol" | "watermark" | "grid" | "shape" | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
 
   // --- Zoom ---------------------------------------------------------------
@@ -255,6 +271,17 @@ export default function RichEditor({
 
   const page = documentModel.page;
 
+  // --- Quadrillage --------------------------------------------------------
+  // Le quadrillage est un réglage de page (comme les marges). Il est aussi publié
+  // HORS du document : les vues de nœud — zone de texte, forme — en ont besoin
+  // pendant un glisser, et elles ne reçoivent que le nœud et l'éditeur. Même
+  // motif que le résolveur de pages et le registre de styles.
+  const grid = useMemo(() => normalizeGrid(page.grid), [page.grid]);
+  useEffect(() => {
+    setActiveGrid(grid);
+    return () => setActiveGrid(null);
+  }, [grid]);
+
   // --- Sections -----------------------------------------------------------
   // Every section resolves to its own physical geometry. When they all agree
   // (the usual case) the editor keeps the single-sheet fast path; when they
@@ -268,7 +295,12 @@ export default function RichEditor({
   // so every format/orientation combination — including Letter + landscape —
   // renders correctly on screen, matching what DOCX/PDF export already do.
   // With mixed sections the container takes the WIDEST sheet.
-  const pageClass = `elium-page${numberedHeadings ? " elium-page--numbered" : ""}`;
+  const pageClass =
+    `elium-page${numberedHeadings ? " elium-page--numbered" : ""}` +
+    // Le quadrillage des tableaux est une classe sur la feuille, pas sur
+    // l'élément de ProseMirror : celui-ci reçoit sa classe à la création de
+    // l'éditeur et la changer le reconstruirait.
+    (grid.tableGridlines ? " elium-tablegrid" : "");
   const docSize = pageSizeOf(page);
   const widest = geometries.reduce((max, g) => Math.max(max, g.widthMm), docSize.width);
   const pageWidthMm = mixedGeometry ? widest : docSize.width;
@@ -308,6 +340,14 @@ export default function RichEditor({
         };
       })
     : [];
+
+  // Le fond du quadrillage, avec son origine : le coin de la zone de texte (les
+  // marges de la première section) ou une origine explicite depuis la feuille.
+  const gridLayer = gridBackground(
+    grid,
+    grid.fromMargins ? baseMargins.left : grid.originXMm,
+    grid.fromMargins ? baseMargins.top : grid.originYMm,
+  );
 
   // Expand header/footer field tokens for display ({titre}, {date}).
   const renderField = (tpl: string) =>
@@ -401,6 +441,12 @@ export default function RichEditor({
           onOpenWatermark={() => setDialog("watermark")}
           rulerVisible={rulerVisible}
           onToggleRuler={() => setRulerVisible((v) => !v)}
+          gridVisible={grid.visible}
+          gridSnap={grid.snap}
+          onToggleGrid={() => onGridChange?.({ ...grid, visible: !grid.visible })}
+          onToggleGridSnap={() => onGridChange?.({ ...grid, snap: !grid.snap })}
+          onOpenGrid={() => setDialog("grid")}
+          onOpenShapeFormat={() => setDialog("shape")}
         />
       )}
 
@@ -500,6 +546,20 @@ export default function RichEditor({
               })}
             </div>
           )}
+          {/* Le quadrillage : un FOND en couche négative (voir `.elium-grid`),
+              donc au-dessus du fond de page et du filigrane, sous tout le
+              contenu, hors du flux et hors de la pagination. */}
+          {gridLayer && (
+            <div
+              className="elium-grid"
+              aria-hidden="true"
+              style={{
+                backgroundImage: gridLayer.backgroundImage,
+                backgroundPosition: gridLayer.backgroundPosition,
+                backgroundSize: gridLayer.backgroundSize,
+              }}
+            />
+          )}
           {/* Header/footer of the FIRST section (the sheet the reader starts on);
               per-section header text is honoured by the DOCX/PDF export. */}
           {(sections[0]?.setup.header || page.header) && (
@@ -543,6 +603,10 @@ export default function RichEditor({
       />
       {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
 
+      {editor && proofRequest && (
+        <ProofPopover editor={editor} request={proofRequest} onClose={() => setProofRequest(null)} />
+      )}
+
       {editor && dialog === "font" && <FontDialog editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "paragraph" && <ParagraphDialog editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "styles" && (
@@ -564,6 +628,14 @@ export default function RichEditor({
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === "grid" && (
+        <GridModal
+          value={grid}
+          onChange={(g) => onGridChange?.(g)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {editor && dialog === "shape" && <ShapeFormatModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "index" && <IndexEntryModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "columns" && <ColumnsModal editor={editor} onClose={() => setDialog(null)} />}

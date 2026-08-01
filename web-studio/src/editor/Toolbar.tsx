@@ -101,6 +101,12 @@ interface ToolbarProps {
   onOpenGrid?: () => void;
   /** Dialogue « Format de la forme » (sert aussi aux zones de texte). */
   onOpenShapeFormat?: () => void;
+  /**
+   * Éditeur collaboratif (Drive) : masque les commandes propres au fichier local
+   * — signature (sceau sur octets figés), comparaison et publipostage (qui
+   * construisent un nouveau document à partir de fichiers locaux).
+   */
+  collab?: boolean;
 }
 
 /**
@@ -270,7 +276,7 @@ export default function Toolbar({
   inspectorOpen, onToggleInspector, onToggleFind, onOpenCrossRef, onOpenIndexEntry,
   onOpenColumns, onOpenSectionBreak, onOpenCompare, onOpenMailMerge, onOpenFont, onOpenParagraph, onOpenStyles, onOpenCaption,
   onOpenSymbol, onOpenWatermark, rulerVisible, onToggleRuler, proofingOpen, onToggleProofing,
-  gridVisible, gridSnap, onToggleGrid, onToggleGridSnap, onOpenGrid, onOpenShapeFormat,
+  gridVisible, gridSnap, onToggleGrid, onToggleGridSnap, onOpenGrid, onOpenShapeFormat, collab,
 }: ToolbarProps) {
   const { prompt } = useDialogs();
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -401,7 +407,10 @@ export default function Toolbar({
   return (
     <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
       <div className="elx-tabs" role="tablist">
-        {TABS.map((t) => (
+        {/* En collaboration, le publipostage n'a pas de sens (il fabrique un
+            nouveau document local depuis une source de données) : l'onglet
+            disparaît plutôt que d'exposer une commande sans effet. */}
+        {TABS.filter((t) => !(collab && t.id === "merge")).map((t) => (
           <button
             key={t.id}
             role="tab"
@@ -723,9 +732,11 @@ export default function Toolbar({
                 )}
               </Dropdown>
             </Group>
-            <Group title="Signature">
-              <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>
-            </Group>
+            {!collab && (
+              <Group title="Signature">
+                <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}><PenLine size={19} /></Cmd>
+              </Group>
+            )}
           </>
         )}
 
@@ -996,16 +1007,18 @@ export default function Toolbar({
                 <MessageSquarePlus size={19} />
               </Cmd>
             </Group>
-            <Group title="Comparer">
-              <Cmd
-                big
-                label="Comparer"
-                title="Comparer avec une autre version et voir les différences en suggestions"
-                onClick={() => onOpenCompare?.()}
-              >
-                <GitCompareArrows size={19} />
-              </Cmd>
-            </Group>
+            {!collab && (
+              <Group title="Comparer">
+                <Cmd
+                  big
+                  label="Comparer"
+                  title="Comparer avec une autre version et voir les différences en suggestions"
+                  onClick={() => onOpenCompare?.()}
+                >
+                  <GitCompareArrows size={19} />
+                </Cmd>
+              </Group>
+            )}
             <Group title="Correction">
               <Cmd
                 big

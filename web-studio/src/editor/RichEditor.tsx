@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor, type Extensions } from "@tiptap/react";
 import { buildExtensions } from "./extensions";
 import Toolbar from "./Toolbar";
 import EditorStatusBar from "./EditorStatusBar";
@@ -79,6 +79,14 @@ interface RichEditorProps {
   onWatermarkChange?: (mark: EliumWatermark) => void;
   /** Le quadrillage est un réglage de page : la vue le persiste comme les marges. */
   onGridChange?: (grid: GridSettings) => void;
+  /**
+   * Mode collaboratif (Drive). Quand il est fourni, le contenu appartient au
+   * Y.Doc : les extensions de collaboration (déjà construites côté Drive pour
+   * garder Yjs hors du bundle principal) sont ajoutées, l'historique local est
+   * cédé au CRDT, aucun contenu local n'est chargé, et les fonctions propres au
+   * fichier local (signature, comparaison, publipostage) sont masquées.
+   */
+  collab?: { extensions: Extensions };
 }
 
 export default function RichEditor({
@@ -105,6 +113,7 @@ export default function RichEditor({
   onStylesChange,
   onWatermarkChange,
   onGridChange,
+  collab,
 }: RichEditorProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -142,11 +151,22 @@ export default function RichEditor({
 
   const editor = useEditor(
     {
-      extensions: buildExtensions({ editable, author: commentAuthor, pagination: paginationOpts }),
-      content: documentModel.doc,
+      extensions: buildExtensions({
+        editable,
+        author: commentAuthor,
+        pagination: paginationOpts,
+        // En collaboration, l'historique appartient au CRDT et les extensions
+        // Yjs sont fournies par le Drive (Yjs reste hors du bundle principal).
+        ...(collab ? { disableHistory: true, extra: collab.extensions } : {}),
+      }),
+      // Le contenu collaboratif est chargé depuis le Y.Doc, pas depuis un modèle
+      // local : passer `content` en plus dupliquerait le document au montage.
+      ...(collab ? {} : { content: documentModel.doc }),
       editable,
       editorProps: { attributes: { class: "elium-prose" } },
-      onUpdate: ({ editor }) => onDocChange(editor.getJSON() as ProseMirrorNode),
+      // Le CRDT est la source du contenu collaboratif ; remonter chaque frappe
+      // vers un modèle local n'aurait rien à mettre à jour.
+      onUpdate: collab ? undefined : ({ editor }) => onDocChange(editor.getJSON() as ProseMirrorNode),
     },
     [],
   );
@@ -156,6 +176,12 @@ export default function RichEditor({
     onEditorReady?.(editor);
     return () => onEditorReady?.(null);
   }, [editor, onEditorReady]);
+
+  // `editable` fixed at creation would ignore later changes — in collaboration
+  // the writable flag flips when access is granted or revoked mid-session.
+  useEffect(() => {
+    if (editor && editor.isEditable !== editable) editor.setEditable(editable);
+  }, [editor, editable]);
 
   // The multilevel-list rules are generated from the scheme table, so inject
   // them once rather than duplicating them by hand in the stylesheet.
@@ -447,6 +473,7 @@ export default function RichEditor({
           onToggleGridSnap={() => onGridChange?.({ ...grid, snap: !grid.snap })}
           onOpenGrid={() => setDialog("grid")}
           onOpenShapeFormat={() => setDialog("shape")}
+          collab={!!collab}
         />
       )}
 
@@ -570,16 +597,21 @@ export default function RichEditor({
             <div className="elium-page__footer">{renderField(sections[0]?.setup.footer || page.footer || "")}</div>
           )}
 
-          <SignatureLayer
-            pageRef={pageRef}
-            signatures={signatures}
-            editable={editable}
-            selectedId={selectedSignatureId}
-            verdicts={verdicts}
-            onSelect={onSelectSignature}
-            onChange={onUpdateSignature}
-            onRemove={onRemoveSignature}
-          />
+          {/* La signature appartient au fichier `.elium` local (empreinte + sceau
+              sur des octets figés) : elle n'a pas de sens sur un document
+              collaboratif dont le contenu change en continu et vit dans le CRDT. */}
+          {!collab && (
+            <SignatureLayer
+              pageRef={pageRef}
+              signatures={signatures}
+              editable={editable}
+              selectedId={selectedSignatureId}
+              verdicts={verdicts}
+              onSelect={onSelectSignature}
+              onChange={onUpdateSignature}
+              onRemove={onRemoveSignature}
+            />
+          )}
         </div>
         </div>
         </div>

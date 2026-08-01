@@ -166,8 +166,15 @@ export default function DriveBrowser() {
     if (!name) return;
     try {
       const create = kind === "doc" ? createCollabDoc : kind === "sheet" ? createCollabSheet : createCollabSlides;
-      await create(ctx, currentId, name);
-      await reload();
+      const node = await create(ctx, currentId, name);
+      // Recharge la liste ET ouvre l'éditeur tout de suite : créer un fichier
+      // pour devoir ensuite le retrouver et double-cliquer était le pas de trop.
+      // On relit le dossier directement (l'état `entries` ne serait pas encore à
+      // jour dans ce tour de rendu) afin de retrouver le nœud fraîchement créé.
+      const next = await listFolder(ctx, currentId);
+      setEntries(next);
+      const entry = next.find((e) => e.id === node.id);
+      if (entry) await openCollab(entry);
     } catch (e) { await fail("Création impossible", e); }
   };
 

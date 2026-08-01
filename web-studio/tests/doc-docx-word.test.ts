@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { docToDocx, docxToDoc } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
 import type { EliumFile, PageSettings, ProseMirrorNode } from "../src/format/types";
@@ -374,5 +374,90 @@ describe("DOCX — document Word complet", () => {
     expect(find(back.doc, "sectionBreak")!.attrs).toMatchObject({ kind: "nextPage" });
     expect(find(back.doc, "indexBlock")).toBeDefined();
     expect(flat(back.doc)).toContain("annexe");
+  });
+});
+
+// =========================================================================
+// Fidélité d'import : couleur / police / taille portées par un STYLE.
+//
+// Le cas d'un vrai document Word : le formatage vit dans `styles.xml`, pas en
+// `rPr` inline. C'était la régression « l'import ne relit pas toujours
+// couleur/police/taille ». On construit ici un .docx à la main (pas via notre
+// propre export, qui écrit tout en inline) pour verrouiller ce chemin.
+// =========================================================================
+
+describe("DOCX — relecture couleur/police/taille via styles.xml", () => {
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+
+  /** Assemble un .docx minimal depuis un corps de document et un styles.xml. */
+  function makeDocx(bodyXml: string, stylesXml: string): Uint8Array {
+    const document = `<?xml version="1.0" encoding="UTF-8"?><w:document ${W}><w:body>${bodyXml}</w:body></w:document>`;
+    const styles = `<?xml version="1.0" encoding="UTF-8"?><w:styles ${W}>${stylesXml}</w:styles>`;
+    return zipSync({
+      "word/document.xml": strToU8(document),
+      "word/styles.xml": strToU8(styles),
+    });
+  }
+
+  /** Premier nœud texte de l'arbre. */
+  function firstText(node: ProseMirrorNode): ProseMirrorNode | undefined {
+    if (node.type === "text") return node;
+    for (const c of node.content ?? []) {
+      const hit = firstText(c);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  const textStyle = (n: ProseMirrorNode): Record<string, unknown> =>
+    n.marks?.find((m) => m.type === "textStyle")?.attrs ?? {};
+
+  it("récupère couleur + police + taille posées sur le style de paragraphe (aucun rPr inline)", () => {
+    const styles =
+      `<w:style w:type="paragraph" w:styleId="Vif">` +
+      `<w:rPr><w:color w:val="FF0000"/><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/><w:sz w:val="48"/></w:rPr>` +
+      `</w:style>`;
+    const body = `<w:p><w:pPr><w:pStyle w:val="Vif"/></w:pPr><w:r><w:t>Coloré</w:t></w:r></w:p>`;
+    const { doc } = docxToDoc(makeDocx(body, styles));
+    const txt = firstText(doc)!;
+    expect(txt.text).toBe("Coloré");
+    const ts = textStyle(txt);
+    expect(ts.color).toBe("#ff0000");
+    expect(ts.fontFamily).toBe("Georgia");
+    expect(ts.fontSize).toBe("32px"); // 48 demi-points ÷ 1.5
+  });
+
+  it("récupère la couleur posée sur un style de caractère (w:rStyle)", () => {
+    const styles = `<w:style w:type="character" w:styleId="Accent"><w:rPr><w:color w:val="1D4ED8"/></w:rPr></w:style>`;
+    const body = `<w:p><w:r><w:rPr><w:rStyle w:val="Accent"/></w:rPr><w:t>lien</w:t></w:r></w:p>`;
+    const { doc } = docxToDoc(makeDocx(body, styles));
+    expect(textStyle(firstText(doc)!).color).toBe("#1d4ed8");
+  });
+
+  it("le rPr inline l'emporte sur la couleur du style", () => {
+    const styles = `<w:style w:type="paragraph" w:styleId="Vif"><w:rPr><w:color w:val="FF0000"/></w:rPr></w:style>`;
+    const body =
+      `<w:p><w:pPr><w:pStyle w:val="Vif"/></w:pPr>` +
+      `<w:r><w:rPr><w:color w:val="00AA00"/></w:rPr><w:t>x</w:t></w:r></w:p>`;
+    const { doc } = docxToDoc(makeDocx(body, styles));
+    expect(textStyle(firstText(doc)!).color).toBe("#00aa00");
+  });
+
+  it("hérite de la taille via w:basedOn puis surcharge la couleur", () => {
+    const styles =
+      `<w:style w:type="paragraph" w:styleId="Base"><w:rPr><w:sz w:val="60"/></w:rPr></w:style>` +
+      `<w:style w:type="paragraph" w:styleId="Derive"><w:basedOn w:val="Base"/><w:rPr><w:color w:val="333333"/></w:rPr></w:style>`;
+    const body = `<w:p><w:pPr><w:pStyle w:val="Derive"/></w:pPr><w:r><w:t>y</w:t></w:r></w:p>`;
+    const { doc } = docxToDoc(makeDocx(body, styles));
+    const ts = textStyle(firstText(doc)!);
+    expect(ts.fontSize).toBe("40px"); // 60 demi-points ÷ 1.5
+    expect(ts.color).toBe("#333333");
+  });
+
+  it("applique les docDefaults quand aucun style ne le fait", () => {
+    const styles =
+      `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria"/></w:rPr></w:rPrDefault></w:docDefaults>`;
+    const body = `<w:p><w:r><w:t>défaut</w:t></w:r></w:p>`;
+    const { doc } = docxToDoc(makeDocx(body, styles));
+    expect(textStyle(firstText(doc)!).fontFamily).toBe("Cambria");
   });
 });

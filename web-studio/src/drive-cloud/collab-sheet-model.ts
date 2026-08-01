@@ -300,6 +300,20 @@ export function clearRangeY(ydoc: Y.Doc, ys: YSheet, r0: number, c0: number, r1:
  * alignées. Les cellules identiques gardent leur historique — un ré-import du
  * même fichier est un quasi no-op côté réseau.
  */
+/**
+ * Ajoute une nouvelle feuille au classeur à partir d'une `SheetData` (ex. le
+ * résultat d'un tableau croisé dynamique). Rend l'index de la feuille créée.
+ */
+export function addSheetFromData(ydoc: Y.Doc, ySheets: YSheets, data: SheetData): number {
+  let index = -1;
+  ydoc.transact(() => {
+    ySheets.push([newYSheet(data.name)]);
+    index = ySheets.length - 1;
+    reconcileSheet(ydoc, ySheets.get(index), data);
+  });
+  return index;
+}
+
 export function loadWorkbookIntoDoc(ydoc: Y.Doc, ySheets: YSheets, yNames: Y.Map<string>, wb: Workbook): void {
   ydoc.transact(() => {
     while (ySheets.length > wb.sheets.length) ySheets.delete(ySheets.length - 1, 1);

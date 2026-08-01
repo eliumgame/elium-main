@@ -17,12 +17,12 @@ import * as Y from "yjs";
 import {
   X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download, Upload,
   Baseline, PaintBucket, Combine, Snowflake, Filter, Palette, ListChecks, Tag, BarChart3, Undo2, Redo2,
-  Rows, Columns, Trash2,
+  Rows, Columns, Trash2, ArrowUpNarrowWide, ArrowDownNarrowWide, TableProperties,
 } from "lucide-react";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import { setCellText, migrateCells, type YCells } from "../collab-sheet-crdt";
 import {
-  newYSheet, ensureSheetStructures, workbookSnapshot,
+  newYSheet, ensureSheetStructures, workbookSnapshot, reconcileSheet, addSheetFromData,
   setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
   setCondRule, removeCondRule, setValidation, removeValidation,
   setChart, removeChart, setName, removeName,
@@ -31,8 +31,11 @@ import {
 } from "../collab-sheet-model";
 import { importXlsx } from "../../sheet/xlsx-import";
 import { csvToWorkbook } from "../../sheet/csv";
+import { sortRange, fillRange, type Rect } from "../../sheet/structural";
+import { computePivot, pivotToSheet, type PivotConfig, type PivotInput } from "../../sheet/pivot";
+import PivotModal from "../../sheet/PivotModal";
 import type { DriveApi } from "../api";
-import { createCalc, indexToCol, quoteSheetName } from "../../sheet/formula";
+import { createCalc, indexToCol, quoteSheetName, isError } from "../../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../../sheet/format";
 import { buildCondFormatter } from "../../sheet/condformat";
 import { buildValidator, validationAt } from "../../sheet/validation";
@@ -78,6 +81,8 @@ export default function CollabSheetEditor({
   const [condOpen, setCondOpen] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
+  const [pivotOpen, setPivotOpen] = useState(false);
+  const [fillTo, setFillTo] = useState<{ r: number; c: number } | null>(null);
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorFor(user.id) }), [user.id, user.name]);
   const [ydoc] = useState(() => new Y.Doc());
@@ -292,6 +297,60 @@ export default function CollabSheetEditor({
     const ys = yActive(); if (ys) pasteBlock(ydoc, ys, sel.r, sel.c, grid);
   };
 
+  // Tri des lignes par la colonne active (réutilise le tri PUR partagé, propagé
+  // au CRDT par reconcileSheet — les lignes masquées par le filtre ne bougent pas).
+  const sortBy = (dir: 1 | -1) => {
+    const ys = yActive(); if (!ys || !sheet) return;
+    reconcileSheet(ydoc, ys, sortRange(sheet, sel.c, { c0, r0, c1, r1 }, dir, (c, r) => cellDisplay(a1(r, c))));
+  };
+
+  // Poignée de recopie : aperçu local pendant le glissé, appliqué au relâché.
+  const fillRef = useRef<Rect | null>(null);
+  const fillToRef = useRef<{ r: number; c: number } | null>(null);
+  const startFill = (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    fillRef.current = { c0, c1, r0, r1 };
+    fillToRef.current = { r: r1, c: c1 };
+    setFillTo({ r: r1, c: c1 });
+  };
+  useEffect(() => {
+    const up = () => {
+      const src = fillRef.current, to = fillToRef.current;
+      if (src && to && sheet) { const ys = yActive(); if (ys) reconcileSheet(ydoc, ys, fillRange(sheet, src, { c: to.c, r: to.r })); }
+      fillRef.current = null; fillToRef.current = null; setFillTo(null);
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, [sheet, ydoc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fillBand = (): Rect | null => {
+    if (!fillTo) return null;
+    const overR = fillTo.r > r1 ? fillTo.r - r1 : fillTo.r < r0 ? fillTo.r - r0 : 0;
+    const overC = fillTo.c > c1 ? fillTo.c - c1 : fillTo.c < c0 ? fillTo.c - c0 : 0;
+    if (Math.abs(overR) >= Math.abs(overC) && overR !== 0) return { c0, c1, r0: Math.min(r0, fillTo.r), r1: Math.max(r1, fillTo.r) };
+    if (overC !== 0) return { c0: Math.min(c0, fillTo.c), c1: Math.max(c1, fillTo.c), r0, r1 };
+    return null;
+  };
+  const fb = fillBand();
+  const inFill = (c: number, r: number) => !!fb && c >= fb.c0 && c <= fb.c1 && r >= fb.r0 && r <= fb.r1 && !inSel(c, r);
+
+  // Tableau croisé dynamique : champs = première ligne de la sélection ; le
+  // résultat crée une nouvelle feuille dans le document collaboratif.
+  const pivotHeaders = (): string[] => { const h: string[] = []; for (let c = c0; c <= c1; c++) h.push(calc.display(a1(r0, c))); return h; };
+  const buildPivotInput = (): PivotInput => {
+    const rows: (string | number | boolean | null)[][] = [];
+    for (let r = r0 + 1; r <= r1; r++) {
+      const row: (string | number | boolean | null)[] = [];
+      for (let c = c0; c <= c1; c++) { const v = calc.valueOf(a1(r, c)); row.push(isError(v) ? null : (v as string | number | boolean)); }
+      rows.push(row);
+    }
+    return { headers: pivotHeaders(), rows };
+  };
+  const createPivot = (cfg: PivotConfig) => {
+    const data = pivotToSheet(computePivot(buildPivotInput(), cfg), `TCD ${ySheets.length + 1}`);
+    const idx = addSheetFromData(ydoc, ySheets, data);
+    setPivotOpen(false); setActive(idx); setSel({ r: 0, c: 0 }); setAnchor({ r: 0, c: 0 });
+  };
+
   // Colonnes redimensionnables — aperçu local pendant le glissé, validé (une
   // seule transaction Yjs) au relâché pour ne pas inonder le relais.
   const resizeRef = useRef<{ col: number; startX: number; startW: number } | null>(null);
@@ -442,6 +501,10 @@ export default function CollabSheetEditor({
             <button className={`icon-btn ${(sheet?.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={16} /></button>
             <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={16} /></button>
             <button className="icon-btn" title="Insérer un graphique (depuis la sélection)" onMouseDown={(e) => { e.preventDefault(); insertChart(); }}><BarChart3 size={16} /></button>
+            <button className="icon-btn" title="Tableau croisé dynamique (depuis la sélection)" onClick={() => setPivotOpen(true)}><TableProperties size={16} /></button>
+            <span className="dc-doc__tbsep" />
+            <button className="icon-btn" title="Trier croissant (colonne active)" onMouseDown={(e) => { e.preventDefault(); sortBy(1); }}><ArrowUpNarrowWide size={16} /></button>
+            <button className="icon-btn" title="Trier décroissant (colonne active)" onMouseDown={(e) => { e.preventDefault(); sortBy(-1); }}><ArrowDownNarrowWide size={16} /></button>
             <span className="dc-doc__tbsep" />
             <button className="icon-btn" title="Insérer une ligne au-dessus" onMouseDown={(e) => { e.preventDefault(); insRow(); }}><Rows size={16} /><Plus size={10} /></button>
             <button className="icon-btn" title="Supprimer la ligne" onMouseDown={(e) => { e.preventDefault(); delRow(); }}><Rows size={16} /><Trash2 size={10} /></button>
@@ -528,13 +591,13 @@ export default function CollabSheetEditor({
                         return (
                           <td
                             key={c}
-                            className={`dc-sheet__cell ${isSel ? "is-sel" : inSel(c, r) ? "is-range" : ""}`}
+                            className={`dc-sheet__cell ${isSel ? "is-sel" : inSel(c, r) ? "is-range" : ""} ${inFill(c, r) ? "is-fill" : ""}`}
                             style={style}
                             colSpan={span?.colSpan}
                             rowSpan={span?.rowSpan}
                             title={invalid ?? (peer ? `${peer.name} est ici` : undefined)}
                             onMouseDown={(e) => { if (!isEditing) { selectCell(r, c, e.shiftKey); dragging.current = true; } }}
-                            onMouseEnter={() => { if (dragging.current) setSel({ r, c }); }}
+                            onMouseEnter={() => { if (fillRef.current) { fillToRef.current = { r, c }; setFillTo({ r, c }); } else if (dragging.current) setSel({ r, c }); }}
                             onDoubleClick={() => writable && beginEdit(r, c)}
                           >
                             {isEditing ? (
@@ -555,7 +618,12 @@ export default function CollabSheetEditor({
                                 {listId && <datalist id={listId}>{dv!.list!.map((opt) => <option key={opt} value={opt} />)}</datalist>}
                               </>
                             ) : (
-                              cellDisplay(ref)
+                              <>
+                                {cellDisplay(ref)}
+                                {writable && !editing && sel.r === r && sel.c === c && r === r1 && c === c1 && (
+                                  <span className="dc-sheet__fillhandle" onMouseDown={startFill} title="Recopier (poignée de remplissage)" />
+                                )}
+                              </>
                             )}
                           </td>
                         );
@@ -623,6 +691,14 @@ export default function CollabSheetEditor({
           onAdd={addNamedRange}
           onRemove={(name) => removeName(ydoc, yNames, name)}
           onClose={() => setNamesOpen(false)}
+        />
+      )}
+      {pivotOpen && (
+        <PivotModal
+          headers={pivotHeaders()}
+          rangeLabel={rangeLabel}
+          onCreate={createPivot}
+          onClose={() => setPivotOpen(false)}
         />
       )}
     </div>

@@ -5,7 +5,7 @@ import {
   setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
   setCondRule, removeCondRule, setValidation, setChart,
   setName, removeName, mergeKey,
-  insertRowY, deleteColY, pasteBlock, loadWorkbookIntoDoc, reconcileSheet,
+  insertRowY, deleteColY, pasteBlock, loadWorkbookIntoDoc, reconcileSheet, addSheetFromData,
   type YSheet, type YSheets,
 } from "../src/drive-cloud/collab-sheet-model";
 import type { Workbook } from "../src/sheet/model";
@@ -236,6 +236,21 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
     expect(wbB.sheets.map((s) => s.name)).toEqual(["Ventes", "TVA"]);
     expect(wbB.sheets[0]!.cells).toEqual({ A1: "Produit", B1: "Prix", A2: "Stylo", B2: "2" });
     expect(wbB.names).toEqual([{ name: "TAUX", ref: "TVA!$A$1" }]);
+  });
+
+  it("addSheetFromData (ex. TCD) ajoute une feuille qui converge chez l'autre pair", () => {
+    const A = makePeer(); const B = makePeer();
+    A.ydoc.transact(() => A.sheets.push([newYSheet("Données")]));
+    sync(A.ydoc, B.ydoc);
+    const idx = addSheetFromData(A.ydoc, A.sheets, {
+      name: "TCD 2", rows: 3, cols: 2, cells: { A1: "Région", B1: "Total", A2: "Nord", B2: "42" },
+    });
+    expect(idx).toBe(1);
+    sync(A.ydoc, B.ydoc);
+    const wbB = workbookSnapshot(B.sheets, B.names, 0);
+    expect(wbB.sheets).toHaveLength(2);
+    expect(wbB.sheets[1]!.name).toBe("TCD 2");
+    expect(wbB.sheets[1]!.cells).toEqual({ A1: "Région", B1: "Total", A2: "Nord", B2: "42" });
   });
 
   it("reconcileSheet ne touche QUE les cellules modifiées (Y.Text préservés)", () => {

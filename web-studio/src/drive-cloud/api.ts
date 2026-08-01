@@ -549,6 +549,10 @@ export class DriveApi {
   listAudit(orgId: string, query: { limit?: number; beforeId?: number } = {}) {
     return this.json<{ entries: unknown[]; nextBeforeId: number | null }>("GET", `/orgs/${orgId}/audit`, { query });
   }
+  /** Vérifie l'intégrité chaînée du journal d'audit de l'org (append-only). */
+  verifyAudit(orgId: string) {
+    return this.json<{ ok: boolean; total: number; hashed: number; brokenAtId?: string }>("GET", `/orgs/${orgId}/audit/verify`);
+  }
 
   // === Collaboration =======================================================
   getCollabUpdates(nodeId: string, since = 0) {

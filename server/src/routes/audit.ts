@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query } from "../db/pool.js";
 import { authenticate, requireOrgPerm } from "../middleware/auth.js";
+import { verifyAuditChain } from "../lib/audit-chain.js";
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -73,5 +74,14 @@ export default async function auditRoutes(app: FastifyInstance): Promise<void> {
     const nextBeforeId = rows.length === q.limit && last ? last.id : null;
 
     return { entries: rows.map(auditDto), nextBeforeId };
+  });
+
+  // --- Vérifier l'intégrité chaînée du journal de l'org --------------------
+  // Rejoue la chaîne d'entry_hash et signale toute altération/suppression/
+  // réordonnancement (première entrée dont le maillon est rompu).
+  app.get("/:orgId/audit/verify", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireOrgPerm(req, orgId, "audit.view");
+    return verifyAuditChain(orgId);
   });
 }

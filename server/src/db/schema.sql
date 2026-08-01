@@ -268,9 +268,18 @@ CREATE TABLE IF NOT EXISTS audit_log (
   resource_id   UUID,
   metadata      JSONB NOT NULL DEFAULT '{}'::jsonb,
   ip            TEXT NOT NULL DEFAULT '',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Intégrité chaînée (append-only tamper-evident) : entry_hash =
+  -- SHA-256(prev_hash || champs canoniques de la ligne). La chaîne est par org
+  -- (org_id NULL = chaîne système). Toute altération, suppression ou
+  -- réordonnancement rompt la chaîne et est détecté par verifyAuditChain.
+  prev_hash     BYTEA,
+  entry_hash    BYTEA
 );
 CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log (org_id, created_at DESC);
+-- Colonnes d'intégrité pour les bases créées avant l'ajout (idempotent).
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS prev_hash BYTEA;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS entry_hash BYTEA;
 
 -- current_version_id FK added after node_versions exists.
 DO $$

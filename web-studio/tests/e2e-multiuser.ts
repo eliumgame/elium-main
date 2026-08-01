@@ -678,6 +678,13 @@ async function main(): Promise<void> {
     ok("audit trace le recouvrement (promotion + grant)",
       actions.has("recovery.admin.grant") && actions.has("recovery.grant"), [...actions].join(","));
     await expectStatus("Bob : audit refusé (audit.view)", bob.api.listAudit(org.id), 403);
+
+    // Intégrité chaînée : après création/partage/révocation/rotation/recouvrement,
+    // la chaîne d'entry_hash doit être intacte (toutes les entrées vérifiées).
+    const integrity = await alice.api.verifyAudit(org.id);
+    ok("audit : intégrité chaînée intacte", integrity.ok && integrity.hashed > 5,
+      `ok=${integrity.ok} hashed=${integrity.hashed} broken=${integrity.brokenAtId ?? "-"}`);
+    await expectStatus("Bob : vérif intégrité refusée (audit.view)", bob.api.verifyAudit(org.id), 403);
   } finally {
     provA?.destroy();
     provB?.destroy();

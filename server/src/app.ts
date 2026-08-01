@@ -30,10 +30,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: config.isProd ? "info" : "debug" },
     bodyLimit: config.maxBlobBytes,
-    trustProxy: true,
+    // Ne pas faire confiance aveuglément à X-Forwarded-For (usurpation d'IP →
+    // contournement du rate-limit) : uniquement le proxy de tête. Voir config.ts.
+    trustProxy: config.trustProxy,
   });
 
-  await app.register(helmet, { contentSecurityPolicy: false });
+  // API pure (pas de HTML applicatif) : on garde la CSP désactivée mais on
+  // durcit les en-têtes utiles à une API — pas de referrer, ressources non
+  // partagées cross-origin, aucune permission de capteur/navigateur.
+  await app.register(helmet, {
+    contentSecurityPolicy: false,
+    referrerPolicy: { policy: "no-referrer" },
+    crossOriginResourcePolicy: { policy: "same-site" },
+  });
   await app.register(cors, {
     origin: config.corsOrigins.length ? config.corsOrigins : true,
     credentials: true,

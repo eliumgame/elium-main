@@ -91,3 +91,40 @@ describe("validation des secrets au démarrage (production)", () => {
     expect(config.tokenSecret).toBe("b".repeat(48));
   });
 });
+
+describe("trustProxy — anti-usurpation d'IP (rate-limit)", () => {
+  it("parse TRUST_PROXY : défaut = proxys privés/loopback, jamais `true` implicite", async () => {
+    const { parseTrustProxy, TRUSTED_LOCAL_PROXIES } = await import("../src/config.js");
+    expect(parseTrustProxy(undefined)).toEqual(TRUSTED_LOCAL_PROXIES); // défaut sûr
+    expect(parseTrustProxy("false")).toBe(false);
+    expect(parseTrustProxy("")).toBe(false);
+    expect(parseTrustProxy("true")).toBe(true);
+    expect(parseTrustProxy("2")).toBe(2);
+    expect(parseTrustProxy("127.0.0.1, 10.0.0.0/8")).toEqual(["127.0.0.1", "10.0.0.0/8"]);
+  });
+
+  it("un X-Forwarded-For d'une connexion PUBLIQUE directe est ignoré (IP réelle conservée)", async () => {
+    const { buildApp } = await import("../src/app.js");
+    const app = await buildApp();
+    app.get("/__ip", async (req) => ({ ip: req.ip }));
+
+    // Client public direct qui tente d'usurper une IP via X-Forwarded-For :
+    // avec le défaut (confiance aux seuls proxys privés), l'en-tête est ignoré.
+    const spoof = await app.inject({
+      method: "GET", url: "/__ip",
+      remoteAddress: "203.0.113.9",
+      headers: { "x-forwarded-for": "1.2.3.4" },
+    });
+    expect(spoof.json().ip).toBe("203.0.113.9"); // IP réelle, pas l'usurpée
+
+    // Un proxy interne (loopback) est de confiance : son X-Forwarded-For compte.
+    const viaProxy = await app.inject({
+      method: "GET", url: "/__ip",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": "198.51.100.7" },
+    });
+    expect(viaProxy.json().ip).toBe("198.51.100.7");
+
+    await app.close();
+  });
+});

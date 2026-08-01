@@ -33,7 +33,7 @@ Les deux surfaces partagent le **format `.elium`**, les primitives de **cryptogr
 | Tableaux, images, blocs de code colorisés | ✅ | `lowlight` pour la coloration syntaxique |
 | Pagination écran réelle | ✅ | Feuilles A4/Letter empilées, sauts de page auto, n° de page en direct (`editor/Pagination.ts`, moteur pur `planPages`) |
 | Suivi des modifications | ✅ | Insertions/suppressions attribuées ; **exporté en DOCX** (`<w:ins>`/`<w:del>`), round-trip testé |
-| Import / export DOCX | ✅ | 🟡 l'import ne relit pas toujours couleur/police/taille |
+| Import / export DOCX | ✅ | 
 | Sceau & signatures | ✅ | Voir _Elium Sign_ et _Sécurité_ |
 | Journal de suivi entièrement câblé | ✅ | `created`/`opened`/`modified`/`export`/`protection.enabled`/`locked`/`signature.added`/`signature.validated` ; événements de consultation mis en file puis **versés & scellés au save** (ne casse jamais le sceau d'un document consulté) |
 | Polices importées persistées dans le `.elium` | 🟡 | Non persistées pour l'instant |

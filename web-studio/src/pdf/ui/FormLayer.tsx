@@ -35,7 +35,9 @@ export default function FormLayer(p: FormLayerProps) {
     (async () => {
       const anns = (await p.engine.annotations(p.from!)) as RawWidget[];
       if (cancelled) return;
-      const fields = readFields(anns, p.size.h);
+      const info = p.engine.pages[p.from!];
+      const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
+      const fields = readFields(anns, p.size.h, origin);
       setBoxes(fields);
       p.onFields(p.pageId, fields);
     })();

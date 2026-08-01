@@ -101,6 +101,39 @@ describe("Importing a PDF's existing markup", () => {
     expect(annots[0].hidden).toBe(true);
   });
 
+  // Regression: a PDF touched by another app often carries a crop box whose
+  // lower-left is NOT (0,0). pdf.js reports annotation geometry in absolute PDF
+  // space, so the flip into page space must subtract that origin — the exact
+  // inverse of what export applies. Ignoring it left imported markup shifted,
+  // and mirrored vertically when the offset was large ("à l'envers").
+  describe("crop box whose origin is not (0,0)", () => {
+    const ORIGIN = { x: 50, y: 100 }; // page.view = [50, 100, 645, 942]
+
+    it("subtracts the origin so the box is the exact inverse of export", () => {
+      // rect [150, 800, 350, 860] on a 842-high crop box offset by (50,100).
+      const { annots } = importPageAnnots(
+        [raw({ rect: [150, 800, 350, 860] })], "p1", PAGE_H, "Moi", ORIGIN,
+      );
+      // x_ps = 150 − 50 = 100 ; y_ps = (100 + 842) − 860 = 82
+      expect(annots[0].rect).toEqual({ x: 100, y: 82, w: 200, h: 60 });
+    });
+
+    it("offsets quads and ink the same way", () => {
+      const { annots } = importPageAnnots([raw({
+        subtype: "Highlight",
+        quadPoints: Float32Array.from([150, 860, 350, 860, 150, 840, 350, 840]),
+      })], "p1", PAGE_H, "Moi", ORIGIN);
+      const [tl] = annots[0].quads![0];
+      expect(tl).toEqual({ x: 100, y: 82 }); // 150−50, (100+842)−860
+    });
+
+    it("is a no-op when the origin is (0,0), matching the default path", () => {
+      const withOrigin = importPageAnnots([raw({})], "p1", PAGE_H, "Moi", { x: 0, y: 0 });
+      const without = importPageAnnots([raw({})], "p1", PAGE_H, "Moi");
+      expect(withOrigin.annots[0].rect).toEqual(without.annots[0].rect);
+    });
+  });
+
   it("skips what it cannot model, and says how many", () => {
     const { annots, skipped } = importPageAnnots([
       raw({ subtype: "Square" }),

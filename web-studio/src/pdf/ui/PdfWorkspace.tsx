@@ -178,7 +178,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           const raw = (await next.annotations(page.from)) as RawAnnotation[];
           if (!hasImportableAnnots(raw)) continue;
           const info = next.pages[page.from];
-          imported.push(...importPageAnnots(raw, page.id, info?.h ?? 842, author).annots);
+          const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
+          imported.push(...importPageAnnots(raw, page.id, info?.h ?? 842, author, origin).annots);
         }
       }
 

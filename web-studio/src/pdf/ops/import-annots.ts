@@ -90,21 +90,37 @@ function parsePdfDate(raw: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? new Date(0).toISOString() : d.toISOString();
 }
 
-const flip = (pageHeight: number) => (x: number, y: number): Pt => ({ x, y: pageHeight - y });
+/**
+ * The page's crop box in PDF user space: `h` its unrotated height, `(x, y)` its
+ * lower-left origin. pdf.js reports annotation geometry in absolute PDF space,
+ * so mapping into Elium's top-left page space is the exact inverse of what
+ * `pageFrame` (ops/annots-pdf.ts) applies on export:
+ *   x_ps = x_pdf − x     y_ps = (y + h) − y_pdf
+ * Ignoring the origin — as this did before — leaves markup from any PDF whose
+ * box does not start at (0,0) shifted, and vertically mirrored when the offset
+ * is large. Such boxes are common in files that passed through another editor.
+ */
+interface Frame {
+  x: number;
+  y: number;
+  h: number;
+}
 
-function rectFrom(raw: number[] | undefined, pageHeight: number): Rect {
+const flip = (f: Frame) => (x: number, y: number): Pt => ({ x: x - f.x, y: f.y + f.h - y });
+
+function rectFrom(raw: number[] | undefined, frame: Frame): Rect {
   if (!raw || raw.length < 4) return { x: 0, y: 0, w: 0, h: 0 };
   const x1 = Math.min(raw[0], raw[2]);
   const x2 = Math.max(raw[0], raw[2]);
   const y1 = Math.min(raw[1], raw[3]);
   const y2 = Math.max(raw[1], raw[3]);
-  return { x: x1, y: pageHeight - y2, w: x2 - x1, h: y2 - y1 };
+  return { x: x1 - frame.x, y: frame.y + frame.h - y2, w: x2 - x1, h: y2 - y1 };
 }
 
 /** `/QuadPoints` is UL, UR, LL, LR — reorder into our reading-order quads. */
-function quadsFrom(raw: Float32Array | number[] | null | undefined, pageHeight: number): Quad[] {
+function quadsFrom(raw: Float32Array | number[] | null | undefined, frame: Frame): Quad[] {
   if (!raw || raw.length < 8) return [];
-  const f = flip(pageHeight);
+  const f = flip(frame);
   const out: Quad[] = [];
   for (let i = 0; i + 7 < raw.length; i += 8) {
     out.push([
@@ -117,9 +133,9 @@ function quadsFrom(raw: Float32Array | number[] | null | undefined, pageHeight: 
   return out;
 }
 
-function pointsFrom(raw: Float32Array | number[] | null | undefined, pageHeight: number): Pt[] {
+function pointsFrom(raw: Float32Array | number[] | null | undefined, frame: Frame): Pt[] {
   if (!raw) return [];
-  const f = flip(pageHeight);
+  const f = flip(frame);
   const out: Pt[] = [];
   for (let i = 0; i + 1 < raw.length; i += 2) out.push(f(raw[i], raw[i + 1]));
   return out;
@@ -132,15 +148,20 @@ export interface ImportResult {
 }
 
 /**
- * Convert one page's annotations. `pageId` is the model page they belong to and
- * `pageHeight` its unrotated height, used to flip into page space.
+ * Convert one page's annotations. `pageId` is the model page they belong to,
+ * `pageHeight` its unrotated crop-box height and `origin` the crop box's
+ * lower-left corner in PDF user space (defaults to (0,0), the common case).
+ * Both are needed to flip absolute PDF geometry into Elium's page space — see
+ * `Frame` above. The origin defaults keep older callers working unchanged.
  */
 export function importPageAnnots(
   raw: readonly RawAnnotation[],
   pageId: string,
   pageHeight: number,
   fallbackAuthor: string,
+  origin: { x: number; y: number } = { x: 0, y: 0 },
 ): ImportResult {
+  const frame: Frame = { x: origin.x, y: origin.y, h: pageHeight };
   const annots: Annot[] = [];
   const replies: { parent: string; reply: Reply }[] = [];
   let skipped = 0;
@@ -172,7 +193,7 @@ export function importPageAnnots(
       id: a.id || newId("an"),
       pageId,
       kind,
-      rect: rectFrom(a.rect, pageHeight),
+      rect: rectFrom(a.rect, frame),
       color: hex(a.color, kind === "highlight" ? "#ffd400" : "#e11d48"),
       fill: a.interiorColor ? hex(a.interiorColor, "#ffffff") : null,
       opacity: typeof a.opacity === "number" ? a.opacity : 1,
@@ -195,7 +216,7 @@ export function importPageAnnots(
       case "underline":
       case "strikeout":
       case "squiggly": {
-        const quads = quadsFrom(a.quadPoints, pageHeight);
+        const quads = quadsFrom(a.quadPoints, frame);
         if (quads.length) {
           annot.quads = quads;
           annot.rect = rectOfQuads(quads);
@@ -204,7 +225,7 @@ export function importPageAnnots(
         break;
       }
       case "ink": {
-        const paths = (a.inkLists ?? []).map((list) => pointsFrom(list, pageHeight)).filter((p) => p.length);
+        const paths = (a.inkLists ?? []).map((list) => pointsFrom(list, frame)).filter((p) => p.length);
         if (paths.length) {
           annot.paths = paths;
           annot.rect = rectOfPoints(paths.flat());
@@ -214,7 +235,7 @@ export function importPageAnnots(
       case "line": {
         const l = a.lineCoordinates;
         if (l && l.length >= 4) {
-          const f = flip(pageHeight);
+          const f = flip(frame);
           annot.paths = [[f(l[0], l[1]), f(l[2], l[3])]];
         }
         annot.lineStart = LINE_ENDING[a.lineEndings?.[0] ?? "None"] ?? "none";
@@ -225,7 +246,7 @@ export function importPageAnnots(
       }
       case "polygon":
       case "polyline": {
-        const pts = pointsFrom(a.vertices, pageHeight);
+        const pts = pointsFrom(a.vertices, frame);
         if (pts.length) {
           annot.paths = [pts];
           annot.rect = rectOfPoints(pts);

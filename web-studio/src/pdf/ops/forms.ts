@@ -87,18 +87,24 @@ const ALIGN: Record<number, "left" | "center" | "right"> = { 0: "left", 1: "cent
 /**
  * Map pdf.js widgets to boxes in the page's *unrotated* top-left point space —
  * the same space annotations use, so the fill layer positions with one scale
- * multiplication.
+ * multiplication. `origin` is the crop box's lower-left corner in PDF user
+ * space; like annotation import it must be subtracted, or widgets on a page
+ * whose box does not start at (0,0) land in the wrong place.
  */
-export function readFields(anns: readonly RawWidget[], pageHeight: number): FieldBox[] {
+export function readFields(
+  anns: readonly RawWidget[],
+  pageHeight: number,
+  origin: { x: number; y: number } = { x: 0, y: 0 },
+): FieldBox[] {
   const out: FieldBox[] = [];
   anns.forEach((a, i) => {
     const kind = kindOf(a);
     if (!kind || !a.fieldName || !a.rect || a.rect.length < 4) return;
     const [x1, y1, x2, y2] = a.rect;
-    const x = Math.min(x1, x2);
+    const x = Math.min(x1, x2) - origin.x;
     const w = Math.abs(x2 - x1);
     const h = Math.abs(y2 - y1);
-    const y = pageHeight - Math.max(y1, y2);
+    const y = origin.y + pageHeight - Math.max(y1, y2);
     const exportValue = kind === "radio" ? a.buttonValue ?? "" : kind === "checkbox" ? a.exportValue ?? "" : null;
     out.push({
       key: a.id ?? `${a.fieldName}:${i}`,

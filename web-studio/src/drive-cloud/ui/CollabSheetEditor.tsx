@@ -15,8 +15,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import {
-  X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download,
+  X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download, Upload,
   Baseline, PaintBucket, Combine, Snowflake, Filter, Palette, ListChecks, Tag, BarChart3, Undo2, Redo2,
+  Rows, Columns, Trash2,
 } from "lucide-react";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import { setCellText, migrateCells, type YCells } from "../collab-sheet-crdt";
@@ -24,8 +25,12 @@ import {
   newYSheet, ensureSheetStructures, workbookSnapshot,
   setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
   setCondRule, removeCondRule, setValidation, removeValidation,
-  setChart, removeChart, setName, removeName, type YSheet, type YSheets,
+  setChart, removeChart, setName, removeName,
+  insertRowY, deleteRowY, insertColY, deleteColY, pasteBlock, clearRangeY, loadWorkbookIntoDoc,
+  type YSheet, type YSheets,
 } from "../collab-sheet-model";
+import { importXlsx } from "../../sheet/xlsx-import";
+import { csvToWorkbook } from "../../sheet/csv";
 import type { DriveApi } from "../api";
 import { createCalc, indexToCol, quoteSheetName } from "../../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../../sheet/format";
@@ -241,6 +246,52 @@ export default function CollabSheetEditor({
   const insertChart = () => { const ys = yActive(); if (ys) setChart(ydoc, ys, { id: newId("chart"), type: "bar", c0, r0, c1, r1 }); };
   const setChartType = (id: string, type: ChartType) => { const ys = yActive(); if (ys) setChart(ydoc, ys, { id, type, c0, r0, c1, r1 }); };
 
+  // Opérations structurelles (réutilisent la logique pure partagée avec le local).
+  const insRow = () => { const ys = yActive(); if (ys) insertRowY(ydoc, ys, sel.r); };
+  const delRow = () => { const ys = yActive(); if (ys && sheet && sheet.rows > 1) { deleteRowY(ydoc, ys, sel.r); setSel((s) => ({ ...s, r: Math.max(0, Math.min(s.r, sheet.rows - 2)) })); } };
+  const insCol = () => { const ys = yActive(); if (ys) insertColY(ydoc, ys, sel.c); };
+  const delCol = () => { const ys = yActive(); if (ys && sheet && sheet.cols > 1) { deleteColY(ydoc, ys, sel.c); setSel((s) => ({ ...s, c: Math.max(0, Math.min(s.c, sheet.cols - 2)) })); } };
+
+  // Import d'un classeur XLSX/CSV directement dans le document collaboratif.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const importFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const imported = file.name.toLowerCase().endsWith(".csv")
+        ? csvToWorkbook(await file.text())
+        : importXlsx(new Uint8Array(await file.arrayBuffer()));
+      loadWorkbookIntoDoc(ydoc, ySheets, yNames, imported);
+      setActive(0); setSel({ r: 0, c: 0 }); setAnchor({ r: 0, c: 0 });
+    } catch {
+      /* fichier illisible — on n'écrase rien */
+    }
+  };
+
+  // Copier / couper / coller sur une plage (presse-papiers TSV, comme un tableur).
+  const copyRange = () => {
+    if (!sheet) return;
+    const lines: string[] = [];
+    for (let r = r0; r <= r1; r++) {
+      const row: string[] = [];
+      for (let c = c0; c <= c1; c++) row.push(sheet.cells[a1(r, c)] ?? "");
+      lines.push(row.join("\t"));
+    }
+    void navigator.clipboard?.writeText(lines.join("\n"));
+  };
+  const cutRange = () => { copyRange(); const ys = yActive(); if (ys) clearRangeY(ydoc, ys, r0, c0, r1, c1); };
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (!writable || editing) return;
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    e.preventDefault();
+    const rows = text.replace(/\r/g, "").split("\n");
+    if (rows.length && rows[rows.length - 1] === "") rows.pop();
+    const grid = rows.map((l) => l.split("\t"));
+    const ys = yActive(); if (ys) pasteBlock(ydoc, ys, sel.r, sel.c, grid);
+  };
+
   // Colonnes redimensionnables — aperçu local pendant le glissé, validé (une
   // seule transaction Yjs) au relâché pour ne pas inonder le relais.
   const resizeRef = useRef<{ col: number; startX: number; startW: number } | null>(null);
@@ -304,6 +355,8 @@ export default function CollabSheetEditor({
     if (editing || !sheet) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) undoMgr.redo(); else undoMgr.undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); undoMgr.redo(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") { e.preventDefault(); copyRange(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") { e.preventDefault(); if (writable) cutRange(); return; }
     const ext = e.shiftKey;
     if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.max(0, s.r - 1) })); if (!ext) setAnchor((a) => ({ ...a, r: Math.max(0, sel.r - 1) })); }
     else if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.min(sheet.rows - 1, s.r + 1) })); if (!ext) setAnchor((a) => ({ ...a, r: Math.min(sheet.rows - 1, sel.r + 1) })); }
@@ -390,8 +443,15 @@ export default function CollabSheetEditor({
             <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={16} /></button>
             <button className="icon-btn" title="Insérer un graphique (depuis la sélection)" onMouseDown={(e) => { e.preventDefault(); insertChart(); }}><BarChart3 size={16} /></button>
             <span className="dc-doc__tbsep" />
+            <button className="icon-btn" title="Insérer une ligne au-dessus" onMouseDown={(e) => { e.preventDefault(); insRow(); }}><Rows size={16} /><Plus size={10} /></button>
+            <button className="icon-btn" title="Supprimer la ligne" onMouseDown={(e) => { e.preventDefault(); delRow(); }}><Rows size={16} /><Trash2 size={10} /></button>
+            <button className="icon-btn" title="Insérer une colonne à gauche" onMouseDown={(e) => { e.preventDefault(); insCol(); }}><Columns size={16} /><Plus size={10} /></button>
+            <button className="icon-btn" title="Supprimer la colonne" onMouseDown={(e) => { e.preventDefault(); delCol(); }}><Columns size={16} /><Trash2 size={10} /></button>
+            <span className="dc-doc__tbsep" />
             <button className="eb eb--sm eb--ghost" onClick={() => growth("rows", 10)}><Plus size={13} /> Lignes</button>
             <button className="eb eb--sm eb--ghost" onClick={() => growth("cols", 4)}><Plus size={13} /> Colonnes</button>
+            <button className="eb eb--sm eb--outline" onClick={() => fileRef.current?.click()} title="Importer un classeur XLSX/CSV"><Upload size={13} /> Importer</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={importFile} />
           </div>
         )}
 
@@ -418,7 +478,7 @@ export default function CollabSheetEditor({
           </div>
         )}
 
-        <div className="dc-doc__body dc-sheet__body" tabIndex={0} onKeyDown={onGridKey}>
+        <div className="dc-doc__body dc-sheet__body" tabIndex={0} onKeyDown={onGridKey} onPaste={onPaste}>
           {sheet && (
             <table className="dc-sheet__grid" style={{ tableLayout: "fixed" }}>
               <thead>

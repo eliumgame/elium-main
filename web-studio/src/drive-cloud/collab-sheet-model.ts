@@ -34,8 +34,10 @@
  * et ne gagne les nouvelles structures qu'au premier accès en écriture.
  */
 import * as Y from "yjs";
-import { cellsSnapshot, type YCells } from "./collab-sheet-crdt";
+import { cellsSnapshot, cellText, setCellText, type YCells } from "./collab-sheet-crdt";
 import { toggleMerge } from "../sheet/merges";
+import { insertRow, deleteRow, insertCol, deleteCol } from "../sheet/structural";
+import { indexToCol } from "../sheet/formula";
 import type {
   CellStyle, ChartSpec, CondRule, DataValidation, MergeRect, NamedRange, SheetData, Workbook,
 } from "../sheet/model";
@@ -205,4 +207,106 @@ export function setName(ydoc: Y.Doc, yNames: Y.Map<string>, name: string, ref: s
 }
 export function removeName(ydoc: Y.Doc, yNames: Y.Map<string>, name: string): void {
   ydoc.transact(() => yNames.delete(name));
+}
+
+// ── Réconciliation vers une SheetData cible ────────────────────────────────
+// Pont universel : n'importe quelle transformation PURE du Tableur local
+// (insertion/suppression de lignes-colonnes, tri, import…) se calcule sur le
+// snapshot, puis on aligne le CRDT sur le résultat. Seules les vraies
+// différences sont écrites, donc les cellules inchangées gardent leur `Y.Text`
+// (et la fusion caractère par caractère des éditions concurrentes qui les
+// touchent). NB : c'est un remplacement d'état — pour une opération
+// STRUCTURELLE, c'est le comportement attendu (comme partout ailleurs).
+
+const a1 = (r: number, c: number) => `${indexToCol(c)}${r + 1}`;
+
+/** Aligne un `Y.Map` sur un ensemble d'entrées cibles (JSON), en ne touchant que les différences. */
+function reconcileMap<V>(ymap: Y.Map<V>, target: Map<string, V>): void {
+  for (const key of [...ymap.keys()]) if (!target.has(key)) ymap.delete(key);
+  for (const [key, val] of target) {
+    if (JSON.stringify(ymap.get(key)) !== JSON.stringify(val)) ymap.set(key, val);
+  }
+}
+
+/** Aligne toute une feuille CRDT sur une `SheetData` cible (une seule transaction). */
+export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void {
+  ydoc.transact(() => {
+    ensureSheetStructures(ys);
+    ys.set("name", target.name);
+    ys.set("rows", target.rows);
+    ys.set("cols", target.cols);
+
+    // Cellules : ne réécrire que celles qui changent (préserve les Y.Text intacts).
+    const cells = ys.get("cells") as YCells;
+    const current = cellsSnapshot(cells);
+    for (const ref of Object.keys(current)) if (!(ref in target.cells)) setCellText(cells, ref, "");
+    for (const [ref, raw] of Object.entries(target.cells)) {
+      if (cellText(cells, ref) !== raw) setCellText(cells, ref, raw);
+    }
+
+    reconcileMap(asMap<CellStyle>(ys, "styles")!, new Map(Object.entries(target.styles ?? {})));
+    reconcileMap(asMap<number>(ys, "colWidths")!, new Map(Object.entries(target.colWidths ?? {}).map(([k, v]) => [String(k), v])));
+    reconcileMap(asMap<MergeRect>(ys, "merges")!, new Map((target.merges ?? []).map((m) => [mergeKey(m), m])));
+    reconcileMap(asMap<CondRule>(ys, "condFormats")!, new Map((target.condFormats ?? []).map((r) => [r.id, r])));
+    reconcileMap(asMap<DataValidation>(ys, "validations")!, new Map((target.validations ?? []).map((v) => [v.id, v])));
+    reconcileMap(asMap<ChartSpec>(ys, "charts")!, new Map((target.charts ?? []).map((c) => [c.id, c])));
+
+    if (target.freeze && (target.freeze.rows > 0 || target.freeze.cols > 0)) ys.set("freeze", { ...target.freeze });
+    else ys.delete("freeze");
+    if (target.filter && target.filter.query) ys.set("filter", { ...target.filter });
+    else ys.delete("filter");
+  });
+}
+
+// ── Opérations structurelles (réutilisent la logique pure partagée) ─────────
+export const insertRowY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, insertRow(sheetSnapshot(ys), at));
+export const deleteRowY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, deleteRow(sheetSnapshot(ys), at));
+export const insertColY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, insertCol(sheetSnapshot(ys), at));
+export const deleteColY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, deleteCol(sheetSnapshot(ys), at));
+
+/**
+ * Colle un bloc de valeurs (lignes de cellules) à partir de (r,c). Granulaire :
+ * n'écrit que les cellules collées et agrandit la feuille au besoin. Une cellule
+ * vide dans le bloc EFFACE la cible (comportement d'un vrai collage tabulaire).
+ */
+export function pasteBlock(ydoc: Y.Doc, ys: YSheet, atR: number, atC: number, grid: string[][]): void {
+  ydoc.transact(() => {
+    ensureSheetStructures(ys);
+    const cells = ys.get("cells") as YCells;
+    let rows = Number(ys.get("rows") ?? 20), cols = Number(ys.get("cols") ?? 8);
+    grid.forEach((row, ri) => row.forEach((val, ci) => {
+      setCellText(cells, a1(atR + ri, atC + ci), val);
+      cols = Math.max(cols, atC + ci + 1);
+      rows = Math.max(rows, atR + ri + 1);
+    }));
+    ys.set("rows", rows);
+    ys.set("cols", cols);
+  });
+}
+
+/** Efface un rectangle de cellules (sans toucher aux styles/structures). */
+export function clearRangeY(ydoc: Y.Doc, ys: YSheet, r0: number, c0: number, r1: number, c1: number): void {
+  ydoc.transact(() => {
+    const cells = ys.get("cells") as YCells | undefined;
+    if (!cells) return;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) setCellText(cells, a1(r, c), "");
+  });
+}
+
+/**
+ * Charge un classeur complet (import XLSX/CSV) dans le document collaboratif :
+ * chaque feuille de `wb` est réconciliée sur la feuille CRDT correspondante, les
+ * feuilles en trop retirées, celles qui manquent ajoutées, et les plages nommées
+ * alignées. Les cellules identiques gardent leur historique — un ré-import du
+ * même fichier est un quasi no-op côté réseau.
+ */
+export function loadWorkbookIntoDoc(ydoc: Y.Doc, ySheets: YSheets, yNames: Y.Map<string>, wb: Workbook): void {
+  ydoc.transact(() => {
+    while (ySheets.length > wb.sheets.length) ySheets.delete(ySheets.length - 1, 1);
+    while (ySheets.length < wb.sheets.length) ySheets.push([newYSheet(wb.sheets[ySheets.length]!.name)]);
+    wb.sheets.forEach((s, i) => reconcileSheet(ydoc, ySheets.get(i), s));
+    const target = new Map((wb.names ?? []).map((n) => [n.name, n.ref] as [string, string]));
+    for (const key of [...yNames.keys()]) if (!target.has(key)) yNames.delete(key);
+    for (const [name, ref] of target) if (yNames.get(name) !== ref) yNames.set(name, ref);
+  });
 }

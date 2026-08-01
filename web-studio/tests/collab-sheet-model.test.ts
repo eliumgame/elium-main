@@ -4,8 +4,11 @@ import {
   newYSheet, ensureSheetStructures, sheetSnapshot, workbookSnapshot,
   setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
   setCondRule, removeCondRule, setValidation, setChart,
-  setName, removeName, mergeKey, type YSheet, type YSheets,
+  setName, removeName, mergeKey,
+  insertRowY, deleteColY, pasteBlock, loadWorkbookIntoDoc, reconcileSheet,
+  type YSheet, type YSheets,
 } from "../src/drive-cloud/collab-sheet-model";
+import type { Workbook } from "../src/sheet/model";
 import { setCellText, type YCells } from "../src/drive-cloud/collab-sheet-crdt";
 import type { CondRule, DataValidation, ChartSpec } from "../src/sheet/model";
 
@@ -167,5 +170,85 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
     setName(B.ydoc, B.names, "REF", "F1!$A$1");
     sync(A.ydoc, B.ydoc);
     expect(workbookSnapshot(A.sheets, A.names, 0)).toEqual(workbookSnapshot(B.sheets, B.names, 0));
+  });
+});
+
+describe("Tableur collaboratif — opérations structurelles + import", () => {
+  it("insérer une ligne se propage, formules réécrites", () => {
+    const A = makePeer(); const B = makePeer();
+    A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
+    const ys = A.sheets.get(0);
+    A.ydoc.transact(() => {
+      const cells = ys.get("cells") as YCells;
+      setCellText(cells, "A1", "1"); setCellText(cells, "A2", "2"); setCellText(cells, "A3", "=SOMME(A1:A2)");
+    });
+    sync(A.ydoc, B.ydoc);
+    insertRowY(A.ydoc, ys, 1); // insère au-dessus de la ligne 2
+    sync(A.ydoc, B.ydoc);
+    const sb = sheetSnapshot(B.sheets.get(0));
+    expect(sb.cells.A1).toBe("1");
+    expect(sb.cells.A3).toBe("2");
+    expect(sb.cells.A4).toBe("=SOMME(A1:A3)");
+  });
+
+  it("supprimer une colonne se propage", () => {
+    const A = makePeer(); const B = makePeer();
+    A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
+    const ys = A.sheets.get(0);
+    A.ydoc.transact(() => { const c = ys.get("cells") as YCells; setCellText(c, "A1", "gauche"); setCellText(c, "B1", "milieu"); setCellText(c, "C1", "droite"); });
+    sync(A.ydoc, B.ydoc);
+    deleteColY(A.ydoc, ys, 1); // supprime B
+    sync(A.ydoc, B.ydoc);
+    const sb = sheetSnapshot(B.sheets.get(0));
+    expect(sb.cells).toEqual({ A1: "gauche", B1: "droite" });
+  });
+
+  it("coller un bloc se propage et agrandit la feuille", () => {
+    const A = makePeer(); const B = makePeer();
+    A.ydoc.transact(() => A.sheets.push([newYSheet("F1", 3, 3)]));
+    sync(A.ydoc, B.ydoc);
+    pasteBlock(A.ydoc, A.sheets.get(0), 1, 1, [["a", "b"], ["c", "d"]]);
+    sync(A.ydoc, B.ydoc);
+    const sb = sheetSnapshot(B.sheets.get(0));
+    expect(sb.cells).toEqual({ B2: "a", C2: "b", B3: "c", C3: "d" });
+    expect(sb.rows).toBeGreaterThanOrEqual(3);
+    expect(sb.cols).toBeGreaterThanOrEqual(3);
+  });
+
+  it("importer un classeur remplace le contenu et converge", () => {
+    const A = makePeer(); const B = makePeer();
+    A.ydoc.transact(() => A.sheets.push([newYSheet("Ancienne")]));
+    A.ydoc.transact(() => setCellText(A.sheets.get(0).get("cells") as YCells, "A1", "à écraser"));
+    sync(A.ydoc, B.ydoc);
+    const wb: Workbook = {
+      sheets: [
+        { name: "Ventes", rows: 4, cols: 3, cells: { A1: "Produit", B1: "Prix", A2: "Stylo", B2: "2" } },
+        { name: "TVA", rows: 2, cols: 2, cells: { A1: "20%" } },
+      ],
+      active: 0,
+      names: [{ name: "TAUX", ref: "TVA!$A$1" }],
+    };
+    loadWorkbookIntoDoc(A.ydoc, A.sheets, A.names, wb);
+    sync(A.ydoc, B.ydoc);
+    const wbA = workbookSnapshot(A.sheets, A.names, 0);
+    const wbB = workbookSnapshot(B.sheets, B.names, 0);
+    expect(wbA).toEqual(wbB);
+    expect(wbB.sheets.map((s) => s.name)).toEqual(["Ventes", "TVA"]);
+    expect(wbB.sheets[0]!.cells).toEqual({ A1: "Produit", B1: "Prix", A2: "Stylo", B2: "2" });
+    expect(wbB.names).toEqual([{ name: "TAUX", ref: "TVA!$A$1" }]);
+  });
+
+  it("reconcileSheet ne touche QUE les cellules modifiées (Y.Text préservés)", () => {
+    const { ydoc, sheets } = makePeer();
+    ydoc.transact(() => sheets.push([newYSheet("F1")]));
+    const ys = sheets.get(0);
+    ydoc.transact(() => { const c = ys.get("cells") as YCells; setCellText(c, "A1", "stable"); setCellText(c, "A2", "vieux"); });
+    const cells = ys.get("cells") as YCells;
+    const a1Before = cells.get("A1"); // l'instance Y.Text de A1
+    const target = sheetSnapshot(ys);
+    target.cells = { ...target.cells, A2: "neuf" }; // seule A2 change
+    reconcileSheet(ydoc, ys, target);
+    expect(cells.get("A1")).toBe(a1Before); // A1 : MÊME instance, non réécrite
+    expect(sheetSnapshot(ys).cells).toEqual({ A1: "stable", A2: "neuf" });
   });
 });

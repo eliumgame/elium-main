@@ -6,6 +6,17 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // Dev uniquement (ignoré par `vite build`) : proxifie l'API Drive + le relais
+    // WebSocket collab vers le serveur local (tests/dev-drive-server.ts) en
+    // MÊME origine, ce qui évite toute configuration CORS et fait fonctionner le
+    // WebSocket chiffré sans réglage. Surchargeable via DEV_API_TARGET.
+    proxy: {
+      "/api": {
+        target: process.env.DEV_API_TARGET ?? "http://127.0.0.1:8787",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
   build: {
     target: 'esnext',

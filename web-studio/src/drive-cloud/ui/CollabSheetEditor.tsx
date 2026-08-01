@@ -1,37 +1,59 @@
 /**
- * Collaborative spreadsheet (cell-level CRDT). Each sheet's cells + styles live
- * in Y.Maps keyed by A1 ("A1","B2"…), so concurrent edits to different cells
- * merge cleanly. Reuses the pure formula engine (createCalc) + number formatter.
- * Peers' selected cells are shown live via awareness. End-to-end encrypted: the
- * relay only ever sees encrypted Yjs updates.
+ * Tableur collaboratif — **parité plein-modèle** avec le Tableur local.
+ *
+ * Le contenu des cellules est un CRDT par caractère (`collab-sheet-crdt`), et
+ * TOUT le reste du modèle (largeurs de colonnes, volets figés, fusions, filtre,
+ * mises en forme conditionnelles, validations, graphiques, plages nommées) passe
+ * désormais par le codec plein-modèle (`collab-sheet-model`), si bien que deux
+ * personnes qui modifient des choses différentes fusionnent sans s'écraser. La
+ * logique métier (moteur de formules, condformat, validation, fusions, filtre)
+ * et les fenêtres de configuration sont RÉUTILISÉES telles quelles depuis
+ * `../../sheet` — aucune duplication : c'est le même Tableur, rendu collaboratif.
+ *
+ * Chiffré de bout en bout : le relais ne voit que des updates Yjs chiffrés.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
-import { X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download } from "lucide-react";
+import {
+  X, Wifi, WifiOff, Loader, Plus, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Download,
+  Baseline, PaintBucket, Combine, Snowflake, Filter, Palette, ListChecks, Tag, BarChart3, Undo2, Redo2,
+} from "lucide-react";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
-import { cellsSnapshot, migrateCells, setCellText, type YCells } from "../collab-sheet-crdt";
+import { setCellText, migrateCells, type YCells } from "../collab-sheet-crdt";
+import {
+  newYSheet, ensureSheetStructures, workbookSnapshot,
+  setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
+  setCondRule, removeCondRule, setValidation, removeValidation,
+  setChart, removeChart, setName, removeName, type YSheet, type YSheets,
+} from "../collab-sheet-model";
 import type { DriveApi } from "../api";
-import { createCalc } from "../../sheet/formula";
+import { createCalc, indexToCol, quoteSheetName } from "../../sheet/formula";
 import { formatValue, NUM_FORMATS } from "../../sheet/format";
-import type { CellStyle, NumFmt } from "../../sheet/model";
+import { buildCondFormatter } from "../../sheet/condformat";
+import { buildValidator, validationAt } from "../../sheet/validation";
+import { isCovered, spanAt } from "../../sheet/merges";
+import { rowVisible as filterRowVisible } from "../../sheet/filter";
+import type { CellStyle, NumFmt, ChartSpec, ChartType, CondRule, DataValidation, SheetData, Workbook } from "../../sheet/model";
+import { newId } from "../../sheet/model";
+import SheetChart from "../../sheet/SheetChart";
+import CondFormatModal from "../../sheet/CondFormatModal";
+import ValidationModal from "../../sheet/ValidationModal";
+import NamedRangesModal from "../../sheet/NamedRangesModal";
 import { workbookToXlsx } from "../../sheet/xlsx-export";
-import { collabSheetsToWorkbook } from "../collab-sheet-export";
 import { downloadBlob } from "../../export/exporters";
 
 const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9", "#dc2626", "#0d9488"];
 const colorFor = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]!; };
 const initials = (s: string) => { const p = s.split(/[@\s.]+/).filter(Boolean); return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?"; };
 
-function colLetter(c: number): string {
-  let s = "";
-  let n = c + 1;
-  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
-  return s;
-}
-const a1 = (r: number, c: number) => `${colLetter(c)}${r + 1}`;
+const DEFAULT_COL_W = 96;
+const ROWHEAD_W = 40; // doit correspondre à .dc-sheet__rowh en CSS
+const HEADER_H = 28;
+const ROW_H = 28;
 
-interface SheetSnap { name: string; rows: number; cols: number; cells: Record<string, string>; styles: Record<string, CellStyle>; }
-type YSheet = Y.Map<unknown>;
+const colLetter = indexToCol;
+const a1 = (r: number, c: number) => `${colLetter(c)}${r + 1}`;
+const absCell = (c: number, r: number) => `$${colLetter(c)}$${r + 1}`;
 
 export default function CollabSheetEditor({
   api, nodeId, nodeKey, title, user, onClose, refetchKey,
@@ -41,60 +63,63 @@ export default function CollabSheetEditor({
 }) {
   const [status, setStatus] = useState<CollabStatus>("connecting");
   const [canWrite, setCanWrite] = useState(false);
-  // Revoked access closes the sheet for good — never writable, even if the
-  // last known `canWrite` (from before the revocation) was true.
   const writable = canWrite && status !== "revoked";
-  const [sheets, setSheets] = useState<SheetSnap[]>([]);
+  const [wb, setWb] = useState<Workbook>({ sheets: [], active: 0 });
   const [active, setActive] = useState(0);
   const [sel, setSel] = useState({ r: 0, c: 0 });
+  const [anchor, setAnchor] = useState({ r: 0, c: 0 });
   const [editing, setEditing] = useState<{ ref: string; draft: string } | null>(null);
   const [peerCells, setPeerCells] = useState<{ color: string; name: string; s: number; ref: string }[]>([]);
+  const [condOpen, setCondOpen] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const [namesOpen, setNamesOpen] = useState(false);
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorFor(user.id) }), [user.id, user.name]);
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(() => new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, { onStatus: setStatus, onReady: setCanWrite, ...(refetchKey ? { refetchKey } : {}) }));
-  const ySheets = useMemo(() => ydoc.getArray<YSheet>("sheets"), [ydoc]);
+  const ySheets = useMemo(() => ydoc.getArray<YSheet>("sheets") as YSheets, [ydoc]);
+  const yNames = useMemo(() => ydoc.getMap<string>("names"), [ydoc]);
+  // Undo/redo local : l'UndoManager ne suit que les transactions d'origine nulle
+  // (nos éditions locales) ; les updates distants arrivent avec l'origine
+  // "remote" et ne sont donc jamais annulés par erreur.
+  const [undoMgr] = useState(() => new Y.UndoManager([ySheets, yNames]));
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const snapshot = (): SheetSnap[] =>
-    ySheets.toArray().map((ys) => ({
-      name: String(ys.get("name") ?? "Feuille"),
-      rows: Number(ys.get("rows") ?? 20),
-      cols: Number(ys.get("cols") ?? 8),
-      // `cellsSnapshot` accepte les deux formes : Y.Text (nouveau) et chaîne
-      // (documents déjà partagés avant la bascule).
-      cells: cellsSnapshot(ys.get("cells") as YCells | undefined),
-      styles: Object.fromEntries((ys.get("styles") as Y.Map<CellStyle>)?.entries?.() ?? []) as Record<string, CellStyle>,
-    }));
+  const snapshot = (): Workbook => workbookSnapshot(ySheets, yNames, active);
 
   useEffect(() => {
     let alive = true;
-    const obs = () => { if (alive) setSheets(snapshot()); };
+    const obs = () => { if (alive) setWb(snapshot()); };
     ySheets.observeDeep(obs);
+    yNames.observe(obs);
     provider.connect().then(() => {
       if (!alive) return;
       if (ySheets.length === 0) {
+        ydoc.transact(() => ySheets.push([newYSheet("Feuille 1")]));
+      }
+      // Une passe d'ouverture (droit d'écriture requis) : convertit les cellules
+      // héritées en Y.Text ET crée les sous-structures manquantes sur les
+      // documents antérieurs au modèle plein. Idempotent.
+      if (canWriteRef.current) {
         ydoc.transact(() => {
-          const s = new Y.Map() as YSheet;
-          s.set("name", "Feuille 1"); s.set("rows", 20); s.set("cols", 8);
-          s.set("cells", new Y.Map()); s.set("styles", new Y.Map());
-          ySheets.push([s]);
+          for (const ys of ySheets.toArray()) ensureSheetStructures(ys);
         });
+        for (const ys of ySheets.toArray()) {
+          const cells = ys.get("cells") as YCells | undefined;
+          if (cells) migrateCells(ydoc, cells);
+        }
       }
-      // Bascule des cellules héritées vers Y.Text, une fois à l'ouverture : sans
-      // cette passe, une cellule jamais rééditée resterait en
-      // dernier-écrivain-gagne pour toujours. Idempotent, donc sûr même si
-      // plusieurs pairs l'exécutent.
-      for (const ys of ySheets.toArray()) {
-        const cells = ys.get("cells") as YCells | undefined;
-        if (cells) migrateCells(ydoc, cells);
-      }
-      setSheets(snapshot());
+      setWb(snapshot());
     });
-    return () => { alive = false; ySheets.unobserveDeep(obs); provider.destroy(); };
-  }, [provider, ySheets, ydoc]);
+    return () => { alive = false; ySheets.unobserveDeep(obs); yNames.unobserve(obs); provider.destroy(); };
+  }, [provider, ySheets, yNames, ydoc]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Broadcast our selected cell; collect peers' selections.
+  // `canWrite` peut arriver après connect() ; on le lit via une ref pour la
+  // passe de migration sans relancer l'effet de connexion.
+  const canWriteRef = useRef(false);
+  useEffect(() => { canWriteRef.current = canWrite; }, [canWrite]);
+
+  // Awareness : diffuse la cellule sélectionnée ; collecte celle des pairs.
   useEffect(() => {
     provider.awareness.setLocalStateField("cell", { s: active, ref: a1(sel.r, sel.c) });
   }, [provider, active, sel]);
@@ -115,82 +140,197 @@ export default function CollabSheetEditor({
     return () => provider.awareness.off("change", refresh);
   }, [provider]);
 
-  const sheet = sheets[active];
+  const sheet: SheetData | undefined = wb.sheets[active];
   const yActive = (): YSheet | undefined => ySheets.get(active);
 
+  // Sélection rectangulaire (comme le Tableur local) — nécessaire pour les
+  // fusions, la mise en forme conditionnelle, les validations, les plages
+  // nommées et l'insertion de graphiques.
+  const r0 = Math.min(anchor.r, sel.r), r1 = Math.max(anchor.r, sel.r);
+  const c0 = Math.min(anchor.c, sel.c), c1 = Math.max(anchor.c, sel.c);
+  const inSel = (c: number, r: number) => c >= c0 && c <= c1 && r >= r0 && r <= r1;
+  const rangeLabel = `${a1(r0, c0)}:${a1(r1, c1)}`;
+
+  // Moteur de formules avec résolution des plages nommées (portée classeur).
   const calc = useMemo(() => {
-    const byName: Record<string, SheetSnap> = {};
-    for (const s of sheets) byName[s.name] = s;
-    const cur = sheets[active];
+    const byName: Record<string, SheetData> = {};
+    for (const s of wb.sheets) byName[s.name] = s;
+    const cur = wb.sheets[active];
+    const nameMap = new Map((wb.names ?? []).map((n) => [n.name.toUpperCase(), n.ref]));
     return createCalc(
       (ref) => cur?.cells[ref],
       { getSheetRaw: (name, ref) => byName[name]?.cells[ref], hasSheet: (name) => name in byName },
+      nameMap.size ? (name: string) => nameMap.get(name) : undefined,
     );
-  }, [sheets, active]);
+  }, [wb, active]);
 
+  const cellDisplay = (ref: string): string =>
+    sheet?.cells[ref] != null ? formatValue(calc.valueOf(ref), sheet.styles?.[ref]?.fmt, calc.display(ref)) : "";
+
+  const rowVisible = (r: number) => filterRowVisible(sheet?.filter, (c, rr) => cellDisplay(a1(rr, c)), r);
+  const condFmt = useMemo(
+    () => buildCondFormatter(
+      sheet?.condFormats,
+      (c, r) => (sheet?.cells[a1(r, c)] != null ? calc.valueOf(a1(r, c)) : ""),
+      (c, r) => cellDisplay(a1(r, c)),
+    ),
+    [sheet, calc], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const validator = useMemo(
+    () => buildValidator(sheet?.validations, (c, r) => sheet?.cells[a1(r, c)] ?? ""),
+    [sheet],
+  );
+
+  // Largeurs de colonnes & volets figés (positions calculées, comme le local).
+  const colWidth = (c: number) => sheet?.colWidths?.[c] ?? DEFAULT_COL_W;
+  const colLeft = (c: number) => { let x = ROWHEAD_W; for (let k = 0; k < c; k++) x += colWidth(k); return x; };
+  const fz = sheet?.freeze;
+  const stickyStyle = (c: number, r: number): React.CSSProperties => {
+    if (!fz) return {};
+    const headerRow = r < 0;
+    const fcol = c < fz.cols;
+    const frow = !headerRow && r < fz.rows;
+    if (!fcol && !frow) return {};
+    const s: React.CSSProperties = { position: "sticky" };
+    if (fcol) s.left = colLeft(c);
+    if (frow) s.top = HEADER_H + r * ROW_H;
+    s.zIndex = headerRow ? 6 : fcol && frow ? 5 : fcol ? 4 : 3;
+    return s;
+  };
+
+  // ── Mutateurs (chacun une transaction Yjs ciblée) ────────────────────────
   const setCell = (ref: string, raw: string) => {
     const ys = yActive(); if (!ys) return;
-    ydoc.transact(() => {
-      // Fusion caractère par caractère : deux personnes dans la MÊME cellule ne
-      // s'écrasent plus, là où un `Y.Map` de chaînes perdait la frappe de l'un.
-      setCellText(ys.get("cells") as YCells, ref, raw);
-    });
+    ydoc.transact(() => { ensureSheetStructures(ys); setCellText(ys.get("cells") as YCells, ref, raw); });
   };
-  const patchStyle = (patch: Partial<CellStyle>) => {
+  const rectRefs = (): string[] => {
+    const refs: string[] = [];
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) refs.push(a1(r, c));
+    return refs;
+  };
+  const applyStyle = (patch: Partial<CellStyle>) => {
     const ys = yActive(); if (!ys) return;
-    const ref = a1(sel.r, sel.c);
     ydoc.transact(() => {
+      ensureSheetStructures(ys);
       const styles = ys.get("styles") as Y.Map<CellStyle>;
-      styles.set(ref, { ...(styles.get(ref) ?? {}), ...patch });
+      for (const ref of rectRefs()) {
+        const next: CellStyle = { ...styles.get(ref), ...patch };
+        (Object.keys(next) as (keyof CellStyle)[]).forEach((k) => next[k] === undefined && delete next[k]);
+        if (Object.keys(next).length === 0) styles.delete(ref);
+        else styles.set(ref, next);
+      }
     });
   };
-  const growth = (key: "rows" | "cols", by: number) => {
-    const ys = yActive(); if (!ys) return;
-    ydoc.transact(() => ys.set(key, Number(ys.get(key) ?? 0) + by));
-  };
+  const growth = (key: "rows" | "cols", by: number) => { const ys = yActive(); if (ys) growSheet(ydoc, ys, key, by); };
   const addSheet = () => {
-    ydoc.transact(() => {
-      const s = new Y.Map() as YSheet;
-      s.set("name", `Feuille ${ySheets.length + 1}`); s.set("rows", 20); s.set("cols", 8);
-      s.set("cells", new Y.Map()); s.set("styles", new Y.Map());
-      ySheets.push([s]);
-    });
+    ydoc.transact(() => ySheets.push([newYSheet(`Feuille ${ySheets.length + 1}`)]));
     setActive(ySheets.length - 1);
   };
+  const toggleMergeSel = () => { const ys = yActive(); if (ys) toggleMergeY(ydoc, ys, { c0, r0, c1, r1 }); };
+  const toggleFreeze = () => {
+    const ys = yActive(); if (!ys) return;
+    if (fz) setFreeze(ydoc, ys, 0, 0);
+    else setFreeze(ydoc, ys, sel.r, sel.c); // fige au-dessus / à gauche de la sélection
+  };
+  const promptFilter = () => {
+    const ys = yActive(); if (!ys) return;
+    const q = window.prompt(`Filtrer la colonne ${colLetter(sel.c)} — afficher les lignes contenant :`, sheet?.filter?.query ?? "");
+    if (q === null) return;
+    setFilter(ydoc, ys, sel.c, q);
+  };
+  const insertChart = () => { const ys = yActive(); if (ys) setChart(ydoc, ys, { id: newId("chart"), type: "bar", c0, r0, c1, r1 }); };
+  const setChartType = (id: string, type: ChartType) => { const ys = yActive(); if (ys) setChart(ydoc, ys, { id, type, c0, r0, c1, r1 }); };
 
+  // Colonnes redimensionnables — aperçu local pendant le glissé, validé (une
+  // seule transaction Yjs) au relâché pour ne pas inonder le relais.
+  const resizeRef = useRef<{ col: number; startX: number; startW: number } | null>(null);
+  const [resizePreview, setResizePreview] = useState<{ col: number; w: number } | null>(null);
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const rz = resizeRef.current; if (!rz) return;
+      setResizePreview({ col: rz.col, w: Math.max(40, Math.round(rz.startW + (e.clientX - rz.startX))) });
+    };
+    const up = () => {
+      const rz = resizeRef.current; if (!rz) return;
+      const ys = yActive();
+      if (ys && resizePreview) setColWidth(ydoc, ys, resizePreview.col, resizePreview.w);
+      resizeRef.current = null; setResizePreview(null); document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [resizePreview, ydoc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startResize = (c: number, e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    resizeRef.current = { col: c, startX: e.clientX, startW: colWidth(c) };
+    document.body.style.cursor = "col-resize";
+  };
+  const shownWidth = (c: number) => (resizePreview?.col === c ? resizePreview.w : colWidth(c));
+
+  // Condformat / validation / plages nommées : réutilisent les fenêtres du
+  // Tableur local ; les callbacks injectent l'id + la plage sélectionnée.
+  const addCondRule = (rule: Omit<CondRule, "id" | "c0" | "r0" | "c1" | "r1">) => {
+    const ys = yActive(); if (ys) setCondRule(ydoc, ys, { ...rule, id: newId("cf"), c0, r0, c1, r1 });
+  };
+  const addValidationRule = (v: Omit<DataValidation, "id" | "c0" | "r0" | "c1" | "r1">) => {
+    const ys = yActive(); if (ys) setValidation(ydoc, ys, { ...v, id: newId("dv"), c0, r0, c1, r1 });
+  };
+  const addNamedRange = (name: string) => {
+    const single = c0 === c1 && r0 === r1;
+    const ref = `${quoteSheetName(sheet?.name ?? "Feuille")}!${single ? absCell(c0, r0) : `${absCell(c0, r0)}:${absCell(c1, r1)}`}`;
+    setName(ydoc, yNames, name, ref);
+  };
+
+  // ── Édition & navigation ─────────────────────────────────────────────────
   const commitEdit = (move: boolean) => {
     if (editing) { setCell(editing.ref, editing.draft); setEditing(null); }
     if (move && sheet) setSel((s) => ({ r: Math.min(s.r + 1, sheet.rows - 1), c: s.c }));
   };
   const beginEdit = (r: number, c: number, initial?: string) => {
     const ref = a1(r, c);
-    setSel({ r, c });
+    setSel({ r, c }); setAnchor({ r, c });
     setEditing({ ref, draft: initial ?? sheet?.cells[ref] ?? "" });
     requestAnimationFrame(() => inputRef.current?.focus());
   };
+  const selectCell = (r: number, c: number, extend = false) => {
+    commitEdit(false);
+    setSel({ r, c });
+    if (!extend) setAnchor({ r, c });
+  };
+  const dragging = useRef(false);
+  useEffect(() => { const up = () => (dragging.current = false); window.addEventListener("mouseup", up); return () => window.removeEventListener("mouseup", up); }, []);
 
   const onGridKey = (e: React.KeyboardEvent) => {
-    if (editing) return;
-    if (!sheet) return;
-    if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.max(0, s.r - 1) })); }
-    else if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.min(sheet.rows - 1, s.r + 1) })); }
-    else if (e.key === "ArrowLeft") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.max(0, s.c - 1) })); }
-    else if (e.key === "ArrowRight" || e.key === "Tab") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.min(sheet.cols - 1, s.c + 1) })); }
-    else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); setCell(a1(sel.r, sel.c), ""); }
+    if (editing || !sheet) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) undoMgr.redo(); else undoMgr.undo(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); undoMgr.redo(); return; }
+    const ext = e.shiftKey;
+    if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.max(0, s.r - 1) })); if (!ext) setAnchor((a) => ({ ...a, r: Math.max(0, sel.r - 1) })); }
+    else if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); setSel((s) => ({ ...s, r: Math.min(sheet.rows - 1, s.r + 1) })); if (!ext) setAnchor((a) => ({ ...a, r: Math.min(sheet.rows - 1, sel.r + 1) })); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.max(0, s.c - 1) })); if (!ext) setAnchor((a) => ({ ...a, c: Math.max(0, sel.c - 1) })); }
+    else if (e.key === "ArrowRight" || e.key === "Tab") { e.preventDefault(); setSel((s) => ({ ...s, c: Math.min(sheet.cols - 1, s.c + 1) })); if (!ext) setAnchor((a) => ({ ...a, c: Math.min(sheet.cols - 1, sel.c + 1) })); }
+    else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); ydoc.transact(() => { for (const ref of rectRefs()) setCell(ref, ""); }); }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && writable) { beginEdit(sel.r, sel.c, e.key); }
   };
 
-  // Export the current CRDT state as a real .xlsx (same package as the local
-  // Tableur — dual-platform parity). Available read-only too; exporting reads.
   const exportXlsx = () => {
-    if (!sheets.length) return;
-    const wb = collabSheetsToWorkbook(sheets, active);
+    if (!wb.sheets.length) return;
     const base = (title || "classeur").replace(/\.[^.]+$/, "");
     downloadBlob(`${base}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbookToXlsx(wb));
   };
 
+  const chartData = (spec: ChartSpec) => {
+    const oneCol = spec.c0 === spec.c1;
+    const labels: string[] = []; const values: number[] = [];
+    for (let r = spec.r0; r <= spec.r1; r++) {
+      if (oneCol) { const v = calc.valueOf(a1(r, spec.c0)); labels.push(String(r - spec.r0 + 1)); values.push(typeof v === "number" ? v : Number(v) || 0); }
+      else { const lab = calc.valueOf(a1(r, spec.c0)); const val = calc.valueOf(a1(r, spec.c0 + 1)); labels.push(typeof lab === "number" ? String(lab) : String(lab ?? "")); values.push(typeof val === "number" ? val : Number(val) || 0); }
+    }
+    return { labels, values };
+  };
+
   const selRef = a1(sel.r, sel.c);
-  const selStyle = sheet?.styles[selRef];
+  const selStyle = sheet?.styles?.[selRef];
   const statusLabel =
     status === "open" ? "Connecté" :
     status === "connecting" ? "Connexion…" :
@@ -198,8 +338,8 @@ export default function CollabSheetEditor({
     "Hors ligne";
 
   return (
-    <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="dc-doc dc-sheet">
+    <div className="dc-modal-overlay dc-modal-overlay--full">
+      <div className="dc-doc dc-sheet dc-doc--fullscreen">
         <header className="dc-doc__head">
           <span className="dc-doc__title" title={title}>{title}</span>
           <span className={`dc-doc__status dc-doc__status--${status}`}>
@@ -213,7 +353,7 @@ export default function CollabSheetEditor({
           </div>
           <div className="dc-doc__spacer" />
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
-          <button className="eb eb--sm eb--outline" onClick={exportXlsx} disabled={!sheets.length} title="Exporter en XLSX">
+          <button className="eb eb--sm eb--outline" onClick={exportXlsx} disabled={!wb.sheets.length} title="Exporter en XLSX">
             <Download size={14} /> XLSX
           </button>
           <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
@@ -221,23 +361,41 @@ export default function CollabSheetEditor({
 
         {writable && (
           <div className="dc-doc__toolbar">
-            <button className={`icon-btn ${selStyle?.bold ? "is-active" : ""}`} title="Gras" onMouseDown={(e) => { e.preventDefault(); patchStyle({ bold: !selStyle?.bold }); }}><Bold size={16} /></button>
-            <button className={`icon-btn ${selStyle?.italic ? "is-active" : ""}`} title="Italique" onMouseDown={(e) => { e.preventDefault(); patchStyle({ italic: !selStyle?.italic }); }}><Italic size={16} /></button>
+            <button className="icon-btn" title="Annuler (Ctrl+Z)" onMouseDown={(e) => { e.preventDefault(); undoMgr.undo(); }} disabled={!undoMgr.canUndo()}><Undo2 size={16} /></button>
+            <button className="icon-btn" title="Rétablir (Ctrl+Y)" onMouseDown={(e) => { e.preventDefault(); undoMgr.redo(); }} disabled={!undoMgr.canRedo()}><Redo2 size={16} /></button>
             <span className="dc-doc__tbsep" />
-            <button className={`icon-btn ${selStyle?.align === "left" ? "is-active" : ""}`} title="Gauche" onMouseDown={(e) => { e.preventDefault(); patchStyle({ align: "left" }); }}><AlignLeft size={16} /></button>
-            <button className={`icon-btn ${selStyle?.align === "center" ? "is-active" : ""}`} title="Centrer" onMouseDown={(e) => { e.preventDefault(); patchStyle({ align: "center" }); }}><AlignCenter size={16} /></button>
-            <button className={`icon-btn ${selStyle?.align === "right" ? "is-active" : ""}`} title="Droite" onMouseDown={(e) => { e.preventDefault(); patchStyle({ align: "right" }); }}><AlignRight size={16} /></button>
+            <button className={`icon-btn ${selStyle?.bold ? "is-active" : ""}`} title="Gras" onMouseDown={(e) => { e.preventDefault(); applyStyle({ bold: !selStyle?.bold }); }}><Bold size={16} /></button>
+            <button className={`icon-btn ${selStyle?.italic ? "is-active" : ""}`} title="Italique" onMouseDown={(e) => { e.preventDefault(); applyStyle({ italic: !selStyle?.italic }); }}><Italic size={16} /></button>
+            <label className="icon-btn" title="Couleur du texte" style={{ position: "relative" }}>
+              <Baseline size={16} />
+              <input type="color" value={selStyle?.color ?? "#111111"} onChange={(e) => applyStyle({ color: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} />
+            </label>
+            <label className="icon-btn" title="Couleur de remplissage" style={{ position: "relative" }}>
+              <PaintBucket size={16} />
+              <input type="color" value={selStyle?.fill ?? "#ffffff"} onChange={(e) => applyStyle({ fill: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} />
+            </label>
             <span className="dc-doc__tbsep" />
-            <select className="tool-select" value={selStyle?.fmt ?? "general"} onChange={(e) => patchStyle({ fmt: e.target.value as NumFmt })} title="Format des nombres">
+            <button className={`icon-btn ${selStyle?.align === "left" ? "is-active" : ""}`} title="Gauche" onMouseDown={(e) => { e.preventDefault(); applyStyle({ align: "left" }); }}><AlignLeft size={16} /></button>
+            <button className={`icon-btn ${selStyle?.align === "center" ? "is-active" : ""}`} title="Centrer" onMouseDown={(e) => { e.preventDefault(); applyStyle({ align: "center" }); }}><AlignCenter size={16} /></button>
+            <button className={`icon-btn ${selStyle?.align === "right" ? "is-active" : ""}`} title="Droite" onMouseDown={(e) => { e.preventDefault(); applyStyle({ align: "right" }); }}><AlignRight size={16} /></button>
+            <select className="tool-select" value={selStyle?.fmt ?? "general"} onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })} title="Format des nombres">
               {NUM_FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
             </select>
+            <span className="dc-doc__tbsep" />
+            <button className="icon-btn" title="Fusionner / défusionner" onMouseDown={(e) => { e.preventDefault(); toggleMergeSel(); }}><Combine size={16} /></button>
+            <button className={`icon-btn ${fz ? "is-active" : ""}`} title="Figer les volets (jusqu'à la sélection)" onMouseDown={(e) => { e.preventDefault(); toggleFreeze(); }}><Snowflake size={16} /></button>
+            <button className={`icon-btn ${sheet?.filter ? "is-active" : ""}`} title="Filtrer (colonne active)" onMouseDown={(e) => { e.preventDefault(); promptFilter(); }}><Filter size={16} /></button>
+            <button className={`icon-btn ${(sheet?.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={16} /></button>
+            <button className={`icon-btn ${(sheet?.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={16} /></button>
+            <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={16} /></button>
+            <button className="icon-btn" title="Insérer un graphique (depuis la sélection)" onMouseDown={(e) => { e.preventDefault(); insertChart(); }}><BarChart3 size={16} /></button>
             <span className="dc-doc__tbsep" />
             <button className="eb eb--sm eb--ghost" onClick={() => growth("rows", 10)}><Plus size={13} /> Lignes</button>
             <button className="eb eb--sm eb--ghost" onClick={() => growth("cols", 4)}><Plus size={13} /> Colonnes</button>
           </div>
         )}
 
-        {/* Formula bar */}
+        {/* Barre de formule */}
         <div className="dc-sheet__fx">
           <span className="dc-sheet__fxref">{selRef}</span>
           <input
@@ -253,76 +411,160 @@ export default function CollabSheetEditor({
           />
         </div>
 
+        {sheet?.filter && (
+          <div className="dc-sheet__filterchip">
+            Filtre : {colLetter(sheet.filter.col)} ⊃ «&nbsp;{sheet.filter.query}&nbsp;»
+            <button className="icon-btn" title="Retirer le filtre" onClick={() => { const ys = yActive(); if (ys) setFilter(ydoc, ys, sheet.filter!.col, ""); }}><X size={13} /></button>
+          </div>
+        )}
+
         <div className="dc-doc__body dc-sheet__body" tabIndex={0} onKeyDown={onGridKey}>
           {sheet && (
-            <table className="dc-sheet__grid">
+            <table className="dc-sheet__grid" style={{ tableLayout: "fixed" }}>
               <thead>
                 <tr>
-                  <th className="dc-sheet__corner" />
-                  {Array.from({ length: sheet.cols }, (_, c) => <th key={c} className="dc-sheet__colh">{colLetter(c)}</th>)}
+                  <th className="dc-sheet__corner" style={{ width: ROWHEAD_W, ...stickyStyle(-1, -1) }} />
+                  {Array.from({ length: sheet.cols }, (_, c) => (
+                    <th key={c} className="dc-sheet__colh" style={{ width: shownWidth(c), minWidth: shownWidth(c), position: "relative", ...stickyStyle(c, -1) }}>
+                      {colLetter(c)}
+                      <span
+                        onMouseDown={(e) => startResize(c, e)}
+                        title="Redimensionner la colonne"
+                        style={{ position: "absolute", top: 0, right: 0, width: 6, height: "100%", cursor: "col-resize" }}
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: sheet.rows }, (_, r) => (
-                  <tr key={r}>
-                    <th className="dc-sheet__rowh">{r + 1}</th>
-                    {Array.from({ length: sheet.cols }, (_, c) => {
-                      const ref = a1(r, c);
-                      const st = sheet.styles[ref];
-                      const isSel = sel.r === r && sel.c === c;
-                      const isEditing = editing?.ref === ref;
-                      const peer = peerCells.find((p) => p.s === active && p.ref === ref);
-                      const disp = formatValue(calc.valueOf(ref), st?.fmt, calc.display(ref));
-                      const style: React.CSSProperties = {
-                        fontWeight: st?.bold ? 700 : undefined,
-                        fontStyle: st?.italic ? "italic" : undefined,
-                        textAlign: st?.align,
-                        color: st?.color,
-                        background: st?.fill,
-                        boxShadow: peer ? `inset 0 0 0 2px ${peer.color}` : undefined,
-                      };
-                      return (
-                        <td
-                          key={c}
-                          className={`dc-sheet__cell ${isSel ? "is-sel" : ""}`}
-                          style={style}
-                          onMouseDown={() => { if (!isEditing) { commitEdit(false); setSel({ r, c }); } }}
-                          onDoubleClick={() => writable && beginEdit(r, c)}
-                          title={peer ? `${peer.name} est ici` : undefined}
-                        >
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              className="dc-sheet__celledit"
-                              value={editing.draft}
-                              onChange={(e) => setEditing({ ref, draft: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") { e.preventDefault(); commitEdit(true); }
-                                else if (e.key === "Escape") { e.preventDefault(); setEditing(null); }
-                                else if (e.key === "Tab") { e.preventDefault(); commitEdit(false); setSel((s) => ({ ...s, c: Math.min(sheet.cols - 1, s.c + 1) })); }
-                              }}
-                              onBlur={() => commitEdit(false)}
-                            />
-                          ) : (
-                            disp
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {Array.from({ length: sheet.rows }, (_, r) => {
+                  if (!rowVisible(r)) return null;
+                  return (
+                    <tr key={r} style={{ height: ROW_H }}>
+                      <th className="dc-sheet__rowh" style={{ width: ROWHEAD_W, ...(fz && r < fz.rows ? { position: "sticky", top: HEADER_H + r * ROW_H, zIndex: 5 } : {}) }}>{r + 1}</th>
+                      {Array.from({ length: sheet.cols }, (_, c) => {
+                        if (isCovered(sheet.merges, c, r)) return null; // masquée par une fusion
+                        const span = spanAt(sheet.merges, c, r);
+                        const ref = a1(r, c);
+                        const st = sheet.styles?.[ref];
+                        const isSel = sel.r === r && sel.c === c;
+                        const isEditing = editing?.ref === ref;
+                        const peer = peerCells.find((p) => p.s === active && p.ref === ref);
+                        const cf = condFmt(c, r);
+                        const invalid = validator(c, r);
+                        const dv = validationAt(sheet.validations, c, r);
+                        const listId = isEditing && dv?.type === "list" && dv.list?.length ? `dv-${c}-${r}` : undefined;
+                        const style: React.CSSProperties = {
+                          width: shownWidth(c),
+                          maxWidth: shownWidth(c), // surclasse le max-width CSS par défaut (92px)
+                          fontWeight: cf.fontWeight ?? (st?.bold ? 700 : undefined),
+                          fontStyle: st?.italic ? "italic" : undefined,
+                          textAlign: st?.align,
+                          color: cf.color ?? st?.color,
+                          background: cf.background ?? st?.fill,
+                          boxShadow: peer ? `inset 0 0 0 2px ${peer.color}` : invalid ? "inset 0 0 0 2px #dc2626" : undefined,
+                          ...stickyStyle(c, r),
+                        };
+                        return (
+                          <td
+                            key={c}
+                            className={`dc-sheet__cell ${isSel ? "is-sel" : inSel(c, r) ? "is-range" : ""}`}
+                            style={style}
+                            colSpan={span?.colSpan}
+                            rowSpan={span?.rowSpan}
+                            title={invalid ?? (peer ? `${peer.name} est ici` : undefined)}
+                            onMouseDown={(e) => { if (!isEditing) { selectCell(r, c, e.shiftKey); dragging.current = true; } }}
+                            onMouseEnter={() => { if (dragging.current) setSel({ r, c }); }}
+                            onDoubleClick={() => writable && beginEdit(r, c)}
+                          >
+                            {isEditing ? (
+                              <>
+                                <input
+                                  autoFocus
+                                  className="dc-sheet__celledit"
+                                  value={editing.draft}
+                                  list={listId}
+                                  onChange={(e) => setEditing({ ref, draft: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.preventDefault(); commitEdit(true); }
+                                    else if (e.key === "Escape") { e.preventDefault(); setEditing(null); }
+                                    else if (e.key === "Tab") { e.preventDefault(); commitEdit(false); setSel((s) => ({ ...s, c: Math.min(sheet.cols - 1, s.c + 1) })); }
+                                  }}
+                                  onBlur={() => commitEdit(false)}
+                                />
+                                {listId && <datalist id={listId}>{dv!.list!.map((opt) => <option key={opt} value={opt} />)}</datalist>}
+                              </>
+                            ) : (
+                              cellDisplay(ref)
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
 
+        {(sheet?.charts?.length ?? 0) > 0 && (
+          <div className="dc-sheet__charts">
+            {sheet!.charts!.map((ch) => {
+              const { labels, values } = chartData(ch);
+              return (
+                <div key={ch.id} className="dc-sheet__chart">
+                  <div className="dc-sheet__chart-head">
+                    <select className="tool-select tool-select--sm" value={ch.type} disabled={!writable} onChange={(e) => setChartType(ch.id, e.target.value as ChartType)}>
+                      <option value="bar">Barres</option>
+                      <option value="line">Lignes</option>
+                      <option value="pie">Secteurs</option>
+                    </select>
+                    <span className="dc-sheet__chart-range">{a1(ch.r0, ch.c0)}:{a1(ch.r1, ch.c1)}</span>
+                    {writable && <button className="icon-btn icon-btn--danger" title="Supprimer le graphique" onClick={() => { const ys = yActive(); if (ys) removeChart(ydoc, ys, ch.id); }}><X size={14} /></button>}
+                  </div>
+                  <SheetChart type={ch.type} labels={labels} values={values} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div className="dc-sheet__tabs">
-          {sheets.map((s, i) => (
-            <button key={i} className={`dc-sheet__tab ${i === active ? "is-active" : ""}`} onClick={() => { commitEdit(false); setActive(i); setSel({ r: 0, c: 0 }); }}>{s.name}</button>
+          {wb.sheets.map((s, i) => (
+            <button key={i} className={`dc-sheet__tab ${i === active ? "is-active" : ""}`} onClick={() => { commitEdit(false); setActive(i); setSel({ r: 0, c: 0 }); setAnchor({ r: 0, c: 0 }); }}>{s.name}</button>
           ))}
           {writable && <button className="icon-btn" title="Ajouter une feuille" onClick={addSheet}><Plus size={15} /></button>}
         </div>
       </div>
+
+      {condOpen && (
+        <CondFormatModal
+          rangeLabel={rangeLabel}
+          rules={sheet?.condFormats ?? []}
+          onAdd={addCondRule}
+          onRemove={(id) => { const ys = yActive(); if (ys) removeCondRule(ydoc, ys, id); }}
+          onClose={() => setCondOpen(false)}
+        />
+      )}
+      {validationOpen && (
+        <ValidationModal
+          rangeLabel={rangeLabel}
+          validations={sheet?.validations ?? []}
+          onAdd={addValidationRule}
+          onRemove={(id) => { const ys = yActive(); if (ys) removeValidation(ydoc, ys, id); }}
+          onClose={() => setValidationOpen(false)}
+        />
+      )}
+      {namesOpen && (
+        <NamedRangesModal
+          rangeLabel={`${quoteSheetName(sheet?.name ?? "Feuille")}!${rangeLabel}`}
+          names={wb.names ?? []}
+          onAdd={addNamedRange}
+          onRemove={(name) => removeName(ydoc, yNames, name)}
+          onClose={() => setNamesOpen(false)}
+        />
+      )}
     </div>
   );
 }

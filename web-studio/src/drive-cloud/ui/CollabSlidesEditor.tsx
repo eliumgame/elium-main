@@ -43,8 +43,8 @@ export default function CollabSlidesEditor({
   );
 
   return (
-    <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="dc-doc dc-slides">
+    <div className="dc-modal-overlay dc-modal-overlay--full">
+      <div className="dc-doc dc-slides dc-doc--fullscreen">
         <SlidesEditor store={store} chrome={{ title, titleIcon: <Presentation size={16} />, onClose, statusNode, variant: "modal" }} />
       </div>
     </div>

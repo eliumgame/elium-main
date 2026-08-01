@@ -15,15 +15,16 @@
  * locale (un document collaboratif n'a pas de modèle de page côté serveur, il
  * pagine sur un A4 standard — parité avec la surface locale).
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { X, Wifi, WifiOff, Loader } from "lucide-react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import * as Y from "yjs";
 import { useEffect } from "react";
+import type { Editor } from "@tiptap/react";
 import RichEditor from "../../editor/RichEditor";
 import { DEFAULT_PAGE } from "../../format/document";
-import { ELIUM_DOC_SCHEMA, type EliumDocStyle, type EliumDocumentModel, type EliumWatermark, type PageSettings } from "../../format/types";
+import { ELIUM_DOC_SCHEMA, type EliumDocStyle, type EliumDocumentModel, type EliumWatermark, type PageSettings, type ProseMirrorNode } from "../../format/types";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import type { DriveApi } from "../api";
 
@@ -39,7 +40,7 @@ function initials(s: string): string {
 }
 
 export default function CollabDocEditor({
-  api, nodeId, nodeKey, title, user, onClose, refetchKey,
+  api, nodeId, nodeKey, title, user, onClose, refetchKey, seed,
 }: {
   api: DriveApi;
   nodeId: string;
@@ -48,6 +49,13 @@ export default function CollabDocEditor({
   user: { id: string; name: string };
   onClose: () => void;
   refetchKey?: () => Promise<Uint8Array | null>;
+  /**
+   * Contenu initial (import d'un fichier). N'est appliqué qu'UNE fois, et
+   * seulement si le document est encore vide après synchronisation — donc sur le
+   * nœud fraîchement créé par l'import. Sans cette garde, rouvrir amorcerait un
+   * document déjà rempli et dupliquerait tout.
+   */
+  seed?: ProseMirrorNode;
 }) {
   const [status, setStatus] = useState<CollabStatus>("connecting");
   const [canWrite, setCanWrite] = useState(false);
@@ -116,6 +124,24 @@ export default function CollabDocEditor({
   // dernier `canWrite` connu (d'avant la révocation) valait vrai.
   const writable = canWrite && status !== "revoked";
 
+  // Amorçage du contenu importé — une seule fois, et seulement sur un document
+  // réellement vide après synchronisation (le nœud fraîchement créé par
+  // l'import). Le fragment Yjs « default » porte le contenu de l'éditeur ; s'il
+  // n'est pas vide, un contenu existe déjà et on ne touche à rien.
+  const editorRef = useRef<Editor | null>(null);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!seed || seededRef.current) return;
+    if (status !== "open" || !writable) return;
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    const frag = ydoc.getXmlFragment("default");
+    seededRef.current = true;
+    // Fragment non vide = le document a déjà du contenu : ne rien amorcer.
+    if (frag.length > 0) return;
+    ed.commands.setContent(seed as never);
+  }, [seed, status, writable, ydoc]);
+
   const statusLabel =
     status === "open" ? "Connecté" :
     status === "connecting" ? "Connexion…" :
@@ -123,8 +149,8 @@ export default function CollabDocEditor({
     "Hors ligne";
 
   return (
-    <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="dc-doc dc-doc--full">
+    <div className="dc-modal-overlay dc-modal-overlay--full">
+      <div className="dc-doc dc-doc--full dc-doc--fullscreen">
         <header className="dc-doc__head">
           <span className="dc-doc__title" title={title}>{title}</span>
           <span className={`dc-doc__status dc-doc__status--${status}`}>
@@ -148,6 +174,7 @@ export default function CollabDocEditor({
             documentModel={documentModel}
             editable={writable}
             collab={{ extensions: collabExtensions }}
+            onEditorReady={(ed) => { editorRef.current = ed; }}
             commentAuthor={me.name}
             docTitle={title}
             signatures={[]}

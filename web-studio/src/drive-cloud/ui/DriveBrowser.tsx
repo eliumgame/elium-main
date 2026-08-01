@@ -31,6 +31,31 @@ import CollabDocEditor from "./CollabDocEditor";
 import CollabSheetEditor from "./CollabSheetEditor";
 import CollabSlidesEditor from "./CollabSlidesEditor";
 import VersionsDialog from "./VersionsDialog";
+import { importToDoc } from "../../format/importers";
+import { docxToDoc } from "../../format/docx";
+import type { ProseMirrorNode } from "../../format/types";
+
+/** Extensions qu'on sait ouvrir dans le VRAI éditeur (import → document éditable). */
+const DOC_IMPORT_EXT = new Set(["txt", "md", "markdown", "html", "htm", "docx"]);
+
+/**
+ * Le contenu d'un fichier-document, prêt pour l'éditeur, ou `null` si le format
+ * n'est pas un document texte (image, PDF, tableur… → restent des blobs).
+ *
+ * Le DOCX se lit en binaire ; les formats texte passent par le dispatcher
+ * d'import partagé avec la suite locale (même code, même rendu).
+ */
+async function parseImportedDoc(file: File): Promise<ProseMirrorNode | null> {
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  if (!DOC_IMPORT_EXT.has(ext)) return null;
+  try {
+    if (ext === "docx") return docxToDoc(new Uint8Array(await file.arrayBuffer())).doc;
+    return importToDoc(file.name, await file.text());
+  } catch {
+    // Un import illisible ne doit pas bloquer : l'appelant retombe sur le blob.
+    return null;
+  }
+}
 
 function iconFor(e: DriveEntry, size = 18) {
   if (e.kind === "folder") return <Folder size={size} className="dc-ic dc-ic--folder" />;
@@ -64,7 +89,7 @@ export default function DriveBrowser() {
   const [err, setErr] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveEntry | null>(null);
   const [versionsTarget, setVersionsTarget] = useState<DriveEntry | null>(null);
-  const [collab, setCollab] = useState<{ kind: "doc" | "sheet" | "slides"; entry: DriveEntry; nodeKey: Uint8Array } | null>(null);
+  const [collab, setCollab] = useState<{ kind: "doc" | "sheet" | "slides"; entry: DriveEntry; nodeKey: Uint8Array; seed?: ProseMirrorNode } | null>(null);
 
   const [view, setView] = useState<ViewMode>("list");
   const [filter, setFilter] = useState<BrowserFilter>(EMPTY_FILTER);
@@ -178,7 +203,7 @@ export default function DriveBrowser() {
     } catch (e) { await fail("Création impossible", e); }
   };
 
-  const openCollab = async (e: DriveEntry) => {
+  const openCollab = async (e: DriveEntry, seed?: ProseMirrorNode) => {
     if (!ctx) return;
     const key = await nodeKeyFrom(ctx, e.myWrappedKey);
     if (!key) {
@@ -186,7 +211,26 @@ export default function DriveBrowser() {
       return;
     }
     const kind = e.appKind === "collab-sheet" ? "sheet" : e.appKind === "collab-slides" ? "slides" : "doc";
-    setCollab({ kind, entry: e, nodeKey: key });
+    setCollab({ kind, entry: e, nodeKey: key, ...(seed ? { seed } : {}) });
+  };
+
+  /**
+   * Import d'un fichier-document : au lieu d'un blob inerte, on crée un document
+   * collaboratif et on l'ouvre dans le VRAI éditeur, amorcé avec le contenu du
+   * fichier. Les formats non-document (image, PDF, tableur…) retombent sur
+   * l'envoi chiffré ordinaire.
+   */
+  const importAsDoc = async (file: File): Promise<boolean> => {
+    if (!ctx) return false;
+    const doc = await parseImportedDoc(file);
+    if (!doc) return false; // pas un document texte : laisser l'appelant l'envoyer en blob
+    const name = file.name.replace(/\.[^.]+$/, "") || file.name;
+    const node = await createCollabDoc(ctx, currentId, name);
+    const next = await listFolder(ctx, currentId);
+    setEntries(next);
+    const entry = next.find((e) => e.id === node.id);
+    if (entry) await openCollab(entry, doc);
+    return true;
   };
 
   const uploadMany = useCallback(async (files: File[]) => {
@@ -205,10 +249,35 @@ export default function DriveBrowser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx, currentId, reload]);
 
+  /**
+   * Point d'entrée de l'import (bouton et glisser-déposer).
+   *
+   * Un SEUL fichier-document ouvre le vrai éditeur, amorcé avec son contenu.
+   * Plusieurs fichiers, ou un format non-document, partent en envoi chiffré
+   * ordinaire — ouvrir un éditeur n'aurait pas de sens pour un lot ou une image.
+   */
+  const handleImport = useCallback(async (files: File[]) => {
+    if (!ctx || !files.length) return;
+    if (files.length === 1) {
+      try {
+        setBusyLabel(`Import — ${files[0].name}`);
+        const opened = await importAsDoc(files[0]);
+        if (opened) return;
+      } catch (e) {
+        await fail("Import impossible", e);
+        return;
+      } finally {
+        setBusyLabel(null);
+      }
+    }
+    await uploadMany(files);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx, currentId, uploadMany]);
+
   const onUpload = async (ev: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(ev.target.files ?? []);
     ev.target.value = "";
-    await uploadMany(files);
+    await handleImport(files);
   };
 
   const open = (e: DriveEntry) => {
@@ -347,7 +416,7 @@ export default function DriveBrowser() {
         if (!ev.dataTransfer.types.includes("Files")) return;
         ev.preventDefault();
         setFileDragOver(false);
-        void uploadMany(Array.from(ev.dataTransfer.files ?? []));
+        void handleImport(Array.from(ev.dataTransfer.files ?? []));
       }}
     >
       {/* --- breadcrumbs + creation ------------------------------------- */}
@@ -658,7 +727,7 @@ export default function DriveBrowser() {
         };
         if (collab.kind === "sheet") return <CollabSheetEditor key={collab.entry.id} {...common} />;
         if (collab.kind === "slides") return <CollabSlidesEditor key={collab.entry.id} {...common} />;
-        return <CollabDocEditor key={collab.entry.id} {...common} />;
+        return <CollabDocEditor key={collab.entry.id} {...common} seed={collab.seed} />;
       })()}
     </div>
   );

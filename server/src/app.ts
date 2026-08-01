@@ -35,11 +35,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: config.trustProxy,
   });
 
-  // API pure (pas de HTML applicatif) : on garde la CSP désactivée mais on
-  // durcit les en-têtes utiles à une API — pas de referrer, ressources non
-  // partagées cross-origin, aucune permission de capteur/navigateur.
+  // API pure JSON (aucun HTML applicatif servi) : CSP verrouillée au maximum —
+  // `default-src 'none'` (une réponse jamais autorisée à charger/exécuter quoi
+  // que ce soit si un navigateur l'interprétait comme un document) et
+  // `frame-ancestors 'none'` (anti-clickjacking). Sans risque pour du JSON. Plus
+  // Referrer-Policy no-referrer et CORP same-site.
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: { useDefaults: false, directives: { "default-src": ["'none'"], "frame-ancestors": ["'none'"] } },
     referrerPolicy: { policy: "no-referrer" },
     crossOriginResourcePolicy: { policy: "same-site" },
   });
@@ -51,7 +53,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Global limiter (per IP). Sensitive auth routes tighten this via per-route
   // `config.rateLimit` (see routes/auth.ts).
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
-  await app.register(websocket);
+  // Borne dure de la taille d'un frame WebSocket (le relais collab recoit des
+  // updates chiffrés hex, ~2× la taille en clair) : défend contre un frame géant
+  // avant même le parsing applicatif. Aligné sur maxCollabMessageBytes.
+  await app.register(websocket, {
+    options: { maxPayload: config.maxCollabMessageBytes * 2 + 8192 },
+  });
 
   // Encrypted blob uploads arrive as raw bytes — pass the request stream through
   // (no buffering) so multi-GB blobs stream straight to storage.

@@ -13,6 +13,13 @@ import { authenticate, requireUser, requireNodePerm } from "../middleware/auth.j
 import { resolveNodeAccess } from "../rbac/engine.js";
 import { badRequest } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { config } from "../config.js";
+
+// Plafond de la longueur du ciphertext hex (2 caractères hex par octet).
+const MAX_CIPHERTEXT_HEX = config.maxCollabMessageBytes * 2;
+// Le champ awareness (présence) est ré-émis à tous les pairs : on le borne aussi
+// pour éviter une amplification, avec une marge confortable pour un curseur/état.
+const MAX_AWARENESS_CHARS = 64 * 1024;
 
 /** Minimal structural type for the ws socket (avoids a hard dep on `ws` types). */
 interface WsConn {
@@ -25,6 +32,9 @@ interface Peer {
   socket: WsConn;
   userId: string;
   canWrite: boolean;
+  // Fenêtre glissante 1 s pour le plafond de débit par connexion (anti-flood).
+  msgCount: number;
+  windowStart: number;
 }
 
 // nodeId -> set of connected peers.
@@ -80,7 +90,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       return;
     }
 
-    const peer: Peer = { socket, userId: claims.sub, canWrite: access.permissions.has("node.edit") };
+    const peer: Peer = { socket, userId: claims.sub, canWrite: access.permissions.has("node.edit"), msgCount: 0, windowStart: Date.now() };
     let room = rooms.get(nodeId);
     if (!room) {
       room = new Set<Peer>();
@@ -98,9 +108,24 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
 
     socket.on("message", (raw: unknown) => {
       void (async () => {
+        // Plafond de débit par connexion (fenêtre glissante 1 s). Un pair qui
+        // inonde le relais (et la base, via les inserts d'update) est fermé ; il
+        // se reconnecte et re-synchronise via le backlog. Le seuil est très
+        // au-dessus d'une frappe humaine, donc l'édition normale n'est jamais
+        // affectée.
+        const now = Date.now();
+        if (now - peer.windowStart >= 1000) { peer.windowStart = now; peer.msgCount = 0; }
+        if (++peer.msgCount > config.maxCollabMessagesPerSec) {
+          try { socket.close(1013, "rate limited"); } catch { /* déjà fermé */ }
+          return;
+        }
+        const text = String(raw);
+        // Garde de taille défensive (le maxPayload du serveur WS borne déjà le
+        // frame ; ceci reste une double sécurité côté application).
+        if (text.length > MAX_CIPHERTEXT_HEX + 4096) return;
         let msg: { type?: string; ciphertext?: string; nonce?: string; payload?: unknown };
         try {
-          msg = JSON.parse(String(raw)) as typeof msg;
+          msg = JSON.parse(text) as typeof msg;
         } catch {
           return;
         }
@@ -108,6 +133,8 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           if (!peer.canWrite) return;
           const ct = msg.ciphertext ?? "";
           const nonce = msg.nonce ?? "";
+          // Rejeter un ciphertext hors-bornes (anti-DoS mémoire/base) ou mal formé.
+          if (ct.length > MAX_CIPHERTEXT_HEX) return;
           if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) return;
           try {
             const inserted = await queryOne<{ id: number }>(
@@ -126,6 +153,10 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
             /* transient DB error — the client can re-sync via backlog */
           }
         } else if (msg.type === "awareness") {
+          // La présence est ré-émise à tous les pairs : borner pour éviter une
+          // amplification (un pair envoie 1× une charge géante → N× sur le fil).
+          const payload = msg.payload as { u?: unknown } | undefined;
+          if (payload && typeof payload.u === "string" && payload.u.length > MAX_AWARENESS_CHARS) return;
           broadcast(nodeId, peer, { type: "awareness", from: peer.userId, payload: msg.payload });
         }
       })();

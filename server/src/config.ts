@@ -106,6 +106,13 @@ export const config = {
 
   maxBlobBytes: num("MAX_BLOB_BYTES", 2 * 1024 * 1024 * 1024),
   maxJsonBytes: num("MAX_JSON_BYTES", 1024 * 1024),
+
+  // Bornes du relais collaboratif (anti-DoS). Un update chiffré est plafonné en
+  // octets (le ciphertext hex fait 2× cette taille sur le fil) ; le débit de
+  // messages par connexion est plafonné (bien au-dessus d'une frappe humaine)
+  // pour qu'un pair ne puisse pas inonder le relais et la base.
+  maxCollabMessageBytes: num("MAX_COLLAB_MESSAGE_BYTES", 512 * 1024),
+  maxCollabMessagesPerSec: num("MAX_COLLAB_MESSAGES_PER_SEC", 300),
 } as const;
 
 export type Config = typeof config;

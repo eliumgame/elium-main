@@ -92,6 +92,23 @@ describe("validation des secrets au démarrage (production)", () => {
   });
 });
 
+describe("en-têtes de sécurité (helmet durci)", () => {
+  it("sert une CSP verrouillée + Referrer-Policy + CORP sur une réponse d'API", async () => {
+    const { buildApp } = await import("../src/app.js");
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/health" });
+    expect(res.statusCode).toBe(200);
+    const csp = res.headers["content-security-policy"];
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+    expect(res.headers["cross-origin-resource-policy"]).toBe("same-site");
+    // helmet retire l'empreinte de pile.
+    expect(res.headers["x-powered-by"]).toBeUndefined();
+    await app.close();
+  });
+});
+
 describe("trustProxy — anti-usurpation d'IP (rate-limit)", () => {
   it("parse TRUST_PROXY : défaut = proxys privés/loopback, jamais `true` implicite", async () => {
     const { parseTrustProxy, TRUSTED_LOCAL_PROXIES } = await import("../src/config.js");

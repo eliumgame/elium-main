@@ -245,10 +245,13 @@
   gap: 0;
   padding: 6px 8px 4px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  /* Pas de barre de défilement sous le ruban : le dégradé de bord et les
+     chevrons (`.elx-ribbon__scroller`) disent déjà qu'il reste des commandes et
+     permettent d'y aller. Une barre en plus faisait doublon et cassait
+     l'uniformité du chrome. */
+  scrollbar-width: none;
 }
-.pdfx-ribbon__body::-webkit-scrollbar, .elx-ribbon__body::-webkit-scrollbar { height: 6px; }
-.pdfx-ribbon__body::-webkit-scrollbar-thumb, .elx-ribbon__body::-webkit-scrollbar-thumb { background: var(--x-chrome-3); border-radius: 3px; }
+.pdfx-ribbon__body::-webkit-scrollbar, .elx-ribbon__body::-webkit-scrollbar { display: none; }
 
 .pdfx-group, .elx-group {
   display: flex;

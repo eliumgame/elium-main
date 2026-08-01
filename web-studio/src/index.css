@@ -48,7 +48,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body, #root { height: 100%; }
+html, body { height: 100%; }
+/* #root est ancré sur le VIEWPORT (dvh), pas sur une cascade de `height:100%` :
+   c'est robuste à tout ancêtre dont la hauteur n'est pas déterminée — y compris
+   le panneau d'aperçu qui met `html` en `display:grid` (ce qui réduit `body` à sa
+   hauteur de contenu et faisait s'effondrer les vues plein écran, barre d'état
+   remontée au milieu). Dans un navigateur normal, 100dvh == 100 % du viewport,
+   donc aucun changement visuel. Le `100vh` est le repli des moteurs sans `dvh`. */
+#root { height: 100vh; height: 100dvh; }
 
 body {
   font-family: var(--font);
@@ -62,6 +69,28 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; bac
 input, select, textarea { font-family: inherit; font-size: 14px; }
 a { color: var(--primary); }
 code { font-family: var(--mono); }
+
+/* Barres de défilement uniformes dans toute l'app : fines, arrondies, sur piste
+   transparente. La couleur du curseur est un gris NEUTRE semi-transparent, donc
+   agnostique du fond — même rendu sur la feuille claire d'un document que sur le
+   chrome sombre d'un ruban ou d'un panneau. Remplace les barres natives épaisses
+   du système, qui cassaient le design d'un module à l'autre. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 150, 165, 0.45) transparent;
+}
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 165, 0.42);
+  border-radius: 8px;
+  /* La bordure transparente + le clip sur padding amincissent visuellement le
+     curseur tout en gardant une grande cible de préhension. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(140, 150, 165, 0.7); }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* Anneau de focus clavier global (charte §13/§14.2) : visible uniquement à la
    navigation clavier (:focus-visible), jamais au clic souris. Restaure un focus

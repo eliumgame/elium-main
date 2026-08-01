@@ -2,7 +2,12 @@
    Elium Web Studio — component styles
    ====================================================================== */
 
-.app { height: 100%; }
+/* `.app` remplit exactement `#root` (ancré au viewport) ET porte le défilement :
+   les vues plein écran (éditeurs) le remplissent au pixel, donc aucune barre ne
+   s'affiche ; l'accueil, plus haut que le viewport, défile ici — au bord de la
+   fenêtre, pas au milieu d'une colonne centrée. Sans ça, une hauteur de `#root`
+   fixe coupait le bas de l'accueil (rien ne défilait). */
+.app { height: 100%; overflow-y: auto; }
 
 .vault-gate { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--bg); }
 .vault-gate__card {

@@ -40,6 +40,11 @@ interface Peer {
 // nodeId -> set of connected peers.
 const rooms = new Map<string, Set<Peer>>();
 
+// userId -> nombre de connexions WS collab simultanées. Un compte ne peut pas
+// ouvrir un nombre illimité de sockets (épuisement mémoire/connexions DB) ; la
+// borne est large pour un usage réel (onglets/appareils/documents multiples).
+const connectionsByUser = new Map<string, number>();
+
 /**
  * Force every peer out of a room (key rotation / revocation). Survivors
  * reconnect, re-resolve their ACL and re-fetch their wrapped key; a revoked
@@ -89,6 +94,14 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       socket.close(1008, "forbidden");
       return;
     }
+
+    // Plafond de connexions simultanées par utilisateur (anti-épuisement).
+    const open = connectionsByUser.get(claims.sub) ?? 0;
+    if (open >= config.maxCollabConnectionsPerUser) {
+      socket.close(1013, "too many connections");
+      return;
+    }
+    connectionsByUser.set(claims.sub, open + 1);
 
     const peer: Peer = { socket, userId: claims.sub, canWrite: access.permissions.has("node.edit"), msgCount: 0, windowStart: Date.now() };
     let room = rooms.get(nodeId);
@@ -162,11 +175,18 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       })();
     });
 
+    // `close` ET `error` peuvent tous deux se déclencher : le drapeau garantit un
+    // seul décrément du compteur par utilisateur (sinon il dériverait vers le
+    // négatif et le plafond ne tiendrait plus).
+    let disposed = false;
     const cleanup = () => {
+      if (disposed) return;
+      disposed = true;
       const r = rooms.get(nodeId);
-      if (!r) return;
-      r.delete(peer);
-      if (r.size === 0) rooms.delete(nodeId);
+      if (r) { r.delete(peer); if (r.size === 0) rooms.delete(nodeId); }
+      const n = (connectionsByUser.get(peer.userId) ?? 1) - 1;
+      if (n <= 0) connectionsByUser.delete(peer.userId);
+      else connectionsByUser.set(peer.userId, n);
     };
     socket.on("close", cleanup);
     socket.on("error", cleanup);

@@ -113,6 +113,9 @@ export const config = {
   // pour qu'un pair ne puisse pas inonder le relais et la base.
   maxCollabMessageBytes: num("MAX_COLLAB_MESSAGE_BYTES", 512 * 1024),
   maxCollabMessagesPerSec: num("MAX_COLLAB_MESSAGES_PER_SEC", 300),
+  // Connexions WS collab simultanées par utilisateur (anti-épuisement). Large
+  // pour un usage réel (onglets/appareils/documents multiples).
+  maxCollabConnectionsPerUser: num("MAX_COLLAB_CONNECTIONS_PER_USER", 40),
 } as const;
 
 export type Config = typeof config;

@@ -606,6 +606,26 @@ Bornes KDF **identiques** Python/Web (t≤6, m≤256 MiB, p≤16) ; décompressi
 conteneur plafonnée à 512 MiB ; **ZIP externe** plafonné (128 MiB/entrée,
 384 MiB total) ; garde de profondeur JSON ; erreurs typées (`EliumError`).
 
+### 6.9 Durcissement — Phase 3 (en cours, depuis 2026-08-01)
+1. **Anti-usurpation d'IP** — `trustProxy` ne fait plus confiance à un
+   `X-Forwarded-For` arbitraire (qui permettait de se donner une IP neuve par
+   requête et de contourner le rate-limit / l'anti-brute-force). Défaut :
+   confiance aux seuls proxys privés/loopback (Caddy co-localisé) ; une
+   connexion publique directe voit son XFF ignoré. Surchargeable via
+   `TRUST_PROXY`.
+2. **Relais collab anti-DoS** — `maxPayload` sur le frame WebSocket ; plafond de
+   taille du ciphertext par update (`MAX_COLLAB_MESSAGE_BYTES`) ; plafond de
+   débit par connexion (`MAX_COLLAB_MESSAGES_PER_SEC`, fenêtre 1 s, fermeture au
+   dépassement puis re-sync via backlog) ; borne de la charge d'awareness
+   (anti-amplification) ; plafond de connexions simultanées par utilisateur
+   (`MAX_COLLAB_CONNECTIONS_PER_USER`).
+3. **En-têtes API** — CSP verrouillée (`default-src 'none'` ;
+   `frame-ancestors 'none'`) adaptée à une API JSON pure, `Referrer-Policy:
+   no-referrer`, `Cross-Origin-Resource-Policy: same-site`.
+4. *À venir* : WebAuthn/passkeys, journal d'audit à intégrité chaînée
+   (append-only vérifiable), rotation de clés planifiée, validation d'entrées
+   exhaustive.
+
 ---
 
 ## 7. Signatures — Elium Sign

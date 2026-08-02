@@ -50,6 +50,10 @@ export interface DriveSession {
   login: (email: string, password: string) => Promise<void>;
   /** Complete a login that returned an MFA challenge (TOTP or backup code). */
   completeMfa: (code: string) => Promise<void>;
+  /** Complete the login's second factor with a WebAuthn passkey. */
+  completeMfaWebauthn: () => Promise<void>;
+  /** Second factors available for the pending MFA challenge (TOTP / WebAuthn). */
+  mfaMethods: { totp: boolean; webauthn: boolean } | null;
   /** Abandon a pending MFA challenge and return to the login screen. */
   cancelMfa: () => void;
   unlock: (password: string) => Promise<void>;
@@ -96,6 +100,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   // Pending MFA challenge: the masterKey is already derived (password verified);
   // we hold it in memory ONLY until the second factor completes the login.
   const mfaPendingRef = useRef<{ mfaToken: string; masterKey: Uint8Array; kdfSalt: string; kdfParams: KdfParams } | null>(null);
+  const [mfaMethods, setMfaMethods] = useState<{ totp: boolean; webauthn: boolean } | null>(null);
 
   const persist = useCallback((patch: Partial<Persisted>) => {
     const cur = readPersisted() ?? ({} as Partial<Persisted>);
@@ -239,6 +244,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
           // Password OK, second factor required. Hold the derived masterKey in
           // memory (never persisted) until the code completes the login.
           mfaPendingRef.current = { mfaToken: res.mfaToken, masterKey, kdfSalt: pre.kdfSalt, kdfParams: pre.kdfParams as KdfParams };
+          setMfaMethods(res.methods ?? { totp: true, webauthn: false });
           setLockedEmail(email.trim());
           setStatus("mfa");
           return;
@@ -267,6 +273,36 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         const res = await api.loginMfa(pending.mfaToken, code.trim());
         await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
         mfaPendingRef.current = null;
+        setMfaMethods(null);
+      } catch (e) {
+        setError(messageOf(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, finishLogin],
+  );
+
+  // Second factor via WebAuthn passkey: fetch a challenge, run the browser
+  // ceremony (navigator.credentials.get), verify server-side, then finish login.
+  const completeMfaWebauthn = useCallback(
+    async () => {
+      const pending = mfaPendingRef.current;
+      if (!pending) {
+        setStatus("anonymous");
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const { startAuthentication } = await import("@simplewebauthn/browser");
+        const options = await api.webauthnLoginOptions(pending.mfaToken);
+        const assertion = await startAuthentication({ optionsJSON: options as never });
+        const res = await api.webauthnLoginVerify(pending.mfaToken, assertion);
+        await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+        mfaPendingRef.current = null;
+        setMfaMethods(null);
       } catch (e) {
         setError(messageOf(e));
         throw e;
@@ -279,6 +315,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
 
   const cancelMfa = useCallback(() => {
     mfaPendingRef.current = null;
+    setMfaMethods(null);
     setError(null);
     setStatus("anonymous");
   }, []);
@@ -372,6 +409,8 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     register,
     login,
     completeMfa,
+    completeMfaWebauthn,
+    mfaMethods,
     cancelMfa,
     unlock,
     logout,

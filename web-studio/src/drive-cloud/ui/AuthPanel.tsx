@@ -96,21 +96,31 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
           {mfa ? (
             <>
               <h2 className="dc-auth__title"><Smartphone size={20} /> Vérification en deux étapes</h2>
-              <p className="muted">Entrez le code à 6 chiffres de votre application d'authentification (ou un code de secours).</p>
-              <form onSubmit={submit} className="dc-auth__form">
-                <label className="field">
-                  <span className="field__label">Code de vérification</span>
-                  <input
-                    className="input" value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value)}
-                    inputMode="numeric" autoComplete="one-time-code" autoFocus required
-                    placeholder="123456"
-                  />
-                </label>
-                {d.error && <p className="dc-error">{d.error}</p>}
-                <button className="eb eb--primary eb--block" disabled={d.busy || mfaCode.trim().length < 6}><ShieldCheck size={16} /> Vérifier</button>
-                <button type="button" className="dc-auth__switch" onClick={() => { setMfaCode(""); d.cancelMfa(); }}>Annuler</button>
-              </form>
+              {(d.mfaMethods?.webauthn ?? false) && (
+                <>
+                  <p className="muted">Utilisez votre clé de sécurité ou l'empreinte/visage de cet appareil.</p>
+                  <button type="button" className="eb eb--primary eb--block" disabled={d.busy} onClick={() => void d.completeMfaWebauthn().catch(() => {})}>
+                    <KeyRound size={16} /> Se connecter avec une clé
+                  </button>
+                  {(d.mfaMethods?.totp ?? false) && <div className="dc-auth__or muted">— ou un code —</div>}
+                </>
+              )}
+              {(d.mfaMethods?.totp ?? true) && (
+                <form onSubmit={submit} className="dc-auth__form">
+                  <label className="field">
+                    <span className="field__label">Code de vérification</span>
+                    <input
+                      className="input" value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                      inputMode="numeric" autoComplete="one-time-code" autoFocus required
+                      placeholder="123456"
+                    />
+                  </label>
+                  <button className="eb eb--primary eb--block" disabled={d.busy || mfaCode.trim().length < 6}><ShieldCheck size={16} /> Vérifier</button>
+                </form>
+              )}
+              {d.error && <p className="dc-error">{d.error}</p>}
+              <button type="button" className="dc-auth__switch" onClick={() => { setMfaCode(""); d.cancelMfa(); }}>Annuler</button>
             </>
           ) : locked ? (
             <>

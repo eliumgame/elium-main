@@ -26,6 +26,8 @@ export interface LoginResult extends Tokens {
 export interface MfaChallenge {
   mfaRequired: true;
   mfaToken: string;
+  /** Facteurs disponibles pour cet utilisateur (TOTP et/ou WebAuthn). */
+  methods?: { totp: boolean; webauthn: boolean };
 }
 
 export type LoginResponse = LoginResult | MfaChallenge;

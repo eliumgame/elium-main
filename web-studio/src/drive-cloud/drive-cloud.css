@@ -434,6 +434,17 @@
 .dc-security__disable-row { display: flex; gap: 8px; align-items: center; }
 .dc-security__disable-row .input { max-width: 260px; }
 
+/* Passkeys (WebAuthn) */
+.dc-security__passkeys { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 14px; }
+.dc-security__pk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dc-security__pk-title { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; }
+.dc-security__pk-empty { font-style: italic; }
+.dc-security__pk-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.dc-security__pk-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.dc-security__pk-name { font-weight: 600; }
+.dc-security__pk-date { margin-left: auto; font-size: 12px; }
+.dc-auth__or { text-align: center; font-size: 12px; margin: 10px 0; }
+
 /* --- Auth: Drive server configuration ------------------------------------ */
 .dc-auth__panel-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dc-auth__server { margin: 10px 0 4px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2, var(--neutral-bg)); display: flex; flex-direction: column; gap: 8px; }

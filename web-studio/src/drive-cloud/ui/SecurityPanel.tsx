@@ -5,10 +5,12 @@
  * is a SECOND factor only: it never touches the zero-knowledge content keys.
  */
 import { useCallback, useEffect, useState } from "react";
-import { ShieldCheck, ShieldAlert, Smartphone, KeyRound, Copy, Check, RefreshCw } from "lucide-react";
+import { ShieldCheck, ShieldAlert, Smartphone, KeyRound, Copy, Check, RefreshCw, Fingerprint, Plus, Trash2 } from "lucide-react";
 import { useDrive } from "../session";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
+
+interface Passkey { id: string; name: string; createdAt: string; lastUsedAt: string | null; }
 
 type Stage = "idle" | "enrolling" | "showing-codes";
 
@@ -25,15 +27,58 @@ export default function SecurityPanel() {
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [passkeys, setPasskeys] = useState<Passkey[]>([]);
+  const [pkBusy, setPkBusy] = useState(false);
+
   const reload = useCallback(async () => {
     try {
       setStatus(await d.api.mfaStatus());
     } catch {
       setStatus(null);
     }
+    try {
+      setPasskeys((await d.api.webauthnCredentials()).credentials);
+    } catch {
+      setPasskeys([]);
+    }
   }, [d.api]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // Enrôler une clé : cérémonie navigator.credentials.create pilotée par
+  // @simplewebauthn/browser, puis vérification côté serveur.
+  const addPasskey = async () => {
+    setErr(null);
+    setPkBusy(true);
+    try {
+      const { startRegistration } = await import("@simplewebauthn/browser");
+      const options = await d.api.webauthnRegisterOptions();
+      const attestation = await startRegistration({ optionsJSON: options as never });
+      const name = window.prompt("Nom de cette clé (ex. « iPhone », « YubiKey ») :", "Passkey") ?? "Passkey";
+      const { ok } = await d.api.webauthnRegisterVerify(attestation, name.trim() || "Passkey");
+      if (!ok) throw new Error("Enrôlement refusé.");
+      await reload();
+    } catch (e) {
+      // L'utilisateur peut annuler la fenêtre système : ne pas afficher d'erreur.
+      const msg = e instanceof Error ? e.message : "";
+      if (!/abort|NotAllowed|cancel/i.test(msg)) setErr(msg || "Impossible d'ajouter la clé.");
+    } finally {
+      setPkBusy(false);
+    }
+  };
+
+  const removePasskey = async (id: string) => {
+    setErr(null);
+    setPkBusy(true);
+    try {
+      await d.api.webauthnRemoveCredential(id);
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Suppression impossible.");
+    } finally {
+      setPkBusy(false);
+    }
+  };
 
   const startEnroll = async () => {
     setErr(null);
@@ -185,6 +230,36 @@ export default function SecurityPanel() {
           </button>
         </div>
       )}
+
+      {/* --- Passkeys (WebAuthn) : second facteur matériel/biométrique --- */}
+      <div className="dc-security__passkeys">
+        <div className="dc-security__pk-head">
+          <h3 className="dc-security__pk-title"><Fingerprint size={16} /> Clés de sécurité (passkeys)</h3>
+          <button className="eb eb--outline eb--sm" disabled={pkBusy} onClick={() => void addPasskey()}>
+            <Plus size={14} /> Ajouter une clé
+          </button>
+        </div>
+        <p className="muted">
+          Une passkey (Touch ID / Windows Hello / clé USB) sert de second facteur, alternatif au code.
+          Comme la 2FA, elle n'accède jamais à vos clés de chiffrement.
+        </p>
+        {passkeys.length === 0 ? (
+          <p className="muted dc-security__pk-empty">Aucune clé enregistrée.</p>
+        ) : (
+          <ul className="dc-security__pk-list">
+            {passkeys.map((p) => (
+              <li key={p.id} className="dc-security__pk-item">
+                <KeyRound size={15} />
+                <span className="dc-security__pk-name">{p.name || "Passkey"}</span>
+                <span className="muted dc-security__pk-date">
+                  {p.lastUsedAt ? `utilisée le ${new Date(p.lastUsedAt).toLocaleDateString("fr")}` : `ajoutée le ${new Date(p.createdAt).toLocaleDateString("fr")}`}
+                </span>
+                <button className="icon-btn icon-btn--danger" title="Supprimer" disabled={pkBusy} onClick={() => void removePasskey(p.id)}><Trash2 size={14} /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

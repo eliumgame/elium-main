@@ -304,7 +304,10 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         mfaPendingRef.current = null;
         setMfaMethods(null);
       } catch (e) {
-        setError(messageOf(e));
+        // Annulation / timeout / page sans focus de la cérémonie passkey : rester
+        // sur l'écran du 2e facteur sans erreur alarmante (filtrage par NOM).
+        const name = e instanceof Error ? e.name : "";
+        if (name !== "NotAllowedError" && name !== "AbortError") setError(messageOf(e));
         throw e;
       } finally {
         setBusy(false);

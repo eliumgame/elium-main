@@ -207,7 +207,11 @@
 .dc-share-row__name { font-weight: 600; }
 .dc-share-row__type { color: var(--text-muted); font-size: 12px; margin-left: auto; }
 .dc-share-link { border-top: 1px solid var(--border); padding-top: 14px; }
-.dc-share-link__row { display: flex; gap: 8px; align-items: center; }
+.dc-share-link__row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.dc-share-link__field { display: flex; flex-direction: column; gap: 4px; }
+.dc-share-link__field > span { font-size: 11px; font-weight: 600; color: var(--text-soft); }
+.dc-share-link__num { width: 92px; }
+.dc-share-link__create { margin-left: auto; }
 .dc-share-link__out { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
 .dc-share-link__out .input { flex: 1; font-family: var(--el-mono, monospace); font-size: 12px; }
 .dc-share-link__note { font-size: 12px; margin-top: 8px; }

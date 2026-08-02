@@ -59,9 +59,14 @@ export default function SecurityPanel() {
       if (!ok) throw new Error("Enrôlement refusé.");
       await reload();
     } catch (e) {
-      // L'utilisateur peut annuler la fenêtre système : ne pas afficher d'erreur.
-      const msg = e instanceof Error ? e.message : "";
-      if (!/abort|NotAllowed|cancel/i.test(msg)) setErr(msg || "Impossible d'ajouter la clé.");
+      // Cérémonie annulée par l'utilisateur, expirée, ou page sans focus : ce ne
+      // sont pas de vraies erreurs. On filtre par NOM d'erreur (fiable), pas par
+      // message : NotAllowedError couvre annulation/timeout/focus, AbortError
+      // l'annulation programmatique.
+      const name = e instanceof Error ? e.name : "";
+      if (name !== "NotAllowedError" && name !== "AbortError") {
+        setErr((e instanceof Error && e.message) || "Impossible d'ajouter la clé.");
+      }
     } finally {
       setPkBusy(false);
     }

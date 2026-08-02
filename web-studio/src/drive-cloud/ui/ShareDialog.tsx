@@ -33,6 +33,8 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
   const [info, setInfo] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkExpiry, setLinkExpiry] = useState(""); // "" | "1" | "7" | "30" (jours)
+  const [linkMaxDl, setLinkMaxDl] = useState(""); // "" = illimité
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [teamId, setTeamId] = useState("");
   const [teamRoleId, setTeamRoleId] = useState("");
@@ -117,7 +119,11 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     setErr(null);
     setBusy(true);
     try {
-      const { token, secret, publicHex } = await createShareLink(ctx, entry, linkRoleId);
+      const opts: { expiresAt?: string; maxDownloads?: number } = {};
+      if (linkExpiry) opts.expiresAt = new Date(Date.now() + Number(linkExpiry) * 86400_000).toISOString();
+      const dl = Number(linkMaxDl);
+      if (linkMaxDl && Number.isFinite(dl) && dl > 0) opts.maxDownloads = Math.floor(dl);
+      const { token, secret, publicHex } = await createShareLink(ctx, entry, linkRoleId, opts);
       setLinkUrl(`${location.origin}/?link=${token}#k=${secret}.${publicHex}`);
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Création du lien impossible.");
@@ -182,10 +188,26 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
         <div className="dc-share-link">
           <h3 className="dc-share-list__title"><Link2 size={15} /> Lien externe</h3>
           <div className="dc-share-link__row">
-            <select className="tool-select" value={linkRoleId} onChange={(e) => setLinkRoleId(e.target.value)}>
-              {d.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <button className="eb eb--sm eb--outline" onClick={() => void makeLink()} disabled={busy}><Link2 size={14} /> Créer un lien</button>
+            <label className="dc-share-link__field">
+              <span>Rôle</span>
+              <select className="tool-select" value={linkRoleId} onChange={(e) => setLinkRoleId(e.target.value)}>
+                {d.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </label>
+            <label className="dc-share-link__field">
+              <span>Expiration</span>
+              <select className="tool-select" value={linkExpiry} onChange={(e) => setLinkExpiry(e.target.value)}>
+                <option value="">Jamais</option>
+                <option value="1">1 jour</option>
+                <option value="7">7 jours</option>
+                <option value="30">30 jours</option>
+              </select>
+            </label>
+            <label className="dc-share-link__field">
+              <span>Téléchargements max</span>
+              <input className="input dc-share-link__num" type="number" min={1} placeholder="∞" value={linkMaxDl} onChange={(e) => setLinkMaxDl(e.target.value)} />
+            </label>
+            <button className="eb eb--sm eb--outline dc-share-link__create" onClick={() => void makeLink()} disabled={busy}><Link2 size={14} /> Créer un lien</button>
           </div>
           {linkUrl && (
             <div className="dc-share-link__out">

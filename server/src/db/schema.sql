@@ -330,6 +330,34 @@ CREATE TABLE IF NOT EXISTS mfa_backup_codes (
 );
 CREATE INDEX IF NOT EXISTS idx_mfa_backup_user ON mfa_backup_codes (user_id);
 
+-- --- WebAuthn / passkeys (SECOND FACTOR) ----------------------------------
+-- WebAuthn authentifie l'utilisateur AU SERVEUR ; il ne produit pas la clé de
+-- chiffrement (dérivée de la passphrase, zéro-connaissance). C'est donc un 2e
+-- facteur, alternatif au TOTP. Une clé enregistrée stocke sa clé publique et un
+-- compteur anti-clonage (rejeu détecté si le compteur régresse).
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id TEXT NOT NULL UNIQUE,          -- base64url de l'ID d'authentificateur
+  public_key    BYTEA NOT NULL,                -- clé publique COSE
+  counter       BIGINT NOT NULL DEFAULT 0,     -- compteur de signatures (anti-clonage)
+  transports    TEXT[],
+  name          TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials (user_id);
+
+-- Défi WebAuthn en cours (un par utilisateur et par usage), à courte durée de
+-- vie : la vérification exige le MÊME défi que celui émis (anti-rejeu).
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose    TEXT NOT NULL,                    -- 'register' | 'auth'
+  challenge  TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, purpose)
+);
+
 -- --- Oracle-free login (Ed25519 challenge-response) ------------------------
 -- The login verifier is now the PUBLIC key of a password-derived Ed25519 key.
 -- The server issues a random challenge and checks the client's signature; it

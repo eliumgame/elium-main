@@ -116,6 +116,14 @@ export const config = {
   // Connexions WS collab simultanées par utilisateur (anti-épuisement). Large
   // pour un usage réel (onglets/appareils/documents multiples).
   maxCollabConnectionsPerUser: num("MAX_COLLAB_CONNECTIONS_PER_USER", 40),
+
+  // WebAuthn (2e facteur / passkeys). `rpId` = domaine effectif (SANS schéma ni
+  // port ; "localhost" en dev). L'origine ATTENDUE lors des cérémonies est la
+  // liste des origines web autorisées (corsOrigins), car c'est là que
+  // `navigator.credentials` s'exécute. Le rpId prod doit être le domaine du
+  // Drive (ex. "edit.nmty.fr").
+  webauthnRpId: env("WEBAUTHN_RP_ID", "localhost"),
+  webauthnRpName: env("WEBAUTHN_RP_NAME", "Elium Drive"),
 } as const;
 
 export type Config = typeof config;

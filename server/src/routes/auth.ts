@@ -24,9 +24,13 @@ import {
 import { issueAccessToken, newRefreshToken, hashToken, issueScopedToken, verifyScopedToken } from "../lib/tokens.js";
 import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from "../lib/totp.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
-import { badRequest, unauthorized, conflict } from "../lib/errors.js";
+import { badRequest, unauthorized, conflict, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
+import {
+  hasWebauthn, listCredentials, registrationOptions, verifyRegistration,
+  authenticationOptions, verifyAuthentication,
+} from "../lib/webauthn.js";
 
 const MFA_LOGIN_PURPOSE = "mfa-login";
 // Standard client KDF parameters (mirror of DEFAULT_KDF_PARAMS in
@@ -266,9 +270,16 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized(LOGIN_FAILURE_MESSAGE);
     }
 
-    if (row.mfa_enabled) {
+    // 2e facteur requis dès qu'un facteur est activé : TOTP OU une clé WebAuthn.
+    const webauthn = await hasWebauthn(row.id);
+    if (row.mfa_enabled || webauthn) {
       await audit(null, row.id, "auth.login.mfa_required", "user", row.id, {}, req.ip);
-      return { mfaRequired: true as const, mfaToken: issueScopedToken(row.id, MFA_LOGIN_PURPOSE) };
+      return {
+        mfaRequired: true as const,
+        mfaToken: issueScopedToken(row.id, MFA_LOGIN_PURPOSE),
+        // Indique au client les facteurs disponibles (TOTP et/ou WebAuthn).
+        methods: { totp: row.mfa_enabled, webauthn },
+      };
     }
 
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
@@ -423,6 +434,81 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     await audit(null, user.id, "auth.mfa.backup_regen", "user", user.id, {}, req.ip);
     return { backupCodes };
+  });
+
+  // =========================================================================
+  //  WebAuthn / passkeys — SECOND FACTOR (à côté du TOTP)
+  //  Rappel : n'authentifie qu'AU SERVEUR ; ne produit aucune clé (zéro-
+  //  connaissance). Les cérémonies de connexion consomment le mfaToken émis par
+  //  /login/verify, exactement comme /login/mfa.
+  // =========================================================================
+  const responseSchema = z.object({ response: z.record(z.unknown()), name: z.string().max(64).optional() });
+
+  // Enrôlement — options (authentifié)
+  app.post("/webauthn/register/options", { preHandler: authenticate }, async (req) => {
+    const user = requireUser(req);
+    const u = await queryOne<{ email: string; display_name: string }>(
+      `SELECT email, display_name FROM users WHERE id = $1`, [user.id],
+    );
+    if (!u) throw unauthorized();
+    return registrationOptions(user.id, u.email, u.display_name);
+  });
+
+  // Enrôlement — vérification + stockage (authentifié)
+  app.post("/webauthn/register/verify", { preHandler: authenticate }, async (req) => {
+    const b = responseSchema.parse(req.body);
+    const user = requireUser(req);
+    const okReg = await verifyRegistration(user.id, b.response as never, b.name ?? "Passkey");
+    if (!okReg) throw badRequest("Enrôlement WebAuthn invalide ou expiré.");
+    await audit(null, user.id, "auth.webauthn.register", "user", user.id, {}, req.ip);
+    return { ok: true };
+  });
+
+  // Lister ses clés (authentifié)
+  app.get("/webauthn/credentials", { preHandler: authenticate }, async (req) => {
+    const user = requireUser(req);
+    const creds = await listCredentials(user.id);
+    return {
+      credentials: creds.map((c) => ({ id: c.id, name: c.name, createdAt: c.created_at, lastUsedAt: c.last_used_at })),
+    };
+  });
+
+  // Supprimer une clé (authentifié)
+  app.delete("/webauthn/credentials/:id", { preHandler: authenticate }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const user = requireUser(req);
+    const r = await query(`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id`, [id, user.id]);
+    if (!r.length) throw notFound("Clé introuvable.");
+    await audit(null, user.id, "auth.webauthn.remove", "user", user.id, { credentialId: id }, req.ip);
+    return { ok: true };
+  });
+
+  // Connexion — options du 2e facteur (mfaToken issu de /login/verify)
+  app.post("/webauthn/login/options", rl(30), async (req) => {
+    const { mfaToken } = z.object({ mfaToken: z.string().min(10) }).parse(req.body);
+    const userId = verifyScopedToken(mfaToken, MFA_LOGIN_PURPOSE);
+    if (!userId) throw unauthorized("Session de connexion expirée, recommencez.");
+    return authenticationOptions(userId);
+  });
+
+  // Connexion — vérification du 2e facteur → libère le keyBundle + la session
+  app.post("/webauthn/login/verify", rl(20), async (req) => {
+    const b = z.object({ mfaToken: z.string().min(10), response: z.record(z.unknown()) }).parse(req.body);
+    const userId = verifyScopedToken(b.mfaToken, MFA_LOGIN_PURPOSE);
+    if (!userId) throw unauthorized("Session de connexion expirée, recommencez.");
+    if (!(await verifyAuthentication(userId, b.response as never))) {
+      await audit(null, userId, "auth.login.mfa_failed", "user", userId, { method: "webauthn" }, req.ip);
+      throw unauthorized("Vérification WebAuthn échouée.");
+    }
+    const row = await queryOne<{
+      id: string; email: string; display_name: string;
+      ed25519_public_hex: string; p256_public_hex: string; fingerprint: string;
+      key_bundle: unknown; status: string;
+    }>(`SELECT * FROM users WHERE id = $1`, [userId]);
+    if (!row || row.status !== "active") throw unauthorized();
+    const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
+    await audit(null, row.id, "auth.login", "user", row.id, { mfa: true, method: "webauthn" }, req.ip);
+    return { user: userDto(row), keyBundle: row.key_bundle, ...session };
   });
 
   // --- Me ------------------------------------------------------------------

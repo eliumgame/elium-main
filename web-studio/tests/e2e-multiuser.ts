@@ -167,6 +167,26 @@ async function main(): Promise<void> {
       keysAgain.recipient.privateHex === alice.keys.recipient.privateHex
       && keysAgain.identity.privateKeyHex === alice.keys.identity.privateKeyHex);
 
+    // --- WebAuthn (2e facteur) : tôt dans la suite pour ne pas heurter le
+    // rate-limit cumulatif de /login/init. On enrôle une clé directement en base
+    // (la cérémonie navigator.credentials exige un navigateur + authentificateur)
+    // puis on vérifie que le LOGIN exige alors le 2e facteur et que les options
+    // d'authentification (défi + clé autorisée) sont bien émises.
+    const waUser = await newUser(base, "passkey@acme.fr", "Passkey");
+    await query(
+      `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter) VALUES ($1, $2, $3, 0)`,
+      [waUser.user.id, "e2e-dummy-credential", Buffer.from("public-key-bytes")],
+    );
+    const waLogin = await loginFull(base, waUser.user.email, waUser.password);
+    const wr = waLogin.res as { mfaRequired?: boolean; mfaToken?: string; methods?: { totp: boolean; webauthn: boolean } };
+    ok("WebAuthn : une clé enrôlée force le 2e facteur au login",
+      wr.mfaRequired === true && wr.methods?.webauthn === true,
+      `mfaRequired=${wr.mfaRequired} methods=${JSON.stringify(wr.methods)}`);
+    const waOpts = (await new DriveApi({ baseUrl: base }).webauthnLoginOptions(wr.mfaToken!)) as { challenge?: string; allowCredentials?: { id: string }[] };
+    ok("WebAuthn : options d'authentification émises (défi + clé autorisée)",
+      typeof waOpts.challenge === "string" && (waOpts.allowCredentials ?? []).some((c) => c.id === "e2e-dummy-credential"),
+      `challenge=${typeof waOpts.challenge} allow=${JSON.stringify(waOpts.allowCredentials)}`);
+
     const rt = alice.api.getTokens()?.refreshToken ?? "";
     const refreshed = await fetch(`${base}/auth/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: rt }) });
     ok("rotation du refresh token", refreshed.ok);

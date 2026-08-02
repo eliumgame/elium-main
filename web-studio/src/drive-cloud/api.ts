@@ -218,6 +218,28 @@ export class DriveApi {
   loginMfa(mfaToken: string, code: string) {
     return this.json<LoginResult>("POST", "/auth/login/mfa", { body: { mfaToken, code }, auth: false });
   }
+
+  // === WebAuthn / passkeys (2e facteur) ====================================
+  /** Enrôlement (authentifié) : options de création à passer à navigator.credentials.create. */
+  webauthnRegisterOptions() {
+    return this.json<Record<string, unknown>>("POST", "/auth/webauthn/register/options", { body: {} });
+  }
+  webauthnRegisterVerify(response: unknown, name?: string) {
+    return this.json<{ ok: boolean }>("POST", "/auth/webauthn/register/verify", { body: { response, name } });
+  }
+  webauthnCredentials() {
+    return this.json<{ credentials: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[] }>("GET", "/auth/webauthn/credentials");
+  }
+  webauthnRemoveCredential(id: string) {
+    return this.json<{ ok: boolean }>("DELETE", `/auth/webauthn/credentials/${id}`);
+  }
+  /** Connexion 2e facteur : options à passer à navigator.credentials.get. */
+  webauthnLoginOptions(mfaToken: string) {
+    return this.json<Record<string, unknown>>("POST", "/auth/webauthn/login/options", { body: { mfaToken }, auth: false });
+  }
+  webauthnLoginVerify(mfaToken: string, response: unknown) {
+    return this.json<LoginResult>("POST", "/auth/webauthn/login/verify", { body: { mfaToken, response }, auth: false });
+  }
   // === MFA management (authenticated) ======================================
   mfaStatus() {
     return this.json<MfaStatus>("GET", "/auth/mfa/status");

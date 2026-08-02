@@ -622,9 +622,18 @@ conteneur plafonnée à 512 MiB ; **ZIP externe** plafonné (128 MiB/entrée,
 3. **En-têtes API** — CSP verrouillée (`default-src 'none'` ;
    `frame-ancestors 'none'`) adaptée à une API JSON pure, `Referrer-Policy:
    no-referrer`, `Cross-Origin-Resource-Policy: same-site`.
-4. *À venir* : WebAuthn/passkeys, journal d'audit à intégrité chaînée
-   (append-only vérifiable), rotation de clés planifiée, validation d'entrées
-   exhaustive.
+4. **Journal d'audit à intégrité chaînée** — chaque entrée porte
+   `entry_hash = SHA-256(prev_hash ‖ champs)`, chaîné par organisation ;
+   altération/suppression/réordonnancement détectés par
+   `GET /api/orgs/:id/audit/verify`. Écriture sérialisée par verrou consultatif
+   par org.
+5. **WebAuthn / passkeys (2e facteur)** — enrôlement + connexion via
+   `@simplewebauthn/server` (attestation `none`, compteur anti-clonage, défi à
+   usage unique). Ne remplace PAS la connexion (zéro-connaissance : la clé vient
+   de la passphrase) — c'est un 2e facteur alternatif au TOTP. `WEBAUTHN_RP_ID`
+   = domaine du Drive en production.
+6. *À venir* : rotation de clés planifiée, anti-exfiltration/DLP, rate-limit
+   dédié aux uploads blob.
 
 ---
 

@@ -222,7 +222,7 @@
    ROLES & PERMISSIONS
    ========================================================================== */
 .dc-roles { display: flex; gap: 18px; min-height: 62vh; }
-.dc-roles__list { width: 240px; flex: none; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden; height: fit-content; }
+.dc-roles__list { width: 240px; flex: none; border: 1px solid var(--border); border-radius: var(--el-radius-lg); background: var(--surface); overflow: hidden; height: fit-content; box-shadow: var(--el-elev-1); }
 .dc-roles__list-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 800; color: var(--text-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .dc-role-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 11px 14px; border: none; background: none; cursor: pointer; color: var(--text); font-size: 14px; border-left: 3px solid transparent; }
 .dc-role-item:hover { background: var(--surface-3); }
@@ -231,7 +231,7 @@
 .dc-role-item__sys { color: var(--text-muted); }
 .dc-role-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
 
-.dc-roles__editor { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 20px; }
+.dc-roles__editor { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: var(--el-radius-lg); background: var(--surface); padding: 20px; box-shadow: var(--el-elev-1); }
 .dc-roles__editor-head { display: flex; gap: 18px; justify-content: space-between; flex-wrap: wrap; align-items: flex-start; }
 .dc-role-meta { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
 .dc-role-name { font-weight: 800; font-size: 17px; }
@@ -262,7 +262,8 @@
    MEMBERS
    ========================================================================== */
 .dc-members { display: flex; flex-direction: column; gap: 12px; }
-.dc-invite { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.dc-invite { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--el-radius-lg); box-shadow: var(--el-elev-1); }
+.dc-member-status { min-width: 66px; justify-content: center; }
 .dc-invite__ic { color: var(--text-soft); flex: none; }
 .dc-invite .input { flex: 1; }
 .dc-avatar { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--el-cyan-600), var(--primary)); color: #fff; font-weight: 700; flex: none; }
@@ -482,7 +483,7 @@
 
 /* SSO & SCIM admin panel */
 .dc-sso { display: flex; flex-direction: column; gap: 16px; max-width: 680px; }
-.dc-sso__card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+.dc-sso__card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--el-radius-lg); padding: 18px 20px; box-shadow: var(--el-elev-1); }
 .dc-sso__title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; margin: 0 0 4px; }
 .dc-sso__form { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .dc-sso__form textarea.input { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }

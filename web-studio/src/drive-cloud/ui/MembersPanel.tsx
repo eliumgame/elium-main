@@ -119,7 +119,14 @@ export default function MembersPanel() {
                   <span className="badge badge--neutral">{m.roleKey}</span>
                 )}
               </td>
-              <td className="dc-row__muted">{m.status}</td>
+              <td>
+                {(() => {
+                  const s = (m.status || "").toLowerCase();
+                  const tone = s === "active" ? "success" : s === "suspended" ? "danger" : s === "invited" || s === "pending" ? "warning" : "neutral";
+                  const label = s === "active" ? "Actif" : s === "suspended" ? "Suspendu" : s === "invited" ? "Invité" : s === "pending" ? "En attente" : m.status;
+                  return <span className={`badge badge--${tone} dc-member-status`}>{label}</span>;
+                })()}
+              </td>
               <td className="dc-row__actions">
                 {canManage && <button className="icon-btn icon-btn--danger" title="Retirer" onClick={() => void remove(m)}><Trash2 size={15} /></button>}
               </td>

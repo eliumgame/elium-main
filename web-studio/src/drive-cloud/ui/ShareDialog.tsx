@@ -35,6 +35,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [linkExpiry, setLinkExpiry] = useState(""); // "" | "1" | "7" | "30" (jours)
   const [linkMaxDl, setLinkMaxDl] = useState(""); // "" = illimité
+  const [linkPassword, setLinkPassword] = useState(""); // "" = pas de mot de passe
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [teamId, setTeamId] = useState("");
   const [teamRoleId, setTeamRoleId] = useState("");
@@ -119,12 +120,22 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     setErr(null);
     setBusy(true);
     try {
-      const opts: { expiresAt?: string; maxDownloads?: number } = {};
+      const pwd = linkPassword.trim();
+      const opts: { expiresAt?: string; maxDownloads?: number; hasPassword?: boolean } = {};
       if (linkExpiry) opts.expiresAt = new Date(Date.now() + Number(linkExpiry) * 86400_000).toISOString();
       const dl = Number(linkMaxDl);
       if (linkMaxDl && Number.isFinite(dl) && dl > 0) opts.maxDownloads = Math.floor(dl);
+      if (pwd) opts.hasPassword = true;
       const { token, secret, publicHex } = await createShareLink(ctx, entry, linkRoleId, opts);
-      setLinkUrl(`${location.origin}/?link=${token}#k=${secret}.${publicHex}`);
+      if (pwd) {
+        // Le secret est chiffré sous le mot de passe : le fragment ne porte que
+        // le blob chiffré (jamais le secret en clair). Marqueur `e=` (encrypted).
+        const { protectLinkSecret } = await import("../link-password");
+        const blob = await protectLinkSecret(pwd, secret);
+        setLinkUrl(`${location.origin}/?link=${token}#e=${publicHex}.${blob}`);
+      } else {
+        setLinkUrl(`${location.origin}/?link=${token}#k=${secret}.${publicHex}`);
+      }
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Création du lien impossible.");
     } finally {
@@ -206,6 +217,10 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
             <label className="dc-share-link__field">
               <span>Téléchargements max</span>
               <input className="input dc-share-link__num" type="number" min={1} placeholder="∞" value={linkMaxDl} onChange={(e) => setLinkMaxDl(e.target.value)} />
+            </label>
+            <label className="dc-share-link__field">
+              <span>Mot de passe</span>
+              <input className="input dc-share-link__pwd" type="text" placeholder="facultatif" value={linkPassword} onChange={(e) => setLinkPassword(e.target.value)} autoComplete="off" />
             </label>
             <button className="eb eb--sm eb--outline dc-share-link__create" onClick={() => void makeLink()} disabled={busy}><Link2 size={14} /> Créer un lien</button>
           </div>

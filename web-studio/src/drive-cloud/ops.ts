@@ -291,7 +291,7 @@ export async function createShareLink(
   ctx: OpsCtx,
   entry: DriveEntry,
   roleId: string,
-  opts: { expiresAt?: string; maxDownloads?: number } = {},
+  opts: { expiresAt?: string; maxDownloads?: number; hasPassword?: boolean } = {},
 ): Promise<{ token: string; secret: string; publicHex: string }> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
@@ -302,6 +302,7 @@ export async function createShareLink(
     wrappedKey,
     ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
     ...(opts.maxDownloads ? { maxDownloads: opts.maxDownloads } : {}),
+    ...(opts.hasPassword ? { hasPassword: true } : {}),
   });
   // Both the link private scalar and its public point travel in the URL
   // fragment (never sent to the server): the opener needs the pair to unwrap.

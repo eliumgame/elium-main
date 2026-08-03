@@ -632,7 +632,21 @@ conteneur plafonnée à 512 MiB ; **ZIP externe** plafonné (128 MiB/entrée,
    usage unique). Ne remplace PAS la connexion (zéro-connaissance : la clé vient
    de la passphrase) — c'est un 2e facteur alternatif au TOTP. `WEBAUTHN_RP_ID`
    = domaine du Drive en production.
-6. *À venir* : rotation de clés planifiée, anti-exfiltration/DLP, rate-limit
+6. **Déverrouillage par clé d'accès (WebAuthn PRF)** *(v4.2.12)* — chemin de
+   déverrouillage LOCAL optionnel : l'extension PRF fait produire à une passkey
+   (après vérification biométrique/matérielle) un secret stable de 32 octets ;
+   on en dérive (HKDF-SHA-256) une clé qui chiffre la `masterKey` en
+   AES-256-GCM. L'enveloppe vit en `localStorage`, à côté du `snapshot`
+   (keyBundle) déjà présent — **inutile sans le secret PRF**, que seul
+   l'authentificateur régénère. Le serveur reste **zéro-connaissance** : il ne
+   voit ni le secret PRF, ni l'enveloppe (côté client `drive-cloud/prf-unlock.ts`
+   ; le serveur se contente de demander `extensions:{prf:{}}` à l'enrôlement).
+   Activation dans *Sécurité* ; l'écran de session verrouillée propose alors
+   « Déverrouiller avec une clé d'accès », le mot de passe restant le repli.
+   La passphrase demeure la racine de confiance (perte de tous les appareils
+   ⇒ mot de passe ou recouvrement d'organisation requis).
+7. *À venir* : connexion 100 % sans mot de passe (clé découvrable en 1er
+   facteur), rotation de clés planifiée, anti-exfiltration/DLP, rate-limit
    dédié aux uploads blob.
 
 ---

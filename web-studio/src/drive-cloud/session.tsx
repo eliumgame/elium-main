@@ -10,6 +10,18 @@ import { DriveApi, ApiError } from "./api";
 import { buildRegistration, prepareLogin, unlockAccount, signLoginChallenge, type AccountKeys } from "./account";
 import { generateRecipientKeypair, encryptForRecipients } from "../crypto/recipients";
 import { fromHex } from "../format/canonical";
+import {
+  enrollPrf,
+  wrapMaster,
+  unwrapMaster,
+  evaluatePrf,
+  savePrfRecord,
+  removePrfRecord,
+  getPrfRecord,
+  hasPrfRecord,
+  webauthnSupported,
+  rpIdFromOrigin,
+} from "./prf-unlock";
 import { isMfaChallenge, type Tokens, type PublicUser, type RoleDef, type LoginResult } from "./types";
 import type { KdfParams, KeyBundle } from "./kdf";
 
@@ -57,6 +69,17 @@ export interface DriveSession {
   /** Abandon a pending MFA challenge and return to the login screen. */
   cancelMfa: () => void;
   unlock: (password: string) => Promise<void>;
+  /** Déverrouille la session verrouillée via une clé d'accès (PRF WebAuthn). */
+  unlockWithPasskey: () => Promise<void>;
+  /** Active le déverrouillage par clé d'accès pour la passkey `credentialId`
+   *  (issue de l'enrôlement). Renvoie false si l'authentificateur n'a pas PRF. */
+  enrollPasskeyUnlock: (credentialId: string | null) => Promise<boolean>;
+  /** Désactive (oublie localement) le déverrouillage par clé d'accès. */
+  disablePasskeyUnlock: () => void;
+  /** Vrai si une clé d'accès peut déverrouiller la session actuellement verrouillée. */
+  passkeyUnlockAvailable: boolean;
+  /** Vrai si le déverrouillage par clé d'accès est activé pour l'utilisateur connecté. */
+  passkeyUnlockEnabled: boolean;
   logout: () => Promise<void>;
   refreshOrgs: () => Promise<void>;
   selectOrg: (orgId: string) => Promise<void>;
@@ -95,6 +118,13 @@ export function DriveProvider({ children }: { children: ReactNode }) {
 
   // Snapshot needed to unlock keys with the password after a reload.
   const snapshotRef = useRef<Persisted["snapshot"] | null>(null);
+  // La masterKey (dérivée de la passphrase) — EN MÉMOIRE UNIQUEMENT, jamais
+  // persistée. Conservée pour activer le déverrouillage par clé d'accès (PRF),
+  // qui doit chiffrer cette clé sous le secret de l'authentificateur.
+  const masterKeyRef = useRef<Uint8Array | null>(null);
+  // Incrémenté après enrôlement/oubli d'une clé d'accès, pour recalculer les
+  // drapeaux dérivés (passkeyUnlock*) sans lire localStorage à chaque rendu.
+  const [prfTick, setPrfTick] = useState(0);
   // Invite token from the URL (?invite=…) — kept in a ref so finishAuth sees it.
   const inviteRef = useRef<string | null>(null);
   // Pending MFA challenge: the masterKey is already derived (password verified);
@@ -197,7 +227,8 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       setError(null);
       try {
-        const { payload, keys: k } = await buildRegistration(email.trim(), password, displayName.trim());
+        const { payload, keys: k, masterKey } = await buildRegistration(email.trim(), password, displayName.trim());
+        masterKeyRef.current = masterKey;
         const res = await api.register(payload);
         api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
         snapshotRef.current = { user: res.user, keyBundle: payload.keyBundle, kdfSalt: payload.kdfSalt, kdfParams: payload.kdfParams };
@@ -219,6 +250,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   const finishLogin = useCallback(
     async (res: LoginResult, masterKey: Uint8Array, kdfSalt: string, kdfParams: KdfParams) => {
       api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
+      masterKeyRef.current = masterKey;
       const k = await unlockAccount(res.keyBundle, masterKey, res.user);
       snapshotRef.current = { user: res.user, keyBundle: res.keyBundle, kdfSalt, kdfParams };
       persist({ snapshot: snapshotRef.current });
@@ -334,6 +366,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       setError(null);
       try {
         const { masterKey } = await prepareLogin(password, snap.kdfSalt, snap.kdfParams);
+        masterKeyRef.current = masterKey;
         const k = await unlockAccount(snap.keyBundle, masterKey, snap.user);
         await finishAuth(snap.user, k, readPersisted()?.currentOrgId);
       } catch (e) {
@@ -346,6 +379,60 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     [finishAuth],
   );
 
+  // Déverrouillage par clé d'accès (PRF). La session verrouillée garde tokens +
+  // keyBundle (snapshot) ; il ne manque que la masterKey pour ouvrir le paquet.
+  // La passkey régénère le secret PRF → on déchiffre la masterKey stockée.
+  const unlockWithPasskey = useCallback(async () => {
+    const snap = snapshotRef.current;
+    if (!snap) {
+      setStatus("anonymous");
+      return;
+    }
+    const rec = getPrfRecord(snap.user.email);
+    if (!rec) {
+      setError("Aucune clé d'accès enregistrée sur cet appareil.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const evaluated = await evaluatePrf(rec.credentialId, rec.salt, rpIdFromOrigin());
+      if (!evaluated) throw new Error("La clé d'accès n'a pas fourni de secret PRF.");
+      const masterKey = await unwrapMaster(evaluated.prfOutput, rec.wrapped);
+      masterKeyRef.current = masterKey;
+      const k = await unlockAccount(snap.keyBundle, masterKey, snap.user);
+      await finishAuth(snap.user, k, readPersisted()?.currentOrgId);
+    } catch (e) {
+      // Annulation / timeout / absence de focus de la cérémonie : pas d'erreur
+      // alarmante (le mot de passe reste disponible en repli).
+      const name = e instanceof Error ? e.name : "";
+      if (name !== "NotAllowedError" && name !== "AbortError") {
+        setError("Déverrouillage par clé d'accès impossible.");
+      }
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }, [finishAuth]);
+
+  const enrollPasskeyUnlock = useCallback(async (credentialId: string | null): Promise<boolean> => {
+    const mk = masterKeyRef.current;
+    const u = user;
+    if (!mk || !u) return false;
+    const enrolled = await enrollPrf(credentialId, rpIdFromOrigin());
+    if (!enrolled) return false; // authentificateur sans PRF
+    const wrapped = await wrapMaster(enrolled.prfOutput, mk);
+    savePrfRecord({ email: u.email, credentialId: enrolled.credentialId, salt: enrolled.saltHex, wrapped });
+    setPrfTick((t) => t + 1);
+    return true;
+  }, [user]);
+
+  const disablePasskeyUnlock = useCallback(() => {
+    if (user) removePrfRecord(user.email);
+    else if (lockedEmail) removePrfRecord(lockedEmail);
+    setPrfTick((t) => t + 1);
+  }, [user, lockedEmail]);
+
   const logout = useCallback(async () => {
     try {
       await api.logout();
@@ -353,6 +440,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       /* best effort */
     }
     localStorage.removeItem(STORAGE_KEY);
+    masterKeyRef.current = null;
     snapshotRef.current = null;
     api.setTokens(null);
     setUser(null);
@@ -396,6 +484,16 @@ export function DriveProvider({ children }: { children: ReactNode }) {
 
   const currentOrg = useMemo(() => orgs.find((o) => o.id === currentOrgId) ?? null, [orgs, currentOrgId]);
 
+  // Drapeaux du déverrouillage par clé d'accès (recalculés au tick d'enrôlement).
+  const passkeyUnlockAvailable = useMemo(
+    () => webauthnSupported() && !!lockedEmail && hasPrfRecord(lockedEmail),
+    [lockedEmail, prfTick],
+  );
+  const passkeyUnlockEnabled = useMemo(
+    () => webauthnSupported() && !!user && hasPrfRecord(user.email),
+    [user, prfTick],
+  );
+
   const value: DriveSession = {
     status,
     api,
@@ -416,6 +514,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     mfaMethods,
     cancelMfa,
     unlock,
+    unlockWithPasskey,
+    enrollPasskeyUnlock,
+    disablePasskeyUnlock,
+    passkeyUnlockAvailable,
+    passkeyUnlockEnabled,
     logout,
     refreshOrgs,
     selectOrg,

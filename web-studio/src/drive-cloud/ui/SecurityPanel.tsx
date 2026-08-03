@@ -5,7 +5,7 @@
  * is a SECOND factor only: it never touches the zero-knowledge content keys.
  */
 import { useCallback, useEffect, useState } from "react";
-import { ShieldCheck, ShieldAlert, Smartphone, KeyRound, Copy, Check, RefreshCw, Fingerprint, Plus, Trash2 } from "lucide-react";
+import { ShieldCheck, ShieldAlert, Smartphone, KeyRound, Copy, Check, RefreshCw, Fingerprint, Plus, Trash2, Unlock, LockKeyhole } from "lucide-react";
 import { useDrive } from "../session";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
@@ -29,6 +29,8 @@ export default function SecurityPanel() {
 
   const [passkeys, setPasskeys] = useState<Passkey[]>([]);
   const [pkBusy, setPkBusy] = useState(false);
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [unlockMsg, setUnlockMsg] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -49,6 +51,7 @@ export default function SecurityPanel() {
   // @simplewebauthn/browser, puis vérification côté serveur.
   const addPasskey = async () => {
     setErr(null);
+    setUnlockMsg(null);
     setPkBusy(true);
     try {
       const { startRegistration } = await import("@simplewebauthn/browser");
@@ -58,6 +61,23 @@ export default function SecurityPanel() {
       const { ok } = await d.api.webauthnRegisterVerify(attestation, name.trim() || "Passkey");
       if (!ok) throw new Error("Enrôlement refusé.");
       await reload();
+      // Propose immédiatement le déverrouillage local par cette clé (PRF), tant
+      // que la clé fraîchement créée est référençable (attestation.id).
+      if (!d.passkeyUnlockEnabled && window.confirm(
+        "Activer le déverrouillage de cette session par la clé d'accès ?\n\nVous pourrez déverrouiller vos données avec Touch ID / Windows Hello / votre clé, sans retaper votre mot de passe. Une vérification supplémentaire vous sera demandée maintenant.",
+      )) {
+        try {
+          const okPrf = await d.enrollPasskeyUnlock(attestation.id);
+          setUnlockMsg(okPrf
+            ? "Déverrouillage par clé d'accès activé sur cet appareil."
+            : "Cette clé ne prend pas en charge le déverrouillage (extension PRF absente). La 2FA reste active.");
+        } catch (e2) {
+          const nm = e2 instanceof Error ? e2.name : "";
+          if (nm !== "NotAllowedError" && nm !== "AbortError") {
+            setUnlockMsg("Activation du déverrouillage impossible.");
+          }
+        }
+      }
     } catch (e) {
       // Cérémonie annulée par l'utilisateur, expirée, ou page sans focus : ce ne
       // sont pas de vraies erreurs. On filtre par NOM d'erreur (fiable), pas par
@@ -83,6 +103,29 @@ export default function SecurityPanel() {
     } finally {
       setPkBusy(false);
     }
+  };
+
+  // Active le déverrouillage local sur une passkey DÉJÀ enregistrée (clé
+  // découvrable : on laisse l'authentificateur en proposer une).
+  const enableUnlock = async () => {
+    setUnlockMsg(null);
+    setUnlockBusy(true);
+    try {
+      const ok = await d.enrollPasskeyUnlock(null);
+      setUnlockMsg(ok
+        ? "Déverrouillage par clé d'accès activé sur cet appareil."
+        : "La clé choisie ne prend pas en charge le déverrouillage (extension PRF absente).");
+    } catch (e) {
+      const nm = e instanceof Error ? e.name : "";
+      if (nm !== "NotAllowedError" && nm !== "AbortError") setUnlockMsg("Activation impossible.");
+    } finally {
+      setUnlockBusy(false);
+    }
+  };
+
+  const disableUnlock = () => {
+    d.disablePasskeyUnlock();
+    setUnlockMsg("Déverrouillage par clé d'accès désactivé sur cet appareil.");
   };
 
   const startEnroll = async () => {
@@ -246,7 +289,8 @@ export default function SecurityPanel() {
         </div>
         <p className="muted">
           Une passkey (Touch ID / Windows Hello / clé USB) sert de second facteur, alternatif au code.
-          Comme la 2FA, elle n'accède jamais à vos clés de chiffrement.
+          Elle peut aussi, en option, <b>déverrouiller localement</b> vos données (ci-dessous) via l'extension PRF —
+          un secret propre à l'appareil, jamais transmis au serveur.
         </p>
         {passkeys.length === 0 ? (
           <p className="muted dc-security__pk-empty">Aucune clé enregistrée.</p>
@@ -264,6 +308,35 @@ export default function SecurityPanel() {
             ))}
           </ul>
         )}
+
+        {/* --- Déverrouillage par clé d'accès (PRF) : ouvre les données sans mot de passe --- */}
+        <div className="dc-security__unlock">
+          <div className="dc-security__unlock-main">
+            <span className={`dc-security__unlock-ic${d.passkeyUnlockEnabled ? " is-on" : ""}`}>
+              {d.passkeyUnlockEnabled ? <Unlock size={16} /> : <LockKeyhole size={16} />}
+            </span>
+            <div className="dc-security__unlock-txt">
+              <span className="dc-security__unlock-title">
+                Déverrouillage par clé d'accès
+                {d.passkeyUnlockEnabled && <span className="badge badge--success dc-security__unlock-badge"><Check size={12} /> Activé</span>}
+              </span>
+              <span className="muted">
+                Ouvrez vos données chiffrées avec votre empreinte, votre visage ou votre clé — sans retaper votre
+                mot de passe. Le secret ne quitte jamais cet appareil ; le serveur n'en voit rien.
+              </span>
+            </div>
+          </div>
+          <div className="dc-security__unlock-actions">
+            {d.passkeyUnlockEnabled ? (
+              <button className="eb eb--ghost eb--sm" onClick={disableUnlock}>Désactiver</button>
+            ) : (
+              <button className="eb eb--outline eb--sm" disabled={unlockBusy || passkeys.length === 0} onClick={() => void enableUnlock()}>
+                <Unlock size={14} /> Activer
+              </button>
+            )}
+          </div>
+        </div>
+        {unlockMsg && <p className="dc-security__unlock-msg muted">{unlockMsg}</p>}
       </div>
     </div>
   );

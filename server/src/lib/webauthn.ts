@@ -99,6 +99,11 @@ export async function registrationOptions(
     attestationType: "none",
     excludeCredentials: existing.map((c) => ({ id: c.credential_id, transports: (c.transports ?? undefined) as never })),
     authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+    // Demande l'extension PRF : les authentificateurs compatibles provisionnent
+    // un secret dérivable, qui sert au déverrouillage LOCAL de la clé maîtresse
+    // (cf. web-studio/src/drive-cloud/prf-unlock.ts). Le serveur ne l'utilise
+    // jamais — il reste zéro-connaissance, PRF est purement côté client.
+    extensions: { prf: {} } as never,
   });
   await setChallenge(userId, "register", options.challenge);
   return options;

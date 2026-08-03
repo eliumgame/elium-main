@@ -5,7 +5,7 @@
  * the password is only used client-side to derive keys; it is never sent.
  */
 import { useState } from "react";
-import { Home, Cloud, Lock, LogIn, UserPlus, ShieldCheck, KeyRound, AlertTriangle, Users, Share2, MailCheck, Smartphone, Server } from "lucide-react";
+import { Home, Cloud, Lock, LogIn, UserPlus, ShieldCheck, KeyRound, AlertTriangle, Users, Share2, MailCheck, Smartphone, Server, Fingerprint } from "lucide-react";
 import { useDrive } from "../session";
 import { getConfiguredApiBase, setConfiguredApiBase } from "../api";
 
@@ -125,12 +125,25 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
           ) : locked ? (
             <>
               <h2 className="dc-auth__title"><Lock size={20} /> Session verrouillée</h2>
-              <p className="muted">Entrez votre mot de passe pour déverrouiller vos clés localement.</p>
+              {d.passkeyUnlockAvailable ? (
+                <>
+                  <p className="muted">Déverrouillez vos données avec votre clé d'accès (empreinte, visage ou clé de sécurité), ou avec votre mot de passe.</p>
+                  <button
+                    type="button" className="eb eb--primary eb--block" disabled={d.busy}
+                    onClick={() => void d.unlockWithPasskey().catch(() => {})}
+                  >
+                    <Fingerprint size={16} /> Déverrouiller avec une clé d'accès
+                  </button>
+                  <div className="dc-auth__or muted">— ou avec le mot de passe —</div>
+                </>
+              ) : (
+                <p className="muted">Entrez votre mot de passe pour déverrouiller vos clés localement.</p>
+              )}
               <form onSubmit={submit} className="dc-auth__form">
                 <label className="field"><span className="field__label">Compte</span><input className="input" value={d.lockedEmail ?? ""} readOnly /></label>
-                <label className="field"><span className="field__label">Mot de passe</span><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus required /></label>
+                <label className="field"><span className="field__label">Mot de passe</span><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus={!d.passkeyUnlockAvailable} required /></label>
                 {d.error && <p className="dc-error">{d.error}</p>}
-                <button className="eb eb--primary eb--block" disabled={d.busy}><KeyRound size={16} /> Déverrouiller</button>
+                <button className={`eb eb--block ${d.passkeyUnlockAvailable ? "eb--outline" : "eb--primary"}`} disabled={d.busy}><KeyRound size={16} /> Déverrouiller</button>
                 <button type="button" className="dc-auth__switch" onClick={() => void d.logout()}>Se connecter avec un autre compte</button>
               </form>
             </>

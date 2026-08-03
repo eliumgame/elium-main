@@ -21,6 +21,8 @@ import {
   hasPrfRecord,
   webauthnSupported,
   rpIdFromOrigin,
+  prfResultToBytes,
+  PRF_SALT_B64URL,
 } from "./prf-unlock";
 import { isMfaChallenge, type Tokens, type PublicUser, type RoleDef, type LoginResult } from "./types";
 import type { KdfParams, KeyBundle } from "./kdf";
@@ -60,6 +62,8 @@ export interface DriveSession {
   error: string | null;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  /** Connexion SANS mot de passe via clé d'accès (WebAuthn 1er facteur + PRF). */
+  loginWithPasskey: () => Promise<void>;
   /** Complete a login that returned an MFA challenge (TOTP or backup code). */
   completeMfa: (code: string) => Promise<void>;
   /** Complete the login's second factor with a WebAuthn passkey. */
@@ -292,6 +296,53 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     [api, finishLogin],
   );
 
+  // Connexion SANS mot de passe : une seule cérémonie WebAuthn (clé découvrable)
+  // authentifie AU SERVEUR (retourne tokens + keyBundle) ET produit, via
+  // l'extension PRF, le secret qui déchiffre la masterKey localement. Si aucun
+  // enregistrement PRF n'existe sur cet appareil, on reste authentifié mais
+  // « verrouillé » (déverrouillage par mot de passe, keyBundle déjà en main).
+  const loginWithPasskey = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { startAuthentication } = await import("@simplewebauthn/browser");
+      const { options, challengeId } = await api.webauthnAssertOptions();
+      const optionsJSON = {
+        ...(options as Record<string, unknown>),
+        extensions: {
+          ...((options as { extensions?: Record<string, unknown> }).extensions ?? {}),
+          prf: { eval: { first: PRF_SALT_B64URL } },
+        },
+      };
+      const assertion = await startAuthentication({ optionsJSON: optionsJSON as never });
+      const res = await api.webauthnAssertVerify(challengeId, assertion);
+      const prfB64 = (assertion as { clientExtensionResults?: { prf?: { results?: { first?: string } } } })
+        .clientExtensionResults?.prf?.results?.first;
+      const rec = getPrfRecord(res.user.email);
+      if (prfB64 && rec) {
+        // Déverrouillage complet : PRF → masterKey → keyBundle.
+        const masterKey = await unwrapMaster(prfResultToBytes(prfB64), rec.wrapped);
+        await finishLogin(res, masterKey, res.kdfSalt, res.kdfParams);
+      } else {
+        // Authentifié au serveur mais pas de secret local : session verrouillée.
+        api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
+        snapshotRef.current = { user: res.user, keyBundle: res.keyBundle, kdfSalt: res.kdfSalt, kdfParams: res.kdfParams };
+        persist({ snapshot: snapshotRef.current });
+        setUser(res.user);
+        setLockedEmail(res.user.email);
+        setStatus("locked");
+        if (!prfB64) setError("Clé sans PRF : entrez votre mot de passe pour déverrouiller.");
+        else setError("Pas de déverrouillage par clé sur cet appareil : entrez votre mot de passe.");
+      }
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      if (name !== "NotAllowedError" && name !== "AbortError") setError("Connexion par clé d'accès impossible.");
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }, [api, persist, finishLogin]);
+
   const completeMfa = useCallback(
     async (code: string) => {
       const pending = mfaPendingRef.current;
@@ -509,6 +560,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     error,
     register,
     login,
+    loginWithPasskey,
     completeMfa,
     completeMfaWebauthn,
     mfaMethods,

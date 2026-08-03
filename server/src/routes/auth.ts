@@ -30,6 +30,8 @@ import { config } from "../config.js";
 import {
   hasWebauthn, listCredentials, registrationOptions, verifyRegistration,
   authenticationOptions, verifyAuthentication,
+  discoverableAuthenticationOptions, verifyDiscoverableAuthentication,
+  createLoginChallenge, consumeLoginChallenge,
 } from "../lib/webauthn.js";
 
 const MFA_LOGIN_PURPOSE = "mfa-login";
@@ -509,6 +511,40 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.login", "user", row.id, { mfa: true, method: "webauthn" }, req.ip);
     return { user: userDto(row), keyBundle: row.key_bundle, ...session };
+  });
+
+  // =========================================================================
+  //  Connexion SANS mot de passe — clé d'accès en 1ER facteur (découvrable)
+  //  Une passkey « resident » authentifie directement AU SERVEUR : possession +
+  //  vérification utilisateur (biométrie/PIN) obligatoire. Aucun e-mail n'est
+  //  demandé (allowCredentials vide) → pas d'oracle d'énumération. Les clés E2EE
+  //  restent protégées : le keyBundle renvoyé est inutile sans la masterKey, que
+  //  le client dérive via l'extension PRF de cette même clé (déverrouillage local).
+  // =========================================================================
+  app.post("/webauthn/assert/options", rl(30), async () => {
+    const options = await discoverableAuthenticationOptions();
+    const challengeId = await createLoginChallenge(options.challenge);
+    return { options, challengeId };
+  });
+
+  app.post("/webauthn/assert/verify", rl(20), async (req) => {
+    const b = z.object({ challengeId: z.string().uuid(), response: z.record(z.unknown()) }).parse(req.body);
+    const challenge = await consumeLoginChallenge(b.challengeId);
+    if (!challenge) throw unauthorized("Défi de connexion expiré, recommencez.");
+    const userId = await verifyDiscoverableAuthentication(b.response as never, challenge);
+    if (!userId) {
+      await audit(null, null, "auth.login.passkey_failed", "user", null, {}, req.ip);
+      throw unauthorized("Clé d'accès non reconnue.");
+    }
+    const row = await queryOne<{
+      id: string; email: string; display_name: string;
+      ed25519_public_hex: string; p256_public_hex: string; fingerprint: string;
+      key_bundle: unknown; kdf_salt: string; kdf_params: unknown; status: string;
+    }>(`SELECT * FROM users WHERE id = $1`, [userId]);
+    if (!row || row.status !== "active") throw unauthorized();
+    const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
+    await audit(null, row.id, "auth.login", "user", row.id, { method: "passkey" }, req.ip);
+    return { user: userDto(row), keyBundle: row.key_bundle, kdfSalt: row.kdf_salt, kdfParams: row.kdf_params, ...session };
   });
 
   // --- Me ------------------------------------------------------------------

@@ -240,6 +240,16 @@ export class DriveApi {
   webauthnLoginVerify(mfaToken: string, response: unknown) {
     return this.json<LoginResult>("POST", "/auth/webauthn/login/verify", { body: { mfaToken, response }, auth: false });
   }
+  /** Connexion SANS mot de passe : options d'assertion découvrable (1er facteur). */
+  webauthnAssertOptions() {
+    return this.json<{ options: Record<string, unknown>; challengeId: string }>("POST", "/auth/webauthn/assert/options", { body: {}, auth: false });
+  }
+  /** Vérifie l'assertion découvrable → session + keyBundle + sel/params KDF. */
+  webauthnAssertVerify(challengeId: string, response: unknown) {
+    return this.json<LoginResult & { kdfSalt: string; kdfParams: import("./kdf").KdfParams }>(
+      "POST", "/auth/webauthn/assert/verify", { body: { challengeId, response }, auth: false },
+    );
+  }
   // === MFA management (authenticated) ======================================
   mfaStatus() {
     return this.json<MfaStatus>("GET", "/auth/mfa/status");

@@ -358,6 +358,14 @@ CREATE TABLE IF NOT EXISTS webauthn_challenges (
   PRIMARY KEY (user_id, purpose)
 );
 
+-- Défi de connexion SANS mot de passe (clé découvrable, 1er facteur) : non lié à
+-- un utilisateur (inconnu avant la cérémonie), à usage unique et courte durée.
+CREATE TABLE IF NOT EXISTS webauthn_login_challenges (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  challenge  TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
 -- --- Oracle-free login (Ed25519 challenge-response) ------------------------
 -- The login verifier is now the PUBLIC key of a password-derived Ed25519 key.
 -- The server issues a random challenge and checks the client's signature; it

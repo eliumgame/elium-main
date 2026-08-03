@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Home, Cloud, Lock, LogIn, UserPlus, ShieldCheck, KeyRound, AlertTriangle, Users, Share2, MailCheck, Smartphone, Server, Fingerprint } from "lucide-react";
 import { useDrive } from "../session";
 import { getConfiguredApiBase, setConfiguredApiBase } from "../api";
+import { webauthnSupported } from "../prf-unlock";
 
 type Mode = "login" | "register";
 
@@ -170,6 +171,11 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                 <button className="eb eb--primary eb--block" disabled={d.busy || (mode === "register" && password !== confirm)}>
                   {mode === "login" ? <><LogIn size={16} /> Se connecter</> : <><UserPlus size={16} /> Créer le compte</>}
                 </button>
+                {mode === "login" && webauthnSupported() && (
+                  <button type="button" className="eb eb--primary eb--block" disabled={d.busy} onClick={() => void d.loginWithPasskey().catch(() => {})}>
+                    <Fingerprint size={16} /> Se connecter avec une clé d'accès
+                  </button>
+                )}
               </form>
             </>
           )}

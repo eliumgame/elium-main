@@ -146,6 +146,40 @@ export default function DriveBrowser() {
 
   useEffect(() => { void reload(); }, [reload]);
 
+  // Rafraîchissement SILENCIEUX (ni spinner, ni vidage en cas d'erreur
+  // transitoire) : sert au rafraîchissement automatique ci-dessous sans faire
+  // clignoter l'affichage courant.
+  const silentRefresh = useCallback(async () => {
+    if (!ctx) return;
+    try {
+      const next = await listFolder(ctx, currentId);
+      setEntries(next);
+      setSelection((sel) => pruneSelection(sel, next));
+    } catch {
+      /* transitoire (réseau/token en cours de refresh) : on garde l'affichage */
+    }
+  }, [ctx, currentId]);
+
+  // Actualisations quasi-instantanées : la liste reflète les changements des
+  // coéquipiers (ajout/renommage/suppression/partage) SANS clic sur
+  // « Actualiser ». Poll doux uniquement quand l'onglet est visible (aucun coût
+  // en arrière-plan) + rafraîchissement immédiat au retour de focus/onglet.
+  // setInterval (et non requestAnimationFrame, gelé hors premier plan).
+  useEffect(() => {
+    if (!ctx) return;
+    const POLL_MS = 6000;
+    const tick = () => { if (document.visibilityState === "visible") void silentRefresh(); };
+    const timer = window.setInterval(tick, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void silentRefresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [ctx, silentRefresh]);
+
   // Storage gauge — refreshed alongside the listing, best effort.
   useEffect(() => {
     if (!ctx) return;

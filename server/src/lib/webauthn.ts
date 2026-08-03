@@ -192,3 +192,77 @@ export async function verifyAuthentication(
   );
   return true;
 }
+
+// --- Connexion SANS mot de passe (WebAuthn 1er facteur, clé découvrable) -----
+//  L'utilisateur n'est PAS connu avant la cérémonie : allowCredentials est vide,
+//  l'authentificateur propose une clé « resident » et renvoie son credential_id,
+//  d'où l'on retrouve l'utilisateur. Aucun e-mail n'est demandé → pas d'oracle
+//  d'énumération. La vérification utilisateur (biométrie/PIN) est EXIGÉE : la clé
+//  devient alors un facteur de possession + inhérence fort, équivalent connexion.
+
+/** Défi de connexion découvrable (non lié à un utilisateur), à usage unique. */
+export async function createLoginChallenge(challenge: string): Promise<string> {
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO webauthn_login_challenges (challenge, expires_at)
+     VALUES ($1, now() + ($2 || ' seconds')::interval) RETURNING id`,
+    [challenge, String(CHALLENGE_TTL_SEC)],
+  );
+  return row!.id;
+}
+
+/** Récupère ET consomme (usage unique) le défi de connexion, ou null si expiré. */
+export async function consumeLoginChallenge(id: string): Promise<string | null> {
+  const row = await queryOne<{ challenge: string; expired: boolean }>(
+    `DELETE FROM webauthn_login_challenges WHERE id = $1
+      RETURNING challenge, (expires_at < now()) AS expired`,
+    [id],
+  );
+  if (!row || row.expired) return null;
+  return row.challenge;
+}
+
+export async function discoverableAuthenticationOptions(): Promise<PublicKeyCredentialRequestOptionsJSON> {
+  return generateAuthenticationOptions({
+    rpID: config.webauthnRpId,
+    userVerification: "required",
+    allowCredentials: [], // clé découvrable : l'authentificateur choisit
+  });
+}
+
+/** Vérifie une assertion découvrable ; renvoie l'ID utilisateur ou null. La clé
+ *  est retrouvée par son credential_id ; le défi attendu vient de l'appelant. */
+export async function verifyDiscoverableAuthentication(
+  response: AuthenticationResponseJSON,
+  expectedChallenge: string,
+): Promise<string | null> {
+  const cred = await queryOne<CredentialRow & { user_id: string }>(
+    `SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at, last_used_at
+       FROM webauthn_credentials WHERE credential_id = $1`,
+    [response.id],
+  );
+  if (!cred) return null;
+  let verification: VerifiedAuthenticationResponse;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge,
+      expectedOrigin: config.corsOrigins,
+      expectedRPID: config.webauthnRpId,
+      requireUserVerification: true,
+      credential: {
+        id: cred.credential_id,
+        publicKey: new Uint8Array(cred.public_key),
+        counter: Number(cred.counter),
+        transports: (cred.transports ?? undefined) as never,
+      },
+    });
+  } catch {
+    return null;
+  }
+  if (!verification.verified) return null;
+  await query(
+    `UPDATE webauthn_credentials SET counter = $2, last_used_at = now() WHERE id = $1`,
+    [cred.id, verification.authenticationInfo.newCounter],
+  );
+  return cred.user_id;
+}

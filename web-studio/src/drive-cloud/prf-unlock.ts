@@ -26,7 +26,23 @@ const STORAGE_KEY = "elium_drive_prf_v1";
 const WRAP_INFO = "elium-drive/prf-unlock/1";
 const WRAP_AAD = enc.encode("elium-drive/prf-master/1");
 
+// Sel d'évaluation PRF CONSTANT et propre à l'application. Le secret PRF est déjà
+// unique par credential (le sel ne fait que la séparation de domaine) ; le figer
+// permet à la connexion par clé DÉCOUVRABLE (où l'e-mail n'est pas connu avant la
+// cérémonie) d'obtenir le même secret que celui utilisé à l'enrôlement, en une
+// seule cérémonie. 32 octets dérivés d'une étiquette stable.
+export const PRF_SALT_HEX = "656c69756d2d64726976652f7072662d756e6c6f636b2f76310000000000abcd";
+const PRF_SALT = fromHex(PRF_SALT_HEX);
+/** Le sel PRF en base64url (entrée de l'extension pour @simplewebauthn/browser). */
+export const PRF_SALT_B64URL = bytesToB64url(PRF_SALT);
+
 // --- base64url <-> octets (identifiant de credential) ----------------------
+
+function bytesToB64url(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 function b64urlToBytes(b64url: string): Uint8Array {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
@@ -34,6 +50,11 @@ function b64urlToBytes(b64url: string): Uint8Array {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+/** Décode un résultat PRF renvoyé en base64url (par @simplewebauthn/browser). */
+export function prfResultToBytes(b64url: string): Uint8Array {
+  return b64urlToBytes(b64url);
 }
 
 // --- Enveloppe chiffrée de la masterKey (pur, testable) ---------------------
@@ -188,8 +209,9 @@ export interface PrfEnrollResult {
  * fournie à la création de la clé.
  */
 export async function enrollPrf(credentialIdB64url: string | null, rpId: string): Promise<PrfEnrollResult | null> {
-  const salt = crypto.getRandomValues(new Uint8Array(32));
-  const saltHex = toHex(salt);
+  // Sel CONSTANT (cf. PRF_SALT_HEX) : garantit que la connexion découvrable
+  // reproduira le même secret sans connaître l'e-mail au préalable.
+  const saltHex = PRF_SALT_HEX;
   const evaluated = await evaluatePrf(credentialIdB64url, saltHex, rpId);
   if (!evaluated) return null;
   return { credentialId: evaluated.credentialId, saltHex, prfOutput: evaluated.prfOutput };

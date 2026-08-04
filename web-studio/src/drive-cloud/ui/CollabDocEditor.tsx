@@ -11,9 +11,9 @@
  *
  * Ce composant n'ajoute que ce qui est propre au cloud : le branchement du Y.Doc
  * chiffré (Collaboration + curseurs colorés), l'état de connexion, les pastilles
- * de présence, et les réglages de page/quadrillage/filigrane tenus en mémoire
- * locale (un document collaboratif n'a pas de modèle de page côté serveur, il
- * pagine sur un A4 standard — parité avec la surface locale).
+ * de présence, et les réglages de page/quadrillage/styles/filigrane PERSISTÉS et
+ * synchronisés dans une Y.Map partagée (`docmeta`) — ils survivent à la
+ * réouverture et se propagent aux co-éditeurs (parité avec la surface locale).
  */
 import { useMemo, useRef, useState } from "react";
 import { X, Wifi, WifiOff, Loader } from "lucide-react";
@@ -79,12 +79,38 @@ export default function CollabDocEditor({
     [ydoc, provider],
   );
 
-  // Réglages de page/styles/filigrane/quadrillage : un document collaboratif n'a
-  // pas de modèle persisté côté serveur, donc ils vivent en mémoire locale, sur
-  // un A4 standard (mêmes valeurs par défaut que l'éditeur local).
+  // Réglages de page/styles/filigrane/quadrillage : PERSISTÉS et SYNCHRONISÉS via
+  // une Y.Map partagée du Y.Doc (`docmeta`). Ils survivent donc à la réouverture
+  // et se propagent aux co-éditeurs — parité réelle avec la surface locale (où
+  // ils vivent dans le `.elium`). Valeurs par défaut = A4 standard tant que rien
+  // n'est encore stocké.
+  const meta = useMemo(() => ydoc.getMap<unknown>("docmeta"), [ydoc]);
   const [page, setPage] = useState<PageSettings>(() => ({ ...DEFAULT_PAGE }));
   const [styles, setStyles] = useState<EliumDocStyle[]>([]);
   const [watermark, setWatermark] = useState<EliumWatermark | undefined>(undefined);
+
+  // Reflète la Y.Map (chargement initial après sync du backlog + updates
+  // distants) dans l'état local. Les écritures se font dans les callbacks
+  // ci-dessous ; ce handler ne fait que LIRE → pas de boucle.
+  useEffect(() => {
+    const apply = () => {
+      const p = meta.get("page") as PageSettings | undefined;
+      const s = meta.get("styles") as EliumDocStyle[] | undefined;
+      const w = meta.get("watermark") as EliumWatermark | null | undefined;
+      if (p) setPage(p);
+      if (s) setStyles(s);
+      if (w !== undefined) setWatermark(w ?? undefined);
+    };
+    meta.observe(apply);
+    apply();
+    return () => meta.unobserve(apply);
+  }, [meta]);
+
+  // Écrit un réglage dans la Y.Map (persistance + diffusion). `null` pour
+  // effacer le filigrane (Yjs ne stocke pas `undefined`).
+  const putMeta = (key: string, value: unknown) => {
+    ydoc.transact(() => meta.set(key, value === undefined ? null : value));
+  };
 
   // Le contenu appartient au Y.Doc : le modèle ne porte qu'un document vide (le
   // vrai éditeur ignore ce contenu en mode collaboratif) et les réglages de page.
@@ -185,10 +211,10 @@ export default function CollabDocEditor({
             onSelectSignature={() => {}}
             onRemoveSignature={() => {}}
             numberedHeadings={page.numberedHeadings ?? false}
-            onToggleNumberedHeadings={() => setPage((p) => ({ ...p, numberedHeadings: !(p.numberedHeadings ?? false) }))}
-            onStylesChange={setStyles}
-            onWatermarkChange={(m) => setWatermark(m)}
-            onGridChange={(grid) => setPage((p) => ({ ...p, grid }))}
+            onToggleNumberedHeadings={() => { const next = { ...page, numberedHeadings: !(page.numberedHeadings ?? false) }; setPage(next); putMeta("page", next); }}
+            onStylesChange={(s) => { setStyles(s); putMeta("styles", s); }}
+            onWatermarkChange={(m) => { setWatermark(m); putMeta("watermark", m); }}
+            onGridChange={(grid) => { const next = { ...page, grid }; setPage(next); putMeta("page", next); }}
           />
         </div>
       </div>

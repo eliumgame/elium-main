@@ -11,7 +11,7 @@ import { authenticate, requireUser, requireOrgPerm, requireNodePerm, requireMemb
 import { badRequest, notFound, tooLarge, conflict, insufficientStorage } from "../lib/errors.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
-import { kickRoom } from "../collab/relay.js";
+import { kickRoom, notifyOrg } from "../collab/relay.js";
 import { config } from "../config.js";
 import type { Readable } from "node:stream";
 
@@ -141,6 +141,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     });
 
     await audit(b.orgId, user.id, "node.create", b.kind, created.id, { parentId: b.parentId }, req.ip);
+    notifyOrg(b.orgId);
     return { node: nodeMetaDto(created) };
   });
 
@@ -278,6 +279,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       return rows[0];
     });
     await audit(node.org_id as string, user.id, "node.update", node.kind as string, id, {}, req.ip);
+    notifyOrg(node.org_id as string);
     return { node: nodeMetaDto(node) };
   });
 
@@ -288,6 +290,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     await query(`UPDATE nodes SET trashed_at = now() WHERE id = $1 AND trashed_at IS NULL`, [id]);
     await audit(access.orgId, user.id, "node.trash", access.kind, id, {}, req.ip);
+    notifyOrg(access.orgId);
     return { ok: true };
   });
 
@@ -297,6 +300,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     const user = requireUser(req);
     await query(`UPDATE nodes SET trashed_at = NULL WHERE id = $1`, [id]);
     await audit(access.orgId, user.id, "node.restore", access.kind, id, {}, req.ip);
+    notifyOrg(access.orgId);
     return { ok: true };
   });
 
@@ -346,6 +350,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     if (node.content_ref) await store.delete(node.content_ref).catch(() => {});
     await query(`DELETE FROM nodes WHERE id = $1`, [id]);
     await audit(access.orgId, user.id, "node.purge", access.kind, id, {}, req.ip);
+    notifyOrg(access.orgId);
     return { ok: true };
   });
 
@@ -510,6 +515,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     });
 
     await audit(access.orgId, user.id, "node.content.update", "file", id, { size }, req.ip);
+    notifyOrg(access.orgId);
     return { node: nodeMetaDto(updated) };
   });
 

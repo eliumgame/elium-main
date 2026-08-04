@@ -78,7 +78,74 @@ function broadcast(nodeId: string, from: Peer, message: unknown): void {
   }
 }
 
+// --- Canal d'événements PAR ORGANISATION (notifications temps réel) ---------
+//  Sert à rafraîchir INSTANTANÉMENT le navigateur de fichiers des membres quand
+//  un nœud change (création/renommage/déplacement/corbeille/restauration), au
+//  lieu d'un polling. Le message est VOLONTAIREMENT sans contenu (`nodes-changed`
+//  seul) : aucune métadonnée (id/nom de dossier) ne fuit vers des membres qui
+//  n'y ont pas accès ; le client se contente de re-lister son dossier courant,
+//  re-filtré par RBAC côté serveur.
+interface OrgPeer { socket: WsConn; userId: string; }
+const orgRooms = new Map<string, Set<OrgPeer>>();
+
+/** Diffuse un ping « quelque chose a changé » à tous les membres connectés. */
+export function notifyOrg(orgId: string): void {
+  const room = orgRooms.get(orgId);
+  if (!room) return;
+  const data = JSON.stringify({ type: "nodes-changed" });
+  for (const peer of room) {
+    try { peer.socket.send(data); } catch { /* nettoyé à sa propre fermeture */ }
+  }
+}
+
 export async function registerCollab(app: FastifyInstance): Promise<void> {
+  // --- WebSocket : canal d'événements de l'organisation --------------------
+  const orgWsHandler = async (socket: WsConn, req: FastifyRequest) => {
+    const orgId = (req.params as { orgId?: string }).orgId ?? "";
+    const token = (req.query as { token?: string }).token ?? "";
+    const claims = verifyAccessToken(token);
+    if (!claims || !/^[0-9a-fA-F-]{36}$/.test(orgId)) {
+      socket.close(1008, "unauthorized");
+      return;
+    }
+    // Appartenance ACTIVE exigée (un membre suspendu/retiré ne reçoit rien).
+    const member = await queryOne<{ ok: number }>(
+      `SELECT 1 AS ok FROM memberships WHERE user_id = $1 AND org_id = $2 AND status = 'active'`,
+      [claims.sub, orgId],
+    ).catch(() => null);
+    if (!member) {
+      socket.close(1008, "forbidden");
+      return;
+    }
+    const open = connectionsByUser.get(claims.sub) ?? 0;
+    if (open >= config.maxCollabConnectionsPerUser) {
+      socket.close(1013, "too many connections");
+      return;
+    }
+    connectionsByUser.set(claims.sub, open + 1);
+
+    const peer: OrgPeer = { socket, userId: claims.sub };
+    let room = orgRooms.get(orgId);
+    if (!room) { room = new Set<OrgPeer>(); orgRooms.set(orgId, room); }
+    room.add(peer);
+    try { socket.send(JSON.stringify({ type: "ready" })); } catch { /* ignore */ }
+
+    let disposed = false;
+    const cleanup = () => {
+      if (disposed) return;
+      disposed = true;
+      const r = orgRooms.get(orgId);
+      if (r) { r.delete(peer); if (r.size === 0) orgRooms.delete(orgId); }
+      const n = (connectionsByUser.get(peer.userId) ?? 1) - 1;
+      if (n <= 0) connectionsByUser.delete(peer.userId);
+      else connectionsByUser.set(peer.userId, n);
+    };
+    socket.on("close", cleanup);
+    socket.on("error", cleanup);
+    // Ce canal est purement descendant : on ignore tout message entrant.
+  };
+  app.get("/api/events/:orgId", { websocket: true } as never, orgWsHandler as never);
+
   // --- WebSocket room ------------------------------------------------------
   const wsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const nodeId = (req.params as { nodeId?: string }).nodeId ?? "";

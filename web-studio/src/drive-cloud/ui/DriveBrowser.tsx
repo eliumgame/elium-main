@@ -160,25 +160,60 @@ export default function DriveBrowser() {
     }
   }, [ctx, currentId]);
 
-  // Actualisations quasi-instantanées : la liste reflète les changements des
-  // coéquipiers (ajout/renommage/suppression/partage) SANS clic sur
-  // « Actualiser ». Poll doux uniquement quand l'onglet est visible (aucun coût
-  // en arrière-plan) + rafraîchissement immédiat au retour de focus/onglet.
-  // setInterval (et non requestAnimationFrame, gelé hors premier plan).
+  // `silentRefresh` change à chaque navigation de dossier ; on le garde dans une
+  // ref pour que l'abonnement WS (branché sur l'ORG) n'ait pas à se reconnecter
+  // en changeant de dossier.
+  const silentRefreshRef = useRef(silentRefresh);
+  silentRefreshRef.current = silentRefresh;
+
+  // Actualisations INSTANTANÉES via WebSocket : le serveur pousse un ping
+  // « nodes-changed » (sans contenu) à chaque mutation dans l'organisation ; on
+  // rafraîchit le dossier courant dans la foulée (débounce pour coalescer les
+  // rafales). Reconnexion automatique. Un poll de SECOURS très espacé couvre les
+  // coupures WS (proxys, veille). setTimeout, jamais rAF (gelé hors 1er plan).
+  const orgId = ctx?.orgId;
   useEffect(() => {
-    if (!ctx) return;
-    const POLL_MS = 6000;
-    const tick = () => { if (document.visibilityState === "visible") void silentRefresh(); };
-    const timer = window.setInterval(tick, POLL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") void silentRefresh(); };
+    if (!orgId) return;
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let debounce: number | undefined;
+    let reconnect: number | undefined;
+    const bump = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => { if (document.visibilityState !== "hidden") void silentRefreshRef.current(); }, 250);
+    };
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(d.api.orgEventsSocketUrl(orgId));
+      } catch {
+        reconnect = window.setTimeout(connect, 4000);
+        return;
+      }
+      ws.onmessage = (ev) => {
+        try { if ((JSON.parse(String(ev.data)) as { type?: string }).type === "nodes-changed") bump(); }
+        catch { /* ping non-JSON ignoré */ }
+      };
+      ws.onclose = () => { if (!closed) { window.clearTimeout(reconnect); reconnect = window.setTimeout(connect, 4000); } };
+      ws.onerror = () => { try { ws?.close(); } catch { /* ignore */ } };
+    };
+    connect();
+    // Filet de sécurité : poll rare (25 s) seulement quand l'onglet est visible,
+    // + rafraîchissement au retour de focus (couvre une reconnexion manquée).
+    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void silentRefreshRef.current(); }, 25000);
+    const onVisible = () => { if (document.visibilityState === "visible") void silentRefreshRef.current(); };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {
-      window.clearInterval(timer);
+      closed = true;
+      window.clearTimeout(debounce);
+      window.clearTimeout(reconnect);
+      window.clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      try { ws?.close(); } catch { /* ignore */ }
     };
-  }, [ctx, silentRefresh]);
+  }, [orgId, d.api]);
 
   // Storage gauge — refreshed alongside the listing, best effort.
   useEffect(() => {

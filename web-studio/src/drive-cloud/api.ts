@@ -602,4 +602,16 @@ export class DriveApi {
     const token = encodeURIComponent(this.tokens?.accessToken ?? "");
     return `${base}/collab/${nodeId}?token=${token}`;
   }
+  /** WebSocket URL for the organization live-events channel (nodes-changed). */
+  orgEventsSocketUrl(orgId: string): string {
+    const base = this.baseUrl.startsWith("http")
+      ? this.baseUrl.replace(/^http/, "ws")
+      : `${location.origin.replace(/^http/, "ws")}${this.baseUrl}`;
+    const token = encodeURIComponent(this.tokens?.accessToken ?? "");
+    return `${base}/events/${orgId}?token=${token}`;
+  }
+  /** Le jeton d'accès courant (pour ré-authentifier une reconnexion WS). */
+  get currentAccessToken(): string | null {
+    return this.tokens?.accessToken ?? null;
+  }
 }

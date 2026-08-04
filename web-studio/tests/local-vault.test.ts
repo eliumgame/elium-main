@@ -50,4 +50,30 @@ describe("local-vault — encryptAtRest / decryptAtRest", () => {
     const b = await encryptAtRest(value, { password: "x" });
     expect(a).not.toEqual(b);
   });
+
+  it("nouveau format = enveloppe versionnée Argon2id (v2)", async () => {
+    const enc = await encryptAtRest(value, { password: "x" });
+    expect(JSON.parse(enc)).toMatchObject({ v: 2, d: expect.any(String) });
+  });
+
+  // Compat descendante : un blob écrit par l'ANCIENNE dérivation (PBKDF2-100k,
+  // base64 brut de salt(16)||iv(12)||ct) doit rester déchiffrable après le
+  // passage à Argon2id — sinon les brouillons/versions déjà en cache seraient
+  // perdus. On fabrique ici un blob legacy à la main.
+  it("déchiffre un blob PBKDF2 hérité (base64 brut, sans enveloppe)", async () => {
+    const secret = "correct horse";
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"],
+    );
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(value))));
+    const blob = new Uint8Array(salt.length + iv.length + ct.length);
+    blob.set(salt, 0); blob.set(iv, salt.length); blob.set(ct, salt.length + iv.length);
+    const legacyB64 = btoa(String.fromCharCode(...blob));
+    const back = await decryptAtRest<typeof value>(legacyB64, { password: secret });
+    expect(back).toEqual(value);
+  });
 });

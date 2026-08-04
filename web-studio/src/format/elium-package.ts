@@ -90,10 +90,44 @@ export interface ReadResult {
 }
 
 // Hard caps to bound memory when opening an attacker-supplied archive.
+// Alignés sur le lecteur Python (src/elium/format/package.py) — parité DoS.
 const MAX_ENTRY_BYTES = 128 * 1024 * 1024; // 128 MiB per uncompressed entry
 const MAX_TOTAL_BYTES = 384 * 1024 * 1024; // 384 MiB total uncompressed
+const MAX_ZIP_ENTRIES = 10_000;            // refuse un nombre d'entrées pathologique
+const MAX_JSON_DEPTH = 200;                // refuse un JSON pathologiquement imbriqué
 
 export class EliumPackageError extends Error {}
+
+/** Garde de profondeur JSON (ignore les crochets à l'intérieur des chaînes),
+ *  miroir de `_json_depth_ok` en Python. Défend `JSON.parse` contre une
+ *  structure pathologiquement imbriquée AVANT de la parser. */
+function jsonDepthOk(s: string, limit = MAX_JSON_DEPTH): boolean {
+  let depth = 0, inStr = false, escape = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (inStr) {
+      if (escape) escape = false;
+      else if (c === 0x5c) escape = true;      // backslash
+      else if (c === 0x22) inStr = false;      // "
+      continue;
+    }
+    if (c === 0x22) inStr = true;
+    else if (c === 0x7b || c === 0x5b) { if (++depth > limit) return false; } // { [
+    else if (c === 0x7d || c === 0x5d) depth--;                              // } ]
+  }
+  return true;
+}
+
+/** Parse JSON d'une entrée d'archive avec garde de profondeur + erreur typée. */
+function safeJsonParse<T>(bytes: Uint8Array, what: string): T {
+  const s = strFromU8(bytes);
+  if (!jsonDepthOk(s)) throw new EliumPackageError(`Structure JSON trop imbriquée (${what}).`);
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    throw new EliumPackageError(`JSON invalide (${what}).`);
+  }
+}
 export class EliumPasswordRequired extends EliumPackageError {
   constructor() {
     super("Ce document est chiffré : un mot de passe est requis.");
@@ -256,9 +290,15 @@ export async function readEliumPackage(
 ): Promise<ReadResult> {
   let entries: Record<string, Uint8Array>;
   let total = 0;
+  let count = 0;
   try {
     entries = unzipSync(blob, {
       filter: (f) => {
+        // 1re passe sur les tailles DÉCLARÉES (central directory) + nombre
+        // d'entrées : arrête net une bombe zip qui annonce sa taille.
+        if (++count > MAX_ZIP_ENTRIES) {
+          throw new EliumPackageError("Trop d'entrées dans l'archive .elium (protection DoS).");
+        }
         total += f.originalSize;
         if (f.originalSize > MAX_ENTRY_BYTES || total > MAX_TOTAL_BYTES) {
           throw new EliumPackageError("Fichier .elium trop volumineux (protection DoS).");
@@ -271,10 +311,21 @@ export async function readEliumPackage(
     throw new EliumPackageError("Fichier .elium illisible (archive corrompue).");
   }
 
+  // 2e passe : ne jamais faire confiance à la taille déclarée. On revérifie les
+  // tailles RÉELLES après décompression (attrape un en-tête menteur : taille
+  // annoncée minuscule, inflate énorme) avant toute utilisation des données.
+  let actualTotal = 0;
+  for (const name in entries) {
+    const len = entries[name]!.length;
+    if (len > MAX_ENTRY_BYTES) throw new EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).");
+    actualTotal += len;
+    if (actualTotal > MAX_TOTAL_BYTES) throw new EliumPackageError("Fichier .elium trop volumineux (protection DoS).");
+  }
+
   const manifestRaw = entries[ENTRY.manifest];
   if (!manifestRaw) throw new EliumPackageError("Manifeste manquant : fichier .elium invalide.");
 
-  const manifest = JSON.parse(strFromU8(manifestRaw)) as EliumManifest;
+  const manifest = safeJsonParse<EliumManifest>(manifestRaw, "manifeste");
   if (manifest.format !== ELIUM_FORMAT) {
     throw new EliumPackageError("Ce fichier n'est pas un document Elium.");
   }
@@ -325,18 +376,18 @@ export async function readEliumPackage(
       document = parsed;
     }
   } else {
-    document = JSON.parse(strFromU8(contentBytes));
+    document = safeJsonParse(contentBytes, "contenu");
   }
 
   // Clear entries (redacted when secure) — the seal is verified over these.
   const clearSignatures: EliumSignature[] = entries[ENTRY.signatures]
-    ? JSON.parse(strFromU8(entries[ENTRY.signatures]))
+    ? safeJsonParse(entries[ENTRY.signatures], "signatures")
     : [];
   const clearJournal: Journal = entries[ENTRY.journal]
-    ? JSON.parse(strFromU8(entries[ENTRY.journal]))
+    ? safeJsonParse(entries[ENTRY.journal], "journal")
     : emptyJournal();
   const resourceIndex: EliumResource[] = entries[ENTRY.resIndex]
-    ? JSON.parse(strFromU8(entries[ENTRY.resIndex]))
+    ? safeJsonParse(entries[ENTRY.resIndex], "index des ressources")
     : [];
 
   const resources = new Map<string, Uint8Array>();

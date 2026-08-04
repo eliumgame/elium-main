@@ -2,8 +2,10 @@
  * Shared at-rest encryption for local IndexedDB caches that mirror a
  * protected document's content into THIS browser (autosave drafts, version
  * history). Uses the document's own password and/or keyfile as secret — there
- * is no separate local master password. PBKDF2-SHA256 (100k iterations) then
- * AES-256-GCM, one random salt+IV per encryption call.
+ * is no separate local master password. **Argon2id** (aligné sur le reste de la
+ * suite, cf. crypto/elium-crypto.ts) puis AES-256-GCM, un sel+IV aléatoire par
+ * chiffrement. Les blobs écrits par l'ancienne dérivation PBKDF2-SHA256 restent
+ * déchiffrables (compat descendante — cf. `decryptAtRest`).
  *
  * The password/keyfile combination mirrors `EliumCryptoEngine.deriveMasterKey`
  * (crypto/elium-crypto.ts): `password + "|KF|" + sha256(keyfile)` when a
@@ -12,10 +14,19 @@
  * plaintext.
  */
 
+import { argon2id } from "hash-wasm";
+
 export interface VaultSecret {
   password?: string;
   keyfile?: Uint8Array;
 }
+
+// Paramètres Argon2id pour ce cache LOCAL : plus légers que la clé maîtresse d'un
+// document (les brouillons/versions se sauvent souvent, ça doit rester rapide),
+// mais bien supérieurs à PBKDF2-100k. ~19 Mo, 2 passes.
+const A2_ITERATIONS = 2;
+const A2_MEMORY_KIB = 19_456;
+const A2_PARALLELISM = 1;
 
 /** True when there is an actual secret to encrypt with (non-empty password and/or a keyfile). */
 export function hasVaultSecret(secret?: VaultSecret): secret is VaultSecret {
@@ -45,7 +56,22 @@ async function secretString(secret: VaultSecret): Promise<string> {
   return secret.keyfile ? `${pwd}|KF|${await sha256Hex(secret.keyfile)}` : pwd;
 }
 
-async function deriveKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+/** Dérivation ACTUELLE : Argon2id → clé AES-256-GCM. */
+async function deriveKeyArgon2(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+  const raw = await argon2id({
+    password: secret,
+    salt,
+    iterations: A2_ITERATIONS,
+    memorySize: A2_MEMORY_KIB,
+    parallelism: A2_PARALLELISM,
+    hashLength: 32,
+    outputType: "binary",
+  });
+  return crypto.subtle.importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
+/** Dérivation HÉRITÉE (PBKDF2-100k) : uniquement pour déchiffrer les anciens blobs. */
+async function deriveKeyPbkdf2(secret: string, salt: Uint8Array): Promise<CryptoKey> {
   const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: salt as unknown as BufferSource, iterations: 100_000, hash: "SHA-256" },
@@ -56,24 +82,32 @@ async function deriveKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
   );
 }
 
-/** Encrypt an arbitrary JSON-serializable value. Returns base64(salt(16) || iv(12) || ciphertext). */
+/** Encrypt an arbitrary JSON-serializable value. Returns a versioned JSON
+ *  envelope `{"v":2,"d":base64(salt(16)||iv(12)||ct)}` (Argon2id). */
 export async function encryptAtRest(value: unknown, secret: VaultSecret): Promise<string> {
   const s = await secretString(secret);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(s, salt);
+  const key = await deriveKeyArgon2(s, salt);
   const pt = new TextEncoder().encode(JSON.stringify(value));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as unknown as BufferSource }, key, pt));
   const out = new Uint8Array(salt.length + iv.length + ct.length);
   out.set(salt, 0);
   out.set(iv, salt.length);
   out.set(ct, salt.length + iv.length);
-  return toB64(out);
+  return JSON.stringify({ v: 2, d: toB64(out) });
 }
 
-/** Decrypt a value produced by {@link encryptAtRest}. Throws if the secret is wrong or the blob is corrupt. */
-export async function decryptAtRest<T>(b64: string, secret: VaultSecret): Promise<T> {
+/** Decrypt a value produced by {@link encryptAtRest}. Accepts the v2 Argon2id
+ *  envelope AND legacy PBKDF2 blobs (raw base64) written before this change. */
+export async function decryptAtRest<T>(stored: string, secret: VaultSecret): Promise<T> {
   const s = await secretString(secret);
+  let b64 = stored;
+  let deriveKey = deriveKeyPbkdf2; // legacy par défaut
+  if (stored.startsWith("{")) {
+    const env = JSON.parse(stored) as { v?: number; d?: string };
+    if (env.v === 2 && typeof env.d === "string") { b64 = env.d; deriveKey = deriveKeyArgon2; }
+  }
   const bin = fromB64(b64);
   const salt = bin.slice(0, 16);
   const iv = bin.slice(16, 28);

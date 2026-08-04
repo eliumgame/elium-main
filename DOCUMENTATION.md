@@ -645,9 +645,37 @@ conteneur plafonnée à 512 MiB ; **ZIP externe** plafonné (128 MiB/entrée,
    « Déverrouiller avec une clé d'accès », le mot de passe restant le repli.
    La passphrase demeure la racine de confiance (perte de tous les appareils
    ⇒ mot de passe ou recouvrement d'organisation requis).
-7. *À venir* : connexion 100 % sans mot de passe (clé découvrable en 1er
-   facteur), rotation de clés planifiée, anti-exfiltration/DLP, rate-limit
-   dédié aux uploads blob.
+7. **Connexion 100 % sans mot de passe (clé d'accès en 1er facteur)** *(v4.2.12)*
+   — WebAuthn découvrable (resident key) : la passkey authentifie directement au
+   serveur (`/auth/webauthn/assert/*`), aucun e-mail transmis → pas d'oracle
+   d'énumération, `userVerification` obligatoire. La MÊME cérémonie produit le
+   secret PRF qui déverrouille localement (repli mot de passe si l'appareil n'a
+   pas d'enregistrement PRF). Bouton sur l'écran de connexion.
+8. **Durcissement suite à l'audit** *(v4.2.13)* :
+   * **SSO `email_verified`** — la connexion SSO est refusée si l'IdP n'a pas
+     vérifié l'e-mail (ferme un vecteur de prise de contrôle par premier binding
+     de `sub` sur un e-mail non vérifié).
+   * **Rate-limit dédié aux blobs** — `PUT /nodes/:id/content` (120/min), `GET`
+     content (400/min), liens publics `/links/:token(+/content)` (120/min).
+   * **Ménage périodique** (`lib/housekeeping.ts`) — purge des défis d'auth,
+     sessions et invitations expirés (croissance non bornée). Ne touche pas
+     `collab_updates` (journal CRDT).
+   * **Révocation d'admin de recouvrement** — `DELETE /orgs/:id/recovery/admins/
+     :userId` (refuse de retirer le dernier).
+   * **Cache local en Argon2id** (`crypto/local-vault.ts`, remplace PBKDF2-100k ;
+     compat descendante des blobs existants).
+   * **Parité DoS du lecteur ZIP côté TS** (`format/elium-package.ts`) — cap
+     d'entrées, vérif de la taille RÉELLE post-inflate, garde de profondeur JSON
+     (alignées sur le lecteur Python).
+   * **CLI `doc-sign`** — préserve désormais le chiffrement des métadonnées / le
+     keyfile (fin de la ré-écriture des métadonnées en clair).
+   * **Doc collaboratif** — page/styles/filigrane persistés et synchronisés dans
+     le Y.Doc (parité avec la surface locale).
+9. *À venir (nécessitant une décision de déploiement ou un env dédié)* :
+   scalabilité horizontale du relais collab (backplane Redis/NATS — l'état est
+   aujourd'hui en mémoire de processus, donc mono-instance), rotation de clés
+   planifiée, anti-exfiltration/DLP, SCIM Groups + JWKS dynamique, effacement de
+   compte RGPD (transfert de propriété des nœuds), interop keyfile-seul Py↔TS.
 
 ---
 
@@ -1055,7 +1083,11 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   garde ni error boundary au-dessus, ce `editor.getText()` sur un schéma nul
   faisait tomber **tout** l'arbre React — l'éditeur ne s'affichait plus du tout.
   La barre d'état sort maintenant si l'éditeur est détruit.
-- **Reste** (parité Word, par ordre de valeur décroissante) : **zones de texte / formes** ; quadrillage.
+- **Zones de texte / formes** *(livré)* : `editor/textBoxExtension.ts` +
+  `shapeExtension.ts` (extensions TipTap `TextBox`/`Shape`). **Quadrillage**
+  *(livré)* : couche `gridBackground` (`RichEditor.tsx`) + `GridModal`.
+- **Reste** : parité Word considérée atteinte à ce stade ; prochaines pistes au
+  cas par cas.
 
 ### Suite locale — Tableur
 - **Fait** : ~59 formules, refs inter-feuilles, graphiques, mise en forme
@@ -1072,7 +1104,12 @@ Couvert par `tests/python/test_seal.py` et `web-studio/tests/seal.test.ts`.
   cellules invalides sont marquées en rouge avec info-bulle, jamais refusées ;
   UI `ValidationModal` + datalist d'auto-complétion pour les listes. Vérifié
   bout-en-bout au navigateur. (Portée = Tableur local, comme la mise en forme
-  conditionnelle ; l'éditeur collaboratif reste un éditeur de cellules allégé.)
+  conditionnelle.) **Note parité collab** : l'éditeur Tableur collaboratif est
+  désormais à **parité plein-modèle** (`drive-cloud/collab-sheet-model.ts` :
+  pivot, fusions, filtre, mise en forme conditionnelle, validation, plages
+  nommées, graphiques, export XLSX) — ce n'est plus « un éditeur de cellules
+  allégé ». Reste une dette d'architecture : deux implémentations d'UI distinctes
+  (locale `SheetView` vs collab `CollabSheetEditor`) à unifier à terme.
   **Plages nommées** (`formula.ts` `applyNamedRanges`, pur + testé) : un nom
   (ex. `SALAIRES`) résout vers une référence absolue qualifiée
   (`'Feuille 1'!$A$1:$A$3`) et s'emploie dans les formules (`=SUM(SALAIRES)`).

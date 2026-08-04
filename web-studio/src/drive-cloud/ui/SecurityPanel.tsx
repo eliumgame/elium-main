@@ -105,17 +105,30 @@ export default function SecurityPanel() {
     }
   };
 
-  // Active le déverrouillage local sur une passkey DÉJÀ enregistrée (clé
-  // découvrable : on laisse l'authentificateur en proposer une).
+  // Active le déverrouillage local. S'il n'existe encore AUCUNE clé, on en
+  // enrôle une d'abord (côté serveur), puis on active le déverrouillage sur
+  // elle — le tout en un seul geste. Sinon, on active sur une clé découvrable.
   const enableUnlock = async () => {
+    setErr(null);
     setUnlockMsg(null);
     setUnlockBusy(true);
     try {
-      const ok = await d.enrollPasskeyUnlock(null);
+      let credentialId: string | null = null;
+      if (passkeys.length === 0) {
+        const { startRegistration } = await import("@simplewebauthn/browser");
+        const options = await d.api.webauthnRegisterOptions();
+        const attestation = await startRegistration({ optionsJSON: options as never });
+        const { ok } = await d.api.webauthnRegisterVerify(attestation, "Cet appareil");
+        if (!ok) throw new Error("Enrôlement de la clé refusé.");
+        credentialId = attestation.id;
+        await reload();
+      }
+      const ok = await d.enrollPasskeyUnlock(credentialId);
       setUnlockMsg(ok
         ? "Déverrouillage par clé d'accès activé sur cet appareil."
-        : "La clé choisie ne prend pas en charge le déverrouillage (extension PRF absente).");
+        : "Cette clé ne prend pas en charge le déverrouillage (extension PRF absente). La 2FA reste active.");
     } catch (e) {
+      // Annulation / timeout / page sans focus : pas une vraie erreur.
       const nm = e instanceof Error ? e.name : "";
       if (nm !== "NotAllowedError" && nm !== "AbortError") setUnlockMsg("Activation impossible.");
     } finally {
@@ -330,8 +343,8 @@ export default function SecurityPanel() {
             {d.passkeyUnlockEnabled ? (
               <button className="eb eb--ghost eb--sm" onClick={disableUnlock}>Désactiver</button>
             ) : (
-              <button className="eb eb--outline eb--sm" disabled={unlockBusy || passkeys.length === 0} onClick={() => void enableUnlock()}>
-                <Unlock size={14} /> Activer
+              <button className="eb eb--primary eb--sm" disabled={unlockBusy} onClick={() => void enableUnlock()}>
+                <Unlock size={14} /> {passkeys.length === 0 ? "Configurer" : "Activer"}
               </button>
             )}
           </div>

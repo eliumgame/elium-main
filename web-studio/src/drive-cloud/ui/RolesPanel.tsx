@@ -66,7 +66,11 @@ export default function RolesPanel() {
 
   const reloadRoles = useCallback(async () => { if (orgId) await d.selectOrg(orgId); }, [d, orgId]);
 
-  const editable = !!selected && !selected.isSystem && canManage && !!draft;
+  // Les rôles par défaut sont des copies propres à l'organisation : ils sont
+  // éditables comme les rôles personnalisés (le serveur préserve leur `key`).
+  const editable = !!selected && canManage && !!draft;
+  // Seul le rôle « propriétaire » reste indispensable → non supprimable.
+  const deletable = editable && selected?.key !== "owner";
 
   const toggle = (key: string) => {
     if (!editable || !draft) return;
@@ -152,14 +156,13 @@ export default function RolesPanel() {
                 </div>
               </div>
               <div className="dc-roles__editor-actions">
-                {selected.isSystem ? (
-                  <span className="badge badge--info"><Lock size={12} /> Rôle système</span>
-                ) : canManage ? (
+                {selected.isSystem && <span className="badge badge--info dc-role-defaultbadge"><Lock size={12} /> Rôle par défaut</span>}
+                {canManage && (
                   <>
                     <button className="eb eb--sm eb--primary" onClick={() => void save()} disabled={busy}><Save size={14} /> Enregistrer</button>
-                    <button className="eb eb--sm eb--danger" onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> Supprimer</button>
+                    <button className="eb eb--sm eb--danger" onClick={() => void remove()} disabled={busy || !deletable} title={deletable ? undefined : "Le rôle propriétaire ne peut pas être supprimé"}><Trash2 size={14} /> Supprimer</button>
                   </>
-                ) : null}
+                )}
                 {canManage && <button className="eb eb--sm eb--outline" onClick={() => void clone()} disabled={busy}><Copy size={14} /> Cloner</button>}
               </div>
             </div>

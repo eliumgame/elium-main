@@ -126,9 +126,11 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await loadOrgRole(orgId, roleId);
     if (!existing) throw notFound("Rôle introuvable.");
-    if (existing.is_system) {
-      throw forbidden("Les rôles système ne sont pas modifiables — clonez-les.");
-    }
+    // Les rôles par défaut sont des COPIES propres à l'organisation : les
+    // modifier n'affecte qu'elle. On les rend donc éditables (nom/couleur/
+    // permissions ; la `key` reste figée, préservant la logique par clé). Le
+    // propriétaire conserve de toute façon un accès intrinsèque (rbac/engine),
+    // donc restreindre son rôle ne peut pas verrouiller l'organisation.
 
     const sets: string[] = ["updated_at = now()"];
     const params: unknown[] = [roleId, orgId];
@@ -196,8 +198,12 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await loadOrgRole(orgId, roleId);
     if (!existing) throw notFound("Rôle introuvable.");
-    if (existing.is_system) {
-      throw forbidden("Les rôles système ne sont pas supprimables — clonez-les.");
+    // Seul le rôle « propriétaire » est indispensable (le créateur de l'org le
+    // porte, et le modèle exige toujours un propriétaire) : on l'interdit à la
+    // suppression. Tous les autres rôles par défaut sont supprimables comme les
+    // rôles personnalisés — sous réserve qu'ils ne soient plus attribués.
+    if (existing.key === "owner") {
+      throw forbidden("Le rôle « propriétaire » ne peut pas être supprimé.");
     }
 
     // Refuse deletion while the role is still granted to any principal, whether

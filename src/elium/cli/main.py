@@ -204,11 +204,15 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         blob = f.read()
     password = args.password
     rkey = getattr(args, "recipient_key", None)
+    keyfile = None
+    if getattr(args, "keyfile", None):
+        with open(args.keyfile, "rb") as f:
+            keyfile = f.read()
     try:
-        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
     except EliumPasswordRequired:
         password = getpass.getpass("Mot de passe du document: ")
-        result = read_elium(blob, password=password, recipient_private_hex=rkey)
+        result = read_elium(blob, password=password, keyfile=keyfile, recipient_private_hex=rkey)
 
     with open(args.key, encoding="utf-8") as f:
         private_key_hex = f.read().strip()
@@ -237,6 +241,19 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
     journal = result["journal"]
     record_signature_added(journal, profile, signature)
 
+    # Préserver la protection d'origine à la ré-écriture (sinon on dégrade le
+    # document) : chiffrement des métadonnées, keyfile, multi-destinataires.
+    protection = manifest.get("protection", {})
+    secure_meta = bool(protection.get("metadataEncrypted"))
+    if protection.get("recipients"):
+        # Re-signer un document multi-destinataires exige les clés PUBLIQUES des
+        # destinataires pour reconstruire l'enveloppe — non disponibles ici. On
+        # refuse plutôt que d'écrire le document en clair ou de le corrompre.
+        raise SystemExit(
+            "doc-sign : la ré-écriture d'un document chiffré multi-destinataires n'est pas "
+            "prise en charge par la CLI (utilisez le Studio). Aucune modification effectuée."
+        )
+
     seal_key = None
     if args.seal_key:
         with open(args.seal_key, encoding="utf-8") as f:
@@ -252,6 +269,8 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         created_at=manifest.get("createdAt"),
         doc_id=manifest.get("docId"),
         password=password,
+        keyfile=keyfile,
+        encrypt_metadata=secure_meta,
         seal_private_key_hex=seal_key,
     )
     output = args.output or args.file
@@ -308,6 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role", help="Rôle du signataire")
     p.add_argument("--org", help="Organisation du signataire")
     p.add_argument("--password", help="Mot de passe (documents chiffrés)")
+    p.add_argument("--keyfile", help="Fichier-clé (documents protégés par keyfile)")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
                    help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
     p.add_argument("--seal-key", dest="seal_key",

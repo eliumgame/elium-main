@@ -439,7 +439,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   // sent in the `x-content-nonce` header (hex). A version snapshot is recorded.
   // Optional `x-key-epoch` header: rejected with 409 when it no longer matches
   // the node (the key rotated while this writer still held the old CEK).
-  app.put("/:id/content", async (req: FastifyRequest) => {
+  app.put("/:id/content", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req: FastifyRequest) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const access = await requireNodePerm(req, id, "node.edit");
     const user = requireUser(req);
@@ -520,7 +520,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Content: download (encrypted blob) ----------------------------------
-  app.get("/:id/content", async (req, reply) => {
+  app.get("/:id/content", { config: { rateLimit: { max: 400, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     await requireNodePerm(req, id, "node.download");
     const node = await queryOne<{ content_ref: string | null; content_nonce: Buffer | null }>(

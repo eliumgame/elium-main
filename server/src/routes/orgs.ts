@@ -389,6 +389,29 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // Révoquer un administrateur de recouvrement (retire sa copie enveloppée de la
+  // clé privée d'organisation). Refuse de retirer le DERNIER : une organisation
+  // sans admin de recouvrement perdrait toute capacité de récupération.
+  app.delete("/:orgId/recovery/admins/:userId", async (req) => {
+    const { orgId, userId } = z.object({ orgId: z.string().uuid(), userId: z.string().uuid() }).parse(req.params);
+    const actor = requireUser(req);
+    await requireOrgPerm(req, orgId, "org.settings.manage");
+
+    const count = await queryOne<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM org_recovery_keys WHERE org_id = $1`, [orgId],
+    );
+    if (Number(count?.n ?? 0) <= 1) {
+      throw badRequest("Impossible de retirer le dernier administrateur de recouvrement de l'organisation.");
+    }
+    const r = await query(
+      `DELETE FROM org_recovery_keys WHERE org_id = $1 AND admin_user_id = $2 RETURNING admin_user_id`,
+      [orgId, userId],
+    );
+    if (!r.length) throw notFound("Cet utilisateur n'est pas administrateur de recouvrement.");
+    await audit(orgId, actor.id, "recovery.admin.revoke", "org", orgId, { adminUserId: userId }, req.ip);
+    return { ok: true };
+  });
+
   // --- Recovery: grant a node's key to a user (restore departed access) -----
   app.post("/:orgId/recovery/grant", async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);

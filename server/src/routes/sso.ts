@@ -106,6 +106,15 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized(e instanceof OidcError ? e.message : "Jeton d'identité invalide.");
     }
 
+    // SÉCURITÉ : l'appariement de compte se fait par e-mail. Un IdP qui émet un
+    // jeton pour un e-mail NON vérifié permettrait de lier le `sub` d'un
+    // attaquant à un compte existant (prise de contrôle). On exige donc que le
+    // fournisseur ait vérifié l'e-mail (`email_verified: true`).
+    if (!claims.emailVerified) {
+      await audit(b.orgId, null, "auth.sso.denied", "user", null, { email: claims.email, reason: "email_unverified" }, req.ip);
+      throw unauthorized("E-mail non vérifié par le fournisseur d'identité.");
+    }
+
     // The user must already be an ACTIVE member of the org (created normally
     // once, or invited via SCIM and having completed key generation).
     const row = await queryOne<{

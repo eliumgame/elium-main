@@ -400,7 +400,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   // =====================================================================
 
   // --- Resolve a link: encrypted metadata + wrapped key --------------------
-  app.get("/links/:token", async (req) => {
+  app.get("/links/:token", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req) => {
     const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
     const link = await resolveLink(token);
     if (!link) throw notFound("Lien introuvable, révoqué ou expiré.");
@@ -429,7 +429,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Resolve a link and stream the node's encrypted blob -----------------
-  app.get("/links/:token/content", async (req, reply) => {
+  app.get("/links/:token/content", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req, reply) => {
     const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
     const link = await resolveLink(token);
     if (!link) throw notFound("Lien introuvable, révoqué ou expiré.");

@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { closePool } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { storage } from "./storage/adapter.js";
+import { startHousekeeping } from "./lib/housekeeping.js";
 
 async function main(): Promise<void> {
   if (process.env.RUN_MIGRATIONS !== "false") {
@@ -11,6 +12,9 @@ async function main(): Promise<void> {
   }
   const app = await buildApp();
   await app.listen({ port: config.port, host: config.host });
+
+  // Ménage périodique des tables éphémères (défis/sessions/invitations expirés).
+  const stopHousekeeping = startHousekeeping(app);
 
   // Prepare the blob backend so it works with zero manual setup on ANY driver
   // (fs makes its dir; s3/MinIO ensures its bucket). Done AFTER listen so
@@ -27,6 +31,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     app.log.info(`Signal ${signal} reçu — arrêt en cours…`);
+    stopHousekeeping();
     await app.close();
     await closePool();
     process.exit(0);

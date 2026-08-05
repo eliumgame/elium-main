@@ -14,15 +14,19 @@ import "./documentation.css";
 
 interface TocItem { id: string; text: string; level: number; }
 
+// Slug façon GitHub (les ancres du sommaire markdown sont écrites ainsi) :
+// minuscule, on RETIRE la ponctuation mais on GARDE les accents, espaces → tirets
+// SANS fusionner les tirets (« Signatures — Elium Sign » → « signatures--elium-sign »).
 function slug(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
+  return s.trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s/g, "-");
 }
 
 /** Rendu des styles inline : `code`, **gras**, *italique*, [texte](url). */
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
+  // Ordre : code (protège son contenu), **gras**, *ital*, _ital_ (bornes de mot
+  // pour épargner SNAKE_CASE), [lien](url).
+  const re = /(`[^`]+`|\*\*[^*]+?\*\*|\*[^*\s][^*]*?\*|(?<![\w*])_[^_]+?_(?!\w)|\[[^\]]+\]\([^)]+\))/g;
   let last = 0, i = 0, m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
@@ -30,6 +34,7 @@ function inline(text: string, key: string): ReactNode[] {
     if (t.startsWith("`")) out.push(<code key={key + i}>{t.slice(1, -1)}</code>);
     else if (t.startsWith("**")) out.push(<strong key={key + i}>{t.slice(2, -2)}</strong>);
     else if (t.startsWith("*")) out.push(<em key={key + i}>{t.slice(1, -1)}</em>);
+    else if (t.startsWith("_")) out.push(<em key={key + i}>{t.slice(1, -1)}</em>);
     else {
       const lm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!;
       const href = lm[2]!;
@@ -50,6 +55,11 @@ function parseMarkdown(md: string): Parsed {
   const toc: TocItem[] = [];
   let i = 0, k = 0;
   const key = () => `b${k++}`;
+  // Une ligne (sans son indentation) démarre-t-elle un nouveau bloc ?
+  const isBlockStart = (l: string) => {
+    const tl = l.trimStart();
+    return tl === "" || tl.startsWith("|") || /^(#{1,4}\s|`{2,}|>|([-*+]|\d+\.)\s)/.test(tl);
+  };
 
   while (i < lines.length) {
     const line = lines[i]!;
@@ -68,13 +78,18 @@ function parseMarkdown(md: string): Parsed {
       i++; continue;
     }
 
-    // Bloc de code ```
-    if (line.startsWith("```")) {
-      const lang = line.slice(3).trim();
+    // Bloc de code : fence ``` (tolère l'INDENTATION — fences sous des listes —
+    // et une coquille à 2 backticks). Ouverture = une ligne qui n'est QUE des
+    // backticks (2+) suivis d'un langage optionnel. Le contenu est dédenté de
+    // l'indentation de l'ouverture.
+    const openFence = /^(\s*)(`{2,})[ \t]*([\w-]*)[ \t]*$/.exec(line);
+    if (openFence) {
+      const indent = openFence[1]!.length;
+      const lang = openFence[3]!;
       const buf: string[] = [];
       i++;
-      while (i < lines.length && !lines[i]!.startsWith("```")) { buf.push(lines[i]!); i++; }
-      i++; // ferme ```
+      while (i < lines.length && !/^\s*`{2,}[ \t]*$/.test(lines[i]!)) { buf.push(lines[i]!.slice(indent)); i++; }
+      i++; // ferme la fence
       blocks.push(<pre key={key()} className="doc-pre"><code data-lang={lang}>{buf.join("\n")}</code></pre>);
       continue;
     }
@@ -106,23 +121,28 @@ function parseMarkdown(md: string): Parsed {
       continue;
     }
 
-    // Liste (ordonnée / non ordonnée)
+    // Liste (ordonnée / non ordonnée). Gère les items REPLIÉS sur plusieurs
+    // lignes : une ligne indentée qui n'est pas un nouveau marqueur ni un autre
+    // bloc est rattachée à l'item courant (sinon un **gras** à cheval sur le
+    // repli fuit).
     if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
       const ordered = /^\s*\d+\.\s+/.test(line);
       const items: string[] = [];
-      while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i]!)) {
-        items.push(lines[i]!.replace(/^\s*([-*+]|\d+\.)\s+/, "")); i++;
+      while (i < lines.length) {
+        const l = lines[i]!;
+        if (/^\s*([-*+]|\d+\.)\s+/.test(l)) { items.push(l.replace(/^\s*([-*+]|\d+\.)\s+/, "")); i++; }
+        else if (items.length && l.trim() !== "" && /^\s/.test(l) && !isBlockStart(l)) { items[items.length - 1] += " " + l.trim(); i++; }
+        else break;
       }
       const lis = items.map((it, ii) => <li key={ii}>{inline(it, `li${ii}`)}</li>);
       blocks.push(ordered ? <ol key={key()} className="doc-ol">{lis}</ol> : <ul key={key()} className="doc-ul">{lis}</ul>);
       continue;
     }
 
-    // Paragraphe (lignes consécutives)
+    // Paragraphe (lignes consécutives). On s'arrête sur tout marqueur de bloc,
+    // même INDENTÉ (isBlockStart teste la ligne sans son indentation).
     const buf: string[] = [];
-    while (i < lines.length && lines[i]!.trim() !== "" && !/^(#{1,4}\s|```|>|\s*([-*+]|\d+\.)\s)/.test(lines[i]!) && !lines[i]!.trim().startsWith("|")) {
-      buf.push(lines[i]!); i++;
-    }
+    while (i < lines.length && !isBlockStart(lines[i]!)) { buf.push(lines[i]!); i++; }
     if (buf.length) blocks.push(<p key={key()} className="doc-p">{inline(buf.join(" "), "p")}</p>);
     else i++;
   }

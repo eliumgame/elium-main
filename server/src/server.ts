@@ -5,6 +5,7 @@ import { closePool } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { storage } from "./storage/adapter.js";
 import { startHousekeeping } from "./lib/housekeeping.js";
+import { closeBackplane } from "./collab/backplane.js";
 
 async function main(): Promise<void> {
   if (process.env.RUN_MIGRATIONS !== "false") {
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     app.log.info(`Signal ${signal} reçu — arrêt en cours…`);
     stopHousekeeping();
+    await closeBackplane();
     await app.close();
     await closePool();
     process.exit(0);

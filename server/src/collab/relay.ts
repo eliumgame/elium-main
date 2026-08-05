@@ -14,6 +14,7 @@ import { resolveNodeAccess } from "../rbac/engine.js";
 import { badRequest } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
+import { initBackplane, publishRelay, type RelayMsg } from "./backplane.js";
 
 // Plafond de la longueur du ciphertext hex (2 caractères hex par octet).
 const MAX_CIPHERTEXT_HEX = config.maxCollabMessageBytes * 2;
@@ -52,6 +53,11 @@ const connectionsByUser = new Map<string, number>();
  * this is a rekey, not a network failure.
  */
 export function kickRoom(nodeId: string, reason = "rekeyed"): void {
+  kickRoomLocal(nodeId, reason);
+  publishRelay({ k: "kick", nodeId, reason });
+}
+
+function kickRoomLocal(nodeId: string, reason: string): void {
   const room = rooms.get(nodeId);
   if (!room) return;
   for (const peer of room) {
@@ -64,7 +70,9 @@ export function kickRoom(nodeId: string, reason = "rekeyed"): void {
   rooms.delete(nodeId);
 }
 
-function broadcast(nodeId: string, from: Peer, message: unknown): void {
+// `from = null` → diffuse à TOUS les peers locaux (cas d'un message venu d'une
+// AUTRE instance via le backplane : l'émetteur n'est pas local).
+function broadcast(nodeId: string, from: Peer | null, message: unknown): void {
   const room = rooms.get(nodeId);
   if (!room) return;
   const data = JSON.stringify(message);
@@ -88,8 +96,14 @@ function broadcast(nodeId: string, from: Peer, message: unknown): void {
 interface OrgPeer { socket: WsConn; userId: string; }
 const orgRooms = new Map<string, Set<OrgPeer>>();
 
-/** Diffuse un ping « quelque chose a changé » à tous les membres connectés. */
+/** Diffuse un ping « quelque chose a changé » à tous les membres connectés
+ *  (local + autres instances via le backplane). */
 export function notifyOrg(orgId: string): void {
+  notifyOrgLocal(orgId);
+  publishRelay({ k: "org", orgId });
+}
+
+function notifyOrgLocal(orgId: string): void {
   const room = orgRooms.get(orgId);
   if (!room) return;
   const data = JSON.stringify({ type: "nodes-changed" });
@@ -99,6 +113,14 @@ export function notifyOrg(orgId: string): void {
 }
 
 export async function registerCollab(app: FastifyInstance): Promise<void> {
+  // Backplane multi-instance (no-op sans REDIS_URL). Les messages venus d'AUTRES
+  // instances sont re-délivrés aux peers LOCAUX (from=null pour un broadcast).
+  initBackplane((m: RelayMsg) => {
+    if (m.k === "bcast") broadcast(m.nodeId, null, m.message);
+    else if (m.k === "kick") kickRoomLocal(m.nodeId, m.reason);
+    else if (m.k === "org") notifyOrgLocal(m.orgId);
+  });
+
   // --- WebSocket : canal d'événements de l'organisation --------------------
   const orgWsHandler = async (socket: WsConn, req: FastifyRequest) => {
     const orgId = (req.params as { orgId?: string }).orgId ?? "";
@@ -183,8 +205,14 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       /* ignore */
     }
     // Tell existing peers a newcomer joined so they re-broadcast their presence
-    // (awareness is opaque to the relay, so it can't replay it itself).
-    broadcast(nodeId, peer, { type: "peer-join", from: peer.userId });
+    // (awareness is opaque to the relay, so it can't replay it itself). Publié
+    // aussi aux autres instances : un pair y re-émettra son awareness → le
+    // nouveau venu (ici) la recevra via le backplane.
+    {
+      const joinMsg = { type: "peer-join", from: peer.userId };
+      broadcast(nodeId, peer, joinMsg);
+      publishRelay({ k: "bcast", nodeId, message: joinMsg });
+    }
 
     socket.on("message", (raw: unknown) => {
       void (async () => {
@@ -222,13 +250,15 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
                VALUES ($1, $2, $3, $4) RETURNING id`,
               [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), peer.userId],
             );
-            broadcast(nodeId, peer, {
+            const upd = {
               type: "update",
               seq: inserted?.id ?? null,
               ciphertext: ct,
               nonce,
               author: peer.userId,
-            });
+            };
+            broadcast(nodeId, peer, upd);
+            publishRelay({ k: "bcast", nodeId, message: upd });
           } catch {
             /* transient DB error — the client can re-sync via backlog */
           }
@@ -237,7 +267,9 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
           // amplification (un pair envoie 1× une charge géante → N× sur le fil).
           const payload = msg.payload as { u?: unknown } | undefined;
           if (payload && typeof payload.u === "string" && payload.u.length > MAX_AWARENESS_CHARS) return;
-          broadcast(nodeId, peer, { type: "awareness", from: peer.userId, payload: msg.payload });
+          const awMsg = { type: "awareness", from: peer.userId, payload: msg.payload };
+          broadcast(nodeId, peer, awMsg);
+          publishRelay({ k: "bcast", nodeId, message: awMsg });
         }
       })();
     });

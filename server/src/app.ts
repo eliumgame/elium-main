@@ -25,6 +25,7 @@ import versionRoutes from "./routes/versions.js";
 import ssoRoutes from "./routes/sso.js";
 import scimRoutes from "./routes/scim.js";
 import { registerCollab } from "./collab/relay.js";
+import { createRateLimitRedis } from "./collab/backplane.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -51,8 +52,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     exposedHeaders: ["x-content-nonce"],
   });
   // Global limiter (per IP). Sensitive auth routes tighten this via per-route
-  // `config.rateLimit` (see routes/auth.ts).
-  await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
+  // `config.rateLimit` (see routes/auth.ts). En multi-instance (REDIS_URL défini)
+  // le compteur est PARTAGÉ via Redis → non contournable en répartissant les
+  // requêtes ; sinon compteur en mémoire de processus (mono-instance).
+  const rlRedis = createRateLimitRedis();
+  await app.register(rateLimit, { max: 600, timeWindow: "1 minute", ...(rlRedis ? { redis: rlRedis } : {}) });
   // Borne dure de la taille d'un frame WebSocket (le relais collab recoit des
   // updates chiffrés hex, ~2× la taille en clair) : défend contre un frame géant
   // avant même le parsing applicatif. Aligné sur maxCollabMessageBytes.

@@ -124,6 +124,15 @@ export const config = {
   // Drive (ex. "edit.nmty.fr").
   webauthnRpId: env("WEBAUTHN_RP_ID", "localhost"),
   webauthnRpName: env("WEBAUTHN_RP_NAME", "Elium Drive"),
+
+  // Scalabilité horizontale (OPTIONNELLE). Sans `REDIS_URL`, le serveur tourne en
+  // mono-instance : le relais collab, le canal d'événements org et le rate-limit
+  // vivent en mémoire de processus (comportement historique). Avec `REDIS_URL`,
+  // un backplane Redis (pub/sub) propage broadcast/kick/notifyOrg à TOUTES les
+  // instances et le rate-limit devient partagé → déploiement multi-instance sûr
+  // (un pair révoqué connecté ailleurs est bien éjecté, le rate-limit n'est plus
+  // contournable en répartissant les requêtes). Ex. "redis://127.0.0.1:6379".
+  redisUrl: env("REDIS_URL", ""),
 } as const;
 
 export type Config = typeof config;

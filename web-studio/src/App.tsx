@@ -10,6 +10,7 @@ const SlidesView = lazy(() => import("./views/SlidesView"));    // slides engine
 const PdfView = lazy(() => import("./pdf/PdfView")); // pdf.js stays out of the main bundle
 const DriveCloudView = lazy(() => import("./views/DriveCloudView")); // cloud SDK out of the main bundle
 const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // public share-link opener
+const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
 import type { Deck } from "./slides/model";
@@ -1087,6 +1088,10 @@ export default function App() {
         <Suspense fallback={<div className="pdf-loading">Chargement du Drive entreprise…</div>}>
           <DriveCloudView onHome={() => setMode("home")} />
         </Suspense>
+      ) : mode === "documentation" ? (
+        <Suspense fallback={<div className="pdf-loading">Chargement de la documentation…</div>}>
+          <DocumentationView onHome={() => setMode("home")} />
+        </Suspense>
       ) : mode === "home" || !studio ? (
         <HomeView
           onCreate={onCreate}
@@ -1096,6 +1101,7 @@ export default function App() {
           onNewSlides={() => { setAppView(null); setAppKey((k) => k + 1); setMode("slides"); }}
           onNewPdf={() => { setAppView(null); setAppKey((k) => k + 1); setMode("pdf"); }}
           onOpenDriveCloud={() => setMode("drive-cloud")}
+          onOpenDocumentation={() => setMode("documentation")}
           onRecoverDraft={recoverDraft}
           onDownloadDraft={downloadDraft}
           vaultSecret={vaultSecret}

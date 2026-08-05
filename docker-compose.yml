@@ -3,7 +3,7 @@
 #   caddy (TLS edge) -> web (static SPA) + api (Fastify REST + WS relay)
 #   api -> db (Postgres) + blobs volume (encrypted content at rest via LUKS)
 # All content, file names and keys stored here are ciphertext (E2E). See
-# deploy/README.md. Copy deploy/.env.example to .env before `docker compose up`.
+# la Documentation. Copy deploy/.env.example to .env before `docker compose up`.
 # =============================================================================
 services:
   db:

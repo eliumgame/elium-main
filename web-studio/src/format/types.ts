@@ -2,7 +2,7 @@
  * Elium documentary format v4 — shared type definitions.
  *
  * A `.elium` file is a ZIP package (OPC-style) whose entries are described in
- * DOCUMENTATION.md (§5). These types describe the *logical* objects; serialization to/from
+ * la Documentation (§5). These types describe the *logical* objects; serialization to/from
  * the ZIP package lives in `elium-package.ts`.
  *
  * Design goals:
@@ -22,7 +22,7 @@ export const ELIUM_FORMAT_VERSION = 4;
 export const ELIUM_MIMETYPE = "application/x-elium";
 export const ELIUM_DOC_SCHEMA = "elium-doc/1";
 
-/** Protection profiles offered to the user (see DOCUMENTATION.md §5.4). */
+/** Protection profiles offered to the user (see la Documentation §5.4). */
 export type EliumProfile =
   | "standard" // portable, non chiffré
   | "signed" // signatures visuelles + empreinte + journal

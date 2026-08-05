@@ -41,7 +41,7 @@ line("ATTACK 1 — Tamper an unencrypted/LOCKED document undetected")
 # over manifest+signatures+journal (§6.3) — is the actual tamper-evidence
 # mechanism; the plain per-content contentHash is keyless by design and is
 # EXPECTED to be foolable by an attacker who can rewrite the manifest (that is
-# exactly why the seal exists — see DOCUMENTATION.md F-1 and test_seal.py).
+# exactly why the seal exists — see la Documentation F-1 and test_seal.py).
 author1 = generate_identity()
 doc = create_document_model(text_to_doc("Je vends ma voiture pour 10000 euros."))
 journal = append_event(empty_journal(), "document.created", data={"title": "Contrat"})

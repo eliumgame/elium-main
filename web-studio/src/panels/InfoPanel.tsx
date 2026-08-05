@@ -50,7 +50,7 @@ export default function InfoPanel({ studio }: { studio: Studio }) {
           label="Données personnelles"
           value={m.rgpd.storedPersonalData.length ? m.rgpd.storedPersonalData.join(", ") : "aucune"}
         />
-        <Alert tone="info">{m.rgpd.notice || "Traitement local par défaut. Voir PRIVACY_RGPD.md."}</Alert>
+        <Alert tone="info">{m.rgpd.notice || "Traitement local par défaut. Voir la Documentation."}</Alert>
       </section>
     </div>
   );

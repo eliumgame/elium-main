@@ -6,7 +6,7 @@
  *      public key? (and, if a trusted key is supplied, does it match?)
  *   2. Integrity   — is the document still identical to what was signed?
  *
- * A signature is NEVER a qualified electronic signature. See DOCUMENTATION.md (§7).
+ * A signature is NEVER a qualified electronic signature. See la Documentation (§7).
  */
 
 import { canonicalJSON, sha256Hex, nowIso } from "../format/canonical";

@@ -18,7 +18,7 @@ import type { RecipientPublic } from "../crypto/recipient-key-store";
 import type { SignatureDraft } from "../sign/SignatureCreator";
 import type { VaultSecret } from "../crypto/local-vault";
 
-export type StudioMode = "home" | "studio" | "viewer" | "sheet" | "slides" | "pdf" | "drive-cloud";
+export type StudioMode = "home" | "studio" | "viewer" | "sheet" | "slides" | "pdf" | "drive-cloud" | "documentation";
 export type ExportKind = "html" | "md" | "text" | "pdf" | "report" | "docx";
 export type PanelId = "signatures" | "parapheur" | "comments" | "security" | "tracking" | "versions" | "export" | "info";
 

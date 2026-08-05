@@ -150,7 +150,7 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
         )}
       </section>
       <Alert tone="info">
-        Un <b>.elium</b> non chiffré n'est pas confidentiel. Voir <code>SECURITY.md</code> pour les limites.
+        Un <b>.elium</b> non chiffré n'est pas confidentiel. Voir <code>la Documentation</code> pour les limites.
       </Alert>
     </div>
   );

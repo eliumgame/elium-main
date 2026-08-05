@@ -2,7 +2,7 @@
 Auto-update client d'Elium — vérifie GitHub Releases, télécharge et applique les
 mises à jour, en vérifiant leur signature Ed25519 avant toute écriture/exécution.
 
-Architecture « overlay LocalAppData + handoff » (voir DOCUMENTATION.md §Mises à jour) :
+Architecture « overlay LocalAppData + handoff » (voir la Documentation §Mises à jour) :
   - Le binaire installé (Program Files) est la BASE, non modifiable sans admin.
   - Toutes les màj se déposent dans %LOCALAPPDATA%\\Elium\\ (accessible sans admin) :
       web\\<version>\\        interface React mise à jour (cas courant, léger)

@@ -1,0 +1,61 @@
+/* Page Documentation in-app. S'appuie sur les jetons --el-* (clair/sombre gérés
+   par tokens.css). Sommaire fixe à gauche, contenu prose lisible à droite. */
+.doc-page {
+  position: absolute; inset: 0; display: grid; grid-template-columns: 300px 1fr;
+  background: var(--el-app-canvas); color: var(--el-text); font-family: var(--el-font);
+}
+
+/* --- Sommaire --- */
+.doc-toc {
+  display: flex; flex-direction: column; gap: 12px; min-height: 0; padding: 18px 14px;
+  background: var(--el-surface); border-right: 1px solid var(--el-border);
+}
+.doc-toc__brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 15px; letter-spacing: -.01em; color: var(--el-text); }
+.doc-toc__brand > svg { color: var(--el-primary); }
+.doc-search { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--el-border-strong); border-radius: var(--el-radius-md); background: var(--el-surface-2); }
+.doc-search > svg { color: var(--el-text-muted); flex: none; }
+.doc-search input { flex: 1; border: none; outline: none; background: none; font: inherit; font-size: 13px; color: var(--el-text); }
+.doc-toc__nav { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin: 2px -6px; padding: 0 6px; }
+.doc-toc__item {
+  text-align: left; width: 100%; padding: 6px 10px; border: none; background: none; cursor: pointer;
+  color: var(--el-text-soft); font-size: 13px; border-radius: var(--el-radius-sm); border-left: 2px solid transparent;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.doc-toc__item:hover { background: var(--el-surface-3); color: var(--el-text); }
+.doc-toc__item--l3 { padding-left: 22px; font-size: 12.5px; color: var(--el-text-muted); }
+.doc-toc__empty { color: var(--el-text-muted); font-size: 12.5px; font-style: italic; padding: 6px 10px; }
+.doc-toc__home { justify-content: flex-start; margin-top: 4px; }
+
+/* --- Contenu --- */
+.doc-body { min-width: 0; overflow-y: auto; }
+.doc-content { max-width: 820px; margin: 0 auto; padding: 40px clamp(20px, 4vw, 56px) 96px; }
+.doc-content > * + * { margin-top: 14px; }
+
+.doc-h { text-wrap: balance; letter-spacing: -.02em; scroll-margin-top: 24px; color: var(--el-text); }
+.doc-h1 { font-size: clamp(28px, 4vw, 38px); font-weight: 800; margin-bottom: 6px; }
+.doc-h2 { font-size: clamp(21px, 2.6vw, 26px); font-weight: 750; margin-top: 40px; padding-bottom: 8px; border-bottom: 1px solid var(--el-border); }
+.doc-h3 { font-size: 17px; font-weight: 700; margin-top: 26px; }
+.doc-h4 { font-size: 14.5px; font-weight: 700; margin-top: 18px; color: var(--el-text-soft); text-transform: none; }
+
+.doc-p { font-size: 15px; line-height: 1.7; color: var(--el-text-soft); }
+.doc-ul, .doc-ol { padding-left: 24px; display: flex; flex-direction: column; gap: 5px; }
+.doc-ul li, .doc-ol li { font-size: 15px; line-height: 1.6; color: var(--el-text-soft); }
+.doc-content a { color: var(--el-primary-text); text-decoration: underline; text-underline-offset: 2px; }
+.doc-content strong { color: var(--el-text); font-weight: 700; }
+.doc-content code { font-family: var(--el-mono); font-size: .88em; background: var(--el-surface-3); color: var(--el-text); padding: 1.5px 6px; border-radius: 5px; }
+.doc-pre { background: var(--el-surface-2); border: 1px solid var(--el-border); border-radius: var(--el-radius-md); padding: 14px 16px; overflow-x: auto; }
+.doc-pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.6; color: var(--el-text); white-space: pre; }
+.doc-quote { border-left: 3px solid var(--el-primary); background: var(--el-primary-50); padding: 10px 16px; border-radius: 0 var(--el-radius-md) var(--el-radius-md) 0; color: var(--el-text-soft); font-size: 14.5px; }
+.doc-hr { border: none; border-top: 1px solid var(--el-border); margin: 28px 0; }
+
+.doc-tablewrap { overflow-x: auto; border: 1px solid var(--el-border); border-radius: var(--el-radius-md); }
+.doc-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.doc-table th, .doc-table td { text-align: left; padding: 9px 13px; vertical-align: top; }
+.doc-table thead th { background: var(--el-surface-2); color: var(--el-text-muted); font-weight: 650; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--el-border); }
+.doc-table tbody tr + tr td { border-top: 1px solid var(--el-border); }
+.doc-table td { color: var(--el-text-soft); }
+
+@media (max-width: 780px) {
+  .doc-page { grid-template-columns: 1fr; }
+  .doc-toc { display: none; }
+}

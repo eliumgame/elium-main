@@ -43,7 +43,7 @@ SECURE_SCHEMA = "elium-secure/1"
 REDACTED_TITLE = "Document chiffré"
 
 _RGPD_NOTICE = (
-    "Données traitées localement. Voir PRIVACY_RGPD.md. "
+    "Données traitées localement. Voir la Documentation. "
     "Aucune donnée n'est envoyée en ligne sans action explicite."
 )
 

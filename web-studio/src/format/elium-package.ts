@@ -179,7 +179,7 @@ export function buildManifest(
       localOnly: true,
       storedPersonalData: secure ? [] : collectPersonalData(file),
       notice:
-        "Données traitées localement. Voir PRIVACY_RGPD.md. Aucune donnée n'est envoyée en ligne sans action explicite.",
+        "Données traitées localement. Voir la Documentation. Aucune donnée n'est envoyée en ligne sans action explicite.",
     },
     ...(file.manifest.accessExpiresAt ? { accessExpiresAt: file.manifest.accessExpiresAt } : {}),
   };

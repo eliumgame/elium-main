@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   UploadCloud, FileText, PenLine, ShieldCheck, Lock, Settings,
   FolderOpen, Trash2, Clock, FileSpreadsheet, Presentation, ArrowRight, FileType,
-  History, RotateCcw, Download, Cloud, Users,
+  History, RotateCcw, Download, Cloud, Users, BookOpen,
 } from "lucide-react";
 import { TEMPLATES, type Template } from "../editor/templates";
 import { IMPORT_ACCEPT } from "../format/importers";
@@ -24,6 +24,7 @@ export default function HomeView({
   onNewSlides,
   onNewPdf,
   onOpenDriveCloud,
+  onOpenDocumentation,
   onRecoverDraft,
   onDownloadDraft,
   vaultSecret,
@@ -35,6 +36,7 @@ export default function HomeView({
   onNewSlides: () => void;
   onNewPdf: () => void;
   onOpenDriveCloud: () => void;
+  onOpenDocumentation: () => void;
   onRecoverDraft: (id: string) => void;
   onDownloadDraft: (id: string) => void;
   /** Set only when the opt-in local vault (Settings) is configured and unlocked. */
@@ -136,9 +138,14 @@ export default function HomeView({
           <span className="brand__name">Elium</span>
           <span className="home__pill">Workspace</span>
         </div>
-        <button className="icon-btn" onClick={onOpenSettings} title="Paramètres" aria-label="Paramètres">
-          <Settings size={20} />
-        </button>
+        <div className="home__top-actions">
+          <button className="icon-btn" onClick={onOpenDocumentation} title="Documentation" aria-label="Documentation">
+            <BookOpen size={20} />
+          </button>
+          <button className="icon-btn" onClick={onOpenSettings} title="Paramètres" aria-label="Paramètres">
+            <Settings size={20} />
+          </button>
+        </div>
       </header>
 
       <section className="home__hero">

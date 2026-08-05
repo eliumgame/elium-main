@@ -15,7 +15,7 @@ Any later change to those parts makes the seal fail to verify — unless the
 attacker re-signs with a *different* key, which changes the visible
 fingerprint. This is the strongest tamper-evidence achievable without a PKI.
 
-A seal is NEVER a qualified electronic signature. See DOCUMENTATION.md (§7).
+A seal is NEVER a qualified electronic signature. See la Documentation (§7).
 """
 
 from __future__ import annotations

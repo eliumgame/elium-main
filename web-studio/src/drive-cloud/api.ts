@@ -334,7 +334,10 @@ export class DriveApi {
   ssoVerify(orgId: string, idToken: string) {
     return this.json<LoginResult>("POST", "/auth/sso/verify", { body: { orgId, idToken }, auth: false });
   }
-  setOrgSso(orgId: string, config: { issuer: string; clientId: string; jwks: unknown[]; allowedDomains?: string[] }) {
+  setOrgSso(
+    orgId: string,
+    config: { issuer: string; clientId: string; jwks?: unknown[]; jwksUri?: string; allowedDomains?: string[] },
+  ) {
     return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/sso`, { body: config });
   }
   getOrgSso(orgId: string) {

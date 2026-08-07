@@ -24,6 +24,7 @@ export default function SsoScimPanel() {
   const [issuer, setIssuer] = useState("");
   const [clientId, setClientId] = useState("");
   const [jwks, setJwks] = useState("");
+  const [jwksUri, setJwksUri] = useState("");
   const [domains, setDomains] = useState("");
   const [configured, setConfigured] = useState(false);
   const [scimToken, setScimToken] = useState("");
@@ -40,9 +41,10 @@ export default function SsoScimPanel() {
       const { sso } = await d.api.getOrgSso(orgId);
       setConfigured(!!sso);
       if (sso && typeof sso === "object") {
-        const s = sso as { issuer?: string; clientId?: string; allowedDomains?: string[] };
+        const s = sso as { issuer?: string; clientId?: string; jwksUri?: string; allowedDomains?: string[] };
         setIssuer(s.issuer ?? "");
         setClientId(s.clientId ?? "");
+        setJwksUri(s.jwksUri ?? "");
         setDomains((s.allowedDomains ?? []).join(", "));
       }
     } catch {
@@ -54,17 +56,30 @@ export default function SsoScimPanel() {
   const saveSso = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null); setMsg(null);
-    let keys: unknown[];
-    try {
-      keys = parseJwks(jwks);
-    } catch {
-      setErr("JWKS invalide : collez le JSON du endpoint jwks_uri de votre fournisseur (un objet { keys: […] } ou un tableau de clés).");
+    const uri = jwksUri.trim();
+    let keys: unknown[] = [];
+    if (jwks.trim()) {
+      try {
+        keys = parseJwks(jwks);
+      } catch {
+        setErr("JWKS statique invalide : collez un objet { keys: […] } ou un tableau de clés — ou laissez vide et renseignez le jwks_uri.");
+        return;
+      }
+    }
+    if (!uri && keys.length === 0) {
+      setErr("Renseignez le jwks_uri de votre fournisseur (recommandé) ou collez un JWKS statique.");
       return;
     }
     setBusy(true);
     try {
       const allowedDomains = domains.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-      await d.api.setOrgSso(orgId, { issuer: issuer.trim(), clientId: clientId.trim(), jwks: keys, allowedDomains });
+      await d.api.setOrgSso(orgId, {
+        issuer: issuer.trim(),
+        clientId: clientId.trim(),
+        ...(uri ? { jwksUri: uri } : {}),
+        ...(keys.length ? { jwks: keys } : {}),
+        allowedDomains,
+      });
       setConfigured(true);
       setMsg("Configuration SSO enregistrée.");
     } catch (e) {
@@ -79,7 +94,7 @@ export default function SsoScimPanel() {
     try {
       await d.api.disableOrgSso(orgId);
       setConfigured(false);
-      setIssuer(""); setClientId(""); setJwks(""); setDomains("");
+      setIssuer(""); setClientId(""); setJwks(""); setJwksUri(""); setDomains("");
       setMsg("SSO désactivé.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Échec de la désactivation du SSO.");
@@ -125,8 +140,14 @@ export default function SsoScimPanel() {
             <input className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="https://exemple.okta.com" required /></label>
           <label className="field"><span className="field__label">Client ID</span>
             <input className="input" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="0oa…" required /></label>
-          <label className="field"><span className="field__label">JWKS (contenu du jwks_uri)</span>
-            <textarea className="input" value={jwks} onChange={(e) => setJwks(e.target.value)} rows={4} placeholder='{ "keys": [ … ] }' required /></label>
+          <label className="field"><span className="field__label">URL du jwks_uri (recommandé)</span>
+            <input className="input" value={jwksUri} onChange={(e) => setJwksUri(e.target.value)} placeholder="https://exemple.okta.com/oauth2/v1/keys" /></label>
+          <p className="muted" style={{ marginTop: -4 }}>
+            Les clés de signature sont récupérées dynamiquement et mises en cache ; la rotation de clés du
+            fournisseur est prise en compte automatiquement. À défaut, collez un JWKS statique ci-dessous.
+          </p>
+          <label className="field"><span className="field__label">JWKS statique (optionnel — repli)</span>
+            <textarea className="input" value={jwks} onChange={(e) => setJwks(e.target.value)} rows={4} placeholder='{ "keys": [ … ] }' /></label>
           <label className="field"><span className="field__label">Domaines autorisés (optionnel)</span>
             <input className="input" value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="exemple.fr, filiale.fr" /></label>
           <div className="dc-sso__actions">

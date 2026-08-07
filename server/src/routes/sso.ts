@@ -16,16 +16,42 @@ import { query, queryOne } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm } from "../middleware/auth.js";
 import { issueAccessToken, newRefreshToken } from "../lib/tokens.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
-import { verifyIdToken, OidcError, type OidcConfig } from "../lib/oidc.js";
+import { verifyIdTokenAsync, OidcError, type OidcConfig } from "../lib/oidc.js";
 import { badRequest, unauthorized, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
-const ssoConfigSchema = z.object({
-  issuer: z.string().min(1).max(512),
-  clientId: z.string().min(1).max(512),
-  jwks: z.array(z.record(z.unknown())).min(1).max(10),
-  allowedDomains: z.array(z.string().max(253)).max(50).optional(),
-});
+// Basic SSRF guard: the jwksUri is set by a semi-trusted org admin, but it must
+// still not be pointed at loopback / link-local / obvious private ranges. This
+// blocks literal private hosts; it does NOT defend against DNS pointing a public
+// name at a private IP (documented residual — a network egress policy is the
+// real fix in a hostile-tenant deployment).
+function isSafeJwksUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const h = u.hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || h === "[::1]") return false;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+  return true;
+}
+
+const ssoConfigSchema = z
+  .object({
+    issuer: z.string().min(1).max(512),
+    clientId: z.string().min(1).max(512),
+    // Keys may be supplied inline (static) and/or fetched from a jwksUri.
+    jwks: z.array(z.record(z.unknown())).max(10).optional(),
+    jwksUri: z.string().url().max(1024).refine(isSafeJwksUrl, "jwksUri doit être https et non privée.").optional(),
+    allowedDomains: z.array(z.string().max(253)).max(50).optional(),
+  })
+  .refine((c) => (c.jwks && c.jwks.length > 0) || !!c.jwksUri, {
+    message: "Fournir au moins une clé statique (jwks) ou un jwksUri.",
+  });
 
 function userDto(u: Record<string, unknown>) {
   return {
@@ -101,7 +127,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
 
     let claims;
     try {
-      claims = verifyIdToken(b.idToken, org.sso_config);
+      claims = await verifyIdTokenAsync(b.idToken, org.sso_config);
     } catch (e) {
       throw unauthorized(e instanceof OidcError ? e.message : "Jeton d'identité invalide.");
     }

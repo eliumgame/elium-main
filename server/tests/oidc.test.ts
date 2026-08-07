@@ -11,7 +11,13 @@ import {
   type KeyObject,
   type JsonWebKey,
 } from "node:crypto";
-import { verifyIdToken, OidcError, type OidcConfig } from "../src/lib/oidc.js";
+import {
+  verifyIdToken,
+  verifyIdTokenAsync,
+  __clearJwksCache,
+  OidcError,
+  type OidcConfig,
+} from "../src/lib/oidc.js";
 
 const ISS = "https://idp.example.com";
 const CLIENT = "elium-client-id";
@@ -184,5 +190,98 @@ describe("JWKS key selection by kid", () => {
     ];
     const token = makeToken("RS256", k2.priv, defaultPayload(), { kid: "unknown" });
     expect(() => verifyIdToken(token, cfg(jwks))).toThrow(/JWKS/);
+  });
+});
+
+describe("dynamic JWKS (jwksUri)", () => {
+  const URI = "https://idp.example.com/.well-known/jwks.json";
+
+  function jwksResponse(keys: JsonWebKey[], cacheControl = "max-age=600"): Response {
+    return new Response(JSON.stringify({ keys }), {
+      status: 200,
+      headers: { "content-type": "application/json", "cache-control": cacheControl },
+    });
+  }
+  const dynCfg = (): OidcConfig => ({ issuer: ISS, clientId: CLIENT, jwksUri: URI });
+
+  it("fetches keys from the jwksUri, verifies, and caches (one fetch for two tokens)", async () => {
+    __clearJwksCache();
+    const { pub, priv } = makeKeys("RS256");
+    const jwk = { ...pub, kid: "kid-1" } as JsonWebKey;
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return jwksResponse([jwk]);
+    }) as unknown as typeof fetch;
+
+    const t1 = makeToken("RS256", priv, defaultPayload(), { kid: "kid-1" });
+    expect((await verifyIdTokenAsync(t1, dynCfg(), { fetchImpl })).sub).toBe("sub-123");
+    const t2 = makeToken("RS256", priv, defaultPayload({ sub: "sub-x" }), { kid: "kid-1" });
+    expect((await verifyIdTokenAsync(t2, dynCfg(), { fetchImpl })).sub).toBe("sub-x");
+    expect(calls).toBe(1); // second verify served from cache
+  });
+
+  it("refetches once on an unknown kid (IdP key rotation) and then verifies", async () => {
+    __clearJwksCache();
+    const oldK = makeKeys("RS256");
+    const newK = makeKeys("RS256");
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return calls === 1
+        ? jwksResponse([{ ...oldK.pub, kid: "old" } as JsonWebKey])
+        : jwksResponse([{ ...newK.pub, kid: "new" } as JsonWebKey]);
+    }) as unknown as typeof fetch;
+
+    // Token signed by the NEW key (kid "new"); the cache initially has only "old".
+    const token = makeToken("RS256", newK.priv, defaultPayload(), { kid: "new" });
+    expect((await verifyIdTokenAsync(token, dynCfg(), { fetchImpl })).sub).toBe("sub-123");
+    expect(calls).toBe(2); // initial fetch + forced refetch after the kid miss
+  });
+
+  it("does NOT loop refetching for a genuinely bad signature", async () => {
+    __clearJwksCache();
+    const good = makeKeys("RS256");
+    const evil = makeKeys("RS256");
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return jwksResponse([{ ...good.pub, kid: "kid-1" } as JsonWebKey]);
+    }) as unknown as typeof fetch;
+    // Same kid the JWKS advertises, but signed by a DIFFERENT key → bad signature,
+    // not a kid miss, so no refetch storm.
+    const token = makeToken("RS256", evil.priv, defaultPayload(), { kid: "kid-1" });
+    await expect(verifyIdTokenAsync(token, dynCfg(), { fetchImpl })).rejects.toThrow(/Signature/);
+    expect(calls).toBe(1);
+  });
+
+  it("falls back to cached keys when the IdP becomes unreachable", async () => {
+    __clearJwksCache();
+    const { pub, priv } = makeKeys("RS256");
+    const jwk = { ...pub, kid: "kid-1" } as JsonWebKey;
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls === 1) return jwksResponse([jwk]);
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+
+    const token = makeToken("RS256", priv, defaultPayload(), { kid: "kid-1" });
+    const now1 = 1_000_000;
+    expect((await verifyIdTokenAsync(token, dynCfg(), { fetchImpl, now: () => now1 })).sub).toBe("sub-123");
+    // Advance past the cache TTL so the next call refetches (and fails), then
+    // falls back to the still-present (stale) cache entry.
+    const now2 = now1 + 10 * 3600 * 1000;
+    expect((await verifyIdTokenAsync(token, dynCfg(), { fetchImpl, now: () => now2 })).sub).toBe("sub-123");
+    expect(calls).toBe(2);
+  });
+
+  it("throws when neither static keys nor a jwksUri are configured", async () => {
+    __clearJwksCache();
+    const { priv } = makeKeys("RS256");
+    const token = makeToken("RS256", priv);
+    await expect(
+      verifyIdTokenAsync(token, { issuer: ISS, clientId: CLIENT }),
+    ).rejects.toThrow(/Aucune clé/);
   });
 });

@@ -9,8 +9,9 @@ RUN npm install --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
-# migrate.ts reads ../db/schema.sql at runtime relative to dist/db/ — copy it in.
-RUN cp src/db/schema.sql dist/db/schema.sql
+# migrate.ts reads ./migrations/*.sql at runtime relative to dist/db/ — tsc does
+# not emit .sql, so copy the migration files into the compiled output.
+RUN cp -r src/db/migrations dist/db/migrations
 
 # Pin deliberately; bump via a reviewed PR
 FROM node:20.17-alpine AS runtime

@@ -43,7 +43,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("Démarrage impossible:", err);
   process.exit(1);
 });

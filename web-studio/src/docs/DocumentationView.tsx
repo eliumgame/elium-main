@@ -8,7 +8,7 @@
  * les jetons `--el-*` de la charte.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Home, Search, BookOpen } from "lucide-react";
+import { Home, Search, BookOpen, ChevronRight } from "lucide-react";
 import { DOCUMENTATION_MD } from "./documentation";
 import "./documentation.css";
 
@@ -149,24 +149,52 @@ function parseMarkdown(md: string): Parsed {
   return { blocks, toc };
 }
 
+interface Section { h2: TocItem; children: TocItem[]; }
+
 export default function DocumentationView({ onHome }: { onHome: () => void }) {
   const { blocks, toc } = useMemo(() => parseMarkdown(DOCUMENTATION_MD), []);
   const [q, setQ] = useState("");
+  const [activeId, setActiveId] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const filteredToc = useMemo(() => {
+  // Arbre du sommaire : chaque H2 porte ses H3 (repliés sauf section active).
+  const sections = useMemo<Section[]>(() => {
+    const out: Section[] = [];
+    for (const t of toc) {
+      if (t.level === 2 || out.length === 0) out.push({ h2: t, children: [] });
+      else out[out.length - 1]!.children.push(t);
+    }
+    return out;
+  }, [toc]);
+
+  // Résultats filtrés (recherche) : liste plate lisible.
+  const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? toc.filter((t) => t.text.toLowerCase().includes(s)) : toc;
+    return s ? toc.filter((t) => t.text.toLowerCase().includes(s)) : null;
   }, [q, toc]);
 
   const jump = (id: string) => {
-    const el = bodyRef.current?.querySelector(`#${CSS.escape(id)}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    bodyRef.current?.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveId(id);
   };
 
-  // Titre du document (premier # ) pour l'en-tête.
-  const docTitle = useMemo(() => (/^#\s+(.*)$/m.exec(DOCUMENTATION_MD)?.[1] ?? "Documentation Elium").trim(), []);
+  // Scroll-spy : surligne (et déplie) la section réellement à l'écran.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const onScroll = () => {
+      const hs = Array.from(body.querySelectorAll<HTMLElement>(".doc-h2, .doc-h3"));
+      const base = body.getBoundingClientRect().top;
+      let cur = hs[0]?.id ?? "";
+      for (const h of hs) { if (h.getBoundingClientRect().top - base <= 110) cur = h.id; else break; }
+      setActiveId(cur);
+    };
+    onScroll();
+    body.addEventListener("scroll", onScroll, { passive: true });
+    return () => body.removeEventListener("scroll", onScroll);
+  }, [blocks]);
 
+  const docTitle = useMemo(() => (/^#\s+(.*)$/m.exec(DOCUMENTATION_MD)?.[1] ?? "Documentation Elium").trim(), []);
   useEffect(() => { document.title = `${docTitle} — Elium`; }, [docTitle]);
 
   return (
@@ -175,13 +203,33 @@ export default function DocumentationView({ onHome }: { onHome: () => void }) {
         <div className="doc-toc__brand"><BookOpen size={18} /> <span>Documentation</span></div>
         <label className="doc-search">
           <Search size={15} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrer les sections…" aria-label="Filtrer" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une section…" aria-label="Rechercher" />
         </label>
         <nav className="doc-toc__nav">
-          {filteredToc.map((t) => (
-            <button key={t.id} className={`doc-toc__item doc-toc__item--l${t.level}`} onClick={() => jump(t.id)}>{t.text}</button>
-          ))}
-          {filteredToc.length === 0 && <p className="doc-toc__empty">Aucune section.</p>}
+          {filtered ? (
+            filtered.length === 0
+              ? <p className="doc-toc__empty">Aucune section.</p>
+              : filtered.map((t) => (
+                  <button key={t.id} className={`doc-toc__link doc-toc__link--l${t.level} ${t.id === activeId ? "is-active" : ""}`} onClick={() => jump(t.id)}>{t.text}</button>
+                ))
+          ) : (
+            sections.map((sec) => {
+              const open = sec.h2.id === activeId || sec.children.some((c) => c.id === activeId);
+              return (
+                <div key={sec.h2.id} className="doc-toc__section">
+                  <button className={`doc-toc__h2 ${sec.h2.id === activeId ? "is-active" : ""}`} onClick={() => jump(sec.h2.id)}>
+                    {sec.children.length > 0
+                      ? <ChevronRight size={14} className={`doc-toc__chev ${open ? "is-open" : ""}`} />
+                      : <span className="doc-toc__chev-spacer" />}
+                    <span>{sec.h2.text}</span>
+                  </button>
+                  {open && sec.children.map((c) => (
+                    <button key={c.id} className={`doc-toc__h3 ${c.id === activeId ? "is-active" : ""}`} onClick={() => jump(c.id)}>{c.text}</button>
+                  ))}
+                </div>
+              );
+            })
+          )}
         </nav>
         <button className="eb eb--sm eb--ghost doc-toc__home" onClick={onHome}><Home size={15} /> Accueil</button>
       </aside>

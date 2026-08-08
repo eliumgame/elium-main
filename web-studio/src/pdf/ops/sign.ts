@@ -7,9 +7,9 @@
  * snapshot on white paper lands as clean strokes on the page instead of a grey
  * rectangle.
  *
- * Certificate-based (PAdES/X.509) signing is deliberately not implemented here:
- * Elium already seals and signs documents with its own Ed25519 identity at the
- * `.elium` level, which is the trust anchor the rest of the suite uses.
+ * Certificate-based (PAdES/X.509) signing lives in `./pades.ts` (CMS/CAdES over
+ * a PKCS#12 signer). This module is only the visual Fill & Sign; Elium also seals
+ * documents with its own Ed25519 identity at the `.elium` level.
  */
 
 import type { Pt } from "../core/coords";

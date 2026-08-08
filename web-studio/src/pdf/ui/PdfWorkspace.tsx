@@ -23,6 +23,7 @@ import { comparePages, type ComparisonReport } from "../ops/compare";
 import { DEFAULT_BUILD, buildPdf, type BuildOptions } from "../ops/save";
 import { extractPages, mergeDocuments, parsePageRange, pdfFromImages, splitDocument, PAGE_SIZES } from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
+import { signPdfBytes, verifyPdfSignatures } from "../ops/pades";
 import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
 import { fromXfdf, toXfdf } from "../ops/xfdf";
 import { hasImportableAnnots, importPageAnnots, type RawAnnotation } from "../ops/import-annots";
@@ -126,6 +127,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const mergeInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
+  const p12Input = useRef<HTMLInputElement>(null);
   const compareInput = useRef<HTMLInputElement>(null);
   const pendingImageAt = useRef<{ pageId: string; x: number; y: number } | null>(null);
 
@@ -541,6 +543,47 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
+  // --- Signature électronique PAdES (certificat X.509 via PKCS#12) ---------
+  const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !bytesRef.current) return;
+    const pw = await dialogs.prompt({ title: "Signer avec un certificat (PAdES)", label: `Mot de passe du certificat « ${file.name} »` });
+    if (pw === null) return;
+    setBusy(true);
+    const id = toast("progress", "Signature électronique…");
+    try {
+      const p12 = new Uint8Array(await file.arrayBuffer());
+      const base = fileName.replace(/\.pdf$/i, "") || "document";
+      const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium" });
+      downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
+      dismissToast(id);
+      const v = verifyPdfSignatures(signed);
+      const ok = v.length > 0 && v.every((x) => x.valid);
+      toast(ok ? "success" : "warning", "PDF signé (PAdES)",
+        v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}` : undefined);
+    } catch (err) {
+      dismissToast(id);
+      toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifySignatures = () => {
+    if (!bytesRef.current) return;
+    const v = verifyPdfSignatures(bytesRef.current);
+    if (v.length === 0) {
+      toast("warning", "Aucune signature", "Ce PDF ne contient pas de signature électronique (PAdES).");
+      return;
+    }
+    for (const s of v) {
+      toast(s.valid ? "success" : "danger", `Signature : ${s.signerName || "inconnu"}`,
+        s.valid ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}` : (s.error || "Invalide ou document modifié après signature"));
+    }
+  };
+
   const saveElium = async () => {
     if (!bytesRef.current || !onExportElium) return;
     const base = fileName.replace(/\.pdf$/i, "") || "document";
@@ -621,6 +664,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "headerFooter":
       case "bates": setDialog("headerFooter"); return;
       case "protect": setDialog("protect"); return;
+      case "signPades": p12Input.current?.click(); return;
+      case "verifyPades": verifySignatures(); return;
       case "split": setDialog("split"); return;
       case "crop": setDialog("crop"); return;
       case "pageLabels": setDialog("labels"); return;
@@ -1472,6 +1517,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
       <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml" hidden onChange={onDataPick} />
       <input ref={compareInput} type="file" accept="application/pdf,.pdf" hidden onChange={onComparePick} />
+      <input ref={p12Input} type="file" accept=".p12,.pfx" hidden onChange={onP12Pick} />
 
       {/* dialogs */}
       {dialog === "save" && (

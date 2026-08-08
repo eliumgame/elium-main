@@ -282,6 +282,10 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd big icon={<Lock size={19} />} label="Protéger" onClick={C("protect")} title="Mot de passe et autorisations" />
               <Cmd icon={<Unlock size={17} />} onClick={C("unprotect")} label="Retirer" />
             </Group>
+            <Group title="Signature électronique">
+              <Cmd big icon={<FileSignature size={19} />} label="Signer (certificat)" onClick={C("signPades")} title="Signature électronique PAdES (certificat X.509 / PKCS#12)" />
+              <Cmd icon={<ShieldCheck size={17} />} onClick={C("verifyPades")} label="Vérifier" title="Vérifier les signatures électroniques du document" />
+            </Group>
             <Group title="Caviardage">
               <Cmd big icon={<BoxSelect size={19} />} label="Marquer" onClick={T("redact")} active={p.tool === "redact"} title="Marquer une zone à caviarder" />
               <Cmd icon={<FileSearch size={17} />} onClick={C("redactSearch")} label="Rechercher" title="Marquer toutes les occurrences d'un texte" />

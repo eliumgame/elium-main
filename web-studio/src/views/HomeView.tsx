@@ -11,6 +11,7 @@ import { listDrafts, deleteDraft, type DraftEntry } from "../format/drafts-store
 import { PROFILES } from "../format/profiles";
 import { useDialogs } from "../ui/dialogs";
 import type { VaultSecret } from "../crypto/local-vault";
+import VersionFooter from "./VersionFooter";
 import "../drive-cloud/drive-cloud.css";
 
 /** Brouillons montrés avant de devoir cliquer « afficher les autres ». */
@@ -360,9 +361,7 @@ export default function HomeView({
         </div>
       </section>
 
-      <footer className="home__footer">
-        Traitement 100 % local · aucune donnée envoyée en ligne sans action explicite · conforme RGPD par conception
-      </footer>
+      <VersionFooter />
     </main>
   );
 }

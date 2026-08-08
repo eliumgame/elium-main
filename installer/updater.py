@@ -668,6 +668,169 @@ def start_background_check() -> None:
     threading.Thread(target=check_only, daemon=True).start()
 
 
+# --------------------------------------------------------------------------- #
+# Version installée + retour à une version antérieure (rollback)
+# --------------------------------------------------------------------------- #
+
+_GITHUB_API_RELEASES = f"https://api.github.com/repos/{REPO}/releases?per_page=40"
+# Les corps de release (changelogs) peuvent être volumineux : plafond dédié.
+_MAX_RELEASES_BYTES = 2 * 1024 * 1024  # 2 MiB
+
+
+def version_info() -> dict[str, Any]:
+    """Version installée + si elle est à jour (pour le pied de l'accueil).
+
+    NON bloquant : lit le dernier statut connu de la vérification d'arrière-plan
+    (start_background_check au lancement + carte de màj qui sonde /__update__),
+    plutôt que de refaire un appel réseau qui figerait la requête du pied.
+    """
+    installed = effective_version()
+    base = current_version()
+    st = get_status()
+    state = st.get("state")
+    latest: Optional[str] = None
+    up_to_date = True
+    if state == "available" and st.get("version"):
+        latest = str(st["version"])
+        up_to_date = not is_newer(latest, installed)
+    elif state in ("web-ready", "exe-ready") and st.get("version"):
+        latest = str(st["version"])  # màj téléchargée, en attente d'application
+        up_to_date = False
+    # état inconnu (idle/up-to-date/error/downloading) -> considéré à jour ;
+    # la vérification d'arrière-plan met _status à jour peu après le lancement.
+    return {"installed": installed, "base": base, "latest": latest, "upToDate": up_to_date}
+
+
+def _manifest_url_for(version: str) -> str:
+    v = version if version.startswith("v") else f"v{version}"
+    return f"https://github.com/{REPO}/releases/download/{v}/{_MANIFEST_NAME}"
+
+
+def fetch_manifest_for(version: str) -> Optional[dict[str, Any]]:
+    """Comme fetch_manifest mais pour une version PRÉCISE (rollback). Signée par la même clé."""
+    url = _manifest_url_for(version)
+    try:
+        raw = _http_get(url, _MAX_MANIFEST_BYTES)
+        sig_hex = _http_get(url + ".sig", _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
+    except Exception as exc:
+        _log(f"fetch_manifest_for({version}): échec réseau ({exc})")
+        return None
+    if not _verify_signature(raw, sig_hex):
+        _log(f"fetch_manifest_for({version}): SIGNATURE INVALIDE — rejeté")
+        return None
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        _log(f"fetch_manifest_for({version}): JSON invalide ({exc})")
+        return None
+
+
+def list_releases() -> list[dict[str, Any]]:
+    """Versions publiées (API GitHub), plus récentes d'abord, hors brouillons/préversions.
+
+    Chaque entrée : {version, date, name, installed, canRollback}. `canRollback`
+    est faux pour les versions strictement antérieures à la version EMBARQUÉE :
+    l'overlay LocalAppData ne va que vers l'avant, revenir plus bas exige de
+    réinstaller le programme d'installation (MSI).
+    """
+    try:
+        raw = _http_get(_GITHUB_API_RELEASES, _MAX_RELEASES_BYTES)
+        arr = json.loads(raw)
+    except Exception as exc:
+        _log(f"list_releases: {exc}")
+        return []
+    base = current_version()
+    installed = effective_version()
+    out: list[dict[str, Any]] = []
+    for r in arr if isinstance(arr, list) else []:
+        if r.get("draft") or r.get("prerelease"):
+            continue
+        tag = str(r.get("tag_name") or "").lstrip("v")
+        if not tag:
+            continue
+        out.append({
+            "version": tag,
+            "date": str(r.get("published_at") or "")[:10],
+            "name": str(r.get("name") or ""),
+            "installed": tag == installed,
+            # Applicable via l'overlay uniquement si >= version de base embarquée.
+            "canRollback": not is_newer(base, tag),
+        })
+    try:
+        out.sort(key=lambda x: _version_tuple(str(x["version"])), reverse=True)
+    except Exception:
+        pass
+    return out
+
+
+def undo_last_update() -> dict[str, Any]:
+    """« Désinstaller la dernière mise à jour » : revient à la version EMBARQUÉE.
+
+    Efface le pointeur web + le lanceur en attente (et les exe téléchargés) : au
+    prochain rechargement/redémarrage, l'app sert la version de base. Purement
+    local, aucun téléchargement.
+    """
+    _safe_unlink(_pointer_file())
+    _safe_unlink(_pending_file())
+    try:
+        for child in _bin_root().glob("Elium-*.exe"):
+            _safe_unlink(child)
+    except OSError:
+        pass
+    _prune_old_web(keep={current_version()})
+    _log("undo_last_update: retour à la version de base")
+    return _publish("web-ready", version=current_version(), kind="web", progress=100)
+
+
+def _run_rollback(version: str) -> None:
+    if not _apply_lock.acquire(blocking=False):
+        return
+    try:
+        manifest = fetch_manifest_for(version)
+        if not manifest:
+            _publish("error", version=version, notes="Manifeste introuvable ou signature invalide.")
+            return
+        needs_exe = _needs_exe(manifest)
+        # Un retour vers une version dont le CODE diffère et qui n'est PAS plus
+        # récente que l'exe courant ne peut pas se faire par overlay/handoff
+        # (le handoff refuse un exe plus ancien) : il faut réinstaller le MSI.
+        if needs_exe and not is_newer(version, current_version()):
+            _publish("error", version=version,
+                     notes="Cette version nécessite une réinstallation via le programme d'installation (MSI).")
+            return
+
+        def on_progress(pct: int) -> None:
+            _status["progress"] = pct
+
+        _publish("downloading", version=version, kind="exe" if needs_exe else "web", progress=0)
+        if needs_exe:
+            ok = apply_exe_update(manifest, on_progress)
+            kind = "exe"
+        else:
+            # apply_web_update pose le pointeur sur la version cible sans exiger
+            # qu'elle soit plus récente -> gère le retour arrière (dans la plage
+            # >= base ; sous la base, l'overlay est ignoré et la base est servie).
+            ok = apply_web_update(manifest, on_progress)
+            kind = "web"
+        if not ok:
+            _publish("error", version=version, kind=kind, progress=_status.get("progress", 0))
+        else:
+            _log(f"rollback: version {version} appliquée ({kind})")
+            _publish(f"{kind}-ready", version=version, kind=kind, progress=100)
+    finally:
+        _apply_lock.release()
+
+
+def start_rollback(version: str) -> dict[str, Any]:
+    """Déclenche le retour à `version` en tâche de fond (téléchargement vérifié)."""
+    if os.environ.get("ELIUM_NO_UPDATE") == "1":
+        return _publish("disabled")
+    if _status.get("state") == "downloading":
+        return get_status()
+    threading.Thread(target=_run_rollback, args=(version,), daemon=True).start()
+    return _publish("downloading", version=version, progress=0)
+
+
 def on_navigation() -> None:
     """Appelé quand une page est (re)chargée. Corrige la boucle « Recharger » :
     après application d'une màj web, on efface un état de màj périmé pour ne pas

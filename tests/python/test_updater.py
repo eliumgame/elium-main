@@ -248,6 +248,69 @@ def test_handoff_noop_when_not_frozen(env):
 
 
 # --------------------------------------------------------------------------- #
+# Version installée + retour à une version antérieure (rollback)
+# --------------------------------------------------------------------------- #
+
+def test_version_info_reports_installed_and_update(env, monkeypatch):
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    manifest_path = _publish(env / "release", priv, "4.1.0")
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+
+    # Avant toute vérification : version installée connue, statut « à jour » par défaut.
+    pre = updater.version_info()
+    assert pre["installed"] == "4.0.0" and pre["base"] == "4.0.0"
+
+    # Après la vérification d'arrière-plan, la màj disponible est reflétée (non bloquant).
+    assert updater.check_only()["state"] == "available"
+    info = updater.version_info()
+    assert info["installed"] == "4.0.0"
+    assert info["latest"] == "4.1.0"
+    assert info["upToDate"] is False
+
+
+def test_undo_last_update_reverts_to_base(env, monkeypatch):
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    manifest_path = _publish(env / "release", priv, "4.1.0")
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+    assert updater.check_and_apply()["state"] == "web-ready"
+    assert updater.active_web_dir() is not None
+    assert updater.effective_version() == "4.1.0"
+
+    updater.undo_last_update()
+    assert updater.active_web_dir() is None                 # overlay effacé
+    assert updater.effective_version() == "4.0.0"           # retour à la base
+
+
+def test_rollback_to_specific_web_version(env, monkeypatch):
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    # Base = 4.0.0 ; on revient à une version 4.0.5 servie par son URL par-version.
+    manifest_405 = _publish(env / "rel-405", priv, "4.0.5")
+    monkeypatch.setattr(updater, "_manifest_url_for", lambda v: manifest_405.as_uri())
+
+    updater._run_rollback("4.0.5")   # worker synchrone (évite le timing du thread)
+    st = updater.get_status()
+    assert st["state"] == "web-ready"
+    assert st["version"] == "4.0.5"
+    assert updater.effective_version() == "4.0.5"           # 4.0.5 > base -> servie
+
+
+def test_rollback_rejects_older_exe_version(env, monkeypatch):
+    """Une cible au code différent PLUS ANCIENNE que l'exe courant exige un MSI."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    # Simule un exe « stampé » -> _needs_exe compare le codeHash.
+    monkeypatch.setattr(updater, "BUILD_CODE_HASH", "f" * 64)
+    manifest_395 = _publish(env / "rel-395", priv, "3.9.5")  # codeHash "deadbeef" != stamp
+    monkeypatch.setattr(updater, "_manifest_url_for", lambda v: manifest_395.as_uri())
+
+    updater._run_rollback("3.9.5")
+    assert updater.get_status()["state"] == "error"          # pas de handoff vers un exe plus ancien
+
+
+# --------------------------------------------------------------------------- #
 # codeHash (build_common)
 # --------------------------------------------------------------------------- #
 

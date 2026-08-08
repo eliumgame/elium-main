@@ -422,6 +422,24 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if clean == "/__elium_update.css":
             self._serve_bytes(UPDATE_CSS.encode("utf-8"), "text/css; charset=utf-8")
             return
+        if clean == "/__version__":
+            info = {"installed": None, "base": None, "latest": None, "upToDate": True}
+            if updater is not None:
+                try:
+                    info = updater.version_info()
+                except Exception:
+                    pass
+            self._serve_bytes(json.dumps(info).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__releases__":
+            releases = []
+            if updater is not None:
+                try:
+                    releases = updater.list_releases()
+                except Exception:
+                    pass
+            self._serve_bytes(json.dumps({"releases": releases}).encode("utf-8"), "application/json; charset=utf-8")
+            return
 
         # Résout le dossier web à servir. Sur une navigation (index / route SPA), on
         # (re)fixe le dossier courant — un simple reload applique ainsi une màj web
@@ -467,6 +485,26 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if clean == "/__update__/restart":
             ok = _request_restart()
             self._serve_bytes(json.dumps({"ok": ok}).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__rollback__/undo":
+            status = {"state": "idle"}
+            if updater is not None:
+                try:
+                    status = updater.undo_last_update()
+                except Exception:
+                    pass
+            self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__rollback__":
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            version = (qs.get("version", [""])[0] or "").strip()
+            status = {"state": "error"}
+            if updater is not None and version:
+                try:
+                    status = updater.start_rollback(version)
+                except Exception:
+                    pass
+            self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
             return
         self.send_error(404, "Endpoint inconnu")
 

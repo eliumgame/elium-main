@@ -19,6 +19,7 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { verifyIdTokenAsync, OidcError, type OidcConfig } from "../lib/oidc.js";
 import { badRequest, unauthorized, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { resyncOrgGroupRoles } from "./scim.js";
 
 // Basic SSRF guard: the jwksUri is set by a semi-trusted org admin, but it must
 // still not be pointed at loopback / link-local / obvious private ranges. This
@@ -115,6 +116,51 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     await audit(orgId, actor.id, "org.scim.token", "org", orgId, {}, req.ip);
     // Returned ONCE; only its hash is stored. Give it to the IdP's SCIM client.
     return { token };
+  });
+
+  // --- Read SCIM provisioning config (default role + group→role mapping) ----
+  app.get("/orgs/:orgId/scim-config", { preHandler: authenticate }, async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireOrgPerm(req, orgId, "org.settings.view");
+    const row = await queryOne<{ settings: { scim?: { defaultRoleKey?: string; groupRoleMap?: Record<string, string> } } | null }>(
+      `SELECT settings FROM organizations WHERE id = $1`,
+      [orgId],
+    );
+    if (!row) throw notFound();
+    const scim = row.settings?.scim ?? {};
+    return { defaultRoleKey: scim.defaultRoleKey ?? null, groupRoleMap: scim.groupRoleMap ?? {} };
+  });
+
+  // --- Set SCIM provisioning config -----------------------------------------
+  app.put("/orgs/:orgId/scim-config", { preHandler: authenticate }, async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    const b = z
+      .object({
+        defaultRoleKey: z.string().min(1).max(64),
+        groupRoleMap: z.record(z.string().min(1).max(64)).optional(),
+      })
+      .parse(req.body);
+    const actor = requireUser(req);
+    await requireOrgPerm(req, orgId, "org.settings.manage");
+
+    // Every referenced role key must exist in this org.
+    const keys = [b.defaultRoleKey, ...Object.values(b.groupRoleMap ?? {})];
+    const known = await query<{ key: string }>(`SELECT key FROM roles WHERE org_id = $1 AND key = ANY($2::text[])`, [orgId, keys]);
+    const knownSet = new Set(known.map((r) => r.key));
+    const missing = [...new Set(keys.filter((k) => !knownSet.has(k)))];
+    if (missing.length) throw badRequest(`Rôle(s) inconnu(s) : ${missing.join(", ")}.`);
+
+    const scim = { defaultRoleKey: b.defaultRoleKey, groupRoleMap: b.groupRoleMap ?? {} };
+    await query(
+      `UPDATE organizations
+          SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{scim}', $2::jsonb, true), updated_at = now()
+        WHERE id = $1`,
+      [orgId, JSON.stringify(scim)],
+    );
+    // Re-apply group→role mapping to existing SCIM-group members.
+    await resyncOrgGroupRoles(orgId);
+    await audit(orgId, actor.id, "org.scim.config", "org", orgId, { defaultRoleKey: b.defaultRoleKey, groups: Object.keys(scim.groupRoleMap).length }, req.ip);
+    return { ok: true };
   });
 
   // --- Public: verify an OIDC ID token and open a session ------------------

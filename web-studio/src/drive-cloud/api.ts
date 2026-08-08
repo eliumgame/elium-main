@@ -349,6 +349,13 @@ export class DriveApi {
   createScimToken(orgId: string) {
     return this.json<{ token: string }>("POST", `/orgs/${orgId}/scim-token`, { body: {} });
   }
+  /** SCIM provisioning config: default role + IdP group → Elium role mapping. */
+  getOrgScimConfig(orgId: string) {
+    return this.json<{ defaultRoleKey: string | null; groupRoleMap: Record<string, string> }>("GET", `/orgs/${orgId}/scim-config`);
+  }
+  setOrgScimConfig(orgId: string, config: { defaultRoleKey: string; groupRoleMap?: Record<string, string> }) {
+    return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/scim-config`, { body: config });
+  }
   setOrgQuota(orgId: string, quotaBytes: number | null) {
     return this.json<{ quotaBytes: number | null }>("PATCH", `/orgs/${orgId}/quota`, { body: { quotaBytes } });
   }

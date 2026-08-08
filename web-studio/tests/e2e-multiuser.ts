@@ -624,6 +624,46 @@ async function main(): Promise<void> {
     await scim(`/${bobScimId}`, "PATCH", { Operations: [{ op: "replace", path: "active", value: true }] });
     ok("SCIM réactivé : accès org rétabli", ((await bob.api.listRoles(org.id)).roles as unknown[]).length >= 7);
 
+    // --- SCIM : Groups + rôle configurable ------------------------------------
+    const scimG = (path: string, method: string, body?: unknown, tok = scimTok) =>
+      fetch(`${base}/scim/v2/Groups${path}`, {
+        method,
+        headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+    // Rôle de provisioning configurable + mapping groupe IdP "Ingénierie" → manager.
+    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: { "Ingénierie": "manager" } });
+    ok("SCIM config : rôle invalide refusé (400)",
+      await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "inconnu" }).then(() => false, () => true));
+
+    // Créer le groupe SCIM avec Bob (id SCIM = user id) comme membre.
+    const grpResp = await scimG("", "POST", { displayName: "Ingénierie", externalId: "idp-eng-1", members: [{ value: bobScimId }] });
+    const grp = (await grpResp.json()) as { id: string; displayName: string; members: { value: string }[] };
+    ok("SCIM Groups : création (201) avec membre + schéma Group",
+      grpResp.status === 201 && grp.displayName === "Ingénierie" && grp.members.length === 1);
+
+    // Le mapping groupe→rôle promeut Bob (éditeur → manager) sur sa membership.
+    const membersAfter = (await alice.api.listMembers(org.id)).members as { userId: string; roleKey: string }[];
+    const bobRoleKey = membersAfter.find((m) => m.userId === bob.user.id)?.roleKey;
+    ok("SCIM Groups : mapping groupe→rôle promeut le membre (éditeur → manager)", bobRoleKey === "manager", `role=${bobRoleKey}`);
+
+    const gList = (await (await scimG(`?filter=${encodeURIComponent('displayName eq "Ingénierie"')}`, "GET")).json()) as { totalResults: number };
+    ok("SCIM Groups : liste filtrée par displayName", gList.totalResults === 1);
+    ok("SCIM Groups : jeton invalide → 401", (await scimG("", "GET", undefined, "mauvais-jeton")).status === 401);
+
+    // PATCH remove → le membre quitte le groupe (règle additive : pas de rétrogradation auto).
+    await scimG(`/${grp.id}`, "PATCH", { Operations: [{ op: "remove", path: `members[value eq "${bobScimId}"]` }] });
+    const grpAfter = (await (await scimG(`/${grp.id}`, "GET")).json()) as { members: unknown[] };
+    ok("SCIM Groups : PATCH remove retire le membre", grpAfter.members.length === 0);
+
+    const del = await scimG(`/${grp.id}`, "DELETE");
+    ok("SCIM Groups : suppression (204)", del.status === 204);
+
+    // Réinitialiser Bob en éditeur + purger le mapping pour ne pas perturber la suite.
+    await alice.api.setMemberRole(org.id, bob.user.id, roleIdByKey["editor"]!);
+    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: {} });
+
     // =========================================================================
     section("Recouvrement d'organisation (clé d'org)");
     // A third user, Carol, joins as ADMIN (admin role includes recovery.perform),

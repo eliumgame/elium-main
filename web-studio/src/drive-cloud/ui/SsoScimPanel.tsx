@@ -26,6 +26,9 @@ export default function SsoScimPanel() {
   const [jwks, setJwks] = useState("");
   const [jwksUri, setJwksUri] = useState("");
   const [domains, setDomains] = useState("");
+  const [roleOptions, setRoleOptions] = useState<{ key: string; name: string }[]>([]);
+  const [defaultRoleKey, setDefaultRoleKey] = useState("editor");
+  const [groupMap, setGroupMap] = useState<{ group: string; roleKey: string }[]>([]);
   const [configured, setConfigured] = useState(false);
   const [scimToken, setScimToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,8 +53,38 @@ export default function SsoScimPanel() {
     } catch {
       /* not configured yet, or insufficient permission — leave the form empty */
     }
+    try {
+      const { roles } = await d.api.listRoles(orgId);
+      setRoleOptions((roles as { key: string; name: string }[]).map((r) => ({ key: r.key, name: r.name })));
+    } catch {
+      /* insufficient permission — leave role options empty */
+    }
+    try {
+      const cfg = await d.api.getOrgScimConfig(orgId);
+      setDefaultRoleKey(cfg.defaultRoleKey ?? "editor");
+      setGroupMap(Object.entries(cfg.groupRoleMap ?? {}).map(([group, roleKey]) => ({ group, roleKey })));
+    } catch {
+      /* not configured yet, or insufficient permission */
+    }
   }, [orgId, d.api]);
   useEffect(() => { void load(); }, [load]);
+
+  const saveScimConfig = async () => {
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const groupRoleMap: Record<string, string> = {};
+      for (const row of groupMap) {
+        const g = row.group.trim();
+        if (g && row.roleKey) groupRoleMap[g] = row.roleKey;
+      }
+      await d.api.setOrgScimConfig(orgId, { defaultRoleKey, groupRoleMap });
+      setMsg("Configuration de provisioning SCIM enregistrée.");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Échec de l'enregistrement de la configuration SCIM.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const saveSso = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,6 +216,49 @@ export default function SsoScimPanel() {
           <button type="button" className="eb eb--primary eb--sm" disabled={busy} onClick={genScim}>
             <RefreshCw size={14} /> {scimToken ? "Régénérer un jeton" : "Générer un jeton SCIM"}
           </button>
+        </div>
+      </section>
+
+      <section className="dc-sso__card">
+        <h2 className="dc-sso__title"><KeyRound size={18} /> Rôles de provisioning SCIM</h2>
+        <p className="muted">
+          Rôle attribué par défaut aux membres provisionnés, et correspondance entre les groupes de votre
+          annuaire (SCIM /Groups) et les rôles Elium. Un membre d'un groupe mappé reçoit le rôle mappé le plus
+          privilégié. Les groupes SCIM sont des métadonnées de provisioning, pas des équipes chiffrées.
+        </p>
+        <label className="field"><span className="field__label">Rôle par défaut</span>
+          <select className="input" value={defaultRoleKey} onChange={(e) => setDefaultRoleKey(e.target.value)}>
+            {roleOptions.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+          </select>
+        </label>
+        <div className="field">
+          <span className="field__label">Correspondance groupe → rôle</span>
+          {groupMap.map((row, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              <input
+                className="input"
+                placeholder="Nom du groupe (annuaire)"
+                value={row.group}
+                onChange={(e) => setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, group: e.target.value } : x)))}
+              />
+              <select
+                className="input"
+                value={row.roleKey}
+                onChange={(e) => setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, roleKey: e.target.value } : x)))}
+              >
+                {roleOptions.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+              </select>
+              <button type="button" className="icon-btn" title="Retirer" onClick={() => setGroupMap((m) => m.filter((_, j) => j !== i))}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          <button type="button" className="eb eb--outline eb--sm" onClick={() => setGroupMap((m) => [...m, { group: "", roleKey: defaultRoleKey }])}>
+            + Ajouter une correspondance
+          </button>
+        </div>
+        <div className="dc-sso__actions">
+          <button type="button" className="eb eb--primary eb--sm" disabled={busy} onClick={saveScimConfig}>Enregistrer les rôles</button>
         </div>
       </section>
     </div>

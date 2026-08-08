@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { unzipSync, zipSync } from "fflate";
+import { unzipSync, zipSync, strToU8 } from "fflate";
 import { createEliumFile } from "../src/format/document";
 import { sha256Hex } from "../src/format/canonical";
 import {
@@ -70,6 +70,15 @@ describe("intégrité des ressources (adressées par contenu)", () => {
     const { file: out, integrity } = await readEliumPackage(tampered);
     expect(out.resources.has(id)).toBe(false);
     expect(integrity.resourcesTampered).toContain(id);
+  });
+
+  it("rejette une archive dont le mimetype OPC est absent/invalide", async () => {
+    const file = await createEliumFile({ title: "x", profile: "standard" });
+    const blob = await writeEliumPackage(file);
+    const entries = unzipSync(blob);
+    entries["mimetype"] = strToU8("application/zip"); // mauvais mimetype
+    const bad = zipSync(entries);
+    await expect(readEliumPackage(bad)).rejects.toThrow(/Elium/i);
   });
 });
 

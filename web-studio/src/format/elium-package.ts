@@ -270,7 +270,9 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   const files: Record<string, Uint8Array | [Uint8Array, { level: 0 | 9 }]> = {
     [ENTRY.mimetype]: [strToU8(ELIUM_MIMETYPE), { level: 0 }],
     [ENTRY.manifest]: strToU8(JSON.stringify(manifest, null, 2)),
-    [def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain]: contentBytes,
+    // Le contenu chiffré est de haute entropie : deflate ne gagne rien et coûte
+    // du CPU → STORED. Le contenu en clair (JSON) reste compressé.
+    [def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain]: def.encrypted ? [contentBytes, { level: 0 }] : contentBytes,
     [ENTRY.signatures]: strToU8(JSON.stringify(clearSignatures, null, 2)),
     [ENTRY.journal]: strToU8(JSON.stringify(clearJournal, null, 2)),
     [ENTRY.resIndex]: strToU8(JSON.stringify(resIndex, null, 2)),
@@ -279,7 +281,8 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
 
   for (const res of resIndex) {
     const bytes = file.resources.get(res.id);
-    if (bytes) files[`resources/${res.id}`] = bytes;
+    // Ressources (PNG/JPEG/polices) déjà compressées → STORED (gain CPU/taille).
+    if (bytes) files[`resources/${res.id}`] = [bytes, { level: 0 }];
   }
 
   return zipSync(files as Record<string, Uint8Array>);
@@ -294,6 +297,7 @@ export async function readEliumPackage(
   let entries: Record<string, Uint8Array>;
   let total = 0;
   let count = 0;
+  const seenNames = new Set<string>();
   try {
     entries = unzipSync(blob, {
       filter: (f) => {
@@ -302,6 +306,12 @@ export async function readEliumPackage(
         if (++count > MAX_ZIP_ENTRIES) {
           throw new EliumPackageError("Trop d'entrées dans l'archive .elium (protection DoS).");
         }
+        // Entrées dupliquées = archive suspecte (confusion d'analyseur : un autre
+        // outil pourrait lire l'autre occurrence, non couverte par le hash/sceau).
+        if (seenNames.has(f.name)) {
+          throw new EliumPackageError("Entrée d'archive .elium dupliquée (fichier suspect).");
+        }
+        seenNames.add(f.name);
         total += f.originalSize;
         if (f.originalSize > MAX_ENTRY_BYTES || total > MAX_TOTAL_BYTES) {
           throw new EliumPackageError("Fichier .elium trop volumineux (protection DoS).");
@@ -323,6 +333,13 @@ export async function readEliumPackage(
     if (len > MAX_ENTRY_BYTES) throw new EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).");
     actualTotal += len;
     if (actualTotal > MAX_TOTAL_BYTES) throw new EliumPackageError("Fichier .elium trop volumineux (protection DoS).");
+  }
+
+  // Contrat OPC : l'entrée `mimetype` doit exister et valoir la valeur exacte —
+  // refuse une archive ZIP quelconque renommée .elium (sniffing fiable).
+  const mimetypeRaw = entries[ENTRY.mimetype];
+  if (!mimetypeRaw || strFromU8(mimetypeRaw).trim() !== ELIUM_MIMETYPE) {
+    throw new EliumPackageError("Ce fichier n'est pas un document Elium (mimetype OPC absent ou invalide).");
   }
 
   const manifestRaw = entries[ENTRY.manifest];

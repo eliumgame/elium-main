@@ -68,6 +68,12 @@ export interface Studio {
   /** Re-sign an advanced signature after the author moved/resized it (drag commit). */
   commitSignature(id: string): void;
   removeSignature(id: string): void;
+  /**
+   * Parapheur: sign as a circuit party. Creates a real embedded Ed25519
+   * signature (proof) in the document and returns its id + the signer's public
+   * key so the circuit can link it, or null if it was cancelled / no identity.
+   */
+  signAsParty(party: { name: string; role?: string }): Promise<{ signatureId: string; publicKeyHex: string } | null>;
   selectSignature(id: string | null): void;
   onDocChange(doc: ProseMirrorNode): void;
   save(): Promise<void>;

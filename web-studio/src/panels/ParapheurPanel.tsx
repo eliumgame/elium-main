@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Stamp, UserPlus, Check, X, RotateCcw, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Stamp, UserPlus, PenLine, X, RotateCcw, Trash2, ArrowUp, ArrowDown, ShieldCheck, UserCheck } from "lucide-react";
 import { Button, Badge, EmptyState } from "../ui/components";
 import { getWorkflow, saveWorkflow, newPartyId, workflowStatus, type Party } from "../format/parapheur-store";
 import { docKeyOf } from "../format/doc-key";
+import { verdictLabel } from "../sign/proof";
+import { fingerprintWords } from "../sign/safety-words";
 import type { Studio } from "../studio/types";
 import { useDialogs } from "../ui/dialogs";
 
@@ -10,9 +12,11 @@ const STATUS_LABEL = { draft: "Brouillon", in_progress: "En signature", complete
 const STATUS_ACCENT = { draft: "neutral", in_progress: "info", completed: "success", rejected: "danger" } as const;
 
 /**
- * Parapheur: ordered signing circuit for the document. Local-first tracker (v1):
- * define the parties in signing order and follow each one's status. The actual
- * cryptographic signatures are produced by the existing Elium Sign engine.
+ * Parapheur: ordered signing circuit for the document. Each party signs at their
+ * turn and their "signé" is backed by a REAL Ed25519 signature embedded in the
+ * document (and covered by the seal) — not a mere local flag. The circuit itself
+ * (order/status) is still tracked locally in this browser (its travel inside the
+ * .elium is a follow-up); the cryptographic proofs, however, travel with the file.
  */
 export default function ParapheurPanel({ studio }: { studio: Studio }) {
   const docKey = docKeyOf(studio.file.manifest);
@@ -41,8 +45,26 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
     persist([...parties, { id: newPartyId(), name: name.trim(), role: role.trim(), status: "pending" }]);
   };
 
-  const setStatus = (id: string, status: Party["status"]) =>
-    persist(parties.map((p) => (p.id === id ? { ...p, status, updatedAt: new Date().toISOString() } : p)));
+  // Really sign as this party: produce an embedded, sealed Ed25519 signature.
+  const sign = async (party: Party) => {
+    const link = await studio.signAsParty({ name: party.name, role: party.role });
+    if (!link) return; // cancelled / no identity
+    const at = new Date().toISOString();
+    persist(parties.map((p) => (p.id === party.id
+      ? { ...p, status: "signed", signatureId: link.signatureId, publicKeyHex: link.publicKeyHex, signedAt: at, updatedAt: at }
+      : p)));
+  };
+
+  const reject = (id: string) =>
+    persist(parties.map((p) => (p.id === id ? { ...p, status: "rejected", updatedAt: new Date().toISOString() } : p)));
+
+  // Reset undoes the signing: drop the link AND remove the embedded signature.
+  const reset = (party: Party) => {
+    if (party.signatureId) studio.removeSignature(party.signatureId);
+    persist(parties.map((p) => (p.id === party.id
+      ? { ...p, status: "pending", signatureId: undefined, publicKeyHex: undefined, signedAt: undefined, updatedAt: new Date().toISOString() }
+      : p)));
+  };
 
   const move = (id: string, dir: -1 | 1) => {
     const i = parties.findIndex((p) => p.id === id);
@@ -65,52 +87,73 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
         <Badge accent={STATUS_ACCENT[overall]}>{STATUS_LABEL[overall]}</Badge>
       </div>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Circuit de signature ordonné (suivi local). Chaque partie signe à son tour via Elium Sign ;
-        marquez ici l'avancement. Le voyage du circuit dans le `.elium` viendra ensuite.
+        Circuit de signature ordonné. Chaque partie signe à son tour : sa signature est une vraie preuve
+        Ed25519 embarquée dans le document et couverte par le sceau. L'ordre et le suivi sont conservés
+        localement (le voyage du circuit dans le <code>.elium</code> viendra ensuite).
       </p>
 
       {parties.length === 0 ? (
         <EmptyState title="Aucun signataire" hint="Ajoutez les parties dans l'ordre de signature." />
       ) : (
         <ol className="party-list">
-          {parties.map((p, i) => (
-            <li key={p.id} className={`party-item ${i === nextPendingIdx ? "is-next" : ""}`}>
-              <div className="party-item__main">
-                <span className="party-item__order">{i + 1}</span>
-                <div className="party-item__info">
-                  <div className="party-item__name">{p.name}</div>
-                  {p.role && <div className="party-item__role">{p.role}</div>}
+          {parties.map((p, i) => {
+            const isNext = i === nextPendingIdx;
+            const verdict = p.signatureId ? studio.verdicts[p.signatureId] : undefined;
+            const attributedTo = p.signatureId ? studio.attributions[p.signatureId] : undefined;
+            const tagClass = p.status === "signed"
+              ? (verdict === "modified" || verdict === "invalid" ? "invalid" : "valid")
+              : p.status === "rejected" ? "invalid" : "visual_only";
+            const tagText = p.status === "signed"
+              ? (verdict ? verdictLabel(verdict) : "Signé")
+              : p.status === "rejected" ? "Refusé" : "En attente";
+            return (
+              <li key={p.id} className={`party-item ${isNext ? "is-next" : ""}`}>
+                <div className="party-item__main">
+                  <span className="party-item__order">{i + 1}</span>
+                  <div className="party-item__info">
+                    <div className="party-item__name">{p.name}</div>
+                    {p.role && <div className="party-item__role">{p.role}</div>}
+                    {p.status === "signed" && (
+                      <div className="party-item__proof">
+                        {attributedTo
+                          ? <><UserCheck size={12} /> {attributedTo} (clé de confiance)</>
+                          : p.publicKeyHex
+                            ? <><ShieldCheck size={12} /> {fingerprintWords(p.publicKeyHex)}</>
+                            : null}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`sig-tag sig-tag--${tagClass}`}>{tagText}</span>
                 </div>
-                <span
-                  className={`sig-tag sig-tag--${
-                    p.status === "signed" ? "valid" : p.status === "rejected" ? "invalid" : "visual_only"
-                  }`}
-                >
-                  {p.status === "signed" ? "Signé" : p.status === "rejected" ? "Refusé" : "En attente"}
-                </span>
-              </div>
-              <div className="party-item__actions">
-                <button className="icon-btn" title="Monter" onClick={() => move(p.id, -1)} disabled={i === 0}>
-                  <ArrowUp size={14} />
-                </button>
-                <button className="icon-btn" title="Descendre" onClick={() => move(p.id, 1)} disabled={i === parties.length - 1}>
-                  <ArrowDown size={14} />
-                </button>
-                <button className="icon-btn" title="Marquer signé" onClick={() => setStatus(p.id, "signed")}>
-                  <Check size={15} />
-                </button>
-                <button className="icon-btn icon-btn--danger" title="Marquer refusé" onClick={() => setStatus(p.id, "rejected")}>
-                  <X size={15} />
-                </button>
-                <button className="icon-btn" title="Réinitialiser" onClick={() => setStatus(p.id, "pending")}>
-                  <RotateCcw size={15} />
-                </button>
-                <button className="icon-btn icon-btn--danger" title="Retirer du circuit" onClick={() => remove(p.id)}>
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            </li>
-          ))}
+                <div className="party-item__actions">
+                  <button className="icon-btn" title="Monter" onClick={() => move(p.id, -1)} disabled={i === 0}>
+                    <ArrowUp size={14} />
+                  </button>
+                  <button className="icon-btn" title="Descendre" onClick={() => move(p.id, 1)} disabled={i === parties.length - 1}>
+                    <ArrowDown size={14} />
+                  </button>
+                  {p.status === "pending" && isNext && studio.editable && (
+                    <>
+                      <button className="icon-btn" title="Signer (preuve Ed25519)" disabled={studio.busy} onClick={() => void sign(p)}>
+                        <PenLine size={15} />
+                      </button>
+                      <button className="icon-btn icon-btn--danger" title="Refuser" onClick={() => reject(p.id)}>
+                        <X size={15} />
+                      </button>
+                    </>
+                  )}
+                  {(p.status === "signed" || p.status === "rejected") && studio.editable && (
+                    <button className="icon-btn" title="Réinitialiser (retire la signature)" onClick={() => reset(p)}>
+                      <RotateCcw size={15} />
+                    </button>
+                  )}
+                  <button className="icon-btn icon-btn--danger" title="Retirer du circuit" onClick={() => remove(p.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ol>
       )}
 

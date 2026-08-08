@@ -1244,6 +1244,7 @@
 .party-item__info { flex: 1; min-width: 0; }
 .party-item__name { font-weight: 600; font-size: 13px; word-break: break-word; }
 .party-item__role { font-size: 11px; color: var(--text-muted); }
+.party-item__proof { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 11px; color: var(--success); font-family: var(--mono); word-break: break-word; }
 .party-item__actions { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 6px; }
 
 /* --- App Tableur ---------------------------------------------------------- */

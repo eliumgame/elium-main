@@ -834,6 +834,36 @@ export default function App() {
     await recompute(nf);
   }, [identity, file, recompute]);
 
+  // Parapheur: the current user signs as a circuit party. Produces a REAL
+  // embedded Ed25519 signature (proof) added to the document — it travels in the
+  // .elium and is covered by the seal — and returns the link so the circuit can
+  // record which signature backs this party's "signed" status.
+  const signAsParty = useCallback(
+    async (party: { name: string; role?: string }): Promise<{ signatureId: string; publicKeyHex: string } | null> => {
+      if (!file) return null;
+      if (!identity) { setError("Générez d'abord une identité de signature (Paramètres)."); return null; }
+      setBusy(true);
+      try {
+        const pk = await ensurePrivateKey();
+        if (!pk) return null;
+        const id = randomId("sig");
+        const placement: EliumSignature["placement"] = { page: 1, xPct: 0.34, yPct: 0.78, wPct: 0.3, hPct: 0.12, rotation: 0, z: file.signatures.length, anchorType: "page" };
+        const signer = { name: party.name, role: party.role };
+        const visual = { text: party.name, subText: party.role };
+        const proof = await createProof({ signatureId: id, model: file.document, signer, privateKeyHex: pk, placement, visual });
+        const sig: EliumSignature = { id, kind: "typed", visual, placement, signer, proof, level: "advanced", createdAt: new Date().toISOString() };
+        const nf = await addSignature(file, sig);
+        setFile(nf);
+        setSelectedSig(id);
+        await recompute(nf);
+        return { signatureId: id, publicKeyHex: identity.publicKeyHex };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [file, identity, ensurePrivateKey, recompute],
+  );
+
   const removeSignature = useCallback((id: string) => {
     setFile((prev) => (prev ? removeSig(prev, id) : prev));
     setSelectedSig((cur) => (cur === id ? null : cur));
@@ -1072,7 +1102,7 @@ export default function App() {
         setTitle, trustContact, untrustContact, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
-        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig,
+        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig, signAsParty,
         onDocChange, save, exportAs, goHome, toViewer, toEditor, trustSealKey,
         openSettings: () => setSettingsOpen(true),
       }

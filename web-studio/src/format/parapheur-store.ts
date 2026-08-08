@@ -26,6 +26,15 @@ export interface Party {
   status: PartyStatus;
   note?: string;
   updatedAt?: string;
+  /**
+   * When status === "signed", these link the party to the REAL embedded Ed25519
+   * signature they produced (in the document's `signatures`, covered by the
+   * seal). The party's "signed" is then backed by a verifiable proof, not a mere
+   * local flag. Absent on legacy circuits and on rejected/pending parties.
+   */
+  signatureId?: string;
+  publicKeyHex?: string;
+  signedAt?: string;
 }
 
 export interface Workflow {

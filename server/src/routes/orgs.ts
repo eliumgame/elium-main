@@ -473,6 +473,80 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // --- Recovery: ROTATE the org keypair ------------------------------------
+  // Client-driven (zero-knowledge): the admin holds the OLD org key, generates a
+  // NEW org keypair, re-wraps every node's org-principal CEK to the new org
+  // public key, and re-wraps the new org PRIVATE key to each recovery admin. The
+  // server atomically swaps org_public_hex, replaces all principal_type='org'
+  // node_keys, replaces all org_recovery_keys, and bumps org_key_epoch. File
+  // content is untouched (old versions still readable). Requires the payload to
+  // cover EVERY current recovery admin so none is locked out.
+  app.post("/:orgId/recovery/rotate-org", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    const b = z
+      .object({
+        newOrgPublicHex: hex(130),
+        nodeKeys: z.array(z.object({ nodeId: z.string().uuid(), wrappedKey: envelope })).max(100000),
+        recoveryKeys: z.array(z.object({ adminUserId: z.string().uuid(), wrappedOrgPrivate: envelope })).min(1).max(1000),
+        expectedEpoch: z.number().int().nonnegative().optional(),
+      })
+      .parse(req.body);
+    const actor = requireUser(req);
+    await requireOrgPerm(req, orgId, "recovery.perform");
+    await requireOrgPerm(req, orgId, "org.settings.manage");
+
+    const updated = await withTx(async (c) => {
+      const org = await c.query<{ org_key_epoch: number }>(
+        `SELECT org_key_epoch FROM organizations WHERE id = $1 FOR UPDATE`,
+        [orgId],
+      );
+      if (!org.rows.length) throw notFound();
+      if (b.expectedEpoch !== undefined && org.rows[0]!.org_key_epoch !== b.expectedEpoch) {
+        throw conflict("La clé d'organisation a changé entre-temps — relancez la rotation.");
+      }
+
+      // The new recovery-admin set must cover EVERY current admin (no lock-out)
+      // and include the actor performing the rotation.
+      const current = await c.query<{ admin_user_id: string }>(
+        `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1`,
+        [orgId],
+      );
+      const provided = new Set(b.recoveryKeys.map((k) => k.adminUserId));
+      const missing = current.rows.map((r) => r.admin_user_id).filter((id) => !provided.has(id));
+      if (missing.length) throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
+      if (!provided.has(actor.id)) throw badRequest("La rotation doit inclure l'administrateur qui l'effectue.");
+
+      await c.query(
+        `UPDATE organizations SET org_public_hex = $2, org_key_epoch = org_key_epoch + 1, updated_at = now() WHERE id = $1`,
+        [orgId, b.newOrgPublicHex],
+      );
+
+      // Replace every existing org-principal node key with its re-wrapped form.
+      let rewrapped = 0;
+      for (const nk of b.nodeKeys) {
+        const r = await c.query(
+          `UPDATE node_keys SET wrapped_key = $3
+             WHERE node_id = $1 AND principal_type = 'org' AND principal_id = $2`,
+          [nk.nodeId, orgId, JSON.stringify(nk.wrappedKey)],
+        );
+        rewrapped += r.rowCount ?? 0;
+      }
+
+      // Replace all recovery-admin wrapped copies of the (new) org private key.
+      await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1`, [orgId]);
+      for (const rk of b.recoveryKeys) {
+        await c.query(
+          `INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private) VALUES ($1,$2,$3)`,
+          [orgId, rk.adminUserId, JSON.stringify(rk.wrappedOrgPrivate)],
+        );
+      }
+      return rewrapped;
+    });
+
+    await audit(orgId, actor.id, "recovery.org.rotate", "org", orgId, { nodesRewrapped: updated, admins: b.recoveryKeys.length }, req.ip);
+    return { ok: true, nodesRewrapped: updated };
+  });
+
   // --- Recovery: list the admins who hold a wrapped org private key ---------
   // These are the people who CAN perform recovery (they can unwrap the org key).
   app.get("/:orgId/recovery/admins", async (req) => {

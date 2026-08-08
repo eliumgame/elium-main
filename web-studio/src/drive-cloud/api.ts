@@ -390,6 +390,18 @@ export class DriveApi {
   listRecoveryNodes(orgId: string) {
     return this.json<{ nodes: RecoveryNode[] }>("GET", `/orgs/${orgId}/recovery/nodes`);
   }
+  /** Rotate the org keypair (all wrapping done client-side; atomic server swap). */
+  rotateOrgKey(
+    orgId: string,
+    body: {
+      newOrgPublicHex: string;
+      nodeKeys: { nodeId: string; wrappedKey: WrappedKey }[];
+      recoveryKeys: { adminUserId: string; wrappedOrgPrivate: WrappedKey }[];
+      expectedEpoch?: number;
+    },
+  ) {
+    return this.json<{ ok: boolean; nodesRewrapped: number }>("POST", `/orgs/${orgId}/recovery/rotate-org`, { body });
+  }
 
   // === Roles ===============================================================
   permissionCatalog() {

@@ -25,7 +25,7 @@ import { buildRegistration, prepareLogin, unlockAccount, signLoginChallenge, typ
 import type { LoginResponse } from "../src/drive-cloud/types";
 import * as ops from "../src/drive-cloud/ops";
 import { encryptContent, decryptContent, decryptName } from "../src/drive-cloud/node-crypto";
-import { promoteRecoveryAdmin, restoreNodeAccess, withOrgKey, decryptRecoveryNodeNames } from "../src/drive-cloud/recovery";
+import { promoteRecoveryAdmin, restoreNodeAccess, withOrgKey, decryptRecoveryNodeNames, rotateOrgKey } from "../src/drive-cloud/recovery";
 import type { RecoveryContext } from "../src/drive-cloud/recovery";
 import { revokeShareWithRotation } from "../src/drive-cloud/rotate";
 import { EncryptedYjsProvider } from "../src/drive-cloud/collab-provider";
@@ -726,6 +726,31 @@ async function main(): Promise<void> {
     // An editor cannot perform a grant himself (recovery.perform is required).
     await expectStatus("recouvrement : grant refusé à l'éditeur (recovery.perform)",
       bob.api.recoveryGrant(org.id, { nodeId: payslipFile.id, targetUserId: bob.user.id, roleId: carolRoleIdByKey["editor"]!, wrappedKey: {} }), 403);
+
+    // --- Rotation de la clé d'organisation ---
+    const membersForRot = (await alice.api.listMembers(org.id)).members as { userId: string; p256PublicHex: string }[];
+    const recAdminIds = new Set((await alice.api.listRecoveryAdmins(org.id)).admins.map((a) => a.userId));
+    const rotAdmins = membersForRot.filter((m) => recAdminIds.has(m.userId)).map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
+    const ctxAliceRot: RecoveryContext = { api: alice.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: alice.keys.recipient };
+    const orgRot = await rotateOrgKey(ctxAliceRot, rotAdmins);
+    ok("rotation clé org : nœuds re-chiffrés vers une nouvelle clé publique",
+      orgRot.nodesRewrapped >= 1 && orgRot.newOrgPublicHex !== org.orgPublicHex, `n=${orgRot.nodesRewrapped}`);
+
+    // Carol (admin de recouvrement) déballe la NOUVELLE clé privée d'org et
+    // continue de recouvrer via la clé tournée (ses lignes + les node_keys d'org
+    // ont été re-chiffrées).
+    const ctxCarolNew: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: orgRot.newOrgPublicHex, adminKeys: carol.keys.recipient };
+    const carolOrgPrivNew = await withOrgKey(ctxCarolNew, async (kp) => kp.privateHex);
+    ok("rotation : Carol déballe la NOUVELLE clé privée d'org (différente de l'ancienne)",
+      carolOrgPrivNew !== orgKp.privateHex && carolOrgPrivNew.length === orgKp.privateHex.length);
+    const recNodes2 = (await carol.api.listRecoveryNodes(org.id)).nodes;
+    const names2 = await decryptRecoveryNodeNames(ctxCarolNew, recNodes2);
+    ok("rotation : Carol déchiffre toujours le nom via la clé d'org tournée", names2.get(payslipFile.id) === "paie.txt");
+
+    // L'ANCIENNE clé publique d'org ne déchiffre plus (les partages org ont changé).
+    const ctxCarolOld: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: carol.keys.recipient };
+    const namesOld = await decryptRecoveryNodeNames(ctxCarolOld, recNodes2);
+    ok("rotation : l'ancienne clé publique d'org ne recouvre plus", !namesOld.get(payslipFile.id));
 
     // =========================================================================
     section("Journal d'audit");

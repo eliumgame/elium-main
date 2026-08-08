@@ -12,11 +12,11 @@
  * holds the key in state.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LifeBuoy, ShieldAlert, UserCog, KeyRound, FolderTree, Folder, FileText, Check, RotateCcw, Search } from "lucide-react";
+import { LifeBuoy, ShieldAlert, UserCog, KeyRound, FolderTree, Folder, FileText, Check, RotateCcw, RefreshCw, Search } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
 import { ApiError } from "../api";
-import { promoteRecoveryAdmin, restoreNodeAccess, decryptRecoveryNodeNames, type RecoveryContext } from "../recovery";
+import { promoteRecoveryAdmin, restoreNodeAccess, decryptRecoveryNodeNames, rotateOrgKey, type RecoveryContext } from "../recovery";
 import type { RecoveryAdmin, RecoveryNode } from "../types";
 
 interface Member {
@@ -42,6 +42,7 @@ export default function RecoveryPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rotProgress, setRotProgress] = useState<number | null>(null);
 
   // Restore-access state.
   const [nodes, setNodes] = useState<DecryptedNode[] | null>(null);
@@ -104,6 +105,43 @@ export default function RecoveryPanel() {
       setErr(e instanceof Error ? e.message : "Promotion impossible.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const rotate = async () => {
+    if (!ctx) return;
+    const rotAdmins = members.filter((m) => adminIds.has(m.userId)).map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
+    if (rotAdmins.length === 0) {
+      setErr("Aucun administrateur de recouvrement à re-chiffrer.");
+      return;
+    }
+    if (
+      !(await dialogs.confirm({
+        title: "Faire tourner la clé d'organisation",
+        message:
+          "Générer une nouvelle clé de recouvrement d'organisation ? Toutes les clés de contenu seront ré-emballées vers la nouvelle clé et l'ancienne cessera de fonctionner. L'opération peut prendre un moment selon le nombre de fichiers, puis l'application se rechargera.",
+        confirmLabel: "Faire tourner la clé",
+      }))
+    )
+      return;
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+    setRotProgress(0);
+    try {
+      const res = await rotateOrgKey(ctx, rotAdmins, {
+        onProgress: (done, total) => setRotProgress(total ? Math.round((done * 100) / total) : 100),
+      });
+      await dialogs.alert({
+        title: "Clé d'organisation renouvelée",
+        message: `${res.nodesRewrapped} élément(s) ré-emballé(s) vers la nouvelle clé. L'application va se recharger.`,
+      });
+      window.location.reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Rotation impossible.");
+    } finally {
+      setBusy(false);
+      setRotProgress(null);
     }
   };
 
@@ -224,6 +262,21 @@ export default function RecoveryPanel() {
             <Check size={14} /> Promouvoir
           </button>
         </div>
+      </section>
+
+      {/* --- Rotate the org key -------------------------------------------- */}
+      <section className="dc-sso__card">
+        <h2 className="dc-sso__title"><RefreshCw size={18} /> Rotation de la clé d'organisation</h2>
+        <p className="muted">
+          Renouvelle la clé de recouvrement : toutes les clés de contenu sont ré-emballées vers une nouvelle clé
+          d'organisation et l'ancienne cesse de fonctionner. À faire après le départ d'un administrateur de
+          recouvrement, ou périodiquement. Le contenu des fichiers n'est pas re-chiffré — les anciennes versions
+          restent lisibles.
+        </p>
+        {rotProgress !== null && <p className="muted">Ré-emballage en cours… {rotProgress} %</p>}
+        <button className="eb eb--sm eb--outline" disabled={busy || !ctx || admins.length === 0} onClick={() => void rotate()}>
+          <RefreshCw size={14} /> Faire tourner la clé
+        </button>
       </section>
 
       {/* --- Restore access ------------------------------------------------- */}

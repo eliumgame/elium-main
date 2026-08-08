@@ -25,7 +25,7 @@
  */
 import type { DriveApi } from "./api";
 import type { RecipientKeypair } from "../crypto/recipients";
-import { decryptAsRecipient } from "../crypto/recipients";
+import { decryptAsRecipient, generateRecipientKeypair } from "../crypto/recipients";
 import { wrapNodeKeyFor, unwrapNodeKey, decryptName, type WrappedKey } from "./node-crypto";
 import { toHex, fromHex } from "../format/canonical";
 
@@ -108,6 +108,65 @@ export async function restoreNodeAccess(
       wipe(cek);
     }
   });
+}
+
+/**
+ * ROTATE the org keypair. Generates a new org keypair, re-wraps every node's
+ * org-principal CEK to the new org public key, and re-wraps the new org private
+ * key to each recovery admin — all client-side. The server then atomically swaps
+ * org_public_hex, replaces all org node-keys + recovery-admin copies, and bumps
+ * the org key epoch. File content is NOT re-encrypted (old versions keep working).
+ *
+ * `admins` MUST list every current recovery admin with their P-256 public key
+ * (fetch via listMembers), or the server rejects the rotation to avoid lock-out.
+ * After success the caller must refresh the org's public key in session state —
+ * subsequent recovery ops need the NEW `orgPublicHex`.
+ */
+export async function rotateOrgKey(
+  ctx: RecoveryContext,
+  admins: { userId: string; publicHex: string }[],
+  opts: { onProgress?: (done: number, total: number) => void } = {},
+): Promise<{ newOrgPublicHex: string; nodesRewrapped: number }> {
+  if (admins.length === 0) throw new Error("Aucun administrateur de recouvrement pour la rotation.");
+  const { nodes } = await ctx.api.listRecoveryNodes(ctx.orgId);
+  const newKp = await generateRecipientKeypair();
+
+  const built = await withOrgKey(ctx, async (oldOrgKp) => {
+    const nodeKeys: { nodeId: string; wrappedKey: WrappedKey }[] = [];
+    let done = 0;
+    for (const n of nodes) {
+      let cek: Uint8Array | null = null;
+      try {
+        cek = await unwrapNodeKey(n.orgWrappedKey, oldOrgKp);
+        nodeKeys.push({ nodeId: n.id, wrappedKey: await wrapNodeKeyFor(cek, newKp.publicHex) });
+      } catch {
+        /* node with no decryptable org share — skip (keeps its own shares) */
+      } finally {
+        wipe(cek);
+      }
+      opts.onProgress?.(++done, nodes.length);
+    }
+    // Re-wrap the NEW org private key to every recovery admin (incl. the actor).
+    const newPriv = fromHex(newKp.privateHex);
+    const recoveryKeys: { adminUserId: string; wrappedOrgPrivate: WrappedKey }[] = [];
+    try {
+      for (const a of admins) {
+        if (!a.publicHex) continue;
+        recoveryKeys.push({ adminUserId: a.userId, wrappedOrgPrivate: await wrapNodeKeyFor(newPriv, a.publicHex) });
+      }
+    } finally {
+      wipe(newPriv);
+    }
+    return { nodeKeys, recoveryKeys };
+  });
+
+  const res = await ctx.api.rotateOrgKey(ctx.orgId, {
+    newOrgPublicHex: newKp.publicHex,
+    nodeKeys: built.nodeKeys,
+    recoveryKeys: built.recoveryKeys,
+  });
+  newKp.privateHex = ""; // drop the new private reference (best-effort)
+  return { newOrgPublicHex: newKp.publicHex, nodesRewrapped: res.nodesRewrapped };
 }
 
 /**

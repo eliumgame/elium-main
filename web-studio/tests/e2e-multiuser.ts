@@ -739,6 +739,47 @@ async function main(): Promise<void> {
       actions.has("recovery.admin.grant") && actions.has("recovery.grant"), [...actions].join(","));
     await expectStatus("Bob : audit refusé (audit.view)", bob.api.listAudit(org.id), 403);
 
+    // =========================================================================
+    section("RGPD — suppression de compte + transfert de propriété");
+
+    // Transfert de propriété : org à deux membres.
+    const ownerU = await newUser(base, "owner-rgpd@acme.fr", "OwnerRGPD");
+    const okp = await generateRecipientKeypair();
+    const owrapped = JSON.parse(dec.decode(await encryptForRecipients(fromHex(okp.privateHex), [ownerU.keys.recipient.publicHex]))) as Record<string, unknown>;
+    const oorg = (await ownerU.api.createOrg({ name: "Transfert SARL", slug: "transfert-sarl", orgPublicHex: okp.publicHex, wrappedOrgPrivate: owrapped })).org as { id: string };
+    const oRoles = (await ownerU.api.listRoles(oorg.id)).roles as RoleDef[];
+    const oRoleIdByKey: Record<string, string> = Object.fromEntries(oRoles.map((r) => [r.key, r.id]));
+    const heir = await newUser(base, "heir-rgpd@acme.fr", "HeirRGPD");
+    const invH = await ownerU.api.invite(oorg.id, { email: heir.user.email, roleId: oRoleIdByKey["admin"]! });
+    await heir.api.acceptInvite(invH.token);
+
+    const pf1 = await ownerU.api.deletionPreflight();
+    ok("RGPD : preflight bloque le propriétaire d'une org à membres",
+      pf1.canDelete === false && pf1.ownedOrgsWithMembers.some((o) => o.id === oorg.id));
+    await expectStatus("RGPD : seul le propriétaire transfère (403)", heir.api.transferOrgOwnership(oorg.id, ownerU.user.id), 403);
+    ok("RGPD : transfert de propriété réussi", (await ownerU.api.transferOrgOwnership(oorg.id, heir.user.id)).ok === true);
+    const afterMembers = (await heir.api.listMembers(oorg.id)).members as { userId: string; roleKey: string }[];
+    ok("RGPD : le nouveau propriétaire a le rôle owner", afterMembers.find((m) => m.userId === heir.user.id)?.roleKey === "owner");
+
+    // Suppression de compte (happy path) : Dan, propriétaire d'une org SOLO.
+    const dan = await newUser(base, "dan-rgpd@acme.fr", "DanRGPD");
+    const dkp = await generateRecipientKeypair();
+    const dwrapped = JSON.parse(dec.decode(await encryptForRecipients(fromHex(dkp.privateHex), [dan.keys.recipient.publicHex]))) as Record<string, unknown>;
+    await dan.api.createOrg({ name: "Dan Solo", slug: "dan-solo", orgPublicHex: dkp.publicHex, wrappedOrgPrivate: dwrapped });
+    const pfDan = await dan.api.deletionPreflight();
+    ok("RGPD : preflight autorise le propriétaire d'une org solo", pfDan.canDelete === true);
+
+    const preDan = await new DriveApi({ baseUrl: base }).prelogin(dan.user.email);
+    const danSeed = (await prepareLogin(dan.password, preDan.kdfSalt, preDan.kdfParams as KdfParams)).authSignSeedHex;
+    await expectStatus("RGPD : preuve invalide refusée (400)",
+      dan.api.deleteMyAccount(await signLoginChallenge("elium:delete-account:mauvais", danSeed)), 400);
+    const proof = await signLoginChallenge(`elium:delete-account:${dan.user.email.toLowerCase()}`, danSeed);
+    const delRes = await dan.api.deleteMyAccount(proof);
+    ok("RGPD : compte supprimé + org solo supprimée", delRes.ok === true && delRes.deletedOrgs === 1);
+    let danLoginFailed = false;
+    try { await loginFull(base, dan.user.email, dan.password); } catch { danLoginFailed = true; }
+    ok("RGPD : connexion impossible après suppression du compte", danLoginFailed);
+
     // Intégrité chaînée : après création/partage/révocation/rotation/recouvrement,
     // la chaîne d'entry_hash doit être intacte (toutes les entrées vérifiées).
     const integrity = await alice.api.verifyAudit(org.id);

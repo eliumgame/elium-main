@@ -15,8 +15,9 @@ import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
 import { verifyEd25519 } from "../lib/crypto-server.js";
-import { notFound, badRequest } from "../lib/errors.js";
+import { notFound, badRequest, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { accountDeletionBlockers, eraseAccount, AccountDeletionBlocked } from "../lib/account-deletion.js";
 
 /** Public identity material — safe to reveal to any authenticated user. */
 function publicUserDto(u: {
@@ -189,6 +190,47 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     }
     await audit(null, user.id, "session.revoke", "session", sessionId, {}, req.ip);
     return { ok: true };
+  });
+
+  // --- RGPD: preflight — what blocks erasing my account? -------------------
+  app.get("/me/deletion-preflight", async (req) => {
+    const user = requireUser(req);
+    const blockers = await accountDeletionBlockers(user.id);
+    return {
+      canDelete: blockers.ownedOrgsWithMembers.length === 0 && blockers.soleRecoveryAdminOrgs.length === 0,
+      ...blockers,
+    };
+  });
+
+  // --- RGPD: erase my account (right to erasure) ---------------------------
+  // Requires a fresh proof of possession of the account's auth key (signature
+  // over "elium:delete-account:<email>"), so a merely-stolen access token can't
+  // destroy the account. Personal data + key material are wiped and the account
+  // disabled; an anonymized id survives only to keep the audit chain valid.
+  app.delete("/me", async (req) => {
+    const { proof } = z.object({ proof: z.string().regex(/^[0-9a-f]{128}$/) }).parse(req.body ?? {});
+    const user = requireUser(req);
+    const u = await queryOne<{ auth_sign_public_hex: string | null }>(
+      `SELECT auth_sign_public_hex FROM users WHERE id = $1 AND status = 'active'`,
+      [user.id],
+    );
+    if (!u?.auth_sign_public_hex) throw badRequest("Compte introuvable ou sans clé d'authentification.");
+    if (!verifyEd25519(`elium:delete-account:${user.email.toLowerCase()}`, proof, u.auth_sign_public_hex)) {
+      throw badRequest("Preuve de possession invalide : signez « elium:delete-account:<email> » avec votre clé d'authentification.");
+    }
+
+    try {
+      const res = await eraseAccount(user.id);
+      // System-level audit (org null). The tombstone id keeps this attributable
+      // and the chain valid.
+      await audit(null, user.id, "account.erased", "user", user.id, { deletedOrgs: res.deletedOrgs, transferredNodes: res.transferredNodes }, req.ip);
+      return { ok: true, ...res };
+    } catch (e) {
+      if (e instanceof AccountDeletionBlocked) {
+        throw new ApiError(409, "conflict", "Transférez la propriété / promouvez un administrateur de recouvrement avant de supprimer votre compte.", e.blockers);
+      }
+      throw e;
+    }
   });
 
   // --- Directory lookup by user id -----------------------------------------

@@ -17,7 +17,7 @@ import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser, requireOrgPerm } from "../middleware/auth.js";
 import { SYSTEM_ROLE_TEMPLATES } from "../rbac/roles.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
-import { badRequest, notFound, conflict } from "../lib/errors.js";
+import { badRequest, notFound, conflict, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
 const hex = (len?: number) => (len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/));
@@ -283,6 +283,37 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     if (!removed) throw notFound("Membre introuvable dans cette organisation.");
 
     await audit(orgId, actor.id, "member.remove", "membership", removed.id as string, { userId }, req.ip);
+    return { ok: true };
+  });
+
+  // --- Transfer organization ownership -------------------------------------
+  // Only the CURRENT owner may transfer (ownership is stronger than any
+  // permission). The new owner must be an active member and is granted the owner
+  // role. NOTE (zero-knowledge): this changes the authz owner only — to actually
+  // recover files the new owner must also hold a wrapped org key (be promoted as
+  // a recovery admin, client-side). Enables the RGPD flow: hand off before erase.
+  app.post("/:orgId/transfer-ownership", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    const b = z.object({ newOwnerUserId: z.string().uuid() }).parse(req.body);
+    const actor = requireUser(req);
+
+    const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [orgId]);
+    if (!org) throw notFound();
+    if (org.owner_user_id !== actor.id) throw forbidden("Seul le propriétaire actuel peut transférer la propriété.");
+    if (b.newOwnerUserId === actor.id) throw badRequest("Le nouveau propriétaire doit être différent de l'actuel.");
+
+    const member = await queryOne<{ id: string }>(
+      `SELECT id FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'`,
+      [orgId, b.newOwnerUserId],
+    );
+    if (!member) throw badRequest("Le nouveau propriétaire doit être un membre actif de l'organisation.");
+    const ownerRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [orgId]);
+
+    await withTx(async (c) => {
+      await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1`, [orgId, b.newOwnerUserId]);
+      if (ownerRole) await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [orgId, b.newOwnerUserId, ownerRole.id]);
+    });
+    await audit(orgId, actor.id, "org.ownership.transfer", "org", orgId, { newOwnerUserId: b.newOwnerUserId }, req.ip);
     return { ok: true };
   });
 

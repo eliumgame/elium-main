@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, ShieldAlert, Smartphone, KeyRound, Copy, Check, RefreshCw, Fingerprint, Plus, Trash2, Unlock, LockKeyhole } from "lucide-react";
 import { useDrive } from "../session";
+import { prepareLogin, signLoginChallenge } from "../account";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
 
@@ -31,6 +32,7 @@ export default function SecurityPanel() {
   const [pkBusy, setPkBusy] = useState(false);
   const [unlockBusy, setUnlockBusy] = useState(false);
   const [unlockMsg, setUnlockMsg] = useState<string | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -197,6 +199,42 @@ export default function SecurityPanel() {
 
   const enabled = status?.enabled ?? false;
 
+  const deleteAccount = async () => {
+    setErr(null);
+    let pre: Awaited<ReturnType<typeof d.api.deletionPreflight>>;
+    try {
+      pre = await d.api.deletionPreflight();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Vérification préalable impossible.");
+      return;
+    }
+    if (!pre.canDelete) {
+      const parts: string[] = [];
+      if (pre.ownedOrgsWithMembers.length) parts.push(`transférez d'abord la propriété de : ${pre.ownedOrgsWithMembers.map((o) => o.name).join(", ")}`);
+      if (pre.soleRecoveryAdminOrgs.length) parts.push(`promouvez un autre administrateur de recouvrement pour : ${pre.soleRecoveryAdminOrgs.map((o) => o.name).join(", ")}`);
+      setErr(`Suppression impossible — ${parts.join(" ; ")}.`);
+      return;
+    }
+    const email = d.user?.email ?? "";
+    const pwd = window.prompt(
+      `SUPPRESSION DÉFINITIVE du compte ${email}.\nVos données personnelles et vos clés seront effacées ; cette action est IRRÉVERSIBLE.\n\nSaisissez votre mot de passe pour confirmer :`,
+    );
+    if (!pwd) return;
+    setDelBusy(true);
+    try {
+      const p = await d.api.prelogin(email);
+      const { authSignSeedHex } = await prepareLogin(pwd, p.kdfSalt, p.kdfParams);
+      const proof = await signLoginChallenge(`elium:delete-account:${email.toLowerCase()}`, authSignSeedHex);
+      await d.api.deleteMyAccount(proof);
+      window.alert("Votre compte a été supprimé.");
+      await d.logout();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Échec de la suppression (mot de passe incorrect ?).");
+    } finally {
+      setDelBusy(false);
+    }
+  };
+
   return (
     <div className="dc-security">
       <div className="dc-security__status">
@@ -350,6 +388,19 @@ export default function SecurityPanel() {
           </div>
         </div>
         {unlockMsg && <p className="dc-security__unlock-msg muted">{unlockMsg}</p>}
+      </div>
+
+      {/* --- Zone de danger : suppression du compte (RGPD) --- */}
+      <div className="dc-security__danger">
+        <h3 className="dc-security__pk-title"><ShieldAlert size={16} /> Zone de danger</h3>
+        <p className="muted">
+          Supprimer définitivement votre compte efface vos données personnelles et vos clés (droit à l'effacement,
+          RGPD). Les fichiers dont vous êtes propriétaire dans une organisation sont transférés à son propriétaire ;
+          une organisation dont vous êtes le seul membre est supprimée. Cette action est irréversible.
+        </p>
+        <button className="eb eb--danger eb--sm" disabled={delBusy} onClick={() => void deleteAccount()}>
+          <Trash2 size={14} /> Supprimer mon compte
+        </button>
       </div>
     </div>
   );

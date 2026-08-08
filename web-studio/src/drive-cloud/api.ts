@@ -356,6 +356,23 @@ export class DriveApi {
   setOrgScimConfig(orgId: string, config: { defaultRoleKey: string; groupRoleMap?: Record<string, string> }) {
     return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/scim-config`, { body: config });
   }
+  // === Account (RGPD) =======================================================
+  /** What (if anything) blocks erasing my account. */
+  deletionPreflight() {
+    return this.json<{
+      canDelete: boolean;
+      ownedOrgsWithMembers: { id: string; name: string }[];
+      soleRecoveryAdminOrgs: { id: string; name: string }[];
+    }>("GET", `/users/me/deletion-preflight`);
+  }
+  /** Erase my account. `proof` = Ed25519 signature over "elium:delete-account:<email>". */
+  deleteMyAccount(proof: string) {
+    return this.json<{ ok: boolean; deletedOrgs: number; transferredNodes: number }>("DELETE", `/users/me`, { body: { proof } });
+  }
+  /** Transfer org ownership to another active member (current owner only). */
+  transferOrgOwnership(orgId: string, newOwnerUserId: string) {
+    return this.json<{ ok: boolean }>("POST", `/orgs/${orgId}/transfer-ownership`, { body: { newOwnerUserId } });
+  }
   setOrgQuota(orgId: string, quotaBytes: number | null) {
     return this.json<{ quotaBytes: number | null }>("PATCH", `/orgs/${orgId}/quota`, { body: { quotaBytes } });
   }

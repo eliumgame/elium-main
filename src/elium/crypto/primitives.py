@@ -22,10 +22,15 @@ KEY_SIZE = 32
 HMAC_SIZE = 32
 SIGNATURE_SIZE = 64
 
-# Recommended Argon2id parameters
+# Argon2id write defaults. Lowered from 256 MiB/p4 to 64 MiB/p1 (t3): 256 MiB
+# caused OOM on constrained clients, and p>1 does not parallelise on the WASM
+# (single-thread) web core. 64 MiB/t3 stays well above the OWASP 2023 minimum.
+# Backward-compatible: t/m/p are written to the header and read back at decode,
+# so existing files keep their own parameters. Must mirror the TS core
+# (web-studio/src/crypto/elium-crypto.ts ARGON2_WRITE).
 ARGON2_TIME = 3
-ARGON2_MEMORY_KIB = 262144  # 256 MiB
-ARGON2_PARALLELISM = 4
+ARGON2_MEMORY_KIB = 65536  # 64 MiB
+ARGON2_PARALLELISM = 1
 
 def generate_salt() -> bytes:
     return os.urandom(SALT_SIZE)

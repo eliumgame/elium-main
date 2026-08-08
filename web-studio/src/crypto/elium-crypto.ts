@@ -32,6 +32,11 @@ const KEY_SIZE = 32;
 const HMAC_SIZE = 32;
 const SIGNATURE_SIZE = 64;
 
+/** Paramètres Argon2id par DÉFAUT à l'écriture (les fichiers existants gardent
+ *  les leurs, écrits dans l'en-tête). Doit rester dans les bornes du décodage
+ *  (m ∈ [8192, 262144], t ∈ [1,6], p ∈ [1,16]) et miroir Python (primitives.py). */
+const ARGON2_WRITE = { t: 3, m: 65536, p: 1 } as const;
+
 const te = new TextEncoder();
 const td = new TextDecoder("utf-8");
 
@@ -270,9 +275,15 @@ export class EliumCryptoEngine {
     const nonceAes = crypto.getRandomValues(new Uint8Array(NONCE_SIZE));
     const nonceCha = cascade ? crypto.getRandomValues(new Uint8Array(NONCE_SIZE)) : null;
 
-    const t = 3;
-    const m = 262144;
-    const p = 4;
+    // Défauts d'écriture. Baissés de 256 Mio/p4 à 64 Mio/p1 (t3) : 256 Mio
+    // provoquait des OOM sur mobile/onglets contraints à CHAQUE ouverture, et en
+    // WASM (mono-thread) p>1 ne parallélise pas — il ne fait qu'alourdir. 64 Mio/t3
+    // reste largement au-dessus du minimum OWASP 2023 (Argon2id ~19 Mio/t2).
+    // RÉTRO-COMPATIBLE : t/m/p sont écrits dans l'en-tête et relus au déchiffrement,
+    // donc les fichiers existants (256 Mio/p4) restent lisibles avec LEURS params.
+    const t = ARGON2_WRITE.t;
+    const m = ARGON2_WRITE.m;
+    const p = ARGON2_WRITE.p;
 
     const master = await this.deriveMasterKey(password, salt, t, m, p, keyfile);
     const kAes = await hkdfSha256(master, te.encode("elium-v3-aes-gcm"));

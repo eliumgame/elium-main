@@ -15,6 +15,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 
 from elium.core.exceptions import EliumFormatError, EliumSecurityError, EliumVersionError
 from elium.crypto.primitives import (
+    ARGON2_MEMORY_KIB,
+    ARGON2_PARALLELISM,
+    ARGON2_TIME,
     HMAC_SIZE,
     SIGNATURE_SIZE,
     compute_hmac,
@@ -68,7 +71,9 @@ class EliumContainer:
             "version": VERSION,
             "kdf": {
                 "alg": "argon2id",
-                "t": 3, "m": 262144, "p": 4,
+                # Doit refléter les params réellement utilisés à la dérivation
+                # (derive_master_key défauts) sinon l'en-tête mentirait.
+                "t": ARGON2_TIME, "m": ARGON2_MEMORY_KIB, "p": ARGON2_PARALLELISM,
                 "salt": salt.hex()
             },
             "crypto": {

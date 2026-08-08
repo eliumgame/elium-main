@@ -21,6 +21,9 @@ export default function StatusBadges({ studio }: { studio: Studio }) {
   if (integrity && !integrity.unchecked) {
     if (!integrity.contentIntact) badges.push({ label: "Document altéré", accent: "danger" });
   }
+  if (integrity?.resourcesTampered?.length) {
+    badges.push({ label: `Ressource altérée (${integrity.resourcesTampered.length})`, accent: "danger" });
+  }
 
   // Signatures
   if (file.signatures.length) {

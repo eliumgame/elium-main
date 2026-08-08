@@ -81,6 +81,9 @@ export interface IntegrityVerdict {
   contentIntact: boolean;
   /** Hash check could not run (e.g. no recorded hash). */
   unchecked: boolean;
+  /** Ressources rejetées à la lecture car `sha256(octets) !== id` (content-
+   *  addressed) : elles ont été substituées/corrompues et ne sont pas chargées. */
+  resourcesTampered?: string[];
 }
 
 export interface ReadResult {
@@ -340,10 +343,10 @@ export async function readEliumPackage(
   if (!contentBytes) throw new EliumPackageError("Contenu du document manquant.");
 
   // Integrity check on the *stored* bytes (tamper detection).
-  let integrity: IntegrityVerdict = { contentIntact: true, unchecked: true };
+  let integrity: IntegrityVerdict = { contentIntact: true, unchecked: true, resourcesTampered: [] };
   if (manifest.integrity.contentHash) {
     const actual = await sha256Hex(contentBytes);
-    integrity = { contentIntact: actual === manifest.integrity.contentHash, unchecked: false };
+    integrity = { contentIntact: actual === manifest.integrity.contentHash, unchecked: false, resourcesTampered: [] };
   }
 
   const secure = !!manifest.protection.metadataEncrypted;
@@ -390,11 +393,21 @@ export async function readEliumPackage(
     ? safeJsonParse(entries[ENTRY.resIndex], "index des ressources")
     : [];
 
+  // Ressources content-addressed : l'`id` DOIT valoir sha256(octets). Une
+  // ressource dont le hash ne correspond pas a été substituée/corrompue — on ne
+  // la charge PAS (anti-falsification d'image/tampon/police, y compris dans un
+  // document scellé où le sceau ne couvre pas les octets des ressources). Les
+  // fichiers valides passent (id écrit = sha256 à l'ajout).
   const resources = new Map<string, Uint8Array>();
+  const resourcesTampered: string[] = [];
   for (const res of resourceIndex) {
     const bytes = entries[`resources/${res.id}`];
-    if (bytes) resources.set(res.id, bytes);
+    if (!bytes) continue;
+    const actual = await sha256Hex(bytes);
+    if (actual === res.id) resources.set(res.id, bytes);
+    else resourcesTampered.push(res.id);
   }
+  if (resourcesTampered.length) integrity = { ...integrity, resourcesTampered };
 
   const sealVerdict = await verifySeal(manifest, clearSignatures, clearJournal, opts.trustedKeyHex);
 

@@ -2,6 +2,7 @@ import { ShieldCheck, ShieldAlert, Shield, KeyRound } from "lucide-react";
 import { Button } from "../ui/components";
 import type { Studio } from "../studio/types";
 import type { SignatureVerdict } from "../format/types";
+import { profileExpectsSeal } from "../format/profiles";
 
 /** Read-only summary shown at the top of the viewer. */
 export default function VerificationBanner({ studio }: { studio: Studio }) {
@@ -24,9 +25,15 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
   const sealed = !!sealVerdict && sealVerdict !== "unsealed";
   const unverifiedTrust = !trustedKey && (hasProof || sealed);
 
+  // Le profil promet une garantie d'intégrité (verrouillé/suivi/signé) mais le
+  // document n'est PAS scellé → la promesse est non vérifiable (le hash de
+  // contenu seul est recalculable). On ne doit alors JAMAIS afficher un « intègre »
+  // rassurant : on dégrade en avertissement.
+  const missingSeal = profileExpectsSeal(file.manifest.profile) && !sealed && !integrity?.unchecked;
+
   const overallBad = integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged;
   const overallWarn =
-    sigModified || list.includes("unknown_key") || sealVerdict === "unknown_key" || unverifiedTrust || expired;
+    sigModified || list.includes("unknown_key") || sealVerdict === "unknown_key" || unverifiedTrust || expired || missingSeal;
 
   const tone = overallBad ? "danger" : overallWarn ? "warning" : "success";
   const icon = overallBad ? <ShieldAlert size={18} /> : overallWarn ? <Shield size={18} /> : <ShieldCheck size={18} />;
@@ -42,7 +49,8 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
       <div className="verify-banner__text">
         <strong>{headline}</strong>
         <span className="verify-banner__detail">
-          {integrity?.unchecked ? "Intégrité non applicable" : integrityBad ? "contenu altéré" : "contenu intact"}
+          {integrity?.unchecked ? "Intégrité non applicable" : integrityBad ? "contenu altéré" : missingSeal ? "intégrité non vérifiable (non scellé)" : "contenu intact"}
+          {integrity?.resourcesTampered?.length ? ` · ${integrity.resourcesTampered.length} ressource(s) altérée(s)` : ""}
           {file.signatures.length > 0 && ` · ${file.signatures.length} signature(s)`}
           {file.signatures.length > 0 && sigBad && " · une signature invalide"}
           {file.signatures.length > 0 && !sigBad && sigModified && " · document modifié après signature"}

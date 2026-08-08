@@ -133,3 +133,14 @@ export const PROFILE_ORDER: EliumProfile[] = [
 export function profileOf(id: EliumProfile): ProfileDefinition {
   return PROFILES[id];
 }
+
+/**
+ * Ce profil PROMET-il une garantie d'intégrité/anti-falsification (verrouillage,
+ * suivi ou signature) ? Si oui, l'absence de sceau Ed25519 rend cette promesse
+ * NON VÉRIFIABLE (le hash de contenu seul est recalculable par un attaquant),
+ * et l'UI doit dégrader son verdict au lieu d'afficher « intègre ».
+ */
+export function profileExpectsSeal(id: EliumProfile): boolean {
+  const p = PROFILES[id];
+  return p.locked || p.tracking || p.signaturesExpected;
+}

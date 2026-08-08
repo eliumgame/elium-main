@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { unzipSync, zipSync } from "fflate";
 import { createEliumFile } from "../src/format/document";
+import { sha256Hex } from "../src/format/canonical";
 import {
   writeEliumPackage, readEliumPackage, looksLikeV4Package, EliumPasswordRequired,
 } from "../src/format/elium-package";
@@ -35,6 +37,40 @@ describe("elium package (v4)", () => {
     expect(out.document).toEqual(file.document);
     expect(out.manifest.protection.encrypted).toBe(true);
   }, 15000);
+});
+
+describe("intégrité des ressources (adressées par contenu)", () => {
+  it("charge une ressource dont l'id vaut sha256(octets)", async () => {
+    const file = await createEliumFile({ title: "Avec pièce jointe", profile: "standard" });
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const id = await sha256Hex(bytes);
+    file.resourceIndex.push({ id, name: "data.bin", mime: "application/octet-stream", size: bytes.length, kind: "attachment" });
+    file.resources.set(id, bytes);
+
+    const blob = await writeEliumPackage(file);
+    const { file: out, integrity } = await readEliumPackage(blob);
+    expect(out.resources.get(id)).toEqual(bytes);
+    expect(integrity.resourcesTampered ?? []).toEqual([]);
+  });
+
+  it("rejette une ressource substituée (sha256 ≠ id) sans la charger", async () => {
+    const file = await createEliumFile({ title: "Falsifié", profile: "standard" });
+    const bytes = new Uint8Array([9, 9, 9, 9]);
+    const id = await sha256Hex(bytes);
+    file.resourceIndex.push({ id, name: "logo.bin", mime: "application/octet-stream", size: bytes.length, kind: "image" });
+    file.resources.set(id, bytes);
+    const blob = await writeEliumPackage(file);
+
+    // Falsification : on remplace les octets de la ressource en gardant le même
+    // nom d'entrée (l'ancien id) — comme le ferait un attaquant.
+    const entries = unzipSync(blob);
+    entries[`resources/${id}`] = new Uint8Array([7, 7, 7, 7, 7, 7]);
+    const tampered = zipSync(entries);
+
+    const { file: out, integrity } = await readEliumPackage(tampered);
+    expect(out.resources.has(id)).toBe(false);
+    expect(integrity.resourcesTampered).toContain(id);
+  });
 });
 
 describe("journal", () => {

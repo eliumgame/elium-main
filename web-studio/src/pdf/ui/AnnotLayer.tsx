@@ -6,6 +6,23 @@ import { isPolyKind, isTextMarkup, newId } from "../model/types";
 import { fontCss } from "../../ui/fonts";
 import { NOTE_SIZE } from "../ops/annots-pdf";
 
+/** Image d'un tampon/image/signature avec repli LIBELLÉ : si la source est
+ *  absente ou ne se charge pas (data URL cassée), on affiche une étiquette
+ *  claire au lieu d'une boîte vide/glyphe « image cassée ». */
+function StampImg({ src, fit, label, tone }: { src: string; fit: "fill" | "contain"; label: string; tone: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <div className="pdfx-stamp" data-tone={tone}>{label}</div>;
+  return (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      onError={() => setBroken(true)}
+      style={{ width: "100%", height: "100%", objectFit: fit }}
+    />
+  );
+}
+
 /**
  * The interactive markup surface for one page.
  *
@@ -659,10 +676,12 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     }
 
     if (a.kind === "stamp" || a.kind === "image" || a.kind === "signature") {
+      const tone = a.stampTone ?? "red";
+      const label = a.kind === "signature" ? "Signature" : a.kind === "image" ? "Image" : (a.stampLabel || "TAMPON");
       return wrapper(
         a.src
-          ? <img src={a.src} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: a.kind === "image" ? "fill" : "contain" }} />
-          : <div className="pdfx-stamp" data-tone={a.stampTone ?? "red"}>{a.stampLabel ?? "TAMPON"}</div>,
+          ? <StampImg src={a.src} fit={a.kind === "image" ? "fill" : "contain"} label={label} tone={tone} />
+          : <div className="pdfx-stamp" data-tone={tone}>{label}</div>,
       );
     }
 

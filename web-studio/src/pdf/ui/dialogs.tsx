@@ -753,7 +753,10 @@ export function SignatureDialog({
 
   const confirm = () => {
     const made = build();
-    if (!made) return;
+    if (!made || !made.src) {
+      window.alert("Signature vide : dessinez, tapez ou importez une signature avant de la placer.");
+      return;
+    }
     if (store) {
       onSave({ id: `sig_${Date.now().toString(36)}`, kind: "signature", src: made.src, ratio: made.ratio, createdAt: new Date().toISOString() });
     }

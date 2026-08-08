@@ -3,6 +3,7 @@ import { Button } from "../ui/components";
 import type { Studio } from "../studio/types";
 import type { SignatureVerdict } from "../format/types";
 import { profileExpectsSeal } from "../format/profiles";
+import { fingerprintWords } from "../sign/safety-words";
 
 /** Read-only summary shown at the top of the viewer. */
 export default function VerificationBanner({ studio }: { studio: Studio }) {
@@ -67,8 +68,9 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
             <KeyRound size={14} />
             <span>
               La clé du sceau a changé depuis la première ouverture de ce document
-              {sealPin?.pinned?.fingerprint ? ` (était ${sealPin.pinned.fingerprint.slice(0, 12)}…)` : ""}.
-              Méfiez-vous d'une éventuelle usurpation.
+              {sealPin?.pinned?.fingerprint ? ` (était : ${fingerprintWords(sealPin.pinned.fingerprint)})` : ""}
+              {file.manifest.seal?.fingerprint ? ` · nouvelle clé : ${fingerprintWords(file.manifest.seal.fingerprint)}` : ""}.
+              Vérifiez ces mots avec le signataire par un canal de confiance avant d'approuver — méfiez-vous d'une usurpation.
             </span>
             <Button variant="outline" size="sm" onClick={trustSealKey}>Approuver la nouvelle clé</Button>
           </div>

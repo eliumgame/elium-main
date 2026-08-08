@@ -2,6 +2,7 @@ import { Alert, Field, Button } from "../ui/components";
 import { Lock, Check, CalendarClock, Users, Copy } from "lucide-react";
 import { PROFILE_ORDER, PROFILES } from "../format/profiles";
 import { copyText } from "../sign/identity-store";
+import { fingerprintWords } from "../sign/safety-words";
 import type { Studio } from "../studio/types";
 
 const HEX_KEY = /^[0-9a-fA-F]{130}$/; // P-256 uncompressed point = 65 bytes = 130 hex
@@ -131,6 +132,10 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
             <div className="keyline">
               <span className="keyline__label">Empreinte</span>
               <code className="keyline__value">{studio.recipientPublic.fingerprint}</code>
+            </div>
+            <div className="keyline">
+              <span className="keyline__label">Mots de vérification</span>
+              <code className="keyline__value">{fingerprintWords(studio.recipientPublic.fingerprint)}</code>
             </div>
             <div className="settings__row" style={{ marginTop: 6 }}>
               <Button variant="outline" size="sm"

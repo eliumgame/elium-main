@@ -782,16 +782,18 @@ export default function App() {
     setBusy(true);
     try {
       const id = randomId("sig");
+      // Placement/visual must be final BEFORE signing so the proof binds them.
+      const placement: EliumSignature["placement"] = { page: 1, xPct: 0.34, yPct: 0.78, wPct: 0.3, hPct: 0.12, rotation: 0, z: file.signatures.length, anchorType: "page" };
       let proof = null;
       if (draft.wantsProof && identity) {
         const pk = await ensurePrivateKey();
-        if (pk) proof = await createProof({ signatureId: id, model: file.document, signer: draft.signer, privateKeyHex: pk });
+        if (pk) proof = await createProof({ signatureId: id, model: file.document, signer: draft.signer, privateKeyHex: pk, placement, visual: draft.visual });
       }
       const sig: EliumSignature = {
         id,
         kind: draft.kind,
         visual: draft.visual,
-        placement: { page: 1, xPct: 0.34, yPct: 0.78, wPct: 0.3, hPct: 0.12, rotation: 0, z: file.signatures.length, anchorType: "page" },
+        placement,
         signer: draft.signer,
         proof,
         level: proof ? "advanced" : "visual",
@@ -810,6 +812,27 @@ export default function App() {
   const updateSignature = useCallback((sig: EliumSignature) => {
     setFile((prev) => (prev ? { ...prev, signatures: prev.signatures.map((s) => (s.id === sig.id ? sig : s)) } : prev));
   }, []);
+
+  // Re-sign an advanced signature after the author repositions/resizes it, so
+  // its proof keeps binding the new placement/visual. Only fires when the
+  // signing key is ALREADY unlocked this session (no password prompt) AND it is
+  // the ORIGINAL signer's key — otherwise the move stands as-is and the proof
+  // reads "modified" (someone relocated a signature they didn't sign).
+  const commitSignature = useCallback(async (id: string) => {
+    const pk = identity?.privateKeyHex;
+    if (!pk || !identity) return;
+    const current = file;
+    const sig = current?.signatures.find((s) => s.id === id);
+    if (!current || !sig?.proof) return;
+    if (identity.publicKeyHex.toLowerCase() !== sig.proof.publicKeyHex.toLowerCase()) return;
+    const proof = await createProof({
+      signatureId: id, model: current.document, signer: sig.signer, privateKeyHex: pk,
+      placement: sig.placement, visual: sig.visual,
+    });
+    const nf = { ...current, signatures: current.signatures.map((s) => (s.id === id ? { ...s, proof } : s)) };
+    setFile(nf);
+    await recompute(nf);
+  }, [identity, file, recompute]);
 
   const removeSignature = useCallback((id: string) => {
     setFile((prev) => (prev ? removeSig(prev, id) : prev));
@@ -1049,7 +1072,7 @@ export default function App() {
         setTitle, trustContact, untrustContact, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
-        createSignature, updateSignature, removeSignature, selectSignature: setSelectedSig,
+        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig,
         onDocChange, save, exportAs, goHome, toViewer, toEditor, trustSealKey,
         openSettings: () => setSettingsOpen(true),
       }

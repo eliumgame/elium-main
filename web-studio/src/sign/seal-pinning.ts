@@ -12,10 +12,14 @@
  * The pin is keyed by `createdAt`, which is part of the signed manifest subset
  * (so it is authenticated by the seal and stable across edits of one document).
  * A genuinely new document simply yields a "new" status — not a warning.
+ *
+ * IMPORTANT — we key on `createdAt`, NOT `docKeyOf` (which prefers `docId`):
+ * `createdAt` is authenticated by EVERY seal (v1 and v2), whereas `docId` is not
+ * covered by legacy seals. Keying on an unauthenticated field would let an
+ * attacker swap it to force a "new" status and dodge the "changed" warning.
  */
 
 import type { EliumManifest } from "../format/types";
-import { docKeyOf } from "../format/doc-key";
 
 const STORAGE_KEY = "elium_seal_pins";
 
@@ -49,7 +53,7 @@ function storePins(pins: Record<string, SealPin>): void {
 }
 
 function pinKey(manifest: EliumManifest): string | null {
-  return manifest.seal ? `seal:${docKeyOf(manifest)}` : null;
+  return manifest.seal ? `seal:${manifest.createdAt}` : null;
 }
 
 /** Compare the file's seal key against any previously pinned key. */

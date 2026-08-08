@@ -199,6 +199,14 @@ export interface SignatureProof {
   /** Ed25519 signature over the canonical "to-be-signed" structure. */
   signatureHex: string;
   signedAt: string;
+  /**
+   * Snapshots of the signature's own placement & appearance at signing time, so
+   * the proof binds WHERE and HOW the signature was affixed (not just the body).
+   * Optional for backward compatibility: legacy proofs omit them and are then
+   * verified without covering placement/visual (see verifyProof double-mode).
+   */
+  signedPlacement?: SignaturePlacement;
+  signedVisual?: SignatureVisual;
   timestamp?: { type: "local"; at: string; note: string } | null;
 }
 

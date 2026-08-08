@@ -11,6 +11,8 @@ interface Props {
   verdicts?: Record<string, SignatureVerdict>;
   onSelect: (id: string | null) => void;
   onChange: (sig: EliumSignature) => void;
+  /** Fired once when a drag/resize/rotate ends (re-sign an advanced signature). */
+  onCommit?: (id: string) => void;
   onRemove: (id: string) => void;
 }
 
@@ -26,6 +28,7 @@ export default function SignatureLayer({
   verdicts,
   onSelect,
   onChange,
+  onCommit,
   onRemove,
 }: Props) {
   const drag = useRef<{
@@ -81,9 +84,11 @@ export default function SignatureLayer({
   };
 
   const onPointerUp = () => {
+    const id = drag.current?.sig.id;
     drag.current = null;
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
+    if (id) onCommit?.(id);
   };
 
   return (

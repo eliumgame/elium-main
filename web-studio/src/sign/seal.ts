@@ -22,8 +22,15 @@ import { fingerprintOf, publicKeyHexFromPrivate, signMessage, verifyMessage } fr
 export type SealVerdict = "unsealed" | "valid" | "unknown_key" | "broken";
 export type { DocumentSeal };
 
-/** The integrity-critical manifest fields the seal protects (matches seal.py). */
-function manifestSubset(m: EliumManifest): Record<string, unknown> {
+/**
+ * The integrity-critical manifest fields the seal protects (matches seal.py).
+ *
+ * `docId` is authenticated too (so an attacker cannot silently swap it to
+ * confuse the local seal-TOFU / version indices), but only when present AND
+ * requested — legacy seals were computed without it, so verifySeal falls back
+ * to the docId-free subset to keep those files valid (see verifySeal).
+ */
+function manifestSubset(m: EliumManifest, includeDocId: boolean): Record<string, unknown> {
   return {
     format: m.format,
     formatVersion: m.formatVersion,
@@ -31,8 +38,9 @@ function manifestSubset(m: EliumManifest): Record<string, unknown> {
     title: m.title,
     language: m.language,
     createdAt: m.createdAt,
-    // Included only when set, so existing seals (no expiry) stay byte-identical.
+    // Included only when set, so existing seals (no expiry/docId) stay byte-identical.
     ...(m.accessExpiresAt ? { accessExpiresAt: m.accessExpiresAt } : {}),
+    ...(includeDocId && m.docId ? { docId: m.docId } : {}),
     protection: {
       encrypted: m.protection.encrypted,
       locked: m.protection.locked,
@@ -51,10 +59,11 @@ export async function sealMessage(
   manifest: EliumManifest,
   signatures: EliumSignature[],
   journal: Journal,
+  includeDocId = true,
 ): Promise<string> {
   return canonicalJSON({
     v: 1,
-    manifest: manifestSubset(manifest),
+    manifest: manifestSubset(manifest, includeDocId),
     signaturesHash: await sha256Hex(canonicalJSON(signatures)),
     journalHash: await sha256Hex(canonicalJSON(journal)),
   });
@@ -86,8 +95,17 @@ export async function verifySeal(
   const seal = manifest.seal;
   if (!seal) return "unsealed";
 
-  const message = await sealMessage(manifest, signatures, journal);
-  const authentic = await verifyMessage(seal.signatureHex, message, seal.publicKeyHex);
+  // Double-mode: current seals cover docId; legacy seals did not. Accept a seal
+  // that matches EITHER canonical form. This is safe — the signature is over
+  // exactly one of the two messages, so a v2 (docId-covered) file whose docId is
+  // tampered matches NEITHER form and reads "broken"; the fallback only rescues
+  // genuinely legacy seals, never a modified current one.
+  const withDocId = await sealMessage(manifest, signatures, journal, true);
+  let authentic = await verifyMessage(seal.signatureHex, withDocId, seal.publicKeyHex);
+  if (!authentic && manifest.docId) {
+    const withoutDocId = await sealMessage(manifest, signatures, journal, false);
+    authentic = await verifyMessage(seal.signatureHex, withoutDocId, seal.publicKeyHex);
+  }
   if (!authentic) return "broken";
 
   if (trustedKeyHex && trustedKeyHex.trim().toLowerCase() !== seal.publicKeyHex.toLowerCase()) {

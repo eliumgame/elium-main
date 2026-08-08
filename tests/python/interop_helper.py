@@ -108,10 +108,12 @@ def main():
         journal = create_journal(profile, "interop-sign")
         signer = {"name": name}
         sig_id = "sig-" + uuid.uuid4().hex[:12]
-        proof = create_proof(sig_id, model, signer, signer_priv)
+        placement = {"page": 1, "xPct": 0.3, "yPct": 0.7, "wPct": 0.3, "hPct": 0.1, "rotation": 0, "z": 0, "anchorType": "page"}
+        visual = {"text": name}
+        proof = create_proof(sig_id, model, signer, signer_priv, placement, visual)
         signature = {
-            "id": sig_id, "kind": "typed", "signer": signer, "proof": proof,
-            "level": "advanced", "createdAt": proof["signedAt"],
+            "id": sig_id, "kind": "typed", "visual": visual, "placement": placement,
+            "signer": signer, "proof": proof, "level": "advanced", "createdAt": proof["signedAt"],
         }
         record_signature_added(journal, profile, signature)
         blob = write_elium(

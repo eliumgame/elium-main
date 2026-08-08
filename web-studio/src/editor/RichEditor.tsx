@@ -58,6 +58,7 @@ interface RichEditorProps {
   onDocChange: (doc: ProseMirrorNode) => void;
   onAddSignatureRequest: () => void;
   onUpdateSignature: (sig: EliumSignature) => void;
+  onCommitSignature: (id: string) => void;
   onSelectSignature: (id: string | null) => void;
   onRemoveSignature: (id: string) => void;
   onEditorReady?: (editor: Editor | null) => void;
@@ -98,6 +99,7 @@ export default function RichEditor({
   onDocChange,
   onAddSignatureRequest,
   onUpdateSignature,
+  onCommitSignature,
   onSelectSignature,
   onRemoveSignature,
   onEditorReady,
@@ -609,6 +611,7 @@ export default function RichEditor({
               verdicts={verdicts}
               onSelect={onSelectSignature}
               onChange={onUpdateSignature}
+              onCommit={onCommitSignature}
               onRemove={onRemoveSignature}
             />
           )}

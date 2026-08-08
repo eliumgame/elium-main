@@ -65,6 +65,8 @@ export interface Studio {
   openSignatureCreator(): void;
   createSignature(draft: SignatureDraft): Promise<void>;
   updateSignature(sig: EliumSignature): void;
+  /** Re-sign an advanced signature after the author moved/resized it (drag commit). */
+  commitSignature(id: string): void;
   removeSignature(id: string): void;
   selectSignature(id: string | null): void;
   onDocChange(doc: ProseMirrorNode): void;

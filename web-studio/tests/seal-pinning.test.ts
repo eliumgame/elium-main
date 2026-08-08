@@ -60,6 +60,17 @@ describe("seal TOFU pinning", () => {
     expect(checkSealPin(manifest("cc".repeat(32), "2026-09-09T09:09:09Z")).status).toBe("new");
   });
 
+  it("pins by createdAt, so swapping docId does NOT dodge the 'changed' warning", () => {
+    const original = manifest("aa".repeat(32));
+    original.docId = "doc-A";
+    pinSeal(original);
+    // Attacker re-seals with THEIR key and swaps docId to try to force a "new"
+    // status (bypassing the warning). Pinning on the sealed `createdAt` catches it.
+    const attacker = manifest("bb".repeat(32)); // same createdAt, different seal key
+    attacker.docId = "doc-EVIL";
+    expect(checkSealPin(attacker).status).toBe("changed");
+  });
+
   it("repin accepts the new key; forget clears the pin", () => {
     const original = manifest("aa".repeat(32));
     pinSeal(original);

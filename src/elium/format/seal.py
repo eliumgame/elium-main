@@ -36,12 +36,16 @@ SEAL_UNKNOWN_KEY = "unknown_key"    # seal verifies but signer key != trusted ke
 SEAL_BROKEN = "broken"              # seal does not verify: tampered or corrupt
 
 
-def _manifest_subset(manifest: dict) -> dict[str, Any]:
+def _manifest_subset(manifest: dict, include_doc_id: bool) -> dict[str, Any]:
     """The integrity-critical fields the seal protects.
 
     Excludes volatile/derived fields (modifiedAt, generator, features, rgpd)
     and the `seal` object itself, so a normal re-save does not break the seal
     while any meaningful change to identity/protection/integrity does.
+
+    `docId` is authenticated too when present AND requested — legacy seals were
+    computed without it, so verify_seal falls back to the docId-free subset to
+    keep those files valid (mirror of seal.ts).
     """
     protection = manifest.get("protection", {})
     integrity = manifest.get("integrity", {})
@@ -63,18 +67,20 @@ def _manifest_subset(manifest: dict) -> dict[str, Any]:
             "contentHash": integrity.get("contentHash"),
         },
     }
-    # Included only when set, so existing seals (no expiry) stay byte-identical.
+    # Included only when set, so existing seals (no expiry/docId) stay byte-identical.
     if manifest.get("accessExpiresAt"):
         subset["accessExpiresAt"] = manifest["accessExpiresAt"]
+    if include_doc_id and manifest.get("docId"):
+        subset["docId"] = manifest["docId"]
     return subset
 
 
-def seal_message(manifest: dict, signatures: list[dict], journal: dict) -> str:
+def seal_message(manifest: dict, signatures: list[dict], journal: dict, include_doc_id: bool = True) -> str:
     """The exact canonical string that gets signed (identical in Python and TS)."""
     return canonical_json(
         {
             "v": 1,
-            "manifest": _manifest_subset(manifest),
+            "manifest": _manifest_subset(manifest, include_doc_id),
             "signaturesHash": sha256_hex(canonical_json(signatures)),
             "journalHash": sha256_hex(canonical_json(journal)),
         }
@@ -109,11 +115,26 @@ def verify_seal(
     if not seal:
         return SEAL_UNSEALED
 
-    message = seal_message(manifest, signatures, journal).encode("utf-8")
+    # Double-mode: current seals cover docId, legacy seals did not. Accept a seal
+    # that matches EITHER canonical form (mirror of seal.ts). Safe: the signature
+    # is over exactly one form, so a tampered docId matches neither and reads
+    # "broken"; the fallback only rescues genuinely legacy seals.
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(seal["publicKeyHex"]))
-        pub.verify(bytes.fromhex(seal["signatureHex"]), message)
-    except (InvalidSignature, ValueError, KeyError):
+        sig = bytes.fromhex(seal["signatureHex"])
+    except (ValueError, KeyError):
+        return SEAL_BROKEN
+
+    def _matches(include_doc_id: bool) -> bool:
+        message = seal_message(manifest, signatures, journal, include_doc_id).encode("utf-8")
+        try:
+            pub.verify(sig, message)
+            return True
+        except InvalidSignature:
+            return False
+
+    authentic = _matches(True) or (bool(manifest.get("docId")) and _matches(False))
+    if not authentic:
         return SEAL_BROKEN
 
     if trusted_key_hex and trusted_key_hex.strip().lower() != seal["publicKeyHex"].lower():

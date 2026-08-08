@@ -65,7 +65,7 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
   it("D. Web signs → Python verifies the proof valid", async () => {
     const signer = await generateIdentity();
     const file0 = await createEliumFile({ title: "TS signed", profile: "signed" });
-    const proof = await createProof({ signatureId: "sig-1", model: file0.document, signer: { name: "Bob" }, privateKeyHex: signer.privateKeyHex! });
+    const proof = await createProof({ signatureId: "sig-1", model: file0.document, signer: { name: "Bob" }, privateKeyHex: signer.privateKeyHex!, placement: PLACEMENT, visual: { text: "Bob" } });
     const sig: EliumSignature = {
       id: "sig-1", kind: "typed", visual: { text: "Bob" }, placement: PLACEMENT,
       signer: { name: "Bob" }, proof, level: "advanced", createdAt: proof.signedAt,

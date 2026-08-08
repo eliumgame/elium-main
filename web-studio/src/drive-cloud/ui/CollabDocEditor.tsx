@@ -208,6 +208,7 @@ export default function CollabDocEditor({
             onDocChange={() => {}}
             onAddSignatureRequest={() => {}}
             onUpdateSignature={() => {}}
+            onCommitSignature={() => {}}
             onSelectSignature={() => {}}
             onRemoveSignature={() => {}}
             numberedHeadings={page.numberedHeadings ?? false}

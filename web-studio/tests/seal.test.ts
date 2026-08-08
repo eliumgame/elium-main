@@ -94,6 +94,32 @@ describe("document seal (TypeScript)", () => {
     expect(await verifySeal(manifest, [], journal)).toBe("valid");
   });
 
+  it("seals and authenticates docId (current files)", async () => {
+    const id = await generateIdentity();
+    const journal = emptyJournal();
+    const manifest = { ...baseManifest(), docId: "doc-123" };
+    manifest.seal = await createSeal(manifest, [], journal, id.privateKeyHex!);
+
+    expect(await verifySeal(manifest, [], journal)).toBe("valid");
+    // Swapping docId now breaks the seal — it can no longer be silently re-keyed
+    // to dodge the local seal-TOFU (see seal-pinning).
+    expect(await verifySeal({ ...manifest, docId: "doc-999" }, [], journal)).toBe("broken");
+    // Removing docId entirely also breaks it.
+    const { docId: _drop, ...noDoc } = manifest;
+    expect(await verifySeal(noDoc as EliumManifest, [], journal)).toBe("broken");
+  });
+
+  it("legacy seal (docId not covered) still verifies via double-mode", async () => {
+    const id = await generateIdentity();
+    const journal = emptyJournal();
+    // A seal computed BEFORE docId was covered (a file with no docId at seal time).
+    const legacy = baseManifest();
+    const seal = await createSeal(legacy, [], journal, id.privateKeyHex!);
+    // A later app version stamped a docId onto the same file; the seal predates it.
+    const manifest = { ...legacy, docId: "doc-legacy", seal } as EliumManifest;
+    expect(await verifySeal(manifest, [], journal)).toBe("valid"); // fallback rescues it
+  });
+
   it("verifies a seal produced by the Python core (cross-language interop)", async () => {
     const bytes = b64ToBytes(PY_B64);
     const r = await readEliumPackage(bytes);

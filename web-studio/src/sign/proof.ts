@@ -13,8 +13,10 @@ import { canonicalJSON, sha256Hex, nowIso } from "../format/canonical";
 import type {
   EliumDocumentModel,
   EliumSignature,
+  SignaturePlacement,
   SignatureProof,
   SignatureVerdict,
+  SignatureVisual,
   SignerInfo,
 } from "../format/types";
 import { fingerprintOf, publicKeyHexFromPrivate, signMessage, verifyMessage } from "./keys";
@@ -24,14 +26,28 @@ export async function computeContentHash(model: EliumDocumentModel): Promise<str
   return sha256Hex(canonicalJSON(model));
 }
 
-/** The exact bytes that get signed — a stable, self-describing structure. */
+/**
+ * The exact bytes that get signed — a stable, self-describing structure.
+ * `signedPlacement`/`signedVisual` are included only when provided, so legacy
+ * proofs (created before placement/visual were bound) reconstruct byte-identical.
+ */
 function toBeSigned(
   signatureId: string,
   signedContentHash: string,
   signer: SignerInfo,
   signedAt: string,
+  placement?: SignaturePlacement,
+  visual?: SignatureVisual,
 ): string {
-  return canonicalJSON({ v: 1, signatureId, signedContentHash, signer, signedAt });
+  return canonicalJSON({
+    v: 1,
+    signatureId,
+    signedContentHash,
+    signer,
+    signedAt,
+    ...(placement ? { signedPlacement: placement } : {}),
+    ...(visual ? { signedVisual: visual } : {}),
+  });
 }
 
 export async function createProof(opts: {
@@ -39,11 +55,14 @@ export async function createProof(opts: {
   model: EliumDocumentModel;
   signer: SignerInfo;
   privateKeyHex: string;
+  /** Bind the signature's placement & appearance into the proof (recommended). */
+  placement?: SignaturePlacement;
+  visual?: SignatureVisual;
 }): Promise<SignatureProof> {
   const publicKeyHex = await publicKeyHexFromPrivate(opts.privateKeyHex);
   const signedContentHash = await computeContentHash(opts.model);
   const signedAt = nowIso();
-  const message = toBeSigned(opts.signatureId, signedContentHash, opts.signer, signedAt);
+  const message = toBeSigned(opts.signatureId, signedContentHash, opts.signer, signedAt, opts.placement, opts.visual);
   const signatureHex = await signMessage(message, opts.privateKeyHex);
 
   return {
@@ -54,6 +73,8 @@ export async function createProof(opts: {
     signedContentHash,
     signatureHex,
     signedAt,
+    ...(opts.placement ? { signedPlacement: opts.placement } : {}),
+    ...(opts.visual ? { signedVisual: opts.visual } : {}),
     timestamp: {
       type: "local",
       at: signedAt,
@@ -75,11 +96,17 @@ export async function verifyProof(
   const proof = signature.proof;
   if (!proof) return "visual_only";
 
+  // Reconstruct against the SNAPSHOTS embedded in the proof (present ⇒ v2, the
+  // proof binds placement/visual; absent ⇒ legacy, it doesn't). Their presence
+  // changes the signed bytes, so an attacker can neither strip nor forge them
+  // without the signature failing.
   const message = toBeSigned(
     signature.id,
     proof.signedContentHash,
     signature.signer,
     proof.signedAt,
+    proof.signedPlacement,
+    proof.signedVisual,
   );
   const authentic = await verifyMessage(proof.signatureHex, message, proof.publicKeyHex);
   if (!authentic) return "invalid";
@@ -88,8 +115,11 @@ export async function verifyProof(
     return "unknown_key";
   }
 
-  const currentHash = await computeContentHash(model);
-  return currentHash === proof.signedContentHash ? "valid" : "modified";
+  if ((await computeContentHash(model)) !== proof.signedContentHash) return "modified";
+  // A v2 proof also detects the signature being moved or its appearance altered.
+  if (proof.signedPlacement && canonicalJSON(signature.placement) !== canonicalJSON(proof.signedPlacement)) return "modified";
+  if (proof.signedVisual && canonicalJSON(signature.visual) !== canonicalJSON(proof.signedVisual)) return "modified";
+  return "valid";
 }
 
 const VERDICT_LABELS: Record<SignatureVerdict, string> = {

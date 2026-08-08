@@ -23,10 +23,31 @@ def compute_content_hash(model: dict) -> str:
     return sha256_hex(canonical_json(model))
 
 
-def _to_be_signed(signature_id: str, signed_hash: str, signer: dict, signed_at: str) -> str:
-    return canonical_json(
-        {"v": 1, "signatureId": signature_id, "signedContentHash": signed_hash, "signer": signer, "signedAt": signed_at}
-    )
+def _to_be_signed(
+    signature_id: str,
+    signed_hash: str,
+    signer: dict,
+    signed_at: str,
+    placement: dict | None = None,
+    visual: dict | None = None,
+) -> str:
+    """Canonical to-be-signed structure (mirror of proof.ts).
+
+    `signedPlacement`/`signedVisual` are included only when provided, so legacy
+    proofs (without them) reconstruct byte-identical.
+    """
+    payload: dict[str, Any] = {
+        "v": 1,
+        "signatureId": signature_id,
+        "signedContentHash": signed_hash,
+        "signer": signer,
+        "signedAt": signed_at,
+    }
+    if placement is not None:
+        payload["signedPlacement"] = placement
+    if visual is not None:
+        payload["signedVisual"] = visual
+    return canonical_json(payload)
 
 
 def generate_identity() -> dict[str, str]:
@@ -46,7 +67,14 @@ def generate_identity() -> dict[str, str]:
     }
 
 
-def create_proof(signature_id: str, model: dict, signer: dict, private_key_hex: str) -> dict[str, Any]:
+def create_proof(
+    signature_id: str,
+    model: dict,
+    signer: dict,
+    private_key_hex: str,
+    placement: dict | None = None,
+    visual: dict | None = None,
+) -> dict[str, Any]:
     priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
     pub_raw = priv.public_key().public_bytes(
         encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
@@ -54,9 +82,9 @@ def create_proof(signature_id: str, model: dict, signer: dict, private_key_hex: 
     public_key_hex = pub_raw.hex()
     signed_hash = compute_content_hash(model)
     signed_at = now_iso()
-    message = _to_be_signed(signature_id, signed_hash, signer, signed_at)
+    message = _to_be_signed(signature_id, signed_hash, signer, signed_at, placement, visual)
     signature = priv.sign(message.encode("utf-8"))
-    return {
+    proof: dict[str, Any] = {
         "alg": "ed25519",
         "publicKeyHex": public_key_hex,
         "fingerprint": hashlib.sha256(pub_raw).hexdigest(),
@@ -64,8 +92,13 @@ def create_proof(signature_id: str, model: dict, signer: dict, private_key_hex: 
         "signedContentHash": signed_hash,
         "signatureHex": signature.hex(),
         "signedAt": signed_at,
-        "timestamp": {"type": "local", "at": signed_at, "note": _TS_NOTE},
     }
+    if placement is not None:
+        proof["signedPlacement"] = placement
+    if visual is not None:
+        proof["signedVisual"] = visual
+    proof["timestamp"] = {"type": "local", "at": signed_at, "note": _TS_NOTE}
+    return proof
 
 
 def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = None) -> str:
@@ -74,8 +107,15 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
     if not proof:
         return "visual_only"
 
+    # Reconstruct against the snapshots embedded in the proof (present ⇒ v2, the
+    # proof binds placement/visual; absent ⇒ legacy). Mirror of proof.ts.
     message = _to_be_signed(
-        signature["id"], proof["signedContentHash"], signature.get("signer", {}), proof["signedAt"]
+        signature["id"],
+        proof["signedContentHash"],
+        signature.get("signer", {}),
+        proof["signedAt"],
+        proof.get("signedPlacement"),
+        proof.get("signedVisual"),
     ).encode("utf-8")
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(proof["publicKeyHex"]))
@@ -86,4 +126,11 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
     if trusted_key_hex and trusted_key_hex.strip().lower() != proof["publicKeyHex"].lower():
         return "unknown_key"
 
-    return "valid" if compute_content_hash(model) == proof["signedContentHash"] else "modified"
+    if compute_content_hash(model) != proof["signedContentHash"]:
+        return "modified"
+    # A v2 proof also detects the signature being moved or its appearance altered.
+    if "signedPlacement" in proof and canonical_json(signature.get("placement")) != canonical_json(proof["signedPlacement"]):
+        return "modified"
+    if "signedVisual" in proof and canonical_json(signature.get("visual")) != canonical_json(proof["signedVisual"]):
+        return "modified"
+    return "valid"

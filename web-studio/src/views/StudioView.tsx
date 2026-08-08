@@ -54,6 +54,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
           onDocChange={studio.onDocChange}
           onAddSignatureRequest={studio.openSignatureCreator}
           onUpdateSignature={studio.updateSignature}
+          onCommitSignature={studio.commitSignature}
           onSelectSignature={studio.selectSignature}
           onRemoveSignature={studio.removeSignature}
           onEditorReady={setEditor}

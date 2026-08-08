@@ -11,6 +11,9 @@ const { api } = vi.hoisted(() => ({
     setOrgSso: vi.fn(),
     disableOrgSso: vi.fn(),
     createScimToken: vi.fn(),
+    getOrgScimConfig: vi.fn(),
+    setOrgScimConfig: vi.fn(),
+    listRoles: vi.fn(),
   },
 }));
 vi.mock("../src/drive-cloud/session", () => ({
@@ -25,6 +28,9 @@ beforeEach(() => {
   api.setOrgSso.mockResolvedValue({ ok: true });
   api.disableOrgSso.mockResolvedValue({ ok: true });
   api.createScimToken.mockResolvedValue({ token: "scim-secret-xyz" });
+  api.getOrgScimConfig.mockResolvedValue({ defaultRoleKey: "editor", groupRoleMap: {} });
+  api.setOrgScimConfig.mockResolvedValue({ ok: true });
+  api.listRoles.mockResolvedValue({ roles: [{ id: "r-ed", key: "editor", name: "Éditeur" }, { id: "r-mg", key: "manager", name: "Gestionnaire" }] });
 });
 afterEach(cleanup);
 
@@ -35,11 +41,13 @@ describe("SsoScimPanel (component)", () => {
     expect(screen.getByText("https://drive.example.fr/api/scim/v2")).toBeTruthy();
   });
 
-  it("saves a valid SSO configuration (parses JWKS, trims domains)", async () => {
+  it("saves a valid SSO configuration (static JWKS, trims domains)", async () => {
     render(<SsoScimPanel />);
     await userEvent.type(screen.getByPlaceholderText("https://exemple.okta.com"), "https://acme.okta.com");
     await userEvent.type(screen.getByPlaceholderText("0oa…"), "client-42");
-    fireEvent.change(screen.getByPlaceholderText(/keys/), { target: { value: '{"keys":[{"kid":"k1"}]}' } });
+    // The JWKS textarea placeholder is `{ "keys": [ … ] }` — the /"keys"/ regex
+    // (with the quote) disambiguates it from the jwks_uri input placeholder.
+    fireEvent.change(screen.getByPlaceholderText(/"keys"/), { target: { value: '{"keys":[{"kid":"k1"}]}' } });
     await userEvent.type(screen.getByPlaceholderText(/exemple.fr/), "acme.fr, filiale.fr");
     await userEvent.click(screen.getByRole("button", { name: /Enregistrer le SSO/ }));
 
@@ -53,14 +61,30 @@ describe("SsoScimPanel (component)", () => {
     expect(await screen.findByText(/Configuration SSO enregistrée/)).toBeTruthy();
   });
 
-  it("rejects an invalid JWKS without calling the API", async () => {
+  it("saves an SSO configuration with a jwks_uri (no static keys)", async () => {
     render(<SsoScimPanel />);
     await userEvent.type(screen.getByPlaceholderText("https://exemple.okta.com"), "https://acme.okta.com");
     await userEvent.type(screen.getByPlaceholderText("0oa…"), "client-42");
-    fireEvent.change(screen.getByPlaceholderText(/keys/), { target: { value: "pas du json" } });
+    await userEvent.type(screen.getByPlaceholderText(/oauth2\/v1\/keys/), "https://acme.okta.com/oauth2/v1/keys");
     await userEvent.click(screen.getByRole("button", { name: /Enregistrer le SSO/ }));
 
-    expect(await screen.findByText(/JWKS invalide/)).toBeTruthy();
+    await waitFor(() => expect(api.setOrgSso).toHaveBeenCalledTimes(1));
+    expect(api.setOrgSso).toHaveBeenCalledWith("org-1", {
+      issuer: "https://acme.okta.com",
+      clientId: "client-42",
+      jwksUri: "https://acme.okta.com/oauth2/v1/keys",
+      allowedDomains: [],
+    });
+  });
+
+  it("rejects an invalid static JWKS without calling the API", async () => {
+    render(<SsoScimPanel />);
+    await userEvent.type(screen.getByPlaceholderText("https://exemple.okta.com"), "https://acme.okta.com");
+    await userEvent.type(screen.getByPlaceholderText("0oa…"), "client-42");
+    fireEvent.change(screen.getByPlaceholderText(/"keys"/), { target: { value: "pas du json" } });
+    await userEvent.click(screen.getByRole("button", { name: /Enregistrer le SSO/ }));
+
+    expect(await screen.findByText(/JWKS statique invalide/)).toBeTruthy();
     expect(api.setOrgSso).not.toHaveBeenCalled();
   });
 

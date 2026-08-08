@@ -39,6 +39,14 @@ import { strToU8, strFromU8 } from "fflate";
 import { verifyProof, createProof } from "./sign/proof";
 import { verifySeal, type SealVerdict } from "./sign/seal";
 import { checkSealPin, pinSeal, repinSeal, type SealPinCheck } from "./sign/seal-pinning";
+import {
+  loadTrustBook,
+  findContact,
+  trustContact as storeTrustContact,
+  untrustContact as storeUntrustContact,
+  migrateLegacyTrustedKey,
+  type TrustedContact,
+} from "./sign/trust-book";
 import { importToDoc } from "./format/importers";
 import { fontResources, syncEmbeddedFonts } from "./format/embedded-fonts";
 import { embeddableFonts, registerEmbeddedFonts } from "./ui/fonts";
@@ -64,11 +72,29 @@ import type { ExportKind, Studio, StudioMode } from "./studio/types";
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-async function computeVerdicts(f: EliumFile, trusted: string): Promise<Record<string, SignatureVerdict>> {
-  const pairs = await Promise.all(
-    f.signatures.map(async (s) => [s.id, await verifyProof(s, f.document, trusted || undefined)] as const),
+/**
+ * Recompute each signature's verdict AND its attribution.
+ *
+ * The verdict is a pure cryptographic fact (authentic + document unchanged) —
+ * it never depends on who you trust. Trust is a SEPARATE dimension: if the
+ * proof's key is in the carnet, we surface the contact's name ("signé par X").
+ * Absence of attribution is shown as a caution in the UI, not baked into the
+ * verdict, so a valid-but-unknown key reads honestly rather than as a scare.
+ */
+async function computeVerdicts(
+  f: EliumFile,
+  book: TrustedContact[],
+): Promise<{ verdicts: Record<string, SignatureVerdict>; attributions: Record<string, string> }> {
+  const verdicts: Record<string, SignatureVerdict> = {};
+  const attributions: Record<string, string> = {};
+  await Promise.all(
+    f.signatures.map(async (s) => {
+      verdicts[s.id] = await verifyProof(s, f.document);
+      const contact = s.proof ? findContact(book, s.proof.publicKeyHex) : undefined;
+      if (contact) attributions[s.id] = contact.name;
+    }),
   );
-  return Object.fromEntries(pairs) as Record<string, SignatureVerdict>;
+  return { verdicts, attributions };
 }
 
 function Toast({ tone, message, onClose }: { tone: "danger" | "success"; message: string; onClose: () => void }) {
@@ -114,7 +140,10 @@ export default function App() {
     const s = loadStoredIdentity();
     return s ? { publicKeyHex: s.publicKeyHex, fingerprint: s.fingerprint } : null;
   });
-  const [trustedKey, setTrustedKey] = useState(() => localStorage.getItem("elium_trusted_key") || "");
+  // Carnet de clés de confiance (name→clé) — remplace l'ancienne clé unique.
+  const [trustBook, setTrustBook] = useState<TrustedContact[]>(() => loadTrustBook());
+  const [attributions, setAttributions] = useState<Record<string, string>>({}); // sigId → nom du contact
+  const [sealAttribution, setSealAttribution] = useState<string | null>(null); // nom du scelleur, si connu
   const [sealVerdict, setSealVerdict] = useState<SealVerdict | null>(null);
   const [sealPin, setSealPin] = useState<SealPinCheck | null>(null);
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
@@ -128,6 +157,11 @@ export default function App() {
 
   const setTheme = useCallback((t: Theme) => { persistTheme(t); setThemeState(t); }, []);
 
+  // Migre une fois l'ancienne « clé de confiance » unique vers le carnet nommé.
+  useEffect(() => {
+    void migrateLegacyTrustedKey().then(() => setTrustBook(loadTrustBook()));
+  }, []);
+
   const forgetIdentity = useCallback(() => {
     localStorage.removeItem("elium_identity");
     setIdentity(null);
@@ -136,7 +170,8 @@ export default function App() {
 
   const clearLocalStorage = useCallback(() => {
     localStorage.removeItem("elium_identity");
-    localStorage.removeItem("elium_trusted_key");
+    localStorage.removeItem("elium_trusted_key"); // legacy (migré vers le carnet)
+    localStorage.removeItem("elium_trust_book");
     localStorage.removeItem("elium_theme");
     localStorage.removeItem("elium_seal_pins");
     forgetRecipientKey();
@@ -148,7 +183,7 @@ export default function App() {
     }
     keyfileRef.current = undefined;
     setIdentity(null);
-    setTrustedKey("");
+    setTrustBook([]);
     setSettingsOpen(false);
     vaultPromptedRef.current = false;
     setVaultSecret(undefined);
@@ -331,9 +366,13 @@ export default function App() {
   const validatedSigRef = useRef<Set<string>>(new Set()); // sig ids already logged this session
   const queueJournal = useCallback((ev: PendingJournalEvent) => { pendingJournalRef.current.push(ev); }, []);
 
-  const recompute = useCallback(async (f: EliumFile, trusted: string) => {
-    const verds = await computeVerdicts(f, trusted);
+  const recompute = useCallback(async (f: EliumFile) => {
+    // Read the trust book fresh each pass: mutations go through localStorage,
+    // so this reflects the latest carnet without stale-closure hazards.
+    const book = loadTrustBook();
+    const { verdicts: verds, attributions: attrib } = await computeVerdicts(f, book);
     setVerdicts(verds);
+    setAttributions(attrib);
     // Log the first authentic validation of each signature this session (flushed at save).
     for (const s of f.signatures) {
       if (verds[s.id] === "valid" && !validatedSigRef.current.has(s.id)) {
@@ -342,8 +381,11 @@ export default function App() {
       }
     }
     setJournalVerdict(await verifyJournal(f.journal));
-    const sv = await verifySeal(f.manifest, f.signatures, f.journal, trusted || undefined);
+    // Verdict = pure crypto (authentic + untampered); attribution is separate.
+    const sealContact = f.manifest.seal ? findContact(book, f.manifest.seal.publicKeyHex) : undefined;
+    const sv = await verifySeal(f.manifest, f.signatures, f.journal);
     setSealVerdict(sv);
+    setSealAttribution(sealContact?.name ?? null);
     // TOFU: pin the seal key on first authentic sight; flag a key change otherwise.
     if (sv === "valid" || sv === "unknown_key") {
       const check = checkSealPin(f.manifest);
@@ -365,6 +407,22 @@ export default function App() {
     setSealPin(checkSealPin(file.manifest));
     setToast("Nouvelle clé de sceau épinglée pour ce document");
   }, [file]);
+
+  // Carnet : approuver une clé (de sceau ou de preuve) sous un nom, ou la retirer.
+  const trustContact = useCallback(async (name: string, publicKeyHex: string) => {
+    try {
+      setTrustBook(await storeTrustContact(name, publicKeyHex));
+      if (file) await recompute(file);
+      setToast(`Clé approuvée comme « ${name.trim() || "Sans nom"} »`);
+    } catch (e) {
+      setError(msg(e));
+    }
+  }, [file, recompute]);
+
+  const untrustContact = useCallback((publicKeyHex: string) => {
+    setTrustBook(storeUntrustContact(publicKeyHex));
+    if (file) void recompute(file);
+  }, [file, recompute]);
 
   // Returns the in-memory private key, decrypting the stored blob on demand.
   const ensurePrivateKey = useCallback(async (): Promise<string | null> => {
@@ -411,9 +469,9 @@ export default function App() {
     setFile(f);
     setIntegrity(integ);
     setSelectedSig(null);
-    await recompute(f, trustedKey);
+    await recompute(f);
     setEditorKey((k) => k + 1);
-  }, [recompute, trustedKey, queueJournal]);
+  }, [recompute, queueJournal]);
 
   // --- Home actions -------------------------------------------------------
 
@@ -641,16 +699,6 @@ export default function App() {
     });
   }, []);
 
-  const setTrusted = useCallback((k: string) => {
-    const normalized = k.trim();
-    setTrustedKey(normalized);
-    localStorage.setItem("elium_trusted_key", normalized);
-    setFile((prev) => {
-      if (prev) computeVerdicts(prev, normalized).then(setVerdicts);
-      return prev;
-    });
-  }, []);
-
   const [backupOpen, setBackupOpen] = useState<"generated" | "manual" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -723,11 +771,11 @@ export default function App() {
       if (!current) return;
       const nf = await setProfile(current, p);
       setFile(nf);
-      await recompute(nf, trustedKey);
+      await recompute(nf);
     } finally {
       setBusy(false);
     }
-  }, [file, recompute, trustedKey]);
+  }, [file, recompute]);
 
   const createSignature = useCallback(async (draft: SignatureDraft) => {
     if (!file) return;
@@ -753,11 +801,11 @@ export default function App() {
       setFile(nf);
       setCreatorOpen(false);
       setSelectedSig(id);
-      await recompute(nf, trustedKey);
+      await recompute(nf);
     } finally {
       setBusy(false);
     }
-  }, [file, identity, recompute, trustedKey, ensurePrivateKey]);
+  }, [file, identity, recompute, ensurePrivateKey]);
 
   const updateSignature = useCallback((sig: EliumSignature) => {
     setFile((prev) => (prev ? { ...prev, signatures: prev.signatures.map((s) => (s.id === sig.id ? sig : s)) } : prev));
@@ -943,7 +991,7 @@ export default function App() {
       } catch {
         /* la bibliothèque locale est best-effort */
       }
-      await recompute(f2, trustedKey);
+      await recompute(f2);
       if (sealKey) setSealVerdict("valid");
       const how = useRecipients ? ` pour ${recipients.length} destinataire(s)` : keyfileRef.current ? " et fichier-clé" : "";
       setToast(sealKey ? `Document enregistré et scellé${how} (.elium)` : `Document enregistré${how} (.elium)`);
@@ -952,12 +1000,12 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [askSecret, file, password, recompute, trustedKey, identity, ensurePrivateKey, recipients, vaultSecret]);
+  }, [askSecret, file, password, recompute, identity, ensurePrivateKey, recipients, vaultSecret]);
 
   const exportAs = useCallback(async (kind: ExportKind) => {
     if (!file) return;
     try {
-      const v = await computeVerdicts(file, trustedKey);
+      const { verdicts: v } = await computeVerdicts(file, loadTrustBook());
       setVerdicts(v);
       if (kind === "html") exportHtml(file, v);
       else if (kind === "md") exportMarkdown(file);
@@ -976,13 +1024,13 @@ export default function App() {
     } catch (e) {
       setError(msg(e));
     }
-  }, [file, trustedKey, queueJournal]);
+  }, [file, queueJournal]);
 
   const goHome = useCallback(() => setMode("home"), []);
   const toViewer = useCallback(async () => {
-    if (file) await recompute(file, trustedKey);
+    if (file) await recompute(file);
     setMode("viewer");
-  }, [file, recompute, trustedKey]);
+  }, [file, recompute]);
   const toEditor = useCallback(() => setMode("studio"), []);
 
   // --- Build studio contract ---------------------------------------------
@@ -994,11 +1042,11 @@ export default function App() {
 
   const studio: Studio | null = file
     ? {
-        file, editable, identity, trustedKey, verdicts, integrity, journalVerdict, sealVerdict, sealPin, selectedSig, busy,
+        file, editable, identity, trustBook, attributions, sealAttribution, verdicts, integrity, journalVerdict, sealVerdict, sealPin, selectedSig, busy,
         versionSecret: { password, keyfile: keyfileRef.current },
         vaultSecret,
         recipients, recipientPublic,
-        setTitle, setTrustedKey: setTrusted, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
+        setTitle, trustContact, untrustContact, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
         createSignature, updateSignature, removeSignature, selectSignature: setSelectedSig,
@@ -1117,8 +1165,9 @@ export default function App() {
           theme={theme}
           onSetTheme={setTheme}
           identity={identity}
-          trustedKey={trustedKey}
-          onSetTrustedKey={setTrusted}
+          trustBook={trustBook}
+          onTrustContact={trustContact}
+          onUntrustContact={untrustContact}
           onRegenerateIdentity={generateIdentity}
           onForgetIdentity={forgetIdentity}
           onBackupIdentity={() => setBackupOpen("manual")}

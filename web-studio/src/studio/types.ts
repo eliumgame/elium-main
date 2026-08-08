@@ -14,6 +14,7 @@ import type { JournalVerdict } from "../format/journal";
 import type { EliumIdentity } from "../sign/keys";
 import type { SealVerdict } from "../sign/seal";
 import type { SealPinCheck } from "../sign/seal-pinning";
+import type { TrustedContact } from "../sign/trust-book";
 import type { RecipientPublic } from "../crypto/recipient-key-store";
 import type { SignatureDraft } from "../sign/SignatureCreator";
 import type { VaultSecret } from "../crypto/local-vault";
@@ -26,7 +27,12 @@ export interface Studio {
   file: EliumFile;
   editable: boolean;
   identity: EliumIdentity | null;
-  trustedKey: string;
+  /** Carnet local de clés de confiance (name→clé). */
+  trustBook: TrustedContact[];
+  /** sigId → nom du contact attribué (clé de la preuve reconnue au carnet). */
+  attributions: Record<string, string>;
+  /** Nom du scelleur si sa clé figure au carnet, sinon null. */
+  sealAttribution: string | null;
   verdicts: Record<string, SignatureVerdict>;
   integrity: IntegrityVerdict | null;
   journalVerdict: JournalVerdict | null;
@@ -40,7 +46,10 @@ export interface Studio {
   recipientPublic: RecipientPublic | null; // this user's own recipient key (to receive)
 
   setTitle(title: string): void;
-  setTrustedKey(key: string): void;
+  /** Approuver une clé (de sceau ou de preuve) sous un nom dans le carnet. */
+  trustContact(name: string, publicKeyHex: string): Promise<void>;
+  /** Retirer une clé du carnet. */
+  untrustContact(publicKeyHex: string): void;
   generateIdentity(): Promise<void>;
   changeProfile(profile: EliumProfile): Promise<void>;
   setAccessExpiry(iso: string | null): void;

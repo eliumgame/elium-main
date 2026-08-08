@@ -1,15 +1,20 @@
-import { Sun, Moon, KeyRound, Trash2, ShieldCheck, Copy, Download, Upload, Lock, Unlock } from "lucide-react";
+import { useState } from "react";
+import { Sun, Moon, KeyRound, Trash2, ShieldCheck, Copy, Download, Upload, Lock, Unlock, UserPlus, BookUser } from "lucide-react";
 import { Modal, Button, Field, Alert, Badge } from "../ui/components";
 import type { Theme } from "../ui/theme";
 import type { EliumIdentity } from "../sign/keys";
+import type { TrustedContact } from "../sign/trust-book";
+import { fingerprintWords } from "../sign/safety-words";
 import { useDialogs } from "../ui/dialogs";
 
 export interface SettingsProps {
   theme: Theme;
   onSetTheme: (t: Theme) => void;
   identity: EliumIdentity | null;
-  trustedKey: string;
-  onSetTrustedKey: (k: string) => void;
+  /** Carnet de clés de confiance (name→clé). */
+  trustBook: TrustedContact[];
+  onTrustContact: (name: string, publicKeyHex: string) => Promise<void> | void;
+  onUntrustContact: (publicKeyHex: string) => void;
   onRegenerateIdentity: () => void;
   onForgetIdentity: () => void;
   onBackupIdentity: () => void;
@@ -28,6 +33,17 @@ export interface SettingsProps {
 
 export default function SettingsModal(p: SettingsProps) {
   const { confirm } = useDialogs();
+  const [newName, setNewName] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const canAdd = /^[0-9a-fA-F]{64}$/.test(newKey.trim());
+
+  const addContact = async () => {
+    if (!canAdd) return;
+    await p.onTrustContact(newName.trim() || "Sans nom", newKey.trim());
+    setNewName("");
+    setNewKey("");
+  };
+
   return (
     <Modal title="Paramètres" onClose={p.onClose} footer={<Button onClick={p.onClose}>Fermer</Button>}>
       <div className="settings">
@@ -88,16 +104,62 @@ export default function SettingsModal(p: SettingsProps) {
         </section>
 
         <section className="settings__section">
-          <h3 className="settings__title">Clé de confiance</h3>
-          <Field label="Clé publique attendue d'un signataire (hex)" hint="Permet d'attribuer une signature/un sceau « valide » à une identité connue.">
-            <input
-              className="settings__input"
-              value={p.trustedKey}
-              onChange={(e) => p.onSetTrustedKey(e.target.value.trim())}
-              placeholder="ex. 96dc0e0d…"
-              spellCheck={false}
-            />
-          </Field>
+          <h3 className="settings__title"><BookUser size={15} /> Carnet de clés de confiance</h3>
+          <p className="muted">
+            Nommez les clés publiques des signataires que vous connaissez. Une signature ou un sceau dont la clé
+            figure ici est attribué à ce nom (« signé par… ») au lieu d'un simple « clé non vérifiée ».
+            Comparez l'empreinte par un canal de confiance avant d'approuver.
+          </p>
+
+          {p.trustBook.length === 0 ? (
+            <p className="muted">Aucune clé de confiance enregistrée.</p>
+          ) : (
+            <ul className="trust-list">
+              {p.trustBook.map((c) => (
+                <li key={c.publicKeyHex} className="trust-list__item">
+                  <div className="trust-list__main">
+                    <span className="trust-list__name"><ShieldCheck size={13} /> {c.name}</span>
+                    <code className="trust-list__words">{fingerprintWords(c.fingerprint)}</code>
+                  </div>
+                  <div className="trust-list__actions">
+                    <Button variant="ghost" size="sm" aria-label="Copier l'empreinte"
+                      onClick={() => p.onCopy(c.fingerprint, "Empreinte copiée")}>
+                      <Copy size={13} />
+                    </Button>
+                    <Button variant="ghost" size="sm" aria-label={`Retirer ${c.name}`}
+                      onClick={() => p.onUntrustContact(c.publicKeyHex)}>
+                      <Trash2 size={13} />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="trust-add">
+            <Field label="Nom">
+              <input
+                className="settings__input"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="ex. Alice Martin"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Clé publique du signataire (Ed25519, 64 hex)">
+              <input
+                className="settings__input"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value.trim())}
+                placeholder="ex. 96dc0e0d…"
+                spellCheck={false}
+              />
+            </Field>
+            <Button variant="outline" size="sm" disabled={!canAdd} onClick={() => void addContact()}>
+              <UserPlus size={14} /> Ajouter au carnet
+            </Button>
+            {newKey && !canAdd && <p className="muted">⚠ Format invalide (64 caractères hexadécimaux attendus).</p>}
+          </div>
         </section>
 
         <section className="settings__section">
@@ -124,7 +186,7 @@ export default function SettingsModal(p: SettingsProps) {
         <section className="settings__section">
           <h3 className="settings__title">Données locales</h3>
           <Alert tone="warning" title="Stockage navigateur">
-            Identité chiffrée, clé de confiance et thème sont stockés dans ce navigateur uniquement.
+            Identité chiffrée, carnet de clés de confiance et thème sont stockés dans ce navigateur uniquement.
             Aucune donnée n'est envoyée en ligne.
           </Alert>
           <div className="settings__row" style={{ marginTop: 8 }}>
@@ -132,7 +194,7 @@ export default function SettingsModal(p: SettingsProps) {
               variant="danger"
               size="sm"
               onClick={async () => {
-                if (await confirm({ title: "Effacer les données locales", message: "Effacer l'identité, la clé de confiance et les préférences de ce navigateur ?", danger: true, confirmLabel: "Effacer" })) {
+                if (await confirm({ title: "Effacer les données locales", message: "Effacer l'identité, le carnet de clés de confiance et les préférences de ce navigateur ?", danger: true, confirmLabel: "Effacer" })) {
                   p.onClearStorage();
                 }
               }}

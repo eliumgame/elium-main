@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import urllib.parse
+import urllib.request
 import webbrowser
 from functools import partial
 from pathlib import Path
@@ -477,8 +478,28 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    # Autorité d'horodatage RFC-3161 (fixe, pas d'URL côté client → pas de SSRF).
+    # Proxy local pour l'horodatage PAdES : le navigateur ne peut pas interroger
+    # une TSA tierce (CORS) ; on relaie ici, en même origine (/__tsa__).
+    TSA_URL = "http://timestamp.digicert.com"
+
     def do_POST(self):
         clean = self.path.split("?", 1)[0]
+        if clean == "/__tsa__":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                body = self.rfile.read(length) if length > 0 else b""
+                req = urllib.request.Request(
+                    self.TSA_URL, data=body,
+                    headers={"Content-Type": "application/timestamp-query"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 (URL fixe de confiance)
+                    reply = r.read()
+                self._serve_bytes(reply, "application/timestamp-reply")
+            except Exception:
+                self.send_response(502)
+                self.end_headers()
+            return
         if clean == "/__update__/start":
             status = {"state": "idle"}
             if updater is not None:

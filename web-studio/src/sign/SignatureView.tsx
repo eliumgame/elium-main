@@ -1,5 +1,14 @@
+import { useState } from "react";
 import type { EliumSignature, SignatureVerdict } from "../format/types";
 import { ShieldCheck, ShieldAlert, ShieldQuestion, Shield } from "lucide-react";
+
+/** Image de signature avec repli LIBELLÉ : si le data URL est cassé/vide, on
+ *  affiche une étiquette au lieu du glyphe « image cassée » (cf. StampImg PDF). */
+function SigImg({ src, label }: { src: string; label: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) return <div className="sig-view__img-fallback">{label}</div>;
+  return <img className="sig-view__img" src={src} alt="signature" draggable={false} onError={() => setBroken(true)} />;
+}
 
 const STAMP_LABELS: Record<string, string> = {
   approved: "APPROUVÉ",
@@ -44,7 +53,7 @@ export default function SignatureView({
   return (
     <div className="sig-view" style={{ color: visual.color, background: visual.background }}>
       {visual.image && (
-        <img className="sig-view__img" src={visual.image} alt="signature" draggable={false} />
+        <SigImg src={visual.image} label={signer.name || visual.text || "signature"} />
       )}
 
       {kind === "stamp" && !visual.image && (

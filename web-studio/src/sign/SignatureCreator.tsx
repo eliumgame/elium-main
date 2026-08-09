@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { KeyRound } from "lucide-react";
 import { Modal, Tabs, Field, Button, Alert } from "../ui/components";
 import SignaturePad from "./SignaturePad";
 import SignatureView from "./SignatureView";
@@ -40,11 +41,13 @@ const TABS = [
 export default function SignatureCreator({
   hasIdentity,
   identityFingerprint,
+  onGenerateIdentity,
   onClose,
   onCreate,
 }: {
   hasIdentity: boolean;
   identityFingerprint?: string;
+  onGenerateIdentity?: () => void;
   onClose: () => void;
   onCreate: (draft: SignatureDraft) => void;
 }) {
@@ -216,9 +219,14 @@ export default function SignatureCreator({
         <input type="checkbox" checked={wantsProof} disabled={!hasIdentity} onChange={(e) => setWantsProof(e.target.checked)} />
         <span>
           Ajouter une <b>preuve cryptographique</b> (signature Ed25519 + empreinte du document)
-          {!hasIdentity && <span className="muted"> — générez d'abord une identité dans le panneau Signatures.</span>}
+          {!hasIdentity && <span className="muted"> — nécessite une identité de signature.</span>}
         </span>
       </label>
+      {!hasIdentity && onGenerateIdentity && (
+        <Button variant="outline" size="sm" onClick={onGenerateIdentity} style={{ marginTop: 6 }}>
+          <KeyRound size={14} /> Générer une identité de signature
+        </Button>
+      )}
 
       <Alert tone="info">
         Une signature visuelle n'est pas une signature électronique qualifiée. La preuve cryptographique

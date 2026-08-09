@@ -784,7 +784,7 @@ export function SignatureDialog({
             {saved.map((s) => (
               <div key={s.id} className="pdfx-saved-sig">
                 <button onClick={() => onUse({ src: s.src, ratio: s.ratio })} title="Utiliser">
-                  <img src={s.src} alt="" />
+                  <img src={s.src} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                 </button>
                 <button className="pdfx-saved-sig__del" onClick={() => onDelete(s.id)} title="Supprimer"><Trash2 size={12} /></button>
               </div>
@@ -842,7 +842,7 @@ export function SignatureDialog({
         )}
         {tab === "import" && (
           <div className="pdfx-sigimport">
-            {imported ? <img src={imported.src} alt="" /> : <p>Photographiez ou scannez votre signature sur une feuille blanche.<br />Le fond sera automatiquement rendu transparent.</p>}
+            {imported ? <img src={imported.src} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <p>Photographiez ou scannez votre signature sur une feuille blanche.<br />Le fond sera automatiquement rendu transparent.</p>}
             <button className="pdfx-mini" onClick={() => fileRef.current?.click()}><Upload size={13} /> Choisir une image…</button>
             <input
               ref={fileRef} type="file" accept="image/*" hidden

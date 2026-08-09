@@ -708,16 +708,22 @@ export default function App() {
   }, []);
 
   const generateIdentity = useCallback(async () => {
-    const id = await genId();
-    const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
-    if (!pass) return;
-    // Encrypt the private key with Argon2id + AES-256-GCM before it ever touches disk.
-    const enc = await encryptPrivateKey(id.privateKeyHex!, pass);
-    saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
-    setIdentity(id);
-    // Open the backup modal right away: without an export, the key only lives
-    // in this browser's storage and a profile reset destroys it for good.
-    setBackupOpen("generated");
+    try {
+      // genId() can throw if the Ed25519/hash wiring fails to initialise —
+      // surface it instead of the button silently doing nothing.
+      const id = await genId();
+      const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
+      if (!pass) return;
+      // Encrypt the private key with Argon2id + AES-256-GCM before it ever touches disk.
+      const enc = await encryptPrivateKey(id.privateKeyHex!, pass);
+      saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
+      setIdentity(id);
+      // Open the backup modal right away: without an export, the key only lives
+      // in this browser's storage and a profile reset destroys it for good.
+      setBackupOpen("generated");
+    } catch (e) {
+      setError(`Échec de la génération de l'identité : ${msg(e)}`);
+    }
   }, [askPassword]);
 
   const exportIdentityFile = useCallback(() => {
@@ -1260,6 +1266,7 @@ export default function App() {
         <SignatureCreator
           hasIdentity={!!identity}
           identityFingerprint={identity?.fingerprint}
+          onGenerateIdentity={generateIdentity}
           onClose={() => setCreatorOpen(false)}
           onCreate={createSignature}
         />

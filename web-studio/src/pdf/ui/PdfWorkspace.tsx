@@ -568,33 +568,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}` : undefined);
   };
 
-  // Horodatage RFC-3161 optionnel : opt-in (contacte une TSA externe via le
-  // proxy local /__tsa__ de l'app de bureau). Sans lui, la signature reste valide.
-  const askTimestamp = async (): Promise<string | undefined> => {
-    const yes = await dialogs.confirm({
-      title: "Horodatage de confiance (RFC-3161)",
-      message: "Ajouter un horodatage certifié par un service de temps externe (au lieu de l'horloge de l'ordinateur) ? "
-        + "Nécessite une connexion Internet et l'application de bureau. Sans lui, la signature reste valide.",
-      confirmLabel: "Avec horodatage",
-      cancelLabel: "Sans",
-    });
-    return yes ? "/__tsa__" : undefined;
-  };
-
   const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !bytesRef.current) return;
     const pw = await dialogs.prompt({ title: "Signer avec un certificat (PAdES)", label: `Mot de passe du certificat « ${file.name} »` });
     if (pw === null) return;
-    const tsaUrl = await askTimestamp();
     setBusy(true);
     const id = toast("progress", "Signature électronique…");
     try {
       const p12 = new Uint8Array(await file.arrayBuffer());
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: visibleSigTarget(), tsaUrl });
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: visibleSigTarget() });
       finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
@@ -613,7 +599,6 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       toast("warning", "Placez d'abord une signature", "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.");
       return;
     }
-    const tsaUrl = await askTimestamp();
     setBusy(true);
     const id = toast("progress", "Génération du certificat et signature…");
     try {
@@ -624,7 +609,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const p12 = generateSelfSignedP12(cn, pw);
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target, tsaUrl });
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target });
       finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);

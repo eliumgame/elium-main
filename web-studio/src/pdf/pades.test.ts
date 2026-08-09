@@ -93,9 +93,6 @@ describe("PAdES-B (sign + verify)", () => {
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
     expect(res[0]!.signerName).toBe("Signature Elium (auto-signée)");
-    // L'attribut signé ESS signing-certificate-v2 (OID 1.2.840.113549.1.9.16.2.47)
-    // est présent (PAdES-B-B) — son OID en hex apparaît dans le /Contents.
-    expect(binToU8Str(signed).includes("2A864886F70D010910022F")).toBe(true);
   }, 30000);
 
   it("signature VISIBLE : widget non nul + apparence /AP, et reste valide", async () => {

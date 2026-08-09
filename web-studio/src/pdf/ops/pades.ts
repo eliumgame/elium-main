@@ -42,9 +42,6 @@ export interface PadesSignOptions {
    * la page `page` (0-based) ; la conversion en points PDF utilise la mediaBox.
    */
   visible?: { page: number; rect: { x: number; y: number; w: number; h: number }; imagePng?: Uint8Array };
-  /** URL d'une autorité d'horodatage RFC-3161 (TSA). Si fournie, un horodatage
-   *  de confiance est ajouté (best-effort : ignoré si la TSA est injoignable). */
-  tsaUrl?: string;
 }
 
 export interface PadesVerification {
@@ -218,139 +215,33 @@ async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptio
   fields.push(widgetRef);
 }
 
-// --- CMS SignedData construit à la main (pour l'attribut signé ESS
-// signing-certificate-v2, que node-forge ne sait pas encoder) + horodatage
-// RFC-3161 optionnel (attribut NON signé). Vérifié par verifyOne ci-dessous. ---
-
-const OID_SIGNING_CERT_V2 = "1.2.840.113549.1.9.16.2.47"; // id-aa-signingCertificateV2
-const OID_TIMESTAMP_TOKEN = "1.2.840.113549.1.9.16.2.14"; // id-aa-timeStampToken
-
-const A = forge.asn1;
-const _oid = (s: string) => A.create(A.Class.UNIVERSAL, A.Type.OID, false, A.oidToDer(s).getBytes());
-const _octet = (bytes: string) => A.create(A.Class.UNIVERSAL, A.Type.OCTETSTRING, false, bytes);
-const _seq = (items: forge.asn1.Asn1[]) => A.create(A.Class.UNIVERSAL, A.Type.SEQUENCE, true, items);
-const _set = (items: forge.asn1.Asn1[]) => A.create(A.Class.UNIVERSAL, A.Type.SET, true, items);
-const _int = (n: number) => A.create(A.Class.UNIVERSAL, A.Type.INTEGER, false, A.integerToDer(n).getBytes());
-const _null = () => A.create(A.Class.UNIVERSAL, A.Type.NULL, false, "");
-const _algSha256 = () => _seq([_oid(forge.pki.oids.sha256), _null()]);
-const _algRsa = () => _seq([_oid(forge.pki.oids.rsaEncryption), _null()]);
-/** Attribute ::= SEQ { type OID, values SET OF value }. */
-const _attr = (typeOid: string, value: forge.asn1.Asn1) => _seq([_oid(typeOid), _set([value])]);
-const _ctx = (tag: number, items: forge.asn1.Asn1[]) => A.create(A.Class.CONTEXT_SPECIFIC, tag, true, items);
-
-function binToU8(s: string): Uint8Array {
-  const u = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff;
-  return u;
-}
-
 /**
- * Horodatage RFC-3161 : interroge une TSA sur sha256(signatureValue) et renvoie
- * le TimeStampToken (ContentInfo ASN.1) à placer en attribut NON signé, ou null
- * en cas d'échec (best-effort — la signature reste valide sans horodatage).
+ * Construit le CMS SignedData détaché (chaîne binaire DER) sur `content`.
+ *
+ * NB : on utilise node-forge (structure reconnue par Adobe/Acrobat, éprouvée).
+ * Une tentative de CMS « fait main » pour ajouter signing-certificate-v2 (B-B)
+ * a été RETIRÉE en v4.3.8 car Adobe ne reconnaissait plus la signature (le
+ * vérificateur interne l'acceptait, mais Acrobat est plus strict et on ne peut
+ * pas le tester ici). À ne réintroduire qu'avec une vraie validation Acrobat
+ * (ou une lib PAdES maintenue).
  */
-async function requestTimestampToken(tsaUrl: string, signatureValue: string): Promise<forge.asn1.Asn1 | null> {
-  try {
-    const md = forge.md.sha256.create();
-    md.update(signatureValue);
-    const req = _seq([
-      _int(1), // version
-      _seq([_seq([_oid(forge.pki.oids.sha256), _null()]), _octet(md.digest().getBytes())]), // messageImprint
-      A.create(A.Class.UNIVERSAL, A.Type.BOOLEAN, false, String.fromCharCode(0xff)), // certReq TRUE
-    ]);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    let respBytes: Uint8Array;
-    try {
-      const resp = await fetch(tsaUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/timestamp-query" },
-        body: binToU8(A.toDer(req).getBytes()) as unknown as BodyInit,
-        signal: controller.signal,
-      });
-      if (!resp.ok) return null;
-      respBytes = new Uint8Array(await resp.arrayBuffer());
-    } finally {
-      clearTimeout(timer);
-    }
-    // TimeStampResp ::= SEQ { status PKIStatusInfo, timeStampToken ContentInfo OPTIONAL }
-    const respAsn1 = A.fromDer(forge.util.createBuffer(u8ToBin(respBytes)));
-    const parts = respAsn1.value as forge.asn1.Asn1[];
-    // status PKIStatus 0=granted, 1=grantedWithMods ; le token est le 2e élément.
-    const status = parts?.[0]?.value ? (parts[0].value as forge.asn1.Asn1[])[0] : undefined;
-    const code = status ? A.derToInteger(status.value as string) : 0;
-    if (code !== 0 && code !== 1) return null;
-    return parts.length >= 2 ? parts[1]! : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Construit le CMS SignedData détaché (chaîne binaire DER) sur `content`, avec
- * les attributs signés contentType + signingTime + messageDigest +
- * signing-certificate-v2 (ESS, PAdES-B-B), et optionnellement un horodatage
- * RFC-3161 (attribut non signé). Construit main pour couvrir signingCertV2.
- */
-async function buildCmsDer(content: Uint8Array, m: SignerMaterial, tsaUrl?: string): Promise<string> {
-  const contentMd = forge.md.sha256.create();
-  contentMd.update(u8ToBin(content));
-  const messageDigest = contentMd.digest().getBytes();
-
-  const certAsn1 = forge.pki.certificateToAsn1(m.cert);
-  const certHashMd = forge.md.sha256.create();
-  certHashMd.update(A.toDer(certAsn1).getBytes());
-  // ESSCertIDv2 ::= SEQ { certHash } (hashAlgorithm omis = SHA-256 par défaut, DER).
-  const signingCertV2 = _seq([_seq([_seq([_octet(certHashMd.digest().getBytes())])])]);
-
-  // Ordre fixe des attributs signés (identique à la re-vérification de verifyOne).
-  const signedAttrs = [
-    _attr(forge.pki.oids.contentType, _oid(forge.pki.oids.data)),
-    _attr(forge.pki.oids.signingTime, A.create(A.Class.UNIVERSAL, A.Type.UTCTIME, false, A.dateToUtcTime(new Date()))),
-    _attr(forge.pki.oids.messageDigest, _octet(messageDigest)),
-    _attr(OID_SIGNING_CERT_V2, signingCertV2),
-  ];
-  // La signature couvre le DER des attributs avec le tag SET OF explicite (0x31),
-  // et non le tag [0] IMPLICIT du SignerInfo (règle CMS).
-  const attrsDer = A.toDer(_set(signedAttrs)).getBytes();
-  const sigMd = forge.md.sha256.create();
-  sigMd.update(attrsDer);
-  const signatureValue = (m.key as forge.pki.rsa.PrivateKey).sign(sigMd);
-
-  // Horodatage RFC-3161 optionnel (best-effort) → attribut NON signé.
-  let unsignedAttrs: forge.asn1.Asn1[] | null = null;
-  if (tsaUrl) {
-    const token = await requestTimestampToken(tsaUrl, signatureValue);
-    if (token) unsignedAttrs = [_attr(OID_TIMESTAMP_TOKEN, token)];
-  }
-
-  // issuerAndSerialNumber depuis l'ASN.1 du certificat (tbs: [ [0]ver, serial, sigAlg, issuer, … ]).
-  const tbsVals = (certAsn1.value as forge.asn1.Asn1[])[0]!.value as forge.asn1.Asn1[];
-  const hasVersion = tbsVals[0]!.tagClass === A.Class.CONTEXT_SPECIFIC;
-  const serialNode = hasVersion ? tbsVals[1]! : tbsVals[0]!;
-  const issuerNode = hasVersion ? tbsVals[3]! : tbsVals[2]!;
-
-  const signerInfoItems: forge.asn1.Asn1[] = [
-    _int(1), // version (issuerAndSerialNumber ⇒ v1)
-    _seq([issuerNode, serialNode]), // issuerAndSerialNumber
-    _algSha256(), // digestAlgorithm
-    _ctx(0, signedAttrs), // [0] IMPLICIT signedAttrs
-    _algRsa(), // signatureAlgorithm
-    _octet(signatureValue),
-  ];
-  if (unsignedAttrs) signerInfoItems.push(_ctx(1, unsignedAttrs)); // [1] IMPLICIT unsignedAttrs
-  const signerInfo = _seq(signerInfoItems);
-
-  const certNodes = [certAsn1, ...m.chain.map((c) => forge.pki.certificateToAsn1(c))];
-  const signedData = _seq([
-    _int(1), // version
-    _set([_algSha256()]), // digestAlgorithms
-    _seq([_oid(forge.pki.oids.data)]), // encapContentInfo (détaché)
-    _ctx(0, certNodes), // certificates [0] IMPLICIT
-    _set([signerInfo]),
-  ]);
-  const contentInfo = _seq([_oid(forge.pki.oids.signedData), _ctx(0, [signedData])]);
-  return A.toDer(contentInfo).getBytes();
+function buildCmsDer(content: Uint8Array, m: SignerMaterial): string {
+  const p7 = forge.pkcs7.createSignedData();
+  p7.content = forge.util.createBuffer(u8ToBin(content));
+  p7.addCertificate(m.cert);
+  for (const c of m.chain) p7.addCertificate(c);
+  p7.addSigner({
+    key: m.key as forge.pki.rsa.PrivateKey,
+    certificate: m.cert,
+    digestAlgorithm: forge.pki.oids.sha256,
+    authenticatedAttributes: [
+      { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
+      { type: forge.pki.oids.messageDigest }, // calculé automatiquement à partir du contenu
+      { type: forge.pki.oids.signingTime, value: new Date() as unknown as string },
+    ],
+  });
+  p7.sign({ detached: true });
+  return forge.asn1.toDer(p7.toAsn1()).getBytes();
 }
 
 /**
@@ -394,7 +285,7 @@ export async function signPdfBytes(
   seg.set(buf.subarray(0, contentsStart), 0);
   seg.set(buf.subarray(contentsEnd), contentsStart);
 
-  const der = await buildCmsDer(seg, material, opts.tsaUrl);
+  const der = buildCmsDer(seg, material);
   const hex = forge.util.bytesToHex(der).toUpperCase();
   const holeHexLen = gtIdx - (ltIdx + 1);
   if (hex.length > holeHexLen) throw new Error("Signature trop volumineuse pour l'espace /Contents réservé.");

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Stamp, UserPlus, PenLine, X, RotateCcw, Trash2, ArrowUp, ArrowDown, ShieldCheck, UserCheck } from "lucide-react";
-import { Button, Badge, EmptyState } from "../ui/components";
+import { Stamp, UserPlus, PenLine, X, RotateCcw, Trash2, ArrowUp, ArrowDown, ShieldCheck, UserCheck, Send, KeyRound } from "lucide-react";
+import { Button, Badge, EmptyState, Alert } from "../ui/components";
 import { getWorkflow, newPartyId, workflowStatus, type Party } from "../format/parapheur-store";
 import { docKeyOf } from "../format/doc-key";
 import { verdictLabel } from "../sign/proof";
@@ -21,7 +21,7 @@ const STATUS_ACCENT = { draft: "neutral", in_progress: "info", completed: "succe
 export default function ParapheurPanel({ studio }: { studio: Studio }) {
   const docKey = docKeyOf(studio.file.manifest);
   const parties: Party[] = studio.file.parapheur?.parties ?? [];
-  const { prompt } = useDialogs();
+  const { prompt, alert } = useDialogs();
 
   // Migration douce : un circuit legacy (IndexedDB local, avant que le circuit
   // ne voyage) est adopté DANS le document — il voyagera aux prochains
@@ -79,8 +79,21 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
 
   const remove = (id: string) => persist(parties.filter((p) => p.id !== id));
 
+  // Envoyer une demande de signature : enregistrer le .elium (le circuit voyage
+  // avec) puis expliquer l'aller-retour. Le fichier exporté EST la demande.
+  const sendRequest = async () => {
+    await studio.save();
+    await alert({
+      title: "Demande de signature exportée",
+      message: "Le fichier .elium enregistré contient le circuit. Envoyez-le aux signataires (email, etc.) : "
+        + "chacun l'ouvre dans Elium, signe sa partie, puis vous renvoie le fichier. Réimportez-le pour voir les signatures.",
+    });
+  };
+
   const overall = workflowStatus(parties);
   const nextPendingIdx = parties.findIndex((p) => p.status === "pending");
+  const pendingCount = parties.filter((p) => p.status === "pending").length;
+  const someSigned = parties.some((p) => p.status === "signed");
 
   return (
     <div className="panel-section">
@@ -93,6 +106,13 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
         tour (vraie preuve Ed25519 embarquée et couverte par le sceau), et le circuit voyage dans le
         <code>.elium</code> — envoyez le fichier à signer, il revient signé.
       </p>
+
+      {pendingCount > 0 && (
+        <Alert tone="info" title="En attente de signatures">
+          Ce document attend {pendingCount} signature(s). Le signataire courant signe sa partie ci-dessous
+          {studio.identity ? "" : " (générez d'abord une identité — aucun compte requis)"}, enregistre, puis renvoie le fichier au demandeur.
+        </Alert>
+      )}
 
       {parties.length === 0 ? (
         <EmptyState title="Aucun signataire" hint="Ajoutez les parties dans l'ordre de signature." />
@@ -136,9 +156,15 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
                   </button>
                   {p.status === "pending" && isNext && studio.editable && (
                     <>
-                      <button className="icon-btn" title="Signer (preuve Ed25519)" disabled={studio.busy} onClick={() => void sign(p)}>
-                        <PenLine size={15} />
-                      </button>
+                      {studio.identity ? (
+                        <button className="icon-btn" title="Signer (preuve Ed25519)" disabled={studio.busy} onClick={() => void sign(p)}>
+                          <PenLine size={15} />
+                        </button>
+                      ) : (
+                        <button className="icon-btn" title="Générer une identité pour signer (sans compte)" disabled={studio.busy} onClick={() => void studio.generateIdentity()}>
+                          <KeyRound size={15} />
+                        </button>
+                      )}
                       <button className="icon-btn icon-btn--danger" title="Refuser" onClick={() => reject(p.id)}>
                         <X size={15} />
                       </button>
@@ -159,9 +185,21 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
         </ol>
       )}
 
-      <Button variant="outline" size="sm" onClick={addParty} style={{ marginTop: 12 }}>
-        <UserPlus size={14} /> Ajouter un signataire
-      </Button>
+      <div className="settings__row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+        <Button variant="outline" size="sm" onClick={addParty}>
+          <UserPlus size={14} /> Ajouter un signataire
+        </Button>
+        {parties.length > 0 && studio.editable && (
+          <Button variant="primary" size="sm" disabled={studio.busy} onClick={() => void sendRequest()}>
+            <Send size={14} /> Envoyer une demande de signature
+          </Button>
+        )}
+      </div>
+      {someSigned && (
+        <p className="muted" style={{ marginTop: 8 }}>
+          Signature faite ? <strong>Enregistrez</strong> le document et renvoyez le fichier <code>.elium</code> au demandeur.
+        </p>
+      )}
     </div>
   );
 }

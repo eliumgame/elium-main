@@ -465,6 +465,11 @@ class EliumApp(QMainWindow):
                         self.send_header(
                             "Content-Security-Policy",
                             "default-src 'self'; "
+                            # 'wasm-unsafe-eval' autorise WebAssembly (Argon2id via
+                            # hash-wasm) SANS ouvrir l'eval() de chaînes. Sans lui, une
+                            # WebView Chromium récente bloque WebAssembly.compile() sous
+                            # default-src 'self' → chiffrement/identité cassés.
+                            "script-src 'self' 'wasm-unsafe-eval'; "
                             "style-src 'self' https://fonts.googleapis.com; "
                             "font-src 'self' https://fonts.gstatic.com",
                         )

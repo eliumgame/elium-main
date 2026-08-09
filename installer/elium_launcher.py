@@ -402,6 +402,12 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; "
+            # 'wasm-unsafe-eval' autorise WebAssembly (Argon2id via hash-wasm,
+            # utilisé par TOUT le chiffrement/identité) SANS ouvrir l'eval() de
+            # chaînes. Sans lui, une WebView Chromium récente bloque
+            # WebAssembly.compile() sous default-src 'self' → « génération
+            # d'identité / ouverture de document chiffré » cassées.
+            "script-src 'self' 'wasm-unsafe-eval'; "
             "style-src 'self' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com",
         )

@@ -548,7 +548,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // Emplacement VISIBLE de la signature = la dernière signature placée (outil
   // Signature) : Adobe la reconnaît alors comme une signature, à cet endroit,
   // avec le dessin en apparence — au lieu d'une simple image.
-  const visibleSigTarget = (): PadesSignOptions["visible"] | undefined => {
+  const visibleSigTarget = (): { visible: NonNullable<PadesSignOptions["visible"]>; annotId: string } | undefined => {
     const sig = [...state.annots].reverse().find((a) => a.kind === "signature" && a.src);
     if (!sig) return undefined;
     const page = state.pages.findIndex((p) => p.id === sig.pageId);
@@ -556,7 +556,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     let imagePng: Uint8Array | undefined;
     const m = /^data:image\/png;base64,(.+)$/.exec(sig.src ?? "");
     if (m) imagePng = Uint8Array.from(atob(m[1]!), (c) => c.charCodeAt(0));
-    return { page, rect: { x: sig.rect.x, y: sig.rect.y, w: sig.rect.w, h: sig.rect.h }, imagePng };
+    return { visible: { page, rect: { x: sig.rect.x, y: sig.rect.y, w: sig.rect.w, h: sig.rect.h }, imagePng }, annotId: sig.id };
+  };
+
+  // Construit le PDF pour signature : si la signature placée devient l'apparence
+  // du champ /Sig (imagePng présent), on EXCLUT son annotation-image de l'export
+  // — sinon Adobe verrait une image (supprimable) EN PLUS du champ signature. La
+  // marque devient ainsi la signature elle-même.
+  const buildForSignature = (t: ReturnType<typeof visibleSigTarget>) => {
+    const st = t && t.visible.imagePng
+      ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) }
+      : state;
+    return buildPdf(bytesRef.current!, st, { ...buildOptions, author, fileName });
   };
 
   const finishSigned = (signed: Uint8Array, base: string, toastId: number): void => {
@@ -579,8 +590,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     try {
       const p12 = new Uint8Array(await file.arrayBuffer());
       const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: visibleSigTarget() });
+      const target = visibleSigTarget();
+      const { bytes } = await buildForSignature(target);
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: target?.visible });
       finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
@@ -608,8 +620,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const pw = "elium-self";
       const p12 = generateSelfSignedP12(cn, pw);
       const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target });
+      const { bytes } = await buildForSignature(target);
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target.visible });
       finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);

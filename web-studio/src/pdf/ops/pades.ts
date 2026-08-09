@@ -34,6 +34,14 @@ export interface PadesSignOptions {
   contactInfo?: string;
   signerName?: string;
   fieldName?: string;
+  /**
+   * Rend la signature VISIBLE à un emplacement (au lieu d'un champ invisible) :
+   * un widget /Sig au rectangle donné, avec le PNG comme apparence /AP — c'est
+   * ce qu'Adobe affiche comme « signature » là où l'utilisateur l'a placée.
+   * `rect` est en ESPACE PAGE du modèle (origine haut-gauche, y vers le bas) sur
+   * la page `page` (0-based) ; la conversion en points PDF utilise la mediaBox.
+   */
+  visible?: { page: number; rect: { x: number; y: number; w: number; h: number }; imagePng?: Uint8Array };
 }
 
 export interface PadesVerification {
@@ -117,7 +125,7 @@ function certCommonName(cert: forge.pki.Certificate): string {
 }
 
 /** Ajoute le dictionnaire de signature + le widget + l'AcroForm (placeholder). */
-function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptions): void {
+async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptions): Promise<void> {
   const ctx = pdfDoc.context;
   const fieldName = opts.fieldName || "Signature1";
 
@@ -143,16 +151,48 @@ function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptions): v
   if (opts.signerName) sigDict.set(PDFName.of("Name"), PDFString.of(opts.signerName));
   const sigRef = ctx.register(sigDict);
 
-  const page = pdfDoc.getPage(0);
+  // Signature VISIBLE (widget au rectangle placé, apparence = le dessin) ou
+  // INVISIBLE (champ Rect nul, comportement historique).
+  const v = opts.visible;
+  const pageCount = pdfDoc.getPageCount();
+  const pageIndex = v ? Math.min(Math.max(0, v.page), pageCount - 1) : 0;
+  const page = pdfDoc.getPage(pageIndex);
+  // Page space (haut-gauche, y bas) → points PDF (bas-gauche) via la mediaBox.
+  let rect: [number, number, number, number] = [0, 0, 0, 0];
+  if (v) {
+    const box = page.getMediaBox();
+    const x1 = box.x + v.rect.x;
+    const y1 = box.y + box.height - v.rect.y - v.rect.h;
+    rect = [x1, y1, x1 + v.rect.w, y1 + v.rect.h];
+  }
+
+  // Apparence /AP : un form XObject dessinant le PNG dans le rectangle.
+  let apRef: ReturnType<typeof ctx.register> | undefined;
+  if (v?.imagePng) {
+    const img = await pdfDoc.embedPng(v.imagePng);
+    const w = Math.max(1, rect[2] - rect[0]);
+    const h = Math.max(1, rect[3] - rect[1]);
+    const apDict = ctx.obj({
+      Type: PDFName.of("XObject"),
+      Subtype: PDFName.of("Form"),
+      FormType: PDFNumber.of(1),
+      BBox: ctx.obj([0, 0, w, h]),
+      Matrix: ctx.obj([1, 0, 0, 1, 0, 0]),
+      Resources: ctx.obj({ XObject: ctx.obj({ Im0: img.ref }) }),
+    });
+    apRef = ctx.register(ctx.stream(`q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`, apDict as never));
+  }
+
   const widget = ctx.obj({
     Type: PDFName.of("Annot"),
     Subtype: PDFName.of("Widget"),
     FT: PDFName.of("Sig"),
-    Rect: ctx.obj([0, 0, 0, 0]),
+    Rect: ctx.obj(rect),
     V: sigRef,
     T: PDFString.of(fieldName),
-    F: PDFNumber.of(132), // Print + Locked, invisible (Rect nul)
+    F: PDFNumber.of(v ? 4 : 132), // visible: Print ; invisible: Print + Locked (Rect nul)
     P: page.ref,
+    ...(apRef ? { AP: ctx.obj({ N: apRef }) } : {}),
   });
   const widgetRef = ctx.register(widget);
 
@@ -206,7 +246,7 @@ export async function signPdfBytes(
 ): Promise<Uint8Array> {
   const material = loadPkcs12(p12Bytes, password);
   const pdfDoc = await PDFDocument.load(finalPdfBytes, { updateMetadata: false });
-  addSignaturePlaceholder(pdfDoc, { ...opts, signerName: opts.signerName || certCommonName(material.cert) });
+  await addSignaturePlaceholder(pdfDoc, { ...opts, signerName: opts.signerName || certCommonName(material.cert) });
   const withPlaceholder = await pdfDoc.save({ useObjectStreams: false, updateFieldAppearances: false });
 
   const buf = new Uint8Array(withPlaceholder); // copie mutable

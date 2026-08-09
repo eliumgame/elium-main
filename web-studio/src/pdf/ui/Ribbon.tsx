@@ -283,7 +283,8 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Unlock size={17} />} onClick={C("unprotect")} label="Retirer" />
             </Group>
             <Group title="Signature électronique">
-              <Cmd big icon={<FileSignature size={19} />} label="Signer (certificat)" onClick={C("signPades")} title="Signature électronique PAdES (certificat X.509 / PKCS#12)" />
+              <Cmd big icon={<PenSquare size={19} />} label="Signer (auto-signé)" onClick={C("signSelfSigned")} title="Signer la signature placée en PAdES avec un certificat auto-signé (reconnu par Adobe ; identité non vérifiée)" />
+              <Cmd icon={<FileSignature size={17} />} label="Signer (certificat)" onClick={C("signPades")} title="Signature électronique PAdES avec votre certificat X.509 / PKCS#12 (coche verte « approuvé »)" />
               <Cmd icon={<ShieldCheck size={17} />} onClick={C("verifyPades")} label="Vérifier" title="Vérifier les signatures électroniques du document" />
             </Group>
             <Group title="Caviardage">

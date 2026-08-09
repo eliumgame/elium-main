@@ -23,7 +23,8 @@ import { comparePages, type ComparisonReport } from "../ops/compare";
 import { DEFAULT_BUILD, buildPdf, type BuildOptions } from "../ops/save";
 import { extractPages, mergeDocuments, parsePageRange, pdfFromImages, splitDocument, PAGE_SIZES } from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
-import { signPdfBytes, verifyPdfSignatures } from "../ops/pades";
+import { signPdfBytes, verifyPdfSignatures, type PadesSignOptions } from "../ops/pades";
+import { generateSelfSignedP12 } from "../ops/self-cert";
 import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
 import { fromXfdf, toXfdf } from "../ops/xfdf";
 import { hasImportableAnnots, importPageAnnots, type RawAnnotation } from "../ops/import-annots";
@@ -543,7 +544,30 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
-  // --- Signature électronique PAdES (certificat X.509 via PKCS#12) ---------
+  // --- Signature électronique PAdES (certificat X.509) ---------------------
+  // Emplacement VISIBLE de la signature = la dernière signature placée (outil
+  // Signature) : Adobe la reconnaît alors comme une signature, à cet endroit,
+  // avec le dessin en apparence — au lieu d'une simple image.
+  const visibleSigTarget = (): PadesSignOptions["visible"] | undefined => {
+    const sig = [...state.annots].reverse().find((a) => a.kind === "signature" && a.src);
+    if (!sig) return undefined;
+    const page = state.pages.findIndex((p) => p.id === sig.pageId);
+    if (page < 0) return undefined;
+    let imagePng: Uint8Array | undefined;
+    const m = /^data:image\/png;base64,(.+)$/.exec(sig.src ?? "");
+    if (m) imagePng = Uint8Array.from(atob(m[1]!), (c) => c.charCodeAt(0));
+    return { page, rect: { x: sig.rect.x, y: sig.rect.y, w: sig.rect.w, h: sig.rect.h }, imagePng };
+  };
+
+  const finishSigned = (signed: Uint8Array, base: string, toastId: number): void => {
+    downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
+    dismissToast(toastId);
+    const v = verifyPdfSignatures(signed);
+    const ok = v.length > 0 && v.every((x) => x.valid);
+    toast(ok ? "success" : "warning", "PDF signé (PAdES)",
+      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}` : undefined);
+  };
+
   const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -556,13 +580,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const p12 = new Uint8Array(await file.arrayBuffer());
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium" });
-      downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: visibleSigTarget() });
+      finishSigned(signed, base, id);
+    } catch (err) {
       dismissToast(id);
-      const v = verifyPdfSignatures(signed);
-      const ok = v.length > 0 && v.every((x) => x.valid);
-      toast(ok ? "success" : "warning", "PDF signé (PAdES)",
-        v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}` : undefined);
+      toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Signe avec un certificat auto-signé généré dans l'app (zéro certificat à
+  // fournir). Adobe : « signé » mais « identité non vérifiée » (pas de CA).
+  const signSelfSigned = async () => {
+    if (!bytesRef.current) return;
+    const target = visibleSigTarget();
+    if (!target) {
+      toast("warning", "Placez d'abord une signature", "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.");
+      return;
+    }
+    setBusy(true);
+    const id = toast("progress", "Génération du certificat et signature…");
+    try {
+      // Laisse le toast s'afficher avant la génération RSA (bloquante ~1–3 s).
+      await new Promise((r) => setTimeout(r, 30));
+      const cn = author?.trim() || "Signature Elium (auto-signée)";
+      const pw = "elium-self";
+      const p12 = generateSelfSignedP12(cn, pw);
+      const base = fileName.replace(/\.pdf$/i, "") || "document";
+      const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
+      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target });
+      finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
       toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
@@ -665,6 +713,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "bates": setDialog("headerFooter"); return;
       case "protect": setDialog("protect"); return;
       case "signPades": p12Input.current?.click(); return;
+      case "signSelfSigned": void signSelfSigned(); return;
       case "verifyPades": verifySignatures(); return;
       case "split": setDialog("split"); return;
       case "crop": setDialog("crop"); return;

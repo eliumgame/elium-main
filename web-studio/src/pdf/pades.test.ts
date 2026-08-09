@@ -8,12 +8,19 @@ import { describe, it, expect } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import forge from "node-forge";
 import { signPdfBytes, verifyPdfSignatures } from "./ops/pades";
+import { generateSelfSignedP12 } from "./ops/self-cert";
 
 const binToU8 = (s: string): Uint8Array => {
   const u = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff;
   return u;
 };
+
+// 1×1 PNG transparent (apparence de signature de test).
+const TINY_PNG = Uint8Array.from(
+  atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="),
+  (c) => c.charCodeAt(0),
+);
 
 /** Certificat auto-signé RSA + PKCS#12 (DER) protégé par mot de passe. */
 function makeP12(cn: string, password: string): Uint8Array {
@@ -76,4 +83,44 @@ describe("PAdES-B (sign + verify)", () => {
     const pdf = await makePdf();
     await expect(signPdfBytes(pdf, p12, "mauvaise")).rejects.toBeTruthy();
   }, 30000);
+
+  it("signe avec un certificat AUTO-SIGNÉ généré dans l'app (self-cert)", async () => {
+    const pw = "auto-pw";
+    const p12 = generateSelfSignedP12("Signature Elium (auto-signée)", pw);
+    const pdf = await makePdf();
+    const signed = await signPdfBytes(pdf, p12, pw, { reason: "Approbation" });
+    const res = verifyPdfSignatures(signed);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.valid).toBe(true);
+    expect(res[0]!.signerName).toBe("Signature Elium (auto-signée)");
+  }, 30000);
+
+  it("signature VISIBLE : widget non nul + apparence /AP, et reste valide", async () => {
+    const pw = "vis";
+    const p12 = generateSelfSignedP12("Alice", pw);
+    const pdf = await makePdf();
+    // Page 320×200 (origine 0,0) ; rect page-space {x:40,y:40,w:200,h:80}
+    // → points PDF [40, 200-40-80, 240, 200-40] = [40, 80, 240, 160].
+    const signed = await signPdfBytes(pdf, p12, pw, {
+      signerName: "Alice",
+      visible: { page: 0, rect: { x: 40, y: 40, w: 200, h: 80 }, imagePng: TINY_PNG },
+    });
+    // Toujours un PDF chargeable et une signature cryptographiquement valide.
+    await expect(PDFDocument.load(signed)).resolves.toBeTruthy();
+    const res = verifyPdfSignatures(signed);
+    expect(res[0]!.valid).toBe(true);
+    // L'apparence a bien été émise (form XObject + image), et le widget porte un
+    // /Rect non nul (sinon Adobe ne montre rien à l'emplacement).
+    const s = binToU8Str(signed);
+    expect(s.includes("/AP")).toBe(true);
+    expect(s.includes("/Subtype /Form") || s.includes("/Subtype/Form")).toBe(true);
+    expect(/\/Rect\s*\[\s*40\b/.test(s)).toBe(true);
+  }, 30000);
 });
+
+function binToU8Str(u: Uint8Array): string {
+  let s = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < u.length; i += CHUNK) s += String.fromCharCode(...u.subarray(i, i + CHUNK));
+  return s;
+}

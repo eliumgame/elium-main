@@ -134,6 +134,22 @@ def main():
         )
         sys.stdout.buffer.write(blob)
 
+    elif cmd == "doc-encode-parapheur":
+        # argv[2] = profile. Écrit un doc portant un circuit parapheur (voyage).
+        text = sys.stdin.buffer.read().decode("utf-8")
+        profile = sys.argv[2] if len(sys.argv) > 2 else "signed"
+        model = create_document_model(text_to_doc(text))
+        journal = create_journal(profile, "interop-parapheur")
+        circuit = {
+            "parties": [
+                {"id": "pt-1", "name": "Alice", "role": "Directrice", "status": "pending"},
+                {"id": "pt-2", "name": "Bob", "role": "Client", "status": "pending"},
+            ],
+            "requestedAt": "2026-08-09T00:00:00Z",
+        }
+        blob = write_elium(model, profile=profile, title="interop-parapheur", journal=journal, parapheur=circuit)
+        sys.stdout.buffer.write(blob)
+
     elif cmd == "doc-decode-verify":
         # argv[2]=password("-"), argv[3]=trusted pub ("-"), argv[4]=recipient key ("-").
         # Universal verifier: reports seal verdict, journal, signature verdicts.
@@ -153,6 +169,7 @@ def main():
                 {"id": s["id"], "verdict": verify_proof(s, result["document"], trusted_key_hex=trusted)}
                 for s in result["signatures"]
             ],
+            "parapheur": result.get("parapheur"),
         }
         print(json.dumps(out, ensure_ascii=False))
 

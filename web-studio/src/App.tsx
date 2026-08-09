@@ -65,7 +65,7 @@ import { EliumCryptoEngine } from "./crypto/elium-crypto";
 import { exportHtml, exportMarkdown, exportText, exportPdf, exportProofReport, downloadBlob } from "./export/exporters";
 import type { Template } from "./editor/templates";
 import type {
-  EliumFile, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings, EliumDocStyle,
+  EliumFile, EliumParapheur, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings, EliumDocStyle,
   EliumWatermark,
 } from "./format/types";
 import type { ExportKind, Studio, StudioMode } from "./studio/types";
@@ -876,6 +876,11 @@ export default function App() {
     setVerdicts((v) => { const { [id]: _drop, ...rest } = v; return rest; });
   }, []);
 
+  // Parapheur : le circuit vit dans le document (il voyage dans le .elium).
+  const setParapheur = useCallback((parapheur: EliumParapheur) => {
+    setFile((prev) => (prev ? { ...prev, parapheur } : prev));
+  }, []);
+
   const onDocChange = useCallback((docNode: ProseMirrorNode) => {
     setFile((prev) => (prev ? { ...prev, document: { ...prev.document, doc: docNode } } : prev));
   }, []);
@@ -1108,7 +1113,7 @@ export default function App() {
         setTitle, trustContact, untrustContact, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
         setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
-        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig, signAsParty,
+        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig, signAsParty, setParapheur,
         onDocChange, save, exportAs, goHome, toViewer, toEditor, trustSealKey,
         openSettings: () => setSettingsOpen(true),
       }

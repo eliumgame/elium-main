@@ -26,6 +26,30 @@ describe("elium package (v4)", () => {
     expect(integrity.contentIntact).toBe(true);
   });
 
+  it("fait voyager le circuit parapheur (clair)", async () => {
+    const file = await createEliumFile({ title: "À signer", profile: "signed" });
+    file.parapheur = { parties: [
+      { id: "pt-1", name: "Alice", role: "Directrice", status: "signed", signatureId: "sig-1", publicKeyHex: "aa".repeat(32), signedAt: "2026-08-09T00:00:00Z" },
+      { id: "pt-2", name: "Bob", role: "Client", status: "pending" },
+    ], requestedAt: "2026-08-09T00:00:00Z" };
+    const blob = await writeEliumPackage(file);
+    // L'entrée dédiée existe en clair.
+    expect(Object.keys(unzipSync(blob))).toContain("parapheur/circuit.json");
+    const { file: out } = await readEliumPackage(blob);
+    expect(out.parapheur).toEqual(file.parapheur);
+  });
+
+  it("chiffre le circuit parapheur avec les métadonnées (secure_max)", async () => {
+    const file = await createEliumFile({ title: "Confidentiel", profile: "secure_max" });
+    file.parapheur = { parties: [{ id: "pt-1", name: "Alice PII", role: "RH", status: "pending" }] };
+    const blob = await writeEliumPackage(file, { password: "pw", encryptMetadata: true });
+    // En clair, le circuit est REDACTÉ (l'entrée ne doit pas fuiter les noms).
+    expect(Object.keys(unzipSync(blob))).not.toContain("parapheur/circuit.json");
+    // Sans mot de passe on ne le voit pas ; avec, il ressort intact.
+    const { file: out } = await readEliumPackage(blob, { password: "pw" });
+    expect(out.parapheur).toEqual(file.parapheur);
+  }, 15000);
+
   it("requires the correct password for an encrypted document", async () => {
     const file = await createEliumFile({ title: "Secret", profile: "encrypted" });
     const blob = await writeEliumPackage(file, { password: "pw-correct" });

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Stamp, UserPlus, PenLine, X, RotateCcw, Trash2, ArrowUp, ArrowDown, ShieldCheck, UserCheck } from "lucide-react";
 import { Button, Badge, EmptyState } from "../ui/components";
-import { getWorkflow, saveWorkflow, newPartyId, workflowStatus, type Party } from "../format/parapheur-store";
+import { getWorkflow, newPartyId, workflowStatus, type Party } from "../format/parapheur-store";
 import { docKeyOf } from "../format/doc-key";
 import { verdictLabel } from "../sign/proof";
 import { fingerprintWords } from "../sign/safety-words";
@@ -14,29 +14,31 @@ const STATUS_ACCENT = { draft: "neutral", in_progress: "info", completed: "succe
 /**
  * Parapheur: ordered signing circuit for the document. Each party signs at their
  * turn and their "signé" is backed by a REAL Ed25519 signature embedded in the
- * document (and covered by the seal) — not a mere local flag. The circuit itself
- * (order/status) is still tracked locally in this browser (its travel inside the
- * .elium is a follow-up); the cryptographic proofs, however, travel with the file.
+ * document (covered by the seal). The circuit itself now TRAVELS inside the
+ * .elium (studio.file.parapheur), so a document sent for signature carries its
+ * circuit to the recipient — enabling the "signature request" round-trip.
  */
 export default function ParapheurPanel({ studio }: { studio: Studio }) {
   const docKey = docKeyOf(studio.file.manifest);
-  const vaultSecret = studio.vaultSecret;
-  const [parties, setParties] = useState<Party[]>([]);
+  const parties: Party[] = studio.file.parapheur?.parties ?? [];
   const { prompt } = useDialogs();
 
+  // Migration douce : un circuit legacy (IndexedDB local, avant que le circuit
+  // ne voyage) est adopté DANS le document — il voyagera aux prochains
+  // enregistrements. Une seule fois par document.
+  const migratedFor = useRef<string | null>(null);
   useEffect(() => {
-    getWorkflow(docKey, vaultSecret)
-      .then((w) => setParties(w?.parties ?? []))
-      .catch(() => setParties([]));
-  }, [docKey, vaultSecret]);
+    if (migratedFor.current === docKey) return;
+    migratedFor.current = docKey;
+    if (studio.file.parapheur) return;
+    getWorkflow(docKey, studio.vaultSecret)
+      .then((w) => { if (w?.parties?.length) studio.setParapheur({ parties: w.parties }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docKey]);
 
-  const persist = useCallback(
-    (next: Party[]) => {
-      setParties(next);
-      void saveWorkflow({ docKey, parties: next, createdAt: new Date().toISOString() }, vaultSecret);
-    },
-    [docKey, vaultSecret],
-  );
+  const persist = (next: Party[]) =>
+    studio.setParapheur({ ...(studio.file.parapheur ?? { parties: [] }), parties: next });
 
   const addParty = async () => {
     const name = await prompt({ title: "Ajouter un signataire", label: "Nom du signataire" });
@@ -87,9 +89,9 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
         <Badge accent={STATUS_ACCENT[overall]}>{STATUS_LABEL[overall]}</Badge>
       </div>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Circuit de signature ordonné. Chaque partie signe à son tour : sa signature est une vraie preuve
-        Ed25519 embarquée dans le document et couverte par le sceau. L'ordre et le suivi sont conservés
-        localement (le voyage du circuit dans le <code>.elium</code> viendra ensuite).
+        Circuit de signature ordonné, <strong>embarqué dans le document</strong> : chaque partie signe à son
+        tour (vraie preuve Ed25519 embarquée et couverte par le sceau), et le circuit voyage dans le
+        <code>.elium</code> — envoyez le fichier à signer, il revient signé.
       </p>
 
       {parties.length === 0 ? (

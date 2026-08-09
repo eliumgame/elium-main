@@ -32,6 +32,7 @@ import {
   ELIUM_MIMETYPE,
   type EliumFile,
   type EliumManifest,
+  type EliumParapheur,
   type EliumResource,
   type EliumSignature,
   type Journal,
@@ -44,6 +45,7 @@ const ENTRY = {
   contentEnc: "content/document.elium",
   signatures: "signatures/signatures.json",
   journal: "tracking/journal.json",
+  parapheur: "parapheur/circuit.json",
   resIndex: "resources/index.json",
   rgpd: "meta/rgpd.json",
 } as const;
@@ -74,6 +76,8 @@ interface SecureEnvelope {
   title: string;
   signatures: EliumSignature[];
   journal: Journal;
+  /** Circuit parapheur (noms = PII) — chiffré avec le reste des métadonnées. */
+  parapheur?: EliumParapheur;
 }
 
 export interface IntegrityVerdict {
@@ -228,6 +232,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
             title: file.manifest.title,
             signatures: file.signatures,
             journal: file.journal,
+            ...(file.parapheur ? { parapheur: file.parapheur } : {}),
           } satisfies SecureEnvelope),
         )
       : strToU8(JSON.stringify(file.document));
@@ -255,10 +260,12 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   const contentHash = await sha256Hex(contentBytes);
   const manifest = buildManifest(file, contentHash, secure, recipientFprs);
 
-  // Clear (on-disk) signatures/journal are redacted when metadata is encrypted;
-  // the real ones live in the encrypted envelope, bound via integrity.contentHash.
+  // Clear (on-disk) signatures/journal/parapheur are redacted when metadata is
+  // encrypted; the real ones live in the encrypted envelope, bound via
+  // integrity.contentHash.
   const clearSignatures = secure ? [] : file.signatures;
   const clearJournal = secure ? emptyJournal() : file.journal;
+  const clearParapheur = secure ? undefined : file.parapheur;
 
   // Seal the integrity-critical parts (the clear, possibly-redacted entries).
   if (opts.sealPrivateKeyHex) {
@@ -275,6 +282,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
     [def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain]: def.encrypted ? [contentBytes, { level: 0 }] : contentBytes,
     [ENTRY.signatures]: strToU8(JSON.stringify(clearSignatures, null, 2)),
     [ENTRY.journal]: strToU8(JSON.stringify(clearJournal, null, 2)),
+    ...(clearParapheur ? { [ENTRY.parapheur]: strToU8(JSON.stringify(clearParapheur, null, 2)) } : {}),
     [ENTRY.resIndex]: strToU8(JSON.stringify(resIndex, null, 2)),
     [ENTRY.rgpd]: strToU8(JSON.stringify(manifest.rgpd, null, 2)),
   };
@@ -406,6 +414,9 @@ export async function readEliumPackage(
   const clearJournal: Journal = entries[ENTRY.journal]
     ? safeJsonParse(entries[ENTRY.journal], "journal")
     : emptyJournal();
+  const clearParapheur: EliumParapheur | undefined = entries[ENTRY.parapheur]
+    ? safeJsonParse(entries[ENTRY.parapheur], "parapheur")
+    : undefined;
   const resourceIndex: EliumResource[] = entries[ENTRY.resIndex]
     ? safeJsonParse(entries[ENTRY.resIndex], "index des ressources")
     : [];
@@ -431,10 +442,11 @@ export async function readEliumPackage(
   // Surface the REAL decrypted metadata to callers when encrypted.
   const signatures = envelope ? envelope.signatures ?? [] : clearSignatures;
   const journal = envelope ? envelope.journal ?? emptyJournal() : clearJournal;
+  const parapheur = envelope ? envelope.parapheur : clearParapheur;
   const effectiveManifest = envelope ? { ...manifest, title: envelope.title } : manifest;
 
   return {
-    file: { manifest: effectiveManifest, document, signatures, resources, resourceIndex, journal },
+    file: { manifest: effectiveManifest, document, signatures, resources, resourceIndex, journal, parapheur },
     integrity,
     seal: { verdict: sealVerdict, fingerprint: manifest.seal?.fingerprint ?? null },
   };

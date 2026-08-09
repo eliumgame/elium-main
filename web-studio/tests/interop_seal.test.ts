@@ -78,6 +78,24 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
     expect(out.journalTypes).toContain("signature.added");
   });
 
+  it("G. Python writes a parapheur circuit → Web reads it (circuit travels)", async () => {
+    const blob = py(["doc-encode-parapheur", "signed"], "À signer par le circuit");
+    const { file } = await readEliumPackage(new Uint8Array(blob));
+    expect(file.parapheur?.parties.map((p) => p.name)).toEqual(["Alice", "Bob"]);
+    expect(file.parapheur?.requestedAt).toBe("2026-08-09T00:00:00Z");
+  });
+
+  it("H. Web writes a parapheur circuit → Python reads it back", async () => {
+    const file = await createEliumFile({ title: "TS circuit", profile: "signed" });
+    file.parapheur = { parties: [
+      { id: "pt-1", name: "Carole", role: "Notaire", status: "pending" },
+    ], requestedAt: "2026-08-09T12:00:00Z" };
+    const blob = await writeEliumPackage(file);
+    const out = pyJson(["doc-decode-verify", "-", "-", "-"], Buffer.from(blob));
+    expect(out.parapheur.parties[0].name).toBe("Carole");
+    expect(out.parapheur.requestedAt).toBe("2026-08-09T12:00:00Z");
+  });
+
   it("E. Python writes metadata-encrypted (secure_max) → Web decrypts title + journal", async () => {
     const blob = py(["doc-encode-secure", "s3cr3t-pass"], "Corps ultra confidentiel");
     const { file } = await readEliumPackage(new Uint8Array(blob), { password: "s3cr3t-pass" });

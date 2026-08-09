@@ -33,6 +33,7 @@ ENTRY_CONTENT_PLAIN = "content/document.json"
 ENTRY_CONTENT_ENC = "content/document.elium"
 ENTRY_SIGNATURES = "signatures/signatures.json"
 ENTRY_JOURNAL = "tracking/journal.json"
+ENTRY_PARAPHEUR = "parapheur/circuit.json"
 ENTRY_RESINDEX = "resources/index.json"
 ENTRY_RGPD = "meta/rgpd.json"
 
@@ -154,6 +155,7 @@ def write_elium(
     journal: dict | None = None,
     resource_index: list[dict] | None = None,
     resources: dict[str, bytes] | None = None,
+    parapheur: dict | None = None,
     created_at: str | None = None,
     doc_id: str | None = None,
     password: str | None = None,
@@ -200,6 +202,8 @@ def write_elium(
                 "signatures": signatures,
                 "journal": journal,
             }
+            if parapheur is not None:
+                envelope["parapheur"] = parapheur
             payload = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         else:
             payload = document_json
@@ -237,6 +241,7 @@ def write_elium(
     clear_title = REDACTED_TITLE if secure_meta else title
     clear_signatures = [] if secure_meta else signatures
     clear_journal = empty_journal() if secure_meta else journal
+    clear_parapheur = None if secure_meta else parapheur
 
     manifest = _build_manifest(
         profile, clear_title, language, created_at, content_hash, content_entry,
@@ -261,6 +266,8 @@ def write_elium(
         zf.writestr(content_entry, content_bytes)
         zf.writestr(ENTRY_SIGNATURES, json.dumps(clear_signatures, indent=2, ensure_ascii=False))
         zf.writestr(ENTRY_JOURNAL, json.dumps(clear_journal, indent=2, ensure_ascii=False))
+        if clear_parapheur is not None:
+            zf.writestr(ENTRY_PARAPHEUR, json.dumps(clear_parapheur, indent=2, ensure_ascii=False))
         zf.writestr(ENTRY_RESINDEX, json.dumps(resource_index, indent=2, ensure_ascii=False))
         zf.writestr(ENTRY_RGPD, json.dumps(manifest["rgpd"], indent=2, ensure_ascii=False))
         for res in resource_index:
@@ -380,6 +387,8 @@ def read_elium(
     secure_meta = bool(manifest.get("protection", {}).get("metadataEncrypted"))
     use_recipients = bool(manifest.get("protection", {}).get("recipients"))
     env_title = env_sigs = env_journal = None
+    env_parapheur: Any = None
+    has_env_parapheur = False
 
     if manifest["protection"]["encrypted"]:
         if use_recipients:
@@ -398,6 +407,9 @@ def read_elium(
             env_title = envelope.get("title")
             env_sigs = envelope.get("signatures") or []
             env_journal = envelope.get("journal") or empty_journal()
+            if "parapheur" in envelope:
+                env_parapheur = envelope.get("parapheur")
+                has_env_parapheur = True
         else:
             document = _safe_json_loads(payload, "contenu")
     else:
@@ -412,6 +424,7 @@ def read_elium(
 
     signatures = _read_json(ENTRY_SIGNATURES, [])
     journal = _read_json(ENTRY_JOURNAL, empty_journal())
+    parapheur = _read_json(ENTRY_PARAPHEUR, None)
     # The seal is verified over the clear (redacted, when secure) entries.
     seal_verdict = verify_seal(manifest, signatures, journal, trusted_key_hex=trusted_key_hex)
 
@@ -419,6 +432,8 @@ def read_elium(
     if secure_meta and env_sigs is not None:
         signatures = env_sigs
         journal = env_journal
+        if has_env_parapheur:
+            parapheur = env_parapheur
         if env_title is not None:
             manifest = {**manifest, "title": env_title}
 
@@ -427,6 +442,7 @@ def read_elium(
         "document": document,
         "signatures": signatures,
         "journal": journal,
+        "parapheur": parapheur,
         "resourceIndex": _read_json(ENTRY_RESINDEX, []),
         "integrity": integrity,
         "seal": {"verdict": seal_verdict, "fingerprint": (manifest.get("seal") or {}).get("fingerprint")},

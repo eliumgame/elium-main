@@ -1,6 +1,7 @@
 /** The orchestration contract shared by every view and panel. */
 import type {
   EliumFile,
+  EliumParapheur,
   EliumProfile,
   EliumSignature,
   ProseMirrorNode,
@@ -74,6 +75,8 @@ export interface Studio {
    * key so the circuit can link it, or null if it was cancelled / no identity.
    */
   signAsParty(party: { name: string; role?: string }): Promise<{ signatureId: string; publicKeyHex: string } | null>;
+  /** Met à jour le circuit parapheur du document (il voyage dans le .elium). */
+  setParapheur(parapheur: EliumParapheur): void;
   selectSignature(id: string | null): void;
   onDocChange(doc: ProseMirrorNode): void;
   save(): Promise<void>;

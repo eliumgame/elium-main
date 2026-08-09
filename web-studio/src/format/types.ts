@@ -331,4 +331,38 @@ export interface EliumFile {
   resources: Map<string, Uint8Array>; // id -> bytes
   resourceIndex: EliumResource[];
   journal: Journal;
+  /** Circuit de signature (parapheur) — voyage dans le .elium. Optionnel. */
+  parapheur?: EliumParapheur;
+}
+
+// --- Parapheur (circuit de signature) -------------------------------------
+
+export type PartyStatus = "pending" | "signed" | "rejected";
+
+export interface ParapheurParty {
+  id: string;
+  name: string;
+  role: string;
+  status: PartyStatus;
+  note?: string;
+  updatedAt?: string;
+  /** Quand status === "signed" : lien vers la vraie signature Ed25519 embarquée. */
+  signatureId?: string;
+  publicKeyHex?: string;
+  signedAt?: string;
+}
+
+/**
+ * Circuit de signature ordonné, EMBARQUÉ dans le .elium (voyage avec le
+ * document). Métadonnée de workflow MUTABLE : elle n'est PAS couverte par le
+ * sceau (la vérité cryptographique est dans les preuves Ed25519 des signatures).
+ * Chiffrée avec les métadonnées quand `protection.metadataEncrypted` (les noms
+ * des parties sont des données personnelles).
+ */
+export interface EliumParapheur {
+  parties: ParapheurParty[];
+  /** Marqueur « demande de signature » : posé à l'export d'une demande. */
+  requestedAt?: string;
+  /** Nom/empreinte du demandeur (affichage), optionnel. */
+  requester?: string;
 }

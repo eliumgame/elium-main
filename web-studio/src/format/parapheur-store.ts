@@ -12,30 +12,16 @@
  * configured, the signer list (names/roles — PII) is encrypted at rest.
  */
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import type { ParapheurParty, PartyStatus } from "./types";
 
 const DB_NAME = "elium-parapheur";
 const STORE = "workflows";
 const DB_VERSION = 1;
 
-export type PartyStatus = "pending" | "signed" | "rejected";
-
-export interface Party {
-  id: string;
-  name: string;
-  role: string;
-  status: PartyStatus;
-  note?: string;
-  updatedAt?: string;
-  /**
-   * When status === "signed", these link the party to the REAL embedded Ed25519
-   * signature they produced (in the document's `signatures`, covered by the
-   * seal). The party's "signed" is then backed by a verifiable proof, not a mere
-   * local flag. Absent on legacy circuits and on rejected/pending parties.
-   */
-  signatureId?: string;
-  publicKeyHex?: string;
-  signedAt?: string;
-}
+// Type canonique du circuit (défini dans format/types.ts car il voyage désormais
+// dans le .elium). `Party` reste un alias pour la compatibilité des imports.
+export type { PartyStatus };
+export type Party = ParapheurParty;
 
 export interface Workflow {
   docKey: string;

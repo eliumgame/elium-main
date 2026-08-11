@@ -452,6 +452,29 @@ export async function readEliumPackage(
   };
 }
 
+/**
+ * Verify a *loaded* file's seal the way the writer computed it.
+ *
+ * With metadata encryption on, the seal is signed over the REDACTED clear entries
+ * (empty signatures, empty journal) — the real signatures/journal travel encrypted
+ * inside the body (see `writeEliumPackage`). An in-memory `EliumFile` carries those
+ * REAL decrypted values, so verifying the seal against `file.signatures` /
+ * `file.journal` directly wrongly reports "broken" for any metadata-encrypted
+ * document that has a signature or a tracked journal. This mirrors the write-time
+ * redaction so a live re-verification (e.g. the viewer's verification banner) agrees
+ * with `readEliumPackage`'s own verdict.
+ *
+ * The title is redacted too: the seal signs `REDACTED_TITLE`, but `readEliumPackage`
+ * returns the manifest with the REAL title restored from the envelope, and `title`
+ * is part of the sealed manifest subset.
+ */
+export async function verifyLoadedSeal(file: EliumFile, trustedKeyHex?: string): Promise<SealVerdict> {
+  const secure = !!file.manifest.protection.metadataEncrypted;
+  if (!secure) return verifySeal(file.manifest, file.signatures, file.journal, trustedKeyHex);
+  const sealManifest: EliumManifest = { ...file.manifest, title: REDACTED_TITLE };
+  return verifySeal(sealManifest, [], emptyJournal(), trustedKeyHex);
+}
+
 /** Quick sniff: is this byte blob a v4 `.elium` package (vs. a legacy v3 blob)? */
 export function looksLikeV4Package(blob: Uint8Array): boolean {
   // ZIP local file header "PK\x03\x04"

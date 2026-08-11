@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
-import { writeEliumPackage, readEliumPackage, EliumPasswordRequired } from "../src/format/elium-package";
+import { writeEliumPackage, readEliumPackage, verifyLoadedSeal, EliumPasswordRequired } from "../src/format/elium-package";
 import { createEliumFile, addSignature } from "../src/format/document";
 import { createProof } from "../src/sign/proof";
-import { createSeal } from "../src/sign/seal";
+import { createSeal, verifySeal } from "../src/sign/seal";
 import { generateIdentity } from "../src/sign/keys";
 import type { EliumFile, EliumSignature } from "../src/format/types";
 
@@ -52,6 +52,27 @@ describe("F-7 metadata encryption (TypeScript)", () => {
     expect(r.file.signatures[0].signer.name).toBe("Jean Dupont");
     expect(r.seal.verdict).toBe("valid");
     expect(r.integrity.contentIntact).toBe(true);
+  });
+
+  it("live re-verification of a loaded secure file agrees with the read verdict (seal not 'broken')", async () => {
+    // Regression: the viewer re-verifies the seal against the in-memory file,
+    // whose signatures/journal are the REAL decrypted values. The seal, however,
+    // was signed over the REDACTED clear entries. Verifying against the real
+    // values wrongly reads "broken"; verifyLoadedSeal must apply the same
+    // redaction and read "valid".
+    const { file, pub, priv } = await secureFile();
+    const bytes = await writeEliumPackage(file, { password: PWD, sealPrivateKeyHex: priv, encryptMetadata: true });
+    const r = await readEliumPackage(bytes, { password: PWD });
+
+    // The loaded file carries the real signature (restored from the envelope)…
+    expect(r.file.signatures.length).toBeGreaterThan(0);
+    // …so the naive check the viewer used to do is broken — this is the bug.
+    const naive = await verifySeal(r.file.manifest, r.file.signatures, r.file.journal);
+    expect(naive).toBe("broken");
+    // …while the redaction-aware helper agrees with readEliumPackage's verdict.
+    expect(await verifyLoadedSeal(r.file)).toBe("valid");
+    expect(await verifyLoadedSeal(r.file, pub)).toBe("valid");
+    expect(r.seal.verdict).toBe("valid");
   });
 
   it("a non-secure encrypted file keeps the legacy behaviour (title in clear)", async () => {

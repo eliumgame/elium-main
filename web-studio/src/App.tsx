@@ -25,7 +25,7 @@ import { useDialogs } from "./ui/dialogs";
 import { createEliumFile, setProfile, addSignature, removeSignature as removeSig, recordSave, tracksJournal, type PendingJournalEvent } from "./format/document";
 import { docKeyOf } from "./format/doc-key";
 import {
-  readEliumPackage, writeEliumPackage, looksLikeV4Package, EliumPasswordRequired, EliumRecipientKeyRequired,
+  readEliumPackage, writeEliumPackage, verifyLoadedSeal, looksLikeV4Package, EliumPasswordRequired, EliumRecipientKeyRequired,
   type IntegrityVerdict,
 } from "./format/elium-package";
 import {
@@ -37,7 +37,7 @@ import { profileOf } from "./format/profiles";
 import { randomId, fromHex, nowIso } from "./format/canonical";
 import { strToU8, strFromU8 } from "fflate";
 import { verifyProof, createProof } from "./sign/proof";
-import { verifySeal, type SealVerdict } from "./sign/seal";
+import { type SealVerdict } from "./sign/seal";
 import { checkSealPin, pinSeal, repinSeal, type SealPinCheck } from "./sign/seal-pinning";
 import {
   loadTrustBook,
@@ -383,7 +383,10 @@ export default function App() {
     setJournalVerdict(await verifyJournal(f.journal));
     // Verdict = pure crypto (authentic + untampered); attribution is separate.
     const sealContact = f.manifest.seal ? findContact(book, f.manifest.seal.publicKeyHex) : undefined;
-    const sv = await verifySeal(f.manifest, f.signatures, f.journal);
+    // Verify over the SAME (redacted-when-encrypted) entries the writer sealed —
+    // f.signatures/f.journal hold the real decrypted values, which would falsely
+    // read "broken" for a metadata-encrypted document. See verifyLoadedSeal.
+    const sv = await verifyLoadedSeal(f);
     setSealVerdict(sv);
     setSealAttribution(sealContact?.name ?? null);
     // TOFU: pin the seal key on first authentic sight; flag a key change otherwise.

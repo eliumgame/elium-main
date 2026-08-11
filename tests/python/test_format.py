@@ -8,7 +8,7 @@ import pytest
 from elium.core.exceptions import EliumSecurityError
 from elium.format.document import create_document_model, extract_text, text_to_doc
 from elium.format.journal import append_event, empty_journal, verify_journal
-from elium.format.package import EliumPasswordRequired, read_elium, write_elium
+from elium.format.package import EliumPackageError, EliumPasswordRequired, read_elium, write_elium
 from elium.format.proof import create_proof, generate_identity, verify_proof
 
 
@@ -66,6 +66,46 @@ def test_content_tamper_detected():
 
     result = read_elium(out.getvalue())
     assert result["integrity"]["contentIntact"] is False
+
+
+def _repack(entries: list[tuple[str, bytes]]) -> bytes:
+    """Assemble a ZIP from an ordered list of (name, data) — duplicates allowed."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries:
+            zf.writestr(name, data)
+    return out.getvalue()
+
+
+def _entries_of(blob: bytes) -> list[tuple[str, bytes]]:
+    zin = zipfile.ZipFile(io.BytesIO(blob))
+    return [(name, zin.read(name)) for name in zin.namelist()]
+
+
+def test_rejects_zip_without_mimetype():
+    """A ZIP renamed .elium (no OPC mimetype entry) is refused (reliable sniffing),
+    matching elium-package.ts."""
+    entries = [e for e in _entries_of(write_elium(make_model(), profile="standard", title="T")) if e[0] != "mimetype"]
+    with pytest.raises(EliumPackageError, match="mimetype OPC"):
+        read_elium(_repack(entries))
+
+
+def test_rejects_wrong_mimetype():
+    """An archive whose mimetype value is not application/x-elium is refused."""
+    entries = [(name, b"application/zip" if name == "mimetype" else data)
+               for name, data in _entries_of(write_elium(make_model(), profile="standard", title="T"))]
+    with pytest.raises(EliumPackageError, match="mimetype OPC"):
+        read_elium(_repack(entries))
+
+
+def test_rejects_duplicate_entries():
+    """Duplicate ZIP entry names (parser-confusion vector) are refused, matching
+    the duplicate guard in elium-package.ts."""
+    entries = _entries_of(write_elium(make_model(), profile="standard", title="T"))
+    # Append a SECOND manifest.json — a decoy occurrence another parser might read.
+    entries.append(("manifest.json", b"{}"))
+    with pytest.raises(EliumPackageError, match="dupliqu"):
+        read_elium(_repack(entries))
 
 
 def test_journal_chain_and_tamper():

@@ -111,13 +111,6 @@ export function tracksJournal(file: EliumFile): boolean {
   return profileOf(file.manifest.profile).tracking || file.journal.events.length > 0;
 }
 
-/** Append a "document.modified" event (only when tracking is active). */
-export async function recordModification(file: EliumFile): Promise<EliumFile> {
-  if (!tracksJournal(file)) return file;
-  const journal = await appendEvent(file.journal, "document.modified", {});
-  return { ...file, journal };
-}
-
 /**
  * A read-time event queued in memory during a session (document opened, exported,
  * signature validated). It carries its real timestamp; the events are only

@@ -52,6 +52,16 @@ export interface PadesVerification {
   valid: boolean;
   coversWholeDocument: boolean;
   digestMatches: boolean;
+  /** Le certificat du signataire est temporellement valide (fenêtre notBefore/notAfter). */
+  certValidAtSigning: boolean;
+  /** Certificat auto-signé (émetteur = sujet) → Adobe affichera « identité non vérifiée ». */
+  selfSigned: boolean;
+  /**
+   * La chaîne de certificats EMBARQUÉE est cohérente et s'ancre sur un certificat
+   * présent dans le CMS (best-effort : sans magasin de confiance système, cela
+   * n'établit PAS la confiance, seulement la cohérence interne de la chaîne).
+   */
+  chainVerified: boolean;
   error?: string;
 }
 
@@ -122,6 +132,33 @@ function loadPkcs12(p12Bytes: Uint8Array, password: string): SignerMaterial {
 function certCommonName(cert: forge.pki.Certificate): string {
   const cn = cert.subject.getField("CN");
   return (cn && cn.value) || "Signataire";
+}
+
+/** Chaîne canonique d'un DN X.509 (pour comparer sujet et émetteur). */
+function dnString(entity: forge.pki.Certificate["subject"]): string {
+  return entity.attributes.map((a) => `${a.shortName ?? a.type}=${a.value}`).join(",");
+}
+
+/** Le certificat est-il dans sa fenêtre de validité à l'instant `at` ? */
+function certValidAt(cert: forge.pki.Certificate, at: Date): boolean {
+  const t = at.getTime();
+  return cert.validity.notBefore.getTime() <= t && t <= cert.validity.notAfter.getTime();
+}
+
+/**
+ * Cohérence interne de la chaîne : chaque certificat est signé par le suivant,
+ * jusqu'à un ancre auto-signé PRÉSENT dans le CMS, et tous sont temporellement
+ * valides. best-effort via node-forge — un échec (ancre absente, signature ou
+ * dates invalides, quirk forge) renvoie simplement false, jamais d'exception.
+ * N'établit PAS la confiance (pas de magasin racine système).
+ */
+function chainIsConsistent(certs: forge.pki.Certificate[], signer: forge.pki.Certificate): boolean {
+  try {
+    const caStore = forge.pki.createCaStore(certs);
+    return forge.pki.verifyCertificateChain(caStore, [signer]) === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Ajoute le dictionnaire de signature + le widget + l'AcroForm (placeholder). */
@@ -299,6 +336,7 @@ export async function signPdfBytes(
 function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesVerification {
   const out: PadesVerification = {
     fieldName: "", signerName: "", valid: false, coversWholeDocument: false, digestMatches: false,
+    certValidAtSigning: false, selfSigned: false, chainVerified: false,
   };
   try {
     const a = parseInt(brMatch[1]!, 10), b = parseInt(brMatch[2]!, 10), c = parseInt(brMatch[3]!, 10), d = parseInt(brMatch[4]!, 10);
@@ -315,6 +353,13 @@ function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesV
     const signerCert = (p7.certificates && p7.certificates[0]) as forge.pki.Certificate | undefined;
     if (signerCert) {
       out.signerName = certCommonName(signerCert);
+      // Validation du certificat (au-delà de la seule signature CMS) : fenêtre de
+      // validité, auto-signé (identité non vérifiée), cohérence de la chaîne
+      // embarquée. La validité est vérifiée à l'instant présent (un auto-signé
+      // n'a pas d'horodatage de confiance qui prouverait la date de signature).
+      out.certValidAtSigning = certValidAt(signerCert, new Date());
+      out.selfSigned = dnString(signerCert.subject) === dnString(signerCert.issuer);
+      out.chainVerified = chainIsConsistent((p7.certificates ?? []) as forge.pki.Certificate[], signerCert);
     }
 
     // Contenu couvert reconstruit à partir du ByteRange : [a, a+b) puis [c, c+d).
@@ -353,7 +398,10 @@ function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesV
       const pub = signerCert.publicKey as forge.pki.rsa.PublicKey;
       try { sigValid = pub.verify(md.digest().getBytes(), p7.rawCapture.signature); } catch { sigValid = false; }
     }
-    out.valid = sigValid && out.digestMatches;
+    // La validité inclut désormais la fenêtre de validité du certificat : une
+    // signature cryptographiquement correcte mais faite avec un certificat expiré
+    // n'est plus rapportée « valide ». (selfSigned/chainVerified restent informatifs.)
+    out.valid = sigValid && out.digestMatches && out.certValidAtSigning;
   } catch (e) {
     out.error = e instanceof Error ? e.message : String(e);
   }

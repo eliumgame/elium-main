@@ -279,12 +279,22 @@ def write_elium(
 
 
 def _check_archive_limits(zf: zipfile.ZipFile) -> None:
-    """Refuse archives whose declared uncompressed size could exhaust memory."""
+    """Structural guards applied BEFORE any entry is read: bound the declared
+    uncompressed size (DoS) and reject duplicate entry names.
+
+    Duplicate names are a parser-confusion vector: ``ZipFile.open(name)`` resolves
+    to the LAST central-directory entry with that name, so another tool could read
+    a different occurrence than the one the hash/seal covers. Mirror of the
+    duplicate guard in elium-package.ts (readEliumPackage filter)."""
     infolist = zf.infolist()
     if len(infolist) > MAX_ZIP_ENTRIES:
         raise EliumPackageError("Trop d'entrées dans l'archive .elium (protection DoS).")
     total = 0
+    seen: set[str] = set()
     for info in infolist:
+        if info.filename in seen:
+            raise EliumPackageError("Entrée d'archive .elium dupliquée (fichier suspect).")
+        seen.add(info.filename)
         if info.file_size > MAX_ENTRY_BYTES:
             raise EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).")
         total += info.file_size
@@ -358,6 +368,20 @@ def read_elium(
         if total_read > MAX_TOTAL_BYTES:
             raise EliumPackageError("Archive .elium trop volumineuse (protection DoS).")
         return data
+
+    # Contrat OPC : l'entrée `mimetype` doit exister et valoir la valeur exacte —
+    # refuse une archive ZIP quelconque renommée .elium (sniffing fiable). Mirror
+    # of elium-package.ts (readEliumPackage).
+    try:
+        mimetype_raw = _read_capped(ENTRY_MIMETYPE)
+    except KeyError as e:
+        raise EliumPackageError(
+            "Ce fichier n'est pas un document Elium (mimetype OPC absent ou invalide)."
+        ) from e
+    if mimetype_raw.decode("utf-8", "replace").strip() != ELIUM_MIMETYPE:
+        raise EliumPackageError(
+            "Ce fichier n'est pas un document Elium (mimetype OPC absent ou invalide)."
+        )
 
     try:
         manifest_raw = _read_capped(ENTRY_MANIFEST)

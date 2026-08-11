@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { createEliumFile, recordSave, recordModification, tracksJournal, type PendingJournalEvent } from "../src/format/document";
+import { createEliumFile, recordSave, tracksJournal, type PendingJournalEvent } from "../src/format/document";
 import { verifyJournal } from "../src/format/journal";
 import { writeEliumPackage, readEliumPackage } from "../src/format/elium-package";
 import { verifySeal } from "../src/sign/seal";
 import { generateIdentity } from "../src/sign/keys";
 
-describe("Journal — recordSave / recordModification (tracking gate)", () => {
+describe("Journal — recordSave (tracking gate)", () => {
   it("does nothing when tracking is off and no journal exists (standard profile)", async () => {
     const f = await createEliumFile({ title: "Doc", profile: "standard" });
     expect(tracksJournal(f)).toBe(false);
@@ -55,7 +55,7 @@ describe("Journal — recordSave / recordModification (tracking gate)", () => {
     const base = await createEliumFile({ title: "Doc", profile: "tracked" });
     const legacy = { ...base, manifest: { ...base.manifest, profile: "standard" as const } };
     expect(tracksJournal(legacy)).toBe(true); // journal already present → still tracks
-    const saved = await recordModification(legacy);
+    const saved = await recordSave(legacy);
     expect(saved.journal.events.at(-1)?.type).toBe("document.modified");
   });
 });

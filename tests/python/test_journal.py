@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from elium.format.document import (
     create_journal,
-    record_modification,
     record_profile,
     record_save,
     record_signature_added,
@@ -37,12 +36,6 @@ def test_create_journal_per_profile():
         "document.created", "protection.enabled", "document.locked",
     ]
     assert verify_journal(create_journal("locked", "T"))["valid"] is True
-
-
-def test_record_modification_gate():
-    assert _types(record_modification(empty_journal(), "standard")) == []
-    j = record_modification(create_journal("tracked", "T"), "tracked")
-    assert j["events"][-1]["type"] == "document.modified"
 
 
 def test_record_save_flushes_pending_then_modified():

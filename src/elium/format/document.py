@@ -44,7 +44,7 @@ def extract_text(node: dict) -> str:
     return "".join(extract_text(c) for c in children) + sep
 
 
-# --- Tracking journal helpers (mirror of document.ts recordSave/recordModification) ----
+# --- Tracking journal helpers (mirror of document.ts recordSave) ----
 #
 # The tracking journal is active when the profile opts in OR a journal already
 # exists. Read-time events (document.opened / export / signature.validated) are
@@ -89,13 +89,6 @@ def record_signature_added(journal: Journal, profile: str, signature: dict, at: 
         actor["fingerprint"] = proof["fingerprint"]
     data = {k: signature.get(k) for k in ("id", "level", "kind") if signature.get(k) is not None}
     return append_event(journal, "signature.added", actor={k: v for k, v in actor.items() if v}, data=data, at=at)
-
-
-def record_modification(journal: Journal, profile: str, at: str | None = None) -> Journal:
-    """Append a document.modified event (only when tracking is active)."""
-    if not tracks_journal(profile, journal):
-        return journal
-    return append_event(journal, "document.modified", at=at)
 
 
 def record_save(journal: Journal, profile: str, pending: list[dict] | None = None, at: str | None = None) -> Journal:

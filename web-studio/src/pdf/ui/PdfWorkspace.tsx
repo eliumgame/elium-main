@@ -575,8 +575,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     dismissToast(toastId);
     const v = verifyPdfSignatures(signed);
     const ok = v.length > 0 && v.every((x) => x.valid);
+    const note = v[0]?.selfSigned ? " · auto-signée (identité non vérifiée)" : v[0]?.chainVerified ? " · chaîne vérifiée" : "";
     toast(ok ? "success" : "warning", "PDF signé (PAdES)",
-      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}` : undefined);
+      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}${note}` : undefined);
   };
 
   const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -639,8 +640,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       return;
     }
     for (const s of v) {
+      const trust = s.selfSigned ? " · auto-signée (identité non vérifiée)" : s.chainVerified ? " · chaîne vérifiée" : "";
+      const invalidReason = s.error
+        || (!s.certValidAtSigning ? "Certificat hors de sa période de validité" : "Invalide ou document modifié après signature");
       toast(s.valid ? "success" : "danger", `Signature : ${s.signerName || "inconnu"}`,
-        s.valid ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}` : (s.error || "Invalide ou document modifié après signature"));
+        s.valid
+          ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}${trust}`
+          : invalidReason);
     }
   };
 

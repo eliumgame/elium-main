@@ -23,13 +23,17 @@ const TINY_PNG = Uint8Array.from(
 );
 
 /** Certificat auto-signé RSA + PKCS#12 (DER) protégé par mot de passe. */
-function makeP12(cn: string, password: string): Uint8Array {
+function makeP12(
+  cn: string,
+  password: string,
+  validity: { notBefore: Date; notAfter: Date } = { notBefore: new Date(Date.UTC(2020, 0, 1)), notAfter: new Date(Date.UTC(2035, 0, 1)) },
+): Uint8Array {
   const keys = forge.pki.rsa.generateKeyPair(2048);
   const cert = forge.pki.createCertificate();
   cert.publicKey = keys.publicKey;
   cert.serialNumber = "01";
-  cert.validity.notBefore = new Date(Date.UTC(2020, 0, 1));
-  cert.validity.notAfter = new Date(Date.UTC(2035, 0, 1));
+  cert.validity.notBefore = validity.notBefore;
+  cert.validity.notAfter = validity.notAfter;
   const attrs = [{ name: "commonName", value: cn }, { name: "organizationName", value: "Elium" }];
   cert.setSubject(attrs);
   cert.setIssuer(attrs);
@@ -62,6 +66,24 @@ describe("PAdES-B (sign + verify)", () => {
     expect(res[0]!.valid).toBe(true);
     expect(res[0]!.signerName).toBe("Alice Test");
     expect(res[0]!.error).toBeUndefined();
+    // Le certificat est temporellement valide et auto-signé (émetteur = sujet).
+    expect(res[0]!.certValidAtSigning).toBe(true);
+    expect(res[0]!.selfSigned).toBe(true);
+  }, 30000);
+
+  it("rejette une signature dont le certificat est hors de sa période de validité", async () => {
+    // Certificat DÉJÀ expiré : le CMS est cryptographiquement correct, mais la
+    // signature ne doit plus être rapportée « valide » (validation du certificat).
+    const p12 = makeP12("Expired", "pw", {
+      notBefore: new Date(Date.UTC(2000, 0, 1)),
+      notAfter: new Date(Date.UTC(2001, 0, 1)),
+    });
+    const pdf = await makePdf();
+    const signed = await signPdfBytes(pdf, p12, "pw");
+    const res = verifyPdfSignatures(signed);
+    expect(res[0]!.digestMatches).toBe(true);
+    expect(res[0]!.certValidAtSigning).toBe(false);
+    expect(res[0]!.valid).toBe(false);
   }, 30000);
 
   it("détecte une altération du document (signature invalide)", async () => {
@@ -93,6 +115,8 @@ describe("PAdES-B (sign + verify)", () => {
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
     expect(res[0]!.signerName).toBe("Signature Elium (auto-signée)");
+    expect(res[0]!.selfSigned).toBe(true);
+    expect(res[0]!.certValidAtSigning).toBe(true);
   }, 30000);
 
   it("signature VISIBLE : widget non nul + apparence /AP, et reste valide", async () => {

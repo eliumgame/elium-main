@@ -145,3 +145,50 @@ def test_seal_without_expiry_is_stable():
     assert verify_seal(manifest, [], journal) == "valid"
     # Injecting an unsigned expiry breaks it.
     assert verify_seal({**manifest, "accessExpiresAt": "2027-01-01T00:00:00Z"}, [], journal) == "broken"
+
+
+def test_seal_covers_recipient_set():
+    """The recipient set (protection.recipients) is part of the signed subset
+    (mirror of seal.ts)."""
+    from elium.format.seal import create_seal, verify_seal
+
+    author = generate_identity()
+    journal = empty_journal()
+    manifest = {
+        "format": "elium", "formatVersion": 4, "profile": "encrypted", "title": "T",
+        "language": "fr", "createdAt": "2026-01-01T00:00:00Z", "docId": "doc-r",
+        "protection": {"encrypted": True, "locked": False, "keyfileRequired": False,
+                       "contentEntry": "content/document.elium", "recipients": ["fpra", "fprb"]},
+        "integrity": {"algorithm": "sha-256", "contentHash": "ab" * 32},
+    }
+    manifest["seal"] = create_seal(manifest, [], journal, author["privateKeyHex"])
+    assert verify_seal(manifest, [], journal) == "valid"
+
+    def with_recipients(recipients):
+        return {**manifest, "protection": {**manifest["protection"], "recipients": recipients}}
+
+    # Removing / adding / reordering a displayed recipient all break the seal.
+    assert verify_seal(with_recipients(["fpra"]), [], journal) == "broken"
+    assert verify_seal(with_recipients(["fpra", "fprb", "fprc"]), [], journal) == "broken"
+    assert verify_seal(with_recipients(["fprb", "fpra"]), [], journal) == "broken"
+    # Dropping the list entirely too.
+    prot = {k: v for k, v in manifest["protection"].items() if k != "recipients"}
+    assert verify_seal({**manifest, "protection": prot}, [], journal) == "broken"
+
+
+def test_legacy_recipient_seal_verifies_via_fallback():
+    """A recipient file sealed BEFORE recipients were covered still verifies."""
+    from elium.format.seal import create_seal, verify_seal
+
+    author = generate_identity()
+    journal = empty_journal()
+    legacy = {
+        "format": "elium", "formatVersion": 4, "profile": "encrypted", "title": "T",
+        "language": "fr", "createdAt": "2026-01-01T00:00:00Z", "docId": "doc-r",
+        "protection": {"encrypted": True, "locked": False, "keyfileRequired": False,
+                       "contentEntry": "content/document.elium"},
+        "integrity": {"algorithm": "sha-256", "contentHash": "ab" * 32},
+    }
+    seal = create_seal(legacy, [], journal, author["privateKeyHex"])  # no recipients at seal time
+    manifest = {**legacy, "protection": {**legacy["protection"], "recipients": ["fpra", "fprb"]}, "seal": seal}
+    assert verify_seal(manifest, [], journal) == "valid"  # recipients:false fallback rescues

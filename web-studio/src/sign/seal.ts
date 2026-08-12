@@ -25,12 +25,19 @@ export type { DocumentSeal };
 /**
  * The integrity-critical manifest fields the seal protects (matches seal.py).
  *
- * `docId` is authenticated too (so an attacker cannot silently swap it to
- * confuse the local seal-TOFU / version indices), but only when present AND
- * requested — legacy seals were computed without it, so verifySeal falls back
- * to the docId-free subset to keep those files valid (see verifySeal).
+ * `docId` and the recipient set (`protection.recipients`) are authenticated too,
+ * but only when present AND requested. They were added to the sealed subset at
+ * different times, so verifySeal falls back to the older forms (dropping the
+ * newest field first) to keep already-sealed files valid. A field absent from
+ * the manifest is never added, so files that never carried it seal byte-identical
+ * to before — only files that DO carry it gain the extra tamper-evidence.
  */
-function manifestSubset(m: EliumManifest, includeDocId: boolean): Record<string, unknown> {
+interface SubsetOpts {
+  docId: boolean;
+  recipients: boolean;
+}
+
+function manifestSubset(m: EliumManifest, opts: SubsetOpts): Record<string, unknown> {
   return {
     format: m.format,
     formatVersion: m.formatVersion,
@@ -40,12 +47,16 @@ function manifestSubset(m: EliumManifest, includeDocId: boolean): Record<string,
     createdAt: m.createdAt,
     // Included only when set, so existing seals (no expiry/docId) stay byte-identical.
     ...(m.accessExpiresAt ? { accessExpiresAt: m.accessExpiresAt } : {}),
-    ...(includeDocId && m.docId ? { docId: m.docId } : {}),
+    ...(opts.docId && m.docId ? { docId: m.docId } : {}),
     protection: {
       encrypted: m.protection.encrypted,
       locked: m.protection.locked,
       keyfileRequired: m.protection.keyfileRequired,
       contentEntry: m.protection.contentEntry,
+      // Binds the "who can read this" list of a sealed multi-recipient file, so a
+      // displayed recipient fingerprint cannot be silently added or removed.
+      // Present only on recipient files → non-recipient seals are unchanged.
+      ...(opts.recipients && m.protection.recipients?.length ? { recipients: m.protection.recipients } : {}),
     },
     integrity: {
       algorithm: m.integrity.algorithm,
@@ -54,16 +65,18 @@ function manifestSubset(m: EliumManifest, includeDocId: boolean): Record<string,
   };
 }
 
+const FULL_SUBSET: SubsetOpts = { docId: true, recipients: true };
+
 /** The exact canonical string that gets signed (identical in TS and Python). */
 export async function sealMessage(
   manifest: EliumManifest,
   signatures: EliumSignature[],
   journal: Journal,
-  includeDocId = true,
+  opts: SubsetOpts = FULL_SUBSET,
 ): Promise<string> {
   return canonicalJSON({
     v: 1,
-    manifest: manifestSubset(manifest, includeDocId),
+    manifest: manifestSubset(manifest, opts),
     signaturesHash: await sha256Hex(canonicalJSON(signatures)),
     journalHash: await sha256Hex(canonicalJSON(journal)),
   });
@@ -95,16 +108,21 @@ export async function verifySeal(
   const seal = manifest.seal;
   if (!seal) return "unsealed";
 
-  // Double-mode: current seals cover docId; legacy seals did not. Accept a seal
-  // that matches EITHER canonical form. This is safe — the signature is over
-  // exactly one of the two messages, so a v2 (docId-covered) file whose docId is
-  // tampered matches NEITHER form and reads "broken"; the fallback only rescues
-  // genuinely legacy seals, never a modified current one.
-  const withDocId = await sealMessage(manifest, signatures, journal, true);
-  let authentic = await verifyMessage(seal.signatureHex, withDocId, seal.publicKeyHex);
-  if (!authentic && manifest.docId) {
-    const withoutDocId = await sealMessage(manifest, signatures, journal, false);
-    authentic = await verifyMessage(seal.signatureHex, withoutDocId, seal.publicKeyHex);
+  // Multi-mode: the sealed subset gained optional fields over time (docId, then
+  // the recipient set). Accept a seal that matches the current full form OR an
+  // older form, dropping the newest optional field first. Safe — the signature
+  // is over exactly ONE form, so a file whose docId/recipient set is tampered
+  // matches NONE and reads "broken"; the fallbacks only rescue genuinely older
+  // seals, never a modified current one. Fields absent from the manifest are not
+  // toggled, so a non-recipient (or docId-less legacy) file keeps its old form.
+  const recipientForms = manifest.protection.recipients?.length ? [true, false] : [false];
+  const docIdForms = manifest.docId ? [true, false] : [false];
+  let authentic = false;
+  outer: for (const recipients of recipientForms) {
+    for (const docId of docIdForms) {
+      const message = await sealMessage(manifest, signatures, journal, { docId, recipients });
+      if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) { authentic = true; break outer; }
+    }
   }
   if (!authentic) return "broken";
 

@@ -36,19 +36,32 @@ SEAL_UNKNOWN_KEY = "unknown_key"    # seal verifies but signer key != trusted ke
 SEAL_BROKEN = "broken"              # seal does not verify: tampered or corrupt
 
 
-def _manifest_subset(manifest: dict, include_doc_id: bool) -> dict[str, Any]:
+def _manifest_subset(manifest: dict, include_doc_id: bool, include_recipients: bool) -> dict[str, Any]:
     """The integrity-critical fields the seal protects.
 
     Excludes volatile/derived fields (modifiedAt, generator, features, rgpd)
     and the `seal` object itself, so a normal re-save does not break the seal
     while any meaningful change to identity/protection/integrity does.
 
-    `docId` is authenticated too when present AND requested — legacy seals were
-    computed without it, so verify_seal falls back to the docId-free subset to
-    keep those files valid (mirror of seal.ts).
+    `docId` and the recipient set (`protection.recipients`) are authenticated too
+    when present AND requested — they were added at different times, so verify_seal
+    falls back to the older forms (dropping the newest field first) to keep
+    already-sealed files valid (mirror of seal.ts). A field absent from the
+    manifest is never added, so files that never carried it stay byte-identical.
     """
     protection = manifest.get("protection", {})
     integrity = manifest.get("integrity", {})
+    protection_subset: dict[str, Any] = {
+        "encrypted": protection.get("encrypted"),
+        "locked": protection.get("locked"),
+        "keyfileRequired": protection.get("keyfileRequired"),
+        "contentEntry": protection.get("contentEntry"),
+    }
+    # Binds the "who can read this" list of a sealed multi-recipient file, so a
+    # displayed recipient fingerprint cannot be silently added or removed. Present
+    # only on recipient files → non-recipient seals are unchanged.
+    if include_recipients and protection.get("recipients"):
+        protection_subset["recipients"] = protection["recipients"]
     subset: dict[str, Any] = {
         "format": manifest.get("format"),
         "formatVersion": manifest.get("formatVersion"),
@@ -56,12 +69,7 @@ def _manifest_subset(manifest: dict, include_doc_id: bool) -> dict[str, Any]:
         "title": manifest.get("title"),
         "language": manifest.get("language"),
         "createdAt": manifest.get("createdAt"),
-        "protection": {
-            "encrypted": protection.get("encrypted"),
-            "locked": protection.get("locked"),
-            "keyfileRequired": protection.get("keyfileRequired"),
-            "contentEntry": protection.get("contentEntry"),
-        },
+        "protection": protection_subset,
         "integrity": {
             "algorithm": integrity.get("algorithm"),
             "contentHash": integrity.get("contentHash"),
@@ -75,12 +83,18 @@ def _manifest_subset(manifest: dict, include_doc_id: bool) -> dict[str, Any]:
     return subset
 
 
-def seal_message(manifest: dict, signatures: list[dict], journal: dict, include_doc_id: bool = True) -> str:
+def seal_message(
+    manifest: dict,
+    signatures: list[dict],
+    journal: dict,
+    include_doc_id: bool = True,
+    include_recipients: bool = True,
+) -> str:
     """The exact canonical string that gets signed (identical in Python and TS)."""
     return canonical_json(
         {
             "v": 1,
-            "manifest": _manifest_subset(manifest, include_doc_id),
+            "manifest": _manifest_subset(manifest, include_doc_id, include_recipients),
             "signaturesHash": sha256_hex(canonical_json(signatures)),
             "journalHash": sha256_hex(canonical_json(journal)),
         }
@@ -115,25 +129,29 @@ def verify_seal(
     if not seal:
         return SEAL_UNSEALED
 
-    # Double-mode: current seals cover docId, legacy seals did not. Accept a seal
-    # that matches EITHER canonical form (mirror of seal.ts). Safe: the signature
-    # is over exactly one form, so a tampered docId matches neither and reads
-    # "broken"; the fallback only rescues genuinely legacy seals.
+    # Multi-mode: the sealed subset gained optional fields over time (docId, then
+    # the recipient set). Accept a seal that matches the current full form OR an
+    # older form, dropping the newest optional field first (mirror of seal.ts).
+    # Safe: the signature is over exactly ONE form, so a file whose docId/recipient
+    # set is tampered matches NONE and reads "broken"; the fallbacks only rescue
+    # genuinely older seals. Fields absent from the manifest are not toggled.
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(seal["publicKeyHex"]))
         sig = bytes.fromhex(seal["signatureHex"])
     except (ValueError, KeyError):
         return SEAL_BROKEN
 
-    def _matches(include_doc_id: bool) -> bool:
-        message = seal_message(manifest, signatures, journal, include_doc_id).encode("utf-8")
+    def _matches(include_doc_id: bool, include_recipients: bool) -> bool:
+        message = seal_message(manifest, signatures, journal, include_doc_id, include_recipients).encode("utf-8")
         try:
             pub.verify(sig, message)
             return True
         except InvalidSignature:
             return False
 
-    authentic = _matches(True) or (bool(manifest.get("docId")) and _matches(False))
+    recipient_forms = [True, False] if manifest.get("protection", {}).get("recipients") else [False]
+    docid_forms = [True, False] if manifest.get("docId") else [False]
+    authentic = any(_matches(d, r) for r in recipient_forms for d in docid_forms)
     if not authentic:
         return SEAL_BROKEN
 

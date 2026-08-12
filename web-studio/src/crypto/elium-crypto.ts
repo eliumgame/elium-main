@@ -430,6 +430,19 @@ export class EliumCryptoEngine {
     if (!(t >= 1 && t <= 6 && m >= 8192 && m <= 262144 && p >= 1 && p <= 16)) {
       throw new Error(`KDF parameters out of bounds (DoS protection): t=${t}, m=${m}, p=${p}`);
     }
+
+    // Dispatch honnête : ne pas ignorer l'algorithme déclaré. Le corps est
+    // AES-256-GCM (+ cascade ChaCha20-Poly1305 optionnelle) ; refuser un en-tête
+    // qui annonce autre chose plutôt que de déchiffrer en AES quoi qu'il arrive
+    // (le champ était lu puis ignoré). Placé après la garde de bornes KDF (DoS)
+    // pour en préserver la priorité. Parité container.py.
+    if (header.crypto?.cipher !== "aes-256-gcm") {
+      throw new Error(`Unsupported cipher: ${header.crypto?.cipher}`);
+    }
+    if (header.crypto?.cascade != null && header.crypto.cascade !== "chacha20-poly1305") {
+      throw new Error(`Unsupported cascade cipher: ${header.crypto.cascade}`);
+    }
+
     if (saltHex.length !== 32) {
       throw new Error("Invalid salt length");
     }

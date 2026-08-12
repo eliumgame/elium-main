@@ -210,10 +210,17 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
   }
   if (env.schema !== RECIPIENTS_SCHEMA) throw new Error("Ce n'est pas une enveloppe multi-destinataires Elium.");
 
+  // Le champ `alg` doit être cohérent avec `cascade` (il était décoratif) : refuse
+  // une enveloppe dont l'algorithme déclaré ne correspond pas à ce qui sera exécuté.
+  const cascade = !!env.cascade;
+  const expectedAlg = `ecdh-es-p256+aes-256-gcm${cascade ? "+chacha20-poly1305-cascade" : ""}`;
+  if (env.alg !== expectedAlg) {
+    throw new Error("Enveloppe multi-destinataires : algorithme non pris en charge ou incohérent.");
+  }
+
   const priv = await importPrivate(kp);
   const myFpr = await recipientFingerprint(kp.publicHex);
   const ordered = [...(env.recipients ?? [])].sort((a, b) => Number(a.fpr !== myFpr) - Number(b.fpr !== myFpr));
-  const cascade = !!env.cascade;
 
   for (const r of ordered) {
     try {

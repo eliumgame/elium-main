@@ -2,7 +2,7 @@
 import pytest
 
 from elium.core.container import EliumContainer
-from elium.core.exceptions import EliumSecurityError
+from elium.core.exceptions import EliumFormatError, EliumSecurityError
 from elium.crypto.primitives import generate_ed25519_keypair
 
 
@@ -49,6 +49,19 @@ def test_signature():
     )
     assert dec_payload == payload
     assert header["flags"]["signed"] is True
+
+def test_unsupported_cipher_is_rejected():
+    """The declared `cipher` is enforced (it was read but ignored): a header
+    claiming a cipher this core does not implement is refused BEFORE any AES
+    decryption. Parity with elium-crypto.ts."""
+    encoded = EliumContainer.encode(b"payload", "pwd")
+    # Same-length swap keeps every offset (and the header length prefix) intact,
+    # so the cipher guard — which runs before the HMAC check — is what fires.
+    tampered = encoded.replace(b'"cipher":"aes-256-gcm"', b'"cipher":"aes-256-xyz"', 1)
+    assert tampered != encoded
+    with pytest.raises(EliumFormatError, match="cipher"):
+        EliumContainer.decode(tampered, "pwd")
+
 
 def test_corruption_hmac():
     payload = b"Data to corrupt"

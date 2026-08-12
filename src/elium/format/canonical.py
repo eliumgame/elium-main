@@ -14,8 +14,15 @@ ZERO_HASH = "0" * 64
 
 
 def canonical_json(value: Any) -> str:
-    """Deterministic JSON: keys sorted recursively, no insignificant whitespace."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Deterministic JSON: keys sorted recursively, no insignificant whitespace.
+
+    `allow_nan=False` rejects NaN/Infinity (default json.dumps would emit the
+    non-standard tokens `NaN`/`Infinity`, invalid JSON and divergent from the TS
+    `canonicalJSON`, which throws on non-finite numbers) → parité + pas de hash
+    de sceau/journal silencieusement corrompu."""
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
 
 
 def sha256_hex(data: bytes | str) -> str:

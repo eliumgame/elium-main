@@ -185,6 +185,15 @@ class EliumContainer:
         if not (1 <= t <= 6 and 8192 <= m <= 262144 and 1 <= p <= 16):
             raise EliumSecurityError(f"KDF parameters out of bounds (DoS protection): t={t}, m={m}, p={p}")
 
+        # Dispatch honnête : refuser un en-tête qui annonce un algorithme que ce
+        # cœur n'implémente pas, plutôt que de déchiffrer en AES-256-GCM quoi qu'il
+        # arrive (le champ `cipher` était présent mais ignoré). Placé APRÈS la garde
+        # de bornes KDF (DoS) pour préserver sa priorité. Parité elium-crypto.ts.
+        if header["crypto"].get("cipher") != "aes-256-gcm":
+            raise EliumFormatError(f"Unsupported cipher: {header['crypto'].get('cipher')}")
+        if header["crypto"].get("cascade") not in (None, "chacha20-poly1305"):
+            raise EliumFormatError(f"Unsupported cascade cipher: {header['crypto'].get('cascade')}")
+
         salt_hex = header["kdf"].get("salt", "")
         if len(salt_hex) != 32:
             raise EliumFormatError("Invalid salt length")

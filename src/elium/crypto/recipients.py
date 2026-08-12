@@ -160,6 +160,15 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
     if env.get("schema") != RECIPIENTS_SCHEMA:
         raise EliumSecurityError("Ce n'est pas une enveloppe multi-destinataires Elium.")
 
+    # Le champ `alg` doit être cohérent avec `cascade` (il était décoratif) :
+    # refuse une enveloppe dont l'algorithme déclaré ne correspond pas.
+    cascade = bool(env.get("cascade"))
+    expected_alg = "ecdh-es-p256+aes-256-gcm" + ("+chacha20-poly1305-cascade" if cascade else "")
+    if env.get("alg") != expected_alg:
+        raise EliumSecurityError(
+            "Enveloppe multi-destinataires : algorithme non pris en charge ou incohérent."
+        )
+
     priv = _load_private(private_hex)
     my_fpr = recipient_fingerprint(public_from_private(private_hex))
 
@@ -167,7 +176,6 @@ def decrypt_as_recipient(blob: bytes, private_hex: str) -> bytes:
     # (a sender might mislabel fingerprints; ECDH+AEAD still gates correctness).
     entries = env.get("recipients", [])
     ordered = sorted(entries, key=lambda r: r.get("fpr") != my_fpr)
-    cascade = bool(env.get("cascade"))
 
     last_err: Exception | None = None
     for r in ordered:

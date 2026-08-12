@@ -47,4 +47,22 @@ describe('EliumCryptoEngine v3', () => {
     expect(decodedText).toBe('Hello Signed Data!');
     expect(signatureValid).toBe(true);
   });
+
+  it('rejects a header advertising an unsupported cipher (honest dispatch)', async () => {
+    const encoded = await EliumCryptoEngine.encodeContainer(
+      new TextEncoder().encode('payload'), 'pwd', 'x.txt');
+    const enc = new TextEncoder();
+    const needle = enc.encode('"cipher":"aes-256-gcm"');
+    const repl = enc.encode('"cipher":"aes-256-xyz"'); // même longueur → offsets intacts
+    let at = -1;
+    outer: for (let i = 0; i + needle.length <= encoded.length; i++) {
+      for (let j = 0; j < needle.length; j++) if (encoded[i + j] !== needle[j]) continue outer;
+      at = i; break;
+    }
+    expect(at).toBeGreaterThanOrEqual(0);
+    const tampered = encoded.slice();
+    tampered.set(repl, at);
+    // La garde cipher tourne AVANT le HMAC → c'est elle qui refuse.
+    await expect(EliumCryptoEngine.decodeContainer(tampered, 'pwd')).rejects.toThrow(/cipher/i);
+  });
 });

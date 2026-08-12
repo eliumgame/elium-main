@@ -29,6 +29,12 @@ function sortDeep(value: unknown): unknown {
     }
     return out;
   }
+  // Rejeter les nombres non finis : JSON.stringify les transforme silencieusement
+  // en `null`, ce qui corromprait un hash de sceau/journal sans avertissement — et
+  // Python (json.dumps allow_nan=False, canonical.py) les refuse aussi → parité.
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new TypeError("canonicalJSON : nombre non fini (NaN/Infinity) — non sérialisable de façon canonique.");
+  }
   return value;
 }
 

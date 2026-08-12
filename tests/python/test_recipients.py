@@ -73,6 +73,21 @@ def test_tampered_content_is_rejected():
         decrypt_as_recipient(json.dumps(env).encode(), a_priv)
 
 
+def test_incoherent_alg_is_rejected():
+    """The `alg` field must match `cascade` (it was decorative before) — parity
+    with recipients.ts."""
+    a_priv, a_pub = generate_recipient_keypair()
+    env = json.loads(encrypt_for_recipients(MSG, [a_pub]))
+    env["alg"] = "rot13"  # foreign / tampered algorithm
+    with pytest.raises(EliumSecurityError, match="algorithme"):
+        decrypt_as_recipient(json.dumps(env).encode(), a_priv)
+    # Flipping the cascade flag without a matching alg is caught too.
+    env2 = json.loads(encrypt_for_recipients(MSG, [a_pub]))
+    env2["cascade"] = True  # alg still advertises the non-cascade construction
+    with pytest.raises(EliumSecurityError, match="algorithme"):
+        decrypt_as_recipient(json.dumps(env2).encode(), a_priv)
+
+
 def test_add_recipient_to_existing_set_needs_reencrypt_only_for_new():
     # Sanity: encrypting the same message twice yields different envelopes (random CEK/eph).
     _p, pub = generate_recipient_keypair()

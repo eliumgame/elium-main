@@ -45,6 +45,17 @@ describe("multi-recipient encryption (TypeScript)", () => {
     await expect(decryptAsRecipient(te.encode(JSON.stringify(env)), a)).rejects.toThrow();
   });
 
+  it("rejette une enveloppe dont l'alg est incohérent avec cascade", async () => {
+    const a = await generateRecipientKeypair();
+    const env = JSON.parse(td.decode(await encryptForRecipients(te.encode("secret"), [a.publicHex])));
+    env.alg = "rot13"; // algorithme étranger / altéré
+    await expect(decryptAsRecipient(te.encode(JSON.stringify(env)), a)).rejects.toThrow(/algorithme/);
+    // Retourner le drapeau cascade sans alg correspondant est attrapé aussi.
+    const env2 = JSON.parse(td.decode(await encryptForRecipients(te.encode("secret"), [a.publicHex])));
+    env2.cascade = true; // l'alg annonce toujours la construction non-cascade
+    await expect(decryptAsRecipient(te.encode(JSON.stringify(env2)), a)).rejects.toThrow(/algorithme/);
+  });
+
   // Cross-language interop: this envelope was produced by the PYTHON core
   // (crypto/recipients.py) for the fixed P-256 recipient key below. If TS can
   // decrypt it, the wire format (points, HKDF, AEAD, AAD) matches byte-for-byte.

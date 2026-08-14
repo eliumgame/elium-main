@@ -21,6 +21,7 @@ import groupRoutes from "./routes/groups.js";
 import auditRoutes from "./routes/audit.js";
 import nodeRoutes from "./routes/nodes.js";
 import shareRoutes from "./routes/shares.js";
+import signingRoutes from "./routes/signing.js";
 import versionRoutes from "./routes/versions.js";
 import ssoRoutes from "./routes/sso.js";
 import scimRoutes from "./routes/scim.js";
@@ -124,6 +125,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(auditRoutes, { prefix: "/api/orgs" });
   await app.register(nodeRoutes, { prefix: "/api/nodes" });
   await app.register(shareRoutes, { prefix: "/api" });
+  await app.register(signingRoutes, { prefix: "/api" });
   await app.register(versionRoutes, { prefix: "/api" });
   await app.register(ssoRoutes, { prefix: "/api" });
   await app.register(scimRoutes, { prefix: "/api" });

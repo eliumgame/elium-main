@@ -343,6 +343,74 @@ export async function openSharedLink(
   };
 }
 
+// --- Signature à distance par lien (Approche A) ----------------------------
+
+/**
+ * Create a signature request BY LINK for an existing Drive node (mono-partie).
+ * Like `createShareLink`, the node CEK is wrapped to a fresh link keypair whose
+ * PRIVATE scalar rides in the URL fragment (never sent to the server), but it
+ * also registers a sign-capable circuit server-side. The returned secret+public
+ * are embedded as `#k=<secret>.<publicHex>`; the token as `?sign=<token>`.
+ */
+export async function createSignLinkForNode(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  roleId: string,
+  opts: { label?: string; expiresAt?: string; deadline?: string } = {},
+): Promise<{ token: string; secret: string; publicHex: string; requestId: string }> {
+  const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
+  if (!key) throw new Error("Clé du nœud indisponible.");
+  const linkKp = await generateRecipientKeypair();
+  const wrappedKey = await wrapNodeKeyFor(key, linkKp.publicHex);
+  const { token, requestId } = await ctx.api.createSignRequest(entry.id, {
+    roleId,
+    wrappedKey,
+    ...(opts.label ? { label: opts.label } : {}),
+    ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
+    ...(opts.deadline ? { deadline: opts.deadline } : {}),
+  });
+  return { token, secret: linkKp.privateHex, publicHex: linkKp.publicHex, requestId };
+}
+
+/**
+ * Open a signature link (ANONYMOUS, no account): resolve + download and decrypt
+ * the `.elium` bytes, keeping the node CEK so the signed artifact can be
+ * re-encrypted and posted back under the same key (zero-knowledge preserved).
+ */
+export async function openSignLink(
+  api: DriveApi,
+  token: string,
+  linkPrivateHex: string,
+  linkPublicHex: string,
+): Promise<{ name: string; kind: "folder" | "file"; hasContent: boolean; bytes: Uint8Array; nodeKey: Uint8Array }> {
+  const kp = { privateHex: linkPrivateHex, publicHex: linkPublicHex };
+  const { node, wrappedKey } = await api.resolveLink(token);
+  const nodeKey = await unwrapNodeKey(wrappedKey, kp);
+  const name = await decryptName(nodeKey, node.nameEncrypted, node.nameNonce);
+  let bytes: Uint8Array = new Uint8Array(0);
+  if (node.kind === "file" && node.hasContent) {
+    const { bytes: ct, nonceHex } = await api.getLinkContent(token);
+    bytes = await decryptContent(nodeKey, nonceHex, ct);
+  }
+  return { name, kind: node.kind, hasContent: node.hasContent, bytes, nodeKey };
+}
+
+/**
+ * Re-encrypt a signed `.elium` artifact under the node CEK and post it back
+ * through the public sign route (token-sealed, anonymous). `signerFprHex` is the
+ * signer's Ed25519 key fingerprint (attribution côté émetteur), never a private key.
+ */
+export async function submitSignedElium(
+  api: DriveApi,
+  token: string,
+  nodeKey: Uint8Array,
+  signedBytes: Uint8Array,
+  signerFprHex?: string,
+): Promise<void> {
+  const enc = await encryptContent(nodeKey, signedBytes);
+  await api.submitSignature(token, enc.ciphertext, enc.nonceHex, signerFprHex);
+}
+
 // --- Teams / groups (cryptographic principals) -----------------------------
 
 /** Create a team: generate its keypair and wrap the private key to every member (incl. creator). */

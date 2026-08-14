@@ -515,3 +515,20 @@
 .dc-rec__path { color: var(--text-soft); font-size: 12px; flex: none; }
 .dc-rec__grant { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .dc-rec__grant .field { flex: 1; min-width: 160px; }
+
+/* Aperçu du document à signer (SignLinkView) */
+.dc-sign-preview {
+  text-align: left;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--surface, rgba(127, 127, 127, 0.06));
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.2));
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 4px 0 14px;
+  color: var(--text, inherit);
+}

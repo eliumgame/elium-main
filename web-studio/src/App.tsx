@@ -10,6 +10,7 @@ const SlidesView = lazy(() => import("./views/SlidesView"));    // slides engine
 const PdfView = lazy(() => import("./pdf/PdfView")); // pdf.js stays out of the main bundle
 const DriveCloudView = lazy(() => import("./views/DriveCloudView")); // cloud SDK out of the main bundle
 const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // public share-link opener
+const SignLinkView = lazy(() => import("./drive-cloud/ui/SignLinkView")); // public sign-request opener (Approche A)
 const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
@@ -1132,6 +1133,27 @@ export default function App() {
       <Suspense fallback={<div className="pv pv--empty">Chargement de la vue présentateur…</div>}>
         <PresenterView />
       </Suspense>
+    );
+  }
+
+  // A remote signature request (?sign=…) takes over the whole app — no account
+  // needed; the decryption secret lives in the URL fragment (Approche A).
+  const signToken = (() => {
+    try { return new URLSearchParams(window.location.search).get("sign"); } catch { return null; }
+  })();
+  if (signToken) {
+    return (
+      <div className="app">
+        <Suspense fallback={<div className="pdf-loading">Ouverture de la demande de signature…</div>}>
+          <SignLinkView
+            token={signToken}
+            onHome={() => {
+              try { window.history.replaceState(null, "", window.location.pathname); } catch { /* ignore */ }
+              window.location.reload();
+            }}
+          />
+        </Suspense>
+      </div>
     );
   }
 

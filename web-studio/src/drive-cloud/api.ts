@@ -76,6 +76,27 @@ export interface ApiOptions {
 
 type Query = Record<string, string | number | boolean | undefined>;
 
+/** A signer expected on a signature request (Approche A). */
+export interface SignParty {
+  id: string;
+  index: number;
+  label: string | null;
+  status: "pending" | "signed" | "declined";
+  signerFpr: string | null;
+  signedAt: string | null;
+  submissionVersionId: string | null;
+}
+/** A signature request on a node, with its parties (status board DTO). */
+export interface SignRequestDto {
+  id: string;
+  status: "pending" | "completed" | "cancelled";
+  ordered: boolean;
+  deadline: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  parties: SignParty[];
+}
+
 export class DriveApi {
   private baseUrl: string;
   private tokens: Tokens | null;
@@ -599,6 +620,44 @@ export class DriveApi {
     const res = await fetch(this.url(`/links/${token}/content`));
     if (!res.ok) return this.parseError(res);
     return { bytes: new Uint8Array(await res.arrayBuffer()), nonceHex: res.headers.get("x-content-nonce") ?? "" };
+  }
+
+  // === Signature à distance (Approche A) ===================================
+  /** Create a sign-request on a node: registers the circuit + a sign-capable
+   *  link, returns the link token (transmis hors bande, comme un lien de partage). */
+  createSignRequest(
+    nodeId: string,
+    body: { roleId: string; wrappedKey: WrappedKey; label?: string; expiresAt?: string; deadline?: string },
+  ) {
+    return this.json<{ token: string; requestId: string; partyId: string }>(
+      "POST",
+      `/nodes/${nodeId}/sign-requests`,
+      { body },
+    );
+  }
+  /** Status board of a node's signature requests (for the emitter to poll). */
+  getSignRequests(nodeId: string) {
+    return this.json<{ requests: SignRequestDto[] }>("GET", `/nodes/${nodeId}/sign-requests`);
+  }
+  /** ANONYMOUS token-sealed write-back of the signed artifact — no account.
+   *  The ciphertext is the signed .elium re-encrypted under the node CEK. */
+  async submitSignature(
+    token: string,
+    ciphertext: Uint8Array,
+    nonceHex: string,
+    signerFprHex?: string,
+  ): Promise<{ ok: boolean }> {
+    const res = await fetch(this.url(`/links/${token}/sign`), {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-content-nonce": nonceHex,
+        ...(signerFprHex ? { "x-signer-fpr": signerFprHex } : {}),
+      },
+      body: ciphertext as unknown as BodyInit,
+    });
+    if (!res.ok) return this.parseError(res);
+    return (await res.json()) as { ok: boolean };
   }
 
   // === Versions ============================================================

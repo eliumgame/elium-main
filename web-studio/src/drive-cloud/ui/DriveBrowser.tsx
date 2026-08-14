@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownUp, ChevronRight, Download, File as FileIcon, FileSpreadsheet, FileText, FileType,
   FilePlus2, Folder, FolderPlus, Grid2x2, History, Home, Image as ImageIcon, Info, LayoutList,
-  Loader2, Pencil, Presentation, RefreshCw, Search, Share2, Trash2, Upload, Users2, X,
+  Loader2, PenLine, Pencil, Presentation, RefreshCw, Search, Share2, Trash2, Upload, Users2, X,
 } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
@@ -27,6 +27,7 @@ import {
   type BrowserFilter, type SortDir, type SortKey, type ViewMode,
 } from "../browser-model";
 import ShareDialog from "./ShareDialog";
+import SignRequestDialog from "./SignRequestDialog";
 import CollabDocEditor from "./CollabDocEditor";
 import CollabSheetEditor from "./CollabSheetEditor";
 import CollabSlidesEditor from "./CollabSlidesEditor";
@@ -88,6 +89,7 @@ export default function DriveBrowser() {
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveEntry | null>(null);
+  const [signTarget, setSignTarget] = useState<DriveEntry | null>(null);
   const [versionsTarget, setVersionsTarget] = useState<DriveEntry | null>(null);
   const [collab, setCollab] = useState<{ kind: "doc" | "sheet" | "slides"; entry: DriveEntry; nodeKey: Uint8Array; seed?: ProseMirrorNode } | null>(null);
 
@@ -421,7 +423,7 @@ export default function DriveBrowser() {
     const onKey = (ev: KeyboardEvent) => {
       const t = ev.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      if (collab || shareTarget || versionsTarget) return;
+      if (collab || shareTarget || signTarget || versionsTarget) return;
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
         ev.preventDefault();
         setSelection(shownIds);
@@ -436,7 +438,7 @@ export default function DriveBrowser() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shownIds, only, selected, path.length, collab, shareTarget, versionsTarget]);
+  }, [shownIds, only, selected, path.length, collab, shareTarget, signTarget, versionsTarget]);
 
   // -- render ----------------------------------------------------------------
 
@@ -663,6 +665,9 @@ export default function DriveBrowser() {
                         </>
                       )}
                       <button className="elx-icon" title="Partager" onClick={() => setShareTarget(e)}><Share2 size={15} /></button>
+                      {e.appKind === "elium" && (
+                        <button className="elx-icon" title="Demander une signature par lien" onClick={() => setSignTarget(e)}><PenLine size={15} /></button>
+                      )}
                       <button className="elx-icon" title="Renommer (F2)" onClick={() => void rename(e)}><Pencil size={15} /></button>
                       <button className="elx-icon" title="Corbeille (Suppr)" onClick={() => void trashMany([e])}><Trash2 size={15} /></button>
                     </td>
@@ -719,6 +724,9 @@ export default function DriveBrowser() {
                     </dl>
                     <div className="dcx-details__actions">
                       <button className="elx-mini" onClick={() => setShareTarget(only)}><Share2 size={13} /> Partager</button>
+                      {only.appKind === "elium" && (
+                        <button className="elx-mini" onClick={() => setSignTarget(only)}><PenLine size={13} /> Demander signature</button>
+                      )}
                       {only.kind === "file" && !isCollab(only) && (
                         <button className="elx-mini" onClick={() => setVersionsTarget(only)}><History size={13} /> Versions</button>
                       )}
@@ -752,6 +760,10 @@ export default function DriveBrowser() {
 
       {shareTarget && ctx && (
         <ShareDialog ctx={ctx} entry={shareTarget} onClose={() => setShareTarget(null)} />
+      )}
+
+      {signTarget && ctx && (
+        <SignRequestDialog ctx={ctx} entry={signTarget} onClose={() => setSignTarget(null)} />
       )}
 
       {versionsTarget && ctx && (

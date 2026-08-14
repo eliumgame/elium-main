@@ -532,3 +532,13 @@
   margin: 4px 0 14px;
   color: var(--text, inherit);
 }
+
+/* Suivi des parties d'une demande de signature (SignRequestDialog) */
+.dc-sign-status { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.dc-sign-status h3 { margin: 0 0 10px; font-size: 14px; }
+.dc-sign-req { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.dc-sign-party { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.dc-sign-party__label { font-weight: 600; }
+.dc-sign-party__state { color: var(--text-soft); font-size: 13px; }
+.dc-sign-ok { color: #16a34a; flex: none; }
+.dc-sign-wait { color: var(--text-soft); flex: none; }

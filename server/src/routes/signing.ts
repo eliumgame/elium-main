@@ -53,23 +53,28 @@ interface PartyRow {
 
 export default async function signingRoutes(app: FastifyInstance): Promise<void> {
   // =====================================================================
-  //  Authentifié — créer une demande de signature (mono-partie en Tranche 0)
+  //  Authentifié — créer une demande de signature (1..N parties)
   // =====================================================================
+  const partySchema = z.object({
+    label: z.string().max(200).optional(),
+    // CEK enveloppée à la paire de lien PROPRE à cette partie (comme un lien externe).
+    wrappedKey: envelope,
+  });
   const createSchema = z.object({
     roleId: z.string().uuid(),
-    // CEK enveloppée à la paire du lien — identique à un lien externe (shares.ts).
-    wrappedKey: envelope,
-    label: z.string().max(200).optional(),
+    // Signature séquentielle : la partie d'index i ne peut signer qu'après i-1.
+    ordered: z.boolean().default(false),
     expiresAt: z.string().datetime().optional(),
     deadline: z.string().datetime().optional(),
+    parties: z.array(partySchema).min(1).max(50),
   });
   app.post("/nodes/:id/sign-requests", { preHandler: authenticate }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const b = createSchema.parse(req.body);
     const user = requireUser(req);
 
-    // Créer un lien de signature = créer un lien externe (capacité réutilisée en
-    // Tranche 0 ; une permission dédiée node.sign.request pourra suivre).
+    // Créer un lien de signature = créer un lien externe (capacité réutilisée ;
+    // une permission dédiée node.sign.request pourra suivre).
     const access = await requireNodePerm(req, id, "node.share.link");
     if (access.kind !== "file") throw badRequest("Seuls les fichiers peuvent être envoyés en signature.");
 
@@ -79,38 +84,43 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
     );
     if (!role) throw badRequest("Rôle invalide pour cette organisation.");
 
-    const token = randomToken(32);
-    const tokenHash = sha256Hex(token);
+    // Un token de lien par partie (chacune a sa propre paire de clés côté client).
+    const tokens = b.parties.map(() => randomToken(32));
 
     const out = await withTx(async (c) => {
-      const { rows: lk } = await c.query(
-        `INSERT INTO share_links (node_id, token_hash, role_id, wrapped_key, has_password,
-                                  expires_at, created_by, can_sign)
-         VALUES ($1,$2,$3,$4,false,$5,$6,true)
-         RETURNING id`,
-        [id, tokenHash, b.roleId, JSON.stringify(b.wrappedKey), b.expiresAt ?? null, user.id],
-      );
-      const linkId = lk[0].id as string;
-
       const { rows: rq } = await c.query(
         `INSERT INTO signature_requests (org_id, node_id, created_by, ordered, deadline)
-         VALUES ($1,$2,$3,false,$4)
+         VALUES ($1,$2,$3,$4,$5)
          RETURNING id`,
-        [access.orgId, id, user.id, b.deadline ?? null],
+        [access.orgId, id, user.id, b.ordered, b.deadline ?? null],
       );
       const requestId = rq[0].id as string;
 
-      const { rows: pt } = await c.query(
-        `INSERT INTO signature_request_parties (request_id, party_index, label, link_id)
-         VALUES ($1,0,$2,$3)
-         RETURNING id`,
-        [requestId, b.label ?? null, linkId],
-      );
-      return { requestId, partyId: pt[0].id as string };
+      const parties: Array<{ partyId: string; index: number; token: string }> = [];
+      for (let i = 0; i < b.parties.length; i++) {
+        const { rows: lk } = await c.query(
+          `INSERT INTO share_links (node_id, token_hash, role_id, wrapped_key, has_password,
+                                    expires_at, created_by, can_sign)
+           VALUES ($1,$2,$3,$4,false,$5,$6,true)
+           RETURNING id`,
+          [id, sha256Hex(tokens[i]!), b.roleId, JSON.stringify(b.parties[i]!.wrappedKey), b.expiresAt ?? null, user.id],
+        );
+        const { rows: pt } = await c.query(
+          `INSERT INTO signature_request_parties (request_id, party_index, label, link_id)
+           VALUES ($1,$2,$3,$4)
+           RETURNING id`,
+          [requestId, i, b.parties[i]!.label ?? null, lk[0].id],
+        );
+        parties.push({ partyId: pt[0].id as string, index: i, token: tokens[i]! });
+      }
+      return { requestId, parties };
     });
 
-    await audit(access.orgId, user.id, "node.sign.request", "file", id, { requestId: out.requestId }, req.ip);
-    return { token, requestId: out.requestId, partyId: out.partyId };
+    await audit(
+      access.orgId, user.id, "node.sign.request", "file", id,
+      { requestId: out.requestId, parties: out.parties.length, ordered: b.ordered }, req.ip,
+    );
+    return { requestId: out.requestId, parties: out.parties };
   });
 
   // =====================================================================
@@ -200,14 +210,18 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
         kind: string;
         party_id: string | null;
         party_status: string | null;
+        party_index: number | null;
+        ordered: boolean | null;
         request_id: string | null;
       }>(
         `SELECT sl.id AS link_id, sl.node_id, sl.can_sign, sl.revoked_at, sl.expires_at,
                 n.org_id, n.kind,
-                p.id AS party_id, p.status AS party_status, p.request_id
+                p.id AS party_id, p.status AS party_status, p.party_index, p.request_id,
+                sr.ordered AS ordered
            FROM share_links sl
            JOIN nodes n ON n.id = sl.node_id
            LEFT JOIN signature_request_parties p ON p.link_id = sl.id
+           LEFT JOIN signature_requests sr ON sr.id = p.request_id
           WHERE sl.token_hash = $1`,
         [sha256Hex(token)],
       );
@@ -218,6 +232,18 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       if (!link.can_sign || !link.party_id) throw badRequest("Ce lien n'autorise pas la signature.");
       if (link.kind !== "file") throw badRequest("Seuls les fichiers peuvent être signés.");
       if (link.party_status === "signed") throw conflict("Cette partie a déjà signé.");
+
+      // Circuit ordonné : toutes les parties d'index inférieur doivent avoir signé.
+      if (link.ordered && link.party_index != null) {
+        const blocking = await queryOne<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM signature_request_parties
+            WHERE request_id = $1 AND party_index < $2 AND status <> 'signed'`,
+          [link.request_id, link.party_index],
+        );
+        if (blocking && Number(blocking.n) > 0) {
+          throw conflict("Ce n'est pas encore votre tour : une partie précédente doit signer d'abord.");
+        }
+      }
 
       const { node_id: nodeId, org_id: orgId } = link;
 

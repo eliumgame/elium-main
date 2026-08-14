@@ -627,9 +627,15 @@ export class DriveApi {
    *  link, returns the link token (transmis hors bande, comme un lien de partage). */
   createSignRequest(
     nodeId: string,
-    body: { roleId: string; wrappedKey: WrappedKey; label?: string; expiresAt?: string; deadline?: string },
+    body: {
+      roleId: string;
+      ordered?: boolean;
+      expiresAt?: string;
+      deadline?: string;
+      parties: { label?: string; wrappedKey: WrappedKey }[];
+    },
   ) {
-    return this.json<{ token: string; requestId: string; partyId: string }>(
+    return this.json<{ requestId: string; parties: { partyId: string; index: number; token: string }[] }>(
       "POST",
       `/nodes/${nodeId}/sign-requests`,
       { body },

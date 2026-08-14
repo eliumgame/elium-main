@@ -1,24 +1,26 @@
 /**
- * Demande de signature par lien (Approche A, émetteur). Crée un lien scellé
- * « can_sign » pour un `.elium` du Drive et affiche l'URL à transmettre + le
- * suivi des parties (poll). La crypto est dans ops.ts ; le secret de
- * déchiffrement reste dans le fragment `#` (jamais envoyé au serveur).
+ * Demande de signature par lien (Approche A, émetteur). Sur un `.elium` du Drive,
+ * crée un circuit à 1..N signataires : chaque partie reçoit son propre lien scellé
+ * « can_sign » (`?sign=<token>#k=priv.pub`), à transmettre hors bande. Option
+ * « signer dans l'ordre ». La crypto est dans ops.ts ; le secret de déchiffrement
+ * reste dans le fragment `#` (jamais envoyé au serveur). Suivi par poll.
  */
 import { useCallback, useEffect, useState } from "react";
-import { X, PenLine, Copy, CheckCircle2, Clock } from "lucide-react";
+import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered } from "lucide-react";
 import { useDrive } from "../session";
-import { createSignLinkForNode, type DriveEntry, type OpsCtx } from "../ops";
+import { createSignRequestForNode, type DriveEntry, type OpsCtx, type SignPartyLink } from "../ops";
 import type { SignRequestDto } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 
 export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entry: DriveEntry; onClose: () => void }) {
   const d = useDrive();
-  const [label, setLabel] = useState("");
+  const [parties, setParties] = useState<{ label: string }[]>([{ label: "" }]);
+  const [ordered, setOrdered] = useState(false);
   const [expiry, setExpiry] = useState(""); // "" | "7" | "30" (jours)
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [linkUrl, setLinkUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [links, setLinks] = useState<SignPartyLink[] | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [requests, setRequests] = useState<SignRequestDto[] | null>(null);
 
   // Un lien de signature n'a pas besoin d'un rôle privilégié (l'accès est scellé
@@ -36,20 +38,26 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
 
   useEffect(() => {
     void loadStatus();
-    // Rafraîchit tant que des parties sont en attente (poll léger).
-    const t = setInterval(() => void loadStatus(), 8000);
+    const t = setInterval(() => void loadStatus(), 8000); // poll léger tant que des parties sont en attente
     return () => clearInterval(t);
   }, [loadStatus]);
 
-  const createLink = async () => {
+  const setLabel = (i: number, label: string) =>
+    setParties((ps) => ps.map((p, j) => (j === i ? { label } : p)));
+  const addParty = () => setParties((ps) => (ps.length < 50 ? [...ps, { label: "" }] : ps));
+  const removeParty = (i: number) => setParties((ps) => (ps.length > 1 ? ps.filter((_, j) => j !== i) : ps));
+
+  const urlFor = (l: SignPartyLink) => `${location.origin}/?sign=${l.token}#k=${l.secret}.${l.publicHex}`;
+
+  const createLinks = async () => {
     setErr(null);
     setBusy(true);
     try {
-      const opts: { label?: string; expiresAt?: string } = {};
-      if (label.trim()) opts.label = label.trim();
+      const opts: { ordered?: boolean; expiresAt?: string } = { ordered };
       if (expiry) opts.expiresAt = new Date(Date.now() + Number(expiry) * 86400_000).toISOString();
-      const { token, secret, publicHex } = await createSignLinkForNode(ctx, entry, roleId, opts);
-      setLinkUrl(`${location.origin}/?sign=${token}#k=${secret}.${publicHex}`);
+      const clean = parties.map((p) => ({ label: p.label.trim() || undefined }));
+      const { parties: created } = await createSignRequestForNode(ctx, entry, roleId, clean, opts);
+      setLinks(created);
       await loadStatus();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Création de la demande impossible.");
@@ -58,10 +66,10 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
     }
   };
 
-  const copy = (t: string) => {
-    void navigator.clipboard?.writeText(t);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+  const copy = (text: string, idx: number) => {
+    void navigator.clipboard?.writeText(text);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1800);
   };
 
   return (
@@ -73,45 +81,76 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
         </header>
 
         <p className="muted">
-          Générez un lien : le destinataire signe en ligne <strong>sans compte</strong>, et le document signé
+          Chaque signataire reçoit un lien : il signe en ligne <strong>sans compte</strong>, et le document signé
           revient automatiquement ici. Le secret de déchiffrement reste dans le fragment <code>#</code> du lien.
         </p>
 
-        <div className="dc-share-link">
-          <div className="dc-share-link__row">
-            <label className="dc-share-link__field">
-              <span>Libellé du signataire (optionnel)</span>
-              <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="ex. Direction" />
-            </label>
-            <label className="dc-share-link__field">
-              <span>Expiration</span>
-              <select className="tool-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
-                <option value="">Jamais</option>
-                <option value="7">7 jours</option>
-                <option value="30">30 jours</option>
-              </select>
-            </label>
-            <button className="eb eb--sm eb--outline dc-share-link__create" disabled={busy} onClick={() => void createLink()}>
-              <PenLine size={14} /> {busy ? "Création…" : "Créer le lien"}
+        {!links && (
+          <div className="dc-share-link">
+            <h3 className="dc-share-list__title"><PenLine size={15} /> Signataires</h3>
+            {parties.map((p, i) => (
+              <div key={i} className="dc-sign-partyrow">
+                <span className="dc-sign-partyrow__n">{i + 1}</span>
+                <input
+                  className="input"
+                  value={p.label}
+                  onChange={(e) => setLabel(i, e.target.value)}
+                  placeholder={`Libellé du signataire ${i + 1} (optionnel)`}
+                />
+                {parties.length > 1 && (
+                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)}><Trash2 size={15} /></button>
+                )}
+              </div>
+            ))}
+            <div className="dc-sign-controls">
+              <button className="eb eb--sm eb--outline" onClick={addParty} disabled={parties.length >= 50}>
+                <Plus size={14} /> Ajouter un signataire
+              </button>
+              <label className="dc-sign-check" title="Chaque signataire ne peut signer qu'après le précédent">
+                <input type="checkbox" checked={ordered} onChange={(e) => setOrdered(e.target.checked)} />
+                <ListOrdered size={14} /> Signer dans l'ordre
+              </label>
+              <label className="dc-share-link__field">
+                <span>Expiration</span>
+                <select className="tool-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
+                  <option value="">Jamais</option>
+                  <option value="7">7 jours</option>
+                  <option value="30">30 jours</option>
+                </select>
+              </label>
+            </div>
+            {err && <p className="dc-error">{err}</p>}
+            <button className="eb eb--primary" disabled={busy} onClick={() => void createLinks()}>
+              <PenLine size={14} /> {busy ? "Création…" : `Créer ${parties.length > 1 ? parties.length + " liens" : "le lien"}`}
             </button>
           </div>
-          {err && <p className="dc-error">{err}</p>}
-          {linkUrl && (
-            <div className="dc-share-link__out">
-              <input className="input" readOnly value={linkUrl} onFocus={(e) => e.currentTarget.select()} />
-              <button className="icon-btn" title="Copier" onClick={() => copy(linkUrl)}><Copy size={15} /></button>
-            </div>
-          )}
-          <p className="muted dc-share-link__note">
-            Transmettez ce lien au signataire. Le secret de déchiffrement reste dans le fragment <code>#</code> — le serveur ne le voit jamais.{copied ? " Lien copié !" : ""}
-          </p>
-        </div>
+        )}
+
+        {links && (
+          <div className="dc-share-link">
+            <h3 className="dc-share-list__title"><CheckCircle2 size={15} /> Liens à transmettre{ordered ? " (à envoyer dans l'ordre)" : ""}</h3>
+            {links.map((l) => (
+              <div key={l.index} className="dc-sign-linkrow">
+                <span className="dc-sign-partyrow__n">{l.index + 1}</span>
+                <span className="dc-sign-linkrow__label">{l.label || `Signataire ${l.index + 1}`}</span>
+                <div className="dc-share-link__out">
+                  <input className="input" readOnly value={urlFor(l)} onFocus={(e) => e.currentTarget.select()} />
+                  <button className="icon-btn" title="Copier" onClick={() => copy(urlFor(l), l.index)}>
+                    {copiedIdx === l.index ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <p className="muted dc-share-link__note">Transmettez chaque lien au signataire concerné. Le serveur ne voit jamais le secret.</p>
+          </div>
+        )}
 
         {requests && requests.length > 0 && (
           <div className="dc-sign-status">
             <h3>Suivi</h3>
             {requests.map((r) => (
               <div key={r.id} className="dc-sign-req">
+                {r.ordered && <span className="muted" style={{ fontSize: 12 }}><ListOrdered size={12} /> Signature dans l'ordre</span>}
                 {r.parties.map((p) => (
                   <div key={p.id} className="dc-sign-party">
                     {p.status === "signed"
@@ -127,7 +166,7 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
                 ))}
               </div>
             ))}
-            <p className="muted" style={{ fontSize: 12 }}>Le document signé remplace la version courante du fichier dans le Drive. Ouvrez-le pour vérifier la signature.</p>
+            <p className="muted" style={{ fontSize: 12 }}>Le document signé remplace la version courante du fichier dans le Drive. Ouvrez-le pour vérifier les signatures.</p>
           </div>
         )}
       </div>

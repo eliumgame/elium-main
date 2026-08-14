@@ -352,24 +352,44 @@ export async function openSharedLink(
  * also registers a sign-capable circuit server-side. The returned secret+public
  * are embedded as `#k=<secret>.<publicHex>`; the token as `?sign=<token>`.
  */
-export async function createSignLinkForNode(
+export interface SignPartyLink {
+  index: number;
+  label?: string;
+  token: string;
+  secret: string; // scalaire privé de la paire de lien (va dans le fragment #)
+  publicHex: string;
+}
+export async function createSignRequestForNode(
   ctx: OpsCtx,
   entry: DriveEntry,
   roleId: string,
-  opts: { label?: string; expiresAt?: string; deadline?: string } = {},
-): Promise<{ token: string; secret: string; publicHex: string; requestId: string }> {
+  parties: { label?: string }[],
+  opts: { ordered?: boolean; expiresAt?: string; deadline?: string } = {},
+): Promise<{ requestId: string; parties: SignPartyLink[] }> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");
-  const linkKp = await generateRecipientKeypair();
-  const wrappedKey = await wrapNodeKeyFor(key, linkKp.publicHex);
-  const { token, requestId } = await ctx.api.createSignRequest(entry.id, {
+  // Une paire de lien PAR partie : chaque token pointe une enveloppe différente
+  // de la même CEK, et son scalaire privé voyage dans le fragment de SON URL.
+  const kps = await Promise.all(parties.map(() => generateRecipientKeypair()));
+  const wrapped = await Promise.all(kps.map((kp) => wrapNodeKeyFor(key, kp.publicHex)));
+  const { requestId, parties: created } = await ctx.api.createSignRequest(entry.id, {
     roleId,
-    wrappedKey,
-    ...(opts.label ? { label: opts.label } : {}),
+    ordered: opts.ordered ?? false,
     ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
     ...(opts.deadline ? { deadline: opts.deadline } : {}),
+    parties: parties.map((p, i) => ({ ...(p.label ? { label: p.label } : {}), wrappedKey: wrapped[i]! })),
   });
-  return { token, secret: linkKp.privateHex, publicHex: linkKp.publicHex, requestId };
+  const links: SignPartyLink[] = created
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((c) => ({
+      index: c.index,
+      label: parties[c.index]?.label,
+      token: c.token,
+      secret: kps[c.index]!.privateHex,
+      publicHex: kps[c.index]!.publicHex,
+    }));
+  return { requestId, parties: links };
 }
 
 /**

@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import { ZodError } from "zod";
 
 const USER = "00000000-0000-4000-8000-0000000000aa";
 const NODE = "00000000-0000-4000-8000-0000000000bb";
@@ -63,6 +64,9 @@ async function makeApp(): Promise<FastifyInstance> {
     if (err instanceof ApiError) {
       return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
     }
+    if (err instanceof ZodError) {
+      return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
+    }
     return reply.status(500).send({ error: { code: "internal", message: err.message } });
   });
   await app.register(signingRoutes, { prefix: "/api" });
@@ -102,15 +106,47 @@ describe("POST /api/nodes/:id/sign-requests (création)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/nodes/${NODE}/sign-requests`,
-      payload: { roleId: ROLE, wrappedKey: { recipients: [], content: "ab" }, label: "Direction" },
+      payload: { roleId: ROLE, ordered: false, parties: [{ label: "Direction", wrappedKey: { recipients: [], content: "ab" } }] },
     });
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.requestId).toBe(REQ);
-    expect(body.partyId).toBe(PARTY);
-    expect(body.token).toMatch(/^[A-Za-z0-9_-]{40,}$/); // randomToken(32) base64url
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "node.sign.request", "file", NODE, { requestId: REQ }, expect.any(String));
+    expect(body.parties).toHaveLength(1);
+    expect(body.parties[0].index).toBe(0);
+    expect(body.parties[0].partyId).toBe(PARTY);
+    expect(body.parties[0].token).toMatch(/^[A-Za-z0-9_-]{40,}$/); // randomToken(32) base64url
+    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "node.sign.request", "file", NODE, { requestId: REQ, parties: 1, ordered: false }, expect.any(String));
+    await app.close();
+  });
+
+  it("crée N parties (indices 0..N-1) avec des tokens distincts + drapeau ordered", async () => {
+    mQueryOne.mockResolvedValueOnce({ id: ROLE });
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/INSERT INTO share_links/, { rows: [{ id: LINK }] }],
+        [/INSERT INTO signature_requests/, { rows: [{ id: REQ }] }],
+        [/INSERT INTO signature_request_parties/, { rows: [{ id: PARTY }] }],
+      ]) as never,
+    );
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/nodes/${NODE}/sign-requests`,
+      payload: {
+        roleId: ROLE, ordered: true,
+        parties: [
+          { label: "Direction", wrappedKey: { c: "a" } },
+          { label: "RH", wrappedKey: { c: "b" } },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.parties).toHaveLength(2);
+    expect(body.parties.map((p: { index: number }) => p.index)).toEqual([0, 1]);
+    expect(body.parties[0].token).not.toBe(body.parties[1].token); // un token par partie
+    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "node.sign.request", "file", NODE, { requestId: REQ, parties: 2, ordered: true }, expect.any(String));
     await app.close();
   });
 
@@ -120,10 +156,21 @@ describe("POST /api/nodes/:id/sign-requests (création)", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/nodes/${NODE}/sign-requests`,
-      payload: { roleId: ROLE, wrappedKey: { x: 1 } },
+      payload: { roleId: ROLE, parties: [{ wrappedKey: { x: 1 } }] },
     });
     expect(res.statusCode).toBe(400);
     expect(mWithTx).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("refuse une demande sans partie (parties vide)", async () => {
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/nodes/${NODE}/sign-requests`,
+      payload: { roleId: ROLE, parties: [] },
+    });
+    expect(res.statusCode).toBe(400); // zod: min(1)
     await app.close();
   });
 });
@@ -131,7 +178,8 @@ describe("POST /api/nodes/:id/sign-requests (création)", () => {
 describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
   const signLink = (over: Record<string, unknown> = {}) => ({
     link_id: LINK, node_id: NODE, can_sign: true, revoked_at: null, expires_at: null,
-    org_id: ORG, kind: "file", party_id: PARTY, party_status: "pending", request_id: REQ, ...over,
+    org_id: ORG, kind: "file", party_id: PARTY, party_status: "pending",
+    party_index: 0, ordered: false, request_id: REQ, ...over,
   });
 
   it("stocke la version signée, marque la partie signée, renvoie ok", async () => {
@@ -167,6 +215,22 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     expect(sqls.some((s) => /UPDATE signature_requests[\s\S]*completed/.test(s))).toBe(true);
     expect(mNotify).toHaveBeenCalledWith(ORG);
     expect(mAudit).toHaveBeenCalledWith(ORG, null, "node.sign.submit", "file", NODE, { signerFpr: "abcdef0123456789" }, expect.any(String));
+    await app.close();
+  });
+
+  it("circuit ordonné : refuse tant qu'une partie précédente n'a pas signé (409)", async () => {
+    mQueryOne
+      .mockResolvedValueOnce(signLink({ ordered: true, party_index: 1 })) // résolution du lien
+      .mockResolvedValueOnce({ n: "1" }); // 1 partie d'index < 1 encore en attente
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/links/tok/sign`,
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      payload: Buffer.from("x"),
+    });
+    expect(res.statusCode).toBe(409);
+    expect(store.putStream).not.toHaveBeenCalled();
     await app.close();
   });
 

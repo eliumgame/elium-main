@@ -129,7 +129,9 @@ def verify_proof(signature: dict, model: dict, trusted_key_hex: str | None = Non
     if compute_content_hash(model) != proof["signedContentHash"]:
         return "modified"
     # A v2 proof also detects the signature being moved or its appearance altered.
-    if "signedPlacement" in proof and canonical_json(signature.get("placement")) != canonical_json(proof["signedPlacement"]):
+    if "signedPlacement" in proof and (
+        canonical_json(signature.get("placement")) != canonical_json(proof["signedPlacement"])
+    ):
         return "modified"
     if "signedVisual" in proof and canonical_json(signature.get("visual")) != canonical_json(proof["signedVisual"]):
         return "modified"

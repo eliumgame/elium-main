@@ -542,6 +542,7 @@
 .dc-sign-party__state { color: var(--text-soft); font-size: 13px; }
 .dc-sign-ok { color: #16a34a; flex: none; }
 .dc-sign-wait { color: var(--text-soft); flex: none; }
+.dc-sign-no { color: #dc2626; flex: none; }
 
 /* Éditeur multi-signataires (SignRequestDialog) */
 .dc-sign-partyrow { display: flex; align-items: center; gap: 9px; margin: 6px 0; }

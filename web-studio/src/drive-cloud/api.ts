@@ -665,6 +665,12 @@ export class DriveApi {
     if (!res.ok) return this.parseError(res);
     return (await res.json()) as { ok: boolean };
   }
+  /** ANONYMOUS decline of a signature party (no account). */
+  async declineSignature(token: string): Promise<{ ok: boolean }> {
+    const res = await fetch(this.url(`/links/${token}/decline`), { method: "POST" });
+    if (!res.ok) return this.parseError(res);
+    return (await res.json()) as { ok: boolean };
+  }
 
   // === Versions ============================================================
   listVersions(nodeId: string) {

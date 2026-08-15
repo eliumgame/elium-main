@@ -179,7 +179,7 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
   const signLink = (over: Record<string, unknown> = {}) => ({
     link_id: LINK, node_id: NODE, can_sign: true, revoked_at: null, expires_at: null,
     org_id: ORG, kind: "file", party_id: PARTY, party_status: "pending",
-    party_index: 0, ordered: false, request_id: REQ, ...over,
+    party_index: 0, ordered: false, deadline: null, request_id: REQ, ...over,
   });
 
   it("stocke la version signée, marque la partie signée, renvoie ok", async () => {
@@ -222,6 +222,20 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     mQueryOne
       .mockResolvedValueOnce(signLink({ ordered: true, party_index: 1 })) // résolution du lien
       .mockResolvedValueOnce({ n: "1" }); // 1 partie d'index < 1 encore en attente
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/links/tok/sign`,
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      payload: Buffer.from("x"),
+    });
+    expect(res.statusCode).toBe(409);
+    expect(store.putStream).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("refuse la signature après l'échéance (409)", async () => {
+    mQueryOne.mockResolvedValueOnce(signLink({ deadline: "2020-01-01T00:00:00Z" }));
     const app = await makeApp();
     const res = await app.inject({
       method: "POST",
@@ -286,6 +300,32 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
       payload: Buffer.from("x"),
     });
     expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("POST /api/links/:token/decline (refus anonyme)", () => {
+  const declineLink = (over: Record<string, unknown> = {}) => ({
+    can_sign: true, revoked_at: null, node_id: NODE, org_id: ORG, party_id: PARTY, party_status: "pending", ...over,
+  });
+
+  it("marque la partie 'declined' et renvoie ok", async () => {
+    mQueryOne.mockResolvedValueOnce(declineLink());
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/links/tok/decline` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect(mQuery).toHaveBeenCalledWith(expect.stringMatching(/UPDATE signature_request_parties[\s\S]*declined/), [PARTY]);
+    expect(mNotify).toHaveBeenCalledWith(ORG);
+    expect(mAudit).toHaveBeenCalledWith(ORG, null, "node.sign.decline", "file", NODE, {}, expect.any(String));
+    await app.close();
+  });
+
+  it("refuse si la partie a déjà signé (409)", async () => {
+    mQueryOne.mockResolvedValueOnce(declineLink({ party_status: "signed" }));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url: `/api/links/tok/decline` });
+    expect(res.statusCode).toBe(409);
     await app.close();
   });
 });

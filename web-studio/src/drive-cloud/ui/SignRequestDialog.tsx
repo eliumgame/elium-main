@@ -6,7 +6,7 @@
  * reste dans le fragment `#` (jamais envoyé au serveur). Suivi par poll.
  */
 import { useCallback, useEffect, useState } from "react";
-import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered } from "lucide-react";
+import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered, XCircle } from "lucide-react";
 import { useDrive } from "../session";
 import { createSignRequestForNode, type DriveEntry, type OpsCtx, type SignPartyLink } from "../ops";
 import type { SignRequestDto } from "../api";
@@ -155,12 +155,16 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
                   <div key={p.id} className="dc-sign-party">
                     {p.status === "signed"
                       ? <CheckCircle2 size={15} className="dc-sign-ok" />
-                      : <Clock size={15} className="dc-sign-wait" />}
+                      : p.status === "declined"
+                        ? <XCircle size={15} className="dc-sign-no" />
+                        : <Clock size={15} className="dc-sign-wait" />}
                     <span className="dc-sign-party__label">{p.label || `Signataire ${p.index + 1}`}</span>
                     <span className="dc-sign-party__state">
                       {p.status === "signed"
                         ? <>signé{p.signerFpr ? ` · ${fingerprintWords(p.signerFpr)}` : ""}</>
-                        : "en attente"}
+                        : p.status === "declined"
+                          ? "refusé"
+                          : "en attente"}
                     </span>
                   </div>
                 ))}

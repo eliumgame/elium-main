@@ -57,10 +57,13 @@ export function fitPageZoom(input: ZoomInput): number {
 /** The effective zoom for a mode. `manual` keeps the user's value. */
 export function resolveZoom(mode: ZoomMode, manual: number, input: ZoomInput): number {
   switch (mode) {
-    case "fitWidth": return fitWidthZoom(input);
-    case "fitPage": return fitPageZoom(input);
+    case "fitWidth":
+      return fitWidthZoom(input);
+    case "fitPage":
+      return fitPageZoom(input);
     case "manual":
-    default: return clampZoom(manual);
+    default:
+      return clampZoom(manual);
   }
 }
 

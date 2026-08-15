@@ -17,8 +17,12 @@ function useMeasureScale(): [React.RefObject<HTMLDivElement>, number] {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
   useEffect(() => {
-    const node = ref.current; if (!node) return;
-    const ro = new ResizeObserver(() => { const h = node.clientHeight; if (h) setScale(h / REF_H); });
+    const node = ref.current;
+    if (!node) return;
+    const ro = new ResizeObserver(() => {
+      const h = node.clientHeight;
+      if (h) setScale(h / REF_H);
+    });
     ro.observe(node);
     return () => ro.disconnect();
   }, []);
@@ -44,12 +48,23 @@ export default function PresenterView() {
     chan.current = ch;
     ch.onmessage = (e: MessageEvent) => {
       const m = e.data as PresenterMsg;
-      if (m.type === "deck") { setSlides(m.slides); setTheme(m.theme); setTitle(m.title); setEnded(false); }
-      else if (m.type === "pos") { setIdx(m.idx); setStep(m.step); setStartedAt(m.startedAt); if (!m.presenting) setEnded(true); }
-      else if (m.type === "end") setEnded(true);
+      if (m.type === "deck") {
+        setSlides(m.slides);
+        setTheme(m.theme);
+        setTitle(m.title);
+        setEnded(false);
+      } else if (m.type === "pos") {
+        setIdx(m.idx);
+        setStep(m.step);
+        setStartedAt(m.startedAt);
+        if (!m.presenting) setEnded(true);
+      } else if (m.type === "end") setEnded(true);
     };
     ch.postMessage({ type: "ready" } as PresenterMsg);
-    return () => { ch.close(); chan.current = null; };
+    return () => {
+      ch.close();
+      chan.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -59,8 +74,13 @@ export default function PresenterView() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); nav("next"); }
-      else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); nav("prev"); }
+      if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") {
+        e.preventDefault();
+        nav("next");
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        nav("prev");
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -81,15 +101,26 @@ export default function PresenterView() {
   const ss = String(elapsed % 60).padStart(2, "0");
 
   if (!cur) {
-    return <div className="pv pv--empty"><MonitorPlay size={44} /><p>En attente de la présentation…</p></div>;
+    return (
+      <div className="pv pv--empty">
+        <MonitorPlay size={44} />
+        <p>En attente de la présentation…</p>
+      </div>
+    );
   }
 
   return (
     <div className="pv">
       <div className="pv__bar">
-        <span className="pv__badge"><MonitorPlay size={15} /> Vue présentateur</span>
-        <span className="pv__title" title={title}>{title}</span>
-        <span className="pv__timer"><Timer size={15} /> {mm}:{ss}</span>
+        <span className="pv__badge">
+          <MonitorPlay size={15} /> Vue présentateur
+        </span>
+        <span className="pv__title" title={title}>
+          {title}
+        </span>
+        <span className="pv__timer">
+          <Timer size={15} /> {mm}:{ss}
+        </span>
       </div>
 
       <div className="pv__main">
@@ -99,19 +130,32 @@ export default function PresenterView() {
           </div>
         </div>
         <div className="pv__controls">
-          <button className="icon-btn" title="Précédent" onClick={() => nav("prev")}><ChevronLeft size={22} /></button>
-          <span className="pv__pos">{idx + 1} / {slides.length}{steps > 0 ? ` · clic ${step}/${steps}` : ""}</span>
-          <button className="icon-btn" title="Suivant" onClick={() => nav("next")}><ChevronRight size={22} /></button>
+          <button className="icon-btn" title="Précédent" onClick={() => nav("prev")}>
+            <ChevronLeft size={22} />
+          </button>
+          <span className="pv__pos">
+            {idx + 1} / {slides.length}
+            {steps > 0 ? ` · clic ${step}/${steps}` : ""}
+          </span>
+          <button className="icon-btn" title="Suivant" onClick={() => nav("next")}>
+            <ChevronRight size={22} />
+          </button>
         </div>
       </div>
 
       <aside className="pv__side">
         <div className="pv__label">Diapo suivante</div>
         <div className="pv__next" ref={nextRef}>
-          {next ? <SlideCanvas slide={next} elements={nextEls} theme={theme} scale={nextScale} /> : <div className="pv__end">Fin de la présentation</div>}
+          {next ? (
+            <SlideCanvas slide={next} elements={nextEls} theme={theme} scale={nextScale} />
+          ) : (
+            <div className="pv__end">Fin de la présentation</div>
+          )}
         </div>
         <div className="pv__label">Notes de l'orateur</div>
-        <div className="pv__notes">{cur.notes ? cur.notes : <span className="pv__notes-empty">Aucune note pour cette diapo.</span>}</div>
+        <div className="pv__notes">
+          {cur.notes ? cur.notes : <span className="pv__notes-empty">Aucune note pour cette diapo.</span>}
+        </div>
       </aside>
 
       {ended && <div className="pv__banner">Présentation terminée — vous pouvez fermer cette fenêtre.</div>}

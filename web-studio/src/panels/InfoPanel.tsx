@@ -20,7 +20,9 @@ export default function InfoPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title"><Info size={15} /> Document</h3>
+        <h3 className="panel-title">
+          <Info size={15} /> Document
+        </h3>
         <Row label="Titre" value={m.title} />
         <Row label="Profil" value={def.label} />
         <Row label="Format" value={`elium v${m.formatVersion}`} />

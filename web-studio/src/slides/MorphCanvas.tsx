@@ -13,14 +13,28 @@ import { elementsOf, type Slide, type SlideElement, type SlideTheme } from "./mo
 
 const keyOf = (e: SlideElement) => e.morphKey ?? e.id;
 
-export default function MorphCanvas({ prev, next, theme, scale, durationMs = 550, onDone }: {
-  prev: Slide; next: Slide; theme: SlideTheme; scale: number; durationMs?: number; onDone?: () => void;
+export default function MorphCanvas({
+  prev,
+  next,
+  theme,
+  scale,
+  durationMs = 550,
+  onDone,
+}: {
+  prev: Slide;
+  next: Slide;
+  theme: SlideTheme;
+  scale: number;
+  durationMs?: number;
+  onDone?: () => void;
 }) {
   const [t, setT] = useState(0);
-  const doneRef = useRef(onDone); doneRef.current = onDone;
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
 
   useEffect(() => {
-    let raf = 0; let start = 0;
+    let raf = 0;
+    let start = 0;
     const tick = (ts: number) => {
       if (!start) start = ts;
       const p = Math.min(1, (ts - start) / durationMs);
@@ -44,7 +58,10 @@ export default function MorphCanvas({ prev, next, theme, scale, durationMs = 550
     if (p) {
       display.push({
         ...n,
-        x: lerp(p.x, n.x), y: lerp(p.y, n.y), w: lerp(p.w, n.w), h: lerp(p.h, n.h),
+        x: lerp(p.x, n.x),
+        y: lerp(p.y, n.y),
+        w: lerp(p.w, n.w),
+        h: lerp(p.h, n.h),
         rotation: lerp(p.rotation ?? 0, n.rotation ?? 0),
         opacity: lerp(p.opacity ?? 1, n.opacity ?? 1),
       });

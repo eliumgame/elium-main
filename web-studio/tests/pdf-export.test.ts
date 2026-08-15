@@ -6,7 +6,15 @@ import { readPageContentBytes } from "../src/pdf/ops/content";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, newId, type Annot, type PdfState } from "../src/pdf/model/types";
 import { buildPdf } from "../src/pdf/ops/save";
-import { protectDocument, removeProtection, permissionsToP, pToPermissions, ALL_PERMISSIONS, WrongPassword, rc4 } from "../src/pdf/ops/security";
+import {
+  protectDocument,
+  removeProtection,
+  permissionsToP,
+  pToPermissions,
+  ALL_PERMISSIONS,
+  WrongPassword,
+  rc4,
+} from "../src/pdf/ops/security";
 import { extractPages, formatPageRange, mergeDocuments, parsePageRange, splitDocument } from "../src/pdf/ops/organize";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +35,11 @@ async function makeSource(lines: string[][] = [["Bonjour le monde"], ["Deuxieme 
 
 /** Every string the page's operators actually draw, decoded with its own fonts. */
 async function shownText(bytes: Uint8Array, pageIndex = 0): Promise<string> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+  const doc = await PDFDocument.load(bytes, {
+    ignoreEncryption: true,
+    throwOnInvalidObject: false,
+    updateMetadata: false,
+  });
   const page = doc.getPage(pageIndex);
   const ops = parseContentStream(readPageContentBytes(page));
   const fonts = await loadPageFonts(page);
@@ -125,10 +137,23 @@ describe("PDF export — annotations", () => {
     const src = await makeSource([["A"]]);
     let state = baseState(1);
     const pageId = state.pages[0].id;
-    state = D.addAnnot(state, annot({
-      pageId, kind: "highlight", color: "#ffd400", opacity: 0.45,
-      quads: [[{ x: 60, y: 70 }, { x: 260, y: 70 }, { x: 260, y: 92 }, { x: 60, y: 92 }]],
-    }));
+    state = D.addAnnot(
+      state,
+      annot({
+        pageId,
+        kind: "highlight",
+        color: "#ffd400",
+        opacity: 0.45,
+        quads: [
+          [
+            { x: 60, y: 70 },
+            { x: 260, y: 70 },
+            { x: 260, y: 92 },
+            { x: 60, y: 92 },
+          ],
+        ],
+      }),
+    );
     state = D.addAnnot(state, annot({ pageId, kind: "square" }));
     state = D.addAnnot(state, annot({ pageId, kind: "note", contents: "à revoir" }));
 
@@ -153,13 +178,26 @@ describe("PDF export — annotations", () => {
   it("emits /QuadPoints in the spec's order, not reading order", async () => {
     const src = await makeSource([["A"]]);
     let state = baseState(1);
-    state = D.addAnnot(state, annot({
-      pageId: state.pages[0].id, kind: "highlight",
-      quads: [[{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 60 }, { x: 10, y: 60 }]],
-    }));
+    state = D.addAnnot(
+      state,
+      annot({
+        pageId: state.pages[0].id,
+        kind: "highlight",
+        quads: [
+          [
+            { x: 10, y: 20 },
+            { x: 110, y: 20 },
+            { x: 110, y: 60 },
+            { x: 10, y: 60 },
+          ],
+        ],
+      }),
+    );
     const { bytes } = await buildPdf(src, state);
     const out = await PDFDocument.load(bytes);
-    const quad = annotsOf(out).find((d) => subtypeOf(d) === "Highlight")!.lookup(PDFName.of("QuadPoints")) as PDFArray;
+    const quad = annotsOf(out)
+      .find((d) => subtypeOf(d) === "Highlight")!
+      .lookup(PDFName.of("QuadPoints")) as PDFArray;
     const nums = Array.from({ length: quad.size() }, (_, i) => Number(String(quad.lookup(i))));
     // upper-left, upper-right, LOWER-left, lower-right
     expect(nums[1]).toBeCloseTo(822, 1);
@@ -212,11 +250,16 @@ describe("PDF export — redaction really removes content", () => {
 
     let state = baseState(1);
     // The first line sits at y=760 in PDF space ⇒ ~72..96 from the top.
-    state = D.addAnnot(state, annot({
-      pageId: state.pages[0].id, kind: "redact",
-      rect: { x: 50, y: 62, w: 400, h: 28 },
-      fill: "#000000", strokeWidth: 0,
-    }));
+    state = D.addAnnot(
+      state,
+      annot({
+        pageId: state.pages[0].id,
+        kind: "redact",
+        rect: { x: 50, y: 62, w: 400, h: 28 },
+        fill: "#000000",
+        strokeWidth: 0,
+      }),
+    );
 
     const { bytes, report } = await buildPdf(src, state, { applyRedactions: true });
     expect(report.redactedGlyphs).toBeGreaterThan(0);
@@ -231,9 +274,14 @@ describe("PDF export — redaction really removes content", () => {
   it("keeps the marked text when redaction is turned off", async () => {
     const src = await makeSource([["CONFIDENTIEL"]]);
     let state = baseState(1);
-    state = D.addAnnot(state, annot({
-      pageId: state.pages[0].id, kind: "redact", rect: { x: 50, y: 60, w: 400, h: 45 },
-    }));
+    state = D.addAnnot(
+      state,
+      annot({
+        pageId: state.pages[0].id,
+        kind: "redact",
+        rect: { x: 50, y: 60, w: 400, h: 45 },
+      }),
+    );
     const { bytes } = await buildPdf(src, state, { applyRedactions: false });
     expect(await shownText(bytes)).toContain("CONFIDENTIEL");
   });
@@ -280,10 +328,16 @@ describe("PDF export — rewriting the document's own text", () => {
     const src = await makeSource([["A supprimer", "A garder"]]);
     let state = baseState(1);
     state = D.upsertContentEdit(state, {
-      id: "e1", pageId: state.pages[0].id, blockKey: "B0",
-      original: "A supprimer", text: "", deleted: true,
+      id: "e1",
+      pageId: state.pages[0].id,
+      blockKey: "B0",
+      original: "A supprimer",
+      text: "",
+      deleted: true,
       rect: { x: 58, y: 66, w: 300, h: 26 },
-      fontSize: 18, leading: 22, align: "left",
+      fontSize: 18,
+      leading: 22,
+      align: "left",
     });
     const after = await shownText((await buildPdf(src, state)).bytes);
     expect(after).not.toContain("A supprimer");
@@ -370,13 +424,21 @@ describe("PDF export — forms", () => {
     const src = await makeSource([["A"]]);
     let state = baseState(1);
     state = D.addField(state, {
-      id: "f1", pageId: state.pages[0].id, name: "adresse", kind: "text",
+      id: "f1",
+      pageId: state.pages[0].id,
+      name: "adresse",
+      kind: "text",
       rect: { x: 40, y: 100, w: 220, h: 22 },
     });
     const { bytes, report } = await buildPdf(src, state);
     expect(report.fieldsCreated).toBe(1);
     const out = await PDFDocument.load(bytes);
-    expect(out.getForm().getFields().map((f) => f.getName())).toContain("adresse");
+    expect(
+      out
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toContain("adresse");
   });
 });
 
@@ -434,7 +496,11 @@ describe("PDF security", () => {
     // RFC 6229 test vector: key "Key", plaintext "Plaintext".
     const key = new TextEncoder().encode("Key");
     const out = rc4(key, new TextEncoder().encode("Plaintext"));
-    expect(Array.from(out).map((b) => b.toString(16).padStart(2, "0")).join("")).toBe("bbf316e8d940af0ad3");
+    expect(
+      Array.from(out)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join(""),
+    ).toBe("bbf316e8d940af0ad3");
   });
 });
 
@@ -459,7 +525,10 @@ describe("PDF organisation", () => {
   it("merges documents in order and reports the counts", async () => {
     const a = await makeSource([["A1"], ["A2"]]);
     const b = await makeSource([["B1"]]);
-    const merged = await mergeDocuments([{ name: "a.pdf", bytes: a }, { name: "b.pdf", bytes: b }]);
+    const merged = await mergeDocuments([
+      { name: "a.pdf", bytes: a },
+      { name: "b.pdf", bytes: b },
+    ]);
     expect(merged.counts).toEqual([2, 1]);
     expect(merged.failed).toEqual([]);
     const out = await PDFDocument.load(merged.bytes);

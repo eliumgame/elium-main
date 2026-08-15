@@ -39,8 +39,13 @@ export default function SheetView({
       hasSheet: (name: string) => wb.sheets.some((s) => s.name === name),
     };
     const nameMap = new Map((wb.names ?? []).map((n) => [n.name.toUpperCase(), n.ref]));
-    const c = createCalc((ref) => sheet.cells[ref], crossSheets, nameMap.size ? (name: string) => nameMap.get(name) : undefined);
-    const cellDisplay = (ref: string) => (sheet.cells[ref] != null ? formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref)) : "");
+    const c = createCalc(
+      (ref) => sheet.cells[ref],
+      crossSheets,
+      nameMap.size ? (name: string) => nameMap.get(name) : undefined,
+    );
+    const cellDisplay = (ref: string) =>
+      sheet.cells[ref] != null ? formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref)) : "";
     const rowVis = (r: number) => filterRowVisible(sheet.filter, (col, rr) => cellDisplay(cellRef(col, rr)), r);
     const lines: string[] = [];
     for (let r = 0; r < sheet.rows; r++) {
@@ -52,7 +57,11 @@ export default function SheetView({
       }
       lines.push(row.join(","));
     }
-    downloadBlob(`${sheet.name || "feuille"}.csv`, "text/csv;charset=utf-8", new TextEncoder().encode(lines.join("\r\n")));
+    downloadBlob(
+      `${sheet.name || "feuille"}.csv`,
+      "text/csv;charset=utf-8",
+      new TextEncoder().encode(lines.join("\r\n")),
+    );
   };
 
   const exportXlsx = () => {
@@ -64,7 +73,11 @@ export default function SheetView({
   };
 
   const saveElium = async () => {
-    const title = await dialogs.prompt({ title: "Enregistrer en .elium", label: "Nom du classeur", defaultValue: "Classeur" });
+    const title = await dialogs.prompt({
+      title: "Enregistrer en .elium",
+      label: "Nom du classeur",
+      defaultValue: "Classeur",
+    });
     if (title === null) return;
     onExportElium(store.wb, title);
   };
@@ -78,9 +91,15 @@ export default function SheetView({
         variant: "page",
         headerActions: (
           <>
-            <button className="eb eb--sm eb--outline" onClick={exportCsv} title="Exporter en CSV"><Download size={14} /> CSV</button>
-            <button className="eb eb--sm eb--outline" onClick={exportXlsx} title="Exporter en XLSX"><Download size={14} /> XLSX</button>
-            <button className="eb eb--sm eb--primary" onClick={saveElium}><Save size={14} /> .elium</button>
+            <button className="eb eb--sm eb--outline" onClick={exportCsv} title="Exporter en CSV">
+              <Download size={14} /> CSV
+            </button>
+            <button className="eb eb--sm eb--outline" onClick={exportXlsx} title="Exporter en XLSX">
+              <Download size={14} /> XLSX
+            </button>
+            <button className="eb eb--sm eb--primary" onClick={saveElium}>
+              <Save size={14} /> .elium
+            </button>
           </>
         ),
       }}

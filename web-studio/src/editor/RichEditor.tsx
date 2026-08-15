@@ -41,9 +41,14 @@ import type {
 } from "../format/types";
 import { pageSizeOf } from "../format/pageSizes";
 import {
-  CSS_PX_PER_MM, pageAt,
-  type PageMetrics, type PageInfo, type PagePlan, type PaginationOptions,
-  type SectionInset, type SectionMetrics,
+  CSS_PX_PER_MM,
+  pageAt,
+  type PageMetrics,
+  type PageInfo,
+  type PagePlan,
+  type PaginationOptions,
+  type SectionInset,
+  type SectionMetrics,
 } from "./Pagination";
 
 /** Visual gap drawn between two page sheets, in px. */
@@ -223,7 +228,22 @@ export default function RichEditor({
   const [find, setFind] = useState<{ open: boolean; replace: boolean }>({ open: false, replace: false });
   const [statsOpen, setStatsOpen] = useState(false);
   // Word-parity dialogs (renvoi, index, colonnes, section, comparaison, fusion).
-  type WordDialog = "xref" | "index" | "columns" | "section" | "compare" | "merge" | "font" | "paragraph" | "styles" | "caption" | "symbol" | "watermark" | "grid" | "shape" | null;
+  type WordDialog =
+    | "xref"
+    | "index"
+    | "columns"
+    | "section"
+    | "compare"
+    | "merge"
+    | "font"
+    | "paragraph"
+    | "styles"
+    | "caption"
+    | "symbol"
+    | "watermark"
+    | "grid"
+    | "shape"
+    | null;
   const [dialog, setDialog] = useState<WordDialog>(null);
 
   // --- Zoom ---------------------------------------------------------------
@@ -271,7 +291,11 @@ export default function RichEditor({
     reader.onload = () => {
       // Insert as a Figure (image + editable caption + alignment) rather than a
       // bare image, so authors can caption and wrap it.
-      editor.chain().focus().setFigure({ src: reader.result as string, alt: file.name }).run();
+      editor
+        .chain()
+        .focus()
+        .setFigure({ src: reader.result as string, alt: file.name })
+        .run();
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -334,7 +358,7 @@ export default function RichEditor({
   const pageWidthMm = mixedGeometry ? widest : docSize.width;
   const pageHeightMm = mixedGeometry ? (geometries[0]?.heightMm ?? docSize.height) : docSize.height;
   /** Margins of the first section — what the single sheet uses for padding. */
-  const baseMargins = mixedGeometry ? geometries[0]?.margins ?? page.margins : page.margins;
+  const baseMargins = mixedGeometry ? (geometries[0]?.margins ?? page.margins) : page.margins;
 
   // Refresh the pagination metrics from the current page geometry. `mm` renders
   // at a fixed 96px/25.4 in CSS, so the printable content height and side
@@ -502,129 +526,128 @@ export default function RichEditor({
       )}
 
       <div className="editor-body">
-      <div className="editor-scroll" ref={scrollRef} onClick={handleScrollClick}>
-        {/* Zoom in two layers. The OUTER box reserves the scaled footprint in
+        <div className="editor-scroll" ref={scrollRef} onClick={handleScrollClick}>
+          {/* Zoom in two layers. The OUTER box reserves the scaled footprint in
             layout px (a transform occupies no space, so without it the scroll
             area would still reserve the full-size sheet). The INNER box carries
             the transform. Layout inside the sheet is therefore never scaled,
             which is what keeps the pagination engine measuring true block
             heights — its page plan is identical at every zoom level. */}
-        <div
-          className="elium-zoom"
-          style={
-            zoom === 1
-              ? { width: `${pageWidthMm}mm` }
-              : {
-                  width: `${Math.round(pageWidthPx * zoom)}px`,
-                  height: sheetHeight > 0 ? `${Math.round(sheetHeight * zoom)}px` : undefined,
-                }
-          }
-        >
-        <div
-          className="elium-zoom__inner"
-          style={
-            zoom === 1
-              ? undefined
-              : { width: `${pageWidthMm}mm`, transform: `scale(${zoom})`, transformOrigin: "top left" }
-          }
-        >
-        <div
-          ref={pageRef}
-          className={`${pageClass}${mixedGeometry ? " elium-page--stacked" : ""}`}
-          style={{
-            width: `${pageWidthMm}mm`,
-            minHeight: `${pageHeightMm}mm`,
-            paddingTop: `${baseMargins.top}mm`,
-            paddingRight: `${baseMargins.right}mm`,
-            paddingBottom: `${baseMargins.bottom}mm`,
-            paddingLeft: `${baseMargins.left}mm`,
-            // Le filigrane est un FOND, pas un élément : il ne doit être ni
-            // sélectionnable, ni dans le flux, ni compté par la pagination — et
-            // un fond s'imprime, contrairement à un pseudo-élément positionné
-            // que certains moteurs escamotent. Il se répète pour couvrir chaque
-            // page d'un document à feuille unique.
-            backgroundImage: watermarkCss(
-              documentModel.watermark as never,
-              pageWidthMm,
-              pageHeightMm,
-            ) || undefined,
-            backgroundRepeat: "repeat-y",
-            backgroundPosition: "top center",
-          }}
-        >
-          {/* Mixed sections: the container is transparent and each page is drawn
+          <div
+            className="elium-zoom"
+            style={
+              zoom === 1
+                ? { width: `${pageWidthMm}mm` }
+                : {
+                    width: `${Math.round(pageWidthPx * zoom)}px`,
+                    height: sheetHeight > 0 ? `${Math.round(sheetHeight * zoom)}px` : undefined,
+                  }
+            }
+          >
+            <div
+              className="elium-zoom__inner"
+              style={
+                zoom === 1
+                  ? undefined
+                  : { width: `${pageWidthMm}mm`, transform: `scale(${zoom})`, transformOrigin: "top left" }
+              }
+            >
+              <div
+                ref={pageRef}
+                className={`${pageClass}${mixedGeometry ? " elium-page--stacked" : ""}`}
+                style={{
+                  width: `${pageWidthMm}mm`,
+                  minHeight: `${pageHeightMm}mm`,
+                  paddingTop: `${baseMargins.top}mm`,
+                  paddingRight: `${baseMargins.right}mm`,
+                  paddingBottom: `${baseMargins.bottom}mm`,
+                  paddingLeft: `${baseMargins.left}mm`,
+                  // Le filigrane est un FOND, pas un élément : il ne doit être ni
+                  // sélectionnable, ni dans le flux, ni compté par la pagination — et
+                  // un fond s'imprime, contrairement à un pseudo-élément positionné
+                  // que certains moteurs escamotent. Il se répète pour couvrir chaque
+                  // page d'un document à feuille unique.
+                  backgroundImage:
+                    watermarkCss(documentModel.watermark as never, pageWidthMm, pageHeightMm) || undefined,
+                  backgroundRepeat: "repeat-y",
+                  backgroundPosition: "top center",
+                }}
+              >
+                {/* Mixed sections: the container is transparent and each page is drawn
               as its OWN sheet, at its section's width/height and offset (taken
               from the pagination plan). Uniform documents keep the single sheet. */}
-          {mixedGeometry && plan && (
-            <div className="elium-sheets" aria-hidden="true">
-              {plan.pages.map((p, i) => {
-                const g = geometries[Math.min(p.sectionIndex, geometries.length - 1)] ?? geometries[0];
-                if (!g) return null;
-                return (
-                  <div
-                    key={`${i}-${p.top}`}
-                    className="elium-sheet"
-                    style={{
-                      top: `${p.top}px`,
-                      height: `${p.height}px`,
-                      width: `${g.widthMm}mm`,
-                      left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {/* Le quadrillage : un FOND en couche négative (voir `.elium-grid`),
+                {mixedGeometry && plan && (
+                  <div className="elium-sheets" aria-hidden="true">
+                    {plan.pages.map((p, i) => {
+                      const g = geometries[Math.min(p.sectionIndex, geometries.length - 1)] ?? geometries[0];
+                      if (!g) return null;
+                      return (
+                        <div
+                          key={`${i}-${p.top}`}
+                          className="elium-sheet"
+                          style={{
+                            top: `${p.top}px`,
+                            height: `${p.height}px`,
+                            width: `${g.widthMm}mm`,
+                            left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Le quadrillage : un FOND en couche négative (voir `.elium-grid`),
               donc au-dessus du fond de page et du filigrane, sous tout le
               contenu, hors du flux et hors de la pagination. */}
-          {gridLayer && (
-            <div
-              className="elium-grid"
-              aria-hidden="true"
-              style={{
-                backgroundImage: gridLayer.backgroundImage,
-                backgroundPosition: gridLayer.backgroundPosition,
-                backgroundSize: gridLayer.backgroundSize,
-              }}
-            />
-          )}
-          {/* Header/footer of the FIRST section (the sheet the reader starts on);
+                {gridLayer && (
+                  <div
+                    className="elium-grid"
+                    aria-hidden="true"
+                    style={{
+                      backgroundImage: gridLayer.backgroundImage,
+                      backgroundPosition: gridLayer.backgroundPosition,
+                      backgroundSize: gridLayer.backgroundSize,
+                    }}
+                  />
+                )}
+                {/* Header/footer of the FIRST section (the sheet the reader starts on);
               per-section header text is honoured by the DOCX/PDF export. */}
-          {(sections[0]?.setup.header || page.header) && (
-            <div className="elium-page__header">{renderField(sections[0]?.setup.header || page.header || "")}</div>
-          )}
-          <EditorContent editor={editor} />
-          {(sections[0]?.setup.footer || page.footer) && (
-            <div className="elium-page__footer">{renderField(sections[0]?.setup.footer || page.footer || "")}</div>
-          )}
+                {(sections[0]?.setup.header || page.header) && (
+                  <div className="elium-page__header">
+                    {renderField(sections[0]?.setup.header || page.header || "")}
+                  </div>
+                )}
+                <EditorContent editor={editor} />
+                {(sections[0]?.setup.footer || page.footer) && (
+                  <div className="elium-page__footer">
+                    {renderField(sections[0]?.setup.footer || page.footer || "")}
+                  </div>
+                )}
 
-          {/* La signature appartient au fichier `.elium` local (empreinte + sceau
+                {/* La signature appartient au fichier `.elium` local (empreinte + sceau
               sur des octets figés) : elle n'a pas de sens sur un document
               collaboratif dont le contenu change en continu et vit dans le CRDT. */}
-          {!collab && (
-            <SignatureLayer
-              pageRef={pageRef}
-              signatures={signatures}
-              editable={editable}
-              selectedId={selectedSignatureId}
-              verdicts={verdicts}
-              onSelect={onSelectSignature}
-              onChange={onUpdateSignature}
-              onCommit={onCommitSignature}
-              onRemove={onRemoveSignature}
-            />
-          )}
+                {!collab && (
+                  <SignatureLayer
+                    pageRef={pageRef}
+                    signatures={signatures}
+                    editable={editable}
+                    selectedId={selectedSignatureId}
+                    verdicts={verdicts}
+                    onSelect={onSelectSignature}
+                    onChange={onUpdateSignature}
+                    onCommit={onCommitSignature}
+                    onRemove={onRemoveSignature}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-        </div>
-        </div>
-      </div>
 
-      {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
+        {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
           dedans : il doit rester visible pendant qu'on parcourt le document. */}
-      {editor && proofingOpen && (
-        <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />
-      )}
+        {editor && proofingOpen && <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />}
       </div>
 
       <EditorStatusBar
@@ -634,7 +657,7 @@ export default function RichEditor({
         zoomMode={zoomMode}
         onZoom={setZoomFromUi}
         onZoomMode={setZoomMode}
-              onOpenStats={() => setStatsOpen(true)}
+        onOpenStats={() => setStatsOpen(true)}
       />
       {statsOpen && <StatsDialog editor={editor} pages={pageInfo?.pageCount} onClose={() => setStatsOpen(false)} />}
 
@@ -664,11 +687,7 @@ export default function RichEditor({
         />
       )}
       {dialog === "grid" && (
-        <GridModal
-          value={grid}
-          onChange={(g) => onGridChange?.(g)}
-          onClose={() => setDialog(null)}
-        />
+        <GridModal value={grid} onChange={(g) => onGridChange?.(g)} onClose={() => setDialog(null)} />
       )}
       {editor && dialog === "shape" && <ShapeFormatModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "xref" && <CrossRefModal editor={editor} onClose={() => setDialog(null)} />}
@@ -681,7 +700,11 @@ export default function RichEditor({
           onApply={(merged) => {
             // Replaces the content with the merged document; the differences are
             // ordinary tracked changes, so the Révision tab resolves them.
-            editor.chain().focus().setContent(merged as never).run();
+            editor
+              .chain()
+              .focus()
+              .setContent(merged as never)
+              .run();
             onDocChange(editor.getJSON() as ProseMirrorNode);
           }}
           onClose={() => setDialog(null)}
@@ -691,7 +714,11 @@ export default function RichEditor({
         <MailMergeModal
           editor={editor}
           onMerged={(merged) => {
-            editor.chain().focus().setContent(merged as never).run();
+            editor
+              .chain()
+              .focus()
+              .setContent(merged as never)
+              .run();
             onDocChange(editor.getJSON() as ProseMirrorNode);
           }}
           onClose={() => setDialog(null)}

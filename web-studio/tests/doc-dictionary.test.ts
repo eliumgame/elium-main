@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { embeddedDictionary, listDictionary, mergeDictionaries } from "../src/editor/dict";
 import {
-  adjectiveForms, adverbsFr, conjugateEr, conjugateFamily, conjugateIr2, femininesFr, nounForms,
-  pluralsFr, splitCompound,
+  adjectiveForms,
+  adverbsFr,
+  conjugateEr,
+  conjugateFamily,
+  conjugateIr2,
+  femininesFr,
+  nounForms,
+  pluralsFr,
+  splitCompound,
 } from "../src/editor/dict/morphology-fr";
 import { enForms } from "../src/editor/dict/lexicon-en";
 
@@ -79,7 +86,17 @@ describe("Morphologie française — conjugaisons", () => {
 
   it("conjugue le 2e groupe", () => {
     const finir = conjugateIr2("finir");
-    for (const f of ["finis", "finit", "finissons", "finissez", "finissent", "finissait", "finirai", "fini", "finissant"]) {
+    for (const f of [
+      "finis",
+      "finit",
+      "finissons",
+      "finissez",
+      "finissent",
+      "finissait",
+      "finirai",
+      "fini",
+      "finissant",
+    ]) {
       expect(finir).toContain(f);
     }
   });
@@ -148,9 +165,26 @@ describe("Dictionnaire français embarqué", () => {
 
   it("connaît les formes fléchies, pas seulement les entrées", () => {
     for (const w of [
-      "sommes", "étaient", "aurons", "fîmes", "mangeons", "appelle", "achèterai",
-      "finissaient", "partirions", "prendrons", "connaîtra", "reçoivent", "écrivait",
-      "vécu", "ouvert", "courrai", "chevaux", "heureuses", "publiques", "lentement",
+      "sommes",
+      "étaient",
+      "aurons",
+      "fîmes",
+      "mangeons",
+      "appelle",
+      "achèterai",
+      "finissaient",
+      "partirions",
+      "prendrons",
+      "connaîtra",
+      "reçoivent",
+      "écrivait",
+      "vécu",
+      "ouvert",
+      "courrai",
+      "chevaux",
+      "heureuses",
+      "publiques",
+      "lentement",
     ]) {
       expect(fr.known(w), w).toBe(true);
     }

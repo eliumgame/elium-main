@@ -26,8 +26,7 @@ function find(node: ProseMirrorNode, type: string): ProseMirrorNode | undefined 
   }
   return undefined;
 }
-const flat = (node: ProseMirrorNode): string =>
-  node.text ?? (node.content ?? []).map(flat).join("");
+const flat = (node: ProseMirrorNode): string => node.text ?? (node.content ?? []).map(flat).join("");
 
 // =========================================================================
 // Multilevel lists
@@ -40,10 +39,7 @@ describe("DOCX — listes multiniveaux", () => {
     content: [
       {
         type: "listItem",
-        content: [
-          para(t("premier")),
-          { type: "orderedList", content: [item("premier-un"), item("premier-deux")] },
-        ],
+        content: [para(t("premier")), { type: "orderedList", content: [item("premier-un"), item("premier-deux")] }],
       },
       item("second"),
     ],
@@ -82,9 +78,7 @@ describe("DOCX — listes multiniveaux", () => {
     const mixed = doc({
       type: "orderedList",
       attrs: { listScheme: "outline" },
-      content: [
-        { type: "listItem", content: [para(t("numéroté")), { type: "bulletList", content: [item("puce")] }] },
-      ],
+      content: [{ type: "listItem", content: [para(t("numéroté")), { type: "bulletList", content: [item("puce")] }] }],
     });
     const xml = partOf(docToDocx(await fileWith(mixed)), "word/document.xml");
     const numIds = [...xml.matchAll(/<w:numId w:val="(\d+)"\/>/g)].map((m) => m[1]);
@@ -132,7 +126,7 @@ describe("DOCX — colonnes", () => {
     const xml = partOf(docToDocx(await fileWith(columns)), "word/document.xml");
     expect(xml).toContain('<w:cols w:num="1"/>');
     expect(xml).toMatch(/<w:cols w:num="3" w:space="\d+" w:sep="true"\/>/);
-    expect((xml.match(/<w:type w:val="continuous"\/>/g) ?? [])).toHaveLength(2);
+    expect(xml.match(/<w:type w:val="continuous"\/>/g) ?? []).toHaveLength(2);
   });
 
   it("restitue le bloc de colonnes et son contenu", async () => {
@@ -163,7 +157,10 @@ describe("DOCX — sauts de section", () => {
   it("écrit le type de section et la reprise de numérotation", async () => {
     const withBreak = doc(
       para(t("section un")),
-      { type: "sectionBreak", attrs: { kind: "oddPage", orientation: "landscape", restartNumbering: true, startAt: 1 } },
+      {
+        type: "sectionBreak",
+        attrs: { kind: "oddPage", orientation: "landscape", restartNumbering: true, startAt: 1 },
+      },
       para(t("section deux")),
     );
     const xml = partOf(docToDocx(await fileWith(withBreak)), "word/document.xml");
@@ -175,7 +172,10 @@ describe("DOCX — sauts de section", () => {
   it("restitue le saut, son type et l'orientation", async () => {
     const withBreak = doc(
       para(t("un")),
-      { type: "sectionBreak", attrs: { kind: "nextPage", orientation: "landscape", restartNumbering: false, startAt: 1 } },
+      {
+        type: "sectionBreak",
+        attrs: { kind: "nextPage", orientation: "landscape", restartNumbering: false, startAt: 1 },
+      },
       para(t("deux")),
     );
     const back = docxToDoc(docToDocx(await fileWith(withBreak)));
@@ -223,7 +223,10 @@ describe("DOCX — signets et renvois", () => {
     const withRefs = doc(
       { type: "heading", attrs: { level: 1, refId: "ref-h-1" }, content: [t("Conditions")] },
       para(
-        { type: "crossReference", attrs: { targetId: "ref-h-1", kind: "heading", display: "text", cached: "Conditions" } },
+        {
+          type: "crossReference",
+          attrs: { targetId: "ref-h-1", kind: "heading", display: "text", cached: "Conditions" },
+        },
         { type: "crossReference", attrs: { targetId: "ref-h-1", kind: "heading", display: "page", cached: "page 2" } },
       ),
     );
@@ -237,7 +240,10 @@ describe("DOCX — signets et renvois", () => {
   it("pose l'ancre sur le titre visé et la réutilise pour le renvoi", async () => {
     const withRefs = doc(
       { type: "heading", attrs: { level: 1, refId: "ref-h-1" }, content: [t("Conditions")] },
-      para({ type: "crossReference", attrs: { targetId: "ref-h-1", kind: "heading", display: "text", cached: "Conditions" } }),
+      para({
+        type: "crossReference",
+        attrs: { targetId: "ref-h-1", kind: "heading", display: "text", cached: "Conditions" },
+      }),
     );
     const xml = partOf(docToDocx(await fileWith(withRefs)), "word/document.xml");
     const anchor = /<w:bookmarkStart w:id="\d+" w:name="([^"]+)"\/>/.exec(xml)?.[1];
@@ -248,7 +254,10 @@ describe("DOCX — signets et renvois", () => {
   it("restitue le renvoi et son mode d'affichage", async () => {
     const withRefs = doc(
       { type: "heading", attrs: { level: 1, refId: "ref-h-1" }, content: [t("Conditions")] },
-      para({ type: "crossReference", attrs: { targetId: "ref-h-1", kind: "heading", display: "page", cached: "page 2" } }),
+      para({
+        type: "crossReference",
+        attrs: { targetId: "ref-h-1", kind: "heading", display: "page", cached: "page 2" },
+      }),
     );
     const back = docxToDoc(docToDocx(await fileWith(withRefs)));
     const xref = find(back.doc, "crossReference");
@@ -260,7 +269,10 @@ describe("DOCX — signets et renvois", () => {
   it("importe les modes ci-dessus/ci-dessous et numéro depuis les commutateurs Word", async () => {
     const above = doc(
       { type: "heading", attrs: { level: 1, refId: "ref-h-1" }, content: [t("T")] },
-      para({ type: "crossReference", attrs: { targetId: "ref-h-1", kind: "heading", display: "aboveBelow", cached: "ci-dessus" } }),
+      para({
+        type: "crossReference",
+        attrs: { targetId: "ref-h-1", kind: "heading", display: "aboveBelow", cached: "ci-dessus" },
+      }),
     );
     expect(find(docxToDoc(docToDocx(await fileWith(above))).doc, "crossReference")!.attrs!.display).toBe("aboveBelow");
 
@@ -360,7 +372,11 @@ describe("DOCX — document Word complet", () => {
         { type: "indexEntry", attrs: { term: "Contrat", sub: "" } },
         { type: "mergeField", attrs: { field: "Client" } },
       ),
-      { type: "columnSection", attrs: { count: 2, gapMm: 8, separator: false }, content: [para(t("gauche")), para(t("droite"))] },
+      {
+        type: "columnSection",
+        attrs: { count: 2, gapMm: 8, separator: false },
+        content: [para(t("gauche")), para(t("droite"))],
+      },
       { type: "sectionBreak", attrs: { kind: "nextPage", orientation: "", restartNumbering: false, startAt: 1 } },
       para(t("annexe")),
       { type: "indexBlock" },
@@ -454,8 +470,7 @@ describe("DOCX — relecture couleur/police/taille via styles.xml", () => {
   });
 
   it("applique les docDefaults quand aucun style ne le fait", () => {
-    const styles =
-      `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria"/></w:rPr></w:rPrDefault></w:docDefaults>`;
+    const styles = `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Cambria" w:hAnsi="Cambria"/></w:rPr></w:rPrDefault></w:docDefaults>`;
     const body = `<w:p><w:r><w:t>défaut</w:t></w:r></w:p>`;
     const { doc } = docxToDoc(makeDocx(body, styles));
     expect(textStyle(firstText(doc)!).fontFamily).toBe("Cambria");

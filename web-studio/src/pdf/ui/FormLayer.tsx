@@ -30,7 +30,10 @@ export default function FormLayer(p: FormLayerProps) {
   const [boxes, setBoxes] = useState<FieldBox[]>([]);
 
   useEffect(() => {
-    if (p.from == null) { setBoxes([]); return; }
+    if (p.from == null) {
+      setBoxes([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const anns = (await p.engine.annotations(p.from!)) as RawWidget[];
@@ -41,7 +44,9 @@ export default function FormLayer(p: FormLayerProps) {
       setBoxes(fields);
       p.onFields(p.pageId, fields);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.engine, p.from, p.size.h, p.pageId]);
 
@@ -130,7 +135,11 @@ export default function FormLayer(p: FormLayerProps) {
               onChange={(e) => p.onChange(b.name, e.target.value)}
             >
               <option value="" />
-              {b.options.map((o, i) => <option key={i} value={o.value}>{o.label}</option>)}
+              {b.options.map((o, i) => (
+                <option key={i} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           );
         }

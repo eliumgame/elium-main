@@ -75,7 +75,10 @@ export function recipientFingerprint(publicHex: string): Promise<string> {
 }
 
 function b64urlToBytes(s: string): Uint8Array {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=");
+  const b64 = s
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(s.length / 4) * 4, "=");
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -109,7 +112,12 @@ async function ecdh(priv: CryptoKey, pub: CryptoKey): Promise<Uint8Array> {
 async function wrapKey(shared: Uint8Array): Promise<CryptoKey> {
   const base = await subtle().importKey("raw", shared as unknown as BufferSource, "HKDF", false, ["deriveBits"]);
   const bits = await subtle().deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: HKDF_SALT as unknown as BufferSource, info: HKDF_INFO as unknown as BufferSource },
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: HKDF_SALT as unknown as BufferSource,
+      info: HKDF_INFO as unknown as BufferSource,
+    },
     base,
     256,
   );
@@ -120,7 +128,12 @@ async function wrapKey(shared: Uint8Array): Promise<CryptoKey> {
 async function deriveSubkey(material: Uint8Array, info: Uint8Array): Promise<Uint8Array> {
   const base = await subtle().importKey("raw", material as unknown as BufferSource, "HKDF", false, ["deriveBits"]);
   const bits = await subtle().deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: HKDF_SALT as unknown as BufferSource, info: info as unknown as BufferSource },
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: HKDF_SALT as unknown as BufferSource,
+      info: info as unknown as BufferSource,
+    },
     base,
     256,
   );
@@ -159,14 +172,30 @@ export async function encryptForRecipients(
     const kCha = await deriveSubkey(cekMaterial, HKDF_INFO_CHA);
     const kAesKey = await aesKey(kAes, ["encrypt"]);
     const inner = new Uint8Array(
-      await subtle().encrypt({ name: "AES-GCM", iv: contentNonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, kAesKey, payload as unknown as BufferSource),
+      await subtle().encrypt(
+        {
+          name: "AES-GCM",
+          iv: contentNonce as unknown as BufferSource,
+          additionalData: AAD as unknown as BufferSource,
+        },
+        kAesKey,
+        payload as unknown as BufferSource,
+      ),
     );
     cascadeNonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
     content = chacha20poly1305(kCha, cascadeNonce, AAD).encrypt(inner);
   } else {
     const cekKey = await aesKey(cekMaterial, ["encrypt"]);
     content = new Uint8Array(
-      await subtle().encrypt({ name: "AES-GCM", iv: contentNonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, cekKey, payload as unknown as BufferSource),
+      await subtle().encrypt(
+        {
+          name: "AES-GCM",
+          iv: contentNonce as unknown as BufferSource,
+          additionalData: AAD as unknown as BufferSource,
+        },
+        cekKey,
+        payload as unknown as BufferSource,
+      ),
     );
   }
 
@@ -178,10 +207,19 @@ export async function encryptForRecipients(
     const wk = await wrapKey(shared);
     const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
     const wrapped = new Uint8Array(
-      await subtle().encrypt({ name: "AES-GCM", iv: nonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, wk, cekMaterial as unknown as BufferSource),
+      await subtle().encrypt(
+        { name: "AES-GCM", iv: nonce as unknown as BufferSource, additionalData: AAD as unknown as BufferSource },
+        wk,
+        cekMaterial as unknown as BufferSource,
+      ),
     );
     const epk = new Uint8Array(await subtle().exportKey("raw", eph.publicKey));
-    recipients.push({ fpr: await recipientFingerprint(pubHex), epk: toHex(epk), nonce: toHex(nonce), wrap: toHex(wrapped) });
+    recipients.push({
+      fpr: await recipientFingerprint(pubHex),
+      epk: toHex(epk),
+      nonce: toHex(nonce),
+      wrap: toHex(wrapped),
+    });
   }
 
   const env: RecipientEnvelope = {
@@ -227,7 +265,15 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
       const shared = await ecdh(priv, await importPublic(r.epk));
       const wk = await wrapKey(shared);
       const cekMaterial = new Uint8Array(
-        await subtle().decrypt({ name: "AES-GCM", iv: fromHex(r.nonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource }, wk, fromHex(r.wrap) as unknown as BufferSource),
+        await subtle().decrypt(
+          {
+            name: "AES-GCM",
+            iv: fromHex(r.nonce) as unknown as BufferSource,
+            additionalData: AAD as unknown as BufferSource,
+          },
+          wk,
+          fromHex(r.wrap) as unknown as BufferSource,
+        ),
       );
       if (cascade) {
         const kAes = await deriveSubkey(cekMaterial, HKDF_INFO_AES);
@@ -235,7 +281,11 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
         const inner = chacha20poly1305(kCha, fromHex(env.cascadeNonce!), AAD).decrypt(fromHex(env.content));
         const kAesKey = await aesKey(kAes, ["decrypt"]);
         const out = await subtle().decrypt(
-          { name: "AES-GCM", iv: fromHex(env.contentNonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource },
+          {
+            name: "AES-GCM",
+            iv: fromHex(env.contentNonce) as unknown as BufferSource,
+            additionalData: AAD as unknown as BufferSource,
+          },
           kAesKey,
           inner as unknown as BufferSource,
         );
@@ -243,7 +293,11 @@ export async function decryptAsRecipient(blob: Uint8Array, kp: RecipientKeypair)
       }
       const cekKey = await aesKey(cekMaterial, ["decrypt"]);
       const out = await subtle().decrypt(
-        { name: "AES-GCM", iv: fromHex(env.contentNonce) as unknown as BufferSource, additionalData: AAD as unknown as BufferSource },
+        {
+          name: "AES-GCM",
+          iv: fromHex(env.contentNonce) as unknown as BufferSource,
+          additionalData: AAD as unknown as BufferSource,
+        },
         cekKey,
         fromHex(env.content) as unknown as BufferSource,
       );

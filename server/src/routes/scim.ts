@@ -54,7 +54,9 @@ function scimUser(u: MemberRow) {
 async function orgFromScim(req: FastifyRequest): Promise<string> {
   const h = req.headers.authorization ?? "";
   if (!h.startsWith("Bearer ")) throw unauthorized("Jeton SCIM requis.");
-  const org = await queryOne<{ id: string }>(`SELECT id FROM organizations WHERE scim_token_hash = $1`, [sha256Hex(h.slice(7).trim())]);
+  const org = await queryOne<{ id: string }>(`SELECT id FROM organizations WHERE scim_token_hash = $1`, [
+    sha256Hex(h.slice(7).trim()),
+  ]);
   if (!org) throw unauthorized("Jeton SCIM invalide.");
   return org.id;
 }
@@ -86,9 +88,7 @@ async function roleIdByKey(orgId: string, key: string): Promise<string | null> {
 }
 
 /** Pure: pick the role granting the most permissions (tie-break: role key asc). */
-export function mostPrivilegedRole(
-  roles: { key: string; permCount: number; roleId: string }[],
-): string | null {
+export function mostPrivilegedRole(roles: { key: string; permCount: number; roleId: string }[]): string | null {
   if (roles.length === 0) return null;
   return [...roles].sort((a, b) => b.permCount - a.permCount || a.key.localeCompare(b.key))[0]!.roleId;
 }
@@ -216,7 +216,13 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
           [orgId],
         );
     reply.header("content-type", "application/scim+json");
-    return { schemas: [LIST_SCHEMA], totalResults: rows.length, startIndex: 1, itemsPerPage: rows.length, Resources: rows.map(scimUser) };
+    return {
+      schemas: [LIST_SCHEMA],
+      totalResults: rows.length,
+      startIndex: 1,
+      itemsPerPage: rows.length,
+      Resources: rows.map(scimUser),
+    };
   });
 
   // --- Get one member -------------------------------------------------------
@@ -311,7 +317,10 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/scim/v2/Users/:id", async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const r = await query(`UPDATE memberships SET status = 'suspended' WHERE org_id = $1 AND user_id = $2 RETURNING id`, [orgId, id]);
+    const r = await query(
+      `UPDATE memberships SET status = 'suspended' WHERE org_id = $1 AND user_id = $2 RETURNING id`,
+      [orgId, id],
+    );
     if (!r.length) throw notFound("Utilisateur SCIM introuvable.");
     await audit(orgId, null, "scim.user.deprovision", "user", id, {}, req.ip);
     reply.code(204);
@@ -330,16 +339,28 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
           `SELECT id, external_id, display_name FROM scim_groups WHERE org_id = $1 AND display_name = $2`,
           [orgId, m[1]!],
         )
-      : await query<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE org_id = $1 ORDER BY display_name`, [orgId]);
+      : await query<GroupRow>(
+          `SELECT id, external_id, display_name FROM scim_groups WHERE org_id = $1 ORDER BY display_name`,
+          [orgId],
+        );
     const resources = await Promise.all(groups.map(async (g) => scimGroup(g, await groupMembers(g.id))));
     reply.header("content-type", "application/scim+json");
-    return { schemas: [LIST_SCHEMA], totalResults: resources.length, startIndex: 1, itemsPerPage: resources.length, Resources: resources };
+    return {
+      schemas: [LIST_SCHEMA],
+      totalResults: resources.length,
+      startIndex: 1,
+      itemsPerPage: resources.length,
+      Resources: resources,
+    };
   });
 
   app.get("/scim/v2/Groups/:id", async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const g = await queryOne<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`, [id, orgId]);
+    const g = await queryOne<GroupRow>(
+      `SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`,
+      [id, orgId],
+    );
     if (!g) throw notFound("Groupe SCIM introuvable.");
     reply.header("content-type", "application/scim+json");
     return scimGroup(g, await groupMembers(g.id));
@@ -351,12 +372,18 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
       .object({
         displayName: z.string().min(1).max(256),
         externalId: z.string().max(256).optional(),
-        members: z.array(z.object({ value: z.string().max(256).optional() })).max(5000).optional(),
+        members: z
+          .array(z.object({ value: z.string().max(256).optional() }))
+          .max(5000)
+          .optional(),
       })
       .parse(req.body);
 
     // Idempotent on (org, displayName).
-    const existing = await queryOne<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE org_id = $1 AND display_name = $2`, [orgId, b.displayName]);
+    const existing = await queryOne<GroupRow>(
+      `SELECT id, external_id, display_name FROM scim_groups WHERE org_id = $1 AND display_name = $2`,
+      [orgId, b.displayName],
+    );
     let group = existing;
     if (!group) {
       group = await queryOne<GroupRow>(
@@ -368,7 +395,15 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     const emails = await addGroupMembers(orgId, group!.id, b.members ?? []);
     const { groupRoleMap } = await resolveScimConfig(orgId);
     for (const email of emails) await recomputeRoleForEmail(orgId, email, groupRoleMap);
-    await audit(orgId, null, "scim.group.create", "group", group!.id, { displayName: b.displayName, members: emails.length }, req.ip);
+    await audit(
+      orgId,
+      null,
+      "scim.group.create",
+      "group",
+      group!.id,
+      { displayName: b.displayName, members: emails.length },
+      req.ip,
+    );
     reply.code(existing ? 200 : 201).header("content-type", "application/scim+json");
     return scimGroup(group!, await groupMembers(group!.id));
   });
@@ -381,20 +416,38 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
       .object({
         displayName: z.string().min(1).max(256),
         externalId: z.string().max(256).optional(),
-        members: z.array(z.object({ value: z.string().max(256).optional() })).max(5000).optional(),
+        members: z
+          .array(z.object({ value: z.string().max(256).optional() }))
+          .max(5000)
+          .optional(),
       })
       .parse(req.body);
-    const g = await queryOne<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`, [id, orgId]);
+    const g = await queryOne<GroupRow>(
+      `SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`,
+      [id, orgId],
+    );
     if (!g) throw notFound("Groupe SCIM introuvable.");
 
     const before = (await groupMembers(g.id)).map((m) => m.email);
-    await query(`UPDATE scim_groups SET display_name = $2, external_id = $3, updated_at = now() WHERE id = $1`, [id, b.displayName, b.externalId ?? null]);
+    await query(`UPDATE scim_groups SET display_name = $2, external_id = $3, updated_at = now() WHERE id = $1`, [
+      id,
+      b.displayName,
+      b.externalId ?? null,
+    ]);
     await query(`DELETE FROM scim_group_members WHERE group_id = $1`, [id]);
     const added = await addGroupMembers(orgId, id, b.members ?? []);
 
     const { groupRoleMap } = await resolveScimConfig(orgId);
     for (const email of new Set([...before, ...added])) await recomputeRoleForEmail(orgId, email, groupRoleMap);
-    await audit(orgId, null, "scim.group.replace", "group", id, { displayName: b.displayName, members: added.length }, req.ip);
+    await audit(
+      orgId,
+      null,
+      "scim.group.replace",
+      "group",
+      id,
+      { displayName: b.displayName, members: added.length },
+      req.ip,
+    );
     const g2 = await queryOne<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE id = $1`, [id]);
     reply.header("content-type", "application/scim+json");
     return scimGroup(g2!, await groupMembers(id));
@@ -404,7 +457,10 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   app.patch("/scim/v2/Groups/:id", async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const g = await queryOne<GroupRow>(`SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`, [id, orgId]);
+    const g = await queryOne<GroupRow>(
+      `SELECT id, external_id, display_name FROM scim_groups WHERE id = $1 AND org_id = $2`,
+      [id, orgId],
+    );
     if (!g) throw notFound("Groupe SCIM introuvable.");
     const body = (req.body ?? {}) as { Operations?: { op?: string; path?: string; value?: unknown }[] };
 

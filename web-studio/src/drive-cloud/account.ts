@@ -86,7 +86,11 @@ export async function buildRegistration(
     bindingProof,
   };
   const keys: AccountKeys = {
-    identity: { privateKeyHex: identity.privateKeyHex!, publicKeyHex: identity.publicKeyHex, fingerprint: identity.fingerprint },
+    identity: {
+      privateKeyHex: identity.privateKeyHex!,
+      publicKeyHex: identity.publicKeyHex,
+      fingerprint: identity.fingerprint,
+    },
     recipient,
   };
   return { payload, keys, masterKey };

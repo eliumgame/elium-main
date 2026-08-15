@@ -16,14 +16,7 @@
  */
 
 /** Numbering formats, named as WordprocessingML names them (`w:numFmt`). */
-export type NumFmt =
-  | "decimal"
-  | "decimalZero"
-  | "lowerLetter"
-  | "upperLetter"
-  | "lowerRoman"
-  | "upperRoman"
-  | "bullet";
+export type NumFmt = "decimal" | "decimalZero" | "lowerLetter" | "upperLetter" | "lowerRoman" | "upperRoman" | "bullet";
 
 export interface ListLevel {
   fmt: NumFmt;
@@ -157,7 +150,7 @@ const BY_ID = new Map(LIST_SCHEMES.map((s) => [s.id, s]));
 
 /** Look a scheme up by id; unknown / empty ids give `null` (= native markers). */
 export function schemeById(id: unknown): ListScheme | null {
-  return typeof id === "string" && id ? BY_ID.get(id) ?? null : null;
+  return typeof id === "string" && id ? (BY_ID.get(id) ?? null) : null;
 }
 
 /** The level definition for a 0-based nesting depth (deeper reuses the last). */
@@ -171,8 +164,19 @@ export function levelAt(scheme: ListScheme, depth: number): ListLevel {
 // =========================================================================
 
 const ROMAN: [number, string][] = [
-  [1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
-  [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"],
+  [1000, "m"],
+  [900, "cm"],
+  [500, "d"],
+  [400, "cd"],
+  [100, "c"],
+  [90, "xc"],
+  [50, "l"],
+  [40, "xl"],
+  [10, "x"],
+  [9, "ix"],
+  [5, "v"],
+  [4, "iv"],
+  [1, "i"],
 ];
 
 function toRoman(n: number): string {
@@ -204,13 +208,20 @@ function toLetters(n: number): string {
 /** Render one counter value in the given format. */
 export function formatNumeral(value: number, fmt: NumFmt): string {
   switch (fmt) {
-    case "decimal": return String(value);
-    case "decimalZero": return value < 10 ? `0${value}` : String(value);
-    case "lowerLetter": return toLetters(value);
-    case "upperLetter": return toLetters(value).toUpperCase();
-    case "lowerRoman": return toRoman(value);
-    case "upperRoman": return toRoman(value).toUpperCase();
-    case "bullet": return "";
+    case "decimal":
+      return String(value);
+    case "decimalZero":
+      return value < 10 ? `0${value}` : String(value);
+    case "lowerLetter":
+      return toLetters(value);
+    case "upperLetter":
+      return toLetters(value).toUpperCase();
+    case "lowerRoman":
+      return toRoman(value);
+    case "upperRoman":
+      return toRoman(value).toUpperCase();
+    case "bullet":
+      return "";
   }
 }
 
@@ -352,7 +363,9 @@ export function abstractNumXml(scheme: ListScheme, abstractNumId: number): strin
     const level = levelAt(scheme, d);
     const left = 720 * (d + 1);
     const bulletFont =
-      level.fmt === "bullet" ? '<w:rPr><w:rFonts w:ascii="Segoe UI Symbol" w:hAnsi="Segoe UI Symbol" w:hint="default"/></w:rPr>' : "";
+      level.fmt === "bullet"
+        ? '<w:rPr><w:rFonts w:ascii="Segoe UI Symbol" w:hAnsi="Segoe UI Symbol" w:hint="default"/></w:rPr>'
+        : "";
     levels.push(
       `<w:lvl w:ilvl="${d}">` +
         `<w:start w:val="1"/>` +

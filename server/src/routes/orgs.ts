@@ -20,7 +20,8 @@ import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { badRequest, notFound, conflict, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
-const hex = (len?: number) => (len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/));
+const hex = (len?: number) =>
+  len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
 const envelope = z.record(z.unknown()); // recipients envelope (opaque JSON)
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -119,7 +120,15 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       return { org, roles };
     });
 
-    await audit(result.org.id as string, user.id, "org.create", "org", result.org.id as string, { slug: b.slug }, req.ip);
+    await audit(
+      result.org.id as string,
+      user.id,
+      "org.create",
+      "org",
+      result.org.id as string,
+      { slug: b.slug },
+      req.ip,
+    );
     return {
       org: orgDto(result.org),
       roles: result.roles.map(roleDto),
@@ -262,7 +271,15 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!updated) throw notFound("Membre introuvable dans cette organisation.");
 
-    await audit(orgId, actor.id, "member.role.assign", "membership", updated.id as string, { userId, roleId: b.roleId }, req.ip);
+    await audit(
+      orgId,
+      actor.id,
+      "member.role.assign",
+      "membership",
+      updated.id as string,
+      { userId, roleId: b.roleId },
+      req.ip,
+    );
     return { userId, roleId: updated.role_id };
   });
 
@@ -272,14 +289,16 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "member.remove");
 
-    const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [orgId]);
+    const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [
+      orgId,
+    ]);
     if (!org) throw notFound();
     if (org.owner_user_id === userId) throw conflict("Le propriétaire de l'organisation ne peut pas être retiré.");
 
-    const removed = await queryOne(
-      `DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`,
-      [orgId, userId],
-    );
+    const removed = await queryOne(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2 RETURNING id`, [
+      orgId,
+      userId,
+    ]);
     if (!removed) throw notFound("Membre introuvable dans cette organisation.");
 
     await audit(orgId, actor.id, "member.remove", "membership", removed.id as string, { userId }, req.ip);
@@ -297,7 +316,9 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const b = z.object({ newOwnerUserId: z.string().uuid() }).parse(req.body);
     const actor = requireUser(req);
 
-    const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [orgId]);
+    const org = await queryOne<{ owner_user_id: string }>(`SELECT owner_user_id FROM organizations WHERE id = $1`, [
+      orgId,
+    ]);
     if (!org) throw notFound();
     if (org.owner_user_id !== actor.id) throw forbidden("Seul le propriétaire actuel peut transférer la propriété.");
     if (b.newOwnerUserId === actor.id) throw badRequest("Le nouveau propriétaire doit être différent de l'actuel.");
@@ -307,11 +328,21 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       [orgId, b.newOwnerUserId],
     );
     if (!member) throw badRequest("Le nouveau propriétaire doit être un membre actif de l'organisation.");
-    const ownerRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [orgId]);
+    const ownerRole = await queryOne<{ id: string }>(`SELECT id FROM roles WHERE org_id = $1 AND key = 'owner'`, [
+      orgId,
+    ]);
 
     await withTx(async (c) => {
-      await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1`, [orgId, b.newOwnerUserId]);
-      if (ownerRole) await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [orgId, b.newOwnerUserId, ownerRole.id]);
+      await c.query(`UPDATE organizations SET owner_user_id = $2, updated_at = now() WHERE id = $1`, [
+        orgId,
+        b.newOwnerUserId,
+      ]);
+      if (ownerRole)
+        await c.query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [
+          orgId,
+          b.newOwnerUserId,
+          ownerRole.id,
+        ]);
     });
     await audit(orgId, actor.id, "org.ownership.transfer", "org", orgId, { newOwnerUserId: b.newOwnerUserId }, req.ip);
     return { ok: true };
@@ -428,9 +459,9 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "org.settings.manage");
 
-    const count = await queryOne<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM org_recovery_keys WHERE org_id = $1`, [orgId],
-    );
+    const count = await queryOne<{ n: string }>(`SELECT COUNT(*)::text AS n FROM org_recovery_keys WHERE org_id = $1`, [
+      orgId,
+    ]);
     if (Number(count?.n ?? 0) <= 1) {
       throw badRequest("Impossible de retirer le dernier administrateur de recouvrement de l'organisation.");
     }
@@ -469,7 +500,15 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
        DO UPDATE SET role_id = EXCLUDED.role_id, wrapped_key = EXCLUDED.wrapped_key, granted_by = EXCLUDED.granted_by`,
       [b.nodeId, b.targetUserId, b.roleId, JSON.stringify(b.wrappedKey), actor.id],
     );
-    await audit(orgId, actor.id, "recovery.grant", "node", b.nodeId, { targetUserId: b.targetUserId, roleId: b.roleId }, req.ip);
+    await audit(
+      orgId,
+      actor.id,
+      "recovery.grant",
+      "node",
+      b.nodeId,
+      { targetUserId: b.targetUserId, roleId: b.roleId },
+      req.ip,
+    );
     return { ok: true };
   });
 
@@ -487,7 +526,10 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       .object({
         newOrgPublicHex: hex(130),
         nodeKeys: z.array(z.object({ nodeId: z.string().uuid(), wrappedKey: envelope })).max(100000),
-        recoveryKeys: z.array(z.object({ adminUserId: z.string().uuid(), wrappedOrgPrivate: envelope })).min(1).max(1000),
+        recoveryKeys: z
+          .array(z.object({ adminUserId: z.string().uuid(), wrappedOrgPrivate: envelope }))
+          .min(1)
+          .max(1000),
         expectedEpoch: z.number().int().nonnegative().optional(),
       })
       .parse(req.body);
@@ -513,7 +555,8 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       );
       const provided = new Set(b.recoveryKeys.map((k) => k.adminUserId));
       const missing = current.rows.map((r) => r.admin_user_id).filter((id) => !provided.has(id));
-      if (missing.length) throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
+      if (missing.length)
+        throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
       if (!provided.has(actor.id)) throw badRequest("La rotation doit inclure l'administrateur qui l'effectue.");
 
       await c.query(
@@ -535,15 +578,24 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       // Replace all recovery-admin wrapped copies of the (new) org private key.
       await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1`, [orgId]);
       for (const rk of b.recoveryKeys) {
-        await c.query(
-          `INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private) VALUES ($1,$2,$3)`,
-          [orgId, rk.adminUserId, JSON.stringify(rk.wrappedOrgPrivate)],
-        );
+        await c.query(`INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private) VALUES ($1,$2,$3)`, [
+          orgId,
+          rk.adminUserId,
+          JSON.stringify(rk.wrappedOrgPrivate),
+        ]);
       }
       return rewrapped;
     });
 
-    await audit(orgId, actor.id, "recovery.org.rotate", "org", orgId, { nodesRewrapped: updated, admins: b.recoveryKeys.length }, req.ip);
+    await audit(
+      orgId,
+      actor.id,
+      "recovery.org.rotate",
+      "org",
+      orgId,
+      { nodesRewrapped: updated, admins: b.recoveryKeys.length },
+      req.ip,
+    );
     return { ok: true, nodesRewrapped: updated };
   });
 
@@ -562,7 +614,12 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       [orgId],
     );
     return {
-      admins: rows.map((r) => ({ userId: r.user_id, email: r.email, displayName: r.display_name, since: r.created_at })),
+      admins: rows.map((r) => ({
+        userId: r.user_id,
+        email: r.email,
+        displayName: r.display_name,
+        since: r.created_at,
+      })),
     };
   });
 

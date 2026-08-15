@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
-import { writeEliumPackage, readEliumPackage, verifyLoadedSeal, EliumPasswordRequired } from "../src/format/elium-package";
+import {
+  writeEliumPackage,
+  readEliumPackage,
+  verifyLoadedSeal,
+  EliumPasswordRequired,
+} from "../src/format/elium-package";
 import { createEliumFile, addSignature } from "../src/format/document";
 import { createProof } from "../src/sign/proof";
 import { createSeal, verifySeal } from "../src/sign/seal";
@@ -15,9 +20,14 @@ async function secureFile(): Promise<{ file: EliumFile; pub: string; priv: strin
   const signer = { name: "Jean Dupont", role: "DRH" };
   const proof = await createProof({ signatureId: "s1", model: f.document, signer, privateKeyHex: id.privateKeyHex! });
   const sig: EliumSignature = {
-    id: "s1", kind: "drawn", visual: { text: "JD" },
+    id: "s1",
+    kind: "drawn",
+    visual: { text: "JD" },
     placement: { page: 1, xPct: 0.3, yPct: 0.7, wPct: 0.3, hPct: 0.1, rotation: 0, z: 0, anchorType: "page" },
-    signer, proof, level: "advanced", createdAt: "2026-01-01T00:00:00Z",
+    signer,
+    proof,
+    level: "advanced",
+    createdAt: "2026-01-01T00:00:00Z",
   };
   f = await addSignature(f, sig);
   return { file: f, pub: id.publicKeyHex, priv: id.privateKeyHex! };

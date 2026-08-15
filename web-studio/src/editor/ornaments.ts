@@ -30,12 +30,75 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
   {
     id: "math",
     label: "Mathématiques",
-    chars: ["±", "×", "÷", "≠", "≈", "≡", "≤", "≥", "∞", "√", "∑", "∏", "∫", "∂", "∆", "∇", "∈", "∉", "⊂", "⊃", "∪", "∩", "∅", "∀", "∃", "¬", "∧", "∨"],
+    chars: [
+      "±",
+      "×",
+      "÷",
+      "≠",
+      "≈",
+      "≡",
+      "≤",
+      "≥",
+      "∞",
+      "√",
+      "∑",
+      "∏",
+      "∫",
+      "∂",
+      "∆",
+      "∇",
+      "∈",
+      "∉",
+      "⊂",
+      "⊃",
+      "∪",
+      "∩",
+      "∅",
+      "∀",
+      "∃",
+      "¬",
+      "∧",
+      "∨",
+    ],
   },
   {
     id: "greek",
     label: "Grec",
-    chars: ["α", "β", "γ", "δ", "ε", "ζ", "η", "θ", "ι", "κ", "λ", "μ", "ν", "ξ", "π", "ρ", "σ", "τ", "υ", "φ", "χ", "ψ", "ω", "Γ", "Δ", "Θ", "Λ", "Ξ", "Π", "Σ", "Φ", "Ψ", "Ω"],
+    chars: [
+      "α",
+      "β",
+      "γ",
+      "δ",
+      "ε",
+      "ζ",
+      "η",
+      "θ",
+      "ι",
+      "κ",
+      "λ",
+      "μ",
+      "ν",
+      "ξ",
+      "π",
+      "ρ",
+      "σ",
+      "τ",
+      "υ",
+      "φ",
+      "χ",
+      "ψ",
+      "ω",
+      "Γ",
+      "Δ",
+      "Θ",
+      "Λ",
+      "Ξ",
+      "Π",
+      "Σ",
+      "Φ",
+      "Ψ",
+      "Ω",
+    ],
   },
   {
     id: "currency",
@@ -108,9 +171,7 @@ export function findSymbols(query: string): string[] {
       }
     }
   }
-  return symbolsOf(null).filter(
-    (ch) => symbolName(ch).toLowerCase().includes(q) || ch === q,
-  );
+  return symbolsOf(null).filter((ch) => symbolName(ch).toLowerCase().includes(q) || ch === q);
 }
 
 // --- Lettrine -------------------------------------------------------------
@@ -162,10 +223,7 @@ export function dropCapXml(kind: DropCapKind, lines: number): string {
   const n = clampDropLines(lines);
   // `w:dropCap` porte la position, `w:lines` la hauteur ; `w:wrap="around"` est
   // ce qui fait couler le texte autour au lieu de le pousser sous la lettre.
-  return (
-    `<w:framePr w:dropCap="${kind}" w:lines="${n}" w:wrap="around"` +
-    ' w:vAnchor="text" w:hAnchor="text"/>'
-  );
+  return `<w:framePr w:dropCap="${kind}" w:lines="${n}" w:wrap="around"` + ' w:vAnchor="text" w:hAnchor="text"/>';
 }
 
 // --- Filigrane ------------------------------------------------------------
@@ -186,7 +244,12 @@ export interface Watermark {
 
 /** Textes proposés d'emblée, comme la galerie de filigranes de Word. */
 export const WATERMARK_PRESETS = [
-  "BROUILLON", "CONFIDENTIEL", "NE PAS COPIER", "URGENT", "ÉCHANTILLON", "ORIGINAL",
+  "BROUILLON",
+  "CONFIDENTIEL",
+  "NE PAS COPIER",
+  "URGENT",
+  "ÉCHANTILLON",
+  "ORIGINAL",
 ] as const;
 
 export const DEFAULT_WATERMARK: Watermark = {

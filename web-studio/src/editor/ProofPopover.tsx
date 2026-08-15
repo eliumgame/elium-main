@@ -48,11 +48,7 @@ export default function ProofPopover({
 
   /** Remplace à la POSITION du problème, pas par recherche-remplacement. */
   const apply = (replacement: string) => {
-    editor
-      .chain()
-      .focus()
-      .insertContentAt({ from: issue.docFrom, to: issue.docTo }, replacement)
-      .run();
+    editor.chain().focus().insertContentAt({ from: issue.docFrom, to: issue.docTo }, replacement).run();
     onClose();
   };
 

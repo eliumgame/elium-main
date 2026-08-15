@@ -11,8 +11,15 @@
 import { Extension, Node } from "@tiptap/core";
 import { CSS_PX_PER_MM } from "./Pagination";
 import {
-  DEFAULT_TAB_MM, LEADER_CHAR, addStop, normalizeStops, nextStop, removeStopNear,
-  type TabAlign, type TabLeader, type TabStop,
+  DEFAULT_TAB_MM,
+  LEADER_CHAR,
+  addStop,
+  normalizeStops,
+  nextStop,
+  removeStopNear,
+  type TabAlign,
+  type TabLeader,
+  type TabStop,
 } from "./tabs";
 
 /** Les types de blocs qui peuvent porter des taquets. */
@@ -52,7 +59,15 @@ function parseStopsAttr(value: unknown): TabStop[] {
  * Sert à la règle et au dimensionnement des tabulations : les deux doivent lire
  * la même source, sans quoi la règle montrerait des taquets que le texte ignore.
  */
-export function tabStopsAt(doc: { resolve: (pos: number) => { depth: number; node: (d: number) => { type: { name: string }; attrs: Record<string, unknown> } } }, pos: number): TabStop[] {
+export function tabStopsAt(
+  doc: {
+    resolve: (pos: number) => {
+      depth: number;
+      node: (d: number) => { type: { name: string }; attrs: Record<string, unknown> };
+    };
+  },
+  pos: number,
+): TabStop[] {
   try {
     const $pos = doc.resolve(pos);
     for (let d = $pos.depth; d >= 0; d--) {
@@ -93,20 +108,36 @@ export const TabStops = Extension.create({
   },
 
   addCommands() {
-    const applyToBlocks = (stops: TabStop[] | null) => () => ({ tr, state, dispatch }: {
-      tr: { setNodeMarkup: (pos: number, type: null, attrs: Record<string, unknown>) => void };
-      state: { selection: { from: number; to: number }; doc: { nodesBetween: (from: number, to: number, fn: (node: { type: { name: string }; attrs: Record<string, unknown> }, pos: number) => void) => void } };
-      dispatch?: unknown;
-    }) => {
-      const { from, to } = state.selection;
-      if (!dispatch) return true;
-      state.doc.nodesBetween(from, to, (node, pos) => {
-        if (!PARAGRAPH_TYPES.includes(node.type.name)) return;
-        const next = stops && stops.length ? normalizeStops(stops) : null;
-        tr.setNodeMarkup(pos, null, { ...node.attrs, tabStops: next });
-      });
-      return true;
-    };
+    const applyToBlocks =
+      (stops: TabStop[] | null) =>
+      () =>
+      ({
+        tr,
+        state,
+        dispatch,
+      }: {
+        tr: { setNodeMarkup: (pos: number, type: null, attrs: Record<string, unknown>) => void };
+        state: {
+          selection: { from: number; to: number };
+          doc: {
+            nodesBetween: (
+              from: number,
+              to: number,
+              fn: (node: { type: { name: string }; attrs: Record<string, unknown> }, pos: number) => void,
+            ) => void;
+          };
+        };
+        dispatch?: unknown;
+      }) => {
+        const { from, to } = state.selection;
+        if (!dispatch) return true;
+        state.doc.nodesBetween(from, to, (node, pos) => {
+          if (!PARAGRAPH_TYPES.includes(node.type.name)) return;
+          const next = stops && stops.length ? normalizeStops(stops) : null;
+          tr.setNodeMarkup(pos, null, { ...node.attrs, tabStops: next });
+        });
+        return true;
+      };
 
     return {
       setTabStops: (stops) => applyToBlocks(stops)(),

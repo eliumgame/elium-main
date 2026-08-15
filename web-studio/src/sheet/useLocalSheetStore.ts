@@ -11,12 +11,24 @@
 import { useEffect, useRef } from "react";
 import { useUndoable } from "../ui/useUndoable";
 import {
-  emptyWorkbook, emptySheet, removeSheet as removeSheetPure,
-  type Workbook, type SheetData, type CellStyle, type CondRule, type DataValidation, type ChartSpec,
+  emptyWorkbook,
+  emptySheet,
+  removeSheet as removeSheetPure,
+  type Workbook,
+  type SheetData,
+  type CellStyle,
+  type CondRule,
+  type DataValidation,
+  type ChartSpec,
 } from "./model";
 import {
-  insertRow as insertRowPure, deleteRow as deleteRowPure, insertCol as insertColPure, deleteCol as deleteColPure,
-  sortRange as sortRangePure, fillRange as fillRangePure, type Rect,
+  insertRow as insertRowPure,
+  deleteRow as deleteRowPure,
+  insertCol as insertColPure,
+  deleteCol as deleteColPure,
+  sortRange as sortRangePure,
+  fillRange as fillRangePure,
+  type Rect,
 } from "./structural";
 import { toggleMerge as toggleMergePure } from "./merges";
 import { renameSheetRefs, indexToCol } from "./formula";
@@ -31,13 +43,23 @@ export interface LocalSheetStore extends SheetStore {
 }
 
 export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
-  const { value: wb, set, checkpoint, undo, redo, canUndo, canRedo, reset } =
-    useUndoable<Workbook>(initial ?? emptyWorkbook());
+  const {
+    value: wb,
+    set,
+    checkpoint,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset,
+  } = useUndoable<Workbook>(initial ?? emptyWorkbook());
 
   // Charge le classeur persisté au montage (sauf ouverture explicite d'un .elium).
   useEffect(() => {
     if (initial) return;
-    loadWorkbook().then((w) => w && reset(w)).catch(() => {});
+    loadWorkbook()
+      .then((w) => w && reset(w))
+      .catch(() => {});
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Autosauvegarde débouncée à chaque changement du classeur.
@@ -47,7 +69,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     return () => clearTimeout(t);
   }, [wb, initial]);
 
-  const wbRef = useRef(wb); wbRef.current = wb;
+  const wbRef = useRef(wb);
+  wbRef.current = wb;
 
   // --- helper : muter une feuille par index (enregistre l'historique) ---
   const patchSheet = (s: number, fn: (sh: SheetData) => SheetData) =>
@@ -88,7 +111,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   const pasteBlock = (s: number, atR: number, atC: number, grid: string[][]) =>
     patchSheet(s, (sh) => {
       const cells = { ...sh.cells };
-      let cols = sh.cols, rows = sh.rows;
+      let cols = sh.cols,
+        rows = sh.rows;
       grid.forEach((row, ri) =>
         row.forEach((val, ci) => {
           const ref = cellRef(atC + ci, atR + ri);
@@ -117,7 +141,9 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   const setFreeze = (s: number, rows: number, cols: number) =>
     patchSheet(s, (sh) => (rows <= 0 && cols <= 0 ? { ...sh, freeze: undefined } : { ...sh, freeze: { rows, cols } }));
   const setFilter = (s: number, col: number, query: string) =>
-    patchSheet(s, (sh) => (query.trim() === "" ? { ...sh, filter: undefined } : { ...sh, filter: { col, query: query.trim() } }));
+    patchSheet(s, (sh) =>
+      query.trim() === "" ? { ...sh, filter: undefined } : { ...sh, filter: { col, query: query.trim() } },
+    );
   const toggleMerge = (s: number, rect: Rect) =>
     patchSheet(s, (sh) => ({ ...sh, merges: toggleMergePure(sh.merges, rect) }));
 
@@ -126,7 +152,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     patchSheet(s, (sh) => {
       const list = (sh.condFormats ?? []).slice();
       const i = list.findIndex((r) => r.id === rule.id);
-      if (i >= 0) list[i] = rule; else list.push(rule);
+      if (i >= 0) list[i] = rule;
+      else list.push(rule);
       return { ...sh, condFormats: list };
     });
   const removeCondRule = (s: number, id: string) =>
@@ -135,7 +162,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     patchSheet(s, (sh) => {
       const list = (sh.validations ?? []).slice();
       const i = list.findIndex((x) => x.id === v.id);
-      if (i >= 0) list[i] = v; else list.push(v);
+      if (i >= 0) list[i] = v;
+      else list.push(v);
       return { ...sh, validations: list };
     });
   const removeValidation = (s: number, id: string) =>
@@ -144,7 +172,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     patchSheet(s, (sh) => {
       const list = (sh.charts ?? []).slice();
       const i = list.findIndex((c) => c.id === chart.id);
-      if (i >= 0) list[i] = chart; else list.push(chart);
+      if (i >= 0) list[i] = chart;
+      else list.push(chart);
       return { ...sh, charts: list };
     });
   const removeChart = (s: number, id: string) =>
@@ -154,14 +183,21 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   const setName = (name: string, ref: string) => {
     const clean = name.trim();
     if (!clean) return;
-    set((w) => ({ ...w, names: [...(w.names ?? []).filter((n) => n.name.toUpperCase() !== clean.toUpperCase()), { name: clean, ref }] }));
+    set((w) => ({
+      ...w,
+      names: [...(w.names ?? []).filter((n) => n.name.toUpperCase() !== clean.toUpperCase()), { name: clean, ref }],
+    }));
   };
   const removeName = (name: string) => set((w) => ({ ...w, names: (w.names ?? []).filter((n) => n.name !== name) }));
 
   // --- feuilles ---
   const setActive = (i: number) => set((w) => ({ ...w, active: i }));
   const addSheet = (name?: string) =>
-    set((w) => ({ ...w, sheets: [...w.sheets, emptySheet((name ?? "").trim() || `Feuille ${w.sheets.length + 1}`)], active: w.sheets.length }));
+    set((w) => ({
+      ...w,
+      sheets: [...w.sheets, emptySheet((name ?? "").trim() || `Feuille ${w.sheets.length + 1}`)],
+      active: w.sheets.length,
+    }));
   const renameSheet = (i: number, name: string) =>
     set((w) => {
       const cur = w.sheets[i]!.name;
@@ -183,13 +219,42 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   };
 
   return {
-    wb, active: wb.active, canWrite: true, collaborative: false,
-    setActive, addSheet, renameSheet, removeSheet, replaceWorkbook, addSheetFromData,
-    setCell, clearRange, applyStyle, pasteBlock,
-    insertRow, deleteRow, insertCol, deleteCol, sortRange, fillRange,
-    setColWidth, setFreeze, setFilter, toggleMerge,
-    setCondRule, removeCondRule, setValidation, removeValidation, setChart, removeChart,
-    setName, removeName,
-    beginChange: checkpoint, undo, redo, canUndo, canRedo,
+    wb,
+    active: wb.active,
+    canWrite: true,
+    collaborative: false,
+    setActive,
+    addSheet,
+    renameSheet,
+    removeSheet,
+    replaceWorkbook,
+    addSheetFromData,
+    setCell,
+    clearRange,
+    applyStyle,
+    pasteBlock,
+    insertRow,
+    deleteRow,
+    insertCol,
+    deleteCol,
+    sortRange,
+    fillRange,
+    setColWidth,
+    setFreeze,
+    setFilter,
+    toggleMerge,
+    setCondRule,
+    removeCondRule,
+    setValidation,
+    removeValidation,
+    setChart,
+    removeChart,
+    setName,
+    removeName,
+    beginChange: checkpoint,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   };
 }

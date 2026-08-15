@@ -12,8 +12,7 @@ interface Props {
 }
 
 // A valid name is an identifier that does NOT look like a cell address (Excel rule).
-const isValidName = (n: string) =>
-  /^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) && !/^\$?[A-Za-z]+\$?[0-9]+$/.test(n);
+const isValidName = (n: string) => /^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) && !/^\$?[A-Za-z]+\$?[0-9]+$/.test(n);
 
 /**
  * Named-ranges manager: give the current selection a name usable in formulas
@@ -39,10 +38,17 @@ export default function NamedRangesModal({ rangeLabel, names, onAdd, onRemove, o
           <h3 className="settings__title">Nommer la sélection {rangeLabel}</h3>
           <div className="cf-form">
             <input
-              className="settings__input" value={name} onChange={(e) => setName(e.target.value)}
-              placeholder="Nom (ex. TVA, SALAIRES)" onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+              className="settings__input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nom (ex. TVA, SALAIRES)"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") add();
+              }}
             />
-            <Button size="sm" variant="primary" onClick={add} disabled={!canAdd}><Plus size={14} /> {taken ? "Redéfinir" : "Ajouter"}</Button>
+            <Button size="sm" variant="primary" onClick={add} disabled={!canAdd}>
+              <Plus size={14} /> {taken ? "Redéfinir" : "Ajouter"}
+            </Button>
           </div>
           {name.trim() !== "" && !valid && (
             <p className="cf-empty" style={{ color: "var(--danger)" }}>
@@ -54,13 +60,23 @@ export default function NamedRangesModal({ rangeLabel, names, onAdd, onRemove, o
         <section className="settings__section">
           <h3 className="settings__title">Noms définis ({names.length})</h3>
           {names.length === 0 ? (
-            <p className="cf-empty">Aucun nom. Sélectionnez une plage et nommez-la pour l'utiliser dans vos formules.</p>
+            <p className="cf-empty">
+              Aucun nom. Sélectionnez une plage et nommez-la pour l'utiliser dans vos formules.
+            </p>
           ) : (
             <ul className="cf-rule-list">
               {names.map((n) => (
                 <li key={n.name} className="cf-rule">
-                  <span className="cf-rule__desc"><strong>{n.name}</strong> → {n.ref}</span>
-                  <button className="icon-btn icon-btn--danger" title="Supprimer le nom" onClick={() => onRemove(n.name)}><Trash2 size={14} /></button>
+                  <span className="cf-rule__desc">
+                    <strong>{n.name}</strong> → {n.ref}
+                  </span>
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    title="Supprimer le nom"
+                    onClick={() => onRemove(n.name)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </li>
               ))}
             </ul>

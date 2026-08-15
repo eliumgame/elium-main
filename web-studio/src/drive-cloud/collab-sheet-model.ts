@@ -39,7 +39,14 @@ import { toggleMerge } from "../sheet/merges";
 import { insertRow, deleteRow, insertCol, deleteCol } from "../sheet/structural";
 import { indexToCol } from "../sheet/formula";
 import type {
-  CellStyle, ChartSpec, CondRule, DataValidation, MergeRect, NamedRange, SheetData, Workbook,
+  CellStyle,
+  ChartSpec,
+  CondRule,
+  DataValidation,
+  MergeRect,
+  NamedRange,
+  SheetData,
+  Workbook,
 } from "../sheet/model";
 
 export type YSheet = Y.Map<unknown>;
@@ -47,8 +54,10 @@ export type YSheets = Y.Array<YSheet>;
 
 /** Clé stable et canonique d'une fusion (les MergeRect n'ont pas d'id). */
 export function mergeKey(m: MergeRect): string {
-  const c0 = Math.min(m.c0, m.c1), c1 = Math.max(m.c0, m.c1);
-  const r0 = Math.min(m.r0, m.r1), r1 = Math.max(m.r0, m.r1);
+  const c0 = Math.min(m.c0, m.c1),
+    c1 = Math.max(m.c0, m.c1);
+  const r0 = Math.min(m.r0, m.r1),
+    r1 = Math.max(m.r0, m.r1);
   return `${c0}:${r0}:${c1}:${r1}`;
 }
 
@@ -82,7 +91,7 @@ export function ensureSheetStructures(ys: YSheet): void {
   if (!(ys.get("charts") instanceof Y.Map)) ys.set("charts", new Y.Map());
 }
 
-const asMap = <V,>(ys: YSheet, key: string): Y.Map<V> | undefined => {
+const asMap = <V>(ys: YSheet, key: string): Y.Map<V> | undefined => {
   const v = ys.get(key);
   return v instanceof Y.Map ? (v as Y.Map<V>) : undefined;
 };
@@ -175,11 +184,14 @@ export function toggleMergeY(ydoc: Y.Doc, ys: YSheet, sel: MergeRect): void {
     const next = toggleMerge(current, sel);
     const nextKeys = new Set(next.map(mergeKey));
     for (const key of [...ymerges.keys()]) if (!nextKeys.has(key)) ymerges.delete(key);
-    for (const m of next) { const k = mergeKey(m); if (!ymerges.has(k)) ymerges.set(k, { ...m }); }
+    for (const m of next) {
+      const k = mergeKey(m);
+      if (!ymerges.has(k)) ymerges.set(k, { ...m });
+    }
   });
 }
 
-const upsert = <V,>(ydoc: Y.Doc, ys: YSheet, mapKey: string, id: string, value: V): void => {
+const upsert = <V>(ydoc: Y.Doc, ys: YSheet, mapKey: string, id: string, value: V): void => {
   ydoc.transact(() => {
     ensureSheetStructures(ys);
     asMap<V>(ys, mapKey)!.set(id, value);
@@ -189,13 +201,16 @@ const removeById = (ydoc: Y.Doc, ys: YSheet, mapKey: string, id: string): void =
   ydoc.transact(() => asMap(ys, mapKey)?.delete(id));
 };
 
-export const setCondRule = (ydoc: Y.Doc, ys: YSheet, rule: CondRule) => upsert(ydoc, ys, "condFormats", rule.id, { ...rule });
+export const setCondRule = (ydoc: Y.Doc, ys: YSheet, rule: CondRule) =>
+  upsert(ydoc, ys, "condFormats", rule.id, { ...rule });
 export const removeCondRule = (ydoc: Y.Doc, ys: YSheet, id: string) => removeById(ydoc, ys, "condFormats", id);
 
-export const setValidation = (ydoc: Y.Doc, ys: YSheet, v: DataValidation) => upsert(ydoc, ys, "validations", v.id, { ...v });
+export const setValidation = (ydoc: Y.Doc, ys: YSheet, v: DataValidation) =>
+  upsert(ydoc, ys, "validations", v.id, { ...v });
 export const removeValidation = (ydoc: Y.Doc, ys: YSheet, id: string) => removeById(ydoc, ys, "validations", id);
 
-export const setChart = (ydoc: Y.Doc, ys: YSheet, chart: ChartSpec) => upsert(ydoc, ys, "charts", chart.id, { ...chart });
+export const setChart = (ydoc: Y.Doc, ys: YSheet, chart: ChartSpec) =>
+  upsert(ydoc, ys, "charts", chart.id, { ...chart });
 export const removeChart = (ydoc: Y.Doc, ys: YSheet, id: string) => removeById(ydoc, ys, "charts", id);
 
 // ── Plages nommées (portée classeur) ───────────────────────────────────────
@@ -245,7 +260,10 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
     }
 
     reconcileMap(asMap<CellStyle>(ys, "styles")!, new Map(Object.entries(target.styles ?? {})));
-    reconcileMap(asMap<number>(ys, "colWidths")!, new Map(Object.entries(target.colWidths ?? {}).map(([k, v]) => [String(k), v])));
+    reconcileMap(
+      asMap<number>(ys, "colWidths")!,
+      new Map(Object.entries(target.colWidths ?? {}).map(([k, v]) => [String(k), v])),
+    );
     reconcileMap(asMap<MergeRect>(ys, "merges")!, new Map((target.merges ?? []).map((m) => [mergeKey(m), m])));
     reconcileMap(asMap<CondRule>(ys, "condFormats")!, new Map((target.condFormats ?? []).map((r) => [r.id, r])));
     reconcileMap(asMap<DataValidation>(ys, "validations")!, new Map((target.validations ?? []).map((v) => [v.id, v])));
@@ -259,10 +277,14 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
 }
 
 // ── Opérations structurelles (réutilisent la logique pure partagée) ─────────
-export const insertRowY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, insertRow(sheetSnapshot(ys), at));
-export const deleteRowY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, deleteRow(sheetSnapshot(ys), at));
-export const insertColY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, insertCol(sheetSnapshot(ys), at));
-export const deleteColY = (ydoc: Y.Doc, ys: YSheet, at: number) => reconcileSheet(ydoc, ys, deleteCol(sheetSnapshot(ys), at));
+export const insertRowY = (ydoc: Y.Doc, ys: YSheet, at: number) =>
+  reconcileSheet(ydoc, ys, insertRow(sheetSnapshot(ys), at));
+export const deleteRowY = (ydoc: Y.Doc, ys: YSheet, at: number) =>
+  reconcileSheet(ydoc, ys, deleteRow(sheetSnapshot(ys), at));
+export const insertColY = (ydoc: Y.Doc, ys: YSheet, at: number) =>
+  reconcileSheet(ydoc, ys, insertCol(sheetSnapshot(ys), at));
+export const deleteColY = (ydoc: Y.Doc, ys: YSheet, at: number) =>
+  reconcileSheet(ydoc, ys, deleteCol(sheetSnapshot(ys), at));
 
 /**
  * Colle un bloc de valeurs (lignes de cellules) à partir de (r,c). Granulaire :
@@ -273,12 +295,15 @@ export function pasteBlock(ydoc: Y.Doc, ys: YSheet, atR: number, atC: number, gr
   ydoc.transact(() => {
     ensureSheetStructures(ys);
     const cells = ys.get("cells") as YCells;
-    let rows = Number(ys.get("rows") ?? 20), cols = Number(ys.get("cols") ?? 8);
-    grid.forEach((row, ri) => row.forEach((val, ci) => {
-      setCellText(cells, a1(atR + ri, atC + ci), val);
-      cols = Math.max(cols, atC + ci + 1);
-      rows = Math.max(rows, atR + ri + 1);
-    }));
+    let rows = Number(ys.get("rows") ?? 20),
+      cols = Number(ys.get("cols") ?? 8);
+    grid.forEach((row, ri) =>
+      row.forEach((val, ci) => {
+        setCellText(cells, a1(atR + ri, atC + ci), val);
+        cols = Math.max(cols, atC + ci + 1);
+        rows = Math.max(rows, atR + ri + 1);
+      }),
+    );
     ys.set("rows", rows);
     ys.set("cols", cols);
   });

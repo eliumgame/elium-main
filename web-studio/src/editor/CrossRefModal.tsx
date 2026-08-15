@@ -3,8 +3,13 @@ import type { Editor } from "@tiptap/react";
 import { Modal, Button, Field, EmptyState } from "../ui/components";
 import { CornerDownRight } from "lucide-react";
 import {
-  REF_DISPLAY_LABELS, REF_KIND_LABELS, collectTargets, referenceLabel,
-  type RefDisplay, type RefKind, type RefTarget,
+  REF_DISPLAY_LABELS,
+  REF_KIND_LABELS,
+  collectTargets,
+  referenceLabel,
+  type RefDisplay,
+  type RefKind,
+  type RefTarget,
 } from "./crossref";
 import { pageOfPos } from "./wordExtensions";
 
@@ -60,8 +65,12 @@ export default function CrossRefModal({ editor, onClose }: { editor: Editor; onC
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button onClick={insert} disabled={!selected}>Insérer</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button onClick={insert} disabled={!selected}>
+            Insérer
+          </Button>
         </>
       }
     >
@@ -101,9 +110,15 @@ export default function CrossRefModal({ editor, onClose }: { editor: Editor; onC
           </Field>
 
           <Field label="Insérer" hint="Le renvoi se met à jour tout seul quand la cible change.">
-            <select className="settings__select" value={display} onChange={(e) => setDisplay(e.target.value as RefDisplay)}>
+            <select
+              className="settings__select"
+              value={display}
+              onChange={(e) => setDisplay(e.target.value as RefDisplay)}
+            >
               {DISPLAYS.map((d) => (
-                <option key={d} value={d}>{REF_DISPLAY_LABELS[d]}</option>
+                <option key={d} value={d}>
+                  {REF_DISPLAY_LABELS[d]}
+                </option>
               ))}
             </select>
           </Field>
@@ -121,7 +136,9 @@ export default function CrossRefModal({ editor, onClose }: { editor: Editor; onC
                 })
               : "—"}
           </p>
-          {display === "page" && <p className="muted">Le numéro de page est celui calculé par la pagination d'Elium.</p>}
+          {display === "page" && (
+            <p className="muted">Le numéro de page est celui calculé par la pagination d'Elium.</p>
+          )}
         </section>
       </div>
     </Modal>

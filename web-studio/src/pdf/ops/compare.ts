@@ -64,7 +64,10 @@ export function diffTokens(a: readonly string[], b: readonly string[]): WordChan
   while (start < n && start < m && a[start] === b[start]) start++;
   let endA = n;
   let endB = m;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
 
   const subA = a.slice(start, endA);
   const subB = b.slice(start, endB);
@@ -76,9 +79,10 @@ export function diffTokens(a: readonly string[], b: readonly string[]): WordChan
     const w = subB.length + 1;
     for (let i = subA.length - 1; i >= 0; i--) {
       for (let j = subB.length - 1; j >= 0; j--) {
-        table[i * w + j] = subA[i] === subB[j]
-          ? table[(i + 1) * w + (j + 1)] + 1
-          : Math.max(table[(i + 1) * w + j], table[i * w + (j + 1)]);
+        table[i * w + j] =
+          subA[i] === subB[j]
+            ? table[(i + 1) * w + (j + 1)] + 1
+            : Math.max(table[(i + 1) * w + j], table[i * w + (j + 1)]);
       }
     }
     let i = 0;
@@ -94,12 +98,26 @@ export function diffTokens(a: readonly string[], b: readonly string[]): WordChan
       pending = { kind, left: [...left], right: [...right], leftAt: start + li, rightAt: start + ri };
     };
     while (i < subA.length && j < subB.length) {
-      if (subA[i] === subB[j]) { push("equal", [subA[i]], [subB[j]], i, j); i++; j++; }
-      else if (table[(i + 1) * w + j] >= table[i * w + (j + 1)]) { push("delete", [subA[i]], [], i, j); i++; }
-      else { push("insert", [], [subB[j]], i, j); j++; }
+      if (subA[i] === subB[j]) {
+        push("equal", [subA[i]], [subB[j]], i, j);
+        i++;
+        j++;
+      } else if (table[(i + 1) * w + j] >= table[i * w + (j + 1)]) {
+        push("delete", [subA[i]], [], i, j);
+        i++;
+      } else {
+        push("insert", [], [subB[j]], i, j);
+        j++;
+      }
     }
-    while (i < subA.length) { push("delete", [subA[i]], [], i, j); i++; }
-    while (j < subB.length) { push("insert", [], [subB[j]], i, j); j++; }
+    while (i < subA.length) {
+      push("delete", [subA[i]], [], i, j);
+      i++;
+    }
+    while (j < subB.length) {
+      push("insert", [], [subB[j]], i, j);
+      j++;
+    }
     if (pending) out.push(pending);
   } else if (subA.length || subB.length) {
     if (subA.length) out.push({ kind: "delete", left: subA, right: [], leftAt: start, rightAt: start });
@@ -118,11 +136,23 @@ function mergeAdjacent(changes: readonly WordChange[]): WordChange[] {
   for (const c of changes) {
     const prev = out[out.length - 1];
     if (prev && prev.kind === "delete" && c.kind === "insert") {
-      out[out.length - 1] = { kind: "replace", left: prev.left, right: c.right, leftAt: prev.leftAt, rightAt: c.rightAt };
+      out[out.length - 1] = {
+        kind: "replace",
+        left: prev.left,
+        right: c.right,
+        leftAt: prev.leftAt,
+        rightAt: c.rightAt,
+      };
       continue;
     }
     if (prev && prev.kind === "insert" && c.kind === "delete") {
-      out[out.length - 1] = { kind: "replace", left: c.left, right: prev.right, leftAt: c.leftAt, rightAt: prev.rightAt };
+      out[out.length - 1] = {
+        kind: "replace",
+        left: c.left,
+        right: prev.right,
+        leftAt: c.leftAt,
+        rightAt: prev.rightAt,
+      };
       continue;
     }
     out.push(c);
@@ -179,10 +209,17 @@ export function comparePages(left: readonly string[], right: readonly string[]):
     for (let j = cursor; j < Math.min(right.length, cursor + 12); j++) {
       if (usedRight.has(j)) continue;
       const score = fp === fingerprint(right[j]) ? 1 : pageSimilarity(left[i], right[j]);
-      if (score > bestScore) { bestScore = score; best = j; }
+      if (score > bestScore) {
+        bestScore = score;
+        best = j;
+      }
     }
     if (best >= 0 && bestScore >= 0.35) {
-      for (let j = cursor; j < best; j++) if (!usedRight.has(j)) { pairs.push([null, j]); usedRight.add(j); }
+      for (let j = cursor; j < best; j++)
+        if (!usedRight.has(j)) {
+          pairs.push([null, j]);
+          usedRight.add(j);
+        }
       pairs.push([i, best]);
       usedRight.add(best);
       cursor = best + 1;
@@ -206,7 +243,10 @@ export function comparePages(left: readonly string[], right: readonly string[]):
       wordsAdded += words.length;
       pagesAdded++;
       pages.push({
-        leftPage: null, rightPage: r + 1, status: "added", similarity: 0,
+        leftPage: null,
+        rightPage: r + 1,
+        status: "added",
+        similarity: 0,
         changes: [{ kind: "insert", left: [], right: words, leftAt: 0, rightAt: 0 }],
       });
       continue;
@@ -216,7 +256,10 @@ export function comparePages(left: readonly string[], right: readonly string[]):
       wordsRemoved += words.length;
       pagesRemoved++;
       pages.push({
-        leftPage: l + 1, rightPage: null, status: "removed", similarity: 0,
+        leftPage: l + 1,
+        rightPage: null,
+        status: "removed",
+        similarity: 0,
         changes: [{ kind: "delete", left: words, right: [], leftAt: 0, rightAt: 0 }],
       });
       continue;
@@ -232,9 +275,11 @@ export function comparePages(left: readonly string[], right: readonly string[]):
       if (c.kind === "delete" || c.kind === "replace") wordsRemoved += c.left.length;
     }
     pages.push({
-      leftPage: l + 1, rightPage: r + 1,
+      leftPage: l + 1,
+      rightPage: r + 1,
       status: modified ? "modified" : "unchanged",
-      changes, similarity: sim,
+      changes,
+      similarity: sim,
     });
   }
 

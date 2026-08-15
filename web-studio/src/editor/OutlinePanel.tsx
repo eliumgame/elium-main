@@ -78,12 +78,15 @@ export default function OutlinePanel({ editor }: { editor: Editor | null }) {
   const active = activeIndex(entries, caret);
   const hidden = hiddenByCollapse(entries, collapsed);
 
-  const hasChildren = (i: number) =>
-    i + 1 < entries.length && entries[i + 1].level > entries[i].level;
+  const hasChildren = (i: number) => i + 1 < entries.length && entries[i + 1].level > entries[i].level;
 
   const goTo = (entry: OutlineEntry) => {
     if (!editor) return;
-    editor.chain().focus().setTextSelection(entry.pos + 1).run();
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(entry.pos + 1)
+      .run();
     const dom = editor.view.domAtPos(entry.pos + 1).node as HTMLElement | Text;
     const el = dom instanceof HTMLElement ? dom : dom.parentElement;
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -98,7 +101,8 @@ export default function OutlinePanel({ editor }: { editor: Editor | null }) {
       <div className="elx-panel__body">
         {!entries.length && (
           <p className="elx-empty">
-            Aucun titre dans ce document.<br />
+            Aucun titre dans ce document.
+            <br />
             Appliquez un style Titre 1 à 3 pour construire le plan.
           </p>
         )}
@@ -125,7 +129,9 @@ export default function OutlinePanel({ editor }: { editor: Editor | null }) {
                   {collapsed.has(entry.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                 </button>
               ) : (
-                <span className="doc-outline__twist"><Hash size={11} /></span>
+                <span className="doc-outline__twist">
+                  <Hash size={11} />
+                </span>
               )}
               <button
                 className="doc-outline__title"
@@ -140,7 +146,9 @@ export default function OutlinePanel({ editor }: { editor: Editor | null }) {
         )}
       </div>
       <div className="elx-panel__foot">
-        <span className="doc-outline__hint"><ListTree size={12} /> Cliquez un titre pour y aller</span>
+        <span className="doc-outline__hint">
+          <ListTree size={12} /> Cliquez un titre pour y aller
+        </span>
       </div>
     </div>
   );

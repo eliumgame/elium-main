@@ -35,8 +35,16 @@ export interface Op {
 
 const isWhite = (c: number) => c === 0x00 || c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d || c === 0x20;
 const isDelim = (c: number) =>
-  c === 0x28 || c === 0x29 || c === 0x3c || c === 0x3e || c === 0x5b || c === 0x5d ||
-  c === 0x7b || c === 0x7d || c === 0x2f || c === 0x25;
+  c === 0x28 ||
+  c === 0x29 ||
+  c === 0x3c ||
+  c === 0x3e ||
+  c === 0x5b ||
+  c === 0x5d ||
+  c === 0x7b ||
+  c === 0x7d ||
+  c === 0x2f ||
+  c === 0x25;
 const isRegular = (c: number) => !isWhite(c) && !isDelim(c);
 const hexVal = (c: number): number =>
   c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 0x37 : c >= 0x61 && c <= 0x66 ? c - 0x57 : -1;
@@ -60,8 +68,12 @@ class Lexer {
   skipWhite(): void {
     while (this.i < this.b.length) {
       const c = this.b[this.i];
-      if (isWhite(c)) { this.i++; continue; }
-      if (c === 0x25) { // '%' comment to end of line
+      if (isWhite(c)) {
+        this.i++;
+        continue;
+      }
+      if (c === 0x25) {
+        // '%' comment to end of line
         while (this.i < this.b.length && this.b[this.i] !== 0x0a && this.b[this.i] !== 0x0d) this.i++;
         continue;
       }
@@ -91,7 +103,10 @@ class Lexer {
       if (n !== null) return { kind: "operand", value: { t: "num", v: n } };
     }
     const kw = this.readKeyword();
-    if (!kw) { this.i++; return this.next(); }
+    if (!kw) {
+      this.i++;
+      return this.next();
+    }
     if (kw === "true") return { kind: "operand", value: { t: "bool", v: true } };
     if (kw === "false") return { kind: "operand", value: { t: "bool", v: false } };
     if (kw === "null") return { kind: "operand", value: { t: "null" } };
@@ -111,12 +126,25 @@ class Lexer {
     let digits = 0;
     while (this.i < this.b.length) {
       const c = this.b[this.i];
-      if (c >= 0x30 && c <= 0x39) { digits++; this.i++; continue; }
-      if (c === 0x2e) { this.i++; continue; }
-      if (c === 0x2d || c === 0x2b) { this.i++; continue; } // malformed "1-2"; tolerate
+      if (c >= 0x30 && c <= 0x39) {
+        digits++;
+        this.i++;
+        continue;
+      }
+      if (c === 0x2e) {
+        this.i++;
+        continue;
+      }
+      if (c === 0x2d || c === 0x2b) {
+        this.i++;
+        continue;
+      } // malformed "1-2"; tolerate
       break;
     }
-    if (!digits) { this.i = start; return null; }
+    if (!digits) {
+      this.i = start;
+      return null;
+    }
     const n = Number(latin1(this.b.subarray(start, this.i)).replace(/(?!^)[+-]/g, ""));
     return Number.isFinite(n) ? n : 0;
   }
@@ -143,25 +171,49 @@ class Lexer {
     let depth = 1;
     while (this.i < this.b.length) {
       const c = this.b[this.i++];
-      if (c === 0x5c) { // backslash
+      if (c === 0x5c) {
+        // backslash
         const e = this.b[this.i++];
         switch (e) {
-          case 0x6e: out.push(0x0a); break;
-          case 0x72: out.push(0x0d); break;
-          case 0x74: out.push(0x09); break;
-          case 0x62: out.push(0x08); break;
-          case 0x66: out.push(0x0c); break;
-          case 0x28: out.push(0x28); break;
-          case 0x29: out.push(0x29); break;
-          case 0x5c: out.push(0x5c); break;
-          case 0x0d: if (this.b[this.i] === 0x0a) this.i++; break; // line continuation
-          case 0x0a: break;
+          case 0x6e:
+            out.push(0x0a);
+            break;
+          case 0x72:
+            out.push(0x0d);
+            break;
+          case 0x74:
+            out.push(0x09);
+            break;
+          case 0x62:
+            out.push(0x08);
+            break;
+          case 0x66:
+            out.push(0x0c);
+            break;
+          case 0x28:
+            out.push(0x28);
+            break;
+          case 0x29:
+            out.push(0x29);
+            break;
+          case 0x5c:
+            out.push(0x5c);
+            break;
+          case 0x0d:
+            if (this.b[this.i] === 0x0a) this.i++;
+            break; // line continuation
+          case 0x0a:
+            break;
           default: {
-            if (e >= 0x30 && e <= 0x37) { // octal, up to 3 digits
+            if (e >= 0x30 && e <= 0x37) {
+              // octal, up to 3 digits
               let v = e - 0x30;
               for (let k = 0; k < 2; k++) {
                 const d = this.b[this.i];
-                if (d >= 0x30 && d <= 0x37) { v = v * 8 + (d - 0x30); this.i++; } else break;
+                if (d >= 0x30 && d <= 0x37) {
+                  v = v * 8 + (d - 0x30);
+                  this.i++;
+                } else break;
               }
               out.push(v & 0xff);
             } else if (e !== undefined) {
@@ -171,8 +223,17 @@ class Lexer {
         }
         continue;
       }
-      if (c === 0x28) { depth++; out.push(c); continue; }
-      if (c === 0x29) { depth--; if (depth === 0) break; out.push(c); continue; }
+      if (c === 0x28) {
+        depth++;
+        out.push(c);
+        continue;
+      }
+      if (c === 0x29) {
+        depth--;
+        if (depth === 0) break;
+        out.push(c);
+        continue;
+      }
       out.push(c);
     }
     return Uint8Array.from(out);
@@ -188,7 +249,10 @@ class Lexer {
       const v = hexVal(c);
       if (v < 0) continue;
       if (hi < 0) hi = v;
-      else { out.push(hi * 16 + v); hi = -1; }
+      else {
+        out.push(hi * 16 + v);
+        hi = -1;
+      }
     }
     if (hi >= 0) out.push(hi * 16); // odd digit count: pad with 0
     return Uint8Array.from(out);
@@ -200,7 +264,10 @@ class Lexer {
     for (;;) {
       this.skipWhite();
       if (this.i >= this.b.length) break;
-      if (this.b[this.i] === 0x5d) { this.i++; break; }
+      if (this.b[this.i] === 0x5d) {
+        this.i++;
+        break;
+      }
       const tok = this.next();
       if (!tok) break;
       if (tok.kind === "operand") out.push(tok.value);
@@ -215,8 +282,14 @@ class Lexer {
     for (;;) {
       this.skipWhite();
       if (this.i >= this.b.length) break;
-      if (this.b[this.i] === 0x3e && this.b[this.i + 1] === 0x3e) { this.i += 2; break; }
-      if (this.b[this.i] !== 0x2f) { this.i++; continue; }
+      if (this.b[this.i] === 0x3e && this.b[this.i + 1] === 0x3e) {
+        this.i += 2;
+        break;
+      }
+      if (this.b[this.i] !== 0x2f) {
+        this.i++;
+        continue;
+      }
       const key = this.readName();
       const tok = this.next();
       if (!tok) break;
@@ -233,7 +306,8 @@ class Lexer {
     const start = this.i;
     while (this.i < this.b.length - 1) {
       if (
-        this.b[this.i] === 0x45 && this.b[this.i + 1] === 0x49 && // 'E' 'I'
+        this.b[this.i] === 0x45 &&
+        this.b[this.i + 1] === 0x49 && // 'E' 'I'
         (this.i === 0 || isWhite(this.b[this.i - 1])) &&
         (this.i + 2 >= this.b.length || isWhite(this.b[this.i + 2]) || isDelim(this.b[this.i + 2]))
       ) {
@@ -325,12 +399,30 @@ function writeLiteralString(out: number[], v: Uint8Array): void {
   out.push(0x28);
   for (let i = 0; i < v.length; i++) {
     const c = v[i];
-    if (c === 0x28 || c === 0x29 || c === 0x5c) { out.push(0x5c, c); continue; }
-    if (c === 0x0a) { out.push(0x5c, 0x6e); continue; }
-    if (c === 0x0d) { out.push(0x5c, 0x72); continue; }
-    if (c === 0x09) { out.push(0x5c, 0x74); continue; }
-    if (c === 0x08) { out.push(0x5c, 0x62); continue; }
-    if (c === 0x0c) { out.push(0x5c, 0x66); continue; }
+    if (c === 0x28 || c === 0x29 || c === 0x5c) {
+      out.push(0x5c, c);
+      continue;
+    }
+    if (c === 0x0a) {
+      out.push(0x5c, 0x6e);
+      continue;
+    }
+    if (c === 0x0d) {
+      out.push(0x5c, 0x72);
+      continue;
+    }
+    if (c === 0x09) {
+      out.push(0x5c, 0x74);
+      continue;
+    }
+    if (c === 0x08) {
+      out.push(0x5c, 0x62);
+      continue;
+    }
+    if (c === 0x0c) {
+      out.push(0x5c, 0x66);
+      continue;
+    }
     out.push(c);
   }
   out.push(0x29);
@@ -344,12 +436,24 @@ function writeHexString(out: number[], v: Uint8Array): void {
 
 function writeOperand(out: number[], o: Operand): void {
   switch (o.t) {
-    case "num": pushAscii(out, fmtNumber(o.v)); break;
-    case "name": pushAscii(out, encodeName(o.v)); break;
-    case "str": writeLiteralString(out, o.v); break;
-    case "hex": writeHexString(out, o.v); break;
-    case "bool": pushAscii(out, o.v ? "true" : "false"); break;
-    case "null": pushAscii(out, "null"); break;
+    case "num":
+      pushAscii(out, fmtNumber(o.v));
+      break;
+    case "name":
+      pushAscii(out, encodeName(o.v));
+      break;
+    case "str":
+      writeLiteralString(out, o.v);
+      break;
+    case "hex":
+      writeHexString(out, o.v);
+      break;
+    case "bool":
+      pushAscii(out, o.v ? "true" : "false");
+      break;
+    case "null":
+      pushAscii(out, "null");
+      break;
     case "arr": {
       out.push(0x5b);
       o.v.forEach((it, i) => {
@@ -433,7 +537,14 @@ export interface TextState {
 }
 
 const initialTextState = (): TextState => ({
-  font: null, size: 0, charSpacing: 0, wordSpacing: 0, hScale: 1, leading: 0, rise: 0, renderMode: 0,
+  font: null,
+  size: 0,
+  charSpacing: 0,
+  wordSpacing: 0,
+  hScale: 1,
+  leading: 0,
+  rise: 0,
+  renderMode: 0,
   fill: { r: 0, g: 0, b: 0 },
 });
 
@@ -499,20 +610,52 @@ export function walkText(ops: readonly Op[], measure?: WidthFn): ShowOp[] {
   for (let i = 0; i < ops.length; i++) {
     const { op, args } = ops[i];
     switch (op) {
-      case "q": ctmStack.push(ctm); gsStack.push({ ...gs }); break;
-      case "Q": ctm = ctmStack.pop() ?? IDENTITY; gs = gsStack.pop() ?? initialTextState(); break;
-      case "cm": ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm); break;
-      case "BT": tm = IDENTITY; tlm = IDENTITY; break;
-      case "ET": break;
-      case "Tf": gs = { ...gs, font: args[0]?.t === "name" ? args[0].v : null, size: num(args[1]) }; break;
-      case "Tc": gs = { ...gs, charSpacing: num(args[0]) }; break;
-      case "Tw": gs = { ...gs, wordSpacing: num(args[0]) }; break;
-      case "Tz": gs = { ...gs, hScale: num(args[0]) / 100 }; break;
-      case "TL": gs = { ...gs, leading: num(args[0]) }; break;
-      case "Ts": gs = { ...gs, rise: num(args[0]) }; break;
-      case "Tr": gs = { ...gs, renderMode: num(args[0]) }; break;
-      case "g": { const v = num(args[0]); gs = { ...gs, fill: { r: v, g: v, b: v } }; break; }
-      case "rg": gs = { ...gs, fill: { r: num(args[0]), g: num(args[1]), b: num(args[2]) } }; break;
+      case "q":
+        ctmStack.push(ctm);
+        gsStack.push({ ...gs });
+        break;
+      case "Q":
+        ctm = ctmStack.pop() ?? IDENTITY;
+        gs = gsStack.pop() ?? initialTextState();
+        break;
+      case "cm":
+        ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
+        break;
+      case "BT":
+        tm = IDENTITY;
+        tlm = IDENTITY;
+        break;
+      case "ET":
+        break;
+      case "Tf":
+        gs = { ...gs, font: args[0]?.t === "name" ? args[0].v : null, size: num(args[1]) };
+        break;
+      case "Tc":
+        gs = { ...gs, charSpacing: num(args[0]) };
+        break;
+      case "Tw":
+        gs = { ...gs, wordSpacing: num(args[0]) };
+        break;
+      case "Tz":
+        gs = { ...gs, hScale: num(args[0]) / 100 };
+        break;
+      case "TL":
+        gs = { ...gs, leading: num(args[0]) };
+        break;
+      case "Ts":
+        gs = { ...gs, rise: num(args[0]) };
+        break;
+      case "Tr":
+        gs = { ...gs, renderMode: num(args[0]) };
+        break;
+      case "g": {
+        const v = num(args[0]);
+        gs = { ...gs, fill: { r: v, g: v, b: v } };
+        break;
+      }
+      case "rg":
+        gs = { ...gs, fill: { r: num(args[0]), g: num(args[1]), b: num(args[2]) } };
+        break;
       case "k": {
         const [c, m, y, kk] = [num(args[0]), num(args[1]), num(args[2]), num(args[3])];
         gs = { ...gs, fill: { r: (1 - c) * (1 - kk), g: (1 - m) * (1 - kk), b: (1 - y) * (1 - kk) } };
@@ -529,7 +672,10 @@ export function walkText(ops: readonly Op[], measure?: WidthFn): ShowOp[] {
         }
         break;
       }
-      case "Td": tlm = mul([1, 0, 0, 1, num(args[0]), num(args[1])], tlm); tm = tlm; break;
+      case "Td":
+        tlm = mul([1, 0, 0, 1, num(args[0]), num(args[1])], tlm);
+        tm = tlm;
+        break;
       case "TD":
         gs = { ...gs, leading: -num(args[1]) };
         tlm = mul([1, 0, 0, 1, num(args[0]), num(args[1])], tlm);
@@ -539,7 +685,10 @@ export function walkText(ops: readonly Op[], measure?: WidthFn): ShowOp[] {
         tlm = [num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])];
         tm = tlm;
         break;
-      case "T*": tlm = mul([1, 0, 0, 1, 0, -gs.leading], tlm); tm = tlm; break;
+      case "T*":
+        tlm = mul([1, 0, 0, 1, 0, -gs.leading], tlm);
+        tm = tlm;
+        break;
       case "Tj":
       case "'":
       case '"':
@@ -617,8 +766,14 @@ export function walkPlacements(ops: readonly Op[]): Placement[] {
 
   for (let i = 0; i < ops.length; i++) {
     const { op, args } = ops[i];
-    if (op === "q") { stack.push(ctm); continue; }
-    if (op === "Q") { ctm = stack.pop() ?? IDENTITY; continue; }
+    if (op === "q") {
+      stack.push(ctm);
+      continue;
+    }
+    if (op === "Q") {
+      ctm = stack.pop() ?? IDENTITY;
+      continue;
+    }
     if (op === "cm") {
       ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
       continue;
@@ -640,6 +795,9 @@ export function concat(parts: readonly Uint8Array[]): Uint8Array {
   for (const p of parts) n += p.length;
   const out = new Uint8Array(n);
   let at = 0;
-  for (const p of parts) { out.set(p, at); at += p.length; }
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
   return out;
 }

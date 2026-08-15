@@ -134,7 +134,15 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         await c.query(
           `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
            VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [node.id, s.principalType, s.principalId, s.roleId, JSON.stringify(s.wrappedKey), user.id, s.inheritedFrom ?? null],
+          [
+            node.id,
+            s.principalType,
+            s.principalId,
+            s.roleId,
+            JSON.stringify(s.wrappedKey),
+            user.id,
+            s.inheritedFrom ?? null,
+          ],
         );
       }
       return node;
@@ -344,7 +352,9 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     if (!node) throw notFound();
     if (!node.trashed_at) throw badRequest("Le nœud doit d'abord être dans la corbeille.");
     // Best-effort blob cleanup (current + versions), then cascade-delete the row.
-    const versions = await query<{ content_ref: string }>(`SELECT content_ref FROM node_versions WHERE node_id = $1`, [id]);
+    const versions = await query<{ content_ref: string }>(`SELECT content_ref FROM node_versions WHERE node_id = $1`, [
+      id,
+    ]);
     const store = storage();
     for (const v of versions) await store.delete(v.content_ref).catch(() => {});
     if (node.content_ref) await store.delete(node.content_ref).catch(() => {});
@@ -399,7 +409,15 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         await c.query(
           `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
            VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [id, s.principalType, s.principalId, s.roleId, JSON.stringify(s.wrappedKey), user.id, s.inheritedFrom ?? null],
+          [
+            id,
+            s.principalType,
+            s.principalId,
+            s.roleId,
+            JSON.stringify(s.wrappedKey),
+            user.id,
+            s.inheritedFrom ?? null,
+          ],
         );
       }
       const { rows: links } = await c.query(
@@ -430,7 +448,15 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     // Every connected peer holds the OLD key: evict, they reconnect and re-fetch.
     kickRoom(id);
 
-    await audit(access.orgId, user.id, "node.key.rotate", access.kind, id, { keyEpoch: node.key_epoch, revokedLinks }, req.ip);
+    await audit(
+      access.orgId,
+      user.id,
+      "node.key.rotate",
+      access.kind,
+      id,
+      { keyEpoch: node.key_epoch, revokedLinks },
+      req.ip,
+    );
     return { node: nodeMetaDto(node), revokedLinks };
   });
 
@@ -439,85 +465,88 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   // sent in the `x-content-nonce` header (hex). A version snapshot is recorded.
   // Optional `x-key-epoch` header: rejected with 409 when it no longer matches
   // the node (the key rotated while this writer still held the old CEK).
-  app.put("/:id/content", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req: FastifyRequest) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const access = await requireNodePerm(req, id, "node.edit");
-    const user = requireUser(req);
-    if (access.kind !== "file") throw badRequest("Seuls les fichiers ont un contenu.");
+  app.put(
+    "/:id/content",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req: FastifyRequest) => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+      const access = await requireNodePerm(req, id, "node.edit");
+      const user = requireUser(req);
+      if (access.kind !== "file") throw badRequest("Seuls les fichiers ont un contenu.");
 
-    const nonceHex = String(req.headers["x-content-nonce"] ?? "");
-    if (!/^[0-9a-f]{24}$/.test(nonceHex)) throw badRequest("En-tête x-content-nonce invalide (nonce 12 octets hex).");
-    const body = req.body as Readable | undefined;
-    if (!body || typeof body.pipe !== "function") throw badRequest("Corps binaire attendu (application/octet-stream).");
+      const nonceHex = String(req.headers["x-content-nonce"] ?? "");
+      if (!/^[0-9a-f]{24}$/.test(nonceHex)) throw badRequest("En-tête x-content-nonce invalide (nonce 12 octets hex).");
+      const body = req.body as Readable | undefined;
+      if (!body || typeof body.pipe !== "function")
+        throw badRequest("Corps binaire attendu (application/octet-stream).");
 
-    // Stream straight to storage (no full buffering); size is enforced + tallied.
-    const store = storage();
-    const key = store.newKey();
-    let size: number;
-    try {
-      size = await store.putStream(key, body, config.maxBlobBytes);
-    } catch (err) {
-      await store.delete(key).catch(() => {});
-      if (err instanceof Error && err.message === "payload_too_large") throw tooLarge();
-      throw err;
-    }
-
-    const epochHeader = String(req.headers["x-key-epoch"] ?? "");
-    const updated = await withTx(async (c) => {
-      const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
-      if (!cur[0]) throw notFound();
-      if (epochHeader && Number(epochHeader) !== cur[0].key_epoch) {
-        throw conflict("La clé du nœud a tourné — récupérez la nouvelle clé avant d'écrire.");
+      // Stream straight to storage (no full buffering); size is enforced + tallied.
+      const store = storage();
+      const key = store.newKey();
+      let size: number;
+      try {
+        size = await store.putStream(key, body, config.maxBlobBytes);
+      } catch (err) {
+        await store.delete(key).catch(() => {});
+        if (err instanceof Error && err.message === "payload_too_large") throw tooLarge();
+        throw err;
       }
-      // Storage quota: a new version ADDS `size` bytes (prior versions are kept).
-      // NULL quota = unlimited. Checked in-tx just before the version is recorded.
-      // The lock above is per-NODE, not per-org, so two concurrent uploads to
-      // TWO DIFFERENT nodes of the same org would otherwise both read `used`
-      // before either commits and both pass the check, overrunning the quota.
-      // An org-scoped advisory lock serializes the check+insert critical
-      // section across nodes; it auto-releases at transaction end/rollback.
-      await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [access.orgId]);
-      const { rows: q } = await c.query(
-        `SELECT o.storage_quota_bytes AS quota,
+
+      const epochHeader = String(req.headers["x-key-epoch"] ?? "");
+      const updated = await withTx(async (c) => {
+        const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
+        if (!cur[0]) throw notFound();
+        if (epochHeader && Number(epochHeader) !== cur[0].key_epoch) {
+          throw conflict("La clé du nœud a tourné — récupérez la nouvelle clé avant d'écrire.");
+        }
+        // Storage quota: a new version ADDS `size` bytes (prior versions are kept).
+        // NULL quota = unlimited. Checked in-tx just before the version is recorded.
+        // The lock above is per-NODE, not per-org, so two concurrent uploads to
+        // TWO DIFFERENT nodes of the same org would otherwise both read `used`
+        // before either commits and both pass the check, overrunning the quota.
+        // An org-scoped advisory lock serializes the check+insert critical
+        // section across nodes; it auto-releases at transaction end/rollback.
+        await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [access.orgId]);
+        const { rows: q } = await c.query(
+          `SELECT o.storage_quota_bytes AS quota,
                 COALESCE((SELECT SUM(v.size_bytes) FROM node_versions v
                            JOIN nodes n2 ON n2.id = v.node_id WHERE n2.org_id = o.id), 0) AS used
            FROM organizations o WHERE o.id = $1`,
-        [access.orgId],
-      );
-      const quota = q[0]?.quota as number | null;
-      const used = Number(q[0]?.used ?? 0);
-      if (quota != null && used + size > Number(quota)) {
-        throw insufficientStorage(
-          `Quota atteint : ${used + size} octets requis pour ${Number(quota)} alloués.`,
+          [access.orgId],
         );
-      }
-      const { rows: vrows } = await c.query(
-        `SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM node_versions WHERE node_id = $1`,
-        [id],
-      );
-      const versionNo = vrows[0].next as number;
-      const { rows: ver } = await c.query(
-        `INSERT INTO node_versions (node_id, version_no, content_ref, content_nonce, size_bytes, created_by, key_epoch)
+        const quota = q[0]?.quota as number | null;
+        const used = Number(q[0]?.used ?? 0);
+        if (quota != null && used + size > Number(quota)) {
+          throw insufficientStorage(`Quota atteint : ${used + size} octets requis pour ${Number(quota)} alloués.`);
+        }
+        const { rows: vrows } = await c.query(
+          `SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM node_versions WHERE node_id = $1`,
+          [id],
+        );
+        const versionNo = vrows[0].next as number;
+        const { rows: ver } = await c.query(
+          `INSERT INTO node_versions (node_id, version_no, content_ref, content_nonce, size_bytes, created_by, key_epoch)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [id, versionNo, key, hex(nonceHex), size, user.id, cur[0].key_epoch],
-      );
-      const { rows } = await c.query(
-        `UPDATE nodes SET content_ref = $2, content_nonce = $3, size_bytes = $4,
+          [id, versionNo, key, hex(nonceHex), size, user.id, cur[0].key_epoch],
+        );
+        const { rows } = await c.query(
+          `UPDATE nodes SET content_ref = $2, content_nonce = $3, size_bytes = $4,
                           current_version_id = $5, modified_at = now(), modified_by = $6
           WHERE id = $1 RETURNING *`,
-        [id, key, hex(nonceHex), size, ver[0].id, user.id],
-      );
-      return rows[0];
-    }).catch(async (err) => {
-      // The blob was already streamed to storage: clean it up on rejection.
-      await store.delete(key).catch(() => {});
-      throw err;
-    });
+          [id, key, hex(nonceHex), size, ver[0].id, user.id],
+        );
+        return rows[0];
+      }).catch(async (err) => {
+        // The blob was already streamed to storage: clean it up on rejection.
+        await store.delete(key).catch(() => {});
+        throw err;
+      });
 
-    await audit(access.orgId, user.id, "node.content.update", "file", id, { size }, req.ip);
-    notifyOrg(access.orgId);
-    return { node: nodeMetaDto(updated) };
-  });
+      await audit(access.orgId, user.id, "node.content.update", "file", id, { size }, req.ip);
+      notifyOrg(access.orgId);
+      return { node: nodeMetaDto(updated) };
+    },
+  );
 
   // --- Content: download (encrypted blob) ----------------------------------
   app.get("/:id/content", { config: { rateLimit: { max: 400, timeWindow: "1 minute" } } }, async (req, reply) => {

@@ -38,7 +38,9 @@ export async function protectLinkSecret(password: string, secretHex: string): Pr
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, fromHex(secretHex) as BufferSource));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, fromHex(secretHex) as BufferSource),
+  );
   return `${toHex(salt)}.${toHex(iv)}.${toHex(ct)}`;
 }
 
@@ -50,6 +52,12 @@ export async function unprotectLinkSecret(password: string, blob: string): Promi
   const [saltHex, ivHex, ctHex] = blob.split(".");
   if (!saltHex || !ivHex || !ctHex) throw new Error("Lien protégé malformé.");
   const key = await deriveKey(password, fromHex(saltHex));
-  const pt = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromHex(ivHex) as BufferSource }, key, fromHex(ctHex) as BufferSource));
+  const pt = new Uint8Array(
+    await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromHex(ivHex) as BufferSource },
+      key,
+      fromHex(ctHex) as BufferSource,
+    ),
+  );
   return toHex(pt);
 }

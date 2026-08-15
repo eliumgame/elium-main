@@ -62,9 +62,15 @@ export default function IndexEntryModal({ editor, onClose }: { editor: Editor; o
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Fermer</Button>
-          <Button variant="outline" onClick={markAll} disabled={!clean}>Marquer tout</Button>
-          <Button onClick={markOne} disabled={!clean}>Marquer</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Fermer
+          </Button>
+          <Button variant="outline" onClick={markAll} disabled={!clean}>
+            Marquer tout
+          </Button>
+          <Button onClick={markOne} disabled={!clean}>
+            Marquer
+          </Button>
         </>
       }
     >
@@ -81,7 +87,9 @@ export default function IndexEntryModal({ editor, onClose }: { editor: Editor; o
             />
           </Field>
           <datalist id="elium-index-terms">
-            {known.map((k) => <option key={k} value={k} />)}
+            {known.map((k) => (
+              <option key={k} value={k} />
+            ))}
           </datalist>
           <Field label="Sous-entrée (facultatif)">
             <input
@@ -95,8 +103,8 @@ export default function IndexEntryModal({ editor, onClose }: { editor: Editor; o
 
         <section className="settings__section">
           <p className="muted">
-            La marque reste visible pendant l'édition mais ne s'imprime pas. Insérez le bloc « Index » depuis
-            l'onglet Insertion pour voir la liste alphabétique avec ses numéros de page.
+            La marque reste visible pendant l'édition mais ne s'imprime pas. Insérez le bloc « Index » depuis l'onglet
+            Insertion pour voir la liste alphabétique avec ses numéros de page.
           </p>
           {markedAll != null && (
             <p className="muted">

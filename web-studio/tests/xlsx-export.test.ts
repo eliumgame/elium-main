@@ -61,7 +61,7 @@ describe("XLSX export", () => {
     const s1 = strFromU8(unzipSync(workbookToXlsx(wb()))["xl/worksheets/sheet1.xml"]);
     expect(s1).toContain('<c r="A1" s="'); // styled header (bold+fill)
     expect(s1).toContain('t="inlineStr"');
-    expect(s1).toContain("<t xml:space=\"preserve\">Café</t>");
+    expect(s1).toContain('<t xml:space="preserve">Café</t>');
     expect(s1).toContain("<v>3.5</v>"); // numeric cell
     expect(s1).toContain("<f>SUM(B2:B3)</f>"); // formula, no leading '='
     expect(s1).not.toContain("=SUM"); // the '=' is stripped in <f>

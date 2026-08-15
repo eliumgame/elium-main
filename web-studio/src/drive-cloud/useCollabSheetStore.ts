@@ -20,10 +20,22 @@ import type { CellStyle, CondRule, DataValidation, ChartSpec, SheetData, Workboo
 import type { SheetStore, SheetStatus, SheetPeer } from "../sheet/store";
 
 const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9", "#dc2626", "#0d9488"];
-const colorForId = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]!; };
-export const initialsOf = (s: string) => { const p = s.split(/[@\s.]+/).filter(Boolean); return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?"; };
+const colorForId = (id: string) => {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length]!;
+};
+export const initialsOf = (s: string) => {
+  const p = s.split(/[@\s.]+/).filter(Boolean);
+  return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?";
+};
 
-const STATUS_MAP: Record<CollabStatus, SheetStatus> = { connecting: "connecting", open: "open", closed: "closed", revoked: "revoked" };
+const STATUS_MAP: Record<CollabStatus, SheetStatus> = {
+  connecting: "connecting",
+  open: "open",
+  closed: "closed",
+  revoked: "revoked",
+};
 
 export interface CollabSheetStoreOpts {
   api: DriveApi;
@@ -46,7 +58,14 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorForId(user.id) }), [user.id, user.name]);
   const [ydoc] = useState(() => new Y.Doc());
-  const [provider] = useState(() => new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, { onStatus: setStatus, onReady: setCanWrite, ...(refetchKey ? { refetchKey } : {}) }));
+  const [provider] = useState(
+    () =>
+      new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, {
+        onStatus: setStatus,
+        onReady: setCanWrite,
+        ...(refetchKey ? { refetchKey } : {}),
+      }),
+  );
   const ySheets = useMemo(() => ydoc.getArray<SM.YSheet>("sheets") as SM.YSheets, [ydoc]);
   const yNames = useMemo(() => ydoc.getMap<string>("names"), [ydoc]);
   // L'UndoManager ne suit que les transactions d'origine nulle (nos éditions
@@ -54,15 +73,20 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
   // donc jamais annulés par erreur.
   const [undoMgr] = useState(() => new Y.UndoManager([ySheets, yNames]));
 
-  const activeRef = useRef(active); activeRef.current = active;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const canWriteRef = useRef(false);
-  useEffect(() => { canWriteRef.current = canWrite; }, [canWrite]);
+  useEffect(() => {
+    canWriteRef.current = canWrite;
+  }, [canWrite]);
 
   const snapshot = (): Workbook => SM.workbookSnapshot(ySheets, yNames, activeRef.current);
 
   useEffect(() => {
     let alive = true;
-    const obs = () => { if (alive) setWb(snapshot()); };
+    const obs = () => {
+      if (alive) setWb(snapshot());
+    };
     ySheets.observeDeep(obs);
     yNames.observe(obs);
     provider.connect().then(() => {
@@ -72,19 +96,33 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
       // héritées en Y.Text ET crée les sous-structures manquantes sur les
       // documents antérieurs au modèle plein. Idempotent.
       if (canWriteRef.current) {
-        ydoc.transact(() => { for (const ys of ySheets.toArray()) SM.ensureSheetStructures(ys); });
-        for (const ys of ySheets.toArray()) { const cells = ys.get("cells") as YCells | undefined; if (cells) migrateCells(ydoc, cells); }
+        ydoc.transact(() => {
+          for (const ys of ySheets.toArray()) SM.ensureSheetStructures(ys);
+        });
+        for (const ys of ySheets.toArray()) {
+          const cells = ys.get("cells") as YCells | undefined;
+          if (cells) migrateCells(ydoc, cells);
+        }
       }
       setWb(snapshot());
     });
-    return () => { alive = false; ySheets.unobserveDeep(obs); yNames.unobserve(obs); provider.destroy(); };
+    return () => {
+      alive = false;
+      ySheets.unobserveDeep(obs);
+      yNames.unobserve(obs);
+      provider.destroy();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, ySheets, yNames, ydoc]);
 
   // Recalcule l'instantané quand l'utilisateur change de feuille (wb.active suit).
-  useEffect(() => { setWb(snapshot()); }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setWb(snapshot());
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
   // Ramène `active` dans les bornes si le nombre de feuilles rétrécit.
-  useEffect(() => { if (active > wb.sheets.length - 1) setActiveState(Math.max(0, wb.sheets.length - 1)); }, [wb.sheets.length, active]);
+  useEffect(() => {
+    if (active > wb.sheets.length - 1) setActiveState(Math.max(0, wb.sheets.length - 1));
+  }, [wb.sheets.length, active]);
 
   // Présence : collecte la cellule des pairs (la nôtre est publiée par setPresence).
   useEffect(() => {
@@ -99,7 +137,8 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
       });
       setPeers(list);
     };
-    provider.awareness.on("change", refresh); refresh();
+    provider.awareness.on("change", refresh);
+    refresh();
     return () => provider.awareness.off("change", refresh);
   }, [provider]);
 
@@ -121,12 +160,20 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
 
   // ── Mutateurs (chacun une transaction Yjs ciblée sur la feuille `s`) ──────
   const setCell = (s: number, ref: string, raw: string) => {
-    const ys = sheetAt(s); if (!ys) return;
-    ydoc.transact(() => { SM.ensureSheetStructures(ys); setCellText(ys.get("cells") as YCells, ref, raw); });
+    const ys = sheetAt(s);
+    if (!ys) return;
+    ydoc.transact(() => {
+      SM.ensureSheetStructures(ys);
+      setCellText(ys.get("cells") as YCells, ref, raw);
+    });
   };
-  const clearRange = (s: number, rect: Rect) => { const ys = sheetAt(s); if (ys) SM.clearRangeY(ydoc, ys, rect.r0, rect.c0, rect.r1, rect.c1); };
+  const clearRange = (s: number, rect: Rect) => {
+    const ys = sheetAt(s);
+    if (ys) SM.clearRangeY(ydoc, ys, rect.r0, rect.c0, rect.r1, rect.c1);
+  };
   const applyStyle = (s: number, refs: string[], patch: Partial<CellStyle>) => {
-    const ys = sheetAt(s); if (!ys) return;
+    const ys = sheetAt(s);
+    if (!ys) return;
     ydoc.transact(() => {
       SM.ensureSheetStructures(ys);
       const styles = ys.get("styles") as Y.Map<CellStyle>;
@@ -138,31 +185,87 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
       }
     });
   };
-  const pasteBlock = (s: number, atR: number, atC: number, grid: string[][]) => { const ys = sheetAt(s); if (ys) SM.pasteBlock(ydoc, ys, atR, atC, grid); };
+  const pasteBlock = (s: number, atR: number, atC: number, grid: string[][]) => {
+    const ys = sheetAt(s);
+    if (ys) SM.pasteBlock(ydoc, ys, atR, atC, grid);
+  };
 
-  const insertRow = (s: number, at: number) => { const ys = sheetAt(s); if (ys) SM.insertRowY(ydoc, ys, at); };
-  const deleteRow = (s: number, at: number) => { const ys = sheetAt(s); if (ys) SM.deleteRowY(ydoc, ys, at); };
-  const insertCol = (s: number, at: number) => { const ys = sheetAt(s); if (ys) SM.insertColY(ydoc, ys, at); };
-  const deleteCol = (s: number, at: number) => { const ys = sheetAt(s); if (ys) SM.deleteColY(ydoc, ys, at); };
-  const sortRange = (s: number, key: number, region: Rect, dir: 1 | -1, displayOf: (c: number, r: number) => string) => {
-    const ys = sheetAt(s); if (ys) SM.reconcileSheet(ydoc, ys, sortRangePure(SM.sheetSnapshot(ys), key, region, dir, displayOf));
+  const insertRow = (s: number, at: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.insertRowY(ydoc, ys, at);
+  };
+  const deleteRow = (s: number, at: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.deleteRowY(ydoc, ys, at);
+  };
+  const insertCol = (s: number, at: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.insertColY(ydoc, ys, at);
+  };
+  const deleteCol = (s: number, at: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.deleteColY(ydoc, ys, at);
+  };
+  const sortRange = (
+    s: number,
+    key: number,
+    region: Rect,
+    dir: 1 | -1,
+    displayOf: (c: number, r: number) => string,
+  ) => {
+    const ys = sheetAt(s);
+    if (ys) SM.reconcileSheet(ydoc, ys, sortRangePure(SM.sheetSnapshot(ys), key, region, dir, displayOf));
   };
   const fillRange = (s: number, src: Rect, to: { c: number; r: number }) => {
-    const ys = sheetAt(s); if (ys) SM.reconcileSheet(ydoc, ys, fillRangePure(SM.sheetSnapshot(ys), src, to));
+    const ys = sheetAt(s);
+    if (ys) SM.reconcileSheet(ydoc, ys, fillRangePure(SM.sheetSnapshot(ys), src, to));
   };
-  const growSheet = (s: number, key: "rows" | "cols", by: number) => { const ys = sheetAt(s); if (ys) SM.growSheet(ydoc, ys, key, by); };
+  const growSheet = (s: number, key: "rows" | "cols", by: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.growSheet(ydoc, ys, key, by);
+  };
 
-  const setColWidth = (s: number, col: number, w: number) => { const ys = sheetAt(s); if (ys) SM.setColWidth(ydoc, ys, col, w); };
-  const setFreeze = (s: number, rows: number, cols: number) => { const ys = sheetAt(s); if (ys) SM.setFreeze(ydoc, ys, rows, cols); };
-  const setFilter = (s: number, col: number, query: string) => { const ys = sheetAt(s); if (ys) SM.setFilter(ydoc, ys, col, query); };
-  const toggleMerge = (s: number, rect: Rect) => { const ys = sheetAt(s); if (ys) SM.toggleMergeY(ydoc, ys, rect); };
+  const setColWidth = (s: number, col: number, w: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setColWidth(ydoc, ys, col, w);
+  };
+  const setFreeze = (s: number, rows: number, cols: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setFreeze(ydoc, ys, rows, cols);
+  };
+  const setFilter = (s: number, col: number, query: string) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setFilter(ydoc, ys, col, query);
+  };
+  const toggleMerge = (s: number, rect: Rect) => {
+    const ys = sheetAt(s);
+    if (ys) SM.toggleMergeY(ydoc, ys, rect);
+  };
 
-  const setCondRule = (s: number, rule: CondRule) => { const ys = sheetAt(s); if (ys) SM.setCondRule(ydoc, ys, rule); };
-  const removeCondRule = (s: number, id: string) => { const ys = sheetAt(s); if (ys) SM.removeCondRule(ydoc, ys, id); };
-  const setValidation = (s: number, v: DataValidation) => { const ys = sheetAt(s); if (ys) SM.setValidation(ydoc, ys, v); };
-  const removeValidation = (s: number, id: string) => { const ys = sheetAt(s); if (ys) SM.removeValidation(ydoc, ys, id); };
-  const setChart = (s: number, chart: ChartSpec) => { const ys = sheetAt(s); if (ys) SM.setChart(ydoc, ys, chart); };
-  const removeChart = (s: number, id: string) => { const ys = sheetAt(s); if (ys) SM.removeChart(ydoc, ys, id); };
+  const setCondRule = (s: number, rule: CondRule) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setCondRule(ydoc, ys, rule);
+  };
+  const removeCondRule = (s: number, id: string) => {
+    const ys = sheetAt(s);
+    if (ys) SM.removeCondRule(ydoc, ys, id);
+  };
+  const setValidation = (s: number, v: DataValidation) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setValidation(ydoc, ys, v);
+  };
+  const removeValidation = (s: number, id: string) => {
+    const ys = sheetAt(s);
+    if (ys) SM.removeValidation(ydoc, ys, id);
+  };
+  const setChart = (s: number, chart: ChartSpec) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setChart(ydoc, ys, chart);
+  };
+  const removeChart = (s: number, id: string) => {
+    const ys = sheetAt(s);
+    if (ys) SM.removeChart(ydoc, ys, id);
+  };
 
   const setName = (name: string, ref: string) => SM.setName(ydoc, yNames, name, ref);
   const removeName = (name: string) => SM.removeName(ydoc, yNames, name);
@@ -174,7 +277,8 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     setActiveState(ySheets.length - 1);
   };
   const renameSheet = (i: number, name: string) => {
-    const ys = sheetAt(i); if (!ys) return;
+    const ys = sheetAt(i);
+    if (!ys) return;
     const cur = String(ys.get("name") ?? "");
     if (!name || name === cur) return;
     // Réécrit toute référence croisée (=Feuille2!A1) du classeur, fusion CRDT préservée.
@@ -183,7 +287,10 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
         SM.ensureSheetStructures(s);
         const cells = s.get("cells") as YCells;
         for (const [ref, v] of Object.entries(cellsSnapshot(cells))) {
-          if (v[0] === "=") { const nv = renameSheetRefs(v, cur, name); if (nv !== v) setCellText(cells, ref, nv); }
+          if (v[0] === "=") {
+            const nv = renameSheetRefs(v, cur, name);
+            if (nv !== v) setCellText(cells, ref, nv);
+          }
         }
       }
       ys.set("name", name);
@@ -194,21 +301,53 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     ydoc.transact(() => ySheets.delete(i, 1));
     setActiveState((a) => Math.max(0, Math.min(a > i ? a - 1 : a, ySheets.length - 1)));
   };
-  const replaceWorkbook = (next: Workbook) => { SM.loadWorkbookIntoDoc(ydoc, ySheets, yNames, next); setActiveState(0); };
+  const replaceWorkbook = (next: Workbook) => {
+    SM.loadWorkbookIntoDoc(ydoc, ySheets, yNames, next);
+    setActiveState(0);
+  };
   const addSheetFromData = (data: SheetData): number => SM.addSheetFromData(ydoc, ySheets, data);
 
-  const setPresence = useCallback((s: number, ref: string) => {
-    provider.awareness.setLocalStateField("cell", { s, ref });
-  }, [provider]);
+  const setPresence = useCallback(
+    (s: number, ref: string) => {
+      provider.awareness.setLocalStateField("cell", { s, ref });
+    },
+    [provider],
+  );
 
   return {
-    wb, active, canWrite: writable, collaborative: true,
-    setActive, addSheet, renameSheet, removeSheet, replaceWorkbook, addSheetFromData,
-    setCell, clearRange, applyStyle, pasteBlock,
-    insertRow, deleteRow, insertCol, deleteCol, sortRange, fillRange, growSheet,
-    setColWidth, setFreeze, setFilter, toggleMerge,
-    setCondRule, removeCondRule, setValidation, removeValidation, setChart, removeChart,
-    setName, removeName,
+    wb,
+    active,
+    canWrite: writable,
+    collaborative: true,
+    setActive,
+    addSheet,
+    renameSheet,
+    removeSheet,
+    replaceWorkbook,
+    addSheetFromData,
+    setCell,
+    clearRange,
+    applyStyle,
+    pasteBlock,
+    insertRow,
+    deleteRow,
+    insertCol,
+    deleteCol,
+    sortRange,
+    fillRange,
+    growSheet,
+    setColWidth,
+    setFreeze,
+    setFilter,
+    toggleMerge,
+    setCondRule,
+    removeCondRule,
+    setValidation,
+    removeValidation,
+    setChart,
+    removeChart,
+    setName,
+    removeName,
     beginChange: () => {},
     undo: () => undoMgr.undo(),
     redo: () => undoMgr.redo(),

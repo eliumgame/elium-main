@@ -30,13 +30,31 @@ export async function audit(
       const prevHash = prev.rows[0]?.entry_hash ?? GENESIS;
       const createdAt = new Date().toISOString();
       const fields: AuditFields = {
-        orgId, actorUserId, action, resourceType, resourceId, metadata, ip: cleanIp, createdAt,
+        orgId,
+        actorUserId,
+        action,
+        resourceType,
+        resourceId,
+        metadata,
+        ip: cleanIp,
+        createdAt,
       };
       const entryHash = auditEntryHash(prevHash, fields);
       await c.query(
         `INSERT INTO audit_log (org_id, actor_user_id, action, resource_type, resource_id, metadata, ip, created_at, prev_hash, entry_hash)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [orgId, actorUserId, action, resourceType, resourceId, JSON.stringify(metadata), cleanIp, createdAt, prevHash, entryHash],
+        [
+          orgId,
+          actorUserId,
+          action,
+          resourceType,
+          resourceId,
+          JSON.stringify(metadata),
+          cleanIp,
+          createdAt,
+          prevHash,
+          entryHash,
+        ],
       );
     });
   } catch {

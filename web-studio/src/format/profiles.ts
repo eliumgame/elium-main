@@ -29,8 +29,7 @@ export const PROFILES: Record<EliumProfile, ProfileDefinition> = {
     id: "standard",
     label: "Document simple",
     short: "Standard",
-    description:
-      "Document portable non chiffré. Aucune protection forte — il n'est pas confidentiel.",
+    description: "Document portable non chiffré. Aucune protection forte — il n'est pas confidentiel.",
     encrypted: false,
     passwordRequired: false,
     locked: false,
@@ -108,8 +107,7 @@ export const PROFILES: Record<EliumProfile, ProfileDefinition> = {
     id: "secure_max",
     label: "Document ultra sécurisé",
     short: "Sécurité max",
-    description:
-      "Chiffrement + keyfile optionnel + signature + verrouillage + suivi.",
+    description: "Chiffrement + keyfile optionnel + signature + verrouillage + suivi.",
     encrypted: true,
     passwordRequired: true,
     locked: true,

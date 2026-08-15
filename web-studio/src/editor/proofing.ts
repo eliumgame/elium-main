@@ -107,10 +107,7 @@ export interface SpellChecker {
 
 /** Repli d'un mot pour la comparaison : minuscules, sans accents. */
 export function foldWord(word: string): string {
-  return word
-    .toLocaleLowerCase("fr")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "");
+  return word.toLocaleLowerCase("fr").normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
 /**
@@ -315,12 +312,7 @@ function checkQuotes(text: string): ProofIssue[] {
  * n'a, par construction, aucun voisin à une faute près dans le dictionnaire : c'est
  * ce qui le distingue d'une faute de frappe.
  */
-function checkUnknown(
-  text: string,
-  checker: SpellChecker,
-  allowed: Set<string>,
-  strict: boolean,
-): ProofIssue[] {
+function checkUnknown(text: string, checker: SpellChecker, allowed: Set<string>, strict: boolean): ProofIssue[] {
   const out: ProofIssue[] = [];
   const prudent = checker.partial === true && !strict;
   for (const w of words(text)) {

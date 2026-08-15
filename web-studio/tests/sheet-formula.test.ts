@@ -27,8 +27,14 @@ describe("formula engine", () => {
 
   it("supports ranges and aggregate functions", () => {
     const c = calc({
-      A1: "1", A2: "2", A3: "3",
-      B1: "=SUM(A1:A3)", B2: "=AVERAGE(A1:A3)", B3: "=MAX(A1:A3)", B4: "=MIN(A1:A3)", B5: "=COUNT(A1:A3)",
+      A1: "1",
+      A2: "2",
+      A3: "3",
+      B1: "=SUM(A1:A3)",
+      B2: "=AVERAGE(A1:A3)",
+      B3: "=MAX(A1:A3)",
+      B4: "=MIN(A1:A3)",
+      B5: "=COUNT(A1:A3)",
     });
     expect(c.valueOf("B1")).toBe(6);
     expect(c.valueOf("B2")).toBe(2);
@@ -71,7 +77,13 @@ describe("formula engine — extended functions", () => {
   const calc = (cells: Record<string, string>) => createCalc((ref) => cells[ref]);
 
   it("math functions (incl. ; separator)", () => {
-    const c = calc({ A1: "=SQRT(16)", A2: "=POWER(2;10)", A3: "=MOD(10;3)", A4: "=PRODUCT(2;3;4)", A5: "=ROUNDDOWN(2.78;1)" });
+    const c = calc({
+      A1: "=SQRT(16)",
+      A2: "=POWER(2;10)",
+      A3: "=MOD(10;3)",
+      A4: "=PRODUCT(2;3;4)",
+      A5: "=ROUNDDOWN(2.78;1)",
+    });
     expect(c.valueOf("A1")).toBe(4);
     expect(c.valueOf("A2")).toBe(1024);
     expect(c.valueOf("A3")).toBe(1);
@@ -81,8 +93,14 @@ describe("formula engine — extended functions", () => {
 
   it("COUNTIF / SUMIF over ranges", () => {
     const c = calc({
-      A1: "10", A2: "5", A3: "20", A4: "5",
-      B1: "=COUNTIF(A1:A4;5)", B2: '=COUNTIF(A1:A4;">=10")', B3: "=SUMIF(A1:A4;5)", B4: '=SUMIF(A1:A4;">5")',
+      A1: "10",
+      A2: "5",
+      A3: "20",
+      A4: "5",
+      B1: "=COUNTIF(A1:A4;5)",
+      B2: '=COUNTIF(A1:A4;">=10")',
+      B3: "=SUMIF(A1:A4;5)",
+      B4: '=SUMIF(A1:A4;">5")',
     });
     expect(c.valueOf("B1")).toBe(2);
     expect(c.valueOf("B2")).toBe(2);
@@ -92,8 +110,13 @@ describe("formula engine — extended functions", () => {
 
   it("logic and text functions", () => {
     const c = calc({
-      A1: "=AND(1;1;0)", A2: "=OR(0;0;1)", A3: "=NOT(0)",
-      B1: '=UPPER("ab")', B2: '=LEFT("hello";2)', B3: '=MID("hello";2;3)', B4: '=LEN("abcd")',
+      A1: "=AND(1;1;0)",
+      A2: "=OR(0;0;1)",
+      A3: "=NOT(0)",
+      B1: '=UPPER("ab")',
+      B2: '=LEFT("hello";2)',
+      B3: '=MID("hello";2;3)',
+      B4: '=LEN("abcd")',
     });
     expect(c.valueOf("A1")).toBe(false);
     expect(c.valueOf("A2")).toBe(true);
@@ -111,10 +134,18 @@ describe("formula engine — extended functions", () => {
 
   it("VLOOKUP — exact and approximate", () => {
     const c = calc({
-      A1: "Pomme", B1: "3", A2: "Banane", B2: "5", A3: "Cerise", B3: "8",
+      A1: "Pomme",
+      B1: "3",
+      A2: "Banane",
+      B2: "5",
+      A3: "Cerise",
+      B3: "8",
       D1: '=VLOOKUP("Banane";A1:B3;2;FALSE)', // exact
       D2: '=VLOOKUP("Inconnu";A1:B3;2;FALSE)', // #N/A
-      E1: "1", E2: "5", E3: "10", F1: "=VLOOKUP(7;E1:E3;1)", // approché → 5
+      E1: "1",
+      E2: "5",
+      E3: "10",
+      F1: "=VLOOKUP(7;E1:E3;1)", // approché → 5
     });
     expect(c.valueOf("D1")).toBe(5);
     expect(c.valueOf("D2")).toEqual({ error: "#N/A" });
@@ -123,8 +154,12 @@ describe("formula engine — extended functions", () => {
 
   it("HLOOKUP across the first row", () => {
     const c = calc({
-      A1: "Q1", B1: "Q2", C1: "Q3",
-      A2: "100", B2: "200", C2: "300",
+      A1: "Q1",
+      B1: "Q2",
+      C1: "Q3",
+      A2: "100",
+      B2: "200",
+      C2: "300",
       A4: '=HLOOKUP("Q2";A1:C2;2;FALSE)',
     });
     expect(c.valueOf("A4")).toBe(200);
@@ -132,9 +167,17 @@ describe("formula engine — extended functions", () => {
 
   it("SUMIFS / COUNTIFS / AVERAGEIF", () => {
     const c = calc({
-      A1: "Nord", A2: "Sud", A3: "Nord", A4: "Sud",
-      B1: "10", B2: "5", B3: "20", B4: "7",
-      D1: '=SUMIFS(B1:B4;A1:A4;"Nord")', D2: '=COUNTIFS(A1:A4;"Sud")', D3: '=AVERAGEIF(A1:A4;"Nord";B1:B4)',
+      A1: "Nord",
+      A2: "Sud",
+      A3: "Nord",
+      A4: "Sud",
+      B1: "10",
+      B2: "5",
+      B3: "20",
+      B4: "7",
+      D1: '=SUMIFS(B1:B4;A1:A4;"Nord")',
+      D2: '=COUNTIFS(A1:A4;"Sud")',
+      D3: '=AVERAGEIF(A1:A4;"Nord";B1:B4)',
     });
     expect(c.valueOf("D1")).toBe(30);
     expect(c.valueOf("D2")).toBe(2);
@@ -143,9 +186,13 @@ describe("formula engine — extended functions", () => {
 
   it("IFS / SUBSTITUTE / FIND / SEARCH / REPLACE / DATE", () => {
     const c = calc({
-      A1: "12", B1: '=IFS(A1>100;"grand";A1>5;"moyen";TRUE;"petit")',
-      B2: '=SUBSTITUTE("a-b-c";"-";"+")', B3: '=FIND("b";"abc")', B4: '=SEARCH("B";"aBc")',
-      B5: '=REPLACE("abcdef";2;3;"X")', B6: "=YEAR(DATE(2026;6;17))",
+      A1: "12",
+      B1: '=IFS(A1>100;"grand";A1>5;"moyen";TRUE;"petit")',
+      B2: '=SUBSTITUTE("a-b-c";"-";"+")',
+      B3: '=FIND("b";"abc")',
+      B4: '=SEARCH("B";"aBc")',
+      B5: '=REPLACE("abcdef";2;3;"X")',
+      B6: "=YEAR(DATE(2026;6;17))",
     });
     expect(c.valueOf("B1")).toBe("moyen");
     expect(c.valueOf("B2")).toBe("a+b+c");
@@ -163,11 +210,15 @@ describe("formula engine — extended functions", () => {
 
   it("MATCH then INDEX", () => {
     const c = calc({
-      A1: "rouge", A2: "vert", A3: "bleu",
-      B1: "10", B2: "20", B3: "30",
+      A1: "rouge",
+      A2: "vert",
+      A3: "bleu",
+      B1: "10",
+      B2: "20",
+      B3: "30",
       D1: '=MATCH("bleu";A1:A3;0)', // 3
       D2: "=INDEX(B1:B3;3)", // 30
-      D3: '=INDEX(A1:B3;2;2)', // 20
+      D3: "=INDEX(A1:B3;2;2)", // 20
     });
     expect(c.valueOf("D1")).toBe(3);
     expect(c.valueOf("D2")).toBe(30);
@@ -177,10 +228,20 @@ describe("formula engine — extended functions", () => {
 
 describe("rewriteRefs — references track inserted/deleted rows·columns", () => {
   // Position maps mirror SheetView's insert/delete row·column logic.
-  const insertRow = (at: number): RefMap => (col, row) => ({ col, row: row >= at ? row + 1 : row });
-  const deleteRow = (at: number): RefMap => (col, row) => (row === at ? null : { col, row: row > at ? row - 1 : row });
-  const insertCol = (at: number): RefMap => (col, row) => ({ col: col >= at ? col + 1 : col, row });
-  const deleteCol = (at: number): RefMap => (col, row) => (col === at ? null : { col: col > at ? col - 1 : col, row });
+  const insertRow =
+    (at: number): RefMap =>
+    (col, row) => ({ col, row: row >= at ? row + 1 : row });
+  const deleteRow =
+    (at: number): RefMap =>
+    (col, row) =>
+      row === at ? null : { col, row: row > at ? row - 1 : row };
+  const insertCol =
+    (at: number): RefMap =>
+    (col, row) => ({ col: col >= at ? col + 1 : col, row });
+  const deleteCol =
+    (at: number): RefMap =>
+    (col, row) =>
+      col === at ? null : { col: col > at ? col - 1 : col, row };
 
   it("shifts refs down when a row is inserted above", () => {
     expect(rewriteRefs("=A1+B2", insertRow(0))).toBe("=A2+B3");

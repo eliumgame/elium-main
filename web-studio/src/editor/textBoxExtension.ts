@@ -13,8 +13,17 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { CSS_PX_PER_MM } from "./Pagination";
 import { activeGrid, snapDrag, snapMm } from "./grid";
 import {
-  DEFAULT_GEOMETRY, DEFAULT_STYLE, MIN_HEIGHT_MM, MIN_WIDTH_MM, isFloating, normalizeGeometry,
-  normalizeStyle, textBoxCss, type FloatSide, type TextBoxStyle, type WrapMode,
+  DEFAULT_GEOMETRY,
+  DEFAULT_STYLE,
+  MIN_HEIGHT_MM,
+  MIN_WIDTH_MM,
+  isFloating,
+  normalizeGeometry,
+  normalizeStyle,
+  textBoxCss,
+  type FloatSide,
+  type TextBoxStyle,
+  type WrapMode,
 } from "./textBox";
 
 declare module "@tiptap/core" {
@@ -161,10 +170,7 @@ export const TextBox = Node.create({
       };
 
       /** Suivi d'un glisser, terminé même si la souris sort de la zone. */
-      const drag = (
-        e: MouseEvent,
-        onMove: (dxMm: number, dyMm: number, ev: MouseEvent) => void,
-      ) => {
+      const drag = (e: MouseEvent, onMove: (dxMm: number, dyMm: number, ev: MouseEvent) => void) => {
         e.preventDefault();
         e.stopPropagation();
         const x0 = e.clientX;

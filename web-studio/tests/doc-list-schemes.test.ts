@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
-  LIST_SCHEMES, MAX_CSS_DEPTH, abstractNumXml, formatNumeral, levelAt, markerText, matchSchemeId,
-  schemeById, schemesCss,
+  LIST_SCHEMES,
+  MAX_CSS_DEPTH,
+  abstractNumXml,
+  formatNumeral,
+  levelAt,
+  markerText,
+  matchSchemeId,
+  schemeById,
+  schemesCss,
 } from "../src/editor/listSchemes";
 
 describe("Listes multiniveaux — table des schémas", () => {
@@ -181,7 +188,12 @@ describe("Listes multiniveaux — reconnaissance à l'import DOCX", () => {
   });
 
   it("ne force aucun schéma quand rien ne correspond", () => {
-    expect(matchSchemeId([{ fmt: "decimal", text: "%1)" }, { fmt: "decimal", text: "→" }])).toBeNull();
+    expect(
+      matchSchemeId([
+        { fmt: "decimal", text: "%1)" },
+        { fmt: "decimal", text: "→" },
+      ]),
+    ).toBeNull();
     expect(matchSchemeId([])).toBeNull();
   });
 

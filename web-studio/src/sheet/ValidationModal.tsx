@@ -39,13 +39,18 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
 
   const add = () => {
     if (type === "list") {
-      const list = listText.split(/[\n,;]/).map((s) => s.trim()).filter(Boolean);
+      const list = listText
+        .split(/[\n,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (!list.length) return;
       onAdd({ type: "list", list, allowBlank });
     } else {
       onAdd({ type, op, v1: v1 || undefined, v2: needs >= 2 ? v2 || undefined : undefined, allowBlank });
     }
-    setV1(""); setV2(""); setListText("");
+    setV1("");
+    setV2("");
+    setListText("");
   };
 
   const placeholder = type === "date" ? "aaaa-mm-jj" : type === "textLength" ? "longueur" : "valeur";
@@ -56,29 +61,60 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
         <section className="settings__section">
           <h3 className="settings__title">Nouvelle règle — plage {rangeLabel}</h3>
           <div className="cf-form">
-            <select className="settings__select" value={type} onChange={(e) => setType(e.target.value as ValidationType)} aria-label="Type">
-              {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            <select
+              className="settings__select"
+              value={type}
+              onChange={(e) => setType(e.target.value as ValidationType)}
+              aria-label="Type"
+            >
+              {TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
             </select>
             {type !== "list" && (
-              <select className="settings__select" value={op} onChange={(e) => setOp(e.target.value as ValidationOp)} aria-label="Condition">
-                {VALIDATION_OPS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <select
+                className="settings__select"
+                value={op}
+                onChange={(e) => setOp(e.target.value as ValidationOp)}
+                aria-label="Condition"
+              >
+                {VALIDATION_OPS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             )}
           </div>
 
           {type === "list" ? (
             <textarea
-              className="settings__input" rows={3} value={listText} onChange={(e) => setListText(e.target.value)}
+              className="settings__input"
+              rows={3}
+              value={listText}
+              onChange={(e) => setListText(e.target.value)}
               placeholder="Valeurs autorisées, séparées par des virgules ou des retours à la ligne"
               style={{ width: "100%", marginTop: 8, resize: "vertical" }}
             />
           ) : (
             <div className="cf-form" style={{ marginTop: 8 }}>
-              <input className="settings__input cf-val" value={v1} onChange={(e) => setV1(e.target.value)} placeholder={placeholder} />
+              <input
+                className="settings__input cf-val"
+                value={v1}
+                onChange={(e) => setV1(e.target.value)}
+                placeholder={placeholder}
+              />
               {needs >= 2 && (
                 <>
                   <span className="cf-and">et</span>
-                  <input className="settings__input cf-val" value={v2} onChange={(e) => setV2(e.target.value)} placeholder={placeholder} />
+                  <input
+                    className="settings__input cf-val"
+                    value={v2}
+                    onChange={(e) => setV2(e.target.value)}
+                    placeholder={placeholder}
+                  />
                 </>
               )}
             </div>
@@ -90,7 +126,9 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
           </label>
 
           <div style={{ marginTop: 10 }}>
-            <Button size="sm" variant="primary" onClick={add}><Plus size={14} /> Ajouter la règle</Button>
+            <Button size="sm" variant="primary" onClick={add}>
+              <Plus size={14} /> Ajouter la règle
+            </Button>
           </div>
         </section>
 
@@ -104,8 +142,16 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
                 const span = `${indexToCol(v.c0)}${v.r0 + 1}:${indexToCol(v.c1)}${v.r1 + 1}`;
                 return (
                   <li key={v.id} className="cf-rule">
-                    <span className="cf-rule__desc"><strong>{span}</strong> — {describeValidation(v)}</span>
-                    <button className="icon-btn icon-btn--danger" title="Supprimer la règle" onClick={() => onRemove(v.id)}><Trash2 size={14} /></button>
+                    <span className="cf-rule__desc">
+                      <strong>{span}</strong> — {describeValidation(v)}
+                    </span>
+                    <button
+                      className="icon-btn icon-btn--danger"
+                      title="Supprimer la règle"
+                      onClick={() => onRemove(v.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </li>
                 );
               })}

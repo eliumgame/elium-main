@@ -25,10 +25,21 @@ function py(args: string[], input: string | Buffer): Buffer {
   return execFileSync(PYTHON_EXEC!, [HELPER, ...args], { input, maxBuffer: 64 * 1024 * 1024 });
 }
 function pyJson(args: string[], input: string | Buffer): any {
-  return JSON.parse(execFileSync(PYTHON_EXEC!, [HELPER, ...args], { input, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }));
+  return JSON.parse(
+    execFileSync(PYTHON_EXEC!, [HELPER, ...args], { input, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }),
+  );
 }
 
-const PLACEMENT = { page: 1, xPct: 0.3, yPct: 0.7, wPct: 0.3, hPct: 0.1, rotation: 0, z: 0, anchorType: "page" as const };
+const PLACEMENT = {
+  page: 1,
+  xPct: 0.3,
+  yPct: 0.7,
+  wPct: 0.3,
+  hPct: 0.1,
+  rotation: 0,
+  z: 0,
+  anchorType: "page" as const,
+};
 
 describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof / metadata", () => {
   it("A. Python seals → Web verifies the seal over the same journal", async () => {
@@ -65,10 +76,23 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
   it("D. Web signs → Python verifies the proof valid", async () => {
     const signer = await generateIdentity();
     const file0 = await createEliumFile({ title: "TS signed", profile: "signed" });
-    const proof = await createProof({ signatureId: "sig-1", model: file0.document, signer: { name: "Bob" }, privateKeyHex: signer.privateKeyHex!, placement: PLACEMENT, visual: { text: "Bob" } });
+    const proof = await createProof({
+      signatureId: "sig-1",
+      model: file0.document,
+      signer: { name: "Bob" },
+      privateKeyHex: signer.privateKeyHex!,
+      placement: PLACEMENT,
+      visual: { text: "Bob" },
+    });
     const sig: EliumSignature = {
-      id: "sig-1", kind: "typed", visual: { text: "Bob" }, placement: PLACEMENT,
-      signer: { name: "Bob" }, proof, level: "advanced", createdAt: proof.signedAt,
+      id: "sig-1",
+      kind: "typed",
+      visual: { text: "Bob" },
+      placement: PLACEMENT,
+      signer: { name: "Bob" },
+      proof,
+      level: "advanced",
+      createdAt: proof.signedAt,
     };
     const file = await addSignature(file0, sig);
     const blob = await writeEliumPackage(file);
@@ -87,9 +111,10 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
 
   it("H. Web writes a parapheur circuit → Python reads it back", async () => {
     const file = await createEliumFile({ title: "TS circuit", profile: "signed" });
-    file.parapheur = { parties: [
-      { id: "pt-1", name: "Carole", role: "Notaire", status: "pending" },
-    ], requestedAt: "2026-08-09T12:00:00Z" };
+    file.parapheur = {
+      parties: [{ id: "pt-1", name: "Carole", role: "Notaire", status: "pending" }],
+      requestedAt: "2026-08-09T12:00:00Z",
+    };
     const blob = await writeEliumPackage(file);
     const out = pyJson(["doc-decode-verify", "-", "-", "-"], Buffer.from(blob));
     expect(out.parapheur.parties[0].name).toBe("Carole");
@@ -102,7 +127,11 @@ describe.skipIf(!PYTHON_EXEC)("cross-language interop — seal / journal / proof
 
     expect(file.manifest.protection.metadataEncrypted).toBe(true);
     expect(file.manifest.title).toBe("titre-secret"); // decrypted from the secure envelope
-    expect(file.journal.events.map((e) => e.type)).toEqual(["document.created", "protection.enabled", "document.locked"]);
+    expect(file.journal.events.map((e) => e.type)).toEqual([
+      "document.created",
+      "protection.enabled",
+      "document.locked",
+    ]);
     expect((await verifyJournal(file.journal)).valid).toBe(true);
   });
 

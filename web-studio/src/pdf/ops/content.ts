@@ -16,10 +16,18 @@ import { loadPageFonts } from "../core/fontmetrics";
 /** Decode a content stream object to raw operator bytes. */
 function decodeStream(s: unknown): Uint8Array | null {
   if (s instanceof PDFRawStream) {
-    try { return decodePDFRawStream(s).decode(); } catch { return null; }
+    try {
+      return decodePDFRawStream(s).decode();
+    } catch {
+      return null;
+    }
   }
   if (s instanceof PDFStream) {
-    try { return (s as unknown as { getContents(): Uint8Array }).getContents(); } catch { return null; }
+    try {
+      return (s as unknown as { getContents(): Uint8Array }).getContents();
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -32,7 +40,10 @@ export function readPageContentBytes(page: PDFPage): Uint8Array {
     const parts: Uint8Array[] = [];
     for (let i = 0; i < contents.size(); i++) {
       const b = decodeStream(contents.lookup(i));
-      if (b) { parts.push(b); parts.push(new Uint8Array([0x0a])); }
+      if (b) {
+        parts.push(b);
+        parts.push(new Uint8Array([0x0a]));
+      }
     }
     return concat(parts);
   }

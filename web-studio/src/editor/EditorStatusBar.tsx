@@ -37,7 +37,13 @@ const fr = (n: number) => n.toLocaleString("fr-FR");
  * Word's word count does.
  */
 export default function EditorStatusBar({
-  editor, pageInfo, zoom, zoomMode, onZoom, onZoomMode, onOpenStats,
+  editor,
+  pageInfo,
+  zoom,
+  zoomMode,
+  onZoom,
+  onZoomMode,
+  onOpenStats,
 }: {
   editor: Editor | null;
   pageInfo?: PageInfo;
@@ -174,7 +180,9 @@ export default function EditorStatusBar({
               <option value={String(Math.round(zoom * 100))}>{zoomLabel(zoom)}</option>
             )}
             {ZOOM_STEPS.map((s) => (
-              <option key={s} value={String(Math.round(s * 100))}>{zoomLabel(s)}</option>
+              <option key={s} value={String(Math.round(s * 100))}>
+                {zoomLabel(s)}
+              </option>
             ))}
             <option value="fitWidth">Largeur</option>
             <option value="fitPage">Page entière</option>

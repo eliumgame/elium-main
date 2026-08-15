@@ -35,10 +35,22 @@ export default function TopBar({ studio }: { studio: Studio }) {
             petit écran sans perdre l'info-bulle ni le nom accessible. */}
         {studio.editable ? (
           <>
-            <Button variant="ghost" size="sm" onClick={() => studio.toViewer()} title="Aperçu / vérification" aria-label="Aperçu">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => studio.toViewer()}
+              title="Aperçu / vérification"
+              aria-label="Aperçu"
+            >
               <Eye size={16} /> <span className="eb__label">Aperçu</span>
             </Button>
-            <Button size="sm" onClick={() => studio.save()} disabled={studio.busy} title="Enregistrer" aria-label="Enregistrer">
+            <Button
+              size="sm"
+              onClick={() => studio.save()}
+              disabled={studio.busy}
+              title="Enregistrer"
+              aria-label="Enregistrer"
+            >
               <Save size={16} /> <span className="eb__label">{studio.busy ? "…" : "Enregistrer"}</span>
             </Button>
           </>

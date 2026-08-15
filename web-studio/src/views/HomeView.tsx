@@ -1,8 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  UploadCloud, FileText, PenLine, ShieldCheck, Lock, Settings,
-  FolderOpen, Trash2, Clock, FileSpreadsheet, Presentation, ArrowRight, FileType,
-  History, RotateCcw, Download, Cloud, Users, BookOpen,
+  UploadCloud,
+  FileText,
+  PenLine,
+  ShieldCheck,
+  Lock,
+  Settings,
+  FolderOpen,
+  Trash2,
+  Clock,
+  FileSpreadsheet,
+  Presentation,
+  ArrowRight,
+  FileType,
+  History,
+  RotateCcw,
+  Download,
+  Cloud,
+  Users,
+  BookOpen,
 } from "lucide-react";
 import { TEMPLATES, type Template } from "../editor/templates";
 import { IMPORT_ACCEPT } from "../format/importers";
@@ -55,10 +71,14 @@ export default function HomeView({
   const { confirm, alert } = useDialogs();
 
   const reloadLibrary = () => {
-    listDriveDocs(vaultSecret).then(setLibrary).catch(() => setLibrary([]));
+    listDriveDocs(vaultSecret)
+      .then(setLibrary)
+      .catch(() => setLibrary([]));
   };
   const reloadDrafts = () => {
-    listDrafts().then(setDrafts).catch(() => setDrafts([]));
+    listDrafts()
+      .then(setDrafts)
+      .catch(() => setDrafts([]));
   };
   useEffect(() => {
     reloadLibrary();
@@ -68,7 +88,15 @@ export default function HomeView({
 
   const removeDraft = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!(await confirm({ title: "Supprimer le brouillon", message: "Supprimer définitivement ce brouillon auto-enregistré ?", danger: true, confirmLabel: "Supprimer" }))) return;
+    if (
+      !(await confirm({
+        title: "Supprimer le brouillon",
+        message: "Supprimer définitivement ce brouillon auto-enregistré ?",
+        danger: true,
+        confirmLabel: "Supprimer",
+      }))
+    )
+      return;
     await deleteDraft(id);
     reloadDrafts();
   };
@@ -100,13 +128,23 @@ export default function HomeView({
       const part = doc.bytes as unknown as BlobPart;
       onOpen(new File([part], `${doc.title || "document"}.elium`, { type: "application/x-elium" }));
     } catch (e) {
-      await alert({ title: "Impossible d'ouvrir ce document", message: e instanceof Error ? e.message : "Erreur inconnue." });
+      await alert({
+        title: "Impossible d'ouvrir ce document",
+        message: e instanceof Error ? e.message : "Erreur inconnue.",
+      });
     }
   };
 
   const removeFromLibrary = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!(await confirm({ title: "Retirer de la bibliothèque", message: "Retirer ce document de la bibliothèque locale ?\n(le fichier .elium déjà exporté n'est pas supprimé)", confirmLabel: "Retirer" }))) return;
+    if (
+      !(await confirm({
+        title: "Retirer de la bibliothèque",
+        message: "Retirer ce document de la bibliothèque locale ?\n(le fichier .elium déjà exporté n'est pas supprimé)",
+        confirmLabel: "Retirer",
+      }))
+    )
+      return;
     await deleteDriveDoc(id);
     reloadLibrary();
   };
@@ -125,10 +163,34 @@ export default function HomeView({
   });
 
   const apps = [
-    { key: "docs", name: "Documents", desc: "Éditeur de texte riche", icon: <FileText size={26} />, onClick: () => onCreate(blank) },
-    { key: "sheets", name: "Tableur", desc: "Feuilles de calcul & formules", icon: <FileSpreadsheet size={26} />, onClick: onNewSheet },
-    { key: "slides", name: "Présentations", desc: "Diapositives & présentateur", icon: <Presentation size={26} />, onClick: onNewSlides },
-    { key: "pdf", name: "PDF", desc: "Lire, annoter & éditer des PDF", icon: <FileType size={26} />, onClick: onNewPdf },
+    {
+      key: "docs",
+      name: "Documents",
+      desc: "Éditeur de texte riche",
+      icon: <FileText size={26} />,
+      onClick: () => onCreate(blank),
+    },
+    {
+      key: "sheets",
+      name: "Tableur",
+      desc: "Feuilles de calcul & formules",
+      icon: <FileSpreadsheet size={26} />,
+      onClick: onNewSheet,
+    },
+    {
+      key: "slides",
+      name: "Présentations",
+      desc: "Diapositives & présentateur",
+      icon: <Presentation size={26} />,
+      onClick: onNewSlides,
+    },
+    {
+      key: "pdf",
+      name: "PDF",
+      desc: "Lire, annoter & éditer des PDF",
+      icon: <FileType size={26} />,
+      onClick: onNewPdf,
+    },
   ];
 
   return (
@@ -152,24 +214,41 @@ export default function HomeView({
       <section className="home__hero">
         <h1 className="home__title">Votre espace de travail documentaire</h1>
         <p className="home__subtitle">
-          Documents, tableurs et présentations — <b>chiffrés, signés et scellés</b>, 100 % en local, au format <code>.elium</code>.
+          Documents, tableurs et présentations — <b>chiffrés, signés et scellés</b>, 100 % en local, au format{" "}
+          <code>.elium</code>.
         </p>
         <div className="home__hero-badges">
-          <span className="home__badge"><ShieldCheck size={15} /> Preuve cryptographique</span>
-          <span className="home__badge"><Lock size={15} /> Chiffrement à la demande</span>
-          <span className="home__badge"><PenLine size={15} /> Signatures placées librement</span>
+          <span className="home__badge">
+            <ShieldCheck size={15} /> Preuve cryptographique
+          </span>
+          <span className="home__badge">
+            <Lock size={15} /> Chiffrement à la demande
+          </span>
+          <span className="home__badge">
+            <PenLine size={15} /> Signatures placées librement
+          </span>
         </div>
       </section>
 
       <section className="home__section">
         <button className="home__drive-cta" onClick={onOpenDriveCloud}>
-          <span className="home__drive-cta__icon"><Cloud size={28} /></span>
-          <span className="home__drive-cta__body">
-            <span className="home__drive-cta__title">Drive entreprise chiffré <span className="home__pill">Nouveau</span></span>
-            <span className="home__drive-cta__desc">Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, rôles & permissions détaillés.</span>
+          <span className="home__drive-cta__icon">
+            <Cloud size={28} />
           </span>
-          <span className="home__drive-cta__meta"><Users size={16} /> Multi-utilisateurs</span>
-          <span className="app-tile__go"><ArrowRight size={18} /></span>
+          <span className="home__drive-cta__body">
+            <span className="home__drive-cta__title">
+              Drive entreprise chiffré <span className="home__pill">Nouveau</span>
+            </span>
+            <span className="home__drive-cta__desc">
+              Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, rôles & permissions détaillés.
+            </span>
+          </span>
+          <span className="home__drive-cta__meta">
+            <Users size={16} /> Multi-utilisateurs
+          </span>
+          <span className="app-tile__go">
+            <ArrowRight size={18} />
+          </span>
         </button>
       </section>
 
@@ -183,7 +262,9 @@ export default function HomeView({
                 <span className="app-tile__name">{a.name}</span>
                 <span className="app-tile__desc">{a.desc}</span>
               </span>
-              <span className="app-tile__go"><ArrowRight size={18} /></span>
+              <span className="app-tile__go">
+                <ArrowRight size={18} />
+              </span>
             </button>
           ))}
         </div>
@@ -193,7 +274,10 @@ export default function HomeView({
         <h2 className="home__section-title">Ouvrir</h2>
         <div
           className={`dropzone ${drag ? "is-active" : ""}`}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDrag(true);
+          }}
           onDragLeave={() => setDrag(false)}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
@@ -201,102 +285,128 @@ export default function HomeView({
           tabIndex={0}
         >
           <UploadCloud size={32} />
-          <div className="dropzone__title">Glissez un fichier <b>.elium</b> ou cliquez pour parcourir</div>
-          <div className="dropzone__hint">Importez aussi <b>.docx</b>, <b>.txt</b>, <b>.md</b> ou <b>.html</b></div>
+          <div className="dropzone__title">
+            Glissez un fichier <b>.elium</b> ou cliquez pour parcourir
+          </div>
+          <div className="dropzone__hint">
+            Importez aussi <b>.docx</b>, <b>.txt</b>, <b>.md</b> ou <b>.html</b>
+          </div>
           <input
             ref={inputRef}
             type="file"
             accept={IMPORT_ACCEPT}
             hidden
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onOpen(f); e.target.value = ""; }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onOpen(f);
+              e.target.value = "";
+            }}
           />
         </div>
       </section>
 
-      {drafts.length > 0 && (() => {
-        // Les plus récents d'abord, puis plafonnés : un accueil, pas une corbeille.
-        const ts = (v: DraftEntry["updatedAt"]) => new Date(v).getTime() || 0;
-        const sorted = [...drafts].sort((a, b) => ts(b.updatedAt) - ts(a.updatedAt));
-        const shown = showAllDrafts ? sorted : sorted.slice(0, DRAFT_PREVIEW);
-        const hidden = sorted.length - shown.length;
-        return (
-        <section className="home__section">
-          <h2 className="home__section-title">
-            <History size={18} /> Récupération automatique
-            <span className="badge badge--neutral">{drafts.length}</span>
-            <button type="button" className="home__section-action" onClick={clearAllDrafts}>
-              <Trash2 size={13} /> Tout supprimer
-            </button>
-          </h2>
-          <p className="muted">
-            Brouillons enregistrés automatiquement pendant l'édition (jamais perdus en cas de fermeture).
-            Ils restent ici jusqu'à ce que vous les supprimiez.
-          </p>
-          <div className="library-grid">
-            {shown.map((d) => (
-              <div
-                key={d.id}
-                className="library-card"
-                role="button"
-                tabIndex={0}
-                onClick={() => onRecoverDraft(d.id)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRecoverDraft(d.id); } }}
-              >
-                <div className="library-card__top">
-                  <FileText size={18} />
-                  <span className="library-card__title">{d.title}</span>
-                  <button
-                    type="button"
-                    className="icon-btn library-card__del"
-                    aria-label="Télécharger en .docx"
-                    title="Télécharger en .docx"
-                    onClick={(e) => { e.stopPropagation(); onDownloadDraft(d.id); }}
+      {drafts.length > 0 &&
+        (() => {
+          // Les plus récents d'abord, puis plafonnés : un accueil, pas une corbeille.
+          const ts = (v: DraftEntry["updatedAt"]) => new Date(v).getTime() || 0;
+          const sorted = [...drafts].sort((a, b) => ts(b.updatedAt) - ts(a.updatedAt));
+          const shown = showAllDrafts ? sorted : sorted.slice(0, DRAFT_PREVIEW);
+          const hidden = sorted.length - shown.length;
+          return (
+            <section className="home__section">
+              <h2 className="home__section-title">
+                <History size={18} /> Récupération automatique
+                <span className="badge badge--neutral">{drafts.length}</span>
+                <button type="button" className="home__section-action" onClick={clearAllDrafts}>
+                  <Trash2 size={13} /> Tout supprimer
+                </button>
+              </h2>
+              <p className="muted">
+                Brouillons enregistrés automatiquement pendant l'édition (jamais perdus en cas de fermeture). Ils
+                restent ici jusqu'à ce que vous les supprimiez.
+              </p>
+              <div className="library-grid">
+                {shown.map((d) => (
+                  <div
+                    key={d.id}
+                    className="library-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onRecoverDraft(d.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onRecoverDraft(d.id);
+                      }
+                    }}
                   >
-                    <Download size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn icon-btn--danger library-card__del"
-                    aria-label="Supprimer le brouillon"
-                    title="Supprimer le brouillon"
-                    onClick={(e) => void removeDraft(e, d.id)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-                <div className="library-card__meta">
-                  <span className="badge badge--neutral"><RotateCcw size={11} /> Brouillon</span>
-                  {d.protected && (
-                    <span className="badge badge--info" title="Brouillon chiffré — mot de passe requis pour l'ouvrir">
-                      <Lock size={11} /> Protégé
-                    </span>
-                  )}
-                  {d.legacy && (
-                    <span
-                      className="badge badge--warning"
-                      title="Enregistré avant la mise à jour de sécurité du 2026-07-02 : si le document d'origine était protégé par mot de passe, ce brouillon en contient une copie NON chiffrée. Supprimez-le si besoin."
-                    >
-                      <Lock size={11} /> Ancien format — non chiffré
-                    </span>
-                  )}
-                  <span className="library-card__date"><Clock size={12} /> {new Date(d.updatedAt).toLocaleString("fr-FR")}</span>
-                </div>
+                    <div className="library-card__top">
+                      <FileText size={18} />
+                      <span className="library-card__title">{d.title}</span>
+                      <button
+                        type="button"
+                        className="icon-btn library-card__del"
+                        aria-label="Télécharger en .docx"
+                        title="Télécharger en .docx"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDownloadDraft(d.id);
+                        }}
+                      >
+                        <Download size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--danger library-card__del"
+                        aria-label="Supprimer le brouillon"
+                        title="Supprimer le brouillon"
+                        onClick={(e) => void removeDraft(e, d.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    <div className="library-card__meta">
+                      <span className="badge badge--neutral">
+                        <RotateCcw size={11} /> Brouillon
+                      </span>
+                      {d.protected && (
+                        <span
+                          className="badge badge--info"
+                          title="Brouillon chiffré — mot de passe requis pour l'ouvrir"
+                        >
+                          <Lock size={11} /> Protégé
+                        </span>
+                      )}
+                      {d.legacy && (
+                        <span
+                          className="badge badge--warning"
+                          title="Enregistré avant la mise à jour de sécurité du 2026-07-02 : si le document d'origine était protégé par mot de passe, ce brouillon en contient une copie NON chiffrée. Supprimez-le si besoin."
+                        >
+                          <Lock size={11} /> Ancien format — non chiffré
+                        </span>
+                      )}
+                      <span className="library-card__date">
+                        <Clock size={12} /> {new Date(d.updatedAt).toLocaleString("fr-FR")}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {(hidden > 0 || showAllDrafts) && (
-            <button type="button" className="home__more" onClick={() => setShowAllDrafts((v) => !v)}>
-              {showAllDrafts ? "Afficher moins" : `Afficher les ${hidden} autres brouillons`}
-            </button>
-          )}
-        </section>
-        );
-      })()}
+              {(hidden > 0 || showAllDrafts) && (
+                <button type="button" className="home__more" onClick={() => setShowAllDrafts((v) => !v)}>
+                  {showAllDrafts ? "Afficher moins" : `Afficher les ${hidden} autres brouillons`}
+                </button>
+              )}
+            </section>
+          );
+        })()}
 
       {library.length > 0 && (
         <section className="home__section">
           <div className="home__section-head">
-            <h2 className="home__section-title"><FolderOpen size={18} /> Récents</h2>
+            <h2 className="home__section-title">
+              <FolderOpen size={18} /> Récents
+            </h2>
             <input
               className="library-search"
               type="search"
@@ -317,7 +427,12 @@ export default function HomeView({
                   role="button"
                   tabIndex={0}
                   onClick={() => void openFromLibrary(d)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void openFromLibrary(d); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void openFromLibrary(d);
+                    }
+                  }}
                 >
                   <div className="library-card__top">
                     {d.locked ? <Lock size={18} /> : <FileText size={18} />}
@@ -338,9 +453,13 @@ export default function HomeView({
                         <Lock size={11} /> Coffre verrouillé
                       </span>
                     ) : (
-                      <span className="badge badge--neutral">{PROFILES[d.profile as keyof typeof PROFILES]?.badge ?? d.profile}</span>
+                      <span className="badge badge--neutral">
+                        {PROFILES[d.profile as keyof typeof PROFILES]?.badge ?? d.profile}
+                      </span>
                     )}
-                    <span className="library-card__date"><Clock size={12} /> {new Date(d.savedAt).toLocaleDateString("fr-FR")}</span>
+                    <span className="library-card__date">
+                      <Clock size={12} /> {new Date(d.savedAt).toLocaleDateString("fr-FR")}
+                    </span>
                   </div>
                 </div>
               ))}

@@ -40,10 +40,28 @@ export interface SearchHit {
  * "don’t" — the two complaints every PDF reader gets.
  */
 const FOLD: Record<string, string> = {
-  " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ", " ": " ",
-  "‘": "'", "’": "'", "‚": "'", "′": "'",
-  "“": '"', "”": '"', "„": '"', "″": '"',
-  "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-", "−": "-",
+  " ": " ",
+  " ": " ",
+  " ": " ",
+  " ": " ",
+  " ": " ",
+  " ": " ",
+  " ": " ",
+  "‘": "'",
+  "’": "'",
+  "‚": "'",
+  "′": "'",
+  "“": '"',
+  "”": '"',
+  "„": '"',
+  "″": '"',
+  "‐": "-",
+  "‑": "-",
+  "‒": "-",
+  "–": "-",
+  "—": "-",
+  "―": "-",
+  "−": "-",
   "­": "", // soft hyphen
 };
 
@@ -166,7 +184,10 @@ export function search(pageTexts: readonly string[], query: string, opts: Search
     let guard = 0;
     while ((m = re.exec(folded)) !== null) {
       if (guard++ > 50_000) break;
-      if (m[0].length === 0) { re.lastIndex++; continue; }
+      if (m[0].length === 0) {
+        re.lastIndex++;
+        continue;
+      }
       const fStart = m.index;
       const fEnd = m.index + m[0].length;
       if (opts.wholeWord && (isWordChar(folded[fStart - 1]) || isWordChar(folded[fEnd]))) continue;
@@ -194,5 +215,5 @@ export function firstHitFromPage(hits: readonly SearchHit[], page: number): numb
 /** Step through hits with wraparound. */
 export function stepHit(index: number, delta: number, total: number): number {
   if (total <= 0) return -1;
-  return ((index + delta) % total + total) % total;
+  return (((index + delta) % total) + total) % total;
 }

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseContentStream, walkPlacements, walkText, writeContentStream, type Op,
+  parseContentStream,
+  walkPlacements,
+  walkText,
+  writeContentStream,
+  type Op,
 } from "../src/pdf/core/contentstream";
 import { parseToUnicode, winAnsiToUnicode } from "../src/pdf/core/fontmetrics";
 
@@ -85,9 +89,7 @@ describe("content stream — serialising", () => {
 
 describe("content stream — text state machine", () => {
   it("tracks the text matrix through Td, TD, Tm and T*", () => {
-    const ops = parseContentStream(enc(
-      "BT /F1 10 Tf 100 700 Td (a) Tj 0 -12 Td (b) Tj 14 TL T* (c) Tj ET",
-    ));
+    const ops = parseContentStream(enc("BT /F1 10 Tf 100 700 Td (a) Tj 0 -12 Td (b) Tj 14 TL T* (c) Tj ET"));
     const shows = walkText(ops);
     expect(shows).toHaveLength(3);
     expect(shows[0].origin).toEqual({ x: 100, y: 700 });
@@ -96,9 +98,9 @@ describe("content stream — text state machine", () => {
   });
 
   it("applies the CTM set by cm, and restores it on Q", () => {
-    const ops = parseContentStream(enc(
-      "q 1 0 0 1 50 50 cm BT /F1 10 Tf 10 10 Td (a) Tj ET Q BT /F1 10 Tf 10 10 Td (b) Tj ET",
-    ));
+    const ops = parseContentStream(
+      enc("q 1 0 0 1 50 50 cm BT /F1 10 Tf 10 10 Td (a) Tj ET Q BT /F1 10 Tf 10 10 Td (b) Tj ET"),
+    );
     const shows = walkText(ops);
     expect(shows[0].origin).toEqual({ x: 60, y: 60 });
     expect(shows[1].origin).toEqual({ x: 10, y: 10 });
@@ -152,18 +154,22 @@ describe("font metrics — encodings", () => {
   });
 
   it("parses a ToUnicode CMap's bfchar and bfrange sections", () => {
-    const cmap = parseToUnicode(enc([
-      "/CIDInit /ProcSet findresource begin",
-      "1 begincodespacerange <0000> <FFFF> endcodespacerange",
-      "2 beginbfchar",
-      "<0003> <0020>",
-      "<0024> <0041>",
-      "endbfchar",
-      "1 beginbfrange",
-      "<0025> <0027> <0042>",
-      "endbfrange",
-      "endcmap",
-    ].join("\n")));
+    const cmap = parseToUnicode(
+      enc(
+        [
+          "/CIDInit /ProcSet findresource begin",
+          "1 begincodespacerange <0000> <FFFF> endcodespacerange",
+          "2 beginbfchar",
+          "<0003> <0020>",
+          "<0024> <0041>",
+          "endbfchar",
+          "1 beginbfrange",
+          "<0025> <0027> <0042>",
+          "endbfrange",
+          "endcmap",
+        ].join("\n"),
+      ),
+    );
     expect(cmap.map.get(0x0003)).toBe(" ");
     expect(cmap.map.get(0x0024)).toBe("A");
     expect(cmap.map.get(0x0025)).toBe("B");

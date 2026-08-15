@@ -41,17 +41,7 @@ export interface ProseMirrorNode {
   text?: string;
 }
 
-export type PageFormat =
-  | "A3"
-  | "A4"
-  | "A5"
-  | "A6"
-  | "B5"
-  | "Letter"
-  | "Legal"
-  | "Executive"
-  | "Tabloid"
-  | "Custom";
+export type PageFormat = "A3" | "A4" | "A5" | "A6" | "B5" | "Letter" | "Legal" | "Executive" | "Tabloid" | "Custom";
 export type PageOrientation = "portrait" | "landscape";
 
 export interface PageSettings {
@@ -132,22 +122,9 @@ export interface EliumResource {
 
 // --- Signatures -----------------------------------------------------------
 
-export type SignatureKind =
-  | "drawn"
-  | "typed"
-  | "image"
-  | "stamp"
-  | "initials"
-  | "qr"
-  | "mixed";
+export type SignatureKind = "drawn" | "typed" | "image" | "stamp" | "initials" | "qr" | "mixed";
 
-export type StampStyle =
-  | "approved"
-  | "validated"
-  | "confidential"
-  | "paid"
-  | "received"
-  | "custom";
+export type StampStyle = "approved" | "validated" | "confidential" | "paid" | "received" | "custom";
 
 export interface SignatureVisual {
   /** Rendered raster (PNG data URL) for drawn / image / stamp / qr signatures. */

@@ -102,8 +102,8 @@ function setupFrom(attrs: Record<string, unknown> | undefined, page: PageSetting
     customWidthMm: custom.widthMm,
     customHeightMm: custom.heightMm,
     margins: marginsFrom(a, page),
-    header: typeof a.header === "string" && a.header ? a.header : page.header ?? "",
-    footer: typeof a.footer === "string" && a.footer ? a.footer : page.footer ?? "",
+    header: typeof a.header === "string" && a.header ? a.header : (page.header ?? ""),
+    footer: typeof a.footer === "string" && a.footer ? a.footer : (page.footer ?? ""),
     restartNumbering: a.restartNumbering === true,
     startAt,
   };

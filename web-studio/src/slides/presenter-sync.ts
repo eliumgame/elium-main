@@ -10,9 +10,27 @@ import type { Slide, SlideTheme } from "./model";
 
 export const PRESENTER_CHANNEL = "elium-presenter";
 
-export interface PresenterDeckMsg { type: "deck"; slides: Slide[]; theme: SlideTheme; title: string }
-export interface PresenterPosMsg { type: "pos"; idx: number; step: number; startedAt: number; presenting: boolean }
-export interface PresenterNavMsg { type: "nav"; dir: "next" | "prev" }
-export interface PresenterReadyMsg { type: "ready" }
-export interface PresenterEndMsg { type: "end" }
+export interface PresenterDeckMsg {
+  type: "deck";
+  slides: Slide[];
+  theme: SlideTheme;
+  title: string;
+}
+export interface PresenterPosMsg {
+  type: "pos";
+  idx: number;
+  step: number;
+  startedAt: number;
+  presenting: boolean;
+}
+export interface PresenterNavMsg {
+  type: "nav";
+  dir: "next" | "prev";
+}
+export interface PresenterReadyMsg {
+  type: "ready";
+}
+export interface PresenterEndMsg {
+  type: "end";
+}
 export type PresenterMsg = PresenterDeckMsg | PresenterPosMsg | PresenterNavMsg | PresenterReadyMsg | PresenterEndMsg;

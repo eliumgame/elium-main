@@ -47,7 +47,11 @@ const isNumeric = (s: string): boolean => /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 function hex6(c: string | undefined): string | null {
   if (!c) return null;
   let h = c.replace(/^#/, "").trim();
-  if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((x) => x + x).join("");
+  if (/^[0-9a-fA-F]{3}$/.test(h))
+    h = h
+      .split("")
+      .map((x) => x + x)
+      .join("");
   return /^[0-9a-fA-F]{6}$/.test(h) ? h.toUpperCase() : null;
 }
 
@@ -104,7 +108,9 @@ function createStyleTable() {
     if (!c) return 0;
     const found = fillKey.get(c);
     if (found !== undefined) return found;
-    fills.push(`<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/><bgColor indexed="64"/></patternFill></fill>`);
+    fills.push(
+      `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/><bgColor indexed="64"/></patternFill></fill>`,
+    );
     const id = fills.length - 1;
     fillKey.set(c, id);
     return id;
@@ -183,7 +189,10 @@ function sheetXml(sheet: SheetData, styles: ReturnType<typeof createStyleTable>)
   const rows = [...byRow.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([r, list]) => {
-      const cells = list.sort((a, b) => a.col - b.col).map((c) => cellXml(c.key, c.raw, c.s)).join("");
+      const cells = list
+        .sort((a, b) => a.col - b.col)
+        .map((c) => cellXml(c.key, c.raw, c.s))
+        .join("");
       return `<row r="${r}">${cells}</row>`;
     })
     .join("");
@@ -201,7 +210,11 @@ function sheetXml(sheet: SheetData, styles: ReturnType<typeof createStyleTable>)
 function sanitizeNames(sheets: SheetData[]): string[] {
   const seen = new Set<string>();
   return sheets.map((sh, i) => {
-    const name = (sh.name || `Feuille ${i + 1}`).replace(/[[\]:*?/\\]/g, " ").slice(0, 31).trim() || `Feuille ${i + 1}`;
+    const name =
+      (sh.name || `Feuille ${i + 1}`)
+        .replace(/[[\]:*?/\\]/g, " ")
+        .slice(0, 31)
+        .trim() || `Feuille ${i + 1}`;
     let n = name;
     let k = 2;
     while (seen.has(n.toLowerCase())) n = `${name.slice(0, 28)} ${k++}`;
@@ -222,21 +235,24 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
   files["xl/styles.xml"] = strToU8(styles.toXml());
 
   // Workbook + its relationships.
-  const sheetTags = names.map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("");
-  files["xl/workbook.xml"] =
-    strToU8(
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-        `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +
-        `<sheets>${sheetTags}</sheets>` +
-        `<calcPr fullCalcOnLoad="1"/>` +
-        `</workbook>`,
-    );
+  const sheetTags = names
+    .map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+    .join("");
+  files["xl/workbook.xml"] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +
+      `<sheets>${sheetTags}</sheets>` +
+      `<calcPr fullCalcOnLoad="1"/>` +
+      `</workbook>`,
+  );
   const n = wb.sheets.length;
   const wbRels =
-    names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") +
-    `<Relationship Id="rId${n + 1}" Type="${REL}/styles" Target="styles.xml"/>`;
-  files["xl/_rels/workbook.xml.rels"] =
-    strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL}s">${wbRels}</Relationships>`);
+    names
+      .map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`)
+      .join("") + `<Relationship Id="rId${n + 1}" Type="${REL}/styles" Target="styles.xml"/>`;
+  files["xl/_rels/workbook.xml.rels"] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL}s">${wbRels}</Relationships>`,
+  );
 
   // Package relationships + content types.
   files["_rels/.rels"] = strToU8(
@@ -246,7 +262,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
   );
   const overrides =
     `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
-    wb.sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") +
+    wb.sheets
+      .map(
+        (_, i) =>
+          `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+      )
+      .join("") +
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +

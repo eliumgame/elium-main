@@ -26,7 +26,10 @@ async function main(): Promise<void> {
     try {
       await storage().init?.();
     } catch (err) {
-      app.log.warn({ err }, "Initialisation du stockage best-effort échouée (backend déjà provisionné ou droits restreints ?)");
+      app.log.warn(
+        { err },
+        "Initialisation du stockage best-effort échouée (backend déjà provisionné ou droits restreints ?)",
+      );
     }
   })();
 

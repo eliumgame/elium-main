@@ -6,14 +6,23 @@ const doc: ProseMirrorNode = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "Rapport confidentiel — accents é è à" }] }],
 };
-const page: PageSettings = { format: "A4", orientation: "portrait", margins: { top: 25, right: 20, bottom: 25, left: 20 } };
+const page: PageSettings = {
+  format: "A4",
+  orientation: "portrait",
+  margins: { top: 25, right: 20, bottom: 25, left: 20 },
+};
 
 describe("drafts-store — buildDraftRecord / resolveDraft", () => {
   it("stores an unprotected draft in clear, with its .docx", async () => {
     const docx = new Uint8Array([1, 2, 3, 4]);
     const rec = await buildDraftRecord({
-      id: "doc-1", title: "Sans protection", profile: "standard", updatedAt: "2026-07-02T00:00:00Z",
-      doc, page, docx,
+      id: "doc-1",
+      title: "Sans protection",
+      profile: "standard",
+      updatedAt: "2026-07-02T00:00:00Z",
+      doc,
+      page,
+      docx,
     });
     expect(rec.protected).toBe(false);
     expect(rec.doc).toEqual(doc);
@@ -28,8 +37,13 @@ describe("drafts-store — buildDraftRecord / resolveDraft", () => {
 
   it("encrypts a protected draft's content and never stores a plaintext .docx", async () => {
     const rec = await buildDraftRecord({
-      id: "doc-2", title: "Document confidentiel", profile: "encrypted", updatedAt: "2026-07-02T00:00:00Z",
-      doc, page, secret: { password: "motdepasse" },
+      id: "doc-2",
+      title: "Document confidentiel",
+      profile: "encrypted",
+      updatedAt: "2026-07-02T00:00:00Z",
+      doc,
+      page,
+      secret: { password: "motdepasse" },
       // no `docx` passed — the caller must not compute one for protected documents
     });
     expect(rec.protected).toBe(true);
@@ -47,8 +61,13 @@ describe("drafts-store — buildDraftRecord / resolveDraft", () => {
   it("a keyfile-only secret (empty password) still encrypts, instead of silently falling back to plaintext", async () => {
     const keyfile = new TextEncoder().encode("fichier-cle");
     const rec = await buildDraftRecord({
-      id: "doc-3", title: "Protégé par fichier-clé", profile: "protected", updatedAt: "t",
-      doc, page, secret: { password: "", keyfile },
+      id: "doc-3",
+      title: "Protégé par fichier-clé",
+      profile: "protected",
+      updatedAt: "t",
+      doc,
+      page,
+      secret: { password: "", keyfile },
     });
     expect(rec.protected).toBe(true);
     expect(rec.doc).toBeUndefined();
@@ -58,16 +77,26 @@ describe("drafts-store — buildDraftRecord / resolveDraft", () => {
 
   it("resolveDraft rejects the wrong password for a protected draft", async () => {
     const rec = await buildDraftRecord({
-      id: "doc-4", title: "x", profile: "encrypted", updatedAt: "t",
-      doc, page, secret: { password: "bon" },
+      id: "doc-4",
+      title: "x",
+      profile: "encrypted",
+      updatedAt: "t",
+      doc,
+      page,
+      secret: { password: "bon" },
     });
     await expect(resolveDraft(rec, { password: "mauvais" })).rejects.toBeTruthy();
   });
 
   it("resolveDraft refuses to guess when no secret is supplied for a protected draft", async () => {
     const rec = await buildDraftRecord({
-      id: "doc-5", title: "x", profile: "encrypted", updatedAt: "t",
-      doc, page, secret: { password: "bon" },
+      id: "doc-5",
+      title: "x",
+      profile: "encrypted",
+      updatedAt: "t",
+      doc,
+      page,
+      secret: { password: "bon" },
     });
     await expect(resolveDraft(rec)).rejects.toBeTruthy();
   });

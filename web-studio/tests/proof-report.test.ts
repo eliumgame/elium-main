@@ -5,16 +5,36 @@ import { createProof } from "../src/sign/proof";
 import { generateIdentity } from "../src/sign/keys";
 import type { EliumSignature } from "../src/format/types";
 
-const PLACEMENT = { page: 1, xPct: 0.3, yPct: 0.7, wPct: 0.3, hPct: 0.1, rotation: 0, z: 0, anchorType: "page" as const };
+const PLACEMENT = {
+  page: 1,
+  xPct: 0.3,
+  yPct: 0.7,
+  wPct: 0.3,
+  hPct: 0.1,
+  rotation: 0,
+  z: 0,
+  anchorType: "page" as const,
+};
 
 describe("export — buildProofReport", () => {
   it("aggregates integrity, journal validity and signature verdicts + proof detail", async () => {
     const id = await generateIdentity();
     let file = await createEliumFile({ title: "Rapport", profile: "signed" });
-    const proof = await createProof({ signatureId: "s1", model: file.document, signer: { name: "Alice" }, privateKeyHex: id.privateKeyHex! });
+    const proof = await createProof({
+      signatureId: "s1",
+      model: file.document,
+      signer: { name: "Alice" },
+      privateKeyHex: id.privateKeyHex!,
+    });
     const sig: EliumSignature = {
-      id: "s1", kind: "typed", visual: { text: "Alice" }, placement: PLACEMENT,
-      signer: { name: "Alice" }, proof, level: "advanced", createdAt: proof.signedAt,
+      id: "s1",
+      kind: "typed",
+      visual: { text: "Alice" },
+      placement: PLACEMENT,
+      signer: { name: "Alice" },
+      proof,
+      level: "advanced",
+      createdAt: proof.signedAt,
     };
     file = await addSignature(file, sig);
 

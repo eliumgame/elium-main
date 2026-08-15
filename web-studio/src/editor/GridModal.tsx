@@ -11,8 +11,15 @@
 import { useMemo, useState } from "react";
 import { Modal, Button } from "../ui/components";
 import {
-  DEFAULT_GRID, MAX_EVERY, MAX_SPACING_MM, MIN_SPACING_MM, drawnStepX, drawnStepY,
-  gridBackground, normalizeGrid, type GridSettings,
+  DEFAULT_GRID,
+  MAX_EVERY,
+  MAX_SPACING_MM,
+  MIN_SPACING_MM,
+  drawnStepX,
+  drawnStepY,
+  gridBackground,
+  normalizeGrid,
+  type GridSettings,
 } from "./grid";
 
 export default function GridModal({
@@ -69,7 +76,9 @@ export default function GridModal({
       </div>
 
       <div className="settings__row">
-        <label className="settings__label" htmlFor="grid-sx">Pas horizontal</label>
+        <label className="settings__label" htmlFor="grid-sx">
+          Pas horizontal
+        </label>
         <input
           id="grid-sx"
           className="settings__input settings__input--num"
@@ -81,7 +90,9 @@ export default function GridModal({
           onChange={(e) => patch({ spacingXMm: Number(e.target.value) })}
         />
         <span className="settings__unit">mm</span>
-        <label className="settings__label" htmlFor="grid-sy">Pas vertical</label>
+        <label className="settings__label" htmlFor="grid-sy">
+          Pas vertical
+        </label>
         <input
           id="grid-sy"
           className="settings__input settings__input--num"
@@ -98,7 +109,9 @@ export default function GridModal({
       {/* « Une ligne sur N » est le réglage de Word : on aligne finement tout en
           gardant un tracé lisible. À 0, l'axe n'est pas dessiné du tout. */}
       <div className="settings__row">
-        <label className="settings__label" htmlFor="grid-ex">Lignes verticales</label>
+        <label className="settings__label" htmlFor="grid-ex">
+          Lignes verticales
+        </label>
         <select
           id="grid-ex"
           className="settings__select"
@@ -107,10 +120,14 @@ export default function GridModal({
         >
           <option value={0}>Aucune</option>
           {Array.from({ length: MAX_EVERY }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>{n === 1 ? "Toutes" : `Une sur ${n}`}</option>
+            <option key={n} value={n}>
+              {n === 1 ? "Toutes" : `Une sur ${n}`}
+            </option>
           ))}
         </select>
-        <label className="settings__label" htmlFor="grid-ey">Lignes horizontales</label>
+        <label className="settings__label" htmlFor="grid-ey">
+          Lignes horizontales
+        </label>
         <select
           id="grid-ey"
           className="settings__select"
@@ -119,19 +136,18 @@ export default function GridModal({
         >
           <option value={0}>Aucune</option>
           {Array.from({ length: MAX_EVERY }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>{n === 1 ? "Toutes" : `Une sur ${n}`}</option>
+            <option key={n} value={n}>
+              {n === 1 ? "Toutes" : `Une sur ${n}`}
+            </option>
           ))}
         </select>
       </div>
 
       <div className="settings__row">
-        <label className="settings__label" htmlFor="grid-color">Couleur des lignes</label>
-        <input
-          id="grid-color"
-          type="color"
-          value={grid.color}
-          onChange={(e) => patch({ color: e.target.value })}
-        />
+        <label className="settings__label" htmlFor="grid-color">
+          Couleur des lignes
+        </label>
+        <input id="grid-color" type="color" value={grid.color} onChange={(e) => patch({ color: e.target.value })} />
         <label className="settings__check">
           <input
             type="checkbox"
@@ -155,7 +171,9 @@ export default function GridModal({
 
       {!grid.fromMargins && (
         <div className="settings__row">
-          <label className="settings__label" htmlFor="grid-ox">Origine horizontale</label>
+          <label className="settings__label" htmlFor="grid-ox">
+            Origine horizontale
+          </label>
           <input
             id="grid-ox"
             className="settings__input settings__input--num"
@@ -167,7 +185,9 @@ export default function GridModal({
             onChange={(e) => patch({ originXMm: Number(e.target.value) })}
           />
           <span className="settings__unit">mm</span>
-          <label className="settings__label" htmlFor="grid-oy">Origine verticale</label>
+          <label className="settings__label" htmlFor="grid-oy">
+            Origine verticale
+          </label>
           <input
             id="grid-oy"
             className="settings__input settings__input--num"
@@ -202,8 +222,8 @@ export default function GridModal({
           ? `Maillage tracé : ${stepX > 0 ? `${stepX} mm` : "—"} × ${stepY > 0 ? `${stepY} mm` : "—"} · ` +
             `alignement au pas de ${grid.spacingXMm} × ${grid.spacingYMm} mm. ` +
             "Maintenez Alt pendant un déplacement pour ignorer l'alignement."
-          : "Le quadrillage n'est pas tracé, mais l'alignement des objets reste actif s'il est coché."}
-        {" "}Le quadrillage ne s'imprime pas et n'apparaît pas dans les exports.
+          : "Le quadrillage n'est pas tracé, mais l'alignement des objets reste actif s'il est coché."}{" "}
+        Le quadrillage ne s'imprime pas et n'apparaît pas dans les exports.
       </p>
     </Modal>
   );

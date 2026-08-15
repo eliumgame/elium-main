@@ -10,25 +10,47 @@
  */
 import { unzipSync, strFromU8 } from "fflate";
 import {
-  newSlideId, newElementId,
-  type Deck, type Slide, type SlideElement, type ShapeKind, type ElementType,
-  type ChartData, type ChartKind,
+  newSlideId,
+  newElementId,
+  type Deck,
+  type Slide,
+  type SlideElement,
+  type ShapeKind,
+  type ElementType,
+  type ChartData,
+  type ChartKind,
 } from "./model";
 
 const PRST_TO_KIND: Record<string, ShapeKind> = {
-  rect: "rect", roundRect: "roundRect", ellipse: "ellipse", triangle: "triangle",
-  diamond: "diamond", pentagon: "pentagon", hexagon: "hexagon", star5: "star",
-  chevron: "chevron", cloud: "cloud", heart: "heart", line: "line",
+  rect: "rect",
+  roundRect: "roundRect",
+  ellipse: "ellipse",
+  triangle: "triangle",
+  diamond: "diamond",
+  pentagon: "pentagon",
+  hexagon: "hexagon",
+  star5: "star",
+  chevron: "chevron",
+  cloud: "cloud",
+  heart: "heart",
+  line: "line",
 };
 
 const attr = (xml: string, name: string): string | undefined => {
   const m = new RegExp(`\\b${name}="([^"]*)"`).exec(xml);
   return m ? m[1] : undefined;
 };
-const num = (v: string | undefined, dflt = 0): number => { const n = v != null ? Number(v) : NaN; return Number.isFinite(n) ? n : dflt; };
+const num = (v: string | undefined, dflt = 0): number => {
+  const n = v != null ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : dflt;
+};
 function unescapeXml(s: string): string {
-  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 }
 function escapeText(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -38,30 +60,49 @@ function escapeText(s: string): string {
 function childBlocks(xml: string): { tag: string; block: string }[] {
   const TARGETS = new Set(["p:sp", "p:pic", "p:cxnSp", "p:grpSp", "p:graphicFrame"]);
   const out: { tag: string; block: string }[] = [];
-  let i = 0; const n = xml.length;
+  let i = 0;
+  const n = xml.length;
   while (i < n) {
-    if (xml[i] !== "<") { i++; continue; }
+    if (xml[i] !== "<") {
+      i++;
+      continue;
+    }
     const m = /^<(\/?)([a-zA-Z:]+)/.exec(xml.slice(i, i + 48));
-    if (!m) { i++; continue; }
+    if (!m) {
+      i++;
+      continue;
+    }
     const name = m[2]!;
     if (m[1] !== "/" && TARGETS.has(name)) {
       const openEnd = xml.indexOf(">", i);
       if (openEnd < 0) break;
-      if (xml[openEnd - 1] === "/") { out.push({ tag: name, block: xml.slice(i, openEnd + 1) }); i = openEnd + 1; continue; }
+      if (xml[openEnd - 1] === "/") {
+        out.push({ tag: name, block: xml.slice(i, openEnd + 1) });
+        i = openEnd + 1;
+        continue;
+      }
       const closeTag = `</${name}>`;
-      let depth = 1, j = openEnd + 1;
+      let depth = 1,
+        j = openEnd + 1;
       while (j < n && depth > 0) {
         const no = xml.indexOf(`<${name}`, j);
         const nc = xml.indexOf(closeTag, j);
-        if (nc < 0) { j = n; break; }
+        if (nc < 0) {
+          j = n;
+          break;
+        }
         if (no >= 0 && no < nc) {
           const c = xml[no + name.length + 1];
           if (c === " " || c === ">" || c === "/" || c === "\t" || c === "\n" || c === "\r") depth++;
           j = no + name.length + 1;
-        } else { depth--; j = nc + closeTag.length; }
+        } else {
+          depth--;
+          j = nc + closeTag.length;
+        }
       }
       out.push({ tag: name, block: xml.slice(i, j) });
-      i = j; continue;
+      i = j;
+      continue;
     }
     const gt = xml.indexOf(">", i);
     i = gt < 0 ? n : gt + 1;
@@ -69,17 +110,31 @@ function childBlocks(xml: string): { tag: string; block: string }[] {
   return out;
 }
 
-interface Geom { x: number; y: number; w: number; h: number; rot: number }
+interface Geom {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot: number;
+}
 function firstXfrm(block: string, cx: number, cy: number): Geom {
   const xf = /<[ap]:xfrm\b([^>]*)>([\s\S]*?)<\/[ap]:xfrm>/.exec(block);
   const head = xf?.[1] ?? "";
   const body = xf?.[2] ?? "";
   const off = /<a:off\b([^>]*)\/?>/.exec(body)?.[1] ?? "";
   const ext = /<a:ext\b([^>]*)\/?>/.exec(body)?.[1] ?? "";
-  const ex = num(attr(off, "x")), ey = num(attr(off, "y"));
-  const ew = num(attr(ext, "cx")), eh = num(attr(ext, "cy"));
+  const ex = num(attr(off, "x")),
+    ey = num(attr(off, "y"));
+  const ew = num(attr(ext, "cx")),
+    eh = num(attr(ext, "cy"));
   const rot = num(attr(head, "rot"));
-  return { x: (ex / cx) * 100, y: (ey / cy) * 100, w: (ew / cx) * 100, h: (eh / cy) * 100, rot: Math.round(rot / 60000) };
+  return {
+    x: (ex / cx) * 100,
+    y: (ey / cy) * 100,
+    w: (ew / cx) * 100,
+    h: (eh / cy) * 100,
+    rot: Math.round(rot / 60000),
+  };
 }
 
 const colorIn = (xml: string): string | undefined => {
@@ -114,11 +169,20 @@ function txBodyToHtml(block: string, elColor?: string): string {
     else out.push(`<p>${inner}</p>`);
   }
   // Coalesce consecutive <li> into a single <ul>.
-  let html = ""; let liBuf = "";
-  const flush = () => { if (liBuf) { html += `<ul>${liBuf}</ul>`; liBuf = ""; } };
+  let html = "";
+  let liBuf = "";
+  const flush = () => {
+    if (liBuf) {
+      html += `<ul>${liBuf}</ul>`;
+      liBuf = "";
+    }
+  };
   for (const chunk of out) {
     if (chunk.startsWith("<li>")) liBuf += chunk;
-    else { flush(); html += chunk; }
+    else {
+      flush();
+      html += chunk;
+    }
   }
   flush();
   return html;
@@ -126,11 +190,25 @@ function txBodyToHtml(block: string, elColor?: string): string {
 const hasText = (block: string): boolean => /<a:t>[\s\S]*?\S[\s\S]*?<\/a:t>/.test(block);
 
 function el(base: Partial<SlideElement> & Pick<SlideElement, "type">, g: Geom): SlideElement {
-  return { id: newElementId(), x: round1(g.x), y: round1(g.y), w: round1(g.w), h: round1(g.h), rotation: g.rot || undefined, ...base } as SlideElement;
+  return {
+    id: newElementId(),
+    x: round1(g.x),
+    y: round1(g.y),
+    w: round1(g.w),
+    h: round1(g.h),
+    rotation: g.rot || undefined,
+    ...base,
+  } as SlideElement;
 }
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
-function parsePic(block: string, cx: number, cy: number, rels: Map<string, string>, media: Record<string, Uint8Array>): SlideElement | null {
+function parsePic(
+  block: string,
+  cx: number,
+  cy: number,
+  rels: Map<string, string>,
+  media: Record<string, Uint8Array>,
+): SlideElement | null {
   const rId = attr(/<a:blip\b[^>]*\/?>/.exec(block)?.[0] ?? "", "r:embed") ?? attr(block, "r:embed");
   const g = firstXfrm(block, cx, cy);
   let src: string | undefined;
@@ -159,7 +237,8 @@ function parseSp(block: string, cx: number, cy: number): SlideElement | null {
   const g = firstXfrm(block, cx, cy);
   const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/.exec(block)?.[1] ?? "";
   const prst = attr(/<a:prstGeom\b[^>]*>/.exec(spPr)?.[0] ?? "", "prst") ?? "rect";
-  const hasFill = /<a:solidFill>/.test(spPr) || /<a:noFill\/>/.test(spPr) || /<a:gradFill/.test(spPr) || /<a:blipFill/.test(spPr);
+  const hasFill =
+    /<a:solidFill>/.test(spPr) || /<a:noFill\/>/.test(spPr) || /<a:gradFill/.test(spPr) || /<a:blipFill/.test(spPr);
   const hasLine = /<a:ln\b/.test(spPr);
   const textLike = prst === "rect" && !hasFill && !hasLine && hasText(block);
 
@@ -172,12 +251,17 @@ function parseSp(block: string, cx: number, cy: number): SlideElement | null {
     const color = colorIn(/<a:rPr\b[^>]*>([\s\S]*?)<\/a:rPr>/.exec(block)?.[0] ?? block);
     const html = txBodyToHtml(block, color);
     if (!html) return null;
-    return el({
-      type: "text", html, fontSize,
-      ...(color ? { color } : {}),
-      align: algn === "ctr" ? "center" : algn === "r" ? "right" : "left",
-      valign: anchor === "ctr" ? "middle" : anchor === "b" ? "bottom" : "top",
-    }, g);
+    return el(
+      {
+        type: "text",
+        html,
+        fontSize,
+        ...(color ? { color } : {}),
+        align: algn === "ctr" ? "center" : algn === "r" ? "right" : "left",
+        valign: anchor === "ctr" ? "middle" : anchor === "b" ? "bottom" : "top",
+      },
+      g,
+    );
   }
 
   // shape
@@ -190,13 +274,23 @@ function parseSp(block: string, cx: number, cy: number): SlideElement | null {
   const adj = num(attr(/<a:gd\b[^>]*name="adj"[^>]*>/.exec(spPr)?.[0] ?? "", "fmla")?.replace(/^val\s+/, ""));
   const radius = kind === "roundRect" && adj ? Math.round(adj / 1000) : undefined;
   // a shape may carry a centered text label
-  const label = [...block.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => unescapeXml(m[1]!)).join(" ").trim();
+  const label = [...block.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+    .map((m) => unescapeXml(m[1]!))
+    .join(" ")
+    .trim();
   const t: ElementType = "shape";
-  return el({
-    type: t, shape: kind, fill, stroke, strokeWidth: strokeW,
-    ...(radius ? { radius } : {}),
-    ...(label ? { text: label } : {}),
-  }, g);
+  return el(
+    {
+      type: t,
+      shape: kind,
+      fill,
+      stroke,
+      strokeWidth: strokeW,
+      ...(radius ? { radius } : {}),
+      ...(label ? { text: label } : {}),
+    },
+    g,
+  );
 }
 
 /** Parse a DrawingML chart part (literal or cached data) back to ChartData. */
@@ -217,7 +311,11 @@ function parseChart(xml: string): ChartData | null {
 }
 
 function parseGraphicFrame(
-  block: string, cx: number, cy: number, rels: Map<string, string>, media: Record<string, Uint8Array>,
+  block: string,
+  cx: number,
+  cy: number,
+  rels: Map<string, string>,
+  media: Record<string, Uint8Array>,
 ): SlideElement | null {
   const g = firstXfrm(block, cx, cy);
   // Native chart: <a:graphicData uri=".../chart"><c:chart r:id="rIdN"/> → resolve
@@ -233,31 +331,52 @@ function parseGraphicFrame(
   const trs = [...block.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((m) => m[1]!);
   const cells = trs.map((tr) =>
     [...tr.matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g)].map((m) =>
-      [...m[1]!.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((x) => unescapeXml(x[1]!)).join("")),
+      [...m[1]!.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((x) => unescapeXml(x[1]!)).join(""),
+    ),
   );
   const rows = cells.length;
   const cols = cells.reduce((m, r) => Math.max(m, r.length), 0);
   if (!rows || !cols) return null;
-  const norm = cells.map((r) => { const rr = r.slice(); while (rr.length < cols) rr.push(""); return rr; });
+  const norm = cells.map((r) => {
+    const rr = r.slice();
+    while (rr.length < cols) rr.push("");
+    return rr;
+  });
   const sz = Math.round(num(attr(/<a:rPr\b[^>]*>/.exec(block)?.[0] ?? "", "sz"), 18 * 75) / 75) || 18;
   const color = colorIn(block) ?? "#0f172a";
   return el({ type: "table", table: { rows, cols, cells: norm }, fontSize: sz, color }, g);
 }
 
-function parseSpTree(spTree: string, cx: number, cy: number, rels: Map<string, string>, media: Record<string, Uint8Array>): SlideElement[] {
+function parseSpTree(
+  spTree: string,
+  cx: number,
+  cy: number,
+  rels: Map<string, string>,
+  media: Record<string, Uint8Array>,
+): SlideElement[] {
   const out: SlideElement[] = [];
   for (const { tag, block } of childBlocks(spTree)) {
     try {
-      if (tag === "p:pic") { const e = parsePic(block, cx, cy, rels, media); if (e) out.push(e); }
-      else if (tag === "p:cxnSp") out.push(parseCxn(block, cx, cy));
-      else if (tag === "p:graphicFrame") { const e = parseGraphicFrame(block, cx, cy, rels, media); if (e) out.push(e); }
-      else if (tag === "p:sp") { const e = parseSp(block, cx, cy); if (e) out.push(e); }
-      else if (tag === "p:grpSp") {
+      if (tag === "p:pic") {
+        const e = parsePic(block, cx, cy, rels, media);
+        if (e) out.push(e);
+      } else if (tag === "p:cxnSp") out.push(parseCxn(block, cx, cy));
+      else if (tag === "p:graphicFrame") {
+        const e = parseGraphicFrame(block, cx, cy, rels, media);
+        if (e) out.push(e);
+      } else if (tag === "p:sp") {
+        const e = parseSp(block, cx, cy);
+        if (e) out.push(e);
+      } else if (tag === "p:grpSp") {
         // recurse: strip the group's own nvGrpSpPr/grpSpPr, parse remaining children
-        const inner = block.replace(/<p:nvGrpSpPr>[\s\S]*?<\/p:nvGrpSpPr>/, "").replace(/<p:grpSpPr>[\s\S]*?<\/p:grpSpPr>/, "");
+        const inner = block
+          .replace(/<p:nvGrpSpPr>[\s\S]*?<\/p:nvGrpSpPr>/, "")
+          .replace(/<p:grpSpPr>[\s\S]*?<\/p:grpSpPr>/, "");
         out.push(...parseSpTree(inner, cx, cy, rels, media));
       }
-    } catch { /* skip a malformed shape rather than abort the whole slide */ }
+    } catch {
+      /* skip a malformed shape rather than abort the whole slide */
+    }
   }
   return out;
 }
@@ -270,7 +389,13 @@ function resolveMedia(target: string): string {
 }
 function mimeOf(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
-  return ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "application/octet-stream";
+  return ext === "png"
+    ? "image/png"
+    : ext === "gif"
+      ? "image/gif"
+      : ext === "jpg" || ext === "jpeg"
+        ? "image/jpeg"
+        : "application/octet-stream";
 }
 function base64(bytes: Uint8Array): string {
   let bin = "";
@@ -282,7 +407,8 @@ function parseRels(xml: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
   if (!xml) return map;
   for (const m of xml.matchAll(/<Relationship\b([^>]*)\/?>/g)) {
-    const id = attr(m[1]!, "Id"); const target = attr(m[1]!, "Target");
+    const id = attr(m[1]!, "Id");
+    const target = attr(m[1]!, "Target");
     if (id && target) map.set(id, target);
   }
   return map;
@@ -316,13 +442,18 @@ export function importPptx(bytes: Uint8Array): Deck {
     const elements = parseSpTree(spTree, cx, cy, rels, zip);
     const bgColor = colorIn(/<p:bg>[\s\S]*?<\/p:bg>/.exec(xml)?.[0] ?? "");
     slides.push({
-      id: newSlideId(), title: "", body: "", bodyHtml: "", layout: "blank",
+      id: newSlideId(),
+      title: "",
+      body: "",
+      bodyHtml: "",
+      layout: "blank",
       elements,
       ...(bgColor ? { background: bgColor } : {}),
     });
   });
 
-  if (!slides.length) slides.push({ id: newSlideId(), title: "", body: "", bodyHtml: "", layout: "blank", elements: [] });
+  if (!slides.length)
+    slides.push({ id: newSlideId(), title: "", body: "", bodyHtml: "", layout: "blank", elements: [] });
   return { slides, active: 0, theme: "light", transition: "fade" };
 }
 

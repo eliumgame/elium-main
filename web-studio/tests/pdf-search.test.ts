@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
-  compileQuery, countByPage, DEFAULT_SEARCH_OPTIONS, escapeRegExp, firstHitFromPage, foldText,
-  search, stepHit,
+  compileQuery,
+  countByPage,
+  DEFAULT_SEARCH_OPTIONS,
+  escapeRegExp,
+  firstHitFromPage,
+  foldText,
+  search,
+  stepHit,
 } from "../src/pdf/core/search";
 
 const opts = (over: Partial<typeof DEFAULT_SEARCH_OPTIONS> = {}) => ({ ...DEFAULT_SEARCH_OPTIONS, ...over });

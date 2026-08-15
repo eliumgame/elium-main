@@ -49,7 +49,9 @@ export function loadStoredIdentity(): StoredIdentity | null {
     if (s.publicKeyHex && s.fingerprint) {
       return { publicKeyHex: s.publicKeyHex, fingerprint: s.fingerprint, enc: s.enc ?? "" };
     }
-  } catch { /* entrée corrompue : ignorée */ }
+  } catch {
+    /* entrée corrompue : ignorée */
+  }
   return null;
 }
 
@@ -158,7 +160,9 @@ export async function copyText(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch { /* repli ci-dessous */ }
+  } catch {
+    /* repli ci-dessous */
+  }
   try {
     const ta = document.createElement("textarea");
     ta.value = text;

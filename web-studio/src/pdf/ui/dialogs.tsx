@@ -7,7 +7,13 @@ import { ALL_PERMISSIONS } from "../ops/security";
 import type { DocInfo } from "../core/engine";
 import { OCR_LANGUAGES, type OcrLanguage } from "../ops/ocr";
 import { PAGE_SIZES } from "../ops/organize";
-import { SIGNATURE_FONTS, cleanImportedSignature, strokesToPng, typedSignatureToPng, type SavedSignature } from "../ops/sign";
+import {
+  SIGNATURE_FONTS,
+  cleanImportedSignature,
+  strokesToPng,
+  typedSignatureToPng,
+  type SavedSignature,
+} from "../ops/sign";
 import type { Pt } from "../core/coords";
 import { formatBytes } from "../ops/optimize";
 import type { BuildOptions } from "../ops/save";
@@ -20,7 +26,13 @@ import type { ComparisonReport } from "../ops/compare";
 // ---------------------------------------------------------------------------
 
 export function SaveDialog({
-  fileName, options, hasRedactions, hasForm, onChange, onConfirm, onClose,
+  fileName,
+  options,
+  hasRedactions,
+  hasForm,
+  onChange,
+  onConfirm,
+  onClose,
 }: {
   fileName: string;
   options: BuildOptions;
@@ -37,7 +49,9 @@ export function SaveDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
           <button className="eb eb--primary eb--sm" onClick={() => onConfirm(`${name.trim() || "document"}.pdf`)}>
             <Download size={14} /> Exporter
           </button>
@@ -57,17 +71,22 @@ export function SaveDialog({
           <legend>Annotations</legend>
           <label className="pdfx-radio">
             <input
-              type="radio" checked={options.interactiveAnnots}
+              type="radio"
+              checked={options.interactiveAnnots}
               onChange={() => onChange({ interactiveAnnots: true })}
             />
             <span>
               <b>Modifiables</b>
-              <small>Vraies annotations PDF : Acrobat et Aperçu les affichent dans leur volet de commentaires, avec auteur, date et fils de discussion.</small>
+              <small>
+                Vraies annotations PDF : Acrobat et Aperçu les affichent dans leur volet de commentaires, avec auteur,
+                date et fils de discussion.
+              </small>
             </span>
           </label>
           <label className="pdfx-radio">
             <input
-              type="radio" checked={!options.interactiveAnnots}
+              type="radio"
+              checked={!options.interactiveAnnots}
               onChange={() => onChange({ interactiveAnnots: false })}
             />
             <span>
@@ -79,26 +98,50 @@ export function SaveDialog({
 
         {hasForm && (
           <label className="pdfx-check pdfx-check--block">
-            <input type="checkbox" checked={options.flattenForms} onChange={(e) => onChange({ flattenForms: e.target.checked })} />
-            <span>Aplatir les champs de formulaire<small>Les valeurs deviennent du contenu figé.</small></span>
+            <input
+              type="checkbox"
+              checked={options.flattenForms}
+              onChange={(e) => onChange({ flattenForms: e.target.checked })}
+            />
+            <span>
+              Aplatir les champs de formulaire<small>Les valeurs deviennent du contenu figé.</small>
+            </span>
           </label>
         )}
 
         {hasRedactions && (
           <label className="pdfx-check pdfx-check--block pdfx-check--warn">
-            <input type="checkbox" checked={options.applyRedactions} onChange={(e) => onChange({ applyRedactions: e.target.checked })} />
-            <span>Appliquer le caviardage<small>Le contenu marqué est supprimé définitivement du fichier exporté.</small></span>
+            <input
+              type="checkbox"
+              checked={options.applyRedactions}
+              onChange={(e) => onChange({ applyRedactions: e.target.checked })}
+            />
+            <span>
+              Appliquer le caviardage<small>Le contenu marqué est supprimé définitivement du fichier exporté.</small>
+            </span>
           </label>
         )}
 
         <label className="pdfx-check pdfx-check--block">
-          <input type="checkbox" checked={options.sanitise} onChange={(e) => onChange({ sanitise: e.target.checked })} />
-          <span>Assainir<small>Retirer métadonnées, JavaScript, pièces jointes et actions automatiques.</small></span>
+          <input
+            type="checkbox"
+            checked={options.sanitise}
+            onChange={(e) => onChange({ sanitise: e.target.checked })}
+          />
+          <span>
+            Assainir<small>Retirer métadonnées, JavaScript, pièces jointes et actions automatiques.</small>
+          </span>
         </label>
 
         <label className="pdfx-check pdfx-check--block">
-          <input type="checkbox" checked={options.optimise} onChange={(e) => onChange({ optimise: e.target.checked })} />
-          <span>Optimiser la taille<small>Rééchantillonne les images et recompresse les flux.</small></span>
+          <input
+            type="checkbox"
+            checked={options.optimise}
+            onChange={(e) => onChange({ optimise: e.target.checked })}
+          />
+          <span>
+            Optimiser la taille<small>Rééchantillonne les images et recompresse les flux.</small>
+          </span>
         </label>
       </div>
     </Modal>
@@ -121,9 +164,15 @@ const PERMISSION_LABELS: [keyof Permissions, string][] = [
 ];
 
 export function ProtectDialog({
-  onConfirm, onClose,
+  onConfirm,
+  onClose,
 }: {
-  onConfirm: (v: { userPassword: string; ownerPassword: string; permissions: Permissions; encryptMetadata: boolean }) => void;
+  onConfirm: (v: {
+    userPassword: string;
+    ownerPassword: string;
+    permissions: Permissions;
+    encryptMetadata: boolean;
+  }) => void;
   onClose: () => void;
 }) {
   const [user, setUser] = useState("");
@@ -140,11 +189,15 @@ export function ProtectDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
           <button
             className="eb eb--primary eb--sm"
             disabled={(!user && !owner) || mismatch}
-            onClick={() => onConfirm({ userPassword: user, ownerPassword: owner || user, permissions, encryptMetadata })}
+            onClick={() =>
+              onConfirm({ userPassword: user, ownerPassword: owner || user, permissions, encryptMetadata })
+            }
           >
             Protéger
           </button>
@@ -157,7 +210,13 @@ export function ProtectDialog({
         </p>
         <label className="pdfx-form__row">
           <span>Mot de passe d'ouverture</span>
-          <input type="password" value={user} onChange={(e) => setUser(e.target.value)} autoFocus placeholder="Laisser vide pour ne pas restreindre l'ouverture" />
+          <input
+            type="password"
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            autoFocus
+            placeholder="Laisser vide pour ne pas restreindre l'ouverture"
+          />
         </label>
         {!!user && (
           <>
@@ -175,7 +234,12 @@ export function ProtectDialog({
 
         <label className="pdfx-form__row">
           <span>Mot de passe propriétaire</span>
-          <input type="password" value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Identique au précédent si vide" />
+          <input
+            type="password"
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            placeholder="Identique au précédent si vide"
+          />
         </label>
 
         <fieldset className="pdfx-form__set">
@@ -219,7 +283,10 @@ function passwordStrength(pw: string): { score: number; level: string; label: st
 }
 
 export function PasswordPrompt({
-  wrong, fileName, onConfirm, onClose,
+  wrong,
+  fileName,
+  onConfirm,
+  onClose,
 }: {
   wrong: boolean;
   fileName: string;
@@ -233,8 +300,12 @@ export function PasswordPrompt({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm(pw)} disabled={!pw}>Ouvrir</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm(pw)} disabled={!pw}>
+            Ouvrir
+          </button>
         </>
       }
     >
@@ -243,9 +314,13 @@ export function PasswordPrompt({
         <label className="pdfx-form__row">
           <span>Mot de passe</span>
           <input
-            type="password" autoFocus value={pw}
+            type="password"
+            autoFocus
+            value={pw}
             onChange={(e) => setPw(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && pw) onConfirm(pw); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && pw) onConfirm(pw);
+            }}
           />
         </label>
         {wrong && <p className="pdfx-form__error">Mot de passe incorrect.</p>}
@@ -259,7 +334,9 @@ export function PasswordPrompt({
 // ---------------------------------------------------------------------------
 
 export function WatermarkDialog({
-  value, onChange, onClose,
+  value,
+  onChange,
+  onClose,
 }: {
   value: Watermark;
   onChange: (v: Watermark) => void;
@@ -276,16 +353,36 @@ export function WatermarkDialog({
       wide
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={() => { onChange({ ...draft, enabled: false }); onClose(); }}>Retirer</button>
-          <button className="eb eb--primary eb--sm" onClick={() => { onChange({ ...draft, enabled: true }); onClose(); }}>Appliquer</button>
+          <button
+            className="eb eb--outline eb--sm"
+            onClick={() => {
+              onChange({ ...draft, enabled: false });
+              onClose();
+            }}
+          >
+            Retirer
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            onClick={() => {
+              onChange({ ...draft, enabled: true });
+              onClose();
+            }}
+          >
+            Appliquer
+          </button>
         </>
       }
     >
       <div className="pdfx-split">
         <div className="pdfx-form">
           <div className="pdfx-segment">
-            <button className={draft.mode === "text" ? "is-on" : ""} onClick={() => set({ mode: "text" })}>Texte</button>
-            <button className={draft.mode === "image" ? "is-on" : ""} onClick={() => set({ mode: "image" })}>Image</button>
+            <button className={draft.mode === "text" ? "is-on" : ""} onClick={() => set({ mode: "text" })}>
+              Texte
+            </button>
+            <button className={draft.mode === "image" ? "is-on" : ""} onClick={() => set({ mode: "image" })}>
+              Image
+            </button>
           </div>
 
           {draft.mode === "text" ? (
@@ -296,9 +393,14 @@ export function WatermarkDialog({
           ) : (
             <div className="pdfx-form__row">
               <span>Image</span>
-              <button className="pdfx-mini" onClick={() => fileRef.current?.click()}><Upload size={13} /> Choisir…</button>
+              <button className="pdfx-mini" onClick={() => fileRef.current?.click()}>
+                <Upload size={13} /> Choisir…
+              </button>
               <input
-                ref={fileRef} type="file" accept="image/*" hidden
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
@@ -313,26 +415,52 @@ export function WatermarkDialog({
 
           <label className="pdfx-form__row">
             <span>Couleur</span>
-            <input type="color" value={draft.color} onChange={(e) => set({ color: e.target.value })} disabled={draft.mode === "image"} />
+            <input
+              type="color"
+              value={draft.color}
+              onChange={(e) => set({ color: e.target.value })}
+              disabled={draft.mode === "image"}
+            />
           </label>
           <label className="pdfx-form__row">
             <span>Opacité</span>
             <span className="pdfx-insp-inline">
-              <input type="range" min={0.02} max={1} step={0.02} value={draft.opacity} onChange={(e) => set({ opacity: Number(e.target.value) })} />
+              <input
+                type="range"
+                min={0.02}
+                max={1}
+                step={0.02}
+                value={draft.opacity}
+                onChange={(e) => set({ opacity: Number(e.target.value) })}
+              />
               <b>{Math.round(draft.opacity * 100)} %</b>
             </span>
           </label>
           <label className="pdfx-form__row">
             <span>Rotation</span>
             <span className="pdfx-insp-inline">
-              <input type="range" min={-90} max={90} step={1} value={draft.angle} onChange={(e) => set({ angle: Number(e.target.value) })} />
+              <input
+                type="range"
+                min={-90}
+                max={90}
+                step={1}
+                value={draft.angle}
+                onChange={(e) => set({ angle: Number(e.target.value) })}
+              />
               <b>{draft.angle}°</b>
             </span>
           </label>
           <label className="pdfx-form__row">
             <span>Échelle</span>
             <span className="pdfx-insp-inline">
-              <input type="range" min={0.2} max={3} step={0.05} value={draft.scale} onChange={(e) => set({ scale: Number(e.target.value) })} />
+              <input
+                type="range"
+                min={0.2}
+                max={3}
+                step={0.05}
+                value={draft.scale}
+                onChange={(e) => set({ scale: Number(e.target.value) })}
+              />
               <b>{draft.scale.toFixed(2)}×</b>
             </span>
           </label>
@@ -350,7 +478,11 @@ export function WatermarkDialog({
           </label>
           <label className="pdfx-form__row">
             <span>Pages</span>
-            <input value={draft.pages} placeholder="toutes, ou 1-3, 7" onChange={(e) => set({ pages: e.target.value })} />
+            <input
+              value={draft.pages}
+              placeholder="toutes, ou 1-3, 7"
+              onChange={(e) => set({ pages: e.target.value })}
+            />
           </label>
           <label className="pdfx-check">
             <input type="checkbox" checked={draft.behind} onChange={(e) => set({ behind: e.target.checked })} />
@@ -360,7 +492,11 @@ export function WatermarkDialog({
 
         <div className="pdfx-preview">
           <div className="pdfx-preview__page">
-            <div className="pdfx-preview__lines">{Array.from({ length: 14 }, (_, i) => <span key={i} style={{ width: `${55 + ((i * 37) % 40)}%` }} />)}</div>
+            <div className="pdfx-preview__lines">
+              {Array.from({ length: 14 }, (_, i) => (
+                <span key={i} style={{ width: `${55 + ((i * 37) % 40)}%` }} />
+              ))}
+            </div>
             <div
               className="pdfx-preview__wm"
               style={{
@@ -370,9 +506,11 @@ export function WatermarkDialog({
                 ...previewAnchor(draft.position),
               }}
             >
-              {draft.mode === "image" && draft.src
-                ? <img src={draft.src} alt="" />
-                : <b>{draft.text || "FILIGRANE"}</b>}
+              {draft.mode === "image" && draft.src ? (
+                <img src={draft.src} alt="" />
+              ) : (
+                <b>{draft.text || "FILIGRANE"}</b>
+              )}
             </div>
           </div>
           <span className="pdfx-preview__caption">Aperçu</span>
@@ -403,7 +541,11 @@ function previewAnchor(position: Watermark["position"]): React.CSSProperties {
 const TOKENS = ["{page}", "{pages}", "{date}", "{time}", "{title}", "{author}", "{filename}", "{bates}"];
 
 export function HeaderFooterDialog({
-  header, footer, bates, onChange, onClose,
+  header,
+  footer,
+  bates,
+  onChange,
+  onClose,
 }: {
   header: HeaderFooter;
   footer: HeaderFooter;
@@ -416,7 +558,8 @@ export function HeaderFooterDialog({
   const [b, setB] = useState(bates);
   const [tab, setTab] = useState<"header" | "footer" | "bates">("header");
   const band = tab === "header" ? h : f;
-  const setBand = (patch: Partial<HeaderFooter>) => (tab === "header" ? setH((v) => ({ ...v, ...patch })) : setF((v) => ({ ...v, ...patch })));
+  const setBand = (patch: Partial<HeaderFooter>) =>
+    tab === "header" ? setH((v) => ({ ...v, ...patch })) : setF((v) => ({ ...v, ...patch }));
 
   return (
     <Modal
@@ -425,15 +568,31 @@ export function HeaderFooterDialog({
       wide
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => { onChange({ header: h, footer: f, bates: b }); onClose(); }}>Appliquer</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            onClick={() => {
+              onChange({ header: h, footer: f, bates: b });
+              onClose();
+            }}
+          >
+            Appliquer
+          </button>
         </>
       }
     >
       <div className="pdfx-segment pdfx-segment--wide">
-        <button className={tab === "header" ? "is-on" : ""} onClick={() => setTab("header")}>En-tête</button>
-        <button className={tab === "footer" ? "is-on" : ""} onClick={() => setTab("footer")}>Pied de page</button>
-        <button className={tab === "bates" ? "is-on" : ""} onClick={() => setTab("bates")}>Numérotation Bates</button>
+        <button className={tab === "header" ? "is-on" : ""} onClick={() => setTab("header")}>
+          En-tête
+        </button>
+        <button className={tab === "footer" ? "is-on" : ""} onClick={() => setTab("footer")}>
+          Pied de page
+        </button>
+        <button className={tab === "bates" ? "is-on" : ""} onClick={() => setTab("bates")}>
+          Numérotation Bates
+        </button>
       </div>
 
       {tab === "bates" ? (
@@ -442,11 +601,42 @@ export function HeaderFooterDialog({
             <input type="checkbox" checked={b.enabled} onChange={(e) => setB({ ...b, enabled: e.target.checked })} />
             Activer la numérotation Bates
           </label>
-          <label className="pdfx-form__row"><span>Préfixe</span><input value={b.prefix} onChange={(e) => setB({ ...b, prefix: e.target.value })} /></label>
-          <label className="pdfx-form__row"><span>Suffixe</span><input value={b.suffix} onChange={(e) => setB({ ...b, suffix: e.target.value })} /></label>
-          <label className="pdfx-form__row"><span>Premier numéro</span><input type="number" min={0} value={b.start} onChange={(e) => setB({ ...b, start: Number(e.target.value) })} /></label>
-          <label className="pdfx-form__row"><span>Chiffres</span><input type="number" min={1} max={12} value={b.digits} onChange={(e) => setB({ ...b, digits: Number(e.target.value) })} /></label>
-          <p className="pdfx-form__note">Exemple : <b>{b.prefix}{String(b.start).padStart(b.digits, "0")}{b.suffix}</b>. Utilisez <code>{"{bates}"}</code> dans l'en-tête ou le pied pour le placer précisément.</p>
+          <label className="pdfx-form__row">
+            <span>Préfixe</span>
+            <input value={b.prefix} onChange={(e) => setB({ ...b, prefix: e.target.value })} />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Suffixe</span>
+            <input value={b.suffix} onChange={(e) => setB({ ...b, suffix: e.target.value })} />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Premier numéro</span>
+            <input
+              type="number"
+              min={0}
+              value={b.start}
+              onChange={(e) => setB({ ...b, start: Number(e.target.value) })}
+            />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Chiffres</span>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={b.digits}
+              onChange={(e) => setB({ ...b, digits: Number(e.target.value) })}
+            />
+          </label>
+          <p className="pdfx-form__note">
+            Exemple :{" "}
+            <b>
+              {b.prefix}
+              {String(b.start).padStart(b.digits, "0")}
+              {b.suffix}
+            </b>
+            . Utilisez <code>{"{bates}"}</code> dans l'en-tête ou le pied pour le placer précisément.
+          </p>
         </div>
       ) : (
         <div className="pdfx-form">
@@ -455,23 +645,64 @@ export function HeaderFooterDialog({
             Activer {tab === "header" ? "l'en-tête" : "le pied de page"}
           </label>
           <div className="pdfx-triple">
-            <label><span>Gauche</span><input value={band.left} onChange={(e) => setBand({ left: e.target.value })} /></label>
-            <label><span>Centre</span><input value={band.center} onChange={(e) => setBand({ center: e.target.value })} /></label>
-            <label><span>Droite</span><input value={band.right} onChange={(e) => setBand({ right: e.target.value })} /></label>
+            <label>
+              <span>Gauche</span>
+              <input value={band.left} onChange={(e) => setBand({ left: e.target.value })} />
+            </label>
+            <label>
+              <span>Centre</span>
+              <input value={band.center} onChange={(e) => setBand({ center: e.target.value })} />
+            </label>
+            <label>
+              <span>Droite</span>
+              <input value={band.right} onChange={(e) => setBand({ right: e.target.value })} />
+            </label>
           </div>
           <div className="pdfx-tokens">
             {TOKENS.map((t) => (
-              <button key={t} className="pdfx-token" onClick={() => setBand({ center: `${band.center}${t}` })} title="Insérer au centre">{t}</button>
+              <button
+                key={t}
+                className="pdfx-token"
+                onClick={() => setBand({ center: `${band.center}${t}` })}
+                title="Insérer au centre"
+              >
+                {t}
+              </button>
             ))}
           </div>
           <div className="pdfx-triple">
-            <label><span>Taille</span><input type="number" min={5} max={24} value={band.fontSize} onChange={(e) => setBand({ fontSize: Number(e.target.value) })} /></label>
-            <label><span>Couleur</span><input type="color" value={band.color} onChange={(e) => setBand({ color: e.target.value })} /></label>
-            <label><span>Marge (pt)</span><input type="number" min={8} max={120} value={band.marginPt} onChange={(e) => setBand({ marginPt: Number(e.target.value) })} /></label>
+            <label>
+              <span>Taille</span>
+              <input
+                type="number"
+                min={5}
+                max={24}
+                value={band.fontSize}
+                onChange={(e) => setBand({ fontSize: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              <span>Couleur</span>
+              <input type="color" value={band.color} onChange={(e) => setBand({ color: e.target.value })} />
+            </label>
+            <label>
+              <span>Marge (pt)</span>
+              <input
+                type="number"
+                min={8}
+                max={120}
+                value={band.marginPt}
+                onChange={(e) => setBand({ marginPt: Number(e.target.value) })}
+              />
+            </label>
           </div>
           <label className="pdfx-form__row">
             <span>Pages</span>
-            <input value={band.pages} placeholder="toutes, ou 2-, ou 1-3, 7" onChange={(e) => setBand({ pages: e.target.value })} />
+            <input
+              value={band.pages}
+              placeholder="toutes, ou 2-, ou 1-3, 7"
+              onChange={(e) => setBand({ pages: e.target.value })}
+            />
           </label>
         </div>
       )}
@@ -484,7 +715,11 @@ export function HeaderFooterDialog({
 // ---------------------------------------------------------------------------
 
 export function PropertiesDialog({
-  info, metadata, sizeBytes, onChange, onClose,
+  info,
+  metadata,
+  sizeBytes,
+  onChange,
+  onClose,
 }: {
   info: DocInfo;
   metadata: DocMetadata;
@@ -500,27 +735,80 @@ export function PropertiesDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => { onChange(draft); onClose(); }}>Enregistrer</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            onClick={() => {
+              onChange(draft);
+              onClose();
+            }}
+          >
+            Enregistrer
+          </button>
         </>
       }
     >
       <div className="pdfx-form">
-        <label className="pdfx-form__row"><span>Titre</span><input value={draft.title ?? ""} onChange={(e) => set({ title: e.target.value })} /></label>
-        <label className="pdfx-form__row"><span>Auteur</span><input value={draft.author ?? ""} onChange={(e) => set({ author: e.target.value })} /></label>
-        <label className="pdfx-form__row"><span>Objet</span><input value={draft.subject ?? ""} onChange={(e) => set({ subject: e.target.value })} /></label>
-        <label className="pdfx-form__row"><span>Mots-clés</span><input value={draft.keywords ?? ""} onChange={(e) => set({ keywords: e.target.value })} placeholder="séparés par des virgules" /></label>
-        <label className="pdfx-form__row"><span>Langue</span><input value={draft.language ?? ""} onChange={(e) => set({ language: e.target.value })} placeholder="fr-FR" /></label>
+        <label className="pdfx-form__row">
+          <span>Titre</span>
+          <input value={draft.title ?? ""} onChange={(e) => set({ title: e.target.value })} />
+        </label>
+        <label className="pdfx-form__row">
+          <span>Auteur</span>
+          <input value={draft.author ?? ""} onChange={(e) => set({ author: e.target.value })} />
+        </label>
+        <label className="pdfx-form__row">
+          <span>Objet</span>
+          <input value={draft.subject ?? ""} onChange={(e) => set({ subject: e.target.value })} />
+        </label>
+        <label className="pdfx-form__row">
+          <span>Mots-clés</span>
+          <input
+            value={draft.keywords ?? ""}
+            onChange={(e) => set({ keywords: e.target.value })}
+            placeholder="séparés par des virgules"
+          />
+        </label>
+        <label className="pdfx-form__row">
+          <span>Langue</span>
+          <input value={draft.language ?? ""} onChange={(e) => set({ language: e.target.value })} placeholder="fr-FR" />
+        </label>
 
         <dl className="pdfx-facts">
-          <div><dt>Pages</dt><dd>{info.pageCount}</dd></div>
-          <div><dt>Taille</dt><dd>{formatBytes(sizeBytes)}</dd></div>
-          <div><dt>Version PDF</dt><dd>{info.pdfVersion ?? "—"}</dd></div>
-          <div><dt>Producteur</dt><dd>{info.producer ?? "—"}</dd></div>
-          <div><dt>Créé avec</dt><dd>{info.creator ?? "—"}</dd></div>
-          <div><dt>Formulaire</dt><dd>{info.isXfa ? "XFA (lecture seule)" : info.hasAcroForm ? "AcroForm" : "Aucun"}</dd></div>
-          <div><dt>Signature</dt><dd>{info.signed ? "Présente" : "Aucune"}</dd></div>
-          <div><dt>Chiffrement</dt><dd>{info.encrypted ? "Protégé par mot de passe" : "Aucun"}</dd></div>
+          <div>
+            <dt>Pages</dt>
+            <dd>{info.pageCount}</dd>
+          </div>
+          <div>
+            <dt>Taille</dt>
+            <dd>{formatBytes(sizeBytes)}</dd>
+          </div>
+          <div>
+            <dt>Version PDF</dt>
+            <dd>{info.pdfVersion ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Producteur</dt>
+            <dd>{info.producer ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Créé avec</dt>
+            <dd>{info.creator ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Formulaire</dt>
+            <dd>{info.isXfa ? "XFA (lecture seule)" : info.hasAcroForm ? "AcroForm" : "Aucun"}</dd>
+          </div>
+          <div>
+            <dt>Signature</dt>
+            <dd>{info.signed ? "Présente" : "Aucune"}</dd>
+          </div>
+          <div>
+            <dt>Chiffrement</dt>
+            <dd>{info.encrypted ? "Protégé par mot de passe" : "Aucun"}</dd>
+          </div>
         </dl>
       </div>
     </Modal>
@@ -532,10 +820,18 @@ export function PropertiesDialog({
 // ---------------------------------------------------------------------------
 
 export function ExportImagesDialog({
-  pageCount, onConfirm, onClose,
+  pageCount,
+  onConfirm,
+  onClose,
 }: {
   pageCount: number;
-  onConfirm: (v: { format: "png" | "jpeg" | "webp"; dpi: number; quality: number; range: string; zip: boolean }) => void;
+  onConfirm: (v: {
+    format: "png" | "jpeg" | "webp";
+    dpi: number;
+    quality: number;
+    range: string;
+    zip: boolean;
+  }) => void;
   onClose: () => void;
 }) {
   const [format, setFormat] = useState<"png" | "jpeg" | "webp">("png");
@@ -549,8 +845,12 @@ export function ExportImagesDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ format, dpi, quality, range, zip })}>Exporter</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ format, dpi, quality, range, zip })}>
+            Exporter
+          </button>
         </>
       }
     >
@@ -566,14 +866,25 @@ export function ExportImagesDialog({
         <label className="pdfx-form__row">
           <span>Résolution</span>
           <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
-            {[72, 96, 150, 200, 300, 600].map((d) => <option key={d} value={d}>{d} ppp</option>)}
+            {[72, 96, 150, 200, 300, 600].map((d) => (
+              <option key={d} value={d}>
+                {d} ppp
+              </option>
+            ))}
           </select>
         </label>
         {format !== "png" && (
           <label className="pdfx-form__row">
             <span>Qualité</span>
             <span className="pdfx-insp-inline">
-              <input type="range" min={0.3} max={1} step={0.05} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
+              <input
+                type="range"
+                min={0.3}
+                max={1}
+                step={0.05}
+                value={quality}
+                onChange={(e) => setQuality(Number(e.target.value))}
+              />
               <b>{Math.round(quality * 100)} %</b>
             </span>
           </label>
@@ -596,7 +907,13 @@ export function ExportImagesDialog({
 // ---------------------------------------------------------------------------
 
 export function OcrDialog({
-  pageCount, localModels, running, progress, onConfirm, onCancel, onClose,
+  pageCount,
+  localModels,
+  running,
+  progress,
+  onConfirm,
+  onCancel,
+  onClose,
 }: {
   pageCount: number;
   localModels: boolean;
@@ -616,28 +933,41 @@ export function OcrDialog({
       title="Reconnaissance de texte (OCR)"
       onClose={running ? onCancel : onClose}
       footer={
-        running
-          ? <button className="eb eb--outline eb--sm" onClick={onCancel}>Interrompre</button>
-          : (
-            <>
-              <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-              <button className="eb eb--primary eb--sm" disabled={!languages.length} onClick={() => onConfirm({ languages, dpi, range, skipPagesWithText: skip })}>
-                Lancer
-              </button>
-            </>
-          )
+        running ? (
+          <button className="eb eb--outline eb--sm" onClick={onCancel}>
+            Interrompre
+          </button>
+        ) : (
+          <>
+            <button className="eb eb--outline eb--sm" onClick={onClose}>
+              Annuler
+            </button>
+            <button
+              className="eb eb--primary eb--sm"
+              disabled={!languages.length}
+              onClick={() => onConfirm({ languages, dpi, range, skipPagesWithText: skip })}
+            >
+              Lancer
+            </button>
+          </>
+        )
       }
     >
       {running ? (
         <div className="pdfx-progress-box">
           <Loader2 size={28} className="pdfx-spin" />
-          <p>Page {progress?.page ?? 0} / {progress?.total ?? 0} — {progress?.stage ?? "préparation"}</p>
-          <div className="pdfx-bar"><span style={{ width: `${Math.round((progress?.ratio ?? 0) * 100)}%` }} /></div>
+          <p>
+            Page {progress?.page ?? 0} / {progress?.total ?? 0} — {progress?.stage ?? "préparation"}
+          </p>
+          <div className="pdfx-bar">
+            <span style={{ width: `${Math.round((progress?.ratio ?? 0) * 100)}%` }} />
+          </div>
         </div>
       ) : (
         <div className="pdfx-form">
           <p className="pdfx-form__lead">
-            Ajoute un calque de texte invisible aligné sur l'image : la page reste identique, mais devient sélectionnable et cherchable.
+            Ajoute un calque de texte invisible aligné sur l'image : la page reste identique, mais devient
+            sélectionnable et cherchable.
           </p>
           <fieldset className="pdfx-form__set">
             <legend>Langues</legend>
@@ -646,9 +976,12 @@ export function OcrDialog({
                 <button
                   key={l.code}
                   className={`pdfx-chip ${languages.includes(l.code) ? "is-on" : ""}`}
-                  onClick={() => setLanguages((v) => (v.includes(l.code) ? v.filter((c) => c !== l.code) : [...v, l.code]))}
+                  onClick={() =>
+                    setLanguages((v) => (v.includes(l.code) ? v.filter((c) => c !== l.code) : [...v, l.code]))
+                  }
                 >
-                  {languages.includes(l.code) && <Check size={12} />}{l.label}
+                  {languages.includes(l.code) && <Check size={12} />}
+                  {l.label}
                 </button>
               ))}
             </div>
@@ -671,7 +1004,8 @@ export function OcrDialog({
           </label>
           {!localModels && (
             <p className="pdfx-form__note">
-              Les modèles de langue ne sont pas embarqués dans cette installation : ils seront téléchargés une seule fois.
+              Les modèles de langue ne sont pas embarqués dans cette installation : ils seront téléchargés une seule
+              fois.
               <b> Votre document ne quitte jamais l'appareil</b> — seuls les fichiers de modèle sont récupérés.
             </p>
           )}
@@ -686,7 +1020,11 @@ export function OcrDialog({
 // ---------------------------------------------------------------------------
 
 export function SignatureDialog({
-  saved, onUse, onSave, onDelete, onClose,
+  saved,
+  onUse,
+  onSave,
+  onDelete,
+  onClose,
 }: {
   saved: SavedSignature[];
   onUse: (sig: { src: string; ratio: number }) => void;
@@ -735,7 +1073,10 @@ export function SignatureDialog({
     });
     const stroke: Pt[] = [at(e)];
     strokes.current.push(stroke);
-    const move = (ev: PointerEvent) => { stroke.push(at(ev)); setDirty((v) => !v); };
+    const move = (ev: PointerEvent) => {
+      stroke.push(at(ev));
+      setDirty((v) => !v);
+    };
     const up = () => {
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", up);
@@ -758,7 +1099,13 @@ export function SignatureDialog({
       return;
     }
     if (store) {
-      onSave({ id: `sig_${Date.now().toString(36)}`, kind: "signature", src: made.src, ratio: made.ratio, createdAt: new Date().toISOString() });
+      onSave({
+        id: `sig_${Date.now().toString(36)}`,
+        kind: "signature",
+        src: made.src,
+        ratio: made.ratio,
+        createdAt: new Date().toISOString(),
+      });
     }
     onUse(made);
   };
@@ -770,10 +1117,16 @@ export function SignatureDialog({
       wide
       footer={
         <>
-          <label className="pdfx-check"><input type="checkbox" checked={store} onChange={(e) => setStore(e.target.checked)} /> Mémoriser</label>
+          <label className="pdfx-check">
+            <input type="checkbox" checked={store} onChange={(e) => setStore(e.target.checked)} /> Mémoriser
+          </label>
           <span className="pdfx-spacer" />
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={confirm}>Placer sur la page</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={confirm}>
+            Placer sur la page
+          </button>
         </>
       }
     >
@@ -784,9 +1137,17 @@ export function SignatureDialog({
             {saved.map((s) => (
               <div key={s.id} className="pdfx-saved-sig">
                 <button onClick={() => onUse({ src: s.src, ratio: s.ratio })} title="Utiliser">
-                  <img src={s.src} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  <img
+                    src={s.src}
+                    alt=""
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
                 </button>
-                <button className="pdfx-saved-sig__del" onClick={() => onDelete(s.id)} title="Supprimer"><Trash2 size={12} /></button>
+                <button className="pdfx-saved-sig__del" onClick={() => onDelete(s.id)} title="Supprimer">
+                  <Trash2 size={12} />
+                </button>
               </div>
             ))}
           </div>
@@ -794,24 +1155,32 @@ export function SignatureDialog({
       )}
 
       <div className="pdfx-segment pdfx-segment--wide">
-        <button className={tab === "draw" ? "is-on" : ""} onClick={() => setTab("draw")}>Dessiner</button>
-        <button className={tab === "type" ? "is-on" : ""} onClick={() => setTab("type")}>Saisir</button>
-        <button className={tab === "import" ? "is-on" : ""} onClick={() => setTab("import")}>Importer</button>
+        <button className={tab === "draw" ? "is-on" : ""} onClick={() => setTab("draw")}>
+          Dessiner
+        </button>
+        <button className={tab === "type" ? "is-on" : ""} onClick={() => setTab("type")}>
+          Saisir
+        </button>
+        <button className={tab === "import" ? "is-on" : ""} onClick={() => setTab("import")}>
+          Importer
+        </button>
       </div>
 
       <div className="pdfx-sigarea">
         {tab === "draw" && (
           <>
-            <canvas
-              ref={canvasRef}
-              className="pdfx-sigpad"
-              width={760}
-              height={220}
-              onPointerDown={startStroke}
-            />
+            <canvas ref={canvasRef} className="pdfx-sigpad" width={760} height={220} onPointerDown={startStroke} />
             <div className="pdfx-sigpad__tools">
               <input type="color" value={colour} onChange={(e) => setColour(e.target.value)} title="Couleur d'encre" />
-              <button className="pdfx-mini" onClick={() => { strokes.current = []; setDirty((v) => !v); }}><Eraser size={13} /> Effacer</button>
+              <button
+                className="pdfx-mini"
+                onClick={() => {
+                  strokes.current = [];
+                  setDirty((v) => !v);
+                }}
+              >
+                <Eraser size={13} /> Effacer
+              </button>
             </div>
           </>
         )}
@@ -842,10 +1211,29 @@ export function SignatureDialog({
         )}
         {tab === "import" && (
           <div className="pdfx-sigimport">
-            {imported ? <img src={imported.src} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <p>Photographiez ou scannez votre signature sur une feuille blanche.<br />Le fond sera automatiquement rendu transparent.</p>}
-            <button className="pdfx-mini" onClick={() => fileRef.current?.click()}><Upload size={13} /> Choisir une image…</button>
+            {imported ? (
+              <img
+                src={imported.src}
+                alt=""
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            ) : (
+              <p>
+                Photographiez ou scannez votre signature sur une feuille blanche.
+                <br />
+                Le fond sera automatiquement rendu transparent.
+              </p>
+            )}
+            <button className="pdfx-mini" onClick={() => fileRef.current?.click()}>
+              <Upload size={13} /> Choisir une image…
+            </button>
             <input
-              ref={fileRef} type="file" accept="image/*" hidden
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              hidden
               onChange={async (e) => {
                 const f = e.target.files?.[0];
                 e.target.value = "";
@@ -870,11 +1258,19 @@ export function SignatureDialog({
 // ---------------------------------------------------------------------------
 
 export function SplitDialog({
-  pageCount, hasBookmarks, onConfirm, onClose,
+  pageCount,
+  hasBookmarks,
+  onConfirm,
+  onClose,
 }: {
   pageCount: number;
   hasBookmarks: boolean;
-  onConfirm: (v: { mode: "everyN" | "ranges" | "maxSize" | "bookmarks"; n: number; spec: string; maxMb: number }) => void;
+  onConfirm: (v: {
+    mode: "everyN" | "ranges" | "maxSize" | "bookmarks";
+    n: number;
+    spec: string;
+    maxMb: number;
+  }) => void;
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<"everyN" | "ranges" | "maxSize" | "bookmarks">("everyN");
@@ -887,21 +1283,64 @@ export function SplitDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ mode, n, spec, maxMb })}>Diviser</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ mode, n, spec, maxMb })}>
+            Diviser
+          </button>
         </>
       }
     >
       <div className="pdfx-form">
-        <label className="pdfx-radio"><input type="radio" checked={mode === "everyN"} onChange={() => setMode("everyN")} /><span><b>Toutes les N pages</b></span></label>
-        {mode === "everyN" && <label className="pdfx-form__row"><span>Pages par fichier</span><input type="number" min={1} max={pageCount} value={n} onChange={(e) => setN(Number(e.target.value))} /></label>}
-        <label className="pdfx-radio"><input type="radio" checked={mode === "ranges"} onChange={() => setMode("ranges")} /><span><b>Plages personnalisées</b><small>Séparez les fichiers par un point-virgule.</small></span></label>
-        {mode === "ranges" && <label className="pdfx-form__row"><span>Plages</span><input value={spec} onChange={(e) => setSpec(e.target.value)} /></label>}
-        <label className="pdfx-radio"><input type="radio" checked={mode === "maxSize"} onChange={() => setMode("maxSize")} /><span><b>Taille maximale</b></span></label>
-        {mode === "maxSize" && <label className="pdfx-form__row"><span>Mo par fichier</span><input type="number" min={1} value={maxMb} onChange={(e) => setMaxMb(Number(e.target.value))} /></label>}
         <label className="pdfx-radio">
-          <input type="radio" checked={mode === "bookmarks"} onChange={() => setMode("bookmarks")} disabled={!hasBookmarks} />
-          <span><b>Aux signets de premier niveau</b>{!hasBookmarks && <small>Ce document n'a pas de signets.</small>}</span>
+          <input type="radio" checked={mode === "everyN"} onChange={() => setMode("everyN")} />
+          <span>
+            <b>Toutes les N pages</b>
+          </span>
+        </label>
+        {mode === "everyN" && (
+          <label className="pdfx-form__row">
+            <span>Pages par fichier</span>
+            <input type="number" min={1} max={pageCount} value={n} onChange={(e) => setN(Number(e.target.value))} />
+          </label>
+        )}
+        <label className="pdfx-radio">
+          <input type="radio" checked={mode === "ranges"} onChange={() => setMode("ranges")} />
+          <span>
+            <b>Plages personnalisées</b>
+            <small>Séparez les fichiers par un point-virgule.</small>
+          </span>
+        </label>
+        {mode === "ranges" && (
+          <label className="pdfx-form__row">
+            <span>Plages</span>
+            <input value={spec} onChange={(e) => setSpec(e.target.value)} />
+          </label>
+        )}
+        <label className="pdfx-radio">
+          <input type="radio" checked={mode === "maxSize"} onChange={() => setMode("maxSize")} />
+          <span>
+            <b>Taille maximale</b>
+          </span>
+        </label>
+        {mode === "maxSize" && (
+          <label className="pdfx-form__row">
+            <span>Mo par fichier</span>
+            <input type="number" min={1} value={maxMb} onChange={(e) => setMaxMb(Number(e.target.value))} />
+          </label>
+        )}
+        <label className="pdfx-radio">
+          <input
+            type="radio"
+            checked={mode === "bookmarks"}
+            onChange={() => setMode("bookmarks")}
+            disabled={!hasBookmarks}
+          />
+          <span>
+            <b>Aux signets de premier niveau</b>
+            {!hasBookmarks && <small>Ce document n'a pas de signets.</small>}
+          </span>
         </label>
       </div>
     </Modal>
@@ -909,10 +1348,15 @@ export function SplitDialog({
 }
 
 export function CropDialog({
-  current, onConfirm, onClose,
+  current,
+  onConfirm,
+  onClose,
 }: {
   current: { top: number; right: number; bottom: number; left: number };
-  onConfirm: (v: { crop: { top: number; right: number; bottom: number; left: number }; scope: "selection" | "all" }) => void;
+  onConfirm: (v: {
+    crop: { top: number; right: number; bottom: number; left: number };
+    scope: "selection" | "all";
+  }) => void;
   onClose: () => void;
 }) {
   const [crop, setCrop] = useState(current);
@@ -923,18 +1367,57 @@ export function CropDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={() => onConfirm({ crop: { top: 0, right: 0, bottom: 0, left: 0 }, scope })}>Réinitialiser</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ crop, scope })}>Appliquer</button>
+          <button
+            className="eb eb--outline eb--sm"
+            onClick={() => onConfirm({ crop: { top: 0, right: 0, bottom: 0, left: 0 }, scope })}
+          >
+            Réinitialiser
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ crop, scope })}>
+            Appliquer
+          </button>
         </>
       }
     >
       <div className="pdfx-form">
         <p className="pdfx-form__lead">Marges à retirer, en points (1 pt = 0,353 mm).</p>
         <div className="pdfx-cropgrid">
-          <label><span>Haut</span><input type="number" min={0} value={crop.top} onChange={(e) => setCrop({ ...crop, top: Number(e.target.value) })} /></label>
-          <label><span>Bas</span><input type="number" min={0} value={crop.bottom} onChange={(e) => setCrop({ ...crop, bottom: Number(e.target.value) })} /></label>
-          <label><span>Gauche</span><input type="number" min={0} value={crop.left} onChange={(e) => setCrop({ ...crop, left: Number(e.target.value) })} /></label>
-          <label><span>Droite</span><input type="number" min={0} value={crop.right} onChange={(e) => setCrop({ ...crop, right: Number(e.target.value) })} /></label>
+          <label>
+            <span>Haut</span>
+            <input
+              type="number"
+              min={0}
+              value={crop.top}
+              onChange={(e) => setCrop({ ...crop, top: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            <span>Bas</span>
+            <input
+              type="number"
+              min={0}
+              value={crop.bottom}
+              onChange={(e) => setCrop({ ...crop, bottom: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            <span>Gauche</span>
+            <input
+              type="number"
+              min={0}
+              value={crop.left}
+              onChange={(e) => setCrop({ ...crop, left: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            <span>Droite</span>
+            <input
+              type="number"
+              min={0}
+              value={crop.right}
+              onChange={(e) => setCrop({ ...crop, right: Number(e.target.value) })}
+            />
+          </label>
         </div>
         <label className="pdfx-form__row">
           <span>Portée</span>
@@ -949,9 +1432,15 @@ export function CropDialog({
 }
 
 export function PageLabelsDialog({
-  onConfirm, onClose,
+  onConfirm,
+  onClose,
 }: {
-  onConfirm: (v: { style: "decimal" | "roman" | "ROMAN" | "alpha" | "ALPHA" | "none"; prefix: string; start: number; scope: "selection" | "all" }) => void;
+  onConfirm: (v: {
+    style: "decimal" | "roman" | "ROMAN" | "alpha" | "ALPHA" | "none";
+    prefix: string;
+    start: number;
+    scope: "selection" | "all";
+  }) => void;
   onClose: () => void;
 }) {
   const [style, setStyle] = useState<"decimal" | "roman" | "ROMAN" | "alpha" | "ALPHA" | "none">("decimal");
@@ -964,8 +1453,12 @@ export function PageLabelsDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ style, prefix, start, scope })}>Appliquer</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ style, prefix, start, scope })}>
+            Appliquer
+          </button>
         </>
       }
     >
@@ -981,8 +1474,14 @@ export function PageLabelsDialog({
             <option value="none">Préfixe seul</option>
           </select>
         </label>
-        <label className="pdfx-form__row"><span>Préfixe</span><input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ex. Annexe-" /></label>
-        <label className="pdfx-form__row"><span>Commencer à</span><input type="number" min={1} value={start} onChange={(e) => setStart(Number(e.target.value))} /></label>
+        <label className="pdfx-form__row">
+          <span>Préfixe</span>
+          <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ex. Annexe-" />
+        </label>
+        <label className="pdfx-form__row">
+          <span>Commencer à</span>
+          <input type="number" min={1} value={start} onChange={(e) => setStart(Number(e.target.value))} />
+        </label>
         <label className="pdfx-form__row">
           <span>Portée</span>
           <select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
@@ -996,7 +1495,9 @@ export function PageLabelsDialog({
 }
 
 export function MeasureScaleDialog({
-  value, onConfirm, onClose,
+  value,
+  onConfirm,
+  onClose,
 }: {
   value: MeasureScale;
   onConfirm: (v: MeasureScale) => void;
@@ -1013,29 +1514,67 @@ export function MeasureScaleDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ unitsPerPoint: perPoint, unit, precision })}>Appliquer</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            onClick={() => onConfirm({ unitsPerPoint: perPoint, unit, precision })}
+          >
+            Appliquer
+          </button>
         </>
       }
     >
       <div className="pdfx-form">
         <p className="pdfx-form__lead">Indiquez la correspondance entre le document et la réalité.</p>
         <div className="pdfx-scalerow">
-          <input type="number" min={0.01} step="0.01" value={pageLength} onChange={(e) => setPageLength(Number(e.target.value))} />
+          <input
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={pageLength}
+            onChange={(e) => setPageLength(Number(e.target.value))}
+          />
           <span>pouce sur la page</span>
           <b>=</b>
-          <input type="number" min={0.0001} step="0.0001" value={realLength} onChange={(e) => setRealLength(Number(e.target.value))} />
+          <input
+            type="number"
+            min={0.0001}
+            step="0.0001"
+            value={realLength}
+            onChange={(e) => setRealLength(Number(e.target.value))}
+          />
           <input className="pdfx-unitinput" value={unit} onChange={(e) => setUnit(e.target.value)} />
         </div>
-        <label className="pdfx-form__row"><span>Décimales</span><input type="number" min={0} max={6} value={precision} onChange={(e) => setPrecision(Number(e.target.value))} /></label>
-        <p className="pdfx-form__note">Soit <b>1 pt = {perPoint.toFixed(6)} {unit}</b>.</p>
+        <label className="pdfx-form__row">
+          <span>Décimales</span>
+          <input
+            type="number"
+            min={0}
+            max={6}
+            value={precision}
+            onChange={(e) => setPrecision(Number(e.target.value))}
+          />
+        </label>
+        <p className="pdfx-form__note">
+          Soit{" "}
+          <b>
+            1 pt = {perPoint.toFixed(6)} {unit}
+          </b>
+          .
+        </p>
       </div>
     </Modal>
   );
 }
 
 export function CompareDialog({
-  report, busy, onPick, onGoTo, onClose,
+  report,
+  busy,
+  onPick,
+  onGoTo,
+  onClose,
 }: {
   report: ComparisonReport | null;
   busy: boolean;
@@ -1049,44 +1588,76 @@ export function CompareDialog({
         <div className="pdfx-form">
           <p className="pdfx-form__lead">Choisissez la version à comparer avec le document ouvert.</p>
           <button className="eb eb--primary eb--sm" onClick={onPick} disabled={busy}>
-            {busy ? <><Loader2 size={14} className="pdfx-spin" /> Analyse…</> : <><FileText size={14} /> Choisir un PDF…</>}
+            {busy ? (
+              <>
+                <Loader2 size={14} className="pdfx-spin" /> Analyse…
+              </>
+            ) : (
+              <>
+                <FileText size={14} /> Choisir un PDF…
+              </>
+            )}
           </button>
         </div>
       ) : (
         <div className="pdfx-compare">
           <div className="pdfx-compare__stats">
-            <div><b>{Math.round(report.similarity * 100)} %</b><span>de similitude</span></div>
-            <div><b>{report.wordsAdded}</b><span>mots ajoutés</span></div>
-            <div><b>{report.wordsRemoved}</b><span>mots supprimés</span></div>
-            <div><b>{report.pagesModified}</b><span>pages modifiées</span></div>
-            <div><b>{report.pagesAdded}</b><span>pages ajoutées</span></div>
-            <div><b>{report.pagesRemoved}</b><span>pages retirées</span></div>
+            <div>
+              <b>{Math.round(report.similarity * 100)} %</b>
+              <span>de similitude</span>
+            </div>
+            <div>
+              <b>{report.wordsAdded}</b>
+              <span>mots ajoutés</span>
+            </div>
+            <div>
+              <b>{report.wordsRemoved}</b>
+              <span>mots supprimés</span>
+            </div>
+            <div>
+              <b>{report.pagesModified}</b>
+              <span>pages modifiées</span>
+            </div>
+            <div>
+              <b>{report.pagesAdded}</b>
+              <span>pages ajoutées</span>
+            </div>
+            <div>
+              <b>{report.pagesRemoved}</b>
+              <span>pages retirées</span>
+            </div>
           </div>
           <div className="pdfx-compare__list">
-            {report.pages.filter((pg) => pg.status !== "unchanged").map((pg, i) => (
-              <div key={i} className={`pdfx-compare__page is-${pg.status}`}>
-                <header>
-                  <button onClick={() => pg.leftPage && onGoTo(pg.leftPage)}>
-                    {pg.status === "added" ? `Page ${pg.rightPage} ajoutée`
-                      : pg.status === "removed" ? `Page ${pg.leftPage} supprimée`
-                        : `Page ${pg.leftPage} → ${pg.rightPage}`}
-                  </button>
-                  <span>{Math.round(pg.similarity * 100)} %</span>
-                </header>
-                <p className="pdfx-diff">
-                  {pg.changes.slice(0, 60).map((c, k) => {
-                    if (c.kind === "equal") return <span key={k}>{c.left.slice(-12).join(" ")} </span>;
-                    return (
-                      <span key={k}>
-                        {!!c.left.length && <del>{c.left.join(" ")}</del>}{" "}
-                        {!!c.right.length && <ins>{c.right.join(" ")}</ins>}{" "}
-                      </span>
-                    );
-                  })}
-                </p>
-              </div>
-            ))}
-            {!report.pages.some((pg) => pg.status !== "unchanged") && <p className="pdfx-empty">Les deux documents sont identiques.</p>}
+            {report.pages
+              .filter((pg) => pg.status !== "unchanged")
+              .map((pg, i) => (
+                <div key={i} className={`pdfx-compare__page is-${pg.status}`}>
+                  <header>
+                    <button onClick={() => pg.leftPage && onGoTo(pg.leftPage)}>
+                      {pg.status === "added"
+                        ? `Page ${pg.rightPage} ajoutée`
+                        : pg.status === "removed"
+                          ? `Page ${pg.leftPage} supprimée`
+                          : `Page ${pg.leftPage} → ${pg.rightPage}`}
+                    </button>
+                    <span>{Math.round(pg.similarity * 100)} %</span>
+                  </header>
+                  <p className="pdfx-diff">
+                    {pg.changes.slice(0, 60).map((c, k) => {
+                      if (c.kind === "equal") return <span key={k}>{c.left.slice(-12).join(" ")} </span>;
+                      return (
+                        <span key={k}>
+                          {!!c.left.length && <del>{c.left.join(" ")}</del>}{" "}
+                          {!!c.right.length && <ins>{c.right.join(" ")}</ins>}{" "}
+                        </span>
+                      );
+                    })}
+                  </p>
+                </div>
+              ))}
+            {!report.pages.some((pg) => pg.status !== "unchanged") && (
+              <p className="pdfx-empty">Les deux documents sont identiques.</p>
+            )}
           </div>
         </div>
       )}
@@ -1095,7 +1666,9 @@ export function CompareDialog({
 }
 
 export function InsertPagesDialog({
-  pageCount, onConfirm, onClose,
+  pageCount,
+  onConfirm,
+  onClose,
 }: {
   pageCount: number;
   onConfirm: (v: { where: "before" | "after" | "end"; at: number; count: number; size: string }) => void;
@@ -1111,8 +1684,12 @@ export function InsertPagesDialog({
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ where, at, count, size })}>Insérer</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ where, at, count, size })}>
+            Insérer
+          </button>
         </>
       }
     >
@@ -1126,13 +1703,23 @@ export function InsertPagesDialog({
           </select>
         </label>
         {where !== "end" && (
-          <label className="pdfx-form__row"><span>Page</span><input type="number" min={1} max={pageCount} value={at} onChange={(e) => setAt(Number(e.target.value))} /></label>
+          <label className="pdfx-form__row">
+            <span>Page</span>
+            <input type="number" min={1} max={pageCount} value={at} onChange={(e) => setAt(Number(e.target.value))} />
+          </label>
         )}
-        <label className="pdfx-form__row"><span>Nombre</span><input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} /></label>
+        <label className="pdfx-form__row">
+          <span>Nombre</span>
+          <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+        </label>
         <label className="pdfx-form__row">
           <span>Format</span>
           <select value={size} onChange={(e) => setSize(e.target.value)}>
-            {Object.keys(PAGE_SIZES).map((k) => <option key={k} value={k}>{k}</option>)}
+            {Object.keys(PAGE_SIZES).map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
             <option value="same">Comme la page courante</option>
           </select>
         </label>
@@ -1142,7 +1729,8 @@ export function InsertPagesDialog({
 }
 
 export function RedactSearchDialog({
-  onConfirm, onClose,
+  onConfirm,
+  onClose,
 }: {
   onConfirm: (v: { query: string; wholeWord: boolean; caseSensitive: boolean; regex: boolean }) => void;
   onClose: () => void;
@@ -1151,33 +1739,66 @@ export function RedactSearchDialog({
   const [wholeWord, setWholeWord] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
-  const presets = useMemo(() => ([
-    { label: "Adresses e-mail", pattern: "[\\w.+-]+@[\\w-]+\\.[\\w.-]+" },
-    { label: "Numéros de téléphone", pattern: "(?:\\+33|0)\\s?[1-9](?:[\\s.-]?\\d{2}){4}" },
-    { label: "IBAN", pattern: "[A-Z]{2}\\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}" },
-    { label: "Numéro de sécurité sociale", pattern: "[12]\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{2}" },
-  ]), []);
+  const presets = useMemo(
+    () => [
+      { label: "Adresses e-mail", pattern: "[\\w.+-]+@[\\w-]+\\.[\\w.-]+" },
+      { label: "Numéros de téléphone", pattern: "(?:\\+33|0)\\s?[1-9](?:[\\s.-]?\\d{2}){4}" },
+      { label: "IBAN", pattern: "[A-Z]{2}\\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}" },
+      {
+        label: "Numéro de sécurité sociale",
+        pattern: "[12]\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{2}",
+      },
+    ],
+    [],
+  );
   return (
     <Modal
       title="Marquer par recherche"
       onClose={onClose}
       footer={
         <>
-          <button className="eb eb--outline eb--sm" onClick={onClose}>Annuler</button>
-          <button className="eb eb--primary eb--sm" disabled={!query} onClick={() => onConfirm({ query, wholeWord, caseSensitive, regex })}>Marquer tout</button>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            disabled={!query}
+            onClick={() => onConfirm({ query, wholeWord, caseSensitive, regex })}
+          >
+            Marquer tout
+          </button>
         </>
       }
     >
       <div className="pdfx-form">
-        <label className="pdfx-form__row"><span>Texte à caviarder</span><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} /></label>
+        <label className="pdfx-form__row">
+          <span>Texte à caviarder</span>
+          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} />
+        </label>
         <div className="pdfx-chips">
           {presets.map((p) => (
-            <button key={p.label} className="pdfx-chip" onClick={() => { setQuery(p.pattern); setRegex(true); }}>{p.label}</button>
+            <button
+              key={p.label}
+              className="pdfx-chip"
+              onClick={() => {
+                setQuery(p.pattern);
+                setRegex(true);
+              }}
+            >
+              {p.label}
+            </button>
           ))}
         </div>
-        <label className="pdfx-check"><input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} /> Respecter la casse</label>
-        <label className="pdfx-check"><input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Mot entier</label>
-        <label className="pdfx-check"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Expression régulière</label>
+        <label className="pdfx-check">
+          <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} />{" "}
+          Respecter la casse
+        </label>
+        <label className="pdfx-check">
+          <input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Mot entier
+        </label>
+        <label className="pdfx-check">
+          <input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Expression régulière
+        </label>
       </div>
     </Modal>
   );

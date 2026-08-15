@@ -6,8 +6,10 @@ import type { Workbook } from "./model";
 function sniffDelim(text: string): string {
   const nl = text.indexOf("\n");
   const first = nl >= 0 ? text.slice(0, nl) : text;
-  const count = (ch: string) => (first.split(ch).length - 1);
-  const tab = count("\t"), semi = count(";"), comma = count(",");
+  const count = (ch: string) => first.split(ch).length - 1;
+  const tab = count("\t"),
+    semi = count(";"),
+    comma = count(",");
   if (tab >= semi && tab >= comma && tab > 0) return "\t";
   return semi > comma ? ";" : ",";
 }

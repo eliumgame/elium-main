@@ -11,16 +11,29 @@ export default function TrackingPanel({ studio }: { studio: Studio }) {
     <div className="panel">
       <section className="panel-section">
         <div className="panel-title-row">
-          <h3 className="panel-title"><History size={15} /> Journal de suivi</h3>
+          <h3 className="panel-title">
+            <History size={15} /> Journal de suivi
+          </h3>
           {journalVerdict && events.length > 0 && (
             <Badge accent={journalVerdict.valid ? "success" : "danger"}>
-              {journalVerdict.valid ? <><ShieldCheck size={12} /> Intègre</> : <><ShieldAlert size={12} /> Altéré</>}
+              {journalVerdict.valid ? (
+                <>
+                  <ShieldCheck size={12} /> Intègre
+                </>
+              ) : (
+                <>
+                  <ShieldAlert size={12} /> Altéré
+                </>
+              )}
             </Badge>
           )}
         </div>
 
         {events.length === 0 ? (
-          <EmptyState title="Suivi désactivé" hint="Activez un profil « Suivi », « Signé » ou « Final » pour journaliser les évènements." />
+          <EmptyState
+            title="Suivi désactivé"
+            hint="Activez un profil « Suivi », « Signé » ou « Final » pour journaliser les évènements."
+          />
         ) : (
           <ol className="timeline">
             {events.map((e) => (
@@ -41,8 +54,8 @@ export default function TrackingPanel({ studio }: { studio: Studio }) {
       </section>
 
       <Alert tone="info" title="Chaîne d'intégrité">
-        Chaque évènement est chaîné par empreinte SHA-256. Toute modification du journal casse la chaîne
-        et est détectée. Données minimisées (RGPD) : nom, date, rôle, empreinte de clé, action.
+        Chaque évènement est chaîné par empreinte SHA-256. Toute modification du journal casse la chaîne et est
+        détectée. Données minimisées (RGPD) : nom, date, rôle, empreinte de clé, action.
       </Alert>
     </div>
   );

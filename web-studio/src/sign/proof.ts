@@ -117,7 +117,8 @@ export async function verifyProof(
 
   if ((await computeContentHash(model)) !== proof.signedContentHash) return "modified";
   // A v2 proof also detects the signature being moved or its appearance altered.
-  if (proof.signedPlacement && canonicalJSON(signature.placement) !== canonicalJSON(proof.signedPlacement)) return "modified";
+  if (proof.signedPlacement && canonicalJSON(signature.placement) !== canonicalJSON(proof.signedPlacement))
+    return "modified";
   if (proof.signedVisual && canonicalJSON(signature.visual) !== canonicalJSON(proof.signedVisual)) return "modified";
   return "valid";
 }

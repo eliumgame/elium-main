@@ -27,11 +27,15 @@
  *    si un mot connu est à une faute de frappe près. Le mode strict, lui, signale
  *    tout ce qui est absent, pour qui veut une relecture exhaustive.
  */
+import { ADJ, INVAR, IRREGULAR, NOUNS, PROPER, TECH, VERBS_3, VERBS_ER, VERBS_IR2, words } from "./lexicon-fr";
 import {
-  ADJ, INVAR, IRREGULAR, NOUNS, PROPER, TECH, VERBS_3, VERBS_ER, VERBS_IR2, words,
-} from "./lexicon-fr";
-import {
-  adjectiveForms, adverbsFr, conjugateEr, conjugateFamily, conjugateIr2, nounForms, splitCompound,
+  adjectiveForms,
+  adverbsFr,
+  conjugateEr,
+  conjugateFamily,
+  conjugateIr2,
+  nounForms,
+  splitCompound,
   verbAdjectives,
 } from "./morphology-fr";
 import { EN_BASE, EN_IRREGULAR, enForms } from "./lexicon-en";
@@ -175,9 +179,27 @@ const ALPHABET_EN = "abcdefghijklmnopqrstuvwxyz'-";
  * la première correction proposée, avant toute autre.
  */
 const ACCENTS: Record<string, string> = {
-  a: "àâä", e: "éèêë", i: "îï", o: "ôö", u: "ùûü", c: "ç", y: "ÿ",
-  à: "aâä", â: "aàä", é: "eèêë", è: "eéêë", ê: "eéèë", ë: "eéèê",
-  î: "iï", ï: "iî", ô: "oö", ö: "oô", ù: "uûü", û: "uùü", ü: "uùû", ç: "c",
+  a: "àâä",
+  e: "éèêë",
+  i: "îï",
+  o: "ôö",
+  u: "ùûü",
+  c: "ç",
+  y: "ÿ",
+  à: "aâä",
+  â: "aàä",
+  é: "eèêë",
+  è: "eéêë",
+  ê: "eéèë",
+  ë: "eéèê",
+  î: "iï",
+  ï: "iî",
+  ô: "oö",
+  ö: "oô",
+  ù: "uûü",
+  û: "uùü",
+  ü: "uùû",
+  ç: "c",
 };
 
 /** Les voisins d'un mot à une seule correction d'accent. */

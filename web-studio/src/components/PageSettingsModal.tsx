@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Modal, Button, Field } from "../ui/components";
 import type { PageSettings } from "../format/types";
 import {
-  DEFAULT_CUSTOM_MM, MAX_PAGE_MM, MIN_PAGE_MM, PAGE_FORMATS, PAGE_FORMAT_LABELS, pageSizeOf,
+  DEFAULT_CUSTOM_MM,
+  MAX_PAGE_MM,
+  MIN_PAGE_MM,
+  PAGE_FORMATS,
+  PAGE_FORMAT_LABELS,
+  pageSizeOf,
 } from "../format/pageSizes";
 
 interface PageSettingsModalProps {
@@ -40,7 +45,8 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
   );
 
   const applyMargin = (side: MarginSide, value: number) => {
-    if (symmetric && (side === "top" || side === "bottom")) onUpdate({ margins: { ...page.margins, top: value, bottom: value } });
+    if (symmetric && (side === "top" || side === "bottom"))
+      onUpdate({ margins: { ...page.margins, top: value, bottom: value } });
     else if (symmetric) onUpdate({ margins: { ...page.margins, left: value, right: value } });
     else onUpdate({ margins: { ...page.margins, [side]: value } });
   };
@@ -84,7 +90,9 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
               aria-label="Format de page"
             >
               {PAGE_FORMATS.map((f) => (
-                <option key={f} value={f}>{PAGE_FORMAT_LABELS[f]}</option>
+                <option key={f} value={f}>
+                  {PAGE_FORMAT_LABELS[f]}
+                </option>
               ))}
             </select>
             <select
@@ -127,7 +135,10 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
           )}
 
           <p className="muted">
-            Feuille actuelle : <b>{size.width} × {size.height} mm</b>
+            Feuille actuelle :{" "}
+            <b>
+              {size.width} × {size.height} mm
+            </b>
             {page.orientation === "landscape" ? " (paysage)" : ""}
           </p>
         </section>

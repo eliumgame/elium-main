@@ -14,8 +14,17 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
-  DEFAULT_TABLE_STYLE, isBandedColumn, normalizeFit, normalizeVAlign, rowClasses, sortRowOrder,
-  tableStyleById, type CellVAlign, type SortDir, type TableFit, type TableStyleId,
+  DEFAULT_TABLE_STYLE,
+  isBandedColumn,
+  normalizeFit,
+  normalizeVAlign,
+  rowClasses,
+  sortRowOrder,
+  tableStyleById,
+  type CellVAlign,
+  type SortDir,
+  type TableFit,
+  type TableStyleId,
 } from "./tableStyles";
 
 declare module "@tiptap/core" {
@@ -46,7 +55,9 @@ interface TableInfo {
 
 /** Le tableau qui contient le curseur, avec sa position. */
 function tableAt(state: {
-  selection: { $from: { depth: number; node: (d: number) => { type: { name: string } }; before: (d: number) => number } };
+  selection: {
+    $from: { depth: number; node: (d: number) => { type: { name: string } }; before: (d: number) => number };
+  };
 }): TableInfo | null {
   const $from = state.selection.$from;
   for (let d = $from.depth; d > 0; d--) {

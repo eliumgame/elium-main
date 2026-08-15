@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
-  averageSentenceLength, countSyllablesFr, countWords, formatMinutes, keywords, readability, textStats,
+  averageSentenceLength,
+  countSyllablesFr,
+  countWords,
+  formatMinutes,
+  keywords,
+  readability,
+  textStats,
 } from "../src/editor/stats";
 
 describe("Document statistics — word counting", () => {
@@ -87,9 +93,10 @@ describe("Document statistics — readability", () => {
 
   it("scores short simple sentences as easier than long dense ones", () => {
     const simple = "Le chat dort. Le chien court. La porte est bleue. Il fait beau. Je mange.";
-    const dense = "L'incompréhensibilité constitutionnelle des dispositions réglementaires "
-      + "particulièrement alambiquées engendre invariablement une interprétation "
-      + "administrative extraordinairement problématique pour les administrés concernés.";
+    const dense =
+      "L'incompréhensibilité constitutionnelle des dispositions réglementaires " +
+      "particulièrement alambiquées engendre invariablement une interprétation " +
+      "administrative extraordinairement problématique pour les administrés concernés.";
     expect(readability(simple).score).toBeGreaterThan(readability(dense).score);
   });
 

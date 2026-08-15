@@ -49,11 +49,7 @@ export async function signMessage(message: string, privateKeyHex: string): Promi
   return toHex(sig);
 }
 
-export async function verifyMessage(
-  signatureHex: string,
-  message: string,
-  publicKeyHex: string,
-): Promise<boolean> {
+export async function verifyMessage(signatureHex: string, message: string, publicKeyHex: string): Promise<boolean> {
   try {
     return await ed.verifyAsync(fromHex(signatureHex), te.encode(message), fromHex(publicKeyHex));
   } catch {

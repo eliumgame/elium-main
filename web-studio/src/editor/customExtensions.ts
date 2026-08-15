@@ -60,7 +60,6 @@ function newBookmarkId(): string {
   return `bm-${Math.abs(Date.now() ^ Math.floor(Math.random() * 1e9)).toString(36)}`;
 }
 
-
 /** Adds an `indent` attribute (0..MAX) to paragraphs and headings, rendered as margin-left. */
 export const Indent = Extension.create({
   name: "indent",
@@ -88,8 +87,15 @@ export const Indent = Extension.create({
   },
 
   addCommands() {
-    const shift = (delta: number) =>
-      ({ editor, chain }: { editor: import("@tiptap/core").Editor; chain: () => import("@tiptap/core").ChainedCommands }) => {
+    const shift =
+      (delta: number) =>
+      ({
+        editor,
+        chain,
+      }: {
+        editor: import("@tiptap/core").Editor;
+        chain: () => import("@tiptap/core").ChainedCommands;
+      }) => {
         // Lists indent by nesting; other blocks via the indent attribute.
         if (editor.isActive("listItem") || editor.isActive("taskItem")) {
           const item = editor.isActive("taskItem") ? "taskItem" : "listItem";
@@ -206,7 +212,12 @@ export const TableOfContents = Node.create({
           a.href = "#";
           a.addEventListener("click", (e) => {
             e.preventDefault();
-            editor.chain().focus().setTextSelection(it.pos + 1).scrollIntoView().run();
+            editor
+              .chain()
+              .focus()
+              .setTextSelection(it.pos + 1)
+              .scrollIntoView()
+              .run();
           });
           li.appendChild(a);
           list.appendChild(li);
@@ -420,15 +431,13 @@ export const Comment = Mark.create({
     const resolved = a.resolved === true || a.resolved === "true";
     return [
       "span",
-      mergeAttributes(
-        {
-          "data-comment-id": a.id == null ? "" : String(a.id),
-          "data-comment-author": a.author == null ? "" : String(a.author),
-          "data-comment-resolved": resolved ? "true" : "false",
-          class: `elium-comment${resolved ? " elium-comment--resolved" : ""}`,
-          title: a.text == null ? "" : String(a.text),
-        },
-      ),
+      mergeAttributes({
+        "data-comment-id": a.id == null ? "" : String(a.id),
+        "data-comment-author": a.author == null ? "" : String(a.author),
+        "data-comment-resolved": resolved ? "true" : "false",
+        class: `elium-comment${resolved ? " elium-comment--resolved" : ""}`,
+        title: a.text == null ? "" : String(a.text),
+      }),
       0,
     ];
   },
@@ -573,9 +582,7 @@ export const ParagraphStyle = Extension.create({
             parseHTML: (el: HTMLElement) => el.getAttribute("data-style") || null,
             renderHTML: (attrs: Record<string, unknown>) => {
               const v = attrs.dataStyle;
-              return v
-                ? { "data-style": String(v), class: `elium-pstyle elium-pstyle--${String(v)}` }
-                : {};
+              return v ? { "data-style": String(v), class: `elium-pstyle elium-pstyle--${String(v)}` } : {};
             },
           },
         },

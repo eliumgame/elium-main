@@ -147,9 +147,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Get one group (with member identities) ------------------------------
   app.get("/:orgId/groups/:groupId", async (req) => {
-    const { orgId, groupId } = z
-      .object({ orgId: z.string().uuid(), groupId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "group.view");
     const user = requireUser(req);
     const group = await loadGroupInOrg(groupId, orgId);
@@ -193,9 +191,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Add / update a member (upsert) --------------------------------------
   app.post("/:orgId/groups/:groupId/members", async (req) => {
-    const { orgId, groupId } = z
-      .object({ orgId: z.string().uuid(), groupId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "group.manage");
     const b = addMemberSchema.parse(req.body);
     const user = requireUser(req);
@@ -249,9 +245,7 @@ export default async function groupRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Delete a group (members cascade) ------------------------------------
   app.delete("/:orgId/groups/:groupId", async (req) => {
-    const { orgId, groupId } = z
-      .object({ orgId: z.string().uuid(), groupId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, groupId } = z.object({ orgId: z.string().uuid(), groupId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "group.manage");
     const user = requireUser(req);
 

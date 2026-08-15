@@ -198,10 +198,7 @@ describe("Comparaison — documents", () => {
   });
 
   it("suit la révision pour les blocs structurels et le signale", () => {
-    const { doc: merged, summary } = compareDocuments(
-      doc(p("a"), { type: "pageBreak" }, p("b")),
-      doc(p("a"), p("b")),
-    );
+    const { doc: merged, summary } = compareDocuments(doc(p("a"), { type: "pageBreak" }, p("b")), doc(p("a"), p("b")));
     expect(merged.content!.some((n) => n.type === "pageBreak")).toBe(false);
     expect(summary.structural).toBe(1);
   });
@@ -215,7 +212,10 @@ describe("Comparaison — documents", () => {
   it("diffe les nœuds en ligne comme les notes de bas de page", () => {
     const withNote = doc({
       type: "paragraph",
-      content: [{ type: "text", text: "texte" }, { type: "footnote", attrs: { id: "fn-1", text: "note" } }],
+      content: [
+        { type: "text", text: "texte" },
+        { type: "footnote", attrs: { id: "fn-1", text: "note" } },
+      ],
     });
     const withoutNote = doc(p("texte"));
     const { doc: merged, summary } = compareDocuments(withNote, withoutNote);

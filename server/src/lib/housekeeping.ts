@@ -21,7 +21,10 @@ async function sweepOnce(app: FastifyInstance): Promise<void> {
     ["webauthn_login_challenges", `DELETE FROM webauthn_login_challenges WHERE expires_at < now()`],
     // Sessions expirées OU révoquées depuis > 7 jours (on garde brièvement les
     // révoquées pour l'auditabilité, puis on nettoie).
-    ["sessions", `DELETE FROM sessions WHERE expires_at < now() OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')`],
+    [
+      "sessions",
+      `DELETE FROM sessions WHERE expires_at < now() OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')`,
+    ],
     // Invitations expirées non consommées.
     ["invites", `DELETE FROM invites WHERE expires_at < now() AND accepted_at IS NULL`],
   ];

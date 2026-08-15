@@ -152,16 +152,31 @@ export const ParagraphFormat = Extension.create({
     /** Apply attributes to whichever of paragraph / heading is active. */
     const applyToBlock =
       (attrs: Record<string, unknown>) =>
-      ({ editor, commands }: { editor: import("@tiptap/core").Editor; commands: { updateAttributes: (t: string, a: Record<string, unknown>) => boolean } }) => {
+      ({
+        editor,
+        commands,
+      }: {
+        editor: import("@tiptap/core").Editor;
+        commands: { updateAttributes: (t: string, a: Record<string, unknown>) => boolean };
+      }) => {
         const type = editor.isActive("heading") ? "heading" : "paragraph";
         return commands.updateAttributes(type, attrs);
       };
 
-    const toggleFlag = (name: string) => () => ({ editor, commands }: { editor: import("@tiptap/core").Editor; commands: { updateAttributes: (t: string, a: Record<string, unknown>) => boolean } }) => {
-      const type = editor.isActive("heading") ? "heading" : "paragraph";
-      const on = editor.getAttributes(type)[name] === true;
-      return commands.updateAttributes(type, { [name]: on ? null : true });
-    };
+    const toggleFlag =
+      (name: string) =>
+      () =>
+      ({
+        editor,
+        commands,
+      }: {
+        editor: import("@tiptap/core").Editor;
+        commands: { updateAttributes: (t: string, a: Record<string, unknown>) => boolean };
+      }) => {
+        const type = editor.isActive("heading") ? "heading" : "paragraph";
+        const on = editor.getAttributes(type)[name] === true;
+        return commands.updateAttributes(type, { [name]: on ? null : true });
+      };
 
     return {
       setParagraphSpacing: (opts) =>

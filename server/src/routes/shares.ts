@@ -214,9 +214,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   // --- Change the role of an existing share ---------------------------------
   const patchShareSchema = z.object({ roleId: z.string().uuid() });
   app.patch("/nodes/:id/shares/:shareId", { preHandler: authenticate }, async (req) => {
-    const { id, shareId } = z
-      .object({ id: z.string().uuid(), shareId: z.string().uuid() })
-      .parse(req.params);
+    const { id, shareId } = z.object({ id: z.string().uuid(), shareId: z.string().uuid() }).parse(req.params);
     const b = patchShareSchema.parse(req.body);
     const user = requireUser(req);
 
@@ -242,9 +240,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   // Revoking authorization does NOT invalidate an already-unwrapped CEK: the
   // caller is expected to follow up with key rotation (POST /nodes/:id/rotate).
   app.delete("/nodes/:id/shares/:shareId", { preHandler: authenticate }, async (req) => {
-    const { id, shareId } = z
-      .object({ id: z.string().uuid(), shareId: z.string().uuid() })
-      .parse(req.params);
+    const { id, shareId } = z.object({ id: z.string().uuid(), shareId: z.string().uuid() }).parse(req.params);
     const { deep } = z.object({ deep: z.enum(["true", "false"]).default("false") }).parse(req.query);
     const user = requireUser(req);
 
@@ -376,9 +372,7 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Revoke a share link --------------------------------------------------
   app.delete("/nodes/:id/links/:linkId", { preHandler: authenticate }, async (req) => {
-    const { id, linkId } = z
-      .object({ id: z.string().uuid(), linkId: z.string().uuid() })
-      .parse(req.params);
+    const { id, linkId } = z.object({ id: z.string().uuid(), linkId: z.string().uuid() }).parse(req.params);
     const user = requireUser(req);
 
     const access = await requireNodePerm(req, id, "node.share.manage");
@@ -429,24 +423,28 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Resolve a link and stream the node's encrypted blob -----------------
-  app.get("/links/:token/content", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (req, reply) => {
-    const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
-    const link = await resolveLink(token);
-    if (!link) throw notFound("Lien introuvable, révoqué ou expiré.");
-    if (!link.n_content_ref) throw notFound("Aucun contenu.");
+  app.get(
+    "/links/:token/content",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
+      const link = await resolveLink(token);
+      if (!link) throw notFound("Lien introuvable, révoqué ou expiré.");
+      if (!link.n_content_ref) throw notFound("Aucun contenu.");
 
-    // Count the download atomically (re-checking the cap to avoid overshoot).
-    await query(
-      `UPDATE share_links SET download_count = download_count + 1
+      // Count the download atomically (re-checking the cap to avoid overshoot).
+      await query(
+        `UPDATE share_links SET download_count = download_count + 1
         WHERE id = $1 AND revoked_at IS NULL
           AND (max_downloads IS NULL OR download_count < max_downloads)`,
-      [link.id],
-    );
+        [link.id],
+      );
 
-    reply.header("content-type", "application/octet-stream");
-    if (link.n_content_nonce) {
-      reply.header("x-content-nonce", Buffer.from(link.n_content_nonce).toString("hex"));
-    }
-    return reply.send(await storage().getStream(link.n_content_ref));
-  });
+      reply.header("content-type", "application/octet-stream");
+      if (link.n_content_nonce) {
+        reply.header("x-content-nonce", Buffer.from(link.n_content_nonce).toString("hex"));
+      }
+      return reply.send(await storage().getStream(link.n_content_ref));
+    },
+  );
 }

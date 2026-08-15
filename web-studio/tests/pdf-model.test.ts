@@ -50,7 +50,10 @@ describe("PDF model — pages", () => {
 
   it("refuses to empty the document", () => {
     const s = stateWithPages(2);
-    const next = D.deletePages(s, s.pages.map((p) => p.id));
+    const next = D.deletePages(
+      s,
+      s.pages.map((p) => p.id),
+    );
     expect(next.pages).toHaveLength(2);
   });
 
@@ -107,41 +110,76 @@ describe("PDF model — page labels", () => {
 
 describe("PDF model — annotations", () => {
   it("derives the bounding box from the quads of text markup", () => {
-    const s = D.addAnnot(emptyState(), annot({
-      kind: "highlight",
-      rect: { x: 0, y: 0, w: 0, h: 0 },
-      quads: [[{ x: 10, y: 10 }, { x: 60, y: 10 }, { x: 60, y: 24 }, { x: 10, y: 24 }]],
-    }));
+    const s = D.addAnnot(
+      emptyState(),
+      annot({
+        kind: "highlight",
+        rect: { x: 0, y: 0, w: 0, h: 0 },
+        quads: [
+          [
+            { x: 10, y: 10 },
+            { x: 60, y: 10 },
+            { x: 60, y: 24 },
+            { x: 10, y: 24 },
+          ],
+        ],
+      }),
+    );
     expect(s.annots[0].rect).toEqual({ x: 10, y: 10, w: 50, h: 14 });
   });
 
   it("pads the ink bounding box by the stroke width so the line is not clipped", () => {
-    const s = D.addAnnot(emptyState(), annot({
-      kind: "ink",
-      strokeWidth: 4,
-      paths: [[{ x: 20, y: 20 }, { x: 60, y: 50 }]],
-    }));
+    const s = D.addAnnot(
+      emptyState(),
+      annot({
+        kind: "ink",
+        strokeWidth: 4,
+        paths: [
+          [
+            { x: 20, y: 20 },
+            { x: 60, y: 50 },
+          ],
+        ],
+      }),
+    );
     expect(s.annots[0].rect).toEqual({ x: 16, y: 16, w: 48, h: 38 });
   });
 
   it("moves every piece of geometry together", () => {
-    let s = D.addAnnot(emptyState(), annot({
-      id: "a1",
-      kind: "polygon",
-      paths: [[{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]],
-    }));
+    let s = D.addAnnot(
+      emptyState(),
+      annot({
+        id: "a1",
+        kind: "polygon",
+        paths: [
+          [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 10 },
+          ],
+        ],
+      }),
+    );
     s = D.moveAnnots(s, ["a1"], 5, -3);
     expect(s.annots[0].paths![0][2]).toEqual({ x: 15, y: 7 });
     expect(s.annots[0].rect.x).toBe(5);
   });
 
   it("scales inner geometry when the bounding box is resized", () => {
-    let s = D.addAnnot(emptyState(), annot({
-      id: "a1",
-      kind: "polyline",
-      rect: { x: 0, y: 0, w: 999, h: 999 },
-      paths: [[{ x: 0, y: 0 }, { x: 50, y: 100 }]],
-    }));
+    let s = D.addAnnot(
+      emptyState(),
+      annot({
+        id: "a1",
+        kind: "polyline",
+        rect: { x: 0, y: 0, w: 999, h: 999 },
+        paths: [
+          [
+            { x: 0, y: 0 },
+            { x: 50, y: 100 },
+          ],
+        ],
+      }),
+    );
     // The box is derived from the path, not from whatever was passed in.
     expect(s.annots[0].rect).toEqual({ x: 0, y: 0, w: 50, h: 100 });
     s = D.resizeAnnot(s, "a1", { x: 0, y: 0, w: 100, h: 50 });
@@ -177,10 +215,15 @@ describe("PDF model — annotations", () => {
 
 describe("PDF model — content edits", () => {
   const edit = (over: Partial<Parameters<typeof D.upsertContentEdit>[1]> = {}) => ({
-    id: "e1", pageId: "p1", blockKey: "B0",
-    original: "Ancien", text: "Nouveau",
+    id: "e1",
+    pageId: "p1",
+    blockKey: "B0",
+    original: "Ancien",
+    text: "Nouveau",
     rect: { x: 0, y: 0, w: 100, h: 20 },
-    fontSize: 11, leading: 13, align: "left" as const,
+    fontSize: 11,
+    leading: 13,
+    align: "left" as const,
     ...over,
   });
 
@@ -212,7 +255,11 @@ describe("PDF model — bookmarks", () => {
   ];
 
   it("flattens with depth, hiding collapsed children", () => {
-    expect(D.flattenBookmarks(tree).map((n) => [n.node.id, n.depth])).toEqual([["a", 0], ["a1", 1], ["b", 0]]);
+    expect(D.flattenBookmarks(tree).map((n) => [n.node.id, n.depth])).toEqual([
+      ["a", 0],
+      ["a1", 1],
+      ["b", 0],
+    ]);
     const closed = [{ ...tree[0], closed: true }, tree[1]];
     expect(D.flattenBookmarks(closed).map((n) => n.node.id)).toEqual(["a", "b"]);
   });
@@ -229,7 +276,13 @@ describe("PDF model — bookmarks", () => {
 
 describe("PDF model — form fields", () => {
   it("invents a non-colliding field name", () => {
-    let s = D.addField(emptyState(), { id: "1", pageId: "p", name: "nom", kind: "text", rect: { x: 0, y: 0, w: 1, h: 1 } });
+    let s = D.addField(emptyState(), {
+      id: "1",
+      pageId: "p",
+      name: "nom",
+      kind: "text",
+      rect: { x: 0, y: 0, w: 1, h: 1 },
+    });
     expect(D.uniqueFieldName(s, "nom")).toBe("nom_2");
     s = D.addField(s, { id: "2", pageId: "p", name: "nom_2", kind: "text", rect: { x: 0, y: 0, w: 1, h: 1 } });
     expect(D.uniqueFieldName(s, "nom")).toBe("nom_3");
@@ -246,12 +299,31 @@ describe("PDF persistence", () => {
 
   it("survives JSON and restores the whole editing state", () => {
     let s = stateWithPages(2);
-    s = D.addAnnot(s, annot({ pageId: s.pages[0].id, kind: "highlight", quads: [[{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 6 }, { x: 1, y: 6 }]] }));
+    s = D.addAnnot(
+      s,
+      annot({
+        pageId: s.pages[0].id,
+        kind: "highlight",
+        quads: [
+          [
+            { x: 1, y: 2 },
+            { x: 3, y: 2 },
+            { x: 3, y: 6 },
+            { x: 1, y: 6 },
+          ],
+        ],
+      }),
+    );
     s = D.upsertContentEdit(s, {
-      id: "e1", pageId: s.pages[0].id, blockKey: "B2",
-      original: "Loyer de 24 000 euros", text: "Loyer de 30 000 euros",
+      id: "e1",
+      pageId: s.pages[0].id,
+      blockKey: "B2",
+      original: "Loyer de 24 000 euros",
+      text: "Loyer de 30 000 euros",
       rect: { x: 60, y: 120, w: 300, h: 22 },
-      fontSize: 11, leading: 13, align: "left",
+      fontSize: 11,
+      leading: 13,
+      align: "left",
     });
     s = { ...s, formValues: { nom: "Dupont", accord: true }, metadata: { title: "Contrat" } };
     const pdf = new TextEncoder().encode("%PDF-1.7\ntest");
@@ -283,12 +355,41 @@ describe("PDF persistence — migration from the previous module", () => {
     v: 1,
     name: "ancien.pdf",
     pdf: bytesToBase64(new TextEncoder().encode("%PDF-1.4\n")),
-    pages: [{ id: "pg-1", from: 0 }, { id: "pg-2", from: null, rotate: 90 }],
+    pages: [
+      { id: "pg-1", from: 0 },
+      { id: "pg-2", from: null, rotate: 90 },
+    ],
     annos: {
       "pg-1": [
         { id: "a1", type: "highlight", x: 10, y: 20, w: 80, h: 12, color: "#fde047", strokeWidth: 0, fontSize: 16 },
-        { id: "a2", type: "draw", x: 0, y: 0, w: 30, h: 30, color: "#e11d48", strokeWidth: 3, fontSize: 16, points: [{ x: 1, y: 1 }, { x: 20, y: 25 }] },
-        { id: "a3", type: "text", x: 5, y: 5, w: 200, h: 24, color: "#000000", strokeWidth: 0, fontSize: 14, text: "Note", bold: true },
+        {
+          id: "a2",
+          type: "draw",
+          x: 0,
+          y: 0,
+          w: 30,
+          h: 30,
+          color: "#e11d48",
+          strokeWidth: 3,
+          fontSize: 16,
+          points: [
+            { x: 1, y: 1 },
+            { x: 20, y: 25 },
+          ],
+        },
+        {
+          id: "a3",
+          type: "text",
+          x: 5,
+          y: 5,
+          w: 200,
+          h: 24,
+          color: "#000000",
+          strokeWidth: 0,
+          fontSize: 14,
+          text: "Note",
+          bold: true,
+        },
       ],
     },
     textEdits: {

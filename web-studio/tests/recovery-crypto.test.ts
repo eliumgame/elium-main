@@ -38,8 +38,16 @@ function apiFor(store: Store, currentAdminId: string): DriveApi {
       store.recoveryKeys[body.adminUserId] = body.wrappedOrgPrivate;
       return { ok: true };
     },
-    recoveryGrant: async (_orgId: string, body: { nodeId: string; targetUserId: string; roleId: string; wrappedKey: WrappedKey }) => {
-      store.grants.push({ nodeId: body.nodeId, userId: body.targetUserId, roleId: body.roleId, wrappedKey: body.wrappedKey });
+    recoveryGrant: async (
+      _orgId: string,
+      body: { nodeId: string; targetUserId: string; roleId: string; wrappedKey: WrappedKey },
+    ) => {
+      store.grants.push({
+        nodeId: body.nodeId,
+        userId: body.targetUserId,
+        roleId: body.roleId,
+        wrappedKey: body.wrappedKey,
+      });
       return { ok: true };
     },
   } as unknown as DriveApi;
@@ -55,14 +63,27 @@ describe("org-recovery client crypto", () => {
     const org = await generateRecipientKeypair();
     const alice = await generateRecipientKeypair();
     const bob = await generateRecipientKeypair();
-    const store: Store = { recoveryKeys: { alice: await wrapOrgPrivateTo(org.privateHex, alice.publicHex) }, grants: [] };
+    const store: Store = {
+      recoveryKeys: { alice: await wrapOrgPrivateTo(org.privateHex, alice.publicHex) },
+      grants: [],
+    };
 
-    const ctxAlice: RecoveryContext = { api: apiFor(store, "alice"), orgId: "o", orgPublicHex: org.publicHex, adminKeys: alice };
+    const ctxAlice: RecoveryContext = {
+      api: apiFor(store, "alice"),
+      orgId: "o",
+      orgPublicHex: org.publicHex,
+      adminKeys: alice,
+    };
     await promoteRecoveryAdmin(ctxAlice, { userId: "bob", publicHex: bob.publicHex });
 
     expect(store.recoveryKeys.bob).toBeDefined();
     // Bob unwraps HIS copy → must be byte-identical to the real org private key.
-    const ctxBob: RecoveryContext = { api: apiFor(store, "bob"), orgId: "o", orgPublicHex: org.publicHex, adminKeys: bob };
+    const ctxBob: RecoveryContext = {
+      api: apiFor(store, "bob"),
+      orgId: "o",
+      orgPublicHex: org.publicHex,
+      adminKeys: bob,
+    };
     const bobsView = await withOrgKey(ctxBob, async (kp) => kp.privateHex);
     expect(bobsView).toBe(org.privateHex);
   });
@@ -71,14 +92,28 @@ describe("org-recovery client crypto", () => {
     const org = await generateRecipientKeypair();
     const admin = await generateRecipientKeypair();
     const target = await generateRecipientKeypair();
-    const store: Store = { recoveryKeys: { admin: await wrapOrgPrivateTo(org.privateHex, admin.publicHex) }, grants: [] };
+    const store: Store = {
+      recoveryKeys: { admin: await wrapOrgPrivateTo(org.privateHex, admin.publicHex) },
+      grants: [],
+    };
 
     // A node CEK, with its org key-share (CEK wrapped to the org public key).
     const cek = generateNodeKey();
     const orgWrappedKey = JSON.parse(dec.decode(await encryptForRecipients(cek, [org.publicHex]))) as WrappedKey;
 
-    const ctx: RecoveryContext = { api: apiFor(store, "admin"), orgId: "o", orgPublicHex: org.publicHex, adminKeys: admin };
-    await restoreNodeAccess(ctx, { nodeId: "n1", orgWrappedKey, targetUserId: "carol", targetPublicHex: target.publicHex, roleId: "r" });
+    const ctx: RecoveryContext = {
+      api: apiFor(store, "admin"),
+      orgId: "o",
+      orgPublicHex: org.publicHex,
+      adminKeys: admin,
+    };
+    await restoreNodeAccess(ctx, {
+      nodeId: "n1",
+      orgWrappedKey,
+      targetUserId: "carol",
+      targetPublicHex: target.publicHex,
+      roleId: "r",
+    });
 
     expect(store.grants).toHaveLength(1);
     const grant = store.grants[0]!;
@@ -91,8 +126,16 @@ describe("org-recovery client crypto", () => {
   it("withOrgKey drops the private material after the operation", async () => {
     const org = await generateRecipientKeypair();
     const admin = await generateRecipientKeypair();
-    const store: Store = { recoveryKeys: { admin: await wrapOrgPrivateTo(org.privateHex, admin.publicHex) }, grants: [] };
-    const ctx: RecoveryContext = { api: apiFor(store, "admin"), orgId: "o", orgPublicHex: org.publicHex, adminKeys: admin };
+    const store: Store = {
+      recoveryKeys: { admin: await wrapOrgPrivateTo(org.privateHex, admin.publicHex) },
+      grants: [],
+    };
+    const ctx: RecoveryContext = {
+      api: apiFor(store, "admin"),
+      orgId: "o",
+      orgPublicHex: org.publicHex,
+      adminKeys: admin,
+    };
 
     let leaked: { privateHex: string } | null = null;
     await withOrgKey(ctx, async (kp) => {
@@ -106,7 +149,12 @@ describe("org-recovery client crypto", () => {
     const org = await generateRecipientKeypair();
     const stranger = await generateRecipientKeypair();
     const store: Store = { recoveryKeys: {}, grants: [] };
-    const ctx: RecoveryContext = { api: apiFor(store, "stranger"), orgId: "o", orgPublicHex: org.publicHex, adminKeys: stranger };
+    const ctx: RecoveryContext = {
+      api: apiFor(store, "stranger"),
+      orgId: "o",
+      orgPublicHex: org.publicHex,
+      adminKeys: stranger,
+    };
     await expect(withOrgKey(ctx, async () => "x")).rejects.toBeTruthy();
   });
 });

@@ -16,19 +16,9 @@ export interface RoleTemplate {
 const p = (keys: readonly string[]): string[] => [...keys];
 
 // Editor: full content control + internal sharing + versions (no org admin).
-const EDITOR_PERMS: string[] = [
-  ...NODE_PERMISSION_KEYS,
-  "node.share.internal",
-  "node.acl.view",
-];
+const EDITOR_PERMS: string[] = [...NODE_PERMISSION_KEYS, "node.share.internal", "node.acl.view"];
 
-const COMMENTER_PERMS: string[] = [
-  "node.view",
-  "node.download",
-  "node.comment",
-  "node.version.view",
-  "node.acl.view",
-];
+const COMMENTER_PERMS: string[] = ["node.view", "node.download", "node.comment", "node.version.view", "node.acl.view"];
 
 const VIEWER_PERMS: string[] = ["node.view", "node.download", "node.version.view"];
 

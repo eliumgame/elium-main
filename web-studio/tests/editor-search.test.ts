@@ -11,7 +11,11 @@ const schema = new Schema({
   },
 });
 const docOf = (...paras: string[]) =>
-  schema.node("doc", null, paras.map((p) => schema.node("paragraph", null, p ? [schema.text(p)] : [])));
+  schema.node(
+    "doc",
+    null,
+    paras.map((p) => schema.node("paragraph", null, p ? [schema.text(p)] : [])),
+  );
 
 describe("editor find/replace — findMatches", () => {
   it("finds case-insensitive literal matches with correct positions", () => {

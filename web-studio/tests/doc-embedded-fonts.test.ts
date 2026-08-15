@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
 import {
-  FONT_ACCEPT, FONT_MIME, fontExtension, fontFaceCss, fontNameFromFilename, fontResources,
-  neededFontIds, syncEmbeddedFonts, usedFontFamilies,
+  FONT_ACCEPT,
+  FONT_MIME,
+  fontExtension,
+  fontFaceCss,
+  fontNameFromFilename,
+  fontResources,
+  neededFontIds,
+  syncEmbeddedFonts,
+  usedFontFamilies,
 } from "../src/format/embedded-fonts";
 import { docToDocx } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
@@ -71,9 +78,7 @@ describe("Polices embarquées — noms de fichiers", () => {
 describe("Polices embarquées — synchronisation dans le paquet", () => {
   it("embarque la police que le texte utilise", async () => {
     const file = await fileWith(doc(para(styled("bonjour", "Fraunces"))));
-    const out = await syncEmbeddedFonts(file, [
-      { family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) },
-    ]);
+    const out = await syncEmbeddedFonts(file, [{ family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) }]);
     const fonts = out.resourceIndex.filter((r) => r.kind === "font");
     expect(fonts).toHaveLength(1);
     expect(fonts[0]).toMatchObject({ name: "Fraunces.ttf", mime: "font/ttf", size: 64 });
@@ -82,9 +87,7 @@ describe("Polices embarquées — synchronisation dans le paquet", () => {
 
   it("n'embarque pas une police que le texte n'utilise pas", async () => {
     const file = await fileWith(doc(para({ type: "text", text: "brut" })));
-    const out = await syncEmbeddedFonts(file, [
-      { family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) },
-    ]);
+    const out = await syncEmbeddedFonts(file, [{ family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) }]);
     expect(out.resourceIndex.filter((r) => r.kind === "font")).toHaveLength(0);
     expect(out).toBe(file); // rien à changer → même objet
   });
@@ -92,7 +95,9 @@ describe("Polices embarquées — synchronisation dans le paquet", () => {
   it("est adressée par contenu : deux sauvegardes ne dupliquent pas", async () => {
     const file = await fileWith(doc(para(styled("a", "Fraunces"))));
     const once = await syncEmbeddedFonts(file, [{ family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) }]);
-    const twice = await syncEmbeddedFonts(once, [{ family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) }]);
+    const twice = await syncEmbeddedFonts(once, [
+      { family: "Fraunces", filename: "Fraunces.ttf", bytes: fontBytes(1) },
+    ]);
     expect(twice.resourceIndex.filter((r) => r.kind === "font")).toHaveLength(1);
     expect(twice).toBe(once); // stable → pas de perturbation de l'empreinte
   });
@@ -103,7 +108,10 @@ describe("Polices embarquées — synchronisation dans le paquet", () => {
     ]);
     const id = withFont.resourceIndex.find((r) => r.kind === "font")!.id;
     // Le texte est réécrit sans mise en forme de police.
-    const stripped: EliumFile = { ...withFont, document: { ...withFont.document, doc: doc(para({ type: "text", text: "a" })) } };
+    const stripped: EliumFile = {
+      ...withFont,
+      document: { ...withFont.document, doc: doc(para({ type: "text", text: "a" })) },
+    };
     const out = await syncEmbeddedFonts(stripped, []);
     expect(out.resourceIndex.filter((r) => r.kind === "font")).toHaveLength(0);
     expect(out.resources.has(id)).toBe(false);

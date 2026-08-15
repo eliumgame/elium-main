@@ -14,7 +14,14 @@
  * Separate database from the version history store to avoid IndexedDB version
  * coordination between the two independent features.
  */
-import { encryptAtRest, decryptAtRest, encryptBytesAtRest, decryptBytesAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import {
+  encryptAtRest,
+  decryptAtRest,
+  encryptBytesAtRest,
+  decryptBytesAtRest,
+  hasVaultSecret,
+  type VaultSecret,
+} from "../crypto/local-vault";
 
 const DB_NAME = "elium-drive";
 const STORE = "docs";
@@ -147,9 +154,17 @@ export async function getDriveDoc(id: string, vaultSecret?: VaultSecret): Promis
   const rec = await run<DriveDoc | undefined>("readonly", (s) => s.get(id));
   if (!rec) return undefined;
   if (!rec.vaultProtected) {
-    return { id: rec.id, title: rec.title!, profile: rec.profile!, savedAt: rec.savedAt, size: rec.size, bytes: rec.bytes! };
+    return {
+      id: rec.id,
+      title: rec.title!,
+      profile: rec.profile!,
+      savedAt: rec.savedAt,
+      size: rec.size,
+      bytes: rec.bytes!,
+    };
   }
-  if (!hasVaultSecret(vaultSecret)) throw new Error("Ce document est protégé par le coffre local — déverrouillez-le d'abord.");
+  if (!hasVaultSecret(vaultSecret))
+    throw new Error("Ce document est protégé par le coffre local — déverrouillez-le d'abord.");
   const { title, profile } = await decryptAtRest<TitleProfile>(rec.enc!, vaultSecret!);
   const bytes = await decryptBytesAtRest(rec.encBytes!, vaultSecret!);
   return { id: rec.id, title, profile, savedAt: rec.savedAt, size: rec.size, bytes };
@@ -200,9 +215,18 @@ export async function reencryptDriveVault(from: VaultSecret | undefined, to: Vau
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(STORE, "readwrite");
-    t.oncomplete = () => { db.close(); resolve(); };
-    t.onerror = () => { db.close(); reject(t.error ?? new Error("Transaction annulée")); };
-    t.onabort = () => { db.close(); reject(t.error ?? new Error("Transaction annulée")); };
+    t.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    t.onerror = () => {
+      db.close();
+      reject(t.error ?? new Error("Transaction annulée"));
+    };
+    t.onabort = () => {
+      db.close();
+      reject(t.error ?? new Error("Transaction annulée"));
+    };
     const store = t.objectStore(STORE);
     for (const rec of next) store.put(rec);
   });

@@ -117,8 +117,13 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
     });
 
     await audit(
-      access.orgId, user.id, "node.sign.request", "file", id,
-      { requestId: out.requestId, parties: out.parties.length, ordered: b.ordered }, req.ip,
+      access.orgId,
+      user.id,
+      "node.sign.request",
+      "file",
+      id,
+      { requestId: out.requestId, parties: out.parties.length, ordered: b.ordered },
+      req.ip,
     );
     return { requestId: out.requestId, parties: out.parties };
   });
@@ -336,39 +341,35 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
   // =====================================================================
   //  PUBLIC — refus anonyme d'une partie (scellé par token)
   // =====================================================================
-  app.post(
-    "/links/:token/decline",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
-    async (req) => {
-      const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
-      const link = await queryOne<{
-        can_sign: boolean;
-        revoked_at: string | null;
-        node_id: string;
-        org_id: string;
-        party_id: string | null;
-        party_status: string | null;
-      }>(
-        `SELECT sl.can_sign, sl.revoked_at, sl.node_id, n.org_id,
+  app.post("/links/:token/decline", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req) => {
+    const { token } = z.object({ token: z.string().min(1).max(512) }).parse(req.params);
+    const link = await queryOne<{
+      can_sign: boolean;
+      revoked_at: string | null;
+      node_id: string;
+      org_id: string;
+      party_id: string | null;
+      party_status: string | null;
+    }>(
+      `SELECT sl.can_sign, sl.revoked_at, sl.node_id, n.org_id,
                 p.id AS party_id, p.status AS party_status
            FROM share_links sl
            JOIN nodes n ON n.id = sl.node_id
            LEFT JOIN signature_request_parties p ON p.link_id = sl.id
           WHERE sl.token_hash = $1`,
-        [sha256Hex(token)],
-      );
-      if (!link || link.revoked_at) throw notFound("Lien introuvable, révoqué ou expiré.");
-      if (!link.can_sign || !link.party_id) throw badRequest("Ce lien n'autorise pas la signature.");
-      if (link.party_status === "signed") throw conflict("Cette partie a déjà signé.");
+      [sha256Hex(token)],
+    );
+    if (!link || link.revoked_at) throw notFound("Lien introuvable, révoqué ou expiré.");
+    if (!link.can_sign || !link.party_id) throw badRequest("Ce lien n'autorise pas la signature.");
+    if (link.party_status === "signed") throw conflict("Cette partie a déjà signé.");
 
-      await query(
-        `UPDATE signature_request_parties SET status = 'declined'
+    await query(
+      `UPDATE signature_request_parties SET status = 'declined'
           WHERE id = $1 AND status = 'pending'`,
-        [link.party_id],
-      );
-      await audit(link.org_id, null, "node.sign.decline", "file", link.node_id, {}, req.ip);
-      notifyOrg(link.org_id);
-      return { ok: true };
-    },
-  );
+      [link.party_id],
+    );
+    await audit(link.org_id, null, "node.sign.decline", "file", link.node_id, {}, req.ip);
+    notifyOrg(link.org_id);
+    return { ok: true };
+  });
 }

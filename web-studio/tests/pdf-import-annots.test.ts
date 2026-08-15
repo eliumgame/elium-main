@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
-import { hasImportableAnnots, importPageAnnots, stripImportedAnnots, type RawAnnotation } from "../src/pdf/ops/import-annots";
+import {
+  hasImportableAnnots,
+  importPageAnnots,
+  stripImportedAnnots,
+  type RawAnnotation,
+} from "../src/pdf/ops/import-annots";
 import * as D from "../src/pdf/model/doc";
 import { emptyState } from "../src/pdf/model/types";
 import { buildPdf } from "../src/pdf/ops/save";
@@ -43,11 +48,18 @@ describe("Importing a PDF's existing markup", () => {
   });
 
   it("reorders /QuadPoints from the spec order into reading order", () => {
-    const { annots } = importPageAnnots([raw({
-      subtype: "Highlight",
-      // upper-left, upper-right, lower-left, lower-right
-      quadPoints: Float32Array.from([100, 760, 300, 760, 100, 740, 300, 740]),
-    })], "p1", PAGE_H, "Moi");
+    const { annots } = importPageAnnots(
+      [
+        raw({
+          subtype: "Highlight",
+          // upper-left, upper-right, lower-left, lower-right
+          quadPoints: Float32Array.from([100, 760, 300, 760, 100, 740, 300, 740]),
+        }),
+      ],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     const [tl, tr, br, bl] = annots[0].quads![0];
     expect(tl).toEqual({ x: 100, y: 82 });
     expect(tr).toEqual({ x: 300, y: 82 });
@@ -56,40 +68,73 @@ describe("Importing a PDF's existing markup", () => {
   });
 
   it("reads ink strokes, one path per gesture", () => {
-    const { annots } = importPageAnnots([raw({
-      subtype: "Ink",
-      inkLists: [Float32Array.from([10, 800, 40, 780]), Float32Array.from([50, 700, 60, 690])],
-    })], "p1", PAGE_H, "Moi");
+    const { annots } = importPageAnnots(
+      [
+        raw({
+          subtype: "Ink",
+          inkLists: [Float32Array.from([10, 800, 40, 780]), Float32Array.from([50, 700, 60, 690])],
+        }),
+      ],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     expect(annots[0].kind).toBe("ink");
     expect(annots[0].paths).toHaveLength(2);
     expect(annots[0].paths![0][0]).toEqual({ x: 10, y: 42 });
   });
 
   it("turns a line with an arrow head into an arrow", () => {
-    const { annots } = importPageAnnots([raw({
-      subtype: "Line",
-      lineCoordinates: [100, 700, 300, 640],
-      lineEndings: ["None", "ClosedArrow"],
-    })], "p1", PAGE_H, "Moi");
+    const { annots } = importPageAnnots(
+      [
+        raw({
+          subtype: "Line",
+          lineCoordinates: [100, 700, 300, 640],
+          lineEndings: ["None", "ClosedArrow"],
+        }),
+      ],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     expect(annots[0].kind).toBe("arrow");
     expect(annots[0].lineEnd).toBe("arrow");
     expect(annots[0].paths![0][1]).toEqual({ x: 300, y: 202 });
   });
 
   it("reads polygon vertices", () => {
-    const { annots } = importPageAnnots([raw({
-      subtype: "Polygon",
-      vertices: Float32Array.from([100, 700, 200, 700, 150, 640]),
-    })], "p1", PAGE_H, "Moi");
+    const { annots } = importPageAnnots(
+      [
+        raw({
+          subtype: "Polygon",
+          vertices: Float32Array.from([100, 700, 200, 700, 150, 640]),
+        }),
+      ],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     expect(annots[0].paths![0]).toHaveLength(3);
     expect(annots[0].rect.h).toBeCloseTo(60, 3);
   });
 
   it("attaches an /IRT annotation to its parent instead of showing it twice", () => {
-    const { annots } = importPageAnnots([
-      raw({ id: "parent", subtype: "Text", contentsObj: { str: "Question ?" } }),
-      raw({ id: "child", subtype: "Text", inReplyTo: "parent", replyType: "R", contentsObj: { str: "Réponse" }, titleObj: { str: "Bob" } }),
-    ], "p1", PAGE_H, "Moi");
+    const { annots } = importPageAnnots(
+      [
+        raw({ id: "parent", subtype: "Text", contentsObj: { str: "Question ?" } }),
+        raw({
+          id: "child",
+          subtype: "Text",
+          inReplyTo: "parent",
+          replyType: "R",
+          contentsObj: { str: "Réponse" },
+          titleObj: { str: "Bob" },
+        }),
+      ],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     expect(annots).toHaveLength(1);
     expect(annots[0].replies).toHaveLength(1);
     expect(annots[0].replies![0].author).toBe("Bob");
@@ -111,18 +156,24 @@ describe("Importing a PDF's existing markup", () => {
 
     it("subtracts the origin so the box is the exact inverse of export", () => {
       // rect [150, 800, 350, 860] on a 842-high crop box offset by (50,100).
-      const { annots } = importPageAnnots(
-        [raw({ rect: [150, 800, 350, 860] })], "p1", PAGE_H, "Moi", ORIGIN,
-      );
+      const { annots } = importPageAnnots([raw({ rect: [150, 800, 350, 860] })], "p1", PAGE_H, "Moi", ORIGIN);
       // x_ps = 150 − 50 = 100 ; y_ps = (100 + 842) − 860 = 82
       expect(annots[0].rect).toEqual({ x: 100, y: 82, w: 200, h: 60 });
     });
 
     it("offsets quads and ink the same way", () => {
-      const { annots } = importPageAnnots([raw({
-        subtype: "Highlight",
-        quadPoints: Float32Array.from([150, 860, 350, 860, 150, 840, 350, 840]),
-      })], "p1", PAGE_H, "Moi", ORIGIN);
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Highlight",
+            quadPoints: Float32Array.from([150, 860, 350, 860, 150, 840, 350, 840]),
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+        ORIGIN,
+      );
       const [tl] = annots[0].quads![0];
       expect(tl).toEqual({ x: 100, y: 82 }); // 150−50, (100+842)−860
     });
@@ -135,11 +186,12 @@ describe("Importing a PDF's existing markup", () => {
   });
 
   it("skips what it cannot model, and says how many", () => {
-    const { annots, skipped } = importPageAnnots([
-      raw({ subtype: "Square" }),
-      raw({ subtype: "Movie" }),
-      raw({ subtype: "3D" }),
-    ], "p1", PAGE_H, "Moi");
+    const { annots, skipped } = importPageAnnots(
+      [raw({ subtype: "Square" }), raw({ subtype: "Movie" }), raw({ subtype: "3D" })],
+      "p1",
+      PAGE_H,
+      "Moi",
+    );
     expect(annots).toHaveLength(1);
     expect(skipped).toBe(2);
   });

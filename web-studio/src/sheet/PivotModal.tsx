@@ -36,7 +36,9 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
       footer={
         <>
           <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" onClick={create} disabled={!enough}><Table2 size={14} /> Créer dans une nouvelle feuille</Button>
+          <Button variant="primary" onClick={create} disabled={!enough}>
+            <Table2 size={14} /> Créer dans une nouvelle feuille
+          </Button>
         </>
       }
     >
@@ -45,14 +47,23 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
           <h3 className="settings__title">Source — plage {rangeLabel}</h3>
           {!enough ? (
             <p className="cf-empty">
-              Sélectionnez une plage d'au moins deux colonnes, en-têtes compris (la première ligne sert de noms de champs).
+              Sélectionnez une plage d'au moins deux colonnes, en-têtes compris (la première ligne sert de noms de
+              champs).
             </p>
           ) : (
             <div className="pivot-form">
               <label className="pivot-row">
                 <span className="pivot-row__lbl">Lignes</span>
-                <select className="settings__select" value={rowField} onChange={(e) => setRowField(Number(e.target.value))}>
-                  {fields.map((f) => <option key={f.i} value={f.i}>{f.label}</option>)}
+                <select
+                  className="settings__select"
+                  value={rowField}
+                  onChange={(e) => setRowField(Number(e.target.value))}
+                >
+                  {fields.map((f) => (
+                    <option key={f.i} value={f.i}>
+                      {f.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="pivot-row">
@@ -63,19 +74,35 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
                   onChange={(e) => setColField(e.target.value === "" ? null : Number(e.target.value))}
                 >
                   <option value="">(aucune)</option>
-                  {fields.map((f) => <option key={f.i} value={f.i}>{f.label}</option>)}
+                  {fields.map((f) => (
+                    <option key={f.i} value={f.i}>
+                      {f.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="pivot-row">
                 <span className="pivot-row__lbl">Valeurs</span>
-                <select className="settings__select" value={valueField} onChange={(e) => setValueField(Number(e.target.value))}>
-                  {fields.map((f) => <option key={f.i} value={f.i}>{f.label}</option>)}
+                <select
+                  className="settings__select"
+                  value={valueField}
+                  onChange={(e) => setValueField(Number(e.target.value))}
+                >
+                  {fields.map((f) => (
+                    <option key={f.i} value={f.i}>
+                      {f.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="pivot-row">
                 <span className="pivot-row__lbl">Agréger par</span>
                 <select className="settings__select" value={agg} onChange={(e) => setAgg(e.target.value as PivotAgg)}>
-                  {PIVOT_AGGS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+                  {PIVOT_AGGS.map((a) => (
+                    <option key={a.value} value={a.value}>
+                      {a.label}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

@@ -1,8 +1,23 @@
 import { describe, it, expect } from "vitest";
 import {
-  fromPoints, inflate, normRotation, overlapRatio, psToView, quadFromRect, quadToPdfQuadPoints,
-  rectFromPoints, rectFromView, rectOfPoints, rectToPdfRect, rectToView, rotatedSize, toPoints,
-  viewToPs, type Quad, type Rect, type Size,
+  fromPoints,
+  inflate,
+  normRotation,
+  overlapRatio,
+  psToView,
+  quadFromRect,
+  quadToPdfQuadPoints,
+  rectFromPoints,
+  rectFromView,
+  rectOfPoints,
+  rectToPdfRect,
+  rectToView,
+  rotatedSize,
+  toPoints,
+  viewToPs,
+  type Quad,
+  type Rect,
+  type Size,
 } from "../src/pdf/core/coords";
 
 const size: Size = { w: 600, h: 800 };
@@ -60,10 +75,14 @@ describe("PDF geometry — PDF space", () => {
     const quad: Quad = quadFromRect({ x: 10, y: 20, w: 100, h: 40 });
     const pts = quadToPdfQuadPoints(quad, 800);
     expect(pts).toEqual([
-      10, 780, // upper-left
-      110, 780, // upper-right
-      10, 740, // lower-left
-      110, 740, // lower-right
+      10,
+      780, // upper-left
+      110,
+      780, // upper-right
+      10,
+      740, // lower-left
+      110,
+      740, // lower-right
     ]);
   });
 });
@@ -74,7 +93,13 @@ describe("PDF geometry — helpers", () => {
   });
 
   it("bounds a set of points", () => {
-    expect(rectOfPoints([{ x: 5, y: 9 }, { x: -3, y: 2 }, { x: 11, y: 4 }])).toEqual({ x: -3, y: 2, w: 14, h: 7 });
+    expect(
+      rectOfPoints([
+        { x: 5, y: 9 },
+        { x: -3, y: 2 },
+        { x: 11, y: 4 },
+      ]),
+    ).toEqual({ x: -3, y: 2, w: 14, h: 7 });
   });
 
   it("measures how much of a box is covered", () => {

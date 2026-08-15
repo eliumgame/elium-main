@@ -2,8 +2,16 @@ import { describe, it, expect } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
 import { Schema, type Node as PMNode } from "prosemirror-model";
 import {
-  CAPTION_LABELS, buildFigureTable, captionInsertPos, captionLabels, captionNumberAt, captionPrefix,
-  collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr,
+  CAPTION_LABELS,
+  buildFigureTable,
+  captionInsertPos,
+  captionLabels,
+  captionNumberAt,
+  captionPrefix,
+  collectCaptionsJson,
+  figureTableInstr,
+  figureTableTitle,
+  seqInstr,
 } from "../src/editor/captions";
 import { collectTargetsJson } from "../src/editor/crossref";
 import { docToDocx } from "../src/format/docx";
@@ -21,7 +29,11 @@ const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", 
 
 const model = (node: ProseMirrorNode) => ({
   schema: "elium-doc/1" as const,
-  page: { format: "A4" as const, orientation: "portrait" as const, margins: { top: 25, right: 20, bottom: 25, left: 20 } },
+  page: {
+    format: "A4" as const,
+    orientation: "portrait" as const,
+    margins: { top: 25, right: 20, bottom: 25, left: 20 },
+  },
   doc: node,
 });
 
@@ -123,7 +135,9 @@ describe("Légendes — renvois", () => {
   it("numérote les légendes de renvoi par étiquette comme le document", () => {
     const targets = collectTargetsJson(doc(caption("Tableau", "T"), caption("Figure", "F"), caption("Tableau", "T2")));
     expect(targets.filter((t) => t.kind === "caption").map((t) => t.number)).toEqual([
-      "Tableau 1", "Figure 1", "Tableau 2",
+      "Tableau 1",
+      "Figure 1",
+      "Tableau 2",
     ]);
   });
 });
@@ -137,7 +151,9 @@ describe("Légendes — export", () => {
   });
 
   it("rend la table des illustrations en HTML", () => {
-    const html = docToHtml(model(doc(caption("Figure", "Une"), { type: "tableOfFigures", attrs: { label: "Figure" } })));
+    const html = docToHtml(
+      model(doc(caption("Figure", "Une"), { type: "tableOfFigures", attrs: { label: "Figure" } })),
+    );
     expect(html).toContain("Table des figures");
     expect(html).toContain("Figure 1 — Une");
   });
@@ -153,7 +169,7 @@ describe("Légendes — export", () => {
     const xml = documentXml(await fileWith(doc(para("texte"), caption("Figure", "Le graphique"))));
     expect(xml).toContain("SEQ Figure \\* ARABIC");
     // Le numéro courant sert de résultat en cache, donc lisible avant mise à jour.
-    expect(xml).toContain("<w:t xml:space=\"preserve\">Figure </w:t>");
+    expect(xml).toContain('<w:t xml:space="preserve">Figure </w:t>');
     expect(xml).toContain('<w:pStyle w:val="Legende"/>');
   });
 
@@ -161,7 +177,7 @@ describe("Légendes — export", () => {
     const xml = documentXml(
       await fileWith(doc(caption("Figure", "Une"), { type: "tableOfFigures", attrs: { label: "Figure" } })),
     );
-    expect(xml).toContain('TOC \\h \\z \\c &quot;Figure&quot;');
+    expect(xml).toContain("TOC \\h \\z \\c &quot;Figure&quot;");
     expect(xml).toContain("Table des figures");
     expect(xml).toContain("Figure 1 — Une");
   });
@@ -189,7 +205,10 @@ describe("Légendes — placement de l'insertion", () => {
   const at = (node: PMNode, pos: number) => node.resolve(pos);
 
   it("insère après le bloc courant quand la position est « below »", () => {
-    const d = schema.node("doc", null, [paragraph.create(null, schema.text("un")), paragraph.create(null, schema.text("deux"))]);
+    const d = schema.node("doc", null, [
+      paragraph.create(null, schema.text("un")),
+      paragraph.create(null, schema.text("deux")),
+    ]);
     // Cursor inside the first paragraph.
     expect(captionInsertPos(at(d, 2), capT, true)).toBe(d.child(0).nodeSize);
   });

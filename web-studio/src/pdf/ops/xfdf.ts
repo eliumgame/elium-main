@@ -50,8 +50,7 @@ const KIND_FROM_XFDF: Record<string, AnnotKind> = {
   stamp: "stamp",
 };
 
-const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 function xfdfDate(iso: string): string {
   const d = new Date(iso);
@@ -83,7 +82,8 @@ function toPdfQuads(quads: readonly Quad[], h: number): string {
   // XFDF `coords` uses the same odd order as /QuadPoints.
   return quads
     .map(([tl, tr, br, bl]) =>
-      [tl.x, h - tl.y, tr.x, h - tr.y, bl.x, h - bl.y, br.x, h - br.y].map((v) => round(v, 2)).join(","))
+      [tl.x, h - tl.y, tr.x, h - tr.y, bl.x, h - bl.y, br.x, h - br.y].map((v) => round(v, 2)).join(","),
+    )
     .join(";");
 }
 
@@ -124,14 +124,24 @@ export function toXfdf(
     if (a.strokeWidth) attrs.push(`width="${round(a.strokeWidth, 2)}"`);
     if (isTextMarkup(a.kind) && a.quads?.length) attrs.push(`coords="${toPdfQuads(a.quads, h)}"`);
     if (a.kind === "line" || a.kind === "arrow" || a.kind === "distance") {
-      const pts = a.paths?.[0] ?? [{ x: a.rect.x, y: a.rect.y }, { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h }];
+      const pts = a.paths?.[0] ?? [
+        { x: a.rect.x, y: a.rect.y },
+        { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h },
+      ];
       attrs.push(`start="${round(pts[0].x, 2)},${round(h - pts[0].y, 2)}"`);
       const end = pts[pts.length - 1];
       attrs.push(`end="${round(end.x, 2)},${round(h - end.y, 2)}"`);
       attrs.push(`head="${a.lineStart === "arrow" ? "OpenArrow" : "None"}"`);
       attrs.push(`tail="${a.lineEnd === "arrow" ? "OpenArrow" : "None"}"`);
     }
-    if ((a.kind === "polygon" || a.kind === "polyline" || a.kind === "cloud" || a.kind === "area" || a.kind === "perimeter") && a.paths?.[0]) {
+    if (
+      (a.kind === "polygon" ||
+        a.kind === "polyline" ||
+        a.kind === "cloud" ||
+        a.kind === "area" ||
+        a.kind === "perimeter") &&
+      a.paths?.[0]
+    ) {
       attrs.push(`vertices="${toPdfPoints(a.paths[0], h)}"`);
     }
     if (a.kind === "note") attrs.push('icon="Comment"', 'open="no"');
@@ -149,10 +159,10 @@ export function toXfdf(
     for (const reply of a.replies ?? []) {
       body.push(
         `<text page="${page}" rect="${toPdfRect({ ...a.rect, w: 20, h: 20 }, h)}" ` +
-        `inreplyto="${esc(a.id)}" replyType="R" title="${esc(reply.author)}" ` +
-        `name="${esc(reply.id)}" date="${xfdfDate(reply.createdAt)}" creationdate="${xfdfDate(reply.createdAt)}" ` +
-        `flags="hidden">` +
-        `<contents>${esc(reply.text)}</contents></text>`,
+          `inreplyto="${esc(a.id)}" replyType="R" title="${esc(reply.author)}" ` +
+          `name="${esc(reply.id)}" date="${xfdfDate(reply.createdAt)}" creationdate="${xfdfDate(reply.createdAt)}" ` +
+          `flags="hidden">` +
+          `<contents>${esc(reply.text)}</contents></text>`,
       );
     }
   }
@@ -176,7 +186,10 @@ function isTextContentKind(k: AnnotKind): boolean {
 
 function parseNums(s: string | null): number[] {
   if (!s) return [];
-  return s.split(/[,;\s]+/).map(Number).filter((n) => Number.isFinite(n));
+  return s
+    .split(/[,;\s]+/)
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
 }
 
 /** Parse XFDF into annotations bound to `pages` (by index). */
@@ -205,16 +218,22 @@ export function fromXfdf(
     if (inReplyTo) {
       replies.push({
         parent: inReplyTo,
-        reply: { id: el.getAttribute("name") || newId("rp"), author: el.getAttribute("title") || defaultAuthor, text: contents, createdAt: created },
+        reply: {
+          id: el.getAttribute("name") || newId("rp"),
+          author: el.getAttribute("title") || defaultAuthor,
+          text: contents,
+          createdAt: created,
+        },
       });
       continue;
     }
 
     const kind = KIND_FROM_XFDF[el.localName];
     const r = parseNums(el.getAttribute("rect"));
-    const rect: Rect = r.length >= 4
-      ? { x: Math.min(r[0], r[2]), y: flip(Math.max(r[1], r[3])), w: Math.abs(r[2] - r[0]), h: Math.abs(r[3] - r[1]) }
-      : { x: 40, y: 40, w: 120, h: 40 };
+    const rect: Rect =
+      r.length >= 4
+        ? { x: Math.min(r[0], r[2]), y: flip(Math.max(r[1], r[3])), w: Math.abs(r[2] - r[0]), h: Math.abs(r[3] - r[1]) }
+        : { x: 40, y: 40, w: 120, h: 40 };
 
     const annot: Annot = {
       id: el.getAttribute("name") || newId("an"),
@@ -263,7 +282,12 @@ export function fromXfdf(
       const s = parseNums(el.getAttribute("start"));
       const e = parseNums(el.getAttribute("end"));
       if (s.length >= 2 && e.length >= 2) {
-        annot.paths = [[{ x: s[0], y: flip(s[1]) }, { x: e[0], y: flip(e[1]) }]];
+        annot.paths = [
+          [
+            { x: s[0], y: flip(s[1]) },
+            { x: e[0], y: flip(e[1]) },
+          ],
+        ];
         if ((el.getAttribute("tail") || "").toLowerCase().includes("arrow")) {
           annot.kind = "arrow";
           annot.lineEnd = "arrow";

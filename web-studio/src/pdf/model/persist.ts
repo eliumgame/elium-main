@@ -131,7 +131,10 @@ function normalise(s: Partial<PdfState>): PdfState {
 interface V1Anno {
   id: string;
   type: "text" | "highlight" | "draw" | "rect" | "ellipse" | "line" | "image" | "whiteout";
-  x: number; y: number; w: number; h: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
   color: string;
   strokeWidth: number;
   fontSize: number;
@@ -146,7 +149,10 @@ interface V1Anno {
 
 interface V1EditedText {
   key: string;
-  x: number; y: number; w: number; h: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
   fontSize: number;
   text: string;
   original: string;
@@ -200,7 +206,9 @@ function migrateV1(o: Record<string, unknown>): PdfState {
         ...base(a),
         pageId,
         kind,
-        ...(kind === "highlight" ? { quads: [quadFromRect({ x: a.x, y: a.y, w: a.w, h: a.h })], color: "#fde047", opacity: 0.4 } : {}),
+        ...(kind === "highlight"
+          ? { quads: [quadFromRect({ x: a.x, y: a.y, w: a.w, h: a.h })], color: "#fde047", opacity: 0.4 }
+          : {}),
         ...(kind === "ink" && a.points?.length ? { paths: [a.points.map((p) => ({ ...p }))] } : {}),
         ...(kind === "whiteout" ? { fill: "#ffffff", strokeWidth: 0 } : {}),
         ...(a.text !== undefined ? { text: a.text } : {}),
@@ -223,18 +231,37 @@ function migrateV1(o: Record<string, unknown>): PdfState {
     for (const e of list ?? []) {
       if (e.text === e.original) continue;
       state.annots.push({
-        id: newId("an"), pageId, kind: "whiteout",
+        id: newId("an"),
+        pageId,
+        kind: "whiteout",
         rect: { x: e.x, y: e.y, w: e.w, h: e.h + 2 },
-        color: "#ffffff", fill: "#ffffff", opacity: 1, strokeWidth: 0,
-        author, createdAt: when, modifiedAt: when, replies: [],
+        color: "#ffffff",
+        fill: "#ffffff",
+        opacity: 1,
+        strokeWidth: 0,
+        author,
+        createdAt: when,
+        modifiedAt: when,
+        replies: [],
       });
       state.annots.push({
-        id: newId("an"), pageId, kind: "freetext",
+        id: newId("an"),
+        pageId,
+        kind: "freetext",
         rect: { x: e.x, y: e.y, w: e.w, h: e.h },
-        color: e.color ?? "#000000", opacity: 1, strokeWidth: 0,
-        text: e.text, fontSize: e.fontSize, fontFamily: e.fontFamily,
-        bold: e.bold, italic: e.italic, textBg: null,
-        author, createdAt: when, modifiedAt: when, replies: [],
+        color: e.color ?? "#000000",
+        opacity: 1,
+        strokeWidth: 0,
+        text: e.text,
+        fontSize: e.fontSize,
+        fontFamily: e.fontFamily,
+        bold: e.bold,
+        italic: e.italic,
+        textBg: null,
+        author,
+        createdAt: when,
+        modifiedAt: when,
+        replies: [],
       });
     }
   }

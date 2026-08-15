@@ -36,7 +36,9 @@ export default function CaptionModal({ editor, onClose }: { editor: Editor; onCl
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
           <Button onClick={insert}>Insérer</Button>
         </>
       }
@@ -46,7 +48,9 @@ export default function CaptionModal({ editor, onClose }: { editor: Editor; onCl
           <Field label="Étiquette">
             <select className="settings__select" value={label} onChange={(e) => setLabel(e.target.value)}>
               {labels.map((l) => (
-                <option key={l} value={l}>{l}</option>
+                <option key={l} value={l}>
+                  {l}
+                </option>
               ))}
               <option value="__custom">Autre étiquette…</option>
             </select>

@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, Command, FileText, Home, Loader2, Maximize2, PanelLeftClose,
-  PanelLeftOpen, Search, Upload, X, ZoomIn, ZoomOut,
+  ChevronLeft,
+  ChevronRight,
+  Command,
+  FileText,
+  Home,
+  Loader2,
+  Maximize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Upload,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { downloadBlob } from "../../export/exporters";
 import { useDialogs } from "../../ui/dialogs";
@@ -14,14 +26,40 @@ import { RenderScheduler } from "../core/render";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
 import { DEFAULT_SEARCH_OPTIONS, search as runSearch, type SearchHit } from "../core/search";
 import * as D from "../model/doc";
-import type { Annot, AnnotKind, Bookmark, ContentEdit, FormValue, MeasureScale, Page, PdfState, Tool } from "../model/types";
+import type {
+  Annot,
+  AnnotKind,
+  Bookmark,
+  ContentEdit,
+  FormValue,
+  MeasureScale,
+  Page,
+  PdfState,
+  Tool,
+} from "../model/types";
 import { EMPTY_FILTER, type CommentFilter, type CommentSort } from "../model/doc";
 import { DEFAULT_STYLE, emptyState, isTextMarkup, newId, styleForKind, toolIsAnnot } from "../model/types";
 import { base64ToBytes, bytesToBase64, deserialize, serialize, type PdfFile } from "../model/persist";
-import { extractLayout, exportImages, toDocx, toHtml, toPlainTextWithMarkers, detectTables, tablesToCsv, zipImages } from "../ops/export";
+import {
+  extractLayout,
+  exportImages,
+  toDocx,
+  toHtml,
+  toPlainTextWithMarkers,
+  detectTables,
+  tablesToCsv,
+  zipImages,
+} from "../ops/export";
 import { comparePages, type ComparisonReport } from "../ops/compare";
 import { DEFAULT_BUILD, buildPdf, type BuildOptions } from "../ops/save";
-import { extractPages, mergeDocuments, parsePageRange, pdfFromImages, splitDocument, PAGE_SIZES } from "../ops/organize";
+import {
+  extractPages,
+  mergeDocuments,
+  parsePageRange,
+  pdfFromImages,
+  splitDocument,
+  PAGE_SIZES,
+} from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
 import { signPdfBytes, verifyPdfSignatures, type PadesSignOptions } from "../ops/pades";
 import { generateSelfSignedP12 } from "../ops/self-cert";
@@ -40,19 +78,55 @@ import PageView from "./PageView";
 import Ribbon from "./Ribbon";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
 import {
-  CompareDialog, CropDialog, ExportImagesDialog, HeaderFooterDialog, InsertPagesDialog,
-  MeasureScaleDialog, OcrDialog, PageLabelsDialog, PasswordPrompt, PropertiesDialog, ProtectDialog,
-  RedactSearchDialog, SaveDialog, SignatureDialog, SplitDialog, WatermarkDialog,
+  CompareDialog,
+  CropDialog,
+  ExportImagesDialog,
+  HeaderFooterDialog,
+  InsertPagesDialog,
+  MeasureScaleDialog,
+  OcrDialog,
+  PageLabelsDialog,
+  PasswordPrompt,
+  PropertiesDialog,
+  ProtectDialog,
+  RedactSearchDialog,
+  SaveDialog,
+  SignatureDialog,
+  SplitDialog,
+  WatermarkDialog,
 } from "./dialogs";
 import {
-  DEFAULT_SEARCH, DEFAULT_VIEW, MAX_SCALE, MIN_SCALE, READING_THEMES, TOOL_TAB, ZOOM_PRESETS,
-  type RibbonTab, type SidePanel, type Toast, type ViewState,
+  DEFAULT_SEARCH,
+  DEFAULT_VIEW,
+  MAX_SCALE,
+  MIN_SCALE,
+  READING_THEMES,
+  TOOL_TAB,
+  ZOOM_PRESETS,
+  type RibbonTab,
+  type SidePanel,
+  type Toast,
+  type ViewState,
 } from "./state";
 import "./pdf.css";
 
 type DialogId =
-  | null | "save" | "protect" | "watermark" | "headerFooter" | "properties" | "exportImages"
-  | "ocr" | "signature" | "split" | "crop" | "labels" | "measure" | "compare" | "insert" | "redactSearch";
+  | null
+  | "save"
+  | "protect"
+  | "watermark"
+  | "headerFooter"
+  | "properties"
+  | "exportImages"
+  | "ocr"
+  | "signature"
+  | "split"
+  | "crop"
+  | "labels"
+  | "measure"
+  | "compare"
+  | "insert"
+  | "redactSearch";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -76,10 +150,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [pendingPassword, setPendingPassword] = useState<{ bytes: Uint8Array; name: string; wrong: boolean } | null>(null);
+  const [pendingPassword, setPendingPassword] = useState<{ bytes: Uint8Array; name: string; wrong: boolean } | null>(
+    null,
+  );
 
-  const { value: state, set: setState, setQuiet, checkpoint, undo, redo, canUndo, canRedo, reset } =
-    useUndoable<PdfState>(emptyState());
+  const {
+    value: state,
+    set: setState,
+    setQuiet,
+    checkpoint,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset,
+  } = useUndoable<PdfState>(emptyState());
 
   // --- view -----------------------------------------------------------------
   const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
@@ -115,7 +200,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [compareReport, setCompareReport] = useState<ComparisonReport | null>(null);
   const [compareBusy, setCompareBusy] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
-  const [ocrProgress, setOcrProgress] = useState<{ page: number; total: number; stage: string; ratio: number } | null>(null);
+  const [ocrProgress, setOcrProgress] = useState<{ page: number; total: number; stage: string; ratio: number } | null>(
+    null,
+  );
   const [localModels, setLocalModels] = useState(false);
   const ocrAbort = useRef<AbortController | null>(null);
   const [hasForm, setHasForm] = useState(false);
@@ -149,80 +236,90 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Loading
   // -------------------------------------------------------------------------
-  const openBytes = useCallback(async (raw: Uint8Array, name: string, password?: string, restore?: PdfState) => {
-    setLoading(true);
-    setLoadError("");
-    try {
-      const next = await PdfEngine.open(raw, password);
-      engine?.destroy();
-      scheduler.cancelAll();
-      bytesRef.current = raw.slice();
-      passwordRef.current = password ?? null;
-      setEngine(next);
-      setFileName(name);
-      setPendingPassword(null);
-      setHasForm(next.info.hasAcroForm);
-      pageTextsRef.current = null;
-      setHits([]);
-      setHitQuads(new Map());
-      setSelectedIds([]);
-      setSelectedPages([]);
+  const openBytes = useCallback(
+    async (raw: Uint8Array, name: string, password?: string, restore?: PdfState) => {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const next = await PdfEngine.open(raw, password);
+        engine?.destroy();
+        scheduler.cancelAll();
+        bytesRef.current = raw.slice();
+        passwordRef.current = password ?? null;
+        setEngine(next);
+        setFileName(name);
+        setPendingPassword(null);
+        setHasForm(next.info.hasAcroForm);
+        pageTextsRef.current = null;
+        setHits([]);
+        setHitQuads(new Map());
+        setSelectedIds([]);
+        setSelectedPages([]);
 
-      const outline = await next.outline();
-      const bookmarks: Bookmark[] | null = outline.length ? outlineToBookmarks(outline) : null;
+        const outline = await next.outline();
+        const bookmarks: Bookmark[] | null = outline.length ? outlineToBookmarks(outline) : null;
 
-      // Markup the file already carries becomes editable Elium markup, so a
-      // review started in Acrobat continues here instead of being read-only.
-      const imported: Annot[] = [];
-      const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
-      if (!restore) {
-        for (const page of sourcePages) {
-          if (page.from == null) continue;
-          const raw = (await next.annotations(page.from)) as RawAnnotation[];
-          if (!hasImportableAnnots(raw)) continue;
-          const info = next.pages[page.from];
-          const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
-          imported.push(...importPageAnnots(raw, page.id, info?.h ?? 842, author, origin).annots);
+        // Markup the file already carries becomes editable Elium markup, so a
+        // review started in Acrobat continues here instead of being read-only.
+        const imported: Annot[] = [];
+        const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
+        if (!restore) {
+          for (const page of sourcePages) {
+            if (page.from == null) continue;
+            const raw = (await next.annotations(page.from)) as RawAnnotation[];
+            if (!hasImportableAnnots(raw)) continue;
+            const info = next.pages[page.from];
+            const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
+            imported.push(...importPageAnnots(raw, page.id, info?.h ?? 842, author, origin).annots);
+          }
         }
-      }
 
-      const base = restore ?? {
-        ...emptyState(),
-        pages: sourcePages,
-        annots: imported,
-        importedAnnots: imported.length > 0,
-        bookmarks,
-        metadata: {
-          title: next.info.title,
-          author: next.info.author,
-          subject: next.info.subject,
-          keywords: next.info.keywords,
-          language: next.info.language,
-        },
-      };
-      reset(restore ? { ...base, bookmarks: base.bookmarks ?? bookmarks } : base);
-      if (imported.length) {
-        setPanel("comments");
-        toast("info", `${imported.length} annotation(s) importée(s)`, "Le balisage déjà présent est modifiable et répondable.");
+        const base = restore ?? {
+          ...emptyState(),
+          pages: sourcePages,
+          annots: imported,
+          importedAnnots: imported.length > 0,
+          bookmarks,
+          metadata: {
+            title: next.info.title,
+            author: next.info.author,
+            subject: next.info.subject,
+            keywords: next.info.keywords,
+            language: next.info.language,
+          },
+        };
+        reset(restore ? { ...base, bookmarks: base.bookmarks ?? bookmarks } : base);
+        if (imported.length) {
+          setPanel("comments");
+          toast(
+            "info",
+            `${imported.length} annotation(s) importée(s)`,
+            "Le balisage déjà présent est modifiable et répondable.",
+          );
+        }
+        setAttachments(await next.attachments());
+        setLayers(await next.layers());
+        setView((v) => ({ ...v, current: 1 }));
+        setMode("view");
+      } catch (e) {
+        if (e instanceof PdfPasswordRequired) {
+          setPendingPassword({ bytes: raw, name, wrong: e.wrong });
+        } else {
+          setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
+        }
+      } finally {
+        setLoading(false);
       }
-      setAttachments(await next.attachments());
-      setLayers(await next.layers());
-      setView((v) => ({ ...v, current: 1 }));
-      setMode("view");
-    } catch (e) {
-      if (e instanceof PdfPasswordRequired) {
-        setPendingPassword({ bytes: raw, name, wrong: e.wrong });
-      } else {
-        setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [engine, reset, scheduler, author, toast]);
+    },
+    [engine, reset, scheduler, author, toast],
+  );
 
-  const openFile = useCallback(async (file: File) => {
-    await openBytes(new Uint8Array(await file.arrayBuffer()), file.name);
-  }, [openBytes]);
+  const openFile = useCallback(
+    async (file: File) => {
+      await openBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+    },
+    [openBytes],
+  );
 
   // Restore a session persisted in an .elium.
   const restored = useRef(false);
@@ -231,30 +328,52 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     restored.current = true;
     const loaded = deserialize(initial);
     for (const [name, b64] of Object.entries(loaded.fonts)) registerCustomFont(name, base64ToBytes(b64));
-    setSignatures(loaded.signatures.map((src, i) => ({ id: `sig_${i}`, kind: "signature", src, ratio: 3, createdAt: new Date().toISOString() })));
+    setSignatures(
+      loaded.signatures.map((src, i) => ({
+        id: `sig_${i}`,
+        kind: "signature",
+        src,
+        ratio: 3,
+        createdAt: new Date().toISOString(),
+      })),
+    );
     void openBytes(loaded.bytes, loaded.name, loaded.sourcePassword, loaded.state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
-  useEffect(() => () => { engine?.destroy(); scheduler.cancelAll(); }, [engine, scheduler]);
-  useEffect(() => { void hasLocalModels().then(setLocalModels); }, []);
+  useEffect(
+    () => () => {
+      engine?.destroy();
+      scheduler.cancelAll();
+    },
+    [engine, scheduler],
+  );
+  useEffect(() => {
+    void hasLocalModels().then(setLocalModels);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Geometry helpers
   // -------------------------------------------------------------------------
-  const sizeOf = useCallback((page: Page) => {
-    if (page.from == null) return page.size ?? { w: PAGE_SIZES.A4[0], h: PAGE_SIZES.A4[1] };
-    const info = engine?.pages[page.from];
-    if (!info) return { w: PAGE_SIZES.A4[0], h: PAGE_SIZES.A4[1] };
-    const crop = page.crop;
-    if (!crop) return { w: info.w, h: info.h };
-    return { w: Math.max(1, info.w - crop.left - crop.right), h: Math.max(1, info.h - crop.top - crop.bottom) };
-  }, [engine]);
+  const sizeOf = useCallback(
+    (page: Page) => {
+      if (page.from == null) return page.size ?? { w: PAGE_SIZES.A4[0], h: PAGE_SIZES.A4[1] };
+      const info = engine?.pages[page.from];
+      if (!info) return { w: PAGE_SIZES.A4[0], h: PAGE_SIZES.A4[1] };
+      const crop = page.crop;
+      if (!crop) return { w: info.w, h: info.h };
+      return { w: Math.max(1, info.w - crop.left - crop.right), h: Math.max(1, info.h - crop.top - crop.bottom) };
+    },
+    [engine],
+  );
 
-  const rotationOf = useCallback((page: Page): Rotation => {
-    const own = page.from != null ? engine?.pages[page.from]?.rotate ?? 0 : 0;
-    return normRotation(own + (page.rotate ?? 0) + view.viewRotation);
-  }, [engine, view.viewRotation]);
+  const rotationOf = useCallback(
+    (page: Page): Rotation => {
+      const own = page.from != null ? (engine?.pages[page.from]?.rotate ?? 0) : 0;
+      return normRotation(own + (page.rotate ?? 0) + view.viewRotation);
+    },
+    [engine, view.viewRotation],
+  );
 
   // -------------------------------------------------------------------------
   // Zoom & navigation
@@ -278,7 +397,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (Math.abs(clamped - view.scale) > 0.002) setView((v) => ({ ...v, scale: clamped }));
   }, [pages, sizeOf, rotationOf, view]);
 
-  useEffect(() => { applyFit(); }, [applyFit]);
+  useEffect(() => {
+    applyFit();
+  }, [applyFit]);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -293,21 +414,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const zoomStep = (dir: 1 | -1) => {
     const presets = ZOOM_PRESETS as readonly number[];
     const i = presets.findIndex((z) => (dir > 0 ? z > view.scale + 0.001 : z >= view.scale - 0.001));
-    const next = dir > 0
-      ? presets[i < 0 ? presets.length - 1 : i]
-      : presets[Math.max(0, (i < 0 ? presets.length : i) - 1)];
+    const next =
+      dir > 0 ? presets[i < 0 ? presets.length - 1 : i] : presets[Math.max(0, (i < 0 ? presets.length : i) - 1)];
     setScale(next ?? view.scale * (dir > 0 ? 1.2 : 0.8));
   };
 
-  const goTo = useCallback((page: number, y?: number) => {
-    const target = clamp(Math.round(page), 1, Math.max(1, pageCount));
-    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${target}"]`);
-    if (el) {
-      const top = el.offsetTop - 16 + (y ? y * view.scale : 0);
-      scrollRef.current?.scrollTo({ top, behavior: "smooth" });
-    }
-    setView((v) => ({ ...v, current: target }));
-  }, [pageCount, view.scale]);
+  const goTo = useCallback(
+    (page: number, y?: number) => {
+      const target = clamp(Math.round(page), 1, Math.max(1, pageCount));
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${target}"]`);
+      if (el) {
+        const top = el.offsetTop - 16 + (y ? y * view.scale : 0);
+        scrollRef.current?.scrollTo({ top, behavior: "smooth" });
+      }
+      setView((v) => ({ ...v, current: target }));
+    },
+    [pageCount, view.scale],
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -317,7 +440,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     let bestD = Infinity;
     el.querySelectorAll<HTMLElement>("[data-page]").forEach((node) => {
       const d = Math.abs(node.offsetTop + node.offsetHeight / 2 - mid);
-      if (d < bestD) { bestD = d; best = Number(node.dataset.page); }
+      if (d < bestD) {
+        bestD = d;
+        best = Number(node.dataset.page);
+      }
     });
     setView((v) => (v.current === best ? v : { ...v, current: best }));
   }, []);
@@ -352,7 +478,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   const selection = useMemo(() => state.annots.filter((a) => selectedIds.includes(a.id)), [state.annots, selectedIds]);
 
-  const addAnnot = (a: Annot) => { setState((s) => D.addAnnot(s, a)); };
+  const addAnnot = (a: Annot) => {
+    setState((s) => D.addAnnot(s, a));
+  };
   const patchAnnot = (id: string, patch: Partial<Annot>, live: boolean) => {
     const now = new Date().toISOString();
     (live ? setQuiet : setState)((s) => D.updateAnnot(s, id, { ...patch, modifiedAt: now }));
@@ -376,46 +504,51 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (next !== "select") setSelectedIds([]);
   };
 
-  const finishTool = () => { if (!sticky) setTool("textSelect"); };
+  const finishTool = () => {
+    if (!sticky) setTool("textSelect");
+  };
 
   // --- text-anchored markup from the live selection -------------------------
-  const applyMarkupFromSelection = useCallback((kind: AnnotKind) => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return false;
-    const now = new Date().toISOString();
-    const made: Annot[] = [];
-    for (const [index, layer] of textLayers.current) {
-      const page = pages[index];
-      if (!page) continue;
-      const host = layer.parentElement;
-      if (!host) continue;
-      const quads = quadsFromSelection(sel, host, layer, view.scale, sizeOf(page), rotationOf(page));
-      if (!quads.length) continue;
-      const text = selectionTextIn(sel, layer);
-      made.push({
-        id: newId("an"),
-        pageId: page.id,
-        kind,
-        rect: rectOfQuads(quads),
-        quads,
-        color: style.color,
-        fill: null,
-        opacity: kind === "highlight" ? style.opacity : 1,
-        strokeWidth: kind === "highlight" ? 0 : Math.max(1, style.strokeWidth),
-        author,
-        createdAt: now,
-        modifiedAt: now,
-        subject: text.slice(0, 120),
-        replies: [],
-        status: "none",
-      });
-    }
-    if (!made.length) return false;
-    setState((s) => made.reduce((acc, a) => D.addAnnot(acc, a), s));
-    sel.removeAllRanges();
-    setSelectedIds(made.map((a) => a.id));
-    return true;
-  }, [pages, sizeOf, rotationOf, view.scale, style, author, setState]);
+  const applyMarkupFromSelection = useCallback(
+    (kind: AnnotKind) => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return false;
+      const now = new Date().toISOString();
+      const made: Annot[] = [];
+      for (const [index, layer] of textLayers.current) {
+        const page = pages[index];
+        if (!page) continue;
+        const host = layer.parentElement;
+        if (!host) continue;
+        const quads = quadsFromSelection(sel, host, layer, view.scale, sizeOf(page), rotationOf(page));
+        if (!quads.length) continue;
+        const text = selectionTextIn(sel, layer);
+        made.push({
+          id: newId("an"),
+          pageId: page.id,
+          kind,
+          rect: rectOfQuads(quads),
+          quads,
+          color: style.color,
+          fill: null,
+          opacity: kind === "highlight" ? style.opacity : 1,
+          strokeWidth: kind === "highlight" ? 0 : Math.max(1, style.strokeWidth),
+          author,
+          createdAt: now,
+          modifiedAt: now,
+          subject: text.slice(0, 120),
+          replies: [],
+          status: "none",
+        });
+      }
+      if (!made.length) return false;
+      setState((s) => made.reduce((acc, a) => D.addAnnot(acc, a), s));
+      sel.removeAllRanges();
+      setSelectedIds(made.map((a) => a.id));
+      return true;
+    },
+    [pages, sizeOf, rotationOf, view.scale, style, author, setState],
+  );
 
   // Picking a markup tool while text is selected applies it immediately.
   useEffect(() => {
@@ -448,28 +581,48 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return texts;
   }, [engine]);
 
-  const doSearch = useCallback(async (query: string) => {
-    if (!engine) return;
-    if (!query.trim()) { setHits([]); setHitQuads(new Map()); setSearchState((s) => ({ ...s, index: -1 })); return; }
-    const texts = await ensureText();
-    const found = runSearch(texts, query, {
-      ...DEFAULT_SEARCH_OPTIONS,
-      caseSensitive: searchState.caseSensitive,
-      wholeWord: searchState.wholeWord,
-      regex: searchState.regex,
-      ignoreDiacritics: searchState.ignoreDiacritics,
-    });
-    setHits(found);
-    setSearchState((s) => ({ ...s, index: found.length ? 0 : -1 }));
-    if (found.length) {
-      const target = pages.findIndex((pg) => pg.from === found[0].page);
-      goTo((target < 0 ? found[0].page : target) + 1);
-    }
-  }, [engine, ensureText, searchState.caseSensitive, searchState.wholeWord, searchState.regex, searchState.ignoreDiacritics, pages, goTo]);
+  const doSearch = useCallback(
+    async (query: string) => {
+      if (!engine) return;
+      if (!query.trim()) {
+        setHits([]);
+        setHitQuads(new Map());
+        setSearchState((s) => ({ ...s, index: -1 }));
+        return;
+      }
+      const texts = await ensureText();
+      const found = runSearch(texts, query, {
+        ...DEFAULT_SEARCH_OPTIONS,
+        caseSensitive: searchState.caseSensitive,
+        wholeWord: searchState.wholeWord,
+        regex: searchState.regex,
+        ignoreDiacritics: searchState.ignoreDiacritics,
+      });
+      setHits(found);
+      setSearchState((s) => ({ ...s, index: found.length ? 0 : -1 }));
+      if (found.length) {
+        const target = pages.findIndex((pg) => pg.from === found[0].page);
+        goTo((target < 0 ? found[0].page : target) + 1);
+      }
+    },
+    [
+      engine,
+      ensureText,
+      searchState.caseSensitive,
+      searchState.wholeWord,
+      searchState.regex,
+      searchState.ignoreDiacritics,
+      pages,
+      goTo,
+    ],
+  );
 
   // Highlight rectangles are computed lazily, only for pages that have hits.
   useEffect(() => {
-    if (!engine || !hits.length) { setHitQuads(new Map()); return; }
+    if (!engine || !hits.length) {
+      setHitQuads(new Map());
+      return;
+    }
     let cancelled = false;
     (async () => {
       const wanted = new Set(hits.map((h) => h.page));
@@ -480,11 +633,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const tc = await engine.text(index);
         if (cancelled) return;
         const runs = buildRuns(tc, vp.transform as unknown as number[]);
-        out.set(index, hits.filter((h) => h.page === index).map((h) => quadsForCharRange(runs, tc.items, h.start, h.end)));
+        out.set(
+          index,
+          hits.filter((h) => h.page === index).map((h) => quadsForCharRange(runs, tc.items, h.start, h.end)),
+        );
       }
       if (!cancelled) setHitQuads(out);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [engine, hits]);
 
   const stepHit = (delta: number) => {
@@ -529,7 +687,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       dismissToast(id);
       const parts = [
         `${report.pages} page${report.pages > 1 ? "s" : ""}`,
-        report.annotsWritten ? `${report.annotsWritten} annotation${report.annotsWritten > 1 ? "s" : ""} modifiables` : "",
+        report.annotsWritten
+          ? `${report.annotsWritten} annotation${report.annotsWritten > 1 ? "s" : ""} modifiables`
+          : "",
         report.annotsFlattened ? `${report.annotsFlattened} aplatie${report.annotsFlattened > 1 ? "s" : ""}` : "",
         report.redactedGlyphs ? `${report.redactedGlyphs} caractères caviardés` : "",
         report.textBlocksNative ? `${report.textBlocksNative} paragraphe(s) réécrits` : "",
@@ -556,7 +716,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     let imagePng: Uint8Array | undefined;
     const m = /^data:image\/png;base64,(.+)$/.exec(sig.src ?? "");
     if (m) imagePng = Uint8Array.from(atob(m[1]!), (c) => c.charCodeAt(0));
-    return { visible: { page, rect: { x: sig.rect.x, y: sig.rect.y, w: sig.rect.w, h: sig.rect.h }, imagePng }, annotId: sig.id };
+    return {
+      visible: { page, rect: { x: sig.rect.x, y: sig.rect.y, w: sig.rect.w, h: sig.rect.h }, imagePng },
+      annotId: sig.id,
+    };
   };
 
   // Construit le PDF pour signature : si la signature placée devient l'apparence
@@ -564,9 +727,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // — sinon Adobe verrait une image (supprimable) EN PLUS du champ signature. La
   // marque devient ainsi la signature elle-même.
   const buildForSignature = (t: ReturnType<typeof visibleSigTarget>) => {
-    const st = t && t.visible.imagePng
-      ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) }
-      : state;
+    const st = t && t.visible.imagePng ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
     return buildPdf(bytesRef.current!, st, { ...buildOptions, author, fileName });
   };
 
@@ -575,16 +736,26 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     dismissToast(toastId);
     const v = verifyPdfSignatures(signed);
     const ok = v.length > 0 && v.every((x) => x.valid);
-    const note = v[0]?.selfSigned ? " · auto-signée (identité non vérifiée)" : v[0]?.chainVerified ? " · chaîne vérifiée" : "";
-    toast(ok ? "success" : "warning", "PDF signé (PAdES)",
-      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}${note}` : undefined);
+    const note = v[0]?.selfSigned
+      ? " · auto-signée (identité non vérifiée)"
+      : v[0]?.chainVerified
+        ? " · chaîne vérifiée"
+        : "";
+    toast(
+      ok ? "success" : "warning",
+      "PDF signé (PAdES)",
+      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}${note}` : undefined,
+    );
   };
 
   const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !bytesRef.current) return;
-    const pw = await dialogs.prompt({ title: "Signer avec un certificat (PAdES)", label: `Mot de passe du certificat « ${file.name} »` });
+    const pw = await dialogs.prompt({
+      title: "Signer avec un certificat (PAdES)",
+      label: `Mot de passe du certificat « ${file.name} »`,
+    });
     if (pw === null) return;
     setBusy(true);
     const id = toast("progress", "Signature électronique…");
@@ -609,7 +780,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (!bytesRef.current) return;
     const target = visibleSigTarget();
     if (!target) {
-      toast("warning", "Placez d'abord une signature", "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.");
+      toast(
+        "warning",
+        "Placez d'abord une signature",
+        "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.",
+      );
       return;
     }
     setBusy(true);
@@ -622,7 +797,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const p12 = generateSelfSignedP12(cn, pw);
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const { bytes } = await buildForSignature(target);
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", signerName: cn, visible: target.visible });
+      const signed = await signPdfBytes(bytes, p12, pw, {
+        reason: "Signé avec Elium",
+        signerName: cn,
+        visible: target.visible,
+      });
       finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
@@ -640,20 +819,34 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       return;
     }
     for (const s of v) {
-      const trust = s.selfSigned ? " · auto-signée (identité non vérifiée)" : s.chainVerified ? " · chaîne vérifiée" : "";
-      const invalidReason = s.error
-        || (!s.certValidAtSigning ? "Certificat hors de sa période de validité" : "Invalide ou document modifié après signature");
-      toast(s.valid ? "success" : "danger", `Signature : ${s.signerName || "inconnu"}`,
+      const trust = s.selfSigned
+        ? " · auto-signée (identité non vérifiée)"
+        : s.chainVerified
+          ? " · chaîne vérifiée"
+          : "";
+      const invalidReason =
+        s.error ||
+        (!s.certValidAtSigning
+          ? "Certificat hors de sa période de validité"
+          : "Invalide ou document modifié après signature");
+      toast(
+        s.valid ? "success" : "danger",
+        `Signature : ${s.signerName || "inconnu"}`,
         s.valid
           ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}${trust}`
-          : invalidReason);
+          : invalidReason,
+      );
     }
   };
 
   const saveElium = async () => {
     if (!bytesRef.current || !onExportElium) return;
     const base = fileName.replace(/\.pdf$/i, "") || "document";
-    const title = await dialogs.prompt({ title: "Enregistrer en .elium", label: "Nom du document", defaultValue: base });
+    const title = await dialogs.prompt({
+      title: "Enregistrer en .elium",
+      label: "Nom du document",
+      defaultValue: base,
+    });
     if (title === null) return;
     onExportElium(
       serialize(fileName || "document.pdf", bytesRef.current, state, {
@@ -672,7 +865,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const id = toast("progress", "Préparation de l'impression…");
     try {
       const { bytes } = await buildPdf(bytesRef.current, state, {
-        ...buildOptions, interactiveAnnots: false, flattenForms: true, author, fileName,
+        ...buildOptions,
+        interactiveAnnots: false,
+        flattenForms: true,
+        author,
+        fileName,
       });
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
       const frame = document.createElement("iframe");
@@ -684,8 +881,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       frame.style.border = "0";
       frame.src = url;
       frame.onload = () => {
-        try { frame.contentWindow?.focus(); frame.contentWindow?.print(); } catch { window.open(url, "_blank"); }
-        setTimeout(() => { frame.remove(); URL.revokeObjectURL(url); }, 60_000);
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          window.open(url, "_blank");
+        }
+        setTimeout(() => {
+          frame.remove();
+          URL.revokeObjectURL(url);
+        }, 60_000);
       };
       document.body.appendChild(frame);
       dismissToast(id);
@@ -701,7 +906,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // Commands
   // -------------------------------------------------------------------------
   const currentPage = () => pages[view.current - 1];
-  const targetPages = () => (selectedPages.length ? selectedPages : [currentPage()?.id].filter(Boolean) as string[]);
+  const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
   const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
     setState((s) => {
@@ -713,49 +918,126 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const command = async (id: string) => {
     switch (id) {
-      case "undo": undo(); return;
-      case "redo": redo(); return;
-      case "save": setDialog("save"); return;
-      case "saveElium": void saveElium(); return;
-      case "print": void printDocument(); return;
+      case "undo":
+        undo();
+        return;
+      case "redo":
+        redo();
+        return;
+      case "save":
+        setDialog("save");
+        return;
+      case "saveElium":
+        void saveElium();
+        return;
+      case "print":
+        void printDocument();
+        return;
       case "downloadOriginal":
         if (bytesRef.current) downloadBlob(fileName || "document.pdf", "application/pdf", bytesRef.current);
         return;
-      case "properties": setDialog("properties"); return;
-      case "organise": setMode(mode === "organise" ? "view" : "organise"); return;
-      case "editMode": setMode(mode === "editText" ? "view" : "editText"); setTab("edit"); return;
-      case "formMode": setMode(mode === "form" ? "view" : "form"); setTab("forms"); return;
-      case "signature": setDialog("signature"); return;
-      case "watermark": setDialog("watermark"); return;
+      case "properties":
+        setDialog("properties");
+        return;
+      case "organise":
+        setMode(mode === "organise" ? "view" : "organise");
+        return;
+      case "editMode":
+        setMode(mode === "editText" ? "view" : "editText");
+        setTab("edit");
+        return;
+      case "formMode":
+        setMode(mode === "form" ? "view" : "form");
+        setTab("forms");
+        return;
+      case "signature":
+        setDialog("signature");
+        return;
+      case "watermark":
+        setDialog("watermark");
+        return;
       case "headerFooter":
-      case "bates": setDialog("headerFooter"); return;
-      case "protect": setDialog("protect"); return;
-      case "signPades": p12Input.current?.click(); return;
-      case "signSelfSigned": void signSelfSigned(); return;
-      case "verifyPades": verifySignatures(); return;
-      case "split": setDialog("split"); return;
-      case "crop": setDialog("crop"); return;
-      case "pageLabels": setDialog("labels"); return;
-      case "measureScale": setDialog("measure"); return;
-      case "exportImages": setDialog("exportImages"); return;
-      case "ocr": setDialog("ocr"); return;
-      case "compare": setCompareReport(null); setDialog("compare"); return;
-      case "redactSearch": setDialog("redactSearch"); return;
-      case "insertBlank": setDialog("insert"); return;
-      case "insertFile": mergeInput.current?.click(); return;
-      case "insertImage": imageInput.current?.click(); return;
-      case "merge": mergeInput.current?.click(); return;
+      case "bates":
+        setDialog("headerFooter");
+        return;
+      case "protect":
+        setDialog("protect");
+        return;
+      case "signPades":
+        p12Input.current?.click();
+        return;
+      case "signSelfSigned":
+        void signSelfSigned();
+        return;
+      case "verifyPades":
+        verifySignatures();
+        return;
+      case "split":
+        setDialog("split");
+        return;
+      case "crop":
+        setDialog("crop");
+        return;
+      case "pageLabels":
+        setDialog("labels");
+        return;
+      case "measureScale":
+        setDialog("measure");
+        return;
+      case "exportImages":
+        setDialog("exportImages");
+        return;
+      case "ocr":
+        setDialog("ocr");
+        return;
+      case "compare":
+        setCompareReport(null);
+        setDialog("compare");
+        return;
+      case "redactSearch":
+        setDialog("redactSearch");
+        return;
+      case "insertBlank":
+        setDialog("insert");
+        return;
+      case "insertFile":
+        mergeInput.current?.click();
+        return;
+      case "insertImage":
+        imageInput.current?.click();
+        return;
+      case "merge":
+        mergeInput.current?.click();
+        return;
       case "importComments":
-      case "importFormData": dataInput.current?.click(); return;
+      case "importFormData":
+        dataInput.current?.click();
+        return;
 
-      case "zoomIn": zoomStep(1); return;
-      case "zoomOut": zoomStep(-1); return;
-      case "fitWidth": setView((v) => ({ ...v, zoomMode: "fitWidth" })); return;
-      case "fitPage": setView((v) => ({ ...v, zoomMode: "fitPage" })); return;
-      case "viewSingle": setView((v) => ({ ...v, mode: "single" })); return;
-      case "viewContinuous": setView((v) => ({ ...v, mode: "continuous" })); return;
-      case "viewFacing": setView((v) => ({ ...v, mode: v.mode === "facing" ? "facingContinuous" : "facing" })); return;
-      case "rotateView": setView((v) => ({ ...v, viewRotation: normRotation(v.viewRotation + 90) })); return;
+      case "zoomIn":
+        zoomStep(1);
+        return;
+      case "zoomOut":
+        zoomStep(-1);
+        return;
+      case "fitWidth":
+        setView((v) => ({ ...v, zoomMode: "fitWidth" }));
+        return;
+      case "fitPage":
+        setView((v) => ({ ...v, zoomMode: "fitPage" }));
+        return;
+      case "viewSingle":
+        setView((v) => ({ ...v, mode: "single" }));
+        return;
+      case "viewContinuous":
+        setView((v) => ({ ...v, mode: "continuous" }));
+        return;
+      case "viewFacing":
+        setView((v) => ({ ...v, mode: v.mode === "facing" ? "facingContinuous" : "facing" }));
+        return;
+      case "rotateView":
+        setView((v) => ({ ...v, viewRotation: normRotation(v.viewRotation + 90) }));
+        return;
       case "theme": {
         const i = READING_THEMES.findIndex((t) => t.id === view.theme);
         setView((v) => ({ ...v, theme: READING_THEMES[(i + 1) % READING_THEMES.length].id }));
@@ -767,27 +1049,46 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         else void document.exitFullscreen();
         return;
       }
-      case "panelLayers": setPanel("layers"); return;
+      case "panelLayers":
+        setPanel("layers");
+        return;
       case "readAloud": {
         const text = pageTextsRef.current?.[currentPage()?.from ?? 0] ?? "";
-        if (!text) { await ensureText(); }
+        if (!text) {
+          await ensureText();
+        }
         const body = pageTextsRef.current?.[currentPage()?.from ?? 0] ?? "";
-        if (!body) { toast("info", "Aucun texte à lire sur cette page."); return; }
+        if (!body) {
+          toast("info", "Aucun texte à lire sur cette page.");
+          return;
+        }
         try {
           speechSynthesis.cancel();
           const utter = new SpeechSynthesisUtterance(body.slice(0, 8000));
           utter.lang = state.metadata.language || "fr-FR";
           speechSynthesis.speak(utter);
           toast("info", "Lecture en cours", "Relancez la commande pour arrêter.");
-        } catch { toast("warning", "La synthèse vocale n'est pas disponible."); }
+        } catch {
+          toast("warning", "La synthèse vocale n'est pas disponible.");
+        }
         return;
       }
 
-      case "rotateLeft": setState((s) => D.rotatePages(s, targetPages(), -90)); return;
-      case "rotateRight": setState((s) => D.rotatePages(s, targetPages(), 90)); return;
-      case "duplicatePage": setState((s) => D.duplicatePages(s, targetPages())); return;
-      case "deletePage": setState((s) => D.deletePages(s, targetPages())); return;
-      case "reverse": setState((s) => D.reversePages(s)); return;
+      case "rotateLeft":
+        setState((s) => D.rotatePages(s, targetPages(), -90));
+        return;
+      case "rotateRight":
+        setState((s) => D.rotatePages(s, targetPages(), 90));
+        return;
+      case "duplicatePage":
+        setState((s) => D.duplicatePages(s, targetPages()));
+        return;
+      case "deletePage":
+        setState((s) => D.deletePages(s, targetPages()));
+        return;
+      case "reverse":
+        setState((s) => D.reversePages(s));
+        return;
       case "extract": {
         const ids = targetPages();
         const indices = ids.map((pid) => pages.findIndex((q) => q.id === pid)).filter((i) => i >= 0);
@@ -795,8 +1096,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       }
 
-      case "bookmarkAdd": addBookmark(null); return;
-      case "bookmarksFromHeadings": void buildBookmarksFromHeadings(); return;
+      case "bookmarkAdd":
+        addBookmark(null);
+        return;
+      case "bookmarksFromHeadings":
+        void buildBookmarksFromHeadings();
+        return;
 
       case "exportComments": {
         const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
@@ -815,18 +1120,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
 
       case "exportFormData":
-        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}.fdf`, "application/vnd.fdf", toFdf(state.formValues, fileName));
+        downloadBlob(
+          `${fileName.replace(/\.pdf$/i, "")}.fdf`,
+          "application/vnd.fdf",
+          toFdf(state.formValues, fileName),
+        );
         return;
       case "exportFormCsv":
-        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-donnees.csv`, "text/csv;charset=utf-8", toCsv(state.formValues));
+        downloadBlob(
+          `${fileName.replace(/\.pdf$/i, "")}-donnees.csv`,
+          "text/csv;charset=utf-8",
+          toCsv(state.formValues),
+        );
         return;
-      case "formReset": setState((s) => D.resetForm(s)); toast("info", "Formulaire réinitialisé."); return;
-      case "formFlatten": setBuildOptions((o) => ({ ...o, flattenForms: true })); setDialog("save"); return;
-      case "detectFields": void detectFields(); return;
+      case "formReset":
+        setState((s) => D.resetForm(s));
+        toast("info", "Formulaire réinitialisé.");
+        return;
+      case "formFlatten":
+        setBuildOptions((o) => ({ ...o, flattenForms: true }));
+        setDialog("save");
+        return;
+      case "detectFields":
+        void detectFields();
+        return;
 
       case "redactApply": {
         const marks = state.annots.filter((a) => a.kind === "redact");
-        if (!marks.length) { toast("info", "Aucune zone marquée."); return; }
+        if (!marks.length) {
+          toast("info", "Aucune zone marquée.");
+          return;
+        }
         const ok = await dialogs.confirm({
           title: "Appliquer le caviardage",
           message: `${marks.length} zone(s) seront définitivement supprimées du fichier exporté : texte, images et annotations situés dessous. Cette action est irréversible dans le PDF produit.`,
@@ -836,15 +1160,33 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setDialog("save");
         return;
       }
-      case "sanitise": setBuildOptions((o) => ({ ...o, sanitise: true })); setDialog("save"); return;
-      case "optimise": setBuildOptions((o) => ({ ...o, optimise: true })); setDialog("save"); return;
-      case "inspect": void inspectDocument(); return;
-      case "unprotect": void unprotect(); return;
+      case "sanitise":
+        setBuildOptions((o) => ({ ...o, sanitise: true }));
+        setDialog("save");
+        return;
+      case "optimise":
+        setBuildOptions((o) => ({ ...o, optimise: true }));
+        setDialog("save");
+        return;
+      case "inspect":
+        void inspectDocument();
+        return;
+      case "unprotect":
+        void unprotect();
+        return;
 
-      case "exportDocx": void exportAs("docx"); return;
-      case "exportText": void exportAs("text"); return;
-      case "exportHtml": void exportAs("html"); return;
-      case "exportTables": void exportAs("tables"); return;
+      case "exportDocx":
+        void exportAs("docx");
+        return;
+      case "exportText":
+        void exportAs("text");
+        return;
+      case "exportHtml":
+        void exportAs("html");
+        return;
+      case "exportTables":
+        void exportAs("tables");
+        return;
       default:
         return;
     }
@@ -861,7 +1203,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       toast("success", `${indices.length} page(s) extraite(s).`);
     } catch {
       toast("danger", "Extraction impossible.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const exportAs = async (kind: "docx" | "text" | "html" | "tables") => {
@@ -870,15 +1214,26 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const id = toast("progress", "Extraction du contenu…");
     try {
       const layout = await extractLayout(engine, (done, total) => {
-        setToasts((v) => v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)));
+        setToasts((v) =>
+          v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
+        );
       });
       const base = fileName.replace(/\.pdf$/i, "") || "document";
-      if (kind === "docx") downloadBlob(`${base}.docx`, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", toDocx(layout, base));
+      if (kind === "docx")
+        downloadBlob(
+          `${base}.docx`,
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          toDocx(layout, base),
+        );
       if (kind === "text") downloadBlob(`${base}.txt`, "text/plain;charset=utf-8", toPlainTextWithMarkers(layout));
       if (kind === "html") downloadBlob(`${base}.html`, "text/html;charset=utf-8", toHtml(layout, base));
       if (kind === "tables") {
         const tables = detectTables(layout);
-        if (!tables.length) { dismissToast(id); toast("info", "Aucun tableau détecté."); return; }
+        if (!tables.length) {
+          dismissToast(id);
+          toast("info", "Aucun tableau détecté.");
+          return;
+        }
         downloadBlob(`${base}-tableaux.csv`, "text/csv;charset=utf-8", tablesToCsv(tables));
       }
       dismissToast(id);
@@ -886,7 +1241,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     } catch {
       dismissToast(id);
       toast("danger", "Export impossible.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const inspectDocument = async () => {
@@ -907,8 +1264,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const unprotect = async () => {
     if (!bytesRef.current) return;
     const probe = await inspectProtection(bytesRef.current);
-    if (!probe?.encrypted) { toast("info", "Ce document n'est pas protégé."); return; }
-    const pw = passwordRef.current ?? (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document" }));
+    if (!probe?.encrypted) {
+      toast("info", "Ce document n'est pas protégé.");
+      return;
+    }
+    const pw =
+      passwordRef.current ??
+      (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document" }));
     if (!pw) return;
     setBusy(true);
     try {
@@ -918,8 +1280,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       await openBytes(result.bytes, fileName, undefined, state);
       toast("success", "Protection retirée", `Chiffrement ${result.scheme} supprimé.`);
     } catch (e) {
-      toast("danger", e instanceof WrongPassword ? "Mot de passe incorrect." : "Ce document ne peut pas être déchiffré ici.");
-    } finally { setBusy(false); }
+      toast(
+        "danger",
+        e instanceof WrongPassword ? "Mot de passe incorrect." : "Ce document ne peut pas être déchiffré ici.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const detectFields = async () => {
@@ -930,11 +1297,24 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const vp = proxy.getViewport({ scale: 1, rotation: 0 });
     const tc = await engine.text(page.from);
     const lines = groupLines(buildRuns(tc, vp.transform as unknown as number[]), tc.items);
-    const suggestions = suggestFields(lines.map((l) => ({ text: l.text, rect: l.rect, fontSize: l.fontSize })), sizeOf(page).w);
-    if (!suggestions.length) { toast("info", "Aucun champ détecté sur cette page."); return; }
+    const suggestions = suggestFields(
+      lines.map((l) => ({ text: l.text, rect: l.rect, fontSize: l.fontSize })),
+      sizeOf(page).w,
+    );
+    if (!suggestions.length) {
+      toast("info", "Aucun champ détecté sur cette page.");
+      return;
+    }
     setState((s) =>
       suggestions.reduce(
-        (acc, f) => D.addField(acc, { id: newId("fd"), pageId: page.id, name: D.uniqueFieldName(acc, f.name), kind: f.kind, rect: f.rect }),
+        (acc, f) =>
+          D.addField(acc, {
+            id: newId("fd"),
+            pageId: page.id,
+            name: D.uniqueFieldName(acc, f.name),
+            kind: f.kind,
+            rect: f.rect,
+          }),
         s,
       ),
     );
@@ -954,7 +1334,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       for (const pg of layout) {
         for (const block of pg.blocks) {
           if (block.fontSize < body * 1.18) continue;
-          const title = block.lines.map((l) => l.text).join(" ").trim();
+          const title = block.lines
+            .map((l) => l.text)
+            .join(" ")
+            .trim();
           if (title.length < 3 || title.length > 120) continue;
           const outputIndex = pages.findIndex((q) => q.from === pg.page);
           marks.push({
@@ -967,11 +1350,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           });
         }
       }
-      if (!marks.length) { toast("info", "Aucun titre détecté."); return; }
+      if (!marks.length) {
+        toast("info", "Aucun titre détecté.");
+        return;
+      }
       setState((s) => ({ ...s, bookmarks: marks }));
       setPanel("bookmarks");
       toast("success", `${marks.length} signet(s) créé(s).`);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const addBookmark = (parentId: string | null) => {
@@ -993,7 +1381,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const current = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
       const sources = [
         { name: fileName || "document.pdf", bytes: current.bytes },
-        ...(await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })))),
+        ...(await Promise.all(
+          files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+        )),
       ];
       const merged = await mergeDocuments(sources);
       dismissToast(id);
@@ -1003,18 +1393,25 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     } catch {
       dismissToast(id);
       toast("danger", "Fusion impossible.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!files.length) return;
-    const sources = await Promise.all(files.map((f) => new Promise<string>((res) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result as string);
-      r.readAsDataURL(f);
-    })));
+    const sources = await Promise.all(
+      files.map(
+        (f) =>
+          new Promise<string>((res) => {
+            const r = new FileReader();
+            r.onload = () => res(r.result as string);
+            r.readAsDataURL(f);
+          }),
+      ),
+    );
 
     // With the image tool armed, drop the picture on the page instead.
     const at = pendingImageAt.current;
@@ -1026,10 +1423,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const w = Math.min(240, sizeOf(pages.find((q) => q.id === at.pageId) ?? pages[0]).w - at.x);
         const now = new Date().toISOString();
         addAnnot({
-          id: newId("an"), pageId: at.pageId, kind: "image",
+          id: newId("an"),
+          pageId: at.pageId,
+          kind: "image",
           rect: { x: at.x, y: at.y, w, h: w * ratio },
-          color: style.color, opacity: 1, strokeWidth: 0, src: sources[0],
-          author, createdAt: now, modifiedAt: now, replies: [],
+          color: style.color,
+          opacity: 1,
+          strokeWidth: 0,
+          src: sources[0],
+          author,
+          createdAt: now,
+          modifiedAt: now,
+          replies: [],
         });
       };
       img.src = sources[0];
@@ -1037,11 +1442,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
 
     if (!bytesRef.current) {
-      const bytes = await pdfFromImages(sources.map((src) => ({ src })), { pageSize: "fit" });
+      const bytes = await pdfFromImages(
+        sources.map((src) => ({ src })),
+        { pageSize: "fit" },
+      );
       await openBytes(bytes, files[0].name.replace(/\.[^.]+$/, ".pdf"));
       return;
     }
-    setState((s) => D.insertPages(s, s.pages.length, sources.map((src) => D.makePage(null, { image: src }))));
+    setState((s) =>
+      D.insertPages(
+        s,
+        s.pages.length,
+        sources.map((src) => D.makePage(null, { image: src })),
+      ),
+    );
     toast("success", `${sources.length} page(s) image ajoutée(s).`);
   };
 
@@ -1053,14 +1467,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (/\.xfdf$/i.test(file.name) || text.includes("<xfdf")) {
       const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
       const imported = fromXfdf(text, pages, heights, author);
-      if (!imported.length) { toast("warning", "Aucun commentaire lisible dans ce fichier."); return; }
+      if (!imported.length) {
+        toast("warning", "Aucun commentaire lisible dans ce fichier.");
+        return;
+      }
       setState((s) => imported.reduce((acc, a) => D.addAnnot(acc, a), s));
       setPanel("comments");
       toast("success", `${imported.length} commentaire(s) importé(s).`);
       return;
     }
     const values = fromFdf(text);
-    if (!Object.keys(values).length) { toast("warning", "Aucune donnée de formulaire trouvée."); return; }
+    if (!Object.keys(values).length) {
+      toast("warning", "Aucune donnée de formulaire trouvée.");
+      return;
+    }
     setState((s) => ({ ...s, formValues: { ...s.formValues, ...values } }));
     setMode("form");
     toast("success", `${Object.keys(values).length} champ(s) importé(s).`);
@@ -1078,7 +1498,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       other.destroy();
     } catch {
       toast("danger", "Comparaison impossible (fichier illisible ou protégé).");
-    } finally { setCompareBusy(false); }
+    } finally {
+      setCompareBusy(false);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -1087,22 +1509,71 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const inField = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+      const inField =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
       const mod = e.ctrlKey || e.metaKey;
 
       if (mod) {
         const k = e.key.toLowerCase();
-        if (k === "f") { e.preventDefault(); setSearchState((s) => ({ ...s, open: true })); return; }
-        if (k === "s") { e.preventDefault(); setDialog("save"); return; }
-        if (k === "p") { e.preventDefault(); void printDocument(); return; }
-        if (k === "o") { e.preventDefault(); openInput.current?.click(); return; }
-        if (!inField && k === "a") { e.preventDefault(); setSelectedIds(state.annots.filter((a) => a.pageId === currentPage()?.id).map((a) => a.id)); return; }
-        if (!inField && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
-        if (!inField && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); redo(); return; }
-        if (k === "=" || k === "+") { e.preventDefault(); zoomStep(1); return; }
-        if (k === "-") { e.preventDefault(); zoomStep(-1); return; }
-        if (k === "0") { e.preventDefault(); setView((v) => ({ ...v, zoomMode: "fitPage" })); return; }
-        if (e.shiftKey && k === "h") { e.preventDefault(); pickTool("highlight"); return; }
+        if (k === "f") {
+          e.preventDefault();
+          setSearchState((s) => ({ ...s, open: true }));
+          return;
+        }
+        if (k === "s") {
+          e.preventDefault();
+          setDialog("save");
+          return;
+        }
+        if (k === "p") {
+          e.preventDefault();
+          void printDocument();
+          return;
+        }
+        if (k === "o") {
+          e.preventDefault();
+          openInput.current?.click();
+          return;
+        }
+        if (!inField && k === "a") {
+          e.preventDefault();
+          setSelectedIds(state.annots.filter((a) => a.pageId === currentPage()?.id).map((a) => a.id));
+          return;
+        }
+        if (!inField && k === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if (!inField && (k === "y" || (k === "z" && e.shiftKey))) {
+          e.preventDefault();
+          redo();
+          return;
+        }
+        if (k === "=" || k === "+") {
+          e.preventDefault();
+          zoomStep(1);
+          return;
+        }
+        if (k === "-") {
+          e.preventDefault();
+          zoomStep(-1);
+          return;
+        }
+        if (k === "0") {
+          e.preventDefault();
+          setView((v) => ({ ...v, zoomMode: "fitPage" }));
+          return;
+        }
+        if (e.shiftKey && k === "h") {
+          e.preventDefault();
+          pickTool("highlight");
+          return;
+        }
         return;
       }
 
@@ -1117,24 +1588,60 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           return;
         case "Delete":
         case "Backspace":
-          if (selectedIds.length) { e.preventDefault(); deleteAnnots(selectedIds); }
+          if (selectedIds.length) {
+            e.preventDefault();
+            deleteAnnots(selectedIds);
+          }
           return;
-        case "PageDown": e.preventDefault(); goTo(view.current + 1); return;
-        case "PageUp": e.preventDefault(); goTo(view.current - 1); return;
-        case "Home": e.preventDefault(); goTo(1); return;
-        case "End": e.preventDefault(); goTo(pageCount); return;
-        case "F3": e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); return;
-        case "F11": e.preventDefault(); void command("fullscreen"); return;
-        default: break;
+        case "PageDown":
+          e.preventDefault();
+          goTo(view.current + 1);
+          return;
+        case "PageUp":
+          e.preventDefault();
+          goTo(view.current - 1);
+          return;
+        case "Home":
+          e.preventDefault();
+          goTo(1);
+          return;
+        case "End":
+          e.preventDefault();
+          goTo(pageCount);
+          return;
+        case "F3":
+          e.preventDefault();
+          stepHit(e.shiftKey ? -1 : 1);
+          return;
+        case "F11":
+          e.preventDefault();
+          void command("fullscreen");
+          return;
+        default:
+          break;
       }
 
       const shortcuts: Record<string, Tool> = {
-        v: "select", t: "textSelect", h: "hand", z: "zoomArea",
-        g: "highlight", u: "underline", k: "strikeout", n: "note",
-        d: "ink", r: "square", e: "circle", l: "line", a: "arrow", x: "eraser",
+        v: "select",
+        t: "textSelect",
+        h: "hand",
+        z: "zoomArea",
+        g: "highlight",
+        u: "underline",
+        k: "strikeout",
+        n: "note",
+        d: "ink",
+        r: "square",
+        e: "circle",
+        l: "line",
+        a: "arrow",
+        x: "eraser",
       };
       const picked = shortcuts[e.key.toLowerCase()];
-      if (picked) { e.preventDefault(); pickTool(picked); }
+      if (picked) {
+        e.preventDefault();
+        pickTool(picked);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1148,12 +1655,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return (
       <div className="pdfx pdfx--empty">
         <header className="pdfx-topbar">
-          <button className="pdfx-topbtn" onClick={onHome}><Home size={16} /> Accueil</button>
-          <span className="pdfx-topbar__brand"><FileText size={16} /> PDF</span>
+          <button className="pdfx-topbtn" onClick={onHome}>
+            <Home size={16} /> Accueil
+          </button>
+          <span className="pdfx-topbar__brand">
+            <FileText size={16} /> PDF
+          </span>
         </header>
         <div
           className={`pdfx-dropzone ${dragOver ? "is-over" : ""}`}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault();
@@ -1163,9 +1677,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           }}
         >
           <div className="pdfx-dropzone__card">
-            <div className="pdfx-dropzone__icon"><FileText size={34} /></div>
+            <div className="pdfx-dropzone__icon">
+              <FileText size={34} />
+            </div>
             <h1>Ouvrir un PDF</h1>
-            <p>{loading ? "Chargement…" : loadError || "Déposez un fichier ici, ou choisissez-le. Vous pourrez le lire, l'annoter, en modifier le texte, le caviarder, le signer et le protéger."}</p>
+            <p>
+              {loading
+                ? "Chargement…"
+                : loadError ||
+                  "Déposez un fichier ici, ou choisissez-le. Vous pourrez le lire, l'annoter, en modifier le texte, le caviarder, le signer et le protéger."}
+            </p>
             <div className="pdfx-dropzone__actions">
               <button className="eb eb--primary" onClick={() => openInput.current?.click()} disabled={loading}>
                 {loading ? <Loader2 size={16} className="pdfx-spin" /> : <Upload size={16} />} Choisir un PDF
@@ -1181,7 +1702,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             </ul>
           </div>
         </div>
-        <input ref={openInput} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openFile(f); }} />
+        <input
+          ref={openInput}
+          type="file"
+          accept="application/pdf,.pdf"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void openFile(f);
+          }}
+        />
         <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
         {pendingPassword && (
           <PasswordPrompt
@@ -1201,9 +1732,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   return (
     <div className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""}`}>
       <header className="pdfx-topbar">
-        <button className="pdfx-topbtn" onClick={onHome} title="Retour à l'accueil"><Home size={16} /></button>
-        <span className="pdfx-topbar__brand"><FileText size={15} /> PDF</span>
-        <span className="pdfx-topbar__file" title={fileName}>{fileName}</span>
+        <button className="pdfx-topbtn" onClick={onHome} title="Retour à l'accueil">
+          <Home size={16} />
+        </button>
+        <span className="pdfx-topbar__brand">
+          <FileText size={15} /> PDF
+        </span>
+        <span className="pdfx-topbar__file" title={fileName}>
+          {fileName}
+        </span>
         {engine.info.encrypted && <span className="pdfx-badge pdfx-badge--lock">protégé</span>}
         {engine.info.signed && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
         {engine.info.isXfa && <span className="pdfx-badge pdfx-badge--warn">XFA — lecture seule</span>}
@@ -1219,37 +1756,80 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 className="pdfx-find__input"
                 placeholder="Rechercher dans le document…"
                 value={searchState.query}
-                onChange={(e) => { setSearchState((s) => ({ ...s, query: e.target.value })); void doSearch(e.target.value); }}
+                onChange={(e) => {
+                  setSearchState((s) => ({ ...s, query: e.target.value }));
+                  void doSearch(e.target.value);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    stepHit(e.shiftKey ? -1 : 1);
+                  }
                   if (e.key === "Escape") setSearchState((s) => ({ ...s, open: false }));
                 }}
               />
               <span className="pdfx-find__count">
-                {searchBusy ? "…" : hits.length ? `${searchState.index + 1}/${hits.length}` : searchState.query ? "0" : ""}
+                {searchBusy
+                  ? "…"
+                  : hits.length
+                    ? `${searchState.index + 1}/${hits.length}`
+                    : searchState.query
+                      ? "0"
+                      : ""}
               </span>
-              <button className="pdfx-topbtn" onClick={() => stepHit(-1)} disabled={!hits.length}><ChevronLeft size={15} /></button>
-              <button className="pdfx-topbtn" onClick={() => stepHit(1)} disabled={!hits.length}><ChevronRight size={15} /></button>
+              <button className="pdfx-topbtn" onClick={() => stepHit(-1)} disabled={!hits.length}>
+                <ChevronLeft size={15} />
+              </button>
+              <button className="pdfx-topbtn" onClick={() => stepHit(1)} disabled={!hits.length}>
+                <ChevronRight size={15} />
+              </button>
               <button
                 className={`pdfx-topbtn ${searchState.caseSensitive ? "is-on" : ""}`}
-                onClick={() => { setSearchState((s) => ({ ...s, caseSensitive: !s.caseSensitive })); }}
+                onClick={() => {
+                  setSearchState((s) => ({ ...s, caseSensitive: !s.caseSensitive }));
+                }}
                 title="Respecter la casse"
-              >Aa</button>
+              >
+                Aa
+              </button>
               <button
                 className={`pdfx-topbtn ${searchState.regex ? "is-on" : ""}`}
-                onClick={() => { setSearchState((s) => ({ ...s, regex: !s.regex })); }}
+                onClick={() => {
+                  setSearchState((s) => ({ ...s, regex: !s.regex }));
+                }}
                 title="Expression régulière"
-              >.*</button>
-              <button className="pdfx-topbtn" onClick={() => { setPanel("search"); void doSearch(searchState.query); }} title="Tous les résultats"><Command size={14} /></button>
-              <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}><X size={15} /></button>
+              >
+                .*
+              </button>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => {
+                  setPanel("search");
+                  void doSearch(searchState.query);
+                }}
+                title="Tous les résultats"
+              >
+                <Command size={14} />
+              </button>
+              <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}>
+                <X size={15} />
+              </button>
             </>
           ) : (
-            <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: true }))} title="Rechercher (Ctrl+F)"><Search size={16} /></button>
+            <button
+              className="pdfx-topbtn"
+              onClick={() => setSearchState((s) => ({ ...s, open: true }))}
+              title="Rechercher (Ctrl+F)"
+            >
+              <Search size={16} />
+            </button>
           )}
         </div>
 
         <div className="pdfx-pagenav">
-          <button className="pdfx-topbtn" onClick={() => goTo(view.current - 1)} disabled={view.current <= 1}><ChevronLeft size={16} /></button>
+          <button className="pdfx-topbtn" onClick={() => goTo(view.current - 1)} disabled={view.current <= 1}>
+            <ChevronLeft size={16} />
+          </button>
           <input
             className="pdfx-pagenav__input"
             value={view.current}
@@ -1260,11 +1840,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             aria-label="Numéro de page"
           />
           <span className="pdfx-pagenav__total">/ {pageCount}</span>
-          <button className="pdfx-topbtn" onClick={() => goTo(view.current + 1)} disabled={view.current >= pageCount}><ChevronRight size={16} /></button>
+          <button className="pdfx-topbtn" onClick={() => goTo(view.current + 1)} disabled={view.current >= pageCount}>
+            <ChevronRight size={16} />
+          </button>
         </div>
 
         <div className="pdfx-zoombar">
-          <button className="pdfx-topbtn" onClick={() => zoomStep(-1)}><ZoomOut size={16} /></button>
+          <button className="pdfx-topbtn" onClick={() => zoomStep(-1)}>
+            <ZoomOut size={16} />
+          </button>
           <select
             className="pdfx-zoombar__select"
             value={view.zoomMode === "custom" ? "custom" : view.zoomMode}
@@ -1278,10 +1862,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             <option value="fitWidth">Largeur</option>
             <option value="fitPage">Page entière</option>
             <option value="fitVisible">Zone de texte</option>
-            {ZOOM_PRESETS.map((z) => <option key={z} value={z}>{Math.round(z * 100)} %</option>)}
+            {ZOOM_PRESETS.map((z) => (
+              <option key={z} value={z}>
+                {Math.round(z * 100)} %
+              </option>
+            ))}
           </select>
-          <button className="pdfx-topbtn" onClick={() => zoomStep(1)}><ZoomIn size={16} /></button>
-          <button className="pdfx-topbtn" onClick={() => void command("fullscreen")} title="Plein écran (F11)"><Maximize2 size={16} /></button>
+          <button className="pdfx-topbtn" onClick={() => zoomStep(1)}>
+            <ZoomIn size={16} />
+          </button>
+          <button className="pdfx-topbtn" onClick={() => void command("fullscreen")} title="Plein écran (F11)">
+            <Maximize2 size={16} />
+          </button>
         </div>
       </header>
 
@@ -1315,12 +1907,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               title={item.label}
             >
               {item.icon}
-              {item.id === "comments" && state.annots.length > 0 && <span className="pdfx-rail__dot">{state.annots.length}</span>}
+              {item.id === "comments" && state.annots.length > 0 && (
+                <span className="pdfx-rail__dot">{state.annots.length}</span>
+              )}
               {item.id === "search" && hits.length > 0 && <span className="pdfx-rail__dot">{hits.length}</span>}
             </button>
           ))}
           <span className="pdfx-rail__spacer" />
-          <button className="pdfx-rail__btn" onClick={() => setPanel(panel ? null : "thumbnails")} title={panel ? "Masquer le panneau" : "Afficher le panneau"}>
+          <button
+            className="pdfx-rail__btn"
+            onClick={() => setPanel(panel ? null : "thumbnails")}
+            title={panel ? "Masquer le panneau" : "Afficher le panneau"}
+          >
             {panel ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
           </button>
         </nav>
@@ -1362,17 +1960,31 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 const index = a ? pages.findIndex((q) => q.id === a.pageId) : -1;
                 if (index >= 0) goTo(index + 1, Math.max(0, a!.rect.y - 80));
               }}
-              onAnnotStatus={(ids, status) => setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))}
-              onAnnotReply={(id, text) => setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))}
+              onAnnotStatus={(ids, status) =>
+                setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))
+              }
+              onAnnotReply={(id, text) =>
+                setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))
+              }
               onAnnotDelete={deleteAnnots}
               onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
               onFilterChange={setFilter}
               onSortChange={setSort}
               onBookmarkGoTo={(b) => goTo(b.page, b.y)}
               onBookmarkAdd={addBookmark}
-              onBookmarkRename={(id, title) => setState((s) => ({ ...s, bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)) }))}
+              onBookmarkRename={(id, title) =>
+                setState((s) => ({
+                  ...s,
+                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)),
+                }))
+              }
               onBookmarkDelete={(id) => setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))}
-              onBookmarkToggle={(id) => setQuiet((s) => ({ ...s, bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, closed: !b.closed } : b)) }))}
+              onBookmarkToggle={(id) =>
+                setQuiet((s) => ({
+                  ...s,
+                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, closed: !b.closed } : b)),
+                }))
+              }
               onSearchSelect={(index) => {
                 setSearchState((s) => ({ ...s, index }));
                 const hit = hits[index];
@@ -1381,7 +1993,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               }}
               onLayerToggle={async (id) => {
                 const next = new Set(hiddenLayers);
-                if (next.has(id)) next.delete(id); else next.add(id);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
                 setHiddenLayers(next);
                 setOcConfig(await engine.optionalContentConfig(next));
               }}
@@ -1407,7 +2020,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onDelete={(ids) => setState((s) => D.deletePages(s, ids))}
             onDuplicate={(ids) => setState((s) => D.duplicatePages(s, ids))}
             onSkip={(ids, skipped) => setState((s) => D.setPageSkipped(s, ids, skipped))}
-            onExtract={(ids) => void extractSelection(ids.map((id) => pages.findIndex((q) => q.id === id)).filter((i) => i >= 0))}
+            onExtract={(ids) =>
+              void extractSelection(ids.map((id) => pages.findIndex((q) => q.id === id)).filter((i) => i >= 0))
+            }
             onInsertBlank={(afterId) => insertBlankAfter(afterId)}
             onInsertFile={() => mergeInput.current?.click()}
             onInsertImage={() => imageInput.current?.click()}
@@ -1431,7 +2046,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 const activeHit = hits[searchState.index];
                 const hitList = pageHits?.map((quads, i) => ({
                   quads,
-                  active: !!activeHit && activeHit.page === page.from && hits.filter((h) => h.page === page.from).indexOf(activeHit) === i,
+                  active:
+                    !!activeHit &&
+                    activeHit.page === page.from &&
+                    hits.filter((h) => h.page === page.from).indexOf(activeHit) === i,
                 }));
                 return (
                   <PageView
@@ -1451,12 +2069,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                     image={page.image}
                     showTextLayer={mode === "view" && tool !== "hand"}
                     annotationMode={state.importedAnnots ? 0 : 1}
-                    onTextLayer={(el) => { if (el) textLayers.current.set(index, el); else textLayers.current.delete(index); }}
+                    onTextLayer={(el) => {
+                      if (el) textLayers.current.set(index, el);
+                      else textLayers.current.delete(index);
+                    }}
                     onLinkActivate={(target) => {
                       if (target.page) goTo(target.page);
-                      else if (target.url) void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
-                        if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
-                      });
+                      else if (target.url)
+                        void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
+                          if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
+                        });
                     }}
                   >
                     {/* Edited paragraphs are painted over the original raster in
@@ -1495,7 +2117,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                         highlight
                         onBeginChange={checkpoint}
                         onChange={(name, value: FormValue) => setQuiet((s) => D.setFormValue(s, name, value))}
-                        onFields={() => { /* fields are read live */ }}
+                        onFields={() => {
+                          /* fields are read live */
+                        }}
                       />
                     )}
                     {mode === "view" && (
@@ -1511,17 +2135,29 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                         editingId={editingId}
                         author={author}
                         snap={view.showGrid}
-                        onCreate={(a) => { addAnnot(a); if (a.kind === "redact") setTab("protect"); }}
+                        onCreate={(a) => {
+                          addAnnot(a);
+                          if (a.kind === "redact") setTab("protect");
+                        }}
                         onUpdate={patchAnnot}
-                        onSelect={(ids, additive) => setSelectedIds(additive ? [...new Set([...selectedIds, ...ids])] : ids)}
+                        onSelect={(ids, additive) =>
+                          setSelectedIds(additive ? [...new Set([...selectedIds, ...ids])] : ids)
+                        }
                         onEdit={setEditingId}
                         onDelete={deleteAnnots}
                         onToolDone={finishTool}
                         onBeginGesture={checkpoint}
                         onContextMenu={(a) => setSelectedIds([a.id])}
-                        onRequestImage={(at) => { pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y }; imageInput.current?.click(); }}
+                        onRequestImage={(at) => {
+                          pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
+                          imageInput.current?.click();
+                        }}
                         onRequestNoteText={async (a) => {
-                          const text = await dialogs.prompt({ title: "Note", label: "Commentaire", defaultValue: a.contents ?? "" });
+                          const text = await dialogs.prompt({
+                            title: "Note",
+                            label: "Commentaire",
+                            defaultValue: a.contents ?? "",
+                          });
                           if (text !== null) patchAnnot(a.id, { contents: text }, false);
                         }}
                       />
@@ -1541,7 +2177,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onPatch={patchSelection}
             onDelete={() => deleteAnnots(selectedIds)}
             onDuplicate={() => {
-              const copies = selection.map((a) => ({ ...D.cloneAnnot(a), rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 } }));
+              const copies = selection.map((a) => ({
+                ...D.cloneAnnot(a),
+                rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 },
+              }));
               setState((s) => copies.reduce((acc, a) => D.addAnnot(acc, a), s));
               setSelectedIds(copies.map((a) => a.id));
             }}
@@ -1553,16 +2192,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       </div>
 
       <footer className="pdfx-status">
-        <span>{pageCount} page{pageCount > 1 ? "s" : ""}</span>
+        <span>
+          {pageCount} page{pageCount > 1 ? "s" : ""}
+        </span>
         <span>·</span>
-        <span>{state.annots.length} annotation{state.annots.length > 1 ? "s" : ""}</span>
-        {state.contentEdits.length > 0 && <><span>·</span><span>{state.contentEdits.length} paragraphe(s) modifié(s)</span></>}
-        {state.annots.some((a) => a.kind === "redact") && <><span>·</span><span className="pdfx-status__warn">{state.annots.filter((a) => a.kind === "redact").length} zone(s) à caviarder</span></>}
+        <span>
+          {state.annots.length} annotation{state.annots.length > 1 ? "s" : ""}
+        </span>
+        {state.contentEdits.length > 0 && (
+          <>
+            <span>·</span>
+            <span>{state.contentEdits.length} paragraphe(s) modifié(s)</span>
+          </>
+        )}
+        {state.annots.some((a) => a.kind === "redact") && (
+          <>
+            <span>·</span>
+            <span className="pdfx-status__warn">
+              {state.annots.filter((a) => a.kind === "redact").length} zone(s) à caviarder
+            </span>
+          </>
+        )}
         <span className="pdfx-status__spacer" />
         <span>{themeDef.label}</span>
         <span>·</span>
         <span>{Math.round(view.scale * 100)} %</span>
-        {busy && <><span>·</span><Loader2 size={13} className="pdfx-spin" /></>}
+        {busy && (
+          <>
+            <span>·</span>
+            <Loader2 size={13} className="pdfx-spin" />
+          </>
+        )}
       </footer>
 
       <div className="pdfx-toasts">
@@ -1571,15 +2231,33 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             <div className="pdfx-toast__body">
               <b>{t.text}</b>
               {t.detail && <small>{t.detail}</small>}
-              {t.tone === "progress" && <div className="pdfx-bar"><span style={{ width: `${Math.round((t.ratio ?? 0) * 100)}%` }} /></div>}
+              {t.tone === "progress" && (
+                <div className="pdfx-bar">
+                  <span style={{ width: `${Math.round((t.ratio ?? 0) * 100)}%` }} />
+                </div>
+              )}
             </div>
-            {t.tone !== "progress" && <button onClick={() => dismissToast(t.id)}><X size={13} /></button>}
+            {t.tone !== "progress" && (
+              <button onClick={() => dismissToast(t.id)}>
+                <X size={13} />
+              </button>
+            )}
           </div>
         ))}
       </div>
 
       {/* hidden inputs */}
-      <input ref={openInput} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void openFile(f); }} />
+      <input
+        ref={openInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void openFile(f);
+        }}
+      />
       <input ref={mergeInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
       <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml" hidden onChange={onDataPick} />
@@ -1594,33 +2272,52 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           hasRedactions={state.annots.some((a) => a.kind === "redact")}
           hasForm={hasForm || state.createdFields.length > 0}
           onChange={(patch) => setBuildOptions((o) => ({ ...o, ...patch }))}
-          onConfirm={(name) => { setDialog(null); void exportPdf(name); }}
+          onConfirm={(name) => {
+            setDialog(null);
+            void exportPdf(name);
+          }}
           onClose={() => setDialog(null)}
         />
       )}
       {dialog === "protect" && (
         <ProtectDialog
           onClose={() => setDialog(null)}
-          onConfirm={async (v: { userPassword: string; ownerPassword: string; permissions: Permissions; encryptMetadata: boolean }) => {
+          onConfirm={async (v: {
+            userPassword: string;
+            ownerPassword: string;
+            permissions: Permissions;
+            encryptMetadata: boolean;
+          }) => {
             setDialog(null);
             setBuildOptions((o) => ({ ...o, protect: v }));
             if (!bytesRef.current) return;
             setBusy(true);
             const id = toast("progress", "Chiffrement du document…");
             try {
-              const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName, protect: v });
+              const { bytes } = await buildPdf(bytesRef.current, state, {
+                ...buildOptions,
+                author,
+                fileName,
+                protect: v,
+              });
               downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-protégé.pdf`, "application/pdf", bytes);
               dismissToast(id);
               toast("success", "Document protégé", "Chiffrement AES-256 (révision 6).");
             } catch {
               dismissToast(id);
               toast("danger", "Chiffrement impossible.");
-            } finally { setBusy(false); }
+            } finally {
+              setBusy(false);
+            }
           }}
         />
       )}
       {dialog === "watermark" && (
-        <WatermarkDialog value={state.watermark} onClose={() => setDialog(null)} onChange={(v) => setState((s) => ({ ...s, watermark: v }))} />
+        <WatermarkDialog
+          value={state.watermark}
+          onClose={() => setDialog(null)}
+          onChange={(v) => setState((s) => ({ ...s, watermark: v }))}
+        />
       )}
       {dialog === "headerFooter" && (
         <HeaderFooterDialog
@@ -1649,19 +2346,34 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setBusy(true);
             const id = toast("progress", "Rendu des pages…");
             try {
-              const indices = v.range.trim() ? parsePageRange(v.range, pageCount).map((i) => pages[i]?.from).filter((n): n is number => n != null) : undefined;
+              const indices = v.range.trim()
+                ? parsePageRange(v.range, pageCount)
+                    .map((i) => pages[i]?.from)
+                    .filter((n): n is number => n != null)
+                : undefined;
               const made = await exportImages(engine, fileName.replace(/\.pdf$/i, ""), {
-                format: v.format, dpi: v.dpi, quality: v.quality, pages: indices,
-                onProgress: (done, total) => setToasts((t) => t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x))),
+                format: v.format,
+                dpi: v.dpi,
+                quality: v.quality,
+                pages: indices,
+                onProgress: (done, total) =>
+                  setToasts((t) =>
+                    t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x)),
+                  ),
               });
-              if (v.zip) downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-images.zip`, "application/zip", await zipImages(made));
-              else for (const img of made) downloadBlob(img.name, `image/${v.format}`, new Uint8Array(await img.blob.arrayBuffer()));
+              if (v.zip)
+                downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-images.zip`, "application/zip", await zipImages(made));
+              else
+                for (const img of made)
+                  downloadBlob(img.name, `image/${v.format}`, new Uint8Array(await img.blob.arrayBuffer()));
               dismissToast(id);
               toast("success", `${made.length} image(s) exportée(s).`);
             } catch {
               dismissToast(id);
               toast("danger", "Export d'images impossible.");
-            } finally { setBusy(false); }
+            } finally {
+              setBusy(false);
+            }
           }}
         />
       )}
@@ -1671,28 +2383,48 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           localModels={localModels}
           running={ocrRunning}
           progress={ocrProgress}
-          onCancel={() => { ocrAbort.current?.abort(); setOcrRunning(false); }}
+          onCancel={() => {
+            ocrAbort.current?.abort();
+            setOcrRunning(false);
+          }}
           onClose={() => setDialog(null)}
-          onConfirm={async (v: { languages: OcrLanguage[]; dpi: number; range: string; skipPagesWithText: boolean }) => {
+          onConfirm={async (v: {
+            languages: OcrLanguage[];
+            dpi: number;
+            range: string;
+            skipPagesWithText: boolean;
+          }) => {
             if (!bytesRef.current) return;
             setOcrRunning(true);
             ocrAbort.current = new AbortController();
             try {
               const indices = v.range.trim()
-                ? parsePageRange(v.range, pageCount).map((i) => pages[i]?.from).filter((n): n is number => n != null)
+                ? parsePageRange(v.range, pageCount)
+                    .map((i) => pages[i]?.from)
+                    .filter((n): n is number => n != null)
                 : undefined;
               const results = await recognise(engine, {
-                languages: v.languages, dpi: v.dpi, pages: indices,
+                languages: v.languages,
+                dpi: v.dpi,
+                pages: indices,
                 skipPagesWithText: v.skipPagesWithText,
                 signal: ocrAbort.current.signal,
                 onProgress: setOcrProgress,
               });
               const words = results.reduce((n, r) => n + r.words.length, 0);
-              if (!words) { toast("info", "Aucun texte reconnu."); setOcrRunning(false); return; }
+              if (!words) {
+                toast("info", "Aucun texte reconnu.");
+                setOcrRunning(false);
+                return;
+              }
 
               const { PDFDocument } = await import("pdf-lib");
               const { FontBook } = await import("../ops/fonts");
-              const doc = await PDFDocument.load(bytesRef.current, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+              const doc = await PDFDocument.load(bytesRef.current, {
+                ignoreEncryption: true,
+                throwOnInvalidObject: false,
+                updateMetadata: false,
+              });
               const book = new FontBook(doc);
               const docPages = doc.getPages();
               for (const r of results) {
@@ -1703,7 +2435,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               await openBytes(out, fileName, undefined, state);
               setOcrRunning(false);
               setDialog(null);
-              toast("success", "Reconnaissance terminée", `${words} mots indexés — le document est désormais cherchable.`);
+              toast(
+                "success",
+                "Reconnaissance terminée",
+                `${words} mots indexés — le document est désormais cherchable.`,
+              );
             } catch {
               setOcrRunning(false);
               toast("danger", "La reconnaissance a échoué.");
@@ -1724,10 +2460,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             const w = Math.min(200, size.w * 0.35);
             const now = new Date().toISOString();
             addAnnot({
-              id: newId("an"), pageId: page.id, kind: "signature",
+              id: newId("an"),
+              pageId: page.id,
+              kind: "signature",
               rect: { x: size.w - w - 60, y: size.h - w / (sig.ratio || 3) - 90, w, h: w / (sig.ratio || 3) },
-              color: "#0f172a", opacity: 1, strokeWidth: 0, src: sig.src,
-              author, createdAt: now, modifiedAt: now, replies: [],
+              color: "#0f172a",
+              opacity: 1,
+              strokeWidth: 0,
+              src: sig.src,
+              author,
+              createdAt: now,
+              modifiedAt: now,
+              replies: [],
             });
             setDialog(null);
             setTool("select");
@@ -1749,9 +2493,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               const base = fileName.replace(/\.pdf$/i, "") || "document";
               const parts = await splitDocument(
                 bytes,
-                v.mode === "everyN" ? { kind: "everyN", n: v.n }
-                  : v.mode === "ranges" ? { kind: "ranges", spec: v.spec }
-                    : v.mode === "maxSize" ? { kind: "maxSize", bytes: v.maxMb * 1024 * 1024 }
+                v.mode === "everyN"
+                  ? { kind: "everyN", n: v.n }
+                  : v.mode === "ranges"
+                    ? { kind: "ranges", spec: v.spec }
+                    : v.mode === "maxSize"
+                      ? { kind: "maxSize", bytes: v.maxMb * 1024 * 1024 }
                       : { kind: "bookmarks", level: 1 },
                 base,
                 (state.bookmarks ?? []).map((b) => ({ title: b.title, page: b.page })),
@@ -1760,7 +2507,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               toast("success", `${parts.length} fichier(s) produit(s).`);
             } catch {
               toast("danger", "Division impossible.");
-            } finally { setBusy(false); }
+            } finally {
+              setBusy(false);
+            }
           }}
         />
       )}
@@ -1790,7 +2539,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         <MeasureScaleDialog
           value={state.measureScale}
           onClose={() => setDialog(null)}
-          onConfirm={(scale) => { setState((s) => ({ ...s, measureScale: scale })); setDialog(null); }}
+          onConfirm={(scale) => {
+            setState((s) => ({ ...s, measureScale: scale }));
+            setDialog(null);
+          }}
         />
       )}
       {dialog === "compare" && (
@@ -1798,7 +2550,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           report={compareReport}
           busy={compareBusy}
           onPick={() => compareInput.current?.click()}
-          onGoTo={(page) => { goTo(page); setDialog(null); }}
+          onGoTo={(page) => {
+            goTo(page);
+            setDialog(null);
+          }}
           onClose={() => setDialog(null)}
         />
       )}
@@ -1807,10 +2562,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           pageCount={pageCount}
           onClose={() => setDialog(null)}
           onConfirm={({ where, at, count, size }) => {
-            const dims = size === "same"
-              ? [sizeOf(currentPage() ?? pages[0]).w, sizeOf(currentPage() ?? pages[0]).h] as [number, number]
-              : PAGE_SIZES[size] ?? PAGE_SIZES.A4;
-            const anchor = where === "end" ? null : pages[where === "before" ? at - 2 : at - 1]?.id ?? null;
+            const dims =
+              size === "same"
+                ? ([sizeOf(currentPage() ?? pages[0]).w, sizeOf(currentPage() ?? pages[0]).h] as [number, number])
+                : (PAGE_SIZES[size] ?? PAGE_SIZES.A4);
+            const anchor = where === "end" ? null : (pages[where === "before" ? at - 2 : at - 1]?.id ?? null);
             insertBlankAfter(anchor, count, dims);
             setDialog(null);
           }}
@@ -1825,8 +2581,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setBusy(true);
             try {
               const texts = await ensureText();
-              const found = runSearch(texts, v.query, { caseSensitive: v.caseSensitive, wholeWord: v.wholeWord, regex: v.regex, ignoreDiacritics: true });
-              if (!found.length) { toast("info", "Aucune occurrence trouvée."); return; }
+              const found = runSearch(texts, v.query, {
+                caseSensitive: v.caseSensitive,
+                wholeWord: v.wholeWord,
+                regex: v.regex,
+                ignoreDiacritics: true,
+              });
+              if (!found.length) {
+                toast("info", "Aucune occurrence trouvée.");
+                return;
+              }
               const made: Annot[] = [];
               const now = new Date().toISOString();
               const byPage = new Map<number, SearchHit[]>();
@@ -1842,17 +2606,32 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   const quads = quadsForCharRange(runs, tc.items, hit.start, hit.end);
                   for (const quad of quads) {
                     made.push({
-                      id: newId("an"), pageId: page.id, kind: "redact",
-                      rect: rectOfQuads([quad]), color: "#000000", fill: "#000000",
-                      opacity: 1, strokeWidth: 0, author, createdAt: now, modifiedAt: now, replies: [],
+                      id: newId("an"),
+                      pageId: page.id,
+                      kind: "redact",
+                      rect: rectOfQuads([quad]),
+                      color: "#000000",
+                      fill: "#000000",
+                      opacity: 1,
+                      strokeWidth: 0,
+                      author,
+                      createdAt: now,
+                      modifiedAt: now,
+                      replies: [],
                     });
                   }
                 }
               }
               setState((s) => made.reduce((acc, a) => D.addAnnot(acc, a), s));
               setTab("protect");
-              toast("success", `${made.length} zone(s) marquée(s)`, "Utilisez « Appliquer » pour supprimer définitivement le contenu.");
-            } finally { setBusy(false); }
+              toast(
+                "success",
+                `${made.length} zone(s) marquée(s)`,
+                "Utilisez « Appliquer » pour supprimer définitivement le contenu.",
+              );
+            } finally {
+              setBusy(false);
+            }
           }}
         />
       )}
@@ -1870,7 +2649,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
 // ---------------------------------------------------------------------------
 
-function outlineToBookmarks(nodes: { title: string; page: number | null; y?: number; bold: boolean; italic: boolean; color?: string; children: unknown[] }[]): Bookmark[] {
+function outlineToBookmarks(
+  nodes: {
+    title: string;
+    page: number | null;
+    y?: number;
+    bold: boolean;
+    italic: boolean;
+    color?: string;
+    children: unknown[];
+  }[],
+): Bookmark[] {
   return nodes.map((n) => ({
     id: newId("bm"),
     title: n.title,

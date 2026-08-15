@@ -23,7 +23,7 @@ export type SheetStatus = "connecting" | "open" | "closed" | "revoked";
 export interface SheetPeer {
   color: string;
   name: string;
-  s: number;   // index de feuille
+  s: number; // index de feuille
   ref: string; // référence A1 de la cellule
 }
 

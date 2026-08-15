@@ -188,11 +188,7 @@ export function wrapCss(geometry: unknown): string[] {
 export function textBoxCss(geometry: unknown, style: unknown): string {
   const g = normalizeGeometry(geometry);
   const s = normalizeStyle(style);
-  const parts: string[] = [
-    `width:${g.widthMm}mm`,
-    `padding:${s.padMm}mm`,
-    `box-sizing:border-box`,
-  ];
+  const parts: string[] = [`width:${g.widthMm}mm`, `padding:${s.padMm}mm`, `box-sizing:border-box`];
   if (g.heightMm > 0) parts.push(`min-height:${g.heightMm}mm`);
   if (s.borderWidth > 0) parts.push(`border:${s.borderWidth}px solid ${s.borderColor}`);
   else parts.push("border:0");
@@ -247,20 +243,23 @@ export function textBoxVml(geometry: unknown, style: unknown, inner: string, id:
   const g = normalizeGeometry(geometry);
   const s = normalizeStyle(style);
   const { style: posStyle, wrapEl } = wrapVml(g.wrap);
-  const dims = [
-    `width:${mmToPt(g.widthMm)}pt`,
-    g.heightMm > 0 ? `height:${mmToPt(g.heightMm)}pt` : "",
-  ].filter(Boolean);
-  const place = g.wrap === "front" || g.wrap === "behind"
-    ? [`margin-left:${mmToPt(g.x)}pt`, `margin-top:${mmToPt(g.y)}pt`,
-       "mso-position-horizontal-relative:page", "mso-position-vertical-relative:page"]
-    : [];
+  const dims = [`width:${mmToPt(g.widthMm)}pt`, g.heightMm > 0 ? `height:${mmToPt(g.heightMm)}pt` : ""].filter(Boolean);
+  const place =
+    g.wrap === "front" || g.wrap === "behind"
+      ? [
+          `margin-left:${mmToPt(g.x)}pt`,
+          `margin-top:${mmToPt(g.y)}pt`,
+          "mso-position-horizontal-relative:page",
+          "mso-position-vertical-relative:page",
+        ]
+      : [];
   // `rotation` est le nom VML de l'angle : Word le lit en degrés, comme à l'écran.
   const spin = g.rotation ? [`rotation:${g.rotation}`] : [];
   const shapeStyle = [posStyle, ...dims, ...place, ...spin].filter(Boolean).join(";");
-  const stroke = s.borderWidth > 0
-    ? ` strokecolor="${esc(s.borderColor)}" strokeweight="${(s.borderWidth * 0.75).toFixed(2)}pt"`
-    : ' stroked="f"';
+  const stroke =
+    s.borderWidth > 0
+      ? ` strokecolor="${esc(s.borderColor)}" strokeweight="${(s.borderWidth * 0.75).toFixed(2)}pt"`
+      : ' stroked="f"';
   const fill = s.fill ? ` fillcolor="${esc(s.fill)}"` : ' filled="f"';
   const inset = `inset="${mmToPt(s.padMm)}pt,${mmToPt(s.padMm)}pt,${mmToPt(s.padMm)}pt,${mmToPt(s.padMm)}pt"`;
   return (
@@ -279,7 +278,7 @@ export function textBoxVml(geometry: unknown, style: unknown, inner: string, id:
  */
 export function textBoxShapeType(): string {
   return (
-    '<w:p><w:r><w:rPr><w:noProof/></w:rPr><w:pict>' +
+    "<w:p><w:r><w:rPr><w:noProof/></w:rPr><w:pict>" +
     '<v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe">' +
     '<v:stroke joinstyle="miter"/>' +
     '<v:path gradientshapeok="t" o:connecttype="rect"/>' +

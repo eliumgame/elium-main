@@ -48,7 +48,7 @@ export type Quad = [Pt, Pt, Pt, Pt];
 export type Rotation = 0 | 90 | 180 | 270;
 
 export function normRotation(deg: number): Rotation {
-  const r = ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
+  const r = (((Math.round(deg / 90) * 90) % 360) + 360) % 360;
   return r as Rotation;
 }
 
@@ -78,7 +78,10 @@ export function normRect(r: Rect): Rect {
 
 export function rectOfPoints(pts: readonly Pt[]): Rect {
   if (!pts.length) return { x: 0, y: 0, w: 0, h: 0 };
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   for (const p of pts) {
     if (p.x < minX) minX = p.x;
     if (p.y < minY) minY = p.y;
@@ -191,20 +194,28 @@ export function rotatedSize(size: Size, rotation: Rotation): Size {
 /** Page-space point to unscaled view space under `rotation`. */
 export function psToView(p: Pt, size: Size, rotation: Rotation): Pt {
   switch (rotation) {
-    case 90: return { x: size.h - p.y, y: p.x };
-    case 180: return { x: size.w - p.x, y: size.h - p.y };
-    case 270: return { x: p.y, y: size.w - p.x };
-    default: return { x: p.x, y: p.y };
+    case 90:
+      return { x: size.h - p.y, y: p.x };
+    case 180:
+      return { x: size.w - p.x, y: size.h - p.y };
+    case 270:
+      return { x: p.y, y: size.w - p.x };
+    default:
+      return { x: p.x, y: p.y };
   }
 }
 
 /** Unscaled view-space point back to page space. */
 export function viewToPs(p: Pt, size: Size, rotation: Rotation): Pt {
   switch (rotation) {
-    case 90: return { x: p.y, y: size.h - p.x };
-    case 180: return { x: size.w - p.x, y: size.h - p.y };
-    case 270: return { x: size.w - p.y, y: p.x };
-    default: return { x: p.x, y: p.y };
+    case 90:
+      return { x: p.y, y: size.h - p.x };
+    case 180:
+      return { x: size.w - p.x, y: size.h - p.y };
+    case 270:
+      return { x: size.w - p.y, y: p.x };
+    default:
+      return { x: p.x, y: p.y };
   }
 }
 
@@ -267,18 +278,26 @@ export const PT_PER_INCH = 72;
 /** Convert a length in points to a display unit. */
 export function fromPoints(pts: number, unit: "pt" | "mm" | "cm" | "in"): number {
   switch (unit) {
-    case "mm": return pts * MM_PER_PT;
-    case "cm": return (pts * MM_PER_PT) / 10;
-    case "in": return pts / PT_PER_INCH;
-    default: return pts;
+    case "mm":
+      return pts * MM_PER_PT;
+    case "cm":
+      return (pts * MM_PER_PT) / 10;
+    case "in":
+      return pts / PT_PER_INCH;
+    default:
+      return pts;
   }
 }
 
 export function toPoints(value: number, unit: "pt" | "mm" | "cm" | "in"): number {
   switch (unit) {
-    case "mm": return value / MM_PER_PT;
-    case "cm": return (value * 10) / MM_PER_PT;
-    case "in": return value * PT_PER_INCH;
-    default: return value;
+    case "mm":
+      return value / MM_PER_PT;
+    case "cm":
+      return (value * 10) / MM_PER_PT;
+    case "in":
+      return value * PT_PER_INCH;
+    default:
+      return value;
   }
 }

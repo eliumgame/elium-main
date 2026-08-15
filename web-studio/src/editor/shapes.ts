@@ -38,23 +38,68 @@ export const SHAPE_GROUPS: { id: ShapeGroup; label: string }[] = [
 
 export type ShapeKind =
   // Lignes
-  | "line" | "arrow" | "doubleArrow" | "elbow"
+  | "line"
+  | "arrow"
+  | "doubleArrow"
+  | "elbow"
   // Rectangles
-  | "rect" | "roundRect" | "snipRect" | "stadium" | "frame"
+  | "rect"
+  | "roundRect"
+  | "snipRect"
+  | "stadium"
+  | "frame"
   // Formes de base
-  | "ellipse" | "triangle" | "rtTriangle" | "diamond" | "parallelogram" | "trapezoid"
-  | "pentagon" | "hexagon" | "heptagon" | "octagon" | "cross" | "donut" | "can" | "cube"
-  | "heart" | "cloud" | "sun" | "moon" | "bolt" | "chevron"
+  | "ellipse"
+  | "triangle"
+  | "rtTriangle"
+  | "diamond"
+  | "parallelogram"
+  | "trapezoid"
+  | "pentagon"
+  | "hexagon"
+  | "heptagon"
+  | "octagon"
+  | "cross"
+  | "donut"
+  | "can"
+  | "cube"
+  | "heart"
+  | "cloud"
+  | "sun"
+  | "moon"
+  | "bolt"
+  | "chevron"
   // Flèches
-  | "rightArrow" | "leftArrow" | "upArrow" | "downArrow" | "leftRightArrow" | "upDownArrow"
-  | "homePlate" | "notchedArrow"
+  | "rightArrow"
+  | "leftArrow"
+  | "upArrow"
+  | "downArrow"
+  | "leftRightArrow"
+  | "upDownArrow"
+  | "homePlate"
+  | "notchedArrow"
   // Organigramme
-  | "flowProcess" | "flowDecision" | "flowTerminator" | "flowData" | "flowPreparation"
-  | "flowConnector" | "flowDocument" | "flowManualInput" | "flowDelay"
+  | "flowProcess"
+  | "flowDecision"
+  | "flowTerminator"
+  | "flowData"
+  | "flowPreparation"
+  | "flowConnector"
+  | "flowDocument"
+  | "flowManualInput"
+  | "flowDelay"
   // Étoiles et bannières
-  | "star4" | "star5" | "star6" | "star8" | "star12" | "explosion" | "ribbon"
+  | "star4"
+  | "star5"
+  | "star6"
+  | "star8"
+  | "star12"
+  | "explosion"
+  | "ribbon"
   // Bulles
-  | "calloutRect" | "calloutRoundRect" | "calloutEllipse";
+  | "calloutRect"
+  | "calloutRoundRect"
+  | "calloutEllipse";
 
 export interface ShapeDef {
   kind: ShapeKind;
@@ -84,40 +129,160 @@ export const SHAPES: ShapeDef[] = [
   { kind: "elbow", label: "Connecteur en angle", group: "lines", prst: "bentConnector3", line: true },
 
   { kind: "rect", label: "Rectangle", group: "rect", prst: "rect" },
-  { kind: "roundRect", label: "Rectangle arrondi", group: "rect", prst: "roundRect", adj: { label: "Rayon des coins", min: 0, max: 50, default: 16 } },
-  { kind: "snipRect", label: "Rectangle à coin coupé", group: "rect", prst: "snip1Rect", adj: { label: "Coupe", min: 0, max: 50, default: 16 } },
+  {
+    kind: "roundRect",
+    label: "Rectangle arrondi",
+    group: "rect",
+    prst: "roundRect",
+    adj: { label: "Rayon des coins", min: 0, max: 50, default: 16 },
+  },
+  {
+    kind: "snipRect",
+    label: "Rectangle à coin coupé",
+    group: "rect",
+    prst: "snip1Rect",
+    adj: { label: "Coupe", min: 0, max: 50, default: 16 },
+  },
   { kind: "stadium", label: "Rectangle à bouts ronds", group: "rect", prst: "flowChartTerminator" },
-  { kind: "frame", label: "Cadre", group: "rect", prst: "frame", adj: { label: "Épaisseur", min: 2, max: 45, default: 12 } },
+  {
+    kind: "frame",
+    label: "Cadre",
+    group: "rect",
+    prst: "frame",
+    adj: { label: "Épaisseur", min: 2, max: 45, default: 12 },
+  },
 
   { kind: "ellipse", label: "Ellipse", group: "basic", prst: "ellipse" },
-  { kind: "triangle", label: "Triangle", group: "basic", prst: "triangle", adj: { label: "Sommet", min: 0, max: 100, default: 50 } },
+  {
+    kind: "triangle",
+    label: "Triangle",
+    group: "basic",
+    prst: "triangle",
+    adj: { label: "Sommet", min: 0, max: 100, default: 50 },
+  },
   { kind: "rtTriangle", label: "Triangle rectangle", group: "basic", prst: "rtTriangle" },
   { kind: "diamond", label: "Losange", group: "basic", prst: "diamond" },
-  { kind: "parallelogram", label: "Parallélogramme", group: "basic", prst: "parallelogram", adj: { label: "Inclinaison", min: 0, max: 50, default: 25 } },
-  { kind: "trapezoid", label: "Trapèze", group: "basic", prst: "trapezoid", adj: { label: "Inclinaison", min: 0, max: 50, default: 25 } },
+  {
+    kind: "parallelogram",
+    label: "Parallélogramme",
+    group: "basic",
+    prst: "parallelogram",
+    adj: { label: "Inclinaison", min: 0, max: 50, default: 25 },
+  },
+  {
+    kind: "trapezoid",
+    label: "Trapèze",
+    group: "basic",
+    prst: "trapezoid",
+    adj: { label: "Inclinaison", min: 0, max: 50, default: 25 },
+  },
   { kind: "pentagon", label: "Pentagone", group: "basic", prst: "pentagon" },
   { kind: "hexagon", label: "Hexagone", group: "basic", prst: "hexagon" },
   { kind: "heptagon", label: "Heptagone", group: "basic", prst: "heptagon" },
   { kind: "octagon", label: "Octogone", group: "basic", prst: "octagon" },
-  { kind: "cross", label: "Croix", group: "basic", prst: "plus", adj: { label: "Épaisseur", min: 5, max: 50, default: 25 } },
-  { kind: "donut", label: "Anneau", group: "basic", prst: "donut", adj: { label: "Épaisseur", min: 2, max: 48, default: 20 } },
-  { kind: "can", label: "Cylindre", group: "basic", prst: "can", adj: { label: "Perspective", min: 5, max: 45, default: 18 } },
-  { kind: "cube", label: "Cube", group: "basic", prst: "cube", adj: { label: "Profondeur", min: 5, max: 45, default: 25 } },
+  {
+    kind: "cross",
+    label: "Croix",
+    group: "basic",
+    prst: "plus",
+    adj: { label: "Épaisseur", min: 5, max: 50, default: 25 },
+  },
+  {
+    kind: "donut",
+    label: "Anneau",
+    group: "basic",
+    prst: "donut",
+    adj: { label: "Épaisseur", min: 2, max: 48, default: 20 },
+  },
+  {
+    kind: "can",
+    label: "Cylindre",
+    group: "basic",
+    prst: "can",
+    adj: { label: "Perspective", min: 5, max: 45, default: 18 },
+  },
+  {
+    kind: "cube",
+    label: "Cube",
+    group: "basic",
+    prst: "cube",
+    adj: { label: "Profondeur", min: 5, max: 45, default: 25 },
+  },
   { kind: "heart", label: "Cœur", group: "basic", prst: "heart" },
   { kind: "cloud", label: "Nuage", group: "basic", prst: "cloud" },
   { kind: "sun", label: "Soleil", group: "basic", prst: "sun" },
-  { kind: "moon", label: "Croissant", group: "basic", prst: "moon", adj: { label: "Épaisseur", min: 10, max: 80, default: 50 } },
+  {
+    kind: "moon",
+    label: "Croissant",
+    group: "basic",
+    prst: "moon",
+    adj: { label: "Épaisseur", min: 10, max: 80, default: 50 },
+  },
   { kind: "bolt", label: "Éclair", group: "basic", prst: "lightningBolt" },
-  { kind: "chevron", label: "Chevron", group: "basic", prst: "chevron", adj: { label: "Pointe", min: 5, max: 50, default: 25 } },
+  {
+    kind: "chevron",
+    label: "Chevron",
+    group: "basic",
+    prst: "chevron",
+    adj: { label: "Pointe", min: 5, max: 50, default: 25 },
+  },
 
-  { kind: "rightArrow", label: "Flèche droite", group: "arrows", prst: "rightArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "leftArrow", label: "Flèche gauche", group: "arrows", prst: "leftArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "upArrow", label: "Flèche haut", group: "arrows", prst: "upArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "downArrow", label: "Flèche bas", group: "arrows", prst: "downArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "leftRightArrow", label: "Flèche double horizontale", group: "arrows", prst: "leftRightArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "upDownArrow", label: "Flèche double verticale", group: "arrows", prst: "upDownArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
-  { kind: "homePlate", label: "Flèche pentagonale", group: "arrows", prst: "homePlate", adj: { label: "Pointe", min: 5, max: 50, default: 25 } },
-  { kind: "notchedArrow", label: "Flèche encochée", group: "arrows", prst: "notchedRightArrow", adj: { label: "Épaisseur", min: 10, max: 90, default: 50 } },
+  {
+    kind: "rightArrow",
+    label: "Flèche droite",
+    group: "arrows",
+    prst: "rightArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "leftArrow",
+    label: "Flèche gauche",
+    group: "arrows",
+    prst: "leftArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "upArrow",
+    label: "Flèche haut",
+    group: "arrows",
+    prst: "upArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "downArrow",
+    label: "Flèche bas",
+    group: "arrows",
+    prst: "downArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "leftRightArrow",
+    label: "Flèche double horizontale",
+    group: "arrows",
+    prst: "leftRightArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "upDownArrow",
+    label: "Flèche double verticale",
+    group: "arrows",
+    prst: "upDownArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
+  {
+    kind: "homePlate",
+    label: "Flèche pentagonale",
+    group: "arrows",
+    prst: "homePlate",
+    adj: { label: "Pointe", min: 5, max: 50, default: 25 },
+  },
+  {
+    kind: "notchedArrow",
+    label: "Flèche encochée",
+    group: "arrows",
+    prst: "notchedRightArrow",
+    adj: { label: "Épaisseur", min: 10, max: 90, default: 50 },
+  },
 
   { kind: "flowProcess", label: "Processus", group: "flow", prst: "flowChartProcess" },
   { kind: "flowDecision", label: "Décision", group: "flow", prst: "flowChartDecision" },
@@ -302,10 +467,7 @@ function poly(points: [number, number][]): string {
  * à maintenir. Les angles sont en radians, sens horaire à l'écran (y vers le bas).
  * `move` écrit le `M` initial ; à faux, l'arc se raccorde au tracé en cours.
  */
-export function arcCubics(
-  cx: number, cy: number, rx: number, ry: number,
-  a0: number, a1: number, move = true,
-): string {
+export function arcCubics(cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, move = true): string {
   const sweep = a1 - a0;
   // Un quart de tour au maximum par courbe : au-delà, l'approximation dévie
   // visiblement du cercle.
@@ -339,7 +501,13 @@ function ellipse(cx: number, cy: number, rx: number, ry: number, clockwise = tru
 /** Un rectangle à coins arrondis (rayon borné à la moitié du plus petit côté). */
 function roundRect(w: number, h: number, radius: number): string {
   const rr = Math.max(0, Math.min(radius, Math.min(w, h) / 2));
-  if (rr <= 0) return poly([[0, 0], [w, 0], [w, h], [0, h]]);
+  if (rr <= 0)
+    return poly([
+      [0, 0],
+      [w, 0],
+      [w, h],
+      [0, h],
+    ]);
   const q = KAPPA * rr;
   return (
     `M${pt(rr, 0)}L${pt(w - rr, 0)}` +
@@ -392,15 +560,24 @@ function arrow(w: number, h: number, thickPct: number, dir: "right" | "left" | "
   const head = Math.min(bw * 0.6, Math.max(bh * 0.75, bw * 0.25));
   const top = (bh - shaft) / 2;
   const local: [number, number][] = [
-    [0, top], [bw - head, top], [bw - head, 0], [bw, bh / 2],
-    [bw - head, bh], [bw - head, top + shaft], [0, top + shaft],
+    [0, top],
+    [bw - head, top],
+    [bw - head, 0],
+    [bw, bh / 2],
+    [bw - head, bh],
+    [bw - head, top + shaft],
+    [0, top + shaft],
   ];
   const map = (p: [number, number]): [number, number] => {
     switch (dir) {
-      case "right": return p;
-      case "left": return [w - p[0], p[1]];
-      case "down": return [p[1], p[0]];
-      case "up": return [p[1], h - p[0]];
+      case "right":
+        return p;
+      case "left":
+        return [w - p[0], p[1]];
+      case "down":
+        return [p[1], p[0]];
+      case "up":
+        return [p[1], h - p[0]];
     }
   };
   return poly(local.map(map));
@@ -414,8 +591,16 @@ function doubleHeadArrow(w: number, h: number, thickPct: number, vertical: boole
   const head = Math.min(bw * 0.35, Math.max(bh * 0.75, bw * 0.15));
   const top = (bh - shaft) / 2;
   const local: [number, number][] = [
-    [0, bh / 2], [head, 0], [head, top], [bw - head, top], [bw - head, 0], [bw, bh / 2],
-    [bw - head, bh], [bw - head, top + shaft], [head, top + shaft], [head, bh],
+    [0, bh / 2],
+    [head, 0],
+    [head, top],
+    [bw - head, top],
+    [bw - head, 0],
+    [bw, bh / 2],
+    [bw - head, bh],
+    [bw - head, top + shaft],
+    [head, top + shaft],
+    [head, bh],
   ];
   return poly(local.map(([x, y]) => (vertical ? [y, x] : [x, y]) as [number, number]));
 }
@@ -426,12 +611,12 @@ function cloud(w: number, h: number): string {
   // vertical, angle de début et de fin. C'est ce qui garde le nuage reconnaissable
   // à n'importe quelle proportion.
   const lobes: [number, number, number, number, number, number][] = [
-    [0.26, 0.62, 0.26, 0.30, 130, 340],
+    [0.26, 0.62, 0.26, 0.3, 130, 340],
     [0.42, 0.36, 0.22, 0.26, 190, 350],
-    [0.66, 0.34, 0.20, 0.24, 220, 20],
+    [0.66, 0.34, 0.2, 0.24, 220, 20],
     [0.82, 0.56, 0.18, 0.24, 280, 90],
     [0.68, 0.76, 0.22, 0.24, 340, 160],
-    [0.36, 0.80, 0.24, 0.22, 30, 210],
+    [0.36, 0.8, 0.24, 0.22, 30, 210],
   ];
   let d = "";
   lobes.forEach(([cx, cy, rx, ry, a0, a1], i) => {
@@ -465,14 +650,30 @@ function moon(w: number, h: number, thickPct: number) {
   // Arc extérieur (bord droit), puis arc intérieur en sens inverse : la
   // différence des deux dessine le croissant d'un seul tracé.
   const outer = arcCubics(w, h / 2, w, h / 2, Math.PI - Math.PI / 2.2, Math.PI + Math.PI / 2.2, true);
-  const inner = arcCubics(w + w * (1 - t) * 0.9, h / 2, w, h / 2, Math.PI + Math.PI / 2.2, Math.PI - Math.PI / 2.2, false);
+  const inner = arcCubics(
+    w + w * (1 - t) * 0.9,
+    h / 2,
+    w,
+    h / 2,
+    Math.PI + Math.PI / 2.2,
+    Math.PI - Math.PI / 2.2,
+    false,
+  );
   return `${outer}${inner}Z`;
 }
 
 /** Les points de l'éclair, en fractions de la boîte (relevés sur la forme de Word). */
 const BOLT: [number, number][] = [
-  [0.44, 0], [0.86, 0.36], [0.62, 0.42], [1, 0.78], [0.72, 0.72],
-  [0.78, 1], [0.36, 0.62], [0.56, 0.56], [0.2, 0.34], [0.42, 0.32],
+  [0.44, 0],
+  [0.86, 0.36],
+  [0.62, 0.42],
+  [1, 0.78],
+  [0.72, 0.72],
+  [0.78, 1],
+  [0.36, 0.62],
+  [0.56, 0.56],
+  [0.2, 0.34],
+  [0.42, 0.32],
 ];
 
 /** Les rayons de l'explosion, alternés, en fractions du rayon de la boîte. */
@@ -493,31 +694,82 @@ const GEN: Record<ShapeKind, Gen> = {
   doubleArrow: (w, h) => `M${pt(0, 0)}L${pt(w, h)}`,
   elbow: (w, h) => `M${pt(0, 0)}L${pt(w / 2, 0)}L${pt(w / 2, h)}L${pt(w, h)}`,
 
-  rect: (w, h) => poly([[0, 0], [w, 0], [w, h], [0, h]]),
+  rect: (w, h) =>
+    poly([
+      [0, 0],
+      [w, 0],
+      [w, h],
+      [0, h],
+    ]),
   roundRect: (w, h, adj) => roundRect(w, h, (Math.min(w, h) * adj) / 100),
   snipRect: (w, h, adj) => {
     const c = (Math.min(w, h) * adj) / 100;
-    return poly([[0, 0], [w - c, 0], [w, c], [w, h], [0, h]]);
+    return poly([
+      [0, 0],
+      [w - c, 0],
+      [w, c],
+      [w, h],
+      [0, h],
+    ]);
   },
   stadium: (w, h) => roundRect(w, h, Math.min(w, h) / 2),
   frame: (w, h, adj) => {
     const t = Math.max(0.2, (Math.min(w, h) * adj) / 100);
     // Deux contours, le second en sens inverse : le remplissage `evenodd` creuse
     // le cadre sans avoir à dessiner quatre rectangles.
-    return poly([[0, 0], [w, 0], [w, h], [0, h]]) + poly([[t, t], [t, h - t], [w - t, h - t], [w - t, t]]);
+    return (
+      poly([
+        [0, 0],
+        [w, 0],
+        [w, h],
+        [0, h],
+      ]) +
+      poly([
+        [t, t],
+        [t, h - t],
+        [w - t, h - t],
+        [w - t, t],
+      ])
+    );
   },
 
   ellipse: (w, h) => ellipse(w / 2, h / 2, w / 2, h / 2),
-  triangle: (w, h, adj) => poly([[(w * adj) / 100, 0], [w, h], [0, h]]),
-  rtTriangle: (w, h) => poly([[0, 0], [0, h], [w, h]]),
-  diamond: (w, h) => poly([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]),
+  triangle: (w, h, adj) =>
+    poly([
+      [(w * adj) / 100, 0],
+      [w, h],
+      [0, h],
+    ]),
+  rtTriangle: (w, h) =>
+    poly([
+      [0, 0],
+      [0, h],
+      [w, h],
+    ]),
+  diamond: (w, h) =>
+    poly([
+      [w / 2, 0],
+      [w, h / 2],
+      [w / 2, h],
+      [0, h / 2],
+    ]),
   parallelogram: (w, h, adj) => {
     const o = Math.min(w / 2, (Math.min(w, h) * adj) / 100);
-    return poly([[o, 0], [w, 0], [w - o, h], [0, h]]);
+    return poly([
+      [o, 0],
+      [w, 0],
+      [w - o, h],
+      [0, h],
+    ]);
   },
   trapezoid: (w, h, adj) => {
     const o = Math.min(w / 2, (Math.min(w, h) * adj) / 100);
-    return poly([[o, 0], [w - o, 0], [w, h], [0, h]]);
+    return poly([
+      [o, 0],
+      [w - o, 0],
+      [w, h],
+      [0, h],
+    ]);
   },
   pentagon: (w, h) => regular(5, w, h, -90),
   // L'hexagone de Word est pointu à gauche et à droite, pas en haut.
@@ -531,8 +783,18 @@ const GEN: Record<ShapeKind, Gen> = {
     const x0 = (w - tx) / 2;
     const y0 = (h - ty) / 2;
     return poly([
-      [x0, 0], [x0 + tx, 0], [x0 + tx, y0], [w, y0], [w, y0 + ty], [x0 + tx, y0 + ty],
-      [x0 + tx, h], [x0, h], [x0, y0 + ty], [0, y0 + ty], [0, y0], [x0, y0],
+      [x0, 0],
+      [x0 + tx, 0],
+      [x0 + tx, y0],
+      [w, y0],
+      [w, y0 + ty],
+      [x0 + tx, y0 + ty],
+      [x0 + tx, h],
+      [x0, h],
+      [x0, y0 + ty],
+      [0, y0 + ty],
+      [0, y0],
+      [x0, y0],
     ]);
   },
   donut: (w, h, adj) => {
@@ -554,8 +816,14 @@ const GEN: Record<ShapeKind, Gen> = {
   cube: (w, h, adj) => {
     const d = Math.min(Math.min(w, h) / 2, (Math.min(w, h) * adj) / 100);
     return (
-      poly([[0, d], [d, 0], [w, 0], [w, h - d], [w - d, h], [0, h]]) +
-      `M${pt(0, d)}L${pt(w - d, d)}L${pt(w, 0)}M${pt(w - d, d)}L${pt(w - d, h)}`
+      poly([
+        [0, d],
+        [d, 0],
+        [w, 0],
+        [w, h - d],
+        [w - d, h],
+        [0, h],
+      ]) + `M${pt(0, d)}L${pt(w - d, d)}L${pt(w, 0)}M${pt(w - d, d)}L${pt(w - d, h)}`
     );
   },
   heart: (w, h) =>
@@ -568,7 +836,14 @@ const GEN: Record<ShapeKind, Gen> = {
   bolt: (w, h) => poly(BOLT.map(([x, y]) => [x * w, y * h] as [number, number])),
   chevron: (w, h, adj) => {
     const n = Math.min(w / 2, (Math.min(w, h) * adj) / 100);
-    return poly([[0, 0], [w - n, 0], [w, h / 2], [w - n, h], [0, h], [n, h / 2]]);
+    return poly([
+      [0, 0],
+      [w - n, 0],
+      [w, h / 2],
+      [w - n, h],
+      [0, h],
+      [n, h / 2],
+    ]);
   },
 
   rightArrow: (w, h, adj) => arrow(w, h, adj, "right"),
@@ -579,7 +854,13 @@ const GEN: Record<ShapeKind, Gen> = {
   upDownArrow: (w, h, adj) => doubleHeadArrow(w, h, adj, true),
   homePlate: (w, h, adj) => {
     const n = Math.min(w / 2, (Math.min(w, h) * adj) / 100);
-    return poly([[0, 0], [w - n, 0], [w, h / 2], [w - n, h], [0, h]]);
+    return poly([
+      [0, 0],
+      [w - n, 0],
+      [w, h / 2],
+      [w - n, h],
+      [0, h],
+    ]);
   },
   notchedArrow: (w, h, adj) => {
     const shaft = (h * clamp(adj, 5, 95)) / 100;
@@ -587,21 +868,51 @@ const GEN: Record<ShapeKind, Gen> = {
     const top = (h - shaft) / 2;
     const notch = Math.min(w * 0.2, head * 0.5);
     return poly([
-      [0, top], [w - head, top], [w - head, 0], [w, h / 2], [w - head, h],
-      [w - head, top + shaft], [0, top + shaft], [notch, h / 2],
+      [0, top],
+      [w - head, top],
+      [w - head, 0],
+      [w, h / 2],
+      [w - head, h],
+      [w - head, top + shaft],
+      [0, top + shaft],
+      [notch, h / 2],
     ]);
   },
 
-  flowProcess: (w, h) => poly([[0, 0], [w, 0], [w, h], [0, h]]),
-  flowDecision: (w, h) => poly([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]]),
+  flowProcess: (w, h) =>
+    poly([
+      [0, 0],
+      [w, 0],
+      [w, h],
+      [0, h],
+    ]),
+  flowDecision: (w, h) =>
+    poly([
+      [w / 2, 0],
+      [w, h / 2],
+      [w / 2, h],
+      [0, h / 2],
+    ]),
   flowTerminator: (w, h) => roundRect(w, h, Math.min(w, h) / 2),
   flowData: (w, h) => {
     const o = Math.min(w / 2, Math.min(w, h) * 0.2);
-    return poly([[o, 0], [w, 0], [w - o, h], [0, h]]);
+    return poly([
+      [o, 0],
+      [w, 0],
+      [w - o, h],
+      [0, h],
+    ]);
   },
   flowPreparation: (w, h) => {
     const o = Math.min(w / 2, Math.min(w, h) * 0.2);
-    return poly([[o, 0], [w - o, 0], [w, h / 2], [w - o, h], [o, h], [0, h / 2]]);
+    return poly([
+      [o, 0],
+      [w - o, 0],
+      [w, h / 2],
+      [w - o, h],
+      [o, h],
+      [0, h / 2],
+    ]);
   },
   flowConnector: (w, h) => ellipse(w / 2, h / 2, w / 2, h / 2),
   flowDocument: (w, h) => {
@@ -613,7 +924,13 @@ const GEN: Record<ShapeKind, Gen> = {
       `C${pt(w * 0.75, h - wave * 2.2)} ${pt(w * 0.25, h + wave * 0.9)} ${pt(0, h - wave * 0.6)}Z`
     );
   },
-  flowManualInput: (w, h) => poly([[0, h * 0.28], [w, 0], [w, h], [0, h]]),
+  flowManualInput: (w, h) =>
+    poly([
+      [0, h * 0.28],
+      [w, 0],
+      [w, h],
+      [0, h],
+    ]),
   flowDelay: (w, h) => {
     const rr = Math.min(w / 2, h / 2);
     return (
@@ -641,9 +958,20 @@ const GEN: Record<ShapeKind, Gen> = {
     const band = h * 0.62;
     const notch = tail * 0.5;
     return poly([
-      [0, 0], [tail, 0], [tail, band * 0.18], [w - tail, band * 0.18], [w - tail, 0], [w, 0],
-      [w - notch, band / 2], [w, band], [w - tail, band], [w - tail, h], [tail, h], [tail, band],
-      [0, band], [notch, band / 2],
+      [0, 0],
+      [tail, 0],
+      [tail, band * 0.18],
+      [w - tail, band * 0.18],
+      [w - tail, 0],
+      [w, 0],
+      [w - notch, band / 2],
+      [w, band],
+      [w - tail, band],
+      [w - tail, h],
+      [tail, h],
+      [tail, band],
+      [0, band],
+      [notch, band / 2],
     ]);
   },
 
@@ -652,7 +980,13 @@ const GEN: Record<ShapeKind, Gen> = {
   calloutRect: (w, h) => {
     const bh = h * 0.76;
     return poly([
-      [0, 0], [w, 0], [w, bh], [w * 0.34, bh], [w * 0.16, h], [w * 0.22, bh], [0, bh],
+      [0, 0],
+      [w, 0],
+      [w, bh],
+      [w * 0.34, bh],
+      [w * 0.16, h],
+      [w * 0.22, bh],
+      [0, bh],
     ]);
   },
   calloutRoundRect: (w, h) => {
@@ -726,7 +1060,11 @@ export function shapeHeads(kind: unknown, widthMm: number, heightMm: number, siz
     const bx = x - ux * len;
     const by = y - uy * len;
     const half = len * 0.45;
-    return poly([[x, y], [bx - uy * half, by + ux * half], [bx + uy * half, by - ux * half]]);
+    return poly([
+      [x, y],
+      [bx - uy * half, by + ux * half],
+      [bx + uy * half, by - ux * half],
+    ]);
   };
   let d = head(w, h, w, h);
   if (def.head === "both") d += head(0, 0, -w, -h);
@@ -809,13 +1147,7 @@ export function shapeSvg(
         }</defs>`
       : "";
 
-  const fill = def.line
-    ? "none"
-    : !s.fill
-      ? "none"
-      : s.gradient
-        ? `url(#${gradId})`
-        : esc(s.fill);
+  const fill = def.line ? "none" : !s.fill ? "none" : s.gradient ? `url(#${gradId})` : esc(s.fill);
   const dash = DASH_PATTERN[s.dash];
   const dashAttr =
     strokeMm > 0 && dash.length
@@ -827,9 +1159,7 @@ export function shapeSvg(
       : ' stroke="none"';
   const fillRule = usesEvenOdd(def.kind) ? ' fill-rule="evenodd"' : "";
   const opacity = !def.line && s.fill && s.fillOpacity < 1 ? ` fill-opacity="${r2(s.fillOpacity)}"` : "";
-  const shadow = s.shadow
-    ? ` filter="drop-shadow(${r2(0.8)}mm ${r2(0.8)}mm ${r2(0.9)}mm rgba(15,23,42,.35))"`
-    : "";
+  const shadow = s.shadow ? ` filter="drop-shadow(${r2(0.8)}mm ${r2(0.8)}mm ${r2(0.9)}mm rgba(15,23,42,.35))"` : "";
 
   return (
     `<svg class="elium-shape__svg" viewBox="0 0 ${r2(w)} ${r2(h)}" width="100%" height="100%" ` +
@@ -919,7 +1249,9 @@ export function dashFromOoxml(val: unknown): DashStyle {
 
 /** Une couleur hexadécimale sans dièse, comme l'attend `a:srgbClr/@val`. */
 function rgb(hex: string): string {
-  return String(hex ?? "").replace(/^#/, "").toUpperCase();
+  return String(hex ?? "")
+    .replace(/^#/, "")
+    .toUpperCase();
 }
 
 /**
@@ -941,7 +1273,11 @@ export function vmlPath(svgPath: string, widthMm: number, heightMm: number, coor
   let m: RegExpExecArray | null;
   while ((m = re.exec(svgPath))) {
     const cmd = m[1]!.toUpperCase();
-    const nums = (m[2] ?? "").trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    const nums = (m[2] ?? "")
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
     if (cmd === "Z") {
       out += "x";
       continue;
@@ -998,17 +1334,18 @@ export function shapeDml(
   /** Une couleur, refermée sur elle-même quand elle ne porte pas d'opacité. */
   const clr = (hex: string) =>
     alpha ? `<a:srgbClr val="${rgb(hex)}">${alpha}</a:srgbClr>` : `<a:srgbClr val="${rgb(hex)}"/>`;
-  const fillXml = def.line || !s.fill
-    ? "<a:noFill/>"
-    : s.gradient
-      ? `<a:gradFill rotWithShape="1"><a:gsLst>` +
-        `<a:gs pos="0">${clr(s.fill)}</a:gs>` +
-        `<a:gs pos="100000">${clr(s.fill2)}</a:gs></a:gsLst>` +
-        (s.gradient === "radial"
-          ? '<a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path>'
-          : `<a:lin ang="${Math.round(s.gradientAngle * 60000)}" scaled="0"/>`) +
-        `</a:gradFill>`
-      : `<a:solidFill>${clr(s.fill)}</a:solidFill>`;
+  const fillXml =
+    def.line || !s.fill
+      ? "<a:noFill/>"
+      : s.gradient
+        ? `<a:gradFill rotWithShape="1"><a:gsLst>` +
+          `<a:gs pos="0">${clr(s.fill)}</a:gs>` +
+          `<a:gs pos="100000">${clr(s.fill2)}</a:gs></a:gsLst>` +
+          (s.gradient === "radial"
+            ? '<a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path>'
+            : `<a:lin ang="${Math.round(s.gradientAngle * 60000)}" scaled="0"/>`) +
+          `</a:gradFill>`
+        : `<a:solidFill>${clr(s.fill)}</a:solidFill>`;
 
   const lnXml =
     s.strokeWidth > 0
@@ -1033,10 +1370,7 @@ export function shapeDml(
 
   const anchorAttr = s.vAlign === "top" ? "t" : s.vAlign === "bottom" ? "b" : "ctr";
   const insEmu = Math.round(mmToEmu(s.padMm));
-  const txbx =
-    def.line || !inner
-      ? ""
-      : `<wps:txbx><w:txbxContent>${inner}</w:txbxContent></wps:txbx>`;
+  const txbx = def.line || !inner ? "" : `<wps:txbx><w:txbxContent>${inner}</w:txbxContent></wps:txbx>`;
   const bodyPr =
     `<wps:bodyPr rot="0" wrap="square" lIns="${insEmu}" tIns="${insEmu}" rIns="${insEmu}" bIns="${insEmu}" ` +
     `anchor="${anchorAttr}" anchorCtr="0"><a:noAutofit/></wps:bodyPr>`;

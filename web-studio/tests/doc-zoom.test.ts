@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
-  MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS, clampZoom, fitPageZoom, fitWidthZoom, resolveZoom,
-  shouldAutoFit, stepZoom, zoomLabel,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_STEPS,
+  clampZoom,
+  fitPageZoom,
+  fitWidthZoom,
+  resolveZoom,
+  shouldAutoFit,
+  stepZoom,
+  zoomLabel,
 } from "../src/editor/zoom";
 
 // A4 at 96dpi: 210mm ≈ 794px, 297mm ≈ 1123px.

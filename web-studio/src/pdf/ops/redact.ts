@@ -30,7 +30,10 @@ function overlaps(a: Rect, b: Rect): number {
 }
 
 /** Decompose a show operator into character codes and their `TJ` adjustments. */
-function analyse(op: Op, font: FontMetrics | undefined): { codes: number[]; tj: Map<number, number>; parts: Operand[] } {
+function analyse(
+  op: Op,
+  font: FontMetrics | undefined,
+): { codes: number[]; tj: Map<number, number>; parts: Operand[] } {
   const codes: number[] = [];
   const tj = new Map<number, number>();
   const parts: Operand[] = [];
@@ -42,13 +45,18 @@ function analyse(op: Op, font: FontMetrics | undefined): { codes: number[]; tj: 
     const arr = op.args[op.args.length - 1];
     if (arr?.t === "arr") {
       for (const el of arr.v) {
-        if (el.t === "str" || el.t === "hex") { parts.push(el); push(el.v); }
-        else if (el.t === "num") tj.set(codes.length, (tj.get(codes.length) ?? 0) + el.v);
+        if (el.t === "str" || el.t === "hex") {
+          parts.push(el);
+          push(el.v);
+        } else if (el.t === "num") tj.set(codes.length, (tj.get(codes.length) ?? 0) + el.v);
       }
     }
   } else {
     const s = op.args[op.args.length - 1];
-    if (s && (s.t === "str" || s.t === "hex")) { parts.push(s); push(s.v); }
+    if (s && (s.t === "str" || s.t === "hex")) {
+      parts.push(s);
+      push(s.v);
+    }
   }
   return { codes, tj, parts };
 }
@@ -58,8 +66,10 @@ function encodeCodes(codes: readonly number[], font: FontMetrics | undefined): U
   const wide = (font?.codeBytes ?? 1) === 2;
   const out = new Uint8Array(codes.length * (wide ? 2 : 1));
   codes.forEach((c, i) => {
-    if (wide) { out[i * 2] = (c >> 8) & 0xff; out[i * 2 + 1] = c & 0xff; }
-    else out[i] = c & 0xff;
+    if (wide) {
+      out[i * 2] = (c >> 8) & 0xff;
+      out[i * 2 + 1] = c & 0xff;
+    } else out[i] = c & 0xff;
   });
   return out;
 }
@@ -95,8 +105,16 @@ export async function applyRedactions(
     if (!codes.length) continue;
 
     const boxes = glyphBoxes(
-      codes, font, show.state.size, show.state.charSpacing, show.state.wordSpacing,
-      show.state.hScale, show.state.rise, show.tm, show.ctm, tj,
+      codes,
+      font,
+      show.state.size,
+      show.state.charSpacing,
+      show.state.wordSpacing,
+      show.state.hScale,
+      show.state.rise,
+      show.tm,
+      show.ctm,
+      tj,
     );
 
     const doomed = new Set<number>();
@@ -104,7 +122,10 @@ export async function applyRedactions(
       const b = boundsOf(g.corners);
       if (b.w <= 0 && b.h <= 0) continue;
       for (const r of rects) {
-        if (overlaps(b, r) >= GLYPH_HIT) { doomed.add(g.index); break; }
+        if (overlaps(b, r) >= GLYPH_HIT) {
+          doomed.add(g.index);
+          break;
+        }
       }
     }
     if (!doomed.size) continue;
@@ -166,7 +187,10 @@ export async function applyRedactions(
   if (replacements.size) {
     const next: Op[] = [];
     for (let i = 0; i < ops.length; i++) {
-      if (!replacements.has(i)) { next.push(ops[i]); continue; }
+      if (!replacements.has(i)) {
+        next.push(ops[i]);
+        continue;
+      }
       const rep = replacements.get(i);
       if (rep) next.push(rep);
     }

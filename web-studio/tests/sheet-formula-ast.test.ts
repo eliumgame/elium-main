@@ -6,11 +6,11 @@ const calc = (cells: Record<string, string>) => createCalc((ref) => cells[ref]);
 describe("formula AST — precedence, parentheses, encapsulated errors", () => {
   it("keeps operator precedence and parentheses after the parse/eval split", () => {
     const c = calc({
-      A1: "=1+2*3-4",        // 1 + 6 - 4 = 3
-      A2: "=(1+2)*(3+4)",    // 21
-      A3: "=2*-3+10",        // -6 + 10 = 4 (unary minus inside multiplication)
-      A4: "=10/2/5",         // left-assoc: (10/2)/5 = 1
-      A5: "=2>1",            // boolean comparison sits below arithmetic
+      A1: "=1+2*3-4", // 1 + 6 - 4 = 3
+      A2: "=(1+2)*(3+4)", // 21
+      A3: "=2*-3+10", // -6 + 10 = 4 (unary minus inside multiplication)
+      A4: "=10/2/5", // left-assoc: (10/2)/5 = 1
+      A5: "=2>1", // boolean comparison sits below arithmetic
     });
     expect(c.valueOf("A1")).toBe(3);
     expect(c.valueOf("A2")).toBe(21);
@@ -52,7 +52,8 @@ describe("IFERROR", () => {
 
   it("catches errors raised inside a wrapped function call", () => {
     const c = calc({
-      A1: "Pomme", B1: "3",
+      A1: "Pomme",
+      B1: "3",
       C1: '=IFERROR(VLOOKUP("Inconnu";A1:B1;2;FALSE);"absent")',
     });
     expect(c.valueOf("C1")).toBe("absent");
@@ -67,7 +68,8 @@ describe("IFERROR", () => {
 describe("IFNA", () => {
   it("catches only #N/A and returns the fallback", () => {
     const c = calc({
-      A1: "Pomme", B1: "3",
+      A1: "Pomme",
+      B1: "3",
       C1: '=IFNA(VLOOKUP("Inconnu";A1:B1;2;FALSE);"n/a")',
     });
     expect(c.valueOf("C1")).toBe("n/a");

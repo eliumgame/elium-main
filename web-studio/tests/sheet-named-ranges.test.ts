@@ -19,9 +19,9 @@ describe("named ranges — applyNamedRanges (pure substitution)", () => {
 
   it("leaves function names, sheet qualifiers, addresses and string literals untouched", () => {
     expect(applyNamedRanges('SUM(A1:A2)&"TVA"', resolve)).toBe('SUM(A1:A2)&"TVA"'); // TVA inside a string
-    expect(applyNamedRanges("Feuille1!A1", resolve)).toBe("Feuille1!A1");            // sheet-qualified
-    expect(applyNamedRanges("$B$1+A1", resolve)).toBe("$B$1+A1");                    // bare addresses
-    expect(applyNamedRanges("'Mon onglet'!A1", resolve)).toBe("'Mon onglet'!A1");    // quoted sheet
+    expect(applyNamedRanges("Feuille1!A1", resolve)).toBe("Feuille1!A1"); // sheet-qualified
+    expect(applyNamedRanges("$B$1+A1", resolve)).toBe("$B$1+A1"); // bare addresses
+    expect(applyNamedRanges("'Mon onglet'!A1", resolve)).toBe("'Mon onglet'!A1"); // quoted sheet
   });
 
   it("is identity for unknown names", () => {
@@ -32,11 +32,15 @@ describe("named ranges — applyNamedRanges (pure substitution)", () => {
 describe("named ranges — createCalc integration", () => {
   it("resolves a named cell and a named range in formulas", () => {
     const cells: Record<string, string> = {
-      B1: "20", A1: "100", A2: "200", A3: "300",
-      C1: "=TVA/100*A1", C2: "=SUM(SALAIRES)",
+      B1: "20",
+      A1: "100",
+      A2: "200",
+      A3: "300",
+      C1: "=TVA/100*A1",
+      C2: "=SUM(SALAIRES)",
     };
     const calc = createCalc((ref) => cells[ref], undefined, resolve);
-    expect(calc.valueOf("C1")).toBe(20);  // 20/100*100
+    expect(calc.valueOf("C1")).toBe(20); // 20/100*100
     expect(calc.valueOf("C2")).toBe(600); // 100+200+300
   });
 

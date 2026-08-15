@@ -15,7 +15,10 @@ export type CellError = { error: string };
 export type CellValue = number | string | boolean | CellError;
 
 /** Dimensions of a range argument (row-major values); null for scalar args. */
-interface RangeShape { rows: number; cols: number; }
+interface RangeShape {
+  rows: number;
+  cols: number;
+}
 
 export function isError(v: CellValue): v is CellError {
   return typeof v === "object" && v !== null && "error" in v;
@@ -117,7 +120,16 @@ export function rewriteRefs(formula: string, map: RefMap, respectAnchors = false
     if (c === "'") {
       // 'Quoted sheet'!A1 — copy the quoted name verbatim, then its address
       let j = i + 1;
-      while (j < formula.length) { if (formula[j] === "'") { if (formula[j + 1] === "'") { j += 2; continue; } break; } j++; }
+      while (j < formula.length) {
+        if (formula[j] === "'") {
+          if (formula[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j++;
+      }
       out += formula.slice(i, Math.min(j + 1, formula.length)); // includes closing quote
       i = j + 1;
       const sp = formula.slice(i).match(/^\s*/)?.[0].length ?? 0;
@@ -135,7 +147,11 @@ export function rewriteRefs(formula: string, map: RefMap, respectAnchors = false
       const word = formula.slice(i, j);
       const after = formula.slice(j).match(/^\s*/)?.[0].length ?? 0;
       const nextCh = formula[j + after];
-      if (nextCh === "(") { out += word; i = j; continue; } // function name
+      if (nextCh === "(") {
+        out += word;
+        i = j;
+        continue;
+      } // function name
       if (nextCh === "!") {
         // `word` is a sheet name; copy it + spaces + ! then offset the address
         out += formula.slice(i, j + after + 1);
@@ -188,7 +204,18 @@ export function renameSheetRefs(formula: string, oldName: string, newName: strin
     if (c === "'") {
       let j = i + 1;
       let name = "";
-      while (j < n) { if (formula[j] === "'") { if (formula[j + 1] === "'") { name += "'"; j += 2; continue; } break; } name += formula[j]; j++; }
+      while (j < n) {
+        if (formula[j] === "'") {
+          if (formula[j + 1] === "'") {
+            name += "'";
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        name += formula[j];
+        j++;
+      }
       const closed = Math.min(j + 1, n); // index just past the closing quote
       out += followedByBang(closed) && name.toLowerCase() === oldLc ? replacement : formula.slice(i, closed);
       i = closed;
@@ -231,7 +258,16 @@ export function applyNamedRanges(formula: string, resolve: (name: string) => str
     }
     if (c === "'") {
       let j = i + 1;
-      while (j < n) { if (formula[j] === "'") { if (formula[j + 1] === "'") { j += 2; continue; } break; } j++; }
+      while (j < n) {
+        if (formula[j] === "'") {
+          if (formula[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j++;
+      }
       out += formula.slice(i, Math.min(j + 1, n));
       i = j + 1;
       continue;
@@ -243,7 +279,11 @@ export function applyNamedRanges(formula: string, resolve: (name: string) => str
       const after = formula.slice(j).match(/^\s*/)?.[0].length ?? 0;
       const nextCh = formula[j + after];
       const isAddr = /^\$?[A-Za-z]+\$?[0-9]+$/.test(word);
-      if (nextCh === "(" || nextCh === "!" || isAddr) { out += word; i = j; continue; }
+      if (nextCh === "(" || nextCh === "!" || isAddr) {
+        out += word;
+        i = j;
+        continue;
+      }
       const target = resolve(word.toUpperCase());
       out += target !== undefined ? target : word;
       i = j;
@@ -283,11 +323,17 @@ function tokenize(src: string): Tok[] {
   const isAlpha = (c: string) => /[A-Za-z_$]/.test(c); // $ allows absolute refs ($A$1)
   while (i < src.length) {
     const c = src[i];
-    if (c === " " || c === "\t") { i++; continue; }
+    if (c === " " || c === "\t") {
+      i++;
+      continue;
+    }
     if (isDigit(c) || (c === "." && isDigit(src[i + 1]))) {
       let j = i;
       let dots = 0;
-      while (j < src.length && (isDigit(src[j]) || src[j] === ".")) { if (src[j] === ".") dots++; j++; }
+      while (j < src.length && (isDigit(src[j]) || src[j] === ".")) {
+        if (src[j] === ".") dots++;
+        j++;
+      }
       if (dots > 1) throw new FormulaError("#NUM"); // malformed (e.g. 1.2.3) — don't silently truncate to 1.2
       toks.push({ t: "num", v: parseFloat(src.slice(i, j)) });
       i = j;
@@ -296,7 +342,10 @@ function tokenize(src: string): Tok[] {
     if (c === '"') {
       let j = i + 1;
       let s = "";
-      while (j < src.length && src[j] !== '"') { s += src[j]; j++; }
+      while (j < src.length && src[j] !== '"') {
+        s += src[j];
+        j++;
+      }
       if (j >= src.length) throw new FormulaError("#ERR");
       toks.push({ t: "str", v: s });
       i = j + 1;
@@ -308,7 +357,11 @@ function tokenize(src: string): Tok[] {
       let s = "";
       while (j < src.length) {
         if (src[j] === "'") {
-          if (src[j + 1] === "'") { s += "'"; j += 2; continue; }
+          if (src[j + 1] === "'") {
+            s += "'";
+            j += 2;
+            continue;
+          }
           break;
         }
         s += src[j];
@@ -328,9 +381,21 @@ function tokenize(src: string): Tok[] {
     }
     // multi-char operators
     const two = src.slice(i, i + 2);
-    if (two === "<=" || two === ">=" || two === "<>") { toks.push({ t: "op", v: two }); i += 2; continue; }
-    if (c === ";") { toks.push({ t: "op", v: "," }); i++; continue; } // FR argument separator
-    if ("+-*/(),:=<>!".includes(c)) { toks.push({ t: "op", v: c }); i++; continue; } // ! = sheet separator (Feuille2!A1)
+    if (two === "<=" || two === ">=" || two === "<>") {
+      toks.push({ t: "op", v: two });
+      i += 2;
+      continue;
+    }
+    if (c === ";") {
+      toks.push({ t: "op", v: "," });
+      i++;
+      continue;
+    } // FR argument separator
+    if ("+-*/(),:=<>!".includes(c)) {
+      toks.push({ t: "op", v: c });
+      i++;
+      continue;
+    } // ! = sheet separator (Feuille2!A1)
     // A reference that was invalidated by a deleted row/column is rewritten to
     // `#REF!` in the stored formula; encountering it makes the whole cell #REF.
     if (c === "#") throw new FormulaError("#REF");
@@ -468,7 +533,10 @@ class Parser {
       for (;;) {
         args.push(this.argument());
         const t = this.peek();
-        if (t && t.t === "op" && t.v === ",") { this.next(); continue; }
+        if (t && t.t === "op" && t.v === ",") {
+          this.next();
+          continue;
+        }
         break;
       }
     }
@@ -481,7 +549,12 @@ class Parser {
     const q = this.peek();
     let base = 0;
     let sheet: string | undefined;
-    if (q && (q.t === "sheet" || q.t === "id") && this.toks[this.p + 1]?.t === "op" && this.toks[this.p + 1]?.v === "!") {
+    if (
+      q &&
+      (q.t === "sheet" || q.t === "id") &&
+      this.toks[this.p + 1]?.t === "op" &&
+      this.toks[this.p + 1]?.v === "!"
+    ) {
       sheet = q.v;
       base = 2; // skip the qualifier (Sheet '!') when probing for a range
     }
@@ -489,9 +562,15 @@ class Parser {
     const colon = this.toks[this.p + base + 1];
     const end = this.toks[this.p + base + 2];
     if (
-      a && a.t === "id" && REF_RE.test(a.v.toUpperCase()) &&
-      colon && colon.t === "op" && colon.v === ":" &&
-      end && end.t === "id" && REF_RE.test(end.v.toUpperCase())
+      a &&
+      a.t === "id" &&
+      REF_RE.test(a.v.toUpperCase()) &&
+      colon &&
+      colon.t === "op" &&
+      colon.v === ":" &&
+      end &&
+      end.t === "id" &&
+      REF_RE.test(end.v.toUpperCase())
     ) {
       this.p += base + 3;
       return { k: "range", a: a.v.toUpperCase(), b: end.v.toUpperCase(), sheet };
@@ -530,10 +609,14 @@ function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | 
 
 function evaluate(node: Node, resolve: Resolve): CellValue {
   switch (node.k) {
-    case "num": return node.v;
-    case "str": return node.v;
-    case "bool": return node.v;
-    case "ref": return resolve(node.v, node.sheet ?? null);
+    case "num":
+      return node.v;
+    case "str":
+      return node.v;
+    case "bool":
+      return node.v;
+    case "ref":
+      return resolve(node.v, node.sheet ?? null);
     case "range": {
       // A range only reaches here when used in scalar position (e.g. as a
       // direct IFERROR argument): collapse to its first cell.
@@ -579,21 +662,30 @@ function evalBin(op: string, ln: Node, rn: Node, resolve: Resolve): CellValue {
     const a: number | string = numeric ? an : String(left);
     const b: number | string = numeric ? bn : String(right);
     switch (op) {
-      case "=": return a === b;
-      case "<>": return a !== b;
-      case "<": return a < b;
-      case ">": return a > b;
-      case "<=": return a <= b;
-      default: return a >= b; // ">="
+      case "=":
+        return a === b;
+      case "<>":
+        return a !== b;
+      case "<":
+        return a < b;
+      case ">":
+        return a > b;
+      case "<=":
+        return a <= b;
+      default:
+        return a >= b; // ">="
     }
   }
   // Arithmetic: both operands coerced to number (an error operand throws).
   const l = toNumber(evaluate(ln, resolve));
   const r = toNumber(evaluate(rn, resolve));
   switch (op) {
-    case "+": return l + r;
-    case "-": return l - r;
-    case "*": return l * r;
+    case "+":
+      return l + r;
+    case "-":
+      return l - r;
+    case "*":
+      return l * r;
     default: // "/"
       if (r === 0) throw new FormulaError("#DIV/0");
       return l / r;
@@ -678,7 +770,8 @@ function cmpVals(a: CellValue, b: CellValue): number {
   const an = typeof a === "number" ? a : Number(a);
   const bn = typeof b === "number" ? b : Number(b);
   if (a !== "" && b !== "" && !Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
-  const as = String(a).toLowerCase(), bs = String(b).toLowerCase();
+  const as = String(a).toLowerCase(),
+    bs = String(b).toLowerCase();
   return as < bs ? -1 : as > bs ? 1 : 0;
 }
 
@@ -688,8 +781,13 @@ function textFormat(v: CellValue | undefined, fmt: string): string {
   const n = typeof v === "number" ? v : Number(v);
   if (Number.isNaN(n)) return String(v);
   const f = fmt || "";
-  const decimals = (f.split(".")[1]?.match(/0/g)?.length) ?? 0;
-  if (/%/.test(f)) return new Intl.NumberFormat("fr-FR", { style: "percent", minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+  const decimals = f.split(".")[1]?.match(/0/g)?.length ?? 0;
+  if (/%/.test(f))
+    return new Intl.NumberFormat("fr-FR", {
+      style: "percent",
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(n);
   if (/[dmy]/i.test(f) && !/[#0]/.test(f)) {
     const d = serialDate(n);
     const p = (x: number) => String(x).padStart(2, "0");
@@ -699,26 +797,42 @@ function textFormat(v: CellValue | undefined, fmt: string): string {
       .replace(/mm/g, p(d.getUTCMonth() + 1))
       .replace(/dd/gi, p(d.getUTCDate()));
   }
-  return new Intl.NumberFormat("fr-FR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: /,|#,/.test(f) }).format(n);
+  return new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: /,|#,/.test(f),
+  }).format(n);
 }
 
 function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | null)[] = []): CellValue {
   switch (name) {
     // --- agrégats ---
-    case "SUM": return nums(args).reduce((a, b) => a + b, 0);
+    case "SUM":
+      return nums(args).reduce((a, b) => a + b, 0);
     case "AVERAGE":
     case "AVG": {
       const ns = nums(args);
       if (ns.length === 0) throw new FormulaError("#DIV/0");
       return ns.reduce((a, b) => a + b, 0) / ns.length;
     }
-    case "MIN": { const ns = nums(args); return ns.length ? Math.min(...ns) : 0; }
-    case "MAX": { const ns = nums(args); return ns.length ? Math.max(...ns) : 0; }
-    case "COUNT": return nums(args).length;
-    case "COUNTA": return flat(args).filter((v) => v !== "").length;
-    case "PRODUCT": return nums(args).reduce((a, b) => a * b, 1);
+    case "MIN": {
+      const ns = nums(args);
+      return ns.length ? Math.min(...ns) : 0;
+    }
+    case "MAX": {
+      const ns = nums(args);
+      return ns.length ? Math.max(...ns) : 0;
+    }
+    case "COUNT":
+      return nums(args).length;
+    case "COUNTA":
+      return flat(args).filter((v) => v !== "").length;
+    case "PRODUCT":
+      return nums(args).reduce((a, b) => a * b, 1);
     case "MEDIAN": {
-      const ns = nums(args).slice().sort((a, b) => a - b);
+      const ns = nums(args)
+        .slice()
+        .sort((a, b) => a - b);
       if (!ns.length) throw new FormulaError("#NUM");
       const m = Math.floor(ns.length / 2);
       return ns.length % 2 ? ns[m] : (ns[m - 1] + ns[m]) / 2;
@@ -749,7 +863,10 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       for (let i = 0; i < sum.length; i++) {
         let ok = true;
         for (let a = 1; a + 1 < args.length; a += 2) {
-          if (!matchCriterion((args[a] ?? [])[i], args[a + 1]?.[0] ?? "")) { ok = false; break; }
+          if (!matchCriterion((args[a] ?? [])[i], args[a + 1]?.[0] ?? "")) {
+            ok = false;
+            break;
+          }
         }
         if (!ok) continue;
         const v = sum[i];
@@ -764,7 +881,10 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       for (let i = 0; i < first.length; i++) {
         let ok = true;
         for (let a = 0; a + 1 < args.length; a += 2) {
-          if (!matchCriterion((args[a] ?? [])[i], args[a + 1]?.[0] ?? "")) { ok = false; break; }
+          if (!matchCriterion((args[a] ?? [])[i], args[a + 1]?.[0] ?? "")) {
+            ok = false;
+            break;
+          }
         }
         if (ok) count++;
       }
@@ -774,12 +894,16 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       const range = args[0] ?? [];
       const crit = args[1]?.[0] ?? "";
       const avg = args[2] ?? range;
-      let s = 0, c = 0;
+      let s = 0,
+        c = 0;
       range.forEach((v, i) => {
         if (!matchCriterion(v, crit)) return;
         const av = avg[i];
         const n = typeof av === "number" ? av : Number(av);
-        if (av !== "" && av != null && !Number.isNaN(n)) { s += n; c++; }
+        if (av !== "" && av != null && !Number.isNaN(n)) {
+          s += n;
+          c++;
+        }
       });
       if (c === 0) throw new FormulaError("#DIV/0");
       return s / c;
@@ -789,11 +913,15 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       throw new FormulaError("#N/A");
     }
     case "SUBSTITUTE": {
-      const t = s0(args, 0), old = s0(args, 1), rep = s0(args, 2);
+      const t = s0(args, 0),
+        old = s0(args, 1),
+        rep = s0(args, 2);
       if (old === "") return t;
       if (args[3]) {
         const nth = Math.trunc(n0(args, 3));
-        let from = 0, count = 0, idx = -1;
+        let from = 0,
+          count = 0,
+          idx = -1;
         while ((idx = t.indexOf(old, from)) >= 0) {
           if (++count === nth) return t.slice(0, idx) + rep + t.slice(idx + old.length);
           from = idx + old.length;
@@ -808,19 +936,24 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       return idx + 1;
     }
     case "SEARCH": {
-      const idx = s0(args, 1).toLowerCase().indexOf(s0(args, 0).toLowerCase(), args[2] ? Math.max(0, Math.trunc(n0(args, 2)) - 1) : 0);
+      const idx = s0(args, 1)
+        .toLowerCase()
+        .indexOf(s0(args, 0).toLowerCase(), args[2] ? Math.max(0, Math.trunc(n0(args, 2)) - 1) : 0);
       if (idx < 0) throw new FormulaError("#VALUE");
       return idx + 1;
     }
     case "REPLACE": {
-      const t = s0(args, 0), start = Math.max(0, Math.trunc(n0(args, 1)) - 1), count = Math.max(0, Math.trunc(n0(args, 2)));
+      const t = s0(args, 0),
+        start = Math.max(0, Math.trunc(n0(args, 1)) - 1),
+        count = Math.max(0, Math.trunc(n0(args, 2)));
       return t.slice(0, start) + s0(args, 3) + t.slice(start + count);
     }
     case "DATE": {
       const ms = Date.UTC(Math.trunc(n0(args, 0)), Math.trunc(n0(args, 1)) - 1, Math.trunc(n0(args, 2)));
       return Math.round((ms - DATE_EPOCH) / 86400000);
     }
-    case "TEXT": return textFormat(args[0]?.[0], s0(args, 1));
+    case "TEXT":
+      return textFormat(args[0]?.[0], s0(args, 1));
     // --- recherche ---
     case "VLOOKUP":
     case "HLOOKUP": {
@@ -835,7 +968,10 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       const lanes = isV ? rows : cols; // candidate rows (V) / columns (H)
       const keyAt = (l: number) => (isV ? table[l * cols] : table[l]); // first column / first row
       const resultAt = (l: number) => {
-        if (isV) { if (idx < 1 || idx > cols) throw new FormulaError("#REF"); return table[l * cols + (idx - 1)] ?? ""; }
+        if (isV) {
+          if (idx < 1 || idx > cols) throw new FormulaError("#REF");
+          return table[l * cols + (idx - 1)] ?? "";
+        }
         if (idx < 1 || idx > rows) throw new FormulaError("#REF");
         return table[(idx - 1) * cols + l] ?? "";
       };
@@ -844,7 +980,10 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
         throw new FormulaError("#N/A");
       }
       let best = -1;
-      for (let l = 0; l < lanes; l++) { if (cmpVals(keyAt(l), key) <= 0) best = l; else break; }
+      for (let l = 0; l < lanes; l++) {
+        if (cmpVals(keyAt(l), key) <= 0) best = l;
+        else break;
+      }
       if (best < 0) throw new FormulaError("#N/A");
       return resultAt(best);
     }
@@ -859,7 +998,8 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       let best = -1;
       for (let i = 0; i < range.length; i++) {
         const cmp = cmpVals(range[i], key);
-        if (type === 1 ? cmp <= 0 : cmp >= 0) best = i; else break;
+        if (type === 1 ? cmp <= 0 : cmp >= 0) best = i;
+        else break;
       }
       if (best < 0) throw new FormulaError("#N/A");
       return best + 1;
@@ -874,53 +1014,128 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
         if (i < 0 || i >= range.length) throw new FormulaError("#REF");
         return range[i] ?? "";
       }
-      const r = a1 - 1, c = (args[2] ? Math.trunc(n0(args, 2)) : 1) - 1;
+      const r = a1 - 1,
+        c = (args[2] ? Math.trunc(n0(args, 2)) : 1) - 1;
       if (r < 0 || r >= shape.rows || c < 0 || c >= shape.cols) throw new FormulaError("#REF");
       return range[r * shape.cols + c] ?? "";
     }
     // --- maths ---
-    case "ABS": return Math.abs(n0(args));
-    case "SQRT": { const x = n0(args); if (x < 0) throw new FormulaError("#NUM"); return Math.sqrt(x); }
-    case "POWER": return Math.pow(n0(args, 0), n0(args, 1));
-    case "EXP": return Math.exp(n0(args));
-    case "LN": { const x = n0(args); if (x <= 0) throw new FormulaError("#NUM"); return Math.log(x); }
-    case "LOG": { const x = n0(args); const base = args[1] ? n0(args, 1) : 10; if (x <= 0 || base <= 0) throw new FormulaError("#NUM"); return Math.log(x) / Math.log(base); }
-    case "MOD": { const b = n0(args, 1); if (b === 0) throw new FormulaError("#DIV/0"); return n0(args, 0) % b; }
-    case "INT": return Math.floor(n0(args));
-    case "SIGN": return Math.sign(n0(args));
-    case "CEILING": return Math.ceil(n0(args));
-    case "FLOOR": return Math.floor(n0(args));
-    case "ROUND": { const x = n0(args, 0); const d = args[1] ? n0(args, 1) : 0; const f = Math.pow(10, d); return Math.round(x * f) / f; }
-    case "ROUNDUP": { const x = n0(args, 0); const d = args[1] ? n0(args, 1) : 0; const f = Math.pow(10, d); return (Math.ceil(Math.abs(x) * f) / f) * (x < 0 ? -1 : 1); }
-    case "ROUNDDOWN": { const x = n0(args, 0); const d = args[1] ? n0(args, 1) : 0; const f = Math.pow(10, d); return Math.trunc(x * f) / f; }
+    case "ABS":
+      return Math.abs(n0(args));
+    case "SQRT": {
+      const x = n0(args);
+      if (x < 0) throw new FormulaError("#NUM");
+      return Math.sqrt(x);
+    }
+    case "POWER":
+      return Math.pow(n0(args, 0), n0(args, 1));
+    case "EXP":
+      return Math.exp(n0(args));
+    case "LN": {
+      const x = n0(args);
+      if (x <= 0) throw new FormulaError("#NUM");
+      return Math.log(x);
+    }
+    case "LOG": {
+      const x = n0(args);
+      const base = args[1] ? n0(args, 1) : 10;
+      if (x <= 0 || base <= 0) throw new FormulaError("#NUM");
+      return Math.log(x) / Math.log(base);
+    }
+    case "MOD": {
+      const b = n0(args, 1);
+      if (b === 0) throw new FormulaError("#DIV/0");
+      return n0(args, 0) % b;
+    }
+    case "INT":
+      return Math.floor(n0(args));
+    case "SIGN":
+      return Math.sign(n0(args));
+    case "CEILING":
+      return Math.ceil(n0(args));
+    case "FLOOR":
+      return Math.floor(n0(args));
+    case "ROUND": {
+      const x = n0(args, 0);
+      const d = args[1] ? n0(args, 1) : 0;
+      const f = Math.pow(10, d);
+      return Math.round(x * f) / f;
+    }
+    case "ROUNDUP": {
+      const x = n0(args, 0);
+      const d = args[1] ? n0(args, 1) : 0;
+      const f = Math.pow(10, d);
+      return (Math.ceil(Math.abs(x) * f) / f) * (x < 0 ? -1 : 1);
+    }
+    case "ROUNDDOWN": {
+      const x = n0(args, 0);
+      const d = args[1] ? n0(args, 1) : 0;
+      const f = Math.pow(10, d);
+      return Math.trunc(x * f) / f;
+    }
     // --- logique ---
-    case "IF": { const branch = truthy(args[0]?.[0]) ? args[1] : args[2]; return branch?.[0] ?? ""; }
-    case "AND": return flat(args).every(truthy);
-    case "OR": return flat(args).some(truthy);
-    case "NOT": return !truthy(args[0]?.[0]);
+    case "IF": {
+      const branch = truthy(args[0]?.[0]) ? args[1] : args[2];
+      return branch?.[0] ?? "";
+    }
+    case "AND":
+      return flat(args).every(truthy);
+    case "OR":
+      return flat(args).some(truthy);
+    case "NOT":
+      return !truthy(args[0]?.[0]);
     // --- texte ---
     case "CONCAT":
     case "CONCATENATE":
-      return flat(args).map((v) => (isError(v) ? v.error : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v))).join("");
-    case "LEN": return s0(args).length;
-    case "LEFT": { const t = s0(args); const n = args[1] ? Math.trunc(n0(args, 1)) : 1; return t.slice(0, Math.max(0, n)); }
-    case "RIGHT": { const t = s0(args); const n = args[1] ? Math.trunc(n0(args, 1)) : 1; return n <= 0 ? "" : t.slice(-n); }
-    case "MID": { const t = s0(args); const start = Math.max(0, Math.trunc(n0(args, 1)) - 1); const len = Math.max(0, Math.trunc(n0(args, 2))); return t.slice(start, start + len); }
-    case "UPPER": return s0(args).toUpperCase();
-    case "LOWER": return s0(args).toLowerCase();
-    case "TRIM": return s0(args).trim().replace(/\s+/g, " ");
+      return flat(args)
+        .map((v) => (isError(v) ? v.error : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v)))
+        .join("");
+    case "LEN":
+      return s0(args).length;
+    case "LEFT": {
+      const t = s0(args);
+      const n = args[1] ? Math.trunc(n0(args, 1)) : 1;
+      return t.slice(0, Math.max(0, n));
+    }
+    case "RIGHT": {
+      const t = s0(args);
+      const n = args[1] ? Math.trunc(n0(args, 1)) : 1;
+      return n <= 0 ? "" : t.slice(-n);
+    }
+    case "MID": {
+      const t = s0(args);
+      const start = Math.max(0, Math.trunc(n0(args, 1)) - 1);
+      const len = Math.max(0, Math.trunc(n0(args, 2)));
+      return t.slice(start, start + len);
+    }
+    case "UPPER":
+      return s0(args).toUpperCase();
+    case "LOWER":
+      return s0(args).toLowerCase();
+    case "TRIM":
+      return s0(args).trim().replace(/\s+/g, " ");
     // --- date ---
-    case "TODAY": return todaySerial();
-    case "NOW": return (Date.now() - DATE_EPOCH) / 86400000;
-    case "YEAR": return serialDate(n0(args)).getUTCFullYear();
-    case "MONTH": return serialDate(n0(args)).getUTCMonth() + 1;
-    case "DAY": return serialDate(n0(args)).getUTCDate();
+    case "TODAY":
+      return todaySerial();
+    case "NOW":
+      return (Date.now() - DATE_EPOCH) / 86400000;
+    case "YEAR":
+      return serialDate(n0(args)).getUTCFullYear();
+    case "MONTH":
+      return serialDate(n0(args)).getUTCMonth() + 1;
+    case "DAY":
+      return serialDate(n0(args)).getUTCDate();
     default:
       throw new FormulaError("#NAME");
   }
 }
 
-export interface FnDoc { name: string; sig: string; desc: string; cat: string; }
+export interface FnDoc {
+  name: string;
+  sig: string;
+  desc: string;
+  cat: string;
+}
 
 /** Catalogue de fonctions pour la bibliothèque de formules (insertion guidée). */
 export const FUNCTIONS: FnDoc[] = [

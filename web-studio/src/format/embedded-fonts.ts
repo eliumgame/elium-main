@@ -54,7 +54,10 @@ export function usedFontFamilies(doc: ProseMirrorNode): string[] {
     for (const mark of node.marks ?? []) {
       if (mark.type !== "textStyle") continue;
       const raw = mark.attrs?.fontFamily;
-      const first = String(raw ?? "").split(",")[0]?.replace(/['"]/g, "").trim();
+      const first = String(raw ?? "")
+        .split(",")[0]
+        ?.replace(/['"]/g, "")
+        .trim();
       if (first) out.add(first);
     }
     (node.content ?? []).forEach(walk);
@@ -79,9 +82,10 @@ export function fontResources(index: EliumResource[]): FontResourceMeta[] {
     .map((r) => ({
       id: r.id,
       family: r.name.replace(/\.[^.]+$/, ""),
-      ext: (r.name.toLowerCase().split(".").pop() ?? "ttf") in FONT_MIME
-        ? (r.name.toLowerCase().split(".").pop() as string)
-        : "ttf",
+      ext:
+        (r.name.toLowerCase().split(".").pop() ?? "ttf") in FONT_MIME
+          ? (r.name.toLowerCase().split(".").pop() as string)
+          : "ttf",
     }));
 }
 
@@ -146,8 +150,7 @@ export async function syncEmbeddedFonts(file: EliumFile, available: EmbeddableFo
   const others = file.resourceIndex.filter((r) => r.kind !== "font");
   const nextIndex = [...others, ...[...keep.values()].map((k) => k.res)];
   const sameFonts =
-    nextIndex.length === file.resourceIndex.length &&
-    nextIndex.every((r, i) => file.resourceIndex[i]?.id === r.id);
+    nextIndex.length === file.resourceIndex.length && nextIndex.every((r, i) => file.resourceIndex[i]?.id === r.id);
   if (sameFonts) return file;
 
   const resources = new Map(file.resources);
@@ -167,9 +170,7 @@ const cssEscapeFamily = (name: string) => name.replace(/["\\]/g, "");
  * self-contained stylesheet — used by the editor at open time and by the
  * standalone HTML/PDF export, where no separate file can be shipped.
  */
-export function fontFaceCss(
-  fonts: { family: string; ext: string; base64: string }[],
-): string {
+export function fontFaceCss(fonts: { family: string; ext: string; base64: string }[]): string {
   return fonts
     .map(
       (f) =>

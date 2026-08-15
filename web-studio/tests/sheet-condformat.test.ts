@@ -2,8 +2,15 @@ import { describe, it, expect } from "vitest";
 import { ruleMatches, colorScaleFill, describeRule, buildCondFormatter, toNum } from "../src/sheet/condformat";
 import type { CondRule } from "../src/sheet/model";
 
-const rule = (op: CondRule["op"], extra: Partial<CondRule> = {}): CondRule =>
-  ({ id: "r", c0: 0, r0: 0, c1: 2, r1: 2, op, ...extra });
+const rule = (op: CondRule["op"], extra: Partial<CondRule> = {}): CondRule => ({
+  id: "r",
+  c0: 0,
+  r0: 0,
+  c1: 2,
+  r1: 2,
+  op,
+  ...extra,
+});
 
 describe("conditional formatting — rule matching", () => {
   it("numeric comparisons", () => {
@@ -54,7 +61,11 @@ describe("conditional formatting — formatter & describe", () => {
   it("applies a fill where the rule matches, leaves others untouched", () => {
     const rules: CondRule[] = [rule("gt", { v1: "5", fill: "#ffeeaa" })];
     const values: Record<string, number> = { "0,0": 9, "1,0": 2 };
-    const fmt = buildCondFormatter(rules, (c, r) => values[`${c},${r}`] ?? "", (c, r) => String(values[`${c},${r}`] ?? ""));
+    const fmt = buildCondFormatter(
+      rules,
+      (c, r) => values[`${c},${r}`] ?? "",
+      (c, r) => String(values[`${c},${r}`] ?? ""),
+    );
     expect(fmt(0, 0).background).toBe("#ffeeaa");
     expect(fmt(1, 0).background).toBeUndefined();
     expect(fmt(5, 5)).toEqual({}); // outside range
@@ -63,7 +74,11 @@ describe("conditional formatting — formatter & describe", () => {
   it("colour scale paints across the range extremes", () => {
     const rules: CondRule[] = [rule("colorScale", { scale: { min: "#000000", max: "#ffffff" } })];
     const values: Record<string, number> = { "0,0": 0, "1,0": 100 };
-    const fmt = buildCondFormatter(rules, (c, r) => values[`${c},${r}`] ?? "", () => "");
+    const fmt = buildCondFormatter(
+      rules,
+      (c, r) => values[`${c},${r}`] ?? "",
+      () => "",
+    );
     expect(fmt(0, 0).background).toBe("#000000");
     expect(fmt(1, 0).background).toBe("#ffffff");
   });

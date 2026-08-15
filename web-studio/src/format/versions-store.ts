@@ -79,7 +79,13 @@ export async function deleteVersion(id: number): Promise<void> {
  * Append a snapshot (encrypted at rest when `secret` is provided), then prune
  * the oldest beyond MAX_VERSIONS.
  */
-export async function saveVersion(docKey: string, label: string, doc: ProseMirrorNode, ts: string, secret?: VaultSecret): Promise<void> {
+export async function saveVersion(
+  docKey: string,
+  label: string,
+  doc: ProseMirrorNode,
+  ts: string,
+  secret?: VaultSecret,
+): Promise<void> {
   const rec: DocumentVersion = hasVaultSecret(secret)
     ? { docKey, label, ts, enc: await encryptAtRest(doc, secret!) }
     : { docKey, label, ts, doc };

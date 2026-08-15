@@ -21,7 +21,10 @@ export class EncryptedYjsProvider {
   readonly awareness: Awareness;
   private readonly channel: EncryptedCollabChannel;
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
-  private readonly onAwUpdate: (changes: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => void;
+  private readonly onAwUpdate: (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown,
+  ) => void;
 
   constructor(
     api: DriveApi,

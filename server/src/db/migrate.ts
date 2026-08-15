@@ -101,10 +101,7 @@ async function runMigrations(): Promise<number> {
   for (const m of pending) {
     await withTx(async (client) => {
       await client.query(m.sql);
-      await client.query(
-        `INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)`,
-        [m.version, m.checksum],
-      );
+      await client.query(`INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)`, [m.version, m.checksum]);
     });
     console.log(`[migrate] applied ${m.version}`);
   }

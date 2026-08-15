@@ -40,10 +40,7 @@ export function emptyDocNode(): ProseMirrorNode {
   };
 }
 
-export function createDocumentModel(
-  doc?: ProseMirrorNode,
-  page?: Partial<PageSettings>,
-): EliumDocumentModel {
+export function createDocumentModel(doc?: ProseMirrorNode, page?: Partial<PageSettings>): EliumDocumentModel {
   return { schema: ELIUM_DOC_SCHEMA, page: { ...DEFAULT_PAGE, ...page }, doc: doc ?? emptyDocNode() };
 }
 

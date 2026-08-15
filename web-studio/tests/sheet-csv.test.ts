@@ -4,7 +4,10 @@ import { parseCsv, csvToWorkbook } from "../src/sheet/csv";
 describe("csv parser", () => {
   it("parses simple rows", () => {
     expect(parseCsv("a,b,c")).toEqual([["a", "b", "c"]]);
-    expect(parseCsv("a,b\n1,2")).toEqual([["a", "b"], ["1", "2"]]);
+    expect(parseCsv("a,b\n1,2")).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
   });
 
   it("handles quoted fields, commas and escaped quotes", () => {

@@ -9,7 +9,7 @@ export interface CellStyle {
   fill?: string; // background color (hex)
   fmt?: NumFmt;
   fontFamily?: string; // font name (shared registry)
-  fontSize?: number;   // px
+  fontSize?: number; // px
 }
 
 export type ChartType = "bar" | "line" | "pie";
@@ -17,18 +17,23 @@ export type ChartType = "bar" | "line" | "pie";
 export interface ChartSpec {
   id: string;
   type: ChartType;
-  c0: number; r0: number; c1: number; r1: number; // source range
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number; // source range
   title?: string;
 }
 
 export type CondOp =
-  | "gt" | "lt" | "ge" | "le" | "eq" | "ne" | "between"
-  | "contains" | "empty" | "notEmpty" | "colorScale";
+  "gt" | "lt" | "ge" | "le" | "eq" | "ne" | "between" | "contains" | "empty" | "notEmpty" | "colorScale";
 
 /** A conditional-formatting rule applied over a rectangular range. */
 export interface CondRule {
   id: string;
-  c0: number; r0: number; c1: number; r1: number; // target range (inclusive)
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number; // target range (inclusive)
   op: CondOp;
   v1?: string; // threshold / text / lower bound
   v2?: string; // upper bound (op="between")
@@ -45,17 +50,25 @@ export type ValidationOp = "between" | "notBetween" | "gt" | "lt" | "ge" | "le" 
 /** A data-validation rule over a rectangular range. Invalid entries are flagged (soft, non-blocking). */
 export interface DataValidation {
   id: string;
-  c0: number; r0: number; c1: number; r1: number; // target range (inclusive)
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number; // target range (inclusive)
   type: ValidationType;
-  op?: ValidationOp;     // number / textLength / date
-  v1?: string;           // threshold / lower bound
-  v2?: string;           // upper bound (between / notBetween)
-  list?: string[];       // allowed values (type = "list")
-  allowBlank?: boolean;  // empty cells pass (default true)
+  op?: ValidationOp; // number / textLength / date
+  v1?: string; // threshold / lower bound
+  v2?: string; // upper bound (between / notBetween)
+  list?: string[]; // allowed values (type = "list")
+  allowBlank?: boolean; // empty cells pass (default true)
 }
 
 /** A merged range: the top-left cell (c0,r0) spans the whole rectangle. */
-export interface MergeRect { c0: number; r0: number; c1: number; r1: number; }
+export interface MergeRect {
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number;
+}
 
 export interface SheetData {
   name: string;

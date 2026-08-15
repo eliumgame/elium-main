@@ -1,8 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_GRID, MAX_EVERY, MAX_SPACING_MM, MIN_SPACING_MM, activeGrid, drawnStepX, drawnStepY,
-  gridBackground, gridDraws, gridFromSettingsXml, gridSettingsXml, mmToTwips, normalizeGrid,
-  setActiveGrid, snapDrag, snapMm, snapPoint,
+  DEFAULT_GRID,
+  MAX_EVERY,
+  MAX_SPACING_MM,
+  MIN_SPACING_MM,
+  activeGrid,
+  drawnStepX,
+  drawnStepY,
+  gridBackground,
+  gridDraws,
+  gridFromSettingsXml,
+  gridSettingsXml,
+  mmToTwips,
+  normalizeGrid,
+  setActiveGrid,
+  snapDrag,
+  snapMm,
+  snapPoint,
 } from "../src/editor/grid";
 import { tableGridlinesCss } from "../src/editor/tableStyles";
 import { strFromU8, unzipSync } from "fflate";
@@ -24,7 +38,7 @@ describe("Quadrillage — modèle", () => {
   });
 
   it("borne « une ligne sur N » et accepte 0 (axe non tracé)", () => {
-    expect(normalizeGrid({ everyX: 0 }).everyX) .toBe(0);
+    expect(normalizeGrid({ everyX: 0 }).everyX).toBe(0);
     expect(normalizeGrid({ everyX: -4 }).everyX).toBe(0);
     expect(normalizeGrid({ everyY: 999 }).everyY).toBe(MAX_EVERY);
   });
@@ -143,8 +157,14 @@ describe("Quadrillage — OOXML", () => {
 
   it("relit une grille écrite par Word", () => {
     const src = gridSettingsXml({
-      visible: true, spacingXMm: 3, spacingYMm: 4, everyX: 2, everyY: 5,
-      fromMargins: false, originXMm: 8, originYMm: 9,
+      visible: true,
+      spacingXMm: 3,
+      spacingYMm: 4,
+      everyX: 2,
+      everyY: 5,
+      fromMargins: false,
+      originXMm: 8,
+      originYMm: 9,
     });
     const back = gridFromSettingsXml(src);
     expect(back.spacingXMm).toBeCloseTo(3, 1);

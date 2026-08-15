@@ -2,9 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Upload, Users } from "lucide-react";
 import { Modal, Button, Field, Alert, EmptyState } from "../ui/components";
-import {
-  mergeCombined, missingFields, parseDataSource, recordLabel, usedFields, type MergeData,
-} from "./mailmerge";
+import { mergeCombined, missingFields, parseDataSource, recordLabel, usedFields, type MergeData } from "./mailmerge";
 import { setMergePreview } from "./wordExtensions";
 import type { ProseMirrorNode } from "../format/types";
 
@@ -62,7 +60,7 @@ export default function MailMergeModal({
   /** Live preview: merge-field node views subscribe to this record. */
   const applyPreview = (on: boolean, index = current) => {
     setPreviewing(on);
-    setMergePreview(on ? data.records[index] ?? null : null);
+    setMergePreview(on ? (data.records[index] ?? null) : null);
   };
 
   const step = (delta: number) => {
@@ -109,7 +107,9 @@ export default function MailMergeModal({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={closeAndReset}>Fermer</Button>
+          <Button variant="ghost" onClick={closeAndReset}>
+            Fermer
+          </Button>
           <Button variant="outline" onClick={mergeOne} disabled={!record}>
             Fusionner cet enregistrement
           </Button>
@@ -144,7 +144,10 @@ export default function MailMergeModal({
               if (f) load(await f.text(), f.name);
             }}
           />
-          <Field label="…ou collez les données" hint="Première ligne = noms de colonnes. Virgule, point-virgule ou tabulation.">
+          <Field
+            label="…ou collez les données"
+            hint="Première ligne = noms de colonnes. Virgule, point-virgule ou tabulation."
+          >
             <textarea
               className="settings__input"
               rows={3}
@@ -206,7 +209,11 @@ export default function MailMergeModal({
                 >
                   <ChevronRight size={15} />
                 </Button>
-                <Button variant={previewing ? "primary" : "outline"} size="sm" onClick={() => applyPreview(!previewing)}>
+                <Button
+                  variant={previewing ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => applyPreview(!previewing)}
+                >
                   {previewing ? <EyeOff size={15} /> : <Eye size={15} />}
                   {previewing ? " Masquer l'aperçu" : " Voir dans le document"}
                 </Button>

@@ -49,7 +49,11 @@ export async function exportImages(
     const page = await engine.page(index);
     const canvas = await renderToCanvas(page, { scale, background: opts.format === "png" ? "#ffffff" : "#ffffff" });
     const blob = await canvasToBlob(canvas, mime, opts.quality);
-    out.push({ name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format}`, blob, page: index });
+    out.push({
+      name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format}`,
+      blob,
+      page: index,
+    });
     opts.onProgress?.(i + 1, indices.length);
   }
   return out;
@@ -172,17 +176,20 @@ export function toDocx(pages: readonly PageText[], title: string): Uint8Array {
   const paragraphs: string[] = [];
   pages.forEach((p, pageIndex) => {
     for (const b of p.blocks) {
-      const text = b.lines.map((l) => l.text).join(" ").trim();
+      const text = b.lines
+        .map((l) => l.text)
+        .join(" ")
+        .trim();
       if (!text) continue;
       const ratio = b.fontSize / bodySize;
       const style = ratio >= 1.7 ? "Heading1" : ratio >= 1.35 ? "Heading2" : ratio >= 1.15 ? "Heading3" : "";
       const half = Math.round(b.fontSize * 2);
       paragraphs.push(
         `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ""}` +
-        `<w:jc w:val="${align[b.align] ?? "left"}"/></w:pPr>` +
-        `<w:r><w:rPr><w:sz w:val="${half}"/><w:szCs w:val="${half}"/>` +
-        `${b.bold ? "<w:b/>" : ""}${b.italic ? "<w:i/>" : ""}</w:rPr>` +
-        `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`,
+          `<w:jc w:val="${align[b.align] ?? "left"}"/></w:pPr>` +
+          `<w:r><w:rPr><w:sz w:val="${half}"/><w:szCs w:val="${half}"/>` +
+          `${b.bold ? "<w:b/>" : ""}${b.italic ? "<w:i/>" : ""}</w:rPr>` +
+          `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`,
       );
     }
     if (pageIndex < pages.length - 1) {
@@ -199,13 +206,16 @@ export function toDocx(pages: readonly PageText[], title: string): Uint8Array {
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
 <dc:title>${escapeXml(title)}</dc:title><dc:creator>Elium PDF</dc:creator></cp:coreProperties>`;
 
-  return zipSync({
-    "[Content_Types].xml": strToU8(DOCX_CONTENT_TYPES),
-    "_rels/.rels": strToU8(DOCX_RELS),
-    "docProps/core.xml": strToU8(core),
-    "word/_rels/document.xml.rels": strToU8(DOCX_DOC_RELS),
-    "word/document.xml": strToU8(document),
-  }, { level: 6 });
+  return zipSync(
+    {
+      "[Content_Types].xml": strToU8(DOCX_CONTENT_TYPES),
+      "_rels/.rels": strToU8(DOCX_RELS),
+      "docProps/core.xml": strToU8(core),
+      "word/_rels/document.xml.rels": strToU8(DOCX_DOC_RELS),
+      "word/document.xml": strToU8(document),
+    },
+    { level: 6 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +250,10 @@ export function detectTables(pages: readonly PageText[], minRows = 3): DetectedT
       if (gaps >= 1) {
         const prev = group[group.length - 1];
         if (!prev || Math.abs(line.origin.y - prev.origin.y) < prev.fontSize * 3) group.push(line);
-        else { flush(); group = [line]; }
+        else {
+          flush();
+          group = [line];
+        }
       } else {
         flush();
       }
@@ -274,7 +287,9 @@ function columnEdges(lines: readonly TextLine[]): number[] {
     if (!merged.length || m - merged[merged.length - 1] > 6) merged.push(m);
   }
   // Keep the edges that show up on most rows.
-  return merged.filter((edge) => lines.filter((l) => l.runs.some((r) => Math.abs(r.rect.x - edge) < 6)).length >= lines.length * 0.5);
+  return merged.filter(
+    (edge) => lines.filter((l) => l.runs.some((r) => Math.abs(r.rect.x - edge) < 6)).length >= lines.length * 0.5,
+  );
 }
 
 function splitByColumns(line: TextLine, columns: readonly number[]): string[] {
@@ -282,7 +297,10 @@ function splitByColumns(line: TextLine, columns: readonly number[]): string[] {
   for (const run of line.runs) {
     let col = 0;
     for (let i = columns.length - 1; i >= 0; i--) {
-      if (run.rect.x + 3 >= columns[i]) { col = i; break; }
+      if (run.rect.x + 3 >= columns[i]) {
+        col = i;
+        break;
+      }
     }
     cells[col] += run.str;
   }

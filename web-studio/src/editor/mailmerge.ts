@@ -222,20 +222,14 @@ export interface MergeAllOptions extends MergeOptions {
 /** One merged document per selected record. */
 export function mergeAll(doc: ProseMirrorNode, data: MergeData, opts: MergeAllOptions = {}): ProseMirrorNode[] {
   const indices = opts.selected ?? data.records.map((_, i) => i);
-  return indices
-    .filter((i) => i >= 0 && i < data.records.length)
-    .map((i) => applyMerge(doc, data.records[i]!, opts));
+  return indices.filter((i) => i >= 0 && i < data.records.length).map((i) => applyMerge(doc, data.records[i]!, opts));
 }
 
 /**
  * All selected records merged into ONE document, each starting on a new page —
  * the usual "print the whole run" output.
  */
-export function mergeCombined(
-  doc: ProseMirrorNode,
-  data: MergeData,
-  opts: MergeAllOptions = {},
-): ProseMirrorNode {
+export function mergeCombined(doc: ProseMirrorNode, data: MergeData, opts: MergeAllOptions = {}): ProseMirrorNode {
   const docs = mergeAll(doc, data, opts);
   const content: ProseMirrorNode[] = [];
   docs.forEach((merged, i) => {

@@ -36,7 +36,9 @@ export default function ColumnsModal({ editor, onClose }: { editor: Editor; onCl
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
           {active && (
             <Button
               variant="outline"
@@ -66,7 +68,9 @@ export default function ColumnsModal({ editor, onClose }: { editor: Editor; onCl
                 title={n === 1 ? "Une colonne (retour au texte pleine largeur)" : `${n} colonnes`}
               >
                 <span className="col-preset__vis" aria-hidden="true">
-                  {Array.from({ length: n }, (_, k) => <i key={k} />)}
+                  {Array.from({ length: n }, (_, k) => (
+                    <i key={k} />
+                  ))}
                 </span>
                 <span className="col-preset__label">{n === 1 ? "Une" : n}</span>
               </button>

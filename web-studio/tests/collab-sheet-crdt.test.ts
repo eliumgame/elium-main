@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
-  cellText, cellsSnapshot, migrateCells, observeCells, setCellText, type YCells,
+  cellText,
+  cellsSnapshot,
+  migrateCells,
+  observeCells,
+  setCellText,
+  type YCells,
 } from "../src/drive-cloud/collab-sheet-crdt";
 
 /** Un document avec sa carte de cellules. */
@@ -154,7 +159,9 @@ describe("Tableur collaboratif — observation", () => {
     const { ydoc, cells } = makeDoc();
     ydoc.transact(() => setCellText(cells, "A1", "abc"));
     let calls = 0;
-    const stop = observeCells(cells, () => { calls += 1; });
+    const stop = observeCells(cells, () => {
+      calls += 1;
+    });
     // `observe` (peu profond) ne verrait pas ceci : la clé ne change pas.
     ydoc.transact(() => setCellText(cells, "A1", "abcd"));
     expect(calls).toBeGreaterThan(0);
@@ -167,7 +174,9 @@ describe("Tableur collaboratif — observation", () => {
   it("signale aussi l'ajout et la suppression de cellules", () => {
     const { ydoc, cells } = makeDoc();
     let calls = 0;
-    const stop = observeCells(cells, () => { calls += 1; });
+    const stop = observeCells(cells, () => {
+      calls += 1;
+    });
     ydoc.transact(() => setCellText(cells, "A1", "x"));
     expect(calls).toBe(1);
     ydoc.transact(() => setCellText(cells, "A1", ""));

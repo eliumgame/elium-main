@@ -42,10 +42,8 @@ export const NOTE_REF_STYLE: Record<NoteKind, string> = {
 };
 
 const CONTENT_TYPE: Record<NoteKind, string> = {
-  footnote:
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
-  endnote:
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
+  footnote: "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
+  endnote: "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
 };
 
 const REL_TYPE: Record<NoteKind, string> = {

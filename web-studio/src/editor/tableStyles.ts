@@ -13,13 +13,7 @@
  */
 
 /** Les styles proposés, dans l'esprit de la galerie de Word. */
-export type TableStyleId =
-  | "plain"
-  | "grid"
-  | "banded-rows"
-  | "banded-cols"
-  | "header-accent"
-  | "minimal";
+export type TableStyleId = "plain" | "grid" | "banded-rows" | "banded-cols" | "header-accent" | "minimal";
 
 export interface TableStyle {
   id: TableStyleId;
@@ -37,9 +31,30 @@ export interface TableStyle {
 export const TABLE_STYLES: readonly TableStyle[] = [
   { id: "plain", label: "Simple", band: "none", headerAccent: false, innerBorders: true, outerBorders: true },
   { id: "grid", label: "Grille", band: "none", headerAccent: true, innerBorders: true, outerBorders: true },
-  { id: "banded-rows", label: "Lignes alternées", band: "rows", headerAccent: true, innerBorders: false, outerBorders: true },
-  { id: "banded-cols", label: "Colonnes alternées", band: "cols", headerAccent: true, innerBorders: false, outerBorders: true },
-  { id: "header-accent", label: "En-tête accentué", band: "none", headerAccent: true, innerBorders: false, outerBorders: false },
+  {
+    id: "banded-rows",
+    label: "Lignes alternées",
+    band: "rows",
+    headerAccent: true,
+    innerBorders: false,
+    outerBorders: true,
+  },
+  {
+    id: "banded-cols",
+    label: "Colonnes alternées",
+    band: "cols",
+    headerAccent: true,
+    innerBorders: false,
+    outerBorders: true,
+  },
+  {
+    id: "header-accent",
+    label: "En-tête accentué",
+    band: "none",
+    headerAccent: true,
+    innerBorders: false,
+    outerBorders: false,
+  },
   { id: "minimal", label: "Minimal", band: "none", headerAccent: false, innerBorders: false, outerBorders: false },
 ];
 
@@ -178,10 +193,7 @@ export function tableStylesCss(scope = ".elium-prose"): string {
   // possible dans l'éditeur (cf. `rowClasses`). Deux générateurs séparés
   // finiraient par rendre l'écran et l'export différents.
   for (const s of TABLE_STYLES) {
-    const sels = [
-      `${scope} table[data-table-style="${s.id}"]`,
-      `${scope} table:has(> tbody > tr.tstyle-${s.id})`,
-    ];
+    const sels = [`${scope} table[data-table-style="${s.id}"]`, `${scope} table:has(> tbody > tr.tstyle-${s.id})`];
     for (const sel of sels) {
       if (!s.innerBorders) rules.push(`${sel} td,${sel} th{border-left:0;border-right:0}`);
       if (!s.outerBorders) {
@@ -233,7 +245,8 @@ export function tablePrXml(styleId: unknown, fit: unknown): string {
   const none = (side: string) => `<w:${side} w:val="none" w:sz="0" w:space="0" w:color="auto"/>`;
   const borders =
     "<w:tblBorders>" +
-    (s.outerBorders ? line("top") + line("left") + line("bottom") + line("right")
+    (s.outerBorders
+      ? line("top") + line("left") + line("bottom") + line("right")
       : none("top") + none("left") + none("bottom") + none("right")) +
     (s.innerBorders ? line("insideH") + line("insideV") : none("insideH") + none("insideV")) +
     "</w:tblBorders>";
@@ -294,12 +307,7 @@ export function parseLoose(value: string): number | null {
  * vrais nœuds ProseMirror avec toute leur mise en forme, au lieu de reconstruire
  * du texte et de tout perdre.
  */
-export function sortRowOrder(
-  rows: string[][],
-  colIndex: number,
-  dir: SortDir,
-  hasHeader: boolean,
-): number[] {
+export function sortRowOrder(rows: string[][], colIndex: number, dir: SortDir, hasHeader: boolean): number[] {
   // Borné au nombre de lignes : un en-tête déclaré sur un tableau vide ferait
   // sinon rendre l'indice 0, qui ne désigne aucune ligne.
   const start = Math.min(hasHeader ? 1 : 0, rows.length);

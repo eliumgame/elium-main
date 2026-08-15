@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { generateIdentity } from "../src/sign/keys";
 import {
-  encryptPrivateKey, decryptPrivateKey, buildKeyFile, parseKeyFile, keyFileName,
-  restoreFromKeyFile, identityFromPrivateHex, EliumKeyFileError,
+  encryptPrivateKey,
+  decryptPrivateKey,
+  buildKeyFile,
+  parseKeyFile,
+  keyFileName,
+  restoreFromKeyFile,
+  identityFromPrivateHex,
+  EliumKeyFileError,
 } from "../src/sign/identity-store";
 
 describe("identity backup (.eliumkey)", () => {
@@ -43,13 +49,20 @@ describe("identity backup (.eliumkey)", () => {
     expect(() => parseKeyFile(JSON.stringify({ format: "autre" }))).toThrow(EliumKeyFileError);
     expect(() => parseKeyFile(JSON.stringify({ format: "elium-key", version: 99 }))).toThrow(EliumKeyFileError);
     expect(() =>
-      parseKeyFile(JSON.stringify({ format: "elium-key", version: 1, publicKeyHex: "zz", fingerprint: "ab", enc: "cd" })),
+      parseKeyFile(
+        JSON.stringify({ format: "elium-key", version: 1, publicKeyHex: "zz", fingerprint: "ab", enc: "cd" }),
+      ),
     ).toThrow(EliumKeyFileError);
     expect(() =>
-      parseKeyFile(JSON.stringify({
-        format: "elium-key", version: 1,
-        publicKeyHex: "ab".repeat(32), fingerprint: "cd".repeat(32), enc: "abc", // longueur impaire
-      })),
+      parseKeyFile(
+        JSON.stringify({
+          format: "elium-key",
+          version: 1,
+          publicKeyHex: "ab".repeat(32),
+          fingerprint: "cd".repeat(32),
+          enc: "abc", // longueur impaire
+        }),
+      ),
     ).toThrow(EliumKeyFileError);
   });
 

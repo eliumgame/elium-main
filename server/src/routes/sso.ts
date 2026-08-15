@@ -82,7 +82,10 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     const b = ssoConfigSchema.parse(req.body);
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "org.settings.manage");
-    await query(`UPDATE organizations SET sso_config = $2, updated_at = now() WHERE id = $1`, [orgId, JSON.stringify(b)]);
+    await query(`UPDATE organizations SET sso_config = $2, updated_at = now() WHERE id = $1`, [
+      orgId,
+      JSON.stringify(b),
+    ]);
     await audit(orgId, actor.id, "org.sso.configure", "org", orgId, { issuer: b.issuer }, req.ip);
     return { ok: true };
   });
@@ -91,7 +94,10 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   app.get("/orgs/:orgId/sso", { preHandler: authenticate }, async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "org.settings.view");
-    const row = await queryOne<{ sso_config: OidcConfig | null }>(`SELECT sso_config FROM organizations WHERE id = $1`, [orgId]);
+    const row = await queryOne<{ sso_config: OidcConfig | null }>(
+      `SELECT sso_config FROM organizations WHERE id = $1`,
+      [orgId],
+    );
     if (!row) throw notFound();
     return { sso: row.sso_config ?? null };
   });
@@ -122,10 +128,9 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   app.get("/orgs/:orgId/scim-config", { preHandler: authenticate }, async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "org.settings.view");
-    const row = await queryOne<{ settings: { scim?: { defaultRoleKey?: string; groupRoleMap?: Record<string, string> } } | null }>(
-      `SELECT settings FROM organizations WHERE id = $1`,
-      [orgId],
-    );
+    const row = await queryOne<{
+      settings: { scim?: { defaultRoleKey?: string; groupRoleMap?: Record<string, string> } } | null;
+    }>(`SELECT settings FROM organizations WHERE id = $1`, [orgId]);
     if (!row) throw notFound();
     const scim = row.settings?.scim ?? {};
     return { defaultRoleKey: scim.defaultRoleKey ?? null, groupRoleMap: scim.groupRoleMap ?? {} };
@@ -145,7 +150,10 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
 
     // Every referenced role key must exist in this org.
     const keys = [b.defaultRoleKey, ...Object.values(b.groupRoleMap ?? {})];
-    const known = await query<{ key: string }>(`SELECT key FROM roles WHERE org_id = $1 AND key = ANY($2::text[])`, [orgId, keys]);
+    const known = await query<{ key: string }>(`SELECT key FROM roles WHERE org_id = $1 AND key = ANY($2::text[])`, [
+      orgId,
+      keys,
+    ]);
     const knownSet = new Set(known.map((r) => r.key));
     const missing = [...new Set(keys.filter((k) => !knownSet.has(k)))];
     if (missing.length) throw badRequest(`Rôle(s) inconnu(s) : ${missing.join(", ")}.`);
@@ -159,7 +167,15 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     );
     // Re-apply group→role mapping to existing SCIM-group members.
     await resyncOrgGroupRoles(orgId);
-    await audit(orgId, actor.id, "org.scim.config", "org", orgId, { defaultRoleKey: b.defaultRoleKey, groups: Object.keys(scim.groupRoleMap).length }, req.ip);
+    await audit(
+      orgId,
+      actor.id,
+      "org.scim.config",
+      "org",
+      orgId,
+      { defaultRoleKey: b.defaultRoleKey, groups: Object.keys(scim.groupRoleMap).length },
+      req.ip,
+    );
     return { ok: true };
   });
 
@@ -168,7 +184,10 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
   // non-trivial signature verification (RS/ES/EdDSA against a configured JWKS).
   app.post("/auth/sso/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
     const b = z.object({ orgId: z.string().uuid(), idToken: z.string().min(10).max(8192) }).parse(req.body);
-    const org = await queryOne<{ sso_config: OidcConfig | null }>(`SELECT sso_config FROM organizations WHERE id = $1`, [b.orgId]);
+    const org = await queryOne<{ sso_config: OidcConfig | null }>(
+      `SELECT sso_config FROM organizations WHERE id = $1`,
+      [b.orgId],
+    );
     if (!org?.sso_config) throw badRequest("SSO non configuré pour cette organisation.");
 
     let claims;
@@ -183,7 +202,15 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     // attaquant à un compte existant (prise de contrôle). On exige donc que le
     // fournisseur ait vérifié l'e-mail (`email_verified: true`).
     if (!claims.emailVerified) {
-      await audit(b.orgId, null, "auth.sso.denied", "user", null, { email: claims.email, reason: "email_unverified" }, req.ip);
+      await audit(
+        b.orgId,
+        null,
+        "auth.sso.denied",
+        "user",
+        null,
+        { email: claims.email, reason: "email_unverified" },
+        req.ip,
+      );
       throw unauthorized("E-mail non vérifié par le fournisseur d'identité.");
     }
 

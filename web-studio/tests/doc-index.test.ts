@@ -38,14 +38,26 @@ describe("Index — regroupement alphabétique", () => {
   });
 
   it("classe les accents avec la lettre de base", () => {
-    const groups = buildIndex(liveDoc([{ term: "Élision", pos: 1 }, { term: "Effacement", pos: 2 }]), () => 1);
+    const groups = buildIndex(
+      liveDoc([
+        { term: "Élision", pos: 1 },
+        { term: "Effacement", pos: 2 },
+      ]),
+      () => 1,
+    );
     expect(groups).toHaveLength(1);
     expect(groups[0]!.letter).toBe("E");
     expect(groups[0]!.entries.map((e) => e.term)).toEqual(["Effacement", "Élision"]);
   });
 
   it("range chiffres et symboles dans un groupe # placé en dernier", () => {
-    const groups = buildIndex(liveDoc([{ term: "256 bits", pos: 1 }, { term: "Clé", pos: 2 }]), () => 1);
+    const groups = buildIndex(
+      liveDoc([
+        { term: "256 bits", pos: 1 },
+        { term: "Clé", pos: 2 },
+      ]),
+      () => 1,
+    );
     expect(groups.map((g) => g.letter)).toEqual(["C", "#"]);
   });
 
@@ -64,7 +76,13 @@ describe("Index — regroupement alphabétique", () => {
   });
 
   it("ignore les entrées sans terme", () => {
-    const groups = buildIndex(liveDoc([{ term: "   ", pos: 1 }, { term: "Réel", pos: 2 }]), () => 1);
+    const groups = buildIndex(
+      liveDoc([
+        { term: "   ", pos: 1 },
+        { term: "Réel", pos: 2 },
+      ]),
+      () => 1,
+    );
     expect(groups).toHaveLength(1);
     expect(groups[0]!.entries[0]!.term).toBe("Réel");
   });
@@ -126,8 +144,10 @@ describe("Index — sous-entrées", () => {
 
 describe("Index — liste des termes existants", () => {
   it("dédoublonne, trie et ignore les termes vides", () => {
-    expect(indexTerms(jsonDoc([{ term: "Sceau" }, { term: "sceau" }, { term: "Archive" }, { term: " " }])))
-      .toEqual(["Archive", "Sceau"]);
+    expect(indexTerms(jsonDoc([{ term: "Sceau" }, { term: "sceau" }, { term: "Archive" }, { term: " " }]))).toEqual([
+      "Archive",
+      "Sceau",
+    ]);
   });
 
   it("retourne une liste vide pour un document sans marque", () => {

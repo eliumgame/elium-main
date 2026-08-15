@@ -111,7 +111,9 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
           onClose={() => settle(null)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => settle(null)}>Annuler</Button>
+              <Button variant="ghost" onClick={() => settle(null)}>
+                Annuler
+              </Button>
               <Button variant="primary" onClick={() => settle(value)}>
                 {request.opts.confirmLabel ?? "Valider"}
               </Button>

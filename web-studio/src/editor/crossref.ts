@@ -139,7 +139,10 @@ function scanTargets(walk: Walker): RefTarget[] {
         break;
       }
       case "caption": {
-        const label = String(attrs.label ?? "Figure").replace(/\s+/g, " ").trim() || "Figure";
+        const label =
+          String(attrs.label ?? "Figure")
+            .replace(/\s+/g, " ")
+            .trim() || "Figure";
         const n = (captionCounters.get(label) ?? 0) + 1;
         captionCounters.set(label, n);
         const caption = shorten(text);
@@ -195,7 +198,12 @@ function scanTargets(walk: Walker): RefTarget[] {
 
 /** Minimal shape of a ProseMirror node, so this module needs no TipTap import. */
 interface PMLike {
-  descendants(fn: (node: { type: { name: string }; attrs: Record<string, unknown>; textContent: string }, pos: number) => boolean | void): void;
+  descendants(
+    fn: (
+      node: { type: { name: string }; attrs: Record<string, unknown>; textContent: string },
+      pos: number,
+    ) => boolean | void,
+  ): void;
 }
 
 /** Collect referenceable targets from a live ProseMirror document (real positions). */

@@ -88,7 +88,8 @@ export function polygonArea(points: readonly Pt[]): number {
 
 export function pathLength(points: readonly Pt[], close = false): number {
   let sum = 0;
-  for (let i = 1; i < points.length; i++) sum += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  for (let i = 1; i < points.length; i++)
+    sum += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
   if (close && points.length > 2) {
     const a = points[points.length - 1];
     const b = points[0];
@@ -122,7 +123,9 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
         const [tl, tr, br, bl] = q.map(frame.toPdf);
         if (a.kind === "underline") {
           const y = bl.y + (tl.y - bl.y) * 0.08;
-          p.moveTo({ x: bl.x, y }).lineTo({ x: br.x, y: y + (tr.y - br.y) * 0.08 }).stroke();
+          p.moveTo({ x: bl.x, y })
+            .lineTo({ x: br.x, y: y + (tr.y - br.y) * 0.08 })
+            .stroke();
         } else if (a.kind === "strikeout") {
           const y0 = (tl.y + bl.y) / 2;
           const y1 = (tr.y + br.y) / 2;
@@ -149,18 +152,29 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
   switch (a.kind) {
     case "whiteout": {
       const r = frame.rectToPdf(a.rect);
-      p.alpha({ fillAlpha: alpha }).fillColor(fill ?? { r: 1, g: 1, b: 1 }).rect(r.x, r.y, r.w, r.h).fill();
+      p.alpha({ fillAlpha: alpha })
+        .fillColor(fill ?? { r: 1, g: 1, b: 1 })
+        .rect(r.x, r.y, r.w, r.h)
+        .fill();
       break;
     }
     case "redact": {
       const r = frame.rectToPdf(a.rect);
-      p.alpha({ fillAlpha: 1 }).fillColor(hexToRgb(a.redactFill ?? "#000000")).rect(r.x, r.y, r.w, r.h).fill();
+      p.alpha({ fillAlpha: 1 })
+        .fillColor(hexToRgb(a.redactFill ?? "#000000"))
+        .rect(r.x, r.y, r.w, r.h)
+        .fill();
       if (a.redactText) {
         const { font, unicode } = await ctx.fonts.standard(true);
         const label = sanitiseForFont(a.redactText, unicode);
         const size = Math.min(10, Math.max(5, r.h * 0.55));
         const w = measure(font, label, size);
-        p.fillColor({ r: 1, g: 1, b: 1 }).text(font, size, { x: r.x + (r.w - w) / 2, y: r.y + (r.h - size * 0.7) / 2 }, label);
+        p.fillColor({ r: 1, g: 1, b: 1 }).text(
+          font,
+          size,
+          { x: r.x + (r.w - w) / 2, y: r.y + (r.h - size * 0.7) / 2 },
+          label,
+        );
       }
       break;
     }
@@ -170,7 +184,10 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       p.alpha({ fillAlpha: alpha, strokeAlpha: alpha }).dash(dashOf(a)).lineWidth(a.strokeWidth);
       if (a.borderStyle === "cloudy") {
         const pts = [
-          { x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h },
+          { x: r.x, y: r.y },
+          { x: r.x + r.w, y: r.y },
+          { x: r.x + r.w, y: r.y + r.h },
+          { x: r.x, y: r.y + r.h },
         ];
         p.cloudyPath(pts, Math.max(4, a.strokeWidth * 3));
       } else {
@@ -219,12 +236,19 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       break;
     }
     case "ink": {
-      p.alpha({ strokeAlpha: alpha }).strokeColor(stroke).lineWidth(Math.max(0.4, a.strokeWidth)).lineCap(1).lineJoin(1).dash(dashOf(a));
+      p.alpha({ strokeAlpha: alpha })
+        .strokeColor(stroke)
+        .lineWidth(Math.max(0.4, a.strokeWidth))
+        .lineCap(1)
+        .lineJoin(1)
+        .dash(dashOf(a));
       for (const path of a.paths ?? []) {
         if (path.length < 2) {
           // A dot: draw a filled disc so a tap still leaves a mark.
           const c = frame.toPdf(path[0] ?? { x: a.rect.x, y: a.rect.y });
-          p.fillColor(stroke).ellipse(c.x, c.y, a.strokeWidth / 2, a.strokeWidth / 2).fill();
+          p.fillColor(stroke)
+            .ellipse(c.x, c.y, a.strokeWidth / 2, a.strokeWidth / 2)
+            .fill();
           continue;
         }
         p.smoothPath(path.map(frame.toPdf)).stroke();
@@ -239,8 +263,12 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
         { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h },
       ];
       const [s, e] = [frame.toPdf(raw[0]), frame.toPdf(raw[raw.length - 1])];
-      p.alpha({ strokeAlpha: alpha, fillAlpha: alpha }).strokeColor(stroke).fillColor(stroke)
-        .lineWidth(a.strokeWidth).lineCap(0).dash(dashOf(a));
+      p.alpha({ strokeAlpha: alpha, fillAlpha: alpha })
+        .strokeColor(stroke)
+        .fillColor(stroke)
+        .lineWidth(a.strokeWidth)
+        .lineCap(0)
+        .dash(dashOf(a));
       p.moveTo(s).lineTo(e).stroke();
       p.dash(null);
       paintEndings(p, a, [s, e], stroke);
@@ -260,13 +288,22 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
     case "callout": {
       if (a.kind === "callout" && a.callout?.length) {
         const pts = a.callout.map(frame.toPdf);
-        p.alpha({ strokeAlpha: alpha, fillAlpha: alpha }).strokeColor(stroke).fillColor(stroke)
-          .lineWidth(Math.max(1, a.strokeWidth)).lineCap(0);
+        p.alpha({ strokeAlpha: alpha, fillAlpha: alpha })
+          .strokeColor(stroke)
+          .fillColor(stroke)
+          .lineWidth(Math.max(1, a.strokeWidth))
+          .lineCap(0);
         p.polyline(pts).stroke();
         if (pts.length >= 2) {
           const tip = pts[0];
           const next = pts[1];
-          p.lineEnding(a.lineEnd ?? "arrow", tip, Math.atan2(tip.y - next.y, tip.x - next.x), a.strokeWidth || 1.5, true);
+          p.lineEnding(
+            a.lineEnd ?? "arrow",
+            tip,
+            Math.atan2(tip.y - next.y, tip.x - next.x),
+            a.strokeWidth || 1.5,
+            true,
+          );
         }
       }
       await paintTextBox(p, a, ctx);
@@ -295,7 +332,12 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
   p.restore();
 }
 
-function paintFillStroke(p: Painter, fill: { r: number; g: number; b: number } | null, stroke: { r: number; g: number; b: number }, width: number): void {
+function paintFillStroke(
+  p: Painter,
+  fill: { r: number; g: number; b: number } | null,
+  stroke: { r: number; g: number; b: number },
+  width: number,
+): void {
   if (fill && width > 0) p.fillColor(fill).strokeColor(stroke).fillStroke();
   else if (fill) p.fillColor(fill).fill();
   else if (width > 0) p.strokeColor(stroke).stroke();
@@ -359,7 +401,9 @@ async function paintNoteIcon(p: Painter, a: Annot, ctx: PaintContext): Promise<v
   p.strokeColor({ r: 0.15, g: 0.15, b: 0.15 }).lineWidth(0.6);
   for (let i = 0; i < 3; i++) {
     const y = r.y + s * (0.72 - i * 0.16);
-    p.moveTo({ x: r.x + s * 0.16, y }).lineTo({ x: r.x + s * (i === 2 ? 0.62 : 0.84), y }).stroke();
+    p.moveTo({ x: r.x + s * 0.16, y })
+      .lineTo({ x: r.x + s * (i === 2 ? 0.62 : 0.84), y })
+      .stroke();
   }
   p.restore();
 }
@@ -398,15 +442,14 @@ async function paintTextBox(p: Painter, a: Annot, ctx: PaintContext): Promise<vo
   lines.forEach((line, i) => {
     if (!line) return;
     const w = measure(font, line, size);
-    const x =
-      a.align === "center" ? r.x + (r.w - w) / 2
-        : a.align === "right" ? r.x + r.w - pad - w
-          : r.x + pad;
+    const x = a.align === "center" ? r.x + (r.w - w) / 2 : a.align === "right" ? r.x + r.w - pad - w : r.x + pad;
     const y = top - i * lineH;
     p.text(font, size, { x, y }, line);
     if (a.underline) {
       p.strokeColor(hexToRgb(a.color)).lineWidth(Math.max(0.4, size / 16));
-      p.moveTo({ x, y: y - size * 0.13 }).lineTo({ x: x + w, y: y - size * 0.13 }).stroke();
+      p.moveTo({ x, y: y - size * 0.13 })
+        .lineTo({ x: x + w, y: y - size * 0.13 })
+        .stroke();
     }
   });
 }
@@ -419,14 +462,21 @@ const STAMP_TONES: Record<string, { fg: string; bg: string }> = {
   neutral: { fg: "#334155", bg: "#f1f5f9" },
 };
 
-async function paintGeneratedStamp(p: Painter, a: Annot, ctx: PaintContext, r: { x: number; y: number; w: number; h: number }): Promise<void> {
+async function paintGeneratedStamp(
+  p: Painter,
+  a: Annot,
+  ctx: PaintContext,
+  r: { x: number; y: number; w: number; h: number },
+): Promise<void> {
   const tone = STAMP_TONES[a.stampTone ?? "red"] ?? STAMP_TONES.red;
   const { font, unicode } = await ctx.fonts.standard(true);
   const label = sanitiseForFont(a.stampLabel ?? "", unicode).toUpperCase();
   const fg = hexToRgb(tone.fg);
   p.alpha({ fillAlpha: (a.opacity ?? 1) * 0.14 }).fillColor(hexToRgb(tone.bg));
   p.roundRect(r.x, r.y, r.w, r.h, Math.min(6, r.h / 4)).fill();
-  p.alpha({ strokeAlpha: a.opacity ?? 1, fillAlpha: a.opacity ?? 1 }).strokeColor(fg).lineWidth(Math.max(1.2, r.h * 0.05));
+  p.alpha({ strokeAlpha: a.opacity ?? 1, fillAlpha: a.opacity ?? 1 })
+    .strokeColor(fg)
+    .lineWidth(Math.max(1.2, r.h * 0.05));
   p.roundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, Math.min(6, r.h / 4)).stroke();
   let size = r.h * 0.5;
   if (label) {
@@ -449,7 +499,9 @@ export async function flattenAnnots(page: PDFPage, annots: readonly Annot[], ctx
   for (const a of annots) {
     try {
       await paintAnnot(p, a, ctx);
-    } catch { /* one bad annotation must not sink the export */ }
+    } catch {
+      /* one bad annotation must not sink the export */
+    }
   }
   if (p.isEmpty) return;
   const stream = ctx.doc.context.stream(`q\n${p.toString()}\nQ\n`);
@@ -492,8 +544,14 @@ export function mustFlatten(kind: Annot["kind"]): boolean {
 }
 
 const LE_NAME: Record<string, string> = {
-  none: "None", arrow: "ClosedArrow", openArrow: "OpenArrow", circle: "Circle",
-  square: "Square", diamond: "Diamond", butt: "Butt", slash: "Slash",
+  none: "None",
+  arrow: "ClosedArrow",
+  openArrow: "OpenArrow",
+  circle: "Circle",
+  square: "Square",
+  diamond: "Diamond",
+  butt: "Butt",
+  slash: "Slash",
 };
 
 /** `D:YYYYMMDDHHmmSS+HH'mm'` — the PDF date syntax. */
@@ -534,9 +592,15 @@ export async function writeAnnots(
   const byId = new Map<string, PDFRef>();
 
   for (const a of annots) {
-    if (mustFlatten(a.kind)) { flattenLater.push(a); continue; }
+    if (mustFlatten(a.kind)) {
+      flattenLater.push(a);
+      continue;
+    }
     const subtype = SUBTYPE[a.kind];
-    if (!subtype) { flattenLater.push(a); continue; }
+    if (!subtype) {
+      flattenLater.push(a);
+      continue;
+    }
     try {
       const ref = await writeOne(page, a, ctx, opts, subtype);
       if (ref) byId.set(a.id, ref);
@@ -567,7 +631,9 @@ export async function writeAnnots(
           M: PDFString.of(pdfDate(reply.createdAt)),
         });
         page.node.addAnnot(ctx.doc.context.register(dict));
-      } catch { /* skip a malformed reply */ }
+      } catch {
+        /* skip a malformed reply */
+      }
     }
   }
 
@@ -617,10 +683,12 @@ async function writeOne(
   }
 
   if (a.kind === "ink" && a.paths?.length) {
-    entries.InkList = a.paths.map((path) => path.flatMap((pt) => {
-      const q = frame.toPdf(pt);
-      return [round(q.x), round(q.y)];
-    }));
+    entries.InkList = a.paths.map((path) =>
+      path.flatMap((pt) => {
+        const q = frame.toPdf(pt);
+        return [round(q.x), round(q.y)];
+      }),
+    );
     entries.BS = { W: round(a.strokeWidth, 2), S: a.borderStyle === "dashed" ? "D" : "S" };
   }
 
@@ -650,7 +718,13 @@ async function writeOne(
     }
   }
 
-  if (a.kind === "polygon" || a.kind === "polyline" || a.kind === "cloud" || a.kind === "perimeter" || a.kind === "area") {
+  if (
+    a.kind === "polygon" ||
+    a.kind === "polyline" ||
+    a.kind === "cloud" ||
+    a.kind === "perimeter" ||
+    a.kind === "area"
+  ) {
     const pts = a.paths?.[0] ?? [];
     entries.Vertices = pts.flatMap((pt) => {
       const q = frame.toPdf(pt);
@@ -670,7 +744,9 @@ async function writeOne(
   if (a.kind === "freetext" || a.kind === "typewriter" || a.kind === "callout") {
     const { font } = await ctx.fonts.get(a.fontFamily, a.bold, a.italic);
     const c = hexToRgb(a.color);
-    entries.DA = PDFString.of(`${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)} rg /${font.name} ${round(a.fontSize ?? 12, 2)} Tf`);
+    entries.DA = PDFString.of(
+      `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)} rg /${font.name} ${round(a.fontSize ?? 12, 2)} Tf`,
+    );
     entries.Q = a.align === "center" ? 1 : a.align === "right" ? 2 : 0;
     entries.Contents = textString(a.text ?? a.contents ?? "");
     if (a.kind === "callout" && a.callout?.length) {
@@ -756,6 +832,13 @@ function measureDict(scale: MeasureScale): Record<string, unknown> {
     R: PDFString.of(`1 pt = ${perUnit} ${scale.unit}`),
     X: [{ Type: "NumberFormat", U: PDFString.of(scale.unit), C: perUnit, D: 10 ** scale.precision }],
     D: [{ Type: "NumberFormat", U: PDFString.of(scale.unit), C: perUnit, D: 10 ** scale.precision }],
-    A: [{ Type: "NumberFormat", U: PDFString.of(`${scale.unit}²`), C: round(perUnit * perUnit, 10), D: 10 ** scale.precision }],
+    A: [
+      {
+        Type: "NumberFormat",
+        U: PDFString.of(`${scale.unit}²`),
+        C: round(perUnit * perUnit, 10),
+        D: 10 ** scale.precision,
+      },
+    ],
   };
 }

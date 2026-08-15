@@ -48,18 +48,19 @@ export default function IdentityBackupModal({
     >
       <div className="settings">
         <Alert tone={justGenerated ? "warning" : "info"} title="Pourquoi sauvegarder ?">
-          Cette clé est votre identité de signature et de scellement. Elle n'existe que dans ce
-          navigateur : si son stockage est vidé (réinstallation, nettoyage…), elle est
-          définitivement perdue et vous ne pourrez plus sceller vos documents avec la même
-          identité. Conservez une sauvegarde en lieu sûr.
+          Cette clé est votre identité de signature et de scellement. Elle n'existe que dans ce navigateur : si son
+          stockage est vidé (réinstallation, nettoyage…), elle est définitivement perdue et vous ne pourrez plus sceller
+          vos documents avec la même identité. Conservez une sauvegarde en lieu sûr.
         </Alert>
 
         <section className="settings__section">
-          <h3 className="settings__title"><Download size={15} /> Fichier de sauvegarde (recommandé)</h3>
+          <h3 className="settings__title">
+            <Download size={15} /> Fichier de sauvegarde (recommandé)
+          </h3>
           <p className="muted">
-            Le fichier <code>.eliumkey</code> contient la clé privée <strong>chiffrée</strong> avec
-            le mot de passe de votre clé (Argon2id + AES-256-GCM). Il peut être stocké sur un
-            disque ou une clé USB, et réimporté via Paramètres → Importer une clé.
+            Le fichier <code>.eliumkey</code> contient la clé privée <strong>chiffrée</strong> avec le mot de passe de
+            votre clé (Argon2id + AES-256-GCM). Il peut être stocké sur un disque ou une clé USB, et réimporté via
+            Paramètres → Importer une clé.
           </p>
           <div className="settings__row">
             <Button size="sm" onClick={onExportFile}>
@@ -69,37 +70,58 @@ export default function IdentityBackupModal({
         </section>
 
         <section className="settings__section">
-          <h3 className="settings__title"><KeyRound size={15} /> Identité publique</h3>
+          <h3 className="settings__title">
+            <KeyRound size={15} /> Identité publique
+          </h3>
           <div className="keyline">
-            <span className="keyline__label">Empreinte <Badge accent="success">SHA-256</Badge></span>
+            <span className="keyline__label">
+              Empreinte <Badge accent="success">SHA-256</Badge>
+            </span>
             <code className="keyline__value">{identity.fingerprint}</code>
-            <Button variant="ghost" size="sm" aria-label="Copier l'empreinte"
-              onClick={() => onCopy(identity.fingerprint, "Empreinte copiée")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Copier l'empreinte"
+              onClick={() => onCopy(identity.fingerprint, "Empreinte copiée")}
+            >
               <Copy size={14} />
             </Button>
           </div>
           <div className="keyline">
-            <span className="keyline__label">Clé publique <Badge accent="success">Ed25519</Badge></span>
+            <span className="keyline__label">
+              Clé publique <Badge accent="success">Ed25519</Badge>
+            </span>
             <code className="keyline__value">{identity.publicKeyHex}</code>
-            <Button variant="ghost" size="sm" aria-label="Copier la clé publique"
-              onClick={() => onCopy(identity.publicKeyHex, "Clé publique copiée")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Copier la clé publique"
+              onClick={() => onCopy(identity.publicKeyHex, "Clé publique copiée")}
+            >
               <Copy size={14} />
             </Button>
           </div>
         </section>
 
         <section className="settings__section">
-          <h3 className="settings__title"><ShieldAlert size={15} /> Clé privée (sensible)</h3>
+          <h3 className="settings__title">
+            <ShieldAlert size={15} /> Clé privée (sensible)
+          </h3>
           <Alert tone="danger" title="À manipuler avec précaution">
-            Quiconque possède cette clé peut signer et sceller en votre nom. Ne la collez
-            jamais dans un e-mail, un chat ou un site web.
+            Quiconque possède cette clé peut signer et sceller en votre nom. Ne la collez jamais dans un e-mail, un chat
+            ou un site web.
           </Alert>
           <div className="keyline">
             <span className="keyline__label">Clé privée</span>
             <code className="keyline__value keyline__value--secret">
               {privateHex && shown ? privateHex : "•".repeat(64)}
             </code>
-            <Button variant="ghost" size="sm" aria-label={shown ? "Masquer la clé privée" : "Afficher la clé privée"} onClick={reveal}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={shown ? "Masquer la clé privée" : "Afficher la clé privée"}
+              onClick={reveal}
+            >
               {shown ? <EyeOff size={14} /> : <Eye size={14} />}
             </Button>
             <Button

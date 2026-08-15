@@ -113,8 +113,12 @@ export default function PageView(p: PageViewProps) {
         priority: p.active ? 0 : Math.abs(p.index) + 1,
         optionalContentConfig: p.optionalContent,
         annotationMode: p.annotationMode,
-        onDone: () => { if (!cancelled) setRendered(true); },
-        onError: () => { if (!cancelled) setRendered(true); },
+        onDone: () => {
+          if (!cancelled) setRendered(true);
+        },
+        onError: () => {
+          if (!cancelled) setRendered(true);
+        },
       });
     })();
     return () => {
@@ -143,7 +147,9 @@ export default function PageView(p: PageViewProps) {
         textLayerRef.current = layer;
         await layer.render();
         if (!cancelled) p.onTextLayer?.(container);
-      } catch { /* the text layer is additive — the page still renders */ }
+      } catch {
+        /* the text layer is additive — the page still renders */
+      }
     })();
     return () => {
       cancelled = true;
@@ -158,7 +164,11 @@ export default function PageView(p: PageViewProps) {
     let cancelled = false;
     (async () => {
       const anns = (await p.engine.annotations(p.from!)) as {
-        subtype?: string; rect?: number[]; url?: string; dest?: unknown; unsafeUrl?: string;
+        subtype?: string;
+        rect?: number[];
+        url?: string;
+        dest?: unknown;
+        unsafeUrl?: string;
       }[];
       if (cancelled) return;
       const out: LinkBox[] = [];
@@ -176,7 +186,9 @@ export default function PageView(p: PageViewProps) {
       }
       setLinks(out);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, p.from]);
 
@@ -238,7 +250,10 @@ export default function PageView(p: PageViewProps) {
                   height: Math.abs(b.y - a.y) * p.scale,
                 }}
                 onClick={async () => {
-                  if (l.url) { p.onLinkActivate?.({ url: l.url }); return; }
+                  if (l.url) {
+                    p.onLinkActivate?.({ url: l.url });
+                    return;
+                  }
                   const resolved = await p.engine.resolveDest(l.dest);
                   if (resolved.page) p.onLinkActivate?.({ page: resolved.page });
                 }}

@@ -66,7 +66,10 @@ describe("planPages (pure pagination planner)", () => {
 describe("pageAt", () => {
   const plan: PagePlan = {
     spacers: [],
-    pageStartByPos: new Map([[0, 1], [10, 2]]),
+    pageStartByPos: new Map([
+      [0, 1],
+      [10, 2],
+    ]),
     pageCount: 2,
   };
   // Minimal fake state: only doc.forEach(node{nodeSize}, offset) is used.

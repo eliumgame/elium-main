@@ -4,9 +4,9 @@ import { Button } from "./ui/components";
 import HomeView from "./views/HomeView";
 // Heavy per-app views are code-split: their editors (tiptap, sheet & slides
 // engines, pdf/cloud SDKs) stay out of the main bundle and load on demand.
-const StudioView = lazy(() => import("./views/StudioView"));   // rich-text editor (tiptap)
-const SheetView = lazy(() => import("./views/SheetView"));      // spreadsheet engine
-const SlidesView = lazy(() => import("./views/SlidesView"));    // slides engine
+const StudioView = lazy(() => import("./views/StudioView")); // rich-text editor (tiptap)
+const SheetView = lazy(() => import("./views/SheetView")); // spreadsheet engine
+const SlidesView = lazy(() => import("./views/SlidesView")); // slides engine
 const PdfView = lazy(() => import("./pdf/PdfView")); // pdf.js stays out of the main bundle
 const DriveCloudView = lazy(() => import("./views/DriveCloudView")); // cloud SDK out of the main bundle
 const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // public share-link opener
@@ -23,14 +23,31 @@ import IdentityBackupModal from "./components/IdentityBackupModal";
 import IdentityImportModal from "./components/IdentityImportModal";
 import { getTheme, setTheme as persistTheme, type Theme } from "./ui/theme";
 import { useDialogs } from "./ui/dialogs";
-import { createEliumFile, setProfile, addSignature, removeSignature as removeSig, recordSave, tracksJournal, type PendingJournalEvent } from "./format/document";
+import {
+  createEliumFile,
+  setProfile,
+  addSignature,
+  removeSignature as removeSig,
+  recordSave,
+  tracksJournal,
+  type PendingJournalEvent,
+} from "./format/document";
 import { docKeyOf } from "./format/doc-key";
 import {
-  readEliumPackage, writeEliumPackage, verifyLoadedSeal, looksLikeV4Package, EliumPasswordRequired, EliumRecipientKeyRequired,
+  readEliumPackage,
+  writeEliumPackage,
+  verifyLoadedSeal,
+  looksLikeV4Package,
+  EliumPasswordRequired,
+  EliumRecipientKeyRequired,
   type IntegrityVerdict,
 } from "./format/elium-package";
 import {
-  loadRecipientPublic, hasRecipientKey, generateAndStoreRecipientKey, unlockRecipientKey, forgetRecipientKey,
+  loadRecipientPublic,
+  hasRecipientKey,
+  generateAndStoreRecipientKey,
+  unlockRecipientKey,
+  forgetRecipientKey,
   type RecipientPublic,
 } from "./crypto/recipient-key-store";
 import { verifyJournal, type JournalVerdict } from "./format/journal";
@@ -59,14 +76,28 @@ import { isVaultConfigured, setVaultPassword, verifyVaultPassword, removeVaultCo
 import { hasVaultSecret, type VaultSecret } from "./crypto/local-vault";
 import { generateIdentity as genId, type EliumIdentity } from "./sign/keys";
 import {
-  loadStoredIdentity, saveStoredIdentity, encryptPrivateKey, buildKeyFile, keyFileName,
-  parseKeyFile, restoreFromKeyFile, identityFromPrivateHex, copyText,
+  loadStoredIdentity,
+  saveStoredIdentity,
+  encryptPrivateKey,
+  buildKeyFile,
+  keyFileName,
+  parseKeyFile,
+  restoreFromKeyFile,
+  identityFromPrivateHex,
+  copyText,
 } from "./sign/identity-store";
 import { EliumCryptoEngine } from "./crypto/elium-crypto";
 import { exportHtml, exportMarkdown, exportText, exportPdf, exportProofReport, downloadBlob } from "./export/exporters";
 import type { Template } from "./editor/templates";
 import type {
-  EliumFile, EliumParapheur, EliumProfile, EliumSignature, ProseMirrorNode, SignatureVerdict, PageSettings, EliumDocStyle,
+  EliumFile,
+  EliumParapheur,
+  EliumProfile,
+  EliumSignature,
+  ProseMirrorNode,
+  SignatureVerdict,
+  PageSettings,
+  EliumDocStyle,
   EliumWatermark,
 } from "./format/types";
 import type { ExportKind, Studio, StudioMode } from "./studio/types";
@@ -102,7 +133,9 @@ function Toast({ tone, message, onClose }: { tone: "danger" | "success"; message
   return (
     <div className={`toast toast--${tone}`} role="status">
       <span>{message}</span>
-      <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={14} /></button>
+      <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+        <X size={14} />
+      </button>
     </div>
   );
 }
@@ -156,7 +189,10 @@ export default function App() {
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientPublic, setRecipientPublic] = useState<RecipientPublic | null>(() => loadRecipientPublic());
 
-  const setTheme = useCallback((t: Theme) => { persistTheme(t); setThemeState(t); }, []);
+  const setTheme = useCallback((t: Theme) => {
+    persistTheme(t);
+    setThemeState(t);
+  }, []);
 
   // Migre une fois l'ancienne « clé de confiance » unique vers le carnet nommé.
   useEffect(() => {
@@ -179,8 +215,20 @@ export default function App() {
     setRecipientPublic(null);
     // Also purge the IndexedDB stores (Drive library, app autosaves, version
     // history, parapheur, drafts, vault) — otherwise "données effacées" leaves them behind.
-    for (const db of ["elium", "elium-drive", "elium-sheets", "elium-slides", "elium-parapheur", "elium-drafts", "elium-vault"]) {
-      try { indexedDB.deleteDatabase(db); } catch { /* best effort */ }
+    for (const db of [
+      "elium",
+      "elium-drive",
+      "elium-sheets",
+      "elium-slides",
+      "elium-parapheur",
+      "elium-drafts",
+      "elium-vault",
+    ]) {
+      try {
+        indexedDB.deleteDatabase(db);
+      } catch {
+        /* best effort */
+      }
     }
     keyfileRef.current = undefined;
     setIdentity(null);
@@ -228,7 +276,10 @@ export default function App() {
   const unlockVault = useCallback(async () => {
     const pwd = await askPassword("Déverrouiller le coffre local", "enter");
     if (pwd === null) return;
-    if (!(await verifyVaultPassword(pwd))) { setError("Mot de passe du coffre local incorrect."); return; }
+    if (!(await verifyVaultPassword(pwd))) {
+      setError("Mot de passe du coffre local incorrect.");
+      return;
+    }
     setVaultSecret({ password: pwd });
     setVaultState("unlocked");
   }, [askPassword]);
@@ -305,11 +356,15 @@ export default function App() {
 
   const disableVault = useCallback(async () => {
     if (busy || !hasVaultSecret(vaultSecret)) return;
-    if (!(await dialogs.confirm({
-      title: "Désactiver le coffre local ?",
-      message: "La bibliothèque et le Parapheur redeviendront non chiffrés sur cet ordinateur. Les fichiers .elium déjà enregistrés sur le disque ne sont pas affectés.",
-      confirmLabel: "Désactiver",
-    }))) return;
+    if (
+      !(await dialogs.confirm({
+        title: "Désactiver le coffre local ?",
+        message:
+          "La bibliothèque et le Parapheur redeviendront non chiffrés sur cet ordinateur. Les fichiers .elium déjà enregistrés sur le disque ne sont pas affectés.",
+        confirmLabel: "Désactiver",
+      }))
+    )
+      return;
     setBusy(true);
     try {
       await reencryptDriveVault(vaultSecret, undefined);
@@ -334,12 +389,16 @@ export default function App() {
   // only way forward is to drop the locally-cached Drive/Parapheur data (the
   // user's actual .elium files on disk are untouched) and start fresh.
   const resetVault = useCallback(async () => {
-    if (!(await dialogs.confirm({
-      title: "Réinitialiser le coffre local ?",
-      message: "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque « Récents » et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés.",
-      danger: true,
-      confirmLabel: "Réinitialiser",
-    }))) return;
+    if (
+      !(await dialogs.confirm({
+        title: "Réinitialiser le coffre local ?",
+        message:
+          "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque « Récents » et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés.",
+        danger: true,
+        confirmLabel: "Réinitialiser",
+      }))
+    )
+      return;
     // Wait for each deletion to actually settle (success/error/blocked by a
     // lingering connection) instead of firing IDBOpenDBRequest and moving on —
     // otherwise the UI could claim "reset" while the databases still exist.
@@ -365,7 +424,9 @@ export default function App() {
   // merely viewing a sealed document never mutates and breaks its seal.
   const pendingJournalRef = useRef<PendingJournalEvent[]>([]);
   const validatedSigRef = useRef<Set<string>>(new Set()); // sig ids already logged this session
-  const queueJournal = useCallback((ev: PendingJournalEvent) => { pendingJournalRef.current.push(ev); }, []);
+  const queueJournal = useCallback((ev: PendingJournalEvent) => {
+    pendingJournalRef.current.push(ev);
+  }, []);
 
   const recompute = useCallback(async (f: EliumFile) => {
     // Read the trust book fresh each pass: mutations go through localStorage,
@@ -413,20 +474,26 @@ export default function App() {
   }, [file]);
 
   // Carnet : approuver une clé (de sceau ou de preuve) sous un nom, ou la retirer.
-  const trustContact = useCallback(async (name: string, publicKeyHex: string) => {
-    try {
-      setTrustBook(await storeTrustContact(name, publicKeyHex));
-      if (file) await recompute(file);
-      setToast(`Clé approuvée comme « ${name.trim() || "Sans nom"} »`);
-    } catch (e) {
-      setError(msg(e));
-    }
-  }, [file, recompute]);
+  const trustContact = useCallback(
+    async (name: string, publicKeyHex: string) => {
+      try {
+        setTrustBook(await storeTrustContact(name, publicKeyHex));
+        if (file) await recompute(file);
+        setToast(`Clé approuvée comme « ${name.trim() || "Sans nom"} »`);
+      } catch (e) {
+        setError(msg(e));
+      }
+    },
+    [file, recompute],
+  );
 
-  const untrustContact = useCallback((publicKeyHex: string) => {
-    setTrustBook(storeUntrustContact(publicKeyHex));
-    if (file) void recompute(file);
-  }, [file, recompute]);
+  const untrustContact = useCallback(
+    (publicKeyHex: string) => {
+      setTrustBook(storeUntrustContact(publicKeyHex));
+      if (file) void recompute(file);
+    },
+    [file, recompute],
+  );
 
   // Returns the in-memory private key, decrypting the stored blob on demand.
   const ensurePrivateKey = useCallback(async (): Promise<string | null> => {
@@ -454,129 +521,151 @@ export default function App() {
   const [appView, setAppView] = useState<{ kind: "sheet" | "slides" | "pdf"; data: unknown } | null>(null);
   const [appKey, setAppKey] = useState(0);
 
-  const loadFile = useCallback(async (f: EliumFile, integ: IntegrityVerdict, opened = false) => {
-    // Fresh session for this file: reset the pending journal queue.
-    pendingJournalRef.current = [];
-    validatedSigRef.current = new Set();
-    if (opened && tracksJournal(f)) queueJournal({ type: "document.opened", at: nowIso() });
-    // Re-register the typefaces the document carries BEFORE it renders, so text
-    // never flashes in a fallback font (or stays in one, on a machine that does
-    // not have the original installed).
-    registerEmbeddedFonts(
-      fontResources(f.resourceIndex)
-        .map((meta) => {
-          const bytes = f.resources.get(meta.id);
-          return bytes ? { family: meta.family, filename: `${meta.family}.${meta.ext}`, bytes } : null;
-        })
-        .filter((x): x is { family: string; filename: string; bytes: Uint8Array } => x !== null),
-    );
-    setFile(f);
-    setIntegrity(integ);
-    setSelectedSig(null);
-    await recompute(f);
-    setEditorKey((k) => k + 1);
-  }, [recompute, queueJournal]);
+  const loadFile = useCallback(
+    async (f: EliumFile, integ: IntegrityVerdict, opened = false) => {
+      // Fresh session for this file: reset the pending journal queue.
+      pendingJournalRef.current = [];
+      validatedSigRef.current = new Set();
+      if (opened && tracksJournal(f)) queueJournal({ type: "document.opened", at: nowIso() });
+      // Re-register the typefaces the document carries BEFORE it renders, so text
+      // never flashes in a fallback font (or stays in one, on a machine that does
+      // not have the original installed).
+      registerEmbeddedFonts(
+        fontResources(f.resourceIndex)
+          .map((meta) => {
+            const bytes = f.resources.get(meta.id);
+            return bytes ? { family: meta.family, filename: `${meta.family}.${meta.ext}`, bytes } : null;
+          })
+          .filter((x): x is { family: string; filename: string; bytes: Uint8Array } => x !== null),
+      );
+      setFile(f);
+      setIntegrity(integ);
+      setSelectedSig(null);
+      await recompute(f);
+      setEditorKey((k) => k + 1);
+    },
+    [recompute, queueJournal],
+  );
 
   // --- Home actions -------------------------------------------------------
 
-  const onCreate = useCallback(async (tpl: Template) => {
-    const { title, doc } = tpl.build();
-    const f = await createEliumFile({ title, profile: "standard", doc });
-    setPassword("");
-    await loadFile(f, { contentIntact: true, unchecked: true });
-    setMode("studio");
-  }, [loadFile]);
+  const onCreate = useCallback(
+    async (tpl: Template) => {
+      const { title, doc } = tpl.build();
+      const f = await createEliumFile({ title, profile: "standard", doc });
+      setPassword("");
+      await loadFile(f, { contentIntact: true, unchecked: true });
+      setMode("studio");
+    },
+    [loadFile],
+  );
 
-  const openLegacy = useCallback(async (bytes: Uint8Array, name: string) => {
-    const got = await askPassword(`Fichier hérité (v3) — mot de passe pour « ${name} »`, "enter");
-    if (!got) return;
-    const { payload } = await EliumCryptoEngine.decodeContainer(bytes, got);
-    const textContent = new TextDecoder().decode(payload);
-    const doc: ProseMirrorNode = {
-      type: "doc",
-      content: textContent.split("\n").map((line) => ({
-        type: "paragraph",
-        ...(line ? { content: [{ type: "text", text: line }] } : {}),
-      })),
-    };
-    const f = await createEliumFile({ title: name.replace(/\.elium$/, ""), profile: "standard", doc });
-    setPassword("");
-    await loadFile(f, { contentIntact: true, unchecked: true });
-    setMode("viewer");
-  }, [askPassword, loadFile]);
-
-  const onOpen = useCallback(async (uploaded: File) => {
-    setBusy(true);
-    try {
-      // Import Word .docx as a new editable document (binary).
-      const ext = uploaded.name.toLowerCase().split(".").pop() ?? "";
-      if (ext === "docx") {
-        const { title, doc } = docxToDoc(new Uint8Array(await uploaded.arrayBuffer()));
-        const f = await createEliumFile({ title: title || uploaded.name.replace(/\.docx$/i, ""), profile: "standard", doc });
-        setPassword("");
-        await loadFile(f, { contentIntact: true, unchecked: true });
-        setMode("studio");
-        return;
-      }
-      // Import text/Markdown/HTML as a new editable document.
-      if (["txt", "md", "markdown", "html", "htm"].includes(ext)) {
-        const doc = importToDoc(uploaded.name, await uploaded.text());
-        const f = await createEliumFile({ title: uploaded.name.replace(/\.[^.]+$/, ""), profile: "standard", doc });
-        setPassword("");
-        await loadFile(f, { contentIntact: true, unchecked: true });
-        setMode("studio");
-        return;
-      }
-      const bytes = new Uint8Array(await uploaded.arrayBuffer());
-      if (!looksLikeV4Package(bytes)) {
-        await openLegacy(bytes, uploaded.name);
-        return;
-      }
-      let pwd: string | undefined;
-      let result;
-      try {
-        result = await readEliumPackage(bytes, {});
-      } catch (e) {
-        if (e instanceof EliumRecipientKeyRequired) {
-          // Document encrypted for recipients: unlock our recipient key.
-          if (!hasRecipientKey()) {
-            setError("Ce document est chiffré pour des destinataires. Générez d'abord votre clé de réception (Sécurité).");
-            return;
-          }
-          const got = await askSecret(`Mot de passe de votre clé de réception pour « ${uploaded.name} »`, "enter", false);
-          if (!got) return;
-          const recipientKey = await unlockRecipientKey(got.password);
-          result = await readEliumPackage(bytes, { recipientKey });
-        } else if (e instanceof EliumPasswordRequired) {
-          const got = await askSecret(`Mot de passe pour « ${uploaded.name} »`, "enter", true);
-          if (!got) return;
-          pwd = got.password;
-          keyfileRef.current = got.keyfile;
-          result = await readEliumPackage(bytes, { password: pwd, keyfile: got.keyfile });
-        } else throw e;
-      }
-      // Route spreadsheet/presentation .elium files to their app (marker node).
-      const first = result.file.document.doc?.content?.[0];
-      if (first && (first.type === "eliumSheet" || first.type === "eliumSlides" || first.type === "eliumPdf")) {
-        try {
-          const kind = first.type === "eliumSheet" ? "sheet" : first.type === "eliumSlides" ? "slides" : "pdf";
-          setAppView({ kind, data: JSON.parse(String(first.attrs?.data ?? "null")) });
-          setAppKey((k) => k + 1);
-          setMode(kind);
-          return;
-        } catch {
-          /* corrupted app payload — fall through to a normal open */
-        }
-      }
-      setPassword(pwd ?? "");
-      await loadFile(result.file, result.integrity, true); // opened from disk → log document.opened at save
+  const openLegacy = useCallback(
+    async (bytes: Uint8Array, name: string) => {
+      const got = await askPassword(`Fichier hérité (v3) — mot de passe pour « ${name} »`, "enter");
+      if (!got) return;
+      const { payload } = await EliumCryptoEngine.decodeContainer(bytes, got);
+      const textContent = new TextDecoder().decode(payload);
+      const doc: ProseMirrorNode = {
+        type: "doc",
+        content: textContent.split("\n").map((line) => ({
+          type: "paragraph",
+          ...(line ? { content: [{ type: "text", text: line }] } : {}),
+        })),
+      };
+      const f = await createEliumFile({ title: name.replace(/\.elium$/, ""), profile: "standard", doc });
+      setPassword("");
+      await loadFile(f, { contentIntact: true, unchecked: true });
       setMode("viewer");
-    } catch (e) {
-      setError(msg(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [askSecret, loadFile, openLegacy]);
+    },
+    [askPassword, loadFile],
+  );
+
+  const onOpen = useCallback(
+    async (uploaded: File) => {
+      setBusy(true);
+      try {
+        // Import Word .docx as a new editable document (binary).
+        const ext = uploaded.name.toLowerCase().split(".").pop() ?? "";
+        if (ext === "docx") {
+          const { title, doc } = docxToDoc(new Uint8Array(await uploaded.arrayBuffer()));
+          const f = await createEliumFile({
+            title: title || uploaded.name.replace(/\.docx$/i, ""),
+            profile: "standard",
+            doc,
+          });
+          setPassword("");
+          await loadFile(f, { contentIntact: true, unchecked: true });
+          setMode("studio");
+          return;
+        }
+        // Import text/Markdown/HTML as a new editable document.
+        if (["txt", "md", "markdown", "html", "htm"].includes(ext)) {
+          const doc = importToDoc(uploaded.name, await uploaded.text());
+          const f = await createEliumFile({ title: uploaded.name.replace(/\.[^.]+$/, ""), profile: "standard", doc });
+          setPassword("");
+          await loadFile(f, { contentIntact: true, unchecked: true });
+          setMode("studio");
+          return;
+        }
+        const bytes = new Uint8Array(await uploaded.arrayBuffer());
+        if (!looksLikeV4Package(bytes)) {
+          await openLegacy(bytes, uploaded.name);
+          return;
+        }
+        let pwd: string | undefined;
+        let result;
+        try {
+          result = await readEliumPackage(bytes, {});
+        } catch (e) {
+          if (e instanceof EliumRecipientKeyRequired) {
+            // Document encrypted for recipients: unlock our recipient key.
+            if (!hasRecipientKey()) {
+              setError(
+                "Ce document est chiffré pour des destinataires. Générez d'abord votre clé de réception (Sécurité).",
+              );
+              return;
+            }
+            const got = await askSecret(
+              `Mot de passe de votre clé de réception pour « ${uploaded.name} »`,
+              "enter",
+              false,
+            );
+            if (!got) return;
+            const recipientKey = await unlockRecipientKey(got.password);
+            result = await readEliumPackage(bytes, { recipientKey });
+          } else if (e instanceof EliumPasswordRequired) {
+            const got = await askSecret(`Mot de passe pour « ${uploaded.name} »`, "enter", true);
+            if (!got) return;
+            pwd = got.password;
+            keyfileRef.current = got.keyfile;
+            result = await readEliumPackage(bytes, { password: pwd, keyfile: got.keyfile });
+          } else throw e;
+        }
+        // Route spreadsheet/presentation .elium files to their app (marker node).
+        const first = result.file.document.doc?.content?.[0];
+        if (first && (first.type === "eliumSheet" || first.type === "eliumSlides" || first.type === "eliumPdf")) {
+          try {
+            const kind = first.type === "eliumSheet" ? "sheet" : first.type === "eliumSlides" ? "slides" : "pdf";
+            setAppView({ kind, data: JSON.parse(String(first.attrs?.data ?? "null")) });
+            setAppKey((k) => k + 1);
+            setMode(kind);
+            return;
+          } catch {
+            /* corrupted app payload — fall through to a normal open */
+          }
+        }
+        setPassword(pwd ?? "");
+        await loadFile(result.file, result.integrity, true); // opened from disk → log document.opened at save
+        setMode("viewer");
+      } catch (e) {
+        setError(msg(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [askSecret, loadFile, openLegacy],
+  );
 
   /** Save a spreadsheet/presentation as an encrypted+sealed .elium and mirror it to the Drive. */
   const exportAppElium = useCallback(
@@ -585,16 +674,27 @@ export default function App() {
         const label = kind === "sheet" ? "Classeur" : kind === "slides" ? "Présentation" : "Document PDF";
         const wantEnc = await dialogs.confirm({
           title: "Protéger le fichier ?",
-          message: "Chiffrer ce fichier (AES-256, mot de passe et/ou fichier-clé) ?\n\nConfirmer = chiffré · Annuler = signé/scellé, non chiffré.",
-          confirmLabel: "Chiffrer", cancelLabel: "Signer seulement",
+          message:
+            "Chiffrer ce fichier (AES-256, mot de passe et/ou fichier-clé) ?\n\nConfirmer = chiffré · Annuler = signé/scellé, non chiffré.",
+          confirmLabel: "Chiffrer",
+          cancelLabel: "Signer seulement",
         });
-        const secret = wantEnc ? await askSecret("Protéger le fichier (mot de passe et/ou fichier-clé)", "set", true) : null;
+        const secret = wantEnc
+          ? await askSecret("Protéger le fichier (mot de passe et/ou fichier-clé)", "set", true)
+          : null;
         if (wantEnc && !secret) return; // cancelled the password dialog
         const nodeType = kind === "sheet" ? "eliumSheet" : kind === "slides" ? "eliumSlides" : "eliumPdf";
-        const doc: ProseMirrorNode = { type: "doc", content: [{ type: nodeType, attrs: { data: JSON.stringify(data) } }] };
+        const doc: ProseMirrorNode = {
+          type: "doc",
+          content: [{ type: nodeType, attrs: { data: JSON.stringify(data) } }],
+        };
         const f = await createEliumFile({ title: title || label, profile: secret ? "encrypted" : "standard", doc });
-        const sealKey = identity ? (await ensurePrivateKey()) ?? undefined : undefined;
-        const bytes = await writeEliumPackage(f, { password: secret?.password, keyfile: secret?.keyfile, sealPrivateKeyHex: sealKey });
+        const sealKey = identity ? ((await ensurePrivateKey()) ?? undefined) : undefined;
+        const bytes = await writeEliumPackage(f, {
+          password: secret?.password,
+          keyfile: secret?.keyfile,
+          sealPrivateKeyHex: sealKey,
+        });
         downloadBlob(`${f.manifest.title}.elium`, "application/x-elium", bytes);
         try {
           await putDriveDoc(
@@ -659,7 +759,10 @@ export default function App() {
   const setEncryptMetadata = useCallback((on: boolean) => {
     setFile((prev) =>
       prev
-        ? { ...prev, manifest: { ...prev.manifest, protection: { ...prev.manifest.protection, metadataEncrypted: on } } }
+        ? {
+            ...prev,
+            manifest: { ...prev.manifest, protection: { ...prev.manifest.protection, metadataEncrypted: on } },
+          }
         : prev,
     );
   }, []);
@@ -741,83 +844,112 @@ export default function App() {
     setToast("Sauvegarde .eliumkey téléchargée");
   }, []);
 
-  const importIdentityFromFile = useCallback(async (text: string): Promise<boolean> => {
-    try {
-      const stored = parseKeyFile(text);
-      const pass = await askPassword("Mot de passe de la clé sauvegardée", "enter");
-      if (!pass) return false;
-      const id = await restoreFromKeyFile(stored, pass);
-      saveStoredIdentity(stored);
-      setIdentity(id);
-      setToast("Identité restaurée depuis la sauvegarde");
-      return true;
-    } catch (e) {
-      setError(msg(e));
-      return false;
-    }
-  }, [askPassword]);
-
-  const importIdentityFromHex = useCallback(async (hex: string): Promise<boolean> => {
-    try {
-      const id = await identityFromPrivateHex(hex);
-      const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
-      if (!pass) return false;
-      const enc = await encryptPrivateKey(id.privateKeyHex, pass);
-      saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
-      setIdentity(id);
-      setToast("Clé privée importée et chiffrée");
-      return true;
-    } catch (e) {
-      setError(msg(e));
-      return false;
-    }
-  }, [askPassword]);
-
-  const changeProfile = useCallback(async (p: EliumProfile) => {
-    setBusy(true);
-    try {
-      setFile((prev) => prev); // ensure latest
-      const current = file;
-      if (!current) return;
-      const nf = await setProfile(current, p);
-      setFile(nf);
-      await recompute(nf);
-    } finally {
-      setBusy(false);
-    }
-  }, [file, recompute]);
-
-  const createSignature = useCallback(async (draft: SignatureDraft) => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const id = randomId("sig");
-      // Placement/visual must be final BEFORE signing so the proof binds them.
-      const placement: EliumSignature["placement"] = { page: 1, xPct: 0.34, yPct: 0.78, wPct: 0.3, hPct: 0.12, rotation: 0, z: file.signatures.length, anchorType: "page" };
-      let proof = null;
-      if (draft.wantsProof && identity) {
-        const pk = await ensurePrivateKey();
-        if (pk) proof = await createProof({ signatureId: id, model: file.document, signer: draft.signer, privateKeyHex: pk, placement, visual: draft.visual });
+  const importIdentityFromFile = useCallback(
+    async (text: string): Promise<boolean> => {
+      try {
+        const stored = parseKeyFile(text);
+        const pass = await askPassword("Mot de passe de la clé sauvegardée", "enter");
+        if (!pass) return false;
+        const id = await restoreFromKeyFile(stored, pass);
+        saveStoredIdentity(stored);
+        setIdentity(id);
+        setToast("Identité restaurée depuis la sauvegarde");
+        return true;
+      } catch (e) {
+        setError(msg(e));
+        return false;
       }
-      const sig: EliumSignature = {
-        id,
-        kind: draft.kind,
-        visual: draft.visual,
-        placement,
-        signer: draft.signer,
-        proof,
-        level: proof ? "advanced" : "visual",
-        createdAt: new Date().toISOString(),
-      };
-      const nf = await addSignature(file, sig);
-      setFile(nf);
-      setCreatorOpen(false);
-      setSelectedSig(id);
-      await recompute(nf);
-    } finally {
-      setBusy(false);
-    }
-  }, [file, identity, recompute, ensurePrivateKey]);
+    },
+    [askPassword],
+  );
+
+  const importIdentityFromHex = useCallback(
+    async (hex: string): Promise<boolean> => {
+      try {
+        const id = await identityFromPrivateHex(hex);
+        const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
+        if (!pass) return false;
+        const enc = await encryptPrivateKey(id.privateKeyHex, pass);
+        saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
+        setIdentity(id);
+        setToast("Clé privée importée et chiffrée");
+        return true;
+      } catch (e) {
+        setError(msg(e));
+        return false;
+      }
+    },
+    [askPassword],
+  );
+
+  const changeProfile = useCallback(
+    async (p: EliumProfile) => {
+      setBusy(true);
+      try {
+        setFile((prev) => prev); // ensure latest
+        const current = file;
+        if (!current) return;
+        const nf = await setProfile(current, p);
+        setFile(nf);
+        await recompute(nf);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [file, recompute],
+  );
+
+  const createSignature = useCallback(
+    async (draft: SignatureDraft) => {
+      if (!file) return;
+      setBusy(true);
+      try {
+        const id = randomId("sig");
+        // Placement/visual must be final BEFORE signing so the proof binds them.
+        const placement: EliumSignature["placement"] = {
+          page: 1,
+          xPct: 0.34,
+          yPct: 0.78,
+          wPct: 0.3,
+          hPct: 0.12,
+          rotation: 0,
+          z: file.signatures.length,
+          anchorType: "page",
+        };
+        let proof = null;
+        if (draft.wantsProof && identity) {
+          const pk = await ensurePrivateKey();
+          if (pk)
+            proof = await createProof({
+              signatureId: id,
+              model: file.document,
+              signer: draft.signer,
+              privateKeyHex: pk,
+              placement,
+              visual: draft.visual,
+            });
+        }
+        const sig: EliumSignature = {
+          id,
+          kind: draft.kind,
+          visual: draft.visual,
+          placement,
+          signer: draft.signer,
+          proof,
+          level: proof ? "advanced" : "visual",
+          createdAt: new Date().toISOString(),
+        };
+        const nf = await addSignature(file, sig);
+        setFile(nf);
+        setCreatorOpen(false);
+        setSelectedSig(id);
+        await recompute(nf);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [file, identity, recompute, ensurePrivateKey],
+  );
 
   const updateSignature = useCallback((sig: EliumSignature) => {
     setFile((prev) => (prev ? { ...prev, signatures: prev.signatures.map((s) => (s.id === sig.id ? sig : s)) } : prev));
@@ -828,21 +960,28 @@ export default function App() {
   // signing key is ALREADY unlocked this session (no password prompt) AND it is
   // the ORIGINAL signer's key — otherwise the move stands as-is and the proof
   // reads "modified" (someone relocated a signature they didn't sign).
-  const commitSignature = useCallback(async (id: string) => {
-    const pk = identity?.privateKeyHex;
-    if (!pk || !identity) return;
-    const current = file;
-    const sig = current?.signatures.find((s) => s.id === id);
-    if (!current || !sig?.proof) return;
-    if (identity.publicKeyHex.toLowerCase() !== sig.proof.publicKeyHex.toLowerCase()) return;
-    const proof = await createProof({
-      signatureId: id, model: current.document, signer: sig.signer, privateKeyHex: pk,
-      placement: sig.placement, visual: sig.visual,
-    });
-    const nf = { ...current, signatures: current.signatures.map((s) => (s.id === id ? { ...s, proof } : s)) };
-    setFile(nf);
-    await recompute(nf);
-  }, [identity, file, recompute]);
+  const commitSignature = useCallback(
+    async (id: string) => {
+      const pk = identity?.privateKeyHex;
+      if (!pk || !identity) return;
+      const current = file;
+      const sig = current?.signatures.find((s) => s.id === id);
+      if (!current || !sig?.proof) return;
+      if (identity.publicKeyHex.toLowerCase() !== sig.proof.publicKeyHex.toLowerCase()) return;
+      const proof = await createProof({
+        signatureId: id,
+        model: current.document,
+        signer: sig.signer,
+        privateKeyHex: pk,
+        placement: sig.placement,
+        visual: sig.visual,
+      });
+      const nf = { ...current, signatures: current.signatures.map((s) => (s.id === id ? { ...s, proof } : s)) };
+      setFile(nf);
+      await recompute(nf);
+    },
+    [identity, file, recompute],
+  );
 
   // Parapheur: the current user signs as a circuit party. Produces a REAL
   // embedded Ed25519 signature (proof) added to the document — it travels in the
@@ -851,17 +990,45 @@ export default function App() {
   const signAsParty = useCallback(
     async (party: { name: string; role?: string }): Promise<{ signatureId: string; publicKeyHex: string } | null> => {
       if (!file) return null;
-      if (!identity) { setError("Générez d'abord une identité de signature (Paramètres)."); return null; }
+      if (!identity) {
+        setError("Générez d'abord une identité de signature (Paramètres).");
+        return null;
+      }
       setBusy(true);
       try {
         const pk = await ensurePrivateKey();
         if (!pk) return null;
         const id = randomId("sig");
-        const placement: EliumSignature["placement"] = { page: 1, xPct: 0.34, yPct: 0.78, wPct: 0.3, hPct: 0.12, rotation: 0, z: file.signatures.length, anchorType: "page" };
+        const placement: EliumSignature["placement"] = {
+          page: 1,
+          xPct: 0.34,
+          yPct: 0.78,
+          wPct: 0.3,
+          hPct: 0.12,
+          rotation: 0,
+          z: file.signatures.length,
+          anchorType: "page",
+        };
         const signer = { name: party.name, role: party.role };
         const visual = { text: party.name, subText: party.role };
-        const proof = await createProof({ signatureId: id, model: file.document, signer, privateKeyHex: pk, placement, visual });
-        const sig: EliumSignature = { id, kind: "typed", visual, placement, signer, proof, level: "advanced", createdAt: new Date().toISOString() };
+        const proof = await createProof({
+          signatureId: id,
+          model: file.document,
+          signer,
+          privateKeyHex: pk,
+          placement,
+          visual,
+        });
+        const sig: EliumSignature = {
+          id,
+          kind: "typed",
+          visual,
+          placement,
+          signer,
+          proof,
+          level: "advanced",
+          createdAt: new Date().toISOString(),
+        };
         const nf = await addSignature(file, sig);
         setFile(nf);
         setSelectedSig(id);
@@ -877,7 +1044,10 @@ export default function App() {
   const removeSignature = useCallback((id: string) => {
     setFile((prev) => (prev ? removeSig(prev, id) : prev));
     setSelectedSig((cur) => (cur === id ? null : cur));
-    setVerdicts((v) => { const { [id]: _drop, ...rest } = v; return rest; });
+    setVerdicts((v) => {
+      const { [id]: _drop, ...rest } = v;
+      return rest;
+    });
   }, []);
 
   // Parapheur : le circuit vit dans le document (il voyage dans le .elium).
@@ -915,7 +1085,12 @@ export default function App() {
     // change alone (no text edit) still triggers a rewrite — turning a
     // previously plaintext draft into an encrypted one as soon as a secret is
     // available, instead of leaving the stale plaintext record untouched.
-    const docJson = JSON.stringify({ t: file.manifest.title, d: file.document.doc, p: needsSecret, s: hasVaultSecret(secret) });
+    const docJson = JSON.stringify({
+      t: file.manifest.title,
+      d: file.document.doc,
+      p: needsSecret,
+      s: hasVaultSecret(secret),
+    });
     if (docJson === lastDraftJson.current) return;
     const snapshot = file; // capture
     const handle = window.setTimeout(() => {
@@ -943,67 +1118,76 @@ export default function App() {
   // Restore a document from an auto-saved draft. Prompts for the password/keyfile
   // first when the draft is protected, and recreates the document with its
   // original protection profile so recovery never silently drops it.
-  const recoverDraft = useCallback(async (id: string) => {
-    try {
-      const d = await getDraft(id);
-      if (!d) return;
-      let secret: VaultSecret | undefined;
-      if (d.protected) {
-        const got = await askSecret(`Mot de passe pour restaurer « ${d.title} »`, "enter", true);
-        if (!got) return;
-        secret = { password: got.password, keyfile: got.keyfile };
-      }
-      let content: DraftContent;
+  const recoverDraft = useCallback(
+    async (id: string) => {
       try {
-        content = await resolveDraft(d, secret);
-      } catch {
-        setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
-        return;
+        const d = await getDraft(id);
+        if (!d) return;
+        let secret: VaultSecret | undefined;
+        if (d.protected) {
+          const got = await askSecret(`Mot de passe pour restaurer « ${d.title} »`, "enter", true);
+          if (!got) return;
+          secret = { password: got.password, keyfile: got.keyfile };
+        }
+        let content: DraftContent;
+        try {
+          content = await resolveDraft(d, secret);
+        } catch {
+          setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
+          return;
+        }
+        const f = await createEliumFile({ title: d.title, profile: d.profile, doc: content.doc });
+        f.manifest.docId = d.id; // reuse the stored draft's key so further autosaves update the same record
+        f.document.page = content.page;
+        lastDraftJson.current = JSON.stringify({ t: d.title, d: content.doc });
+        setPassword(secret?.password ?? "");
+        keyfileRef.current = secret?.keyfile;
+        await loadFile(f, { contentIntact: true, unchecked: true });
+        setMode("studio");
+      } catch (e) {
+        setError(msg(e));
       }
-      const f = await createEliumFile({ title: d.title, profile: d.profile, doc: content.doc });
-      f.manifest.docId = d.id; // reuse the stored draft's key so further autosaves update the same record
-      f.document.page = content.page;
-      lastDraftJson.current = JSON.stringify({ t: d.title, d: content.doc });
-      setPassword(secret?.password ?? "");
-      keyfileRef.current = secret?.keyfile;
-      await loadFile(f, { contentIntact: true, unchecked: true });
-      setMode("studio");
-    } catch (e) {
-      setError(msg(e));
-    }
-  }, [loadFile, askSecret]);
+    },
+    [loadFile, askSecret],
+  );
 
   // Download a draft's recovery .docx. Prompts for the password/keyfile first
   // when the draft is protected — the Word file is only ever built in memory.
-  const downloadDraft = useCallback(async (id: string) => {
-    try {
-      const d = await getDraft(id);
-      if (!d) return;
-      let secret: VaultSecret | undefined;
-      if (d.protected) {
-        const got = await askSecret(`Mot de passe pour télécharger « ${d.title} »`, "enter", true);
-        if (!got) return;
-        secret = { password: got.password, keyfile: got.keyfile };
-      }
-      let content: DraftContent;
+  const downloadDraft = useCallback(
+    async (id: string) => {
       try {
-        content = await resolveDraft(d, secret);
-      } catch {
-        setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
-        return;
+        const d = await getDraft(id);
+        if (!d) return;
+        let secret: VaultSecret | undefined;
+        if (d.protected) {
+          const got = await askSecret(`Mot de passe pour télécharger « ${d.title} »`, "enter", true);
+          if (!got) return;
+          secret = { password: got.password, keyfile: got.keyfile };
+        }
+        let content: DraftContent;
+        try {
+          content = await resolveDraft(d, secret);
+        } catch {
+          setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
+          return;
+        }
+        // docToDocx only reads document.doc/document.page and manifest.title —
+        // a full EliumFile isn't needed just to render the recovery copy.
+        const shape = {
+          manifest: { title: d.title },
+          document: { doc: content.doc, page: content.page },
+        } as unknown as EliumFile;
+        downloadBlob(
+          `${d.title || "document"}.docx`,
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          docToDocx(shape),
+        );
+      } catch (e) {
+        setError(msg(e));
       }
-      // docToDocx only reads document.doc/document.page and manifest.title —
-      // a full EliumFile isn't needed just to render the recovery copy.
-      const shape = { manifest: { title: d.title }, document: { doc: content.doc, page: content.page } } as unknown as EliumFile;
-      downloadBlob(
-        `${d.title || "document"}.docx`,
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        docToDocx(shape),
-      );
-    } catch (e) {
-      setError(msg(e));
-    }
-  }, [askSecret]);
+    },
+    [askSecret],
+  );
 
   const save = useCallback(async () => {
     if (!file) return;
@@ -1061,7 +1245,11 @@ export default function App() {
       }
       await recompute(f2);
       if (sealKey) setSealVerdict("valid");
-      const how = useRecipients ? ` pour ${recipients.length} destinataire(s)` : keyfileRef.current ? " et fichier-clé" : "";
+      const how = useRecipients
+        ? ` pour ${recipients.length} destinataire(s)`
+        : keyfileRef.current
+          ? " et fichier-clé"
+          : "";
       setToast(sealKey ? `Document enregistré et scellé${how} (.elium)` : `Document enregistré${how} (.elium)`);
     } catch (e) {
       setError(msg(e));
@@ -1070,29 +1258,32 @@ export default function App() {
     }
   }, [askSecret, file, password, recompute, identity, ensurePrivateKey, recipients, vaultSecret]);
 
-  const exportAs = useCallback(async (kind: ExportKind) => {
-    if (!file) return;
-    try {
-      const { verdicts: v } = await computeVerdicts(file, loadTrustBook());
-      setVerdicts(v);
-      if (kind === "html") exportHtml(file, v);
-      else if (kind === "md") exportMarkdown(file);
-      else if (kind === "text") exportText(file);
-      else if (kind === "pdf") exportPdf(file, v);
-      else if (kind === "report") await exportProofReport(file, v);
-      else if (kind === "docx") {
-        downloadBlob(
-          `${file.manifest.title || "document"}.docx`,
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          docToDocx(file),
-        );
+  const exportAs = useCallback(
+    async (kind: ExportKind) => {
+      if (!file) return;
+      try {
+        const { verdicts: v } = await computeVerdicts(file, loadTrustBook());
+        setVerdicts(v);
+        if (kind === "html") exportHtml(file, v);
+        else if (kind === "md") exportMarkdown(file);
+        else if (kind === "text") exportText(file);
+        else if (kind === "pdf") exportPdf(file, v);
+        else if (kind === "report") await exportProofReport(file, v);
+        else if (kind === "docx") {
+          downloadBlob(
+            `${file.manifest.title || "document"}.docx`,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            docToDocx(file),
+          );
+        }
+        // Log the export (flushed into the journal at the next save).
+        if (tracksJournal(file)) queueJournal({ type: "export", at: nowIso(), data: { format: kind } });
+      } catch (e) {
+        setError(msg(e));
       }
-      // Log the export (flushed into the journal at the next save).
-      if (tracksJournal(file)) queueJournal({ type: "export", at: nowIso(), data: { format: kind } });
-    } catch (e) {
-      setError(msg(e));
-    }
-  }, [file, queueJournal]);
+    },
+    [file, queueJournal],
+  );
 
   const goHome = useCallback(() => setMode("home"), []);
   const toViewer = useCallback(async () => {
@@ -1110,15 +1301,51 @@ export default function App() {
 
   const studio: Studio | null = file
     ? {
-        file, editable, identity, trustBook, attributions, sealAttribution, verdicts, integrity, journalVerdict, sealVerdict, sealPin, selectedSig, busy,
+        file,
+        editable,
+        identity,
+        trustBook,
+        attributions,
+        sealAttribution,
+        verdicts,
+        integrity,
+        journalVerdict,
+        sealVerdict,
+        sealPin,
+        selectedSig,
+        busy,
         versionSecret: { password, keyfile: keyfileRef.current },
         vaultSecret,
-        recipients, recipientPublic,
-        setTitle, trustContact, untrustContact, generateIdentity, changeProfile, setAccessExpiry, setEncryptMetadata, updatePage, updateStyles, updateWatermark,
-        setRecipients, generateRecipientKey, forgetRecipientKey: forgetMyRecipientKey,
+        recipients,
+        recipientPublic,
+        setTitle,
+        trustContact,
+        untrustContact,
+        generateIdentity,
+        changeProfile,
+        setAccessExpiry,
+        setEncryptMetadata,
+        updatePage,
+        updateStyles,
+        updateWatermark,
+        setRecipients,
+        generateRecipientKey,
+        forgetRecipientKey: forgetMyRecipientKey,
         openSignatureCreator: () => setCreatorOpen(true),
-        createSignature, updateSignature, commitSignature, removeSignature, selectSignature: setSelectedSig, signAsParty, setParapheur,
-        onDocChange, save, exportAs, goHome, toViewer, toEditor, trustSealKey,
+        createSignature,
+        updateSignature,
+        commitSignature,
+        removeSignature,
+        selectSignature: setSelectedSig,
+        signAsParty,
+        setParapheur,
+        onDocChange,
+        save,
+        exportAs,
+        goHome,
+        toViewer,
+        toEditor,
+        trustSealKey,
         openSettings: () => setSettingsOpen(true),
       }
     : null;
@@ -1126,7 +1353,11 @@ export default function App() {
   // The presenter window (?presenter=1) is a standalone speaker screen driven
   // entirely by BroadcastChannel from the main window — no vault, server or deck.
   const isPresenter = (() => {
-    try { return new URLSearchParams(window.location.search).get("presenter") === "1"; } catch { return false; }
+    try {
+      return new URLSearchParams(window.location.search).get("presenter") === "1";
+    } catch {
+      return false;
+    }
   })();
   if (isPresenter) {
     return (
@@ -1139,7 +1370,11 @@ export default function App() {
   // A remote signature request (?sign=…) takes over the whole app — no account
   // needed; the decryption secret lives in the URL fragment (Approche A).
   const signToken = (() => {
-    try { return new URLSearchParams(window.location.search).get("sign"); } catch { return null; }
+    try {
+      return new URLSearchParams(window.location.search).get("sign");
+    } catch {
+      return null;
+    }
   })();
   if (signToken) {
     return (
@@ -1148,7 +1383,11 @@ export default function App() {
           <SignLinkView
             token={signToken}
             onHome={() => {
-              try { window.history.replaceState(null, "", window.location.pathname); } catch { /* ignore */ }
+              try {
+                window.history.replaceState(null, "", window.location.pathname);
+              } catch {
+                /* ignore */
+              }
               window.location.reload();
             }}
           />
@@ -1160,7 +1399,11 @@ export default function App() {
   // A public share link (?link=…) takes over the whole app — no account needed;
   // the decryption secret lives in the URL fragment (never sent to the server).
   const linkToken = (() => {
-    try { return new URLSearchParams(window.location.search).get("link"); } catch { return null; }
+    try {
+      return new URLSearchParams(window.location.search).get("link");
+    } catch {
+      return null;
+    }
   })();
   if (linkToken) {
     return (
@@ -1169,7 +1412,11 @@ export default function App() {
           <OpenLinkView
             token={linkToken}
             onHome={() => {
-              try { window.history.replaceState(null, "", window.location.pathname); } catch { /* ignore */ }
+              try {
+                window.history.replaceState(null, "", window.location.pathname);
+              } catch {
+                /* ignore */
+              }
               window.location.reload();
             }}
           />
@@ -1187,7 +1434,10 @@ export default function App() {
           <div className="vault-gate__card">
             <Lock size={28} />
             <h1>Coffre local verrouillé</h1>
-            <p>Ce poste a un coffre local configuré pour protéger la bibliothèque et le Parapheur. Déverrouillez-le pour continuer.</p>
+            <p>
+              Ce poste a un coffre local configuré pour protéger la bibliothèque et le Parapheur. Déverrouillez-le pour
+              continuer.
+            </p>
             <Button onClick={() => void unlockVault()}>Déverrouiller</Button>
             <button type="button" className="vault-gate__forgot" onClick={() => void resetVault()}>
               Mot de passe oublié ?
@@ -1234,9 +1484,21 @@ export default function App() {
           onCreate={onCreate}
           onOpen={onOpen}
           onOpenSettings={() => setSettingsOpen(true)}
-          onNewSheet={() => { setAppView(null); setAppKey((k) => k + 1); setMode("sheet"); }}
-          onNewSlides={() => { setAppView(null); setAppKey((k) => k + 1); setMode("slides"); }}
-          onNewPdf={() => { setAppView(null); setAppKey((k) => k + 1); setMode("pdf"); }}
+          onNewSheet={() => {
+            setAppView(null);
+            setAppKey((k) => k + 1);
+            setMode("sheet");
+          }}
+          onNewSlides={() => {
+            setAppView(null);
+            setAppKey((k) => k + 1);
+            setMode("slides");
+          }}
+          onNewPdf={() => {
+            setAppView(null);
+            setAppKey((k) => k + 1);
+            setMode("pdf");
+          }}
           onOpenDriveCloud={() => setMode("drive-cloud")}
           onOpenDocumentation={() => setMode("documentation")}
           onRecoverDraft={recoverDraft}
@@ -1308,8 +1570,14 @@ export default function App() {
           mode={pw.mode}
           allowKeyfile={pw.allowKeyfile}
           confirmHint={pw.confirmHint}
-          onSubmit={(v) => { pw.resolve(v); setPw(null); }}
-          onCancel={() => { pw.resolve(null); setPw(null); }}
+          onSubmit={(v) => {
+            pw.resolve(v);
+            setPw(null);
+          }}
+          onCancel={() => {
+            pw.resolve(null);
+            setPw(null);
+          }}
         />
       )}
 

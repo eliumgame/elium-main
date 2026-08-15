@@ -22,7 +22,11 @@ describe("keyfile modify cycle (no password), with metadata encryption + seal", 
     const seal = id.privateKeyHex;
 
     // 1. Create + write (keyfile only, metadata encrypted, sealed).
-    let file = await createEliumFile({ title: "Dossier confidentiel", profile: "encrypted", doc: docWith("Version 1") });
+    let file = await createEliumFile({
+      title: "Dossier confidentiel",
+      profile: "encrypted",
+      doc: docWith("Version 1"),
+    });
     let bytes = await writeEliumPackage(file, { keyfile: kf, encryptMetadata: true, sealPrivateKeyHex: seal });
 
     // No credential → must refuse (proves it really is encrypted).

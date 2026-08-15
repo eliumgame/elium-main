@@ -297,12 +297,7 @@ export interface SectionInset {
   rightPx: number;
 }
 
-function buildDecorations(
-  state: EditorState,
-  plan: PagePlan,
-  m: PageMetrics,
-  insets: SectionInset[],
-): DecorationSet {
+function buildDecorations(state: EditorState, plan: PagePlan, m: PageMetrics, insets: SectionInset[]): DecorationSet {
   const decos: Decoration[] = plan.spacers.map((s, i) =>
     Decoration.widget(
       s.pos,

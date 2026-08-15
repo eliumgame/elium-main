@@ -67,7 +67,9 @@ describe("document seal (TypeScript)", () => {
     expect(await verifySeal(m2, signatures, journal)).toBe("broken");
 
     // re-save changing only volatile fields must NOT break the seal
-    expect(await verifySeal({ ...manifest, modifiedAt: "2099-01-01T00:00:00Z", generator: "x2" }, signatures, journal)).toBe("valid");
+    expect(
+      await verifySeal({ ...manifest, modifiedAt: "2099-01-01T00:00:00Z", generator: "x2" }, signatures, journal),
+    ).toBe("valid");
 
     // unsealed
     const { seal: _drop, ...unsealed } = manifest;
@@ -84,7 +86,9 @@ describe("document seal (TypeScript)", () => {
 
     expect(await verifySeal(manifest, signatures, journal)).toBe("valid");
     // Changing the expiry after sealing breaks the seal.
-    expect(await verifySeal({ ...manifest, accessExpiresAt: "2099-01-01T00:00:00Z" }, signatures, journal)).toBe("broken");
+    expect(await verifySeal({ ...manifest, accessExpiresAt: "2099-01-01T00:00:00Z" }, signatures, journal)).toBe(
+      "broken",
+    );
     // Removing it entirely also breaks the seal.
     const { accessExpiresAt: _drop, ...noExpiry } = manifest;
     expect(await verifySeal(noExpiry as EliumManifest, signatures, journal)).toBe("broken");
@@ -134,7 +138,12 @@ describe("document seal (TypeScript)", () => {
     const manifest = {
       ...base,
       docId: "doc-r",
-      protection: { ...base.protection, encrypted: true, contentEntry: "content/document.elium", recipients: ["fpra", "fprb"] },
+      protection: {
+        ...base.protection,
+        encrypted: true,
+        contentEntry: "content/document.elium",
+        recipients: ["fpra", "fprb"],
+      },
     } as EliumManifest;
     manifest.seal = await createSeal(manifest, [], journal, id.privateKeyHex!);
 
@@ -164,7 +173,11 @@ describe("document seal (TypeScript)", () => {
     } as EliumManifest;
     const seal = await createSeal(legacy, [], journal, id.privateKeyHex!);
     // A later version stamped the recipient list onto the same file; the seal predates it.
-    const manifest = { ...legacy, protection: { ...legacy.protection, recipients: ["fpra", "fprb"] }, seal } as EliumManifest;
+    const manifest = {
+      ...legacy,
+      protection: { ...legacy.protection, recipients: ["fpra", "fprb"] },
+      seal,
+    } as EliumManifest;
     expect(await verifySeal(manifest, [], journal)).toBe("valid"); // recipients:false fallback rescues
   });
 
@@ -205,7 +218,10 @@ describe("document seal (TypeScript)", () => {
     expect(await verifySeal(manifest, signatures, journal)).toBe("valid");
     expect(await verifySeal(manifest, signatures, journal, PY_PUBKEY_REC)).toBe("valid");
     // Tampering the displayed recipient list breaks the Python seal read by TS.
-    const tampered = { ...manifest, protection: { ...manifest.protection, recipients: [manifest.protection.recipients[0]] } };
+    const tampered = {
+      ...manifest,
+      protection: { ...manifest.protection, recipients: [manifest.protection.recipients[0]] },
+    };
     expect(await verifySeal(tampered, signatures, journal)).toBe("broken");
   });
 });

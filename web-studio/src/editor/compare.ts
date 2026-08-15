@@ -83,10 +83,7 @@ const STRUCTURAL = new Set([
 // Generic sequence diff
 // =========================================================================
 
-export type DiffOp =
-  | { kind: "equal"; a: number; b: number }
-  | { kind: "del"; a: number }
-  | { kind: "ins"; b: number };
+export type DiffOp = { kind: "equal"; a: number; b: number } | { kind: "del"; a: number } | { kind: "ins"; b: number };
 
 /** Above this many DP cells the middle section is treated as a plain replace. */
 const DP_CELL_CAP = 4_000_000;
@@ -228,11 +225,7 @@ function detokenize(tokens: { token: Token; change: InlineMark | null }[]): Pros
       continue;
     }
     const last = out[out.length - 1];
-    if (
-      last &&
-      last.type === "text" &&
-      JSON.stringify(last.marks ?? []) === JSON.stringify(marks)
-    ) {
+    if (last && last.type === "text" && JSON.stringify(last.marks ?? []) === JSON.stringify(marks)) {
       last.text = (last.text ?? "") + (token.text ?? "");
       continue;
     }

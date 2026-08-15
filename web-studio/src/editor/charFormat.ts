@@ -40,10 +40,12 @@ function toSentenceCase(text: string): string {
 }
 
 function toTitleCase(text: string): string {
-  return text
-    .toLocaleLowerCase("fr")
-    // Word capitalises after any non-letter, apostrophes and hyphens included.
-    .replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, (_, lead: string, ch: string) => lead + ch.toLocaleUpperCase("fr"));
+  return (
+    text
+      .toLocaleLowerCase("fr")
+      // Word capitalises after any non-letter, apostrophes and hyphens included.
+      .replace(/(^|[^\p{L}\p{N}])(\p{L})/gu, (_, lead: string, ch: string) => lead + ch.toLocaleUpperCase("fr"))
+  );
 }
 
 function toToggleCase(text: string): string {
@@ -58,17 +60,25 @@ function toToggleCase(text: string): string {
 /** Apply a case mode to a string. Pure. */
 export function transformCase(text: string, mode: CaseMode): string {
   switch (mode) {
-    case "upper": return text.toLocaleUpperCase("fr");
-    case "lower": return text.toLocaleLowerCase("fr");
-    case "sentence": return toSentenceCase(text);
-    case "title": return toTitleCase(text);
-    case "toggle": return toToggleCase(text);
-    default: return text;
+    case "upper":
+      return text.toLocaleUpperCase("fr");
+    case "lower":
+      return text.toLocaleLowerCase("fr");
+    case "sentence":
+      return toSentenceCase(text);
+    case "title":
+      return toTitleCase(text);
+    case "toggle":
+      return toToggleCase(text);
+    default:
+      return text;
   }
 }
 
 /** Numeric px sizes offered by the size picker, ascending. */
-const SIZE_STEPS: number[] = FONT_SIZES.map((s) => parseFloat(s)).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+const SIZE_STEPS: number[] = FONT_SIZES.map((s) => parseFloat(s))
+  .filter((n) => Number.isFinite(n))
+  .sort((a, b) => a - b);
 
 export const DEFAULT_FONT_SIZE_PX = 16;
 
@@ -165,8 +175,15 @@ export const Subscript = Mark.create({
 
 /** Marks removed by "clear formatting" (block type and structure are kept). */
 const CHAR_MARKS = [
-  "bold", "italic", "underline", "strike", "code", "highlight",
-  "textStyle", "superscript", "subscript",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "code",
+  "highlight",
+  "textStyle",
+  "superscript",
+  "subscript",
 ];
 
 export const CharFormat = Extension.create({
@@ -225,14 +242,29 @@ export const CharFormat = Extension.create({
 
   addCommands() {
     /** Toggle a boolean textStyle attribute. */
-    const toggleAttr = (name: string) => () => ({ editor, commands }: { editor: import("@tiptap/core").Editor; commands: { setMark: (n: string, a: Record<string, unknown>) => boolean } }) => {
-      const on = editor.getAttributes("textStyle")[name] === true;
-      return commands.setMark("textStyle", { [name]: on ? null : true });
-    };
+    const toggleAttr =
+      (name: string) =>
+      () =>
+      ({
+        editor,
+        commands,
+      }: {
+        editor: import("@tiptap/core").Editor;
+        commands: { setMark: (n: string, a: Record<string, unknown>) => boolean };
+      }) => {
+        const on = editor.getAttributes("textStyle")[name] === true;
+        return commands.setMark("textStyle", { [name]: on ? null : true });
+      };
 
     return {
-      toggleSuperscript: () => ({ commands }) => commands.toggleMark("superscript"),
-      toggleSubscript: () => ({ commands }) => commands.toggleMark("subscript"),
+      toggleSuperscript:
+        () =>
+        ({ commands }) =>
+          commands.toggleMark("superscript"),
+      toggleSubscript:
+        () =>
+        ({ commands }) =>
+          commands.toggleMark("subscript"),
       toggleSmallCaps: toggleAttr("smallCaps"),
       toggleAllCaps: toggleAttr("allCaps"),
       toggleDoubleStrike: toggleAttr("doubleStrike"),

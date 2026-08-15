@@ -48,7 +48,9 @@ function fromB64(b64: string): Uint8Array {
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data as unknown as BufferSource));
-  return Array.from(digest).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(digest)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function secretString(secret: VaultSecret): Promise<string> {
@@ -67,7 +69,10 @@ async function deriveKeyArgon2(secret: string, salt: Uint8Array): Promise<Crypto
     hashLength: 32,
     outputType: "binary",
   });
-  return crypto.subtle.importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  return crypto.subtle.importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
 /** Dérivation HÉRITÉE (PBKDF2-100k) : uniquement pour déchiffrer les anciens blobs. */
@@ -90,7 +95,9 @@ export async function encryptAtRest(value: unknown, secret: VaultSecret): Promis
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKeyArgon2(s, salt);
   const pt = new TextEncoder().encode(JSON.stringify(value));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as unknown as BufferSource }, key, pt));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as unknown as BufferSource }, key, pt),
+  );
   const out = new Uint8Array(salt.length + iv.length + ct.length);
   out.set(salt, 0);
   out.set(iv, salt.length);
@@ -106,7 +113,10 @@ export async function decryptAtRest<T>(stored: string, secret: VaultSecret): Pro
   let deriveKey = deriveKeyPbkdf2; // legacy par défaut
   if (stored.startsWith("{")) {
     const env = JSON.parse(stored) as { v?: number; d?: string };
-    if (env.v === 2 && typeof env.d === "string") { b64 = env.d; deriveKey = deriveKeyArgon2; }
+    if (env.v === 2 && typeof env.d === "string") {
+      b64 = env.d;
+      deriveKey = deriveKeyArgon2;
+    }
   }
   const bin = fromB64(b64);
   const salt = bin.slice(0, 16);

@@ -126,7 +126,10 @@ export function removeStopNear(stops: TabStop[], pos: number, tolerance = 1.2): 
 export function moveStop(stops: TabStop[], from: number, to: number): TabStop[] {
   const existing = stops.find((s) => s.pos === from);
   if (!existing) return stops;
-  return addStop(stops.filter((s) => s.pos !== from), { ...existing, pos: Math.max(0, to) });
+  return addStop(
+    stops.filter((s) => s.pos !== from),
+    { ...existing, pos: Math.max(0, to) },
+  );
 }
 
 /** Le taquet le plus proche de `pos` dans la tolérance, sinon `null`. */
@@ -236,9 +239,7 @@ export function tabsXml(stops: TabStop[]): string {
  * normalisations séparées finiraient par accepter des taquets différents selon
  * le chemin d'import.
  */
-export function stopsFromAttrs(
-  items: Iterable<{ val?: string; pos?: string | number; leader?: string }>,
-): TabStop[] {
+export function stopsFromAttrs(items: Iterable<{ val?: string; pos?: string | number; leader?: string }>): TabStop[] {
   const out: TabStop[] = [];
   for (const item of items) {
     // `w:val="clear"` supprime un taquet hérité d'un style : il n'a rien à

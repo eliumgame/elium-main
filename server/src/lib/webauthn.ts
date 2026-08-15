@@ -52,10 +52,9 @@ export function listCredentials(userId: string): Promise<CredentialRow[]> {
 
 /** Vrai si l'utilisateur a au moins une clé WebAuthn (⇒ 2e facteur requis). */
 export async function hasWebauthn(userId: string): Promise<boolean> {
-  const r = await queryOne<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM webauthn_credentials WHERE user_id = $1`,
-    [userId],
-  );
+  const r = await queryOne<{ n: number }>(`SELECT COUNT(*)::int AS n FROM webauthn_credentials WHERE user_id = $1`, [
+    userId,
+  ]);
   return (r?.n ?? 0) > 0;
 }
 
@@ -97,7 +96,10 @@ export async function registrationOptions(
     userName: email,
     userDisplayName: displayName || email,
     attestationType: "none",
-    excludeCredentials: existing.map((c) => ({ id: c.credential_id, transports: (c.transports ?? undefined) as never })),
+    excludeCredentials: existing.map((c) => ({
+      id: c.credential_id,
+      transports: (c.transports ?? undefined) as never,
+    })),
     authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
     // Demande l'extension PRF : les authentificateurs compatibles provisionnent
     // un secret dérivable, qui sert au déverrouillage LOCAL de la clé maîtresse
@@ -134,7 +136,14 @@ export async function verifyRegistration(
     `INSERT INTO webauthn_credentials (user_id, credential_id, public_key, counter, transports, name)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (credential_id) DO NOTHING`,
-    [userId, credential.id, Buffer.from(credential.publicKey), credential.counter, credential.transports ?? null, name.slice(0, 64)],
+    [
+      userId,
+      credential.id,
+      Buffer.from(credential.publicKey),
+      credential.counter,
+      credential.transports ?? null,
+      name.slice(0, 64),
+    ],
   );
   return true;
 }
@@ -152,10 +161,7 @@ export async function authenticationOptions(userId: string): Promise<PublicKeyCr
   return options;
 }
 
-export async function verifyAuthentication(
-  userId: string,
-  response: AuthenticationResponseJSON,
-): Promise<boolean> {
+export async function verifyAuthentication(userId: string, response: AuthenticationResponseJSON): Promise<boolean> {
   const expectedChallenge = await consumeChallenge(userId, "auth");
   if (!expectedChallenge) return false;
   // La réponse désigne l'ID de la clé utilisée : on charge la clé correspondante.
@@ -186,10 +192,11 @@ export async function verifyAuthentication(
   if (!verification.verified) return false;
   // Compteur anti-clonage : on avance le compteur stocké. Une régression aurait
   // fait échouer verifyAuthenticationResponse ci-dessus (clé clonée détectée).
-  await query(
-    `UPDATE webauthn_credentials SET counter = $3, last_used_at = now() WHERE id = $1 AND user_id = $2`,
-    [cred.id, userId, verification.authenticationInfo.newCounter],
-  );
+  await query(`UPDATE webauthn_credentials SET counter = $3, last_used_at = now() WHERE id = $1 AND user_id = $2`, [
+    cred.id,
+    userId,
+    verification.authenticationInfo.newCounter,
+  ]);
   return true;
 }
 
@@ -260,9 +267,9 @@ export async function verifyDiscoverableAuthentication(
     return null;
   }
   if (!verification.verified) return null;
-  await query(
-    `UPDATE webauthn_credentials SET counter = $2, last_used_at = now() WHERE id = $1`,
-    [cred.id, verification.authenticationInfo.newCounter],
-  );
+  await query(`UPDATE webauthn_credentials SET counter = $2, last_used_at = now() WHERE id = $1`, [
+    cred.id,
+    verification.authenticationInfo.newCounter,
+  ]);
   return cred.user_id;
 }

@@ -3,7 +3,10 @@ import { unzipSync, zipSync, strToU8 } from "fflate";
 import { createEliumFile } from "../src/format/document";
 import { sha256Hex } from "../src/format/canonical";
 import {
-  writeEliumPackage, readEliumPackage, looksLikeV4Package, EliumPasswordRequired,
+  writeEliumPackage,
+  readEliumPackage,
+  looksLikeV4Package,
+  EliumPasswordRequired,
 } from "../src/format/elium-package";
 import { appendEvent, emptyJournal, verifyJournal } from "../src/format/journal";
 import { createDocumentModel } from "../src/format/document";
@@ -28,10 +31,21 @@ describe("elium package (v4)", () => {
 
   it("fait voyager le circuit parapheur (clair)", async () => {
     const file = await createEliumFile({ title: "À signer", profile: "signed" });
-    file.parapheur = { parties: [
-      { id: "pt-1", name: "Alice", role: "Directrice", status: "signed", signatureId: "sig-1", publicKeyHex: "aa".repeat(32), signedAt: "2026-08-09T00:00:00Z" },
-      { id: "pt-2", name: "Bob", role: "Client", status: "pending" },
-    ], requestedAt: "2026-08-09T00:00:00Z" };
+    file.parapheur = {
+      parties: [
+        {
+          id: "pt-1",
+          name: "Alice",
+          role: "Directrice",
+          status: "signed",
+          signatureId: "sig-1",
+          publicKeyHex: "aa".repeat(32),
+          signedAt: "2026-08-09T00:00:00Z",
+        },
+        { id: "pt-2", name: "Bob", role: "Client", status: "pending" },
+      ],
+      requestedAt: "2026-08-09T00:00:00Z",
+    };
     const blob = await writeEliumPackage(file);
     // L'entrée dédiée existe en clair.
     expect(Object.keys(unzipSync(blob))).toContain("parapheur/circuit.json");
@@ -68,7 +82,13 @@ describe("intégrité des ressources (adressées par contenu)", () => {
     const file = await createEliumFile({ title: "Avec pièce jointe", profile: "standard" });
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const id = await sha256Hex(bytes);
-    file.resourceIndex.push({ id, name: "data.bin", mime: "application/octet-stream", size: bytes.length, kind: "attachment" });
+    file.resourceIndex.push({
+      id,
+      name: "data.bin",
+      mime: "application/octet-stream",
+      size: bytes.length,
+      kind: "attachment",
+    });
     file.resources.set(id, bytes);
 
     const blob = await writeEliumPackage(file);
@@ -81,7 +101,13 @@ describe("intégrité des ressources (adressées par contenu)", () => {
     const file = await createEliumFile({ title: "Falsifié", profile: "standard" });
     const bytes = new Uint8Array([9, 9, 9, 9]);
     const id = await sha256Hex(bytes);
-    file.resourceIndex.push({ id, name: "logo.bin", mime: "application/octet-stream", size: bytes.length, kind: "image" });
+    file.resourceIndex.push({
+      id,
+      name: "logo.bin",
+      mime: "application/octet-stream",
+      size: bytes.length,
+      kind: "image",
+    });
     file.resources.set(id, bytes);
     const blob = await writeEliumPackage(file);
 
@@ -131,9 +157,14 @@ describe("signature proof", () => {
     const id = await generateIdentity();
     const proof = await createProof({ signatureId: "sig_1", model, signer, privateKeyHex: id.privateKeyHex });
     const sig: EliumSignature = {
-      id: "sig_1", kind: "typed", visual: { text: "Alice" },
+      id: "sig_1",
+      kind: "typed",
+      visual: { text: "Alice" },
       placement: { page: 1, xPct: 0, yPct: 0, wPct: 0.3, hPct: 0.1, rotation: 0, z: 0, anchorType: "page" },
-      signer, proof, level: "advanced", createdAt: "2026-06-09T00:00:00Z",
+      signer,
+      proof,
+      level: "advanced",
+      createdAt: "2026-06-09T00:00:00Z",
     };
     return { model, id, sig };
   }
@@ -152,22 +183,33 @@ describe("signature proof", () => {
 
   it("detects modification after signing", async () => {
     const { sig } = await sign();
-    const changed = createDocumentModel({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "changé" }] }] });
+    const changed = createDocumentModel({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "changé" }] }],
+    });
     expect(await verifyProof(sig, changed)).toBe("modified");
   });
 
   it("rejects a tampered signature", async () => {
     const { model, sig } = await sign();
-    const tampered: EliumSignature = { ...sig, proof: { ...sig.proof!, signatureHex: "00" + sig.proof!.signatureHex.slice(2) } };
+    const tampered: EliumSignature = {
+      ...sig,
+      proof: { ...sig.proof!, signatureHex: "00" + sig.proof!.signatureHex.slice(2) },
+    };
     expect(await verifyProof(tampered, model)).toBe("invalid");
   });
 
   it("reports visual-only signatures", async () => {
     const model = createDocumentModel();
     const sig: EliumSignature = {
-      id: "v", kind: "drawn", visual: { image: "data:," },
+      id: "v",
+      kind: "drawn",
+      visual: { image: "data:," },
       placement: { page: 1, xPct: 0, yPct: 0, wPct: 0.3, hPct: 0.1, rotation: 0, z: 0, anchorType: "page" },
-      signer: {}, proof: null, level: "visual", createdAt: "2026-06-09T00:00:00Z",
+      signer: {},
+      proof: null,
+      level: "visual",
+      createdAt: "2026-06-09T00:00:00Z",
     };
     expect(await verifyProof(sig, model)).toBe("visual_only");
   });

@@ -70,10 +70,7 @@ export const Caption = Node.create({
           if (pos === null) return false;
           if (dispatch) {
             const text = attrs.text?.trim();
-            const node = type.create(
-              { label: attrs.label, position },
-              text ? editor.schema.text(text) : null,
-            );
+            const node = type.create({ label: attrs.label, position }, text ? editor.schema.text(text) : null);
             tr.insert(pos, node);
             // Leave the cursor at the end of the caption so the author can keep
             // typing, exactly as Word does after inserting one.
@@ -222,7 +219,13 @@ export const TableOfFigures = Node.create({
           a.textContent = `${captionPrefix(row.label, row.number, " — ")}${row.text || "(sans titre)"}`;
           a.addEventListener("click", (e) => {
             e.preventDefault();
-            if (row.pos >= 0) editor.chain().focus().setTextSelection(row.pos + 1).scrollIntoView().run();
+            if (row.pos >= 0)
+              editor
+                .chain()
+                .focus()
+                .setTextSelection(row.pos + 1)
+                .scrollIntoView()
+                .run();
           });
           li.appendChild(a);
           if (row.page != null) {

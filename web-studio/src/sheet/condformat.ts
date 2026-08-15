@@ -6,7 +6,11 @@
 import { isError, type CellValue } from "./formula";
 import type { CondRule } from "./model";
 
-export interface CondStyle { background?: string; color?: string; fontWeight?: number; }
+export interface CondStyle {
+  background?: string;
+  color?: string;
+  fontWeight?: number;
+}
 
 /** Coerce a cell value to a number, or null when it isn't numeric. */
 export function toNum(v: CellValue): number | null {
@@ -22,12 +26,21 @@ export function toNum(v: CellValue): number | null {
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
-  const s = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const s =
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h;
   const n = parseInt(s, 16) || 0;
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 function rgbToHex(r: number, g: number, b: number): string {
-  const c = (x: number) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0");
+  const c = (x: number) =>
+    Math.max(0, Math.min(255, Math.round(x)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 function mix(a: string, b: string, t: number): string {
@@ -37,7 +50,12 @@ function mix(a: string, b: string, t: number): string {
 }
 
 /** Colour for `value` on a 2- or 3-stop scale, clamped to [min, max]. */
-export function colorScaleFill(scale: { min: string; max: string; mid?: string }, value: number, min: number, max: number): string {
+export function colorScaleFill(
+  scale: { min: string; max: string; mid?: string },
+  value: number,
+  min: number,
+  max: number,
+): string {
   if (max <= min) return scale.mid ?? scale.min;
   const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
   if (scale.mid) return t < 0.5 ? mix(scale.min, scale.mid, t / 0.5) : mix(scale.mid, scale.max, (t - 0.5) / 0.5);
@@ -55,20 +73,30 @@ export function ruleMatches(rule: CondRule, value: CellValue, text: string): boo
   const n1 = Number(t1);
   const numeric = n !== null && t1.trim() !== "" && !Number.isNaN(n1);
   switch (rule.op) {
-    case "gt": return numeric && n! > n1;
-    case "lt": return numeric && n! < n1;
-    case "ge": return numeric && n! >= n1;
-    case "le": return numeric && n! <= n1;
-    case "eq": return numeric ? n! === n1 : text === t1;
-    case "ne": return numeric ? n! !== n1 : text !== t1;
+    case "gt":
+      return numeric && n! > n1;
+    case "lt":
+      return numeric && n! < n1;
+    case "ge":
+      return numeric && n! >= n1;
+    case "le":
+      return numeric && n! <= n1;
+    case "eq":
+      return numeric ? n! === n1 : text === t1;
+    case "ne":
+      return numeric ? n! !== n1 : text !== t1;
     case "between": {
       const n2 = Number(rule.v2 ?? "");
       return n !== null && !Number.isNaN(n1) && !Number.isNaN(n2) && n! >= Math.min(n1, n2) && n! <= Math.max(n1, n2);
     }
-    case "contains": return t1 !== "" && text.toLowerCase().includes(t1.toLowerCase());
-    case "empty": return text.trim() === "";
-    case "notEmpty": return text.trim() !== "";
-    default: return false;
+    case "contains":
+      return t1 !== "" && text.toLowerCase().includes(t1.toLowerCase());
+    case "empty":
+      return text.trim() === "";
+    case "notEmpty":
+      return text.trim() !== "";
+    default:
+      return false;
   }
 }
 
@@ -107,7 +135,8 @@ export function buildCondFormatter(
   const stats = new Map<string, { min: number; max: number }>();
   for (const rule of rules) {
     if (rule.op !== "colorScale") continue;
-    let min = Infinity, max = -Infinity;
+    let min = Infinity,
+      max = -Infinity;
     for (let r = rule.r0; r <= rule.r1; r++) {
       for (let c = rule.c0; c <= rule.c1; c++) {
         const n = toNum(getValue(c, r));

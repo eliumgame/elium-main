@@ -109,7 +109,10 @@ function loadPkcs12(p12Bytes: Uint8Array, password: string): SignerMaterial {
   let key: forge.pki.PrivateKey | undefined;
   for (const k of Object.keys(keyBags)) {
     const bag = (keyBags as Record<string, forge.pkcs12.Bag[]>)[k]?.[0];
-    if (bag?.key) { key = bag.key; break; }
+    if (bag?.key) {
+      key = bag.key;
+      break;
+    }
   }
   if (!key) throw new Error("PKCS#12 : clé privée introuvable (mot de passe correct ?).");
   // Certificats.
@@ -121,10 +124,11 @@ function loadPkcs12(p12Bytes: Uint8Array, password: string): SignerMaterial {
   if (certs.length === 0) throw new Error("PKCS#12 : aucun certificat.");
   // Le certificat du signataire = celui dont la clé publique correspond à la clé privée.
   const rsaKey = key as forge.pki.rsa.PrivateKey;
-  const signer = certs.find((c) => {
-    const pub = c.publicKey as forge.pki.rsa.PublicKey;
-    return pub.n && rsaKey.n && pub.n.compareTo(rsaKey.n) === 0;
-  }) ?? certs[0]!;
+  const signer =
+    certs.find((c) => {
+      const pub = c.publicKey as forge.pki.rsa.PublicKey;
+      return pub.n && rsaKey.n && pub.n.compareTo(rsaKey.n) === 0;
+    }) ?? certs[0]!;
   const chain = certs.filter((c) => c !== signer);
   return { key, cert: signer, chain };
 }
@@ -235,7 +239,10 @@ async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptio
 
   const annotsRaw = page.node.lookup(PDFName.of("Annots"));
   let annots = annotsRaw instanceof PDFArray ? annotsRaw : undefined;
-  if (!annots) { annots = PDFArray.withContext(ctx); page.node.set(PDFName.of("Annots"), annots); }
+  if (!annots) {
+    annots = PDFArray.withContext(ctx);
+    page.node.set(PDFName.of("Annots"), annots);
+  }
   annots.push(widgetRef);
 
   const acroRaw = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
@@ -248,7 +255,10 @@ async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptio
   }
   const fieldsRaw = acro.lookup(PDFName.of("Fields"));
   let fields = fieldsRaw instanceof PDFArray ? fieldsRaw : undefined;
-  if (!fields) { fields = PDFArray.withContext(ctx); acro.set(PDFName.of("Fields"), fields); }
+  if (!fields) {
+    fields = PDFArray.withContext(ctx);
+    acro.set(PDFName.of("Fields"), fields);
+  }
   fields.push(widgetRef);
 }
 
@@ -335,11 +345,20 @@ export async function signPdfBytes(
 
 function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesVerification {
   const out: PadesVerification = {
-    fieldName: "", signerName: "", valid: false, coversWholeDocument: false, digestMatches: false,
-    certValidAtSigning: false, selfSigned: false, chainVerified: false,
+    fieldName: "",
+    signerName: "",
+    valid: false,
+    coversWholeDocument: false,
+    digestMatches: false,
+    certValidAtSigning: false,
+    selfSigned: false,
+    chainVerified: false,
   };
   try {
-    const a = parseInt(brMatch[1]!, 10), b = parseInt(brMatch[2]!, 10), c = parseInt(brMatch[3]!, 10), d = parseInt(brMatch[4]!, 10);
+    const a = parseInt(brMatch[1]!, 10),
+      b = parseInt(brMatch[2]!, 10),
+      c = parseInt(brMatch[3]!, 10),
+      d = parseInt(brMatch[4]!, 10);
     // /Contents hex entre b ('<') et c ('>' + 1) : le hex est [b+1, c-1).
     const hex = s.slice(b + 1, c - 1).replace(/[^0-9A-Fa-f]/g, "");
     // Le trou /Contents est complété de 0 : on découpe le DER à sa longueur
@@ -366,7 +385,8 @@ function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesV
     const seg1 = buf.subarray(a, a + b);
     const seg2 = buf.subarray(c, c + d);
     const content = new Uint8Array(seg1.length + seg2.length);
-    content.set(seg1, 0); content.set(seg2, seg1.length);
+    content.set(seg1, 0);
+    content.set(seg2, seg1.length);
     const recomputed = sha256(content);
     out.coversWholeDocument = a === 0 && c + d === buf.length;
 
@@ -396,7 +416,11 @@ function verifyOne(buf: Uint8Array, s: string, brMatch: RegExpExecArray): PadesV
       const md = forge.md.sha256.create();
       md.update(derAttrs);
       const pub = signerCert.publicKey as forge.pki.rsa.PublicKey;
-      try { sigValid = pub.verify(md.digest().getBytes(), p7.rawCapture.signature); } catch { sigValid = false; }
+      try {
+        sigValid = pub.verify(md.digest().getBytes(), p7.rawCapture.signature);
+      } catch {
+        sigValid = false;
+      }
     }
     // La validité inclut désormais la fenêtre de validité du certificat : une
     // signature cryptographiquement correcte mais faite avec un certificat expiré

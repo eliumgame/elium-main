@@ -74,7 +74,11 @@ export interface CatchUpResult {
  * rotating again, since the prev-key slot is a single level and a further
  * rotation overwrites it.
  */
-export async function catchUpStaleVersions(ctx: OpsCtx, entry: DriveEntry, currentKey: Uint8Array): Promise<CatchUpResult> {
+export async function catchUpStaleVersions(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  currentKey: Uint8Array,
+): Promise<CatchUpResult> {
   if (entry.kind !== "file" || !entry.prevKeyWrapped || !entry.prevKeyNonce) return { fixed: 0, remaining: 0 };
   const epoch = entry.keyEpoch ?? 1;
   const { versions } = (await ctx.api.listVersions(entry.id)) as unknown as { versions: VersionInfo[] };
@@ -104,7 +108,10 @@ export async function catchUpStaleVersions(ctx: OpsCtx, entry: DriveEntry, curre
  * Rotate one node's CEK: new key, new crypto-ACL (current principals only —
  * call AFTER revoking), re-encrypted name/meta/content/versions/collab log.
  */
-export async function rotateNode(ctx: OpsCtx, entry: DriveEntry): Promise<{ ok: boolean; revokedLinks: number; blockedOnStaleVersions?: boolean }> {
+export async function rotateNode(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+): Promise<{ ok: boolean; revokedLinks: number; blockedOnStaleVersions?: boolean }> {
   const oldKey = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!oldKey) return { ok: false, revokedLinks: 0 }; // cannot rotate what we cannot decrypt
 
@@ -206,7 +213,11 @@ export async function rotateNode(ctx: OpsCtx, entry: DriveEntry): Promise<{ ok: 
  * included). Skips nodes the caller cannot decrypt — those keep their key and
  * are reported in `skipped`.
  */
-export async function rotateTree(ctx: OpsCtx, entry: DriveEntry, onProgress?: RotationProgress): Promise<RotationStats> {
+export async function rotateTree(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  onProgress?: RotationProgress,
+): Promise<RotationStats> {
   const stats: RotationStats = { rotated: 0, skipped: 0, revokedLinks: 0 };
   try {
     const res = await rotateNode(ctx, entry);
@@ -223,8 +234,8 @@ export async function rotateTree(ctx: OpsCtx, entry: DriveEntry, onProgress?: Ro
 
   if (entry.kind === "folder") {
     const children = [
-      ...(await listFolder(ctx, entry.id).catch(() => [] as DriveEntry[]))
-      , ...(await listFolder(ctx, entry.id, true).catch(() => [] as DriveEntry[]))
+      ...(await listFolder(ctx, entry.id).catch(() => [] as DriveEntry[])),
+      ...(await listFolder(ctx, entry.id, true).catch(() => [] as DriveEntry[])),
     ];
     for (const child of children) {
       const sub = await rotateTree(ctx, child, onProgress);

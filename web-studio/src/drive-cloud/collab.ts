@@ -116,7 +116,16 @@ export class EncryptedCollabChannel {
   }
 
   private async onMessage(data: string): Promise<void> {
-    let msg: { type?: string; ciphertext?: string; nonce?: string; seq?: number; author?: string | null; from?: string; payload?: unknown; canWrite?: boolean };
+    let msg: {
+      type?: string;
+      ciphertext?: string;
+      nonce?: string;
+      seq?: number;
+      author?: string | null;
+      from?: string;
+      payload?: unknown;
+      canWrite?: boolean;
+    };
     try {
       msg = JSON.parse(data);
     } catch {

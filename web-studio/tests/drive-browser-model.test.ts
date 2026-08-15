@@ -1,29 +1,42 @@
 import { describe, it, expect } from "vitest";
 import {
-  canDropInto, EMPTY_FILTER, familyOf, filterEntries, humanDate, humanSize, isCollab,
-  matchesQuery, movePayload, nextSelection, pruneSelection, quotaState, selectionSummary,
-  sortEntries, visibleEntries,
+  canDropInto,
+  EMPTY_FILTER,
+  familyOf,
+  filterEntries,
+  humanDate,
+  humanSize,
+  isCollab,
+  matchesQuery,
+  movePayload,
+  nextSelection,
+  pruneSelection,
+  quotaState,
+  selectionSummary,
+  sortEntries,
+  visibleEntries,
 } from "../src/drive-cloud/browser-model";
 import type { DriveEntry } from "../src/drive-cloud/ops";
 
-const entry = (over: Partial<DriveEntry> & { id: string; name: string }): DriveEntry => ({
-  orgId: "o1",
-  parentId: null,
-  kind: "file",
-  ownerUserId: "u1",
-  nameEncrypted: "",
-  nameNonce: "",
-  metaEncrypted: null,
-  metaNonce: null,
-  appKind: null,
-  sizeBytes: 0,
-  hasContent: true,
-  contentNonce: null,
-  trashedAt: null,
-  createdAt: "2026-01-01T00:00:00.000Z",
-  modifiedAt: "2026-01-01T00:00:00.000Z",
-  ...over,
-} as DriveEntry);
+const entry = (over: Partial<DriveEntry> & { id: string; name: string }): DriveEntry =>
+  ({
+    orgId: "o1",
+    parentId: null,
+    kind: "file",
+    ownerUserId: "u1",
+    nameEncrypted: "",
+    nameNonce: "",
+    metaEncrypted: null,
+    metaNonce: null,
+    appKind: null,
+    sizeBytes: 0,
+    hasContent: true,
+    contentNonce: null,
+    trashedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    modifiedAt: "2026-01-01T00:00:00.000Z",
+    ...over,
+  }) as DriveEntry;
 
 describe("Drive — classification", () => {
   it("maps app kinds to filter families", () => {
@@ -84,19 +97,35 @@ describe("Drive — sorting", () => {
   });
 
   it("sorts names naturally, so 2 comes before 10", () => {
-    const names = sortEntries(list, "name", "asc").filter((e) => e.kind === "file").map((e) => e.name);
+    const names = sortEntries(list, "name", "asc")
+      .filter((e) => e.kind === "file")
+      .map((e) => e.name);
     expect(names).toEqual(["annexe 2", "annexe 10"]);
   });
 
   it("sorts names case- and accent-insensitively", () => {
-    const folders = sortEntries(list, "name", "asc").filter((e) => e.kind === "folder").map((e) => e.name);
+    const folders = sortEntries(list, "name", "asc")
+      .filter((e) => e.kind === "folder")
+      .map((e) => e.name);
     expect(folders).toEqual(["Archives", "Zèbre"]);
   });
 
   it("sorts by size and by date", () => {
-    expect(sortEntries(list, "size", "asc").filter((e) => e.kind === "file").map((e) => e.id)).toEqual(["a", "b"]);
-    expect(sortEntries(list, "size", "desc").filter((e) => e.kind === "file").map((e) => e.id)).toEqual(["b", "a"]);
-    expect(sortEntries(list, "modified", "desc").filter((e) => e.kind === "file").map((e) => e.id)).toEqual(["b", "a"]);
+    expect(
+      sortEntries(list, "size", "asc")
+        .filter((e) => e.kind === "file")
+        .map((e) => e.id),
+    ).toEqual(["a", "b"]);
+    expect(
+      sortEntries(list, "size", "desc")
+        .filter((e) => e.kind === "file")
+        .map((e) => e.id),
+    ).toEqual(["b", "a"]);
+    expect(
+      sortEntries(list, "modified", "desc")
+        .filter((e) => e.kind === "file")
+        .map((e) => e.id),
+    ).toEqual(["b", "a"]);
   });
 
   it("does not mutate the input", () => {

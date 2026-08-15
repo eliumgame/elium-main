@@ -34,7 +34,10 @@ export interface CaptionEntry {
   anchorId: string;
 }
 
-const normalizeLabel = (v: unknown): string => String(v ?? "Figure").replace(/\s+/g, " ").trim() || "Figure";
+const normalizeLabel = (v: unknown): string =>
+  String(v ?? "Figure")
+    .replace(/\s+/g, " ")
+    .trim() || "Figure";
 
 /** The prefix a caption displays, e.g. "Figure 3 — ". */
 export function captionPrefix(label: string, number: number, separator = " — "): string {
@@ -67,7 +70,10 @@ function scanCaptions(walk: Walker): CaptionEntry[] {
 /** Minimal ProseMirror node shape, so this module needs no TipTap import. */
 interface PMLike {
   descendants(
-    fn: (node: { type: { name: string }; attrs: Record<string, unknown>; textContent: string }, pos: number) => boolean | void,
+    fn: (
+      node: { type: { name: string }; attrs: Record<string, unknown>; textContent: string },
+      pos: number,
+    ) => boolean | void,
   ): void;
 }
 
@@ -123,7 +129,7 @@ export function buildFigureTable(
   label: string | null | undefined,
   pageOf: ((pos: number) => number | null) | null,
 ): FigureTableRow[] {
-  const wanted = normalizeLabel(label ?? "") ;
+  const wanted = normalizeLabel(label ?? "");
   const filtered = label ? entries.filter((e) => e.label === wanted) : entries;
   return filtered.map((e) => ({ ...e, page: pageOf && e.pos >= 0 ? pageOf(e.pos) : null }));
 }

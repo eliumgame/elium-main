@@ -17,8 +17,21 @@ export const FONT_FAMILIES = [
 ];
 
 export const FONT_SIZES = [
-  "8px", "9px", "10px", "11px", "12px", "14px", "16px", "18px", "20px",
-  "24px", "28px", "32px", "40px", "48px", "64px",
+  "8px",
+  "9px",
+  "10px",
+  "11px",
+  "12px",
+  "14px",
+  "16px",
+  "18px",
+  "20px",
+  "24px",
+  "28px",
+  "32px",
+  "40px",
+  "48px",
+  "64px",
 ];
 
 export const LINE_HEIGHTS = [

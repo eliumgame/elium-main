@@ -18,7 +18,17 @@ import { TaskItem } from "@tiptap/extension-task-item";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import type { Extensions } from "@tiptap/react";
-import { Indent, PageBreak, TableOfContents, Figure, Comment, Footnote, FootnotesList, ParagraphStyle, Bookmark } from "./customExtensions";
+import {
+  Indent,
+  PageBreak,
+  TableOfContents,
+  Figure,
+  Comment,
+  Footnote,
+  FootnotesList,
+  ParagraphStyle,
+  Bookmark,
+} from "./customExtensions";
 import { Endnote, EndnotesList } from "./noteExtensions";
 import { Tab, TabStops } from "./tabExtension";
 import { Ornaments } from "./ornamentExtensions";
@@ -27,8 +37,14 @@ import { Proofing } from "./proofingExtension";
 import { TextBox } from "./textBoxExtension";
 import { Shape } from "./shapeExtension";
 import {
-  ListSchemes, ColumnSection, SectionBreak, RefAnchors, CrossReference,
-  IndexEntry, IndexBlock, MergeField,
+  ListSchemes,
+  ColumnSection,
+  SectionBreak,
+  RefAnchors,
+  CrossReference,
+  IndexEntry,
+  IndexBlock,
+  MergeField,
 } from "./wordExtensions";
 import { CharFormat, Subscript, Superscript } from "./charFormat";
 import { ParagraphFormat } from "./paragraphFormat";

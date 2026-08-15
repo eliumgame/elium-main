@@ -7,8 +7,15 @@
 import { useEffect, useRef } from "react";
 import { useUndoable } from "../ui/useUndoable";
 import {
-  emptyDeck, emptySlide, blankSlide, newSlideId, newElementId, withElements,
-  type Deck, type Slide, type SlideElement,
+  emptyDeck,
+  emptySlide,
+  blankSlide,
+  newSlideId,
+  newElementId,
+  withElements,
+  type Deck,
+  type Slide,
+  type SlideElement,
 } from "./model";
 import { loadDeck, saveDeck } from "./deck-store";
 import type { DeckStore } from "./store";
@@ -21,19 +28,40 @@ export interface LocalDeckStore extends DeckStore {
 }
 
 export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
-  const { value: deck, set, setQuiet, checkpoint, undo, redo, canUndo, canRedo, reset } =
-    useUndoable<Deck>(migrate(initial ?? emptyDeck()));
+  const {
+    value: deck,
+    set,
+    setQuiet,
+    checkpoint,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset,
+  } = useUndoable<Deck>(migrate(initial ?? emptyDeck()));
 
   // Load persisted deck on mount (only when not opening an explicit .elium deck).
   useEffect(() => {
     if (initial) return;
-    loadDeck().then((d) => d && reset(migrate(d))).catch(() => {});
+    loadDeck()
+      .then((d) => d && reset(migrate(d)))
+      .catch(() => {});
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced autosave + save on unmount.
-  const deckRef = useRef(deck); deckRef.current = deck;
-  useEffect(() => { if (initial) return; const t = setTimeout(() => void saveDeck(deck), 400); return () => clearTimeout(t); }, [deck, initial]);
-  useEffect(() => () => { if (!initial) void saveDeck(deckRef.current); }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
+  useEffect(() => {
+    if (initial) return;
+    const t = setTimeout(() => void saveDeck(deck), 400);
+    return () => clearTimeout(t);
+  }, [deck, initial]);
+  useEffect(
+    () => () => {
+      if (!initial) void saveDeck(deckRef.current);
+    },
+    [initial],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- element mutations on the active slide ---
   const setEls = (mut: (els: SlideElement[]) => SlideElement[], commit: boolean) => {
@@ -48,12 +76,16 @@ export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
     setEls((els) => els.map((e) => (e.id === id ? { ...e, ...patch } : e)), commit);
   const addEl = (elm: SlideElement) => setEls((els) => [...els, elm], true);
   const removeEl = (id: string) => setEls((els) => els.filter((e) => e.id !== id), true);
-  const reorderEl = (id: string, dir: "front" | "back") => setEls((els) => {
-    const i = els.findIndex((e) => e.id === id); if (i < 0) return els;
-    const cp = els.slice(); const [it] = cp.splice(i, 1);
-    if (dir === "front") cp.push(it!); else cp.unshift(it!);
-    return cp;
-  }, true);
+  const reorderEl = (id: string, dir: "front" | "back") =>
+    setEls((els) => {
+      const i = els.findIndex((e) => e.id === id);
+      if (i < 0) return els;
+      const cp = els.slice();
+      const [it] = cp.splice(i, 1);
+      if (dir === "front") cp.push(it!);
+      else cp.unshift(it!);
+      return cp;
+    }, true);
 
   // --- deck / slide operations ---
   const setActive = (i: number) => set((d) => ({ ...d, active: i }));
@@ -66,37 +98,66 @@ export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
       return { ...d, slides };
     });
 
-  const addSlide = (blank = false) => set((d) => {
-    const slides = d.slides.slice();
-    slides.splice(d.active + 1, 0, blank ? blankSlide() : withElements(emptySlide("title-content")));
-    return { ...d, slides, active: d.active + 1 };
-  });
-  const insertSlide = (slide: Slide) => set((d) => {
-    const slides = d.slides.slice();
-    slides.splice(d.active + 1, 0, withElements(slide));
-    return { ...d, slides, active: d.active + 1 };
-  });
-  const removeSlide = (i: number) => set((d) => {
-    if (d.slides.length <= 1) return d;
-    const slides = d.slides.filter((_, idx) => idx !== i);
-    return { ...d, slides, active: Math.max(0, Math.min(d.active, slides.length - 1)) };
-  });
-  const moveSlide = (i: number, dir: -1 | 1) => set((d) => {
-    const j = i + dir; if (j < 0 || j >= d.slides.length) return d;
-    const slides = d.slides.slice(); [slides[i], slides[j]] = [slides[j]!, slides[i]!];
-    return { ...d, slides, active: j };
-  });
-  const duplicateSlide = (i: number) => set((d) => {
-    const slides = d.slides.slice(); const orig = withElements(slides[i]!);
-    slides.splice(i + 1, 0, { ...orig, id: newSlideId(), elements: orig.elements!.map((e) => ({ ...e, id: newElementId(), morphKey: e.morphKey ?? e.id })) });
-    return { ...d, slides, active: i + 1 };
-  });
+  const addSlide = (blank = false) =>
+    set((d) => {
+      const slides = d.slides.slice();
+      slides.splice(d.active + 1, 0, blank ? blankSlide() : withElements(emptySlide("title-content")));
+      return { ...d, slides, active: d.active + 1 };
+    });
+  const insertSlide = (slide: Slide) =>
+    set((d) => {
+      const slides = d.slides.slice();
+      slides.splice(d.active + 1, 0, withElements(slide));
+      return { ...d, slides, active: d.active + 1 };
+    });
+  const removeSlide = (i: number) =>
+    set((d) => {
+      if (d.slides.length <= 1) return d;
+      const slides = d.slides.filter((_, idx) => idx !== i);
+      return { ...d, slides, active: Math.max(0, Math.min(d.active, slides.length - 1)) };
+    });
+  const moveSlide = (i: number, dir: -1 | 1) =>
+    set((d) => {
+      const j = i + dir;
+      if (j < 0 || j >= d.slides.length) return d;
+      const slides = d.slides.slice();
+      [slides[i], slides[j]] = [slides[j]!, slides[i]!];
+      return { ...d, slides, active: j };
+    });
+  const duplicateSlide = (i: number) =>
+    set((d) => {
+      const slides = d.slides.slice();
+      const orig = withElements(slides[i]!);
+      slides.splice(i + 1, 0, {
+        ...orig,
+        id: newSlideId(),
+        elements: orig.elements!.map((e) => ({ ...e, id: newElementId(), morphKey: e.morphKey ?? e.id })),
+      });
+      return { ...d, slides, active: i + 1 };
+    });
 
   return {
-    deck, active: deck.active, canWrite: true, collaborative: false,
-    setActive, setDeckField, replaceDeck,
-    addSlide, insertSlide, removeSlide, moveSlide, duplicateSlide, patchSlide,
-    updateEl, addEl, removeEl, reorderEl,
-    beginChange: checkpoint, undo, redo, canUndo, canRedo,
+    deck,
+    active: deck.active,
+    canWrite: true,
+    collaborative: false,
+    setActive,
+    setDeckField,
+    replaceDeck,
+    addSlide,
+    insertSlide,
+    removeSlide,
+    moveSlide,
+    duplicateSlide,
+    patchSlide,
+    updateEl,
+    addEl,
+    removeEl,
+    reorderEl,
+    beginChange: checkpoint,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   };
 }

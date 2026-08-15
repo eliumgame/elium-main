@@ -26,15 +26,24 @@ export function validationAt(validations: DataValidation[] | undefined, c: numbe
 
 function compare(op: ValidationOp, n: number, a: number, b: number): boolean {
   switch (op) {
-    case "gt": return n > a;
-    case "lt": return n < a;
-    case "ge": return n >= a;
-    case "le": return n <= a;
-    case "eq": return n === a;
-    case "ne": return n !== a;
-    case "between": return n >= Math.min(a, b) && n <= Math.max(a, b);
-    case "notBetween": return n < Math.min(a, b) || n > Math.max(a, b);
-    default: return true;
+    case "gt":
+      return n > a;
+    case "lt":
+      return n < a;
+    case "ge":
+      return n >= a;
+    case "le":
+      return n <= a;
+    case "eq":
+      return n === a;
+    case "ne":
+      return n !== a;
+    case "between":
+      return n >= Math.min(a, b) && n <= Math.max(a, b);
+    case "notBetween":
+      return n < Math.min(a, b) || n > Math.max(a, b);
+    default:
+      return true;
   }
 }
 
@@ -65,14 +74,16 @@ export function validateValue(rule: DataValidation, raw: string): ValidationResu
   if (rule.type === "number") {
     const n = Number(text);
     if (Number.isNaN(n)) return { valid: false, reason: "Un nombre est attendu." };
-    const a = Number(rule.v1 ?? ""), b = Number(rule.v2 ?? "");
+    const a = Number(rule.v1 ?? ""),
+      b = Number(rule.v2 ?? "");
     const ok = rule.op ? compare(rule.op, n, a, b) : true;
     return ok ? { valid: true } : { valid: false, reason: "Nombre hors des bornes autorisées." };
   }
 
   if (rule.type === "textLength") {
     const len = text.length;
-    const a = Number(rule.v1 ?? ""), b = Number(rule.v2 ?? "");
+    const a = Number(rule.v1 ?? ""),
+      b = Number(rule.v2 ?? "");
     const ok = rule.op ? compare(rule.op, len, a, b) : true;
     return ok ? { valid: true } : { valid: false, reason: "Longueur de texte non autorisée." };
   }
@@ -80,7 +91,8 @@ export function validateValue(rule: DataValidation, raw: string): ValidationResu
   if (rule.type === "date") {
     const d = toDate(text);
     if (d === null) return { valid: false, reason: "Une date valide est attendue." };
-    const a = toDate(rule.v1 ?? "") ?? NaN, b = toDate(rule.v2 ?? "") ?? NaN;
+    const a = toDate(rule.v1 ?? "") ?? NaN,
+      b = toDate(rule.v2 ?? "") ?? NaN;
     const ok = rule.op ? compare(rule.op, d, a, b) : true;
     return ok ? { valid: true } : { valid: false, reason: "Date hors des bornes autorisées." };
   }
@@ -101,7 +113,7 @@ export function buildValidator(
     const rule = validationAt(validations, c, r);
     if (!rule) return null;
     const res = validateValue(rule, getRaw(c, r));
-    return res.valid ? null : res.reason ?? "Valeur non autorisée.";
+    return res.valid ? null : (res.reason ?? "Valeur non autorisée.");
   };
 }
 

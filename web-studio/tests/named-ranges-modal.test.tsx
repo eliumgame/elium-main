@@ -26,7 +26,15 @@ describe("NamedRangesModal (component)", () => {
 
   it("lists existing names and removes one", async () => {
     const onRemove = vi.fn();
-    render(<NamedRangesModal rangeLabel="'F'!A1" names={[{ name: "TVA", ref: "'F'!$B$1" }]} onAdd={noop} onRemove={onRemove} onClose={noop} />);
+    render(
+      <NamedRangesModal
+        rangeLabel="'F'!A1"
+        names={[{ name: "TVA", ref: "'F'!$B$1" }]}
+        onAdd={noop}
+        onRemove={onRemove}
+        onClose={noop}
+      />,
+    );
     expect(screen.getByText("TVA")).toBeTruthy();
     expect(screen.getByText(/'F'!\$B\$1/)).toBeTruthy();
     await userEvent.click(screen.getByTitle("Supprimer le nom"));
@@ -34,7 +42,15 @@ describe("NamedRangesModal (component)", () => {
   });
 
   it("shows 'Redéfinir' when the typed name already exists", async () => {
-    render(<NamedRangesModal rangeLabel="'F'!A1" names={[{ name: "TVA", ref: "'F'!$B$1" }]} onAdd={noop} onRemove={noop} onClose={noop} />);
+    render(
+      <NamedRangesModal
+        rangeLabel="'F'!A1"
+        names={[{ name: "TVA", ref: "'F'!$B$1" }]}
+        onAdd={noop}
+        onRemove={noop}
+        onClose={noop}
+      />,
+    );
     await userEvent.type(screen.getByPlaceholderText(/Nom/), "tva");
     expect(screen.getByRole("button", { name: /Redéfinir/ })).toBeTruthy();
   });

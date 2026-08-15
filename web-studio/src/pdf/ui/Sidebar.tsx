@@ -1,7 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bookmark, ChevronDown, ChevronRight, Copy, Download, FileText, Filter, Layers, MessageSquare,
-  Paperclip, Pencil, Plus, RotateCw, Search, Trash2, X, Check, Ban, CircleDot, FormInput, ArrowUpDown,
+  Bookmark,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Download,
+  FileText,
+  Filter,
+  Layers,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Plus,
+  RotateCw,
+  Search,
+  Trash2,
+  X,
+  Check,
+  Ban,
+  CircleDot,
+  FormInput,
+  ArrowUpDown,
 } from "lucide-react";
 import type { PdfEngine, Attachment, LayerInfo } from "../core/engine";
 import { renderToCanvas } from "../core/render";
@@ -56,14 +75,22 @@ export interface SidebarProps {
 
 export default function Sidebar(p: SidebarProps) {
   switch (p.panel) {
-    case "thumbnails": return <Thumbnails {...p} />;
-    case "bookmarks": return <Bookmarks {...p} />;
-    case "comments": return <Comments {...p} />;
-    case "search": return <SearchResults {...p} />;
-    case "attachments": return <Attachments {...p} />;
-    case "layers": return <LayersPane {...p} />;
-    case "fields": return <FieldsPane {...p} />;
-    default: return null;
+    case "thumbnails":
+      return <Thumbnails {...p} />;
+    case "bookmarks":
+      return <Bookmarks {...p} />;
+    case "comments":
+      return <Comments {...p} />;
+    case "search":
+      return <SearchResults {...p} />;
+    case "attachments":
+      return <Attachments {...p} />;
+    case "layers":
+      return <LayersPane {...p} />;
+    case "fields":
+      return <FieldsPane {...p} />;
+    default:
+      return null;
   }
 }
 
@@ -79,16 +106,21 @@ function Thumb({ engine, from, width }: { engine: PdfEngine; from: number | null
     const el = ref.current;
     if (!el || from == null) return;
     let done = false;
-    const io = new IntersectionObserver(async ([entry]) => {
-      if (!entry.isIntersecting || done) return;
-      done = true;
-      io.disconnect();
-      try {
-        const page = await engine.page(from);
-        const canvas = await renderToCanvas(page, { scale: 4, maxWidth: width * 2 });
-        setSrc(canvas.toDataURL("image/png"));
-      } catch { /* a page that will not render simply stays blank */ }
-    }, { rootMargin: "400px" });
+    const io = new IntersectionObserver(
+      async ([entry]) => {
+        if (!entry.isIntersecting || done) return;
+        done = true;
+        io.disconnect();
+        try {
+          const page = await engine.page(from);
+          const canvas = await renderToCanvas(page, { scale: 4, maxWidth: width * 2 });
+          setSrc(canvas.toDataURL("image/png"));
+        } catch {
+          /* a page that will not render simply stays blank */
+        }
+      },
+      { rootMargin: "400px" },
+    );
     io.observe(el);
     return () => io.disconnect();
   }, [engine, from, width]);
@@ -135,8 +167,13 @@ function Thumbnails(p: SidebarProps) {
               key={page.id}
               className={`pdfx-thumb ${p.current === i + 1 ? "is-current" : ""} ${selected ? "is-selected" : ""} ${dragOver === i ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
               draggable
-              onDragStart={() => { dragging.current = selected ? p.selectedPages : [page.id]; }}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
+              onDragStart={() => {
+                dragging.current = selected ? p.selectedPages : [page.id];
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(i);
+              }}
               onDragLeave={() => setDragOver((v) => (v === i ? null : v))}
               onDrop={(e) => {
                 e.preventDefault();
@@ -150,9 +187,36 @@ function Thumbnails(p: SidebarProps) {
               <div className="pdfx-thumb__bar">
                 <span className="pdfx-thumb__num">{page.label || i + 1}</span>
                 <span className="pdfx-thumb__ops">
-                  <button type="button" title="Pivoter 90°" onClick={(e) => { e.stopPropagation(); p.onPageAction("rotate", [page.id]); }}><RotateCw size={12} /></button>
-                  <button type="button" title="Dupliquer" onClick={(e) => { e.stopPropagation(); p.onPageAction("duplicate", [page.id]); }}><Copy size={12} /></button>
-                  <button type="button" title="Supprimer" onClick={(e) => { e.stopPropagation(); p.onPageAction("delete", [page.id]); }}><Trash2 size={12} /></button>
+                  <button
+                    type="button"
+                    title="Pivoter 90°"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onPageAction("rotate", [page.id]);
+                    }}
+                  >
+                    <RotateCw size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Dupliquer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onPageAction("duplicate", [page.id]);
+                    }}
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Supprimer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onPageAction("delete", [page.id]);
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </span>
               </div>
             </div>
@@ -160,7 +224,9 @@ function Thumbnails(p: SidebarProps) {
         })}
       </div>
       <div className="pdfx-panel__foot">
-        <button className="pdfx-mini" onClick={() => p.onPageAction("insert", p.selectedPages)}><Plus size={13} /> Page blanche</button>
+        <button className="pdfx-mini" onClick={() => p.onPageAction("insert", p.selectedPages)}>
+          <Plus size={13} /> Page blanche
+        </button>
       </div>
     </div>
   );
@@ -179,35 +245,62 @@ function Bookmarks(p: SidebarProps) {
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Signets</span>
-        <button className="pdfx-icon" title="Nouveau signet sur la page courante" onClick={() => p.onBookmarkAdd(null)}><Plus size={14} /></button>
+        <button className="pdfx-icon" title="Nouveau signet sur la page courante" onClick={() => p.onBookmarkAdd(null)}>
+          <Plus size={14} />
+        </button>
       </div>
       <div className="pdfx-panel__body">
-        {!flat.length && <p className="pdfx-empty">Ce document ne contient aucun signet.<br />Ajoutez-en un pour créer un sommaire.</p>}
+        {!flat.length && (
+          <p className="pdfx-empty">
+            Ce document ne contient aucun signet.
+            <br />
+            Ajoutez-en un pour créer un sommaire.
+          </p>
+        )}
         {flat.map(({ node, depth }) => (
           <div key={node.id} className="pdfx-mark" style={{ paddingLeft: 8 + depth * 14 }}>
             {node.children.length > 0 ? (
-              <button className="pdfx-mark__twist" onClick={() => p.onBookmarkToggle(node.id)} title={node.closed ? "Déplier" : "Replier"}>
+              <button
+                className="pdfx-mark__twist"
+                onClick={() => p.onBookmarkToggle(node.id)}
+                title={node.closed ? "Déplier" : "Replier"}
+              >
                 {node.closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
               </button>
-            ) : <span className="pdfx-mark__twist" />}
+            ) : (
+              <span className="pdfx-mark__twist" />
+            )}
             {editing === node.id ? (
               <input
                 className="pdfx-mark__input"
                 autoFocus
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onBlur={() => { p.onBookmarkRename(node.id, draft.trim() || node.title); setEditing(null); }}
+                onBlur={() => {
+                  p.onBookmarkRename(node.id, draft.trim() || node.title);
+                  setEditing(null);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") { p.onBookmarkRename(node.id, draft.trim() || node.title); setEditing(null); }
+                  if (e.key === "Enter") {
+                    p.onBookmarkRename(node.id, draft.trim() || node.title);
+                    setEditing(null);
+                  }
                   if (e.key === "Escape") setEditing(null);
                 }}
               />
             ) : (
               <button
                 className="pdfx-mark__title"
-                style={{ fontWeight: node.bold ? 700 : 500, fontStyle: node.italic ? "italic" : undefined, color: node.color }}
+                style={{
+                  fontWeight: node.bold ? 700 : 500,
+                  fontStyle: node.italic ? "italic" : undefined,
+                  color: node.color,
+                }}
                 onClick={() => p.onBookmarkGoTo(node)}
-                onDoubleClick={() => { setDraft(node.title); setEditing(node.id); }}
+                onDoubleClick={() => {
+                  setDraft(node.title);
+                  setEditing(node.id);
+                }}
                 title={`Page ${node.page}`}
               >
                 {node.title}
@@ -215,9 +308,21 @@ function Bookmarks(p: SidebarProps) {
             )}
             <span className="pdfx-mark__page">{node.page}</span>
             <span className="pdfx-mark__ops">
-              <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}><Plus size={12} /></button>
-              <button title="Renommer" onClick={() => { setDraft(node.title); setEditing(node.id); }}><Pencil size={12} /></button>
-              <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}><Trash2 size={12} /></button>
+              <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
+                <Plus size={12} />
+              </button>
+              <button
+                title="Renommer"
+                onClick={() => {
+                  setDraft(node.title);
+                  setEditing(node.id);
+                }}
+              >
+                <Pencil size={12} />
+              </button>
+              <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}>
+                <Trash2 size={12} />
+              </button>
             </span>
           </div>
         ))}
@@ -263,11 +368,16 @@ function Comments(p: SidebarProps) {
     const page = (a: Annot) => pageOrder.get(a.pageId) ?? 1e9;
     out.sort((a, b) => {
       switch (p.sort) {
-        case "author": return a.author.localeCompare(b.author) || page(a) - page(b);
-        case "date": return b.createdAt.localeCompare(a.createdAt);
-        case "kind": return a.kind.localeCompare(b.kind) || page(a) - page(b);
-        case "status": return (a.status ?? "none").localeCompare(b.status ?? "none") || page(a) - page(b);
-        default: return page(a) - page(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
+        case "author":
+          return a.author.localeCompare(b.author) || page(a) - page(b);
+        case "date":
+          return b.createdAt.localeCompare(a.createdAt);
+        case "kind":
+          return a.kind.localeCompare(b.kind) || page(a) - page(b);
+        case "status":
+          return (a.status ?? "none").localeCompare(b.status ?? "none") || page(a) - page(b);
+        default:
+          return page(a) - page(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
       }
     });
     return out;
@@ -278,7 +388,13 @@ function Comments(p: SidebarProps) {
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Commentaires</span>
         <span className="pdfx-panel__count">{list.length}</span>
-        <button className={`pdfx-icon ${showFilter ? "is-on" : ""}`} title="Filtrer" onClick={() => setShowFilter((v) => !v)}><Filter size={14} /></button>
+        <button
+          className={`pdfx-icon ${showFilter ? "is-on" : ""}`}
+          title="Filtrer"
+          onClick={() => setShowFilter((v) => !v)}
+        >
+          <Filter size={14} />
+        </button>
         <select
           className="pdfx-mini-select"
           value={p.sort}
@@ -308,18 +424,26 @@ function Comments(p: SidebarProps) {
               onChange={(e) => p.onFilterChange({ ...p.filter, authors: e.target.value ? [e.target.value] : null })}
             >
               <option value="">Tous</option>
-              {authors.map((a) => <option key={a} value={a}>{a}</option>)}
+              {authors.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
             </select>
           </div>
           <div className="pdfx-filter__row">
             <span>Statut</span>
             <select
               value={p.filter.statuses?.[0] ?? ""}
-              onChange={(e) => p.onFilterChange({ ...p.filter, statuses: e.target.value ? [e.target.value as ReviewStatus] : null })}
+              onChange={(e) =>
+                p.onFilterChange({ ...p.filter, statuses: e.target.value ? [e.target.value as ReviewStatus] : null })
+              }
             >
               <option value="">Tous</option>
               {(Object.keys(STATUS_META) as ReviewStatus[]).map((s) => (
-                <option key={s} value={s}>{STATUS_META[s].label}</option>
+                <option key={s} value={s}>
+                  {STATUS_META[s].label}
+                </option>
               ))}
             </select>
           </div>
@@ -327,7 +451,13 @@ function Comments(p: SidebarProps) {
       )}
 
       <div className="pdfx-panel__body">
-        {!list.length && <p className="pdfx-empty">Aucun commentaire.<br />Surlignez du texte ou posez une note pour commencer une relecture.</p>}
+        {!list.length && (
+          <p className="pdfx-empty">
+            Aucun commentaire.
+            <br />
+            Surlignez du texte ou posez une note pour commencer une relecture.
+          </p>
+        )}
         {list.map((a) => {
           const meta = STATUS_META[a.status ?? "none"];
           return (
@@ -335,7 +465,9 @@ function Comments(p: SidebarProps) {
               <header className="pdfx-comment__head">
                 <span className="pdfx-comment__swatch" style={{ background: a.color }} />
                 <span className="pdfx-comment__author">{a.author}</span>
-                <span className="pdfx-comment__meta">{KIND_LABEL[a.kind]} · p. {pageOrder.get(a.pageId) ?? "?"}</span>
+                <span className="pdfx-comment__meta">
+                  {KIND_LABEL[a.kind]} · p. {pageOrder.get(a.pageId) ?? "?"}
+                </span>
                 <time className="pdfx-comment__date">{shortDate(a.createdAt)}</time>
               </header>
 
@@ -345,25 +477,34 @@ function Comments(p: SidebarProps) {
                   autoFocus
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
-                  onBlur={() => { p.onAnnotEditContents(a.id, editText); setEditing(null); }}
+                  onBlur={() => {
+                    p.onAnnotEditContents(a.id, editText);
+                    setEditing(null);
+                  }}
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
                 <p
                   className="pdfx-comment__body"
-                  onDoubleClick={(e) => { e.stopPropagation(); setEditText(a.contents ?? ""); setEditing(a.id); }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditText(a.contents ?? "");
+                    setEditing(a.id);
+                  }}
                 >
                   {a.contents || a.text || <em>Sans commentaire — double-cliquez pour en ajouter</em>}
                 </p>
               )}
 
-              {(a.replies ?? []).filter((r) => r.text).map((r) => (
-                <div key={r.id} className="pdfx-reply">
-                  <span className="pdfx-reply__author">{r.author}</span>
-                  <time>{shortDate(r.createdAt)}</time>
-                  <p>{r.text}</p>
-                </div>
-              ))}
+              {(a.replies ?? [])
+                .filter((r) => r.text)
+                .map((r) => (
+                  <div key={r.id} className="pdfx-reply">
+                    <span className="pdfx-reply__author">{r.author}</span>
+                    <time>{shortDate(r.createdAt)}</time>
+                    <p>{r.text}</p>
+                  </div>
+                ))}
 
               {replyTo === a.id ? (
                 <div className="pdfx-comment__replybox" onClick={(e) => e.stopPropagation()}>
@@ -378,30 +519,52 @@ function Comments(p: SidebarProps) {
                         setReplyText("");
                         setReplyTo(null);
                       }
-                      if (e.key === "Escape") { setReplyTo(null); setReplyText(""); }
+                      if (e.key === "Escape") {
+                        setReplyTo(null);
+                        setReplyText("");
+                      }
                     }}
                   />
                   <button
                     className="pdfx-mini pdfx-mini--primary"
-                    onClick={() => { if (replyText.trim()) p.onAnnotReply(a.id, replyText.trim()); setReplyText(""); setReplyTo(null); }}
+                    onClick={() => {
+                      if (replyText.trim()) p.onAnnotReply(a.id, replyText.trim());
+                      setReplyText("");
+                      setReplyTo(null);
+                    }}
                   >
                     Envoyer
                   </button>
                 </div>
               ) : (
                 <footer className="pdfx-comment__foot" onClick={(e) => e.stopPropagation()}>
-                  <button className="pdfx-mini" onClick={() => { setReplyTo(a.id); setReplyText(""); }}>Répondre</button>
-                  <span className={`pdfx-cstatus pdfx-cstatus--${meta.tone}`}>{meta.icon}{meta.label}</span>
+                  <button
+                    className="pdfx-mini"
+                    onClick={() => {
+                      setReplyTo(a.id);
+                      setReplyText("");
+                    }}
+                  >
+                    Répondre
+                  </button>
+                  <span className={`pdfx-cstatus pdfx-cstatus--${meta.tone}`}>
+                    {meta.icon}
+                    {meta.label}
+                  </span>
                   <select
                     className="pdfx-mini-select"
                     value={a.status ?? "none"}
                     onChange={(e) => p.onAnnotStatus([a.id], e.target.value as ReviewStatus)}
                   >
                     {(Object.keys(STATUS_META) as ReviewStatus[]).map((s) => (
-                      <option key={s} value={s}>{STATUS_META[s].label}</option>
+                      <option key={s} value={s}>
+                        {STATUS_META[s].label}
+                      </option>
                     ))}
                   </select>
-                  <button className="pdfx-mini pdfx-mini--danger" onClick={() => p.onAnnotDelete([a.id])}><Trash2 size={12} /></button>
+                  <button className="pdfx-mini pdfx-mini--danger" onClick={() => p.onAnnotDelete([a.id])}>
+                    <Trash2 size={12} />
+                  </button>
                 </footer>
               )}
             </article>
@@ -431,7 +594,11 @@ function SearchResults(p: SidebarProps) {
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Recherche</span>
-        {p.searchBusy ? <span className="pdfx-panel__count">…</span> : <span className="pdfx-panel__count">{p.searchHits.length}</span>}
+        {p.searchBusy ? (
+          <span className="pdfx-panel__count">…</span>
+        ) : (
+          <span className="pdfx-panel__count">{p.searchHits.length}</span>
+        )}
       </div>
       <div className="pdfx-panel__body">
         {!p.searchQuery && <p className="pdfx-empty">Saisissez un terme dans la barre de recherche.</p>}
@@ -440,7 +607,9 @@ function SearchResults(p: SidebarProps) {
         )}
         {byPage.map(([page, items]) => (
           <div key={page} className="pdfx-hits-group">
-            <div className="pdfx-hits-group__head">Page {page + 1} <span>{items.length}</span></div>
+            <div className="pdfx-hits-group__head">
+              Page {page + 1} <span>{items.length}</span>
+            </div>
             {items.map(({ hit, index }) => (
               <button
                 key={index}
@@ -496,11 +665,7 @@ function LayersPane(p: SidebarProps) {
         {!p.layers.length && <p className="pdfx-empty">Ce document ne contient pas de calques.</p>}
         {p.layers.map((l) => (
           <label key={l.id} className="pdfx-row pdfx-row--check">
-            <input
-              type="checkbox"
-              checked={!p.hiddenLayers.has(l.id)}
-              onChange={() => p.onLayerToggle(l.id)}
-            />
+            <input type="checkbox" checked={!p.hiddenLayers.has(l.id)} onChange={() => p.onLayerToggle(l.id)} />
             <Layers size={14} />
             <span className="pdfx-row__label">{l.name}</span>
           </label>
@@ -518,13 +683,23 @@ function FieldsPane(p: SidebarProps) {
         <span className="pdfx-panel__count">{p.fields.length}</span>
       </div>
       <div className="pdfx-panel__body">
-        {!p.fields.length && <p className="pdfx-empty">Aucun champ créé.<br />Choisissez un outil de champ pour en dessiner un.</p>}
+        {!p.fields.length && (
+          <p className="pdfx-empty">
+            Aucun champ créé.
+            <br />
+            Choisissez un outil de champ pour en dessiner un.
+          </p>
+        )}
         {p.fields.map((f) => (
           <div key={f.id} className="pdfx-row">
             <FormInput size={14} />
-            <button className="pdfx-row__label" onClick={() => p.onFieldSelect(f.id)}>{f.name}</button>
+            <button className="pdfx-row__label" onClick={() => p.onFieldSelect(f.id)}>
+              {f.name}
+            </button>
             <span className="pdfx-row__meta">{f.kind}</span>
-            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onFieldDelete(f.id)}><Trash2 size={12} /></button>
+            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onFieldDelete(f.id)}>
+              <Trash2 size={12} />
+            </button>
           </div>
         ))}
       </div>

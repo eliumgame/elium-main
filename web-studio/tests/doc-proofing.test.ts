@@ -1,13 +1,21 @@
 import { describe, it, expect } from "vitest";
 import {
-  ISSUE_LABELS, NARROW_NBSP, applyIssue, checkText, editDistance, foldWord, parseDictionary,
-  suggest, summarize, words, type IssueKind,
+  ISSUE_LABELS,
+  NARROW_NBSP,
+  applyIssue,
+  checkText,
+  editDistance,
+  foldWord,
+  parseDictionary,
+  suggest,
+  summarize,
+  words,
+  type IssueKind,
 } from "../src/editor/proofing";
 
 /** Les familles présentes dans le résultat, dans l'ordre. */
 const kinds = (text: string, opts = {}): IssueKind[] => checkText(text, opts).map((i) => i.kind);
-const only = (text: string, kind: IssueKind, opts = {}) =>
-  checkText(text, opts).filter((i) => i.kind === kind);
+const only = (text: string, kind: IssueKind, opts = {}) => checkText(text, opts).filter((i) => i.kind === kind);
 
 describe("Correcteur — repli et découpage", () => {
   it("replie la casse et les accents", () => {
@@ -17,9 +25,7 @@ describe("Correcteur — repli et découpage", () => {
 
   it("garde les mots élidés et composés entiers", () => {
     // Les découper produirait des fragments inconnus de tout dictionnaire.
-    expect(words("aujourd'hui peut-être l’avion").map((w) => w.text)).toEqual([
-      "aujourd'hui", "peut-être", "l’avion",
-    ]);
+    expect(words("aujourd'hui peut-être l’avion").map((w) => w.text)).toEqual(["aujourd'hui", "peut-être", "l’avion"]);
   });
 
   it("donne des positions exactes", () => {

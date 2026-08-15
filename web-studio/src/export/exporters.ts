@@ -7,13 +7,7 @@
  * page breaks, the way a signature page works in a real document.
  */
 
-import type {
-  EliumDocumentModel,
-  EliumFile,
-  EliumSignature,
-  ProseMirrorNode,
-  SignatureVerdict,
-} from "../format/types";
+import type { EliumDocumentModel, EliumFile, EliumSignature, ProseMirrorNode, SignatureVerdict } from "../format/types";
 import { verifyJournal } from "../format/journal";
 import { markerText, schemeById, schemesCss, type ListScheme } from "../editor/listSchemes";
 import { buildIndexJson, type IndexGroup } from "../editor/indexing";
@@ -22,21 +16,28 @@ import { sectionBreakLabelFor } from "../editor/sections";
 import { pageSizeOf } from "../format/pageSizes";
 import { fontFaceCss, fontResources } from "../format/embedded-fonts";
 import {
-  buildFigureTable, captionPrefix, collectCaptionsJson, figureTableTitle, type CaptionEntry,
+  buildFigureTable,
+  captionPrefix,
+  collectCaptionsJson,
+  figureTableTitle,
+  type CaptionEntry,
 } from "../editor/captions";
 import { NOTE_TITLES, collectNotesJson, type NoteEntry, type NoteKind } from "../editor/notes";
 import { clampDropLines, watermarkCss } from "../editor/ornaments";
 import { normalizeGeometry, normalizeStyle, textBoxCss } from "../editor/textBox";
 import {
-  DEFAULT_SHAPE_HEIGHT_MM, clampAdj, normalizeShapeStyle, shapeContainerCss, shapeDef, shapeSvg,
+  DEFAULT_SHAPE_HEIGHT_MM,
+  clampAdj,
+  normalizeShapeStyle,
+  shapeContainerCss,
+  shapeDef,
+  shapeSvg,
   vAlignCss,
 } from "../editor/shapes";
 // Le quadrillage n'est PAS exporté : dans Word comme ici, c'est un repère
 // d'écran qui ne s'imprime pas. L'exporter ferait apparaître une grille sur un
 // document livré au lecteur.
-import {
-  fitCss, isBandedColumn, rowClasses, tableStyleById, tableStylesCss,
-} from "../editor/tableStyles";
+import { fitCss, isBandedColumn, rowClasses, tableStyleById, tableStylesCss } from "../editor/tableStyles";
 
 /** base64 of raw bytes, in browser and Node alike (for inlined font data URLs). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -49,11 +50,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /** Allow only safe link schemes so a malicious doc can't inject `javascript:`/`data:`. */
@@ -90,7 +87,10 @@ function collectHeadings(doc: ProseMirrorNode): Heading[] {
     if (node.type === "heading") {
       const level = Number(node.attrs?.level ?? 1);
       if (level <= 3) {
-        const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
+        const text = (node.content ?? [])
+          .map((c) => c.text ?? "")
+          .join("")
+          .trim();
         const refId = String(node.attrs?.refId ?? "");
         out.push({ level, text: text || "Sans titre", slug: refId || `toc-h-${out.length}` });
       }
@@ -150,7 +150,8 @@ function xrefText(node: ProseMirrorNode, targets: RefTarget[]): string {
   const display = (String(node.attrs?.display ?? "text") || "text") as RefDisplay;
   // No layout engine here, so a page-number renvoi keeps the page Elium's own
   // pagination computed when it was inserted.
-  if (display === "page" || display === "full") return String(node.attrs?.cached ?? "") || referenceLabel(target, display, null);
+  if (display === "page" || display === "full")
+    return String(node.attrs?.cached ?? "") || referenceLabel(target, display, null);
   return referenceLabel(target, display, null);
 }
 
@@ -161,13 +162,15 @@ function xrefText(node: ProseMirrorNode, targets: RefTarget[]): string {
  * l'export DOCX : une quatrième implémentation locale finirait par afficher un
  * marqueur différent de celui que l'auteur a sous les yeux.
  */
-const noteOf = (notes: NoteEntry[], id: unknown): NoteEntry | null =>
-  notes.find((n) => n.id === String(id)) ?? null;
+const noteOf = (notes: NoteEntry[], id: unknown): NoteEntry | null => notes.find((n) => n.id === String(id)) ?? null;
 
 function tocHtml(headings: Heading[]): string {
   const inner = headings.length
     ? `<ol class="elium-toc__list">${headings
-        .map((h) => `<li class="elium-toc__item elium-toc__item--h${h.level}"><a href="#${h.slug}">${esc(h.text)}</a></li>`)
+        .map(
+          (h) =>
+            `<li class="elium-toc__item elium-toc__item--h${h.level}"><a href="#${h.slug}">${esc(h.text)}</a></li>`,
+        )
         .join("")}</ol>`
     : '<p class="elium-toc__empty">Aucun titre.</p>';
   return `<nav class="elium-toc"><div class="elium-toc__title">Table des matières</div>${inner}</nav>`;
@@ -196,15 +199,33 @@ function inlineHtml(node: ProseMirrorNode): string {
   let html = esc(node.text);
   for (const mark of node.marks ?? []) {
     switch (mark.type) {
-      case "bold": html = `<strong>${html}</strong>`; break;
-      case "italic": html = `<em>${html}</em>`; break;
-      case "underline": html = `<u>${html}</u>`; break;
-      case "strike": html = `<s>${html}</s>`; break;
-      case "code": html = `<code>${html}</code>`; break;
-      case "highlight": html = `<mark>${html}</mark>`; break;
-      case "link": html = `<a href="${safeHref(String(mark.attrs?.href ?? "#"))}">${html}</a>`; break;
-      case "superscript": html = `<sup>${html}</sup>`; break;
-      case "subscript": html = `<sub>${html}</sub>`; break;
+      case "bold":
+        html = `<strong>${html}</strong>`;
+        break;
+      case "italic":
+        html = `<em>${html}</em>`;
+        break;
+      case "underline":
+        html = `<u>${html}</u>`;
+        break;
+      case "strike":
+        html = `<s>${html}</s>`;
+        break;
+      case "code":
+        html = `<code>${html}</code>`;
+        break;
+      case "highlight":
+        html = `<mark>${html}</mark>`;
+        break;
+      case "link":
+        html = `<a href="${safeHref(String(mark.attrs?.href ?? "#"))}">${html}</a>`;
+        break;
+      case "superscript":
+        html = `<sup>${html}</sup>`;
+        break;
+      case "subscript":
+        html = `<sub>${html}</sub>`;
+        break;
       case "textStyle": {
         const a = mark.attrs ?? {};
         // Underline/strike decoration styles are combined into one declaration:
@@ -228,7 +249,9 @@ function inlineHtml(node: ProseMirrorNode): string {
           a.textPosition ? `vertical-align:${safeCss(String(a.textPosition))}` : "",
           lines.length ? `text-decoration-line:${lines.join(" ")}` : "",
           decoStyle ? `text-decoration-style:${decoStyle}` : "",
-        ].filter((s) => s && !s.endsWith(":")).join(";");
+        ]
+          .filter((s) => s && !s.endsWith(":"))
+          .join(";");
         if (style) html = `<span style="${style}">${html}</span>`;
         break;
       }
@@ -255,7 +278,8 @@ function refIdAttr(node: ProseMirrorNode): string {
 function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
   const kids = (node.content ?? []).map((c) => nodeHtml(c, ctx)).join("");
   switch (node.type) {
-    case "doc": return kids;
+    case "doc":
+      return kids;
     case "textBox": {
       // Le style vient du MÊME générateur que l'écran : deux feuilles séparées
       // finiraient par placer la zone à deux endroits différents.
@@ -292,11 +316,12 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
     }
     case "heading": {
       const level = Number(node.attrs?.level ?? 1);
-      const slug = level <= 3 ? ctx.headings[ctx.hi++]?.slug ?? "" : String(node.attrs?.refId ?? "");
+      const slug = level <= 3 ? (ctx.headings[ctx.hi++]?.slug ?? "") : String(node.attrs?.refId ?? "");
       const id = slug ? ` id="${esc(slug)}"` : "";
       return `<h${level}${id}${blockStyle(node)}>${kids}</h${level}>`;
     }
-    case "tableOfContents": return tocHtml(ctx.headings);
+    case "tableOfContents":
+      return tocHtml(ctx.headings);
     case "footnote":
     case "endnote": {
       const kind: NoteKind = node.type;
@@ -304,8 +329,10 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       if (!entry) return "";
       const p = kind === "endnote" ? "en" : "fn";
       const cls = kind === "endnote" ? "elium-en-ref" : "elium-fn-ref";
-      return `<sup class="${cls}" id="${p}ref-${entry.number}">` +
-        `<a href="#${p}-${entry.number}">${esc(entry.marker)}</a></sup>`;
+      return (
+        `<sup class="${cls}" id="${p}ref-${entry.number}">` +
+        `<a href="#${p}-${entry.number}">${esc(entry.marker)}</a></sup>`
+      );
     }
     case "footnotesList":
     case "endnotesList": {
@@ -317,25 +344,37 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       // Le marqueur est écrit à la main : aucune valeur de `list-style` ne rend
       // des romains minuscules suivis du texte comme le fait Word.
       const items = notes
-        .map((n) => `<li id="${p}-${n.number}" value="${n.number}">` +
-          `<span class="${cls}__mark">${esc(n.marker)}</span> ${esc(n.text)} ` +
-          `<a class="elium-fn-back" href="#${p}ref-${n.number}">↩</a></li>`)
+        .map(
+          (n) =>
+            `<li id="${p}-${n.number}" value="${n.number}">` +
+            `<span class="${cls}__mark">${esc(n.marker)}</span> ${esc(n.text)} ` +
+            `<a class="elium-fn-back" href="#${p}ref-${n.number}">↩</a></li>`,
+        )
         .join("");
-      return `<section class="${cls}"><hr><div class="${cls}__title">${esc(NOTE_TITLES[kind])}</div>` +
-        `<ol class="${cls}__list">${items}</ol></section>`;
+      return (
+        `<section class="${cls}"><hr><div class="${cls}__title">${esc(NOTE_TITLES[kind])}</div>` +
+        `<ol class="${cls}__list">${items}</ol></section>`
+      );
     }
-    case "bookmark": return `<a id="${esc(String(node.attrs?.id ?? ""))}" class="elium-bookmark"></a>`;
+    case "bookmark":
+      return `<a id="${esc(String(node.attrs?.id ?? ""))}" class="elium-bookmark"></a>`;
     case "crossReference": {
       const anchor = esc(String(node.attrs?.targetId ?? ""));
       return `<a class="elium-xref" href="#${anchor}">${esc(xrefText(node, ctx.targets))}</a>`;
     }
     // Index marks never print (Word's XE fields do not either).
-    case "indexEntry": return "";
-    case "indexBlock": return indexHtml(ctx.index);
+    case "indexEntry":
+      return "";
+    case "indexBlock":
+      return indexHtml(ctx.index);
     case "caption": {
       // The number is derived, so it is rendered here rather than stored.
       const label = String(node.attrs?.label ?? "Figure");
-      const text = (node.content ?? []).map((c) => c.text ?? "").join("").replace(/\s+/g, " ").trim();
+      const text = (node.content ?? [])
+        .map((c) => c.text ?? "")
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
       const entry = ctx.captions.find((c) => c.label === label && c.text === text);
       const id = node.attrs?.refId ? ` id="${esc(String(node.attrs.refId))}"` : "";
       return `<p class="elium-caption"${id}><span class="elium-caption__prefix">${esc(captionPrefix(label, entry?.number ?? 1))}</span>${kids}</p>`;
@@ -345,12 +384,11 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const rows = buildFigureTable(ctx.captions, label || null, null);
       const title = figureTableTitle(label);
       if (!rows.length) return "";
-      const items = rows
-        .map((r) => `<li>${esc(`${captionPrefix(r.label, r.number)}${r.text}`)}</li>`)
-        .join("");
+      const items = rows.map((r) => `<li>${esc(`${captionPrefix(r.label, r.number)}${r.text}`)}</li>`).join("");
       return `<nav class="elium-figtable"><div class="elium-figtable__title">${esc(title)}</div><ol>${items}</ol></nav>`;
     }
-    case "pageBreak": return '<div class="elium-page-break" style="page-break-after:always"></div>';
+    case "pageBreak":
+      return '<div class="elium-page-break" style="page-break-after:always"></div>';
     case "sectionBreak": {
       // A section boundary that starts a page is a page break in the exported
       // flow; a continuous one changes nothing visually.
@@ -364,7 +402,8 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const rule = node.attrs?.separator ? ";column-rule:1px solid #cbd5e1" : "";
       return `<div class="elium-columns" style="column-count:${count};column-gap:${gap}mm${rule}">${kids}</div>`;
     }
-    case "mergeField": return `<span class="elium-mergefield">«${esc(String(node.attrs?.field ?? ""))}»</span>`;
+    case "mergeField":
+      return `<span class="elium-mergefield">«${esc(String(node.attrs?.field ?? ""))}»</span>`;
     case "bulletList":
     case "orderedList": {
       // The scheme lives on the outermost list and is inherited downwards, the
@@ -384,17 +423,23 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const start = kind === "ordered" && Number(node.attrs?.start) > 1 ? ` start="${Number(node.attrs?.start)}"` : "";
       return `<${tag}${attr}${start}>${inner}</${tag}>`;
     }
-    case "listItem": return `<li>${kids}</li>`;
-    case "taskList": return `<ul class="task-list">${kids}</ul>`;
-    case "taskItem": return `<li class="task-item"><input type="checkbox" disabled ${node.attrs?.checked ? "checked" : ""}> ${kids}</li>`;
-    case "blockquote": return `<blockquote>${kids}</blockquote>`;
+    case "listItem":
+      return `<li>${kids}</li>`;
+    case "taskList":
+      return `<ul class="task-list">${kids}</ul>`;
+    case "taskItem":
+      return `<li class="task-item"><input type="checkbox" disabled ${node.attrs?.checked ? "checked" : ""}> ${kids}</li>`;
+    case "blockquote":
+      return `<blockquote>${kids}</blockquote>`;
     case "codeBlock": {
       const lang = node.attrs?.language ? ` class="language-${esc(String(node.attrs.language))}"` : "";
       const raw = (node.content ?? []).map((c) => c.text ?? "").join("");
       return `<pre><code${lang}>${esc(raw)}</code></pre>`;
     }
-    case "horizontalRule": return "<hr>";
-    case "image": return `<img src="${esc(String(node.attrs?.src ?? ""))}" alt="${esc(String(node.attrs?.alt ?? ""))}">`;
+    case "horizontalRule":
+      return "<hr>";
+    case "image":
+      return `<img src="${esc(String(node.attrs?.src ?? ""))}" alt="${esc(String(node.attrs?.alt ?? ""))}">`;
     case "figure": {
       const align = esc(String(node.attrs?.align ?? "center"));
       const w = node.attrs?.width ? safeCss(String(node.attrs.width)) : "";
@@ -432,10 +477,14 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const styleAttr = fit ? ` style="${esc(fit)}"` : "";
       return `<table${refIdAttr(node)} data-table-style="${style.id}"${styleAttr}>${bodyHtml}</table>`;
     }
-    case "tableRow": return `<tr>${kids}</tr>`;
-    case "tableHeader": return `<th${spanAttrs(node)}>${kids}</th>`;
-    case "tableCell": return `<td${spanAttrs(node)}>${kids}</td>`;
-    default: return kids;
+    case "tableRow":
+      return `<tr>${kids}</tr>`;
+    case "tableHeader":
+      return `<th${spanAttrs(node)}>${kids}</th>`;
+    case "tableCell":
+      return `<td${spanAttrs(node)}>${kids}</td>`;
+    default:
+      return kids;
   }
 }
 
@@ -473,11 +522,21 @@ function inlineMd(node: ProseMirrorNode): string {
   let t = node.text;
   for (const mark of node.marks ?? []) {
     switch (mark.type) {
-      case "bold": t = `**${t}**`; break;
-      case "italic": t = `*${t}*`; break;
-      case "strike": t = `~~${t}~~`; break;
-      case "code": t = `\`${t}\``; break;
-      case "link": t = `[${t}](${mark.attrs?.href ?? "#"})`; break;
+      case "bold":
+        t = `**${t}**`;
+        break;
+      case "italic":
+        t = `*${t}*`;
+        break;
+      case "strike":
+        t = `~~${t}~~`;
+        break;
+      case "code":
+        t = `\`${t}\``;
+        break;
+      case "link":
+        t = `[${t}](${mark.attrs?.href ?? "#"})`;
+        break;
     }
   }
   return t;
@@ -518,7 +577,10 @@ const emptyFlatCtx = (doc: ProseMirrorNode): FlatCtx => ({
  * rendered ("1.1", "Article II."); without one, Markdown's own conventions are
  * kept so the output stays valid Markdown.
  */
-function listMarkers(node: ProseMirrorNode, ctx: FlatCtx): { markerAt: (i: number) => string; scheme: ListScheme | null } {
+function listMarkers(
+  node: ProseMirrorNode,
+  ctx: FlatCtx,
+): { markerAt: (i: number) => string; scheme: ListScheme | null } {
   const kind = node.type === "bulletList" ? "bullet" : "ordered";
   const declared = schemeById(node.attrs?.listScheme) ?? ctx.scheme;
   const scheme = declared && declared.kind === kind ? declared : null;
@@ -557,10 +619,14 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
   const inline = (n: ProseMirrorNode) =>
     (n.content ?? []).map((c) => (c.type === "text" || c.type === "hardBreak" ? inlineMd(c) : nodeMd(c, ctx))).join("");
   switch (node.type) {
-    case "doc": return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
-    case "paragraph": return inline(node) + "\n";
-    case "heading": return `${"#".repeat(Number(node.attrs?.level ?? 1))} ${inline(node)}\n`;
-    case "tableOfContents": return tocMd(ctx.headings);
+    case "doc":
+      return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
+    case "paragraph":
+      return inline(node) + "\n";
+    case "heading":
+      return `${"#".repeat(Number(node.attrs?.level ?? 1))} ${inline(node)}\n`;
+    case "tableOfContents":
+      return tocMd(ctx.headings);
     case "footnote":
     case "endnote": {
       // Markdown n'a qu'une syntaxe de note : les notes de fin sont préfixées
@@ -579,10 +645,14 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
       const key = (n: NoteEntry) => (kind === "endnote" ? `en-${n.marker}` : n.marker);
       return `\n### ${NOTE_TITLES[kind]}\n` + notes.map((n) => `[^${key(n)}]: ${n.text}`).join("\n") + "\n";
     }
-    case "bookmark": return "";
-    case "crossReference": return `[${xrefText(node, ctx.targets)}](#${String(node.attrs?.targetId ?? "")})`;
-    case "indexEntry": return "";
-    case "indexBlock": return `## ${indexText(ctx.index).replace(/^Index\n/, "Index\n\n")}`;
+    case "bookmark":
+      return "";
+    case "crossReference":
+      return `[${xrefText(node, ctx.targets)}](#${String(node.attrs?.targetId ?? "")})`;
+    case "indexEntry":
+      return "";
+    case "indexBlock":
+      return `## ${indexText(ctx.index).replace(/^Index\n/, "Index\n\n")}`;
     case "caption": {
       // The number is derived from document order, never stored.
       const label = String(node.attrs?.label ?? "Figure");
@@ -590,25 +660,50 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
       const entry = ctx.captions.find((c) => c.label === label && c.text === text.replace(/\s+/g, " ").trim());
       return `*${captionPrefix(label, entry?.number ?? 1)}${text}*\n`;
     }
-    case "tableOfFigures": return figureTableFlat(node, ctx, true);
-    case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
+    case "tableOfFigures":
+      return figureTableFlat(node, ctx, true);
+    case "mergeField":
+      return `«${String(node.attrs?.field ?? "")}»`;
     case "bulletList":
-    case "orderedList": return listMd(node, ctx);
-    case "listItem": case "taskItem": return inline(node);
-    case "taskList": return (node.content ?? []).map((li) => `- [${li.attrs?.checked ? "x" : " "}] ${nodeMd(li, ctx).trim()}`).join("\n") + "\n";
-    case "blockquote": return inline(node).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
-    case "codeBlock": return "```" + (node.attrs?.language ?? "") + "\n" + (node.content ?? []).map((c) => c.text ?? "").join("") + "\n```\n";
-    case "horizontalRule": return "---\n";
-    case "pageBreak": return "\n";
-    case "sectionBreak": return "\n---\n";
-    case "columnSection": return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
-    case "image": return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n`;
+    case "orderedList":
+      return listMd(node, ctx);
+    case "listItem":
+    case "taskItem":
+      return inline(node);
+    case "taskList":
+      return (
+        (node.content ?? []).map((li) => `- [${li.attrs?.checked ? "x" : " "}] ${nodeMd(li, ctx).trim()}`).join("\n") +
+        "\n"
+      );
+    case "blockquote":
+      return (
+        inline(node)
+          .split("\n")
+          .map((l) => `> ${l}`)
+          .join("\n") + "\n"
+      );
+    case "codeBlock":
+      return (
+        "```" + (node.attrs?.language ?? "") + "\n" + (node.content ?? []).map((c) => c.text ?? "").join("") + "\n```\n"
+      );
+    case "horizontalRule":
+      return "---\n";
+    case "pageBreak":
+      return "\n";
+    case "sectionBreak":
+      return "\n---\n";
+    case "columnSection":
+      return (node.content ?? []).map((c) => nodeMd(c, ctx)).join("\n");
+    case "image":
+      return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n`;
     case "figure": {
       const cap = inline(node).trim();
       return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n${cap ? `*${cap}*\n` : ""}`;
     }
-    case "table": return tableMd(node, ctx);
-    default: return inline(node);
+    case "table":
+      return tableMd(node, ctx);
+    default:
+      return inline(node);
   }
 }
 
@@ -625,15 +720,19 @@ function tableMd(table: ProseMirrorNode, ctx: FlatCtx): string {
 }
 
 export function docToMarkdown(model: EliumDocumentModel): string {
-  return nodeMd(model.doc, emptyFlatCtx(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return (
+    nodeMd(model.doc, emptyFlatCtx(model.doc))
+      .replace(/\n{3,}/g, "\n\n")
+      .trim() + "\n"
+  );
 }
 
 // --- Plain text -----------------------------------------------------------
 
 function inlineText(node: ProseMirrorNode, ctx: FlatCtx): string {
-  return (node.content ?? []).map((c) =>
-    c.type === "text" ? c.text ?? "" : c.type === "hardBreak" ? "\n" : nodeText(c, ctx),
-  ).join("");
+  return (node.content ?? [])
+    .map((c) => (c.type === "text" ? (c.text ?? "") : c.type === "hardBreak" ? "\n" : nodeText(c, ctx)))
+    .join("");
 }
 
 function tocText(headings: Heading[]): string {
@@ -658,10 +757,14 @@ function listText(node: ProseMirrorNode, ctx: FlatCtx): string {
 
 function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
   switch (node.type) {
-    case "doc": return (node.content ?? []).map((c) => nodeText(c, ctx)).join("\n");
-    case "paragraph": return inlineText(node, ctx) + "\n";
-    case "heading": return inlineText(node, ctx) + "\n";
-    case "tableOfContents": return tocText(ctx.headings);
+    case "doc":
+      return (node.content ?? []).map((c) => nodeText(c, ctx)).join("\n");
+    case "paragraph":
+      return inlineText(node, ctx) + "\n";
+    case "heading":
+      return inlineText(node, ctx) + "\n";
+    case "tableOfContents":
+      return tocText(ctx.headings);
     case "footnote":
     case "endnote": {
       const kind: NoteKind = node.type;
@@ -675,59 +778,92 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
       if (!notes.length) return "";
       return `\n${NOTE_TITLES[kind]}\n` + notes.map((n) => `[${n.marker}] ${n.text}`).join("\n") + "\n";
     }
-    case "bookmark": return "";
-    case "crossReference": return xrefText(node, ctx.targets);
-    case "indexEntry": return "";
-    case "indexBlock": return indexText(ctx.index);
+    case "bookmark":
+      return "";
+    case "crossReference":
+      return xrefText(node, ctx.targets);
+    case "indexEntry":
+      return "";
+    case "indexBlock":
+      return indexText(ctx.index);
     case "caption": {
       const label = String(node.attrs?.label ?? "Figure");
       const text = inlineText(node, ctx).trim();
       const entry = ctx.captions.find((c) => c.label === label && c.text === text.replace(/\s+/g, " ").trim());
       return `${captionPrefix(label, entry?.number ?? 1)}${text}\n`;
     }
-    case "tableOfFigures": return figureTableFlat(node, ctx, false);
-    case "mergeField": return `«${String(node.attrs?.field ?? "")}»`;
+    case "tableOfFigures":
+      return figureTableFlat(node, ctx, false);
+    case "mergeField":
+      return `«${String(node.attrs?.field ?? "")}»`;
     case "bulletList":
-    case "orderedList": return listText(node, ctx);
-    case "taskList": return (node.content ?? []).map((li) => `[${li.attrs?.checked ? "x" : " "}] ${nodeText(li, ctx).trim()}`).join("\n") + "\n";
-    case "listItem": case "taskItem": return inlineText(node, ctx);
-    case "blockquote": return inlineText(node, ctx).split("\n").map((l) => `> ${l}`).join("\n") + "\n";
-    case "codeBlock": return (node.content ?? []).map((c) => c.text ?? "").join("") + "\n";
-    case "horizontalRule": return "----\n";
-    case "pageBreak": return "\f\n";
-    case "sectionBreak": return `\n— ${sectionBreakLabelFor(node.attrs?.kind)} —\n`;
-    case "columnSection": return (node.content ?? []).map((c) => nodeText(c, ctx)).join("");
-    case "image": return `[image: ${node.attrs?.alt ?? ""}]\n`;
+    case "orderedList":
+      return listText(node, ctx);
+    case "taskList":
+      return (
+        (node.content ?? []).map((li) => `[${li.attrs?.checked ? "x" : " "}] ${nodeText(li, ctx).trim()}`).join("\n") +
+        "\n"
+      );
+    case "listItem":
+    case "taskItem":
+      return inlineText(node, ctx);
+    case "blockquote":
+      return (
+        inlineText(node, ctx)
+          .split("\n")
+          .map((l) => `> ${l}`)
+          .join("\n") + "\n"
+      );
+    case "codeBlock":
+      return (node.content ?? []).map((c) => c.text ?? "").join("") + "\n";
+    case "horizontalRule":
+      return "----\n";
+    case "pageBreak":
+      return "\f\n";
+    case "sectionBreak":
+      return `\n— ${sectionBreakLabelFor(node.attrs?.kind)} —\n`;
+    case "columnSection":
+      return (node.content ?? []).map((c) => nodeText(c, ctx)).join("");
+    case "image":
+      return `[image: ${node.attrs?.alt ?? ""}]\n`;
     case "figure": {
       const cap = inlineText(node, ctx).trim();
       return `[image: ${node.attrs?.alt ?? ""}]${cap ? ` — ${cap}` : ""}\n`;
     }
-    case "table": return tableMd(node, ctx);
-    default: return inlineText(node, ctx);
+    case "table":
+      return tableMd(node, ctx);
+    default:
+      return inlineText(node, ctx);
   }
 }
 
 export function docToText(model: EliumDocumentModel): string {
-  return nodeText(model.doc, emptyFlatCtx(model.doc)).replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return (
+    nodeText(model.doc, emptyFlatCtx(model.doc))
+      .replace(/\n{3,}/g, "\n\n")
+      .trim() + "\n"
+  );
 }
 
 // --- Signatures appendix --------------------------------------------------
 
 function signaturesHtml(signatures: EliumSignature[], verdicts?: Record<string, SignatureVerdict>): string {
   if (!signatures.length) return "";
-  const items = signatures.map((s) => {
-    const visual = s.visual.image
-      ? `<img class="sig-img" src="${esc(s.visual.image)}" alt="signature">`
-      : `<div class="sig-text">${esc(s.visual.text ?? "")}</div>`;
-    const meta = [s.signer.name, s.signer.role, s.signer.org, s.signer.date]
-      .filter((x): x is string => Boolean(x))
-      .map(esc)
-      .join(" · ");
-    const proof = s.proof
-      ? `<div class="sig-proof">Preuve Ed25519 · empreinte ${esc(s.proof.fingerprint.slice(0, 16))}… · ${verdicts?.[s.id] ?? "non vérifiée"}</div>`
-      : `<div class="sig-proof muted">Signature visuelle</div>`;
-    return `<div class="sig-cell">${visual}<div class="sig-meta">${meta}</div>${proof}</div>`;
-  }).join("");
+  const items = signatures
+    .map((s) => {
+      const visual = s.visual.image
+        ? `<img class="sig-img" src="${esc(s.visual.image)}" alt="signature">`
+        : `<div class="sig-text">${esc(s.visual.text ?? "")}</div>`;
+      const meta = [s.signer.name, s.signer.role, s.signer.org, s.signer.date]
+        .filter((x): x is string => Boolean(x))
+        .map(esc)
+        .join(" · ");
+      const proof = s.proof
+        ? `<div class="sig-proof">Preuve Ed25519 · empreinte ${esc(s.proof.fingerprint.slice(0, 16))}… · ${verdicts?.[s.id] ?? "non vérifiée"}</div>`
+        : `<div class="sig-proof muted">Signature visuelle</div>`;
+      return `<div class="sig-cell">${visual}<div class="sig-meta">${meta}</div>${proof}</div>`;
+    })
+    .join("");
   return `<section class="signatures"><h2>Signatures</h2><div class="sig-grid">${items}</div></section>`;
 }
 
@@ -799,7 +935,10 @@ const LIST_SCHEME_CSS = schemesCss("") + tableStylesCss("");
 
 /** A CSS string literal (escaped) for use in @page margin boxes. */
 function cssStr(s: string): string {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]+/g, " ")}"`;
+  return `"${s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/[\r\n]+/g, " ")}"`;
 }
 function expandTokens(tpl: string, title: string): string {
   return tpl.replace(/\{titre\}/gi, title).replace(/\{date\}/gi, new Date().toLocaleDateString("fr-FR"));
@@ -819,9 +958,12 @@ function pageCss(file: EliumFile): string {
   const size = `${pw}mm ${ph}mm`;
   const m = page.margins ?? { top: 20, right: 20, bottom: 20, left: 20 };
   const boxes: string[] = [];
-  if (page.header) boxes.push(`@top-center{content:${cssStr(expandTokens(page.header, title))};font-size:9pt;color:#64748b}`);
-  if (page.footer) boxes.push(`@bottom-center{content:${cssStr(expandTokens(page.footer, title))};font-size:9pt;color:#64748b}`);
-  if (page.showPageNumbers) boxes.push(`@bottom-right{content:"Page " counter(page) " / " counter(pages);font-size:9pt;color:#64748b}`);
+  if (page.header)
+    boxes.push(`@top-center{content:${cssStr(expandTokens(page.header, title))};font-size:9pt;color:#64748b}`);
+  if (page.footer)
+    boxes.push(`@bottom-center{content:${cssStr(expandTokens(page.footer, title))};font-size:9pt;color:#64748b}`);
+  if (page.showPageNumbers)
+    boxes.push(`@bottom-right{content:"Page " counter(page) " / " counter(pages);font-size:9pt;color:#64748b}`);
   return `@page{size:${size} ${page.orientation === "landscape" ? "landscape" : "portrait"};margin:${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;${boxes.join("")}}
 @media print{body{max-width:none;margin:0;padding:0}}`;
 }
@@ -867,7 +1009,11 @@ export function downloadBlob(filename: string, mime: string, data: string | Uint
 }
 
 export function exportHtml(file: EliumFile, verdicts?: Record<string, SignatureVerdict>): void {
-  downloadBlob(`${file.manifest.title || "document"}.html`, "text/html;charset=utf-8", buildStandaloneHtml(file, verdicts));
+  downloadBlob(
+    `${file.manifest.title || "document"}.html`,
+    "text/html;charset=utf-8",
+    buildStandaloneHtml(file, verdicts),
+  );
 }
 
 export function exportMarkdown(file: EliumFile): void {
@@ -915,7 +1061,12 @@ export async function buildProofReport(
       signer: s.signer,
       verdict: verdicts[s.id] ?? "visual_only",
       proof: s.proof
-        ? { alg: s.proof.alg, fingerprint: s.proof.fingerprint, signedAt: s.proof.signedAt, signedContentHash: s.proof.signedContentHash }
+        ? {
+            alg: s.proof.alg,
+            fingerprint: s.proof.fingerprint,
+            signedAt: s.proof.signedAt,
+            signedContentHash: s.proof.signedContentHash,
+          }
         : null,
     })),
     notice: "Une signature visuelle n'est pas une signature électronique qualifiée (eIDAS).",

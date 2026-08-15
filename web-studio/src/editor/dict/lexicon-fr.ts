@@ -25,7 +25,10 @@
 
 /** Découpe une liste écrite sur plusieurs lignes. */
 export function words(raw: string): string[] {
- return raw.split(/\s+/).map((w) => w.trim()).filter(Boolean);
+  return raw
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
 }
 
 // =========================================================================

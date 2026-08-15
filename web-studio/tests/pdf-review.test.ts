@@ -12,8 +12,14 @@ import { fromFdf, missingRequired, suggestFields, toCsv, toFdf, type FieldBox } 
 import * as D from "../src/pdf/model/doc";
 import { emptyState, newId, type Annot, type Page } from "../src/pdf/model/types";
 
-const pages: Page[] = [{ id: "p1", from: 0 }, { id: "p2", from: 1 }];
-const heights = new Map([["p1", 842], ["p2", 842]]);
+const pages: Page[] = [
+  { id: "p1", from: 0 },
+  { id: "p2", from: 1 },
+];
+const heights = new Map([
+  ["p1", 842],
+  ["p2", 842],
+]);
 
 const annot = (over: Partial<Annot>): Annot => ({
   id: newId("an"),
@@ -32,11 +38,34 @@ const annot = (over: Partial<Annot>): Annot => ({
 
 describe("XFDF — export", () => {
   it("produces a well-formed document with one element per annotation", () => {
-    const xml = toXfdf([
-      annot({ kind: "highlight", quads: [[{ x: 10, y: 20 }, { x: 90, y: 20 }, { x: 90, y: 34 }, { x: 10, y: 34 }]] }),
-      annot({ kind: "ink", paths: [[{ x: 1, y: 2 }, { x: 3, y: 4 }]] }),
-      annot({ pageId: "p2", kind: "note", contents: "Vérifier" }),
-    ], pages, heights, "contrat.pdf");
+    const xml = toXfdf(
+      [
+        annot({
+          kind: "highlight",
+          quads: [
+            [
+              { x: 10, y: 20 },
+              { x: 90, y: 20 },
+              { x: 90, y: 34 },
+              { x: 10, y: 34 },
+            ],
+          ],
+        }),
+        annot({
+          kind: "ink",
+          paths: [
+            [
+              { x: 1, y: 2 },
+              { x: 3, y: 4 },
+            ],
+          ],
+        }),
+        annot({ pageId: "p2", kind: "note", contents: "Vérifier" }),
+      ],
+      pages,
+      heights,
+      "contrat.pdf",
+    );
 
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     expect(doc.querySelector("parsererror")).toBeNull();
@@ -47,7 +76,12 @@ describe("XFDF — export", () => {
   });
 
   it("escapes text that would otherwise break the XML", () => {
-    const xml = toXfdf([annot({ kind: "note", contents: 'a < b & "c"' , author: "Ann & Bob" })], pages, heights, "x.pdf");
+    const xml = toXfdf(
+      [annot({ kind: "note", contents: 'a < b & "c"', author: "Ann & Bob" })],
+      pages,
+      heights,
+      "x.pdf",
+    );
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     expect(doc.querySelector("parsererror")).toBeNull();
     expect(doc.getElementsByTagName("contents")[0].textContent).toBe('a < b & "c"');
@@ -60,7 +94,14 @@ describe("XFDF — round-trip", () => {
       kind: "highlight",
       color: "#ffd400",
       contents: "Passage clé",
-      quads: [[{ x: 10, y: 20 }, { x: 90, y: 20 }, { x: 90, y: 34 }, { x: 10, y: 34 }]],
+      quads: [
+        [
+          { x: 10, y: 20 },
+          { x: 90, y: 20 },
+          { x: 90, y: 34 },
+          { x: 10, y: 34 },
+        ],
+      ],
     });
     const back = fromXfdf(toXfdf([original], pages, heights, "x.pdf"), pages, heights, "Import");
     expect(back).toHaveLength(1);
@@ -74,7 +115,15 @@ describe("XFDF — round-trip", () => {
   });
 
   it("restores ink strokes", () => {
-    const original = annot({ kind: "ink", paths: [[{ x: 5, y: 6 }, { x: 40, y: 90 }]] });
+    const original = annot({
+      kind: "ink",
+      paths: [
+        [
+          { x: 5, y: 6 },
+          { x: 40, y: 90 },
+        ],
+      ],
+    });
     const back = fromXfdf(toXfdf([original], pages, heights, "x.pdf"), pages, heights, "Import");
     expect(back[0].kind).toBe("ink");
     expect(back[0].paths![0]).toHaveLength(2);
@@ -83,7 +132,16 @@ describe("XFDF — round-trip", () => {
   });
 
   it("restores a polygon's vertices", () => {
-    const original = annot({ kind: "polygon", paths: [[{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 25, y: 40 }]] });
+    const original = annot({
+      kind: "polygon",
+      paths: [
+        [
+          { x: 0, y: 0 },
+          { x: 50, y: 0 },
+          { x: 25, y: 40 },
+        ],
+      ],
+    });
     const back = fromXfdf(toXfdf([original], pages, heights, "x.pdf"), pages, heights, "Import");
     expect(back[0].paths![0]).toHaveLength(3);
     expect(back[0].paths![0][2].y).toBeCloseTo(40, 1);
@@ -103,7 +161,9 @@ describe("XFDF — round-trip", () => {
   it("keeps annotations on their own page", () => {
     const back = fromXfdf(
       toXfdf([annot({ pageId: "p2", kind: "note", contents: "sur la deux" })], pages, heights, "x.pdf"),
-      pages, heights, "Import",
+      pages,
+      heights,
+      "Import",
     );
     expect(back[0].pageId).toBe("p2");
   });
@@ -192,7 +252,12 @@ describe("Comparison — page alignment", () => {
 describe("Page marks", () => {
   it("expands every header/footer token", () => {
     const out = expandTokens("{title} — page {page}/{pages} — {author} — {filename} — {bates}", {
-      page: 3, total: 12, title: "Bail", author: "Durand", filename: "bail.pdf", bates: "ELI-00007",
+      page: 3,
+      total: 12,
+      title: "Bail",
+      author: "Durand",
+      filename: "bail.pdf",
+      bates: "ELI-00007",
       date: new Date(2026, 2, 14, 9, 5),
     });
     expect(out).toBe("Bail — page 3/12 — Durand — bail.pdf — ELI-00007");
@@ -200,7 +265,12 @@ describe("Page marks", () => {
 
   it("formats the date and time in the local convention", () => {
     const out = expandTokens("{date} {time}", {
-      page: 1, total: 1, title: "", author: "", filename: "", date: new Date(2026, 2, 14, 9, 5),
+      page: 1,
+      total: 1,
+      title: "",
+      author: "",
+      filename: "",
+      date: new Date(2026, 2, 14, 9, 5),
     });
     expect(out).toBe("14/03/2026 09:05");
   });
@@ -232,9 +302,20 @@ describe("Form data", () => {
 
   it("lists the required fields still empty", () => {
     const field = (over: Partial<FieldBox>): FieldBox => ({
-      key: "k", name: "n", kind: "text", rect: { x: 0, y: 0, w: 10, h: 10 },
-      readOnly: false, required: false, multiLine: false, password: false,
-      maxLen: null, exportValue: null, options: [], value: "", align: "left", ...over,
+      key: "k",
+      name: "n",
+      kind: "text",
+      rect: { x: 0, y: 0, w: 10, h: 10 },
+      readOnly: false,
+      required: false,
+      multiLine: false,
+      password: false,
+      maxLen: null,
+      exportValue: null,
+      options: [],
+      value: "",
+      align: "left",
+      ...over,
     });
     const fields = [
       field({ name: "nom", required: true }),
@@ -247,11 +328,14 @@ describe("Form data", () => {
   });
 
   it("suggests a field after a label ending in a colon", () => {
-    const suggestions = suggestFields([
-      { text: "Nom du locataire :", rect: { x: 60, y: 300, w: 130, h: 12 }, fontSize: 11 },
-      { text: "Signature ______________", rect: { x: 60, y: 340, w: 200, h: 12 }, fontSize: 11 },
-      { text: "Texte ordinaire sans marqueur", rect: { x: 60, y: 380, w: 220, h: 12 }, fontSize: 11 },
-    ], 595);
+    const suggestions = suggestFields(
+      [
+        { text: "Nom du locataire :", rect: { x: 60, y: 300, w: 130, h: 12 }, fontSize: 11 },
+        { text: "Signature ______________", rect: { x: 60, y: 340, w: 200, h: 12 }, fontSize: 11 },
+        { text: "Texte ordinaire sans marqueur", rect: { x: 60, y: 380, w: 220, h: 12 }, fontSize: 11 },
+      ],
+      595,
+    );
     expect(suggestions).toHaveLength(2);
     expect(suggestions[0].name).toBe("Nom_du_locataire");
     expect(suggestions[0].rect.x).toBeGreaterThan(190);

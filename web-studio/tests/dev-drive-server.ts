@@ -31,8 +31,7 @@ async function main(): Promise<void> {
   // (config.ts lit process.env à l'import).
   process.env.NODE_ENV = process.env.NODE_ENV ?? "development";
   process.env.DATABASE_URL = `postgres://elium:elium@127.0.0.1:${PG_PORT}/elium`;
-  process.env.TOKEN_SECRET =
-    process.env.TOKEN_SECRET ?? "dev-only-change-me-please-32bytes-minimum-secret";
+  process.env.TOKEN_SECRET = process.env.TOKEN_SECRET ?? "dev-only-change-me-please-32bytes-minimum-secret";
   process.env.STORAGE_DRIVER = "fs";
   process.env.STORAGE_FS_ROOT = BLOB_DIR;
   process.env.PORT = String(API_PORT);

@@ -44,11 +44,16 @@ export const PIVOT_AGGS: { value: PivotAgg; label: string }[] = [
 
 function aggPrefix(agg: PivotAgg): string {
   switch (agg) {
-    case "sum": return "Somme de";
-    case "count": return "Nombre de";
-    case "avg": return "Moyenne de";
-    case "min": return "Min de";
-    case "max": return "Max de";
+    case "sum":
+      return "Somme de";
+    case "count":
+      return "Nombre de";
+    case "avg":
+      return "Moyenne de";
+    case "min":
+      return "Min de";
+    case "max":
+      return "Max de";
   }
 }
 
@@ -62,18 +67,21 @@ function toNum(v: string | number | boolean | null | undefined): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
-const label = (v: string | number | boolean | null | undefined): string =>
-  v == null ? "" : String(v);
+const label = (v: string | number | boolean | null | undefined): string => (v == null ? "" : String(v));
 
 /** Aggregate a set of numeric values (and a non-empty count) per the chosen op. */
 function aggregate(agg: PivotAgg, values: number[], count: number): number {
   if (agg === "count") return count;
   if (values.length === 0) return 0;
   switch (agg) {
-    case "sum": return values.reduce((a, b) => a + b, 0);
-    case "avg": return values.reduce((a, b) => a + b, 0) / values.length;
-    case "min": return Math.min(...values);
-    case "max": return Math.max(...values);
+    case "sum":
+      return values.reduce((a, b) => a + b, 0);
+    case "avg":
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    case "min":
+      return Math.min(...values);
+    case "max":
+      return Math.max(...values);
   }
 }
 
@@ -100,19 +108,27 @@ export function computePivot(input: PivotInput, cfg: PivotConfig): PivotResult {
   let grandCnt = 0;
 
   const push = (m: Map<string | number, number[]>, k: string | number, n: number) => {
-    const a = m.get(k); if (a) a.push(n); else m.set(k, [n]);
+    const a = m.get(k);
+    if (a) a.push(n);
+    else m.set(k, [n]);
   };
   const bump = (m: Map<string | number, number>, k: string | number) => m.set(k, (m.get(k) ?? 0) + 1);
 
   for (const row of input.rows) {
     const rk = label(row[cfg.rowField]);
-    if (!rowIndex.has(rk)) { rowIndex.set(rk, rowKeys.length); rowKeys.push(rk); }
+    if (!rowIndex.has(rk)) {
+      rowIndex.set(rk, rowKeys.length);
+      rowKeys.push(rk);
+    }
     const ri = rowIndex.get(rk)!;
 
     let ci = 0;
     if (hasCols) {
       const ck = label(row[cfg.colField!]);
-      if (!colIndex.has(ck)) { colIndex.set(ck, colKeys.length); colKeys.push(ck); }
+      if (!colIndex.has(ck)) {
+        colIndex.set(ck, colKeys.length);
+        colKeys.push(ck);
+      }
       ci = colIndex.get(ck)!;
     }
 
@@ -123,11 +139,15 @@ export function computePivot(input: PivotInput, cfg: PivotConfig): PivotResult {
 
     if (!isEmpty) {
       cellCnt.set(cellKey, (cellCnt.get(cellKey) ?? 0) + 1);
-      bump(rowCnt, ri); bump(colCnt, ci); grandCnt++;
+      bump(rowCnt, ri);
+      bump(colCnt, ci);
+      grandCnt++;
     }
     if (n !== null) {
       push(cellNums, cellKey, n);
-      push(rowNums, ri, n); push(colNums, ci, n); grandNums.push(n);
+      push(rowNums, ri, n);
+      push(colNums, ci, n);
+      grandNums.push(n);
     }
   }
 
@@ -138,7 +158,9 @@ export function computePivot(input: PivotInput, cfg: PivotConfig): PivotResult {
     ),
   );
   const rowTotals = rowKeys.map((_, ri) => round10(aggregate(cfg.agg, rowNums.get(ri) ?? [], rowCnt.get(ri) ?? 0)));
-  const colTotals = Array.from({ length: nCols }, (_, ci) => round10(aggregate(cfg.agg, colNums.get(ci) ?? [], colCnt.get(ci) ?? 0)));
+  const colTotals = Array.from({ length: nCols }, (_, ci) =>
+    round10(aggregate(cfg.agg, colNums.get(ci) ?? [], colCnt.get(ci) ?? 0)),
+  );
   const grandTotal = round10(aggregate(cfg.agg, grandNums, grandCnt));
 
   const valueName = input.headers[cfg.valueField] ?? `Colonne ${cfg.valueField + 1}`;

@@ -9,7 +9,17 @@
 import type { Rect, Rotation } from "../core/coords";
 import { normRotation, rectOfPoints, rectOfQuads } from "../core/coords";
 import type {
-  Annot, AnnotKind, Bookmark, ContentEdit, CreatedField, FormValue, ImageEdit, Page, PdfState, Reply, ReviewStatus,
+  Annot,
+  AnnotKind,
+  Bookmark,
+  ContentEdit,
+  CreatedField,
+  FormValue,
+  ImageEdit,
+  Page,
+  PdfState,
+  Reply,
+  ReviewStatus,
 } from "./types";
 import { isPolyKind, isTextMarkup, newId } from "./types";
 
@@ -109,11 +119,7 @@ export function setPageRotation(state: PdfState, id: string, rotation: Rotation)
   return { ...state, pages: state.pages.map((p) => (p.id === id ? { ...p, rotate: rotation } : p)) };
 }
 
-export function cropPages(
-  state: PdfState,
-  ids: readonly string[],
-  crop: NonNullable<Page["crop"]> | null,
-): PdfState {
+export function cropPages(state: PdfState, ids: readonly string[], crop: NonNullable<Page["crop"]> | null): PdfState {
   const set = new Set(ids);
   return { ...state, pages: state.pages.map((p) => (set.has(p.id) ? { ...p, crop } : p)) };
 }
@@ -137,15 +143,29 @@ export function exportablePages(state: PdfState): Page[] {
 // ---------------------------------------------------------------------------
 
 const ROMAN: [number, string][] = [
-  [1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
-  [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"],
+  [1000, "m"],
+  [900, "cm"],
+  [500, "d"],
+  [400, "cd"],
+  [100, "c"],
+  [90, "xc"],
+  [50, "l"],
+  [40, "xl"],
+  [10, "x"],
+  [9, "ix"],
+  [5, "v"],
+  [4, "iv"],
+  [1, "i"],
 ];
 
 export function toRoman(n: number, upper = false): string {
   let v = Math.max(1, Math.floor(n));
   let out = "";
   for (const [val, sym] of ROMAN) {
-    while (v >= val) { out += sym; v -= val; }
+    while (v >= val) {
+      out += sym;
+      v -= val;
+    }
   }
   return upper ? out.toUpperCase() : out;
 }
@@ -176,11 +196,16 @@ export function labelPages(
       if (!set.has(p.id)) return p;
       const num = n++;
       const body =
-        style === "decimal" ? String(num)
-          : style === "roman" ? toRoman(num)
-            : style === "ROMAN" ? toRoman(num, true)
-              : style === "alpha" ? toAlpha(num)
-                : style === "ALPHA" ? toAlpha(num, true)
+        style === "decimal"
+          ? String(num)
+          : style === "roman"
+            ? toRoman(num)
+            : style === "ROMAN"
+              ? toRoman(num, true)
+              : style === "alpha"
+                ? toAlpha(num)
+                : style === "ALPHA"
+                  ? toAlpha(num, true)
                   : "";
       const label = `${prefix}${body}`;
       return { ...p, label: label || undefined };
@@ -298,9 +323,12 @@ export function reorderAnnot(state: PdfState, id: string, where: "front" | "back
   const list = state.annots.slice();
   const [a] = list.splice(i, 1);
   const j =
-    where === "front" ? list.length
-      : where === "back" ? 0
-        : where === "forward" ? Math.min(list.length, i + 1)
+    where === "front"
+      ? list.length
+      : where === "back"
+        ? 0
+        : where === "forward"
+          ? Math.min(list.length, i + 1)
           : Math.max(0, i - 1);
   list.splice(j, 0, a);
   return { ...state, annots: list };
@@ -332,7 +360,13 @@ export function removeReply(state: PdfState, annotId: string, replyId: string): 
   };
 }
 
-export function setStatus(state: PdfState, ids: readonly string[], status: ReviewStatus, author: string, when: string): PdfState {
+export function setStatus(
+  state: PdfState,
+  ids: readonly string[],
+  status: ReviewStatus,
+  author: string,
+  when: string,
+): PdfState {
   const set = new Set(ids);
   return {
     ...state,
@@ -395,11 +429,16 @@ export function filterComments(
   const pageOf = (a: Annot) => pageOrder.get(a.pageId) ?? 1e9;
   out.sort((a, b) => {
     switch (sort) {
-      case "author": return a.author.localeCompare(b.author) || pageOf(a) - pageOf(b);
-      case "date": return b.createdAt.localeCompare(a.createdAt);
-      case "kind": return a.kind.localeCompare(b.kind) || pageOf(a) - pageOf(b);
-      case "status": return (a.status ?? "none").localeCompare(b.status ?? "none") || pageOf(a) - pageOf(b);
-      default: return pageOf(a) - pageOf(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
+      case "author":
+        return a.author.localeCompare(b.author) || pageOf(a) - pageOf(b);
+      case "date":
+        return b.createdAt.localeCompare(a.createdAt);
+      case "kind":
+        return a.kind.localeCompare(b.kind) || pageOf(a) - pageOf(b);
+      case "status":
+        return (a.status ?? "none").localeCompare(b.status ?? "none") || pageOf(a) - pageOf(b);
+      default:
+        return pageOf(a) - pageOf(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
     }
   });
   return out;
@@ -489,9 +528,7 @@ export function mapBookmarks(tree: readonly Bookmark[], fn: (b: Bookmark) => Boo
 }
 
 export function removeBookmark(tree: readonly Bookmark[], id: string): Bookmark[] {
-  return tree
-    .filter((b) => b.id !== id)
-    .map((b) => ({ ...b, children: removeBookmark(b.children, id) }));
+  return tree.filter((b) => b.id !== id).map((b) => ({ ...b, children: removeBookmark(b.children, id) }));
 }
 
 export function insertBookmark(tree: readonly Bookmark[], parentId: string | null, node: Bookmark): Bookmark[] {

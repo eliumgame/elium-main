@@ -58,7 +58,10 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
   if (v === "" || v === "false") return false;
   if (v === "true") return true;
   if (/^\d+$/.test(v)) return Number(v);
-  return v.split(",").map((s) => s.trim()).filter(Boolean);
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 const databaseUrl = env("DATABASE_URL", "postgres://elium:elium@localhost:5432/elium");

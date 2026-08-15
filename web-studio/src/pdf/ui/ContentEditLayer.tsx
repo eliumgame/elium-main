@@ -36,7 +36,10 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
-    if (p.from == null) { setBlocks([]); return; }
+    if (p.from == null) {
+      setBlocks([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const page = await p.engine.page(p.from!);
@@ -49,7 +52,9 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
       setBlocks(grouped);
       p.onBlocks?.(p.pageId, grouped);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.engine, p.from, p.pageId]);
 
@@ -109,7 +114,7 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
                 className="pdfx-editblock__input"
                 style={{
                   fontSize: block.fontSize * p.scale,
-                  lineHeight: (block.leading / block.fontSize) || 1.2,
+                  lineHeight: block.leading / block.fontSize || 1.2,
                   fontFamily: fontCss(block.fontFamily),
                   fontWeight: block.bold ? 700 : 400,
                   fontStyle: block.italic ? "italic" : "normal",
@@ -117,11 +122,19 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
                 }}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onBlur={() => { commit(block, draft); setActive(null); }}
+                onBlur={() => {
+                  commit(block, draft);
+                  setActive(null);
+                }}
                 onKeyDown={(e) => {
                   e.stopPropagation();
-                  if (e.key === "Escape") { setActive(null); }
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { commit(block, draft); setActive(null); }
+                  if (e.key === "Escape") {
+                    setActive(null);
+                  }
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    commit(block, draft);
+                    setActive(null);
+                  }
                 }}
               />
             ) : (
@@ -129,23 +142,47 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
                 type="button"
                 className="pdfx-editblock__hit"
                 title="Cliquer pour modifier ce paragraphe"
-                onClick={() => { p.onBeginChange(); setDraft(value); setActive(block.key); }}
+                onClick={() => {
+                  p.onBeginChange();
+                  setDraft(value);
+                  setActive(block.key);
+                }}
               />
             )}
             {changed && !isActive && (
-              <span className="pdfx-editblock__badge" title="Paragraphe modifié">modifié</span>
+              <span className="pdfx-editblock__badge" title="Paragraphe modifié">
+                modifié
+              </span>
             )}
             {isActive && (
               <div className="pdfx-editblock__tools">
-                <button onMouseDown={(e) => { e.preventDefault(); commit(block, "", true); setActive(null); }}>Supprimer</button>
-                <button onMouseDown={(e) => { e.preventDefault(); commit(block, block.text); setActive(null); }}>Rétablir</button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(block, "", true);
+                    setActive(null);
+                  }}
+                >
+                  Supprimer
+                </button>
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(block, block.text);
+                    setActive(null);
+                  }}
+                >
+                  Rétablir
+                </button>
               </div>
             )}
           </div>
         );
       })}
       {!blocks.length && (
-        <div className="pdfx-editlayer__empty">Aucun texte modifiable détecté sur cette page (document scanné ?). Lancez l'OCR pour le rendre éditable.</div>
+        <div className="pdfx-editlayer__empty">
+          Aucun texte modifiable détecté sur cette page (document scanné ?). Lancez l'OCR pour le rendre éditable.
+        </div>
       )}
     </div>
   );

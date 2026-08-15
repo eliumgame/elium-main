@@ -21,11 +21,23 @@ import EmbeddedPostgres from "embedded-postgres";
 import * as Y from "yjs";
 
 import { DriveApi, ApiError } from "../src/drive-cloud/api";
-import { buildRegistration, prepareLogin, unlockAccount, signLoginChallenge, type AccountKeys } from "../src/drive-cloud/account";
+import {
+  buildRegistration,
+  prepareLogin,
+  unlockAccount,
+  signLoginChallenge,
+  type AccountKeys,
+} from "../src/drive-cloud/account";
 import type { LoginResponse } from "../src/drive-cloud/types";
 import * as ops from "../src/drive-cloud/ops";
 import { encryptContent, decryptContent, decryptName } from "../src/drive-cloud/node-crypto";
-import { promoteRecoveryAdmin, restoreNodeAccess, withOrgKey, decryptRecoveryNodeNames, rotateOrgKey } from "../src/drive-cloud/recovery";
+import {
+  promoteRecoveryAdmin,
+  restoreNodeAccess,
+  withOrgKey,
+  decryptRecoveryNodeNames,
+  rotateOrgKey,
+} from "../src/drive-cloud/recovery";
 import type { RecoveryContext } from "../src/drive-cloud/recovery";
 import { revokeShareWithRotation } from "../src/drive-cloud/rotate";
 import { EncryptedYjsProvider } from "../src/drive-cloud/collab-provider";
@@ -62,14 +74,25 @@ async function expectStatus(name: string, p: Promise<unknown>, status: number): 
     await p;
     ok(name, false, `la requête aurait dû échouer (${status} attendu)`);
   } catch (e) {
-    ok(name, e instanceof ApiError && (e.status === status || (status === 403 && e.status === 404)), `reçu ${e instanceof ApiError ? e.status : e}`);
+    ok(
+      name,
+      e instanceof ApiError && (e.status === status || (status === 403 && e.status === 404)),
+      `reçu ${e instanceof ApiError ? e.status : e}`,
+    );
   }
 }
 
 interface TestUser {
   api: DriveApi;
   keys: AccountKeys;
-  user: { id: string; email: string; displayName: string; p256PublicHex: string; ed25519PublicHex: string; fingerprint: string };
+  user: {
+    id: string;
+    email: string;
+    displayName: string;
+    p256PublicHex: string;
+    ed25519PublicHex: string;
+    fingerprint: string;
+  };
   password: string;
 }
 
@@ -78,7 +101,11 @@ async function newUser(base: string, email: string, name: string): Promise<TestU
   const password = `Motdepasse!42-${name}`;
   const { payload, keys } = await buildRegistration(email, password, name);
   const res = await api.register(payload);
-  api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
+  api.setTokens({
+    accessToken: res.accessToken,
+    accessTokenExpiresAt: res.accessTokenExpiresAt,
+    refreshToken: res.refreshToken,
+  });
   return { api, keys, user: res.user, password };
 }
 
@@ -161,11 +188,17 @@ async function main(): Promise<void> {
     // Connexion « autre appareil », login SANS oracle : le serveur ne reçoit
     // qu'une signature sur un défi aléatoire, jamais d'équivalent-mot-de-passe.
     const { res: loginRes, masterKey } = await loginFull(base, alice.user.email, alice.password);
-    const login = loginRes as { keyBundle: import("../src/drive-cloud/kdf").KeyBundle; user: typeof alice.user; accessToken: string };
+    const login = loginRes as {
+      keyBundle: import("../src/drive-cloud/kdf").KeyBundle;
+      user: typeof alice.user;
+      accessToken: string;
+    };
     const keysAgain = await unlockAccount(login.keyBundle, masterKey, login.user);
-    ok("login multi-appareil (défi-réponse Ed25519) : mêmes clés privées restituées",
-      keysAgain.recipient.privateHex === alice.keys.recipient.privateHex
-      && keysAgain.identity.privateKeyHex === alice.keys.identity.privateKeyHex);
+    ok(
+      "login multi-appareil (défi-réponse Ed25519) : mêmes clés privées restituées",
+      keysAgain.recipient.privateHex === alice.keys.recipient.privateHex &&
+        keysAgain.identity.privateKeyHex === alice.keys.identity.privateKeyHex,
+    );
 
     // --- WebAuthn (2e facteur) : tôt dans la suite pour ne pas heurter le
     // rate-limit cumulatif de /login/init. On enrôle une clé directement en base
@@ -178,17 +211,33 @@ async function main(): Promise<void> {
       [waUser.user.id, "e2e-dummy-credential", Buffer.from("public-key-bytes")],
     );
     const waLogin = await loginFull(base, waUser.user.email, waUser.password);
-    const wr = waLogin.res as { mfaRequired?: boolean; mfaToken?: string; methods?: { totp: boolean; webauthn: boolean } };
-    ok("WebAuthn : une clé enrôlée force le 2e facteur au login",
+    const wr = waLogin.res as {
+      mfaRequired?: boolean;
+      mfaToken?: string;
+      methods?: { totp: boolean; webauthn: boolean };
+    };
+    ok(
+      "WebAuthn : une clé enrôlée force le 2e facteur au login",
       wr.mfaRequired === true && wr.methods?.webauthn === true,
-      `mfaRequired=${wr.mfaRequired} methods=${JSON.stringify(wr.methods)}`);
-    const waOpts = (await new DriveApi({ baseUrl: base }).webauthnLoginOptions(wr.mfaToken!)) as { challenge?: string; allowCredentials?: { id: string }[] };
-    ok("WebAuthn : options d'authentification émises (défi + clé autorisée)",
-      typeof waOpts.challenge === "string" && (waOpts.allowCredentials ?? []).some((c) => c.id === "e2e-dummy-credential"),
-      `challenge=${typeof waOpts.challenge} allow=${JSON.stringify(waOpts.allowCredentials)}`);
+      `mfaRequired=${wr.mfaRequired} methods=${JSON.stringify(wr.methods)}`,
+    );
+    const waOpts = (await new DriveApi({ baseUrl: base }).webauthnLoginOptions(wr.mfaToken!)) as {
+      challenge?: string;
+      allowCredentials?: { id: string }[];
+    };
+    ok(
+      "WebAuthn : options d'authentification émises (défi + clé autorisée)",
+      typeof waOpts.challenge === "string" &&
+        (waOpts.allowCredentials ?? []).some((c) => c.id === "e2e-dummy-credential"),
+      `challenge=${typeof waOpts.challenge} allow=${JSON.stringify(waOpts.allowCredentials)}`,
+    );
 
     const rt = alice.api.getTokens()?.refreshToken ?? "";
-    const refreshed = await fetch(`${base}/auth/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: rt }) });
+    const refreshed = await fetch(`${base}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refreshToken: rt }),
+    });
     ok("rotation du refresh token", refreshed.ok);
     const rot = (await refreshed.json()) as { accessToken: string; accessTokenExpiresAt: number; refreshToken: string };
     alice.api.setTokens(rot);
@@ -199,8 +248,11 @@ async function main(): Promise<void> {
     const wrongSeed = await prepareLogin("MauvaisMotDePasse!", preW.kdfSalt, preW.kdfParams as KdfParams);
     const initWrong = await apiWrong.loginInit(alice.user.email);
     const wrongSig = await signLoginChallenge(initWrong.challenge, wrongSeed.authSignSeedHex);
-    await expectStatus("mauvais mot de passe (signature invalide) refusé (401)",
-      apiWrong.loginVerify(alice.user.email, initWrong.challengeId, wrongSig), 401);
+    await expectStatus(
+      "mauvais mot de passe (signature invalide) refusé (401)",
+      apiWrong.loginVerify(alice.user.email, initWrong.challengeId, wrongSig),
+      401,
+    );
 
     // Un défi est à usage unique : le rejouer est refusé.
     const apiReplay = new DriveApi({ baseUrl: base });
@@ -209,19 +261,39 @@ async function main(): Promise<void> {
     const initReplay = await apiReplay.loginInit(alice.user.email);
     const goodSig = await signLoginChallenge(initReplay.challenge, goodSeed.authSignSeedHex);
     await apiReplay.loginVerify(alice.user.email, initReplay.challengeId, goodSig);
-    await expectStatus("rejouer le même défi est refusé (usage unique)",
-      new DriveApi({ baseUrl: base }).loginVerify(alice.user.email, initReplay.challengeId, goodSig), 401);
+    await expectStatus(
+      "rejouer le même défi est refusé (usage unique)",
+      new DriveApi({ baseUrl: base }).loginVerify(alice.user.email, initReplay.challengeId, goodSig),
+      401,
+    );
 
     // =========================================================================
     section("Organisation, invitation, équipe");
     const orgKp = await generateRecipientKeypair();
-    const wrappedOrgPrivate = JSON.parse(dec.decode(await encryptForRecipients(fromHex(orgKp.privateHex), [alice.keys.recipient.publicHex]))) as Record<string, unknown>;
-    const created = await alice.api.createOrg({ name: "ACME SARL", slug: "acme", orgPublicHex: orgKp.publicHex, wrappedOrgPrivate });
+    const wrappedOrgPrivate = JSON.parse(
+      dec.decode(await encryptForRecipients(fromHex(orgKp.privateHex), [alice.keys.recipient.publicHex])),
+    ) as Record<string, unknown>;
+    const created = await alice.api.createOrg({
+      name: "ACME SARL",
+      slug: "acme",
+      orgPublicHex: orgKp.publicHex,
+      wrappedOrgPrivate,
+    });
     const org = created.org;
     const roleIdByKey: Record<string, string> = Object.fromEntries(created.roles.map((r) => [r.key, r.id]));
-    ok("création de l'organisation + rôles système clonés", !!org.id && !!roleIdByKey["owner"] && !!roleIdByKey["editor"] && !!roleIdByKey["viewer"]);
+    ok(
+      "création de l'organisation + rôles système clonés",
+      !!org.id && !!roleIdByKey["owner"] && !!roleIdByKey["editor"] && !!roleIdByKey["viewer"],
+    );
 
-    const ctxA: ops.OpsCtx = { api: alice.api, keys: alice.keys, userId: alice.user.id, orgId: org.id, orgPublicHex: org.orgPublicHex, roleIdByKey };
+    const ctxA: ops.OpsCtx = {
+      api: alice.api,
+      keys: alice.keys,
+      userId: alice.user.id,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      roleIdByKey,
+    };
 
     // Bob n'est pas membre : la liste des rôles doit être refusée.
     await expectStatus("non-membre : accès aux rôles refusé", bob.api.listRoles(org.id), 403);
@@ -232,7 +304,14 @@ async function main(): Promise<void> {
     const bobRoles = (await bob.api.listRoles(org.id)).roles as RoleDef[];
     const bobRoleIdByKey: Record<string, string> = Object.fromEntries(bobRoles.map((r) => [r.key, r.id]));
     ok("Bob (membre) lit les rôles de l'org", bobRoles.length >= 7);
-    const ctxB: ops.OpsCtx = { api: bob.api, keys: bob.keys, userId: bob.user.id, orgId: org.id, orgPublicHex: org.orgPublicHex, roleIdByKey: bobRoleIdByKey };
+    const ctxB: ops.OpsCtx = {
+      api: bob.api,
+      keys: bob.keys,
+      userId: bob.user.id,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      roleIdByKey: bobRoleIdByKey,
+    };
 
     await expectStatus("invitation réutilisée refusée", bob.api.acceptInvite(invite.token), 400);
 
@@ -306,7 +385,11 @@ async function main(): Promise<void> {
     // =========================================================================
     section("Permissions d'organisation");
     await expectStatus("Bob : liste des membres refusée (member.view)", bob.api.listMembers(org.id), 403);
-    await expectStatus("Bob : création de rôle refusée (role.create)", bob.api.createRole(org.id, { name: "X", permissions: ["node.view"] }), 403);
+    await expectStatus(
+      "Bob : création de rôle refusée (role.create)",
+      bob.api.createRole(org.id, { name: "X", permissions: ["node.view"] }),
+      403,
+    );
     const cat = await bob.api.permissionCatalog();
     const catList = Array.isArray(cat) ? cat : cat.permissions;
     ok("catalogue de permissions lisible par tout membre", catList.length >= 30, `n=${catList.length}`);
@@ -324,25 +407,48 @@ async function main(): Promise<void> {
     const ydocB = new Y.Doc();
     let canWriteB: boolean | null = null;
     provA = new EncryptedYjsProvider(alice.api, doc.id, keyA!, ydocA, { name: "Alice", color: "#e11d48" }, {});
-    provB = new EncryptedYjsProvider(bob.api, doc.id, keyB!, ydocB, { name: "Bob", color: "#16a34a" }, { onReady: (c) => { canWriteB = c; } });
+    provB = new EncryptedYjsProvider(
+      bob.api,
+      doc.id,
+      keyB!,
+      ydocB,
+      { name: "Bob", color: "#16a34a" },
+      {
+        onReady: (c) => {
+          canWriteB = c;
+        },
+      },
+    );
     await provA.connect();
     await provB.connect();
     await sleep(600);
 
     ydocA.getText("t").insert(0, "Bonjour multi-utilisateurs !");
     await sleep(1200);
-    ok("convergence CRDT A→B (updates chiffrés via le relais)", ydocB.getText("t").toString() === "Bonjour multi-utilisateurs !", ydocB.getText("t").toString());
+    ok(
+      "convergence CRDT A→B (updates chiffrés via le relais)",
+      ydocB.getText("t").toString() === "Bonjour multi-utilisateurs !",
+      ydocB.getText("t").toString(),
+    );
 
     ydocB.getText("t").insert(0, "Re : ");
     await sleep(1200);
-    ok("convergence CRDT B→A", ydocA.getText("t").toString() === "Re : Bonjour multi-utilisateurs !", ydocA.getText("t").toString());
+    ok(
+      "convergence CRDT B→A",
+      ydocA.getText("t").toString() === "Re : Bonjour multi-utilisateurs !",
+      ydocA.getText("t").toString(),
+    );
     ok("Bob peut écrire (rôle éditeur)", canWriteB === true, String(canWriteB));
 
-    const seenByB = [...provB.awareness.getStates().values()].map((s) => (s as { user?: { name?: string } }).user?.name).filter(Boolean);
+    const seenByB = [...provB.awareness.getStates().values()]
+      .map((s) => (s as { user?: { name?: string } }).user?.name)
+      .filter(Boolean);
     ok("présence : Bob voit Alice", seenByB.includes("Alice"), seenByB.join(","));
 
-    provB.destroy(); provB = null;
-    provA.destroy(); provA = null;
+    provB.destroy();
+    provB = null;
+    provA.destroy();
+    provA = null;
 
     // Lecture seule appliquée PAR LE RELAIS. Doc dédié à la RACINE partagé
     // DIRECTEMENT à Bob en « viewer » (pas d'éditeur hérité d'un dossier parent).
@@ -358,7 +464,18 @@ async function main(): Promise<void> {
     const ydocRB = new Y.Doc();
     let canWriteRB: boolean | null = null;
     provA = new EncryptedYjsProvider(alice.api, roDoc.id, roKeyA!, ydocRA, { name: "Alice", color: "#e11d48" }, {});
-    provB2 = new EncryptedYjsProvider(bob.api, roDoc.id, roKeyB!, ydocRB, { name: "Bob", color: "#16a34a" }, { onReady: (c) => { canWriteRB = c; } });
+    provB2 = new EncryptedYjsProvider(
+      bob.api,
+      roDoc.id,
+      roKeyB!,
+      ydocRB,
+      { name: "Bob", color: "#16a34a" },
+      {
+        onReady: (c) => {
+          canWriteRB = c;
+        },
+      },
+    );
     await provA.connect();
     await provB2.connect();
     await sleep(600);
@@ -366,14 +483,24 @@ async function main(): Promise<void> {
 
     ydocRA.getText("t").insert(0, "Officiel. ");
     await sleep(900);
-    ok("le lecteur reçoit bien les updates de l'éditeur", ydocRB.getText("t").toString() === "Officiel. ", ydocRB.getText("t").toString());
+    ok(
+      "le lecteur reçoit bien les updates de l'éditeur",
+      ydocRB.getText("t").toString() === "Officiel. ",
+      ydocRB.getText("t").toString(),
+    );
 
     const before = ydocRA.getText("t").toString();
     ydocRB.getText("t").insert(0, "SABOTAGE-");
     await sleep(1000);
-    ok("le relais REJETTE les écritures d'un lecteur", ydocRA.getText("t").toString() === before, ydocRA.getText("t").toString());
-    provA.destroy(); provA = null;
-    provB2.destroy(); provB2 = null;
+    ok(
+      "le relais REJETTE les écritures d'un lecteur",
+      ydocRA.getText("t").toString() === before,
+      ydocRA.getText("t").toString(),
+    );
+    provA.destroy();
+    provA = null;
+    provB2.destroy();
+    provB2 = null;
 
     // =========================================================================
     section("Corbeille et purge");
@@ -381,9 +508,15 @@ async function main(): Promise<void> {
     const scratch = (await ops.listFolder(ctxA, null)).find((e) => e.name === "scratch.txt")!;
     await alice.api.trashNode(scratch.id);
     const trash1 = await ops.listTrash(ctxA);
-    ok("corbeille : élément présent, nom déchiffré", trash1.some((e) => e.id === scratch.id && e.name === "scratch.txt"));
+    ok(
+      "corbeille : élément présent, nom déchiffré",
+      trash1.some((e) => e.id === scratch.id && e.name === "scratch.txt"),
+    );
     await alice.api.restoreNode(scratch.id);
-    ok("restauration depuis la corbeille", (await ops.listTrash(ctxA)).every((e) => e.id !== scratch.id));
+    ok(
+      "restauration depuis la corbeille",
+      (await ops.listTrash(ctxA)).every((e) => e.id !== scratch.id),
+    );
     await alice.api.trashNode(scratch.id);
     await alice.api.purgeNode(scratch.id);
     await expectStatus("purge définitive → nœud introuvable", alice.api.getNode(scratch.id), 404);
@@ -398,7 +531,11 @@ async function main(): Promise<void> {
     const bobRapportKey = (await ops.nodeKeyFrom(ctxB, bobRapportEntry.myWrappedKey))!;
     ok("préparation : Bob détient les CEK du dossier et du fichier", !!bobFolderKey && !!bobRapportKey);
 
-    const folderShares = (await alice.api.listShares(folder.id)).shares as { id: string; principalType: string; principalId: string }[];
+    const folderShares = (await alice.api.listShares(folder.id)).shares as {
+      id: string;
+      principalType: string;
+      principalId: string;
+    }[];
     const bobFolderShare = folderShares.find((s) => s.principalType === "user" && s.principalId === bob.user.id)!;
     const folderEntryFresh = (await ops.listFolder(ctxA, null)).find((e) => e.id === folder.id)!;
     const stats = await revokeShareWithRotation(ctxA, folderEntryFresh, bobFolderShare.id);
@@ -406,33 +543,61 @@ async function main(): Promise<void> {
 
     // --- Autorisation : révocation PROFONDE --------------------------------
     await expectStatus("Bob perd l'accès au dossier", bob.api.getNode(folder.id), 404);
-    await expectStatus("révocation profonde : Bob perd AUSSI l'accès direct aux enfants", bob.api.getNode(rapportA.id), 404);
-    ok("…mais garde l'accès au fichier dont il est PROPRIÉTAIRE",
-      await bob.api.getNode(noteA!.id).then(() => true).catch(() => false));
-    ok("…et garde son partage direct indépendant (autre sous-arbre)",
-      await bob.api.getNode(roDoc.id).then(() => true).catch(() => false));
+    await expectStatus(
+      "révocation profonde : Bob perd AUSSI l'accès direct aux enfants",
+      bob.api.getNode(rapportA.id),
+      404,
+    );
+    ok(
+      "…mais garde l'accès au fichier dont il est PROPRIÉTAIRE",
+      await bob.api
+        .getNode(noteA!.id)
+        .then(() => true)
+        .catch(() => false),
+    );
+    ok(
+      "…et garde son partage direct indépendant (autre sous-arbre)",
+      await bob.api
+        .getNode(roDoc.id)
+        .then(() => true)
+        .catch(() => false),
+    );
 
     // --- Cryptographie : la CEK en cache de Bob est morte -------------------
     const rapportAfter = (await ops.listFolder(ctxA, folder.id)).find((e) => e.id === rapportA.id)!;
     ok("époque de clé incrémentée", (rapportAfter.keyEpoch ?? 1) >= 2, `epoch=${rapportAfter.keyEpoch}`);
-    ok("Alice déchiffre toujours nom + contenu après rotation",
-      rapportAfter.name === "rapport-final.txt" && eq((await ops.downloadFile(ctxA, rapportAfter)).bytes, content1));
+    ok(
+      "Alice déchiffre toujours nom + contenu après rotation",
+      rapportAfter.name === "rapport-final.txt" && eq((await ops.downloadFile(ctxA, rapportAfter)).bytes, content1),
+    );
 
     const freshCt = await alice.api.getContent(rapportA.id);
-    const bobKeyDead = await decryptContent(bobRapportKey, freshCt.nonceHex, freshCt.bytes).then(() => false).catch(() => true);
+    const bobKeyDead = await decryptContent(bobRapportKey, freshCt.nonceHex, freshCt.bytes)
+      .then(() => false)
+      .catch(() => true);
     ok("la CEK en cache de Bob ne déchiffre PLUS le contenu re-chiffré", bobKeyDead);
     const folderAfter = (await ops.listFolder(ctxA, null)).find((e) => e.id === folder.id)!;
-    const bobFolderKeyDead = await decryptName(bobFolderKey, folderAfter.nameEncrypted, folderAfter.nameNonce).then(() => false).catch(() => true);
+    const bobFolderKeyDead = await decryptName(bobFolderKey, folderAfter.nameEncrypted, folderAfter.nameNonce)
+      .then(() => false)
+      .catch(() => true);
     ok("…ni le nom re-chiffré du dossier", bobFolderKeyDead);
 
     // --- Versions : l'historique complet a tourné aussi ---------------------
-    const versAfter = (await alice.api.listVersions(rapportA.id)).versions as { id: string; versionNo: number; keyEpoch: number }[];
-    ok("toutes les versions sont à la nouvelle époque de clé",
+    const versAfter = (await alice.api.listVersions(rapportA.id)).versions as {
+      id: string;
+      versionNo: number;
+      keyEpoch: number;
+    }[];
+    ok(
+      "toutes les versions sont à la nouvelle époque de clé",
       versAfter.length === 2 && versAfter.every((v) => v.keyEpoch === (rapportAfter.keyEpoch ?? 2)),
-      versAfter.map((v) => `v${v.versionNo}:e${v.keyEpoch}`).join(","));
+      versAfter.map((v) => `v${v.versionNo}:e${v.keyEpoch}`).join(","),
+    );
     const v1After = versAfter.find((v) => v.versionNo === 1)!;
-    ok("la v1 re-chiffrée restitue toujours le contenu d'origine",
-      eq((await ops.downloadVersion(ctxA, rapportAfter, v1After.id)).bytes, content1));
+    ok(
+      "la v1 re-chiffrée restitue toujours le contenu d'origine",
+      eq((await ops.downloadVersion(ctxA, rapportAfter, v1After.id)).bytes, content1),
+    );
 
     // --- Liens externes : porteurs de l'ancienne CEK → révoqués -------------
     await expectStatus("le lien public créé avant la rotation est révoqué", anon.resolveLink(link.token), 404);
@@ -444,16 +609,24 @@ async function main(): Promise<void> {
     ok("backlog collab compacté en un seul snapshot", compacted.length === 1, `n=${compacted.length}`);
     const ydocA2 = new Y.Doc();
     Y.applyUpdate(ydocA2, await decryptContent(docKeyA2, compacted[0]!.nonce, fromHex(compacted[0]!.ciphertext)));
-    ok("le snapshot re-chiffré restitue l'état complet du document",
-      ydocA2.getText("t").toString() === "Re : Bonjour multi-utilisateurs !", ydocA2.getText("t").toString());
-    const bobDocKeyDead = await decryptContent(keyB!, compacted[0]!.nonce, fromHex(compacted[0]!.ciphertext)).then(() => false).catch(() => true);
+    ok(
+      "le snapshot re-chiffré restitue l'état complet du document",
+      ydocA2.getText("t").toString() === "Re : Bonjour multi-utilisateurs !",
+      ydocA2.getText("t").toString(),
+    );
+    const bobDocKeyDead = await decryptContent(keyB!, compacted[0]!.nonce, fromHex(compacted[0]!.ciphertext))
+      .then(() => false)
+      .catch(() => true);
     ok("l'ancienne clé collab de Bob ne déchiffre pas le snapshot", bobDocKeyDead);
     await expectStatus("Bob : backlog collab refusé après révocation", bob.api.getCollabUpdates(doc.id, 0), 403);
 
     // --- Concurrence : écrire avec une époque périmée est rejeté (409) ------
     const staleWrite = await encryptContent(docKeyA2, enc.encode("écriture périmée"));
-    await expectStatus("écriture avec une époque de clé périmée → 409",
-      alice.api.putContent(rapportA.id, staleWrite.ciphertext, staleWrite.nonceHex, 1), 409);
+    await expectStatus(
+      "écriture avec une époque de clé périmée → 409",
+      alice.api.putContent(rapportA.id, staleWrite.ciphertext, staleWrite.nonceHex, 1),
+      409,
+    );
 
     // =========================================================================
     section("MFA — authentification à deux facteurs (TOTP)");
@@ -463,17 +636,25 @@ async function main(): Promise<void> {
 
     // Enroll: setup → confirm with a live code.
     const setup = await bob.api.mfaSetup();
-    ok("setup renvoie un secret + une URI otpauth", /^[A-Z2-7]+$/.test(setup.secret) && setup.otpauthUri.startsWith("otpauth://totp/"));
+    ok(
+      "setup renvoie un secret + une URI otpauth",
+      /^[A-Z2-7]+$/.test(setup.secret) && setup.otpauthUri.startsWith("otpauth://totp/"),
+    );
     await expectStatus("activation refusée avec un mauvais code", bob.api.mfaEnable("000000"), 401);
     const enabled = await bob.api.mfaEnable(totpNow(setup.secret));
-    ok("activation avec un code TOTP valide → 10 codes de secours", enabled.enabled === true && enabled.backupCodes.length === 10);
+    ok(
+      "activation avec un code TOTP valide → 10 codes de secours",
+      enabled.enabled === true && enabled.backupCodes.length === 10,
+    );
     const st = await bob.api.mfaStatus();
     ok("statut : MFA activée, 10 codes de secours", st.enabled === true && st.backupCodesRemaining === 10);
 
     // A fresh login now stops at the MFA challenge (no session, no key bundle).
     const { res: chal, masterKey: bobMk } = await loginFull(base, bob.user.email, bob.password);
-    ok("login (facteur 1 OK) exige le 2e facteur, sans livrer le bundle",
-      (chal as { mfaRequired?: boolean }).mfaRequired === true && !(chal as { keyBundle?: unknown }).keyBundle);
+    ok(
+      "login (facteur 1 OK) exige le 2e facteur, sans livrer le bundle",
+      (chal as { mfaRequired?: boolean }).mfaRequired === true && !(chal as { keyBundle?: unknown }).keyBundle,
+    );
     const mfaToken = (chal as { mfaToken: string }).mfaToken;
 
     const apiMfa = new DriveApi({ baseUrl: base });
@@ -481,7 +662,10 @@ async function main(): Promise<void> {
     const done = await apiMfa.loginMfa(mfaToken, totpNow(setup.secret));
     ok("2e étape avec code TOTP valide → session + bundle", !!done.accessToken && !!done.keyBundle);
     const bobKeysAgain = await unlockAccount(done.keyBundle, bobMk, done.user);
-    ok("le bundle livré après MFA déverrouille bien les clés", bobKeysAgain.recipient.privateHex === bob.keys.recipient.privateHex);
+    ok(
+      "le bundle livré après MFA déverrouille bien les clés",
+      bobKeysAgain.recipient.privateHex === bob.keys.recipient.privateHex,
+    );
 
     // Backup code path: single-use.
     const { res: chal2 } = await loginFull(base, bob.user.email, bob.password);
@@ -492,14 +676,21 @@ async function main(): Promise<void> {
     ok("un code de secours ouvre la session", !!withBackup.accessToken);
     ok("…et il est décompté (9 restants)", (await bob.api.mfaStatus()).backupCodesRemaining === 9);
     const { res: chal3 } = await loginFull(base, bob.user.email, bob.password);
-    await expectStatus("réutiliser un code de secours est refusé", new DriveApi({ baseUrl: base }).loginMfa((chal3 as { mfaToken: string }).mfaToken, backup), 401);
+    await expectStatus(
+      "réutiliser un code de secours est refusé",
+      new DriveApi({ baseUrl: base }).loginMfa((chal3 as { mfaToken: string }).mfaToken, backup),
+      401,
+    );
 
     // Disable → login is single-step again.
     await expectStatus("désactivation refusée avec un mauvais code", bob.api.mfaDisable("000000"), 401);
     await bob.api.mfaDisable(totpNow(setup.secret));
     ok("MFA désactivée", (await bob.api.mfaStatus()).enabled === false);
     const { res: plain } = await loginFull(base, bob.user.email, bob.password);
-    ok("login redevenu direct (session immédiate)", !!(plain as { accessToken?: string }).accessToken && !(plain as { mfaRequired?: boolean }).mfaRequired);
+    ok(
+      "login redevenu direct (session immédiate)",
+      !!(plain as { accessToken?: string }).accessToken && !(plain as { mfaRequired?: boolean }).mfaRequired,
+    );
 
     // =========================================================================
     section("Padding des tailles (réduction de fuite)");
@@ -508,18 +699,33 @@ async function main(): Promise<void> {
     // réelle ne fuit plus au serveur.
     const padFolder = await ops.createFolder(ctxA, null, "padding");
     await ops.uploadFile(ctxA, padFolder.id, new File([enc.encode("a") as unknown as BlobPart], "un-octet.bin"));
-    await ops.uploadFile(ctxA, padFolder.id, new File([enc.encode("z".repeat(40)) as unknown as BlobPart], "quarante.bin"));
+    await ops.uploadFile(
+      ctxA,
+      padFolder.id,
+      new File([enc.encode("z".repeat(40)) as unknown as BlobPart], "quarante.bin"),
+    );
     const padKids = await ops.listFolder(ctxA, padFolder.id);
     const s1 = padKids.find((e) => e.name === "un-octet.bin")!.sizeBytes;
     const s40 = padKids.find((e) => e.name === "quarante.bin")!.sizeBytes;
-    ok("1 octet et 40 octets → même taille chiffrée stockée (bucket identique)", s1 === s40 && s1 > 0, `s1=${s1} s40=${s40}`);
-    const back1 = await ops.downloadFile(ctxA, padKids.find((e) => e.name === "un-octet.bin")!);
+    ok(
+      "1 octet et 40 octets → même taille chiffrée stockée (bucket identique)",
+      s1 === s40 && s1 > 0,
+      `s1=${s1} s40=${s40}`,
+    );
+    const back1 = await ops.downloadFile(
+      ctxA,
+      padKids.find((e) => e.name === "un-octet.bin")!,
+    );
     ok("le padding est transparent : contenu 1 octet restitué exactement", eq(back1.bytes, enc.encode("a")));
 
     // =========================================================================
     section("Quotas de stockage");
     const usage0 = await alice.api.getOrgUsage(org.id);
-    ok("usage de l'org lisible et non nul (des blobs ont été stockés)", usage0.usedBytes > 0 && usage0.quotaBytes === null, JSON.stringify(usage0));
+    ok(
+      "usage de l'org lisible et non nul (des blobs ont été stockés)",
+      usage0.usedBytes > 0 && usage0.quotaBytes === null,
+      JSON.stringify(usage0),
+    );
 
     // Serre le quota avec une petite marge : un petit ajout passe, un gros
     // dépassement est refusé (507). Marges choisies pour rester valides malgré
@@ -529,16 +735,30 @@ async function main(): Promise<void> {
     ok("upload sous le quota accepté", (await alice.api.getOrgUsage(org.id)).usedBytes <= usage0.usedBytes + 4096);
 
     const big = enc.encode("y".repeat(200000));
-    const quotaNode = await ops.uploadFile(ctxA, null, new File([big as unknown as BlobPart], "gros-placeholder.bin")).then(() => null).catch((e) => e);
+    const quotaNode = await ops
+      .uploadFile(ctxA, null, new File([big as unknown as BlobPart], "gros-placeholder.bin"))
+      .then(() => null)
+      .catch((e) => e);
     // uploadFile crée d'abord le nœud puis PUT le contenu : le PUT doit échouer en 507.
-    ok("upload au-dessus du quota refusé (507)", quotaNode instanceof ApiError && quotaNode.status === 507, String(quotaNode));
+    ok(
+      "upload au-dessus du quota refusé (507)",
+      quotaNode instanceof ApiError && quotaNode.status === 507,
+      String(quotaNode),
+    );
 
     const usedBefore = (await alice.api.getOrgUsage(org.id)).usedBytes;
     await alice.api.setOrgQuota(org.id, null);
     await ops.uploadFile(ctxA, null, new File([big as unknown as BlobPart], "gros-ok.bin"));
-    ok("quota remis à illimité → gros upload accepté", (await alice.api.getOrgUsage(org.id)).usedBytes > usedBefore + 100000);
+    ok(
+      "quota remis à illimité → gros upload accepté",
+      (await alice.api.getOrgUsage(org.id)).usedBytes > usedBefore + 100000,
+    );
 
-    await expectStatus("Bob (éditeur) ne peut pas changer le quota (storage.quota.manage)", bob.api.setOrgQuota(org.id, 1), 403);
+    await expectStatus(
+      "Bob (éditeur) ne peut pas changer le quota (storage.quota.manage)",
+      bob.api.setOrgQuota(org.id, 1),
+      403,
+    );
 
     // =========================================================================
     section("Rate-limiting (anti-brute-force)");
@@ -573,8 +793,15 @@ async function main(): Promise<void> {
       return `${head}.${body}.${sig}`;
     };
     const nowS = Math.floor(Date.now() / 1000);
-    const claimsFor = (email: string, extra: Record<string, unknown> = {}) =>
-      ({ iss: ISS, aud: AUD, sub: "idp-bob-123", email, email_verified: true, exp: nowS + 300, ...extra });
+    const claimsFor = (email: string, extra: Record<string, unknown> = {}) => ({
+      iss: ISS,
+      aud: AUD,
+      sub: "idp-bob-123",
+      email,
+      email_verified: true,
+      exp: nowS + 300,
+      ...extra,
+    });
 
     // Bob is an active member → SSO verifies his identity and opens a session.
     const ssoApi = new DriveApi({ baseUrl: base });
@@ -584,15 +811,37 @@ async function main(): Promise<void> {
     const preBob = await new DriveApi({ baseUrl: base }).prelogin(bob.user.email);
     const ssoBobMk = (await prepareLogin(bob.password, preBob.kdfSalt, preBob.kdfParams as KdfParams)).masterKey;
     const ssoKeys = await unlockAccount(ssoRes.keyBundle, ssoBobMk, ssoRes.user);
-    ok("le bundle livré par SSO se déverrouille avec la phrase de passe (zéro-connaissance)",
-      ssoKeys.recipient.privateHex === bob.keys.recipient.privateHex);
+    ok(
+      "le bundle livré par SSO se déverrouille avec la phrase de passe (zéro-connaissance)",
+      ssoKeys.recipient.privateHex === bob.keys.recipient.privateHex,
+    );
 
-    await expectStatus("SSO : mauvaise audience → 401", ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { aud: "autre" }))), 401);
-    await expectStatus("SSO : jeton expiré → 401", ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { exp: nowS - 500 }))), 401);
-    await expectStatus("SSO : domaine e-mail non autorisé → 401", ssoApi.ssoVerify(org.id, signIdToken(claimsFor("eve@evil.com"))), 401);
+    await expectStatus(
+      "SSO : mauvaise audience → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { aud: "autre" }))),
+      401,
+    );
+    await expectStatus(
+      "SSO : jeton expiré → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email, { exp: nowS - 500 }))),
+      401,
+    );
+    await expectStatus(
+      "SSO : domaine e-mail non autorisé → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor("eve@evil.com"))),
+      401,
+    );
     const { privateKey: otherKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    await expectStatus("SSO : signature forgée (autre clé) → 401", ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email), otherKey)), 401);
-    await expectStatus("SSO : e-mail sans compte membre → 401", ssoApi.ssoVerify(org.id, signIdToken(claimsFor("inconnu@acme.fr"))), 401);
+    await expectStatus(
+      "SSO : signature forgée (autre clé) → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor(bob.user.email), otherKey)),
+      401,
+    );
+    await expectStatus(
+      "SSO : e-mail sans compte membre → 401",
+      ssoApi.ssoVerify(org.id, signIdToken(claimsFor("inconnu@acme.fr"))),
+      401,
+    );
 
     // --- SCIM : provisioning + DÉ-provisioning --------------------------------
     const { token: scimTok } = await alice.api.createScimToken(org.id);
@@ -607,17 +856,28 @@ async function main(): Promise<void> {
 
     const listResp = await scim(`?filter=${encodeURIComponent(`userName eq "${bob.user.email}"`)}`, "GET");
     const list = (await listResp.json()) as { totalResults: number; Resources: { id: string; userName: string }[] };
-    ok("SCIM : liste filtrée par userName trouve le membre", list.totalResults === 1 && list.Resources[0]!.userName === bob.user.email);
+    ok(
+      "SCIM : liste filtrée par userName trouve le membre",
+      list.totalResults === 1 && list.Resources[0]!.userName === bob.user.email,
+    );
     const bobScimId = list.Resources[0]!.id;
 
     const createResp = await scim("", "POST", { userName: "carol@acme.fr" });
     const scimCreated = (await createResp.json()) as { active: boolean } & Record<string, unknown>;
-    ok("SCIM : provisioning d'un nouvel utilisateur crée une invitation (201, active=false)",
-      createResp.status === 201 && scimCreated.active === false && !!(scimCreated["urn:elium:params:scim:invite"] as { token?: string })?.token);
+    ok(
+      "SCIM : provisioning d'un nouvel utilisateur crée une invitation (201, active=false)",
+      createResp.status === 201 &&
+        scimCreated.active === false &&
+        !!(scimCreated["urn:elium:params:scim:invite"] as { token?: string })?.token,
+    );
 
     // Deprovision Bob → il perd TOUT accès (SSO ET session existante).
     await scim(`/${bobScimId}`, "PATCH", { Operations: [{ op: "replace", path: "active", value: false }] });
-    await expectStatus("SCIM déprovisionné : login SSO refusé (401)", new DriveApi({ baseUrl: base }).ssoVerify(org.id, signIdToken(claimsFor(bob.user.email))), 401);
+    await expectStatus(
+      "SCIM déprovisionné : login SSO refusé (401)",
+      new DriveApi({ baseUrl: base }).ssoVerify(org.id, signIdToken(claimsFor(bob.user.email))),
+      401,
+    );
     await expectStatus("SCIM déprovisionné : accès org immédiatement perdu (403)", bob.api.listRoles(org.id), 403);
 
     // Re-provision → accès rétabli (l'IdP peut réactiver un compte).
@@ -633,22 +893,39 @@ async function main(): Promise<void> {
       });
 
     // Rôle de provisioning configurable + mapping groupe IdP "Ingénierie" → manager.
-    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: { "Ingénierie": "manager" } });
-    ok("SCIM config : rôle invalide refusé (400)",
-      await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "inconnu" }).then(() => false, () => true));
+    await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "editor", groupRoleMap: { Ingénierie: "manager" } });
+    ok(
+      "SCIM config : rôle invalide refusé (400)",
+      await alice.api.setOrgScimConfig(org.id, { defaultRoleKey: "inconnu" }).then(
+        () => false,
+        () => true,
+      ),
+    );
 
     // Créer le groupe SCIM avec Bob (id SCIM = user id) comme membre.
-    const grpResp = await scimG("", "POST", { displayName: "Ingénierie", externalId: "idp-eng-1", members: [{ value: bobScimId }] });
+    const grpResp = await scimG("", "POST", {
+      displayName: "Ingénierie",
+      externalId: "idp-eng-1",
+      members: [{ value: bobScimId }],
+    });
     const grp = (await grpResp.json()) as { id: string; displayName: string; members: { value: string }[] };
-    ok("SCIM Groups : création (201) avec membre + schéma Group",
-      grpResp.status === 201 && grp.displayName === "Ingénierie" && grp.members.length === 1);
+    ok(
+      "SCIM Groups : création (201) avec membre + schéma Group",
+      grpResp.status === 201 && grp.displayName === "Ingénierie" && grp.members.length === 1,
+    );
 
     // Le mapping groupe→rôle promeut Bob (éditeur → manager) sur sa membership.
     const membersAfter = (await alice.api.listMembers(org.id)).members as { userId: string; roleKey: string }[];
     const bobRoleKey = membersAfter.find((m) => m.userId === bob.user.id)?.roleKey;
-    ok("SCIM Groups : mapping groupe→rôle promeut le membre (éditeur → manager)", bobRoleKey === "manager", `role=${bobRoleKey}`);
+    ok(
+      "SCIM Groups : mapping groupe→rôle promeut le membre (éditeur → manager)",
+      bobRoleKey === "manager",
+      `role=${bobRoleKey}`,
+    );
 
-    const gList = (await (await scimG(`?filter=${encodeURIComponent('displayName eq "Ingénierie"')}`, "GET")).json()) as { totalResults: number };
+    const gList = (await (
+      await scimG(`?filter=${encodeURIComponent('displayName eq "Ingénierie"')}`, "GET")
+    ).json()) as { totalResults: number };
     ok("SCIM Groups : liste filtrée par displayName", gList.totalResults === 1);
     ok("SCIM Groups : jeton invalide → 401", (await scimG("", "GET", undefined, "mauvais-jeton")).status === 401);
 
@@ -680,15 +957,27 @@ async function main(): Promise<void> {
 
     // Alice (owner, holds the org key since creation) promotes Carol — the org
     // private key is unwrapped in Alice's browser and re-wrapped to Carol.
-    const ctxAliceRec: RecoveryContext = { api: alice.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: alice.keys.recipient };
+    const ctxAliceRec: RecoveryContext = {
+      api: alice.api,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      adminKeys: alice.keys.recipient,
+    };
     await promoteRecoveryAdmin(ctxAliceRec, { userId: carol.user.id, publicHex: carol.user.p256PublicHex });
     const recAdmins = (await alice.api.listRecoveryAdmins(org.id)).admins;
-    ok("Carol promue administratrice de recouvrement (Alice + Carol listées)",
+    ok(
+      "Carol promue administratrice de recouvrement (Alice + Carol listées)",
       recAdmins.some((a) => a.userId === carol.user.id) && recAdmins.some((a) => a.userId === alice.user.id),
-      recAdmins.map((a) => a.email).join(","));
+      recAdmins.map((a) => a.email).join(","),
+    );
 
     // Carol can now unwrap the org key — byte-identical to the real one.
-    const ctxCarolRec: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: carol.keys.recipient };
+    const ctxCarolRec: RecoveryContext = {
+      api: carol.api,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      adminKeys: carol.keys.recipient,
+    };
     const carolOrgPriv = await withOrgKey(ctxCarolRec, async (kp) => kp.privateHex);
     ok("Carol déballe la clé privée d'org (identique à l'originale)", carolOrgPriv === orgKp.privateHex);
 
@@ -702,9 +991,16 @@ async function main(): Promise<void> {
     // Carol browses the org tree through recovery and decrypts names with the org key.
     const recNodes = (await carol.api.listRecoveryNodes(org.id)).nodes;
     const recPayslip = recNodes.find((n) => n.id === payslipFile.id)!;
-    ok("recouvrement : le fichier RH figure dans l'arborescence, avec sa clé d'org", !!recPayslip && !!recPayslip.orgWrappedKey);
+    ok(
+      "recouvrement : le fichier RH figure dans l'arborescence, avec sa clé d'org",
+      !!recPayslip && !!recPayslip.orgWrappedKey,
+    );
     const recNames = await decryptRecoveryNodeNames(ctxCarolRec, recNodes);
-    ok("recouvrement : Carol déchiffre le nom du fichier via la clé d'org", recNames.get(payslipFile.id) === "paie.txt", recNames.get(payslipFile.id));
+    ok(
+      "recouvrement : Carol déchiffre le nom du fichier via la clé d'org",
+      recNames.get(payslipFile.id) === "paie.txt",
+      recNames.get(payslipFile.id),
+    );
 
     // Carol restores Bob's cryptographic access to that file.
     await restoreNodeAccess(ctxCarolRec, {
@@ -720,35 +1016,70 @@ async function main(): Promise<void> {
     ok("recouvrement : Bob a désormais accès au fichier RH", !!bobPayslipNode.myWrappedKey);
     const bobPayslipKey = bobPayslipNode.myWrappedKey ? await ops.nodeKeyFrom(ctxB, bobPayslipNode.myWrappedKey) : null;
     const bobPayslipCt = await bob.api.getContent(payslipFile.id);
-    ok("recouvrement : Bob déchiffre le contenu restauré (identique à l'original)",
-      !!bobPayslipKey && eq(await decryptContent(bobPayslipKey, bobPayslipCt.nonceHex, bobPayslipCt.bytes), payslip));
+    ok(
+      "recouvrement : Bob déchiffre le contenu restauré (identique à l'original)",
+      !!bobPayslipKey && eq(await decryptContent(bobPayslipKey, bobPayslipCt.nonceHex, bobPayslipCt.bytes), payslip),
+    );
 
     // An editor cannot perform a grant himself (recovery.perform is required).
-    await expectStatus("recouvrement : grant refusé à l'éditeur (recovery.perform)",
-      bob.api.recoveryGrant(org.id, { nodeId: payslipFile.id, targetUserId: bob.user.id, roleId: carolRoleIdByKey["editor"]!, wrappedKey: {} }), 403);
+    await expectStatus(
+      "recouvrement : grant refusé à l'éditeur (recovery.perform)",
+      bob.api.recoveryGrant(org.id, {
+        nodeId: payslipFile.id,
+        targetUserId: bob.user.id,
+        roleId: carolRoleIdByKey["editor"]!,
+        wrappedKey: {},
+      }),
+      403,
+    );
 
     // --- Rotation de la clé d'organisation ---
     const membersForRot = (await alice.api.listMembers(org.id)).members as { userId: string; p256PublicHex: string }[];
     const recAdminIds = new Set((await alice.api.listRecoveryAdmins(org.id)).admins.map((a) => a.userId));
-    const rotAdmins = membersForRot.filter((m) => recAdminIds.has(m.userId)).map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
-    const ctxAliceRot: RecoveryContext = { api: alice.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: alice.keys.recipient };
+    const rotAdmins = membersForRot
+      .filter((m) => recAdminIds.has(m.userId))
+      .map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
+    const ctxAliceRot: RecoveryContext = {
+      api: alice.api,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      adminKeys: alice.keys.recipient,
+    };
     const orgRot = await rotateOrgKey(ctxAliceRot, rotAdmins);
-    ok("rotation clé org : nœuds re-chiffrés vers une nouvelle clé publique",
-      orgRot.nodesRewrapped >= 1 && orgRot.newOrgPublicHex !== org.orgPublicHex, `n=${orgRot.nodesRewrapped}`);
+    ok(
+      "rotation clé org : nœuds re-chiffrés vers une nouvelle clé publique",
+      orgRot.nodesRewrapped >= 1 && orgRot.newOrgPublicHex !== org.orgPublicHex,
+      `n=${orgRot.nodesRewrapped}`,
+    );
 
     // Carol (admin de recouvrement) déballe la NOUVELLE clé privée d'org et
     // continue de recouvrer via la clé tournée (ses lignes + les node_keys d'org
     // ont été re-chiffrées).
-    const ctxCarolNew: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: orgRot.newOrgPublicHex, adminKeys: carol.keys.recipient };
+    const ctxCarolNew: RecoveryContext = {
+      api: carol.api,
+      orgId: org.id,
+      orgPublicHex: orgRot.newOrgPublicHex,
+      adminKeys: carol.keys.recipient,
+    };
     const carolOrgPrivNew = await withOrgKey(ctxCarolNew, async (kp) => kp.privateHex);
-    ok("rotation : Carol déballe la NOUVELLE clé privée d'org (différente de l'ancienne)",
-      carolOrgPrivNew !== orgKp.privateHex && carolOrgPrivNew.length === orgKp.privateHex.length);
+    ok(
+      "rotation : Carol déballe la NOUVELLE clé privée d'org (différente de l'ancienne)",
+      carolOrgPrivNew !== orgKp.privateHex && carolOrgPrivNew.length === orgKp.privateHex.length,
+    );
     const recNodes2 = (await carol.api.listRecoveryNodes(org.id)).nodes;
     const names2 = await decryptRecoveryNodeNames(ctxCarolNew, recNodes2);
-    ok("rotation : Carol déchiffre toujours le nom via la clé d'org tournée", names2.get(payslipFile.id) === "paie.txt");
+    ok(
+      "rotation : Carol déchiffre toujours le nom via la clé d'org tournée",
+      names2.get(payslipFile.id) === "paie.txt",
+    );
 
     // L'ANCIENNE clé publique d'org ne déchiffre plus (les partages org ont changé).
-    const ctxCarolOld: RecoveryContext = { api: carol.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: carol.keys.recipient };
+    const ctxCarolOld: RecoveryContext = {
+      api: carol.api,
+      orgId: org.id,
+      orgPublicHex: org.orgPublicHex,
+      adminKeys: carol.keys.recipient,
+    };
     const namesOld = await decryptRecoveryNodeNames(ctxCarolOld, recNodes2);
     ok("rotation : l'ancienne clé publique d'org ne recouvre plus", !namesOld.get(payslipFile.id));
 
@@ -757,11 +1088,20 @@ async function main(): Promise<void> {
     const audit = await alice.api.listAudit(org.id, { limit: 200 });
     const actions = new Set((audit.entries as { action: string }[]).map((e) => e.action));
     ok("audit non vide", (audit.entries as unknown[]).length > 5, `n=${(audit.entries as unknown[]).length}`);
-    ok("audit trace création/partage/révocation/rotation",
-      actions.has("node.create") && actions.has("node.share") && actions.has("node.unshare")
-      && actions.has("node.key.rotate") && actions.has("collab.compact"), [...actions].join(","));
-    ok("audit trace le recouvrement (promotion + grant)",
-      actions.has("recovery.admin.grant") && actions.has("recovery.grant"), [...actions].join(","));
+    ok(
+      "audit trace création/partage/révocation/rotation",
+      actions.has("node.create") &&
+        actions.has("node.share") &&
+        actions.has("node.unshare") &&
+        actions.has("node.key.rotate") &&
+        actions.has("collab.compact"),
+      [...actions].join(","),
+    );
+    ok(
+      "audit trace le recouvrement (promotion + grant)",
+      actions.has("recovery.admin.grant") && actions.has("recovery.grant"),
+      [...actions].join(","),
+    );
     await expectStatus("Bob : audit refusé (audit.view)", bob.api.listAudit(org.id), 403);
 
     // =========================================================================
@@ -770,8 +1110,17 @@ async function main(): Promise<void> {
     // Transfert de propriété : org à deux membres.
     const ownerU = await newUser(base, "owner-rgpd@acme.fr", "OwnerRGPD");
     const okp = await generateRecipientKeypair();
-    const owrapped = JSON.parse(dec.decode(await encryptForRecipients(fromHex(okp.privateHex), [ownerU.keys.recipient.publicHex]))) as Record<string, unknown>;
-    const oorg = (await ownerU.api.createOrg({ name: "Transfert SARL", slug: "transfert-sarl", orgPublicHex: okp.publicHex, wrappedOrgPrivate: owrapped })).org as { id: string };
+    const owrapped = JSON.parse(
+      dec.decode(await encryptForRecipients(fromHex(okp.privateHex), [ownerU.keys.recipient.publicHex])),
+    ) as Record<string, unknown>;
+    const oorg = (
+      await ownerU.api.createOrg({
+        name: "Transfert SARL",
+        slug: "transfert-sarl",
+        orgPublicHex: okp.publicHex,
+        wrappedOrgPrivate: owrapped,
+      })
+    ).org as { id: string };
     const oRoles = (await ownerU.api.listRoles(oorg.id)).roles as RoleDef[];
     const oRoleIdByKey: Record<string, string> = Object.fromEntries(oRoles.map((r) => [r.key, r.id]));
     const heir = await newUser(base, "heir-rgpd@acme.fr", "HeirRGPD");
@@ -779,37 +1128,66 @@ async function main(): Promise<void> {
     await heir.api.acceptInvite(invH.token);
 
     const pf1 = await ownerU.api.deletionPreflight();
-    ok("RGPD : preflight bloque le propriétaire d'une org à membres",
-      pf1.canDelete === false && pf1.ownedOrgsWithMembers.some((o) => o.id === oorg.id));
-    await expectStatus("RGPD : seul le propriétaire transfère (403)", heir.api.transferOrgOwnership(oorg.id, ownerU.user.id), 403);
-    ok("RGPD : transfert de propriété réussi", (await ownerU.api.transferOrgOwnership(oorg.id, heir.user.id)).ok === true);
+    ok(
+      "RGPD : preflight bloque le propriétaire d'une org à membres",
+      pf1.canDelete === false && pf1.ownedOrgsWithMembers.some((o) => o.id === oorg.id),
+    );
+    await expectStatus(
+      "RGPD : seul le propriétaire transfère (403)",
+      heir.api.transferOrgOwnership(oorg.id, ownerU.user.id),
+      403,
+    );
+    ok(
+      "RGPD : transfert de propriété réussi",
+      (await ownerU.api.transferOrgOwnership(oorg.id, heir.user.id)).ok === true,
+    );
     const afterMembers = (await heir.api.listMembers(oorg.id)).members as { userId: string; roleKey: string }[];
-    ok("RGPD : le nouveau propriétaire a le rôle owner", afterMembers.find((m) => m.userId === heir.user.id)?.roleKey === "owner");
+    ok(
+      "RGPD : le nouveau propriétaire a le rôle owner",
+      afterMembers.find((m) => m.userId === heir.user.id)?.roleKey === "owner",
+    );
 
     // Suppression de compte (happy path) : Dan, propriétaire d'une org SOLO.
     const dan = await newUser(base, "dan-rgpd@acme.fr", "DanRGPD");
     const dkp = await generateRecipientKeypair();
-    const dwrapped = JSON.parse(dec.decode(await encryptForRecipients(fromHex(dkp.privateHex), [dan.keys.recipient.publicHex]))) as Record<string, unknown>;
-    await dan.api.createOrg({ name: "Dan Solo", slug: "dan-solo", orgPublicHex: dkp.publicHex, wrappedOrgPrivate: dwrapped });
+    const dwrapped = JSON.parse(
+      dec.decode(await encryptForRecipients(fromHex(dkp.privateHex), [dan.keys.recipient.publicHex])),
+    ) as Record<string, unknown>;
+    await dan.api.createOrg({
+      name: "Dan Solo",
+      slug: "dan-solo",
+      orgPublicHex: dkp.publicHex,
+      wrappedOrgPrivate: dwrapped,
+    });
     const pfDan = await dan.api.deletionPreflight();
     ok("RGPD : preflight autorise le propriétaire d'une org solo", pfDan.canDelete === true);
 
     const preDan = await new DriveApi({ baseUrl: base }).prelogin(dan.user.email);
     const danSeed = (await prepareLogin(dan.password, preDan.kdfSalt, preDan.kdfParams as KdfParams)).authSignSeedHex;
-    await expectStatus("RGPD : preuve invalide refusée (400)",
-      dan.api.deleteMyAccount(await signLoginChallenge("elium:delete-account:mauvais", danSeed)), 400);
+    await expectStatus(
+      "RGPD : preuve invalide refusée (400)",
+      dan.api.deleteMyAccount(await signLoginChallenge("elium:delete-account:mauvais", danSeed)),
+      400,
+    );
     const proof = await signLoginChallenge(`elium:delete-account:${dan.user.email.toLowerCase()}`, danSeed);
     const delRes = await dan.api.deleteMyAccount(proof);
     ok("RGPD : compte supprimé + org solo supprimée", delRes.ok === true && delRes.deletedOrgs === 1);
     let danLoginFailed = false;
-    try { await loginFull(base, dan.user.email, dan.password); } catch { danLoginFailed = true; }
+    try {
+      await loginFull(base, dan.user.email, dan.password);
+    } catch {
+      danLoginFailed = true;
+    }
     ok("RGPD : connexion impossible après suppression du compte", danLoginFailed);
 
     // Intégrité chaînée : après création/partage/révocation/rotation/recouvrement,
     // la chaîne d'entry_hash doit être intacte (toutes les entrées vérifiées).
     const integrity = await alice.api.verifyAudit(org.id);
-    ok("audit : intégrité chaînée intacte", integrity.ok && integrity.hashed > 5,
-      `ok=${integrity.ok} hashed=${integrity.hashed} broken=${integrity.brokenAtId ?? "-"}`);
+    ok(
+      "audit : intégrité chaînée intacte",
+      integrity.ok && integrity.hashed > 5,
+      `ok=${integrity.ok} hashed=${integrity.hashed} broken=${integrity.brokenAtId ?? "-"}`,
+    );
     await expectStatus("Bob : vérif intégrité refusée (audit.view)", bob.api.verifyAudit(org.id), 403);
   } finally {
     provA?.destroy();
@@ -818,12 +1196,22 @@ async function main(): Promise<void> {
     await app.close().catch(() => {});
     await closePool().catch(() => {});
     await pg.stop().catch(() => {});
-    try { rmSync(dataDir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* verrou Windows */ }
-    try { rmSync(blobDir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* idem */ }
+    try {
+      rmSync(dataDir, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      /* verrou Windows */
+    }
+    try {
+      rmSync(blobDir, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      /* idem */
+    }
   }
 
   // eslint-disable-next-line no-console
-  console.log(`\n=== RÉSULTAT : ${checks - failures}/${checks} vérifications réussies${failures ? ` — ${failures} ÉCHEC(S)` : " ✅"} ===`);
+  console.log(
+    `\n=== RÉSULTAT : ${checks - failures}/${checks} vérifications réussies${failures ? ` — ${failures} ÉCHEC(S)` : " ✅"} ===`,
+  );
   process.exit(failures ? 1 : 0);
 }
 

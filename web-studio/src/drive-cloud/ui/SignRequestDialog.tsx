@@ -12,7 +12,15 @@ import { createSignRequestForNode, type DriveEntry, type OpsCtx, type SignPartyL
 import type { SignRequestDto } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 
-export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entry: DriveEntry; onClose: () => void }) {
+export default function SignRequestDialog({
+  ctx,
+  entry,
+  onClose,
+}: {
+  ctx: OpsCtx;
+  entry: DriveEntry;
+  onClose: () => void;
+}) {
   const d = useDrive();
   const [parties, setParties] = useState<{ label: string }[]>([{ label: "" }]);
   const [ordered, setOrdered] = useState(false);
@@ -42,8 +50,7 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
     return () => clearInterval(t);
   }, [loadStatus]);
 
-  const setLabel = (i: number, label: string) =>
-    setParties((ps) => ps.map((p, j) => (j === i ? { label } : p)));
+  const setLabel = (i: number, label: string) => setParties((ps) => ps.map((p, j) => (j === i ? { label } : p)));
   const addParty = () => setParties((ps) => (ps.length < 50 ? [...ps, { label: "" }] : ps));
   const removeParty = (i: number) => setParties((ps) => (ps.length > 1 ? ps.filter((_, j) => j !== i) : ps));
 
@@ -73,11 +80,20 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
   };
 
   return (
-    <div className="dc-modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="dc-modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="dc-modal" role="dialog" aria-modal="true">
         <header className="dc-modal__head">
-          <h2><PenLine size={18} /> Demander une signature — « {entry.name} »</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          <h2>
+            <PenLine size={18} /> Demander une signature — « {entry.name} »
+          </h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+            <X size={18} />
+          </button>
         </header>
 
         <p className="muted">
@@ -87,7 +103,9 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
 
         {!links && (
           <div className="dc-share-link">
-            <h3 className="dc-share-list__title"><PenLine size={15} /> Signataires</h3>
+            <h3 className="dc-share-list__title">
+              <PenLine size={15} /> Signataires
+            </h3>
             {parties.map((p, i) => (
               <div key={i} className="dc-sign-partyrow">
                 <span className="dc-sign-partyrow__n">{i + 1}</span>
@@ -98,7 +116,9 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
                   placeholder={`Libellé du signataire ${i + 1} (optionnel)`}
                 />
                 {parties.length > 1 && (
-                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)}><Trash2 size={15} /></button>
+                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)}>
+                    <Trash2 size={15} />
+                  </button>
                 )}
               </div>
             ))}
@@ -121,14 +141,17 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
             </div>
             {err && <p className="dc-error">{err}</p>}
             <button className="eb eb--primary" disabled={busy} onClick={() => void createLinks()}>
-              <PenLine size={14} /> {busy ? "Création…" : `Créer ${parties.length > 1 ? parties.length + " liens" : "le lien"}`}
+              <PenLine size={14} />{" "}
+              {busy ? "Création…" : `Créer ${parties.length > 1 ? parties.length + " liens" : "le lien"}`}
             </button>
           </div>
         )}
 
         {links && (
           <div className="dc-share-link">
-            <h3 className="dc-share-list__title"><CheckCircle2 size={15} /> Liens à transmettre{ordered ? " (à envoyer dans l'ordre)" : ""}</h3>
+            <h3 className="dc-share-list__title">
+              <CheckCircle2 size={15} /> Liens à transmettre{ordered ? " (à envoyer dans l'ordre)" : ""}
+            </h3>
             {links.map((l) => (
               <div key={l.index} className="dc-sign-linkrow">
                 <span className="dc-sign-partyrow__n">{l.index + 1}</span>
@@ -141,7 +164,9 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
                 </div>
               </div>
             ))}
-            <p className="muted dc-share-link__note">Transmettez chaque lien au signataire concerné. Le serveur ne voit jamais le secret.</p>
+            <p className="muted dc-share-link__note">
+              Transmettez chaque lien au signataire concerné. Le serveur ne voit jamais le secret.
+            </p>
           </div>
         )}
 
@@ -150,27 +175,38 @@ export default function SignRequestDialog({ ctx, entry, onClose }: { ctx: OpsCtx
             <h3>Suivi</h3>
             {requests.map((r) => (
               <div key={r.id} className="dc-sign-req">
-                {r.ordered && <span className="muted" style={{ fontSize: 12 }}><ListOrdered size={12} /> Signature dans l'ordre</span>}
+                {r.ordered && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    <ListOrdered size={12} /> Signature dans l'ordre
+                  </span>
+                )}
                 {r.parties.map((p) => (
                   <div key={p.id} className="dc-sign-party">
-                    {p.status === "signed"
-                      ? <CheckCircle2 size={15} className="dc-sign-ok" />
-                      : p.status === "declined"
-                        ? <XCircle size={15} className="dc-sign-no" />
-                        : <Clock size={15} className="dc-sign-wait" />}
+                    {p.status === "signed" ? (
+                      <CheckCircle2 size={15} className="dc-sign-ok" />
+                    ) : p.status === "declined" ? (
+                      <XCircle size={15} className="dc-sign-no" />
+                    ) : (
+                      <Clock size={15} className="dc-sign-wait" />
+                    )}
                     <span className="dc-sign-party__label">{p.label || `Signataire ${p.index + 1}`}</span>
                     <span className="dc-sign-party__state">
-                      {p.status === "signed"
-                        ? <>signé{p.signerFpr ? ` · ${fingerprintWords(p.signerFpr)}` : ""}</>
-                        : p.status === "declined"
-                          ? "refusé"
-                          : "en attente"}
+                      {p.status === "signed" ? (
+                        <>signé{p.signerFpr ? ` · ${fingerprintWords(p.signerFpr)}` : ""}</>
+                      ) : p.status === "declined" ? (
+                        "refusé"
+                      ) : (
+                        "en attente"
+                      )}
                     </span>
                   </div>
                 ))}
               </div>
             ))}
-            <p className="muted" style={{ fontSize: 12 }}>Le document signé remplace la version courante du fichier dans le Drive. Ouvrez-le pour vérifier les signatures.</p>
+            <p className="muted" style={{ fontSize: 12 }}>
+              Le document signé remplace la version courante du fichier dans le Drive. Ouvrez-le pour vérifier les
+              signatures.
+            </p>
           </div>
         )}
       </div>

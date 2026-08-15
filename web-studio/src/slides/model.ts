@@ -4,14 +4,28 @@ export type SlideTheme = "light" | "dark" | "brand";
 export type SlideTransition = "none" | "fade" | "slide" | "zoom" | "morph";
 /** Shape geometries — the free-canvas editor adds rounded rects, stars, etc. */
 export type ShapeKind =
-  | "rect" | "ellipse" | "triangle" | "line" | "arrow"
-  | "roundRect" | "diamond" | "star" | "pentagon" | "hexagon" | "chevron" | "cloud" | "heart";
+  | "rect"
+  | "ellipse"
+  | "triangle"
+  | "line"
+  | "arrow"
+  | "roundRect"
+  | "diamond"
+  | "star"
+  | "pentagon"
+  | "hexagon"
+  | "chevron"
+  | "cloud"
+  | "heart";
 
 /** A free-floating shape on a slide; geometry is in % of the canvas (0–100). */
 export interface Shape {
   id: string;
   kind: ShapeKind;
-  x: number; y: number; w: number; h: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
   fill: string;
   stroke: string;
   strokeWidth: number;
@@ -26,8 +40,17 @@ export const REF_H = 720;
 export type ElementType = "text" | "shape" | "image" | "table" | "chart";
 /** Chart kinds — mirrors the Tableur `ChartType` so a slide chart reuses SheetChart. */
 export type ChartKind = "bar" | "line" | "pie";
-export interface TableData { rows: number; cols: number; cells: string[][] }
-export interface ChartData { kind: ChartKind; labels: string[]; values: number[]; title?: string }
+export interface TableData {
+  rows: number;
+  cols: number;
+  cells: string[][];
+}
+export interface ChartData {
+  kind: ChartKind;
+  labels: string[];
+  values: number[];
+  title?: string;
+}
 
 /**
  * A free-canvas object (the PowerPoint-style model). Everything on a slide is an
@@ -38,7 +61,10 @@ export interface ChartData { kind: ChartKind; labels: string[]; values: number[]
 export interface SlideElement {
   id: string;
   type: ElementType;
-  x: number; y: number; w: number; h: number; // % of canvas
+  x: number;
+  y: number;
+  w: number;
+  h: number; // % of canvas
   rotation?: number; // degrees, clockwise
   opacity?: number; // 0..1 (default 1)
   locked?: boolean;
@@ -70,9 +96,7 @@ export interface SlideElement {
 }
 
 /** Entrance-animation effects available per element. */
-export type AnimEffect =
-  | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right"
-  | "zoom" | "flyin" | "spin";
+export type AnimEffect = "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom" | "flyin" | "spin";
 /** How an element's animation is triggered relative to the play sequence. */
 export type AnimTrigger = "onClick" | "withPrevious" | "afterPrevious";
 
@@ -137,7 +161,9 @@ export function emptySlide(layout: SlideLayout = "title-content"): Slide {
 
 export function emptyDeck(): Deck {
   return {
-    slides: [{ id: newSlideId(), title: "Titre de la présentation", body: "", bodyHtml: "<p>Sous-titre</p>", layout: "title" }],
+    slides: [
+      { id: newSlideId(), title: "Titre de la présentation", body: "", bodyHtml: "<p>Sous-titre</p>", layout: "title" },
+    ],
     active: 0,
     theme: "light",
     transition: "fade",
@@ -145,7 +171,7 @@ export function emptyDeck(): Deck {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
 /**
@@ -155,7 +181,10 @@ function escapeHtml(s: string): string {
 export function bodyHtmlOf(slide: Slide): string {
   if (slide.bodyHtml != null && slide.bodyHtml !== "") return slide.bodyHtml;
   if (slide.bodyHtml === "") return "";
-  const lines = slide.body.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = slide.body
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   if (lines.length === 0) return "";
   // Migrate as paragraphs (not a bullet list): a subtitle on a title/section
   // slide should not become a bullet. Users add lists via the toolbar.
@@ -186,31 +215,123 @@ export function elementsOf(slide: Slide): SlideElement[] {
 
   switch (slide.layout) {
     case "title":
-      if (titleHtml) out.push(el({ type: "text", x: 8, y: 34, w: 84, h: 22, html: titleHtml, fontSize: 54, align: "center", valign: "middle" }));
-      if (body) out.push(el({ type: "text", x: 12, y: 58, w: 76, h: 16, html: body, fontSize: 26, align: "center", valign: "top", color: "#64748b" }));
+      if (titleHtml)
+        out.push(
+          el({
+            type: "text",
+            x: 8,
+            y: 34,
+            w: 84,
+            h: 22,
+            html: titleHtml,
+            fontSize: 54,
+            align: "center",
+            valign: "middle",
+          }),
+        );
+      if (body)
+        out.push(
+          el({
+            type: "text",
+            x: 12,
+            y: 58,
+            w: 76,
+            h: 16,
+            html: body,
+            fontSize: 26,
+            align: "center",
+            valign: "top",
+            color: "#64748b",
+          }),
+        );
       break;
     case "section":
-      if (titleHtml) out.push(el({ type: "text", x: 8, y: 38, w: 84, h: 24, html: titleHtml, fontSize: 46, align: "left", valign: "middle" }));
-      if (body) out.push(el({ type: "text", x: 8, y: 64, w: 84, h: 14, html: body, fontSize: 24, align: "left", valign: "top", color: "#64748b" }));
+      if (titleHtml)
+        out.push(
+          el({
+            type: "text",
+            x: 8,
+            y: 38,
+            w: 84,
+            h: 24,
+            html: titleHtml,
+            fontSize: 46,
+            align: "left",
+            valign: "middle",
+          }),
+        );
+      if (body)
+        out.push(
+          el({
+            type: "text",
+            x: 8,
+            y: 64,
+            w: 84,
+            h: 14,
+            html: body,
+            fontSize: 24,
+            align: "left",
+            valign: "top",
+            color: "#64748b",
+          }),
+        );
       break;
     case "image-full":
       if (slide.image) out.push(el({ type: "image", x: 4, y: 6, w: 92, h: 76, src: slide.image }));
-      if (titleHtml) out.push(el({ type: "text", x: 4, y: 85, w: 92, h: 11, html: titleHtml, fontSize: 22, align: "center", valign: "middle" }));
+      if (titleHtml)
+        out.push(
+          el({
+            type: "text",
+            x: 4,
+            y: 85,
+            w: 92,
+            h: 11,
+            html: titleHtml,
+            fontSize: 22,
+            align: "center",
+            valign: "middle",
+          }),
+        );
       break;
     case "image-right":
-      if (titleHtml) out.push(el({ type: "text", x: 6, y: 10, w: 44, h: 16, html: titleHtml, fontSize: 40, align: "left", valign: "top" }));
-      if (body) out.push(el({ type: "text", x: 6, y: 28, w: 44, h: 62, html: body, fontSize: 22, align: "left", valign: "top" }));
+      if (titleHtml)
+        out.push(
+          el({ type: "text", x: 6, y: 10, w: 44, h: 16, html: titleHtml, fontSize: 40, align: "left", valign: "top" }),
+        );
+      if (body)
+        out.push(
+          el({ type: "text", x: 6, y: 28, w: 44, h: 62, html: body, fontSize: 22, align: "left", valign: "top" }),
+        );
       if (slide.image) out.push(el({ type: "image", x: 54, y: 16, w: 40, h: 62, src: slide.image }));
       break;
     case "blank":
       break;
     default: // title-content
-      if (titleHtml) out.push(el({ type: "text", x: 7, y: 7, w: 86, h: 15, html: titleHtml, fontSize: 40, align: "left", valign: "top" }));
-      if (body) out.push(el({ type: "text", x: 7, y: 26, w: 86, h: 66, html: body, fontSize: 24, align: "left", valign: "top" }));
+      if (titleHtml)
+        out.push(
+          el({ type: "text", x: 7, y: 7, w: 86, h: 15, html: titleHtml, fontSize: 40, align: "left", valign: "top" }),
+        );
+      if (body)
+        out.push(
+          el({ type: "text", x: 7, y: 26, w: 86, h: 66, html: body, fontSize: 24, align: "left", valign: "top" }),
+        );
       if (slide.image) out.push(el({ type: "image", x: 60, y: 26, w: 33, h: 40, src: slide.image }));
   }
   for (const s of slide.shapes ?? []) {
-    out.push(el({ type: "shape", x: s.x, y: s.y, w: s.w, h: s.h, shape: s.kind, fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth, text: s.text }));
+    out.push(
+      el({
+        type: "shape",
+        x: s.x,
+        y: s.y,
+        w: s.w,
+        h: s.h,
+        shape: s.kind,
+        fill: s.fill,
+        stroke: s.stroke,
+        strokeWidth: s.strokeWidth,
+        text: s.text,
+      }),
+    );
   }
   return out;
 }
@@ -225,14 +346,46 @@ export function blankSlide(): Slide {
 }
 
 export function newTextElement(): SlideElement {
-  return el({ type: "text", x: 30, y: 40, w: 40, h: 14, html: "<p>Texte</p>", fontSize: 28, align: "left", valign: "top", color: "#0f172a" });
+  return el({
+    type: "text",
+    x: 30,
+    y: 40,
+    w: 40,
+    h: 14,
+    html: "<p>Texte</p>",
+    fontSize: 28,
+    align: "left",
+    valign: "top",
+    color: "#0f172a",
+  });
 }
 
 export function newShapeElement(shape: ShapeKind): SlideElement {
   if (shape === "line" || shape === "arrow") {
-    return el({ type: "shape", shape, x: 25, y: 48, w: 50, h: 6, fill: "transparent", stroke: "#0f172a", strokeWidth: 3 });
+    return el({
+      type: "shape",
+      shape,
+      x: 25,
+      y: 48,
+      w: 50,
+      h: 6,
+      fill: "transparent",
+      stroke: "#0f172a",
+      strokeWidth: 3,
+    });
   }
-  return el({ type: "shape", shape, x: 34, y: 33, w: 32, h: 30, fill: "#bfdbfe", stroke: "#2563eb", strokeWidth: 2, radius: 12 });
+  return el({
+    type: "shape",
+    shape,
+    x: 34,
+    y: 33,
+    w: 32,
+    h: 30,
+    fill: "#bfdbfe",
+    stroke: "#2563eb",
+    strokeWidth: 2,
+    radius: 12,
+  });
 }
 
 export function newImageElement(src: string): SlideElement {
@@ -245,9 +398,25 @@ export function newTableElement(): SlideElement {
     ["", "", ""],
     ["", "", ""],
   ];
-  return el({ type: "table", x: 15, y: 30, w: 70, h: 32, table: { rows: 3, cols: 3, cells }, fontSize: 20, color: "#0f172a" });
+  return el({
+    type: "table",
+    x: 15,
+    y: 30,
+    w: 70,
+    h: 32,
+    table: { rows: 3, cols: 3, cells },
+    fontSize: 20,
+    color: "#0f172a",
+  });
 }
 
 export function newChartElement(kind: ChartKind = "bar"): SlideElement {
-  return el({ type: "chart", x: 22, y: 24, w: 56, h: 52, chart: { kind, labels: ["Jan", "Fév", "Mar", "Avr"], values: [12, 19, 9, 22] } });
+  return el({
+    type: "chart",
+    x: 22,
+    y: 24,
+    w: 56,
+    h: 52,
+    chart: { kind, labels: ["Jan", "Fév", "Mar", "Avr"], values: [12, 19, 9, 22] },
+  });
 }

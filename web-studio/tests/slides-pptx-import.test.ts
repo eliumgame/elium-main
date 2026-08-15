@@ -4,28 +4,125 @@ import { importPptx } from "../src/slides/pptx-import";
 import type { Deck, SlideElement } from "../src/slides/model";
 
 // 1x1 transparent PNG.
-const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAQCB4+O0AAAAAElFTkSuQmCC";
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAQCB4+O0AAAAAElFTkSuQmCC";
 
 function deck(): Deck {
   const els: SlideElement[] = [
-    { id: "t1", type: "text", x: 8, y: 6, w: 80, h: 16, html: "<p><b>Titre</b> important</p>", fontSize: 40, color: "#0f172a", align: "center", valign: "top" },
-    { id: "t2", type: "text", x: 10, y: 30, w: 60, h: 30, html: "<ul><li>Point A</li><li>Point <i>B</i></li></ul>", fontSize: 24 },
-    { id: "s1", type: "shape", x: 40, y: 40, w: 20, h: 20, shape: "star", fill: "#bfdbfe", stroke: "#2563eb", strokeWidth: 2, rotation: 15 },
-    { id: "s2", type: "shape", x: 5, y: 70, w: 30, h: 12, shape: "roundRect", fill: "#fde68a", stroke: "#ca8a04", strokeWidth: 3, radius: 20, text: "Étiquette" },
-    { id: "s3", type: "shape", x: 60, y: 75, w: 35, h: 6, shape: "arrow", fill: "transparent", stroke: "#0f172a", strokeWidth: 4 },
+    {
+      id: "t1",
+      type: "text",
+      x: 8,
+      y: 6,
+      w: 80,
+      h: 16,
+      html: "<p><b>Titre</b> important</p>",
+      fontSize: 40,
+      color: "#0f172a",
+      align: "center",
+      valign: "top",
+    },
+    {
+      id: "t2",
+      type: "text",
+      x: 10,
+      y: 30,
+      w: 60,
+      h: 30,
+      html: "<ul><li>Point A</li><li>Point <i>B</i></li></ul>",
+      fontSize: 24,
+    },
+    {
+      id: "s1",
+      type: "shape",
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 20,
+      shape: "star",
+      fill: "#bfdbfe",
+      stroke: "#2563eb",
+      strokeWidth: 2,
+      rotation: 15,
+    },
+    {
+      id: "s2",
+      type: "shape",
+      x: 5,
+      y: 70,
+      w: 30,
+      h: 12,
+      shape: "roundRect",
+      fill: "#fde68a",
+      stroke: "#ca8a04",
+      strokeWidth: 3,
+      radius: 20,
+      text: "Étiquette",
+    },
+    {
+      id: "s3",
+      type: "shape",
+      x: 60,
+      y: 75,
+      w: 35,
+      h: 6,
+      shape: "arrow",
+      fill: "transparent",
+      stroke: "#0f172a",
+      strokeWidth: 4,
+    },
     { id: "im", type: "image", x: 70, y: 10, w: 20, h: 20, src: PNG },
   ];
   return {
-    active: 0, theme: "light", transition: "fade",
+    active: 0,
+    theme: "light",
+    transition: "fade",
     slides: [
       { id: "sl1", title: "", body: "", bodyHtml: "", layout: "blank", elements: els, background: "#f0f9ff" },
-      { id: "sl2", title: "", body: "", bodyHtml: "", layout: "blank", elements: [
-        { id: "x", type: "text", x: 10, y: 44, w: 80, h: 12, html: "<p>Deuxième diapo</p>", fontSize: 32 },
-      ] },
-      { id: "sl3", title: "", body: "", bodyHtml: "", layout: "blank", elements: [
-        { id: "tb", type: "table", x: 10, y: 20, w: 60, h: 30, fontSize: 18, color: "#0f172a", table: { rows: 2, cols: 2, cells: [["A", "B"], ["1", "2"]] } },
-        { id: "ch", type: "chart", x: 10, y: 60, w: 40, h: 30, chart: { kind: "bar", labels: ["X", "Y"], values: [3, 7], title: "Ventes" } },
-      ] },
+      {
+        id: "sl2",
+        title: "",
+        body: "",
+        bodyHtml: "",
+        layout: "blank",
+        elements: [{ id: "x", type: "text", x: 10, y: 44, w: 80, h: 12, html: "<p>Deuxième diapo</p>", fontSize: 32 }],
+      },
+      {
+        id: "sl3",
+        title: "",
+        body: "",
+        bodyHtml: "",
+        layout: "blank",
+        elements: [
+          {
+            id: "tb",
+            type: "table",
+            x: 10,
+            y: 20,
+            w: 60,
+            h: 30,
+            fontSize: 18,
+            color: "#0f172a",
+            table: {
+              rows: 2,
+              cols: 2,
+              cells: [
+                ["A", "B"],
+                ["1", "2"],
+              ],
+            },
+          },
+          {
+            id: "ch",
+            type: "chart",
+            x: 10,
+            y: 60,
+            w: 40,
+            h: 30,
+            chart: { kind: "bar", labels: ["X", "Y"], values: [3, 7], title: "Ventes" },
+          },
+        ],
+      },
     ],
   };
 }
@@ -45,7 +142,10 @@ describe("PPTX import (round-trip through the exporter)", () => {
     const e = d2.slides[2]!.elements!;
     const tbl = e.find((x) => x.type === "table");
     expect(tbl).toBeTruthy();
-    expect(tbl!.table!.cells).toEqual([["A", "B"], ["1", "2"]]);
+    expect(tbl!.table!.cells).toEqual([
+      ["A", "B"],
+      ["1", "2"],
+    ]);
     // Charts now export as a native <c:chart> part and come back as a real
     // chart element (kind, labels, values and title preserved).
     const chart = e.find((x) => x.type === "chart");
@@ -64,7 +164,10 @@ describe("PPTX import (round-trip through the exporter)", () => {
     const e = d2.slides[0]!.elements!;
     // order preserved
     expect(e.map((x) => x.type)).toEqual(["text", "text", "shape", "shape", "shape", "image"]);
-    const star = e[2]!, round = e[3]!, arrow = e[4]!, img = e[5]!;
+    const star = e[2]!,
+      round = e[3]!,
+      arrow = e[4]!,
+      img = e[5]!;
     expect(star.shape).toBe("star");
     expect(round.shape).toBe("roundRect");
     expect(arrow.shape).toBe("arrow");

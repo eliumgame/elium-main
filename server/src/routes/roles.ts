@@ -49,10 +49,7 @@ const newRoleKey = () => `custom-${randomHex(6)}`;
 
 /** Load a role that belongs to THIS org (never a global template, org_id NULL). */
 async function loadOrgRole(orgId: string, roleId: string): Promise<RoleRow | null> {
-  return queryOne<RoleRow>(
-    `SELECT ${ROLE_COLUMNS} FROM roles WHERE id = $1 AND org_id = $2`,
-    [roleId, orgId],
-  );
+  return queryOne<RoleRow>(`SELECT ${ROLE_COLUMNS} FROM roles WHERE id = $1 AND org_id = $2`, [roleId, orgId]);
 }
 
 const createSchema = z.object({
@@ -117,9 +114,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Edit a custom role (system roles are immutable) ---------------------
   app.patch("/:orgId/roles/:roleId", async (req) => {
-    const { orgId, roleId } = z
-      .object({ orgId: z.string().uuid(), roleId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, roleId } = z.object({ orgId: z.string().uuid(), roleId: z.string().uuid() }).parse(req.params);
     const b = patchSchema.parse(req.body);
     await requireOrgPerm(req, orgId, "role.manage");
     const user = requireUser(req);
@@ -164,9 +159,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Clone any org role (system or custom) into a new custom role --------
   app.post("/:orgId/roles/:roleId/clone", async (req) => {
-    const { orgId, roleId } = z
-      .object({ orgId: z.string().uuid(), roleId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, roleId } = z.object({ orgId: z.string().uuid(), roleId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "role.create");
     const user = requireUser(req);
 
@@ -190,9 +183,7 @@ export default async function roleRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Delete a custom role (only if unreferenced) -------------------------
   app.delete("/:orgId/roles/:roleId", async (req) => {
-    const { orgId, roleId } = z
-      .object({ orgId: z.string().uuid(), roleId: z.string().uuid() })
-      .parse(req.params);
+    const { orgId, roleId } = z.object({ orgId: z.string().uuid(), roleId: z.string().uuid() }).parse(req.params);
     await requireOrgPerm(req, orgId, "role.manage");
     const user = requireUser(req);
 

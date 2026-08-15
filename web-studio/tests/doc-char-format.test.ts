@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
 import {
-  CASE_LABELS, DEFAULT_FONT_SIZE_PX, UNDERLINE_LABELS, parsePx, stepFontSize, transformCase, underlineCss,
+  CASE_LABELS,
+  DEFAULT_FONT_SIZE_PX,
+  UNDERLINE_LABELS,
+  parsePx,
+  stepFontSize,
+  transformCase,
+  underlineCss,
 } from "../src/editor/charFormat";
 import { docToDocx } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
@@ -9,7 +15,9 @@ import { docToHtml } from "../src/export/exporters";
 import type { EliumFile, ProseMirrorNode } from "../src/format/types";
 
 const run = (text: string, marks: { type: string; attrs?: Record<string, unknown> }[]): ProseMirrorNode => ({
-  type: "text", text, marks,
+  type: "text",
+  text,
+  marks,
 });
 const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
 const para = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "paragraph", content });
@@ -141,7 +149,9 @@ describe("Mise en forme des caractères — export HTML", () => {
 
 describe("Mise en forme des caractères — export DOCX", () => {
   it("écrit vertAlign pour exposant et indice", async () => {
-    const xml = documentXml(await fileWith(doc(para(run("2", [{ type: "superscript" }]), run("3", [{ type: "subscript" }])))));
+    const xml = documentXml(
+      await fileWith(doc(para(run("2", [{ type: "superscript" }]), run("3", [{ type: "subscript" }])))),
+    );
     expect(xml).toContain('<w:vertAlign w:val="superscript"/>');
     expect(xml).toContain('<w:vertAlign w:val="subscript"/>');
   });

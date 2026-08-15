@@ -1,18 +1,25 @@
 import { describe, it, expect } from "vitest";
 import {
-  unitIds, expandGroups, selectionAfterClick, marqueeHits, resizeGeometry, cloneElements,
+  unitIds,
+  expandGroups,
+  selectionAfterClick,
+  marqueeHits,
+  resizeGeometry,
+  cloneElements,
 } from "../src/slides/selection";
 import type { SlideElement } from "../src/slides/model";
 
-const el = (id: string, x: number, y: number, w = 10, h = 10, groupId?: string): SlideElement =>
-  ({ id, type: "shape", x, y, w, h, ...(groupId ? { groupId } : {}) });
+const el = (id: string, x: number, y: number, w = 10, h = 10, groupId?: string): SlideElement => ({
+  id,
+  type: "shape",
+  x,
+  y,
+  w,
+  h,
+  ...(groupId ? { groupId } : {}),
+});
 
-const els: SlideElement[] = [
-  el("a", 0, 0),
-  el("b", 20, 0, 10, 10, "g1"),
-  el("c", 40, 0, 10, 10, "g1"),
-  el("d", 60, 0),
-];
+const els: SlideElement[] = [el("a", 0, 0), el("b", 20, 0, 10, 10, "g1"), el("c", 40, 0, 10, 10, "g1"), el("d", 60, 0)];
 
 describe("unitIds / expandGroups", () => {
   it("returns the whole group for a grouped element, else just itself", () => {

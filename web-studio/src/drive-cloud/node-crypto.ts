@@ -84,7 +84,12 @@ export async function encryptContent(nodeKey: Uint8Array, plaintext: Uint8Array,
   return { nonceHex: toHex(nonce), ciphertext: ct };
 }
 
-export async function decryptContent(nodeKey: Uint8Array, nonceHex: string, ciphertext: Uint8Array, pad = true): Promise<Uint8Array> {
+export async function decryptContent(
+  nodeKey: Uint8Array,
+  nonceHex: string,
+  ciphertext: Uint8Array,
+  pad = true,
+): Promise<Uint8Array> {
   const key = await aesKey(nodeKey, ["decrypt"]);
   const pt = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: buf(fromHex(nonceHex)), additionalData: buf(NODE_AAD) },
@@ -104,7 +109,11 @@ export async function encryptName(nodeKey: Uint8Array, name: string): Promise<En
   return { nameEncrypted: toHex(b.ciphertext), nameNonce: b.nonceHex };
 }
 
-export async function decryptName(nodeKey: Uint8Array, nameEncryptedHex: string, nameNonceHex: string): Promise<string> {
+export async function decryptName(
+  nodeKey: Uint8Array,
+  nameEncryptedHex: string,
+  nameNonceHex: string,
+): Promise<string> {
   if (!nameEncryptedHex) return "";
   const pt = await decryptContent(nodeKey, nameNonceHex, fromHex(nameEncryptedHex));
   return dec.decode(pt);
@@ -116,7 +125,11 @@ export async function encryptMeta(nodeKey: Uint8Array, meta: Record<string, unkn
   return { nameEncrypted: toHex(b.ciphertext), nameNonce: b.nonceHex };
 }
 
-export async function decryptMeta(nodeKey: Uint8Array, hex: string, nonceHex: string): Promise<Record<string, unknown>> {
+export async function decryptMeta(
+  nodeKey: Uint8Array,
+  hex: string,
+  nonceHex: string,
+): Promise<Record<string, unknown>> {
   if (!hex) return {};
   const pt = await decryptContent(nodeKey, nonceHex, fromHex(hex));
   try {

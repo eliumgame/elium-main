@@ -31,7 +31,11 @@ export function isCovered(merges: MergeRect[] | undefined, c: number, r: number)
 }
 
 /** colSpan/rowSpan for the origin cell of a merge, or null when (c, r) isn't an origin. */
-export function spanAt(merges: MergeRect[] | undefined, c: number, r: number): { colSpan: number; rowSpan: number } | null {
+export function spanAt(
+  merges: MergeRect[] | undefined,
+  c: number,
+  r: number,
+): { colSpan: number; rowSpan: number } | null {
   const m = mergeAt(merges, c, r);
   if (!m || !isMergeOrigin(m, c, r)) return null;
   return { colSpan: m.c1 - m.c0 + 1, rowSpan: m.r1 - m.r0 + 1 };

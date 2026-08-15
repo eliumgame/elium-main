@@ -13,7 +13,11 @@ import { useDialogs } from "../ui/dialogs";
 import { deckToPptx } from "../slides/pptx";
 import { downloadBlob } from "../export/exporters";
 
-export default function SlidesView({ onHome, initial, onExportElium }: {
+export default function SlidesView({
+  onHome,
+  initial,
+  onExportElium,
+}: {
   onHome: () => void;
   initial?: Deck;
   onExportElium: (data: Deck, title: string) => void;
@@ -24,14 +28,24 @@ export default function SlidesView({ onHome, initial, onExportElium }: {
   const saveElium = async () => {
     const active = store.deck.slides[store.active];
     const els = active ? (active.elements ?? elementsOf(active)) : [];
-    const suggested = (els.find((e) => e.type === "text")?.html || "Présentation").replace(/<[^>]+>/g, "").slice(0, 60) || "Présentation";
-    const title = await dialogs.prompt({ title: "Enregistrer en .elium", label: "Nom de la présentation", defaultValue: suggested });
+    const suggested =
+      (els.find((e) => e.type === "text")?.html || "Présentation").replace(/<[^>]+>/g, "").slice(0, 60) ||
+      "Présentation";
+    const title = await dialogs.prompt({
+      title: "Enregistrer en .elium",
+      label: "Nom de la présentation",
+      defaultValue: suggested,
+    });
     if (title === null) return;
     onExportElium(store.deck, title);
   };
   const exportPptx = () => {
     const bytes = deckToPptx(store.deck);
-    downloadBlob("presentation.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", bytes);
+    downloadBlob(
+      "presentation.pptx",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      bytes,
+    );
   };
 
   return (
@@ -42,8 +56,12 @@ export default function SlidesView({ onHome, initial, onExportElium }: {
         onHome,
         headerActions: (
           <>
-            <button className="eb eb--sm eb--outline" onClick={exportPptx} title="Exporter en PowerPoint"><Download size={14} /> PPTX</button>
-            <button className="eb eb--sm eb--outline" onClick={saveElium}><Save size={14} /> .elium</button>
+            <button className="eb eb--sm eb--outline" onClick={exportPptx} title="Exporter en PowerPoint">
+              <Download size={14} /> PPTX
+            </button>
+            <button className="eb eb--sm eb--outline" onClick={saveElium}>
+              <Save size={14} /> .elium
+            </button>
           </>
         ),
       }}

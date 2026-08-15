@@ -16,9 +16,7 @@ describe("importers", () => {
   });
 
   it("markdownToDoc parses headings, lists, marks and code fences", () => {
-    const doc = markdownToDoc(
-      "# Titre\n\nUn **gras** et `code`.\n\n- a\n- b\n\n```python\nprint(1)\n```",
-    );
+    const doc = markdownToDoc("# Titre\n\nUn **gras** et `code`.\n\n- a\n- b\n\n```python\nprint(1)\n```");
     const types = (doc.content ?? []).map((n) => n.type);
     expect(types).toEqual(["heading", "paragraph", "bulletList", "codeBlock"]);
     expect(doc.content?.[0].attrs?.level).toBe(1);
@@ -47,7 +45,10 @@ describe("exporters", () => {
       { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Titre <x>" }] },
       { type: "paragraph", attrs: { indent: 2 }, content: [{ type: "text", text: "indenté" }] },
       { type: "pageBreak" },
-      { type: "paragraph", content: [{ type: "text", text: "lien", marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }] }] },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "lien", marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }] }],
+      },
     ],
   };
 
@@ -77,7 +78,11 @@ describe("exporters", () => {
   it("buildStandaloneHtml is a complete document", () => {
     const html = buildStandaloneHtml({
       manifest: { title: "Doc", language: "fr" } as never,
-      document: model(doc), signatures: [], resources: new Map(), resourceIndex: [], journal: { version: 1, events: [] },
+      document: model(doc),
+      signatures: [],
+      resources: new Map(),
+      resourceIndex: [],
+      journal: { version: 1, events: [] },
     });
     expect(html.startsWith("<!doctype html>")).toBe(true);
   });
@@ -86,11 +91,14 @@ describe("exporters", () => {
     const fnDoc: ProseMirrorNode = {
       type: "doc",
       content: [
-        { type: "paragraph", content: [
-          { type: "text", text: "Affirmation" },
-          { type: "footnote", attrs: { id: "f1", text: "Source détaillée" } },
-          { type: "bookmark", attrs: { id: "bm1", label: "repère" } },
-        ] },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Affirmation" },
+            { type: "footnote", attrs: { id: "f1", text: "Source détaillée" } },
+            { type: "bookmark", attrs: { id: "bm1", label: "repère" } },
+          ],
+        },
         { type: "footnotesList" },
       ],
     };
@@ -110,13 +118,20 @@ describe("exporters", () => {
   it("buildStandaloneHtml honours page settings (size, header tokens, page numbers)", () => {
     const m = model(doc);
     (m as { page: unknown }).page = {
-      format: "A4", orientation: "landscape",
+      format: "A4",
+      orientation: "landscape",
       margins: { top: 10, right: 10, bottom: 10, left: 10 },
-      header: "{titre} — interne", footer: "", showPageNumbers: true,
+      header: "{titre} — interne",
+      footer: "",
+      showPageNumbers: true,
     };
     const html = buildStandaloneHtml({
       manifest: { title: "MonDoc", language: "fr" } as never,
-      document: m, signatures: [], resources: new Map(), resourceIndex: [], journal: { version: 1, events: [] },
+      document: m,
+      signatures: [],
+      resources: new Map(),
+      resourceIndex: [],
+      journal: { version: 1, events: [] },
     });
     expect(html).toContain("@page");
     expect(html).toContain("landscape");
@@ -148,11 +163,26 @@ describe("exporters", () => {
     const figDoc: ProseMirrorNode = {
       type: "doc",
       content: [
-        { type: "figure", attrs: { src: "data:image/png;base64,AAA", alt: "schéma", align: "right", width: "50%" },
-          content: [{ type: "text", text: "Figure 1" }] },
-        { type: "paragraph", content: [
-          { type: "text", text: "secret", marks: [{ type: "comment", attrs: { id: "c1", author: "Bob", text: "à revoir", resolved: false, createdAt: "" } }] },
-        ] },
+        {
+          type: "figure",
+          attrs: { src: "data:image/png;base64,AAA", alt: "schéma", align: "right", width: "50%" },
+          content: [{ type: "text", text: "Figure 1" }],
+        },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "secret",
+              marks: [
+                {
+                  type: "comment",
+                  attrs: { id: "c1", author: "Bob", text: "à revoir", resolved: false, createdAt: "" },
+                },
+              ],
+            },
+          ],
+        },
       ],
     };
     const html = docToHtml(model(figDoc));
@@ -176,11 +206,26 @@ describe("rich nodes persist through the .elium package", () => {
       content: [
         { type: "tableOfContents" },
         { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Titre" }] },
-        { type: "figure", attrs: { src: "data:image/png;base64,AAA", alt: "img", align: "left", width: "25%" },
-          content: [{ type: "text", text: "Légende" }] },
-        { type: "paragraph", content: [
-          { type: "text", text: "noté", marks: [{ type: "comment", attrs: { id: "c1", author: "A", text: "revoir", resolved: false, createdAt: "2026-01-01T00:00:00Z" } }] },
-        ] },
+        {
+          type: "figure",
+          attrs: { src: "data:image/png;base64,AAA", alt: "img", align: "left", width: "25%" },
+          content: [{ type: "text", text: "Légende" }],
+        },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "noté",
+              marks: [
+                {
+                  type: "comment",
+                  attrs: { id: "c1", author: "A", text: "revoir", resolved: false, createdAt: "2026-01-01T00:00:00Z" },
+                },
+              ],
+            },
+          ],
+        },
       ],
     };
     const file = await createEliumFile({ title: "Riche", profile: "standard", doc });

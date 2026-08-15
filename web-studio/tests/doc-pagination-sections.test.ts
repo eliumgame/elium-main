@@ -51,17 +51,20 @@ describe("Pagination par section — géométrie propre à chaque section", () =
   });
 
   it("ne change pas de page pour un saut de section continu", () => {
-    const plan = planPages(
-      [block(0, 10, 0), sectionBreak(1, 1, false), block(2, 10, 1)],
-      [metrics(100), metrics(100)],
-    );
+    const plan = planPages([block(0, 10, 0), sectionBreak(1, 1, false), block(2, 10, 1)], [metrics(100), metrics(100)]);
     expect(plan.pageCount).toBe(1);
     expect(plan.pages).toHaveLength(1);
   });
 
   it("recommence la numérotation quand la section le demande", () => {
     const plan = planPages(
-      [block(0, 10, 0), sectionBreak(1, 1), block(2, 10, 1), { ...block(3, 10, 1), isPageBreak: true }, block(4, 10, 1)],
+      [
+        block(0, 10, 0),
+        sectionBreak(1, 1),
+        block(2, 10, 1),
+        { ...block(3, 10, 1), isPageBreak: true },
+        block(4, 10, 1),
+      ],
       [metrics(100), metrics(100, 100, 1)],
     );
     // Numéros AFFICHÉS : 1, puis la section 1 repart à 1, puis 2.
@@ -89,10 +92,7 @@ describe("Pagination par section — géométrie propre à chaque section", () =
   });
 
   it("insère un espaceur qui remplit la page sortante au changement de section", () => {
-    const plan = planPages(
-      [block(0, 30, 0), sectionBreak(1, 1), block(2, 10, 1)],
-      [metrics(100), metrics(100)],
-    );
+    const plan = planPages([block(0, 30, 0), sectionBreak(1, 1), block(2, 10, 1)], [metrics(100), metrics(100)]);
     const spacer = plan.spacers.find((s) => s.pos === 1);
     expect(spacer).toBeDefined();
     expect(spacer!.height).toBe(100 - 30 + 40);
@@ -110,10 +110,12 @@ describe("Pagination par section — géométrie propre à chaque section", () =
 
 describe("Pagination par section — compatibilité", () => {
   it("accepte encore une géométrie unique (documents sans section)", () => {
-    const plan = planPages(
-      [block(0, 60), block(1, 60), block(2, 60)],
-      { pageContentPx: 100, gapPx: 40, marginLeftPx: 0, marginRightPx: 0 },
-    );
+    const plan = planPages([block(0, 60), block(1, 60), block(2, 60)], {
+      pageContentPx: 100,
+      gapPx: 40,
+      marginLeftPx: 0,
+      marginRightPx: 0,
+    });
     expect(plan.pageCount).toBe(3);
     expect(plan.pages).toHaveLength(3);
   });

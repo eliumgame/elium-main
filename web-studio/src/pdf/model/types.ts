@@ -107,9 +107,7 @@ export interface MeasureScale {
 export const DEFAULT_MEASURE_SCALE: MeasureScale = { unitsPerPoint: 25.4 / 72 / 10, unit: "cm", precision: 2 };
 
 /** Where a link goes. */
-export type LinkAction =
-  | { type: "page"; page: number }
-  | { type: "url"; url: string };
+export type LinkAction = { type: "page"; page: number } | { type: "url"; url: string };
 
 /**
  * A single annotation. Geometry is always in the page's *unrotated* top-left

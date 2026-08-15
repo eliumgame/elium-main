@@ -86,7 +86,12 @@ interface ParentShareRow {
  * role). Without this, a file created inside a shared folder would be
  * authorized (ACL walks ancestors) but UNDECRYPTABLE by the other members.
  */
-async function inheritedShares(ctx: OpsCtx, parentId: string, nodeKey: Uint8Array, already: Set<string>): Promise<KeyShareInput[]> {
+async function inheritedShares(
+  ctx: OpsCtx,
+  parentId: string,
+  nodeKey: Uint8Array,
+  already: Set<string>,
+): Promise<KeyShareInput[]> {
   const out: KeyShareInput[] = [];
   let rows: ParentShareRow[] = [];
   try {
@@ -201,9 +206,12 @@ export async function createCollabNode(
   return node;
 }
 
-export const createCollabDoc = (ctx: OpsCtx, parentId: string | null, name: string) => createCollabNode(ctx, parentId, name, "collab-doc");
-export const createCollabSheet = (ctx: OpsCtx, parentId: string | null, name: string) => createCollabNode(ctx, parentId, name, "collab-sheet");
-export const createCollabSlides = (ctx: OpsCtx, parentId: string | null, name: string) => createCollabNode(ctx, parentId, name, "collab-slides");
+export const createCollabDoc = (ctx: OpsCtx, parentId: string | null, name: string) =>
+  createCollabNode(ctx, parentId, name, "collab-doc");
+export const createCollabSheet = (ctx: OpsCtx, parentId: string | null, name: string) =>
+  createCollabNode(ctx, parentId, name, "collab-sheet");
+export const createCollabSlides = (ctx: OpsCtx, parentId: string | null, name: string) =>
+  createCollabNode(ctx, parentId, name, "collab-slides");
 
 export async function uploadFile(ctx: OpsCtx, parentId: string | null, file: File): Promise<NodeMeta> {
   const nodeKey = generateNodeKey();
@@ -255,7 +263,13 @@ async function shareNode(
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Impossible de partager : clé du nœud indisponible.");
   const wrappedKey = await wrapNodeKeyFor(key, principal.publicHex);
-  await ctx.api.share(entry.id, { principalType: principal.type, principalId: principal.id, roleId, wrappedKey, inheritedFrom });
+  await ctx.api.share(entry.id, {
+    principalType: principal.type,
+    principalId: principal.id,
+    roleId,
+    wrappedKey,
+    inheritedFrom,
+  });
   if (entry.kind === "folder") {
     // Descendant rows are marked as fanned out from the ROOT of this share
     // operation, so revoking that share (deep) cleans the whole subtree up.
@@ -273,12 +287,7 @@ async function shareNode(
 }
 
 /** Re-wrap a node's key to a target user and grant them a role (deep for folders). */
-export async function shareWithUser(
-  ctx: OpsCtx,
-  entry: DriveEntry,
-  target: PublicUser,
-  roleId: string,
-): Promise<void> {
+export async function shareWithUser(ctx: OpsCtx, entry: DriveEntry, target: PublicUser, roleId: string): Promise<void> {
   await shareNode(ctx, entry, { type: "user", id: target.id, publicHex: target.p256PublicHex }, roleId);
 }
 
@@ -327,7 +336,12 @@ export async function openSharedLink(
   token: string,
   linkPrivateHex: string,
   linkPublicHex: string,
-): Promise<{ name: string; kind: "folder" | "file"; hasContent: boolean; download: () => Promise<{ bytes: Uint8Array; name: string }> }> {
+): Promise<{
+  name: string;
+  kind: "folder" | "file";
+  hasContent: boolean;
+  download: () => Promise<{ bytes: Uint8Array; name: string }>;
+}> {
   const kp = { privateHex: linkPrivateHex, publicHex: linkPublicHex };
   const { node, wrappedKey } = await api.resolveLink(token);
   const nodeKey = await unwrapNodeKey(wrappedKey, kp);
@@ -448,9 +462,19 @@ export async function createTeam(
   for (const m of members) byId.set(m.id, m.p256PublicHex);
   const memberInputs: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean }[] = [];
   for (const [userId, pub] of byId) {
-    memberInputs.push({ userId, wrappedGroupPrivate: await wrapNodeKeyFor(priv, pub), isManager: userId === ctx.userId });
+    memberInputs.push({
+      userId,
+      wrappedGroupPrivate: await wrapNodeKeyFor(priv, pub),
+      isManager: userId === ctx.userId,
+    });
   }
-  await ctx.api.createGroup(ctx.orgId, { name, description, color, groupPublicHex: kp.publicHex, members: memberInputs });
+  await ctx.api.createGroup(ctx.orgId, {
+    name,
+    description,
+    color,
+    groupPublicHex: kp.publicHex,
+    members: memberInputs,
+  });
 }
 
 /** Add a member to a team: unwrap the team key locally, re-wrap it to the new member. */

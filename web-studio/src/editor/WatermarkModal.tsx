@@ -7,9 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { Modal, Button } from "../ui/components";
-import {
-  DEFAULT_WATERMARK, WATERMARK_PRESETS, normalizeWatermark, watermarkCss, type Watermark,
-} from "./ornaments";
+import { DEFAULT_WATERMARK, WATERMARK_PRESETS, normalizeWatermark, watermarkCss, type Watermark } from "./ornaments";
 
 export default function WatermarkModal({
   value,
@@ -41,18 +39,33 @@ export default function WatermarkModal({
           {/* Ce dialogue n'applique QUE sur son bouton d'action : il doit donc
               offrir « Annuler ». C'était le seul de sa famille à n'avoir aucun
               moyen visible de renoncer — Échap marchait, sans que rien ne le dise. */}
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button variant="outline" onClick={() => { onApply(normalizeWatermark({ ...mark, kind: "none" })); onClose(); }}>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onApply(normalizeWatermark({ ...mark, kind: "none" }));
+              onClose();
+            }}
+          >
             Aucun filigrane
           </Button>
-          <Button onClick={() => { onApply(normalizeWatermark({ ...mark, kind: "text" })); onClose(); }}>
+          <Button
+            onClick={() => {
+              onApply(normalizeWatermark({ ...mark, kind: "text" }));
+              onClose();
+            }}
+          >
             Appliquer
           </Button>
         </>
       }
     >
       <div className="settings__row">
-        <label className="settings__label" htmlFor="wm-text">Texte</label>
+        <label className="settings__label" htmlFor="wm-text">
+          Texte
+        </label>
         <input
           id="wm-text"
           className="settings__input"
@@ -76,7 +89,9 @@ export default function WatermarkModal({
       </div>
 
       <div className="settings__row">
-        <label className="settings__label" htmlFor="wm-angle">Inclinaison</label>
+        <label className="settings__label" htmlFor="wm-angle">
+          Inclinaison
+        </label>
         <input
           id="wm-angle"
           type="range"
@@ -90,7 +105,9 @@ export default function WatermarkModal({
       </div>
 
       <div className="settings__row">
-        <label className="settings__label" htmlFor="wm-opacity">Opacité</label>
+        <label className="settings__label" htmlFor="wm-opacity">
+          Opacité
+        </label>
         <input
           id="wm-opacity"
           type="range"
@@ -104,14 +121,13 @@ export default function WatermarkModal({
       </div>
 
       <div className="settings__row">
-        <label className="settings__label" htmlFor="wm-color">Couleur</label>
-        <input
-          id="wm-color"
-          type="color"
-          value={mark.color}
-          onChange={(e) => patch({ color: e.target.value })}
-        />
-        <label className="settings__label" htmlFor="wm-size">Taille</label>
+        <label className="settings__label" htmlFor="wm-color">
+          Couleur
+        </label>
+        <input id="wm-color" type="color" value={mark.color} onChange={(e) => patch({ color: e.target.value })} />
+        <label className="settings__label" htmlFor="wm-size">
+          Taille
+        </label>
         <select
           id="wm-size"
           className="settings__select"
@@ -120,7 +136,9 @@ export default function WatermarkModal({
         >
           <option value={0}>Ajustée à la page</option>
           {[36, 48, 72, 96, 128, 160, 200].map((s) => (
-            <option key={s} value={s}>{s} pt</option>
+            <option key={s} value={s}>
+              {s} pt
+            </option>
           ))}
         </select>
       </div>

@@ -1,5 +1,18 @@
 import { useEffect, useRef } from "react";
-import { Stamp, UserPlus, PenLine, X, RotateCcw, Trash2, ArrowUp, ArrowDown, ShieldCheck, UserCheck, Send, KeyRound } from "lucide-react";
+import {
+  Stamp,
+  UserPlus,
+  PenLine,
+  X,
+  RotateCcw,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  ShieldCheck,
+  UserCheck,
+  Send,
+  KeyRound,
+} from "lucide-react";
 import { Button, Badge, EmptyState, Alert } from "../ui/components";
 import { getWorkflow, newPartyId, workflowStatus, type Party } from "../format/parapheur-store";
 import { docKeyOf } from "../format/doc-key";
@@ -8,7 +21,12 @@ import { fingerprintWords } from "../sign/safety-words";
 import type { Studio } from "../studio/types";
 import { useDialogs } from "../ui/dialogs";
 
-const STATUS_LABEL = { draft: "Brouillon", in_progress: "En signature", completed: "Terminé", rejected: "Rejeté" } as const;
+const STATUS_LABEL = {
+  draft: "Brouillon",
+  in_progress: "En signature",
+  completed: "Terminé",
+  rejected: "Rejeté",
+} as const;
 const STATUS_ACCENT = { draft: "neutral", in_progress: "info", completed: "success", rejected: "danger" } as const;
 
 /**
@@ -32,7 +50,9 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
     migratedFor.current = docKey;
     if (studio.file.parapheur) return;
     getWorkflow(docKey, studio.vaultSecret)
-      .then((w) => { if (w?.parties?.length) studio.setParapheur({ parties: w.parties }); })
+      .then((w) => {
+        if (w?.parties?.length) studio.setParapheur({ parties: w.parties });
+      })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey]);
@@ -52,9 +72,20 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
     const link = await studio.signAsParty({ name: party.name, role: party.role });
     if (!link) return; // cancelled / no identity
     const at = new Date().toISOString();
-    persist(parties.map((p) => (p.id === party.id
-      ? { ...p, status: "signed", signatureId: link.signatureId, publicKeyHex: link.publicKeyHex, signedAt: at, updatedAt: at }
-      : p)));
+    persist(
+      parties.map((p) =>
+        p.id === party.id
+          ? {
+              ...p,
+              status: "signed",
+              signatureId: link.signatureId,
+              publicKeyHex: link.publicKeyHex,
+              signedAt: at,
+              updatedAt: at,
+            }
+          : p,
+      ),
+    );
   };
 
   const reject = (id: string) =>
@@ -63,9 +94,20 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
   // Reset undoes the signing: drop the link AND remove the embedded signature.
   const reset = (party: Party) => {
     if (party.signatureId) studio.removeSignature(party.signatureId);
-    persist(parties.map((p) => (p.id === party.id
-      ? { ...p, status: "pending", signatureId: undefined, publicKeyHex: undefined, signedAt: undefined, updatedAt: new Date().toISOString() }
-      : p)));
+    persist(
+      parties.map((p) =>
+        p.id === party.id
+          ? {
+              ...p,
+              status: "pending",
+              signatureId: undefined,
+              publicKeyHex: undefined,
+              signedAt: undefined,
+              updatedAt: new Date().toISOString(),
+            }
+          : p,
+      ),
+    );
   };
 
   const move = (id: string, dir: -1 | 1) => {
@@ -85,8 +127,9 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
     await studio.save();
     await alert({
       title: "Demande de signature exportée",
-      message: "Le fichier .elium enregistré contient le circuit. Envoyez-le aux signataires (email, etc.) : "
-        + "chacun l'ouvre dans Elium, signe sa partie, puis vous renvoie le fichier. Réimportez-le pour voir les signatures.",
+      message:
+        "Le fichier .elium enregistré contient le circuit. Envoyez-le aux signataires (email, etc.) : " +
+        "chacun l'ouvre dans Elium, signe sa partie, puis vous renvoie le fichier. Réimportez-le pour voir les signatures.",
     });
   };
 
@@ -98,19 +141,22 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel-section">
       <div className="panel-title-row">
-        <h3 className="panel-title"><Stamp size={16} /> Parapheur</h3>
+        <h3 className="panel-title">
+          <Stamp size={16} /> Parapheur
+        </h3>
         <Badge accent={STATUS_ACCENT[overall]}>{STATUS_LABEL[overall]}</Badge>
       </div>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Circuit de signature ordonné, <strong>embarqué dans le document</strong> : chaque partie signe à son
-        tour (vraie preuve Ed25519 embarquée et couverte par le sceau), et le circuit voyage dans le
+        Circuit de signature ordonné, <strong>embarqué dans le document</strong> : chaque partie signe à son tour (vraie
+        preuve Ed25519 embarquée et couverte par le sceau), et le circuit voyage dans le
         <code>.elium</code> — envoyez le fichier à signer, il revient signé.
       </p>
 
       {pendingCount > 0 && (
         <Alert tone="info" title="En attente de signatures">
           Ce document attend {pendingCount} signature(s). Le signataire courant signe sa partie ci-dessous
-          {studio.identity ? "" : " (générez d'abord une identité — aucun compte requis)"}, enregistre, puis renvoie le fichier au demandeur.
+          {studio.identity ? "" : " (générez d'abord une identité — aucun compte requis)"}, enregistre, puis renvoie le
+          fichier au demandeur.
         </Alert>
       )}
 
@@ -122,12 +168,22 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
             const isNext = i === nextPendingIdx;
             const verdict = p.signatureId ? studio.verdicts[p.signatureId] : undefined;
             const attributedTo = p.signatureId ? studio.attributions[p.signatureId] : undefined;
-            const tagClass = p.status === "signed"
-              ? (verdict === "modified" || verdict === "invalid" ? "invalid" : "valid")
-              : p.status === "rejected" ? "invalid" : "visual_only";
-            const tagText = p.status === "signed"
-              ? (verdict ? verdictLabel(verdict) : "Signé")
-              : p.status === "rejected" ? "Refusé" : "En attente";
+            const tagClass =
+              p.status === "signed"
+                ? verdict === "modified" || verdict === "invalid"
+                  ? "invalid"
+                  : "valid"
+                : p.status === "rejected"
+                  ? "invalid"
+                  : "visual_only";
+            const tagText =
+              p.status === "signed"
+                ? verdict
+                  ? verdictLabel(verdict)
+                  : "Signé"
+                : p.status === "rejected"
+                  ? "Refusé"
+                  : "En attente";
             return (
               <li key={p.id} className={`party-item ${isNext ? "is-next" : ""}`}>
                 <div className="party-item__main">
@@ -137,11 +193,15 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
                     {p.role && <div className="party-item__role">{p.role}</div>}
                     {p.status === "signed" && (
                       <div className="party-item__proof">
-                        {attributedTo
-                          ? <><UserCheck size={12} /> {attributedTo} (clé de confiance)</>
-                          : p.publicKeyHex
-                            ? <><ShieldCheck size={12} /> {fingerprintWords(p.publicKeyHex)}</>
-                            : null}
+                        {attributedTo ? (
+                          <>
+                            <UserCheck size={12} /> {attributedTo} (clé de confiance)
+                          </>
+                        ) : p.publicKeyHex ? (
+                          <>
+                            <ShieldCheck size={12} /> {fingerprintWords(p.publicKeyHex)}
+                          </>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -151,17 +211,32 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
                   <button className="icon-btn" title="Monter" onClick={() => move(p.id, -1)} disabled={i === 0}>
                     <ArrowUp size={14} />
                   </button>
-                  <button className="icon-btn" title="Descendre" onClick={() => move(p.id, 1)} disabled={i === parties.length - 1}>
+                  <button
+                    className="icon-btn"
+                    title="Descendre"
+                    onClick={() => move(p.id, 1)}
+                    disabled={i === parties.length - 1}
+                  >
                     <ArrowDown size={14} />
                   </button>
                   {p.status === "pending" && isNext && studio.editable && (
                     <>
                       {studio.identity ? (
-                        <button className="icon-btn" title="Signer (preuve Ed25519)" disabled={studio.busy} onClick={() => void sign(p)}>
+                        <button
+                          className="icon-btn"
+                          title="Signer (preuve Ed25519)"
+                          disabled={studio.busy}
+                          onClick={() => void sign(p)}
+                        >
                           <PenLine size={15} />
                         </button>
                       ) : (
-                        <button className="icon-btn" title="Générer une identité pour signer (sans compte)" disabled={studio.busy} onClick={() => void studio.generateIdentity()}>
+                        <button
+                          className="icon-btn"
+                          title="Générer une identité pour signer (sans compte)"
+                          disabled={studio.busy}
+                          onClick={() => void studio.generateIdentity()}
+                        >
                           <KeyRound size={15} />
                         </button>
                       )}
@@ -197,7 +272,8 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
       </div>
       {someSigned && (
         <p className="muted" style={{ marginTop: 8 }}>
-          Signature faite ? <strong>Enregistrez</strong> le document et renvoyez le fichier <code>.elium</code> au demandeur.
+          Signature faite ? <strong>Enregistrez</strong> le document et renvoyez le fichier <code>.elium</code> au
+          demandeur.
         </p>
       )}
     </div>

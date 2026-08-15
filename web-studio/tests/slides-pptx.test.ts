@@ -9,11 +9,43 @@ function buildDeck(): Deck {
     active: 0,
     transition: "fade",
     slides: [
-      { id: "s1", title: "Bienvenue", body: "", bodyHtml: "<ul><li>Point A</li><li>Point B</li></ul>", layout: "title-content" },
-      { id: "s2", title: "Formes", body: "", bodyHtml: "<p>Texte simple</p>", layout: "title-content",
+      {
+        id: "s1",
+        title: "Bienvenue",
+        body: "",
+        bodyHtml: "<ul><li>Point A</li><li>Point B</li></ul>",
+        layout: "title-content",
+      },
+      {
+        id: "s2",
+        title: "Formes",
+        body: "",
+        bodyHtml: "<p>Texte simple</p>",
+        layout: "title-content",
         shapes: [
-          { id: "sh1", kind: "rect", x: 10, y: 10, w: 30, h: 20, fill: "#bfdbfe", stroke: "#2563eb", strokeWidth: 2, text: "Boîte" },
-          { id: "sh2", kind: "arrow", x: 50, y: 50, w: 40, h: 5, fill: "transparent", stroke: "#0f172a", strokeWidth: 3 },
+          {
+            id: "sh1",
+            kind: "rect",
+            x: 10,
+            y: 10,
+            w: 30,
+            h: 20,
+            fill: "#bfdbfe",
+            stroke: "#2563eb",
+            strokeWidth: 2,
+            text: "Boîte",
+          },
+          {
+            id: "sh2",
+            kind: "arrow",
+            x: 50,
+            y: 50,
+            w: 40,
+            h: 5,
+            fill: "transparent",
+            stroke: "#0f172a",
+            strokeWidth: 3,
+          },
         ],
       },
     ],
@@ -67,7 +99,8 @@ describe("PPTX export", () => {
 
   it("preserves inline bold / italic / underline / colour as separate runs", () => {
     const deck = buildDeck();
-    deck.slides[1].bodyHtml = '<p>normal <b>gras</b> <i>ital</i> <u>souligné</u> <span style="color: #ff0000">rouge</span></p>';
+    deck.slides[1].bodyHtml =
+      '<p>normal <b>gras</b> <i>ital</i> <u>souligné</u> <span style="color: #ff0000">rouge</span></p>';
     const s2 = strFromU8(unzipSync(deckToPptx(deck))["ppt/slides/slide2.xml"]);
     // Multiple runs in the body paragraph, each carrying its own formatting.
     expect(s2).toContain("<a:t>normal </a:t>");
@@ -88,7 +121,8 @@ describe("PPTX export", () => {
   it("embeds images as media with relationships", () => {
     const deck = buildDeck();
     deck.slides[0].layout = "image-full";
-    deck.slides[0].image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    deck.slides[0].image =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     const zip = unzipSync(deckToPptx(deck));
     const names = Object.keys(zip);
     expect(names.some((n) => n.startsWith("ppt/media/image"))).toBe(true);
@@ -103,10 +137,20 @@ function chartDeck(kind: "bar" | "line" | "pie"): Deck {
     active: 0,
     slides: [
       {
-        id: "sc", title: "", body: "", layout: "blank",
+        id: "sc",
+        title: "",
+        body: "",
+        layout: "blank",
         elements: [
-          { id: "c1", type: "chart", x: 10, y: 12, w: 80, h: 70,
-            chart: { kind, title: "Ventes", labels: ["Jan", "Fév", "Mar"], values: [12, 19, 9] } },
+          {
+            id: "c1",
+            type: "chart",
+            x: 10,
+            y: 12,
+            w: 80,
+            h: 70,
+            chart: { kind, title: "Ventes", labels: ["Jan", "Fév", "Mar"], values: [12, 19, 9] },
+          },
         ],
       },
     ],
@@ -119,7 +163,7 @@ describe("PPTX native charts (c:chart)", () => {
     // The chart part exists and carries the data + a bar plot.
     const chart = strFromU8(zip["ppt/charts/chart1.xml"]);
     expect(chart).toContain("<c:barChart>");
-    expect(chart).toContain("<c:barDir val=\"col\"/>");
+    expect(chart).toContain('<c:barDir val="col"/>');
     for (const label of ["Jan", "Fév", "Mar"]) expect(chart).toContain(`<c:v>${label}</c:v>`);
     for (const v of ["12", "19", "9"]) expect(chart).toContain(`<c:v>${v}</c:v>`);
     expect(chart).toContain("Ventes"); // series/title text

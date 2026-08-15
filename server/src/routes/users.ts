@@ -38,8 +38,7 @@ function publicUserDto(u: {
   };
 }
 
-const PUBLIC_COLS =
-  "id, email, display_name, ed25519_public_hex, p256_public_hex, fingerprint";
+const PUBLIC_COLS = "id, email, display_name, ed25519_public_hex, p256_public_hex, fingerprint";
 
 type PublicUserRow = {
   id: string;
@@ -54,7 +53,10 @@ type PublicUserRow = {
 const lookupSchema = z
   .object({
     email: z.string().email().max(320).optional(),
-    fingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    fingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   .refine((q) => (q.email ? 1 : 0) + (q.fingerprint ? 1 : 0) === 1, {
     message: "Fournir exactement un critère : email OU fingerprint.",
@@ -65,8 +67,14 @@ const patchMeSchema = z.object({
   keyBundle: z.record(z.unknown()).optional(),
   // Password change: the new login verifier (auth-sign public key) + a proof of
   // possession (signature over the email by the new key).
-  authSignPublicHex: z.string().regex(/^[0-9a-f]{64}$/).optional(),
-  authSignProof: z.string().regex(/^[0-9a-f]{128}$/).optional(),
+  authSignPublicHex: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  authSignProof: z
+    .string()
+    .regex(/^[0-9a-f]{128}$/)
+    .optional(),
   kdfSalt: z.string().min(8).max(256).optional(),
   kdfParams: z.record(z.unknown()).optional(),
 });
@@ -80,14 +88,12 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     requireUser(req);
 
     const row = q.email
-      ? await queryOne<PublicUserRow>(
-          `SELECT ${PUBLIC_COLS} FROM users WHERE email = $1 AND status = 'active'`,
-          [q.email],
-        )
-      : await queryOne<PublicUserRow>(
-          `SELECT ${PUBLIC_COLS} FROM users WHERE fingerprint = $1 AND status = 'active'`,
-          [q.fingerprint],
-        );
+      ? await queryOne<PublicUserRow>(`SELECT ${PUBLIC_COLS} FROM users WHERE email = $1 AND status = 'active'`, [
+          q.email,
+        ])
+      : await queryOne<PublicUserRow>(`SELECT ${PUBLIC_COLS} FROM users WHERE fingerprint = $1 AND status = 'active'`, [
+          q.fingerprint,
+        ]);
     if (!row) throw notFound("Utilisateur introuvable.");
     return { user: publicUserDto(row) };
   });
@@ -134,10 +140,18 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) throw notFound("Utilisateur introuvable.");
 
-    await audit(null, user.id, "user.update", "user", user.id, {
-      fields: Object.keys(b),
-      passwordChanged: b.authSignPublicHex !== undefined,
-    }, req.ip);
+    await audit(
+      null,
+      user.id,
+      "user.update",
+      "user",
+      user.id,
+      {
+        fields: Object.keys(b),
+        passwordChanged: b.authSignPublicHex !== undefined,
+      },
+      req.ip,
+    );
     return { user: publicUserDto(row) };
   });
 
@@ -182,10 +196,10 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) {
       // Either no such session, not ours, or already revoked — don't reveal which.
-      const exists = await queryOne<{ id: string }>(
-        `SELECT id FROM sessions WHERE id = $1 AND user_id = $2`,
-        [sessionId, user.id],
-      );
+      const exists = await queryOne<{ id: string }>(`SELECT id FROM sessions WHERE id = $1 AND user_id = $2`, [
+        sessionId,
+        user.id,
+      ]);
       if (!exists) throw notFound("Session introuvable.");
     }
     await audit(null, user.id, "session.revoke", "session", sessionId, {}, req.ip);
@@ -216,18 +230,33 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!u?.auth_sign_public_hex) throw badRequest("Compte introuvable ou sans clé d'authentification.");
     if (!verifyEd25519(`elium:delete-account:${user.email.toLowerCase()}`, proof, u.auth_sign_public_hex)) {
-      throw badRequest("Preuve de possession invalide : signez « elium:delete-account:<email> » avec votre clé d'authentification.");
+      throw badRequest(
+        "Preuve de possession invalide : signez « elium:delete-account:<email> » avec votre clé d'authentification.",
+      );
     }
 
     try {
       const res = await eraseAccount(user.id);
       // System-level audit (org null). The tombstone id keeps this attributable
       // and the chain valid.
-      await audit(null, user.id, "account.erased", "user", user.id, { deletedOrgs: res.deletedOrgs, transferredNodes: res.transferredNodes }, req.ip);
+      await audit(
+        null,
+        user.id,
+        "account.erased",
+        "user",
+        user.id,
+        { deletedOrgs: res.deletedOrgs, transferredNodes: res.transferredNodes },
+        req.ip,
+      );
       return { ok: true, ...res };
     } catch (e) {
       if (e instanceof AccountDeletionBlocked) {
-        throw new ApiError(409, "conflict", "Transférez la propriété / promouvez un administrateur de recouvrement avant de supprimer votre compte.", e.blockers);
+        throw new ApiError(
+          409,
+          "conflict",
+          "Transférez la propriété / promouvez un administrateur de recouvrement avant de supprimer votre compte.",
+          e.blockers,
+        );
       }
       throw e;
     }
@@ -237,10 +266,9 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
   app.get("/:id", async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     requireUser(req);
-    const row = await queryOne<PublicUserRow>(
-      `SELECT ${PUBLIC_COLS} FROM users WHERE id = $1 AND status = 'active'`,
-      [id],
-    );
+    const row = await queryOne<PublicUserRow>(`SELECT ${PUBLIC_COLS} FROM users WHERE id = $1 AND status = 'active'`, [
+      id,
+    ]);
     if (!row) throw notFound("Utilisateur introuvable.");
     return { user: publicUserDto(row) };
   });

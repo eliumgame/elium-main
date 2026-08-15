@@ -34,7 +34,9 @@ function makeClient(): Redis {
   // maxRetriesPerRequest: null → ne rejette pas les commandes pendant une
   // coupure (ioredis rejoue à la reconnexion) ; on avale les erreurs.
   const c = new Redis(config.redisUrl, { maxRetriesPerRequest: null, lazyConnect: false });
-  c.on("error", () => { /* transitoire : ne pas crasher le process */ });
+  c.on("error", () => {
+    /* transitoire : ne pas crasher le process */
+  });
   return c;
 }
 
@@ -44,20 +46,26 @@ export function initBackplane(handler: (m: RelayMsg) => void): void {
   started = true;
   pub = makeClient();
   sub = makeClient();
-  void sub.subscribe(CHANNEL).catch(() => { /* réabonnement auto d'ioredis */ });
+  void sub.subscribe(CHANNEL).catch(() => {
+    /* réabonnement auto d'ioredis */
+  });
   sub.on("message", (_ch: string, raw: string) => {
     try {
       const env = JSON.parse(raw) as { origin: string; msg: RelayMsg };
       if (env.origin === ORIGIN) return; // ignorer nos propres publications
       handler(env.msg);
-    } catch { /* message illisible : ignoré */ }
+    } catch {
+      /* message illisible : ignoré */
+    }
   });
 }
 
 /** Publie un événement de relais aux autres instances (no-op sans Redis). */
 export function publishRelay(msg: RelayMsg): void {
   if (!pub) return;
-  void pub.publish(CHANNEL, JSON.stringify({ origin: ORIGIN, msg })).catch(() => { /* best-effort */ });
+  void pub.publish(CHANNEL, JSON.stringify({ origin: ORIGIN, msg })).catch(() => {
+    /* best-effort */
+  });
 }
 
 export function backplaneEnabled(): boolean {

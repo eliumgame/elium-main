@@ -12,21 +12,28 @@ import { Button } from "../ui/components";
 import { ISSUE_LABELS, parseDictionary, summarize, type IssueKind } from "./proofing";
 import { DICT_LANGS, type DictLang } from "./dict";
 import {
-  addToPersonal, clearIgnored, collectIssues, ignoreWord, ignoredWords, onProofingChange,
-  personalWords, proofingSettings, removeFromPersonal, setDictionary, setDictionaryLang,
-  setEmbeddedDictionary, setNativeSpelling, setProofingEnabled, setStrictSpelling, type DocIssue,
+  addToPersonal,
+  clearIgnored,
+  collectIssues,
+  ignoreWord,
+  ignoredWords,
+  onProofingChange,
+  personalWords,
+  proofingSettings,
+  removeFromPersonal,
+  setDictionary,
+  setDictionaryLang,
+  setEmbeddedDictionary,
+  setNativeSpelling,
+  setProofingEnabled,
+  setStrictSpelling,
+  type DocIssue,
 } from "./proofingExtension";
 
 /** Problèmes montrés par famille avant de devoir cliquer « Afficher plus ». */
 const PAGE = 25;
 
-export default function ProofingPanel({
-  editor,
-  onClose,
-}: {
-  editor: Editor;
-  onClose: () => void;
-}) {
+export default function ProofingPanel({ editor, onClose }: { editor: Editor; onClose: () => void }) {
   const [issues, setIssues] = useState<DocIssue[]>([]);
   const [settings, setSettings] = useState(() => proofingSettings());
   const [personal, setPersonal] = useState<string[]>(() => personalWords());
@@ -57,11 +64,7 @@ export default function ProofingPanel({
   /** Applique une suggestion à la position exacte du problème. */
   const apply = useCallback(
     (issue: DocIssue, suggestion: string) => {
-      editor
-        .chain()
-        .focus()
-        .insertContentAt({ from: issue.docFrom, to: issue.docTo }, suggestion)
-        .run();
+      editor.chain().focus().insertContentAt({ from: issue.docFrom, to: issue.docTo }, suggestion).run();
     },
     [editor],
   );
@@ -114,11 +117,7 @@ export default function ProofingPanel({
 
       <div className="proof__bar">
         <label className="proof__toggle">
-          <input
-            type="checkbox"
-            checked={settings.enabled}
-            onChange={(e) => setProofingEnabled(e.target.checked)}
-          />
+          <input type="checkbox" checked={settings.enabled} onChange={(e) => setProofingEnabled(e.target.checked)} />
           Correction active
         </label>
         {/* La langue décide du dictionnaire embarqué : un texte anglais vérifié en
@@ -130,7 +129,9 @@ export default function ProofingPanel({
           onChange={(e) => setDictionaryLang(e.target.value as DictLang)}
         >
           {DICT_LANGS.map((l) => (
-            <option key={l.id} value={l.id}>{l.label}</option>
+            <option key={l.id} value={l.id}>
+              {l.label}
+            </option>
           ))}
         </select>
         <label className="proof__import" title="Compléter avec une liste de mots ou un fichier .dic">
@@ -155,19 +156,11 @@ export default function ProofingPanel({
           className="proof__toggle"
           title="Signaler tout mot absent du dictionnaire, même sans correction plausible"
         >
-          <input
-            type="checkbox"
-            checked={settings.strict}
-            onChange={(e) => setStrictSpelling(e.target.checked)}
-          />
+          <input type="checkbox" checked={settings.strict} onChange={(e) => setStrictSpelling(e.target.checked)} />
           Relecture exhaustive
         </label>
         <label className="proof__toggle" title="Laisser aussi le correcteur du navigateur souligner">
-          <input
-            type="checkbox"
-            checked={settings.native}
-            onChange={(e) => setNativeSpelling(e.target.checked)}
-          />
+          <input type="checkbox" checked={settings.native} onChange={(e) => setNativeSpelling(e.target.checked)} />
           Correcteur du navigateur
         </label>
       </div>
@@ -180,8 +173,8 @@ export default function ProofingPanel({
         </p>
       ) : (
         <p className="proof__hint">
-          Aucun dictionnaire actif : seules la typographie, les répétitions et les capitales sont
-          vérifiées. Réactivez le dictionnaire embarqué pour signaler les mots inconnus.
+          Aucun dictionnaire actif : seules la typographie, les répétitions et les capitales sont vérifiées. Réactivez
+          le dictionnaire embarqué pour signaler les mots inconnus.
         </p>
       )}
 
@@ -234,11 +227,7 @@ export default function ProofingPanel({
               </div>
             </div>
           ))}
-          {total > shown.length && (
-            <div className="proof__more">
-              {total - shown.length} de plus dans cette famille
-            </div>
-          )}
+          {total > shown.length && <div className="proof__more">{total - shown.length} de plus dans cette famille</div>}
         </section>
       ))}
 
@@ -283,7 +272,9 @@ export default function ProofingPanel({
               </div>
               <div className="proof__chips">
                 {ignored.map((w) => (
-                  <span key={w} className="proof__chip proof__chip--muted">{w}</span>
+                  <span key={w} className="proof__chip proof__chip--muted">
+                    {w}
+                  </span>
                 ))}
               </div>
             </>
@@ -292,7 +283,9 @@ export default function ProofingPanel({
       )}
 
       <div className="proof__foot">
-        <Button variant="ghost" onClick={refresh}>Réanalyser</Button>
+        <Button variant="ghost" onClick={refresh}>
+          Réanalyser
+        </Button>
       </div>
     </div>
   );

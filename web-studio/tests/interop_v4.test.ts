@@ -35,7 +35,10 @@ describe.skipIf(!hasPython)("v4 cross-language interop (Python <-> Web)", () => 
     const file = await createEliumFile({
       title: "JS doc",
       profile: "standard",
-      doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Bonjour depuis le Web" }] }] },
+      doc: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Bonjour depuis le Web" }] }],
+      },
     });
     const blob = await writeEliumPackage(file);
 

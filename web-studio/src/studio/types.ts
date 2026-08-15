@@ -22,7 +22,8 @@ import type { VaultSecret } from "../crypto/local-vault";
 
 export type StudioMode = "home" | "studio" | "viewer" | "sheet" | "slides" | "pdf" | "drive-cloud" | "documentation";
 export type ExportKind = "html" | "md" | "text" | "pdf" | "report" | "docx";
-export type PanelId = "signatures" | "parapheur" | "comments" | "security" | "tracking" | "versions" | "export" | "info";
+export type PanelId =
+  "signatures" | "parapheur" | "comments" | "security" | "tracking" | "versions" | "export" | "info";
 
 export interface Studio {
   file: EliumFile;

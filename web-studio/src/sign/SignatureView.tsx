@@ -37,7 +37,12 @@ function VerdictBadge({ verdict }: { verdict?: SignatureVerdict }) {
     unknown_key: { icon: <ShieldQuestion size={12} />, cls: "warn", label: "clé inconnue" },
     visual_only: { icon: <Shield size={12} />, cls: "neutral", label: "visuel" },
   }[verdict];
-  return <span className={`sig-verdict sig-verdict--${map.cls}`}>{map.icon}{map.label}</span>;
+  return (
+    <span className={`sig-verdict sig-verdict--${map.cls}`}>
+      {map.icon}
+      {map.label}
+    </span>
+  );
 }
 
 /** Renders the visual content of a signature, scaled to fill its container. */
@@ -52,14 +57,15 @@ export default function SignatureView({
 
   return (
     <div className="sig-view" style={{ color: visual.color, background: visual.background }}>
-      {visual.image && (
-        <SigImg src={visual.image} label={signer.name || visual.text || "signature"} />
-      )}
+      {visual.image && <SigImg src={visual.image} label={signer.name || visual.text || "signature"} />}
 
       {kind === "stamp" && !visual.image && (
         <div
           className="sig-view__stamp"
-          style={{ borderColor: STAMP_COLORS[visual.stampStyle ?? "custom"], color: STAMP_COLORS[visual.stampStyle ?? "custom"] }}
+          style={{
+            borderColor: STAMP_COLORS[visual.stampStyle ?? "custom"],
+            color: STAMP_COLORS[visual.stampStyle ?? "custom"],
+          }}
         >
           {visual.text || STAMP_LABELS[visual.stampStyle ?? "custom"]}
         </div>

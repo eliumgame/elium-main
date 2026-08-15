@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
-  applyMerge, detectDelimiter, mergeAll, mergeCombined, missingFields, parseDataSource, parseDelimited,
-  recordLabel, usedFields,
+  applyMerge,
+  detectDelimiter,
+  mergeAll,
+  mergeCombined,
+  missingFields,
+  parseDataSource,
+  parseDelimited,
+  recordLabel,
+  usedFields,
 } from "../src/editor/mailmerge";
 import type { ProseMirrorNode } from "../src/format/types";
 

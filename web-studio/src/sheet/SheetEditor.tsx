@@ -13,10 +13,34 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Home, Plus, Minus, Upload, Table2,
-  Bold, Italic, AlignLeft, AlignCenter, AlignRight, Baseline, PaintBucket, Sigma,
-  BarChart3, ArrowUpNarrowWide, ArrowDownNarrowWide, Filter, X, Snowflake, Palette, Undo2, Redo2,
-  Type, Trash2, ListChecks, Tag, Combine, TableProperties,
+  Home,
+  Plus,
+  Minus,
+  Upload,
+  Table2,
+  Bold,
+  Italic,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Baseline,
+  PaintBucket,
+  Sigma,
+  BarChart3,
+  ArrowUpNarrowWide,
+  ArrowDownNarrowWide,
+  Filter,
+  X,
+  Snowflake,
+  Palette,
+  Undo2,
+  Redo2,
+  Type,
+  Trash2,
+  ListChecks,
+  Tag,
+  Combine,
+  TableProperties,
 } from "lucide-react";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
 import { useDialogs } from "../ui/dialogs";
@@ -34,7 +58,15 @@ import { isCovered, spanAt } from "./merges";
 import { rowVisible as filterRowVisible } from "./filter";
 import { importXlsx } from "./xlsx-import";
 import { csvToWorkbook } from "./csv";
-import { newId, type CellStyle, type NumFmt, type ChartSpec, type ChartType, type CondRule, type DataValidation } from "./model";
+import {
+  newId,
+  type CellStyle,
+  type NumFmt,
+  type ChartSpec,
+  type ChartType,
+  type CondRule,
+  type DataValidation,
+} from "./model";
 import type { Rect } from "./structural";
 import type { SheetStore, SheetEditorChrome } from "./store";
 
@@ -71,8 +103,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
   // Refs stables pour les écouteurs globaux (évitent les fermetures périmées et
   // le ré-abonnement à chaque rendu ; `store` est un nouvel objet à chaque rendu).
-  const storeRef = useRef(store); storeRef.current = store;
-  const activeIdxRef = useRef(active); activeIdxRef.current = active;
+  const storeRef = useRef(store);
+  storeRef.current = store;
+  const activeIdxRef = useRef(active);
+  activeIdxRef.current = active;
 
   const sheet = wb.sheets[active];
   const peers = collaborative ? (store.presence?.peers ?? []) : [];
@@ -91,8 +125,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   }, [wb, active]);
 
   const activeRef = cellRef(sel.c, sel.r);
-  const r0 = Math.min(anchor.r, sel.r), r1 = Math.max(anchor.r, sel.r);
-  const c0 = Math.min(anchor.c, sel.c), c1 = Math.max(anchor.c, sel.c);
+  const r0 = Math.min(anchor.r, sel.r),
+    r1 = Math.max(anchor.r, sel.r);
+  const c0 = Math.min(anchor.c, sel.c),
+    c1 = Math.max(anchor.c, sel.c);
   const selRect: Rect = { c0, c1, r0, r1 };
   const inSel = (c: number, r: number) => c >= c0 && c <= c1 && r >= r0 && r <= r1;
   const rectRefs = (): string[] => {
@@ -108,11 +144,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const rowVisible = (r: number) => filterRowVisible(sheet?.filter, (c, rr) => cellDisplay(cellRef(c, rr)), r);
 
   const condFmt = useMemo(
-    () => buildCondFormatter(
-      sheet?.condFormats,
-      (c, r) => (sheet?.cells[cellRef(c, r)] != null ? calc.valueOf(cellRef(c, r)) : ""),
-      (c, r) => cellDisplay(cellRef(c, r)),
-    ),
+    () =>
+      buildCondFormatter(
+        sheet?.condFormats,
+        (c, r) => (sheet?.cells[cellRef(c, r)] != null ? calc.valueOf(cellRef(c, r)) : ""),
+        (c, r) => cellDisplay(cellRef(c, r)),
+      ),
     [sheet, calc], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const validator = useMemo(
@@ -125,7 +162,11 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [resizePreview, setResizePreview] = useState<{ col: number; w: number } | null>(null);
   const colWidth = (c: number) => sheet?.colWidths?.[c] ?? DEFAULT_COL_W;
   const shownWidth = (c: number) => (resizePreview?.col === c ? resizePreview.w : colWidth(c));
-  const colLeft = (c: number) => { let x = ROWHEAD_W; for (let k = 0; k < c; k++) x += shownWidth(k); return x; };
+  const colLeft = (c: number) => {
+    let x = ROWHEAD_W;
+    for (let k = 0; k < c; k++) x += shownWidth(k);
+    return x;
+  };
   const fz = sheet?.freeze;
 
   const stickyStyle = (c: number, r: number): React.CSSProperties => {
@@ -152,24 +193,33 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   const startResize = (c: number, e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     resizeRef.current = { col: c, startX: e.clientX, startW: colWidth(c), w: colWidth(c) };
     document.body.style.cursor = "col-resize";
   };
   useEffect(() => {
     const move = (e: MouseEvent) => {
-      const rz = resizeRef.current; if (!rz) return;
+      const rz = resizeRef.current;
+      if (!rz) return;
       const w = Math.max(40, Math.round(rz.startW + (e.clientX - rz.startX)));
-      rz.w = w; setResizePreview({ col: rz.col, w });
+      rz.w = w;
+      setResizePreview({ col: rz.col, w });
     };
     const up = () => {
-      const rz = resizeRef.current; if (!rz) return;
+      const rz = resizeRef.current;
+      if (!rz) return;
       storeRef.current.setColWidth(activeIdxRef.current, rz.col, rz.w);
-      resizeRef.current = null; setResizePreview(null); document.body.style.cursor = "";
+      resizeRef.current = null;
+      setResizePreview(null);
+      document.body.style.cursor = "";
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
-    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
   }, []);
 
   // --- poignée de recopie (fill handle) ------------------------------------
@@ -177,16 +227,20 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const fillToRef = useRef<Pos | null>(null);
   const [fillTo, setFillTo] = useState<Pos | null>(null);
   const startFill = (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     fillSrcRef.current = { c0, c1, r0, r1 };
     fillToRef.current = { c: c1, r: r1 };
     setFillTo({ c: c1, r: r1 });
   };
   useEffect(() => {
     const up = () => {
-      const src = fillSrcRef.current, to = fillToRef.current;
+      const src = fillSrcRef.current,
+        to = fillToRef.current;
       if (src && to) storeRef.current.fillRange(activeIdxRef.current, src, { c: to.c, r: to.r });
-      fillSrcRef.current = null; fillToRef.current = null; setFillTo(null);
+      fillSrcRef.current = null;
+      fillToRef.current = null;
+      setFillTo(null);
     };
     window.addEventListener("mouseup", up);
     return () => window.removeEventListener("mouseup", up);
@@ -194,7 +248,8 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const fillBand = (src: Rect, to: Pos): Rect | null => {
     const overR = to.r > src.r1 ? to.r - src.r1 : to.r < src.r0 ? to.r - src.r0 : 0;
     const overC = to.c > src.c1 ? to.c - src.c1 : to.c < src.c0 ? to.c - src.c0 : 0;
-    if (Math.abs(overR) >= Math.abs(overC) && overR !== 0) return { c0: src.c0, c1: src.c1, r0: Math.min(src.r0, to.r), r1: Math.max(src.r1, to.r) };
+    if (Math.abs(overR) >= Math.abs(overC) && overR !== 0)
+      return { c0: src.c0, c1: src.c1, r0: Math.min(src.r0, to.r), r1: Math.max(src.r1, to.r) };
     if (overC !== 0) return { c0: Math.min(src.c0, to.c), c1: Math.max(src.c1, to.c), r0: src.r0, r1: src.r1 };
     return null;
   };
@@ -215,8 +270,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       const t = e.target as HTMLElement;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const k = e.key.toLowerCase();
-      if (k === "z" && !e.shiftKey) { e.preventDefault(); storeRef.current.undo?.(); }
-      else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); storeRef.current.redo?.(); }
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        storeRef.current.undo?.();
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        storeRef.current.redo?.();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -229,10 +289,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
   // --- édition & sélection --------------------------------------------------
   const commitEdit = () => {
-    if (editingRef.current) { store.setCell(active, activeRef, draft); editingRef.current = false; }
+    if (editingRef.current) {
+      store.setCell(active, activeRef, draft);
+      editingRef.current = false;
+    }
     setEditing(false);
   };
-  const cancelEdit = () => { editingRef.current = false; setEditing(false); };
+  const cancelEdit = () => {
+    editingRef.current = false;
+    setEditing(false);
+  };
   const focusGrid = () => requestAnimationFrame(() => gridRef.current?.focus());
 
   const selectCell = (c: number, r: number, extend = false) => {
@@ -242,7 +308,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
   const startEdit = (initialChar?: string) => {
     if (!canWrite) return;
-    setDraft(initialChar !== undefined ? initialChar : sheet?.cells[activeRef] ?? "");
+    setDraft(initialChar !== undefined ? initialChar : (sheet?.cells[activeRef] ?? ""));
     setAnchor(sel);
     editingRef.current = true;
     setEditing(true);
@@ -300,30 +366,72 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     setAnchor((a) => ({ c: Math.min(a.c, cols - 1), r: Math.min(a.r, rows - 1) }));
   };
   const insertRow = () => store.insertRow(active, sel.r);
-  const deleteRow = () => { store.deleteRow(active, sel.r); if (sheet) clampSel(Math.max(1, sheet.rows - 1), sheet.cols); };
+  const deleteRow = () => {
+    store.deleteRow(active, sel.r);
+    if (sheet) clampSel(Math.max(1, sheet.rows - 1), sheet.cols);
+  };
   const insertCol = () => store.insertCol(active, sel.c);
-  const deleteCol = () => { store.deleteCol(active, sel.c); if (sheet) clampSel(sheet.rows, Math.max(1, sheet.cols - 1)); };
+  const deleteCol = () => {
+    store.deleteCol(active, sel.c);
+    if (sheet) clampSel(sheet.rows, Math.max(1, sheet.cols - 1));
+  };
 
   // --- clavier (grille, hors édition) --------------------------------------
   const onGridKeyDown = (e: React.KeyboardEvent) => {
     if (editing || !sheet) return;
     const k = e.key;
-    if (k === "ArrowUp") { moveBy(0, -1, e.shiftKey); e.preventDefault(); }
-    else if (k === "ArrowDown") { moveBy(0, 1, e.shiftKey); e.preventDefault(); }
-    else if (k === "ArrowLeft") { moveBy(-1, 0, e.shiftKey); e.preventDefault(); }
-    else if (k === "ArrowRight") { moveBy(1, 0, e.shiftKey); e.preventDefault(); }
-    else if (k === "Tab") { moveBy(1, 0); e.preventDefault(); }
-    else if (k === "Enter") { moveBy(0, 1); e.preventDefault(); }
-    else if (k === "F2") { startEdit(); e.preventDefault(); }
-    else if (k === "Delete" || k === "Backspace") { if (canWrite) clearRange(); e.preventDefault(); }
-    else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "c") { copyRange(); }
-    else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "x") { if (canWrite) { copyRange(); clearRange(); } }
-    else if (!e.ctrlKey && !e.metaKey && !e.altKey && k.length === 1) { startEdit(k); e.preventDefault(); }
+    if (k === "ArrowUp") {
+      moveBy(0, -1, e.shiftKey);
+      e.preventDefault();
+    } else if (k === "ArrowDown") {
+      moveBy(0, 1, e.shiftKey);
+      e.preventDefault();
+    } else if (k === "ArrowLeft") {
+      moveBy(-1, 0, e.shiftKey);
+      e.preventDefault();
+    } else if (k === "ArrowRight") {
+      moveBy(1, 0, e.shiftKey);
+      e.preventDefault();
+    } else if (k === "Tab") {
+      moveBy(1, 0);
+      e.preventDefault();
+    } else if (k === "Enter") {
+      moveBy(0, 1);
+      e.preventDefault();
+    } else if (k === "F2") {
+      startEdit();
+      e.preventDefault();
+    } else if (k === "Delete" || k === "Backspace") {
+      if (canWrite) clearRange();
+      e.preventDefault();
+    } else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "c") {
+      copyRange();
+    } else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "x") {
+      if (canWrite) {
+        copyRange();
+        clearRange();
+      }
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && k.length === 1) {
+      startEdit(k);
+      e.preventDefault();
+    }
   };
   const onEditKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") { e.preventDefault(); commitEdit(); moveBy(0, 1); focusGrid(); }
-    else if (e.key === "Tab") { e.preventDefault(); commitEdit(); moveBy(1, 0); focusGrid(); }
-    else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); focusGrid(); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitEdit();
+      moveBy(0, 1);
+      focusGrid();
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      commitEdit();
+      moveBy(1, 0);
+      focusGrid();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+      focusGrid();
+    }
   };
 
   // --- feuilles -------------------------------------------------------------
@@ -334,7 +442,11 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     setAnchor({ c: 0, r: 0 });
   };
   const addSheetPrompt = async () => {
-    const name = await dialogs.prompt({ title: "Nouvelle feuille", label: "Nom de la feuille", defaultValue: `Feuille ${wb.sheets.length + 1}` });
+    const name = await dialogs.prompt({
+      title: "Nouvelle feuille",
+      label: "Nom de la feuille",
+      defaultValue: `Feuille ${wb.sheets.length + 1}`,
+    });
     if (name === null) return;
     store.addSheet(name);
     setSel({ c: 0, r: 0 });
@@ -354,7 +466,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
   const removeActiveSheet = async () => {
     if (wb.sheets.length <= 1) {
-      await dialogs.alert({ title: "Impossible de supprimer", message: "Un classeur doit toujours contenir au moins une feuille." });
+      await dialogs.alert({
+        title: "Impossible de supprimer",
+        message: "Un classeur doit toujours contenir au moins une feuille.",
+      });
       return;
     }
     const name = wb.sheets[active]!.name;
@@ -376,7 +491,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     e.target.value = "";
     if (!file || !store.replaceWorkbook) return;
     try {
-      const next = file.name.toLowerCase().endsWith(".csv") ? csvToWorkbook(await file.text()) : importXlsx(new Uint8Array(await file.arrayBuffer()));
+      const next = file.name.toLowerCase().endsWith(".csv")
+        ? csvToWorkbook(await file.text())
+        : importXlsx(new Uint8Array(await file.arrayBuffer()));
       store.replaceWorkbook(next);
       setSel({ c: 0, r: 0 });
       setAnchor({ c: 0, r: 0 });
@@ -395,18 +512,25 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   // --- freeze (4 options, comme la suite locale) ----------------------------
-  const setFreeze = (rows: number, cols: number) => { store.setFreeze(active, rows, cols); setFreezeOpen(false); };
+  const setFreeze = (rows: number, cols: number) => {
+    store.setFreeze(active, rows, cols);
+    setFreezeOpen(false);
+  };
 
   // --- filtre (vue) ---------------------------------------------------------
   const applyFilter = async () => {
     const query = await dialogs.prompt({
-      title: "Filtrer", label: `Colonne ${indexToCol(sel.c)} contient`, hint: "Laisser vide pour retirer le filtre.",
+      title: "Filtrer",
+      label: `Colonne ${indexToCol(sel.c)} contient`,
+      hint: "Laisser vide pour retirer le filtre.",
       defaultValue: sheet?.filter?.query ?? "",
     });
     if (query === null) return;
     store.setFilter(active, sel.c, query);
   };
-  const clearFilter = () => { if (sheet?.filter) store.setFilter(active, sheet.filter.col, ""); };
+  const clearFilter = () => {
+    if (sheet?.filter) store.setFilter(active, sheet.filter.col, "");
+  };
 
   // --- graphiques -----------------------------------------------------------
   const chartData = (spec: ChartSpec) => {
@@ -455,12 +579,19 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const removeName = (name: string) => store.removeName(name);
 
   // --- tableau croisé dynamique ---------------------------------------------
-  const pivotHeaders = (): string[] => { const h: string[] = []; for (let c = c0; c <= c1; c++) h.push(calc.display(cellRef(c, r0))); return h; };
+  const pivotHeaders = (): string[] => {
+    const h: string[] = [];
+    for (let c = c0; c <= c1; c++) h.push(calc.display(cellRef(c, r0)));
+    return h;
+  };
   const buildPivotInput = (): PivotInput => {
     const rows: (string | number | boolean | null)[][] = [];
     for (let r = r0 + 1; r <= r1; r++) {
       const row: (string | number | boolean | null)[] = [];
-      for (let c = c0; c <= c1; c++) { const v = calc.valueOf(cellRef(c, r)); row.push(isError(v) ? null : (v as string | number | boolean)); }
+      for (let c = c0; c <= c1; c++) {
+        const v = calc.valueOf(cellRef(c, r));
+        row.push(isError(v) ? null : (v as string | number | boolean));
+      }
       rows.push(row);
     }
     return { headers: pivotHeaders(), rows };
@@ -488,18 +619,34 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     <div className={`sheet-app ${chrome.variant === "modal" ? "sheet-app--modal" : ""}`}>
       {/* Barre supérieure */}
       <div className="sheet-bar">
-        {chrome.onHome && <button className="eb eb--sm eb--ghost" onClick={chrome.onHome} title="Accueil"><Home size={16} /> Accueil</button>}
-        <span className="sheet-bar__title">{chrome.titleIcon ?? <Table2 size={16} />} {chrome.title}</span>
+        {chrome.onHome && (
+          <button className="eb eb--sm eb--ghost" onClick={chrome.onHome} title="Accueil">
+            <Home size={16} /> Accueil
+          </button>
+        )}
+        <span className="sheet-bar__title">
+          {chrome.titleIcon ?? <Table2 size={16} />} {chrome.title}
+        </span>
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
         {canWrite && store.replaceWorkbook && (
           <>
-            <button className="eb eb--sm eb--outline" onClick={() => fileRef.current?.click()} title="Importer un classeur XLSX/CSV"><Upload size={14} /> Importer</button>
+            <button
+              className="eb eb--sm eb--outline"
+              onClick={() => fileRef.current?.click()}
+              title="Importer un classeur XLSX/CSV"
+            >
+              <Upload size={14} /> Importer
+            </button>
             <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={onImportFile} />
           </>
         )}
         {chrome.headerActions}
-        {chrome.onClose && <button className="icon-btn" title="Fermer" onClick={chrome.onClose}><X size={18} /></button>}
+        {chrome.onClose && (
+          <button className="icon-btn" title="Fermer" onClick={chrome.onClose}>
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       {/* Barre de mise en forme (masquée en lecture seule) */}
@@ -507,12 +654,22 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         <div className="sheet-format">
           {store.undo && store.redo && (
             <div className="tool-group">
-              <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={store.undo} disabled={!store.canUndo}><Undo2 size={15} /></button>
-              <button className="icon-btn" title="Rétablir (Ctrl+Y)" onClick={store.redo} disabled={!store.canRedo}><Redo2 size={15} /></button>
+              <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={store.undo} disabled={!store.canUndo}>
+                <Undo2 size={15} />
+              </button>
+              <button className="icon-btn" title="Rétablir (Ctrl+Y)" onClick={store.redo} disabled={!store.canRedo}>
+                <Redo2 size={15} />
+              </button>
             </div>
           )}
           <div className="tool-group" style={{ position: "relative" }}>
-            <button className={`icon-btn ${fxOpen ? "is-active" : ""}`} title="Bibliothèque de formules" onClick={() => setFxOpen((v) => !v)}><Sigma size={15} /></button>
+            <button
+              className={`icon-btn ${fxOpen ? "is-active" : ""}`}
+              title="Bibliothèque de formules"
+              onClick={() => setFxOpen((v) => !v)}
+            >
+              <Sigma size={15} />
+            </button>
             {fxOpen && (
               <div className="fx-panel">
                 {["Maths", "Statistiques", "Recherche", "Logique", "Texte", "Date"].map((cat) => (
@@ -530,73 +687,225 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             )}
           </div>
           <div className="tool-group">
-            <select key={`ff-${fontTick}`} className="tool-select" title="Police" value={activeStyle.fontFamily ?? DEFAULT_FONT} onChange={(e) => applyStyle({ fontFamily: e.target.value })}>
-              {allFontNames().map((n) => <option key={n} value={n}>{n}</option>)}
+            <select
+              key={`ff-${fontTick}`}
+              className="tool-select"
+              title="Police"
+              value={activeStyle.fontFamily ?? DEFAULT_FONT}
+              onChange={(e) => applyStyle({ fontFamily: e.target.value })}
+            >
+              {allFontNames().map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
             </select>
-            <button className="icon-btn" title="Importer une police (.ttf/.otf)" onClick={() => fontInputRef.current?.click()}><Type size={15} /></button>
+            <button
+              className="icon-btn"
+              title="Importer une police (.ttf/.otf)"
+              onClick={() => fontInputRef.current?.click()}
+            >
+              <Type size={15} />
+            </button>
             <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
-            <select className="tool-select tool-select--sm" title="Taille de police" value={activeStyle.fontSize ?? 13} onChange={(e) => applyStyle({ fontSize: Number(e.target.value) })}>
-              {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32].map((s) => <option key={s} value={s}>{s}</option>)}
+            <select
+              className="tool-select tool-select--sm"
+              title="Taille de police"
+              value={activeStyle.fontSize ?? 13}
+              onChange={(e) => applyStyle({ fontSize: Number(e.target.value) })}
+            >
+              {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </div>
           <div className="tool-group">
-            <button className={`icon-btn ${activeStyle.bold ? "is-active" : ""}`} title="Gras" onClick={() => toggle("bold")}><Bold size={15} /></button>
-            <button className={`icon-btn ${activeStyle.italic ? "is-active" : ""}`} title="Italique" onClick={() => toggle("italic")}><Italic size={15} /></button>
+            <button
+              className={`icon-btn ${activeStyle.bold ? "is-active" : ""}`}
+              title="Gras"
+              onClick={() => toggle("bold")}
+            >
+              <Bold size={15} />
+            </button>
+            <button
+              className={`icon-btn ${activeStyle.italic ? "is-active" : ""}`}
+              title="Italique"
+              onClick={() => toggle("italic")}
+            >
+              <Italic size={15} />
+            </button>
           </div>
           <div className="tool-group">
-            <button className={`icon-btn ${activeStyle.align === "left" ? "is-active" : ""}`} title="Aligner à gauche" onClick={() => applyStyle({ align: "left" })}><AlignLeft size={15} /></button>
-            <button className={`icon-btn ${activeStyle.align === "center" ? "is-active" : ""}`} title="Centrer" onClick={() => applyStyle({ align: "center" })}><AlignCenter size={15} /></button>
-            <button className={`icon-btn ${activeStyle.align === "right" ? "is-active" : ""}`} title="Aligner à droite" onClick={() => applyStyle({ align: "right" })}><AlignRight size={15} /></button>
+            <button
+              className={`icon-btn ${activeStyle.align === "left" ? "is-active" : ""}`}
+              title="Aligner à gauche"
+              onClick={() => applyStyle({ align: "left" })}
+            >
+              <AlignLeft size={15} />
+            </button>
+            <button
+              className={`icon-btn ${activeStyle.align === "center" ? "is-active" : ""}`}
+              title="Centrer"
+              onClick={() => applyStyle({ align: "center" })}
+            >
+              <AlignCenter size={15} />
+            </button>
+            <button
+              className={`icon-btn ${activeStyle.align === "right" ? "is-active" : ""}`}
+              title="Aligner à droite"
+              onClick={() => applyStyle({ align: "right" })}
+            >
+              <AlignRight size={15} />
+            </button>
           </div>
           <div className="tool-group">
-            <label className="tool-color" title="Couleur du texte"><Baseline size={15} /><input type="color" value={activeStyle.color ?? "#0f172a"} onChange={(e) => applyStyle({ color: e.target.value })} /></label>
-            <label className="tool-color" title="Couleur de remplissage"><PaintBucket size={15} /><input type="color" value={activeStyle.fill ?? "#ffffff"} onChange={(e) => applyStyle({ fill: e.target.value })} /></label>
+            <label className="tool-color" title="Couleur du texte">
+              <Baseline size={15} />
+              <input
+                type="color"
+                value={activeStyle.color ?? "#0f172a"}
+                onChange={(e) => applyStyle({ color: e.target.value })}
+              />
+            </label>
+            <label className="tool-color" title="Couleur de remplissage">
+              <PaintBucket size={15} />
+              <input
+                type="color"
+                value={activeStyle.fill ?? "#ffffff"}
+                onChange={(e) => applyStyle({ fill: e.target.value })}
+              />
+            </label>
           </div>
           <div className="tool-group">
-            <select className="tool-select" title="Format des nombres" value={activeStyle.fmt ?? "general"} onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })}>
-              {NUM_FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+            <select
+              className="tool-select"
+              title="Format des nombres"
+              value={activeStyle.fmt ?? "general"}
+              onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })}
+            >
+              {NUM_FORMATS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className="tool-group">
-            <button className="icon-btn" title="Insérer une ligne" onClick={insertRow}><Plus size={15} /></button>
-            <button className="icon-btn" title="Supprimer la ligne" onClick={deleteRow}><Minus size={15} /></button>
-            <button className="icon-btn" title="Insérer une colonne" onClick={insertCol}><Plus size={15} style={{ transform: "rotate(90deg)" }} /></button>
-            <button className="icon-btn" title="Supprimer la colonne" onClick={deleteCol}><Minus size={15} style={{ transform: "rotate(90deg)" }} /></button>
+            <button className="icon-btn" title="Insérer une ligne" onClick={insertRow}>
+              <Plus size={15} />
+            </button>
+            <button className="icon-btn" title="Supprimer la ligne" onClick={deleteRow}>
+              <Minus size={15} />
+            </button>
+            <button className="icon-btn" title="Insérer une colonne" onClick={insertCol}>
+              <Plus size={15} style={{ transform: "rotate(90deg)" }} />
+            </button>
+            <button className="icon-btn" title="Supprimer la colonne" onClick={deleteCol}>
+              <Minus size={15} style={{ transform: "rotate(90deg)" }} />
+            </button>
           </div>
           <div className="tool-group">
-            <button className="icon-btn" title="Insérer un graphique (depuis la sélection)" onClick={addChart}><BarChart3 size={15} /></button>
-            <button className="icon-btn" title="Trier croissant (colonne active)" onClick={() => sortRange(1)}><ArrowUpNarrowWide size={15} /></button>
-            <button className="icon-btn" title="Trier décroissant (colonne active)" onClick={() => sortRange(-1)}><ArrowDownNarrowWide size={15} /></button>
-            <button className={`icon-btn ${sheet?.filter ? "is-active" : ""}`} title="Filtrer (colonne active)" onClick={applyFilter}><Filter size={15} /></button>
+            <button className="icon-btn" title="Insérer un graphique (depuis la sélection)" onClick={addChart}>
+              <BarChart3 size={15} />
+            </button>
+            <button className="icon-btn" title="Trier croissant (colonne active)" onClick={() => sortRange(1)}>
+              <ArrowUpNarrowWide size={15} />
+            </button>
+            <button className="icon-btn" title="Trier décroissant (colonne active)" onClick={() => sortRange(-1)}>
+              <ArrowDownNarrowWide size={15} />
+            </button>
+            <button
+              className={`icon-btn ${sheet?.filter ? "is-active" : ""}`}
+              title="Filtrer (colonne active)"
+              onClick={applyFilter}
+            >
+              <Filter size={15} />
+            </button>
           </div>
           <div className="tool-group" style={{ position: "relative" }}>
-            <button className={`icon-btn ${fz ? "is-active" : ""}`} title="Figer les volets" onClick={() => setFreezeOpen((v) => !v)}><Snowflake size={15} /></button>
+            <button
+              className={`icon-btn ${fz ? "is-active" : ""}`}
+              title="Figer les volets"
+              onClick={() => setFreezeOpen((v) => !v)}
+            >
+              <Snowflake size={15} />
+            </button>
             {freezeOpen && (
               <div className="fx-panel fx-panel--menu">
-                <button className="fx-menu-item" onClick={() => setFreeze(sel.r + 1, fz?.cols ?? 0)}>Figer jusqu'à la ligne {sel.r + 1}</button>
-                <button className="fx-menu-item" onClick={() => setFreeze(fz?.rows ?? 0, sel.c + 1)}>Figer jusqu'à la colonne {indexToCol(sel.c)}</button>
-                <button className="fx-menu-item" onClick={() => setFreeze(sel.r + 1, sel.c + 1)}>Figer lignes + colonnes (sélection)</button>
-                <button className="fx-menu-item" onClick={() => setFreeze(0, 0)} disabled={!fz}>Libérer les volets</button>
+                <button className="fx-menu-item" onClick={() => setFreeze(sel.r + 1, fz?.cols ?? 0)}>
+                  Figer jusqu'à la ligne {sel.r + 1}
+                </button>
+                <button className="fx-menu-item" onClick={() => setFreeze(fz?.rows ?? 0, sel.c + 1)}>
+                  Figer jusqu'à la colonne {indexToCol(sel.c)}
+                </button>
+                <button className="fx-menu-item" onClick={() => setFreeze(sel.r + 1, sel.c + 1)}>
+                  Figer lignes + colonnes (sélection)
+                </button>
+                <button className="fx-menu-item" onClick={() => setFreeze(0, 0)} disabled={!fz}>
+                  Libérer les volets
+                </button>
               </div>
             )}
           </div>
           <div className="tool-group">
-            <button className={`icon-btn ${(sheet?.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`} title="Mise en forme conditionnelle" onClick={() => setCondOpen(true)}><Palette size={15} /></button>
-            <button className={`icon-btn ${(sheet?.validations?.length ?? 0) > 0 ? "is-active" : ""}`} title="Validation des données" onClick={() => setValidationOpen(true)}><ListChecks size={15} /></button>
-            <button className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`} title="Plages nommées" onClick={() => setNamesOpen(true)}><Tag size={15} /></button>
-            <button className="icon-btn" title="Tableau croisé dynamique" onClick={() => setPivotOpen(true)}><TableProperties size={15} /></button>
-            <button className="icon-btn" title="Fusionner / annuler la fusion des cellules sélectionnées" onClick={() => store.toggleMerge(active, selRect)}><Combine size={15} /></button>
+            <button
+              className={`icon-btn ${(sheet?.condFormats?.length ?? 0) > 0 ? "is-active" : ""}`}
+              title="Mise en forme conditionnelle"
+              onClick={() => setCondOpen(true)}
+            >
+              <Palette size={15} />
+            </button>
+            <button
+              className={`icon-btn ${(sheet?.validations?.length ?? 0) > 0 ? "is-active" : ""}`}
+              title="Validation des données"
+              onClick={() => setValidationOpen(true)}
+            >
+              <ListChecks size={15} />
+            </button>
+            <button
+              className={`icon-btn ${(wb.names?.length ?? 0) > 0 ? "is-active" : ""}`}
+              title="Plages nommées"
+              onClick={() => setNamesOpen(true)}
+            >
+              <Tag size={15} />
+            </button>
+            <button className="icon-btn" title="Tableau croisé dynamique" onClick={() => setPivotOpen(true)}>
+              <TableProperties size={15} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Fusionner / annuler la fusion des cellules sélectionnées"
+              onClick={() => store.toggleMerge(active, selRect)}
+            >
+              <Combine size={15} />
+            </button>
           </div>
           {store.growSheet && (
             <div className="tool-group">
-              <button className="eb eb--sm eb--ghost" title="Ajouter des lignes" onClick={() => store.growSheet!(active, "rows", 10)}><Plus size={13} /> Lignes</button>
-              <button className="eb eb--sm eb--ghost" title="Ajouter des colonnes" onClick={() => store.growSheet!(active, "cols", 4)}><Plus size={13} /> Colonnes</button>
+              <button
+                className="eb eb--sm eb--ghost"
+                title="Ajouter des lignes"
+                onClick={() => store.growSheet!(active, "rows", 10)}
+              >
+                <Plus size={13} /> Lignes
+              </button>
+              <button
+                className="eb eb--sm eb--ghost"
+                title="Ajouter des colonnes"
+                onClick={() => store.growSheet!(active, "cols", 4)}
+              >
+                <Plus size={13} /> Colonnes
+              </button>
             </div>
           )}
           {sheet?.filter && (
             <span className="sheet-filter-chip">
               Filtre : {indexToCol(sheet.filter.col)} ⊃ «&nbsp;{sheet.filter.query}&nbsp;»
-              <button className="icon-btn" title="Retirer le filtre" onClick={clearFilter}><X size={13} /></button>
+              <button className="icon-btn" title="Retirer le filtre" onClick={clearFilter}>
+                <X size={13} />
+              </button>
             </span>
           )}
         </div>
@@ -607,13 +916,26 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         <span className="sheet-formula__ref">{activeRef}</span>
         <input
           className="sheet-formula__input"
-          value={editing ? draft : sheet?.cells[activeRef] ?? ""}
+          value={editing ? draft : (sheet?.cells[activeRef] ?? "")}
           placeholder="Valeur ou =formule (ex. =SUM(A1:A5))"
           readOnly={!canWrite}
-          onChange={(e) => { if (!canWrite) return; if (!editingRef.current) { editingRef.current = true; setEditing(true); } setDraft(e.target.value); }}
+          onChange={(e) => {
+            if (!canWrite) return;
+            if (!editingRef.current) {
+              editingRef.current = true;
+              setEditing(true);
+            }
+            setDraft(e.target.value);
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); commitEdit(); moveBy(0, 1); }
-            else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitEdit();
+              moveBy(0, 1);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancelEdit();
+            }
           }}
           onPaste={onPaste}
         />
@@ -624,7 +946,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
           <table className="sheet-grid">
             <colgroup>
               <col style={{ width: ROWHEAD_W }} />
-              {Array.from({ length: sheet.cols }, (_, c) => <col key={c} style={{ width: shownWidth(c) }} />)}
+              {Array.from({ length: sheet.cols }, (_, c) => (
+                <col key={c} style={{ width: shownWidth(c) }} />
+              ))}
             </colgroup>
             <thead>
               <tr>
@@ -642,7 +966,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 const hidden = !rowVisible(r);
                 return (
                   <tr key={r} style={hidden ? { display: "none" } : undefined}>
-                    <th className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`} style={rowheadStyle(r)}>{r + 1}</th>
+                    <th className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`} style={rowheadStyle(r)}>
+                      {r + 1}
+                    </th>
                     {Array.from({ length: sheet.cols }, (_, c) => {
                       const ref = cellRef(c, r);
                       if (isCovered(sheet.merges, c, r)) return null; // masquée par une fusion
@@ -653,7 +979,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         const dv = validationAt(sheet.validations, c, r);
                         const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
                         return (
-                          <td key={c} className="is-selected" style={stickyStyle(c, r)} colSpan={span?.colSpan} rowSpan={span?.rowSpan}>
+                          <td
+                            key={c}
+                            className="is-selected"
+                            style={stickyStyle(c, r)}
+                            colSpan={span?.colSpan}
+                            rowSpan={span?.rowSpan}
+                          >
                             <input
                               className="sheet-cell-input"
                               autoFocus
@@ -667,7 +999,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                             />
                             {listId && (
                               <datalist id={listId}>
-                                {dv!.list!.map((opt) => <option key={opt} value={opt} />)}
+                                {dv!.list!.map((opt) => (
+                                  <option key={opt} value={opt} />
+                                ))}
                               </datalist>
                             )}
                           </td>
@@ -683,7 +1017,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         isError(val) ? "is-err" : "",
                         numeric && !st?.align ? "is-num" : "",
                         invalid ? "is-invalid" : "",
-                      ].filter(Boolean).join(" ");
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
                       const showHandle = canWrite && c === c1 && r === r1 && !editing;
                       const cf = condFmt(c, r);
                       const cellStyle: React.CSSProperties = {
@@ -697,7 +1033,8 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         ...stickyStyle(c, r),
                       };
                       // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).
-                      if (peer) cellStyle.boxShadow = `inset 0 0 0 2px ${peer.color}${cellStyle.boxShadow ? ", " + cellStyle.boxShadow : ""}`;
+                      if (peer)
+                        cellStyle.boxShadow = `inset 0 0 0 2px ${peer.color}${cellStyle.boxShadow ? ", " + cellStyle.boxShadow : ""}`;
                       return (
                         <td
                           key={c}
@@ -706,12 +1043,30 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           title={invalid ?? (peer ? `${peer.name} est ici` : undefined)}
                           colSpan={span?.colSpan}
                           rowSpan={span?.rowSpan}
-                          onMouseDown={(e) => { selectCell(c, r, e.shiftKey); dragging.current = true; gridRef.current?.focus(); }}
-                          onMouseEnter={() => { if (fillSrcRef.current) { fillToRef.current = { c, r }; setFillTo({ c, r }); } else if (dragging.current) setSel({ c, r }); }}
-                          onDoubleClick={() => { selectCell(c, r); startEdit(); }}
+                          onMouseDown={(e) => {
+                            selectCell(c, r, e.shiftKey);
+                            dragging.current = true;
+                            gridRef.current?.focus();
+                          }}
+                          onMouseEnter={() => {
+                            if (fillSrcRef.current) {
+                              fillToRef.current = { c, r };
+                              setFillTo({ c, r });
+                            } else if (dragging.current) setSel({ c, r });
+                          }}
+                          onDoubleClick={() => {
+                            selectCell(c, r);
+                            startEdit();
+                          }}
                         >
                           {cellDisplay(ref)}
-                          {showHandle && <span className="sheet-fill-handle" onMouseDown={startFill} title="Recopier (poignée de remplissage)" />}
+                          {showHandle && (
+                            <span
+                              className="sheet-fill-handle"
+                              onMouseDown={startFill}
+                              title="Recopier (poignée de remplissage)"
+                            />
+                          )}
                         </td>
                       );
                     })}
@@ -730,13 +1085,28 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             return (
               <div key={ch.id} className="sheet-chart">
                 <div className="sheet-chart__head">
-                  <select className="tool-select tool-select--sm" value={ch.type} disabled={!canWrite} onChange={(e) => setChartType(ch.id, e.target.value as ChartType)}>
+                  <select
+                    className="tool-select tool-select--sm"
+                    value={ch.type}
+                    disabled={!canWrite}
+                    onChange={(e) => setChartType(ch.id, e.target.value as ChartType)}
+                  >
                     <option value="bar">Barres</option>
                     <option value="line">Lignes</option>
                     <option value="pie">Secteurs</option>
                   </select>
-                  <span className="sheet-chart__range">{cellRef(ch.c0, ch.r0)}:{cellRef(ch.c1, ch.r1)}</span>
-                  {canWrite && <button className="icon-btn icon-btn--danger" title="Supprimer le graphique" onClick={() => store.removeChart(active, ch.id)}><X size={14} /></button>}
+                  <span className="sheet-chart__range">
+                    {cellRef(ch.c0, ch.r0)}:{cellRef(ch.c1, ch.r1)}
+                  </span>
+                  {canWrite && (
+                    <button
+                      className="icon-btn icon-btn--danger"
+                      title="Supprimer le graphique"
+                      onClick={() => store.removeChart(active, ch.id)}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
                 <SheetChart type={ch.type} labels={labels} values={values} />
               </div>
@@ -751,14 +1121,24 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             key={i}
             className={`sheet-tab ${i === active ? "is-active" : ""}`}
             onClick={() => switchSheet(i)}
-            onDoubleClick={() => { if (canWrite) void renameSheetPrompt(i); }}
+            onDoubleClick={() => {
+              if (canWrite) void renameSheetPrompt(i);
+            }}
             title={canWrite ? "Double-cliquer pour renommer" : undefined}
           >
             {s.name}
           </button>
         ))}
-        {canWrite && <button className="sheet-tab sheet-tab--add" onClick={addSheetPrompt} title="Ajouter une feuille"><Plus size={14} /></button>}
-        {canWrite && <button className="sheet-tab sheet-tab--add" onClick={removeActiveSheet} title="Supprimer la feuille"><Trash2 size={14} /></button>}
+        {canWrite && (
+          <button className="sheet-tab sheet-tab--add" onClick={addSheetPrompt} title="Ajouter une feuille">
+            <Plus size={14} />
+          </button>
+        )}
+        {canWrite && (
+          <button className="sheet-tab sheet-tab--add" onClick={removeActiveSheet} title="Supprimer la feuille">
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
 
       {condOpen && (

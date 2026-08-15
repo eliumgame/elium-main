@@ -121,7 +121,10 @@ export async function verifySeal(
   outer: for (const recipients of recipientForms) {
     for (const docId of docIdForms) {
       const message = await sealMessage(manifest, signatures, journal, { docId, recipients });
-      if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) { authentic = true; break outer; }
+      if (await verifyMessage(seal.signatureHex, message, seal.publicKeyHex)) {
+        authentic = true;
+        break outer;
+      }
     }
   }
   if (!authentic) return "broken";

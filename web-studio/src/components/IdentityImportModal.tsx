@@ -43,7 +43,9 @@ export default function IdentityImportModal({
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
           {tab === "hex" && (
             <Button
               disabled={!hexOk || busy}
@@ -65,8 +67,8 @@ export default function IdentityImportModal({
       <div className="settings">
         {hasExistingIdentity && (
           <Alert tone="warning" title="Une identité existe déjà">
-            L'import remplacera l'identité actuelle de ce navigateur. Exportez-la d'abord
-            (Paramètres → Sauvegarder la clé) si vous voulez pouvoir y revenir.
+            L'import remplacera l'identité actuelle de ce navigateur. Exportez-la d'abord (Paramètres → Sauvegarder la
+            clé) si vous voulez pouvoir y revenir.
           </Alert>
         )}
 
@@ -82,9 +84,9 @@ export default function IdentityImportModal({
         {tab === "file" ? (
           <section className="settings__section">
             <p className="muted">
-              <FileKey2 size={14} style={{ verticalAlign: "-2px" }} /> Sélectionnez la sauvegarde
-              chiffrée <code>.eliumkey</code> créée depuis Elium. Le mot de passe de la clé vous
-              sera demandé pour la déverrouiller.
+              <FileKey2 size={14} style={{ verticalAlign: "-2px" }} /> Sélectionnez la sauvegarde chiffrée{" "}
+              <code>.eliumkey</code> créée depuis Elium. Le mot de passe de la clé vous sera demandé pour la
+              déverrouiller.
             </p>
             <input
               ref={fileInput}
@@ -102,9 +104,8 @@ export default function IdentityImportModal({
         ) : (
           <section className="settings__section">
             <p className="muted">
-              <ClipboardPaste size={14} style={{ verticalAlign: "-2px" }} /> Collez la clé privée
-              Ed25519 (64 caractères hexadécimaux). Un nouveau mot de passe vous sera demandé pour
-              la chiffrer dans ce navigateur.
+              <ClipboardPaste size={14} style={{ verticalAlign: "-2px" }} /> Collez la clé privée Ed25519 (64 caractères
+              hexadécimaux). Un nouveau mot de passe vous sera demandé pour la chiffrer dans ce navigateur.
             </p>
             <Field label="Clé privée (64 hex)">
               <input

@@ -81,10 +81,18 @@ export async function buildPdf(
 ): Promise<{ bytes: Uint8Array; report: BuildReport }> {
   const opts: BuildOptions = { ...DEFAULT_BUILD, ...options };
   const report: BuildReport = {
-    pages: 0, annotsWritten: 0, annotsFlattened: 0,
-    redactedGlyphs: 0, redactedImages: 0,
-    textBlocksNative: 0, textBlocksSubstituted: 0, textBlocksSkipped: 0,
-    fieldsCreated: 0, fieldsFilled: 0, bytes: 0, warnings: [],
+    pages: 0,
+    annotsWritten: 0,
+    annotsFlattened: 0,
+    redactedGlyphs: 0,
+    redactedImages: 0,
+    textBlocksNative: 0,
+    textBlocksSubstituted: 0,
+    textBlocksSkipped: 0,
+    fieldsCreated: 0,
+    fieldsFilled: 0,
+    bytes: 0,
+    warnings: [],
   };
   const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
 
@@ -206,7 +214,11 @@ export async function buildPdf(
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
     for (const { page } of targets) {
-      try { await stripImportedAnnots(page); } catch { /* leave them rather than break the page */ }
+      try {
+        await stripImportedAnnots(page);
+      } catch {
+        /* leave them rather than break the page */
+      }
     }
   }
 
@@ -233,8 +245,9 @@ export async function buildPdf(
   }
   // Redaction marks that were applied must not survive as visible annotations.
   if (opts.applyRedactions) {
-    report.annotsFlattened += state.annots.filter((a) => a.kind === "redact").length
-      - state.annots.filter((a) => a.kind === "redact" && mustFlatten(a.kind)).length;
+    report.annotsFlattened +=
+      state.annots.filter((a) => a.kind === "redact").length -
+      state.annots.filter((a) => a.kind === "redact" && mustFlatten(a.kind)).length;
   }
 
   // --- 5. forms -------------------------------------------------------------
@@ -294,8 +307,13 @@ export async function buildPdf(
   }
   if (state.pages.some((p) => p.label)) {
     try {
-      writePageLabels(doc, targets.map((t) => t.model.label));
-    } catch { /* labels are cosmetic */ }
+      writePageLabels(
+        doc,
+        targets.map((t) => t.model.label),
+      );
+    } catch {
+      /* labels are cosmetic */
+    }
   }
 
   const meta = state.metadata;
@@ -308,7 +326,9 @@ export async function buildPdf(
     doc.setProducer("Elium PDF");
     doc.setCreator(meta.creator ?? "Elium");
     doc.setModificationDate(new Date());
-  } catch { /* metadata is best-effort */ }
+  } catch {
+    /* metadata is best-effort */
+  }
 
   if (opts.sanitise) {
     const { removed } = sanitiseDocument(doc);
@@ -339,7 +359,16 @@ export async function buildPdf(
 }
 
 function toOutlineEntries(
-  nodes: readonly { title: string; page: number; y?: number; bold?: boolean; italic?: boolean; color?: string; closed?: boolean; children: readonly unknown[] }[],
+  nodes: readonly {
+    title: string;
+    page: number;
+    y?: number;
+    bold?: boolean;
+    italic?: boolean;
+    color?: string;
+    closed?: boolean;
+    children: readonly unknown[];
+  }[],
   pageCount: number,
 ): OutlineEntry[] {
   const hex = (c?: string) => {
@@ -365,7 +394,12 @@ function toOutlineEntries(
  * A quick, faithful "print-ready" flatten: everything baked, no interactive
  * anything. Used by the Print command and by "Save a flattened copy".
  */
-export async function buildFlattened(sourceBytes: Uint8Array, state: PdfState, fileName: string, author: string): Promise<Uint8Array> {
+export async function buildFlattened(
+  sourceBytes: Uint8Array,
+  state: PdfState,
+  fileName: string,
+  author: string,
+): Promise<Uint8Array> {
   const { bytes } = await buildPdf(sourceBytes, state, {
     interactiveAnnots: false,
     flattenForms: true,

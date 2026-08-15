@@ -16,7 +16,15 @@ import { cbc, ecb } from "@noble/ciphers/aes.js";
 import { md5 } from "@noble/hashes/legacy.js";
 import { sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
 import {
-  PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, PDFString,
+  PDFArray,
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFRawStream,
+  PDFRef,
+  PDFStream,
+  PDFString,
   decodePDFRawStream,
 } from "pdf-lib";
 import type { PDFDocument, PDFObject } from "pdf-lib";
@@ -38,8 +46,14 @@ export interface Permissions {
 }
 
 export const ALL_PERMISSIONS: Permissions = {
-  print: true, modify: true, copy: true, annotate: true,
-  fillForms: true, extractForAccessibility: true, assemble: true, printHighRes: true,
+  print: true,
+  modify: true,
+  copy: true,
+  annotate: true,
+  fillForms: true,
+  extractForAccessibility: true,
+  assemble: true,
+  printHighRes: true,
 };
 
 const BIT = {
@@ -75,8 +89,8 @@ export function pToPermissions(p: number): Permissions {
 // ---------------------------------------------------------------------------
 
 const PAD = new Uint8Array([
-  0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa, 0x01, 0x08,
-  0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
+  0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa, 0x01, 0x08, 0x2e, 0x2e, 0x00,
+  0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
 ]);
 
 function concatBytes(...parts: Uint8Array[]): Uint8Array {
@@ -84,7 +98,10 @@ function concatBytes(...parts: Uint8Array[]): Uint8Array {
   for (const p of parts) n += p.length;
   const out = new Uint8Array(n);
   let at = 0;
-  for (const p of parts) { out.set(p, at); at += p.length; }
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
   return out;
 }
 
@@ -122,7 +139,9 @@ export function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
   let j = 0;
   for (let i = 0; i < 256; i++) {
     j = (j + s[i] + key[i % key.length]) & 0xff;
-    const t = s[i]; s[i] = s[j]; s[j] = t;
+    const t = s[i];
+    s[i] = s[j];
+    s[j] = t;
   }
   const out = new Uint8Array(data.length);
   let i = 0;
@@ -130,7 +149,9 @@ export function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
   for (let k = 0; k < data.length; k++) {
     i = (i + 1) & 0xff;
     j = (j + s[i]) & 0xff;
-    const t = s[i]; s[i] = s[j]; s[j] = t;
+    const t = s[i];
+    s[i] = s[j];
+    s[j] = t;
     out[k] = data[k] ^ s[(s[i] + s[j]) & 0xff];
   }
   return out;
@@ -295,7 +316,8 @@ function readEncryptDict(doc: PDFDocument): { info: EncryptInfo; id0: Uint8Array
   return {
     id0,
     info: {
-      v, r,
+      v,
+      r,
       lengthBytes: Math.max(5, Math.floor(lengthBits / 8)),
       o: bytesOfString(dict.lookup(PDFName.of("O"))),
       u: bytesOfString(dict.lookup(PDFName.of("U"))),
@@ -355,7 +377,12 @@ function deriveFileKey(info: EncryptInfo, id0: Uint8Array, password: string): Ui
   const padIndex = indexOfPad(userPad);
   const asOwner = legacyFileKey(
     recovered.slice(0, padIndex < 0 ? 32 : padIndex),
-    info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata,
+    info.o,
+    info.p,
+    id0,
+    info.r,
+    info.lengthBytes,
+    info.encryptMetadata,
   );
   return checkLegacyUser(asOwner, info, id0) ? asOwner : null;
 }
@@ -425,7 +452,11 @@ export interface DecryptResult {
  */
 export async function removeProtection(bytes: Uint8Array, password: string): Promise<DecryptResult> {
   const { PDFDocument } = await import("pdf-lib");
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+  const doc = await PDFDocument.load(bytes, {
+    ignoreEncryption: true,
+    throwOnInvalidObject: false,
+    updateMetadata: false,
+  });
   const read = readEncryptDict(doc);
   if (!read) {
     return { bytes, permissions: ALL_PERMISSIONS, scheme: "aucune" };
@@ -438,12 +469,14 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
   const skip = new Set<string>();
   if (encryptRef instanceof PDFRef) skip.add(String(encryptRef));
 
-  const decryptWith = (cfm: Cfm): Transform => (data, ref) => {
-    if (cfm === "None") return data;
-    if (cfm === "AESV3") return aesDecryptWithIv(fileKey, data);
-    if (cfm === "AESV2") return aesDecryptWithIv(objectKey(fileKey, ref, true), data);
-    return rc4(objectKey(fileKey, ref, false), data);
-  };
+  const decryptWith =
+    (cfm: Cfm): Transform =>
+    (data, ref) => {
+      if (cfm === "None") return data;
+      if (cfm === "AESV3") return aesDecryptWithIv(fileKey, data);
+      if (cfm === "AESV2") return aesDecryptWithIv(objectKey(fileKey, ref, true), data);
+      return rc4(objectKey(fileKey, ref, false), data);
+    };
 
   const streamX = decryptWith(info.v >= 5 ? "AESV3" : info.streamCfm === "None" && info.v < 4 ? "V2" : info.streamCfm);
   const stringX = decryptWith(info.v >= 5 ? "AESV3" : info.stringCfm === "None" && info.v < 4 ? "V2" : info.stringCfm);
@@ -462,7 +495,12 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
 }
 
 /** Same walk as `transformAll` but with separate handling for streams vs strings. */
-function applySplitTransform(doc: PDFDocument, streamX: Transform, stringX: Transform, skip: ReadonlySet<string>): void {
+function applySplitTransform(
+  doc: PDFDocument,
+  streamX: Transform,
+  stringX: Transform,
+  skip: ReadonlySet<string>,
+): void {
   const ctx = doc.context;
   const mapString = (obj: PDFObject, ref: PDFRef): PDFObject => {
     if (obj instanceof PDFHexString) return PDFHexString.of(toHex(stringX(obj.asBytes(), ref)));
@@ -501,7 +539,11 @@ function applySplitTransform(doc: PDFDocument, streamX: Transform, stringX: Tran
       let raw: Uint8Array | null = null;
       if (obj instanceof PDFRawStream) raw = obj.contents;
       else {
-        try { raw = (obj as unknown as { getContents(): Uint8Array }).getContents(); } catch { raw = null; }
+        try {
+          raw = (obj as unknown as { getContents(): Uint8Array }).getContents();
+        } catch {
+          raw = null;
+        }
       }
       if (!raw) continue;
       const next = streamX(raw, ref);
@@ -601,15 +643,22 @@ export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): P
 }
 
 /** Quick probe: is this file password-protected, and with what? */
-export async function inspectProtection(bytes: Uint8Array): Promise<{ encrypted: boolean; scheme: string; permissions: Permissions } | null> {
+export async function inspectProtection(
+  bytes: Uint8Array,
+): Promise<{ encrypted: boolean; scheme: string; permissions: Permissions } | null> {
   try {
     const { PDFDocument } = await import("pdf-lib");
-    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+    const doc = await PDFDocument.load(bytes, {
+      ignoreEncryption: true,
+      throwOnInvalidObject: false,
+      updateMetadata: false,
+    });
     const read = readEncryptDict(doc);
     if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS };
     return {
       encrypted: true,
-      scheme: read.info.v >= 5 ? "AES-256" : read.info.streamCfm === "AESV2" ? "AES-128" : `RC4-${read.info.lengthBytes * 8}`,
+      scheme:
+        read.info.v >= 5 ? "AES-256" : read.info.streamCfm === "AESV2" ? "AES-128" : `RC4-${read.info.lengthBytes * 8}`,
       permissions: pToPermissions(read.info.p),
     };
   } catch {

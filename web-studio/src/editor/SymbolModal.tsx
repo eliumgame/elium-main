@@ -22,12 +22,7 @@ export default function SymbolModal({ editor, onClose }: { editor: Editor; onClo
   };
 
   return (
-    <Modal
-      title="Insérer un symbole"
-      onClose={onClose}
-      wide
-      footer={<Button onClick={onClose}>Fermer</Button>}
-    >
+    <Modal title="Insérer un symbole" onClose={onClose} wide footer={<Button onClick={onClose}>Fermer</Button>}>
       <div className="symdlg">
         <div className="symdlg__bar">
           <input
@@ -45,7 +40,9 @@ export default function SymbolModal({ editor, onClose }: { editor: Editor; onClo
             aria-label="Groupe de symboles"
           >
             {SYMBOL_GROUPS.map((g) => (
-              <option key={g.id} value={g.id}>{g.label}</option>
+              <option key={g.id} value={g.id}>
+                {g.label}
+              </option>
             ))}
           </select>
         </div>
@@ -87,9 +84,7 @@ export default function SymbolModal({ editor, onClose }: { editor: Editor; onClo
           {!chars.length && <div className="symdlg__empty">Aucun symbole pour cette recherche.</div>}
         </div>
 
-        <p className="settings__hint">
-          Le dialogue reste ouvert : insérez autant de symboles que nécessaire.
-        </p>
+        <p className="settings__hint">Le dialogue reste ouvert : insérez autant de symboles que nécessaire.</p>
       </div>
     </Modal>
   );

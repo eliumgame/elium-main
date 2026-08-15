@@ -121,12 +121,17 @@ export default function SignatureCreator({
     id: "preview",
     kind: tab,
     visual:
-      tab === "drawn" ? { image: drawn }
-      : tab === "image" ? { image: imageData }
-      : tab === "typed" ? { text: typedText, fontFamily: typedFont }
-      : tab === "stamp" ? { stampStyle, text: stampText }
-      : tab === "initials" ? { text: initials, fontFamily: typedFont }
-      : { },
+      tab === "drawn"
+        ? { image: drawn }
+        : tab === "image"
+          ? { image: imageData }
+          : tab === "typed"
+            ? { text: typedText, fontFamily: typedFont }
+            : tab === "stamp"
+              ? { stampStyle, text: stampText }
+              : tab === "initials"
+                ? { text: initials, fontFamily: typedFont }
+                : {},
     placement: { page: 1, xPct: 0, yPct: 0, wPct: 1, hPct: 1, rotation: 0, z: 0, anchorType: "page" as const },
     signer: { name, role, date },
     proof: null,
@@ -141,7 +146,9 @@ export default function SignatureCreator({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
           <Button variant="primary" onClick={submit} disabled={building}>
             {building ? "…" : "Ajouter au document"}
           </Button>
@@ -161,14 +168,23 @@ export default function SignatureCreator({
             </div>
           )}
 
-          {(tab === "typed") && (
+          {tab === "typed" && (
             <>
               <Field label="Texte de la signature">
-                <input className="input" value={typedText} onChange={(e) => setTypedText(e.target.value)} placeholder="Ex. Jean Dupont" />
+                <input
+                  className="input"
+                  value={typedText}
+                  onChange={(e) => setTypedText(e.target.value)}
+                  placeholder="Ex. Jean Dupont"
+                />
               </Field>
               <Field label="Style">
                 <select className="input" value={typedFont} onChange={(e) => setTypedFont(e.target.value)}>
-                  {SCRIPT_FONTS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+                  {SCRIPT_FONTS.map((f) => (
+                    <option key={f.label} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </>
@@ -177,25 +193,52 @@ export default function SignatureCreator({
           {tab === "stamp" && (
             <>
               <Field label="Type de tampon">
-                <select className="input" value={stampStyle} onChange={(e) => setStampStyle(e.target.value as StampStyle)}>
-                  {STAMPS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                <select
+                  className="input"
+                  value={stampStyle}
+                  onChange={(e) => setStampStyle(e.target.value as StampStyle)}
+                >
+                  {STAMPS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
                 </select>
               </Field>
               <Field label="Texte (optionnel)" hint="Laisser vide pour utiliser le libellé par défaut.">
-                <input className="input" value={stampText} onChange={(e) => setStampText(e.target.value)} placeholder="CONFIDENTIEL" />
+                <input
+                  className="input"
+                  value={stampText}
+                  onChange={(e) => setStampText(e.target.value)}
+                  placeholder="CONFIDENTIEL"
+                />
               </Field>
             </>
           )}
 
           {tab === "initials" && (
             <Field label="Initiales">
-              <input className="input" value={initials} maxLength={6} onChange={(e) => setInitials(e.target.value.toUpperCase())} placeholder="JD" />
+              <input
+                className="input"
+                value={initials}
+                maxLength={6}
+                onChange={(e) => setInitials(e.target.value.toUpperCase())}
+                placeholder="JD"
+              />
             </Field>
           )}
 
           {tab === "qr" && (
-            <Field label="Contenu du QR code" hint="Identifiant ou lien de vérification. Par défaut : empreinte de votre clé.">
-              <input className="input" value={qrText} onChange={(e) => setQrText(e.target.value)} placeholder={`elium:verify?fp=${(identityFingerprint ?? "anon").slice(0, 12)}…`} />
+            <Field
+              label="Contenu du QR code"
+              hint="Identifiant ou lien de vérification. Par défaut : empreinte de votre clé."
+            >
+              <input
+                className="input"
+                value={qrText}
+                onChange={(e) => setQrText(e.target.value)}
+                placeholder={`elium:verify?fp=${(identityFingerprint ?? "anon").slice(0, 12)}…`}
+              />
             </Field>
           )}
         </div>
@@ -209,14 +252,27 @@ export default function SignatureCreator({
       </div>
 
       <div className="sig-creator__meta">
-        <Field label="Nom"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <Field label="Fonction"><input className="input" value={role} onChange={(e) => setRole(e.target.value)} /></Field>
-        <Field label="Société"><input className="input" value={org} onChange={(e) => setOrg(e.target.value)} /></Field>
-        <Field label="Date"><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Nom">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Fonction">
+          <input className="input" value={role} onChange={(e) => setRole(e.target.value)} />
+        </Field>
+        <Field label="Société">
+          <input className="input" value={org} onChange={(e) => setOrg(e.target.value)} />
+        </Field>
+        <Field label="Date">
+          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
       </div>
 
       <label className="checkbox-row">
-        <input type="checkbox" checked={wantsProof} disabled={!hasIdentity} onChange={(e) => setWantsProof(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={wantsProof}
+          disabled={!hasIdentity}
+          onChange={(e) => setWantsProof(e.target.checked)}
+        />
         <span>
           Ajouter une <b>preuve cryptographique</b> (signature Ed25519 + empreinte du document)
           {!hasIdentity && <span className="muted"> — nécessite une identité de signature.</span>}
@@ -229,8 +285,8 @@ export default function SignatureCreator({
       )}
 
       <Alert tone="info">
-        Une signature visuelle n'est pas une signature électronique qualifiée. La preuve cryptographique
-        atteste l'auteur et détecte les modifications, mais ne remplace pas un prestataire qualifié.
+        Une signature visuelle n'est pas une signature électronique qualifiée. La preuve cryptographique atteste
+        l'auteur et détecte les modifications, mais ne remplace pas un prestataire qualifié.
       </Alert>
     </Modal>
   );

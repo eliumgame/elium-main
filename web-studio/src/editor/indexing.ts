@@ -55,7 +55,10 @@ interface Raw {
 /** Fold raw marks into groups. Shared by the live and the JSON entry points. */
 function group(raws: Raw[], pageOf: PageOf | null): IndexGroup[] {
   // term → { pages, subs: subTerm → pages }
-  const byTerm = new Map<string, { term: string; pages: Set<number>; subs: Map<string, { term: string; pages: Set<number> }> }>();
+  const byTerm = new Map<
+    string,
+    { term: string; pages: Set<number>; subs: Map<string, { term: string; pages: Set<number> }> }
+  >();
 
   for (const raw of raws) {
     const term = raw.term.replace(/\s+/g, " ").trim();
@@ -106,7 +109,9 @@ function group(raws: Raw[], pageOf: PageOf | null): IndexGroup[] {
 
 /** Minimal ProseMirror node shape, so this module needs no TipTap import. */
 interface PMLike {
-  descendants(fn: (node: { type: { name: string }; attrs: Record<string, unknown> }, pos: number) => boolean | void): void;
+  descendants(
+    fn: (node: { type: { name: string }; attrs: Record<string, unknown> }, pos: number) => boolean | void,
+  ): void;
 }
 
 /** Build the index from a live ProseMirror document, with real page numbers. */
@@ -139,7 +144,9 @@ export function indexTerms(doc: ProseMirrorNode): string[] {
   const seen = new Map<string, string>();
   const walk = (node: ProseMirrorNode) => {
     if (node.type === "indexEntry") {
-      const term = String(node.attrs?.term ?? "").replace(/\s+/g, " ").trim();
+      const term = String(node.attrs?.term ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
       // First spelling wins, so the suggestion list keeps the author's own
       // capitalisation rather than whatever the last mark happened to use.
       const key = fold(term).toLowerCase();

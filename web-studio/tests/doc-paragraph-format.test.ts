@@ -20,7 +20,10 @@ const documentXml = (file: EliumFile) => strFromU8(unzipSync(docToDocx(file))["w
 
 const metrics = { pageContentPx: 100, gapPx: 40, marginLeftPx: 0, marginRightPx: 0 };
 const block = (pos: number, height: number, extra: Partial<MeasuredBlock> = {}): MeasuredBlock => ({
-  pos, height, isPageBreak: false, ...extra,
+  pos,
+  height,
+  isPageBreak: false,
+  ...extra,
 });
 
 describe("Paragraphe — bordures", () => {
@@ -46,7 +49,9 @@ describe("Paragraphe — bordures", () => {
 describe("Paragraphe — drapeaux d'enchaînement", () => {
   it("lit les trois drapeaux", () => {
     expect(paragraphPaginationFlags({ keepNext: true, keepLines: true, pageBreakBefore: true })).toEqual({
-      keepNext: true, keepLines: true, pageBreakBefore: true,
+      keepNext: true,
+      keepLines: true,
+      pageBreakBefore: true,
     });
   });
 
@@ -71,10 +76,7 @@ describe("Paragraphe — pagination", () => {
   it("déplace un titre solidaire avec son paragraphe", () => {
     // 70 utilisés, puis un titre de 20 solidaire d'un paragraphe de 40 :
     // 20 tiendrait seul (90 < 100) mais le groupe (60) non → les deux passent.
-    const plan = planPages(
-      [block(0, 70), block(1, 20, { keepNext: true }), block(2, 40)],
-      metrics,
-    );
+    const plan = planPages([block(0, 70), block(1, 20, { keepNext: true }), block(2, 40)], metrics);
     expect(plan.pageStartByPos.get(1)).toBe(2);
     expect(plan.pageStartByPos.get(2)).toBe(2);
   });

@@ -26,7 +26,10 @@ const TINY_PNG = Uint8Array.from(
 function makeP12(
   cn: string,
   password: string,
-  validity: { notBefore: Date; notAfter: Date } = { notBefore: new Date(Date.UTC(2020, 0, 1)), notAfter: new Date(Date.UTC(2035, 0, 1)) },
+  validity: { notBefore: Date; notAfter: Date } = {
+    notBefore: new Date(Date.UTC(2020, 0, 1)),
+    notAfter: new Date(Date.UTC(2035, 0, 1)),
+  },
 ): Uint8Array {
   const keys = forge.pki.rsa.generateKeyPair(2048);
   const cert = forge.pki.createCertificate();
@@ -34,7 +37,10 @@ function makeP12(
   cert.serialNumber = "01";
   cert.validity.notBefore = validity.notBefore;
   cert.validity.notAfter = validity.notAfter;
-  const attrs = [{ name: "commonName", value: cn }, { name: "organizationName", value: "Elium" }];
+  const attrs = [
+    { name: "commonName", value: cn },
+    { name: "organizationName", value: "Elium" },
+  ];
   cert.setSubject(attrs);
   cert.setIssuer(attrs);
   cert.sign(keys.privateKey, forge.md.sha256.create());

@@ -61,13 +61,20 @@ function anchorFor(position: Watermark["position"], w: number, h: number, cw: nu
   const cx = (w - cw) / 2;
   const cy = (h - ch) / 2;
   switch (position) {
-    case "top": return { x: cx, y: h - ch - margin };
-    case "bottom": return { x: cx, y: margin };
-    case "topLeft": return { x: margin, y: h - ch - margin };
-    case "topRight": return { x: w - cw - margin, y: h - ch - margin };
-    case "bottomLeft": return { x: margin, y: margin };
-    case "bottomRight": return { x: w - cw - margin, y: margin };
-    default: return { x: cx, y: cy };
+    case "top":
+      return { x: cx, y: h - ch - margin };
+    case "bottom":
+      return { x: cx, y: margin };
+    case "topLeft":
+      return { x: margin, y: h - ch - margin };
+    case "topRight":
+      return { x: w - cw - margin, y: h - ch - margin };
+    case "bottomLeft":
+      return { x: margin, y: margin };
+    case "bottomRight":
+      return { x: w - cw - margin, y: margin };
+    default:
+      return { x: cx, y: cy };
   }
 }
 
@@ -91,7 +98,7 @@ export async function applyWatermark(
   if (wm.mode === "image" && wm.src) {
     const img = await ctx.images.get(wm.src);
     if (img) {
-      const base = Math.min(W * 0.6 / img.width, H * 0.6 / img.height);
+      const base = Math.min((W * 0.6) / img.width, (H * 0.6) / img.height);
       const scale = base * (wm.scale || 1);
       const iw = img.width * scale;
       const ih = img.height * scale;
@@ -182,10 +189,7 @@ export async function applyBand(
     const text = sanitiseForFont(raw, unicode);
     if (!text.trim()) continue;
     const w = measure(font, text, size);
-    const x =
-      align === "center" ? X + (W - w) / 2
-        : align === "right" ? X + W - band.marginPt - w
-          : X + band.marginPt;
+    const x = align === "center" ? X + (W - w) / 2 : align === "right" ? X + W - band.marginPt - w : X + band.marginPt;
     p.text(font, size, { x, y }, text);
   }
   p.restore();

@@ -76,7 +76,9 @@ describe("Renvois — collecte des cibles", () => {
         content: [
           {
             type: "tableRow",
-            content: [{ type: "tableCell", content: [para({ type: "bookmark", attrs: { id: "bm-in", label: "dedans" } })] }],
+            content: [
+              { type: "tableCell", content: [para({ type: "bookmark", attrs: { id: "bm-in", label: "dedans" } })] },
+            ],
           },
         ],
       }),
@@ -127,9 +129,7 @@ describe("Renvois — libellé affiché", () => {
   });
 
   it("retombe sur le texte quand la cible n'a pas de numéro", () => {
-    const bookmark = collectTargetsJson(
-      doc(para({ type: "bookmark", attrs: { id: "bm-1", label: "Annexe" } })),
-    )[0]!;
+    const bookmark = collectTargetsJson(doc(para({ type: "bookmark", attrs: { id: "bm-1", label: "Annexe" } })))[0]!;
     expect(referenceLabel(bookmark, "number", null)).toBe("Annexe");
   });
 });

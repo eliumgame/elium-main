@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_CUSTOM_MM, MAX_PAGE_MM, MIN_PAGE_MM, PAGE_FORMATS, PAGE_FORMAT_LABELS, PAGE_SIZES_MM,
-  formatSizeMm, pageSizeMm, pageSizeOf,
+  DEFAULT_CUSTOM_MM,
+  MAX_PAGE_MM,
+  MIN_PAGE_MM,
+  PAGE_FORMATS,
+  PAGE_FORMAT_LABELS,
+  PAGE_SIZES_MM,
+  formatSizeMm,
+  pageSizeMm,
+  pageSizeOf,
 } from "../src/format/pageSizes";
 import type { PageSettings } from "../src/format/types";
 

@@ -11,7 +11,12 @@ import { NOTE_SIZE } from "../ops/annots-pdf";
  *  claire au lieu d'une boîte vide/glyphe « image cassée ». */
 function StampImg({ src, fit, label, tone }: { src: string; fit: "fill" | "contain"; label: string; tone: string }) {
   const [broken, setBroken] = useState(false);
-  if (broken) return <div className="pdfx-stamp" data-tone={tone}>{label}</div>;
+  if (broken)
+    return (
+      <div className="pdfx-stamp" data-tone={tone}>
+        {label}
+      </div>
+    );
   return (
     <img
       src={src}
@@ -68,7 +73,20 @@ interface DraftShape {
 const HANDLE_KEYS = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 type HandleKey = (typeof HANDLE_KEYS)[number];
 
-const BOX_TOOLS: AnnotKind[] = ["square", "circle", "whiteout", "redact", "freetext", "typewriter", "callout", "stamp", "image", "signature", "link", "area"];
+const BOX_TOOLS: AnnotKind[] = [
+  "square",
+  "circle",
+  "whiteout",
+  "redact",
+  "freetext",
+  "typewriter",
+  "callout",
+  "stamp",
+  "image",
+  "signature",
+  "link",
+  "area",
+];
 const LINE_TOOLS: AnnotKind[] = ["line", "arrow", "distance"];
 const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter"];
 
@@ -103,10 +121,14 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     return rectFromPoints(a, b);
   };
 
-  const snapPt = (pt: Pt): Pt =>
-    p.snap ? { x: Math.round(pt.x / 6) * 6, y: Math.round(pt.y / 6) * 6 } : pt;
+  const snapPt = (pt: Pt): Pt => (p.snap ? { x: Math.round(pt.x / 6) * 6, y: Math.round(pt.y / 6) * 6 } : pt);
 
-  const drawing = p.tool !== "select" && p.tool !== "textSelect" && p.tool !== "hand" && p.tool !== "eraser" && !p.tool.startsWith("field:");
+  const drawing =
+    p.tool !== "select" &&
+    p.tool !== "textSelect" &&
+    p.tool !== "hand" &&
+    p.tool !== "eraser" &&
+    !p.tool.startsWith("field:");
 
   // -- creating -------------------------------------------------------------
 
@@ -145,7 +167,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     setDraft(null);
     const kind = p.tool as AnnotKind;
     const min = kind === "polyline" || kind === "perimeter" ? 2 : 3;
-    if (pts.length < min) { p.onToolDone(); return; }
+    if (pts.length < min) {
+      p.onToolDone();
+      return;
+    }
     const annot = baseAnnot(kind, rectOfPoints(pts));
     annot.paths = [pts];
     if (kind === "cloud") annot.borderStyle = "cloudy";
@@ -170,7 +195,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
             window.removeEventListener("pointerup", up);
             const box = rectFromPoints(start, toPage(ev));
             setMarquee(null);
-            if (box.w < 3 && box.h < 3) { p.onSelect([], false); return; }
+            if (box.w < 3 && box.h < 3) {
+              p.onSelect([], false);
+              return;
+            }
             const hit = p.annots.filter((a) => intersects(a.rect, box)).map((a) => a.id);
             p.onSelect(hit, ev.shiftKey);
           };
@@ -188,7 +216,11 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     const kind = p.tool as AnnotKind;
     const start = snapPt(toPage(e));
 
-    if (kind === "image") { p.onRequestImage(start); p.onToolDone(); return; }
+    if (kind === "image") {
+      p.onRequestImage(start);
+      p.onToolDone();
+      return;
+    }
 
     if (kind === "note") {
       const annot = baseAnnot("note", { x: start.x, y: start.y, w: NOTE_SIZE, h: NOTE_SIZE });
@@ -220,7 +252,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         setDraft(null);
-        if (pts.length < 1) { p.onToolDone(); return; }
+        if (pts.length < 1) {
+          p.onToolDone();
+          return;
+        }
         const annot = baseAnnot("ink", rectOfPoints(pts));
         annot.paths = [pts];
         p.onCreate(annot);
@@ -244,7 +279,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         setDraft(null);
         let end = snapPt(toPage(ev));
         if (ev.shiftKey) end = constrainAngle(start, end);
-        if (Math.hypot(end.x - start.x, end.y - start.y) < 3) { p.onToolDone(); return; }
+        if (Math.hypot(end.x - start.x, end.y - start.y) < 3) {
+          p.onToolDone();
+          return;
+        }
         const annot = baseAnnot(kind, rectOfPoints([start, end]));
         annot.paths = [[start, end]];
         if (kind === "arrow" || kind === "distance") annot.lineEnd = annot.lineEnd === "none" ? "arrow" : annot.lineEnd;
@@ -272,7 +310,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         let rect = rectFromPoints(start, cur);
         const isText = kind === "freetext" || kind === "typewriter" || kind === "callout";
         if (rect.w < 5 || rect.h < 5) {
-          if (!isText && kind !== "stamp" && kind !== "signature") { p.onToolDone(); return; }
+          if (!isText && kind !== "stamp" && kind !== "signature") {
+            p.onToolDone();
+            return;
+          }
           // A click (not a drag) creates a default-sized box, like Acrobat.
           rect = {
             x: start.x,
@@ -290,8 +331,15 @@ export default function AnnotLayer(p: AnnotLayerProps) {
           ];
         }
         if (kind === "cloud") annot.borderStyle = "cloudy";
-        if (kind === "redact") { annot.fill = "#000000"; annot.color = "#000000"; }
-        if (kind === "whiteout") { annot.fill = "#ffffff"; annot.color = "#ffffff"; annot.strokeWidth = 0; }
+        if (kind === "redact") {
+          annot.fill = "#000000";
+          annot.color = "#000000";
+        }
+        if (kind === "whiteout") {
+          annot.fill = "#ffffff";
+          annot.color = "#ffffff";
+          annot.strokeWidth = 0;
+        }
         if (isText) annot.text = "";
         p.onCreate(annot);
         p.onSelect([annot.id], false);
@@ -305,14 +353,24 @@ export default function AnnotLayer(p: AnnotLayerProps) {
 
   // Polygon tools track the cursor between clicks and finish on Enter/Escape.
   useEffect(() => {
-    if (!POLY_TOOLS.includes(p.tool as AnnotKind)) { polyRef.current = []; return; }
+    if (!POLY_TOOLS.includes(p.tool as AnnotKind)) {
+      polyRef.current = [];
+      return;
+    }
     const move = (ev: PointerEvent) => {
       if (!polyRef.current.length) return;
       setDraft({ kind: p.tool as AnnotKind, polygon: [...polyRef.current], hover: toPage(ev) });
     };
     const key = (ev: KeyboardEvent) => {
-      if (ev.key === "Enter") { ev.preventDefault(); finishPolygon(); }
-      if (ev.key === "Escape") { polyRef.current = []; setDraft(null); p.onToolDone(); }
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        finishPolygon();
+      }
+      if (ev.key === "Escape") {
+        polyRef.current = [];
+        setDraft(null);
+        p.onToolDone();
+      }
     };
     const dbl = () => finishPolygon();
     window.addEventListener("pointermove", move);
@@ -330,7 +388,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
 
   const startMove = (e: React.PointerEvent, annot: Annot) => {
     if (annot.locked) return;
-    if (p.tool === "eraser") { p.onDelete([annot.id]); return; }
+    if (p.tool === "eraser") {
+      p.onDelete([annot.id]);
+      return;
+    }
     if (p.tool !== "select" && p.tool !== "textSelect") return;
     e.preventDefault();
     e.stopPropagation();
@@ -345,9 +406,15 @@ export default function AnnotLayer(p: AnnotLayerProps) {
       const cur = toPage(ev);
       let dx = cur.x - start.x;
       let dy = cur.y - start.y;
-      if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+      if (ev.shiftKey) {
+        if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+        else dx = 0;
+      }
       if (!moved && Math.hypot(dx, dy) < 1.5) return;
-      if (!moved) { moved = true; p.onBeginGesture(); }
+      if (!moved) {
+        moved = true;
+        p.onBeginGesture();
+      }
       for (const [id, geo] of originals) p.onUpdate(id, translate(geo, dx, dy), true);
     };
     const up = () => {
@@ -370,17 +437,31 @@ export default function AnnotLayer(p: AnnotLayerProps) {
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
       let { x, y, w, h } = o;
-      if (handle.includes("w")) { x = o.x + dx; w = o.w - dx; }
-      if (handle.includes("e")) { w = o.w + dx; }
-      if (handle.includes("n")) { y = o.y + dy; h = o.h - dy; }
-      if (handle.includes("s")) { h = o.h + dy; }
+      if (handle.includes("w")) {
+        x = o.x + dx;
+        w = o.w - dx;
+      }
+      if (handle.includes("e")) {
+        w = o.w + dx;
+      }
+      if (handle.includes("n")) {
+        y = o.y + dy;
+        h = o.h - dy;
+      }
+      if (handle.includes("s")) {
+        h = o.h + dy;
+      }
       if (ev.shiftKey && o.w > 0 && o.h > 0) {
         const ratio = o.w / o.h;
         if (Math.abs(w - o.w) > Math.abs(h - o.h)) h = w / ratio;
         else w = h * ratio;
       }
-      if (w < 6) { w = 6; }
-      if (h < 6) { h = 6; }
+      if (w < 6) {
+        w = 6;
+      }
+      if (h < 6) {
+        h = 6;
+      }
       p.onUpdate(annot.id, scaleGeometry(geo, o, { x, y, w, h }), true);
     };
     const up = () => {
@@ -456,7 +537,9 @@ export default function AnnotLayer(p: AnnotLayerProps) {
       "data-annot-id": a.id,
       className: `pdfx-shape ${selected ? "is-selected" : ""} ${a.locked ? "is-locked" : ""}`,
       onPointerDown: (e: React.PointerEvent) => startMove(e, a),
-      onDoubleClick: () => { if (isTextMarkup(a.kind) || a.kind === "note") p.onRequestNoteText(a); },
+      onDoubleClick: () => {
+        if (isTextMarkup(a.kind) || a.kind === "note") p.onRequestNoteText(a);
+      },
       onContextMenu: (e: React.MouseEvent) => {
         e.preventDefault();
         p.onContextMenu(a, { x: e.clientX, y: e.clientY });
@@ -481,7 +564,13 @@ export default function AnnotLayer(p: AnnotLayerProps) {
             ))}
             {/* Fat transparent hit area so thin ink is still grabbable. */}
             {(a.paths ?? []).map((path, i) => (
-              <path key={`hit${i}`} d={smoothSvg(path)} stroke="transparent" strokeWidth={Math.max(10, a.strokeWidth * p.scale + 8)} fill="none" />
+              <path
+                key={`hit${i}`}
+                d={smoothSvg(path)}
+                stroke="transparent"
+                strokeWidth={Math.max(10, a.strokeWidth * p.scale + 8)}
+                fill="none"
+              />
             ))}
           </g>
         );
@@ -493,14 +582,25 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         return (
           <g key={a.id} {...common}>
             <rect
-              x={r.x + inset} y={r.y + inset}
-              width={Math.max(0, r.w - inset * 2)} height={Math.max(0, r.h - inset * 2)}
+              x={r.x + inset}
+              y={r.y + inset}
+              width={Math.max(0, r.w - inset * 2)}
+              height={Math.max(0, r.h - inset * 2)}
               {...strokeProps(a)}
               fill={a.kind === "redact" ? (a.fill ?? "#000") : a.kind === "whiteout" ? "#fff" : (a.fill ?? "none")}
               fillOpacity={a.kind === "redact" || a.kind === "whiteout" ? 1 : a.fill ? a.opacity : 0}
             />
             {a.kind === "redact" && (
-              <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="none" stroke="#dc2626" strokeWidth={1.5} strokeDasharray="5 3" />
+              <rect
+                x={r.x}
+                y={r.y}
+                width={r.w}
+                height={r.h}
+                fill="none"
+                stroke="#dc2626"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+              />
             )}
             <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="transparent" />
           </g>
@@ -512,8 +612,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         return (
           <g key={a.id} {...common}>
             <ellipse
-              cx={r.x + r.w / 2} cy={r.y + r.h / 2}
-              rx={Math.max(0.5, r.w / 2 - inset)} ry={Math.max(0.5, r.h / 2 - inset)}
+              cx={r.x + r.w / 2}
+              cy={r.y + r.h / 2}
+              rx={Math.max(0.5, r.w / 2 - inset)}
+              ry={Math.max(0.5, r.h / 2 - inset)}
               {...strokeProps(a)}
             />
             <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="transparent" />
@@ -523,14 +625,32 @@ export default function AnnotLayer(p: AnnotLayerProps) {
       case "line":
       case "arrow":
       case "distance": {
-        const pts = a.paths?.[0] ?? [{ x: a.rect.x, y: a.rect.y }, { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h }];
+        const pts = a.paths?.[0] ?? [
+          { x: a.rect.x, y: a.rect.y },
+          { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h },
+        ];
         const v = pts.map(toView);
         return (
           <g key={a.id} {...common}>
-            <line x1={v[0].x} y1={v[0].y} x2={v[1].x} y2={v[1].y} {...strokeProps(a)} fill="none" markerEnd={undefined} />
+            <line
+              x1={v[0].x}
+              y1={v[0].y}
+              x2={v[1].x}
+              y2={v[1].y}
+              {...strokeProps(a)}
+              fill="none"
+              markerEnd={undefined}
+            />
             {a.lineEnd && a.lineEnd !== "none" && renderArrowHead(v[1], v[0], a, p.scale)}
             {a.lineStart && a.lineStart !== "none" && renderArrowHead(v[0], v[1], a, p.scale)}
-            <line x1={v[0].x} y1={v[0].y} x2={v[1].x} y2={v[1].y} stroke="transparent" strokeWidth={Math.max(12, a.strokeWidth * p.scale + 10)} />
+            <line
+              x1={v[0].x}
+              y1={v[0].y}
+              x2={v[1].x}
+              y2={v[1].y}
+              stroke="transparent"
+              strokeWidth={Math.max(12, a.strokeWidth * p.scale + 10)}
+            />
             {a.kind === "distance" && renderCaption(a, midpoint(v[0], v[1]), measureLabel(a, pts))}
           </g>
         );
@@ -545,8 +665,14 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         return (
           <g key={a.id} {...common}>
             <path d={svgPath(pts, close)} {...strokeProps(a)} />
-            <path d={svgPath(pts, close)} stroke="transparent" strokeWidth={Math.max(12, a.strokeWidth * p.scale + 10)} fill="none" />
-            {(a.kind === "perimeter" || a.kind === "area") && renderCaption(a, centroid(pts.map(toView)), measureLabel(a, pts))}
+            <path
+              d={svgPath(pts, close)}
+              stroke="transparent"
+              strokeWidth={Math.max(12, a.strokeWidth * p.scale + 10)}
+              fill="none"
+            />
+            {(a.kind === "perimeter" || a.kind === "area") &&
+              renderCaption(a, centroid(pts.map(toView)), measureLabel(a, pts))}
           </g>
         );
       }
@@ -555,7 +681,13 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         if (pts.length < 2) return null;
         return (
           <g key={`${a.id}-leader`} data-annot-id={a.id} className="pdfx-shape" onPointerDown={(e) => startMove(e, a)}>
-            <path d={`M ${pts.map((q) => `${q.x} ${q.y}`).join(" L ")}`} stroke={a.color} strokeWidth={Math.max(1, a.strokeWidth) * p.scale} fill="none" strokeLinejoin="round" />
+            <path
+              d={`M ${pts.map((q) => `${q.x} ${q.y}`).join(" L ")}`}
+              stroke={a.color}
+              strokeWidth={Math.max(1, a.strokeWidth) * p.scale}
+              fill="none"
+              strokeLinejoin="round"
+            />
             {renderArrowHead(pts[0], pts[1], a, p.scale)}
           </g>
         );
@@ -564,7 +696,16 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         const r = viewRect(a.rect);
         return (
           <g key={a.id} {...common}>
-            <rect x={r.x} y={r.y} width={r.w} height={r.h} fill="rgba(37,99,235,.08)" stroke="#2563eb" strokeWidth={1} strokeDasharray="4 3" />
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill="rgba(37,99,235,.08)"
+              stroke="#2563eb"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
           </g>
         );
       }
@@ -577,15 +718,39 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     const v = q.map(toView);
     const poly = v.map((pt) => `${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(" ");
     if (a.kind === "highlight") {
-      return <polygon key={i} points={poly} fill={a.color} fillOpacity={a.opacity} style={{ mixBlendMode: "multiply" }} />;
+      return (
+        <polygon key={i} points={poly} fill={a.color} fillOpacity={a.opacity} style={{ mixBlendMode: "multiply" }} />
+      );
     }
     const [tl, tr, br, bl] = v;
     const w = Math.max(0.6, a.strokeWidth) * p.scale;
     if (a.kind === "underline") {
-      return <line key={i} x1={bl.x} y1={bl.y - (bl.y - tl.y) * 0.08} x2={br.x} y2={br.y - (br.y - tr.y) * 0.08} stroke={a.color} strokeWidth={w} strokeOpacity={a.opacity} />;
+      return (
+        <line
+          key={i}
+          x1={bl.x}
+          y1={bl.y - (bl.y - tl.y) * 0.08}
+          x2={br.x}
+          y2={br.y - (br.y - tr.y) * 0.08}
+          stroke={a.color}
+          strokeWidth={w}
+          strokeOpacity={a.opacity}
+        />
+      );
     }
     if (a.kind === "strikeout") {
-      return <line key={i} x1={tl.x} y1={(tl.y + bl.y) / 2} x2={tr.x} y2={(tr.y + br.y) / 2} stroke={a.color} strokeWidth={w} strokeOpacity={a.opacity} />;
+      return (
+        <line
+          key={i}
+          x1={tl.x}
+          y1={(tl.y + bl.y) / 2}
+          x2={tr.x}
+          y2={(tr.y + br.y) / 2}
+          stroke={a.color}
+          strokeWidth={w}
+          strokeOpacity={a.opacity}
+        />
+      );
     }
     // squiggly
     const y = bl.y - 1;
@@ -603,11 +768,16 @@ export default function AnnotLayer(p: AnnotLayerProps) {
   const renderCaption = (a: Annot, at: Pt, label: string) => (
     <g pointerEvents="none">
       <rect
-        x={at.x - label.length * 3 - 4} y={at.y - 9}
-        width={label.length * 6 + 8} height={16}
-        rx={3} fill="rgba(255,255,255,.92)"
+        x={at.x - label.length * 3 - 4}
+        y={at.y - 9}
+        width={label.length * 6 + 8}
+        height={16}
+        rx={3}
+        fill="rgba(255,255,255,.92)"
       />
-      <text x={at.x} y={at.y + 3} textAnchor="middle" fontSize={11} fill={a.color} fontFamily="Inter, sans-serif">{label}</text>
+      <text x={at.x} y={at.y + 3} textAnchor="middle" fontSize={11} fill={a.color} fontFamily="Inter, sans-serif">
+        {label}
+      </text>
     </g>
   );
 
@@ -653,7 +823,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         className={`pdfx-html ${cls} ${selected ? "is-selected" : ""} ${a.locked ? "is-locked" : ""}`}
         style={base}
         onPointerDown={(e) => startMove(e, a)}
-        onContextMenu={(e) => { e.preventDefault(); p.onContextMenu(a, { x: e.clientX, y: e.clientY }); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          p.onContextMenu(a, { x: e.clientX, y: e.clientY });
+        }}
       >
         {children}
       </div>
@@ -666,7 +839,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
           className="pdfx-note"
           style={{ background: a.color }}
           title={a.contents || "Note"}
-          onClick={(e) => { e.stopPropagation(); p.onRequestNoteText(a); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            p.onRequestNoteText(a);
+          }}
         >
           <span className="pdfx-note__tail" style={{ borderTopColor: a.color }} />
           {(a.replies?.length ?? 0) > 0 && <span className="pdfx-note__count">{a.replies!.length}</span>}
@@ -677,11 +853,15 @@ export default function AnnotLayer(p: AnnotLayerProps) {
 
     if (a.kind === "stamp" || a.kind === "image" || a.kind === "signature") {
       const tone = a.stampTone ?? "red";
-      const label = a.kind === "signature" ? "Signature" : a.kind === "image" ? "Image" : (a.stampLabel || "TAMPON");
+      const label = a.kind === "signature" ? "Signature" : a.kind === "image" ? "Image" : a.stampLabel || "TAMPON";
       return wrapper(
-        a.src
-          ? <StampImg src={a.src} fit={a.kind === "image" ? "fill" : "contain"} label={label} tone={tone} />
-          : <div className="pdfx-stamp" data-tone={tone}>{label}</div>,
+        a.src ? (
+          <StampImg src={a.src} fit={a.kind === "image" ? "fill" : "contain"} label={label} tone={tone} />
+        ) : (
+          <div className="pdfx-stamp" data-tone={tone}>
+            {label}
+          </div>
+        ),
       );
     }
 
@@ -704,9 +884,10 @@ export default function AnnotLayer(p: AnnotLayerProps) {
           className="pdfx-textbox__bg"
           style={{
             background: a.textBg ?? "transparent",
-            border: a.strokeWidth > 0 && a.kind !== "typewriter"
-              ? `${a.strokeWidth * p.scale}px ${a.borderStyle === "dashed" ? "dashed" : "solid"} ${a.color}`
-              : "none",
+            border:
+              a.strokeWidth > 0 && a.kind !== "typewriter"
+                ? `${a.strokeWidth * p.scale}px ${a.borderStyle === "dashed" ? "dashed" : "solid"} ${a.color}`
+                : "none",
           }}
         />
         {editing ? (
@@ -721,14 +902,20 @@ export default function AnnotLayer(p: AnnotLayerProps) {
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === "Escape") { e.preventDefault(); p.onEdit(null); }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                p.onEdit(null);
+              }
             }}
           />
         ) : (
           <div
             className="pdfx-textbox__text"
             style={textStyle}
-            onDoubleClick={(e) => { e.stopPropagation(); if (!a.locked) p.onEdit(a.id); }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (!a.locked) p.onEdit(a.id);
+            }}
           >
             {a.text || <span className="pdfx-textbox__hint">Double-cliquez pour saisir</span>}
           </div>
@@ -744,35 +931,34 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     const poly = isPolyKind(a.kind) || a.kind === "line" || a.kind === "arrow" || a.kind === "distance";
     return (
       <div key={`h-${a.id}`} className="pdfx-handles" style={{ left: r.x, top: r.y, width: r.w, height: r.h }}>
-        {!poly && HANDLE_KEYS.map((k) => (
-          <span
-            key={k}
-            className={`pdfx-handle pdfx-handle--${k}`}
-            onPointerDown={(e) => startResize(e, a, k)}
-          />
-        ))}
-        {poly && (a.paths?.[0] ?? []).map((pt, i) => {
-          const v = toView(pt);
-          return (
-            <span
-              key={i}
-              className="pdfx-handle pdfx-handle--vertex"
-              style={{ left: v.x - r.x, top: v.y - r.y }}
-              onPointerDown={(e) => startVertexDrag(e, a, i, "path")}
-            />
-          );
-        })}
-        {a.kind === "callout" && (a.callout ?? []).map((pt, i) => {
-          const v = toView(pt);
-          return (
-            <span
-              key={`c${i}`}
-              className="pdfx-handle pdfx-handle--callout"
-              style={{ left: v.x - r.x, top: v.y - r.y }}
-              onPointerDown={(e) => startVertexDrag(e, a, i, "callout")}
-            />
-          );
-        })}
+        {!poly &&
+          HANDLE_KEYS.map((k) => (
+            <span key={k} className={`pdfx-handle pdfx-handle--${k}`} onPointerDown={(e) => startResize(e, a, k)} />
+          ))}
+        {poly &&
+          (a.paths?.[0] ?? []).map((pt, i) => {
+            const v = toView(pt);
+            return (
+              <span
+                key={i}
+                className="pdfx-handle pdfx-handle--vertex"
+                style={{ left: v.x - r.x, top: v.y - r.y }}
+                onPointerDown={(e) => startVertexDrag(e, a, i, "path")}
+              />
+            );
+          })}
+        {a.kind === "callout" &&
+          (a.callout ?? []).map((pt, i) => {
+            const v = toView(pt);
+            return (
+              <span
+                key={`c${i}`}
+                className="pdfx-handle pdfx-handle--callout"
+                style={{ left: v.x - r.x, top: v.y - r.y }}
+                onPointerDown={(e) => startVertexDrag(e, a, i, "callout")}
+              />
+            );
+          })}
       </div>
     );
   };
@@ -792,12 +978,7 @@ export default function AnnotLayer(p: AnnotLayerProps) {
         {shapes.map(renderShape)}
         {htmls.filter((a) => a.kind === "callout").map(renderShape)}
         {draft && renderDraft(draft, p.style, toView, p.scale)}
-        {marquee && (
-          <rect
-            {...toSvgRect(viewRect(marquee))}
-            className="pdfx-marquee"
-          />
-        )}
+        {marquee && <rect {...toSvgRect(viewRect(marquee))} className="pdfx-marquee" />}
       </svg>
       {htmls.map(renderHtml)}
       {p.tool === "select" && selected.map(renderHandles)}
@@ -810,7 +991,15 @@ export default function AnnotLayer(p: AnnotLayerProps) {
 // ---------------------------------------------------------------------------
 
 function isHtmlKind(k: AnnotKind): boolean {
-  return k === "note" || k === "freetext" || k === "typewriter" || k === "callout" || k === "stamp" || k === "image" || k === "signature";
+  return (
+    k === "note" ||
+    k === "freetext" ||
+    k === "typewriter" ||
+    k === "callout" ||
+    k === "stamp" ||
+    k === "image" ||
+    k === "signature"
+  );
 }
 
 function toSvgRect(r: Rect) {
@@ -910,7 +1099,9 @@ function renderDraft(draft: DraftShape, style: DraftStyle, toView: (p: Pt) => Pt
     const b = toView({ x: draft.rect.x + draft.rect.w, y: draft.rect.y + draft.rect.h });
     const r = rectFromPoints(a, b);
     if (draft.kind === "circle") {
-      return <ellipse cx={r.x + r.w / 2} cy={r.y + r.h / 2} rx={r.w / 2} ry={r.h / 2} {...stroke} strokeDasharray="5 4" />;
+      return (
+        <ellipse cx={r.x + r.w / 2} cy={r.y + r.h / 2} rx={r.w / 2} ry={r.h / 2} {...stroke} strokeDasharray="5 4" />
+      );
     }
     return <rect {...toSvgRect(r)} {...stroke} strokeDasharray="5 4" />;
   }
@@ -923,7 +1114,13 @@ function renderDraft(draft: DraftShape, style: DraftStyle, toView: (p: Pt) => Pt
     const pts = [...draft.polygon, ...(draft.hover ? [draft.hover] : [])].map(toView);
     return (
       <g>
-        <path d={`M ${pts.map((q) => `${q.x} ${q.y}`).join(" L ")}`} {...stroke} fill="none" fillOpacity={0} strokeDasharray="5 4" />
+        <path
+          d={`M ${pts.map((q) => `${q.x} ${q.y}`).join(" L ")}`}
+          {...stroke}
+          fill="none"
+          fillOpacity={0}
+          strokeDasharray="5 4"
+        />
         {draft.polygon.map(toView).map((q, i) => (
           <circle key={i} cx={q.x} cy={q.y} r={3} fill="#fff" stroke={style.color} strokeWidth={1.5} />
         ))}

@@ -38,7 +38,16 @@ export const PAGE_FORMAT_LABELS: Record<PageFormat, string> = {
 
 /** Order shown in the dialog: metric family, then the US family, then custom. */
 export const PAGE_FORMATS: PageFormat[] = [
-  "A3", "A4", "A5", "A6", "B5", "Letter", "Legal", "Executive", "Tabloid", "Custom",
+  "A3",
+  "A4",
+  "A5",
+  "A6",
+  "B5",
+  "Letter",
+  "Legal",
+  "Executive",
+  "Tabloid",
+  "Custom",
 ];
 
 export const MIN_PAGE_MM = 50;

@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
-import {
-  validateValue, validationAt, inValidation, buildValidator, describeValidation,
-} from "../src/sheet/validation";
+import { validateValue, validationAt, inValidation, buildValidator, describeValidation } from "../src/sheet/validation";
 import type { DataValidation } from "../src/sheet/model";
 
-const rule = (over: Partial<DataValidation>): DataValidation =>
-  ({ id: "v", c0: 0, r0: 0, c1: 2, r1: 2, type: "number", ...over });
+const rule = (over: Partial<DataValidation>): DataValidation => ({
+  id: "v",
+  c0: 0,
+  r0: 0,
+  c1: 2,
+  r1: 2,
+  type: "number",
+  ...over,
+});
 
 describe("data validation — validateValue", () => {
   it("list: only allowed values pass", () => {
@@ -59,9 +64,9 @@ describe("data validation — range helpers", () => {
   it("buildValidator returns a reason only for invalid cells", () => {
     const raw: Record<string, string> = { "0,0": "5", "1,0": "50" };
     const v = buildValidator([rule({ op: "between", v1: "1", v2: "10" })], (c, r) => raw[`${c},${r}`] ?? "");
-    expect(v(0, 0)).toBeNull();          // 5 in [1,10]
+    expect(v(0, 0)).toBeNull(); // 5 in [1,10]
     expect(typeof v(1, 0)).toBe("string"); // 50 out of range → reason
-    expect(v(5, 5)).toBeNull();          // no rule covers it
+    expect(v(5, 5)).toBeNull(); // no rule covers it
   });
 
   it("describeValidation is human-readable", () => {

@@ -81,7 +81,8 @@ export async function getWorkflow(docKey: string, vaultSecret?: VaultSecret): Pr
   const rec = await run<StoredWorkflow | undefined>("readonly", (s) => s.get(docKey));
   if (!rec) return undefined;
   if (!rec.vaultProtected) return { docKey: rec.docKey, createdAt: rec.createdAt, parties: rec.parties ?? [] };
-  if (!hasVaultSecret(vaultSecret)) throw new Error("Ce circuit de signature est protégé par le coffre local — déverrouillez-le d'abord.");
+  if (!hasVaultSecret(vaultSecret))
+    throw new Error("Ce circuit de signature est protégé par le coffre local — déverrouillez-le d'abord.");
   const parties = await decryptAtRest<Party[]>(rec.enc!, vaultSecret!);
   return { docKey: rec.docKey, createdAt: rec.createdAt, parties };
 }
@@ -89,7 +90,12 @@ export async function getWorkflow(docKey: string, vaultSecret?: VaultSecret): Pr
 /** Encrypts the signer list at rest when `vaultSecret` carries a password. */
 export async function saveWorkflow(wf: Workflow, vaultSecret?: VaultSecret): Promise<void> {
   const record: StoredWorkflow = hasVaultSecret(vaultSecret)
-    ? { docKey: wf.docKey, createdAt: wf.createdAt, vaultProtected: true, enc: await encryptAtRest(wf.parties, vaultSecret!) }
+    ? {
+        docKey: wf.docKey,
+        createdAt: wf.createdAt,
+        vaultProtected: true,
+        enc: await encryptAtRest(wf.parties, vaultSecret!),
+      }
     : { docKey: wf.docKey, createdAt: wf.createdAt, vaultProtected: false, parties: wf.parties };
   await run("readwrite", (s) => s.put(record));
 }
@@ -106,7 +112,10 @@ export async function deleteWorkflow(docKey: string): Promise<void> {
  * `put` fails, the whole batch rolls back rather than leaving some workflows
  * under `from` and others under `to`.
  */
-export async function reencryptParapheurVault(from: VaultSecret | undefined, to: VaultSecret | undefined): Promise<void> {
+export async function reencryptParapheurVault(
+  from: VaultSecret | undefined,
+  to: VaultSecret | undefined,
+): Promise<void> {
   const all = await run<StoredWorkflow[]>("readonly", (s) => s.getAll());
   const next: StoredWorkflow[] = [];
   for (const rec of all) {
@@ -127,9 +136,18 @@ export async function reencryptParapheurVault(from: VaultSecret | undefined, to:
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(STORE, "readwrite");
-    t.oncomplete = () => { db.close(); resolve(); };
-    t.onerror = () => { db.close(); reject(t.error ?? new Error("Transaction annulée")); };
-    t.onabort = () => { db.close(); reject(t.error ?? new Error("Transaction annulée")); };
+    t.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    t.onerror = () => {
+      db.close();
+      reject(t.error ?? new Error("Transaction annulée"));
+    };
+    t.onabort = () => {
+      db.close();
+      reject(t.error ?? new Error("Transaction annulée"));
+    };
     const store = t.objectStore(STORE);
     for (const rec of next) store.put(rec);
   });

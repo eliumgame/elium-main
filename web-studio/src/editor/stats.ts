@@ -86,10 +86,14 @@ export function readability(text: string): { score: number; label: string } {
   const score = Math.round(207 - 1.015 * wordsPerSentence - 0.736 * syllablesPer100);
   const clamped = Math.max(0, Math.min(100, score));
   const label =
-    clamped >= 80 ? "très facile"
-      : clamped >= 60 ? "facile"
-        : clamped >= 40 ? "standard"
-          : clamped >= 20 ? "difficile"
+    clamped >= 80
+      ? "très facile"
+      : clamped >= 60
+        ? "facile"
+        : clamped >= 40
+          ? "standard"
+          : clamped >= 20
+            ? "difficile"
             : "très difficile";
   return { score: clamped, label };
 }
@@ -105,12 +109,86 @@ export function countSyllablesFr(word: string): number {
 
 /** Most frequent words, ignoring the French stop list — a quick keyword view. */
 const STOP_WORDS = new Set([
-  "le", "la", "les", "un", "une", "des", "de", "du", "au", "aux", "et", "ou", "où", "à", "en",
-  "dans", "par", "pour", "sur", "sous", "avec", "sans", "que", "qui", "quoi", "dont", "ce",
-  "cet", "cette", "ces", "se", "sa", "son", "ses", "il", "elle", "ils", "elles", "on", "nous",
-  "vous", "je", "tu", "me", "te", "lui", "leur", "leurs", "est", "sont", "été", "être", "a",
-  "ont", "avoir", "plus", "moins", "ne", "pas", "ni", "mais", "donc", "or", "car", "si", "y",
-  "the", "of", "and", "to", "in", "is", "it", "for", "as", "was", "on", "are", "with", "be",
+  "le",
+  "la",
+  "les",
+  "un",
+  "une",
+  "des",
+  "de",
+  "du",
+  "au",
+  "aux",
+  "et",
+  "ou",
+  "où",
+  "à",
+  "en",
+  "dans",
+  "par",
+  "pour",
+  "sur",
+  "sous",
+  "avec",
+  "sans",
+  "que",
+  "qui",
+  "quoi",
+  "dont",
+  "ce",
+  "cet",
+  "cette",
+  "ces",
+  "se",
+  "sa",
+  "son",
+  "ses",
+  "il",
+  "elle",
+  "ils",
+  "elles",
+  "on",
+  "nous",
+  "vous",
+  "je",
+  "tu",
+  "me",
+  "te",
+  "lui",
+  "leur",
+  "leurs",
+  "est",
+  "sont",
+  "été",
+  "être",
+  "a",
+  "ont",
+  "avoir",
+  "plus",
+  "moins",
+  "ne",
+  "pas",
+  "ni",
+  "mais",
+  "donc",
+  "or",
+  "car",
+  "si",
+  "y",
+  "the",
+  "of",
+  "and",
+  "to",
+  "in",
+  "is",
+  "it",
+  "for",
+  "as",
+  "was",
+  "on",
+  "are",
+  "with",
+  "be",
 ]);
 
 export function keywords(text: string, limit = 12): { word: string; count: number }[] {

@@ -10,21 +10,68 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownUp, ChevronRight, Download, File as FileIcon, FileSpreadsheet, FileText, FileType,
-  FilePlus2, Folder, FolderPlus, Grid2x2, History, Home, Image as ImageIcon, Info, LayoutList,
-  Loader2, PenLine, Pencil, Presentation, RefreshCw, Search, Share2, Trash2, Upload, Users2, X,
+  ArrowDownUp,
+  ChevronRight,
+  Download,
+  File as FileIcon,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  FilePlus2,
+  Folder,
+  FolderPlus,
+  Grid2x2,
+  History,
+  Home,
+  Image as ImageIcon,
+  Info,
+  LayoutList,
+  Loader2,
+  PenLine,
+  Pencil,
+  Presentation,
+  RefreshCw,
+  Search,
+  Share2,
+  Trash2,
+  Upload,
+  Users2,
+  X,
 } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
 import { ApiError } from "../api";
 import {
-  listFolder, createFolder, createCollabDoc, createCollabSheet, createCollabSlides, uploadFile,
-  renameNode, downloadFile, nodeKeyFrom, triggerDownload, type DriveEntry, type OpsCtx,
+  listFolder,
+  createFolder,
+  createCollabDoc,
+  createCollabSheet,
+  createCollabSlides,
+  uploadFile,
+  renameNode,
+  downloadFile,
+  nodeKeyFrom,
+  triggerDownload,
+  type DriveEntry,
+  type OpsCtx,
 } from "../ops";
 import {
-  EMPTY_FILTER, FILTER_LABELS, canDropInto, humanDate, humanSize, isCollab,
-  movePayload, nextSelection, pruneSelection, quotaState, selectionSummary, visibleEntries,
-  type BrowserFilter, type SortDir, type SortKey, type ViewMode,
+  EMPTY_FILTER,
+  FILTER_LABELS,
+  canDropInto,
+  humanDate,
+  humanSize,
+  isCollab,
+  movePayload,
+  nextSelection,
+  pruneSelection,
+  quotaState,
+  selectionSummary,
+  visibleEntries,
+  type BrowserFilter,
+  type SortDir,
+  type SortKey,
+  type ViewMode,
 } from "../browser-model";
 import ShareDialog from "./ShareDialog";
 import SignRequestDialog from "./SignRequestDialog";
@@ -61,15 +108,24 @@ async function parseImportedDoc(file: File): Promise<ProseMirrorNode | null> {
 function iconFor(e: DriveEntry, size = 18) {
   if (e.kind === "folder") return <Folder size={size} className="dc-ic dc-ic--folder" />;
   switch (e.appKind) {
-    case "collab-doc": return <Users2 size={size} className="dc-ic--collab" />;
-    case "collab-sheet": return <FileSpreadsheet size={size} className="dc-ic--collab" />;
-    case "collab-slides": return <Presentation size={size} className="dc-ic--collab" />;
-    case "doc": return <FileText size={size} />;
-    case "sheet": return <FileSpreadsheet size={size} />;
-    case "slides": return <Presentation size={size} />;
-    case "pdf": return <FileType size={size} />;
-    case "image": return <ImageIcon size={size} />;
-    default: return <FileIcon size={size} />;
+    case "collab-doc":
+      return <Users2 size={size} className="dc-ic--collab" />;
+    case "collab-sheet":
+      return <FileSpreadsheet size={size} className="dc-ic--collab" />;
+    case "collab-slides":
+      return <Presentation size={size} className="dc-ic--collab" />;
+    case "doc":
+      return <FileText size={size} />;
+    case "sheet":
+      return <FileSpreadsheet size={size} />;
+    case "slides":
+      return <Presentation size={size} />;
+    case "pdf":
+      return <FileType size={size} />;
+    case "image":
+      return <ImageIcon size={size} />;
+    default:
+      return <FileIcon size={size} />;
   }
 }
 
@@ -91,7 +147,12 @@ export default function DriveBrowser() {
   const [shareTarget, setShareTarget] = useState<DriveEntry | null>(null);
   const [signTarget, setSignTarget] = useState<DriveEntry | null>(null);
   const [versionsTarget, setVersionsTarget] = useState<DriveEntry | null>(null);
-  const [collab, setCollab] = useState<{ kind: "doc" | "sheet" | "slides"; entry: DriveEntry; nodeKey: Uint8Array; seed?: ProseMirrorNode } | null>(null);
+  const [collab, setCollab] = useState<{
+    kind: "doc" | "sheet" | "slides";
+    entry: DriveEntry;
+    nodeKey: Uint8Array;
+    seed?: ProseMirrorNode;
+  } | null>(null);
 
   const [view, setView] = useState<ViewMode>("list");
   const [filter, setFilter] = useState<BrowserFilter>(EMPTY_FILTER);
@@ -146,7 +207,9 @@ export default function DriveBrowser() {
     }
   }, [ctx, currentId]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   // Rafraîchissement SILENCIEUX (ni spinner, ni vidage en cas d'erreur
   // transitoire) : sert au rafraîchissement automatique ci-dessous sans faire
@@ -182,7 +245,9 @@ export default function DriveBrowser() {
     let reconnect: number | undefined;
     const bump = () => {
       window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => { if (document.visibilityState !== "hidden") void silentRefreshRef.current(); }, 250);
+      debounce = window.setTimeout(() => {
+        if (document.visibilityState !== "hidden") void silentRefreshRef.current();
+      }, 250);
     };
     const connect = () => {
       if (closed) return;
@@ -193,17 +258,35 @@ export default function DriveBrowser() {
         return;
       }
       ws.onmessage = (ev) => {
-        try { if ((JSON.parse(String(ev.data)) as { type?: string }).type === "nodes-changed") bump(); }
-        catch { /* ping non-JSON ignoré */ }
+        try {
+          if ((JSON.parse(String(ev.data)) as { type?: string }).type === "nodes-changed") bump();
+        } catch {
+          /* ping non-JSON ignoré */
+        }
       };
-      ws.onclose = () => { if (!closed) { window.clearTimeout(reconnect); reconnect = window.setTimeout(connect, 4000); } };
-      ws.onerror = () => { try { ws?.close(); } catch { /* ignore */ } };
+      ws.onclose = () => {
+        if (!closed) {
+          window.clearTimeout(reconnect);
+          reconnect = window.setTimeout(connect, 4000);
+        }
+      };
+      ws.onerror = () => {
+        try {
+          ws?.close();
+        } catch {
+          /* ignore */
+        }
+      };
     };
     connect();
     // Filet de sécurité : poll rare (25 s) seulement quand l'onglet est visible,
     // + rafraîchissement au retour de focus (couvre une reconnexion manquée).
-    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void silentRefreshRef.current(); }, 25000);
-    const onVisible = () => { if (document.visibilityState === "visible") void silentRefreshRef.current(); };
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void silentRefreshRef.current();
+    }, 25000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void silentRefreshRef.current();
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {
@@ -213,7 +296,11 @@ export default function DriveBrowser() {
       window.clearInterval(poll);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
-      try { ws?.close(); } catch { /* ignore */ }
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
     };
   }, [orgId, d.api]);
 
@@ -221,20 +308,24 @@ export default function DriveBrowser() {
   useEffect(() => {
     if (!ctx) return;
     let cancelled = false;
-    void d.api.getOrgUsage(ctx.orgId)
-      .then((u) => { if (!cancelled) setUsage({ usedBytes: u.usedBytes, quotaBytes: u.quotaBytes }); })
-      .catch(() => { /* quota is informational */ });
-    return () => { cancelled = true; };
+    void d.api
+      .getOrgUsage(ctx.orgId)
+      .then((u) => {
+        if (!cancelled) setUsage({ usedBytes: u.usedBytes, quotaBytes: u.quotaBytes });
+      })
+      .catch(() => {
+        /* quota is informational */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [ctx, d.api, entries.length]);
 
   const canCreateHere = currentId
     ? true // server enforces node.create on the parent
-    : (d.currentOrg?.roleKey === "owner" || d.currentOrg?.roleKey === "admin" || d.currentOrg?.roleKey === "manager");
+    : d.currentOrg?.roleKey === "owner" || d.currentOrg?.roleKey === "admin" || d.currentOrg?.roleKey === "manager";
 
-  const shown = useMemo(
-    () => visibleEntries(entries, filter, sortKey, sortDir),
-    [entries, filter, sortKey, sortDir],
-  );
+  const shown = useMemo(() => visibleEntries(entries, filter, sortKey, sortDir), [entries, filter, sortKey, sortDir]);
   const shownIds = useMemo(() => shown.map((e) => e.id), [shown]);
   const selected = useMemo(() => entries.filter((e) => selection.includes(e.id)), [entries, selection]);
   const only = selected.length === 1 ? selected[0] : null;
@@ -252,13 +343,19 @@ export default function DriveBrowser() {
     try {
       await createFolder(ctx, currentId, name);
       await reload();
-    } catch (e) { await fail("Création impossible", e); }
+    } catch (e) {
+      await fail("Création impossible", e);
+    }
   };
 
   const newCollab = async (kind: "doc" | "sheet" | "slides") => {
     if (!ctx) return;
     const label = kind === "doc" ? "Document" : kind === "sheet" ? "Tableur" : "Présentation";
-    const name = await dialogs.prompt({ title: `${label} collaboratif`, label: "Nom", defaultValue: `${label} sans titre` });
+    const name = await dialogs.prompt({
+      title: `${label} collaboratif`,
+      label: "Nom",
+      defaultValue: `${label} sans titre`,
+    });
     if (!name) return;
     try {
       const create = kind === "doc" ? createCollabDoc : kind === "sheet" ? createCollabSheet : createCollabSlides;
@@ -271,7 +368,9 @@ export default function DriveBrowser() {
       setEntries(next);
       const entry = next.find((e) => e.id === node.id);
       if (entry) await openCollab(entry);
-    } catch (e) { await fail("Création impossible", e); }
+    } catch (e) {
+      await fail("Création impossible", e);
+    }
   };
 
   const openCollab = async (e: DriveEntry, seed?: ProseMirrorNode) => {
@@ -304,21 +403,24 @@ export default function DriveBrowser() {
     return true;
   };
 
-  const uploadMany = useCallback(async (files: File[]) => {
-    if (!ctx || !files.length) return;
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setBusyLabel(`Chiffrement et envoi ${i + 1}/${files.length} — ${files[i].name}`);
-        await uploadFile(ctx, currentId, files[i]);
+  const uploadMany = useCallback(
+    async (files: File[]) => {
+      if (!ctx || !files.length) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          setBusyLabel(`Chiffrement et envoi ${i + 1}/${files.length} — ${files[i].name}`);
+          await uploadFile(ctx, currentId, files[i]);
+        }
+        await reload();
+      } catch (e) {
+        await fail("Envoi impossible", e);
+      } finally {
+        setBusyLabel(null);
       }
-      await reload();
-    } catch (e) {
-      await fail("Envoi impossible", e);
-    } finally {
-      setBusyLabel(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx, currentId, reload]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [ctx, currentId, reload],
+  );
 
   /**
    * Point d'entrée de l'import (bouton et glisser-déposer).
@@ -327,23 +429,26 @@ export default function DriveBrowser() {
    * Plusieurs fichiers, ou un format non-document, partent en envoi chiffré
    * ordinaire — ouvrir un éditeur n'aurait pas de sens pour un lot ou une image.
    */
-  const handleImport = useCallback(async (files: File[]) => {
-    if (!ctx || !files.length) return;
-    if (files.length === 1) {
-      try {
-        setBusyLabel(`Import — ${files[0].name}`);
-        const opened = await importAsDoc(files[0]);
-        if (opened) return;
-      } catch (e) {
-        await fail("Import impossible", e);
-        return;
-      } finally {
-        setBusyLabel(null);
+  const handleImport = useCallback(
+    async (files: File[]) => {
+      if (!ctx || !files.length) return;
+      if (files.length === 1) {
+        try {
+          setBusyLabel(`Import — ${files[0].name}`);
+          const opened = await importAsDoc(files[0]);
+          if (opened) return;
+        } catch (e) {
+          await fail("Import impossible", e);
+          return;
+        } finally {
+          setBusyLabel(null);
+        }
       }
-    }
-    await uploadMany(files);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx, currentId, uploadMany]);
+      await uploadMany(files);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [ctx, currentId, uploadMany],
+  );
 
   const onUpload = async (ev: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(ev.target.files ?? []);
@@ -352,8 +457,10 @@ export default function DriveBrowser() {
   };
 
   const open = (e: DriveEntry) => {
-    if (e.kind === "folder") { setPath((p) => [...p, { id: e.id, name: e.name }]); setSelection([]); }
-    else if (isCollab(e)) void openCollab(e);
+    if (e.kind === "folder") {
+      setPath((p) => [...p, { id: e.id, name: e.name }]);
+      setSelection([]);
+    } else if (isCollab(e)) void openCollab(e);
     else void download(e);
   };
 
@@ -363,8 +470,11 @@ export default function DriveBrowser() {
       setBusyLabel(`Déchiffrement — ${e.name}`);
       const { bytes, name } = await downloadFile(ctx, e);
       triggerDownload(bytes, name);
-    } catch (e2) { await fail("Téléchargement impossible", e2); }
-    finally { setBusyLabel(null); }
+    } catch (e2) {
+      await fail("Téléchargement impossible", e2);
+    } finally {
+      setBusyLabel(null);
+    }
   };
 
   const rename = async (e: DriveEntry) => {
@@ -374,7 +484,9 @@ export default function DriveBrowser() {
     try {
       await renameNode(ctx, e, name);
       await reload();
-    } catch (e2) { await fail("Renommage impossible", e2); }
+    } catch (e2) {
+      await fail("Renommage impossible", e2);
+    }
   };
 
   const trashMany = async (targets: DriveEntry[]) => {
@@ -392,8 +504,11 @@ export default function DriveBrowser() {
       for (const t of targets) await d.api.trashNode(t.id);
       setSelection([]);
       await reload();
-    } catch (e) { await fail("Suppression impossible", e); }
-    finally { setBusyLabel(null); }
+    } catch (e) {
+      await fail("Suppression impossible", e);
+    } finally {
+      setBusyLabel(null);
+    }
   };
 
   /** Move by drag & drop. The server re-fans the key shares for the new parent. */
@@ -405,16 +520,20 @@ export default function DriveBrowser() {
       for (const p of payload) await d.api.patchNode(p.id, { parentId: p.parentId });
       setSelection([]);
       await reload();
-    } catch (e) { await fail("Déplacement impossible", e); }
-    finally { setBusyLabel(null); }
+    } catch (e) {
+      await fail("Déplacement impossible", e);
+    } finally {
+      setBusyLabel(null);
+    }
   };
 
   // -- selection & keyboard --------------------------------------------------
 
   const click = (e: React.MouseEvent, entry: DriveEntry) => {
-    const { selection: next, anchor: nextAnchor } = nextSelection(
-      shownIds, selection, anchor, entry.id, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey },
-    );
+    const { selection: next, anchor: nextAnchor } = nextSelection(shownIds, selection, anchor, entry.id, {
+      ctrl: e.ctrlKey || e.metaKey,
+      shift: e.shiftKey,
+    });
     setSelection(next);
     setAnchor(nextAnchor);
   };
@@ -429,11 +548,29 @@ export default function DriveBrowser() {
         setSelection(shownIds);
         return;
       }
-      if (ev.key === "Escape") { setSelection([]); return; }
-      if (ev.key === "Enter" && only) { ev.preventDefault(); open(only); return; }
-      if (ev.key === "F2" && only) { ev.preventDefault(); void rename(only); return; }
-      if (ev.key === "Delete" && selected.length) { ev.preventDefault(); void trashMany(selected); return; }
-      if (ev.key === "Backspace" && path.length) { ev.preventDefault(); setPath((p) => p.slice(0, -1)); }
+      if (ev.key === "Escape") {
+        setSelection([]);
+        return;
+      }
+      if (ev.key === "Enter" && only) {
+        ev.preventDefault();
+        open(only);
+        return;
+      }
+      if (ev.key === "F2" && only) {
+        ev.preventDefault();
+        void rename(only);
+        return;
+      }
+      if (ev.key === "Delete" && selected.length) {
+        ev.preventDefault();
+        void trashMany(selected);
+        return;
+      }
+      if (ev.key === "Backspace" && path.length) {
+        ev.preventDefault();
+        setPath((p) => p.slice(0, -1));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -453,7 +590,10 @@ export default function DriveBrowser() {
       ev.dataTransfer.effectAllowed = "move";
       ev.dataTransfer.setData("text/plain", ids.join(","));
     },
-    onDragEnd: () => { draggingIds.current = []; setDropTarget(null); },
+    onDragEnd: () => {
+      draggingIds.current = [];
+      setDropTarget(null);
+    },
     onDragOver: (ev: React.DragEvent) => {
       const dragged = entries.filter((x) => draggingIds.current.includes(x.id));
       if (!canDropInto(dragged, e, currentId)) return;
@@ -482,7 +622,9 @@ export default function DriveBrowser() {
         ev.preventDefault();
         setFileDragOver(true);
       }}
-      onDragLeave={(ev) => { if (ev.currentTarget === ev.target) setFileDragOver(false); }}
+      onDragLeave={(ev) => {
+        if (ev.currentTarget === ev.target) setFileDragOver(false);
+      }}
       onDrop={(ev) => {
         if (!ev.dataTransfer.types.includes("Files")) return;
         ev.preventDefault();
@@ -495,7 +637,10 @@ export default function DriveBrowser() {
         <nav className="dcx-crumbs">
           <button
             className={`dcx-crumb ${dropTarget === "__root" ? "is-drop" : ""}`}
-            onClick={() => { setPath([]); setSelection([]); }}
+            onClick={() => {
+              setPath([]);
+              setSelection([]);
+            }}
             onDragOver={(ev) => {
               const dragged = entries.filter((x) => draggingIds.current.includes(x.id));
               if (!canDropInto(dragged, null, currentId)) return;
@@ -517,7 +662,10 @@ export default function DriveBrowser() {
               <ChevronRight size={13} className="dcx-crumb-sep" />
               <button
                 className={`dcx-crumb ${dropTarget === p.id ? "is-drop" : ""}`}
-                onClick={() => { setPath((cur) => cur.slice(0, i + 1)); setSelection([]); }}
+                onClick={() => {
+                  setPath((cur) => cur.slice(0, i + 1));
+                  setSelection([]);
+                }}
                 onDragOver={(ev) => {
                   if (i === path.length - 1) return; // already here
                   const dragged = entries.filter((x) => draggingIds.current.includes(x.id));
@@ -541,22 +689,48 @@ export default function DriveBrowser() {
 
         <span className="elx-spacer" />
 
-        <button className="elx-mini" onClick={newFolder} disabled={!canCreateHere} title={canCreateHere ? "Nouveau dossier" : "Vous n'avez pas le droit de créer ici"}>
+        <button
+          className="elx-mini"
+          onClick={newFolder}
+          disabled={!canCreateHere}
+          title={canCreateHere ? "Nouveau dossier" : "Vous n'avez pas le droit de créer ici"}
+        >
           <FolderPlus size={14} /> Dossier
         </button>
-        <button className="elx-mini" onClick={() => void newCollab("doc")} disabled={!canCreateHere} title="Document collaboratif (co-édition temps réel)">
+        <button
+          className="elx-mini"
+          onClick={() => void newCollab("doc")}
+          disabled={!canCreateHere}
+          title="Document collaboratif (co-édition temps réel)"
+        >
           <FilePlus2 size={14} /> Doc
         </button>
-        <button className="elx-mini" onClick={() => void newCollab("sheet")} disabled={!canCreateHere} title="Tableur collaboratif">
+        <button
+          className="elx-mini"
+          onClick={() => void newCollab("sheet")}
+          disabled={!canCreateHere}
+          title="Tableur collaboratif"
+        >
           <FileSpreadsheet size={14} /> Tableur
         </button>
-        <button className="elx-mini" onClick={() => void newCollab("slides")} disabled={!canCreateHere} title="Présentation collaborative">
+        <button
+          className="elx-mini"
+          onClick={() => void newCollab("slides")}
+          disabled={!canCreateHere}
+          title="Présentation collaborative"
+        >
           <Presentation size={14} /> Présentation
         </button>
-        <button className="elx-mini elx-mini--primary" onClick={() => fileRef.current?.click()} disabled={!canCreateHere}>
+        <button
+          className="elx-mini elx-mini--primary"
+          onClick={() => fileRef.current?.click()}
+          disabled={!canCreateHere}
+        >
           <Upload size={14} /> Importer
         </button>
-        <button className="elx-icon" title="Actualiser" onClick={() => void reload()}><RefreshCw size={15} /></button>
+        <button className="elx-icon" title="Actualiser" onClick={() => void reload()}>
+          <RefreshCw size={15} />
+        </button>
         <input ref={fileRef} type="file" multiple hidden onChange={onUpload} />
       </div>
 
@@ -570,7 +744,9 @@ export default function DriveBrowser() {
             onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))}
           />
           {filter.query && (
-            <button className="elx-icon" title="Effacer" onClick={() => setFilter((f) => ({ ...f, query: "" }))}><X size={13} /></button>
+            <button className="elx-icon" title="Effacer" onClick={() => setFilter((f) => ({ ...f, query: "" }))}>
+              <X size={13} />
+            </button>
           )}
         </label>
 
@@ -588,8 +764,17 @@ export default function DriveBrowser() {
 
         <span className="elx-spacer" />
 
-        <select className="elx-select" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} title="Trier par">
-          {SORT_LABELS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        <select
+          className="elx-select"
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          title="Trier par"
+        >
+          {SORT_LABELS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
         </select>
         <button
           className="elx-icon"
@@ -598,9 +783,27 @@ export default function DriveBrowser() {
         >
           <ArrowDownUp size={15} style={{ transform: sortDir === "desc" ? "scaleY(-1)" : undefined }} />
         </button>
-        <button className={`elx-icon ${view === "list" ? "is-on" : ""}`} title="Vue liste" onClick={() => setView("list")}><LayoutList size={15} /></button>
-        <button className={`elx-icon ${view === "grid" ? "is-on" : ""}`} title="Vue grille" onClick={() => setView("grid")}><Grid2x2 size={15} /></button>
-        <button className={`elx-icon ${details ? "is-on" : ""}`} title="Volet de détails" onClick={() => setDetails((v) => !v)}><Info size={15} /></button>
+        <button
+          className={`elx-icon ${view === "list" ? "is-on" : ""}`}
+          title="Vue liste"
+          onClick={() => setView("list")}
+        >
+          <LayoutList size={15} />
+        </button>
+        <button
+          className={`elx-icon ${view === "grid" ? "is-on" : ""}`}
+          title="Vue grille"
+          onClick={() => setView("grid")}
+        >
+          <Grid2x2 size={15} />
+        </button>
+        <button
+          className={`elx-icon ${details ? "is-on" : ""}`}
+          title="Volet de détails"
+          onClick={() => setDetails((v) => !v)}
+        >
+          <Info size={15} />
+        </button>
       </div>
 
       {/* --- bulk action bar --------------------------------------------- */}
@@ -609,32 +812,52 @@ export default function DriveBrowser() {
           <b>{selected.length} sélectionnés</b>
           <span className="dcx-bulk__meta">{selectionSummary(selected)}</span>
           <span className="elx-spacer" />
-          <button className="elx-mini" onClick={() => selected.filter((e) => e.kind === "file" && !isCollab(e)).forEach((e) => void download(e))}>
+          <button
+            className="elx-mini"
+            onClick={() => selected.filter((e) => e.kind === "file" && !isCollab(e)).forEach((e) => void download(e))}
+          >
             <Download size={13} /> Télécharger
           </button>
-          <button className="elx-mini elx-mini--danger" onClick={() => void trashMany(selected)}><Trash2 size={13} /> Corbeille</button>
-          <button className="elx-icon" title="Désélectionner" onClick={() => setSelection([])}><X size={14} /></button>
+          <button className="elx-mini elx-mini--danger" onClick={() => void trashMany(selected)}>
+            <Trash2 size={13} /> Corbeille
+          </button>
+          <button className="elx-icon" title="Désélectionner" onClick={() => setSelection([])}>
+            <X size={14} />
+          </button>
         </div>
       )}
 
       {err && <p className="dc-error">{err}</p>}
 
       <div className="dcx-body">
-        <div className="dcx-listing" onClick={(e) => { if (e.target === e.currentTarget) setSelection([]); }}>
+        <div
+          className="dcx-listing"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelection([]);
+          }}
+        >
           {loading ? (
-            <div className="elx-empty"><Loader2 size={22} className="elx-spin" /><br />Chargement…</div>
+            <div className="elx-empty">
+              <Loader2 size={22} className="elx-spin" />
+              <br />
+              Chargement…
+            </div>
           ) : !shown.length ? (
             <div className="elx-empty">
               <Folder size={30} />
               <p>
                 {entries.length
                   ? "Aucun élément ne correspond à votre recherche."
-                  : currentId ? "Ce dossier est vide." : "Aucun fichier."}
+                  : currentId
+                    ? "Ce dossier est vide."
+                    : "Aucun fichier."}
               </p>
               {!entries.length && (
-                <p>{canCreateHere
-                  ? "Créez un dossier, ou déposez des fichiers ici."
-                  : "Demandez à un administrateur de partager un espace avec vous."}</p>
+                <p>
+                  {canCreateHere
+                    ? "Créez un dossier, ou déposez des fichiers ici."
+                    : "Demandez à un administrateur de partager un espace avec vous."}
+                </p>
               )}
             </div>
           ) : view === "list" ? (
@@ -654,22 +877,47 @@ export default function DriveBrowser() {
                     className={`dcx-row ${selection.includes(e.id) ? "is-selected" : ""} ${dropTarget === e.id ? "is-drop" : ""}`}
                     {...rowProps(e)}
                   >
-                    <td className="dcx-row__name">{iconFor(e)}<span>{e.name}</span></td>
+                    <td className="dcx-row__name">
+                      {iconFor(e)}
+                      <span>{e.name}</span>
+                    </td>
                     <td className="dcx-row__muted">{e.kind === "folder" ? "—" : humanSize(e.sizeBytes)}</td>
-                    <td className="dcx-row__muted" title={new Date(e.modifiedAt).toLocaleString("fr-FR")}>{humanDate(e.modifiedAt)}</td>
+                    <td className="dcx-row__muted" title={new Date(e.modifiedAt).toLocaleString("fr-FR")}>
+                      {humanDate(e.modifiedAt)}
+                    </td>
                     <td className="dcx-row__actions" onClick={(ev) => ev.stopPropagation()}>
                       {e.kind === "file" && !isCollab(e) && (
                         <>
-                          <button className="elx-icon" title="Télécharger" onClick={() => void download(e)}><Download size={15} /></button>
-                          <button className="elx-icon" title="Historique des versions" onClick={() => setVersionsTarget(e)}><History size={15} /></button>
+                          <button className="elx-icon" title="Télécharger" onClick={() => void download(e)}>
+                            <Download size={15} />
+                          </button>
+                          <button
+                            className="elx-icon"
+                            title="Historique des versions"
+                            onClick={() => setVersionsTarget(e)}
+                          >
+                            <History size={15} />
+                          </button>
                         </>
                       )}
-                      <button className="elx-icon" title="Partager" onClick={() => setShareTarget(e)}><Share2 size={15} /></button>
+                      <button className="elx-icon" title="Partager" onClick={() => setShareTarget(e)}>
+                        <Share2 size={15} />
+                      </button>
                       {e.appKind === "elium" && (
-                        <button className="elx-icon" title="Demander une signature par lien" onClick={() => setSignTarget(e)}><PenLine size={15} /></button>
+                        <button
+                          className="elx-icon"
+                          title="Demander une signature par lien"
+                          onClick={() => setSignTarget(e)}
+                        >
+                          <PenLine size={15} />
+                        </button>
                       )}
-                      <button className="elx-icon" title="Renommer (F2)" onClick={() => void rename(e)}><Pencil size={15} /></button>
-                      <button className="elx-icon" title="Corbeille (Suppr)" onClick={() => void trashMany([e])}><Trash2 size={15} /></button>
+                      <button className="elx-icon" title="Renommer (F2)" onClick={() => void rename(e)}>
+                        <Pencil size={15} />
+                      </button>
+                      <button className="elx-icon" title="Corbeille (Suppr)" onClick={() => void trashMany([e])}>
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -684,7 +932,9 @@ export default function DriveBrowser() {
                   {...rowProps(e)}
                 >
                   <span className="dcx-tile__icon">{iconFor(e, 30)}</span>
-                  <span className="dcx-tile__name" title={e.name}>{e.name}</span>
+                  <span className="dcx-tile__name" title={e.name}>
+                    {e.name}
+                  </span>
                   <span className="dcx-tile__meta">
                     {e.kind === "folder" ? "Dossier" : humanSize(e.sizeBytes)} · {humanDate(e.modifiedAt)}
                   </span>
@@ -699,7 +949,9 @@ export default function DriveBrowser() {
             <div className="elx-panel">
               <div className="elx-panel__head">
                 <span className="elx-panel__title">Détails</span>
-                <button className="elx-icon" onClick={() => setDetails(false)} title="Fermer"><X size={14} /></button>
+                <button className="elx-icon" onClick={() => setDetails(false)} title="Fermer">
+                  <X size={14} />
+                </button>
               </div>
               <div className="elx-panel__body">
                 {!only ? (
@@ -715,22 +967,50 @@ export default function DriveBrowser() {
                       <b>{only.name}</b>
                     </div>
                     <dl className="elx-facts">
-                      <div><dt>Type</dt><dd>{only.kind === "folder" ? "Dossier" : (only.appKind ?? "Fichier")}</dd></div>
-                      <div><dt>Taille</dt><dd>{only.kind === "folder" ? "—" : humanSize(only.sizeBytes)}</dd></div>
-                      <div><dt>Modifié</dt><dd>{new Date(only.modifiedAt).toLocaleString("fr-FR")}</dd></div>
-                      <div><dt>Créé</dt><dd>{new Date(only.createdAt).toLocaleString("fr-FR")}</dd></div>
-                      <div><dt>Chiffrement</dt><dd>bout en bout</dd></div>
-                      {only.keyEpoch !== undefined && <div><dt>Génération de clé</dt><dd>{only.keyEpoch}</dd></div>}
+                      <div>
+                        <dt>Type</dt>
+                        <dd>{only.kind === "folder" ? "Dossier" : (only.appKind ?? "Fichier")}</dd>
+                      </div>
+                      <div>
+                        <dt>Taille</dt>
+                        <dd>{only.kind === "folder" ? "—" : humanSize(only.sizeBytes)}</dd>
+                      </div>
+                      <div>
+                        <dt>Modifié</dt>
+                        <dd>{new Date(only.modifiedAt).toLocaleString("fr-FR")}</dd>
+                      </div>
+                      <div>
+                        <dt>Créé</dt>
+                        <dd>{new Date(only.createdAt).toLocaleString("fr-FR")}</dd>
+                      </div>
+                      <div>
+                        <dt>Chiffrement</dt>
+                        <dd>bout en bout</dd>
+                      </div>
+                      {only.keyEpoch !== undefined && (
+                        <div>
+                          <dt>Génération de clé</dt>
+                          <dd>{only.keyEpoch}</dd>
+                        </div>
+                      )}
                     </dl>
                     <div className="dcx-details__actions">
-                      <button className="elx-mini" onClick={() => setShareTarget(only)}><Share2 size={13} /> Partager</button>
+                      <button className="elx-mini" onClick={() => setShareTarget(only)}>
+                        <Share2 size={13} /> Partager
+                      </button>
                       {only.appKind === "elium" && (
-                        <button className="elx-mini" onClick={() => setSignTarget(only)}><PenLine size={13} /> Demander signature</button>
+                        <button className="elx-mini" onClick={() => setSignTarget(only)}>
+                          <PenLine size={13} /> Demander signature
+                        </button>
                       )}
                       {only.kind === "file" && !isCollab(only) && (
-                        <button className="elx-mini" onClick={() => setVersionsTarget(only)}><History size={13} /> Versions</button>
+                        <button className="elx-mini" onClick={() => setVersionsTarget(only)}>
+                          <History size={13} /> Versions
+                        </button>
                       )}
-                      <button className="elx-mini" onClick={() => void rename(only)}><Pencil size={13} /> Renommer</button>
+                      <button className="elx-mini" onClick={() => void rename(only)}>
+                        <Pencil size={13} /> Renommer
+                      </button>
                     </div>
                   </>
                 )}
@@ -742,74 +1022,92 @@ export default function DriveBrowser() {
 
       {/* --- status bar --------------------------------------------------- */}
       <div className="elx-status dcx-status">
-        <span>{shown.length} élément{shown.length > 1 ? "s" : ""}{entries.length !== shown.length ? ` sur ${entries.length}` : ""}</span>
-        {selected.length > 0 && <><span>·</span><span>{selectionSummary(selected)}</span></>}
-        {busyLabel && <><span>·</span><span><Loader2 size={12} className="elx-spin" /> {busyLabel}</span></>}
+        <span>
+          {shown.length} élément{shown.length > 1 ? "s" : ""}
+          {entries.length !== shown.length ? ` sur ${entries.length}` : ""}
+        </span>
+        {selected.length > 0 && (
+          <>
+            <span>·</span>
+            <span>{selectionSummary(selected)}</span>
+          </>
+        )}
+        {busyLabel && (
+          <>
+            <span>·</span>
+            <span>
+              <Loader2 size={12} className="elx-spin" /> {busyLabel}
+            </span>
+          </>
+        )}
         <span className="elx-status__spacer" />
         {gauge && (
           <span className={`dcx-quota is-${gauge.tone}`} title="Stockage utilisé par l'organisation">
-            <span className="dcx-quota__bar"><span style={{ width: `${Math.round(gauge.ratio * 100)}%` }} /></span>
+            <span className="dcx-quota__bar">
+              <span style={{ width: `${Math.round(gauge.ratio * 100)}%` }} />
+            </span>
             {gauge.label}
           </span>
         )}
       </div>
 
       {fileDragOver && (
-        <div className="dcx-dropveil"><Upload size={26} /> Déposez pour chiffrer et importer ici</div>
+        <div className="dcx-dropveil">
+          <Upload size={26} /> Déposez pour chiffrer et importer ici
+        </div>
       )}
 
-      {shareTarget && ctx && (
-        <ShareDialog ctx={ctx} entry={shareTarget} onClose={() => setShareTarget(null)} />
-      )}
+      {shareTarget && ctx && <ShareDialog ctx={ctx} entry={shareTarget} onClose={() => setShareTarget(null)} />}
 
-      {signTarget && ctx && (
-        <SignRequestDialog ctx={ctx} entry={signTarget} onClose={() => setSignTarget(null)} />
-      )}
+      {signTarget && ctx && <SignRequestDialog ctx={ctx} entry={signTarget} onClose={() => setSignTarget(null)} />}
 
       {versionsTarget && ctx && (
         <VersionsDialog ctx={ctx} entry={versionsTarget} onClose={() => setVersionsTarget(null)} />
       )}
 
-      {collab && ctx && d.user && (() => {
-        const common = {
-          api: ctx.api,
-          nodeId: collab.entry.id,
-          nodeKey: collab.nodeKey,
-          title: collab.entry.name,
-          user: { id: d.user.id, name: d.user.displayName || d.user.email },
-          onClose: () => setCollab(null),
-          // After a key rotation the relay evicts the room; re-unwrap our
-          // (freshly re-wrapped) node key and resume seamlessly.
-          //
-          // getNode() failing does NOT necessarily mean access was revoked —
-          // it can just as well be a transient network hiccup, a timeout, or a
-          // server 5xx during the rotation. Only a confirmed 403/404 (or the
-          // server telling us we have no key share for the node) means access
-          // was actually revoked; anything else is retried a few times before
-          // giving up, and if still failing, the error is rethrown so the
-          // caller (EncryptedCollabChannel) treats it like an ordinary
-          // reconnect instead of a permanent, definitive closure.
-          refetchKey: async () => {
-            const attempts = 3;
-            for (let i = 0; i < attempts; i++) {
-              try {
-                const { myWrappedKey } = await ctx.api.getNode(collab.entry.id);
-                return await nodeKeyFrom(ctx, myWrappedKey);
-              } catch (e) {
-                if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
-                  return null; // access genuinely revoked — stop for good
+      {collab &&
+        ctx &&
+        d.user &&
+        (() => {
+          const common = {
+            api: ctx.api,
+            nodeId: collab.entry.id,
+            nodeKey: collab.nodeKey,
+            title: collab.entry.name,
+            user: { id: d.user.id, name: d.user.displayName || d.user.email },
+            onClose: () => setCollab(null),
+            // After a key rotation the relay evicts the room; re-unwrap our
+            // (freshly re-wrapped) node key and resume seamlessly.
+            //
+            // getNode() failing does NOT necessarily mean access was revoked —
+            // it can just as well be a transient network hiccup, a timeout, or a
+            // server 5xx during the rotation. Only a confirmed 403/404 (or the
+            // server telling us we have no key share for the node) means access
+            // was actually revoked; anything else is retried a few times before
+            // giving up, and if still failing, the error is rethrown so the
+            // caller (EncryptedCollabChannel) treats it like an ordinary
+            // reconnect instead of a permanent, definitive closure.
+            refetchKey: async () => {
+              const attempts = 3;
+              for (let i = 0; i < attempts; i++) {
+                try {
+                  const { myWrappedKey } = await ctx.api.getNode(collab.entry.id);
+                  return await nodeKeyFrom(ctx, myWrappedKey);
+                } catch (e) {
+                  if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+                    return null; // access genuinely revoked — stop for good
+                  }
+                  if (i === attempts - 1) throw e; // transient — let the caller retry later
+                  await new Promise((r) => setTimeout(r, 400 * (i + 1)));
                 }
-                if (i === attempts - 1) throw e; // transient — let the caller retry later
-                await new Promise((r) => setTimeout(r, 400 * (i + 1)));
               }
-            }
-            return null;
-          },
-        };
-        if (collab.kind === "sheet") return <CollabSheetEditor key={collab.entry.id} {...common} />;
-        if (collab.kind === "slides") return <CollabSlidesEditor key={collab.entry.id} {...common} />;
-        return <CollabDocEditor key={collab.entry.id} {...common} seed={collab.seed} />;
-      })()}
+              return null;
+            },
+          };
+          if (collab.kind === "sheet") return <CollabSheetEditor key={collab.entry.id} {...common} />;
+          if (collab.kind === "slides") return <CollabSlidesEditor key={collab.entry.id} {...common} />;
+          return <CollabDocEditor key={collab.entry.id} {...common} seed={collab.seed} />;
+        })()}
     </div>
   );
 }

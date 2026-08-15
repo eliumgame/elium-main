@@ -16,10 +16,7 @@ describe("cross-sheet references (Feuille2!A1)", () => {
   });
 
   it("resolves a qualified range in an aggregate", () => {
-    const c = wbCalc(
-      { Main: { A1: "=SUM(Data!A1:A3)" }, Data: { A1: "1", A2: "2", A3: "3" } },
-      "Main",
-    );
+    const c = wbCalc({ Main: { A1: "=SUM(Data!A1:A3)" }, Data: { A1: "1", A2: "2", A3: "3" } }, "Main");
     expect(c.valueOf("A1")).toBe(6);
   });
 
@@ -39,7 +36,7 @@ describe("cross-sheet references (Feuille2!A1)", () => {
   });
 
   it("returns #REF for any qualified ref when the calc has no workbook", () => {
-    const c = createCalc((ref) => ({ A1: "=Feuille2!A1" } as Record<string, string>)[ref]);
+    const c = createCalc((ref) => (({ A1: "=Feuille2!A1" }) as Record<string, string>)[ref]);
     expect(c.valueOf("A1")).toEqual({ error: "#REF" });
   });
 
@@ -50,8 +47,13 @@ describe("cross-sheet references (Feuille2!A1)", () => {
 });
 
 describe("rewriteRefs — leaves cross-sheet refs intact under structural edits", () => {
-  const insertRow = (at: number): RefMap => (col, row) => ({ col, row: row >= at ? row + 1 : row });
-  const deleteRow = (at: number): RefMap => (col, row) => (row === at ? null : { col, row: row > at ? row - 1 : row });
+  const insertRow =
+    (at: number): RefMap =>
+    (col, row) => ({ col, row: row >= at ? row + 1 : row });
+  const deleteRow =
+    (at: number): RefMap =>
+    (col, row) =>
+      row === at ? null : { col, row: row > at ? row - 1 : row };
   const offsetRow1: RefMap = (col, row) => ({ col, row: row + 1 });
 
   it("does not shift a cross-sheet address while shifting the local one", () => {

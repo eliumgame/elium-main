@@ -450,7 +450,10 @@ export const CrossReference = Node.create({
               if (dispatch) tr.setNodeMarkup(attrs.pos, undefined, { ...node.attrs, refId: anchorId });
               return true;
             })
-            .insertContent({ type: name, attrs: { targetId: anchorId, kind: attrs.kind, display: attrs.display, cached } })
+            .insertContent({
+              type: name,
+              attrs: { targetId: anchorId, kind: attrs.kind, display: attrs.display, cached },
+            })
             .run();
         },
     };

@@ -14,13 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
-import {
-  verifyEd25519,
-  sha256Hex,
-  randomHex,
-  encryptServerSecret,
-  decryptServerSecret,
-} from "../lib/crypto-server.js";
+import { verifyEd25519, sha256Hex, randomHex, encryptServerSecret, decryptServerSecret } from "../lib/crypto-server.js";
 import { issueAccessToken, newRefreshToken, hashToken, issueScopedToken, verifyScopedToken } from "../lib/tokens.js";
 import { generateTotpSecret, verifyTotp, otpauthUri, generateBackupCodes } from "../lib/totp.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
@@ -28,10 +22,16 @@ import { badRequest, unauthorized, conflict, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
 import {
-  hasWebauthn, listCredentials, registrationOptions, verifyRegistration,
-  authenticationOptions, verifyAuthentication,
-  discoverableAuthenticationOptions, verifyDiscoverableAuthentication,
-  createLoginChallenge, consumeLoginChallenge,
+  hasWebauthn,
+  listCredentials,
+  registrationOptions,
+  verifyRegistration,
+  authenticationOptions,
+  verifyAuthentication,
+  discoverableAuthenticationOptions,
+  verifyDiscoverableAuthentication,
+  createLoginChallenge,
+  consumeLoginChallenge,
 } from "../lib/webauthn.js";
 
 const MFA_LOGIN_PURPOSE = "mfa-login";
@@ -75,7 +75,8 @@ async function verifySecondFactor(userId: string, code: string): Promise<boolean
   return !!used;
 }
 
-const hex = (len?: number) => (len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/));
+const hex = (len?: number) =>
+  len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
 
 const registerSchema = z.object({
   email: z.string().email().max(320),
@@ -240,10 +241,13 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       .object({ email: z.string().email().max(320), challengeId: z.string().uuid(), signature: hex(128) })
       .parse(req.body);
 
-    const ch = await queryOne<{ id: string; user_id: string; nonce: string; expires_at: string; used_at: string | null }>(
-      `SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`,
-      [b.challengeId],
-    );
+    const ch = await queryOne<{
+      id: string;
+      user_id: string;
+      nonce: string;
+      expires_at: string;
+      used_at: string | null;
+    }>(`SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`, [b.challengeId]);
     if (!ch || ch.used_at || new Date(ch.expires_at).getTime() < Date.now()) {
       throw unauthorized(LOGIN_FAILURE_MESSAGE);
     }
@@ -378,65 +382,79 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Enable: confirm the pending secret with a first valid code ----------
-  app.post("/mfa/enable", { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
-    const b = z.object({ code: z.string().min(6).max(6) }).parse(req.body);
-    const user = requireUser(req);
-    const row = await queryOne<{ mfa_pending_enc: Buffer | null; mfa_pending_nonce: Buffer | null; mfa_enabled: boolean }>(
-      `SELECT mfa_pending_enc, mfa_pending_nonce, mfa_enabled FROM users WHERE id = $1`,
-      [user.id],
-    );
-    if (row?.mfa_enabled) throw conflict("Le MFA est déjà activé.");
-    if (!row?.mfa_pending_enc || !row.mfa_pending_nonce) throw badRequest("Aucun enrôlement en attente — relancez la configuration.");
-    const secret = decryptServerSecret(row.mfa_pending_enc, row.mfa_pending_nonce);
-    if (!verifyTotp(secret, b.code)) throw unauthorized("Code invalide — vérifiez l'heure de votre téléphone.");
+  app.post(
+    "/mfa/enable",
+    { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req) => {
+      const b = z.object({ code: z.string().min(6).max(6) }).parse(req.body);
+      const user = requireUser(req);
+      const row = await queryOne<{
+        mfa_pending_enc: Buffer | null;
+        mfa_pending_nonce: Buffer | null;
+        mfa_enabled: boolean;
+      }>(`SELECT mfa_pending_enc, mfa_pending_nonce, mfa_enabled FROM users WHERE id = $1`, [user.id]);
+      if (row?.mfa_enabled) throw conflict("Le MFA est déjà activé.");
+      if (!row?.mfa_pending_enc || !row.mfa_pending_nonce)
+        throw badRequest("Aucun enrôlement en attente — relancez la configuration.");
+      const secret = decryptServerSecret(row.mfa_pending_enc, row.mfa_pending_nonce);
+      if (!verifyTotp(secret, b.code)) throw unauthorized("Code invalide — vérifiez l'heure de votre téléphone.");
 
-    const backupCodes = generateBackupCodes(10);
-    await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
-    for (const c of backupCodes) {
-      await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, sha256Hex(c)]);
-    }
-    await query(
-      `UPDATE users
+      const backupCodes = generateBackupCodes(10);
+      await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
+      for (const c of backupCodes) {
+        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, sha256Hex(c)]);
+      }
+      await query(
+        `UPDATE users
           SET mfa_enabled = true,
               mfa_secret_enc = mfa_pending_enc, mfa_secret_nonce = mfa_pending_nonce,
               mfa_pending_enc = NULL, mfa_pending_nonce = NULL
         WHERE id = $1`,
-      [user.id],
-    );
-    await audit(null, user.id, "auth.mfa.enable", "user", user.id, {}, req.ip);
-    return { enabled: true, backupCodes };
-  });
+        [user.id],
+      );
+      await audit(null, user.id, "auth.mfa.enable", "user", user.id, {}, req.ip);
+      return { enabled: true, backupCodes };
+    },
+  );
 
   // --- Disable: requires a valid current second factor ---------------------
-  app.post("/mfa/disable", { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
-    const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
-    const user = requireUser(req);
-    if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
-    await query(
-      `UPDATE users
+  app.post(
+    "/mfa/disable",
+    { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req) => {
+      const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
+      const user = requireUser(req);
+      if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
+      await query(
+        `UPDATE users
           SET mfa_enabled = false, mfa_secret_enc = NULL, mfa_secret_nonce = NULL,
               mfa_pending_enc = NULL, mfa_pending_nonce = NULL
         WHERE id = $1`,
-      [user.id],
-    );
-    await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
-    await audit(null, user.id, "auth.mfa.disable", "user", user.id, {}, req.ip);
-    return { enabled: false };
-  });
+        [user.id],
+      );
+      await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
+      await audit(null, user.id, "auth.mfa.disable", "user", user.id, {}, req.ip);
+      return { enabled: false };
+    },
+  );
 
   // --- Regenerate backup codes (requires a valid second factor) ------------
-  app.post("/mfa/backup-codes", { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
-    const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
-    const user = requireUser(req);
-    if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
-    const backupCodes = generateBackupCodes(10);
-    await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
-    for (const c of backupCodes) {
-      await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, sha256Hex(c)]);
-    }
-    await audit(null, user.id, "auth.mfa.backup_regen", "user", user.id, {}, req.ip);
-    return { backupCodes };
-  });
+  app.post(
+    "/mfa/backup-codes",
+    { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req) => {
+      const b = z.object({ code: z.string().min(4).max(16) }).parse(req.body);
+      const user = requireUser(req);
+      if (!(await verifySecondFactor(user.id, b.code))) throw unauthorized("Code de vérification invalide.");
+      const backupCodes = generateBackupCodes(10);
+      await query(`DELETE FROM mfa_backup_codes WHERE user_id = $1`, [user.id]);
+      for (const c of backupCodes) {
+        await query(`INSERT INTO mfa_backup_codes (user_id, code_hash) VALUES ($1, $2)`, [user.id, sha256Hex(c)]);
+      }
+      await audit(null, user.id, "auth.mfa.backup_regen", "user", user.id, {}, req.ip);
+      return { backupCodes };
+    },
+  );
 
   // =========================================================================
   //  WebAuthn / passkeys — SECOND FACTOR (à côté du TOTP)
@@ -450,7 +468,8 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/webauthn/register/options", { preHandler: authenticate }, async (req) => {
     const user = requireUser(req);
     const u = await queryOne<{ email: string; display_name: string }>(
-      `SELECT email, display_name FROM users WHERE id = $1`, [user.id],
+      `SELECT email, display_name FROM users WHERE id = $1`,
+      [user.id],
     );
     if (!u) throw unauthorized();
     return registrationOptions(user.id, u.email, u.display_name);
@@ -479,7 +498,10 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/webauthn/credentials/:id", { preHandler: authenticate }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const user = requireUser(req);
-    const r = await query(`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id`, [id, user.id]);
+    const r = await query(`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id`, [
+      id,
+      user.id,
+    ]);
     if (!r.length) throw notFound("Clé introuvable.");
     await audit(null, user.id, "auth.webauthn.remove", "user", user.id, { credentialId: id }, req.ip);
     return { ok: true };
@@ -503,9 +525,14 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized("Vérification WebAuthn échouée.");
     }
     const row = await queryOne<{
-      id: string; email: string; display_name: string;
-      ed25519_public_hex: string; p256_public_hex: string; fingerprint: string;
-      key_bundle: unknown; status: string;
+      id: string;
+      email: string;
+      display_name: string;
+      ed25519_public_hex: string;
+      p256_public_hex: string;
+      fingerprint: string;
+      key_bundle: unknown;
+      status: string;
     }>(`SELECT * FROM users WHERE id = $1`, [userId]);
     if (!row || row.status !== "active") throw unauthorized();
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
@@ -537,14 +564,27 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized("Clé d'accès non reconnue.");
     }
     const row = await queryOne<{
-      id: string; email: string; display_name: string;
-      ed25519_public_hex: string; p256_public_hex: string; fingerprint: string;
-      key_bundle: unknown; kdf_salt: string; kdf_params: unknown; status: string;
+      id: string;
+      email: string;
+      display_name: string;
+      ed25519_public_hex: string;
+      p256_public_hex: string;
+      fingerprint: string;
+      key_bundle: unknown;
+      kdf_salt: string;
+      kdf_params: unknown;
+      status: string;
     }>(`SELECT * FROM users WHERE id = $1`, [userId]);
     if (!row || row.status !== "active") throw unauthorized();
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.login", "user", row.id, { method: "passkey" }, req.ip);
-    return { user: userDto(row), keyBundle: row.key_bundle, kdfSalt: row.kdf_salt, kdfParams: row.kdf_params, ...session };
+    return {
+      user: userDto(row),
+      keyBundle: row.key_bundle,
+      kdfSalt: row.kdf_salt,
+      kdfParams: row.kdf_params,
+      ...session,
+    };
   });
 
   // --- Me ------------------------------------------------------------------

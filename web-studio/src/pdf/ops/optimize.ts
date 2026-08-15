@@ -112,7 +112,9 @@ export async function optimiseDocument(
 
     // --- oversized JPEG pictures --------------------------------------------
     if (
-      subtype === "Image" && filter === "DCTDecode" && obj instanceof PDFRawStream &&
+      subtype === "Image" &&
+      filter === "DCTDecode" &&
+      obj instanceof PDFRawStream &&
       dict.lookup(PDFName.of("SMask")) === undefined
     ) {
       const w = numOf(dict, "Width") ?? 0;
@@ -135,7 +137,9 @@ export async function optimiseDocument(
               dict.delete(PDFName.of("DecodeParms"));
               ctx.assign(ref, PDFRawStream.of(dict, next));
             }
-          } catch { /* keep the original */ }
+          } catch {
+            /* keep the original */
+          }
         }
         continue;
       }
@@ -152,7 +156,9 @@ export async function optimiseDocument(
           dict.set(PDFName.of("Length"), PDFNumber.of(packed.length));
           ctx.assign(ref, PDFRawStream.of(dict, packed));
         }
-      } catch { /* leave it */ }
+      } catch {
+        /* leave it */
+      }
     }
   }
 

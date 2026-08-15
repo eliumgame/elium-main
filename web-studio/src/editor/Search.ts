@@ -117,7 +117,12 @@ export const Search = Extension.create({
         key: searchPluginKey,
         state: {
           init: () => emptyState(),
-          apply(tr: Transaction, value: SearchPluginState, _old: EditorState, newState: EditorState): SearchPluginState {
+          apply(
+            tr: Transaction,
+            value: SearchPluginState,
+            _old: EditorState,
+            newState: EditorState,
+          ): SearchPluginState {
             const meta = tr.getMeta(searchPluginKey) as SearchMeta | undefined;
 
             let term = value.term;

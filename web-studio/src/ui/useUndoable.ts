@@ -51,7 +51,11 @@ function reducer<T>(s: Hist<T>, a: Action<T>): Hist<T> {
 }
 
 export function useUndoable<T>(initial: T) {
-  const [h, dispatch] = useReducer(reducer as (s: Hist<T>, a: Action<T>) => Hist<T>, { past: [], present: initial, future: [] });
+  const [h, dispatch] = useReducer(reducer as (s: Hist<T>, a: Action<T>) => Hist<T>, {
+    past: [],
+    present: initial,
+    future: [],
+  });
   const toFn = (u: T | ((p: T) => T)) => (typeof u === "function" ? (u as (p: T) => T) : () => u);
   return {
     value: h.present,

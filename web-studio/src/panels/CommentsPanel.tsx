@@ -45,7 +45,13 @@ export default function CommentsPanel({ editor }: { editor: Editor | null }) {
   };
 
   if (!editor) {
-    return <EmptyState icon={<MessageSquare size={20} />} title="Éditeur indisponible" hint="Ouvrez un document en édition." />;
+    return (
+      <EmptyState
+        icon={<MessageSquare size={20} />}
+        title="Éditeur indisponible"
+        hint="Ouvrez un document en édition."
+      />
+    );
   }
 
   const open = comments.filter((c) => !c.resolved);

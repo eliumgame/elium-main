@@ -1,4 +1,3 @@
-
 /**
  * Elium Crypto Engine v3 — Web Implementation
  *
@@ -13,18 +12,18 @@
  *  - zlib compression (via Compression Streams API "deflate" format)
  */
 
-import { argon2id } from 'hash-wasm';
-import * as ed from '@noble/ed25519';
-import { hashes } from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha2.js';
-import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
+import { argon2id } from "hash-wasm";
+import * as ed from "@noble/ed25519";
+import { hashes } from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 
 hashes.sha512 = sha512;
 // @ts-ignore
 hashes.sha512Sync = sha512;
 
 // --- Constants ---
-const MAGIC_V3 = new Uint8Array([0x45, 0x4C, 0x49, 0x55, 0x4D, 0x03]); // "ELIUM\x03"
+const MAGIC_V3 = new Uint8Array([0x45, 0x4c, 0x49, 0x55, 0x4d, 0x03]); // "ELIUM\x03"
 const VERSION = 3;
 const SALT_SIZE = 16;
 const NONCE_SIZE = 12;
@@ -110,13 +109,15 @@ function concat(...arrays: Uint8Array[]): Uint8Array {
 }
 
 function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function fromHex(hex: string): Uint8Array {
   const matches = hex.match(/.{1,2}/g);
   if (!matches) throw new Error("Invalid hex string");
-  return new Uint8Array(matches.map(b => parseInt(b, 16)));
+  return new Uint8Array(matches.map((b) => parseInt(b, 16)));
 }
 
 // --- Crypto Helpers ---
@@ -126,7 +127,7 @@ async function hkdfSha256(master: Uint8Array, info: Uint8Array): Promise<Uint8Ar
   const derived = await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: info as unknown as BufferSource },
     key,
-    KEY_SIZE * 8
+    KEY_SIZE * 8,
   );
   return new Uint8Array(derived);
 }
@@ -138,7 +139,11 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
 
 async function computeHmac(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
   const hmacKey = await crypto.subtle.importKey(
-    "raw", key as unknown as BufferSource, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    "raw",
+    key as unknown as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
   const mac = await crypto.subtle.sign("HMAC", hmacKey, data as unknown as BufferSource);
   return new Uint8Array(mac);
@@ -149,14 +154,20 @@ async function computeHmac(key: Uint8Array, data: Uint8Array): Promise<Uint8Arra
  * We dynamically import to keep the module optional.
  */
 async function chacha20Poly1305Encrypt(
-  key: Uint8Array, nonce: Uint8Array, plaintext: Uint8Array, aad: Uint8Array
+  key: Uint8Array,
+  nonce: Uint8Array,
+  plaintext: Uint8Array,
+  aad: Uint8Array,
 ): Promise<Uint8Array> {
   const cipher = chacha20poly1305(key, nonce, aad);
   return cipher.encrypt(plaintext);
 }
 
 async function chacha20Poly1305Decrypt(
-  key: Uint8Array, nonce: Uint8Array, ciphertext: Uint8Array, aad: Uint8Array
+  key: Uint8Array,
+  nonce: Uint8Array,
+  ciphertext: Uint8Array,
+  aad: Uint8Array,
 ): Promise<Uint8Array> {
   const cipher = chacha20poly1305(key, nonce, aad);
   return cipher.decrypt(ciphertext);
@@ -183,12 +194,12 @@ async function decompressData(data: Uint8Array): Promise<Uint8Array> {
   // @ts-ignore
   writer.write(data);
   writer.close();
-  
+
   const reader = ds.readable.getReader();
   const chunks: Uint8Array[] = [];
   let totalSize = 0;
   const MAX_SIZE = 512 * 1024 * 1024; // 512 MiB limit
-  
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -200,14 +211,13 @@ async function decompressData(data: Uint8Array): Promise<Uint8Array> {
       chunks.push(value);
     }
   }
-  
+
   return concat(...chunks);
 }
 
 // --- Main Engine ---
 
 export class EliumCryptoEngine {
-
   /**
    * Derives a master key using Argon2id.
    * If a keyfile is provided, its SHA-256 hash is appended to the password
@@ -219,7 +229,7 @@ export class EliumCryptoEngine {
     t: number,
     m: number,
     p: number,
-    keyfile?: Uint8Array
+    keyfile?: Uint8Array,
   ): Promise<Uint8Array> {
     let pwdBytes = te.encode(password);
 
@@ -237,7 +247,7 @@ export class EliumCryptoEngine {
       memorySize: m,
       parallelism: p,
       hashLength: KEY_SIZE,
-      outputType: 'hex'
+      outputType: "hex",
     });
     return fromHex(hashHex);
   }
@@ -253,7 +263,7 @@ export class EliumCryptoEngine {
     return {
       privateKeyHex: toHex(privateKey),
       publicKeyHex: toHex(publicKey),
-      fingerprint
+      fingerprint,
     };
   }
 
@@ -269,7 +279,7 @@ export class EliumCryptoEngine {
     filename: string = "document.md",
     privateKeyHex?: string,
     keyfile?: Uint8Array,
-    cascade: boolean = false
+    cascade: boolean = false,
   ): Promise<Uint8Array> {
     const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE));
     const nonceAes = crypto.getRandomValues(new Uint8Array(NONCE_SIZE));
@@ -304,28 +314,32 @@ export class EliumCryptoEngine {
       version: VERSION,
       kdf: {
         alg: "argon2id",
-        t, m, p,
-        salt: toHex(salt)
+        t,
+        m,
+        p,
+        salt: toHex(salt),
       },
       crypto: {
         cipher: "aes-256-gcm",
         cascade: cascade ? "chacha20-poly1305" : null,
         nonce_aes: toHex(nonceAes),
-        nonce_cha: nonceCha ? toHex(nonceCha) : null
+        nonce_cha: nonceCha ? toHex(nonceCha) : null,
       },
       flags: {
         compressed: true,
         signed: !!privateKeyHex,
-        keyfile_required: !!keyfile
-      }
+        keyfile_required: !!keyfile,
+      },
     };
 
     if (fingerprint) {
-      headerDict.signatures = [{
-        alg: "ed25519",
-        signer_fp: fingerprint,
-        signed_at: new Date().toISOString()
-      }];
+      headerDict.signatures = [
+        {
+          alg: "ed25519",
+          signer_fp: fingerprint,
+          signed_at: new Date().toISOString(),
+        },
+      ];
     }
 
     const headerStr = JSON.stringify(headerDict);
@@ -335,7 +349,7 @@ export class EliumCryptoEngine {
     const manifestDict: EliumManifest = {
       generator: "elium-v3-web",
       created_at: new Date().toISOString(),
-      files: [{ name: filename, size: payload.length }]
+      files: [{ name: filename, size: payload.length }],
     };
     const manifestBytes = te.encode(JSON.stringify(manifestDict));
 
@@ -349,11 +363,17 @@ export class EliumCryptoEngine {
     innerData = await compressData(innerData);
 
     // Encrypt — Layer 1: AES-256-GCM
-    const aesKey = await crypto.subtle.importKey("raw", kAes as unknown as BufferSource, { name: "AES-GCM" }, false, ["encrypt"]);
+    const aesKey = await crypto.subtle.importKey("raw", kAes as unknown as BufferSource, { name: "AES-GCM" }, false, [
+      "encrypt",
+    ]);
     const ctBuffer = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: nonceAes as unknown as BufferSource, additionalData: headerBytes as unknown as BufferSource },
+      {
+        name: "AES-GCM",
+        iv: nonceAes as unknown as BufferSource,
+        additionalData: headerBytes as unknown as BufferSource,
+      },
       aesKey,
-      innerData as unknown as BufferSource
+      innerData as unknown as BufferSource,
     );
     let ct: Uint8Array = new Uint8Array(ctBuffer);
 
@@ -376,7 +396,7 @@ export class EliumCryptoEngine {
       headerBytes,
       // @ts-ignore
       new Uint8Array(ctLenDv.buffer),
-      ct
+      ct,
     );
 
     // Sign (Ed25519)
@@ -397,7 +417,7 @@ export class EliumCryptoEngine {
     blob: Uint8Array,
     password: string,
     publicKeyHex?: string,
-    keyfile?: Uint8Array
+    keyfile?: Uint8Array,
   ): Promise<EliumDecodeResult> {
     if (blob.length < MAGIC_V3.length + 4 + 8 + HMAC_SIZE) {
       throw new Error("File too short to be a valid Elium container.");
@@ -452,7 +472,7 @@ export class EliumCryptoEngine {
     if (nonceAes.length !== 12) {
       throw new Error("Invalid AES nonce length");
     }
-    
+
     const isCascade = header.crypto.cascade === "chacha20-poly1305";
     const nonceCha = isCascade && header.crypto.nonce_cha ? fromHex(header.crypto.nonce_cha) : null;
     if (isCascade && (!nonceCha || nonceCha.length !== 12)) {
@@ -481,9 +501,7 @@ export class EliumCryptoEngine {
     const storedMac = blob.subarray(pos, pos + HMAC_SIZE);
 
     // Derive keys
-    const master = await this.deriveMasterKey(
-      password, salt, header.kdf.t, header.kdf.m, header.kdf.p, keyfile
-    );
+    const master = await this.deriveMasterKey(password, salt, header.kdf.t, header.kdf.m, header.kdf.p, keyfile);
     const kAes = await hkdfSha256(master, te.encode("elium-v3-aes-gcm"));
     const kCha = isCascade ? await hkdfSha256(master, te.encode("elium-v3-chacha")) : null;
     const kMac = await hkdfSha256(master, te.encode("elium-v3-hmac"));
@@ -517,11 +535,17 @@ export class EliumCryptoEngine {
     }
 
     // Decrypt — Layer 1: AES-256-GCM
-    const aesKey = await crypto.subtle.importKey("raw", kAes as unknown as BufferSource, { name: "AES-GCM" }, false, ["decrypt"]);
+    const aesKey = await crypto.subtle.importKey("raw", kAes as unknown as BufferSource, { name: "AES-GCM" }, false, [
+      "decrypt",
+    ]);
     const innerBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: nonceAes as unknown as BufferSource, additionalData: headerBytes as unknown as BufferSource },
+      {
+        name: "AES-GCM",
+        iv: nonceAes as unknown as BufferSource,
+        additionalData: headerBytes as unknown as BufferSource,
+      },
       aesKey,
-      ct as unknown as BufferSource
+      ct as unknown as BufferSource,
     );
 
     let innerData: Uint8Array = new Uint8Array(innerBuffer);

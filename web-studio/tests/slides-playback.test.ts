@@ -25,15 +25,15 @@ describe("slides playback engine", () => {
     const r = revealAt(els, anims, 0);
     expect(r.hidden.has("a")).toBe(false); // no anim → visible
     expect(r.entering.has("b")).toBe(true); // order 0 enters now
-    expect(r.hidden.has("c")).toBe(true);   // order 1 still hidden
-    expect(r.hidden.has("d")).toBe(true);   // order 2 still hidden
+    expect(r.hidden.has("c")).toBe(true); // order 1 still hidden
+    expect(r.hidden.has("d")).toBe(true); // order 2 still hidden
   });
 
   it("step 1: c enters, d still hidden, b now just visible", () => {
     const r = revealAt(els, anims, 1);
     expect(r.entering.has("c")).toBe(true);
     expect(r.hidden.has("d")).toBe(true);
-    expect(r.hidden.has("b")).toBe(false);   // already revealed
+    expect(r.hidden.has("b")).toBe(false); // already revealed
     expect(r.entering.has("b")).toBe(false); // not entering anymore
   });
 

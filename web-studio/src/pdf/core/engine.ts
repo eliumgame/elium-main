@@ -111,7 +111,14 @@ export class PdfEngine {
   /** The password the document was opened with, if any (needed to re-save). */
   readonly password: string | null;
 
-  private constructor(doc: PDFDocumentProxy, task: LoadingTask, pages: PageInfo[], info: DocInfo, bytes: Uint8Array, password: string | null) {
+  private constructor(
+    doc: PDFDocumentProxy,
+    task: LoadingTask,
+    pages: PageInfo[],
+    info: DocInfo,
+    bytes: Uint8Array,
+    password: string | null,
+  ) {
     this.doc = doc;
     this.task = task;
     this.pages = pages;
@@ -182,7 +189,9 @@ export class PdfEngine {
     try {
       const fields = await doc.getFieldObjects();
       hasAcroForm = !!fields && Object.keys(fields).length > 0;
-    } catch { /* not a form */ }
+    } catch {
+      /* not a form */
+    }
     try {
       // A signature shows up as a widget annotation with fieldType "Sig".
       for (let i = 1; i <= Math.min(doc.numPages, 8) && !signed; i++) {
@@ -191,7 +200,9 @@ export class PdfEngine {
         signed = anns.some((a) => a.fieldType === "Sig");
         page.cleanup();
       }
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
 
     const info: DocInfo = {
       title: str("Title"),
@@ -294,11 +305,12 @@ export class PdfEngine {
       const explicit = typeof dest === "string" ? await this.doc.getDestination(dest) : dest;
       if (!Array.isArray(explicit) || !explicit.length) return { page: null };
       const ref = explicit[0];
-      const index = typeof ref === "object" && ref !== null && "num" in ref
-        ? await this.doc.getPageIndex(ref as { num: number; gen: number })
-        : typeof ref === "number"
-          ? ref
-          : null;
+      const index =
+        typeof ref === "object" && ref !== null && "num" in ref
+          ? await this.doc.getPageIndex(ref as { num: number; gen: number })
+          : typeof ref === "number"
+            ? ref
+            : null;
       if (index == null) return { page: null };
       const info = this.pages[index];
       // [ref, /XYZ, left, top, zoom] — `top` is in PDF space, flip it.
@@ -370,7 +382,11 @@ export class PdfEngine {
     const cfg = await this.doc.getOptionalContentConfig();
     if (!cfg) return null;
     for (const id of hidden) {
-      try { cfg.setVisibility(id, false); } catch { /* unknown group */ }
+      try {
+        cfg.setVisibility(id, false);
+      } catch {
+        /* unknown group */
+      }
     }
     return cfg;
   }
@@ -425,7 +441,10 @@ interface RawAttachment {
 
 function colorArrayToHex(c: Uint8ClampedArray | number[] | undefined): string | undefined {
   if (!c || c.length < 3) return undefined;
-  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  const h = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${h(c[0])}${h(c[1])}${h(c[2])}`;
 }
 

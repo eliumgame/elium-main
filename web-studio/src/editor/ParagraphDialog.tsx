@@ -35,16 +35,15 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
   const setBorder = (patch: Partial<ParagraphBorders>) => {
     const next: ParagraphBorders = { ...(borders ?? {}), ...patch };
     const anySide = SIDES.some((s) => next[s.side]);
-    run(() => chain().setParagraphBorders(anySide ? next : null).run());
+    run(() =>
+      chain()
+        .setParagraphBorders(anySide ? next : null)
+        .run(),
+    );
   };
 
   return (
-    <Modal
-      title="Paragraphe"
-      onClose={onClose}
-      wide
-      footer={<Button onClick={onClose}>Fermer</Button>}
-    >
+    <Modal title="Paragraphe" onClose={onClose} wide footer={<Button onClick={onClose}>Fermer</Button>}>
       <div className="settings" data-tick={tick}>
         <section className="settings__section">
           <h3 className="settings__title">Alignement et interligne</h3>
@@ -65,12 +64,16 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
               aria-label="Interligne"
               value={String(attrs.lineHeight ?? "")}
               onChange={(e) =>
-                run(() => (e.target.value ? chain().setLineHeight(e.target.value).run() : chain().unsetLineHeight().run()))
+                run(() =>
+                  e.target.value ? chain().setLineHeight(e.target.value).run() : chain().unsetLineHeight().run(),
+                )
               }
             >
               <option value="">Interligne par défaut</option>
               {LINE_HEIGHTS.map((l) => (
-                <option key={l.value} value={l.value}>{l.label}</option>
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
               ))}
             </select>
           </div>
@@ -86,7 +89,13 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
                 min={0}
                 max={200}
                 value={num(attrs.spaceBefore)}
-                onChange={(e) => run(() => chain().setParagraphSpacing({ before: Number(e.target.value) || null }).run())}
+                onChange={(e) =>
+                  run(() =>
+                    chain()
+                      .setParagraphSpacing({ before: Number(e.target.value) || null })
+                      .run(),
+                  )
+                }
               />
             </Field>
             <Field label="Après">
@@ -96,7 +105,13 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
                 min={0}
                 max={200}
                 value={num(attrs.spaceAfter)}
-                onChange={(e) => run(() => chain().setParagraphSpacing({ after: Number(e.target.value) || null }).run())}
+                onChange={(e) =>
+                  run(() =>
+                    chain()
+                      .setParagraphSpacing({ after: Number(e.target.value) || null })
+                      .run(),
+                  )
+                }
               />
             </Field>
             <Field label="1ʳᵉ ligne" hint="Négatif = retrait négatif.">
@@ -106,25 +121,47 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
                 min={-200}
                 max={200}
                 value={num(attrs.firstLineIndent)}
-                onChange={(e) => run(() => chain().setFirstLineIndent(Number(e.target.value) || null).run())}
+                onChange={(e) =>
+                  run(() =>
+                    chain()
+                      .setFirstLineIndent(Number(e.target.value) || null)
+                      .run(),
+                  )
+                }
               />
             </Field>
           </div>
           <div className="settings__row">
-            <Button variant="outline" size="sm" onClick={() => run(() => chain().outdent().run())}>Diminuer le retrait</Button>
-            <Button variant="outline" size="sm" onClick={() => run(() => chain().indent().run())}>Augmenter le retrait</Button>
+            <Button variant="outline" size="sm" onClick={() => run(() => chain().outdent().run())}>
+              Diminuer le retrait
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => run(() => chain().indent().run())}>
+              Augmenter le retrait
+            </Button>
           </div>
         </section>
 
         <section className="settings__section">
           <h3 className="settings__title">Enchaînements</h3>
           <label className="checkbox-row">
-            <input type="checkbox" checked={attrs.keepNext === true} onChange={() => run(() => chain().toggleKeepNext().run())} />
-            <span>Paragraphes solidaires <span className="muted">— reste avec le paragraphe suivant</span></span>
+            <input
+              type="checkbox"
+              checked={attrs.keepNext === true}
+              onChange={() => run(() => chain().toggleKeepNext().run())}
+            />
+            <span>
+              Paragraphes solidaires <span className="muted">— reste avec le paragraphe suivant</span>
+            </span>
           </label>
           <label className="checkbox-row">
-            <input type="checkbox" checked={attrs.keepLines === true} onChange={() => run(() => chain().toggleKeepLines().run())} />
-            <span>Lignes solidaires <span className="muted">— jamais coupé entre deux pages</span></span>
+            <input
+              type="checkbox"
+              checked={attrs.keepLines === true}
+              onChange={() => run(() => chain().toggleKeepLines().run())}
+            />
+            <span>
+              Lignes solidaires <span className="muted">— jamais coupé entre deux pages</span>
+            </span>
           </label>
           <label className="checkbox-row">
             <input
@@ -141,7 +178,11 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
           <div className="settings__row">
             {SIDES.map(({ side, label }) => (
               <label key={side} className="checkbox-row">
-                <input type="checkbox" checked={borders?.[side] === true} onChange={(e) => setBorder({ [side]: e.target.checked })} />
+                <input
+                  type="checkbox"
+                  checked={borders?.[side] === true}
+                  onChange={(e) => setBorder({ [side]: e.target.checked })}
+                />
                 <span>{label}</span>
               </label>
             ))}
@@ -179,9 +220,9 @@ export default function ParagraphDialog({ editor, onClose }: { editor: Editor; o
           </div>
         </section>
       </div>
-        <p className="settings__hint modal-live">
-          Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
-        </p>
+      <p className="settings__hint modal-live">
+        Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
+      </p>
     </Modal>
   );
 }

@@ -44,9 +44,15 @@ export default function CommandPalette({
     list.push({ id: "exp-docx", label: "Exporter en Word (.docx)", run: close(() => void studio.exportAs("docx")) });
     list.push({ id: "exp-html", label: "Exporter en HTML", run: close(() => void studio.exportAs("html")) });
     list.push({ id: "exp-md", label: "Exporter en Markdown", run: close(() => void studio.exportAs("md")) });
-    list.push({ id: "exp-report", label: "Exporter le rapport de preuve (JSON)", run: close(() => void studio.exportAs("report")) });
-    if (editable) list.push({ id: "sign", label: "Ajouter une signature", run: close(() => studio.openSignatureCreator()) });
-    if (editable) list.push({ id: "page", label: "Mise en page (en-tête, pied, format)", run: close(onOpenPageSettings) });
+    list.push({
+      id: "exp-report",
+      label: "Exporter le rapport de preuve (JSON)",
+      run: close(() => void studio.exportAs("report")),
+    });
+    if (editable)
+      list.push({ id: "sign", label: "Ajouter une signature", run: close(() => studio.openSignatureCreator()) });
+    if (editable)
+      list.push({ id: "page", label: "Mise en page (en-tête, pied, format)", run: close(onOpenPageSettings) });
     list.push({
       id: "mode",
       label: editable ? "Passer en mode lecture" : "Passer en mode édition",
@@ -59,7 +65,11 @@ export default function CommandPalette({
     list.push({ id: "home", label: "Retour à l'accueil", run: close(() => studio.goHome()) });
 
     if (editor && editable) {
-      list.push({ id: "toc", label: "Insérer une table des matières", run: close(() => editor.chain().focus().insertTableOfContents().run()) });
+      list.push({
+        id: "toc",
+        label: "Insérer une table des matières",
+        run: close(() => editor.chain().focus().insertTableOfContents().run()),
+      });
       list.push({
         id: "fn",
         label: "Insérer une note de bas de page",
@@ -79,9 +89,15 @@ export default function CommandPalette({
       list.push({
         id: "num",
         label: `${studio.file.document.page.numberedHeadings ? "Désactiver" : "Activer"} la numérotation des titres`,
-        run: close(() => studio.updatePage({ numberedHeadings: !(studio.file.document.page.numberedHeadings ?? false) })),
+        run: close(() =>
+          studio.updatePage({ numberedHeadings: !(studio.file.document.page.numberedHeadings ?? false) }),
+        ),
       });
-      list.push({ id: "track", label: "Suivi des modifications (activer / désactiver)", run: close(() => editor.chain().focus().toggleSuggesting().run()) });
+      list.push({
+        id: "track",
+        label: "Suivi des modifications (activer / désactiver)",
+        run: close(() => editor.chain().focus().toggleSuggesting().run()),
+      });
     }
     return list;
   }, [studio, editor, onOpenPageSettings, onClose, prompt]);

@@ -32,12 +32,15 @@ import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
 import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornaments";
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
-import {
-  clampAdj, dashFromOoxml, defaultAdj, emuToMm, kindFromPrst, shapeDef, shapeXml,
-} from "../editor/shapes";
+import { clampAdj, dashFromOoxml, defaultAdj, emuToMm, kindFromPrst, shapeDef, shapeXml } from "../editor/shapes";
 import { gridSettingsXml } from "../editor/grid";
 import {
-  NOTE_PART, noteReferenceXml, noteStylesXml, notePrXml, notesContentTypeXml, notesPartXml,
+  NOTE_PART,
+  noteReferenceXml,
+  noteStylesXml,
+  notePrXml,
+  notesContentTypeXml,
+  notesPartXml,
   notesRelXml,
 } from "./docx-notes";
 
@@ -46,11 +49,7 @@ import {
 // =========================================================================
 
 function xmlEsc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function xmlDecode(s: string): string {
@@ -197,7 +196,10 @@ function imageSize(bytes: Uint8Array): { w: number; h: number } {
     if (bytes[0] === 0xff && bytes[1] === 0xd8) {
       let i = 2;
       while (i < bytes.length - 8) {
-        if (bytes[i] !== 0xff) { i++; continue; }
+        if (bytes[i] !== 0xff) {
+          i++;
+          continue;
+        }
         const marker = bytes[i + 1];
         const len = (bytes[i + 2] << 8) | bytes[i + 3];
         if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
@@ -335,9 +337,7 @@ function bookmarkXml(ctx: WriteCtx, name: string): string {
 
 /** A simple Word field with its cached result — `instr` drives the live update. */
 function fieldXml(instr: string, cachedText: string, rPr = ""): string {
-  const run = cachedText
-    ? `<w:r>${rPr}<w:t xml:space="preserve">${xmlEsc(cachedText)}</w:t></w:r>`
-    : "";
+  const run = cachedText ? `<w:r>${rPr}<w:t xml:space="preserve">${xmlEsc(cachedText)}</w:t></w:r>` : "";
   return `<w:fldSimple w:instr="${xmlEsc(instr)}">${run}</w:fldSimple>`;
 }
 
@@ -373,7 +373,10 @@ function runProps(marks: { type: string; attrs?: Record<string, unknown> }[]): s
   const tsColor = ts ? hex6(ts.attrs?.color) : null;
   if (ts) {
     const a = ts.attrs ?? {};
-    const fam = String(a.fontFamily ?? "").split(",")[0].replace(/['"]/g, "").trim();
+    const fam = String(a.fontFamily ?? "")
+      .split(",")[0]
+      .replace(/['"]/g, "")
+      .trim();
     if (fam) p.push(`<w:rFonts w:ascii="${xmlEsc(fam)}" w:hAnsi="${xmlEsc(fam)}"/>`);
     const px = parseFloat(String(a.fontSize ?? ""));
     if (px) p.push(`<w:sz w:val="${Math.round(px * 1.5)}"/>`);
@@ -391,7 +394,11 @@ function runProps(marks: { type: string; attrs?: Record<string, unknown> }[]): s
   // Underline: the style attribute refines it; a link is underlined by default.
   const underlineStyle = String(ts?.attrs?.underlineStyle ?? "");
   const DOCX_UNDERLINE: Record<string, string> = {
-    single: "single", double: "double", dotted: "dotted", dashed: "dash", wavy: "wave",
+    single: "single",
+    double: "double",
+    dotted: "dotted",
+    dashed: "dash",
+    wavy: "wave",
   };
   if (has("underline") || has("link")) {
     p.push(`<w:u w:val="${DOCX_UNDERLINE[underlineStyle] ?? "single"}"/>`);
@@ -415,11 +422,7 @@ function trackAttrs(ctx: WriteCtx, m: { attrs?: Record<string, unknown> }): stri
   return `w:id="${++ctx.changeId}" w:author="${xmlEsc(author)}"${ts ? ` w:date="${xmlEsc(ts)}"` : ""}`;
 }
 
-function runXml(
-  text: string,
-  marks: { type: string; attrs?: Record<string, unknown> }[],
-  ctx: WriteCtx,
-): string {
+function runXml(text: string, marks: { type: string; attrs?: Record<string, unknown> }[], ctx: WriteCtx): string {
   if (!text) return "";
   const del = marks.find((m) => m.type === "deletion");
   const ins = marks.find((m) => m.type === "insertion");
@@ -441,12 +444,17 @@ function refInstr(name: string, display: RefDisplay): string {
   // \n = paragraph number only. These are Word's own switches, so the field
   // updates natively (F9) instead of staying frozen text.
   switch (display) {
-    case "page": return ` PAGEREF ${name} \\h `;
-    case "aboveBelow": return ` REF ${name} \\p \\h `;
-    case "number": return ` REF ${name} \\n \\h `;
-    case "full": return ` REF ${name} \\h `;
+    case "page":
+      return ` PAGEREF ${name} \\h `;
+    case "aboveBelow":
+      return ` REF ${name} \\p \\h `;
+    case "number":
+      return ` REF ${name} \\n \\h `;
+    case "full":
+      return ` REF ${name} \\h `;
     case "text":
-    default: return ` REF ${name} \\h `;
+    default:
+      return ` REF ${name} \\h `;
   }
 }
 
@@ -543,7 +551,8 @@ function paraProps(opts: {
   const twips = (v: number) => Math.round(v * 15);
 
   if (opts.style) p.push(`<w:pStyle w:val="${opts.style}"/>`);
-  if (opts.numId != null) p.push(`<w:numPr><w:ilvl w:val="${opts.ilvl ?? 0}"/><w:numId w:val="${opts.numId}"/></w:numPr>`);
+  if (opts.numId != null)
+    p.push(`<w:numPr><w:ilvl w:val="${opts.ilvl ?? 0}"/><w:numId w:val="${opts.numId}"/></w:numPr>`);
 
   // Enchaînements — Word reads these before spacing/indent.
   if (a.keepNext) p.push("<w:keepNext/>");
@@ -564,7 +573,8 @@ function paraProps(opts: {
   if (tabs) p.push(tabs);
 
   // Paragraph borders.
-  const borders = a.borders as { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean; color?: string; width?: number } | undefined;
+  const borders = a.borders as
+    { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean; color?: string; width?: number } | undefined;
   if (borders) {
     const color = hex6(borders.color) ?? "cbd5e1";
     // w:sz is in eighths of a point: px → pt (×0.75) → ×8.
@@ -656,7 +666,12 @@ function anchorXml(node: ProseMirrorNode, ctx: WriteCtx): string {
   return bookmarkXml(ctx, bookmarkNameFor(ctx, refId));
 }
 
-function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[], list?: ListCtx): string {
+function blockXml(
+  node: ProseMirrorNode,
+  ctx: WriteCtx,
+  headings: { level: number; text: string }[],
+  list?: ListCtx,
+): string {
   switch (node.type) {
     case "paragraph":
       return `<w:p>${paraProps({
@@ -675,7 +690,10 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
     }
     case "tableOfContents": {
       const items = headings
-        .map((h) => `<w:p>${paraProps({ indent: h.level - 1 })}<w:r><w:t xml:space="preserve">${xmlEsc(h.text)}</w:t></w:r></w:p>`)
+        .map(
+          (h) =>
+            `<w:p>${paraProps({ indent: h.level - 1 })}<w:r><w:t xml:space="preserve">${xmlEsc(h.text)}</w:t></w:r></w:p>`,
+        )
         .join("");
       return `<w:p>${paraProps({ style: "Heading1" })}<w:r><w:t>Table des matières</w:t></w:r></w:p>${items}`;
     }
@@ -715,14 +733,15 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
         })
         .join("");
     case "blockquote":
-      return (node.content ?? [])
-        .map((c) => `<w:p>${paraProps({ indent: 1 })}${inlineRuns(c, ctx)}</w:p>`)
-        .join("");
+      return (node.content ?? []).map((c) => `<w:p>${paraProps({ indent: 1 })}${inlineRuns(c, ctx)}</w:p>`).join("");
     case "codeBlock": {
       const raw = (node.content ?? []).map((c) => c.text ?? "").join("");
       return raw
         .split("\n")
-        .map((line) => `<w:p>${paraProps({ shade: true })}<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:color w:val="e2e8f0"/></w:rPr><w:t xml:space="preserve">${xmlEsc(line)}</w:t></w:r></w:p>`)
+        .map(
+          (line) =>
+            `<w:p>${paraProps({ shade: true })}<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:color w:val="e2e8f0"/></w:rPr><w:t xml:space="preserve">${xmlEsc(line)}</w:t></w:r></w:p>`,
+        )
         .join("");
     }
     case "horizontalRule":
@@ -734,7 +753,7 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
     case "figure": {
       const align = String(node.attrs?.align ?? "center");
       const img = drawingXml(ctx, String(node.attrs?.src ?? ""), String(node.attrs?.alt ?? ""));
-      const caption = (node.content ?? []).map((c) => (c.type === "text" ? c.text ?? "" : "")).join("");
+      const caption = (node.content ?? []).map((c) => (c.type === "text" ? (c.text ?? "") : "")).join("");
       const imgP = `<w:p>${paraProps({ align })}${anchorXml(node, ctx)}${img}</w:p>`;
       const capP = caption
         ? `<w:p>${paraProps({ align })}<w:r><w:rPr><w:i/><w:color w:val="64748b"/></w:rPr><w:t xml:space="preserve">${xmlEsc(caption)}</w:t></w:r></w:p>`
@@ -774,8 +793,20 @@ function blockXml(node: ProseMirrorNode, ctx: WriteCtx, headings: { level: numbe
     case "caption": {
       // Word numbers captions with a SEQ field, so it renumbers them itself when
       // the document is edited there — the label and the text are plain runs.
-      const label = String(node.attrs?.label ?? "Figure").replace(/\s+/g, " ").trim() || "Figure";
-      const entry = ctx.captions.find((c) => c.label === label && c.text === (node.content ?? []).map((x) => x.text ?? "").join("").replace(/\s+/g, " ").trim());
+      const label =
+        String(node.attrs?.label ?? "Figure")
+          .replace(/\s+/g, " ")
+          .trim() || "Figure";
+      const entry = ctx.captions.find(
+        (c) =>
+          c.label === label &&
+          c.text ===
+            (node.content ?? [])
+              .map((x) => x.text ?? "")
+              .join("")
+              .replace(/\s+/g, " ")
+              .trim(),
+      );
       const number = entry?.number ?? 1;
       const anchor = anchorXml(node, ctx);
       return (
@@ -884,7 +915,15 @@ function collectHeadings(doc: ProseMirrorNode): { level: number; text: string }[
   const walk = (n: ProseMirrorNode) => {
     if (n.type === "heading") {
       const level = Number(n.attrs?.level ?? 1);
-      if (level <= 3) out.push({ level, text: (n.content ?? []).map((c) => c.text ?? "").join("").trim() || "Sans titre" });
+      if (level <= 3)
+        out.push({
+          level,
+          text:
+            (n.content ?? [])
+              .map((c) => c.text ?? "")
+              .join("")
+              .trim() || "Sans titre",
+        });
     }
     (n.content ?? []).forEach(walk);
   };
@@ -1012,8 +1051,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
   // Déclaré une fois : le format de numérotation de chaque famille présente,
   // pour que Word affiche les mêmes marqueurs que l'écran (romains minuscules
   // pour les notes de fin).
-  const notePr =
-    (footnotes.length ? notePrXml("footnote") : "") + (endnotes.length ? notePrXml("endnote") : "");
+  const notePr = (footnotes.length ? notePrXml("footnote") : "") + (endnotes.length ? notePrXml("endnote") : "");
 
   const sectPrFor = (cols: string): string => {
     const setup = sections[eliumIdx]?.setup;
@@ -1125,9 +1163,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     // Le VML vit dans son propre espace de noms : sans les déclarations `v:` et
     // `o:`, Word rejette la partie.
     files["word/header1.xml"] = strToU8(
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-        `<w:hdr ${NS}>` +
-        `${markVml}</w:hdr>`,
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + `<w:hdr ${NS}>` + `${markVml}</w:hdr>`,
     );
   }
 
@@ -1213,8 +1249,7 @@ function obfuscateFont(bytes: Uint8Array, guid: string): Uint8Array {
 // Reader
 // =========================================================================
 
-const te = (n: XmlEl): string =>
-  n.children.map((c) => (isEl(c) ? te(c) : c.text)).join("");
+const te = (n: XmlEl): string => n.children.map((c) => (isEl(c) ? te(c) : c.text)).join("");
 
 /** Concatenate w:t text of a run-bearing element, honoring w:tab/w:br. */
 function runText(el: XmlEl): string {
@@ -1282,7 +1317,13 @@ function fieldNode(instr: string): ProseMirrorNode | null {
   if (m) {
     const switches = (m[3] ?? "").toLowerCase();
     const display: RefDisplay =
-      m[1]!.toUpperCase() === "PAGEREF" ? "page" : switches.includes("\\p") ? "aboveBelow" : switches.includes("\\n") ? "number" : "text";
+      m[1]!.toUpperCase() === "PAGEREF"
+        ? "page"
+        : switches.includes("\\p")
+          ? "aboveBelow"
+          : switches.includes("\\n")
+            ? "number"
+            : "text";
     return { type: "crossReference", attrs: { targetId: m[2]!, kind: "bookmark", display, cached: "" } };
   }
   m = /^MERGEFIELD\s+"?([^"\\]+?)"?\s*(\\|$)/i.exec(text);
@@ -1320,10 +1361,22 @@ interface RunProps {
 
 // Word's fixed named-highlight palette → approximate hex.
 const HIGHLIGHT_HEX: Record<string, string> = {
-  yellow: "#fff34d", green: "#4dff4d", cyan: "#4dffff", magenta: "#ff4dff",
-  blue: "#4d4dff", red: "#ff4d4d", darkYellow: "#b3b300", darkGreen: "#008000",
-  darkCyan: "#008080", darkBlue: "#000080", darkMagenta: "#800080", darkRed: "#800000",
-  lightGray: "#c0c0c0", darkGray: "#808080", black: "#000000", white: "#ffffff",
+  yellow: "#fff34d",
+  green: "#4dff4d",
+  cyan: "#4dffff",
+  magenta: "#ff4dff",
+  blue: "#4d4dff",
+  red: "#ff4d4d",
+  darkYellow: "#b3b300",
+  darkGreen: "#008000",
+  darkCyan: "#008080",
+  darkBlue: "#000080",
+  darkMagenta: "#800080",
+  darkRed: "#800000",
+  lightGray: "#c0c0c0",
+  darkGray: "#808080",
+  black: "#000000",
+  white: "#ffffff",
 };
 
 /** Read a <w:rPr> element into RunProps (shared by inline runs and styles). */
@@ -1336,10 +1389,14 @@ function parseRunProps(rpr: XmlEl | undefined): RunProps {
     const v = el.attrs["w:val"];
     return !(v === "false" || v === "0"); // present with no val ⇒ on
   };
-  const b = toggle("w:b"); if (b !== undefined) props.bold = b;
-  const i = toggle("w:i"); if (i !== undefined) props.italic = i;
-  const u = firstChild(rpr, "w:u"); if (u) props.underline = u.attrs["w:val"] !== "none";
-  const s = toggle("w:strike"); if (s !== undefined) props.strike = s;
+  const b = toggle("w:b");
+  if (b !== undefined) props.bold = b;
+  const i = toggle("w:i");
+  if (i !== undefined) props.italic = i;
+  const u = firstChild(rpr, "w:u");
+  if (u) props.underline = u.attrs["w:val"] !== "none";
+  const s = toggle("w:strike");
+  if (s !== undefined) props.strike = s;
   const color = firstChild(rpr, "w:color")?.attrs["w:val"];
   if (color && /^[0-9a-fA-F]{6}$/.test(color)) props.color = `#${color.toLowerCase()}`;
   const rFonts = firstChild(rpr, "w:rFonts");
@@ -1358,7 +1415,8 @@ function parseRunProps(rpr: XmlEl | undefined): RunProps {
 function mergeProps(...list: RunProps[]): RunProps {
   const out: RunProps = {};
   for (const p of list)
-    for (const k of Object.keys(p) as (keyof RunProps)[]) if (p[k] !== undefined) (out as Record<string, unknown>)[k] = p[k];
+    for (const k of Object.keys(p) as (keyof RunProps)[])
+      if (p[k] !== undefined) (out as Record<string, unknown>)[k] = p[k];
   return out;
 }
 
@@ -1566,7 +1624,7 @@ function paragraphNode(
   if (floating) return [floating];
 
   const ppr = firstChild(p, "w:pPr");
-  const style = ppr ? firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "" : "";
+  const style = ppr ? (firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "") : "";
   // Taquets du paragraphe : relus en millimètres, la même unité que la règle.
   const tabsEl = ppr ? firstChild(ppr, "w:tabs") : undefined;
   const tabStops = tabsEl
@@ -1607,7 +1665,9 @@ function paragraphNode(
       const lvl = Math.round(Number(ind) / 480);
       if (lvl > 0) attrs.indent = Math.min(8, lvl);
     }
-    out.push(Object.keys(attrs).length || nodes.length ? { type: "paragraph", attrs, content: nodes } : { type: "paragraph" });
+    out.push(
+      Object.keys(attrs).length || nodes.length ? { type: "paragraph", attrs, content: nodes } : { type: "paragraph" },
+    );
   }
   if (pageBreak) out.push({ type: "pageBreak" });
   return out;
@@ -1758,14 +1818,7 @@ function shapeFromVml(
   const style = v.attrs["style"] ?? "";
   const wrapEl = firstDescendant(v, "w10:wrap")?.attrs["type"] ?? "";
   const zIndex = Number(styleProp(style, "z-index") || 0);
-  const wrap =
-    wrapEl === "inline"
-      ? "inline"
-      : wrapEl === "square"
-        ? "square"
-        : zIndex < 0
-          ? "behind"
-          : "front";
+  const wrap = wrapEl === "inline" ? "inline" : wrapEl === "square" ? "square" : zIndex < 0 ? "behind" : "front";
   const widthMm = ptToMm(styleProp(style, "width"));
   const heightMm = ptToMm(styleProp(style, "height"));
   const x = ptToMm(styleProp(style, "margin-left"));
@@ -1829,7 +1882,12 @@ function floatingFromParagraph(
   return null;
 }
 
-function tableNode(tbl: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>, sty: StyleResolver): ProseMirrorNode {
+function tableNode(
+  tbl: XmlEl,
+  rels: Record<string, string>,
+  zip: Record<string, Uint8Array>,
+  sty: StyleResolver,
+): ProseMirrorNode {
   const rows = children(tbl, "w:tr").map((tr, rowIdx) => ({
     type: "tableRow",
     content: children(tr, "w:tc").map((tc) => {
@@ -1964,8 +2022,7 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
     // asked for one: a page-starting type, a different orientation, or a
     // numbering restart. The continuous, same-orientation sections that merely
     // delimit a column range carry no break of their own.
-    const meaningful =
-      props.type !== "continuous" || props.orientation !== prevOrientation || props.restartAt != null;
+    const meaningful = props.type !== "continuous" || props.orientation !== prevOrientation || props.restartAt != null;
     if (sectionIdx > 0 && meaningful && props.columns <= 1) {
       content.push({
         type: "sectionBreak",
@@ -2012,8 +2069,9 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
         if (numId && numPr) {
           const def = numFmt[numId] ?? { kind: "bullet" as const, scheme: null };
           const level = Math.max(0, Math.min(8, Number(firstChild(numPr, "w:ilvl")?.attrs["w:val"] ?? 0) || 0));
-          const para =
-            paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? { type: "paragraph" };
+          const para = paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? {
+            type: "paragraph",
+          };
           builder.add({ type: "listItem", content: [para] }, level, def);
           continue;
         }
@@ -2047,7 +2105,10 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
   let title = "";
   const core = zip["docProps/core.xml"];
   if (core) {
-    title = (firstDescendant(parseXml(strFromU8(core)), "dc:title") && te(firstDescendant(parseXml(strFromU8(core)), "dc:title")!)) || "";
+    title =
+      (firstDescendant(parseXml(strFromU8(core)), "dc:title") &&
+        te(firstDescendant(parseXml(strFromU8(core)), "dc:title")!)) ||
+      "";
   }
 
   return { title, doc: { type: "doc", content: content.length ? content : [{ type: "paragraph" }] } };

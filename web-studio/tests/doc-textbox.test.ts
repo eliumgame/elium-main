@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_GEOMETRY, DEFAULT_STYLE, MAX_MM, MIN_HEIGHT_MM, MIN_WIDTH_MM, WRAP_LABELS, WRAP_MODES,
-  isFloating, mmToPt, normalizeGeometry, normalizeStyle, textBoxCss, textBoxShapeType, textBoxVml,
+  DEFAULT_GEOMETRY,
+  DEFAULT_STYLE,
+  MAX_MM,
+  MIN_HEIGHT_MM,
+  MIN_WIDTH_MM,
+  WRAP_LABELS,
+  WRAP_MODES,
+  isFloating,
+  mmToPt,
+  normalizeGeometry,
+  normalizeStyle,
+  textBoxCss,
+  textBoxShapeType,
+  textBoxVml,
   wrapVml,
 } from "../src/editor/textBox";
 import { strFromU8, unzipSync } from "fflate";
@@ -178,13 +190,17 @@ describe("Zone de texte — OOXML", () => {
 
 describe("Zone de texte — export", () => {
   const p = (t: string): ProseMirrorNode => ({ type: "paragraph", content: [{ type: "text", text: t }] });
-  const box = (attrs: Record<string, unknown>, ...kids: ProseMirrorNode[]): ProseMirrorNode =>
-    ({ type: "textBox", attrs, content: kids });
+  const box = (attrs: Record<string, unknown>, ...kids: ProseMirrorNode[]): ProseMirrorNode => ({
+    type: "textBox",
+    attrs,
+    content: kids,
+  });
   const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
   const model = (d: ProseMirrorNode) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc: d,
@@ -199,16 +215,17 @@ describe("Zone de texte — export", () => {
   });
 
   it("conserve du contenu de bloc, pas du texte plat", () => {
-    const html = docToHtml(model(doc(box({}, p("un"), { type: "bulletList", content: [
-      { type: "listItem", content: [p("a")] },
-    ] }))));
+    const html = docToHtml(
+      model(doc(box({}, p("un"), { type: "bulletList", content: [{ type: "listItem", content: [p("a")] }] }))),
+    );
     expect(html).toContain("<ul");
     expect(html).toContain("<li");
   });
 
   it("écrit une forme VML en DOCX, avec son type déclaré une seule fois", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard",
+      title: "T",
+      profile: "standard",
       doc: doc(box({ wrap: "front", x: 20, y: 30 }, p("A")), box({ wrap: "square" }, p("B"))),
     });
     const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
@@ -238,7 +255,9 @@ describe("Zone de texte — export", () => {
 
   it("porte l'habillage jusqu'à Word", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard", doc: doc(box({ wrap: "behind" }, p("A"))),
+      title: "T",
+      profile: "standard",
+      doc: doc(box({ wrap: "behind" }, p("A"))),
     });
     const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
     expect(xml).toContain("z-index:-251658240");

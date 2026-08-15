@@ -133,7 +133,12 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   const inviteRef = useRef<string | null>(null);
   // Pending MFA challenge: the masterKey is already derived (password verified);
   // we hold it in memory ONLY until the second factor completes the login.
-  const mfaPendingRef = useRef<{ mfaToken: string; masterKey: Uint8Array; kdfSalt: string; kdfParams: KdfParams } | null>(null);
+  const mfaPendingRef = useRef<{
+    mfaToken: string;
+    masterKey: Uint8Array;
+    kdfSalt: string;
+    kdfParams: KdfParams;
+  } | null>(null);
   const [mfaMethods, setMfaMethods] = useState<{ totp: boolean; webauthn: boolean } | null>(null);
 
   const persist = useCallback((patch: Partial<Persisted>) => {
@@ -198,7 +203,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         }
         inviteRef.current = null;
         setPendingInvite(null);
-        try { history.replaceState(null, "", location.pathname); } catch { /* ignore */ }
+        try {
+          history.replaceState(null, "", location.pathname);
+        } catch {
+          /* ignore */
+        }
       }
       const list = await loadOrgs();
       const pref = joinedOrgId ?? preferOrgId;
@@ -212,8 +221,13 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const t = new URLSearchParams(location.search).get("invite");
-      if (t) { inviteRef.current = t; setPendingInvite(t); }
-    } catch { /* ignore */ }
+      if (t) {
+        inviteRef.current = t;
+        setPendingInvite(t);
+      }
+    } catch {
+      /* ignore */
+    }
     const p = readPersisted();
     if (p?.snapshot && p.tokens) {
       snapshotRef.current = p.snapshot;
@@ -234,8 +248,17 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         const { payload, keys: k, masterKey } = await buildRegistration(email.trim(), password, displayName.trim());
         masterKeyRef.current = masterKey;
         const res = await api.register(payload);
-        api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
-        snapshotRef.current = { user: res.user, keyBundle: payload.keyBundle, kdfSalt: payload.kdfSalt, kdfParams: payload.kdfParams };
+        api.setTokens({
+          accessToken: res.accessToken,
+          accessTokenExpiresAt: res.accessTokenExpiresAt,
+          refreshToken: res.refreshToken,
+        });
+        snapshotRef.current = {
+          user: res.user,
+          keyBundle: payload.keyBundle,
+          kdfSalt: payload.kdfSalt,
+          kdfParams: payload.kdfParams,
+        };
         persist({ snapshot: snapshotRef.current });
         setLockedEmail(res.user.email);
         await finishAuth(res.user, k);
@@ -253,7 +276,11 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   // unlock keys with the already-derived masterKey, persist the snapshot.
   const finishLogin = useCallback(
     async (res: LoginResult, masterKey: Uint8Array, kdfSalt: string, kdfParams: KdfParams) => {
-      api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
+      api.setTokens({
+        accessToken: res.accessToken,
+        accessTokenExpiresAt: res.accessTokenExpiresAt,
+        refreshToken: res.refreshToken,
+      });
       masterKeyRef.current = masterKey;
       const k = await unlockAccount(res.keyBundle, masterKey, res.user);
       snapshotRef.current = { user: res.user, keyBundle: res.keyBundle, kdfSalt, kdfParams };
@@ -279,7 +306,12 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         if (isMfaChallenge(res)) {
           // Password OK, second factor required. Hold the derived masterKey in
           // memory (never persisted) until the code completes the login.
-          mfaPendingRef.current = { mfaToken: res.mfaToken, masterKey, kdfSalt: pre.kdfSalt, kdfParams: pre.kdfParams as KdfParams };
+          mfaPendingRef.current = {
+            mfaToken: res.mfaToken,
+            masterKey,
+            kdfSalt: pre.kdfSalt,
+            kdfParams: pre.kdfParams as KdfParams,
+          };
           setMfaMethods(res.methods ?? { totp: true, webauthn: false });
           setLockedEmail(email.trim());
           setStatus("mfa");
@@ -325,8 +357,17 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         await finishLogin(res, masterKey, res.kdfSalt, res.kdfParams);
       } else {
         // Authentifié au serveur mais pas de secret local : session verrouillée.
-        api.setTokens({ accessToken: res.accessToken, accessTokenExpiresAt: res.accessTokenExpiresAt, refreshToken: res.refreshToken });
-        snapshotRef.current = { user: res.user, keyBundle: res.keyBundle, kdfSalt: res.kdfSalt, kdfParams: res.kdfParams };
+        api.setTokens({
+          accessToken: res.accessToken,
+          accessTokenExpiresAt: res.accessTokenExpiresAt,
+          refreshToken: res.refreshToken,
+        });
+        snapshotRef.current = {
+          user: res.user,
+          keyBundle: res.keyBundle,
+          kdfSalt: res.kdfSalt,
+          kdfParams: res.kdfParams,
+        };
         persist({ snapshot: snapshotRef.current });
         setUser(res.user);
         setLockedEmail(res.user.email);
@@ -369,35 +410,32 @@ export function DriveProvider({ children }: { children: ReactNode }) {
 
   // Second factor via WebAuthn passkey: fetch a challenge, run the browser
   // ceremony (navigator.credentials.get), verify server-side, then finish login.
-  const completeMfaWebauthn = useCallback(
-    async () => {
-      const pending = mfaPendingRef.current;
-      if (!pending) {
-        setStatus("anonymous");
-        return;
-      }
-      setBusy(true);
-      setError(null);
-      try {
-        const { startAuthentication } = await import("@simplewebauthn/browser");
-        const options = await api.webauthnLoginOptions(pending.mfaToken);
-        const assertion = await startAuthentication({ optionsJSON: options as never });
-        const res = await api.webauthnLoginVerify(pending.mfaToken, assertion);
-        await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
-        mfaPendingRef.current = null;
-        setMfaMethods(null);
-      } catch (e) {
-        // Annulation / timeout / page sans focus de la cérémonie passkey : rester
-        // sur l'écran du 2e facteur sans erreur alarmante (filtrage par NOM).
-        const name = e instanceof Error ? e.name : "";
-        if (name !== "NotAllowedError" && name !== "AbortError") setError(messageOf(e));
-        throw e;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [api, finishLogin],
-  );
+  const completeMfaWebauthn = useCallback(async () => {
+    const pending = mfaPendingRef.current;
+    if (!pending) {
+      setStatus("anonymous");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { startAuthentication } = await import("@simplewebauthn/browser");
+      const options = await api.webauthnLoginOptions(pending.mfaToken);
+      const assertion = await startAuthentication({ optionsJSON: options as never });
+      const res = await api.webauthnLoginVerify(pending.mfaToken, assertion);
+      await finishLogin(res, pending.masterKey, pending.kdfSalt, pending.kdfParams);
+      mfaPendingRef.current = null;
+      setMfaMethods(null);
+    } catch (e) {
+      // Annulation / timeout / page sans focus de la cérémonie passkey : rester
+      // sur l'écran du 2e facteur sans erreur alarmante (filtrage par NOM).
+      const name = e instanceof Error ? e.name : "";
+      if (name !== "NotAllowedError" && name !== "AbortError") setError(messageOf(e));
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }, [api, finishLogin]);
 
   const cancelMfa = useCallback(() => {
     mfaPendingRef.current = null;
@@ -466,17 +504,20 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     }
   }, [finishAuth]);
 
-  const enrollPasskeyUnlock = useCallback(async (credentialId: string | null): Promise<boolean> => {
-    const mk = masterKeyRef.current;
-    const u = user;
-    if (!mk || !u) return false;
-    const enrolled = await enrollPrf(credentialId, rpIdFromOrigin());
-    if (!enrolled) return false; // authentificateur sans PRF
-    const wrapped = await wrapMaster(enrolled.prfOutput, mk);
-    savePrfRecord({ email: u.email, credentialId: enrolled.credentialId, salt: enrolled.saltHex, wrapped });
-    setPrfTick((t) => t + 1);
-    return true;
-  }, [user]);
+  const enrollPasskeyUnlock = useCallback(
+    async (credentialId: string | null): Promise<boolean> => {
+      const mk = masterKeyRef.current;
+      const u = user;
+      if (!mk || !u) return false;
+      const enrolled = await enrollPrf(credentialId, rpIdFromOrigin());
+      if (!enrolled) return false; // authentificateur sans PRF
+      const wrapped = await wrapMaster(enrolled.prfOutput, mk);
+      savePrfRecord({ email: u.email, credentialId: enrolled.credentialId, salt: enrolled.saltHex, wrapped });
+      setPrfTick((t) => t + 1);
+      return true;
+    },
+    [user],
+  );
 
   const disablePasskeyUnlock = useCallback(() => {
     if (user) removePrfRecord(user.email);
@@ -514,7 +555,12 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         const orgKp = await generateRecipientKeypair();
         const wrappedEnvelope = await encryptForRecipients(fromHex(orgKp.privateHex), [keys.recipient.publicHex]);
         const wrappedOrgPrivate = JSON.parse(new TextDecoder().decode(wrappedEnvelope)) as Record<string, unknown>;
-        const { org } = await api.createOrg({ name: name.trim(), slug: slug.trim(), orgPublicHex: orgKp.publicHex, wrappedOrgPrivate });
+        const { org } = await api.createOrg({
+          name: name.trim(),
+          slug: slug.trim(),
+          orgPublicHex: orgKp.publicHex,
+          wrappedOrgPrivate,
+        });
         await refreshOrgs();
         await selectOrg(org.id);
       } catch (e) {

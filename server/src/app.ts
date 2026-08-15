@@ -43,7 +43,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   // `frame-ancestors 'none'` (anti-clickjacking). Sans risque pour du JSON. Plus
   // Referrer-Policy no-referrer et CORP same-site.
   await app.register(helmet, {
-    contentSecurityPolicy: { useDefaults: false, directives: { "default-src": ["'none'"], "frame-ancestors": ["'none'"] } },
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: { "default-src": ["'none'"], "frame-ancestors": ["'none'"] },
+    },
     referrerPolicy: { policy: "no-referrer" },
     crossOriginResourcePolicy: { policy: "same-site" },
   });
@@ -95,10 +98,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Uniform error handling.
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ApiError) {
-      return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message, details: err.details } });
+      return reply
+        .status(err.statusCode)
+        .send({ error: { code: err.code, message: err.message, details: err.details } });
     }
     if (err instanceof ZodError) {
-      return reply.status(400).send({ error: { code: "validation", message: "Requête invalide.", details: err.issues } });
+      return reply
+        .status(400)
+        .send({ error: { code: "validation", message: "Requête invalide.", details: err.issues } });
     }
     if ((err as { statusCode?: number }).statusCode === 429) {
       return reply.status(429).send({ error: { code: "rate_limited", message: "Trop de requêtes." } });

@@ -26,7 +26,9 @@ export default function RolesPanel() {
   const dialogs = useDialogs();
   const [catalog, setCatalog] = useState<PermissionDef[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ name: string; description: string; color: string; perms: Set<string> } | null>(null);
+  const [draft, setDraft] = useState<{ name: string; description: string; color: string; perms: Set<string> } | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -41,10 +43,13 @@ export default function RolesPanel() {
   }, [d.currentOrg?.id]);
 
   useEffect(() => {
-    d.api.permissionCatalog().then((res) => {
-      const list = Array.isArray(res) ? res : res.permissions;
-      setCatalog(list ?? []);
-    }).catch(() => setCatalog([]));
+    d.api
+      .permissionCatalog()
+      .then((res) => {
+        const list = Array.isArray(res) ? res : res.permissions;
+        setCatalog(list ?? []);
+      })
+      .catch(() => setCatalog([]));
   }, [d.api]);
 
   const selected = useMemo(() => d.roles.find((r) => r.id === selectedId) ?? null, [d.roles, selectedId]);
@@ -54,7 +59,13 @@ export default function RolesPanel() {
   }, [d.roles, selectedId]);
 
   useEffect(() => {
-    if (selected) setDraft({ name: selected.name, description: selected.description, color: selected.color, perms: new Set(selected.permissions) });
+    if (selected)
+      setDraft({
+        name: selected.name,
+        description: selected.description,
+        color: selected.color,
+        perms: new Set(selected.permissions),
+      });
     else setDraft(null);
   }, [selected]);
 
@@ -64,7 +75,9 @@ export default function RolesPanel() {
     return g;
   }, [catalog]);
 
-  const reloadRoles = useCallback(async () => { if (orgId) await d.selectOrg(orgId); }, [d, orgId]);
+  const reloadRoles = useCallback(async () => {
+    if (orgId) await d.selectOrg(orgId);
+  }, [d, orgId]);
 
   // Les rôles par défaut sont des copies propres à l'organisation : ils sont
   // éditables comme les rôles personnalisés (le serveur préserve leur `key`).
@@ -75,53 +88,84 @@ export default function RolesPanel() {
   const toggle = (key: string) => {
     if (!editable || !draft) return;
     const perms = new Set(draft.perms);
-    if (perms.has(key)) perms.delete(key); else perms.add(key);
+    if (perms.has(key)) perms.delete(key);
+    else perms.add(key);
     setDraft({ ...draft, perms });
   };
 
   const save = async () => {
     if (!selected || !draft) return;
-    setBusy(true); setErr(null);
+    setBusy(true);
+    setErr(null);
     try {
       await d.api.updateRole(orgId, selected.id, {
-        name: draft.name, description: draft.description, color: draft.color, permissions: [...draft.perms],
+        name: draft.name,
+        description: draft.description,
+        color: draft.color,
+        permissions: [...draft.perms],
       });
       await reloadRoles();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Enregistrement impossible."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Enregistrement impossible.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const create = async () => {
-    setBusy(true); setErr(null);
+    setBusy(true);
+    setErr(null);
     try {
-      const { role } = await d.api.createRole(orgId, { name: "Nouveau rôle", permissions: ["node.view", "node.download"] });
+      const { role } = await d.api.createRole(orgId, {
+        name: "Nouveau rôle",
+        permissions: ["node.view", "node.download"],
+      });
       await reloadRoles();
       setSelectedId((role as RoleDef).id);
-    } catch (e) { setErr(e instanceof Error ? e.message : "Création impossible."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Création impossible.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const clone = async () => {
     if (!selected) return;
-    setBusy(true); setErr(null);
+    setBusy(true);
+    setErr(null);
     try {
       const { role } = await d.api.cloneRole(orgId, selected.id);
       await reloadRoles();
       setSelectedId((role as RoleDef).id);
-    } catch (e) { setErr(e instanceof Error ? e.message : "Clonage impossible."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Clonage impossible.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async () => {
     if (!selected) return;
-    if (!(await dialogs.confirm({ title: "Supprimer le rôle", message: `Supprimer « ${selected.name} » ?`, danger: true, confirmLabel: "Supprimer" }))) return;
-    setBusy(true); setErr(null);
+    if (
+      !(await dialogs.confirm({
+        title: "Supprimer le rôle",
+        message: `Supprimer « ${selected.name} » ?`,
+        danger: true,
+        confirmLabel: "Supprimer",
+      }))
+    )
+      return;
+    setBusy(true);
+    setErr(null);
     try {
       await d.api.deleteRole(orgId, selected.id);
       setSelectedId(null);
       await reloadRoles();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Suppression impossible (rôle encore utilisé ?)."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Suppression impossible (rôle encore utilisé ?).");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -129,10 +173,18 @@ export default function RolesPanel() {
       <aside className="dc-roles__list">
         <div className="dc-roles__list-head">
           <span>Rôles</span>
-          {canManage && <button className="icon-btn" title="Nouveau rôle" onClick={() => void create()}><Plus size={16} /></button>}
+          {canManage && (
+            <button className="icon-btn" title="Nouveau rôle" onClick={() => void create()}>
+              <Plus size={16} />
+            </button>
+          )}
         </div>
         {d.roles.map((r) => (
-          <button key={r.id} className={`dc-role-item ${r.id === selectedId ? "is-active" : ""}`} onClick={() => setSelectedId(r.id)}>
+          <button
+            key={r.id}
+            className={`dc-role-item ${r.id === selectedId ? "is-active" : ""}`}
+            onClick={() => setSelectedId(r.id)}
+          >
             <span className="dc-role-dot" style={{ background: r.color }} />
             <span className="dc-role-item__name">{r.name}</span>
             {r.isSystem && <Lock size={12} className="dc-role-item__sys" />}
@@ -142,40 +194,88 @@ export default function RolesPanel() {
 
       <section className="dc-roles__editor">
         {!draft || !selected ? (
-          <div className="dc-empty-list"><ShieldHalf size={30} /><p>Sélectionnez un rôle.</p></div>
+          <div className="dc-empty-list">
+            <ShieldHalf size={30} />
+            <p>Sélectionnez un rôle.</p>
+          </div>
         ) : (
           <>
             <div className="dc-roles__editor-head">
               <div className="dc-role-meta">
-                <input className="input dc-role-name" value={draft.name} disabled={!editable} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-                <input className="input" placeholder="Description" value={draft.description} disabled={!editable} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                <input
+                  className="input dc-role-name"
+                  value={draft.name}
+                  disabled={!editable}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Description"
+                  value={draft.description}
+                  disabled={!editable}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                />
                 <div className="dc-role-colors">
                   {COLORS.map((c) => (
-                    <button key={c} className={`dc-role-swatch ${draft.color === c ? "is-active" : ""}`} style={{ background: c }} disabled={!editable} onClick={() => setDraft({ ...draft, color: c })} aria-label={c} />
+                    <button
+                      key={c}
+                      className={`dc-role-swatch ${draft.color === c ? "is-active" : ""}`}
+                      style={{ background: c }}
+                      disabled={!editable}
+                      onClick={() => setDraft({ ...draft, color: c })}
+                      aria-label={c}
+                    />
                   ))}
                 </div>
               </div>
               <div className="dc-roles__editor-actions">
-                {selected.isSystem && <span className="badge badge--info dc-role-defaultbadge"><Lock size={12} /> Rôle par défaut</span>}
+                {selected.isSystem && (
+                  <span className="badge badge--info dc-role-defaultbadge">
+                    <Lock size={12} /> Rôle par défaut
+                  </span>
+                )}
                 {canManage && (
                   <>
-                    <button className="eb eb--sm eb--primary" onClick={() => void save()} disabled={busy}><Save size={14} /> Enregistrer</button>
-                    <button className="eb eb--sm eb--danger" onClick={() => void remove()} disabled={busy || !deletable} title={deletable ? undefined : "Le rôle propriétaire ne peut pas être supprimé"}><Trash2 size={14} /> Supprimer</button>
+                    <button className="eb eb--sm eb--primary" onClick={() => void save()} disabled={busy}>
+                      <Save size={14} /> Enregistrer
+                    </button>
+                    <button
+                      className="eb eb--sm eb--danger"
+                      onClick={() => void remove()}
+                      disabled={busy || !deletable}
+                      title={deletable ? undefined : "Le rôle propriétaire ne peut pas être supprimé"}
+                    >
+                      <Trash2 size={14} /> Supprimer
+                    </button>
                   </>
                 )}
-                {canManage && <button className="eb eb--sm eb--outline" onClick={() => void clone()} disabled={busy}><Copy size={14} /> Cloner</button>}
+                {canManage && (
+                  <button className="eb eb--sm eb--outline" onClick={() => void clone()} disabled={busy}>
+                    <Copy size={14} /> Cloner
+                  </button>
+                )}
               </div>
             </div>
             {err && <p className="dc-error">{err}</p>}
-            <div className="dc-perm-count">{draft.perms.size} permission(s) sur {catalog.length}</div>
+            <div className="dc-perm-count">
+              {draft.perms.size} permission(s) sur {catalog.length}
+            </div>
 
             <div className="dc-perm-grid">
               {Object.entries(grouped).map(([domain, perms]) => (
                 <fieldset key={domain} className="dc-perm-group">
                   <legend>{DOMAIN_LABEL[domain] ?? domain}</legend>
                   {perms.map((p) => (
-                    <label key={p.key} className={`dc-perm ${draft.perms.has(p.key) ? "is-on" : ""} ${editable ? "" : "is-locked"}`}>
-                      <input type="checkbox" checked={draft.perms.has(p.key)} disabled={!editable} onChange={() => toggle(p.key)} />
+                    <label
+                      key={p.key}
+                      className={`dc-perm ${draft.perms.has(p.key) ? "is-on" : ""} ${editable ? "" : "is-locked"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={draft.perms.has(p.key)}
+                        disabled={!editable}
+                        onChange={() => toggle(p.key)}
+                      />
                       <span className="dc-perm__label">{p.label}</span>
                       <code className="dc-perm__key">{p.key}</code>
                     </label>

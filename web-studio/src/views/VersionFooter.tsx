@@ -57,9 +57,7 @@ export default function VersionFooter() {
           {info.upToDate ? (
             <span className="home__version-ok">· à jour</span>
           ) : (
-            <span className="home__version-new">
-              · mise à jour disponible{info.latest ? ` (v${info.latest})` : ""}
-            </span>
+            <span className="home__version-new">· mise à jour disponible{info.latest ? ` (v${info.latest})` : ""}</span>
           )}
           {" · "}
           <button type="button" className="home__version-manage" onClick={() => setOpen(true)}>
@@ -158,7 +156,9 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
             )}
           </div>
         ) : downloading ? (
-          <p className="vm__progress">Application de la version v{status?.version}… {status?.progress ?? 0} %</p>
+          <p className="vm__progress">
+            Application de la version v{status?.version}… {status?.progress ?? 0} %
+          </p>
         ) : (
           <>
             <div className="vm__actions">
@@ -183,7 +183,10 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
                       Utiliser cette version
                     </button>
                   ) : (
-                    <span className="vm__note" title="Antérieure à la version installée d'origine : réinstallez le programme d'installation (MSI).">
+                    <span
+                      className="vm__note"
+                      title="Antérieure à la version installée d'origine : réinstallez le programme d'installation (MSI)."
+                    >
                       via réinstallation
                     </span>
                   )}

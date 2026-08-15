@@ -76,7 +76,8 @@ function readRaw(): TrustedContact[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (c): c is TrustedContact =>
-        !!c && typeof c === "object" &&
+        !!c &&
+        typeof c === "object" &&
         typeof (c as TrustedContact).publicKeyHex === "string" &&
         typeof (c as TrustedContact).name === "string",
     );

@@ -140,7 +140,8 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
   const offsets = items ? runOffsets(items) : null;
 
   const sorted = runs.slice().sort((a, b) => {
-    const ay = a.origin.y, by = b.origin.y;
+    const ay = a.origin.y,
+      by = b.origin.y;
     if (Math.abs(ay - by) > 0.6) return ay - by;
     return a.origin.x - b.origin.x;
   });
@@ -180,12 +181,18 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
   };
 
   for (const r of sorted) {
-    if (!group.length) { group = [r]; continue; }
+    if (!group.length) {
+      group = [r];
+      continue;
+    }
     const ref = group[0];
     const sameAngle = Math.abs(normalizeAngle(r.angle - ref.angle)) < 0.05;
     const tol = Math.max(2.2, ref.fontSize * 0.55);
     if (sameAngle && Math.abs(r.origin.y - ref.origin.y) <= tol) group.push(r);
-    else { flush(); group = [r]; }
+    else {
+      flush();
+      group = [r];
+    }
   }
   flush();
   return lines;
@@ -208,7 +215,8 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
       const x = Math.min(acc.x, l.rect.x);
       const y = Math.min(acc.y, l.rect.y);
       return {
-        x, y,
+        x,
+        y,
         w: Math.max(acc.x + acc.w, l.rect.x + l.rect.w) - x,
         h: Math.max(acc.y + acc.h, l.rect.y + l.rect.h) - y,
       };
@@ -232,17 +240,22 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
   };
 
   for (const l of lines) {
-    if (!cur.length) { cur = [l]; continue; }
+    if (!cur.length) {
+      cur = [l];
+      continue;
+    }
     const prev = cur[cur.length - 1];
     const gap = l.origin.y - prev.origin.y;
     const sizeOk = Math.abs(l.fontSize - prev.fontSize) <= Math.max(0.6, prev.fontSize * 0.22);
     const gapOk = gap > 0 && gap <= prev.fontSize * 2.1;
-    const overlap =
-      Math.min(l.rect.x + l.rect.w, prev.rect.x + prev.rect.w) - Math.max(l.rect.x, prev.rect.x);
+    const overlap = Math.min(l.rect.x + l.rect.w, prev.rect.x + prev.rect.w) - Math.max(l.rect.x, prev.rect.x);
     const overlapOk = overlap > Math.min(l.rect.w, prev.rect.w) * 0.35;
     const angleOk = Math.abs(normalizeAngle(l.angle - prev.angle)) < 0.05;
     if (sizeOk && gapOk && overlapOk && angleOk) cur.push(l);
-    else { flush(); cur = [l]; }
+    else {
+      flush();
+      cur = [l];
+    }
   }
   flush();
   return blocks;
@@ -346,7 +359,10 @@ export function mergeQuads(quads: readonly Quad[]): Quad[] {
   const out: Quad[] = [];
   let cur: Quad | null = null;
   for (const q of quads) {
-    if (!cur) { cur = q; continue; }
+    if (!cur) {
+      cur = q;
+      continue;
+    }
     const a = rectOfPoints(cur);
     const b = rectOfPoints(q);
     const sameLine = Math.abs(a.y - b.y) < Math.max(1.5, a.h * 0.35) && Math.abs(a.h - b.h) < Math.max(2, a.h * 0.5);
@@ -355,7 +371,8 @@ export function mergeQuads(quads: readonly Quad[]): Quad[] {
       const x = Math.min(a.x, b.x);
       const y = Math.min(a.y, b.y);
       const r: Rect = {
-        x, y,
+        x,
+        y,
         w: Math.max(a.x + a.w, b.x + b.w) - x,
         h: Math.max(a.y + a.h, b.y + b.h) - y,
       };
@@ -398,7 +415,9 @@ export function quadsFromSelection(
     try {
       if (!textLayer.contains(range.startContainer)) clipped.setStart(textLayer, 0);
       if (!textLayer.contains(range.endContainer)) clipped.setEnd(textLayer, textLayer.childNodes.length);
-    } catch { continue; }
+    } catch {
+      continue;
+    }
     quads.push(...quadsFromClientRects(clipped.getClientRects(), host, scale, size, rotation));
   }
   return mergeQuads(quads);
@@ -437,7 +456,9 @@ export function selectionTextIn(selection: Selection | null, textLayer: HTMLElem
     try {
       if (!textLayer.contains(range.startContainer)) clipped.setStart(textLayer, 0);
       if (!textLayer.contains(range.endContainer)) clipped.setEnd(textLayer, textLayer.childNodes.length);
-    } catch { continue; }
+    } catch {
+      continue;
+    }
     out += clipped.toString();
   }
   return out;

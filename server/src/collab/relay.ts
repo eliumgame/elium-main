@@ -93,7 +93,10 @@ function broadcast(nodeId: string, from: Peer | null, message: unknown): void {
 //  seul) : aucune métadonnée (id/nom de dossier) ne fuit vers des membres qui
 //  n'y ont pas accès ; le client se contente de re-lister son dossier courant,
 //  re-filtré par RBAC côté serveur.
-interface OrgPeer { socket: WsConn; userId: string; }
+interface OrgPeer {
+  socket: WsConn;
+  userId: string;
+}
 const orgRooms = new Map<string, Set<OrgPeer>>();
 
 /** Diffuse un ping « quelque chose a changé » à tous les membres connectés
@@ -108,7 +111,11 @@ function notifyOrgLocal(orgId: string): void {
   if (!room) return;
   const data = JSON.stringify({ type: "nodes-changed" });
   for (const peer of room) {
-    try { peer.socket.send(data); } catch { /* nettoyé à sa propre fermeture */ }
+    try {
+      peer.socket.send(data);
+    } catch {
+      /* nettoyé à sa propre fermeture */
+    }
   }
 }
 
@@ -148,16 +155,26 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
 
     const peer: OrgPeer = { socket, userId: claims.sub };
     let room = orgRooms.get(orgId);
-    if (!room) { room = new Set<OrgPeer>(); orgRooms.set(orgId, room); }
+    if (!room) {
+      room = new Set<OrgPeer>();
+      orgRooms.set(orgId, room);
+    }
     room.add(peer);
-    try { socket.send(JSON.stringify({ type: "ready" })); } catch { /* ignore */ }
+    try {
+      socket.send(JSON.stringify({ type: "ready" }));
+    } catch {
+      /* ignore */
+    }
 
     let disposed = false;
     const cleanup = () => {
       if (disposed) return;
       disposed = true;
       const r = orgRooms.get(orgId);
-      if (r) { r.delete(peer); if (r.size === 0) orgRooms.delete(orgId); }
+      if (r) {
+        r.delete(peer);
+        if (r.size === 0) orgRooms.delete(orgId);
+      }
       const n = (connectionsByUser.get(peer.userId) ?? 1) - 1;
       if (n <= 0) connectionsByUser.delete(peer.userId);
       else connectionsByUser.set(peer.userId, n);
@@ -192,7 +209,13 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     }
     connectionsByUser.set(claims.sub, open + 1);
 
-    const peer: Peer = { socket, userId: claims.sub, canWrite: access.permissions.has("node.edit"), msgCount: 0, windowStart: Date.now() };
+    const peer: Peer = {
+      socket,
+      userId: claims.sub,
+      canWrite: access.permissions.has("node.edit"),
+      msgCount: 0,
+      windowStart: Date.now(),
+    };
     let room = rooms.get(nodeId);
     if (!room) {
       room = new Set<Peer>();
@@ -222,9 +245,16 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
         // au-dessus d'une frappe humaine, donc l'édition normale n'est jamais
         // affectée.
         const now = Date.now();
-        if (now - peer.windowStart >= 1000) { peer.windowStart = now; peer.msgCount = 0; }
+        if (now - peer.windowStart >= 1000) {
+          peer.windowStart = now;
+          peer.msgCount = 0;
+        }
         if (++peer.msgCount > config.maxCollabMessagesPerSec) {
-          try { socket.close(1013, "rate limited"); } catch { /* déjà fermé */ }
+          try {
+            socket.close(1013, "rate limited");
+          } catch {
+            /* déjà fermé */
+          }
           return;
         }
         const text = String(raw);
@@ -282,7 +312,10 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
       if (disposed) return;
       disposed = true;
       const r = rooms.get(nodeId);
-      if (r) { r.delete(peer); if (r.size === 0) rooms.delete(nodeId); }
+      if (r) {
+        r.delete(peer);
+        if (r.size === 0) rooms.delete(nodeId);
+      }
       const n = (connectionsByUser.get(peer.userId) ?? 1) - 1;
       if (n <= 0) connectionsByUser.delete(peer.userId);
       else connectionsByUser.set(peer.userId, n);
@@ -299,65 +332,57 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
   // Replaces the whole update log with ONE snapshot encrypted under the NEW
   // node key, then kicks the room so every peer reconnects and re-fetches its
   // wrapped key. The snapshot is opaque ciphertext like any other update.
-  app.post(
-    "/api/collab/:nodeId/compact",
-    { preHandler: authenticate },
-    async (req: FastifyRequest) => {
-      const nodeId = (req.params as { nodeId: string }).nodeId;
-      const user = requireUser(req);
-      const access = await requireNodePerm(req, nodeId, "node.acl.manage");
-      const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown };
-      const ct = typeof body.ciphertext === "string" ? body.ciphertext : "";
-      const nonce = typeof body.nonce === "string" ? body.nonce : "";
-      if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) {
-        throw badRequest("Snapshot invalide (ciphertext/nonce hex attendus).");
-      }
-      const seq = await withTx(async (c) => {
-        await c.query(`DELETE FROM collab_updates WHERE node_id = $1`, [nodeId]);
-        const { rows } = await c.query(
-          `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
+  app.post("/api/collab/:nodeId/compact", { preHandler: authenticate }, async (req: FastifyRequest) => {
+    const nodeId = (req.params as { nodeId: string }).nodeId;
+    const user = requireUser(req);
+    const access = await requireNodePerm(req, nodeId, "node.acl.manage");
+    const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown };
+    const ct = typeof body.ciphertext === "string" ? body.ciphertext : "";
+    const nonce = typeof body.nonce === "string" ? body.nonce : "";
+    if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) {
+      throw badRequest("Snapshot invalide (ciphertext/nonce hex attendus).");
+    }
+    const seq = await withTx(async (c) => {
+      await c.query(`DELETE FROM collab_updates WHERE node_id = $1`, [nodeId]);
+      const { rows } = await c.query(
+        `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
            VALUES ($1, $2, $3, $4) RETURNING id`,
-          [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), user.id],
-        );
-        return rows[0]?.id as number;
-      });
-      kickRoom(nodeId);
-      await audit(access.orgId, user.id, "collab.compact", access.kind, nodeId, { seq }, req.ip);
-      return { seq };
-    },
-  );
+        [nodeId, Buffer.from(ct, "hex"), Buffer.from(nonce, "hex"), user.id],
+      );
+      return rows[0]?.id as number;
+    });
+    kickRoom(nodeId);
+    await audit(access.orgId, user.id, "collab.compact", access.kind, nodeId, { seq }, req.ip);
+    return { seq };
+  });
 
   // --- REST backlog (catch-up) --------------------------------------------
-  app.get(
-    "/api/collab/:nodeId/updates",
-    { preHandler: authenticate },
-    async (req: FastifyRequest) => {
-      const nodeId = (req.params as { nodeId: string }).nodeId;
-      await requireNodePerm(req, nodeId, "node.view");
-      const since = Number((req.query as { since?: string }).since ?? 0) || 0;
-      const rows = await query<{
-        id: number;
-        update_ciphertext: Buffer;
-        update_nonce: Buffer;
-        author_user_id: string | null;
-        created_at: string;
-      }>(
-        `SELECT id, update_ciphertext, update_nonce, author_user_id, created_at
+  app.get("/api/collab/:nodeId/updates", { preHandler: authenticate }, async (req: FastifyRequest) => {
+    const nodeId = (req.params as { nodeId: string }).nodeId;
+    await requireNodePerm(req, nodeId, "node.view");
+    const since = Number((req.query as { since?: string }).since ?? 0) || 0;
+    const rows = await query<{
+      id: number;
+      update_ciphertext: Buffer;
+      update_nonce: Buffer;
+      author_user_id: string | null;
+      created_at: string;
+    }>(
+      `SELECT id, update_ciphertext, update_nonce, author_user_id, created_at
            FROM collab_updates
           WHERE node_id = $1 AND id > $2
           ORDER BY id ASC
           LIMIT 5000`,
-        [nodeId, since],
-      );
-      return {
-        updates: rows.map((r) => ({
-          seq: r.id,
-          ciphertext: Buffer.from(r.update_ciphertext).toString("hex"),
-          nonce: Buffer.from(r.update_nonce).toString("hex"),
-          author: r.author_user_id,
-          createdAt: r.created_at,
-        })),
-      };
-    },
-  );
+      [nodeId, since],
+    );
+    return {
+      updates: rows.map((r) => ({
+        seq: r.id,
+        ciphertext: Buffer.from(r.update_ciphertext).toString("hex"),
+        nonce: Buffer.from(r.update_nonce).toString("hex"),
+        author: r.author_user_id,
+        createdAt: r.created_at,
+      })),
+    };
+  });
 }

@@ -229,11 +229,17 @@ export class DriveApi {
   }
   /** Oracle-free login step 1: obtain a random challenge to sign. */
   loginInit(email: string) {
-    return this.json<{ challengeId: string; challenge: string }>("POST", "/auth/login/init", { body: { email }, auth: false });
+    return this.json<{ challengeId: string; challenge: string }>("POST", "/auth/login/init", {
+      body: { email },
+      auth: false,
+    });
   }
   /** Step 2: submit the signature over the challenge (may return an MFA challenge). */
   loginVerify(email: string, challengeId: string, signature: string) {
-    return this.json<LoginResponse>("POST", "/auth/login/verify", { body: { email, challengeId, signature }, auth: false });
+    return this.json<LoginResponse>("POST", "/auth/login/verify", {
+      body: { email, challengeId, signature },
+      auth: false,
+    });
   }
   /** Third step when MFA is enabled: prove the TOTP / backup code. */
   loginMfa(mfaToken: string, code: string) {
@@ -249,26 +255,38 @@ export class DriveApi {
     return this.json<{ ok: boolean }>("POST", "/auth/webauthn/register/verify", { body: { response, name } });
   }
   webauthnCredentials() {
-    return this.json<{ credentials: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[] }>("GET", "/auth/webauthn/credentials");
+    return this.json<{ credentials: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[] }>(
+      "GET",
+      "/auth/webauthn/credentials",
+    );
   }
   webauthnRemoveCredential(id: string) {
     return this.json<{ ok: boolean }>("DELETE", `/auth/webauthn/credentials/${id}`);
   }
   /** Connexion 2e facteur : options à passer à navigator.credentials.get. */
   webauthnLoginOptions(mfaToken: string) {
-    return this.json<Record<string, unknown>>("POST", "/auth/webauthn/login/options", { body: { mfaToken }, auth: false });
+    return this.json<Record<string, unknown>>("POST", "/auth/webauthn/login/options", {
+      body: { mfaToken },
+      auth: false,
+    });
   }
   webauthnLoginVerify(mfaToken: string, response: unknown) {
     return this.json<LoginResult>("POST", "/auth/webauthn/login/verify", { body: { mfaToken, response }, auth: false });
   }
   /** Connexion SANS mot de passe : options d'assertion découvrable (1er facteur). */
   webauthnAssertOptions() {
-    return this.json<{ options: Record<string, unknown>; challengeId: string }>("POST", "/auth/webauthn/assert/options", { body: {}, auth: false });
+    return this.json<{ options: Record<string, unknown>; challengeId: string }>(
+      "POST",
+      "/auth/webauthn/assert/options",
+      { body: {}, auth: false },
+    );
   }
   /** Vérifie l'assertion découvrable → session + keyBundle + sel/params KDF. */
   webauthnAssertVerify(challengeId: string, response: unknown) {
     return this.json<LoginResult & { kdfSalt: string; kdfParams: import("./kdf").KdfParams }>(
-      "POST", "/auth/webauthn/assert/verify", { body: { challengeId, response }, auth: false },
+      "POST",
+      "/auth/webauthn/assert/verify",
+      { body: { challengeId, response }, auth: false },
     );
   }
   // === MFA management (authenticated) ======================================
@@ -347,7 +365,10 @@ export class DriveApi {
     return this.json<{ wrappedOrgPrivate: WrappedKey }>("GET", `/orgs/${orgId}/recovery-key`);
   }
   getOrgUsage(orgId: string) {
-    return this.json<{ usedBytes: number; quotaBytes: number | null; versionCount: number }>("GET", `/orgs/${orgId}/usage`);
+    return this.json<{ usedBytes: number; quotaBytes: number | null; versionCount: number }>(
+      "GET",
+      `/orgs/${orgId}/usage`,
+    );
   }
   // === SSO (OIDC) + SCIM ====================================================
   /** Sign in via an OIDC id_token obtained from the org's IdP (identity only;
@@ -372,7 +393,10 @@ export class DriveApi {
   }
   /** SCIM provisioning config: default role + IdP group → Elium role mapping. */
   getOrgScimConfig(orgId: string) {
-    return this.json<{ defaultRoleKey: string | null; groupRoleMap: Record<string, string> }>("GET", `/orgs/${orgId}/scim-config`);
+    return this.json<{ defaultRoleKey: string | null; groupRoleMap: Record<string, string> }>(
+      "GET",
+      `/orgs/${orgId}/scim-config`,
+    );
   }
   setOrgScimConfig(orgId: string, config: { defaultRoleKey: string; groupRoleMap?: Record<string, string> }) {
     return this.json<{ ok: boolean }>("PUT", `/orgs/${orgId}/scim-config`, { body: config });
@@ -388,7 +412,9 @@ export class DriveApi {
   }
   /** Erase my account. `proof` = Ed25519 signature over "elium:delete-account:<email>". */
   deleteMyAccount(proof: string) {
-    return this.json<{ ok: boolean; deletedOrgs: number; transferredNodes: number }>("DELETE", `/users/me`, { body: { proof } });
+    return this.json<{ ok: boolean; deletedOrgs: number; transferredNodes: number }>("DELETE", `/users/me`, {
+      body: { proof },
+    });
   }
   /** Transfer org ownership to another active member (current owner only). */
   transferOrgOwnership(orgId: string, newOwnerUserId: string) {
@@ -434,7 +460,11 @@ export class DriveApi {
   createRole(orgId: string, body: { name: string; description?: string; color?: string; permissions: string[] }) {
     return this.json<{ role: RoleDef }>("POST", `/orgs/${orgId}/roles`, { body });
   }
-  updateRole(orgId: string, roleId: string, body: Partial<{ name: string; description: string; color: string; permissions: string[] }>) {
+  updateRole(
+    orgId: string,
+    roleId: string,
+    body: Partial<{ name: string; description: string; color: string; permissions: string[] }>,
+  ) {
     return this.json<{ role: RoleDef }>("PATCH", `/orgs/${orgId}/roles/${roleId}`, { body });
   }
   cloneRole(orgId: string, roleId: string) {
@@ -466,7 +496,11 @@ export class DriveApi {
       `/orgs/${orgId}/groups/${groupId}`,
     );
   }
-  addGroupMember(orgId: string, groupId: string, body: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean }) {
+  addGroupMember(
+    orgId: string,
+    groupId: string,
+    body: { userId: string; wrappedGroupPrivate: WrappedKey; isManager?: boolean },
+  ) {
     return this.json<{ ok: boolean }>("POST", `/orgs/${orgId}/groups/${groupId}/members`, { body });
   }
   removeGroupMember(orgId: string, groupId: string, userId: string) {
@@ -504,7 +538,13 @@ export class DriveApi {
   }
   patchNode(
     id: string,
-    body: Partial<{ nameEncrypted: string; nameNonce: string; metaEncrypted: string; metaNonce: string; parentId: string | null }>,
+    body: Partial<{
+      nameEncrypted: string;
+      nameNonce: string;
+      metaEncrypted: string;
+      metaNonce: string;
+      parentId: string | null;
+    }>,
   ) {
     return this.json<{ node: NodeMeta }>("PATCH", `/nodes/${id}`, { body });
   }
@@ -515,7 +555,12 @@ export class DriveApi {
     return this.json<{ ok: boolean }>("POST", `/nodes/${id}/restore`, { body: {} });
   }
 
-  async putContent(id: string, ciphertext: Uint8Array, nonceHex: string, keyEpoch?: number): Promise<{ node: NodeMeta }> {
+  async putContent(
+    id: string,
+    ciphertext: Uint8Array,
+    nonceHex: string,
+    keyEpoch?: number,
+  ): Promise<{ node: NodeMeta }> {
     const doFetch = () =>
       fetch(this.url(`/nodes/${id}/content`), {
         method: "PUT",
@@ -548,7 +593,13 @@ export class DriveApi {
   }
   share(
     nodeId: string,
-    body: { principalType: PrincipalType; principalId: string; roleId: string; wrappedKey: WrappedKey; inheritedFrom?: string | null },
+    body: {
+      principalType: PrincipalType;
+      principalId: string;
+      roleId: string;
+      wrappedKey: WrappedKey;
+      inheritedFrom?: string | null;
+    },
   ) {
     return this.json<{ share: unknown }>("POST", `/nodes/${nodeId}/shares`, { body });
   }
@@ -677,7 +728,8 @@ export class DriveApi {
     return this.json<{ versions: unknown[] }>("GET", `/nodes/${nodeId}/versions`);
   }
   async getVersionContent(nodeId: string, versionId: string): Promise<{ bytes: Uint8Array; nonceHex: string }> {
-    const doFetch = () => fetch(this.url(`/nodes/${nodeId}/versions/${versionId}/content`), { headers: this.authHeaders() });
+    const doFetch = () =>
+      fetch(this.url(`/nodes/${nodeId}/versions/${versionId}/content`), { headers: this.authHeaders() });
     let res = await doFetch();
     if (res.status === 401 && (await this.tryRefresh())) res = await doFetch();
     if (!res.ok) return this.parseError(res);
@@ -693,16 +745,17 @@ export class DriveApi {
   }
   /** Vérifie l'intégrité chaînée du journal d'audit de l'org (append-only). */
   verifyAudit(orgId: string) {
-    return this.json<{ ok: boolean; total: number; hashed: number; brokenAtId?: string }>("GET", `/orgs/${orgId}/audit/verify`);
+    return this.json<{ ok: boolean; total: number; hashed: number; brokenAtId?: string }>(
+      "GET",
+      `/orgs/${orgId}/audit/verify`,
+    );
   }
 
   // === Collaboration =======================================================
   getCollabUpdates(nodeId: string, since = 0) {
-    return this.json<{ updates: { seq: number; ciphertext: string; nonce: string; author: string | null; createdAt: string }[] }>(
-      "GET",
-      `/collab/${nodeId}/updates`,
-      { query: { since } },
-    );
+    return this.json<{
+      updates: { seq: number; ciphertext: string; nonce: string; author: string | null; createdAt: string }[];
+    }>("GET", `/collab/${nodeId}/updates`, { query: { since } });
   }
   /** WebSocket URL for the encrypted collaboration room. */
   collabSocketUrl(nodeId: string): string {

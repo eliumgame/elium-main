@@ -14,9 +14,7 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { checkText, type IssueKind, type ProofIssue } from "./proofing";
-import {
-  embeddedDictionary, listDictionary, mergeDictionaries, type DictLang, type SpellChecker,
-} from "./dict";
+import { embeddedDictionary, listDictionary, mergeDictionaries, type DictLang, type SpellChecker } from "./dict";
 
 /** Un problème replacé dans les coordonnées du document. */
 export interface DocIssue extends ProofIssue {
@@ -73,10 +71,7 @@ function currentChecker(): SpellChecker | null {
   if (checker && checkerKey === key) return checker;
   const embedded = state.embedded ? embeddedDictionary(state.lang) : null;
   const imported = state.imported?.length ? listDictionary(state.imported) : null;
-  checker =
-    embedded && imported
-      ? mergeDictionaries(embedded, imported)
-      : embedded ?? imported ?? null;
+  checker = embedded && imported ? mergeDictionaries(embedded, imported) : (embedded ?? imported ?? null);
   checkerKey = key;
   return checker;
 }
@@ -325,11 +320,16 @@ function issuesFor(node: object, text: string): ProofIssue[] {
  * lit la même fonction plutôt que d'en dériver une seconde.
  */
 export function collectIssues(doc: {
-  descendants: (fn: (node: {
-    type: { name: string };
-    isTextblock: boolean;
-    textContent: string;
-  }, pos: number) => boolean | void) => void;
+  descendants: (
+    fn: (
+      node: {
+        type: { name: string };
+        isTextblock: boolean;
+        textContent: string;
+      },
+      pos: number,
+    ) => boolean | void,
+  ) => void;
 }): DocIssue[] {
   if (!state.enabled) return [];
   const out: DocIssue[] = [];
@@ -415,9 +415,7 @@ export const Proofing = Extension.create({
               if (!at) return false;
               // Le problème sous le curseur, s'il y en a un : sinon le menu du
               // navigateur doit garder la main (copier, coller, inspecter…).
-              const hit = collectIssues(view.state.doc as never).find(
-                (i) => at.pos >= i.docFrom && at.pos <= i.docTo,
-              );
+              const hit = collectIssues(view.state.doc as never).find((i) => at.pos >= i.docFrom && at.pos <= i.docTo);
               if (!hit) return false;
               event.preventDefault();
               requestListener({ issue: hit, x: event.clientX, y: event.clientY });

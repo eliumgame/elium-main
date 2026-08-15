@@ -35,7 +35,9 @@ describe("ValidationModal (component)", () => {
       <ValidationModal
         rangeLabel="A1:A5"
         validations={[{ id: "v1", c0: 0, r0: 0, c1: 0, r1: 4, type: "list", list: ["A", "B"] }]}
-        onAdd={noop} onRemove={onRemove} onClose={noop}
+        onAdd={noop}
+        onRemove={onRemove}
+        onClose={noop}
       />,
     );
     expect(screen.getByText(/Liste : A, B/)).toBeTruthy();

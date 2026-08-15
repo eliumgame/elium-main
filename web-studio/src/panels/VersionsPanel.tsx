@@ -37,7 +37,8 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
       // version snapshot taken right after switching to a protected profile
       // — but before the document's password has been entered on a real save
       // — is refused instead of being written to IndexedDB in the clear.
-      const needsSecret = studio.file.manifest.protection.encrypted || profileOf(studio.file.manifest.profile).encrypted;
+      const needsSecret =
+        studio.file.manifest.protection.encrypted || profileOf(studio.file.manifest.profile).encrypted;
       if (needsSecret && !hasVaultSecret(studio.versionSecret)) {
         await alert({
           title: "Mot de passe requis",
@@ -58,17 +59,35 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
   );
 
   const onSnapshot = async () => {
-    const label = await prompt({ title: "Enregistrer une version", label: "Nom de la version", placeholder: "ex. Avant relecture" });
+    const label = await prompt({
+      title: "Enregistrer une version",
+      label: "Nom de la version",
+      placeholder: "ex. Avant relecture",
+    });
     if (label === null) return;
     void snapshot(label.trim() || "Version sans nom");
   };
 
   const onRestore = async (v: DocumentVersion) => {
     if (!studio.editable || !editor) return;
-    if (!(await confirm({ title: "Restaurer cette version ?", message: "L'état actuel sera d'abord enregistré comme version.", confirmLabel: "Restaurer" }))) return;
+    if (
+      !(await confirm({
+        title: "Restaurer cette version ?",
+        message: "L'état actuel sera d'abord enregistré comme version.",
+        confirmLabel: "Restaurer",
+      }))
+    )
+      return;
     let doc;
-    try { doc = await versionDoc(v, studio.versionSecret); }
-    catch { await alert({ title: "Restauration impossible", message: "Impossible de déchiffrer cette version (mot de passe du document requis)." }); return; }
+    try {
+      doc = await versionDoc(v, studio.versionSecret);
+    } catch {
+      await alert({
+        title: "Restauration impossible",
+        message: "Impossible de déchiffrer cette version (mot de passe du document requis).",
+      });
+      return;
+    }
     // Same guard as snapshot(): the pre-restore auto-snapshot must not write
     // the current state in the clear if the document is actually protected.
     const needsSecret = studio.file.manifest.protection.encrypted || profileOf(studio.file.manifest.profile).encrypted;
@@ -80,7 +99,13 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
       });
       return;
     }
-    await saveVersion(docKey, "Avant restauration", studio.file.document.doc, new Date().toISOString(), studio.versionSecret);
+    await saveVersion(
+      docKey,
+      "Avant restauration",
+      studio.file.document.doc,
+      new Date().toISOString(),
+      studio.versionSecret,
+    );
     editor.commands.setContent(doc);
     studio.onDocChange(doc);
     reload();
@@ -88,7 +113,15 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
 
   const onDelete = async (v: DocumentVersion) => {
     if (v.id == null) return;
-    if (!(await confirm({ title: "Supprimer la version", message: `Supprimer la version « ${v.label} » ?`, danger: true, confirmLabel: "Supprimer" }))) return;
+    if (
+      !(await confirm({
+        title: "Supprimer la version",
+        message: `Supprimer la version « ${v.label} » ?`,
+        danger: true,
+        confirmLabel: "Supprimer",
+      }))
+    )
+      return;
     await deleteVersion(v.id);
     reload();
   };
@@ -96,7 +129,9 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
   return (
     <div className="panel-section">
       <div className="panel-title-row">
-        <h3 className="panel-title"><Clock size={16} /> Historique de versions</h3>
+        <h3 className="panel-title">
+          <Clock size={16} /> Historique de versions
+        </h3>
         {studio.editable && (
           <Button size="sm" variant="outline" onClick={onSnapshot} disabled={busy}>
             <Save size={14} /> Enregistrer
@@ -104,8 +139,8 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
         )}
       </div>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Instantanés locaux du document (ce navigateur uniquement). Le journal de suivi reste l'historique
-        immuable et signé qui voyage dans le fichier.
+        Instantanés locaux du document (ce navigateur uniquement). Le journal de suivi reste l'historique immuable et
+        signé qui voyage dans le fichier.
       </p>
       {versions.length === 0 ? (
         <EmptyState title="Aucune version enregistrée" hint="« Enregistrer » fige l'état actuel du document." />

@@ -14,14 +14,32 @@ export function structureOf(editor: Editor | null) {
   if (!editor) return counts;
   editor.state.doc.descendants((node) => {
     switch (node.type.name) {
-      case "heading": counts.headings++; break;
-      case "table": counts.tables++; break;
-      case "image": case "figure": counts.images++; break;
-      case "footnote": counts.footnotes++; break;
-      case "endnote": counts.endnotes++; break;
-      case "bulletList": case "orderedList": case "taskList": counts.lists++; break;
-      case "codeBlock": counts.codeBlocks++; break;
-      default: break;
+      case "heading":
+        counts.headings++;
+        break;
+      case "table":
+        counts.tables++;
+        break;
+      case "image":
+      case "figure":
+        counts.images++;
+        break;
+      case "footnote":
+        counts.footnotes++;
+        break;
+      case "endnote":
+        counts.endnotes++;
+        break;
+      case "bulletList":
+      case "orderedList":
+      case "taskList":
+        counts.lists++;
+        break;
+      case "codeBlock":
+        counts.codeBlocks++;
+        break;
+      default:
+        break;
     }
     for (const mark of node.marks ?? []) if (mark.type.name === "link") counts.links++;
   });
@@ -36,7 +54,11 @@ export function selectionText(editor: Editor | null): string {
   return editor.state.doc.textBetween(from, to, "\n", " ");
 }
 
-export default function StatsDialog({ editor, pages, onClose }: {
+export default function StatsDialog({
+  editor,
+  pages,
+  onClose,
+}: {
   editor: Editor | null;
   pages?: number;
   onClose: () => void;
@@ -80,20 +102,31 @@ export default function StatsDialog({ editor, pages, onClose }: {
   ];
 
   return (
-    <Modal title="Statistiques du document" onClose={onClose} wide
-      footer={<button className="eb eb--primary eb--sm" onClick={onClose}>Fermer</button>}>
+    <Modal
+      title="Statistiques du document"
+      onClose={onClose}
+      wide
+      footer={
+        <button className="eb eb--primary eb--sm" onClick={onClose}>
+          Fermer
+        </button>
+      }
+    >
       <div className="doc-stats">
         <section>
           <h4>Volume</h4>
           <dl className="elx-facts">
             {rows.map(([k, v]) => (
-              <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
             ))}
           </dl>
           {selStats && (
             <p className="elx-form__note">
-              Sélection : <b>{selStats.words}</b> mot{selStats.words > 1 ? "s" : ""},{" "}
-              <b>{selStats.characters}</b> caractères.
+              Sélection : <b>{selStats.words}</b> mot{selStats.words > 1 ? "s" : ""}, <b>{selStats.characters}</b>{" "}
+              caractères.
             </p>
           )}
         </section>
@@ -101,8 +134,14 @@ export default function StatsDialog({ editor, pages, onClose }: {
         <section>
           <h4>Temps</h4>
           <dl className="elx-facts">
-            <div><dt>Lecture</dt><dd>{formatMinutes(stats.readingMinutes)}</dd></div>
-            <div><dt>À voix haute</dt><dd>{formatMinutes(stats.speakingMinutes)}</dd></div>
+            <div>
+              <dt>Lecture</dt>
+              <dd>{formatMinutes(stats.readingMinutes)}</dd>
+            </div>
+            <div>
+              <dt>À voix haute</dt>
+              <dd>{formatMinutes(stats.speakingMinutes)}</dd>
+            </div>
           </dl>
         </section>
 
@@ -112,8 +151,8 @@ export default function StatsDialog({ editor, pages, onClose }: {
             <span style={{ width: `${ease.score}%` }} />
           </div>
           <p className="elx-form__note">
-            Indice Kandel-Moles : <b>{ease.score}/100</b> — {ease.label}.
-            {" "}Plus l'indice est élevé, plus le texte se lit facilement.
+            Indice Kandel-Moles : <b>{ease.score}/100</b> — {ease.label}. Plus l'indice est élevé, plus le texte se lit
+            facilement.
           </p>
         </section>
 
@@ -121,7 +160,10 @@ export default function StatsDialog({ editor, pages, onClose }: {
           <h4>Structure</h4>
           <dl className="elx-facts">
             {structureRows.map(([k, v]) => (
-              <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
             ))}
           </dl>
         </section>
@@ -131,7 +173,9 @@ export default function StatsDialog({ editor, pages, onClose }: {
             <h4>Mots les plus fréquents</h4>
             <div className="elx-chips">
               {top.map((k) => (
-                <span key={k.word} className="elx-chip">{k.word} <b>{k.count}</b></span>
+                <span key={k.word} className="elx-chip">
+                  {k.word} <b>{k.count}</b>
+                </span>
               ))}
             </div>
           </section>

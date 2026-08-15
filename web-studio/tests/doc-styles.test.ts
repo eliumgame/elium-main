@@ -1,8 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { strFromU8, unzipSync } from "fflate";
 import {
-  BUILTIN_STYLES, findStyle, mergeStyles, newStyleId, resolveStyle, styleAttrs, styleCss, styleMarks,
-  styleTextStyleAttrs, styleToDocxXml, stylesXml, type DocStyle,
+  BUILTIN_STYLES,
+  findStyle,
+  mergeStyles,
+  newStyleId,
+  resolveStyle,
+  styleAttrs,
+  styleCss,
+  styleMarks,
+  styleTextStyleAttrs,
+  styleToDocxXml,
+  stylesXml,
+  type DocStyle,
 } from "../src/editor/styles";
 import { docToDocx } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
@@ -98,7 +108,18 @@ describe("Styles — héritage basedOn", () => {
 describe("Styles — rendu CSS", () => {
   it("traduit les propriétés de caractère et de paragraphe", () => {
     const css = styleCss(
-      resolveStyle([{ id: "S", name: "S", kind: "paragraph", char: { bold: true, italic: true, fontSize: 20, color: "#ff0000", smallCaps: true }, para: { align: "center", spaceAfter: 12, lineHeight: "1.6" } }], "S"),
+      resolveStyle(
+        [
+          {
+            id: "S",
+            name: "S",
+            kind: "paragraph",
+            char: { bold: true, italic: true, fontSize: 20, color: "#ff0000", smallCaps: true },
+            para: { align: "center", spaceAfter: 12, lineHeight: "1.6" },
+          },
+        ],
+        "S",
+      ),
     );
     expect(css).toContain("font-weight:700");
     expect(css).toContain("font-style:italic");
@@ -218,9 +239,7 @@ describe("Styles — export DOCX", () => {
   });
 
   it("référence le style de titre, et retombe sur le built-in de son niveau", async () => {
-    const file = await fileWith(
-      doc({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "T" }] }),
-    );
+    const file = await fileWith(doc({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "T" }] }));
     expect(part(file, "word/document.xml")).toContain('<w:pStyle w:val="Titre2"/>');
   });
 

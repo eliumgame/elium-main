@@ -35,10 +35,9 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
   const isScale = op === "colorScale";
 
   const add = () => {
-    const rule: NewRule =
-      isScale
-        ? { op, scale: { min: scaleMin, max: scaleMax, ...(useMid ? { mid: scaleMid } : {}) } }
-        : { op, v1: needs >= 1 ? v1 : undefined, v2: needs >= 2 ? v2 : undefined, fill, color, bold };
+    const rule: NewRule = isScale
+      ? { op, scale: { min: scaleMin, max: scaleMax, ...(useMid ? { mid: scaleMid } : {}) } }
+      : { op, v1: needs >= 1 ? v1 : undefined, v2: needs >= 2 ? v2 : undefined, fill, color, bold };
     onAdd(rule);
     setV1("");
     setV2("");
@@ -50,42 +49,89 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
         <section className="settings__section">
           <h3 className="settings__title">Nouvelle règle — plage {rangeLabel}</h3>
           <div className="cf-form">
-            <select className="settings__select" value={op} onChange={(e) => setOp(e.target.value as CondOp)} aria-label="Condition">
-              {COND_OPS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <select
+              className="settings__select"
+              value={op}
+              onChange={(e) => setOp(e.target.value as CondOp)}
+              aria-label="Condition"
+            >
+              {COND_OPS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
             {needs >= 1 && !isScale && (
-              <input className="settings__input cf-val" value={v1} onChange={(e) => setV1(e.target.value)} placeholder={op === "contains" ? "texte" : "valeur"} />
+              <input
+                className="settings__input cf-val"
+                value={v1}
+                onChange={(e) => setV1(e.target.value)}
+                placeholder={op === "contains" ? "texte" : "valeur"}
+              />
             )}
             {needs >= 2 && !isScale && (
               <>
                 <span className="cf-and">et</span>
-                <input className="settings__input cf-val" value={v2} onChange={(e) => setV2(e.target.value)} placeholder="valeur" />
+                <input
+                  className="settings__input cf-val"
+                  value={v2}
+                  onChange={(e) => setV2(e.target.value)}
+                  placeholder="valeur"
+                />
               </>
             )}
           </div>
 
           {isScale ? (
             <div className="cf-scale-row">
-              <label className="tool-color" title="Couleur minimale"><span>Min</span><input type="color" value={scaleMin} onChange={(e) => setScaleMin(e.target.value)} /></label>
+              <label className="tool-color" title="Couleur minimale">
+                <span>Min</span>
+                <input type="color" value={scaleMin} onChange={(e) => setScaleMin(e.target.value)} />
+              </label>
               <label className="checkbox-row cf-mid-toggle">
                 <input type="checkbox" checked={useMid} onChange={(e) => setUseMid(e.target.checked)} />
                 <span>Milieu</span>
               </label>
-              {useMid && <label className="tool-color" title="Couleur médiane"><input type="color" value={scaleMid} onChange={(e) => setScaleMid(e.target.value)} /></label>}
-              <label className="tool-color" title="Couleur maximale"><span>Max</span><input type="color" value={scaleMax} onChange={(e) => setScaleMax(e.target.value)} /></label>
-              <span className="cf-scale-preview" style={{ background: `linear-gradient(90deg, ${scaleMin}, ${useMid ? scaleMid + "," : ""} ${scaleMax})` }} />
+              {useMid && (
+                <label className="tool-color" title="Couleur médiane">
+                  <input type="color" value={scaleMid} onChange={(e) => setScaleMid(e.target.value)} />
+                </label>
+              )}
+              <label className="tool-color" title="Couleur maximale">
+                <span>Max</span>
+                <input type="color" value={scaleMax} onChange={(e) => setScaleMax(e.target.value)} />
+              </label>
+              <span
+                className="cf-scale-preview"
+                style={{
+                  background: `linear-gradient(90deg, ${scaleMin}, ${useMid ? scaleMid + "," : ""} ${scaleMax})`,
+                }}
+              />
             </div>
           ) : (
             <div className="cf-style-row">
-              <label className="tool-color" title="Remplissage"><span>Remplissage</span><input type="color" value={fill} onChange={(e) => setFill(e.target.value)} /></label>
-              <label className="tool-color" title="Texte"><span>Texte</span><input type="color" value={color} onChange={(e) => setColor(e.target.value)} /></label>
-              <label className="checkbox-row"><input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} /><span>Gras</span></label>
-              <span className="cf-preview" style={{ background: fill, color, fontWeight: bold ? 700 : 400 }}>Aa 123</span>
+              <label className="tool-color" title="Remplissage">
+                <span>Remplissage</span>
+                <input type="color" value={fill} onChange={(e) => setFill(e.target.value)} />
+              </label>
+              <label className="tool-color" title="Texte">
+                <span>Texte</span>
+                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+              </label>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
+                <span>Gras</span>
+              </label>
+              <span className="cf-preview" style={{ background: fill, color, fontWeight: bold ? 700 : 400 }}>
+                Aa 123
+              </span>
             </div>
           )}
 
           <div style={{ marginTop: 10 }}>
-            <Button size="sm" variant="primary" onClick={add}><Plus size={14} /> Ajouter la règle</Button>
+            <Button size="sm" variant="primary" onClick={add}>
+              <Plus size={14} /> Ajouter la règle
+            </Button>
           </div>
         </section>
 
@@ -97,14 +143,23 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
             <ul className="cf-rule-list">
               {rules.map((r) => {
                 const span = `${indexToCol(r.c0)}${r.r0 + 1}:${indexToCol(r.c1)}${r.r1 + 1}`;
-                const swatch = r.op === "colorScale"
-                  ? `linear-gradient(90deg, ${r.scale?.min}, ${r.scale?.mid ? r.scale.mid + "," : ""} ${r.scale?.max})`
-                  : (r.fill ?? "transparent");
+                const swatch =
+                  r.op === "colorScale"
+                    ? `linear-gradient(90deg, ${r.scale?.min}, ${r.scale?.mid ? r.scale.mid + "," : ""} ${r.scale?.max})`
+                    : (r.fill ?? "transparent");
                 return (
                   <li key={r.id} className="cf-rule">
                     <span className="cf-swatch" style={{ background: swatch, color: r.color }} />
-                    <span className="cf-rule__desc"><strong>{span}</strong> — {describeRule(r)}</span>
-                    <button className="icon-btn icon-btn--danger" title="Supprimer la règle" onClick={() => onRemove(r.id)}><Trash2 size={14} /></button>
+                    <span className="cf-rule__desc">
+                      <strong>{span}</strong> — {describeRule(r)}
+                    </span>
+                    <button
+                      className="icon-btn icon-btn--danger"
+                      title="Supprimer la règle"
+                      onClick={() => onRemove(r.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </li>
                 );
               })}

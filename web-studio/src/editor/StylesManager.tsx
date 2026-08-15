@@ -5,7 +5,13 @@ import { Modal, Button, Field, Alert } from "../ui/components";
 import { useDialogs } from "../ui/dialogs";
 import { FONT_FAMILIES, FONT_SIZES } from "./typography";
 import {
-  mergeStyles, newStyleId, resolveStyle, styleCss, type DocStyle, type StyleChar, type StylePara,
+  mergeStyles,
+  newStyleId,
+  resolveStyle,
+  styleCss,
+  type DocStyle,
+  type StyleChar,
+  type StylePara,
 } from "./styles";
 import type { EliumDocStyle } from "../format/types";
 
@@ -126,7 +132,9 @@ export default function StylesManager({
           <Button variant="outline" onClick={createFromSelection}>
             <Plus size={15} /> Créer depuis la sélection
           </Button>
-          <Button variant="ghost" onClick={rename} disabled={!selected}>Renommer</Button>
+          <Button variant="ghost" onClick={rename} disabled={!selected}>
+            Renommer
+          </Button>
           <Button variant="outline" onClick={remove} disabled={!overridden}>
             <Trash2 size={15} /> {selected?.builtIn ? "Rétablir" : "Supprimer"}
           </Button>
@@ -181,7 +189,9 @@ export default function StylesManager({
                     onChange={(e) => patch({ char: { fontFamily: e.target.value || undefined } })}
                   >
                     {FONT_FAMILIES.map((f) => (
-                      <option key={f.label} value={f.value}>{f.label}</option>
+                      <option key={f.label} value={f.value}>
+                        {f.label}
+                      </option>
                     ))}
                   </select>
                   <select
@@ -193,7 +203,9 @@ export default function StylesManager({
                   >
                     <option value="">Taille</option>
                     {FONT_SIZES.map((s) => (
-                      <option key={s} value={s}>{s.replace("px", "")}</option>
+                      <option key={s} value={s}>
+                        {s.replace("px", "")}
+                      </option>
                     ))}
                   </select>
                   <Field label="Couleur">

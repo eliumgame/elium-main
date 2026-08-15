@@ -42,7 +42,9 @@ describe("local-vault — encryptAtRest / decryptAtRest", () => {
 
   it("fails to decrypt with a different keyfile even when the password matches", async () => {
     const enc = await encryptAtRest(value, { password: "p", keyfile: new TextEncoder().encode("cle-A") });
-    await expect(decryptAtRest(enc, { password: "p", keyfile: new TextEncoder().encode("cle-B") })).rejects.toBeTruthy();
+    await expect(
+      decryptAtRest(enc, { password: "p", keyfile: new TextEncoder().encode("cle-B") }),
+    ).rejects.toBeTruthy();
   });
 
   it("produces a different ciphertext each time (random salt/iv)", async () => {
@@ -67,11 +69,18 @@ describe("local-vault — encryptAtRest / decryptAtRest", () => {
     const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveKey"]);
     const key = await crypto.subtle.deriveKey(
       { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
-      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"],
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
     );
-    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(value))));
+    const ct = new Uint8Array(
+      await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(value))),
+    );
     const blob = new Uint8Array(salt.length + iv.length + ct.length);
-    blob.set(salt, 0); blob.set(iv, salt.length); blob.set(ct, salt.length + iv.length);
+    blob.set(salt, 0);
+    blob.set(iv, salt.length);
+    blob.set(ct, salt.length + iv.length);
     const legacyB64 = btoa(String.fromCharCode(...blob));
     const back = await decryptAtRest<typeof value>(legacyB64, { password: secret });
     expect(back).toEqual(value);

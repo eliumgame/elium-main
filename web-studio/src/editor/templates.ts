@@ -1,8 +1,11 @@
 /** Starter templates (see Cahier des charges §6 — Modèles). */
 import type { ProseMirrorNode } from "../format/types";
 
-const text = (t: string, marks?: { type: string }[]): ProseMirrorNode =>
-  ({ type: "text", text: t, ...(marks ? { marks } : {}) });
+const text = (t: string, marks?: { type: string }[]): ProseMirrorNode => ({
+  type: "text",
+  text: t,
+  ...(marks ? { marks } : {}),
+});
 const b = (t: string) => text(t, [{ type: "bold" }]);
 const h = (level: number, t: string): ProseMirrorNode => ({ type: "heading", attrs: { level }, content: [text(t)] });
 const p = (...c: ProseMirrorNode[]): ProseMirrorNode => ({ type: "paragraph", ...(c.length ? { content: c } : {}) });
@@ -22,7 +25,10 @@ export const TEMPLATES: Template[] = [
     id: "blank",
     label: "Document vierge",
     description: "Page blanche pour démarrer librement.",
-    build: () => ({ title: "Document sans titre", doc: doc(h(1, "Titre du document"), p(text("Commencez à rédiger…"))) }),
+    build: () => ({
+      title: "Document sans titre",
+      doc: doc(h(1, "Titre du document"), p(text("Commencez à rédiger…"))),
+    }),
   },
   {
     id: "contrat",
@@ -93,8 +99,20 @@ export const TEMPLATES: Template[] = [
         {
           type: "table",
           content: [
-            { type: "tableRow", content: ["Désignation", "Quantité", "P.U. HT", "Total HT"].map((t) => ({ type: "tableHeader", content: [p(text(t))] })) },
-            { type: "tableRow", content: ["Prestation ……", "1", "0,00 €", "0,00 €"].map((t) => ({ type: "tableCell", content: [p(text(t))] })) },
+            {
+              type: "tableRow",
+              content: ["Désignation", "Quantité", "P.U. HT", "Total HT"].map((t) => ({
+                type: "tableHeader",
+                content: [p(text(t))],
+              })),
+            },
+            {
+              type: "tableRow",
+              content: ["Prestation ……", "1", "0,00 €", "0,00 €"].map((t) => ({
+                type: "tableCell",
+                content: [p(text(t))],
+              })),
+            },
           ],
         },
         p(b("Total TTC : 0,00 €")),

@@ -150,7 +150,8 @@ export function verifyIdTokenWithKeys(
   const audOk = aud === config.clientId || (Array.isArray(aud) && aud.includes(config.clientId));
   if (!audOk) throw new OidcError("Audience (aud) inattendue.");
   if (typeof payload.exp === "number" && payload.exp + skew < now) throw new OidcError("Jeton d'identité expiré.");
-  if (typeof payload.nbf === "number" && payload.nbf - skew > now) throw new OidcError("Jeton d'identité pas encore valide.");
+  if (typeof payload.nbf === "number" && payload.nbf - skew > now)
+    throw new OidcError("Jeton d'identité pas encore valide.");
 
   const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
   if (!email) throw new OidcError("Le jeton d'identité ne contient pas d'e-mail.");

@@ -14,36 +14,65 @@ import { workbookToXlsx } from "../../sheet/xlsx-export";
 import { downloadBlob } from "../../export/exporters";
 
 export default function CollabSheetEditor({
-  api, nodeId, nodeKey, title, user, onClose, refetchKey,
+  api,
+  nodeId,
+  nodeKey,
+  title,
+  user,
+  onClose,
+  refetchKey,
 }: {
-  api: DriveApi; nodeId: string; nodeKey: Uint8Array; title: string; user: { id: string; name: string }; onClose: () => void;
+  api: DriveApi;
+  nodeId: string;
+  nodeKey: Uint8Array;
+  title: string;
+  user: { id: string; name: string };
+  onClose: () => void;
   refetchKey?: () => Promise<Uint8Array | null>;
 }) {
   const store = useCollabSheetStore({ api, nodeId, nodeKey, user, ...(refetchKey ? { refetchKey } : {}) });
   const status = store.status ?? "connecting";
   const { me, peers } = store.presence!;
   const statusLabel =
-    status === "open" ? "Connecté" :
-    status === "connecting" ? "Connexion…" :
-    status === "revoked" ? "Accès révoqué — document fermé" :
-    "Hors ligne";
+    status === "open"
+      ? "Connecté"
+      : status === "connecting"
+        ? "Connexion…"
+        : status === "revoked"
+          ? "Accès révoqué — document fermé"
+          : "Hors ligne";
   const uniquePeers = [...new Map(peers.map((p) => [p.name + p.color, p])).values()];
 
   const exportXlsx = () => {
     if (!store.wb.sheets.length) return;
     const base = (title || "classeur").replace(/\.[^.]+$/, "");
-    downloadBlob(`${base}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbookToXlsx(store.wb));
+    downloadBlob(
+      `${base}.xlsx`,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      workbookToXlsx(store.wb),
+    );
   };
 
   const statusNode = (
     <>
       <span className={`dc-doc__status dc-doc__status--${status}`}>
-        {status === "open" ? <Wifi size={13} /> : status === "connecting" ? <Loader size={13} className="dc-spin" /> : <WifiOff size={13} />} {statusLabel}
+        {status === "open" ? (
+          <Wifi size={13} />
+        ) : status === "connecting" ? (
+          <Loader size={13} className="dc-spin" />
+        ) : (
+          <WifiOff size={13} />
+        )}{" "}
+        {statusLabel}
       </span>
       <div className="dc-doc__peers">
-        <span className="dc-doc-av" style={{ background: me.color }} title={`${me.name} (vous)`}>{initialsOf(me.name)}</span>
+        <span className="dc-doc-av" style={{ background: me.color }} title={`${me.name} (vous)`}>
+          {initialsOf(me.name)}
+        </span>
         {uniquePeers.map((p, i) => (
-          <span key={i} className="dc-doc-av" style={{ background: p.color }} title={p.name}>{initialsOf(p.name)}</span>
+          <span key={i} className="dc-doc-av" style={{ background: p.color }} title={p.name}>
+            {initialsOf(p.name)}
+          </span>
         ))}
       </div>
       {!store.canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
@@ -51,7 +80,12 @@ export default function CollabSheetEditor({
   );
 
   const headerActions = (
-    <button className="eb eb--sm eb--outline" onClick={exportXlsx} disabled={!store.wb.sheets.length} title="Exporter en XLSX">
+    <button
+      className="eb eb--sm eb--outline"
+      onClick={exportXlsx}
+      disabled={!store.wb.sheets.length}
+      title="Exporter en XLSX"
+    >
       <Download size={14} /> XLSX
     </button>
   );
@@ -59,7 +93,10 @@ export default function CollabSheetEditor({
   return (
     <div className="dc-modal-overlay dc-modal-overlay--full">
       <div className="dc-doc dc-sheet dc-doc--fullscreen">
-        <SheetEditor store={store} chrome={{ title, titleIcon: <Table2 size={16} />, onClose, statusNode, headerActions, variant: "modal" }} />
+        <SheetEditor
+          store={store}
+          chrome={{ title, titleIcon: <Table2 size={16} />, onClose, statusNode, headerActions, variant: "modal" }}
+        />
       </div>
     </div>
   );

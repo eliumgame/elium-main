@@ -65,8 +65,15 @@ export function formatPageRange(indices: readonly number[]): string {
     parts.push(start === prev ? String(start + 1) : `${start + 1}-${prev + 1}`);
   };
   for (const i of sorted) {
-    if (start === null) { start = i; prev = i; continue; }
-    if (prev !== null && i === prev + 1) { prev = i; continue; }
+    if (start === null) {
+      start = i;
+      prev = i;
+      continue;
+    }
+    if (prev !== null && i === prev + 1) {
+      prev = i;
+      continue;
+    }
     flush();
     start = i;
     prev = i;
@@ -104,7 +111,10 @@ export interface MergeResult {
  * Concatenate documents. Bookmarks from each source are preserved as a
  * top-level entry per file so a merged dossier stays navigable.
  */
-export async function mergeDocuments(sources: readonly MergeSource[], opts: { outline?: boolean } = {}): Promise<MergeResult> {
+export async function mergeDocuments(
+  sources: readonly MergeSource[],
+  opts: { outline?: boolean } = {},
+): Promise<MergeResult> {
   const out = await PDFDocument.create();
   const counts: number[] = [];
   const failed: string[] = [];
@@ -112,11 +122,18 @@ export async function mergeDocuments(sources: readonly MergeSource[], opts: { ou
 
   for (const src of sources) {
     try {
-      const doc = await PDFDocument.load(src.bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+      const doc = await PDFDocument.load(src.bytes, {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+        updateMetadata: false,
+      });
       const indices = src.pages?.length
         ? src.pages.filter((i) => i >= 0 && i < doc.getPageCount())
         : doc.getPageIndices();
-      if (!indices.length) { counts.push(0); continue; }
+      if (!indices.length) {
+        counts.push(0);
+        continue;
+      }
       marks.push({ title: src.name.replace(/\.pdf$/i, ""), page: out.getPageCount() });
       const copied = await out.copyPages(doc, indices);
       for (const page of copied) out.addPage(page);
@@ -128,14 +145,21 @@ export async function mergeDocuments(sources: readonly MergeSource[], opts: { ou
   }
 
   if (opts.outline !== false && marks.length > 1) {
-    writeOutline(out, marks.map((m) => ({ title: m.title, page: m.page, children: [] })));
+    writeOutline(
+      out,
+      marks.map((m) => ({ title: m.title, page: m.page, children: [] })),
+    );
   }
   return { bytes: await out.save(), counts, failed };
 }
 
 /** Build a new document from a subset of pages, in the given order. */
 export async function extractPages(bytes: Uint8Array, indices: readonly number[]): Promise<Uint8Array> {
-  const src = await PDFDocument.load(bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+  const src = await PDFDocument.load(bytes, {
+    ignoreEncryption: true,
+    throwOnInvalidObject: false,
+    updateMetadata: false,
+  });
   const total = src.getPageCount();
   const valid = indices.filter((i) => Number.isInteger(i) && i >= 0 && i < total);
   if (!valid.length) throw new Error("Aucune page valide à extraire.");
@@ -168,7 +192,11 @@ export async function splitDocument(
   baseName: string,
   bookmarkStarts?: readonly { title: string; page: number }[],
 ): Promise<SplitPart[]> {
-  const src = await PDFDocument.load(bytes, { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false });
+  const src = await PDFDocument.load(bytes, {
+    ignoreEncryption: true,
+    throwOnInvalidObject: false,
+    updateMetadata: false,
+  });
   const total = src.getPageCount();
   const groups: { name: string; pages: number[] }[] = [];
 
@@ -226,7 +254,12 @@ async function buildSubset(src: PDFDocument, pages: readonly number[]): Promise<
 }
 
 function safeName(s: string): string {
-  return s.replace(/[^\p{L}\p{N} _-]/gu, "").trim().slice(0, 48) || "section";
+  return (
+    s
+      .replace(/[^\p{L}\p{N} _-]/gu, "")
+      .trim()
+      .slice(0, 48) || "section"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +382,10 @@ export function writeOutline(doc: PDFDocument, entries: readonly OutlineEntry[])
     visible: number;
   }
 
-  const build = (list: readonly OutlineEntry[], parentRef: ReturnType<typeof ctx.nextRef>): { first: Built | null; last: Built | null; count: number } => {
+  const build = (
+    list: readonly OutlineEntry[],
+    parentRef: ReturnType<typeof ctx.nextRef>,
+  ): { first: Built | null; last: Built | null; count: number } => {
     const refs = list.map(() => ctx.nextRef());
     let openCount = 0;
     list.forEach((entry, i) => {
@@ -383,11 +419,14 @@ export function writeOutline(doc: PDFDocument, entries: readonly OutlineEntry[])
   };
 
   const top = build(entries, rootRef);
-  ctx.assign(rootRef, ctx.obj({
-    Type: "Outlines",
-    ...(top.first ? { First: top.first.ref, Last: top.last!.ref } : {}),
-    Count: top.count,
-  } as never));
+  ctx.assign(
+    rootRef,
+    ctx.obj({
+      Type: "Outlines",
+      ...(top.first ? { First: top.first.ref, Last: top.last!.ref } : {}),
+      Count: top.count,
+    } as never),
+  );
   doc.catalog.set(PDFName.of("Outlines"), rootRef);
   doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
 }
@@ -405,7 +444,14 @@ export function writePageLabels(doc: PDFDocument, labels: readonly (string | und
     const prefix = label ?? "";
     if (prefix === last) return;
     last = prefix;
-    nums.push(i, ctx.obj(prefix ? { P: hexTitle(prefix), S: PDFName.of("D"), St: 1 } as never : { S: PDFName.of("D"), St: i + 1 } as never));
+    nums.push(
+      i,
+      ctx.obj(
+        prefix
+          ? ({ P: hexTitle(prefix), S: PDFName.of("D"), St: 1 } as never)
+          : ({ S: PDFName.of("D"), St: i + 1 } as never),
+      ),
+    );
   });
   if (!nums.length) {
     doc.catalog.delete(PDFName.of("PageLabels"));

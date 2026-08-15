@@ -14,8 +14,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { CSS_PX_PER_MM } from "./Pagination";
 import {
-  TAB_ALIGNS, TAB_ALIGN_LABELS, addStop, moveStop, nearestStop, normalizeStops, removeStopNear,
-  rulerLabels, rulerTicks, type TabAlign, type TabStop,
+  TAB_ALIGNS,
+  TAB_ALIGN_LABELS,
+  addStop,
+  moveStop,
+  nearestStop,
+  normalizeStops,
+  removeStopNear,
+  rulerLabels,
+  rulerTicks,
+  type TabAlign,
+  type TabStop,
 } from "./tabs";
 import { tabStopsAt } from "./tabExtension";
 

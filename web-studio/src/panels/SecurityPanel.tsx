@@ -18,7 +18,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title"><Lock size={15} /> Profil de protection</h3>
+        <h3 className="panel-title">
+          <Lock size={15} /> Profil de protection
+        </h3>
         <p className="muted">La protection est optionnelle. Choisissez un niveau simple ou avancé.</p>
 
         <div className="profile-grid">
@@ -52,10 +54,12 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
       </section>
 
       <section className="panel-section">
-        <h3 className="panel-title"><CalendarClock size={15} /> Expiration d'accès</h3>
+        <h3 className="panel-title">
+          <CalendarClock size={15} /> Expiration d'accès
+        </h3>
         <p className="muted">
-          Date au-delà de laquelle le document est marqué comme expiré. Lorsqu'un sceau est apposé,
-          cette date est authentifiée (inviolable).
+          Date au-delà de laquelle le document est marqué comme expiré. Lorsqu'un sceau est apposé, cette date est
+          authentifiée (inviolable).
         </p>
         <Field label="Expire le (optionnel)">
           <input
@@ -80,8 +84,8 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
       {PROFILES[current].encrypted && (
         <>
           <Alert tone="warning" title="Chiffrement actif">
-            Un mot de passe vous sera demandé à l'enregistrement. Le contenu est chiffré (Argon2id + AES-256-GCM).
-            Sans le mot de passe, le document est irrécupérable.
+            Un mot de passe vous sera demandé à l'enregistrement. Le contenu est chiffré (Argon2id + AES-256-GCM). Sans
+            le mot de passe, le document est irrécupérable.
           </Alert>
           <section className="panel-section">
             <label className="secure-toggle">
@@ -93,16 +97,22 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
               />
               <span>
                 <strong>Chiffrer aussi les métadonnées</strong>
-                <span className="muted"> — titre, signataires et journal masqués sur le fichier ouvert sans mot de passe (au lieu d'être lisibles en clair).</span>
+                <span className="muted">
+                  {" "}
+                  — titre, signataires et journal masqués sur le fichier ouvert sans mot de passe (au lieu d'être
+                  lisibles en clair).
+                </span>
               </span>
             </label>
           </section>
 
           <section className="panel-section">
-            <h3 className="panel-title"><Users size={15} /> Destinataires (sans mot de passe)</h3>
+            <h3 className="panel-title">
+              <Users size={15} /> Destinataires (sans mot de passe)
+            </h3>
             <p className="muted">
-              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé.
-              Collez leurs clés publiques (une par ligne). Si renseigné, le mot de passe n'est pas demandé.
+              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé. Collez
+              leurs clés publiques (une par ligne). Si renseigné, le mot de passe n'est pas demandé.
             </p>
             <Field label="Clés publiques de réception (P-256, hex)">
               <textarea
@@ -113,19 +123,28 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
                 placeholder="04a1b2…"
                 spellCheck={false}
                 onChange={(e) =>
-                  studio.setRecipients(e.target.value.split(/\s+/).map((s) => s.trim()).filter(Boolean))
+                  studio.setRecipients(
+                    e.target.value
+                      .split(/\s+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  )
                 }
               />
             </Field>
             {invalidRecipients.length > 0 && (
-              <p className="muted">⚠ {invalidRecipients.length} clé(s) au format invalide (130 caractères hexadécimaux attendus).</p>
+              <p className="muted">
+                ⚠ {invalidRecipients.length} clé(s) au format invalide (130 caractères hexadécimaux attendus).
+              </p>
             )}
           </section>
         </>
       )}
 
       <section className="panel-section">
-        <h3 className="panel-title"><Users size={15} /> Votre clé de réception</h3>
+        <h3 className="panel-title">
+          <Users size={15} /> Votre clé de réception
+        </h3>
         {studio.recipientPublic ? (
           <>
             <p className="muted">Partagez cette clé publique pour recevoir des documents chiffrés à votre intention.</p>
@@ -138,16 +157,19 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
               <code className="keyline__value">{fingerprintWords(studio.recipientPublic.fingerprint)}</code>
             </div>
             <div className="settings__row" style={{ marginTop: 6 }}>
-              <Button variant="outline" size="sm"
-                onClick={() => void copyText(studio.recipientPublic!.publicHex)}>
+              <Button variant="outline" size="sm" onClick={() => void copyText(studio.recipientPublic!.publicHex)}>
                 <Copy size={14} /> Copier ma clé publique
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => studio.forgetRecipientKey()}>Oublier</Button>
+              <Button variant="ghost" size="sm" onClick={() => studio.forgetRecipientKey()}>
+                Oublier
+              </Button>
             </div>
           </>
         ) : (
           <>
-            <p className="muted">Aucune clé de réception. Générez-en une pour qu'on puisse vous envoyer des documents chiffrés.</p>
+            <p className="muted">
+              Aucune clé de réception. Générez-en une pour qu'on puisse vous envoyer des documents chiffrés.
+            </p>
             <Button variant="outline" size="sm" onClick={() => void studio.generateRecipientKey()}>
               <Users size={14} /> Générer ma clé de réception
             </Button>

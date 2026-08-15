@@ -3,9 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { Modal, Button, Field } from "../ui/components";
 import { FONT_FAMILIES, FONT_SIZES } from "./typography";
 import { customFontNames, fontCss } from "../ui/fonts";
-import {
-  CASE_LABELS, UNDERLINE_LABELS, parsePx, type CaseMode, type UnderlineStyle,
-} from "./charFormat";
+import { CASE_LABELS, UNDERLINE_LABELS, parsePx, type CaseMode, type UnderlineStyle } from "./charFormat";
 
 const UNDERLINES: UnderlineStyle[] = ["none", "single", "double", "dotted", "dashed", "wavy"];
 const CASES: CaseMode[] = ["sentence", "lower", "upper", "title", "toggle"];
@@ -98,14 +96,20 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
               aria-label="Police"
               value={family}
               onChange={(e) =>
-                run(() => (e.target.value ? chain().setFontFamily(e.target.value).run() : chain().unsetFontFamily().run()))
+                run(() =>
+                  e.target.value ? chain().setFontFamily(e.target.value).run() : chain().unsetFontFamily().run(),
+                )
               }
             >
               {FONT_FAMILIES.map((f) => (
-                <option key={f.label} value={f.value}>{f.label}</option>
+                <option key={f.label} value={f.value}>
+                  {f.label}
+                </option>
               ))}
               {customFontNames().map((n) => (
-                <option key={n} value={fontCss(n)}>{n}</option>
+                <option key={n} value={fontCss(n)}>
+                  {n}
+                </option>
               ))}
             </select>
             <select
@@ -119,11 +123,27 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
             >
               <option value="">Taille</option>
               {FONT_SIZES.map((s) => (
-                <option key={s} value={s}>{s.replace("px", "")}</option>
+                <option key={s} value={s}>
+                  {s.replace("px", "")}
+                </option>
               ))}
             </select>
-            <Button variant="outline" size="sm" onClick={() => run(() => chain().shrinkFontSize().run())} title="Réduire la taille (Ctrl+Maj+<)">A−</Button>
-            <Button variant="outline" size="sm" onClick={() => run(() => chain().growFontSize().run())} title="Agrandir la taille (Ctrl+Maj+>)">A+</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => run(() => chain().shrinkFontSize().run())}
+              title="Réduire la taille (Ctrl+Maj+<)"
+            >
+              A−
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => run(() => chain().growFontSize().run())}
+              title="Agrandir la taille (Ctrl+Maj+>)"
+            >
+              A+
+            </Button>
           </div>
         </section>
 
@@ -136,7 +156,12 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
             {toggle("Barré double", ts.doubleStrike === true, () => chain().toggleDoubleStrike().run())}
             {toggle("x²", has("superscript"), () => chain().toggleSuperscript().run(), "Exposant (Ctrl+Maj+=)")}
             {toggle("x₂", has("subscript"), () => chain().toggleSubscript().run(), "Indice (Ctrl+=)")}
-            {toggle("Petites majuscules", ts.smallCaps === true, () => chain().toggleSmallCaps().run(), "Petites majuscules (Ctrl+Maj+K)")}
+            {toggle(
+              "Petites majuscules",
+              ts.smallCaps === true,
+              () => chain().toggleSmallCaps().run(),
+              "Petites majuscules (Ctrl+Maj+K)",
+            )}
             {toggle("MAJUSCULES", ts.allCaps === true, () => chain().toggleAllCaps().run())}
           </div>
         </section>
@@ -148,10 +173,18 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
               <select
                 className="settings__select"
                 value={underlineStyle}
-                onChange={(e) => run(() => chain().setUnderlineStyle(e.target.value as UnderlineStyle).run())}
+                onChange={(e) =>
+                  run(() =>
+                    chain()
+                      .setUnderlineStyle(e.target.value as UnderlineStyle)
+                      .run(),
+                  )
+                }
               >
                 {UNDERLINES.map((u) => (
-                  <option key={u} value={u}>{UNDERLINE_LABELS[u]}</option>
+                  <option key={u} value={u}>
+                    {UNDERLINE_LABELS[u]}
+                  </option>
                 ))}
               </select>
             </Field>
@@ -217,9 +250,7 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
               </button>
             ))}
           </div>
-          {editor.state.selection.empty && (
-            <p className="muted">Sélectionnez du texte pour en modifier la casse.</p>
-          )}
+          {editor.state.selection.empty && <p className="muted">Sélectionnez du texte pour en modifier la casse.</p>}
         </section>
 
         <section className="settings__section">
@@ -229,9 +260,9 @@ export default function FontDialog({ editor, onClose }: { editor: Editor; onClos
           </div>
         </section>
       </div>
-        <p className="settings__hint modal-live">
-          Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
-        </p>
+      <p className="settings__hint modal-live">
+        Les changements s'appliquent immédiatement à la sélection ; « Fermer » ne les annule pas.
+      </p>
     </Modal>
   );
 }

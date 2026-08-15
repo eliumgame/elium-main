@@ -1,4 +1,20 @@
-import { AlignCenter, AlignLeft, AlignRight, Bold, Copy, Italic, Lock, Trash2, Underline, Unlock, Eye, EyeOff, ArrowUp, ArrowDown, Layers2 } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  Copy,
+  Italic,
+  Lock,
+  Trash2,
+  Underline,
+  Unlock,
+  Eye,
+  EyeOff,
+  ArrowUp,
+  ArrowDown,
+  Layers2,
+} from "lucide-react";
 import type { Annot, MeasureScale, ReviewStatus } from "../model/types";
 import { isMeasure, isShape, isTextContent, isTextMarkup } from "../model/types";
 import { allFontNames } from "../../ui/fonts";
@@ -59,7 +75,9 @@ export default function Inspector(p: InspectorProps) {
         <span className="pdfx-inspector__title">
           {sel.length === 1 ? KIND_LABEL[sel[0].kind] : `${sel.length} éléments`}
         </span>
-        <button className="pdfx-icon" onClick={p.onClose} title="Fermer le panneau">×</button>
+        <button className="pdfx-icon" onClick={p.onClose} title="Fermer le panneau">
+          ×
+        </button>
       </header>
 
       <div className="pdfx-inspector__body">
@@ -67,7 +85,12 @@ export default function Inspector(p: InspectorProps) {
           <h4>Apparence</h4>
           <label className="pdfx-insp-row">
             <span>Couleur</span>
-            <input type="color" value={colour} onChange={(e) => p.onPatch({ color: e.target.value })} disabled={locked} />
+            <input
+              type="color"
+              value={colour}
+              onChange={(e) => p.onPatch({ color: e.target.value })}
+              disabled={locked}
+            />
           </label>
           {(anyShape || kinds.has("freetext") || kinds.has("callout")) && (
             <label className="pdfx-insp-row">
@@ -79,7 +102,9 @@ export default function Inspector(p: InspectorProps) {
                   onChange={(e) => p.onPatch({ fill: e.target.value })}
                   disabled={locked}
                 />
-                <button className="pdfx-mini" onClick={() => p.onPatch({ fill: null })} disabled={locked}>Aucun</button>
+                <button className="pdfx-mini" onClick={() => p.onPatch({ fill: null })} disabled={locked}>
+                  Aucun
+                </button>
               </span>
             </label>
           )}
@@ -87,7 +112,11 @@ export default function Inspector(p: InspectorProps) {
             <span>Opacité</span>
             <span className="pdfx-insp-inline">
               <input
-                type="range" min={0.05} max={1} step={0.05} value={opacity}
+                type="range"
+                min={0.05}
+                max={1}
+                step={0.05}
+                value={opacity}
                 onChange={(e) => p.onPatch({ opacity: Number(e.target.value) })}
                 disabled={locked}
               />
@@ -99,7 +128,11 @@ export default function Inspector(p: InspectorProps) {
               <span>Épaisseur</span>
               <span className="pdfx-insp-inline">
                 <input
-                  type="range" min={0} max={16} step={0.5} value={stroke}
+                  type="range"
+                  min={0}
+                  max={16}
+                  step={0.5}
+                  value={stroke}
                   onChange={(e) => p.onPatch({ strokeWidth: Number(e.target.value) })}
                   disabled={locked}
                 />
@@ -133,13 +166,20 @@ export default function Inspector(p: InspectorProps) {
                 onChange={(e) => p.onPatch({ fontFamily: e.target.value })}
                 disabled={locked}
               >
-                {allFontNames().map((n) => <option key={n} value={n}>{n}</option>)}
+                {allFontNames().map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="pdfx-insp-row">
               <span>Taille</span>
               <input
-                type="number" min={4} max={200} step={1}
+                type="number"
+                min={4}
+                max={200}
+                step={1}
                 value={shared(sel, (a) => a.fontSize ?? 12) ?? 12}
                 onChange={(e) => p.onPatch({ fontSize: Number(e.target.value) })}
                 disabled={locked}
@@ -148,15 +188,39 @@ export default function Inspector(p: InspectorProps) {
             <div className="pdfx-insp-row">
               <span>Style</span>
               <span className="pdfx-insp-inline">
-                <button className={`pdfx-toggle ${shared(sel, (a) => !!a.bold) ? "is-on" : ""}`} onClick={() => p.onPatch({ bold: !shared(sel, (a) => !!a.bold) })} disabled={locked}><Bold size={14} /></button>
-                <button className={`pdfx-toggle ${shared(sel, (a) => !!a.italic) ? "is-on" : ""}`} onClick={() => p.onPatch({ italic: !shared(sel, (a) => !!a.italic) })} disabled={locked}><Italic size={14} /></button>
-                <button className={`pdfx-toggle ${shared(sel, (a) => !!a.underline) ? "is-on" : ""}`} onClick={() => p.onPatch({ underline: !shared(sel, (a) => !!a.underline) })} disabled={locked}><Underline size={14} /></button>
+                <button
+                  className={`pdfx-toggle ${shared(sel, (a) => !!a.bold) ? "is-on" : ""}`}
+                  onClick={() => p.onPatch({ bold: !shared(sel, (a) => !!a.bold) })}
+                  disabled={locked}
+                >
+                  <Bold size={14} />
+                </button>
+                <button
+                  className={`pdfx-toggle ${shared(sel, (a) => !!a.italic) ? "is-on" : ""}`}
+                  onClick={() => p.onPatch({ italic: !shared(sel, (a) => !!a.italic) })}
+                  disabled={locked}
+                >
+                  <Italic size={14} />
+                </button>
+                <button
+                  className={`pdfx-toggle ${shared(sel, (a) => !!a.underline) ? "is-on" : ""}`}
+                  onClick={() => p.onPatch({ underline: !shared(sel, (a) => !!a.underline) })}
+                  disabled={locked}
+                >
+                  <Underline size={14} />
+                </button>
               </span>
             </div>
             <div className="pdfx-insp-row">
               <span>Alignement</span>
               <span className="pdfx-insp-inline">
-                {([["left", <AlignLeft key="l" size={14} />], ["center", <AlignCenter key="c" size={14} />], ["right", <AlignRight key="r" size={14} />]] as const).map(([id, icon]) => (
+                {(
+                  [
+                    ["left", <AlignLeft key="l" size={14} />],
+                    ["center", <AlignCenter key="c" size={14} />],
+                    ["right", <AlignRight key="r" size={14} />],
+                  ] as const
+                ).map(([id, icon]) => (
                   <button
                     key={id}
                     className={`pdfx-toggle ${shared(sel, (a) => a.align ?? "left") === id ? "is-on" : ""}`}
@@ -177,7 +241,9 @@ export default function Inspector(p: InspectorProps) {
                   onChange={(e) => p.onPatch({ textBg: e.target.value })}
                   disabled={locked}
                 />
-                <button className="pdfx-mini" onClick={() => p.onPatch({ textBg: null })} disabled={locked}>Transparent</button>
+                <button className="pdfx-mini" onClick={() => p.onPatch({ textBg: null })} disabled={locked}>
+                  Transparent
+                </button>
               </span>
             </label>
           </section>
@@ -191,7 +257,9 @@ export default function Inspector(p: InspectorProps) {
               <select
                 value={one.action?.type ?? "url"}
                 onChange={(e) =>
-                  p.onPatch({ action: e.target.value === "page" ? { type: "page", page: 1 } : { type: "url", url: "https://" } })
+                  p.onPatch({
+                    action: e.target.value === "page" ? { type: "page", page: 1 } : { type: "url", url: "https://" },
+                  })
                 }
               >
                 <option value="url">Adresse web</option>
@@ -211,7 +279,9 @@ export default function Inspector(p: InspectorProps) {
               <label className="pdfx-insp-row">
                 <span>Page</span>
                 <input
-                  type="number" min={1} max={p.pageCount}
+                  type="number"
+                  min={1}
+                  max={p.pageCount}
                   value={one.action?.type === "page" ? one.action.page : 1}
                   onChange={(e) => p.onPatch({ action: { type: "page", page: Number(e.target.value) } })}
                 />
@@ -233,7 +303,10 @@ export default function Inspector(p: InspectorProps) {
               <span>Rotation</span>
               <span className="pdfx-insp-inline">
                 <input
-                  type="range" min={-180} max={180} step={1}
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
                   value={one.rotation ?? 0}
                   onChange={(e) => p.onPatch({ rotation: Number(e.target.value) })}
                 />
@@ -256,10 +329,15 @@ export default function Inspector(p: InspectorProps) {
             </label>
             <label className="pdfx-insp-row">
               <span>Couleur du bloc</span>
-              <input type="color" value={one.redactFill ?? "#000000"} onChange={(e) => p.onPatch({ redactFill: e.target.value })} />
+              <input
+                type="color"
+                value={one.redactFill ?? "#000000"}
+                onChange={(e) => p.onPatch({ redactFill: e.target.value })}
+              />
             </label>
             <p className="pdfx-insp-note">
-              Le contenu situé sous la zone sera <b>définitivement supprimé</b> du fichier exporté, pas simplement masqué.
+              Le contenu situé sous la zone sera <b>définitivement supprimé</b> du fichier exporté, pas simplement
+              masqué.
             </p>
           </section>
         )}
@@ -270,19 +348,28 @@ export default function Inspector(p: InspectorProps) {
             <label className="pdfx-insp-row">
               <span>1 point =</span>
               <input
-                type="number" step="0.0001" min={0.0001}
+                type="number"
+                step="0.0001"
+                min={0.0001}
                 value={p.measureScale.unitsPerPoint}
-                onChange={(e) => p.onMeasureScale({ ...p.measureScale, unitsPerPoint: Number(e.target.value) || 0.0001 })}
+                onChange={(e) =>
+                  p.onMeasureScale({ ...p.measureScale, unitsPerPoint: Number(e.target.value) || 0.0001 })
+                }
               />
             </label>
             <label className="pdfx-insp-row">
               <span>Unité</span>
-              <input value={p.measureScale.unit} onChange={(e) => p.onMeasureScale({ ...p.measureScale, unit: e.target.value })} />
+              <input
+                value={p.measureScale.unit}
+                onChange={(e) => p.onMeasureScale({ ...p.measureScale, unit: e.target.value })}
+              />
             </label>
             <label className="pdfx-insp-row">
               <span>Décimales</span>
               <input
-                type="number" min={0} max={6}
+                type="number"
+                min={0}
+                max={6}
                 value={p.measureScale.precision}
                 onChange={(e) => p.onMeasureScale({ ...p.measureScale, precision: Number(e.target.value) })}
               />
@@ -308,7 +395,11 @@ export default function Inspector(p: InspectorProps) {
               value={shared(sel, (a) => a.status ?? "none") ?? "none"}
               onChange={(e) => p.onPatch({ status: e.target.value as ReviewStatus })}
             >
-              {STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {STATUS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
             </select>
           </label>
           {one && (
@@ -322,10 +413,18 @@ export default function Inspector(p: InspectorProps) {
         <section className="pdfx-insp-group">
           <h4>Disposition</h4>
           <div className="pdfx-insp-actions">
-            <button className="pdfx-mini" onClick={() => p.onOrder("front")}><Layers2 size={13} /> Premier plan</button>
-            <button className="pdfx-mini" onClick={() => p.onOrder("forward")}><ArrowUp size={13} /> Avancer</button>
-            <button className="pdfx-mini" onClick={() => p.onOrder("backward")}><ArrowDown size={13} /> Reculer</button>
-            <button className="pdfx-mini" onClick={() => p.onOrder("back")}><Layers2 size={13} /> Arrière-plan</button>
+            <button className="pdfx-mini" onClick={() => p.onOrder("front")}>
+              <Layers2 size={13} /> Premier plan
+            </button>
+            <button className="pdfx-mini" onClick={() => p.onOrder("forward")}>
+              <ArrowUp size={13} /> Avancer
+            </button>
+            <button className="pdfx-mini" onClick={() => p.onOrder("backward")}>
+              <ArrowDown size={13} /> Reculer
+            </button>
+            <button className="pdfx-mini" onClick={() => p.onOrder("back")}>
+              <Layers2 size={13} /> Arrière-plan
+            </button>
           </div>
         </section>
       </div>
@@ -337,8 +436,12 @@ export default function Inspector(p: InspectorProps) {
         <button className="pdfx-mini" onClick={() => p.onPatch({ hidden: !(shared(sel, (a) => !!a.hidden) ?? false) })}>
           {shared(sel, (a) => !!a.hidden) ? <Eye size={13} /> : <EyeOff size={13} />} Masquer
         </button>
-        <button className="pdfx-mini" onClick={p.onDuplicate}><Copy size={13} /> Dupliquer</button>
-        <button className="pdfx-mini pdfx-mini--danger" onClick={p.onDelete} disabled={locked}><Trash2 size={13} /> Supprimer</button>
+        <button className="pdfx-mini" onClick={p.onDuplicate}>
+          <Copy size={13} /> Dupliquer
+        </button>
+        <button className="pdfx-mini pdfx-mini--danger" onClick={p.onDelete} disabled={locked}>
+          <Trash2 size={13} /> Supprimer
+        </button>
       </footer>
     </aside>
   );

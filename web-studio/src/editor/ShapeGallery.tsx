@@ -28,13 +28,7 @@ const THUMB_STYLE = {
 /** Taille de la vignette en « millimètres » du générateur (unités du viewBox). */
 const THUMB_MM = 22;
 
-export default function ShapeGallery({
-  onPick,
-  onClose,
-}: {
-  onPick: (kind: ShapeKind) => void;
-  onClose: () => void;
-}) {
+export default function ShapeGallery({ onPick, onClose }: { onPick: (kind: ShapeKind) => void; onClose: () => void }) {
   const [filter, setFilter] = useState<ShapeGroup | "all">("all");
 
   // Les 53 tracés ne changent jamais : les générer à chaque frappe du filtre
@@ -107,8 +101,8 @@ export default function ShapeGallery({
         ))}
       </div>
       <div className="shapegal__foot">
-        Glissez la poignée du haut pour déplacer, celle du coin pour redimensionner,
-        celle du dessus pour faire pivoter. Alt ignore le quadrillage.
+        Glissez la poignée du haut pour déplacer, celle du coin pour redimensionner, celle du dessus pour faire pivoter.
+        Alt ignore le quadrillage.
       </div>
     </div>
   );

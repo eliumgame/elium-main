@@ -340,7 +340,13 @@ export function styleTextStyleAttrs(style: DocStyle | null): Record<string, unkn
 }
 
 /** Marks a style's character part toggles on. */
-export function styleMarks(style: DocStyle | null): { bold: boolean; italic: boolean; underline: boolean; strike: boolean; highlight: string | null } {
+export function styleMarks(style: DocStyle | null): {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  highlight: string | null;
+} {
   const c = style?.char ?? {};
   return {
     bold: c.bold === true,
@@ -418,8 +424,7 @@ export function styleToDocxXml(style: DocStyle): string {
   // Word recognises heading styles by their NAME ("heading 1"), not their id —
   // and localises the display name itself. Using the canonical name is what
   // makes the outline, the navigation pane and Word's own TOC see them.
-  const wordName =
-    style.block?.type === "heading" && style.block.level ? `heading ${style.block.level}` : style.name;
+  const wordName = style.block?.type === "heading" && style.block.level ? `heading ${style.block.level}` : style.name;
   return (
     `<w:style w:type="${style.kind}" w:styleId="${xmlEsc(style.id)}"${style.id === "Normal" ? ' w:default="1"' : ""}>` +
     `<w:name w:val="${xmlEsc(wordName)}"/>` +

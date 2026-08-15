@@ -1,6 +1,17 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { PenLine, Stamp, MessageSquare, Lock, History, GitBranch, Download, Info, X, PanelRightOpen } from "lucide-react";
+import {
+  PenLine,
+  Stamp,
+  MessageSquare,
+  Lock,
+  History,
+  GitBranch,
+  Download,
+  Info,
+  X,
+  PanelRightOpen,
+} from "lucide-react";
 import SignaturesPanel from "./SignaturesPanel";
 import ParapheurPanel from "./ParapheurPanel";
 import CommentsPanel from "./CommentsPanel";

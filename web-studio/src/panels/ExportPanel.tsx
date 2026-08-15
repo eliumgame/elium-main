@@ -38,8 +38,8 @@ export default function ExportPanel({ studio }: { studio: Studio }) {
       </section>
 
       <Alert tone="info">
-        Les exports PDF/HTML incluent une page <b>Signatures</b> avec les visuels et l'état de vérification.
-        Le rapport de preuve liste les empreintes, signatures et l'intégrité du journal.
+        Les exports PDF/HTML incluent une page <b>Signatures</b> avec les visuels et l'état de vérification. Le rapport
+        de preuve liste les empreintes, signatures et l'intégrité du journal.
       </Alert>
     </div>
   );

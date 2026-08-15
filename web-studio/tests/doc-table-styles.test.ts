@@ -1,8 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
-  CELL_VALIGN_LABELS, DEFAULT_TABLE_STYLE, TABLE_FIT_LABELS, TABLE_STYLES, compareCells, fitCss,
-  fitXml, isBandedColumn, normalizeFit, normalizeVAlign, parseLoose, rowClasses, sortRowOrder,
-  tablePrXml, tableStyleById, tableStylesCss, vAlignXml,
+  CELL_VALIGN_LABELS,
+  DEFAULT_TABLE_STYLE,
+  TABLE_FIT_LABELS,
+  TABLE_STYLES,
+  compareCells,
+  fitCss,
+  fitXml,
+  isBandedColumn,
+  normalizeFit,
+  normalizeVAlign,
+  parseLoose,
+  rowClasses,
+  sortRowOrder,
+  tablePrXml,
+  tableStyleById,
+  tableStylesCss,
+  vAlignXml,
 } from "../src/editor/tableStyles";
 import { strFromU8, unzipSync } from "fflate";
 import { docToDocx } from "../src/format/docx";
@@ -202,7 +216,8 @@ describe("Styles de tableau — export", () => {
   const model = (doc: ProseMirrorNode) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc,
@@ -213,8 +228,11 @@ describe("Styles de tableau — export", () => {
     content: [{ type: "paragraph", content: [{ type: "text", text }] }],
   });
   const row = (...cells: ProseMirrorNode[]): ProseMirrorNode => ({ type: "tableRow", content: cells });
-  const table = (attrs: Record<string, unknown>, ...rows: ProseMirrorNode[]): ProseMirrorNode =>
-    ({ type: "table", attrs, content: rows });
+  const table = (attrs: Record<string, unknown>, ...rows: ProseMirrorNode[]): ProseMirrorNode => ({
+    type: "table",
+    attrs,
+    content: rows,
+  });
   const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
 
   const sample = table(
@@ -253,7 +271,7 @@ describe("Styles de tableau — export", () => {
     const file = await createEliumFile({ title: "T", profile: "standard", doc: doc(sample) });
     const html = buildStandaloneHtml(file);
     expect(html).toContain("is-header-accent");
-    expect(html).toContain('table[data-table-style]');
+    expect(html).toContain("table[data-table-style]");
   });
 
   it("écrit le w:tblPr et le w:vAlign en DOCX", async () => {

@@ -83,7 +83,11 @@ export async function wrapMaster(prfOutput: Uint8Array, masterKey: Uint8Array): 
   const key = await deriveWrapKey(prfOutput);
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv: buf(nonce), additionalData: buf(WRAP_AAD) }, key, buf(masterKey)),
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: buf(nonce), additionalData: buf(WRAP_AAD) },
+      key,
+      buf(masterKey),
+    ),
   );
   return { v: 1, alg: "aes-256-gcm", nonce: toHex(nonce), ct: toHex(ct) };
 }

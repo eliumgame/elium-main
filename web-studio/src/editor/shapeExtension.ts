@@ -15,13 +15,28 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { CSS_PX_PER_MM } from "./Pagination";
 import { activeGrid, snapDrag, snapMm } from "./grid";
 import {
-  DEFAULT_GEOMETRY, MIN_HEIGHT_MM, MIN_WIDTH_MM, isFloating, normalizeGeometry,
-  type FloatSide, type WrapMode,
+  DEFAULT_GEOMETRY,
+  MIN_HEIGHT_MM,
+  MIN_WIDTH_MM,
+  isFloating,
+  normalizeGeometry,
+  type FloatSide,
+  type WrapMode,
 } from "./textBox";
 import {
-  DEFAULT_KIND, DEFAULT_SHAPE_HEIGHT_MM, DEFAULT_SHAPE_STYLE, DEFAULT_SHAPE_WIDTH_MM, clampAdj,
-  defaultAdj, normalizeShapeStyle, shapeContainerCss, shapeDef, shapeSvg, vAlignCss,
-  type ShapeKind, type ShapeStyle,
+  DEFAULT_KIND,
+  DEFAULT_SHAPE_HEIGHT_MM,
+  DEFAULT_SHAPE_STYLE,
+  DEFAULT_SHAPE_WIDTH_MM,
+  clampAdj,
+  defaultAdj,
+  normalizeShapeStyle,
+  shapeContainerCss,
+  shapeDef,
+  shapeSvg,
+  vAlignCss,
+  type ShapeKind,
+  type ShapeStyle,
 } from "./shapes";
 
 declare module "@tiptap/core" {
@@ -41,7 +56,11 @@ declare module "@tiptap/core" {
       setShapeStyle: (patch: Partial<ShapeStyle>) => ReturnType;
       /** Change la géométrie (taille, position, rotation) de la forme courante. */
       setShapeGeometry: (patch: {
-        x?: number; y?: number; widthMm?: number; heightMm?: number; rotation?: number;
+        x?: number;
+        y?: number;
+        widthMm?: number;
+        heightMm?: number;
+        rotation?: number;
       }) => ReturnType;
       /** Change l'habillage de la forme courante. */
       setShapeWrap: (wrap: WrapMode) => ReturnType;
@@ -171,7 +190,11 @@ export const Shape = Node.create({
           const current = editor.getAttributes(this.name);
           const g = normalizeGeometry({ ...current, ...patch });
           return commands.updateAttributes(this.name, {
-            x: g.x, y: g.y, widthMm: g.widthMm, heightMm: g.heightMm, rotation: g.rotation,
+            x: g.x,
+            y: g.y,
+            widthMm: g.widthMm,
+            heightMm: g.heightMm,
+            rotation: g.rotation,
           });
         },
       setShapeWrap:
@@ -249,16 +272,11 @@ export const Shape = Node.create({
         if (pos == null) return;
         const at = editor.view.state.doc.nodeAt(pos);
         if (!at) return;
-        editor.view.dispatch(
-          editor.view.state.tr.setNodeMarkup(pos, null, { ...at.attrs, ...patch }),
-        );
+        editor.view.dispatch(editor.view.state.tr.setNodeMarkup(pos, null, { ...at.attrs, ...patch }));
       };
 
       /** Suivi d'un glisser, terminé même si la souris sort de la forme. */
-      const drag = (
-        e: MouseEvent,
-        onMove: (dxMm: number, dyMm: number, ev: MouseEvent) => void,
-      ) => {
+      const drag = (e: MouseEvent, onMove: (dxMm: number, dyMm: number, ev: MouseEvent) => void) => {
         e.preventDefault();
         e.stopPropagation();
         const x0 = e.clientX;

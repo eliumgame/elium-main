@@ -11,22 +11,22 @@
    alias de compatibilité de tokens.css. Ces alias garantissent zéro régression
    pendant la migration progressive des composants vers --el-*. */
 :root {
-  --bg:            var(--el-app-canvas);
-  --surface:       var(--el-surface);
-  --surface-2:     var(--el-surface-2);
-  --surface-3:     var(--el-surface-3);
-  --border:        var(--el-border);
+  --bg: var(--el-app-canvas);
+  --surface: var(--el-surface);
+  --surface-2: var(--el-surface-2);
+  --surface-3: var(--el-surface-3);
+  --border: var(--el-border);
   --border-strong: var(--el-border-strong);
 
-  --text:       var(--el-text);
-  --text-soft:  var(--el-text-soft);
+  --text: var(--el-text);
+  --text-soft: var(--el-text-soft);
   --text-muted: var(--el-text-muted);
 
   /* primaire = bleu de marque ; pour les FONDS de bouton, les composants
      utilisent --el-primary-btn (texte blanc >= 4.5:1 en sombre, cf. charte §12.1) */
-  --primary:     var(--el-primary);
+  --primary: var(--el-primary);
   --primary-600: var(--el-primary-hover);
-  --primary-50:  var(--el-primary-50);
+  --primary-50: var(--el-primary-50);
   --primary-100: var(--el-primary-100);
 
   /* Accent secondaire = violet de chiffrement/parapheur de la charte. Thème-
@@ -39,23 +39,38 @@
   --radius: var(--el-radius-lg);
 
   /* --info sert de TEXTE (badges, alertes) -> variante AA --el-info-text */
-  --info:    var(--el-info-text);  --info-bg:    var(--el-info-bg);
-  --success: var(--el-success);    --success-bg: var(--el-success-bg);
-  --warning: var(--el-warning);    --warning-bg: var(--el-warning-bg);
-  --danger:  var(--el-danger);     --danger-bg:  var(--el-danger-bg);
-  --neutral: var(--el-neutral);    --neutral-bg: var(--el-neutral-bg);
+  --info: var(--el-info-text);
+  --info-bg: var(--el-info-bg);
+  --success: var(--el-success);
+  --success-bg: var(--el-success-bg);
+  --warning: var(--el-warning);
+  --warning-bg: var(--el-warning-bg);
+  --danger: var(--el-danger);
+  --danger-bg: var(--el-danger-bg);
+  --neutral: var(--el-neutral);
+  --neutral-bg: var(--el-neutral-bg);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-html, body { height: 100%; }
+html,
+body {
+  height: 100%;
+}
 /* #root est ancré sur le VIEWPORT (dvh), pas sur une cascade de `height:100%` :
    c'est robuste à tout ancêtre dont la hauteur n'est pas déterminée — y compris
    le panneau d'aperçu qui met `html` en `display:grid` (ce qui réduit `body` à sa
    hauteur de contenu et faisait s'effondrer les vues plein écran, barre d'état
    remontée au milieu). Dans un navigateur normal, 100dvh == 100 % du viewport,
    donc aucun changement visuel. Le `100vh` est le repli des moteurs sans `dvh`. */
-#root { height: 100vh; height: 100dvh; }
+#root {
+  height: 100vh;
+  height: 100dvh;
+}
 
 body {
   font-family: var(--font);
@@ -65,10 +80,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button { font-family: inherit; cursor: pointer; border: none; outline: none; background: none; }
-input, select, textarea { font-family: inherit; font-size: 14px; }
-a { color: var(--primary); }
-code { font-family: var(--mono); }
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: none;
+}
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+}
+a {
+  color: var(--primary);
+}
+code {
+  font-family: var(--mono);
+}
 
 /* Barres de défilement uniformes dans toute l'app : fines, arrondies, sur piste
    transparente. La couleur du curseur est un gris NEUTRE semi-transparent, donc
@@ -79,8 +109,13 @@ code { font-family: var(--mono); }
   scrollbar-width: thin;
   scrollbar-color: rgba(140, 150, 165, 0.45) transparent;
 }
-::-webkit-scrollbar { width: 11px; height: 11px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: rgba(140, 150, 165, 0.42);
   border-radius: 8px;
@@ -89,18 +124,32 @@ code { font-family: var(--mono); }
   border: 3px solid transparent;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(140, 150, 165, 0.7); }
-::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 150, 165, 0.7);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 /* Anneau de focus clavier global (charte §13/§14.2) : visible uniquement à la
    navigation clavier (:focus-visible), jamais au clic souris. Restaure un focus
    perceptible sur les contrôles que le reset `button { outline:none }` masquait. */
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
-textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible,
-[role="button"]:focus-visible, [role="tab"]:focus-visible, [contenteditable="true"]:focus-visible {
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[contenteditable="true"]:focus-visible {
   outline: 2px solid var(--el-focus-ring);
   outline-offset: 2px;
   border-radius: 3px;
 }
 
-.muted { color: var(--text-muted); font-size: 13px; }
+.muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}

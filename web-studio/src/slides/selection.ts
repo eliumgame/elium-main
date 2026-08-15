@@ -116,12 +116,7 @@ function clamp(v: number, lo: number, hi: number): number {
  * remapped so a pasted group stays grouped but distinct from the original.
  * `mkId` supplies fresh unique ids (e.g. the store's element-id generator).
  */
-export function cloneElements(
-  els: SlideElement[],
-  mkId: () => string,
-  dx: number,
-  dy: number,
-): SlideElement[] {
+export function cloneElements(els: SlideElement[], mkId: () => string, dx: number, dy: number): SlideElement[] {
   const groupMap = new Map<string, string>();
   return els.map((e) => {
     const clone: SlideElement = {

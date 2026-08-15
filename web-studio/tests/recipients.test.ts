@@ -7,9 +7,7 @@ import {
   recipientFingerprint,
   RECIPIENTS_SCHEMA,
 } from "../src/crypto/recipients";
-import {
-  writeEliumPackage, readEliumPackage, EliumRecipientKeyRequired,
-} from "../src/format/elium-package";
+import { writeEliumPackage, readEliumPackage, EliumRecipientKeyRequired } from "../src/format/elium-package";
 import { createEliumFile } from "../src/format/document";
 import { unzipSync, strFromU8 } from "fflate";
 

@@ -50,7 +50,12 @@ function reindexStyles(
 }
 
 /** Applique un plan de relocalisation `fn` (et le décalage de taille) à la feuille. */
-function structural(sheet: SheetData, fn: (c: number, r: number) => Pos | null, dCols: number, dRows: number): SheetData {
+function structural(
+  sheet: SheetData,
+  fn: (c: number, r: number) => Pos | null,
+  dCols: number,
+  dRows: number,
+): SheetData {
   const refMap: RefMap = (col, row) => {
     const np = fn(col, row);
     return np ? { col: np.c, row: np.r } : null;
@@ -73,8 +78,10 @@ function structural(sheet: SheetData, fn: (c: number, r: number) => Pos | null, 
     cells: reindexCells(sheet.cells, fn, rewrite),
   };
   const styles = reindexStyles(sheet.styles, fn);
-  if (styles) next.styles = styles; else delete next.styles;
-  if (colWidths) next.colWidths = colWidths; else delete next.colWidths;
+  if (styles) next.styles = styles;
+  else delete next.styles;
+  if (colWidths) next.colWidths = colWidths;
+  else delete next.colWidths;
   return next;
 }
 
@@ -111,12 +118,30 @@ export function sortRange(
     let grew = true;
     while (grew) {
       grew = false;
-      const colData = (c: number) => { for (let r = R0; r <= R1; r++) if (has(c, r)) return true; return false; };
-      const rowData = (r: number) => { for (let c = C0; c <= C1; c++) if (has(c, r)) return true; return false; };
-      if (C0 > 0 && colData(C0 - 1)) { C0--; grew = true; }
-      if (C1 < sheet.cols - 1 && colData(C1 + 1)) { C1++; grew = true; }
-      if (R0 > 0 && rowData(R0 - 1)) { R0--; grew = true; }
-      if (R1 < sheet.rows - 1 && rowData(R1 + 1)) { R1++; grew = true; }
+      const colData = (c: number) => {
+        for (let r = R0; r <= R1; r++) if (has(c, r)) return true;
+        return false;
+      };
+      const rowData = (r: number) => {
+        for (let c = C0; c <= C1; c++) if (has(c, r)) return true;
+        return false;
+      };
+      if (C0 > 0 && colData(C0 - 1)) {
+        C0--;
+        grew = true;
+      }
+      if (C1 < sheet.cols - 1 && colData(C1 + 1)) {
+        C1++;
+        grew = true;
+      }
+      if (R0 > 0 && rowData(R0 - 1)) {
+        R0--;
+        grew = true;
+      }
+      if (R1 < sheet.rows - 1 && rowData(R1 + 1)) {
+        R1++;
+        grew = true;
+      }
     }
   }
   // Sauter une ligne d'en-tête (libellé non numérique au-dessus de données numériques).
@@ -132,11 +157,15 @@ export function sortRange(
   const snap = rowsIdx.map((r) => {
     const row: Record<number, string | undefined> = {};
     const st: Record<number, CellStyle | undefined> = {};
-    for (let c = C0; c <= C1; c++) { row[c] = sheet.cells[cellRef(c, r)]; st[c] = sheet.styles?.[cellRef(c, r)]; }
+    for (let c = C0; c <= C1; c++) {
+      row[c] = sheet.cells[cellRef(c, r)];
+      st[c] = sheet.styles?.[cellRef(c, r)];
+    }
     return { key: sheet.cells[cellRef(key, r)] ?? "", row, st };
   });
   snap.sort((a, b) => {
-    const an = Number(a.key), bn = Number(b.key);
+    const an = Number(a.key),
+      bn = Number(b.key);
     const bothNum = a.key !== "" && b.key !== "" && !Number.isNaN(an) && !Number.isNaN(bn);
     return (bothNum ? an - bn : a.key.localeCompare(b.key, "fr")) * dir;
   });
@@ -144,13 +173,16 @@ export function sortRange(
     for (let c = C0; c <= C1; c++) {
       const ref = cellRef(c, r);
       const v = snap[i]!.row[c];
-      if (v === undefined || v === "") delete cells[ref]; else cells[ref] = v;
+      if (v === undefined || v === "") delete cells[ref];
+      else cells[ref] = v;
       const s = snap[i]!.st[c];
-      if (s) styles[ref] = s; else delete styles[ref];
+      if (s) styles[ref] = s;
+      else delete styles[ref];
     }
   });
   const out: SheetData = { ...sheet, cells };
-  if (Object.keys(styles).length) out.styles = styles; else delete out.styles;
+  if (Object.keys(styles).length) out.styles = styles;
+  else delete out.styles;
   return out;
 }
 
@@ -163,26 +195,42 @@ export function sortRange(
 export function fillRange(sheet: SheetData, src: Rect, to: Pos): SheetData {
   const cells = { ...sheet.cells };
   const styles = { ...(sheet.styles ?? {}) };
-  const num = (raw?: string): number | null => { if (raw == null || raw === "") return null; const n = Number(raw); return Number.isNaN(n) ? null : n; };
-  const put = (c: number, r: number, raw: string | undefined, st: CellStyle | undefined, offC: number, offR: number) => {
+  const num = (raw?: string): number | null => {
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isNaN(n) ? null : n;
+  };
+  const put = (
+    c: number,
+    r: number,
+    raw: string | undefined,
+    st: CellStyle | undefined,
+    offC: number,
+    offR: number,
+  ) => {
     const ref = cellRef(c, r);
     let v = raw;
-    if (v != null && v[0] === "=" && (offC || offR)) v = rewriteRefs(v, (cc, rr) => ({ col: cc + offC, row: rr + offR }), true);
-    if (v == null || v === "") delete cells[ref]; else cells[ref] = v;
-    if (st) styles[ref] = st; else delete styles[ref];
+    if (v != null && v[0] === "=" && (offC || offR))
+      v = rewriteRefs(v, (cc, rr) => ({ col: cc + offC, row: rr + offR }), true);
+    if (v == null || v === "") delete cells[ref];
+    else cells[ref] = v;
+    if (st) styles[ref] = st;
+    else delete styles[ref];
   };
   const arithStep = (vals: (string | undefined)[]): number | null => {
     const nums = vals.map(num);
     if (vals.some((v) => v && v[0] === "=") || nums.some((n) => n === null) || nums.length < 2) return null;
     const step = nums[1]! - nums[0]!;
-    return nums.slice(1).every((n, i) => Math.abs((n! - nums[i]!) - step) < 1e-9) ? step : null;
+    return nums.slice(1).every((n, i) => Math.abs(n! - nums[i]! - step) < 1e-9) ? step : null;
   };
   const overR = to.r > src.r1 ? to.r - src.r1 : to.r < src.r0 ? to.r - src.r0 : 0;
   const overC = to.c > src.c1 ? to.c - src.c1 : to.c < src.c0 ? to.c - src.c0 : 0;
   const vertical = Math.abs(overR) >= Math.abs(overC);
 
   if (vertical && overR !== 0) {
-    const dir = overR > 0 ? 1 : -1, count = Math.abs(overR), h = src.r1 - src.r0 + 1;
+    const dir = overR > 0 ? 1 : -1,
+      count = Math.abs(overR),
+      h = src.r1 - src.r0 + 1;
     for (let c = src.c0; c <= src.c1; c++) {
       const vals: (string | undefined)[] = [];
       for (let r = src.r0; r <= src.r1; r++) vals.push(sheet.cells[cellRef(c, r)]);
@@ -191,15 +239,24 @@ export function fillRange(sheet: SheetData, src: Rect, to: Pos): SheetData {
         const destR = dir > 0 ? src.r1 + k : src.r0 - k;
         if (step != null) {
           const bval = dir > 0 ? num(vals[h - 1])! : num(vals[0])!;
-          put(c, destR, String(bval + step * (dir > 0 ? k : -k)), sheet.styles?.[cellRef(c, dir > 0 ? src.r1 : src.r0)], 0, 0);
+          put(
+            c,
+            destR,
+            String(bval + step * (dir > 0 ? k : -k)),
+            sheet.styles?.[cellRef(c, dir > 0 ? src.r1 : src.r0)],
+            0,
+            0,
+          );
         } else {
-          const srcR = src.r0 + (((destR - src.r0) % h) + h) % h;
+          const srcR = src.r0 + ((((destR - src.r0) % h) + h) % h);
           put(c, destR, sheet.cells[cellRef(c, srcR)], sheet.styles?.[cellRef(c, srcR)], 0, destR - srcR);
         }
       }
     }
   } else if (overC !== 0) {
-    const dir = overC > 0 ? 1 : -1, count = Math.abs(overC), w = src.c1 - src.c0 + 1;
+    const dir = overC > 0 ? 1 : -1,
+      count = Math.abs(overC),
+      w = src.c1 - src.c0 + 1;
     for (let r = src.r0; r <= src.r1; r++) {
       const vals: (string | undefined)[] = [];
       for (let c = src.c0; c <= src.c1; c++) vals.push(sheet.cells[cellRef(c, r)]);
@@ -208,15 +265,28 @@ export function fillRange(sheet: SheetData, src: Rect, to: Pos): SheetData {
         const destC = dir > 0 ? src.c1 + k : src.c0 - k;
         if (step != null) {
           const bval = dir > 0 ? num(vals[w - 1])! : num(vals[0])!;
-          put(destC, r, String(bval + step * (dir > 0 ? k : -k)), sheet.styles?.[cellRef(dir > 0 ? src.c1 : src.c0, r)], 0, 0);
+          put(
+            destC,
+            r,
+            String(bval + step * (dir > 0 ? k : -k)),
+            sheet.styles?.[cellRef(dir > 0 ? src.c1 : src.c0, r)],
+            0,
+            0,
+          );
         } else {
-          const srcC = src.c0 + (((destC - src.c0) % w) + w) % w;
+          const srcC = src.c0 + ((((destC - src.c0) % w) + w) % w);
           put(destC, r, sheet.cells[cellRef(srcC, r)], sheet.styles?.[cellRef(srcC, r)], destC - srcC, 0);
         }
       }
     }
   }
-  const out: SheetData = { ...sheet, cells, cols: Math.max(sheet.cols, to.c + 1), rows: Math.max(sheet.rows, to.r + 1) };
-  if (Object.keys(styles).length) out.styles = styles; else delete out.styles;
+  const out: SheetData = {
+    ...sheet,
+    cells,
+    cols: Math.max(sheet.cols, to.c + 1),
+    rows: Math.max(sheet.rows, to.r + 1),
+  };
+  if (Object.keys(styles).length) out.styles = styles;
+  else delete out.styles;
   return out;
 }

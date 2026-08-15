@@ -44,7 +44,10 @@ describe("Sections — découpage", () => {
   });
 
   it("découpe à chaque saut, en excluant le marqueur des deux plages", () => {
-    const sections = splitSections(doc(p("a"), brk({ kind: "nextPage" }), p("b"), brk({ kind: "continuous" }), p("c")), PAGE);
+    const sections = splitSections(
+      doc(p("a"), brk({ kind: "nextPage" }), p("b"), brk({ kind: "continuous" }), p("c")),
+      PAGE,
+    );
     expect(sections.map((s) => [s.firstBlock, s.endBlock])).toEqual([
       [0, 1],
       [2, 3],
@@ -54,7 +57,11 @@ describe("Sections — découpage", () => {
 
   it("applique les surcharges du saut à la section qu'il ouvre", () => {
     const sections = splitSections(
-      doc(p("a"), brk({ kind: "nextPage", orientation: "landscape", header: "Annexe", restartNumbering: true, startAt: 1 }), p("b")),
+      doc(
+        p("a"),
+        brk({ kind: "nextPage", orientation: "landscape", header: "Annexe", restartNumbering: true, startAt: 1 }),
+        p("b"),
+      ),
       PAGE,
     );
     expect(sections[0]!.setup.orientation).toBe("portrait");
@@ -67,7 +74,10 @@ describe("Sections — découpage", () => {
   });
 
   it("hérite du document pour chaque champ laissé vide", () => {
-    const sections = splitSections(doc(p("a"), brk({ kind: "continuous", orientation: "", header: "", footer: "" }), p("b")), PAGE);
+    const sections = splitSections(
+      doc(p("a"), brk({ kind: "continuous", orientation: "", header: "", footer: "" }), p("b")),
+      PAGE,
+    );
     expect(sections[1]!.setup).toMatchObject({ orientation: "portrait", header: "En-tête doc", footer: "Pied doc" });
   });
 
@@ -85,12 +95,18 @@ describe("Sections — découpage", () => {
 
 describe("Sections — numéros de page de début", () => {
   it("enchaîne les sections sur la pagination continue", () => {
-    const sections = splitSections(doc(p("a"), brk({ kind: "continuous" }), p("b"), brk({ kind: "nextPage" }), p("c")), PAGE);
+    const sections = splitSections(
+      doc(p("a"), brk({ kind: "continuous" }), p("b"), brk({ kind: "nextPage" }), p("c")),
+      PAGE,
+    );
     expect(sectionStartPages(sections, [3, 2, 4])).toEqual([1, 4, 6]);
   });
 
   it("repart au numéro demandé quand la section redémarre la numérotation", () => {
-    const sections = splitSections(doc(p("a"), brk({ kind: "nextPage", restartNumbering: true, startAt: 1 }), p("b")), PAGE);
+    const sections = splitSections(
+      doc(p("a"), brk({ kind: "nextPage", restartNumbering: true, startAt: 1 }), p("b")),
+      PAGE,
+    );
     expect(sectionStartPages(sections, [5, 3])).toEqual([1, 1]);
   });
 
@@ -109,7 +125,10 @@ describe("Sections — numéros de page de début", () => {
   });
 
   it("laisse la parité de côté quand la numérotation redémarre", () => {
-    const sections = splitSections(doc(p("a"), brk({ kind: "evenPage", restartNumbering: true, startAt: 7 }), p("b")), PAGE);
+    const sections = splitSections(
+      doc(p("a"), brk({ kind: "evenPage", restartNumbering: true, startAt: 7 }), p("b")),
+      PAGE,
+    );
     expect(sectionStartPages(sections, [2, 1])).toEqual([1, 7]);
   });
 

@@ -38,12 +38,21 @@ export const FILTER_LABELS: { id: FilterKind; label: string }[] = [
 export function familyOf(entry: DriveEntry): FilterKind {
   if (entry.kind === "folder") return "folder";
   switch (entry.appKind) {
-    case "doc": case "collab-doc": return "document";
-    case "sheet": case "collab-sheet": return "spreadsheet";
-    case "slides": case "collab-slides": return "presentation";
-    case "pdf": return "pdf";
-    case "image": return "image";
-    default: return "other";
+    case "doc":
+    case "collab-doc":
+      return "document";
+    case "sheet":
+    case "collab-sheet":
+      return "spreadsheet";
+    case "slides":
+    case "collab-slides":
+      return "presentation";
+    case "pdf":
+      return "pdf";
+    case "image":
+      return "image";
+    default:
+      return "other";
   }
 }
 
@@ -155,7 +164,11 @@ export function pruneSelection(selection: readonly string[], entries: readonly D
  * A folder cannot go into itself, and nothing can be dropped into the folder
  * it already sits in (that would be a no-op round trip to the server).
  */
-export function canDropInto(dragged: readonly DriveEntry[], target: DriveEntry | null, currentParentId: string | null): boolean {
+export function canDropInto(
+  dragged: readonly DriveEntry[],
+  target: DriveEntry | null,
+  currentParentId: string | null,
+): boolean {
   if (!dragged.length) return false;
   const targetId = target ? target.id : null;
   if (target && target.kind !== "folder") return false;
@@ -164,7 +177,10 @@ export function canDropInto(dragged: readonly DriveEntry[], target: DriveEntry |
 }
 
 /** Ids that should actually be sent to the server for a move. */
-export function movePayload(dragged: readonly DriveEntry[], targetId: string | null): { id: string; parentId: string | null }[] {
+export function movePayload(
+  dragged: readonly DriveEntry[],
+  targetId: string | null,
+): { id: string; parentId: string | null }[] {
   return dragged
     .filter((e) => e.parentId !== targetId && e.id !== targetId)
     .map((e) => ({ id: e.id, parentId: targetId }));
@@ -179,7 +195,10 @@ export function humanSize(n: number | null | undefined): string {
   const units = ["o", "Ko", "Mo", "Go", "To"];
   let i = 0;
   let v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
   return `${v.toFixed(i === 0 ? 0 : v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
@@ -199,13 +218,17 @@ export function humanDate(iso: string, now: Date = new Date()): string {
     return days <= 1 ? "hier" : `il y a ${days} j`;
   }
   const sameYear = d.getFullYear() === now.getFullYear();
-  return d.toLocaleDateString("fr-FR", sameYear
-    ? { day: "2-digit", month: "short" }
-    : { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString(
+    "fr-FR",
+    sameYear ? { day: "2-digit", month: "short" } : { day: "2-digit", month: "short", year: "numeric" },
+  );
 }
 
 /** Storage gauge state. `quota` null = unlimited. */
-export function quotaState(used: number, quota: number | null): { ratio: number; label: string; tone: "ok" | "warn" | "full" } {
+export function quotaState(
+  used: number,
+  quota: number | null,
+): { ratio: number; label: string; tone: "ok" | "warn" | "full" } {
   if (quota === null || quota <= 0) {
     return { ratio: 0, label: `${humanSize(used)} utilisés`, tone: "ok" };
   }

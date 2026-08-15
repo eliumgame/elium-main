@@ -47,8 +47,12 @@ export default function PasswordModal({
       onClose={onCancel}
       footer={
         <>
-          <Button variant="ghost" onClick={onCancel}>Annuler</Button>
-          <Button disabled={!ok} onClick={submit}>Valider</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            Annuler
+          </Button>
+          <Button disabled={!ok} onClick={submit}>
+            Valider
+          </Button>
         </>
       }
     >
@@ -59,7 +63,9 @@ export default function PasswordModal({
           autoFocus
           value={pw}
           onChange={(e) => setPw(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && ok) submit(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && ok) submit();
+          }}
         />
       </Field>
       {mode === "set" && (!hasKf || pw.length > 0) && (
@@ -85,7 +91,10 @@ export default function PasswordModal({
                 type="button"
                 className="icon-btn"
                 aria-label="Retirer le fichier-clé"
-                onClick={() => { setKeyfile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                onClick={() => {
+                  setKeyfile(null);
+                  if (fileRef.current) fileRef.current.value = "";
+                }}
               >
                 <X size={14} />
               </button>

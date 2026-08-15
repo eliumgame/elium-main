@@ -6,7 +6,22 @@
  */
 import { useMemo, useState } from "react";
 import {
-  Home, Cloud, LogOut, Building2, Plus, Files, Users, Users2, ShieldHalf, ChevronDown, Check, Trash2, ScrollText, ShieldCheck, Fingerprint, LifeBuoy,
+  Home,
+  Cloud,
+  LogOut,
+  Building2,
+  Plus,
+  Files,
+  Users,
+  Users2,
+  ShieldHalf,
+  ChevronDown,
+  Check,
+  Trash2,
+  ScrollText,
+  ShieldCheck,
+  Fingerprint,
+  LifeBuoy,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
 import { DriveProvider, useDrive } from "../drive-cloud/session";
@@ -28,13 +43,39 @@ type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "secur
 const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode; perm?: string }[] = [
   { key: "files", label: "Fichiers", subtitle: "Vos dossiers et fichiers chiffrés", icon: <Files size={18} /> },
   { key: "members", label: "Membres", subtitle: "Les personnes de votre organisation", icon: <Users size={18} /> },
-  { key: "groups", label: "Équipes", subtitle: "Groupes d'employés pour partager en masse", icon: <Users2 size={18} /> },
-  { key: "roles", label: "Rôles & permissions", subtitle: "Qui peut faire quoi, dans le détail", icon: <ShieldHalf size={18} /> },
+  {
+    key: "groups",
+    label: "Équipes",
+    subtitle: "Groupes d'employés pour partager en masse",
+    icon: <Users2 size={18} />,
+  },
+  {
+    key: "roles",
+    label: "Rôles & permissions",
+    subtitle: "Qui peut faire quoi, dans le détail",
+    icon: <ShieldHalf size={18} />,
+  },
   { key: "trash", label: "Corbeille", subtitle: "Éléments supprimés, restaurables", icon: <Trash2 size={18} /> },
-  { key: "recovery", label: "Recouvrement", subtitle: "Recouvrer les fichiers via la clé d'organisation", icon: <LifeBuoy size={18} />, perm: "recovery.perform" },
+  {
+    key: "recovery",
+    label: "Recouvrement",
+    subtitle: "Recouvrer les fichiers via la clé d'organisation",
+    icon: <LifeBuoy size={18} />,
+    perm: "recovery.perform",
+  },
   { key: "audit", label: "Journal d'audit", subtitle: "L'activité de l'organisation", icon: <ScrollText size={18} /> },
-  { key: "security", label: "Sécurité", subtitle: "Vérification en deux étapes (2FA)", icon: <ShieldCheck size={18} /> },
-  { key: "sso", label: "SSO & SCIM", subtitle: "Fournisseur d'identité et provisioning", icon: <Fingerprint size={18} /> },
+  {
+    key: "security",
+    label: "Sécurité",
+    subtitle: "Vérification en deux étapes (2FA)",
+    icon: <ShieldCheck size={18} />,
+  },
+  {
+    key: "sso",
+    label: "SSO & SCIM",
+    subtitle: "Fournisseur d'identité et provisioning",
+    icon: <Fingerprint size={18} />,
+  },
 ];
 
 function initials(s: string): string {
@@ -48,20 +89,42 @@ function CreateOrgCard() {
   const [slug, setSlug] = useState("");
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const s = (slug || name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    const s = (slug || name)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
     await d.createOrg(name, s).catch(() => {});
   };
   return (
     <div className="dc-hero-empty">
       <div className="dc-hero-empty__card">
-        <span className="dc-hero-empty__badge"><Building2 size={30} /></span>
+        <span className="dc-hero-empty__badge">
+          <Building2 size={30} />
+        </span>
         <h2>Créez votre organisation</h2>
-        <p className="muted">Une organisation regroupe vos membres, groupes, rôles et fichiers chiffrés. Vous en serez le propriétaire.</p>
+        <p className="muted">
+          Une organisation regroupe vos membres, groupes, rôles et fichiers chiffrés. Vous en serez le propriétaire.
+        </p>
         <form className="dc-org-form" onSubmit={submit}>
-          <label className="field"><span className="field__label">Nom de l'organisation</span><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ma société" required /></label>
-          <label className="field"><span className="field__label">Identifiant (slug)</span><input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="ma-societe" /></label>
+          <label className="field">
+            <span className="field__label">Nom de l'organisation</span>
+            <input
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ma société"
+              required
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">Identifiant (slug)</span>
+            <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="ma-societe" />
+          </label>
           {d.error && <p className="dc-error">{d.error}</p>}
-          <button className="eb eb--primary eb--block" disabled={d.busy || !name.trim()}><Plus size={16} /> Créer l'organisation</button>
+          <button className="eb eb--primary eb--block" disabled={d.busy || !name.trim()}>
+            <Plus size={16} /> Créer l'organisation
+          </button>
         </form>
       </div>
     </div>
@@ -82,7 +145,14 @@ function OrgSwitcher() {
       {open && (
         <div className="dc-orgswitch__menu" onMouseLeave={() => setOpen(false)}>
           {d.orgs.map((o) => (
-            <button key={o.id} className={`dc-orgswitch__item ${o.id === d.currentOrg?.id ? "is-active" : ""}`} onClick={() => { void d.selectOrg(o.id); setOpen(false); }}>
+            <button
+              key={o.id}
+              className={`dc-orgswitch__item ${o.id === d.currentOrg?.id ? "is-active" : ""}`}
+              onClick={() => {
+                void d.selectOrg(o.id);
+                setOpen(false);
+              }}
+            >
               <span className="dc-org-avatar dc-org-avatar--sm">{initials(o.name)}</span>
               <span className="dc-orgswitch__itemname">{o.name}</span>
               {o.id === d.currentOrg?.id && <Check size={15} />}
@@ -111,12 +181,22 @@ function Workspace({ onHome }: { onHome: () => void }) {
   return (
     <div className="dc-app">
       <aside className="dc-sidebar">
-        <div className="dc-sidebar__brand"><Cloud size={20} /> <span>Drive</span> <span className="dc-chip">entreprise</span></div>
-        {hasOrg && <div className="dc-sidebar__org"><OrgSwitcher /></div>}
+        <div className="dc-sidebar__brand">
+          <Cloud size={20} /> <span>Drive</span> <span className="dc-chip">entreprise</span>
+        </div>
+        {hasOrg && (
+          <div className="dc-sidebar__org">
+            <OrgSwitcher />
+          </div>
+        )}
         {hasOrg && (
           <nav className="dc-nav">
             {nav.map((n) => (
-              <button key={n.key} className={`dc-nav__item ${tab === n.key ? "is-active" : ""}`} onClick={() => setTab(n.key)}>
+              <button
+                key={n.key}
+                className={`dc-nav__item ${tab === n.key ? "is-active" : ""}`}
+                onClick={() => setTab(n.key)}
+              >
                 {n.icon} <span>{n.label}</span>
               </button>
             ))}
@@ -130,9 +210,13 @@ function Workspace({ onHome }: { onHome: () => void }) {
               <span className="dc-userchip__name">{d.user?.displayName || "Compte"}</span>
               <span className="dc-userchip__mail">{d.user?.email}</span>
             </span>
-            <button className="icon-btn" title="Se déconnecter" onClick={() => void d.logout()}><LogOut size={16} /></button>
+            <button className="icon-btn" title="Se déconnecter" onClick={() => void d.logout()}>
+              <LogOut size={16} />
+            </button>
           </div>
-          <button className="dc-sidebar__home" onClick={onHome}><Home size={15} /> Retour à l'accueil</button>
+          <button className="dc-sidebar__home" onClick={onHome}>
+            <Home size={15} /> Retour à l'accueil
+          </button>
         </div>
       </aside>
 
@@ -167,7 +251,12 @@ function Workspace({ onHome }: { onHome: () => void }) {
 
 function Shell({ onHome }: { onHome: () => void }) {
   const d = useDrive();
-  if (d.status === "loading") return <div className="dc-loading"><Cloud size={28} /> Chargement…</div>;
+  if (d.status === "loading")
+    return (
+      <div className="dc-loading">
+        <Cloud size={28} /> Chargement…
+      </div>
+    );
   if (d.status !== "authenticated") return <AuthPanel onHome={onHome} />;
   return <Workspace onHome={onHome} />;
 }

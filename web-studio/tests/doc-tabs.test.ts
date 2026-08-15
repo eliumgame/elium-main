@@ -1,16 +1,34 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_TAB_MM, MAX_TAB_STOPS, TAB_ALIGN_LABELS, addStop, barStops, mmToTwips, moveStop,
-  nearestStop, nextStop, normalizeStop, normalizeStops, parseTabsXml, removeStopNear, rulerLabels,
-  rulerTicks, tabsXml, twipsToMm, type TabStop,
+  DEFAULT_TAB_MM,
+  MAX_TAB_STOPS,
+  TAB_ALIGN_LABELS,
+  addStop,
+  barStops,
+  mmToTwips,
+  moveStop,
+  nearestStop,
+  nextStop,
+  normalizeStop,
+  normalizeStops,
+  parseTabsXml,
+  removeStopNear,
+  rulerLabels,
+  rulerTicks,
+  tabsXml,
+  twipsToMm,
+  type TabStop,
 } from "../src/editor/tabs";
 import { strFromU8, unzipSync } from "fflate";
 import { docToDocx, docxToDoc } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
 import type { ProseMirrorNode } from "../src/format/types";
 
-const stop = (pos: number, align: TabStop["align"] = "left", leader: TabStop["leader"] = "none"): TabStop =>
-  ({ pos, align, leader });
+const stop = (pos: number, align: TabStop["align"] = "left", leader: TabStop["leader"] = "none"): TabStop => ({
+  pos,
+  align,
+  leader,
+});
 
 describe("Taquets — normalisation", () => {
   it("trie par position et dédoublonne", () => {
@@ -126,13 +144,17 @@ describe("Règle — graduations", () => {
 
   it("ne perd pas de graduation majeure à cause du flottant", () => {
     // 30 % 10 en flottant peut valoir 9,999… : le modulo se fait en dixièmes.
-    const majors = rulerTicks(100).filter((t) => t.major).map((t) => t.pos);
+    const majors = rulerTicks(100)
+      .filter((t) => t.major)
+      .map((t) => t.pos);
     expect(majors).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
   });
 
   it("étiquette les centimètres, sans le zéro", () => {
     expect(rulerLabels(30)).toEqual([
-      { pos: 10, label: "1" }, { pos: 20, label: "2" }, { pos: 30, label: "3" },
+      { pos: 10, label: "1" },
+      { pos: 20, label: "2" },
+      { pos: 30, label: "3" },
     ]);
   });
 
@@ -183,7 +205,7 @@ describe("Taquets — OOXML", () => {
   it("survit à un fragment vide ou malformé", () => {
     expect(parseTabsXml("")).toEqual([]);
     expect(parseTabsXml("<w:tabs></w:tabs>")).toEqual([]);
-    expect(parseTabsXml("<w:tab w:val=\"left\"/>")).toEqual([]); // sans w:pos
+    expect(parseTabsXml('<w:tab w:val="left"/>')).toEqual([]); // sans w:pos
   });
 
   it("fait l'aller-retour", () => {
@@ -219,9 +241,11 @@ describe("Taquets — aller-retour DOCX", () => {
   });
 
   it("place w:tabs avant w:pBdr, comme l'exige le schéma", async () => {
-    const xml = bodyOf(await docxOf(doc(
-      { type: "paragraph", attrs: { tabStops: [stop(40)], borders: { bottom: true } }, content: [txt("a")] },
-    )));
+    const xml = bodyOf(
+      await docxOf(
+        doc({ type: "paragraph", attrs: { tabStops: [stop(40)], borders: { bottom: true } }, content: [txt("a")] }),
+      ),
+    );
     // Un ordre inversé fait signaler par Word un document à réparer.
     expect(xml.indexOf("<w:tabs>")).toBeLessThan(xml.indexOf("<w:pBdr>"));
     expect(xml.indexOf("<w:pBdr>")).toBeGreaterThan(0);

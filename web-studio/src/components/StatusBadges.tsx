@@ -37,16 +37,16 @@ export default function StatusBadges({ studio }: { studio: Studio }) {
   // Tracking
   if (journalVerdict && journalVerdict.count > 0) {
     badges.push(
-      journalVerdict.valid
-        ? { label: "Suivi valide", accent: "success" }
-        : { label: "Suivi altéré", accent: "danger" },
+      journalVerdict.valid ? { label: "Suivi valide", accent: "success" } : { label: "Suivi altéré", accent: "danger" },
     );
   }
 
   return (
     <div className="status-badges">
       {badges.map((b, i) => (
-        <Badge key={`${b.label}-${i}`} accent={b.accent}>{b.label}</Badge>
+        <Badge key={`${b.label}-${i}`} accent={b.accent}>
+          {b.label}
+        </Badge>
       ))}
     </div>
   );

@@ -11,7 +11,13 @@
 import * as Y from "yjs";
 import {
   elementsOf,
-  type Slide, type Shape, type SlideElement, type SlideAnim, type SlideLayout, type SlideTransition, type ShapeKind,
+  type Slide,
+  type Shape,
+  type SlideElement,
+  type SlideAnim,
+  type SlideLayout,
+  type SlideTransition,
+  type ShapeKind,
 } from "../slides/model";
 
 type YMap = Y.Map<unknown>;
@@ -83,17 +89,28 @@ function legacySlide(m: YMap): Slide {
   const shapesArr = (m.get("shapes") as Y.Array<YMap>) ?? null;
   const shapes: Shape[] = shapesArr
     ? shapesArr.toArray().map((sm) => ({
-        id: String(sm.get("id")), kind: sm.get("kind") as ShapeKind,
-        x: Number(sm.get("x")), y: Number(sm.get("y")), w: Number(sm.get("w")), h: Number(sm.get("h")),
-        fill: String(sm.get("fill")), stroke: String(sm.get("stroke")), strokeWidth: Number(sm.get("strokeWidth")),
+        id: String(sm.get("id")),
+        kind: sm.get("kind") as ShapeKind,
+        x: Number(sm.get("x")),
+        y: Number(sm.get("y")),
+        w: Number(sm.get("w")),
+        h: Number(sm.get("h")),
+        fill: String(sm.get("fill")),
+        stroke: String(sm.get("stroke")),
+        strokeWidth: Number(sm.get("strokeWidth")),
         text: (sm.get("text") as string) || undefined,
       }))
     : [];
   return {
-    id: String(m.get("id")), title: String(m.get("title") ?? ""), body: String(m.get("body") ?? ""),
-    bodyHtml: String(m.get("bodyHtml") ?? ""), layout: (m.get("layout") as SlideLayout) ?? "title-content",
-    notes: String(m.get("notes") ?? ""), image: (m.get("image") as string) || undefined,
-    imageWidth: Number(m.get("imageWidth") ?? 100), transition: (m.get("transition") as SlideTransition) || undefined,
+    id: String(m.get("id")),
+    title: String(m.get("title") ?? ""),
+    body: String(m.get("body") ?? ""),
+    bodyHtml: String(m.get("bodyHtml") ?? ""),
+    layout: (m.get("layout") as SlideLayout) ?? "title-content",
+    notes: String(m.get("notes") ?? ""),
+    image: (m.get("image") as string) || undefined,
+    imageWidth: Number(m.get("imageWidth") ?? 100),
+    transition: (m.get("transition") as SlideTransition) || undefined,
     shapes,
   };
 }
@@ -102,9 +119,13 @@ function legacySlide(m: YMap): Slide {
 export function slideToY(s: Slide): YMap {
   const m = new Y.Map() as YMap;
   m.set("id", s.id);
-  m.set("title", newYText(s.title ?? "")); m.set("body", newYText(s.body ?? "")); m.set("bodyHtml", newYText(s.bodyHtml ?? ""));
+  m.set("title", newYText(s.title ?? ""));
+  m.set("body", newYText(s.body ?? ""));
+  m.set("bodyHtml", newYText(s.bodyHtml ?? ""));
   m.set("notes", newYText(s.notes ?? ""));
-  m.set("layout", s.layout); m.set("image", s.image ?? ""); m.set("imageWidth", s.imageWidth ?? 100);
+  m.set("layout", s.layout);
+  m.set("image", s.image ?? "");
+  m.set("imageWidth", s.imageWidth ?? 100);
   m.set("transition", s.transition ?? "");
   if (s.background != null) m.set("background", s.background);
   if (s.anims && s.anims.length) m.set("anims", s.anims);

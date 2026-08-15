@@ -1,13 +1,77 @@
 import { useRef } from "react";
 import {
-  ArrowRight, ArrowUpRight, Ban, Baseline, Bold, BoxSelect, Circle, Cloud, Combine, Contrast, Copy,
-  Crop, Download, Droplet, Eraser, FileDown, FileImage, FileOutput, FilePlus2, FileSearch,
-  FileSignature, FileSpreadsheet, FileText, FileType2, Focus, GitCompareArrows, Grid2x2, Hand, Hash,
-  Highlighter, Image as ImageIcon, Italic, Layers, LayoutGrid, Lock, MessageSquarePlus, Minus,
-  MousePointer2, Move, PaintBucket, PanelTop, PencilLine, PenSquare, PenTool, Pentagon, Printer,
-  Redo2, RotateCcw, RotateCw, Ruler, Save, Scan, ScanText, Scissors, Shapes, Shield, ShieldCheck,
-  Spline, Stamp, Strikethrough, Sun, Table, TextCursorInput, Trash2, Type, Underline, Undo2, Unlock,
-  Volume2, Waves, ZoomIn, ZoomOut,
+  ArrowRight,
+  ArrowUpRight,
+  Ban,
+  Baseline,
+  Bold,
+  BoxSelect,
+  Circle,
+  Cloud,
+  Combine,
+  Contrast,
+  Copy,
+  Crop,
+  Download,
+  Droplet,
+  Eraser,
+  FileDown,
+  FileImage,
+  FileOutput,
+  FilePlus2,
+  FileSearch,
+  FileSignature,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  Focus,
+  GitCompareArrows,
+  Grid2x2,
+  Hand,
+  Hash,
+  Highlighter,
+  Image as ImageIcon,
+  Italic,
+  Layers,
+  LayoutGrid,
+  Lock,
+  MessageSquarePlus,
+  Minus,
+  MousePointer2,
+  Move,
+  PaintBucket,
+  PanelTop,
+  PencilLine,
+  PenSquare,
+  PenTool,
+  Pentagon,
+  Printer,
+  Redo2,
+  RotateCcw,
+  RotateCw,
+  Ruler,
+  Save,
+  Scan,
+  ScanText,
+  Scissors,
+  Shapes,
+  Shield,
+  ShieldCheck,
+  Spline,
+  Stamp,
+  Strikethrough,
+  Sun,
+  Table,
+  TextCursorInput,
+  Trash2,
+  Type,
+  Underline,
+  Undo2,
+  Unlock,
+  Volume2,
+  Waves,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -70,7 +134,14 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function Cmd({
-  icon, label, onClick, active, disabled, danger, title, big,
+  icon,
+  label,
+  onClick,
+  active,
+  disabled,
+  danger,
+  title,
+  big,
 }: {
   icon: React.ReactNode;
   label?: string;
@@ -95,7 +166,15 @@ function Cmd({
   );
 }
 
-function Swatches({ colours, value, onPick }: { colours: readonly string[]; value: string; onPick: (c: string) => void }) {
+function Swatches({
+  colours,
+  value,
+  onPick,
+}: {
+  colours: readonly string[];
+  value: string;
+  onPick: (c: string) => void;
+}) {
   return (
     <div className="pdfx-swatches">
       {colours.map((c) => (
@@ -143,23 +222,63 @@ export default function Ribbon(p: RibbonProps) {
         </Group>
 
         <Group title="Navigation">
-          <Cmd icon={<MousePointer2 size={17} />} onClick={T("select")} active={p.tool === "select"} title="Sélectionner (V)" />
-          <Cmd icon={<Baseline size={17} />} onClick={T("textSelect")} active={p.tool === "textSelect"} title="Sélection de texte (T)" />
+          <Cmd
+            icon={<MousePointer2 size={17} />}
+            onClick={T("select")}
+            active={p.tool === "select"}
+            title="Sélectionner (V)"
+          />
+          <Cmd
+            icon={<Baseline size={17} />}
+            onClick={T("textSelect")}
+            active={p.tool === "textSelect"}
+            title="Sélection de texte (T)"
+          />
           <Cmd icon={<Hand size={17} />} onClick={T("hand")} active={p.tool === "hand"} title="Main (H)" />
-          <Cmd icon={<Focus size={17} />} onClick={T("zoomArea")} active={p.tool === "zoomArea"} title="Zoom sur une zone (Z)" />
+          <Cmd
+            icon={<Focus size={17} />}
+            onClick={T("zoomArea")}
+            active={p.tool === "zoomArea"}
+            title="Zoom sur une zone (Z)"
+          />
         </Group>
 
         {p.tab === "home" && (
           <>
             <Group title="Fichier">
-              <Cmd big icon={<Save size={19} />} label="Enregistrer" onClick={C("save")} disabled={p.busy} title="Exporter le PDF (Ctrl+S)" />
-              <Cmd big icon={<ShieldCheck size={19} />} label=".elium" onClick={C("saveElium")} title="Enregistrer scellé et re-modifiable" />
+              <Cmd
+                big
+                icon={<Save size={19} />}
+                label="Enregistrer"
+                onClick={C("save")}
+                disabled={p.busy}
+                title="Exporter le PDF (Ctrl+S)"
+              />
+              <Cmd
+                big
+                icon={<ShieldCheck size={19} />}
+                label=".elium"
+                onClick={C("saveElium")}
+                title="Enregistrer scellé et re-modifiable"
+              />
               <Cmd big icon={<Printer size={19} />} label="Imprimer" onClick={C("print")} title="Imprimer (Ctrl+P)" />
               <Cmd icon={<Download size={17} />} onClick={C("downloadOriginal")} title="Télécharger l'original" />
             </Group>
             <Group title="Outils rapides">
-              <Cmd big icon={<Highlighter size={19} />} label="Surligner" onClick={T("highlight")} active={p.tool === "highlight"} />
-              <Cmd big icon={<MessageSquarePlus size={19} />} label="Note" onClick={T("note")} active={p.tool === "note"} />
+              <Cmd
+                big
+                icon={<Highlighter size={19} />}
+                label="Surligner"
+                onClick={T("highlight")}
+                active={p.tool === "highlight"}
+              />
+              <Cmd
+                big
+                icon={<MessageSquarePlus size={19} />}
+                label="Note"
+                onClick={T("note")}
+                active={p.tool === "note"}
+              />
               <Cmd big icon={<PenTool size={19} />} label="Signer" onClick={C("signature")} />
               <Cmd big icon={<TextCursorInput size={19} />} label="Modifier le texte" onClick={C("editMode")} />
             </Group>
@@ -174,32 +293,92 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "comment" && (
           <>
             <Group title="Texte">
-              <Cmd icon={<Highlighter size={17} />} onClick={T("highlight")} active={p.tool === "highlight"} title="Surligner (Ctrl+Maj+H)" />
-              <Cmd icon={<Underline size={17} />} onClick={T("underline")} active={p.tool === "underline"} title="Souligner" />
-              <Cmd icon={<Strikethrough size={17} />} onClick={T("strikeout")} active={p.tool === "strikeout"} title="Barrer" />
-              <Cmd icon={<Waves size={17} />} onClick={T("squiggly")} active={p.tool === "squiggly"} title="Souligner en ondulé" />
+              <Cmd
+                icon={<Highlighter size={17} />}
+                onClick={T("highlight")}
+                active={p.tool === "highlight"}
+                title="Surligner (Ctrl+Maj+H)"
+              />
+              <Cmd
+                icon={<Underline size={17} />}
+                onClick={T("underline")}
+                active={p.tool === "underline"}
+                title="Souligner"
+              />
+              <Cmd
+                icon={<Strikethrough size={17} />}
+                onClick={T("strikeout")}
+                active={p.tool === "strikeout"}
+                title="Barrer"
+              />
+              <Cmd
+                icon={<Waves size={17} />}
+                onClick={T("squiggly")}
+                active={p.tool === "squiggly"}
+                title="Souligner en ondulé"
+              />
             </Group>
             <Group title="Notes">
-              <Cmd icon={<MessageSquarePlus size={17} />} onClick={T("note")} active={p.tool === "note"} title="Note autocollante" />
-              <Cmd icon={<Type size={17} />} onClick={T("freetext")} active={p.tool === "freetext"} title="Zone de texte" />
+              <Cmd
+                icon={<MessageSquarePlus size={17} />}
+                onClick={T("note")}
+                active={p.tool === "note"}
+                title="Note autocollante"
+              />
+              <Cmd
+                icon={<Type size={17} />}
+                onClick={T("freetext")}
+                active={p.tool === "freetext"}
+                title="Zone de texte"
+              />
               <Cmd icon={<Spline size={17} />} onClick={T("callout")} active={p.tool === "callout"} title="Légende" />
               <Cmd icon={<Stamp size={17} />} onClick={C("stamp")} active={p.tool === "stamp"} title="Tampon" />
             </Group>
             <Group title="Dessin">
               <Cmd icon={<PencilLine size={17} />} onClick={T("ink")} active={p.tool === "ink"} title="Dessin libre" />
-              <Cmd icon={<BoxSelect size={17} />} onClick={T("square")} active={p.tool === "square"} title="Rectangle" />
+              <Cmd
+                icon={<BoxSelect size={17} />}
+                onClick={T("square")}
+                active={p.tool === "square"}
+                title="Rectangle"
+              />
               <Cmd icon={<Circle size={17} />} onClick={T("circle")} active={p.tool === "circle"} title="Ellipse" />
               <Cmd icon={<Minus size={17} />} onClick={T("line")} active={p.tool === "line"} title="Trait" />
               <Cmd icon={<ArrowUpRight size={17} />} onClick={T("arrow")} active={p.tool === "arrow"} title="Flèche" />
-              <Cmd icon={<Pentagon size={17} />} onClick={T("polygon")} active={p.tool === "polygon"} title="Polygone" />
-              <Cmd icon={<Shapes size={17} />} onClick={T("polyline")} active={p.tool === "polyline"} title="Ligne brisée" />
+              <Cmd
+                icon={<Pentagon size={17} />}
+                onClick={T("polygon")}
+                active={p.tool === "polygon"}
+                title="Polygone"
+              />
+              <Cmd
+                icon={<Shapes size={17} />}
+                onClick={T("polyline")}
+                active={p.tool === "polyline"}
+                title="Ligne brisée"
+              />
               <Cmd icon={<Cloud size={17} />} onClick={T("cloud")} active={p.tool === "cloud"} title="Nuage" />
               <Cmd icon={<Eraser size={17} />} onClick={T("eraser")} active={p.tool === "eraser"} title="Gomme" />
             </Group>
             <Group title="Révision">
-              <Cmd icon={<FileDown size={17} />} onClick={C("exportComments")} label="Exporter" title="Exporter les commentaires (XFDF)" />
-              <Cmd icon={<FileOutput size={17} />} onClick={C("importComments")} label="Importer" title="Importer des commentaires (XFDF)" />
-              <Cmd icon={<FileText size={17} />} onClick={C("commentsReport")} label="Synthèse" title="Récapitulatif des commentaires" />
+              <Cmd
+                icon={<FileDown size={17} />}
+                onClick={C("exportComments")}
+                label="Exporter"
+                title="Exporter les commentaires (XFDF)"
+              />
+              <Cmd
+                icon={<FileOutput size={17} />}
+                onClick={C("importComments")}
+                label="Importer"
+                title="Importer des commentaires (XFDF)"
+              />
+              <Cmd
+                icon={<FileText size={17} />}
+                onClick={C("commentsReport")}
+                label="Synthèse"
+                title="Récapitulatif des commentaires"
+              />
             </Group>
           </>
         )}
@@ -207,11 +386,32 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "edit" && (
           <>
             <Group title="Contenu">
-              <Cmd big icon={<TextCursorInput size={19} />} label="Modifier le texte" onClick={C("editMode")} title="Réécrire le texte du PDF" />
+              <Cmd
+                big
+                icon={<TextCursorInput size={19} />}
+                label="Modifier le texte"
+                onClick={C("editMode")}
+                title="Réécrire le texte du PDF"
+              />
               <Cmd big icon={<ImageIcon size={19} />} label="Image" onClick={T("image")} active={p.tool === "image"} />
-              <Cmd icon={<Type size={17} />} onClick={T("typewriter")} active={p.tool === "typewriter"} title="Machine à écrire" />
-              <Cmd icon={<PaintBucket size={17} />} onClick={T("whiteout")} active={p.tool === "whiteout"} title="Masquer (blanc)" />
-              <Cmd icon={<ArrowRight size={17} />} onClick={T("link")} active={p.tool === "link"} title="Créer un lien" />
+              <Cmd
+                icon={<Type size={17} />}
+                onClick={T("typewriter")}
+                active={p.tool === "typewriter"}
+                title="Machine à écrire"
+              />
+              <Cmd
+                icon={<PaintBucket size={17} />}
+                onClick={T("whiteout")}
+                active={p.tool === "whiteout"}
+                title="Masquer (blanc)"
+              />
+              <Cmd
+                icon={<ArrowRight size={17} />}
+                onClick={T("link")}
+                active={p.tool === "link"}
+                title="Créer un lien"
+              />
             </Group>
             <Group title="Marques">
               <Cmd icon={<Droplet size={17} />} onClick={C("watermark")} label="Filigrane" />
@@ -219,8 +419,18 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Hash size={17} />} onClick={C("bates")} label="Numérotation" />
             </Group>
             <Group title="Signets">
-              <Cmd icon={<FileText size={17} />} onClick={C("bookmarkAdd")} label="Ajouter" title="Signet sur la page courante" />
-              <Cmd icon={<LayoutGrid size={17} />} onClick={C("bookmarksFromHeadings")} label="Auto" title="Créer des signets depuis les titres" />
+              <Cmd
+                icon={<FileText size={17} />}
+                onClick={C("bookmarkAdd")}
+                label="Ajouter"
+                title="Signet sur la page courante"
+              />
+              <Cmd
+                icon={<LayoutGrid size={17} />}
+                onClick={C("bookmarksFromHeadings")}
+                label="Auto"
+                title="Créer des signets depuis les titres"
+              />
             </Group>
           </>
         )}
@@ -228,7 +438,13 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "organise" && (
           <>
             <Group title="Pages">
-              <Cmd big icon={<Grid2x2 size={19} />} label="Organiser" onClick={C("organise")} title="Vue d'organisation des pages" />
+              <Cmd
+                big
+                icon={<Grid2x2 size={19} />}
+                label="Organiser"
+                onClick={C("organise")}
+                title="Vue d'organisation des pages"
+              />
               <Cmd icon={<RotateCcw size={17} />} onClick={C("rotateLeft")} title="Pivoter à gauche" />
               <Cmd icon={<RotateCw size={17} />} onClick={C("rotateRight")} title="Pivoter à droite" />
               <Cmd icon={<Copy size={17} />} onClick={C("duplicatePage")} title="Dupliquer" />
@@ -256,17 +472,49 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "forms" && (
           <>
             <Group title="Remplir">
-              <Cmd big icon={<PenSquare size={19} />} label="Remplir" onClick={C("formMode")} disabled={!p.hasForm} title={p.hasForm ? "Remplir les champs" : "Ce document n'a pas de formulaire"} />
+              <Cmd
+                big
+                icon={<PenSquare size={19} />}
+                label="Remplir"
+                onClick={C("formMode")}
+                disabled={!p.hasForm}
+                title={p.hasForm ? "Remplir les champs" : "Ce document n'a pas de formulaire"}
+              />
               <Cmd icon={<Ban size={17} />} onClick={C("formReset")} label="Réinitialiser" disabled={!p.hasForm} />
               <Cmd icon={<Lock size={17} />} onClick={C("formFlatten")} label="Aplatir" disabled={!p.hasForm} />
             </Group>
             <Group title="Créer des champs">
               <Cmd icon={<Type size={17} />} onClick={T("field:text")} active={p.tool === "field:text"} label="Texte" />
-              <Cmd icon={<BoxSelect size={17} />} onClick={T("field:checkbox")} active={p.tool === "field:checkbox"} label="Case" />
-              <Cmd icon={<Circle size={17} />} onClick={T("field:radio")} active={p.tool === "field:radio"} label="Radio" />
-              <Cmd icon={<Table size={17} />} onClick={T("field:dropdown")} active={p.tool === "field:dropdown"} label="Liste" />
-              <Cmd icon={<FileSignature size={17} />} onClick={T("field:signature")} active={p.tool === "field:signature"} label="Signature" />
-              <Cmd icon={<Scan size={17} />} onClick={C("detectFields")} label="Détecter" title="Détecter automatiquement les champs" />
+              <Cmd
+                icon={<BoxSelect size={17} />}
+                onClick={T("field:checkbox")}
+                active={p.tool === "field:checkbox"}
+                label="Case"
+              />
+              <Cmd
+                icon={<Circle size={17} />}
+                onClick={T("field:radio")}
+                active={p.tool === "field:radio"}
+                label="Radio"
+              />
+              <Cmd
+                icon={<Table size={17} />}
+                onClick={T("field:dropdown")}
+                active={p.tool === "field:dropdown"}
+                label="Liste"
+              />
+              <Cmd
+                icon={<FileSignature size={17} />}
+                onClick={T("field:signature")}
+                active={p.tool === "field:signature"}
+                label="Signature"
+              />
+              <Cmd
+                icon={<Scan size={17} />}
+                onClick={C("detectFields")}
+                label="Détecter"
+                title="Détecter automatiquement les champs"
+              />
             </Group>
             <Group title="Données">
               <Cmd icon={<FileDown size={17} />} onClick={C("exportFormData")} label="Exporter" />
@@ -279,22 +527,72 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "protect" && (
           <>
             <Group title="Chiffrement">
-              <Cmd big icon={<Lock size={19} />} label="Protéger" onClick={C("protect")} title="Mot de passe et autorisations" />
+              <Cmd
+                big
+                icon={<Lock size={19} />}
+                label="Protéger"
+                onClick={C("protect")}
+                title="Mot de passe et autorisations"
+              />
               <Cmd icon={<Unlock size={17} />} onClick={C("unprotect")} label="Retirer" />
             </Group>
             <Group title="Signature électronique">
-              <Cmd big icon={<PenSquare size={19} />} label="Signer (auto-signé)" onClick={C("signSelfSigned")} title="Signer la signature placée en PAdES avec un certificat auto-signé (reconnu par Adobe ; identité non vérifiée)" />
-              <Cmd icon={<FileSignature size={17} />} label="Signer (certificat)" onClick={C("signPades")} title="Signature électronique PAdES avec votre certificat X.509 / PKCS#12 (coche verte « approuvé »)" />
-              <Cmd icon={<ShieldCheck size={17} />} onClick={C("verifyPades")} label="Vérifier" title="Vérifier les signatures électroniques du document" />
+              <Cmd
+                big
+                icon={<PenSquare size={19} />}
+                label="Signer (auto-signé)"
+                onClick={C("signSelfSigned")}
+                title="Signer la signature placée en PAdES avec un certificat auto-signé (reconnu par Adobe ; identité non vérifiée)"
+              />
+              <Cmd
+                icon={<FileSignature size={17} />}
+                label="Signer (certificat)"
+                onClick={C("signPades")}
+                title="Signature électronique PAdES avec votre certificat X.509 / PKCS#12 (coche verte « approuvé »)"
+              />
+              <Cmd
+                icon={<ShieldCheck size={17} />}
+                onClick={C("verifyPades")}
+                label="Vérifier"
+                title="Vérifier les signatures électroniques du document"
+              />
             </Group>
             <Group title="Caviardage">
-              <Cmd big icon={<BoxSelect size={19} />} label="Marquer" onClick={T("redact")} active={p.tool === "redact"} title="Marquer une zone à caviarder" />
-              <Cmd icon={<FileSearch size={17} />} onClick={C("redactSearch")} label="Rechercher" title="Marquer toutes les occurrences d'un texte" />
-              <Cmd icon={<Shield size={17} />} onClick={C("redactApply")} label="Appliquer" danger title="Supprimer définitivement le contenu marqué" />
+              <Cmd
+                big
+                icon={<BoxSelect size={19} />}
+                label="Marquer"
+                onClick={T("redact")}
+                active={p.tool === "redact"}
+                title="Marquer une zone à caviarder"
+              />
+              <Cmd
+                icon={<FileSearch size={17} />}
+                onClick={C("redactSearch")}
+                label="Rechercher"
+                title="Marquer toutes les occurrences d'un texte"
+              />
+              <Cmd
+                icon={<Shield size={17} />}
+                onClick={C("redactApply")}
+                label="Appliquer"
+                danger
+                title="Supprimer définitivement le contenu marqué"
+              />
             </Group>
             <Group title="Nettoyage">
-              <Cmd icon={<Eraser size={17} />} onClick={C("sanitise")} label="Assainir" title="Supprimer métadonnées, scripts et pièces jointes" />
-              <Cmd icon={<FileSearch size={17} />} onClick={C("inspect")} label="Inspecter" title="Voir ce que le document contient de caché" />
+              <Cmd
+                icon={<Eraser size={17} />}
+                onClick={C("sanitise")}
+                label="Assainir"
+                title="Supprimer métadonnées, scripts et pièces jointes"
+              />
+              <Cmd
+                icon={<FileSearch size={17} />}
+                onClick={C("inspect")}
+                label="Inspecter"
+                title="Voir ce que le document contient de caché"
+              />
             </Group>
           </>
         )}
@@ -305,11 +603,22 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd big icon={<FileType2 size={19} />} label="Word" onClick={C("exportDocx")} />
               <Cmd big icon={<FileImage size={19} />} label="Images" onClick={C("exportImages")} />
               <Cmd big icon={<FileText size={19} />} label="Texte" onClick={C("exportText")} />
-              <Cmd icon={<FileSpreadsheet size={17} />} onClick={C("exportTables")} label="Tableaux" title="Détecter les tableaux et exporter en CSV" />
+              <Cmd
+                icon={<FileSpreadsheet size={17} />}
+                onClick={C("exportTables")}
+                label="Tableaux"
+                title="Détecter les tableaux et exporter en CSV"
+              />
               <Cmd icon={<FileOutput size={17} />} onClick={C("exportHtml")} label="HTML" />
             </Group>
             <Group title="Reconnaissance">
-              <Cmd big icon={<ScanText size={19} />} label="OCR" onClick={C("ocr")} title="Rendre un document scanné cherchable" />
+              <Cmd
+                big
+                icon={<ScanText size={19} />}
+                label="OCR"
+                onClick={C("ocr")}
+                title="Rendre un document scanné cherchable"
+              />
             </Group>
             <Group title="Comparer et alléger">
               <Cmd icon={<GitCompareArrows size={17} />} onClick={C("compare")} label="Comparer" />
@@ -333,14 +642,24 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<RotateCw size={17} />} onClick={C("rotateView")} label="Pivoter la vue" />
             </Group>
             <Group title="Confort">
-              <Cmd icon={<Sun size={17} />} onClick={C("theme")} label="Thème" title="Papier, sépia, nuit, contraste inversé" />
+              <Cmd
+                icon={<Sun size={17} />}
+                onClick={C("theme")}
+                label="Thème"
+                title="Papier, sépia, nuit, contraste inversé"
+              />
               <Cmd icon={<Contrast size={17} />} onClick={C("fullscreen")} label="Plein écran" title="F11" />
               <Cmd icon={<Layers size={17} />} onClick={C("panelLayers")} label="Calques" />
               <Cmd icon={<Volume2 size={17} />} onClick={C("readAloud")} label="Lire à voix haute" />
             </Group>
             <Group title="Mesures">
               <Cmd icon={<Ruler size={17} />} onClick={T("distance")} active={p.tool === "distance"} label="Distance" />
-              <Cmd icon={<Spline size={17} />} onClick={T("perimeter")} active={p.tool === "perimeter"} label="Périmètre" />
+              <Cmd
+                icon={<Spline size={17} />}
+                onClick={T("perimeter")}
+                active={p.tool === "perimeter"}
+                label="Périmètre"
+              />
               <Cmd icon={<Pentagon size={17} />} onClick={T("area")} active={p.tool === "area"} label="Surface" />
               <Cmd icon={<Ruler size={17} />} onClick={C("measureScale")} label="Échelle" />
             </Group>
@@ -371,7 +690,9 @@ export default function Ribbon(p: RibbonProps) {
                 value={p.style.fill ?? "#ffffff"}
                 onChange={(e) => p.onStyle({ fill: e.target.value })}
               />
-              <button className="pdfx-mini" onClick={() => p.onStyle({ fill: null })} title="Sans remplissage"><Ban size={12} /></button>
+              <button className="pdfx-mini" onClick={() => p.onStyle({ fill: null })} title="Sans remplissage">
+                <Ban size={12} />
+              </button>
             </label>
           )}
 
@@ -379,7 +700,10 @@ export default function Ribbon(p: RibbonProps) {
             <label className="pdfx-field" title="Épaisseur du trait">
               <Minus size={13} />
               <input
-                type="range" min={0.5} max={16} step={0.5}
+                type="range"
+                min={0.5}
+                max={16}
+                step={0.5}
                 value={p.style.strokeWidth}
                 onChange={(e) => p.onStyle({ strokeWidth: Number(e.target.value) })}
               />
@@ -390,7 +714,10 @@ export default function Ribbon(p: RibbonProps) {
           <label className="pdfx-field" title="Opacité">
             <Contrast size={13} />
             <input
-              type="range" min={0.05} max={1} step={0.05}
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
               value={p.style.opacity}
               onChange={(e) => p.onStyle({ opacity: Number(e.target.value) })}
             />
@@ -412,14 +739,24 @@ export default function Ribbon(p: RibbonProps) {
 
           {(p.tool === "line" || p.tool === "arrow" || p.tool === "polyline") && (
             <>
-              <select className="pdfx-select" value={p.style.lineStart} onChange={(e) => p.onStyle({ lineStart: e.target.value as DraftStyle["lineStart"] })} title="Début de ligne">
+              <select
+                className="pdfx-select"
+                value={p.style.lineStart}
+                onChange={(e) => p.onStyle({ lineStart: e.target.value as DraftStyle["lineStart"] })}
+                title="Début de ligne"
+              >
                 <option value="none">—</option>
                 <option value="arrow">Flèche</option>
                 <option value="circle">Rond</option>
                 <option value="square">Carré</option>
                 <option value="diamond">Losange</option>
               </select>
-              <select className="pdfx-select" value={p.style.lineEnd} onChange={(e) => p.onStyle({ lineEnd: e.target.value as DraftStyle["lineEnd"] })} title="Fin de ligne">
+              <select
+                className="pdfx-select"
+                value={p.style.lineEnd}
+                onChange={(e) => p.onStyle({ lineEnd: e.target.value as DraftStyle["lineEnd"] })}
+                title="Fin de ligne"
+              >
                 <option value="none">—</option>
                 <option value="arrow">Flèche</option>
                 <option value="circle">Rond</option>
@@ -438,7 +775,11 @@ export default function Ribbon(p: RibbonProps) {
                 onChange={(e) => p.onStyle({ fontFamily: e.target.value })}
                 title="Police"
               >
-                {allFontNames().map((n) => <option key={n} value={n}>{n}</option>)}
+                {allFontNames().map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
               </select>
               <select
                 className="pdfx-select pdfx-select--size"
@@ -446,11 +787,30 @@ export default function Ribbon(p: RibbonProps) {
                 onChange={(e) => p.onStyle({ fontSize: Number(e.target.value) })}
                 title="Taille"
               >
-                {[6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72].map((s) => <option key={s} value={s}>{s}</option>)}
+                {[6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
               </select>
-              <Cmd icon={<Bold size={15} />} onClick={() => p.onStyle({ bold: !p.style.bold })} active={p.style.bold} title="Gras" />
-              <Cmd icon={<Italic size={15} />} onClick={() => p.onStyle({ italic: !p.style.italic })} active={p.style.italic} title="Italique" />
-              <Cmd icon={<Underline size={15} />} onClick={() => p.onStyle({ underline: !p.style.underline })} active={p.style.underline} title="Souligné" />
+              <Cmd
+                icon={<Bold size={15} />}
+                onClick={() => p.onStyle({ bold: !p.style.bold })}
+                active={p.style.bold}
+                title="Gras"
+              />
+              <Cmd
+                icon={<Italic size={15} />}
+                onClick={() => p.onStyle({ italic: !p.style.italic })}
+                active={p.style.italic}
+                title="Italique"
+              />
+              <Cmd
+                icon={<Underline size={15} />}
+                onClick={() => p.onStyle({ underline: !p.style.underline })}
+                active={p.style.underline}
+                title="Souligné"
+              />
               <select
                 className="pdfx-select"
                 value={p.style.align}

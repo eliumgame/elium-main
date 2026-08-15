@@ -80,8 +80,7 @@ export default function CompareModal({
   const run = () => {
     if (!loaded) return;
     const opened = editor.getJSON() as ProseMirrorNode;
-    const [original, revised] =
-      direction === "openedIsRevision" ? [loaded.doc, opened] : [opened, loaded.doc];
+    const [original, revised] = direction === "openedIsRevision" ? [loaded.doc, opened] : [opened, loaded.doc];
     setResult(compareDocuments(original, revised, { author: "Comparaison", ts: new Date().toISOString() }));
   };
 
@@ -99,8 +98,14 @@ export default function CompareModal({
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Fermer</Button>
-          {!result && <Button onClick={run} disabled={!loaded || busy}>Comparer</Button>}
+          <Button variant="ghost" onClick={onClose}>
+            Fermer
+          </Button>
+          {!result && (
+            <Button onClick={run} disabled={!loaded || busy}>
+              Comparer
+            </Button>
+          )}
           {result && (
             <Button
               onClick={() => {
@@ -161,7 +166,9 @@ export default function CompareModal({
               checked={direction === "openedIsRevision"}
               onChange={() => setDirection("openedIsRevision")}
             />
-            <span>Le fichier choisi est l'<b>original</b>, le document ouvert la <b>révision</b></span>
+            <span>
+              Le fichier choisi est l'<b>original</b>, le document ouvert la <b>révision</b>
+            </span>
           </label>
           <label className="checkbox-row">
             <input
@@ -170,7 +177,9 @@ export default function CompareModal({
               checked={direction === "openedIsOriginal"}
               onChange={() => setDirection("openedIsOriginal")}
             />
-            <span>Le document ouvert est l'<b>original</b>, le fichier choisi la <b>révision</b></span>
+            <span>
+              Le document ouvert est l'<b>original</b>, le fichier choisi la <b>révision</b>
+            </span>
           </label>
         </section>
 

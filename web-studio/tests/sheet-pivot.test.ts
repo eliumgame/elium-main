@@ -27,7 +27,10 @@ describe("pivot — computePivot", () => {
     expect(r.colLabels).toEqual(["A", "B"]);
     expect(r.rowLabels).toEqual(["Nord", "Sud"]);
     // Nord: A=10+30=40, B=20 ; Sud: A=5, B=15
-    expect(r.matrix).toEqual([[40, 20], [5, 15]]);
+    expect(r.matrix).toEqual([
+      [40, 20],
+      [5, 15],
+    ]);
     expect(r.rowTotals).toEqual([60, 20]);
     expect(r.colTotals).toEqual([45, 35]);
     expect(r.grandTotal).toBe(80);
@@ -52,7 +55,12 @@ describe("pivot — computePivot", () => {
   it("ignores non-numeric values for sum but counts non-empty entries", () => {
     const input: PivotInput = {
       headers: ["Cat", "Val"],
-      rows: [["X", 5], ["X", "n/a"], ["X", null], ["Y", 2]],
+      rows: [
+        ["X", 5],
+        ["X", "n/a"],
+        ["X", null],
+        ["Y", 2],
+      ],
     };
     const sum = computePivot(input, { rowField: 0, colField: null, valueField: 1, agg: "sum" });
     expect(sum.rowTotals).toEqual([5, 2]); // "n/a" and null skipped

@@ -76,7 +76,10 @@ describe("Journal — save flush is covered by the seal (write → read round-tr
 
     // The persisted journal carries the flushed events…
     expect(read.journal.events.map((e) => e.type)).toEqual([
-      "document.created", "document.opened", "export", "document.modified",
+      "document.created",
+      "document.opened",
+      "export",
+      "document.modified",
     ]);
     // …and the seal verifies over that exact journal (flush happened before sealing).
     const verdict = await verifySeal(read.manifest, read.signatures, read.journal, id.publicKeyHex);
@@ -92,7 +95,13 @@ describe("Journal — save flush is covered by the seal (write → read round-tr
     const { file: read } = await readEliumPackage(bytes, {});
 
     // Forge the export event's payload after sealing.
-    const forged = { ...read, journal: { ...read.journal, events: read.journal.events.map((e) => e.type === "export" ? { ...e, data: { format: "docx" } } : e) } };
+    const forged = {
+      ...read,
+      journal: {
+        ...read.journal,
+        events: read.journal.events.map((e) => (e.type === "export" ? { ...e, data: { format: "docx" } } : e)),
+      },
+    };
     expect(await verifySeal(forged.manifest, forged.signatures, forged.journal, id.publicKeyHex)).toBe("broken");
   });
 });

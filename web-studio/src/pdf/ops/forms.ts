@@ -7,9 +7,7 @@
  * overlay uses. Writing is done with pdf-lib.
  */
 
-import {
-  PDFCheckBox, PDFDocument, PDFDropdown, PDFOptionList, PDFRadioGroup, PDFTextField,
-} from "pdf-lib";
+import { PDFCheckBox, PDFDocument, PDFDropdown, PDFOptionList, PDFRadioGroup, PDFTextField } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
@@ -105,7 +103,7 @@ export function readFields(
     const w = Math.abs(x2 - x1);
     const h = Math.abs(y2 - y1);
     const y = origin.y + pageHeight - Math.max(y1, y2);
-    const exportValue = kind === "radio" ? a.buttonValue ?? "" : kind === "checkbox" ? a.exportValue ?? "" : null;
+    const exportValue = kind === "radio" ? (a.buttonValue ?? "") : kind === "checkbox" ? (a.exportValue ?? "") : null;
     out.push({
       key: a.id ?? `${a.fieldName}:${i}`,
       name: a.fieldName,
@@ -182,7 +180,10 @@ export function fillForm(doc: PDFDocument, values: Record<string, FormValue>, fo
           // index rather than pdf-lib's option name — map it back.
           if (opts.includes(val)) field.select(val);
           else if (/^\d+$/.test(val) && opts[Number(val)] != null) field.select(opts[Number(val)]);
-          else { report.skipped.push(name); continue; }
+          else {
+            report.skipped.push(name);
+            continue;
+          }
         } else field.clear();
       } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
         if (typeof val === "string" && val) field.select(val);
@@ -198,7 +199,9 @@ export function fillForm(doc: PDFDocument, values: Record<string, FormValue>, fo
   try {
     if (font) form.updateFieldAppearances(font);
     else form.updateFieldAppearances();
-  } catch { /* appearances are best-effort */ }
+  } catch {
+    /* appearances are best-effort */
+  }
   return report;
 }
 
@@ -234,12 +237,13 @@ export function suggestFields(
   const out: FieldSuggestion[] = [];
   const used = new Set<string>();
   const nameFor = (label: string) => {
-    const base = label
-      .replace(/[:：]\s*$/, "")
-      .replace(/[^\p{L}\p{N} ]/gu, "")
-      .trim()
-      .replace(/\s+/g, "_")
-      .slice(0, 40) || "champ";
+    const base =
+      label
+        .replace(/[:：]\s*$/, "")
+        .replace(/[^\p{L}\p{N} ]/gu, "")
+        .trim()
+        .replace(/\s+/g, "_")
+        .slice(0, 40) || "champ";
     let name = base;
     let i = 2;
     while (used.has(name)) name = `${base}_${i++}`;
@@ -359,7 +363,9 @@ export function createFields(
           continue;
       }
       made++;
-    } catch { /* a duplicate or invalid field name must not sink the export */ }
+    } catch {
+      /* a duplicate or invalid field name must not sink the export */
+    }
   }
   return made;
 }
@@ -403,6 +409,9 @@ export function fromFdf(text: string): Record<string, FormValue> {
 /** CSV of the filled values, for spreadsheets and mail merges. */
 export function toCsv(values: Record<string, FormValue>): string {
   const esc = (s: string) => (/[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const rows = [["Champ", "Valeur"], ...Object.entries(values).map(([k, v]) => [k, typeof v === "boolean" ? (v ? "Oui" : "Non") : String(v)])];
+  const rows = [
+    ["Champ", "Valeur"],
+    ...Object.entries(values).map(([k, v]) => [k, typeof v === "boolean" ? (v ? "Oui" : "Non") : String(v)]),
+  ];
   return rows.map((r) => r.map(esc).join(";")).join("\r\n");
 }

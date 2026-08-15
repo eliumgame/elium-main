@@ -73,7 +73,9 @@ async function resolveLangPath(): Promise<string | undefined> {
   try {
     const probe = await fetch(`${base}/eng.traineddata.gz`, { method: "HEAD" });
     if (probe.ok) return base;
-  } catch { /* not bundled */ }
+  } catch {
+    /* not bundled */
+  }
   return undefined; // tesseract.js falls back to its CDN default
 }
 
@@ -229,5 +231,8 @@ export async function writeOcrLayer(
 
 /** Plain text of an OCR run, for "copy the recognised text". */
 export function ocrToText(results: readonly OcrPageResult[]): string {
-  return results.map((r) => r.text.trim()).filter(Boolean).join("\n\f\n");
+  return results
+    .map((r) => r.text.trim())
+    .filter(Boolean)
+    .join("\n\f\n");
 }

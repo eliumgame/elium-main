@@ -66,7 +66,9 @@ export default function SectionBreakModal({ editor, onClose }: { editor: Editor;
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
           <Button onClick={insert}>Insérer</Button>
         </>
       }
@@ -88,10 +90,16 @@ export default function SectionBreakModal({ editor, onClose }: { editor: Editor;
         <section className="settings__section">
           <h3 className="settings__title">Mise en page de la nouvelle section</h3>
           <Field label="Format" hint="Chaque section peut avoir son propre format de feuille.">
-            <select className="settings__select" value={format} onChange={(e) => setFormat(e.target.value as PageFormat | "")}>
+            <select
+              className="settings__select"
+              value={format}
+              onChange={(e) => setFormat(e.target.value as PageFormat | "")}
+            >
               <option value="">Comme le document</option>
               {PAGE_FORMATS.filter((f) => f !== "Custom").map((f) => (
-                <option key={f} value={f}>{PAGE_FORMAT_LABELS[f]}</option>
+                <option key={f} value={f}>
+                  {PAGE_FORMAT_LABELS[f]}
+                </option>
               ))}
             </select>
           </Field>
@@ -128,10 +136,20 @@ export default function SectionBreakModal({ editor, onClose }: { editor: Editor;
             </div>
           )}
           <Field label="En-tête de section (facultatif)" hint="Jetons : {titre}, {date}.">
-            <input className="settings__input" value={header} onChange={(e) => setHeader(e.target.value)} placeholder="Vide = celui du document" />
+            <input
+              className="settings__input"
+              value={header}
+              onChange={(e) => setHeader(e.target.value)}
+              placeholder="Vide = celui du document"
+            />
           </Field>
           <Field label="Pied de section (facultatif)">
-            <input className="settings__input" value={footer} onChange={(e) => setFooter(e.target.value)} placeholder="Vide = celui du document" />
+            <input
+              className="settings__input"
+              value={footer}
+              onChange={(e) => setFooter(e.target.value)}
+              placeholder="Vide = celui du document"
+            />
           </Field>
         </section>
 

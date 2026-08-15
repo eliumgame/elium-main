@@ -514,11 +514,7 @@ export function verbAdjectives(inf: string): string[] {
   if (!/er$/.test(inf) || inf.length < 5) return [];
   const stem = inf.slice(0, -2);
   // Le son se conserve : « déplaçable », « mangeable ».
-  const base = /c$/.test(stem)
-    ? `${stem.slice(0, -1)}çable`
-    : /g$/.test(stem)
-      ? `${stem}eable`
-      : `${stem}able`;
+  const base = /c$/.test(stem) ? `${stem.slice(0, -1)}çable` : /g$/.test(stem) ? `${stem}eable` : `${stem}able`;
   return [base, `${base}s`];
 }
 
@@ -545,7 +541,8 @@ export function adverbsFr(adjective: string): string[] {
   const w = adjective.trim();
   if (!w || w.length < 3) return [];
   const out = new Set<string>();
-  if (/ent$/.test(w)) out.add(`${w.slice(0, -3)}emment`); // prudent → prudemment
+  if (/ent$/.test(w))
+    out.add(`${w.slice(0, -3)}emment`); // prudent → prudemment
   else if (/ant$/.test(w)) out.add(`${w.slice(0, -3)}amment`); // constant → constamment
   const fem = femininesFr(w)[0];
   if (fem) out.add(`${fem.replace(/e$/, "")}ement`.replace(/eement$/, "ement"));
@@ -565,8 +562,26 @@ export function adverbsFr(adjective: string): string[] {
  * lexique de base. Sans eux, le correcteur soulignerait la moitié des dialogues.
  */
 export const ENCLITICS = [
-  "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles", "moi", "toi", "lui", "leur",
-  "y", "en", "le", "la", "les", "ce", "là",
+  "je",
+  "tu",
+  "il",
+  "elle",
+  "on",
+  "nous",
+  "vous",
+  "ils",
+  "elles",
+  "moi",
+  "toi",
+  "lui",
+  "leur",
+  "y",
+  "en",
+  "le",
+  "la",
+  "les",
+  "ce",
+  "là",
 ] as const;
 
 /** Vrai si le mot est une forme composée reconnue à partir d'un mot connu. */

@@ -13,7 +13,12 @@
  */
 import { Extension } from "@tiptap/core";
 import {
-  BUILTIN_STYLES, mergeStyles, resolveStyle, styleAttrs, styleMarks, styleTextStyleAttrs,
+  BUILTIN_STYLES,
+  mergeStyles,
+  resolveStyle,
+  styleAttrs,
+  styleMarks,
+  styleTextStyleAttrs,
   type DocStyle,
 } from "./styles";
 
@@ -79,11 +84,17 @@ export const NamedStyles = Extension.create({
 
           if (style.kind === "character") {
             // A character style only touches the run.
-            const c = chain().focus().setMark("textStyle", { ...styleTextStyleAttrs(style), styleId });
-            if (marks.bold) c.setBold(); else c.unsetBold();
-            if (marks.italic) c.setItalic(); else c.unsetItalic();
-            if (marks.underline) c.setUnderline(); else c.unsetUnderline();
-            if (marks.strike) c.setStrike(); else c.unsetStrike();
+            const c = chain()
+              .focus()
+              .setMark("textStyle", { ...styleTextStyleAttrs(style), styleId });
+            if (marks.bold) c.setBold();
+            else c.unsetBold();
+            if (marks.italic) c.setItalic();
+            else c.unsetItalic();
+            if (marks.underline) c.setUnderline();
+            else c.unsetUnderline();
+            if (marks.strike) c.setStrike();
+            else c.unsetStrike();
             if (marks.highlight) c.setHighlight({ color: marks.highlight });
             else c.unsetHighlight();
             return c.run();

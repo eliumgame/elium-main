@@ -31,7 +31,13 @@ export interface Rgb {
 export function hexToRgb(hex: string | null | undefined, fallback: Rgb = { r: 0, g: 0, b: 0 }): Rgb {
   if (!hex) return fallback;
   const h = hex.replace("#", "").trim();
-  const s = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const s =
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h;
   if (!/^[0-9a-fA-F]{6}$/.test(s)) return fallback;
   const n = parseInt(s, 16);
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
@@ -339,7 +345,10 @@ export class Painter {
       for (let s = 0; s < steps; s++) {
         const from = { x: a.x + ux * s, y: a.y + uy * s };
         const to = { x: a.x + ux * (s + 1), y: a.y + uy * (s + 1) };
-        if (!started) { this.moveTo(from); started = true; }
+        if (!started) {
+          this.moveTo(from);
+          started = true;
+        }
         const mid = { x: (from.x + to.x) / 2 + nx * r * 0.9, y: (from.y + to.y) / 2 + ny * r * 0.9 };
         this.curveTo(
           { x: from.x + (mid.x - from.x) * 1.15, y: from.y + (mid.y - from.y) * 1.15 },
@@ -436,33 +445,44 @@ export class Painter {
         const a = rot({ x: -s, y: s * 0.42 });
         const b = rot({ x: -s, y: -s * 0.42 });
         this.moveTo(a).lineTo(tip).lineTo(b);
-        if (kind === "arrow" && filled) { this.closePath().fillStroke(); } else { this.stroke(); }
+        if (kind === "arrow" && filled) {
+          this.closePath().fillStroke();
+        } else {
+          this.stroke();
+        }
         break;
       }
       case "circle":
         this.ellipse(at.x, at.y, s * 0.45, s * 0.45);
-        if (filled) this.fillStroke(); else this.stroke();
+        if (filled) this.fillStroke();
+        else this.stroke();
         break;
       case "square": {
         const h = s * 0.42;
         this.polyline([rot({ x: -h, y: -h }), rot({ x: h, y: -h }), rot({ x: h, y: h }), rot({ x: -h, y: h })], true);
-        if (filled) this.fillStroke(); else this.stroke();
+        if (filled) this.fillStroke();
+        else this.stroke();
         break;
       }
       case "diamond": {
         const h = s * 0.5;
         this.polyline([rot({ x: -h, y: 0 }), rot({ x: 0, y: -h }), rot({ x: h, y: 0 }), rot({ x: 0, y: h })], true);
-        if (filled) this.fillStroke(); else this.stroke();
+        if (filled) this.fillStroke();
+        else this.stroke();
         break;
       }
       case "butt": {
         const h = s * 0.5;
-        this.moveTo(rot({ x: 0, y: -h })).lineTo(rot({ x: 0, y: h })).stroke();
+        this.moveTo(rot({ x: 0, y: -h }))
+          .lineTo(rot({ x: 0, y: h }))
+          .stroke();
         break;
       }
       case "slash": {
         const h = s * 0.55;
-        this.moveTo(rot({ x: -h * 0.5, y: -h })).lineTo(rot({ x: h * 0.5, y: h })).stroke();
+        this.moveTo(rot({ x: -h * 0.5, y: -h }))
+          .lineTo(rot({ x: h * 0.5, y: h }))
+          .stroke();
         break;
       }
     }
@@ -479,9 +499,16 @@ export function encodeFontText(font: PDFFont, str: string): string {
   try {
     return font.encodeText(str).toString();
   } catch {
-    const safe = [...str].filter((ch) => {
-      try { font.encodeText(ch); return true; } catch { return false; }
-    }).join("");
+    const safe = [...str]
+      .filter((ch) => {
+        try {
+          font.encodeText(ch);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .join("");
     try {
       return font.encodeText(safe).toString();
     } catch {
@@ -507,7 +534,10 @@ export function wrapText(font: PDFFont, text: string, size: number, maxWidth: nu
   const out: string[] = [];
   const width = maxWidth > 1 ? maxWidth : 1;
   for (const para of text.split("\n")) {
-    if (!para) { out.push(""); continue; }
+    if (!para) {
+      out.push("");
+      continue;
+    }
     let line = "";
     for (const word of para.split(/(\s+)/)) {
       if (!word) continue;
@@ -517,8 +547,10 @@ export function wrapText(font: PDFFont, text: string, size: number, maxWidth: nu
           // A single word wider than the column: hard-split it.
           let chunk = "";
           for (const ch of word) {
-            if (measure(font, chunk + ch, size) > width && chunk) { out.push(chunk); chunk = ch; }
-            else chunk += ch;
+            if (measure(font, chunk + ch, size) > width && chunk) {
+              out.push(chunk);
+              chunk = ch;
+            } else chunk += ch;
           }
           line = chunk;
           continue;

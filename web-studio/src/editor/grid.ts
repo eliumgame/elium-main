@@ -190,11 +190,7 @@ export function snapMm(valueMm: number, stepMm: number, origin = 0): number {
 }
 
 /** Un point ramené sur la grille (identité si l'alignement est coupé). */
-export function snapPoint(
-  xMm: number,
-  yMm: number,
-  raw: unknown,
-): { x: number; y: number } {
+export function snapPoint(xMm: number, yMm: number, raw: unknown): { x: number; y: number } {
   const g = normalizeGrid(raw);
   if (!g.snap) return { x: q(xMm), y: q(yMm) };
   return { x: snapMm(xMm, g.spacingXMm), y: snapMm(yMm, g.spacingYMm) };
@@ -229,11 +225,7 @@ export function activeGrid(): GridSettings | null {
  * `bypass` porte la touche Alt, exactement comme dans Word : maintenir Alt pose
  * l'objet librement sans avoir à décocher l'alignement.
  */
-export function snapDrag(
-  xMm: number,
-  yMm: number,
-  bypass = false,
-): { x: number; y: number } {
+export function snapDrag(xMm: number, yMm: number, bypass = false): { x: number; y: number } {
   const g = active;
   if (!g || !g.snap || bypass) return { x: q(xMm), y: q(yMm) };
   return snapPoint(xMm, yMm, g);

@@ -12,36 +12,58 @@ const richDoc: ProseMirrorNode = {
   type: "doc",
   content: [
     { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Titre principal" }] },
-    { type: "paragraph", content: [
-      { type: "text", text: "Du " },
-      { type: "text", text: "gras", marks: [{ type: "bold" }] },
-      { type: "text", text: " et de l'" },
-      { type: "text", text: "italique", marks: [{ type: "italic" }] },
-      { type: "text", text: "." },
-    ] },
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "Du " },
+        { type: "text", text: "gras", marks: [{ type: "bold" }] },
+        { type: "text", text: " et de l'" },
+        { type: "text", text: "italique", marks: [{ type: "italic" }] },
+        { type: "text", text: "." },
+      ],
+    },
     { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Sous-section" }] },
-    { type: "bulletList", content: [
-      { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "puce A" }] }] },
-      { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "puce B" }] }] },
-    ] },
-    { type: "orderedList", content: [
-      { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "étape 1" }] }] },
-    ] },
-    { type: "paragraph", content: [
-      { type: "text", text: "un lien", marks: [{ type: "link", attrs: { href: "https://elium.example/doc" } }] },
-    ] },
-    { type: "table", content: [
-      { type: "tableRow", content: [
-        { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Clé" }] }] },
-        { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Valeur" }] }] },
-      ] },
-      { type: "tableRow", content: [
-        { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] },
-        { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "1" }] }] },
-      ] },
-    ] },
-    { type: "figure", attrs: { src: PNG_1x1, alt: "pixel", align: "center", width: "" },
-      content: [{ type: "text", text: "Figure de test" }] },
+    {
+      type: "bulletList",
+      content: [
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "puce A" }] }] },
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "puce B" }] }] },
+      ],
+    },
+    {
+      type: "orderedList",
+      content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "étape 1" }] }] }],
+    },
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "un lien", marks: [{ type: "link", attrs: { href: "https://elium.example/doc" } }] },
+      ],
+    },
+    {
+      type: "table",
+      content: [
+        {
+          type: "tableRow",
+          content: [
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Clé" }] }] },
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Valeur" }] }] },
+          ],
+        },
+        {
+          type: "tableRow",
+          content: [
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] },
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "1" }] }] },
+          ],
+        },
+      ],
+    },
+    {
+      type: "figure",
+      attrs: { src: PNG_1x1, alt: "pixel", align: "center", width: "" },
+      content: [{ type: "text", text: "Figure de test" }],
+    },
     { type: "pageBreak" },
     { type: "paragraph", content: [{ type: "text", text: "après saut de page" }] },
   ],
@@ -113,7 +135,7 @@ describe("DOCX round-trip (export → import)", () => {
     // Hand-built document.xml as a third-party tool might emit it.
     const docXml =
       '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-      "<w:body><w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t>Externe</w:t></w:r></w:p>" +
+      '<w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Externe</w:t></w:r></w:p>' +
       "<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>gras</w:t></w:r><w:r><w:t> normal</w:t></w:r></w:p>" +
       "</w:body></w:document>";
     // Build a tiny zip with just document.xml.
@@ -144,16 +166,16 @@ describe("DOCX import — style-based & highlight formatting (third-party docs)"
   it("recovers colour / font / size from styles.xml (docDefaults, paragraph & character styles)", () => {
     const styles =
       `<?xml version="1.0"?><w:styles ${W}>` +
-      "<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\" w:hAnsi=\"Calibri\"/><w:sz w:val=\"24\"/></w:rPr></w:rPrDefault></w:docDefaults>" +
-      "<w:style w:type=\"paragraph\" w:styleId=\"Body\"><w:rPr><w:color w:val=\"123456\"/></w:rPr></w:style>" +
-      "<w:style w:type=\"character\" w:styleId=\"Accent\"><w:rPr><w:b/><w:color w:val=\"FF0000\"/></w:rPr></w:style>" +
+      '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults>' +
+      '<w:style w:type="paragraph" w:styleId="Body"><w:rPr><w:color w:val="123456"/></w:rPr></w:style>' +
+      '<w:style w:type="character" w:styleId="Accent"><w:rPr><w:b/><w:color w:val="FF0000"/></w:rPr></w:style>' +
       "</w:styles>";
     const docXml =
       `<?xml version="1.0"?><w:document ${W}><w:body>` +
-      "<w:p><w:pPr><w:pStyle w:val=\"Body\"/></w:pPr>" +
+      '<w:p><w:pPr><w:pStyle w:val="Body"/></w:pPr>' +
       "<w:r><w:t>texte du corps</w:t></w:r>" +
-      "<w:r><w:rPr><w:rStyle w:val=\"Accent\"/></w:rPr><w:t>accentué</w:t></w:r>" +
-      "<w:r><w:rPr><w:color w:val=\"00ff00\"/></w:rPr><w:t>vert inline</w:t></w:r>" +
+      '<w:r><w:rPr><w:rStyle w:val="Accent"/></w:rPr><w:t>accentué</w:t></w:r>' +
+      '<w:r><w:rPr><w:color w:val="00ff00"/></w:rPr><w:t>vert inline</w:t></w:r>' +
       "</w:p></w:body></w:document>";
     const bytes = zipSync({ "word/document.xml": strToU8(docXml), "word/styles.xml": strToU8(styles) });
     const { doc } = docxToDoc(bytes);
@@ -171,8 +193,8 @@ describe("DOCX import — style-based & highlight formatting (third-party docs)"
   it("recovers highlight from w:highlight (named) and w:shd (fill hex)", () => {
     const docXml =
       `<?xml version="1.0"?><w:document ${W}><w:body><w:p>` +
-      "<w:r><w:rPr><w:highlight w:val=\"yellow\"/></w:rPr><w:t>surligné</w:t></w:r>" +
-      "<w:r><w:rPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"ff0000\"/></w:rPr><w:t>fond rouge</w:t></w:r>" +
+      '<w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>surligné</w:t></w:r>' +
+      '<w:r><w:rPr><w:shd w:val="clear" w:color="auto" w:fill="ff0000"/></w:rPr><w:t>fond rouge</w:t></w:r>' +
       "</w:p></w:body></w:document>";
     const { doc } = docxToDoc(zipSync({ "word/document.xml": strToU8(docXml) }));
     const surl = findRun(doc, "surligné");
@@ -184,7 +206,7 @@ describe("DOCX import — style-based & highlight formatting (third-party docs)"
   it("persists imported font/colour/size through an .elium save/reload", async () => {
     const docXml =
       `<?xml version="1.0"?><w:document ${W}><w:body><w:p>` +
-      "<w:r><w:rPr><w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\"/><w:sz w:val=\"30\"/><w:color w:val=\"334455\"/></w:rPr><w:t>stylé</w:t></w:r>" +
+      '<w:r><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/><w:sz w:val="30"/><w:color w:val="334455"/></w:rPr><w:t>stylé</w:t></w:r>' +
       "</w:p></w:body></w:document>";
     const { doc, title } = docxToDoc(zipSync({ "word/document.xml": strToU8(docXml) }));
     // Round-trip the imported doc through the .elium document model (JSON).
@@ -198,20 +220,33 @@ describe("DOCX tracked-changes export (w:ins / w:del)", () => {
   const tracked: ProseMirrorNode = {
     type: "doc",
     content: [
-      { type: "paragraph", content: [
-        { type: "text", text: "Gardé " },
-        { type: "text", text: "ajouté", marks: [{ type: "insertion", attrs: { author: "Alice", ts: "2026-07-18T10:00:00.000Z" } }] },
-        { type: "text", text: " et " },
-        { type: "text", text: "supprimé", marks: [{ type: "deletion", attrs: { author: "Bob", ts: "2026-07-18T11:00:00.000Z" } }] },
-        { type: "text", text: "." },
-      ] },
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Gardé " },
+          {
+            type: "text",
+            text: "ajouté",
+            marks: [{ type: "insertion", attrs: { author: "Alice", ts: "2026-07-18T10:00:00.000Z" } }],
+          },
+          { type: "text", text: " et " },
+          {
+            type: "text",
+            text: "supprimé",
+            marks: [{ type: "deletion", attrs: { author: "Bob", ts: "2026-07-18T11:00:00.000Z" } }],
+          },
+          { type: "text", text: "." },
+        ],
+      },
     ],
   };
 
   it("writes insertions as <w:ins> and deletions as <w:del>/<w:delText>", async () => {
     const doc = strFromU8(unzipSync(docToDocx(await fileWith(tracked)))["word/document.xml"]);
     expect(doc).toMatch(/<w:ins [^>]*w:author="Alice"[^>]*>[\s\S]*?<w:t[^>]*>ajouté<\/w:t>[\s\S]*?<\/w:ins>/);
-    expect(doc).toMatch(/<w:del [^>]*w:author="Bob"[^>]*>[\s\S]*?<w:delText[^>]*>supprimé<\/w:delText>[\s\S]*?<\/w:del>/);
+    expect(doc).toMatch(
+      /<w:del [^>]*w:author="Bob"[^>]*>[\s\S]*?<w:delText[^>]*>supprimé<\/w:delText>[\s\S]*?<\/w:del>/,
+    );
     expect(doc).toContain('w:date="2026-07-18T10:00:00.000Z"');
     // Deleted text must NOT be emitted as a normal run (plain readers ignore w:delText).
     expect(doc).not.toContain('<w:t xml:space="preserve">supprimé</w:t>');
@@ -220,7 +255,10 @@ describe("DOCX tracked-changes export (w:ins / w:del)", () => {
   it("round-trips the tracked-change marks (export → import)", async () => {
     const { doc } = docxToDoc(docToDocx(await fileWith(tracked)));
     const para = (doc.content ?? []).find((n) => n.type === "paragraph");
-    const runs = (para?.content ?? []) as { text?: string; marks?: { type: string; attrs?: Record<string, unknown> }[] }[];
+    const runs = (para?.content ?? []) as {
+      text?: string;
+      marks?: { type: string; attrs?: Record<string, unknown> }[];
+    }[];
     const ins = runs.find((r) => r.text === "ajouté");
     const del = runs.find((r) => r.text === "supprimé");
     expect(ins?.marks?.some((m) => m.type === "insertion" && m.attrs?.author === "Alice")).toBe(true);

@@ -24,7 +24,14 @@ import { useEffect } from "react";
 import type { Editor } from "@tiptap/react";
 import RichEditor from "../../editor/RichEditor";
 import { DEFAULT_PAGE } from "../../format/document";
-import { ELIUM_DOC_SCHEMA, type EliumDocStyle, type EliumDocumentModel, type EliumWatermark, type PageSettings, type ProseMirrorNode } from "../../format/types";
+import {
+  ELIUM_DOC_SCHEMA,
+  type EliumDocStyle,
+  type EliumDocumentModel,
+  type EliumWatermark,
+  type PageSettings,
+  type ProseMirrorNode,
+} from "../../format/types";
 import { EncryptedYjsProvider, type CollabStatus, type CollabUser } from "../collab-provider";
 import type { DriveApi } from "../api";
 
@@ -40,7 +47,14 @@ function initials(s: string): string {
 }
 
 export default function CollabDocEditor({
-  api, nodeId, nodeKey, title, user, onClose, refetchKey, seed,
+  api,
+  nodeId,
+  nodeKey,
+  title,
+  user,
+  onClose,
+  refetchKey,
+  seed,
 }: {
   api: DriveApi;
   nodeId: string;
@@ -65,7 +79,12 @@ export default function CollabDocEditor({
 
   const [ydoc] = useState(() => new Y.Doc());
   const [provider] = useState(
-    () => new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, { onStatus: setStatus, onReady: setCanWrite, ...(refetchKey ? { refetchKey } : {}) }),
+    () =>
+      new EncryptedYjsProvider(api, nodeId, nodeKey, ydoc, me, {
+        onStatus: setStatus,
+        onReady: setCanWrite,
+        ...(refetchKey ? { refetchKey } : {}),
+      }),
   );
 
   // Les extensions de collaboration sont construites ICI (Yjs importé côté Drive
@@ -169,28 +188,46 @@ export default function CollabDocEditor({
   }, [seed, status, writable, ydoc]);
 
   const statusLabel =
-    status === "open" ? "Connecté" :
-    status === "connecting" ? "Connexion…" :
-    status === "revoked" ? "Accès révoqué — document fermé" :
-    "Hors ligne";
+    status === "open"
+      ? "Connecté"
+      : status === "connecting"
+        ? "Connexion…"
+        : status === "revoked"
+          ? "Accès révoqué — document fermé"
+          : "Hors ligne";
 
   return (
     <div className="dc-modal-overlay dc-modal-overlay--full">
       <div className="dc-doc dc-doc--full dc-doc--fullscreen">
         <header className="dc-doc__head">
-          <span className="dc-doc__title" title={title}>{title}</span>
+          <span className="dc-doc__title" title={title}>
+            {title}
+          </span>
           <span className={`dc-doc__status dc-doc__status--${status}`}>
-            {status === "open" ? <Wifi size={13} /> : status === "connecting" ? <Loader size={13} className="dc-spin" /> : <WifiOff size={13} />} {statusLabel}
+            {status === "open" ? (
+              <Wifi size={13} />
+            ) : status === "connecting" ? (
+              <Loader size={13} className="dc-spin" />
+            ) : (
+              <WifiOff size={13} />
+            )}{" "}
+            {statusLabel}
           </span>
           <div className="dc-doc__peers">
-            <span className="dc-doc-av" style={{ background: me.color }} title={`${me.name} (vous)`}>{initials(me.name)}</span>
+            <span className="dc-doc-av" style={{ background: me.color }} title={`${me.name} (vous)`}>
+              {initials(me.name)}
+            </span>
             {peers.map((p, i) => (
-              <span key={i} className="dc-doc-av" style={{ background: p.color }} title={p.name}>{initials(p.name)}</span>
+              <span key={i} className="dc-doc-av" style={{ background: p.color }} title={p.name}>
+                {initials(p.name)}
+              </span>
             ))}
           </div>
           <div className="dc-doc__spacer" />
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer"><X size={18} /></button>
+          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+            <X size={18} />
+          </button>
         </header>
 
         {/* Le VRAI éditeur, en mode collaboratif. Signature/comparaison/
@@ -200,7 +237,9 @@ export default function CollabDocEditor({
             documentModel={documentModel}
             editable={writable}
             collab={{ extensions: collabExtensions }}
-            onEditorReady={(ed) => { editorRef.current = ed; }}
+            onEditorReady={(ed) => {
+              editorRef.current = ed;
+            }}
             commentAuthor={me.name}
             docTitle={title}
             signatures={[]}
@@ -212,10 +251,24 @@ export default function CollabDocEditor({
             onSelectSignature={() => {}}
             onRemoveSignature={() => {}}
             numberedHeadings={page.numberedHeadings ?? false}
-            onToggleNumberedHeadings={() => { const next = { ...page, numberedHeadings: !(page.numberedHeadings ?? false) }; setPage(next); putMeta("page", next); }}
-            onStylesChange={(s) => { setStyles(s); putMeta("styles", s); }}
-            onWatermarkChange={(m) => { setWatermark(m); putMeta("watermark", m); }}
-            onGridChange={(grid) => { const next = { ...page, grid }; setPage(next); putMeta("page", next); }}
+            onToggleNumberedHeadings={() => {
+              const next = { ...page, numberedHeadings: !(page.numberedHeadings ?? false) };
+              setPage(next);
+              putMeta("page", next);
+            }}
+            onStylesChange={(s) => {
+              setStyles(s);
+              putMeta("styles", s);
+            }}
+            onWatermarkChange={(m) => {
+              setWatermark(m);
+              putMeta("watermark", m);
+            }}
+            onGridChange={(grid) => {
+              const next = { ...page, grid };
+              setPage(next);
+              putMeta("page", next);
+            }}
           />
         </div>
       </div>

@@ -8,9 +8,14 @@ import type { ProseMirrorNode } from "./types";
 
 type Mark = NonNullable<ProseMirrorNode["marks"]>[number];
 
-const t = (text: string, marks?: Mark[]): ProseMirrorNode => (marks?.length ? { type: "text", text, marks } : { type: "text", text });
-const para = (children: ProseMirrorNode[]): ProseMirrorNode => (children.length ? { type: "paragraph", content: children } : { type: "paragraph" });
-const wrapDoc = (content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content: content.length ? content : [{ type: "paragraph" }] });
+const t = (text: string, marks?: Mark[]): ProseMirrorNode =>
+  marks?.length ? { type: "text", text, marks } : { type: "text", text };
+const para = (children: ProseMirrorNode[]): ProseMirrorNode =>
+  children.length ? { type: "paragraph", content: children } : { type: "paragraph" };
+const wrapDoc = (content: ProseMirrorNode[]): ProseMirrorNode => ({
+  type: "doc",
+  content: content.length ? content : [{ type: "paragraph" }],
+});
 
 // --- Plain text -----------------------------------------------------------
 
@@ -34,7 +39,12 @@ const INLINE: Array<{ re: RegExp; make: (m: RegExpExecArray) => ProseMirrorNode 
 function parseInline(s: string): ProseMirrorNode[] {
   const out: ProseMirrorNode[] = [];
   let buf = "";
-  const flush = () => { if (buf) { out.push(t(buf)); buf = ""; } };
+  const flush = () => {
+    if (buf) {
+      out.push(t(buf));
+      buf = "";
+    }
+  };
   let i = 0;
   while (i < s.length) {
     const rest = s.slice(i);
@@ -59,7 +69,10 @@ export function markdownToDoc(input: string): ProseMirrorNode {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (!line.trim()) { i++; continue; }
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
 
     if (/^```/.test(line)) {
       const language = line.slice(3).trim();
@@ -72,8 +85,16 @@ export function markdownToDoc(input: string): ProseMirrorNode {
       continue;
     }
     const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (h) { content.push({ type: "heading", attrs: { level: h[1].length }, content: parseInline(h[2]) }); i++; continue; }
-    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { content.push({ type: "horizontalRule" }); i++; continue; }
+    if (h) {
+      content.push({ type: "heading", attrs: { level: h[1].length }, content: parseInline(h[2]) });
+      i++;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      content.push({ type: "horizontalRule" });
+      i++;
+      continue;
+    }
     if (/^>\s?/.test(line)) {
       const q: string[] = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) q.push(lines[i++].replace(/^>\s?/, ""));
@@ -97,7 +118,12 @@ export function markdownToDoc(input: string): ProseMirrorNode {
       continue;
     }
     const par: string[] = [];
-    while (i < lines.length && lines[i].trim() && !BLOCK_START.test(lines[i]) && !/^(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])) {
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !BLOCK_START.test(lines[i]) &&
+      !/^(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])
+    ) {
       par.push(lines[i++]);
     }
     content.push(para(parseInline(par.join(" "))));
@@ -108,10 +134,15 @@ export function markdownToDoc(input: string): ProseMirrorNode {
 // --- HTML -----------------------------------------------------------------
 
 const MARK_TAGS: Record<string, Mark> = {
-  STRONG: { type: "bold" }, B: { type: "bold" },
-  EM: { type: "italic" }, I: { type: "italic" },
-  U: { type: "underline" }, S: { type: "strike" }, DEL: { type: "strike" },
-  CODE: { type: "code" }, MARK: { type: "highlight" },
+  STRONG: { type: "bold" },
+  B: { type: "bold" },
+  EM: { type: "italic" },
+  I: { type: "italic" },
+  U: { type: "underline" },
+  S: { type: "strike" },
+  DEL: { type: "strike" },
+  CODE: { type: "code" },
+  MARK: { type: "highlight" },
 };
 
 function inlineFromDom(node: ChildNode, marks: Mark[]): ProseMirrorNode[] {
@@ -135,19 +166,38 @@ function blockFromDom(el: Element): ProseMirrorNode[] {
   const tag = el.tagName;
   const inline = () => [...el.childNodes].flatMap((c) => inlineFromDom(c, []));
   switch (tag) {
-    case "H1": case "H2": case "H3": case "H4": case "H5": case "H6":
+    case "H1":
+    case "H2":
+    case "H3":
+    case "H4":
+    case "H5":
+    case "H6":
       return [{ type: "heading", attrs: { level: Math.min(4, Number(tag[1])) }, content: inline() }];
-    case "P": return [para(inline())];
-    case "BLOCKQUOTE": return [{ type: "blockquote", content: [para(inline())] }];
-    case "HR": return [{ type: "horizontalRule" }];
-    case "PRE": return [{ type: "codeBlock", content: el.textContent ? [t(el.textContent)] : [] }];
-    case "UL": case "OL":
-      return [{
-        type: tag === "UL" ? "bulletList" : "orderedList",
-        content: [...el.children].filter((c) => c.tagName === "LI")
-          .map((li) => ({ type: "listItem", content: [para([...li.childNodes].flatMap((c) => inlineFromDom(c, [])))] })),
-      }];
-    case "DIV": case "SECTION": case "ARTICLE": case "BODY":
+    case "P":
+      return [para(inline())];
+    case "BLOCKQUOTE":
+      return [{ type: "blockquote", content: [para(inline())] }];
+    case "HR":
+      return [{ type: "horizontalRule" }];
+    case "PRE":
+      return [{ type: "codeBlock", content: el.textContent ? [t(el.textContent)] : [] }];
+    case "UL":
+    case "OL":
+      return [
+        {
+          type: tag === "UL" ? "bulletList" : "orderedList",
+          content: [...el.children]
+            .filter((c) => c.tagName === "LI")
+            .map((li) => ({
+              type: "listItem",
+              content: [para([...li.childNodes].flatMap((c) => inlineFromDom(c, [])))],
+            })),
+        },
+      ];
+    case "DIV":
+    case "SECTION":
+    case "ARTICLE":
+    case "BODY":
       return [...el.children].flatMap(blockFromDom);
     default: {
       const content = inline();
@@ -158,7 +208,12 @@ function blockFromDom(el: Element): ProseMirrorNode[] {
 
 export function htmlToDoc(html: string): ProseMirrorNode {
   if (typeof DOMParser === "undefined") {
-    return textToDoc(html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    return textToDoc(
+      html
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
   }
   const dom = new DOMParser().parseFromString(html, "text/html");
   return wrapDoc([...dom.body.children].flatMap(blockFromDom));

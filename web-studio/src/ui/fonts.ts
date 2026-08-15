@@ -12,7 +12,7 @@
 
 export interface FontDef {
   name: string; // display name + key
-  css: string;  // CSS font stack for the editors
+  css: string; // CSS font stack for the editors
   pdf: "helvetica" | "times" | "courier"; // closest standard family for PDF export
 }
 
@@ -48,8 +48,13 @@ export function registerCustomFont(name: string, bytes: Uint8Array, filename?: s
   customFontFiles.set(name, filename ?? `${name}.ttf`);
   try {
     const ff = new FontFace(name, bytes as unknown as ArrayBuffer);
-    void ff.load().then((loaded) => (globalThis as unknown as { document?: Document }).document?.fonts?.add(loaded)).catch(() => {});
-  } catch { /* FontFace unavailable (non-DOM env) */ }
+    void ff
+      .load()
+      .then((loaded) => (globalThis as unknown as { document?: Document }).document?.fonts?.add(loaded))
+      .catch(() => {});
+  } catch {
+    /* FontFace unavailable (non-DOM env) */
+  }
 }
 
 /** Filename a family was imported under (drives the embedded MIME/format). */
@@ -62,9 +67,7 @@ export function customFontFilename(name: string): string {
  * renders in the typeface it was written in even on a machine where that font is
  * not installed. Idempotent: a family already registered is left alone.
  */
-export function registerEmbeddedFonts(
-  fonts: { family: string; filename: string; bytes: Uint8Array }[],
-): void {
+export function registerEmbeddedFonts(fonts: { family: string; filename: string; bytes: Uint8Array }[]): void {
   for (const f of fonts) {
     if (customFonts.has(f.family)) continue;
     registerCustomFont(f.family, f.bytes, f.filename);

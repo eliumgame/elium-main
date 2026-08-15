@@ -19,9 +19,7 @@ function dropE(word: string): string {
 
 /** La consonne finale double après une voyelle brève : stop → stopping. */
 function doubleFinal(word: string): string {
-  return /[aeiou][bdgklmnprt]$/.test(word) && !/[aeiou]{2}[bdgklmnprt]$/.test(word)
-    ? word + word.slice(-1)
-    : word;
+  return /[aeiou][bdgklmnprt]$/.test(word) && !/[aeiou]{2}[bdgklmnprt]$/.test(word) ? word + word.slice(-1) : word;
 }
 
 /**

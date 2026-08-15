@@ -54,8 +54,8 @@ export function auditEntryHash(prevHash: Buffer, f: AuditFields): Buffer {
 
 export interface AuditVerifyResult {
   ok: boolean;
-  total: number;   // entrées totales dans la chaîne
-  hashed: number;  // entrées effectivement chaînées (les anciennes peuvent être sans hash)
+  total: number; // entrées totales dans la chaîne
+  hashed: number; // entrées effectivement chaînées (les anciennes peuvent être sans hash)
   brokenAtId?: string; // id de la première entrée dont le maillon est rompu
 }
 
@@ -100,9 +100,14 @@ export async function verifyAuditChain(orgId: string | null): Promise<AuditVerif
     const prev = Buffer.from(r.prev_hash ?? GENESIS);
     const entryHash = Buffer.from(r.entry_hash);
     const fields: AuditFields = {
-      orgId: r.org_id, actorUserId: r.actor_user_id, action: r.action,
-      resourceType: r.resource_type, resourceId: r.resource_id, metadata: r.metadata,
-      ip: r.ip, createdAt: new Date(r.created_at).toISOString(),
+      orgId: r.org_id,
+      actorUserId: r.actor_user_id,
+      action: r.action,
+      resourceType: r.resource_type,
+      resourceId: r.resource_id,
+      metadata: r.metadata,
+      ip: r.ip,
+      createdAt: new Date(r.created_at).toISOString(),
     };
     const recomputed = auditEntryHash(prev, fields);
     const prevOk = !started ? prev.equals(GENESIS) : prev.equals(expectedPrev);

@@ -1,9 +1,31 @@
 import { describe, it, expect } from "vitest";
 import {
-  DASH_LABELS, DEFAULT_KIND, DEFAULT_SHAPE_STYLE, SHAPES, SHAPE_GROUPS, arcCubics, clampAdj,
-  dashFromOoxml, defaultAdj, emuToMm, isShapeKind, kindFromPrst, mmToEmu, normalizeShapeStyle,
-  pxToMm, shapeContainerCss, shapeDef, shapeDml, shapeHeads, shapePath, shapeSvg, shapeVml, shapeXml,
-  usesEvenOdd, vAlignCss, vmlPath,
+  DASH_LABELS,
+  DEFAULT_KIND,
+  DEFAULT_SHAPE_STYLE,
+  SHAPES,
+  SHAPE_GROUPS,
+  arcCubics,
+  clampAdj,
+  dashFromOoxml,
+  defaultAdj,
+  emuToMm,
+  isShapeKind,
+  kindFromPrst,
+  mmToEmu,
+  normalizeShapeStyle,
+  pxToMm,
+  shapeContainerCss,
+  shapeDef,
+  shapeDml,
+  shapeHeads,
+  shapePath,
+  shapeSvg,
+  shapeVml,
+  shapeXml,
+  usesEvenOdd,
+  vAlignCss,
+  vmlPath,
 } from "../src/editor/shapes";
 import { normalizeGeometry, DEFAULT_GEOMETRY } from "../src/editor/textBox";
 import { strFromU8, unzipSync } from "fflate";
@@ -57,7 +79,13 @@ describe("Formes — catalogue", () => {
 
 describe("Formes — tracés", () => {
   /** Toutes les formes, à plusieurs proportions, y compris dégénérées. */
-  const sizes: [number, number][] = [[40, 25], [10, 60], [100, 4], [1, 1], [0, 0]];
+  const sizes: [number, number][] = [
+    [40, 25],
+    [10, 60],
+    [100, 4],
+    [1, 1],
+    [0, 0],
+  ];
 
   it("n'émet que M, L, C et Z — la contrainte qui rend le VML mécanique", () => {
     for (const s of SHAPES) {
@@ -336,13 +364,17 @@ describe("Formes — DrawingML", () => {
 
 describe("Formes — export et relecture", () => {
   const p = (t: string): ProseMirrorNode => ({ type: "paragraph", content: [{ type: "text", text: t }] });
-  const shape = (attrs: Record<string, unknown>, ...kids: ProseMirrorNode[]): ProseMirrorNode =>
-    ({ type: "shape", attrs, content: kids });
+  const shape = (attrs: Record<string, unknown>, ...kids: ProseMirrorNode[]): ProseMirrorNode => ({
+    type: "shape",
+    attrs,
+    content: kids,
+  });
   const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content });
   const model = (d: ProseMirrorNode) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc: d,
@@ -364,7 +396,8 @@ describe("Formes — export et relecture", () => {
 
   it("écrit chaque forme du DOCX avec un identifiant unique", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard",
+      title: "T",
+      profile: "standard",
       doc: doc(shape({ kind: "star5" }, p("A")), shape({ kind: "diamond" }, p("B"))),
     });
     const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);
@@ -387,8 +420,11 @@ describe("Formes — export et relecture", () => {
 
   it("retrouve la forme, sa taille et son texte après un aller-retour DOCX", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard",
-      doc: doc(shape({ kind: "star5", widthMm: 50, heightMm: 30, wrap: "front", x: 20, y: 40, fill: "#ff0000" }, p("Ici"))),
+      title: "T",
+      profile: "standard",
+      doc: doc(
+        shape({ kind: "star5", widthMm: 50, heightMm: 30, wrap: "front", x: 20, y: 40, fill: "#ff0000" }, p("Ici")),
+      ),
     });
     const back = docxToDoc(docToDocx(file));
     const found = (back.doc.content ?? []).find((n) => n.type === "shape");
@@ -405,7 +441,8 @@ describe("Formes — export et relecture", () => {
 
   it("relit une zone de texte comme une zone de texte, pas comme une forme", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard",
+      title: "T",
+      profile: "standard",
       doc: doc({ type: "textBox", attrs: { wrap: "square", widthMm: 60 }, content: [p("Encadré")] }),
     });
     const back = docxToDoc(docToDocx(file));
@@ -416,7 +453,8 @@ describe("Formes — export et relecture", () => {
 
   it("conserve la rotation d'un encadré jusqu'à Word et au retour", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard",
+      title: "T",
+      profile: "standard",
       doc: doc({ type: "textBox", attrs: { wrap: "front", rotation: 15 }, content: [p("Tourné")] }),
     });
     const xml = strFromU8(unzipSync(docToDocx(file))["word/document.xml"]!);

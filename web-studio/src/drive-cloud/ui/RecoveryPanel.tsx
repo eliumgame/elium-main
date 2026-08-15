@@ -12,11 +12,29 @@
  * holds the key in state.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LifeBuoy, ShieldAlert, UserCog, KeyRound, FolderTree, Folder, FileText, Check, RotateCcw, RefreshCw, Search } from "lucide-react";
+import {
+  LifeBuoy,
+  ShieldAlert,
+  UserCog,
+  KeyRound,
+  FolderTree,
+  Folder,
+  FileText,
+  Check,
+  RotateCcw,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
 import { ApiError } from "../api";
-import { promoteRecoveryAdmin, restoreNodeAccess, decryptRecoveryNodeNames, rotateOrgKey, type RecoveryContext } from "../recovery";
+import {
+  promoteRecoveryAdmin,
+  restoreNodeAccess,
+  decryptRecoveryNodeNames,
+  rotateOrgKey,
+  type RecoveryContext,
+} from "../recovery";
 import type { RecoveryAdmin, RecoveryNode } from "../types";
 
 interface Member {
@@ -64,7 +82,10 @@ export default function RecoveryPanel() {
     if (!orgId) return;
     setErr(null);
     try {
-      const [{ admins: a }, { members: m }] = await Promise.all([d.api.listRecoveryAdmins(orgId), d.api.listMembers(orgId)]);
+      const [{ admins: a }, { members: m }] = await Promise.all([
+        d.api.listRecoveryAdmins(orgId),
+        d.api.listMembers(orgId),
+      ]);
       setAdmins(a ?? []);
       setMembers((m as Member[]) ?? []);
       setDenied(false);
@@ -110,7 +131,9 @@ export default function RecoveryPanel() {
 
   const rotate = async () => {
     if (!ctx) return;
-    const rotAdmins = members.filter((m) => adminIds.has(m.userId)).map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
+    const rotAdmins = members
+      .filter((m) => adminIds.has(m.userId))
+      .map((m) => ({ userId: m.userId, publicHex: m.p256PublicHex }));
     if (rotAdmins.length === 0) {
       setErr("Aucun administrateur de recouvrement à re-chiffrer.");
       return;
@@ -211,44 +234,70 @@ export default function RecoveryPanel() {
     return (
       <div className="dc-empty-list">
         <LifeBuoy size={30} />
-        <p>Le recouvrement d'organisation est réservé aux administrateurs disposant de la permission « Recouvrer les fichiers ».</p>
+        <p>
+          Le recouvrement d'organisation est réservé aux administrateurs disposant de la permission « Recouvrer les
+          fichiers ».
+        </p>
       </div>
     );
   }
 
   return (
     <div className="dc-sso">
-      {err && <div className="dc-error" role="alert">{err}</div>}
+      {err && (
+        <div className="dc-error" role="alert">
+          {err}
+        </div>
+      )}
       {msg && <div className="dc-sso__ok">{msg}</div>}
 
       <div className="dc-rec__warn">
         <ShieldAlert size={18} />
         <p>
           La <strong>clé de recouvrement d'organisation</strong> peut déchiffrer n'importe quel fichier de l'org. Elle
-          n'est jamais détenue par le serveur : elle est emballée vers chaque administrateur de recouvrement et
-          déballée dans votre navigateur, le temps de l'opération, puis effacée. N'accordez ce pouvoir qu'à des
-          personnes de confiance.
+          n'est jamais détenue par le serveur : elle est emballée vers chaque administrateur de recouvrement et déballée
+          dans votre navigateur, le temps de l'opération, puis effacée. N'accordez ce pouvoir qu'à des personnes de
+          confiance.
         </p>
       </div>
 
       {/* --- Recovery admins ------------------------------------------------ */}
       <section className="dc-sso__card">
-        <h2 className="dc-sso__title"><UserCog size={18} /> Administrateurs de recouvrement</h2>
-        <p className="muted">Les personnes qui peuvent recouvrer les fichiers (elles détiennent une copie emballée de la clé privée d'org).</p>
+        <h2 className="dc-sso__title">
+          <UserCog size={18} /> Administrateurs de recouvrement
+        </h2>
+        <p className="muted">
+          Les personnes qui peuvent recouvrer les fichiers (elles détiennent une copie emballée de la clé privée d'org).
+        </p>
 
         <table className="dc-table">
-          <thead><tr><th>Administrateur</th><th className="dc-table__actions">Depuis</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Administrateur</th>
+              <th className="dc-table__actions">Depuis</th>
+            </tr>
+          </thead>
           <tbody>
             {admins.map((a) => (
               <tr key={a.userId} className="dc-row">
                 <td className="dc-row__name">
                   <span className="dc-avatar">{(a.displayName || a.email).slice(0, 1).toUpperCase()}</span>
-                  <span><b>{a.displayName || "—"}</b><br /><span className="dc-row__muted">{a.email}</span></span>
+                  <span>
+                    <b>{a.displayName || "—"}</b>
+                    <br />
+                    <span className="dc-row__muted">{a.email}</span>
+                  </span>
                 </td>
                 <td className="dc-row__muted">{a.since ? new Date(a.since).toLocaleDateString() : "—"}</td>
               </tr>
             ))}
-            {admins.length === 0 && <tr><td colSpan={2} className="dc-row__muted">Aucun administrateur de recouvrement.</td></tr>}
+            {admins.length === 0 && (
+              <tr>
+                <td colSpan={2} className="dc-row__muted">
+                  Aucun administrateur de recouvrement.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 
@@ -256,9 +305,17 @@ export default function RecoveryPanel() {
           <KeyRound size={16} className="dc-invite__ic" />
           <select className="tool-select" value={promoteId} onChange={(e) => setPromoteId(e.target.value)}>
             <option value="">Promouvoir un membre…</option>
-            {promotable.map((m) => <option key={m.userId} value={m.userId}>{m.displayName || m.email}</option>)}
+            {promotable.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.displayName || m.email}
+              </option>
+            ))}
           </select>
-          <button className="eb eb--sm eb--primary" disabled={busy || !promoteId || !ctx} onClick={() => void promote()}>
+          <button
+            className="eb eb--sm eb--primary"
+            disabled={busy || !promoteId || !ctx}
+            onClick={() => void promote()}
+          >
             <Check size={14} /> Promouvoir
           </button>
         </div>
@@ -266,37 +323,53 @@ export default function RecoveryPanel() {
 
       {/* --- Rotate the org key -------------------------------------------- */}
       <section className="dc-sso__card">
-        <h2 className="dc-sso__title"><RefreshCw size={18} /> Rotation de la clé d'organisation</h2>
+        <h2 className="dc-sso__title">
+          <RefreshCw size={18} /> Rotation de la clé d'organisation
+        </h2>
         <p className="muted">
           Renouvelle la clé de recouvrement : toutes les clés de contenu sont ré-emballées vers une nouvelle clé
           d'organisation et l'ancienne cesse de fonctionner. À faire après le départ d'un administrateur de
-          recouvrement, ou périodiquement. Le contenu des fichiers n'est pas re-chiffré — les anciennes versions
-          restent lisibles.
+          recouvrement, ou périodiquement. Le contenu des fichiers n'est pas re-chiffré — les anciennes versions restent
+          lisibles.
         </p>
         {rotProgress !== null && <p className="muted">Ré-emballage en cours… {rotProgress} %</p>}
-        <button className="eb eb--sm eb--outline" disabled={busy || !ctx || admins.length === 0} onClick={() => void rotate()}>
+        <button
+          className="eb eb--sm eb--outline"
+          disabled={busy || !ctx || admins.length === 0}
+          onClick={() => void rotate()}
+        >
           <RefreshCw size={14} /> Faire tourner la clé
         </button>
       </section>
 
       {/* --- Restore access ------------------------------------------------- */}
       <section className="dc-sso__card">
-        <h2 className="dc-sso__title"><FolderTree size={18} /> Restaurer l'accès à un fichier</h2>
+        <h2 className="dc-sso__title">
+          <FolderTree size={18} /> Restaurer l'accès à un fichier
+        </h2>
         <p className="muted">
-          Rendez à un membre l'accès chiffré à un fichier ou dossier — par exemple après un départ, une révocation ou
-          la perte d'un partage — sans dépendre de la personne qui l'avait partagé.
+          Rendez à un membre l'accès chiffré à un fichier ou dossier — par exemple après un départ, une révocation ou la
+          perte d'un partage — sans dépendre de la personne qui l'avait partagé.
         </p>
 
         {nodes === null ? (
           <button className="eb eb--sm eb--outline" disabled={loadingTree || !ctx} onClick={() => void loadTree()}>
-            <FolderTree size={14} /> {loadingTree ? "Déchiffrement…" : "Charger l'arborescence (déchiffre les noms avec la clé d'org)"}
+            <FolderTree size={14} />{" "}
+            {loadingTree ? "Déchiffrement…" : "Charger l'arborescence (déchiffre les noms avec la clé d'org)"}
           </button>
         ) : (
           <>
             <div className="dc-rec__search">
               <Search size={15} />
-              <input className="input" placeholder="Filtrer par nom…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-              <button className="icon-btn" title="Recharger" onClick={() => void loadTree()} disabled={loadingTree}><RotateCcw size={15} /></button>
+              <input
+                className="input"
+                placeholder="Filtrer par nom…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+              <button className="icon-btn" title="Recharger" onClick={() => void loadTree()} disabled={loadingTree}>
+                <RotateCcw size={15} />
+              </button>
             </div>
             <div className="dc-rec__tree">
               {shownNodes.map((n) => (
@@ -307,10 +380,16 @@ export default function RecoveryPanel() {
                 >
                   {n.kind === "folder" ? <Folder size={15} /> : <FileText size={15} />}
                   <span className="dc-rec__nodename">{n.name}</span>
-                  {n.parentId && nameById.has(n.parentId) && <span className="dc-rec__path">dans {nameById.get(n.parentId)}</span>}
+                  {n.parentId && nameById.has(n.parentId) && (
+                    <span className="dc-rec__path">dans {nameById.get(n.parentId)}</span>
+                  )}
                 </button>
               ))}
-              {shownNodes.length === 0 && <p className="dc-row__muted" style={{ padding: "10px 12px" }}>Aucun nœud.</p>}
+              {shownNodes.length === 0 && (
+                <p className="dc-row__muted" style={{ padding: "10px 12px" }}>
+                  Aucun nœud.
+                </p>
+              )}
             </div>
 
             <div className="dc-rec__grant">
@@ -318,16 +397,28 @@ export default function RecoveryPanel() {
                 <span className="field__label">Rendre l'accès à</span>
                 <select className="tool-select" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}>
                   <option value="">Choisir un membre…</option>
-                  {members.map((m) => <option key={m.userId} value={m.userId}>{m.displayName || m.email}</option>)}
+                  {members.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.displayName || m.email}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="field">
                 <span className="field__label">Avec le rôle</span>
                 <select className="tool-select" value={grantRole} onChange={(e) => setGrantRole(e.target.value)}>
-                  {d.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  {d.roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <button className="eb eb--sm eb--primary" disabled={busy || !selectedNode || !targetUser || !grantRole || !ctx} onClick={() => void restore()}>
+              <button
+                className="eb eb--sm eb--primary"
+                disabled={busy || !selectedNode || !targetUser || !grantRole || !ctx}
+                onClick={() => void restore()}
+              >
                 <LifeBuoy size={14} /> Restaurer l'accès
               </button>
             </div>

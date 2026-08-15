@@ -109,7 +109,10 @@ export default function SignatureLayer({
               zIndex: 10 + p.z,
             }}
             onPointerDown={(e) => begin(e, sig, "drag")}
-            onClick={(e) => { e.stopPropagation(); onSelect(sig.id); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(sig.id);
+            }}
           >
             <SignatureView signature={sig} verdict={verdicts?.[sig.id]} />
 
@@ -119,7 +122,10 @@ export default function SignatureLayer({
                   type="button"
                   className="sig-handle sig-handle--delete"
                   onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onRemove(sig.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(sig.id);
+                  }}
                   title="Supprimer"
                 >
                   <X size={12} />

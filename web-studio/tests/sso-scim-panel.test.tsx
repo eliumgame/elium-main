@@ -30,7 +30,12 @@ beforeEach(() => {
   api.createScimToken.mockResolvedValue({ token: "scim-secret-xyz" });
   api.getOrgScimConfig.mockResolvedValue({ defaultRoleKey: "editor", groupRoleMap: {} });
   api.setOrgScimConfig.mockResolvedValue({ ok: true });
-  api.listRoles.mockResolvedValue({ roles: [{ id: "r-ed", key: "editor", name: "Éditeur" }, { id: "r-mg", key: "manager", name: "Gestionnaire" }] });
+  api.listRoles.mockResolvedValue({
+    roles: [
+      { id: "r-ed", key: "editor", name: "Éditeur" },
+      { id: "r-mg", key: "manager", name: "Gestionnaire" },
+    ],
+  });
 });
 afterEach(cleanup);
 
@@ -96,7 +101,9 @@ describe("SsoScimPanel (component)", () => {
   });
 
   it("shows the SSO as active and can disable it when already configured", async () => {
-    api.getOrgSso.mockResolvedValue({ sso: { issuer: "https://acme.okta.com", clientId: "c1", allowedDomains: ["acme.fr"] } });
+    api.getOrgSso.mockResolvedValue({
+      sso: { issuer: "https://acme.okta.com", clientId: "c1", allowedDomains: ["acme.fr"] },
+    });
     render(<SsoScimPanel />);
     expect(await screen.findByText("Actif")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: /Désactiver/ }));

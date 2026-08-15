@@ -1,8 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_DROP_LINES, DEFAULT_WATERMARK, DROP_CAP_LABELS, SYMBOL_GROUPS, WATERMARK_PRESETS,
-  clampDropLines, dropCapCss, dropCapXml, findSymbols, isInvisible, normalizeWatermark,
-  symbolName, symbolsOf, watermarkCss, watermarkVml,
+  DEFAULT_DROP_LINES,
+  DEFAULT_WATERMARK,
+  DROP_CAP_LABELS,
+  SYMBOL_GROUPS,
+  WATERMARK_PRESETS,
+  clampDropLines,
+  dropCapCss,
+  dropCapXml,
+  findSymbols,
+  isInvisible,
+  normalizeWatermark,
+  symbolName,
+  symbolsOf,
+  watermarkCss,
+  watermarkVml,
 } from "../src/editor/ornaments";
 import { strFromU8, unzipSync } from "fflate";
 import { docToDocx } from "../src/format/docx";
@@ -183,7 +195,8 @@ describe("Ornements — export", () => {
   const model = (doc: ProseMirrorNode, watermark?: unknown) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc,
@@ -200,9 +213,15 @@ describe("Ornements — export", () => {
   const part = (zip: Record<string, Uint8Array>, n: string) => (zip[n] ? strFromU8(zip[n]!) : null);
 
   it("rend la lettrine en HTML par attribut et variable CSS", () => {
-    const html = docToHtml(model(doc({
-      type: "paragraph", attrs: { dropCap: "drop", dropCapLines: 4 }, content: [txt("Alpha")],
-    })));
+    const html = docToHtml(
+      model(
+        doc({
+          type: "paragraph",
+          attrs: { dropCap: "drop", dropCapLines: 4 },
+          content: [txt("Alpha")],
+        }),
+      ),
+    );
     expect(html).toContain('data-drop-cap="drop"');
     expect(html).toContain("--elium-dropcap:6.00em");
   });
@@ -213,27 +232,38 @@ describe("Ornements — export", () => {
   });
 
   it("écrit un w:framePr en DOCX", async () => {
-    const zip = await zipOf(doc({
-      type: "paragraph", attrs: { dropCap: "margin", dropCapLines: 3 }, content: [txt("Alpha")],
-    }));
+    const zip = await zipOf(
+      doc({
+        type: "paragraph",
+        attrs: { dropCap: "margin", dropCapLines: 3 },
+        content: [txt("Alpha")],
+      }),
+    );
     const body = part(zip, "word/document.xml")!;
     expect(body).toContain('w:dropCap="margin"');
     expect(body).toContain('w:lines="3"');
   });
 
   it("place w:framePr avant w:tabs, dans l'ordre du schéma", async () => {
-    const zip = await zipOf(doc({
-      type: "paragraph",
-      attrs: { dropCap: "drop", dropCapLines: 2, tabStops: [{ pos: 40, align: "left", leader: "none" }] },
-      content: [txt("Alpha")],
-    }));
+    const zip = await zipOf(
+      doc({
+        type: "paragraph",
+        attrs: { dropCap: "drop", dropCapLines: 2, tabStops: [{ pos: 40, align: "left", leader: "none" }] },
+        content: [txt("Alpha")],
+      }),
+    );
     const body = part(zip, "word/document.xml")!;
     expect(body.indexOf("<w:framePr")).toBeLessThan(body.indexOf("<w:tabs>"));
   });
 
   it("écrit le filigrane dans un en-tête VML, référencé par sectPr", async () => {
     const zip = await zipOf(doc({ type: "paragraph", content: [txt("a")] }), {
-      kind: "text", text: "CONFIDENTIEL", angle: -45, opacity: 0.12, color: "#94a3b8", sizePt: 0,
+      kind: "text",
+      text: "CONFIDENTIEL",
+      angle: -45,
+      opacity: 0.12,
+      color: "#94a3b8",
+      sizePt: 0,
     });
     const header = part(zip, "word/header1.xml");
     expect(header).toContain('string="CONFIDENTIEL"');
@@ -252,12 +282,19 @@ describe("Ornements — export", () => {
 
   it("met le filigrane en fond dans l'export HTML autonome", async () => {
     const file = await createEliumFile({
-      title: "T", profile: "standard", doc: doc({ type: "paragraph", content: [txt("a")] }),
+      title: "T",
+      profile: "standard",
+      doc: doc({ type: "paragraph", content: [txt("a")] }),
     });
     (file.document as Record<string, unknown>).watermark = {
-      kind: "text", text: "BROUILLON", angle: -45, opacity: 0.1, color: "#94a3b8", sizePt: 0,
+      kind: "text",
+      text: "BROUILLON",
+      angle: -45,
+      opacity: 0.1,
+      color: "#94a3b8",
+      sizePt: 0,
     };
     const html = buildStandaloneHtml(file);
-    expect(html).toContain("body{background-image:url(\"data:image/svg+xml,");
+    expect(html).toContain('body{background-image:url("data:image/svg+xml,');
   });
 });

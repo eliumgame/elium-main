@@ -20,7 +20,10 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import { EliumCryptoEngine } from "../crypto/elium-crypto";
 import {
-  encryptForRecipients, decryptAsRecipient, recipientFingerprint, type RecipientKeypair,
+  encryptForRecipients,
+  decryptAsRecipient,
+  recipientFingerprint,
+  type RecipientKeypair,
 } from "../crypto/recipients";
 import { createSeal, verifySeal, type SealVerdict } from "../sign/seal";
 import { sha256Hex, nowIso } from "./canonical";
@@ -100,8 +103,8 @@ export interface ReadResult {
 // Alignés sur le lecteur Python (src/elium/format/package.py) — parité DoS.
 const MAX_ENTRY_BYTES = 128 * 1024 * 1024; // 128 MiB per uncompressed entry
 const MAX_TOTAL_BYTES = 384 * 1024 * 1024; // 384 MiB total uncompressed
-const MAX_ZIP_ENTRIES = 10_000;            // refuse un nombre d'entrées pathologique
-const MAX_JSON_DEPTH = 200;                // refuse un JSON pathologiquement imbriqué
+const MAX_ZIP_ENTRIES = 10_000; // refuse un nombre d'entrées pathologique
+const MAX_JSON_DEPTH = 200; // refuse un JSON pathologiquement imbriqué
 
 export class EliumPackageError extends Error {}
 
@@ -109,18 +112,23 @@ export class EliumPackageError extends Error {}
  *  miroir de `_json_depth_ok` en Python. Défend `JSON.parse` contre une
  *  structure pathologiquement imbriquée AVANT de la parser. */
 function jsonDepthOk(s: string, limit = MAX_JSON_DEPTH): boolean {
-  let depth = 0, inStr = false, escape = false;
+  let depth = 0,
+    inStr = false,
+    escape = false;
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
     if (inStr) {
       if (escape) escape = false;
-      else if (c === 0x5c) escape = true;      // backslash
-      else if (c === 0x22) inStr = false;      // "
+      else if (c === 0x5c)
+        escape = true; // backslash
+      else if (c === 0x22) inStr = false; // "
       continue;
     }
     if (c === 0x22) inStr = true;
-    else if (c === 0x7b || c === 0x5b) { if (++depth > limit) return false; } // { [
-    else if (c === 0x7d || c === 0x5d) depth--;                              // } ]
+    else if (c === 0x7b || c === 0x5b) {
+      if (++depth > limit) return false;
+    } // { [
+    else if (c === 0x7d || c === 0x5d) depth--; // } ]
   }
   return true;
 }
@@ -279,7 +287,9 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
     [ENTRY.manifest]: strToU8(JSON.stringify(manifest, null, 2)),
     // Le contenu chiffré est de haute entropie : deflate ne gagne rien et coûte
     // du CPU → STORED. Le contenu en clair (JSON) reste compressé.
-    [def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain]: def.encrypted ? [contentBytes, { level: 0 }] : contentBytes,
+    [def.encrypted ? ENTRY.contentEnc : ENTRY.contentPlain]: def.encrypted
+      ? [contentBytes, { level: 0 }]
+      : contentBytes,
     [ENTRY.signatures]: strToU8(JSON.stringify(clearSignatures, null, 2)),
     [ENTRY.journal]: strToU8(JSON.stringify(clearJournal, null, 2)),
     ...(clearParapheur ? { [ENTRY.parapheur]: strToU8(JSON.stringify(clearParapheur, null, 2)) } : {}),
@@ -298,10 +308,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
 
 // --- Read -----------------------------------------------------------------
 
-export async function readEliumPackage(
-  blob: Uint8Array,
-  opts: WriteOptions = {},
-): Promise<ReadResult> {
+export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}): Promise<ReadResult> {
   let entries: Record<string, Uint8Array>;
   let total = 0;
   let count = 0;
@@ -338,7 +345,8 @@ export async function readEliumPackage(
   let actualTotal = 0;
   for (const name in entries) {
     const len = entries[name]!.length;
-    if (len > MAX_ENTRY_BYTES) throw new EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).");
+    if (len > MAX_ENTRY_BYTES)
+      throw new EliumPackageError("Entrée trop volumineuse dans le fichier .elium (protection DoS).");
     actualTotal += len;
     if (actualTotal > MAX_TOTAL_BYTES) throw new EliumPackageError("Fichier .elium trop volumineux (protection DoS).");
   }
@@ -440,8 +448,8 @@ export async function readEliumPackage(
   const sealVerdict = await verifySeal(manifest, clearSignatures, clearJournal, opts.trustedKeyHex);
 
   // Surface the REAL decrypted metadata to callers when encrypted.
-  const signatures = envelope ? envelope.signatures ?? [] : clearSignatures;
-  const journal = envelope ? envelope.journal ?? emptyJournal() : clearJournal;
+  const signatures = envelope ? (envelope.signatures ?? []) : clearSignatures;
+  const journal = envelope ? (envelope.journal ?? emptyJournal()) : clearJournal;
   const parapheur = envelope ? envelope.parapheur : clearParapheur;
   const effectiveManifest = envelope ? { ...manifest, title: envelope.title } : manifest;
 

@@ -1,12 +1,30 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
-  newYSheet, ensureSheetStructures, sheetSnapshot, workbookSnapshot,
-  setColWidth, setFreeze, setFilter, growSheet, toggleMergeY,
-  setCondRule, removeCondRule, setValidation, setChart,
-  setName, removeName, mergeKey,
-  insertRowY, deleteColY, pasteBlock, loadWorkbookIntoDoc, reconcileSheet, addSheetFromData,
-  type YSheet, type YSheets,
+  newYSheet,
+  ensureSheetStructures,
+  sheetSnapshot,
+  workbookSnapshot,
+  setColWidth,
+  setFreeze,
+  setFilter,
+  growSheet,
+  toggleMergeY,
+  setCondRule,
+  removeCondRule,
+  setValidation,
+  setChart,
+  setName,
+  removeName,
+  mergeKey,
+  insertRowY,
+  deleteColY,
+  pasteBlock,
+  loadWorkbookIntoDoc,
+  reconcileSheet,
+  addSheetFromData,
+  type YSheet,
+  type YSheets,
 } from "../src/drive-cloud/collab-sheet-model";
 import type { Workbook } from "../src/sheet/model";
 import { setCellText, type YCells } from "../src/drive-cloud/collab-sheet-crdt";
@@ -25,8 +43,28 @@ function sync(a: Y.Doc, b: Y.Doc) {
   Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)));
 }
 
-const cf = (id: string, over: Partial<CondRule> = {}): CondRule => ({ id, c0: 0, r0: 0, c1: 0, r1: 0, op: "gt", v1: "10", fill: "#fee", ...over });
-const dv = (id: string, over: Partial<DataValidation> = {}): DataValidation => ({ id, c0: 0, r0: 0, c1: 0, r1: 0, type: "number", op: "ge", v1: "0", ...over });
+const cf = (id: string, over: Partial<CondRule> = {}): CondRule => ({
+  id,
+  c0: 0,
+  r0: 0,
+  c1: 0,
+  r1: 0,
+  op: "gt",
+  v1: "10",
+  fill: "#fee",
+  ...over,
+});
+const dv = (id: string, over: Partial<DataValidation> = {}): DataValidation => ({
+  id,
+  c0: 0,
+  r0: 0,
+  c1: 0,
+  r1: 0,
+  type: "number",
+  op: "ge",
+  v1: "0",
+  ...over,
+});
 const chart = (id: string): ChartSpec => ({ id, type: "bar", c0: 0, r0: 0, c1: 1, r1: 3 });
 
 describe("Tableur collaboratif — modèle plein (snapshot)", () => {
@@ -50,8 +88,11 @@ describe("Tableur collaboratif — modèle plein (snapshot)", () => {
     const { ydoc, sheets } = makePeer();
     ydoc.transact(() => {
       const ys = new Y.Map() as YSheet;
-      ys.set("name", "Ancienne"); ys.set("rows", 20); ys.set("cols", 8);
-      ys.set("cells", new Y.Map()); ys.set("styles", new Y.Map());
+      ys.set("name", "Ancienne");
+      ys.set("rows", 20);
+      ys.set("cols", 8);
+      ys.set("cells", new Y.Map());
+      ys.set("styles", new Y.Map());
       sheets.push([ys]); // attacher au document AVANT d'écrire dans les sous-maps
     });
     const ys = sheets.get(0);
@@ -68,18 +109,20 @@ describe("Tableur collaboratif — modèle plein (snapshot)", () => {
 
 describe("Tableur collaboratif — convergence concurrente plein-modèle", () => {
   it("largeurs de colonnes différentes : les deux survivent", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     sync(A.ydoc, B.ydoc);
     setColWidth(A.ydoc, A.sheets.get(0), 0, 200); // A élargit la colonne 0
-    setColWidth(B.ydoc, B.sheets.get(0), 1, 90);  // B rétrécit la colonne 1
+    setColWidth(B.ydoc, B.sheets.get(0), 1, 90); // B rétrécit la colonne 1
     sync(A.ydoc, B.ydoc);
     expect(sheetSnapshot(A.sheets.get(0)).colWidths).toEqual({ 0: 200, 1: 90 });
     expect(sheetSnapshot(B.sheets.get(0)).colWidths).toEqual({ 0: 200, 1: 90 });
   });
 
   it("fusions disjointes concurrentes : les deux survivent", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     sync(A.ydoc, B.ydoc);
     toggleMergeY(A.ydoc, A.sheets.get(0), { c0: 0, r0: 0, c1: 1, r1: 1 });
@@ -91,7 +134,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("défusionner sur un pair se propage à l'autre", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     toggleMergeY(A.ydoc, A.sheets.get(0), { c0: 0, r0: 0, c1: 2, r1: 0 });
     sync(A.ydoc, B.ydoc);
@@ -102,7 +146,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("règles condformat / validations / graphiques différentes fusionnent", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     sync(A.ydoc, B.ydoc);
     setCondRule(A.ydoc, A.sheets.get(0), cf("cf-A"));
@@ -119,7 +164,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("supprimer une règle sur un pair la retire chez l'autre", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     setCondRule(A.ydoc, A.sheets.get(0), cf("cf1"));
     sync(A.ydoc, B.ydoc);
@@ -130,7 +176,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("plages nommées différentes fusionnent (portée classeur)", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     sync(A.ydoc, B.ydoc);
     setName(A.ydoc, A.names, "TVA", "F1!$A$1");
@@ -144,7 +191,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("grossir la feuille et poser un filtre/figeage se propagent", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1", 20, 8)]));
     sync(A.ydoc, B.ydoc);
     growSheet(A.ydoc, A.sheets.get(0), "rows", 30);
@@ -158,7 +206,8 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
   });
 
   it("après un tour complet, les deux classeurs sont identiques", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     sync(A.ydoc, B.ydoc);
     // Édition croisée dense sur des structures variées.
@@ -175,12 +224,15 @@ describe("Tableur collaboratif — convergence concurrente plein-modèle", () =>
 
 describe("Tableur collaboratif — opérations structurelles + import", () => {
   it("insérer une ligne se propage, formules réécrites", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     const ys = A.sheets.get(0);
     A.ydoc.transact(() => {
       const cells = ys.get("cells") as YCells;
-      setCellText(cells, "A1", "1"); setCellText(cells, "A2", "2"); setCellText(cells, "A3", "=SOMME(A1:A2)");
+      setCellText(cells, "A1", "1");
+      setCellText(cells, "A2", "2");
+      setCellText(cells, "A3", "=SOMME(A1:A2)");
     });
     sync(A.ydoc, B.ydoc);
     insertRowY(A.ydoc, ys, 1); // insère au-dessus de la ligne 2
@@ -192,10 +244,16 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
   });
 
   it("supprimer une colonne se propage", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1")]));
     const ys = A.sheets.get(0);
-    A.ydoc.transact(() => { const c = ys.get("cells") as YCells; setCellText(c, "A1", "gauche"); setCellText(c, "B1", "milieu"); setCellText(c, "C1", "droite"); });
+    A.ydoc.transact(() => {
+      const c = ys.get("cells") as YCells;
+      setCellText(c, "A1", "gauche");
+      setCellText(c, "B1", "milieu");
+      setCellText(c, "C1", "droite");
+    });
     sync(A.ydoc, B.ydoc);
     deleteColY(A.ydoc, ys, 1); // supprime B
     sync(A.ydoc, B.ydoc);
@@ -204,10 +262,14 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
   });
 
   it("coller un bloc se propage et agrandit la feuille", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("F1", 3, 3)]));
     sync(A.ydoc, B.ydoc);
-    pasteBlock(A.ydoc, A.sheets.get(0), 1, 1, [["a", "b"], ["c", "d"]]);
+    pasteBlock(A.ydoc, A.sheets.get(0), 1, 1, [
+      ["a", "b"],
+      ["c", "d"],
+    ]);
     sync(A.ydoc, B.ydoc);
     const sb = sheetSnapshot(B.sheets.get(0));
     expect(sb.cells).toEqual({ B2: "a", C2: "b", B3: "c", C3: "d" });
@@ -216,7 +278,8 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
   });
 
   it("importer un classeur remplace le contenu et converge", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("Ancienne")]));
     A.ydoc.transact(() => setCellText(A.sheets.get(0).get("cells") as YCells, "A1", "à écraser"));
     sync(A.ydoc, B.ydoc);
@@ -239,11 +302,15 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
   });
 
   it("addSheetFromData (ex. TCD) ajoute une feuille qui converge chez l'autre pair", () => {
-    const A = makePeer(); const B = makePeer();
+    const A = makePeer();
+    const B = makePeer();
     A.ydoc.transact(() => A.sheets.push([newYSheet("Données")]));
     sync(A.ydoc, B.ydoc);
     const idx = addSheetFromData(A.ydoc, A.sheets, {
-      name: "TCD 2", rows: 3, cols: 2, cells: { A1: "Région", B1: "Total", A2: "Nord", B2: "42" },
+      name: "TCD 2",
+      rows: 3,
+      cols: 2,
+      cells: { A1: "Région", B1: "Total", A2: "Nord", B2: "42" },
     });
     expect(idx).toBe(1);
     sync(A.ydoc, B.ydoc);
@@ -257,7 +324,11 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
     const { ydoc, sheets } = makePeer();
     ydoc.transact(() => sheets.push([newYSheet("F1")]));
     const ys = sheets.get(0);
-    ydoc.transact(() => { const c = ys.get("cells") as YCells; setCellText(c, "A1", "stable"); setCellText(c, "A2", "vieux"); });
+    ydoc.transact(() => {
+      const c = ys.get("cells") as YCells;
+      setCellText(c, "A1", "stable");
+      setCellText(c, "A2", "vieux");
+    });
     const cells = ys.get("cells") as YCells;
     const a1Before = cells.get("A1"); // l'instance Y.Text de A1
     const target = sheetSnapshot(ys);

@@ -8,7 +8,18 @@ import { fingerprintWords } from "../sign/safety-words";
 
 /** Read-only summary shown at the top of the viewer. */
 export default function VerificationBanner({ studio }: { studio: Studio }) {
-  const { file, integrity, journalVerdict, sealVerdict, sealPin, verdicts, attributions, sealAttribution, trustSealKey, trustContact } = studio;
+  const {
+    file,
+    integrity,
+    journalVerdict,
+    sealVerdict,
+    sealPin,
+    verdicts,
+    attributions,
+    sealAttribution,
+    trustSealKey,
+    trustContact,
+  } = studio;
   const { prompt } = useDialogs();
   const list = Object.values(verdicts) as SignatureVerdict[];
 
@@ -66,19 +77,26 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
       <div className="verify-banner__text">
         <strong>{headline}</strong>
         <span className="verify-banner__detail">
-          {integrity?.unchecked ? "Intégrité non applicable" : integrityBad ? "contenu altéré" : missingSeal ? "intégrité non vérifiable (non scellé)" : "contenu intact"}
-          {integrity?.resourcesTampered?.length ? ` · ${integrity.resourcesTampered.length} ressource(s) altérée(s)` : ""}
+          {integrity?.unchecked
+            ? "Intégrité non applicable"
+            : integrityBad
+              ? "contenu altéré"
+              : missingSeal
+                ? "intégrité non vérifiable (non scellé)"
+                : "contenu intact"}
+          {integrity?.resourcesTampered?.length
+            ? ` · ${integrity.resourcesTampered.length} ressource(s) altérée(s)`
+            : ""}
           {file.signatures.length > 0 && ` · ${file.signatures.length} signature(s)`}
           {file.signatures.length > 0 && sigBad && " · une signature invalide"}
           {file.signatures.length > 0 && !sigBad && sigModified && " · document modifié après signature"}
           {journalVerdict && journalVerdict.count > 0 && (journalBad ? " · suivi altéré" : " · suivi valide")}
-          {sealed && (
-            sealBroken
+          {sealed &&
+            (sealBroken
               ? " · sceau rompu"
               : sealAttribution
                 ? ` · scellé par ${sealAttribution}`
-                : " · sceau valide (clé non vérifiée)"
-          )}
+                : " · sceau valide (clé non vérifiée)")}
           {sealPin?.status === "pinned" && !sealKeyChanged && !sealAttribution && " · clé du sceau reconnue"}
           {expired && ` · accès expiré le ${new Date(expiresAt!).toLocaleDateString()}`}
           {unverifiedTrust && !overallBad && " · clé non vérifiée (ajoutez-la au carnet de confiance)"}
@@ -97,10 +115,15 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
             <span>
               La clé du sceau a changé depuis la première ouverture de ce document
               {sealPin?.pinned?.fingerprint ? ` (était : ${fingerprintWords(sealPin.pinned.fingerprint)})` : ""}
-              {file.manifest.seal?.fingerprint ? ` · nouvelle clé : ${fingerprintWords(file.manifest.seal.fingerprint)}` : ""}.
-              Vérifiez ces mots avec le signataire par un canal de confiance avant d'approuver — méfiez-vous d'une usurpation.
+              {file.manifest.seal?.fingerprint
+                ? ` · nouvelle clé : ${fingerprintWords(file.manifest.seal.fingerprint)}`
+                : ""}
+              . Vérifiez ces mots avec le signataire par un canal de confiance avant d'approuver — méfiez-vous d'une
+              usurpation.
             </span>
-            <Button variant="outline" size="sm" onClick={trustSealKey}>Approuver la nouvelle clé</Button>
+            <Button variant="outline" size="sm" onClick={trustSealKey}>
+              Approuver la nouvelle clé
+            </Button>
           </div>
         )}
       </div>

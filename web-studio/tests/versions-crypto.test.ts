@@ -37,7 +37,10 @@ describe("version snapshots — at-rest encryption", () => {
     const enc = await encryptAtRest(doc, { password: "", keyfile });
     // Wrong keyfile must fail even with the same (empty) password.
     await expect(
-      versionDoc({ docKey: "k", label: "v", ts: "t", enc }, { password: "", keyfile: new TextEncoder().encode("autre-cle") }),
+      versionDoc(
+        { docKey: "k", label: "v", ts: "t", enc },
+        { password: "", keyfile: new TextEncoder().encode("autre-cle") },
+      ),
     ).rejects.toBeTruthy();
     const back = await versionDoc({ docKey: "k", label: "v", ts: "t", enc }, { password: "", keyfile });
     expect(back).toEqual(doc);

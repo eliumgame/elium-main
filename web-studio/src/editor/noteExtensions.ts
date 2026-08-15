@@ -13,7 +13,13 @@
  */
 import { Node, mergeAttributes } from "@tiptap/core";
 import {
-  NOTE_LIST_TYPE, NOTE_TITLES, collectNotes, convertNotes, hasNotesList, noteMarker, type NoteKind,
+  NOTE_LIST_TYPE,
+  NOTE_TITLES,
+  collectNotes,
+  convertNotes,
+  hasNotesList,
+  noteMarker,
+  type NoteKind,
 } from "./notes";
 
 declare module "@tiptap/core" {

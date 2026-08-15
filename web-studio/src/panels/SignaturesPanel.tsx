@@ -24,12 +24,18 @@ export default function SignaturesPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title"><Key size={15} /> Identité Ed25519</h3>
+        <h3 className="panel-title">
+          <Key size={15} /> Identité Ed25519
+        </h3>
         {identity ? (
           <div className="id-box">
-            <div className="id-box__head"><ShieldCheck size={14} /> Clé chargée</div>
+            <div className="id-box__head">
+              <ShieldCheck size={14} /> Clé chargée
+            </div>
             <code className="fp">{identity.fingerprint.slice(0, 28)}…</code>
-            <Button variant="ghost" size="sm" onClick={() => studio.generateIdentity()}>Régénérer</Button>
+            <Button variant="ghost" size="sm" onClick={() => studio.generateIdentity()}>
+              Régénérer
+            </Button>
           </div>
         ) : (
           <Button variant="outline" size="sm" onClick={() => studio.generateIdentity()}>
@@ -37,15 +43,21 @@ export default function SignaturesPanel({ studio }: { studio: Studio }) {
           </Button>
         )}
         <p className="muted" style={{ marginTop: 6 }}>
-          Les signataires connus se gèrent dans le <strong>carnet de clés de confiance</strong> (Paramètres) —
-          une signature dont la clé y figure est attribuée à son nom ci-dessous.
+          Les signataires connus se gèrent dans le <strong>carnet de clés de confiance</strong> (Paramètres) — une
+          signature dont la clé y figure est attribuée à son nom ci-dessous.
         </p>
       </section>
 
       <section className="panel-section">
         <div className="panel-title-row">
-          <h3 className="panel-title"><PenLine size={15} /> Signatures · {file.signatures.length}</h3>
-          {editable && <Button size="sm" onClick={() => studio.openSignatureCreator()}>Créer</Button>}
+          <h3 className="panel-title">
+            <PenLine size={15} /> Signatures · {file.signatures.length}
+          </h3>
+          {editable && (
+            <Button size="sm" onClick={() => studio.openSignatureCreator()}>
+              Créer
+            </Button>
+          )}
         </div>
 
         {file.signatures.length === 0 ? (
@@ -91,7 +103,10 @@ export default function SignaturesPanel({ studio }: { studio: Studio }) {
                   {editable && (
                     <button
                       className="icon-btn icon-btn--danger"
-                      onClick={(e) => { e.stopPropagation(); studio.removeSignature(s.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        studio.removeSignature(s.id);
+                      }}
                       aria-label="Supprimer la signature"
                     >
                       <Trash2 size={14} />

@@ -73,7 +73,10 @@ const BORDER: Record<number, BorderStyle> = { 1: "solid", 2: "dashed", 3: "solid
 
 function hex(c: Uint8ClampedArray | number[] | null | undefined, fallback: string): string {
   if (!c || c.length < 3) return fallback;
-  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  const h = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${h(c[0])}${h(c[1])}${h(c[2])}`;
 }
 
@@ -106,7 +109,9 @@ interface Frame {
   h: number;
 }
 
-const flip = (f: Frame) => (x: number, y: number): Pt => ({ x: x - f.x, y: f.y + f.h - y });
+const flip =
+  (f: Frame) =>
+  (x: number, y: number): Pt => ({ x: x - f.x, y: f.y + f.h - y });
 
 function rectFrom(raw: number[] | undefined, frame: Frame): Rect {
   if (!raw || raw.length < 4) return { x: 0, y: 0, w: 0, h: 0 };
@@ -124,10 +129,10 @@ function quadsFrom(raw: Float32Array | number[] | null | undefined, frame: Frame
   const out: Quad[] = [];
   for (let i = 0; i + 7 < raw.length; i += 8) {
     out.push([
-      f(raw[i], raw[i + 1]),       // upper-left
-      f(raw[i + 2], raw[i + 3]),   // upper-right
-      f(raw[i + 6], raw[i + 7]),   // lower-right
-      f(raw[i + 4], raw[i + 5]),   // lower-left
+      f(raw[i], raw[i + 1]), // upper-left
+      f(raw[i + 2], raw[i + 3]), // upper-right
+      f(raw[i + 6], raw[i + 7]), // lower-right
+      f(raw[i + 4], raw[i + 5]), // lower-left
     ]);
   }
   return out;
@@ -172,7 +177,10 @@ export function importPageAnnots(
     // the little windows attached to a parent comment.
     if (subtype === "Widget" || subtype === "Popup" || subtype === "Link") continue;
     const kind = KIND[subtype];
-    if (!kind) { skipped++; continue; }
+    if (!kind) {
+      skipped++;
+      continue;
+    }
 
     const created = parsePdfDate(a.creationDate);
     const modified = parsePdfDate(a.modificationDate ?? a.creationDate);

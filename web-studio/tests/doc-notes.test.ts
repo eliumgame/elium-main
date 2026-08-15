@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
-  NOTE_LABELS, NOTE_LIST_TYPE, NOTE_TITLES, collectNotesJson, convertNotes, hasNotesListJson,
-  noteMarker, noteNumFmt, noteNumberAt, romanLower,
+  NOTE_LABELS,
+  NOTE_LIST_TYPE,
+  NOTE_TITLES,
+  collectNotesJson,
+  convertNotes,
+  hasNotesListJson,
+  noteMarker,
+  noteNumFmt,
+  noteNumberAt,
+  romanLower,
 } from "../src/editor/notes";
 import { strFromU8, unzipSync } from "fflate";
 import { docToDocx } from "../src/format/docx";
@@ -20,9 +28,24 @@ const doc = (...content: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", 
 describe("Notes — chiffres romains", () => {
   it("convertit les valeurs usuelles", () => {
     const cases: [number, string][] = [
-      [1, "i"], [2, "ii"], [3, "iii"], [4, "iv"], [5, "v"], [9, "ix"], [10, "x"],
-      [14, "xiv"], [40, "xl"], [49, "xlix"], [50, "l"], [90, "xc"], [100, "c"],
-      [400, "cd"], [500, "d"], [900, "cm"], [1000, "m"], [1987, "mcmlxxxvii"],
+      [1, "i"],
+      [2, "ii"],
+      [3, "iii"],
+      [4, "iv"],
+      [5, "v"],
+      [9, "ix"],
+      [10, "x"],
+      [14, "xiv"],
+      [40, "xl"],
+      [49, "xlix"],
+      [50, "l"],
+      [90, "xc"],
+      [100, "c"],
+      [400, "cd"],
+      [500, "d"],
+      [900, "cm"],
+      [1000, "m"],
+      [1987, "mcmlxxxvii"],
     ];
     for (const [n, expected] of cases) expect(romanLower(n)).toBe(expected);
   });
@@ -176,7 +199,8 @@ describe("Notes — export DOCX en vraies notes Word", () => {
   const model = (node: ProseMirrorNode) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc: node,
@@ -186,8 +210,7 @@ describe("Notes — export DOCX en vraies notes Word", () => {
     const file = await createEliumFile({ title: "Doc notes", profile: "standard", doc: node });
     return unzipSync(docToDocx(file));
   }
-  const part = (zip: Record<string, Uint8Array>, name: string) =>
-    zip[name] ? strFromU8(zip[name]!) : null;
+  const part = (zip: Record<string, Uint8Array>, name: string) => (zip[name] ? strFromU8(zip[name]!) : null);
 
   it("écrit une partie footnotes.xml avec les séparateurs réservés", async () => {
     const zip = await zipOf(doc(para(txt("a"), note("footnote", "Ma note"))));
@@ -246,11 +269,9 @@ describe("Notes — export DOCX en vraies notes Word", () => {
   });
 
   it("numérote plusieurs notes dans l'ordre du document", async () => {
-    const zip = await zipOf(doc(
-      para(note("endnote", "un", "e1")),
-      para(note("endnote", "deux", "e2")),
-      para(note("endnote", "trois", "e3")),
-    ));
+    const zip = await zipOf(
+      doc(para(note("endnote", "un", "e1")), para(note("endnote", "deux", "e2")), para(note("endnote", "trois", "e3"))),
+    );
     const xml = part(zip, "word/endnotes.xml")!;
     expect(xml.indexOf("un")).toBeLessThan(xml.indexOf("deux"));
     expect(xml).toContain('<w:endnote w:id="4">');
@@ -277,7 +298,8 @@ describe("Notes — exports HTML, Markdown et texte", () => {
   const model = (node: ProseMirrorNode) => ({
     schema: "elium-doc/1" as const,
     page: {
-      format: "A4" as const, orientation: "portrait" as const,
+      format: "A4" as const,
+      orientation: "portrait" as const,
       margins: { top: 25, right: 20, bottom: 25, left: 20 },
     },
     doc: node,
@@ -330,7 +352,7 @@ describe("Notes — exports HTML, Markdown et texte", () => {
   });
 
   it("échappe le texte de la note en HTML", () => {
-    const html = docToHtml(model(doc(para(note("endnote", '<script>x</script>')), { type: "endnotesList" })));
+    const html = docToHtml(model(doc(para(note("endnote", "<script>x</script>")), { type: "endnotesList" })));
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
   });

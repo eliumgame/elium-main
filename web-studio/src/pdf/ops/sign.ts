@@ -96,7 +96,11 @@ export function strokesToPng(
 // ---------------------------------------------------------------------------
 
 /** Render typed text in a handwriting face to a transparent PNG. */
-export function typedSignatureToPng(text: string, fontCss: string, colour: string): { src: string; ratio: number } | null {
+export function typedSignatureToPng(
+  text: string,
+  fontCss: string,
+  colour: string,
+): { src: string; ratio: number } | null {
   const body = text.trim();
   if (!body) return null;
   const size = 96;
@@ -176,7 +180,11 @@ export async function cleanImportedSignature(
     // Soften the edge so the stroke does not look cut out with scissors.
     const alpha = Math.min(255, Math.round(255 * (1 - luma / threshold) * 1.4 + 40));
     px[i + 3] = alpha;
-    if (ink) { px[i] = ink.r; px[i + 1] = ink.g; px[i + 2] = ink.b; }
+    if (ink) {
+      px[i] = ink.r;
+      px[i + 1] = ink.g;
+      px[i + 2] = ink.b;
+    }
     const p = i / 4;
     const x = p % w;
     const y = (p / w) | 0;
@@ -202,7 +210,13 @@ export async function cleanImportedSignature(
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const h = hex.replace("#", "");
-  const s = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const s =
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h;
   const n = parseInt(s, 16) || 0;
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
@@ -231,7 +245,10 @@ export function signatureBlockToPng(
       canvas.width = w * scale;
       canvas.height = h * scale;
       const ctx = canvas.getContext("2d");
-      if (!ctx) { resolve(null); return; }
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
       ctx.scale(scale, scale);
 
       ctx.strokeStyle = "#1d4ed8";
@@ -252,9 +269,16 @@ export function signatureBlockToPng(
       ctx.fillStyle = "#475569";
       ctx.font = "11px Inter, system-ui, sans-serif";
       let y = 56;
-      if (caption.role) { ctx.fillText(caption.role, markW + 28, y); y += 16; }
-      ctx.fillText(`Signé le ${caption.date}`, markW + 28, y); y += 16;
-      if (caption.reason) { ctx.fillText(`Motif : ${caption.reason}`, markW + 28, y); y += 16; }
+      if (caption.role) {
+        ctx.fillText(caption.role, markW + 28, y);
+        y += 16;
+      }
+      ctx.fillText(`Signé le ${caption.date}`, markW + 28, y);
+      y += 16;
+      if (caption.reason) {
+        ctx.fillText(`Motif : ${caption.reason}`, markW + 28, y);
+        y += 16;
+      }
       if (caption.location) ctx.fillText(`Lieu : ${caption.location}`, markW + 28, y);
 
       resolve({ src: canvas.toDataURL("image/png"), ratio: w / h });

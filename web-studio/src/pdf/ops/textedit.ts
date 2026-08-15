@@ -49,8 +49,10 @@ function encodeCodes(codes: readonly number[], font: FontMetrics | undefined): U
   const wide = (font?.codeBytes ?? 1) === 2;
   const out = new Uint8Array(codes.length * (wide ? 2 : 1));
   codes.forEach((c, i) => {
-    if (wide) { out[i * 2] = (c >> 8) & 0xff; out[i * 2 + 1] = c & 0xff; }
-    else out[i] = c & 0xff;
+    if (wide) {
+      out[i * 2] = (c >> 8) & 0xff;
+      out[i * 2 + 1] = c & 0xff;
+    } else out[i] = c & 0xff;
   });
   return out;
 }
@@ -90,7 +92,10 @@ function measureNative(font: FontMetrics, text: string, size: number): number | 
 function wrapNative(font: FontMetrics, text: string, size: number, maxWidth: number): string[] | null {
   const out: string[] = [];
   for (const para of text.split("\n")) {
-    if (!para) { out.push(""); continue; }
+    if (!para) {
+      out.push("");
+      continue;
+    }
     let line = "";
     for (const word of para.split(/(\s+)/)) {
       if (!word) continue;
@@ -98,7 +103,10 @@ function wrapNative(font: FontMetrics, text: string, size: number, maxWidth: num
       const w = measureNative(font, candidate, size);
       if (w === null) return null;
       if (w <= maxWidth || !line.trim()) line = candidate;
-      else { out.push(line.replace(/\s+$/, "")); line = word.trimStart(); }
+      else {
+        out.push(line.replace(/\s+$/, ""));
+        line = word.trimStart();
+      }
     }
     out.push(line.replace(/\s+$/, ""));
   }
@@ -142,11 +150,19 @@ export async function applyTextEdits(
         { x: s.origin.x, y: s.origin.y },
         { x: s.end.x, y: s.end.y },
       ]);
-      const probe: Rect = { x: b.x, y: b.y - s.effectiveSize * 0.25, w: Math.max(b.w, 0.5), h: Math.max(b.h, 0.5) + s.effectiveSize };
+      const probe: Rect = {
+        x: b.x,
+        y: b.y - s.effectiveSize * 0.25,
+        w: Math.max(b.w, 0.5),
+        h: Math.max(b.h, 0.5) + s.effectiveSize,
+      };
       return overlapRatio(probe, hit) > 0.3;
     });
 
-    if (!members.length) { report.skipped++; continue; }
+    if (!members.length) {
+      report.skipped++;
+      continue;
+    }
 
     // Remove the block's glyphs, exactly like a redaction would.
     let removedAny = false;
@@ -155,8 +171,16 @@ export async function applyTextEdits(
       const { codes, tj } = analyse(ops[show.opIndex], font);
       if (!codes.length) continue;
       const boxes = glyphBoxes(
-        codes, font, show.state.size, show.state.charSpacing, show.state.wordSpacing,
-        show.state.hScale, show.state.rise, show.tm, show.ctm, tj,
+        codes,
+        font,
+        show.state.size,
+        show.state.charSpacing,
+        show.state.wordSpacing,
+        show.state.hScale,
+        show.state.rise,
+        show.tm,
+        show.ctm,
+        tj,
       );
       const keep: number[] = [];
       let removed = 0;
@@ -167,12 +191,20 @@ export async function applyTextEdits(
       }
       if (!removed) continue;
       removedAny = true;
-      if (!keep.length) { doomedOps.set(show.opIndex, null); continue; }
+      if (!keep.length) {
+        doomedOps.set(show.opIndex, null);
+        continue;
+      }
       const items: Operand[] = [];
       let run: number[] = [];
       let skip = 0;
       const denom = show.state.size * show.state.hScale || 1;
-      const flushRun = () => { if (run.length) { items.push({ t: "hex", v: encodeCodes(run, font) }); run = []; } };
+      const flushRun = () => {
+        if (run.length) {
+          items.push({ t: "hex", v: encodeCodes(run, font) });
+          run = [];
+        }
+      };
       const flushSkip = () => {
         if (Math.abs(skip) < 1e-6) return;
         items.push({ t: "num", v: -(skip * 1000) / denom });
@@ -181,16 +213,27 @@ export async function applyTextEdits(
       const keepSet = new Set(keep);
       for (const g of boxes) {
         const adj = tj.get(g.index);
-        if (adj) { flushRun(); skip += (-adj / 1000) * show.state.size * show.state.hScale; }
-        if (keepSet.has(g.index)) { flushSkip(); run.push(g.code); }
-        else { flushRun(); skip += g.advance; }
+        if (adj) {
+          flushRun();
+          skip += (-adj / 1000) * show.state.size * show.state.hScale;
+        }
+        if (keepSet.has(g.index)) {
+          flushSkip();
+          run.push(g.code);
+        } else {
+          flushRun();
+          skip += g.advance;
+        }
       }
       flushRun();
       flushSkip();
       doomedOps.set(show.opIndex, { op: "TJ", args: [{ t: "arr", v: items }] });
     }
 
-    if (!removedAny) { report.skipped++; continue; }
+    if (!removedAny) {
+      report.skipped++;
+      continue;
+    }
     if (edit.deleted || !edit.text.trim()) continue;
 
     // --- re-emit the new text ------------------------------------------------
@@ -208,19 +251,26 @@ export async function applyTextEdits(
       const ops2: Op[] = [
         { op: "q", args: [] },
         { op: "BT", args: [] },
-        { op: "Tf", args: [{ t: "name", v: resource! }, { t: "num", v: round(size, 3) }] },
+        {
+          op: "Tf",
+          args: [
+            { t: "name", v: resource! },
+            { t: "num", v: round(size, 3) },
+          ],
+        },
         { op: "rg", args: rgbOperands(colour) },
       ];
       let ok = true;
       lines.forEach((line, i) => {
         if (!ok) return;
         const bytes = line ? font.encode(line) : new Uint8Array(0);
-        if (bytes === null) { ok = false; return; }
+        if (bytes === null) {
+          ok = false;
+          return;
+        }
         const w = measureNative(font, line, size) ?? 0;
         const x =
-          edit.align === "center" ? box.x + (box.w - w) / 2
-            : edit.align === "right" ? box.x + box.w - w
-              : box.x;
+          edit.align === "center" ? box.x + (box.w - w) / 2 : edit.align === "right" ? box.x + box.w - w : box.x;
         const y = startY - i * leading;
         ops2.push({ op: "Tm", args: [1, 0, 0, 1, round(x, 3), round(y, 3)].map((v) => ({ t: "num", v }) as Operand) });
         if (bytes.length) ops2.push({ op: "Tj", args: [{ t: "hex", v: bytes }] });
@@ -265,8 +315,10 @@ export async function applyTextEdits(
         if (!line) return;
         const w = measure(font, line, f.size);
         const x =
-          f.edit.align === "center" ? f.box.x + (f.box.w - w) / 2
-            : f.edit.align === "right" ? f.box.x + f.box.w - w
+          f.edit.align === "center"
+            ? f.box.x + (f.box.w - w) / 2
+            : f.edit.align === "right"
+              ? f.box.x + f.box.w - w
               : f.box.x;
         painter.text(font, f.size, { x, y: f.box.y + f.box.h - f.size * 0.84 - i * leading }, line);
       });
@@ -283,7 +335,10 @@ export async function applyTextEdits(
 }
 
 function rgbHex(c: { r: number; g: number; b: number }): string {
-  const h = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0");
+  const h = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v * 255)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${h(c.r)}${h(c.g)}${h(c.b)}`;
 }
 

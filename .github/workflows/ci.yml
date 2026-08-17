@@ -101,7 +101,9 @@ jobs:
     runs-on: ubuntu-latest
     # Intégration lourde (Postgres embarqué + Fastify réel) : fragile selon l'environnement
     # du runner (dépendances système du binaire Postgres) et NE conditionne pas les releases
-    # -> non bloquant. Passe 101/101 en local.
+    # -> non bloquant. 136/136 vérifications en ~65s en local (vérifié 2026-08-17) ; ce
+    # commentaire dérive facilement du code (le fichier grossit à chaque fonctionnalité) —
+    # ne t'y fie pas pour juger de l'état réel, relance `npm run test:e2e` dans web-studio/.
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4

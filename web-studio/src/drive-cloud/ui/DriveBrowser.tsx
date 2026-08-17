@@ -634,7 +634,7 @@ export default function DriveBrowser() {
     >
       {/* --- breadcrumbs + creation ------------------------------------- */}
       <div className="dcx-bar">
-        <nav className="dcx-crumbs">
+        <nav className="dcx-crumbs" aria-label="Fil d'Ariane">
           <button
             className={`dcx-crumb ${dropTarget === "__root" ? "is-drop" : ""}`}
             onClick={() => {
@@ -769,6 +769,7 @@ export default function DriveBrowser() {
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value as SortKey)}
           title="Trier par"
+          aria-label="Trier par"
         >
           {SORT_LABELS.map((s) => (
             <option key={s.id} value={s.id}>

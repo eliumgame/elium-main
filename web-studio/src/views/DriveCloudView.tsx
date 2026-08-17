@@ -22,6 +22,9 @@ import {
   ShieldCheck,
   Fingerprint,
   LifeBuoy,
+  X,
+  Circle,
+  CheckCircle2,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
 import { DriveProvider, useDrive } from "../drive-cloud/session";
@@ -164,6 +167,93 @@ function OrgSwitcher() {
   );
 }
 
+const ONBOARDING_ITEMS: { key: string; label: string; tab: Tab }[] = [
+  { key: "folder", label: "Créer un dossier", tab: "files" },
+  { key: "invite", label: "Inviter un membre", tab: "members" },
+  { key: "share", label: "Partager un élément", tab: "files" },
+  { key: "mfa", label: "Activer la vérification en deux étapes", tab: "security" },
+  { key: "audit", label: "Consulter le journal d'audit", tab: "audit" },
+];
+
+/**
+ * Checklist courte affichée après la création d'une organisation : le Drive
+ * expose beaucoup d'administration d'un coup (rôles, SSO, recouvrement...),
+ * ce qui peut noyer les 5 premiers gestes qui comptent vraiment. Basée sur du
+ * localStorage (pas d'état serveur) : un simple repère pour l'utilisateur, pas
+ * une piste d'audit — cocher une étape ne fait qu'y naviguer, ça ne vérifie
+ * pas qu'elle a été réellement accomplie.
+ */
+function OnboardingChecklist({ orgId, onNavigate }: { orgId: string; onNavigate: (tab: Tab) => void }) {
+  const dismissKey = `elium-drive-onboarding-dismissed-${orgId}`;
+  const doneKey = `elium-drive-onboarding-done-${orgId}`;
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(dismissKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [done, setDone] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(doneKey) ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  if (dismissed) return null;
+  const doneCount = ONBOARDING_ITEMS.filter((i) => done[i.key]).length;
+  const allDone = doneCount === ONBOARDING_ITEMS.length;
+
+  return (
+    <div className="dc-onboarding" role="region" aria-label="Premiers pas">
+      <div className="dc-onboarding__head">
+        <span className="dc-onboarding__title">
+          Premiers pas ({doneCount}/{ONBOARDING_ITEMS.length})
+        </span>
+        <button
+          className="icon-btn"
+          aria-label="Masquer la checklist de premiers pas"
+          onClick={() => {
+            setDismissed(true);
+            try {
+              localStorage.setItem(dismissKey, "1");
+            } catch {
+              /* stockage indisponible (navigation privée) — pas bloquant */
+            }
+          }}
+        >
+          <X size={14} />
+        </button>
+      </div>
+      {!allDone && (
+        <ul className="dc-onboarding__list">
+          {ONBOARDING_ITEMS.map((item) => (
+            <li key={item.key}>
+              <button
+                className={`dc-onboarding__item ${done[item.key] ? "is-done" : ""}`}
+                onClick={() => {
+                  const next = { ...done, [item.key]: true };
+                  setDone(next);
+                  try {
+                    localStorage.setItem(doneKey, JSON.stringify(next));
+                  } catch {
+                    /* stockage indisponible — la checklist reste utilisable, juste pas persistée */
+                  }
+                  onNavigate(item.tab);
+                }}
+              >
+                {done[item.key] ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Workspace({ onHome }: { onHome: () => void }) {
   const d = useDrive();
   const [tab, setTab] = useState<Tab>("files");
@@ -190,7 +280,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
           </div>
         )}
         {hasOrg && (
-          <nav className="dc-nav">
+          <nav className="dc-nav" aria-label="Sections du Drive">
             {nav.map((n) => (
               <button
                 key={n.key}
@@ -232,6 +322,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
               </div>
             </header>
             <main className={`dc-main ${tab === "files" ? "dc-main--files" : ""}`}>
+              {tab === "files" && d.currentOrg && <OnboardingChecklist orgId={d.currentOrg.id} onNavigate={setTab} />}
               {tab === "files" && <DriveBrowser />}
               {tab === "members" && <MembersPanel />}
               {tab === "groups" && <GroupsPanel />}

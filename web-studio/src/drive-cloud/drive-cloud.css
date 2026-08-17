@@ -564,6 +564,55 @@
   padding: 16px;
 }
 
+/* Checklist "Premiers pas" (post-création d'organisation) */
+.dc-onboarding {
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: var(--primary-50);
+  border: 1px solid var(--primary-100);
+  border-radius: var(--r-sm, 8px);
+}
+.dc-onboarding__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dc-onboarding__title {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.dc-onboarding__list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dc-onboarding__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dc-onboarding__item:hover {
+  border-color: var(--border-strong);
+}
+.dc-onboarding__item.is-done {
+  color: var(--text-muted);
+  border-color: transparent;
+  background: transparent;
+  text-decoration: line-through;
+}
+
 /* Empty create-org hero */
 .dc-hero-empty {
   flex: 1;

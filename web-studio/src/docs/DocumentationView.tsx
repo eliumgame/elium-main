@@ -72,7 +72,9 @@ function parseMarkdown(md: string): Parsed {
   const blocks: ReactNode[] = [];
   const toc: TocItem[] = [];
   let i = 0,
-    k = 0;
+    k = 0,
+    codeBlockCount = 0,
+    tableCount = 0;
   const key = () => `b${k++}`;
   // Une ligne (sans son indentation) démarre-t-elle un nouveau bloc ?
   const isBlockStart = (l: string) => {
@@ -120,8 +122,15 @@ function parseMarkdown(md: string): Parsed {
         i++;
       }
       i++; // ferme la fence
+      codeBlockCount++;
       blocks.push(
-        <pre key={key()} className="doc-pre">
+        <pre
+          key={key()}
+          className="doc-pre"
+          tabIndex={0}
+          role="region"
+          aria-label={`Exemple de code ${codeBlockCount}${lang ? ` (${lang})` : ""}`}
+        >
           <code data-lang={lang}>{buf.join("\n")}</code>
         </pre>,
       );
@@ -148,8 +157,9 @@ function parseMarkdown(md: string): Parsed {
         rows.push(cells(lines[i]!));
         i++;
       }
+      tableCount++;
       blocks.push(
-        <div key={key()} className="doc-tablewrap">
+        <div key={key()} className="doc-tablewrap" tabIndex={0} role="region" aria-label={`Tableau ${tableCount}`}>
           <table className="doc-table">
             <thead>
               <tr>

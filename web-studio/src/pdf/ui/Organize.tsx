@@ -139,7 +139,7 @@ export default function Organize(p: OrganizeProps) {
 
   return (
     <div className="pdfx-org">
-      <header className="pdfx-org__bar">
+      <div className="pdfx-org__bar" role="region" aria-label="Organiser les pages">
         <span className="pdfx-org__title">Organiser les pages</span>
         <span className="pdfx-org__count">
           {p.selected.length
@@ -226,10 +226,12 @@ export default function Organize(p: OrganizeProps) {
         <button className="eb eb--sm eb--primary" onClick={p.onClose}>
           <X size={14} /> Terminer
         </button>
-      </header>
+      </div>
 
       <div
         className="pdfx-org__grid"
+        role="region"
+        aria-label="Pages du document"
         onClick={(e) => {
           if (e.target === e.currentTarget) p.onSelect([]);
         }}
@@ -303,10 +305,10 @@ export default function Organize(p: OrganizeProps) {
         </button>
       </div>
 
-      <footer className="pdfx-org__foot">
+      <div className="pdfx-org__foot" role="region" aria-label="Astuce">
         <Move size={13} /> Glissez pour réorganiser · Maj-clic pour une plage · Ctrl-clic pour ajouter à la sélection ·
         Suppr pour retirer
-      </footer>
+      </div>
     </div>
   );
 }

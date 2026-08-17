@@ -24,9 +24,9 @@ export default function SignaturesPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Key size={15} /> Identité Ed25519
-        </h3>
+        </h2>
         {identity ? (
           <div className="id-box">
             <div className="id-box__head">
@@ -50,9 +50,9 @@ export default function SignaturesPanel({ studio }: { studio: Studio }) {
 
       <section className="panel-section">
         <div className="panel-title-row">
-          <h3 className="panel-title">
+          <h2 className="panel-title">
             <PenLine size={15} /> Signatures · {file.signatures.length}
-          </h3>
+          </h2>
           {editable && (
             <Button size="sm" onClick={() => studio.openSignatureCreator()}>
               Créer

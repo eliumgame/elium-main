@@ -526,7 +526,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   return (
     <div className={`slides-app ${chrome.variant === "modal" ? "slides-app--modal" : ""}`}>
       {/* Top bar */}
-      <div className="sheet-bar">
+      <div className="sheet-bar" role="region" aria-label="Barre de titre des présentations">
         {chrome.onHome && (
           <button className="eb eb--sm eb--ghost" onClick={chrome.onHome}>
             <Home size={16} /> Accueil
@@ -552,6 +552,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <select
               className="tool-select"
               title="Thème"
+              aria-label="Thème"
               value={theme}
               onChange={(e) => store.setDeckField({ theme: e.target.value as SlideTheme })}
             >
@@ -564,6 +565,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <select
               className="tool-select"
               title="Transition"
+              aria-label="Transition"
               value={deck.transition ?? "fade"}
               onChange={(e) => store.setDeckField({ transition: e.target.value as SlideTransition })}
             >
@@ -593,7 +595,11 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                       <button key={c} className="sv-swatch" style={{ background: c }} onClick={() => applyBg(c)} />
                     ))}
                     <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
-                      <input type="color" onChange={(e) => applyBg(e.target.value)} />
+                      <input
+                        type="color"
+                        aria-label="Couleur personnalisée"
+                        onChange={(e) => applyBg(e.target.value)}
+                      />
                     </label>
                   </div>
                   <div className="sv-bg-label">Dégradé</div>
@@ -608,14 +614,27 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     ))}
                   </div>
                   <div className="sv-bg-grad">
-                    <input type="color" title="Couleur 1" value={bgC1} onChange={(e) => setBgC1(e.target.value)} />
-                    <input type="color" title="Couleur 2" value={bgC2} onChange={(e) => setBgC2(e.target.value)} />
+                    <input
+                      type="color"
+                      title="Couleur 1"
+                      aria-label="Couleur 1"
+                      value={bgC1}
+                      onChange={(e) => setBgC1(e.target.value)}
+                    />
+                    <input
+                      type="color"
+                      title="Couleur 2"
+                      aria-label="Couleur 2"
+                      value={bgC2}
+                      onChange={(e) => setBgC2(e.target.value)}
+                    />
                     <input
                       className="input sv-num"
                       type="number"
                       min={0}
                       max={360}
                       title="Angle"
+                      aria-label="Angle du dégradé"
                       value={bgAngle}
                       onChange={(e) => setBgAngle(Number(e.target.value))}
                     />
@@ -733,6 +752,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <select
                 className="tool-select"
                 title="Police"
+                aria-label="Police"
                 value={sel!.fontFamily ?? DEFAULT_FONT}
                 onChange={(e) => store.updateEl(sel!.id, { fontFamily: e.target.value })}
                 style={{ maxWidth: 130 }}
@@ -749,6 +769,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 min={6}
                 max={200}
                 title="Taille"
+                aria-label="Taille de police"
                 value={Math.round(sel!.fontSize ?? 24)}
                 onChange={(e) => store.updateEl(sel!.id, { fontSize: Number(e.target.value) })}
               />
@@ -868,6 +889,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 min={0}
                 max={20}
                 title="Épaisseur"
+                aria-label="Épaisseur du trait"
                 value={sel!.strokeWidth ?? 2}
                 onChange={(e) => store.updateEl(sel!.id, { strokeWidth: Number(e.target.value) })}
               />

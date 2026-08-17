@@ -11,9 +11,9 @@ export default function TrackingPanel({ studio }: { studio: Studio }) {
     <div className="panel">
       <section className="panel-section">
         <div className="panel-title-row">
-          <h3 className="panel-title">
+          <h2 className="panel-title">
             <History size={15} /> Journal de suivi
-          </h3>
+          </h2>
           {journalVerdict && events.length > 0 && (
             <Badge accent={journalVerdict.valid ? "success" : "danger"}>
               {journalVerdict.valid ? (

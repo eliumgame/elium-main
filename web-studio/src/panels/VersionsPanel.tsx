@@ -129,9 +129,9 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
   return (
     <div className="panel-section">
       <div className="panel-title-row">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Clock size={16} /> Historique de versions
-        </h3>
+        </h2>
         {studio.editable && (
           <Button size="sm" variant="outline" onClick={onSnapshot} disabled={busy}>
             <Save size={14} /> Enregistrer

@@ -6,7 +6,7 @@ export default function ExportPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title">Enregistrer</h3>
+        <h2 className="panel-title">Enregistrer</h2>
         <Button className="export-btn" onClick={() => studio.save()} disabled={studio.busy}>
           <Save size={16} /> Enregistrer le document .elium
         </Button>
@@ -14,7 +14,7 @@ export default function ExportPanel({ studio }: { studio: Studio }) {
       </section>
 
       <section className="panel-section">
-        <h3 className="panel-title">Exporter</h3>
+        <h2 className="panel-title">Exporter</h2>
         <div className="export-list">
           <Button variant="outline" className="export-btn" onClick={() => studio.exportAs("pdf")}>
             <FileType2 size={16} /> PDF (impression)

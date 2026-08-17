@@ -489,7 +489,12 @@ export default function Toolbar({
     editor.chain().focus().insertMergeField(field.trim()).run();
   }, [editor, prompt]);
 
-  if (!editor) return <div className="elx-ribbon elx-ribbon--loading" />;
+  if (!editor)
+    return (
+      <div role="region" aria-label="Barre d'outils de mise en forme">
+        <div className="elx-ribbon elx-ribbon--loading" />
+      </div>
+    );
 
   // Which named style is in force where the cursor sits? The `styleId` attribute
   // is authoritative; a bare heading with no style falls back to its level's
@@ -542,1418 +547,1436 @@ export default function Toolbar({
   };
 
   return (
-    <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
-      <div className="elx-tabs" role="tablist">
-        {/* En collaboration, le publipostage n'a pas de sens (il fabrique un
+    <div role="region" aria-label="Barre d'outils de mise en forme">
+      <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
+        <div className="elx-tabs" role="tablist">
+          {/* En collaboration, le publipostage n'a pas de sens (il fabrique un
             nouveau document local depuis une source de données) : l'onglet
             disparaît plutôt que d'exposer une commande sans effet. */}
-        {TABS.filter((t) => !(collab && t.id === "merge")).map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`elx-tab ${tab === t.id ? "is-active" : ""}`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+          {TABS.filter((t) => !(collab && t.id === "merge")).map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`elx-tab ${tab === t.id ? "is-active" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-      {/* Le ruban défile quand il ne tient pas ; les chevrons et les dégradés
+        {/* Le ruban défile quand il ne tient pas ; les chevrons et les dégradés
           disent de quel côté il reste des commandes — sans eux, la moitié de
           l'onglet Accueil était invisible sans aucun indice. */}
-      <div className={`elx-ribbon__scroller${edges.left ? " has-left" : ""}${edges.right ? " has-right" : ""}`}>
-        {edges.left && (
-          <button
-            type="button"
-            className="elx-ribbon__nudge elx-ribbon__nudge--left"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => nudge(-1)}
-            title="Commandes précédentes"
-            aria-label="Commandes précédentes"
-          >
-            <ChevronLeft size={15} />
-          </button>
-        )}
-        {edges.right && (
-          <button
-            type="button"
-            className="elx-ribbon__nudge elx-ribbon__nudge--right"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => nudge(1)}
-            title="Commandes suivantes"
-            aria-label="Commandes suivantes"
-          >
-            <ChevronRight size={15} />
-          </button>
-        )}
-        <div className="elx-ribbon__body" ref={ribbonRef}>
-          <Group title="Édition">
-            <Cmd
-              title="Annuler (Ctrl+Z)"
-              onClick={() => editor.chain().focus().undo().run()}
-              disabled={!editor.can().undo()}
+        <div className={`elx-ribbon__scroller${edges.left ? " has-left" : ""}${edges.right ? " has-right" : ""}`}>
+          {edges.left && (
+            <button
+              type="button"
+              className="elx-ribbon__nudge elx-ribbon__nudge--left"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => nudge(-1)}
+              title="Commandes précédentes"
+              aria-label="Commandes précédentes"
             >
-              <Undo2 size={17} />
-            </Cmd>
-            <Cmd
-              title="Rétablir (Ctrl+Y)"
-              onClick={() => editor.chain().focus().redo().run()}
-              disabled={!editor.can().redo()}
+              <ChevronLeft size={15} />
+            </button>
+          )}
+          {edges.right && (
+            <button
+              type="button"
+              className="elx-ribbon__nudge elx-ribbon__nudge--right"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => nudge(1)}
+              title="Commandes suivantes"
+              aria-label="Commandes suivantes"
             >
-              <Redo2 size={17} />
-            </Cmd>
-          </Group>
+              <ChevronRight size={15} />
+            </button>
+          )}
+          <div className="elx-ribbon__body" ref={ribbonRef}>
+            <Group title="Édition">
+              <Cmd
+                title="Annuler (Ctrl+Z)"
+                onClick={() => editor.chain().focus().undo().run()}
+                disabled={!editor.can().undo()}
+              >
+                <Undo2 size={17} />
+              </Cmd>
+              <Cmd
+                title="Rétablir (Ctrl+Y)"
+                onClick={() => editor.chain().focus().redo().run()}
+                disabled={!editor.can().redo()}
+              >
+                <Redo2 size={17} />
+              </Cmd>
+            </Group>
 
-          {tab === "home" && (
-            <>
-              <Group title="Police">
-                <select
-                  key={`ff-${fontTick}`}
-                  className="elx-select elx-select--font"
-                  title="Police"
-                  value={editor.getAttributes("textStyle").fontFamily ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) editor.chain().focus().setFontFamily(v).run();
-                    else editor.chain().focus().unsetFontFamily().run();
-                  }}
-                >
-                  {FONT_FAMILIES.map((f) => (
-                    <option key={f.label} value={f.value}>
-                      {f.label}
-                    </option>
-                  ))}
-                  {customFontNames().map((n) => (
-                    <option key={n} value={fontCss(n)}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                <Cmd
-                  title="Importer une police (.ttf, .otf, .woff, .woff2)"
-                  onClick={() => fontInputRef.current?.click()}
-                >
-                  <Type size={16} />
-                </Cmd>
-                <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} hidden onChange={importFont} />
-                <select
-                  className="elx-select elx-select--size"
-                  title="Taille"
-                  value={editor.getAttributes("textStyle").fontSize ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) editor.chain().focus().setFontSize(v).run();
-                    else editor.chain().focus().unsetFontSize().run();
-                  }}
-                >
-                  <option value="">Taille</option>
-                  {FONT_SIZES.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replace("px", "")}
-                    </option>
-                  ))}
-                </select>
-              </Group>
+            {tab === "home" && (
+              <>
+                <Group title="Police">
+                  <select
+                    key={`ff-${fontTick}`}
+                    className="elx-select elx-select--font"
+                    title="Police"
+                    aria-label="Police"
+                    value={editor.getAttributes("textStyle").fontFamily ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) editor.chain().focus().setFontFamily(v).run();
+                      else editor.chain().focus().unsetFontFamily().run();
+                    }}
+                  >
+                    {FONT_FAMILIES.map((f) => (
+                      <option key={f.label} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                    {customFontNames().map((n) => (
+                      <option key={n} value={fontCss(n)}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  <Cmd
+                    title="Importer une police (.ttf, .otf, .woff, .woff2)"
+                    onClick={() => fontInputRef.current?.click()}
+                  >
+                    <Type size={16} />
+                  </Cmd>
+                  <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} hidden onChange={importFont} />
+                  <select
+                    className="elx-select elx-select--size"
+                    title="Taille"
+                    aria-label="Taille de police"
+                    value={editor.getAttributes("textStyle").fontSize ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) editor.chain().focus().setFontSize(v).run();
+                      else editor.chain().focus().unsetFontSize().run();
+                    }}
+                  >
+                    <option value="">Taille</option>
+                    {FONT_SIZES.map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace("px", "")}
+                      </option>
+                    ))}
+                  </select>
+                </Group>
 
-              <Group title="Caractère" dense>
-                <Cmd
-                  title="Gras (Ctrl+B)"
-                  active={editor.isActive("bold")}
-                  onClick={() => editor.chain().focus().toggleBold().run()}
-                >
-                  <Bold size={17} />
-                </Cmd>
-                <Cmd
-                  title="Italique (Ctrl+I)"
-                  active={editor.isActive("italic")}
-                  onClick={() => editor.chain().focus().toggleItalic().run()}
-                >
-                  <Italic size={17} />
-                </Cmd>
-                <Cmd
-                  title="Souligné (Ctrl+U)"
-                  active={editor.isActive("underline")}
-                  onClick={() => editor.chain().focus().toggleUnderline().run()}
-                >
-                  <Underline size={17} />
-                </Cmd>
-                <Cmd
-                  title="Barré"
-                  active={editor.isActive("strike")}
-                  onClick={() => editor.chain().focus().toggleStrike().run()}
-                >
-                  <Strikethrough size={17} />
-                </Cmd>
-                <Cmd
-                  title="Surlignage"
-                  active={editor.isActive("highlight")}
-                  onClick={() => editor.chain().focus().toggleHighlight().run()}
-                >
-                  <Highlighter size={17} />
-                </Cmd>
-                <Cmd
-                  title="Exposant (Ctrl+Maj+=)"
-                  active={editor.isActive("superscript")}
-                  onClick={() => editor.chain().focus().toggleSuperscript().run()}
-                >
-                  <Superscript size={17} />
-                </Cmd>
-                <Cmd
-                  title="Indice (Ctrl+=)"
-                  active={editor.isActive("subscript")}
-                  onClick={() => editor.chain().focus().toggleSubscript().run()}
-                >
-                  <SubscriptIcon size={17} />
-                </Cmd>
-                <Cmd
-                  title="Agrandir la police (Ctrl+Maj+>)"
-                  onClick={() => editor.chain().focus().growFontSize().run()}
-                >
-                  <ChevronUp size={17} />
-                </Cmd>
-                <Cmd
-                  title="Réduire la police (Ctrl+Maj+<)"
-                  onClick={() => editor.chain().focus().shrinkFontSize().run()}
-                >
-                  <ChevronDown size={17} />
-                </Cmd>
-                <Dropdown title="Modifier la casse" icon={<CaseSensitive size={17} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Modifier la casse</div>
-                      {(["sentence", "lower", "upper", "title", "toggle"] as const).map((mode) => (
+                <Group title="Caractère" dense>
+                  <Cmd
+                    title="Gras (Ctrl+B)"
+                    active={editor.isActive("bold")}
+                    onClick={() => editor.chain().focus().toggleBold().run()}
+                  >
+                    <Bold size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Italique (Ctrl+I)"
+                    active={editor.isActive("italic")}
+                    onClick={() => editor.chain().focus().toggleItalic().run()}
+                  >
+                    <Italic size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Souligné (Ctrl+U)"
+                    active={editor.isActive("underline")}
+                    onClick={() => editor.chain().focus().toggleUnderline().run()}
+                  >
+                    <Underline size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Barré"
+                    active={editor.isActive("strike")}
+                    onClick={() => editor.chain().focus().toggleStrike().run()}
+                  >
+                    <Strikethrough size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Surlignage"
+                    active={editor.isActive("highlight")}
+                    onClick={() => editor.chain().focus().toggleHighlight().run()}
+                  >
+                    <Highlighter size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Exposant (Ctrl+Maj+=)"
+                    active={editor.isActive("superscript")}
+                    onClick={() => editor.chain().focus().toggleSuperscript().run()}
+                  >
+                    <Superscript size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Indice (Ctrl+=)"
+                    active={editor.isActive("subscript")}
+                    onClick={() => editor.chain().focus().toggleSubscript().run()}
+                  >
+                    <SubscriptIcon size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Agrandir la police (Ctrl+Maj+>)"
+                    onClick={() => editor.chain().focus().growFontSize().run()}
+                  >
+                    <ChevronUp size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Réduire la police (Ctrl+Maj+<)"
+                    onClick={() => editor.chain().focus().shrinkFontSize().run()}
+                  >
+                    <ChevronDown size={17} />
+                  </Cmd>
+                  <Dropdown title="Modifier la casse" icon={<CaseSensitive size={17} />}>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Modifier la casse</div>
+                        {(["sentence", "lower", "upper", "title", "toggle"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className="elx-menu__item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor.chain().focus().changeCase(mode).run();
+                              close();
+                            }}
+                          >
+                            {CASE_LABELS[mode]}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </Dropdown>
+                  <Cmd
+                    title="Effacer la mise en forme (Ctrl+Espace)"
+                    disabled={editor.state.selection.empty}
+                    onClick={() => editor.chain().focus().clearCharFormatting().run()}
+                  >
+                    <RemoveFormatting size={17} />
+                  </Cmd>
+                  <Cmd title="Police… (toutes les options de caractère)" onClick={() => onOpenFont?.()}>
+                    <Palette size={17} />
+                  </Cmd>
+                  <label className="elx-colorbtn" title="Couleur du texte">
+                    <input
+                      type="color"
+                      value={(editor.getAttributes("textStyle").color as string) ?? "#1f2937"}
+                      onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+                    />
+                  </label>
+                </Group>
+
+                <Group title="Styles">
+                  {/* Word's Quick Style gallery: every entry previews itself. */}
+                  <Dropdown title="Galerie de styles" icon={<Type size={17} />} label="Styles" big>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Styles rapides</div>
+                        {quickStyles.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={`elx-menu__item ${currentStyleId === s.id ? "is-active" : ""}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor.chain().focus().applyNamedStyle(s.id).run();
+                              close();
+                            }}
+                            title={s.kind === "character" ? "Style de caractère" : "Style de paragraphe"}
+                          >
+                            <span className="elx-stylesample">
+                              <span style={{ all: "unset", ...styleSampleCss(s.id) }}>{s.name}</span>
+                            </span>
+                          </button>
+                        ))}
+                        <div className="elx-menu__sep" />
                         <button
-                          key={mode}
                           type="button"
                           className="elx-menu__item"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => {
-                            editor.chain().focus().changeCase(mode).run();
+                            onOpenStyles?.();
                             close();
                           }}
                         >
-                          {CASE_LABELS[mode]}
+                          Gérer les styles…
                         </button>
-                      ))}
-                    </>
-                  )}
-                </Dropdown>
-                <Cmd
-                  title="Effacer la mise en forme (Ctrl+Espace)"
-                  disabled={editor.state.selection.empty}
-                  onClick={() => editor.chain().focus().clearCharFormatting().run()}
-                >
-                  <RemoveFormatting size={17} />
-                </Cmd>
-                <Cmd title="Police… (toutes les options de caractère)" onClick={() => onOpenFont?.()}>
-                  <Palette size={17} />
-                </Cmd>
-                <label className="elx-colorbtn" title="Couleur du texte">
-                  <input
-                    type="color"
-                    value={(editor.getAttributes("textStyle").color as string) ?? "#1f2937"}
-                    onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-                  />
-                </label>
-              </Group>
+                      </>
+                    )}
+                  </Dropdown>
+                  <Cmd
+                    title="Citation"
+                    active={editor.isActive("blockquote")}
+                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                  >
+                    <Quote size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Titre 1"
+                    active={editor.isActive("heading", { level: 1 })}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                  >
+                    <Heading1 size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Titre 2"
+                    active={editor.isActive("heading", { level: 2 })}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                  >
+                    <Heading2 size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Titre 3"
+                    active={editor.isActive("heading", { level: 3 })}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                  >
+                    <Heading3 size={17} />
+                  </Cmd>
+                </Group>
 
-              <Group title="Styles">
-                {/* Word's Quick Style gallery: every entry previews itself. */}
-                <Dropdown title="Galerie de styles" icon={<Type size={17} />} label="Styles" big>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Styles rapides</div>
-                      {quickStyles.map((s) => (
+                <Group title="Paragraphe" dense>
+                  <Cmd
+                    title="Liste à puces"
+                    active={editor.isActive("bulletList")}
+                    onClick={() => editor.chain().focus().toggleBulletList().run()}
+                  >
+                    <List size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Liste numérotée"
+                    active={editor.isActive("orderedList")}
+                    onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                  >
+                    <ListOrdered size={17} />
+                  </Cmd>
+                  <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />}>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Bibliothèque de listes</div>
+                        {LIST_SCHEMES.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={`elx-menu__item ${currentListScheme === s.id ? "is-active" : ""}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor.chain().focus().setListScheme(s.id).run();
+                              close();
+                            }}
+                          >
+                            <span className="elx-listprev" aria-hidden="true">
+                              {s.preview.map((p, i) => (
+                                <span key={i}>{p} texte</span>
+                              ))}
+                            </span>
+                            <span>{s.label}</span>
+                          </button>
+                        ))}
+                        <div className="elx-menu__sep" />
                         <button
-                          key={s.id}
                           type="button"
-                          className={`elx-menu__item ${currentStyleId === s.id ? "is-active" : ""}`}
+                          className={`elx-menu__item ${!currentListScheme ? "is-active" : ""}`}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => {
-                            editor.chain().focus().applyNamedStyle(s.id).run();
+                            editor.chain().focus().setListScheme(null).run();
                             close();
                           }}
-                          title={s.kind === "character" ? "Style de caractère" : "Style de paragraphe"}
                         >
-                          <span className="elx-stylesample">
-                            <span style={{ all: "unset", ...styleSampleCss(s.id) }}>{s.name}</span>
-                          </span>
+                          Marqueurs par défaut
                         </button>
-                      ))}
-                      <div className="elx-menu__sep" />
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onOpenStyles?.();
-                          close();
-                        }}
-                      >
-                        Gérer les styles…
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-                <Cmd
-                  title="Citation"
-                  active={editor.isActive("blockquote")}
-                  onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                >
-                  <Quote size={17} />
-                </Cmd>
-                <Cmd
-                  title="Titre 1"
-                  active={editor.isActive("heading", { level: 1 })}
-                  onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                >
-                  <Heading1 size={17} />
-                </Cmd>
-                <Cmd
-                  title="Titre 2"
-                  active={editor.isActive("heading", { level: 2 })}
-                  onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                >
-                  <Heading2 size={17} />
-                </Cmd>
-                <Cmd
-                  title="Titre 3"
-                  active={editor.isActive("heading", { level: 3 })}
-                  onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                >
-                  <Heading3 size={17} />
-                </Cmd>
-              </Group>
+                      </>
+                    )}
+                  </Dropdown>
+                  <Cmd
+                    title="Liste de tâches"
+                    active={editor.isActive("taskList")}
+                    onClick={() => editor.chain().focus().toggleTaskList().run()}
+                  >
+                    <ListChecks size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Citation"
+                    active={editor.isActive("blockquote")}
+                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                  >
+                    <Quote size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Bloc de code"
+                    active={editor.isActive("codeBlock")}
+                    onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                  >
+                    <Code2 size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Paragraphe… (espacement, retraits, enchaînements, bordures)"
+                    onClick={() => onOpenParagraph?.()}
+                  >
+                    <Pilcrow size={17} />
+                  </Cmd>
+                </Group>
 
-              <Group title="Paragraphe" dense>
-                <Cmd
-                  title="Liste à puces"
-                  active={editor.isActive("bulletList")}
-                  onClick={() => editor.chain().focus().toggleBulletList().run()}
-                >
-                  <List size={17} />
-                </Cmd>
-                <Cmd
-                  title="Liste numérotée"
-                  active={editor.isActive("orderedList")}
-                  onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                >
-                  <ListOrdered size={17} />
-                </Cmd>
-                <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Bibliothèque de listes</div>
-                      {LIST_SCHEMES.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          className={`elx-menu__item ${currentListScheme === s.id ? "is-active" : ""}`}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            editor.chain().focus().setListScheme(s.id).run();
-                            close();
-                          }}
-                        >
-                          <span className="elx-listprev" aria-hidden="true">
-                            {s.preview.map((p, i) => (
-                              <span key={i}>{p} texte</span>
+                <Group title="Alignement" dense>
+                  <Cmd
+                    title="Aligner à gauche"
+                    active={editor.isActive({ textAlign: "left" })}
+                    onClick={() => editor.chain().focus().setTextAlign("left").run()}
+                  >
+                    <AlignLeft size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Centrer"
+                    active={editor.isActive({ textAlign: "center" })}
+                    onClick={() => editor.chain().focus().setTextAlign("center").run()}
+                  >
+                    <AlignCenter size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Aligner à droite"
+                    active={editor.isActive({ textAlign: "right" })}
+                    onClick={() => editor.chain().focus().setTextAlign("right").run()}
+                  >
+                    <AlignRight size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Justifier"
+                    active={editor.isActive({ textAlign: "justify" })}
+                    onClick={() => editor.chain().focus().setTextAlign("justify").run()}
+                  >
+                    <AlignJustify size={17} />
+                  </Cmd>
+                  <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}>
+                    <Outdent size={17} />
+                  </Cmd>
+                  <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}>
+                    <Indent size={17} />
+                  </Cmd>
+                  <select
+                    className="elx-select elx-select--size"
+                    title="Interligne"
+                    aria-label="Interligne"
+                    value={editor.getAttributes("paragraph").lineHeight ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v) editor.chain().focus().setLineHeight(v).run();
+                      else editor.chain().focus().unsetLineHeight().run();
+                    }}
+                  >
+                    <option value="">Interligne</option>
+                    {LINE_HEIGHTS.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </Group>
+
+                <Group title="Rechercher">
+                  <Cmd title="Rechercher et remplacer (Ctrl+F)" onClick={() => onToggleFind?.()}>
+                    <Search size={17} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+
+            {tab === "insert" && (
+              <>
+                <Group title="Illustrations">
+                  <Cmd big label="Image" title="Insérer une image" onClick={onInsertImage}>
+                    <ImageIcon size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Tableau"
+                    title="Insérer un tableau 3×3"
+                    onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+                  >
+                    <TableIcon size={19} />
+                  </Cmd>
+                  {/* La galerie complète : lignes, rectangles, formes de base, flèches,
+                  organigramme, étoiles et bulles — chaque vignette est le vrai tracé. */}
+                  <Dropdown big label="Formes" title="Insérer une forme" icon={<Shapes size={19} />} align="left">
+                    {(close) => (
+                      <ShapeGallery
+                        onPick={(kind) => editor.chain().focus().insertShape({ kind }).run()}
+                        onClose={close}
+                      />
+                    )}
+                  </Dropdown>
+                </Group>
+                <Group title="Liens">
+                  <Cmd title="Lien" active={editor.isActive("link")} onClick={setLink}>
+                    <Link2 size={17} />
+                  </Cmd>
+                  <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}>
+                    <BookmarkIcon size={17} />
+                  </Cmd>
+                </Group>
+                <Group title="Éléments">
+                  <Cmd title="Séparateur" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
+                    <Minus size={17} />
+                  </Cmd>
+                  <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}>
+                    <SeparatorHorizontal size={17} />
+                  </Cmd>
+                  <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}>
+                    <ListTree size={17} />
+                  </Cmd>
+                  <Cmd title="Note de bas de page" onClick={addFootnote}>
+                    <Superscript size={17} />
+                  </Cmd>
+                  <Cmd title="Note de fin" onClick={addEndnote}>
+                    <StickyNote size={17} />
+                  </Cmd>
+                  <Cmd title="Insérer un symbole" onClick={() => onOpenSymbol?.()}>
+                    <Sigma size={17} />
+                  </Cmd>
+                </Group>
+                <Group title="Ornements">
+                  <Dropdown
+                    big
+                    label="Lettrine"
+                    title="Lettrine (première lettre agrandie)"
+                    icon={<Baseline size={19} />}
+                  >
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Lettrine</div>
+                        {(
+                          [
+                            ["drop", "Dans le texte"],
+                            ["margin", "Dans la marge"],
+                          ] as const
+                        ).map(([k, label]) => (
+                          <div key={k} className="elx-menu__group">
+                            <div className="elx-menu__sub">{label}</div>
+                            {[2, 3, 4, 5].map((n) => (
+                              <button
+                                key={`${k}${n}`}
+                                type="button"
+                                className="elx-menu__item"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  editor.chain().focus().setDropCap(k, n).run();
+                                  close();
+                                }}
+                              >
+                                {n} lignes
+                              </button>
                             ))}
-                          </span>
-                          <span>{s.label}</span>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            editor.chain().focus().setDropCap("none").run();
+                            close();
+                          }}
+                        >
+                          Aucune lettrine
                         </button>
-                      ))}
-                      <div className="elx-menu__sep" />
-                      <button
-                        type="button"
-                        className={`elx-menu__item ${!currentListScheme ? "is-active" : ""}`}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().setListScheme(null).run();
-                          close();
-                        }}
-                      >
-                        Marqueurs par défaut
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-                <Cmd
-                  title="Liste de tâches"
-                  active={editor.isActive("taskList")}
-                  onClick={() => editor.chain().focus().toggleTaskList().run()}
-                >
-                  <ListChecks size={17} />
-                </Cmd>
-                <Cmd
-                  title="Citation"
-                  active={editor.isActive("blockquote")}
-                  onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                >
-                  <Quote size={17} />
-                </Cmd>
-                <Cmd
-                  title="Bloc de code"
-                  active={editor.isActive("codeBlock")}
-                  onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                >
-                  <Code2 size={17} />
-                </Cmd>
-                <Cmd
-                  title="Paragraphe… (espacement, retraits, enchaînements, bordures)"
-                  onClick={() => onOpenParagraph?.()}
-                >
-                  <Pilcrow size={17} />
-                </Cmd>
-              </Group>
+                      </>
+                    )}
+                  </Dropdown>
+                  <Cmd big label="Filigrane" title="Filigrane du document" onClick={() => onOpenWatermark?.()}>
+                    <Droplets size={19} />
+                  </Cmd>
+                  <Dropdown
+                    big
+                    label="Zone de texte"
+                    title="Insérer une zone de texte flottante"
+                    icon={<Frame size={19} />}
+                  >
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Zone de texte</div>
+                        {(
+                          [
+                            ["square", "Habillage carré (le texte coule autour)"],
+                            ["inline", "Dans le texte"],
+                            ["front", "Devant le texte (libre)"],
+                            ["behind", "Derrière le texte (libre)"],
+                          ] as const
+                        ).map(([wrap, label]) => (
+                          <button
+                            key={wrap}
+                            type="button"
+                            className="elx-menu__item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor.chain().focus().insertTextBox({ wrap }).run();
+                              close();
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </Dropdown>
+                </Group>
+                {!collab && (
+                  <Group title="Signature">
+                    <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}>
+                      <PenLine size={19} />
+                    </Cmd>
+                  </Group>
+                )}
+              </>
+            )}
 
-              <Group title="Alignement" dense>
+            {tab === "references" && (
+              <>
+                <Group title="Table des matières">
+                  <Cmd
+                    big
+                    label="Table des matières"
+                    title="Insérer une table des matières qui se met à jour"
+                    onClick={() => editor.chain().focus().insertTableOfContents().run()}
+                  >
+                    <ListTree size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Numéroter"
+                    title="Numéroter les titres (1. / 1.1 / 1.1.1)"
+                    active={!!numberedHeadings}
+                    onClick={() => onToggleNumberedHeadings?.()}
+                  >
+                    <Hash size={19} />
+                  </Cmd>
+                </Group>
+
+                <Group title="Renvois">
+                  <Cmd
+                    big
+                    label="Renvoi"
+                    title="Insérer un renvoi vers un titre, un signet, une figure, un tableau ou une note"
+                    onClick={() => onOpenCrossRef?.()}
+                  >
+                    <CornerDownRight size={19} />
+                  </Cmd>
+                  <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}>
+                    <BookmarkIcon size={17} />
+                  </Cmd>
+                </Group>
+
+                <Group title="Notes">
+                  <Cmd big label="Note" title="Insérer une note de bas de page" onClick={addFootnote}>
+                    <Superscript size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Note de fin"
+                    title="Insérer une note de fin (numérotation i, ii, iii)"
+                    onClick={addEndnote}
+                  >
+                    <StickyNote size={19} />
+                  </Cmd>
+                  <Dropdown title="Convertir les notes" icon={<ArrowLeftRight size={17} />}>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Convertir les notes</div>
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            editor.chain().focus().convertNotesTo("endnote").run();
+                            close();
+                          }}
+                        >
+                          Notes de bas de page → notes de fin
+                        </button>
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            editor.chain().focus().convertNotesTo("footnote").run();
+                            close();
+                          }}
+                        >
+                          Notes de fin → notes de bas de page
+                        </button>
+                      </>
+                    )}
+                  </Dropdown>
+                </Group>
+
+                <Group title="Légendes">
+                  <Cmd big label="Légende" title="Insérer une légende numérotée" onClick={() => onOpenCaption?.()}>
+                    <Tag size={19} />
+                  </Cmd>
+                  <Dropdown title="Table des illustrations" icon={<GalleryVerticalEnd size={17} />}>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Table des illustrations</div>
+                        {["Figure", "Tableau", "Équation"].map((l) => (
+                          <button
+                            key={l}
+                            type="button"
+                            className="elx-menu__item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor.chain().focus().insertTableOfFigures(l).run();
+                              close();
+                            }}
+                          >
+                            {figureTableTitle(l)}
+                          </button>
+                        ))}
+                        <div className="elx-menu__sep" />
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            editor.chain().focus().insertTableOfFigures("").run();
+                            close();
+                          }}
+                        >
+                          Toutes les légendes
+                        </button>
+                      </>
+                    )}
+                  </Dropdown>
+                </Group>
+
+                <Group title="Index">
+                  <Cmd big label="Marquer" title="Marquer une entrée d'index" onClick={() => onOpenIndexEntry?.()}>
+                    <ScanSearch size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Index"
+                    title="Insérer l'index alphabétique"
+                    onClick={() => editor.chain().focus().insertIndexBlock().run()}
+                  >
+                    <ListTree size={19} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+
+            {tab === "merge" && (
+              <>
+                <Group title="Publipostage">
+                  <Cmd
+                    big
+                    label="Assistant"
+                    title="Source de données, aperçu et fusion"
+                    onClick={() => onOpenMailMerge?.()}
+                  >
+                    <Users size={19} />
+                  </Cmd>
+                </Group>
+                <Group title="Champs">
+                  <Cmd
+                    big
+                    label="Champ"
+                    title="Insérer un champ de fusion (nommez-le librement)"
+                    onClick={addMergeField}
+                  >
+                    <Braces size={19} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+
+            {tab === "layout" && (
+              <>
+                <Group title="Page">
+                  <Cmd
+                    big
+                    label="Mise en page"
+                    title="Format, marges, en-tête, pied de page"
+                    onClick={() => onOpenPageSettings?.()}
+                  >
+                    <FileCog size={19} />
+                  </Cmd>
+                </Group>
+
+                <Group title="Colonnes">
+                  <Dropdown big label="Colonnes" title="Disposer le texte en colonnes" icon={<Columns size={19} />}>
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Colonnes</div>
+                        {[1, 2, 3, 4].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            className={`elx-menu__item ${columnCount === n ? "is-active" : ""}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              const chain = editor.chain().focus();
+                              if (n <= 1) chain.unsetColumns().run();
+                              else if (editor.isActive("columnSection")) chain.updateColumns({ count: n }).run();
+                              else chain.setColumns({ count: n }).run();
+                              close();
+                            }}
+                          >
+                            <span className="elx-listprev" aria-hidden="true">
+                              <span>{"▌".repeat(n)}</span>
+                            </span>
+                            <span>{n === 1 ? "Une (pleine largeur)" : `${n} colonnes`}</span>
+                          </button>
+                        ))}
+                        <div className="elx-menu__sep" />
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onOpenColumns?.();
+                            close();
+                          }}
+                        >
+                          Autres colonnes…
+                        </button>
+                      </>
+                    )}
+                  </Dropdown>
+                </Group>
+
+                <Group title="Sauts">
+                  <Dropdown
+                    big
+                    label="Sauts"
+                    title="Saut de page ou de section"
+                    icon={<SplitSquareVertical size={19} />}
+                  >
+                    {(close) => (
+                      <>
+                        <div className="elx-menu__title">Sauts de page</div>
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            editor.chain().focus().insertPageBreak().run();
+                            close();
+                          }}
+                        >
+                          Saut de page
+                        </button>
+                        <div className="elx-menu__sep" />
+                        <div className="elx-menu__title">Sauts de section</div>
+                        {(
+                          [
+                            ["nextPage", "Page suivante"],
+                            ["continuous", "Continu"],
+                            ["evenPage", "Page paire"],
+                            ["oddPage", "Page impaire"],
+                          ] as const
+                        ).map(([kind, label]) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            className="elx-menu__item"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              editor
+                                .chain()
+                                .focus()
+                                .insertSectionBreak({
+                                  kind,
+                                  orientation: "",
+                                  restartNumbering: false,
+                                  startAt: 1,
+                                  header: "",
+                                  footer: "",
+                                })
+                                .run();
+                              close();
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                        <div className="elx-menu__sep" />
+                        <button
+                          type="button"
+                          className="elx-menu__item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onOpenSectionBreak?.();
+                            close();
+                          }}
+                        >
+                          Saut de section paramétré…
+                        </button>
+                      </>
+                    )}
+                  </Dropdown>
+                </Group>
+
+                <Group title="Titres">
+                  <Cmd
+                    big
+                    label="Numéroter"
+                    title="Numéroter les titres (1. / 1.1 / 1.1.1)"
+                    active={!!numberedHeadings}
+                    onClick={() => onToggleNumberedHeadings?.()}
+                  >
+                    <Hash size={19} />
+                  </Cmd>
+                </Group>
+                <Group title="Retrait">
+                  <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}>
+                    <Outdent size={17} />
+                  </Cmd>
+                  <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}>
+                    <Indent size={17} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+
+            {tab === "review" && (
+              <>
+                <Group title="Suivi">
+                  <Cmd
+                    big
+                    label="Suggestions"
+                    title="Suivi des modifications (mode suggestion)"
+                    active={isSuggesting(editor.state)}
+                    onClick={() => editor.chain().focus().toggleSuggesting().run()}
+                  >
+                    <Pencil size={19} />
+                  </Cmd>
+                  <Cmd
+                    title="Accepter toutes les modifications"
+                    onClick={() => editor.chain().focus().acceptAllChanges().run()}
+                  >
+                    <Check size={17} />
+                  </Cmd>
+                  <Cmd
+                    title="Refuser toutes les modifications"
+                    danger
+                    onClick={() => editor.chain().focus().rejectAllChanges().run()}
+                  >
+                    <X size={17} />
+                  </Cmd>
+                </Group>
+                <Group title="Commentaires">
+                  <Cmd
+                    big
+                    label="Commenter"
+                    title="Commenter la sélection"
+                    disabled={editor.state.selection.empty}
+                    onClick={addComment}
+                  >
+                    <MessageSquarePlus size={19} />
+                  </Cmd>
+                </Group>
+                {!collab && (
+                  <Group title="Comparer">
+                    <Cmd
+                      big
+                      label="Comparer"
+                      title="Comparer avec une autre version et voir les différences en suggestions"
+                      onClick={() => onOpenCompare?.()}
+                    >
+                      <GitCompareArrows size={19} />
+                    </Cmd>
+                  </Group>
+                )}
+                <Group title="Correction">
+                  <Cmd
+                    big
+                    label="Correcteur"
+                    title="Correcteur : typographie française, répétitions, mots inconnus"
+                    active={!!proofingOpen}
+                    onClick={() => onToggleProofing?.()}
+                  >
+                    <SpellCheck size={19} />
+                  </Cmd>
+                </Group>
+                <Group title="Analyse">
+                  <Cmd big label="Statistiques" title="Mots, lisibilité, structure" onClick={() => onOpenStats?.()}>
+                    <BarChart3 size={19} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+
+            {tab === "view" && (
+              <>
+                <Group title="Volets">
+                  <Cmd
+                    big
+                    label="Plan"
+                    title="Volet de navigation (plan du document)"
+                    active={!!outlineOpen}
+                    onClick={() => onToggleOutline?.()}
+                  >
+                    <PanelLeft size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Inspecteur"
+                    title="Volet de droite (commentaires, signatures, versions)"
+                    active={!!inspectorOpen}
+                    onClick={() => onToggleInspector?.()}
+                  >
+                    <PanelRight size={19} />
+                  </Cmd>
+                </Group>
+                <Group title="Afficher">
+                  <Cmd
+                    big
+                    label="Règle"
+                    title="Règle graduée (poser des taquets de tabulation)"
+                    active={!!rulerVisible}
+                    onClick={() => onToggleRuler?.()}
+                  >
+                    <Ruler size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Quadrillage"
+                    title="Quadrillage de la feuille (repère d'écran, non imprimé)"
+                    active={!!gridVisible}
+                    onClick={() => onToggleGrid?.()}
+                  >
+                    <Grid3x3 size={19} />
+                  </Cmd>
+                  <Cmd
+                    title="Aligner les objets sur le quadrillage (Alt pour l'ignorer ponctuellement)"
+                    active={!!gridSnap}
+                    onClick={() => onToggleGridSnap?.()}
+                  >
+                    <Magnet size={17} />
+                  </Cmd>
+                  <Cmd title="Options du quadrillage…" onClick={() => onOpenGrid?.()}>
+                    <Settings2 size={17} />
+                  </Cmd>
+                </Group>
+                <Group title="Document">
+                  <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}>
+                    <ListTree size={17} />
+                  </Cmd>
+                  <Cmd title="Statistiques" onClick={() => onOpenStats?.()}>
+                    <BarChart3 size={17} />
+                  </Cmd>
+                </Group>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Contextual strips — always visible when they apply, whatever the tab. */}
+        {(editor.isActive("figure") ||
+          editor.isActive("table") ||
+          editor.isActive("codeBlock") ||
+          editor.isActive("columnSection") ||
+          editor.isActive("shape") ||
+          editor.isActive("textBox") ||
+          isSuggesting(editor.state)) && (
+          <div className="elx-optionbar">
+            {/* Forme et zone de texte partagent leur barre : même géométrie, même
+              habillage. Deux barres auraient dupliqué chaque commande. */}
+            {(editor.isActive("shape") || editor.isActive("textBox")) &&
+              (() => {
+                const target = editor.isActive("shape") ? "shape" : "textBox";
+                const attrs = editor.getAttributes(target);
+                const isShape = target === "shape";
+                const def = shapeDef(attrs.kind);
+                const set = (patch: Record<string, unknown>) =>
+                  editor.chain().focus().updateAttributes(target, patch).run();
+                const rotation = Number(attrs.rotation ?? 0);
+                return (
+                  <>
+                    <span className="elx-optionbar__title">
+                      {isShape ? <Shapes size={13} /> : <Frame size={13} />} {isShape ? def.label : "Zone de texte"}
+                    </span>
+                    {/* Habillage : c'est le réglage qui décide de tout le reste (une
+                    forme dans le flux n'a pas de position libre). */}
+                    <select
+                      className="elx-select"
+                      title="Habillage"
+                      value={String(attrs.wrap ?? "square")}
+                      onChange={(e) => set({ wrap: e.target.value as WrapMode })}
+                    >
+                      {WRAP_MODES.map((w) => (
+                        <option key={w} value={w}>
+                          {WRAP_LABELS[w]}
+                        </option>
+                      ))}
+                    </select>
+                    <Cmd
+                      title="Mettre au premier plan (devant le texte)"
+                      active={attrs.wrap === "front"}
+                      onClick={() => set({ wrap: "front" })}
+                    >
+                      <BringToFront size={16} />
+                    </Cmd>
+                    <Cmd
+                      title="Mettre à l'arrière-plan (derrière le texte)"
+                      active={attrs.wrap === "behind"}
+                      onClick={() => set({ wrap: "behind" })}
+                    >
+                      <SendToBack size={16} />
+                    </Cmd>
+                    <span className="elx-optionbar__sep" />
+                    {isShape ? (
+                      <>
+                        <label className="elx-colorbtn" title="Remplissage de la forme">
+                          <input
+                            type="color"
+                            value={String(attrs.fill || "#dbeafe")}
+                            onChange={(e) => set({ fill: e.target.value })}
+                          />
+                        </label>
+                        <Cmd
+                          title={attrs.fill ? "Aucun remplissage" : "Remplir la forme"}
+                          active={!attrs.fill}
+                          onClick={() => set({ fill: attrs.fill ? "" : "#dbeafe" })}
+                        >
+                          <Droplets size={16} />
+                        </Cmd>
+                        <label className="elx-colorbtn" title="Couleur du contour">
+                          <input
+                            type="color"
+                            value={String(attrs.strokeColor || "#2563eb")}
+                            onChange={(e) => set({ strokeColor: e.target.value })}
+                          />
+                        </label>
+                        <select
+                          className="elx-select elx-select--size"
+                          title="Épaisseur du contour"
+                          aria-label="Épaisseur du contour"
+                          value={Number(attrs.strokeWidth ?? 1)}
+                          onChange={(e) => set({ strokeWidth: Number(e.target.value) })}
+                        >
+                          {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
+                            <option key={w} value={w}>
+                              {w === 0 ? "Sans" : `${w} px`}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="elx-select"
+                          title="Type de trait"
+                          aria-label="Type de trait"
+                          value={String(attrs.dash ?? "solid")}
+                          onChange={(e) => set({ dash: e.target.value as DashStyle })}
+                        >
+                          {(Object.keys(DASH_LABELS) as DashStyle[]).map((d) => (
+                            <option key={d} value={d}>
+                              {DASH_LABELS[d]}
+                            </option>
+                          ))}
+                        </select>
+                        {def.adj && (
+                          <input
+                            className="elx-range"
+                            type="range"
+                            title={def.adj.label}
+                            aria-label={def.adj.label}
+                            min={def.adj.min}
+                            max={def.adj.max}
+                            value={Number(attrs.adj ?? def.adj.default)}
+                            onChange={(e) => editor.chain().focus().setShapeAdj(Number(e.target.value)).run()}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <label className="elx-colorbtn" title="Remplissage de l'encadré">
+                          <input
+                            type="color"
+                            value={String(attrs.fill || "#f8fafc")}
+                            onChange={(e) => set({ fill: e.target.value })}
+                          />
+                        </label>
+                        <label className="elx-colorbtn" title="Couleur du filet">
+                          <input
+                            type="color"
+                            value={String(attrs.borderColor || "#cbd5e1")}
+                            onChange={(e) => set({ borderColor: e.target.value })}
+                          />
+                        </label>
+                        <select
+                          className="elx-select elx-select--size"
+                          title="Épaisseur du filet"
+                          value={Number(attrs.borderWidth ?? 1)}
+                          onChange={(e) => set({ borderWidth: Number(e.target.value) })}
+                        >
+                          {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
+                            <option key={w} value={w}>
+                              {w === 0 ? "Sans" : `${w} px`}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                    <span className="elx-optionbar__sep" />
+                    {/* Rotation par quarts : le geste fin est à la poignée, ici c'est
+                    le réglage rapide. */}
+                    <Cmd
+                      title="Faire pivoter de 90° (Format… pour un angle libre)"
+                      onClick={() => set({ rotation: (rotation + 90) % 360 })}
+                    >
+                      <RotateCw size={16} />
+                    </Cmd>
+                    {rotation !== 0 && (
+                      <Cmd title={`Redresser (${rotation}°)`} onClick={() => set({ rotation: 0 })}>
+                        <RemoveFormatting size={16} />
+                      </Cmd>
+                    )}
+                    <Cmd title="Format de la forme…" onClick={() => onOpenShapeFormat?.()}>
+                      <Settings2 size={16} />
+                    </Cmd>
+                    <Cmd
+                      title={isShape ? "Supprimer la forme" : "Supprimer la zone de texte (le contenu part avec elle)"}
+                      danger
+                      onClick={() => editor.chain().focus().deleteNode(target).run()}
+                    >
+                      <Trash2 size={16} />
+                    </Cmd>
+                    {!isShape && (
+                      <Cmd
+                        title="Retirer l'encadré en gardant son contenu dans le texte"
+                        onClick={() => editor.chain().focus().unwrapTextBox().run()}
+                      >
+                        <Combine size={16} />
+                      </Cmd>
+                    )}
+                  </>
+                );
+              })()}
+
+            {editor.isActive("columnSection") && (
+              <>
+                <span className="elx-optionbar__title">
+                  <Columns size={13} /> Colonnes
+                </span>
+                {[1, 2, 3, 4].map((n) => (
+                  <Cmd
+                    key={n}
+                    title={n === 1 ? "Une colonne (supprimer les colonnes)" : `${n} colonnes`}
+                    active={columnCount === n}
+                    onClick={() => {
+                      const chain = editor.chain().focus();
+                      if (n <= 1) chain.unsetColumns().run();
+                      else chain.updateColumns({ count: n }).run();
+                    }}
+                  >
+                    <span className="elx-colcount">{n}</span>
+                  </Cmd>
+                ))}
                 <Cmd
-                  title="Aligner à gauche"
-                  active={editor.isActive({ textAlign: "left" })}
-                  onClick={() => editor.chain().focus().setTextAlign("left").run()}
+                  title="Ligne séparatrice"
+                  active={editor.getAttributes("columnSection").separator === true}
+                  onClick={() =>
+                    editor
+                      .chain()
+                      .focus()
+                      .updateColumns({ separator: !(editor.getAttributes("columnSection").separator === true) })
+                      .run()
+                  }
                 >
-                  <AlignLeft size={17} />
+                  <SeparatorHorizontal size={16} style={{ transform: "rotate(90deg)" }} />
+                </Cmd>
+                <Cmd title="Autres colonnes…" onClick={() => onOpenColumns?.()}>
+                  <FileCog size={16} />
+                </Cmd>
+              </>
+            )}
+
+            {editor.isActive("figure") && (
+              <>
+                <span className="elx-optionbar__title">
+                  <ImageIcon size={13} /> Image
+                </span>
+                <Cmd
+                  title="Aligner à gauche (habillage)"
+                  active={editor.getAttributes("figure").align === "left"}
+                  onClick={() => editor.chain().focus().setFigureAlign("left").run()}
+                >
+                  <AlignLeft size={16} />
                 </Cmd>
                 <Cmd
                   title="Centrer"
-                  active={editor.isActive({ textAlign: "center" })}
-                  onClick={() => editor.chain().focus().setTextAlign("center").run()}
+                  active={editor.getAttributes("figure").align === "center"}
+                  onClick={() => editor.chain().focus().setFigureAlign("center").run()}
                 >
-                  <AlignCenter size={17} />
+                  <AlignCenter size={16} />
                 </Cmd>
                 <Cmd
-                  title="Aligner à droite"
-                  active={editor.isActive({ textAlign: "right" })}
-                  onClick={() => editor.chain().focus().setTextAlign("right").run()}
+                  title="Aligner à droite (habillage)"
+                  active={editor.getAttributes("figure").align === "right"}
+                  onClick={() => editor.chain().focus().setFigureAlign("right").run()}
                 >
-                  <AlignRight size={17} />
-                </Cmd>
-                <Cmd
-                  title="Justifier"
-                  active={editor.isActive({ textAlign: "justify" })}
-                  onClick={() => editor.chain().focus().setTextAlign("justify").run()}
-                >
-                  <AlignJustify size={17} />
-                </Cmd>
-                <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}>
-                  <Outdent size={17} />
-                </Cmd>
-                <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}>
-                  <Indent size={17} />
+                  <AlignRight size={16} />
                 </Cmd>
                 <select
                   className="elx-select elx-select--size"
-                  title="Interligne"
-                  value={editor.getAttributes("paragraph").lineHeight ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v) editor.chain().focus().setLineHeight(v).run();
-                    else editor.chain().focus().unsetLineHeight().run();
-                  }}
+                  title="Largeur de l'image"
+                  value={(editor.getAttributes("figure").width as string) || ""}
+                  onChange={(e) => editor.chain().focus().setFigureWidth(e.target.value).run()}
                 >
-                  <option value="">Interligne</option>
-                  {LINE_HEIGHTS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
+                  <option value="">Auto</option>
+                  <option value="25%">25 %</option>
+                  <option value="50%">50 %</option>
+                  <option value="75%">75 %</option>
+                  <option value="100%">100 %</option>
+                </select>
+              </>
+            )}
+
+            {editor.isActive("table") && (
+              <>
+                <span className="elx-optionbar__title">
+                  <TableIcon size={13} /> Tableau
+                </span>
+                <Cmd title="Insérer une ligne" onClick={() => editor.chain().focus().addRowAfter().run()}>
+                  <Plus size={16} />
+                </Cmd>
+                <Cmd title="Insérer une colonne" onClick={() => editor.chain().focus().addColumnAfter().run()}>
+                  <Plus size={16} style={{ transform: "rotate(90deg)" }} />
+                </Cmd>
+                <Cmd title="Fusionner les cellules" onClick={() => editor.chain().focus().mergeCells().run()}>
+                  <Combine size={16} />
+                </Cmd>
+                <Cmd title="Scinder la cellule" onClick={() => editor.chain().focus().splitCell().run()}>
+                  <Split size={16} />
+                </Cmd>
+                <Cmd title="Supprimer la ligne" onClick={() => editor.chain().focus().deleteRow().run()}>
+                  <Minus size={16} />
+                </Cmd>
+                <Cmd title="Supprimer la colonne" onClick={() => editor.chain().focus().deleteColumn().run()}>
+                  <Minus size={16} style={{ transform: "rotate(90deg)" }} />
+                </Cmd>
+                <Cmd title="Supprimer le tableau" danger onClick={() => editor.chain().focus().deleteTable().run()}>
+                  <Trash2 size={16} />
+                </Cmd>
+                <span className="elx-optionbar__sep" />
+                <select
+                  className="elx-select"
+                  title="Style du tableau"
+                  value={(editor.getAttributes("table").tableStyle as string) || DEFAULT_TABLE_STYLE}
+                  onChange={(e) =>
+                    editor
+                      .chain()
+                      .focus()
+                      .setTableStyle(e.target.value as never)
+                      .run()
+                  }
+                >
+                  {TABLE_STYLES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
-              </Group>
-
-              <Group title="Rechercher">
-                <Cmd title="Rechercher et remplacer (Ctrl+F)" onClick={() => onToggleFind?.()}>
-                  <Search size={17} />
-                </Cmd>
-              </Group>
-            </>
-          )}
-
-          {tab === "insert" && (
-            <>
-              <Group title="Illustrations">
-                <Cmd big label="Image" title="Insérer une image" onClick={onInsertImage}>
-                  <ImageIcon size={19} />
+                <select
+                  className="elx-select"
+                  title="Ajustement automatique"
+                  value={(editor.getAttributes("table").tableFit as string) || "auto"}
+                  onChange={(e) =>
+                    editor
+                      .chain()
+                      .focus()
+                      .setTableFit(e.target.value as never)
+                      .run()
+                  }
+                >
+                  {(Object.keys(TABLE_FIT_LABELS) as (keyof typeof TABLE_FIT_LABELS)[]).map((f) => (
+                    <option key={f} value={f}>
+                      {TABLE_FIT_LABELS[f]}
+                    </option>
+                  ))}
+                </select>
+                {/* Alignement vertical dans la cellule : les trois valeurs de w:vAlign. */}
+                <Cmd
+                  title="Aligner en haut de la cellule"
+                  active={(editor.getAttributes("tableCell").vAlign ?? "top") === "top"}
+                  onClick={() => editor.chain().focus().setCellVAlign("top").run()}
+                >
+                  <AlignStartVertical size={16} />
                 </Cmd>
                 <Cmd
-                  big
-                  label="Tableau"
-                  title="Insérer un tableau 3×3"
-                  onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+                  title="Centrer verticalement dans la cellule"
+                  active={editor.getAttributes("tableCell").vAlign === "center"}
+                  onClick={() => editor.chain().focus().setCellVAlign("center").run()}
                 >
-                  <TableIcon size={19} />
-                </Cmd>
-                {/* La galerie complète : lignes, rectangles, formes de base, flèches,
-                  organigramme, étoiles et bulles — chaque vignette est le vrai tracé. */}
-                <Dropdown big label="Formes" title="Insérer une forme" icon={<Shapes size={19} />} align="left">
-                  {(close) => (
-                    <ShapeGallery
-                      onPick={(kind) => editor.chain().focus().insertShape({ kind }).run()}
-                      onClose={close}
-                    />
-                  )}
-                </Dropdown>
-              </Group>
-              <Group title="Liens">
-                <Cmd title="Lien" active={editor.isActive("link")} onClick={setLink}>
-                  <Link2 size={17} />
-                </Cmd>
-                <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}>
-                  <BookmarkIcon size={17} />
-                </Cmd>
-              </Group>
-              <Group title="Éléments">
-                <Cmd title="Séparateur" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
-                  <Minus size={17} />
-                </Cmd>
-                <Cmd title="Saut de page" onClick={() => editor.chain().focus().insertPageBreak().run()}>
-                  <SeparatorHorizontal size={17} />
-                </Cmd>
-                <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}>
-                  <ListTree size={17} />
-                </Cmd>
-                <Cmd title="Note de bas de page" onClick={addFootnote}>
-                  <Superscript size={17} />
-                </Cmd>
-                <Cmd title="Note de fin" onClick={addEndnote}>
-                  <StickyNote size={17} />
-                </Cmd>
-                <Cmd title="Insérer un symbole" onClick={() => onOpenSymbol?.()}>
-                  <Sigma size={17} />
-                </Cmd>
-              </Group>
-              <Group title="Ornements">
-                <Dropdown
-                  big
-                  label="Lettrine"
-                  title="Lettrine (première lettre agrandie)"
-                  icon={<Baseline size={19} />}
-                >
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Lettrine</div>
-                      {(
-                        [
-                          ["drop", "Dans le texte"],
-                          ["margin", "Dans la marge"],
-                        ] as const
-                      ).map(([k, label]) => (
-                        <div key={k} className="elx-menu__group">
-                          <div className="elx-menu__sub">{label}</div>
-                          {[2, 3, 4, 5].map((n) => (
-                            <button
-                              key={`${k}${n}`}
-                              type="button"
-                              className="elx-menu__item"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                editor.chain().focus().setDropCap(k, n).run();
-                                close();
-                              }}
-                            >
-                              {n} lignes
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().setDropCap("none").run();
-                          close();
-                        }}
-                      >
-                        Aucune lettrine
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-                <Cmd big label="Filigrane" title="Filigrane du document" onClick={() => onOpenWatermark?.()}>
-                  <Droplets size={19} />
-                </Cmd>
-                <Dropdown
-                  big
-                  label="Zone de texte"
-                  title="Insérer une zone de texte flottante"
-                  icon={<Frame size={19} />}
-                >
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Zone de texte</div>
-                      {(
-                        [
-                          ["square", "Habillage carré (le texte coule autour)"],
-                          ["inline", "Dans le texte"],
-                          ["front", "Devant le texte (libre)"],
-                          ["behind", "Derrière le texte (libre)"],
-                        ] as const
-                      ).map(([wrap, label]) => (
-                        <button
-                          key={wrap}
-                          type="button"
-                          className="elx-menu__item"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            editor.chain().focus().insertTextBox({ wrap }).run();
-                            close();
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </Dropdown>
-              </Group>
-              {!collab && (
-                <Group title="Signature">
-                  <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}>
-                    <PenLine size={19} />
-                  </Cmd>
-                </Group>
-              )}
-            </>
-          )}
-
-          {tab === "references" && (
-            <>
-              <Group title="Table des matières">
-                <Cmd
-                  big
-                  label="Table des matières"
-                  title="Insérer une table des matières qui se met à jour"
-                  onClick={() => editor.chain().focus().insertTableOfContents().run()}
-                >
-                  <ListTree size={19} />
+                  <AlignCenterVertical size={16} />
                 </Cmd>
                 <Cmd
-                  big
-                  label="Numéroter"
-                  title="Numéroter les titres (1. / 1.1 / 1.1.1)"
-                  active={!!numberedHeadings}
-                  onClick={() => onToggleNumberedHeadings?.()}
+                  title="Aligner en bas de la cellule"
+                  active={editor.getAttributes("tableCell").vAlign === "bottom"}
+                  onClick={() => editor.chain().focus().setCellVAlign("bottom").run()}
                 >
-                  <Hash size={19} />
+                  <AlignEndVertical size={16} />
                 </Cmd>
-              </Group>
-
-              <Group title="Renvois">
+                <span className="elx-optionbar__sep" />
                 <Cmd
-                  big
-                  label="Renvoi"
-                  title="Insérer un renvoi vers un titre, un signet, une figure, un tableau ou une note"
-                  onClick={() => onOpenCrossRef?.()}
+                  title="Trier ce tableau sur la colonne du curseur (croissant)"
+                  onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "asc").run()}
                 >
-                  <CornerDownRight size={19} />
-                </Cmd>
-                <Cmd title="Signet (cible de renvoi)" onClick={addBookmark}>
-                  <BookmarkIcon size={17} />
-                </Cmd>
-              </Group>
-
-              <Group title="Notes">
-                <Cmd big label="Note" title="Insérer une note de bas de page" onClick={addFootnote}>
-                  <Superscript size={19} />
+                  <ArrowDownAZ size={16} />
                 </Cmd>
                 <Cmd
-                  big
-                  label="Note de fin"
-                  title="Insérer une note de fin (numérotation i, ii, iii)"
-                  onClick={addEndnote}
+                  title="Trier ce tableau sur la colonne du curseur (décroissant)"
+                  onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "desc").run()}
                 >
-                  <StickyNote size={19} />
+                  <ArrowUpAZ size={16} />
                 </Cmd>
-                <Dropdown title="Convertir les notes" icon={<ArrowLeftRight size={17} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Convertir les notes</div>
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().convertNotesTo("endnote").run();
-                          close();
-                        }}
-                      >
-                        Notes de bas de page → notes de fin
-                      </button>
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().convertNotesTo("footnote").run();
-                          close();
-                        }}
-                      >
-                        Notes de fin → notes de bas de page
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-              </Group>
+              </>
+            )}
 
-              <Group title="Légendes">
-                <Cmd big label="Légende" title="Insérer une légende numérotée" onClick={() => onOpenCaption?.()}>
-                  <Tag size={19} />
-                </Cmd>
-                <Dropdown title="Table des illustrations" icon={<GalleryVerticalEnd size={17} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Table des illustrations</div>
-                      {["Figure", "Tableau", "Équation"].map((l) => (
-                        <button
-                          key={l}
-                          type="button"
-                          className="elx-menu__item"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            editor.chain().focus().insertTableOfFigures(l).run();
-                            close();
-                          }}
-                        >
-                          {figureTableTitle(l)}
-                        </button>
-                      ))}
-                      <div className="elx-menu__sep" />
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().insertTableOfFigures("").run();
-                          close();
-                        }}
-                      >
-                        Toutes les légendes
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-              </Group>
-
-              <Group title="Index">
-                <Cmd big label="Marquer" title="Marquer une entrée d'index" onClick={() => onOpenIndexEntry?.()}>
-                  <ScanSearch size={19} />
-                </Cmd>
-                <Cmd
-                  big
-                  label="Index"
-                  title="Insérer l'index alphabétique"
-                  onClick={() => editor.chain().focus().insertIndexBlock().run()}
+            {editor.isActive("codeBlock") && (
+              <>
+                <span className="elx-optionbar__title">
+                  <Code2 size={13} /> Code
+                </span>
+                <select
+                  className="elx-select"
+                  title="Langage du bloc de code"
+                  value={(editor.getAttributes("codeBlock").language as string) || "plaintext"}
+                  onChange={(e) =>
+                    editor.chain().focus().updateAttributes("codeBlock", { language: e.target.value }).run()
+                  }
                 >
-                  <ListTree size={19} />
-                </Cmd>
-              </Group>
-            </>
-          )}
+                  {CODE_LANGUAGES.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-          {tab === "merge" && (
-            <>
-              <Group title="Publipostage">
-                <Cmd
-                  big
-                  label="Assistant"
-                  title="Source de données, aperçu et fusion"
-                  onClick={() => onOpenMailMerge?.()}
-                >
-                  <Users size={19} />
-                </Cmd>
-              </Group>
-              <Group title="Champs">
-                <Cmd big label="Champ" title="Insérer un champ de fusion (nommez-le librement)" onClick={addMergeField}>
-                  <Braces size={19} />
-                </Cmd>
-              </Group>
-            </>
-          )}
-
-          {tab === "layout" && (
-            <>
-              <Group title="Page">
-                <Cmd
-                  big
-                  label="Mise en page"
-                  title="Format, marges, en-tête, pied de page"
-                  onClick={() => onOpenPageSettings?.()}
-                >
-                  <FileCog size={19} />
-                </Cmd>
-              </Group>
-
-              <Group title="Colonnes">
-                <Dropdown big label="Colonnes" title="Disposer le texte en colonnes" icon={<Columns size={19} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Colonnes</div>
-                      {[1, 2, 3, 4].map((n) => (
-                        <button
-                          key={n}
-                          type="button"
-                          className={`elx-menu__item ${columnCount === n ? "is-active" : ""}`}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            const chain = editor.chain().focus();
-                            if (n <= 1) chain.unsetColumns().run();
-                            else if (editor.isActive("columnSection")) chain.updateColumns({ count: n }).run();
-                            else chain.setColumns({ count: n }).run();
-                            close();
-                          }}
-                        >
-                          <span className="elx-listprev" aria-hidden="true">
-                            <span>{"▌".repeat(n)}</span>
-                          </span>
-                          <span>{n === 1 ? "Une (pleine largeur)" : `${n} colonnes`}</span>
-                        </button>
-                      ))}
-                      <div className="elx-menu__sep" />
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onOpenColumns?.();
-                          close();
-                        }}
-                      >
-                        Autres colonnes…
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-              </Group>
-
-              <Group title="Sauts">
-                <Dropdown big label="Sauts" title="Saut de page ou de section" icon={<SplitSquareVertical size={19} />}>
-                  {(close) => (
-                    <>
-                      <div className="elx-menu__title">Sauts de page</div>
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          editor.chain().focus().insertPageBreak().run();
-                          close();
-                        }}
-                      >
-                        Saut de page
-                      </button>
-                      <div className="elx-menu__sep" />
-                      <div className="elx-menu__title">Sauts de section</div>
-                      {(
-                        [
-                          ["nextPage", "Page suivante"],
-                          ["continuous", "Continu"],
-                          ["evenPage", "Page paire"],
-                          ["oddPage", "Page impaire"],
-                        ] as const
-                      ).map(([kind, label]) => (
-                        <button
-                          key={kind}
-                          type="button"
-                          className="elx-menu__item"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            editor
-                              .chain()
-                              .focus()
-                              .insertSectionBreak({
-                                kind,
-                                orientation: "",
-                                restartNumbering: false,
-                                startAt: 1,
-                                header: "",
-                                footer: "",
-                              })
-                              .run();
-                            close();
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      <div className="elx-menu__sep" />
-                      <button
-                        type="button"
-                        className="elx-menu__item"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onOpenSectionBreak?.();
-                          close();
-                        }}
-                      >
-                        Saut de section paramétré…
-                      </button>
-                    </>
-                  )}
-                </Dropdown>
-              </Group>
-
-              <Group title="Titres">
-                <Cmd
-                  big
-                  label="Numéroter"
-                  title="Numéroter les titres (1. / 1.1 / 1.1.1)"
-                  active={!!numberedHeadings}
-                  onClick={() => onToggleNumberedHeadings?.()}
-                >
-                  <Hash size={19} />
-                </Cmd>
-              </Group>
-              <Group title="Retrait">
-                <Cmd title="Diminuer le retrait" onClick={() => editor.chain().focus().outdent().run()}>
-                  <Outdent size={17} />
-                </Cmd>
-                <Cmd title="Augmenter le retrait" onClick={() => editor.chain().focus().indent().run()}>
-                  <Indent size={17} />
-                </Cmd>
-              </Group>
-            </>
-          )}
-
-          {tab === "review" && (
-            <>
-              <Group title="Suivi">
-                <Cmd
-                  big
-                  label="Suggestions"
-                  title="Suivi des modifications (mode suggestion)"
-                  active={isSuggesting(editor.state)}
-                  onClick={() => editor.chain().focus().toggleSuggesting().run()}
-                >
-                  <Pencil size={19} />
-                </Cmd>
+            {isSuggesting(editor.state) && (
+              <>
+                <span className="elx-optionbar__title">
+                  <Pencil size={13} /> Suivi actif
+                </span>
                 <Cmd
                   title="Accepter toutes les modifications"
                   onClick={() => editor.chain().focus().acceptAllChanges().run()}
                 >
-                  <Check size={17} />
+                  <Check size={16} />
                 </Cmd>
                 <Cmd
                   title="Refuser toutes les modifications"
                   danger
                   onClick={() => editor.chain().focus().rejectAllChanges().run()}
                 >
-                  <X size={17} />
+                  <X size={16} />
                 </Cmd>
-              </Group>
-              <Group title="Commentaires">
-                <Cmd
-                  big
-                  label="Commenter"
-                  title="Commenter la sélection"
-                  disabled={editor.state.selection.empty}
-                  onClick={addComment}
-                >
-                  <MessageSquarePlus size={19} />
-                </Cmd>
-              </Group>
-              {!collab && (
-                <Group title="Comparer">
-                  <Cmd
-                    big
-                    label="Comparer"
-                    title="Comparer avec une autre version et voir les différences en suggestions"
-                    onClick={() => onOpenCompare?.()}
-                  >
-                    <GitCompareArrows size={19} />
-                  </Cmd>
-                </Group>
-              )}
-              <Group title="Correction">
-                <Cmd
-                  big
-                  label="Correcteur"
-                  title="Correcteur : typographie française, répétitions, mots inconnus"
-                  active={!!proofingOpen}
-                  onClick={() => onToggleProofing?.()}
-                >
-                  <SpellCheck size={19} />
-                </Cmd>
-              </Group>
-              <Group title="Analyse">
-                <Cmd big label="Statistiques" title="Mots, lisibilité, structure" onClick={() => onOpenStats?.()}>
-                  <BarChart3 size={19} />
-                </Cmd>
-              </Group>
-            </>
-          )}
-
-          {tab === "view" && (
-            <>
-              <Group title="Volets">
-                <Cmd
-                  big
-                  label="Plan"
-                  title="Volet de navigation (plan du document)"
-                  active={!!outlineOpen}
-                  onClick={() => onToggleOutline?.()}
-                >
-                  <PanelLeft size={19} />
-                </Cmd>
-                <Cmd
-                  big
-                  label="Inspecteur"
-                  title="Volet de droite (commentaires, signatures, versions)"
-                  active={!!inspectorOpen}
-                  onClick={() => onToggleInspector?.()}
-                >
-                  <PanelRight size={19} />
-                </Cmd>
-              </Group>
-              <Group title="Afficher">
-                <Cmd
-                  big
-                  label="Règle"
-                  title="Règle graduée (poser des taquets de tabulation)"
-                  active={!!rulerVisible}
-                  onClick={() => onToggleRuler?.()}
-                >
-                  <Ruler size={19} />
-                </Cmd>
-                <Cmd
-                  big
-                  label="Quadrillage"
-                  title="Quadrillage de la feuille (repère d'écran, non imprimé)"
-                  active={!!gridVisible}
-                  onClick={() => onToggleGrid?.()}
-                >
-                  <Grid3x3 size={19} />
-                </Cmd>
-                <Cmd
-                  title="Aligner les objets sur le quadrillage (Alt pour l'ignorer ponctuellement)"
-                  active={!!gridSnap}
-                  onClick={() => onToggleGridSnap?.()}
-                >
-                  <Magnet size={17} />
-                </Cmd>
-                <Cmd title="Options du quadrillage…" onClick={() => onOpenGrid?.()}>
-                  <Settings2 size={17} />
-                </Cmd>
-              </Group>
-              <Group title="Document">
-                <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}>
-                  <ListTree size={17} />
-                </Cmd>
-                <Cmd title="Statistiques" onClick={() => onOpenStats?.()}>
-                  <BarChart3 size={17} />
-                </Cmd>
-              </Group>
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* Contextual strips — always visible when they apply, whatever the tab. */}
-      {(editor.isActive("figure") ||
-        editor.isActive("table") ||
-        editor.isActive("codeBlock") ||
-        editor.isActive("columnSection") ||
-        editor.isActive("shape") ||
-        editor.isActive("textBox") ||
-        isSuggesting(editor.state)) && (
-        <div className="elx-optionbar">
-          {/* Forme et zone de texte partagent leur barre : même géométrie, même
-              habillage. Deux barres auraient dupliqué chaque commande. */}
-          {(editor.isActive("shape") || editor.isActive("textBox")) &&
-            (() => {
-              const target = editor.isActive("shape") ? "shape" : "textBox";
-              const attrs = editor.getAttributes(target);
-              const isShape = target === "shape";
-              const def = shapeDef(attrs.kind);
-              const set = (patch: Record<string, unknown>) =>
-                editor.chain().focus().updateAttributes(target, patch).run();
-              const rotation = Number(attrs.rotation ?? 0);
-              return (
-                <>
-                  <span className="elx-optionbar__title">
-                    {isShape ? <Shapes size={13} /> : <Frame size={13} />} {isShape ? def.label : "Zone de texte"}
-                  </span>
-                  {/* Habillage : c'est le réglage qui décide de tout le reste (une
-                    forme dans le flux n'a pas de position libre). */}
-                  <select
-                    className="elx-select"
-                    title="Habillage"
-                    value={String(attrs.wrap ?? "square")}
-                    onChange={(e) => set({ wrap: e.target.value as WrapMode })}
-                  >
-                    {WRAP_MODES.map((w) => (
-                      <option key={w} value={w}>
-                        {WRAP_LABELS[w]}
-                      </option>
-                    ))}
-                  </select>
-                  <Cmd
-                    title="Mettre au premier plan (devant le texte)"
-                    active={attrs.wrap === "front"}
-                    onClick={() => set({ wrap: "front" })}
-                  >
-                    <BringToFront size={16} />
-                  </Cmd>
-                  <Cmd
-                    title="Mettre à l'arrière-plan (derrière le texte)"
-                    active={attrs.wrap === "behind"}
-                    onClick={() => set({ wrap: "behind" })}
-                  >
-                    <SendToBack size={16} />
-                  </Cmd>
-                  <span className="elx-optionbar__sep" />
-                  {isShape ? (
-                    <>
-                      <label className="elx-colorbtn" title="Remplissage de la forme">
-                        <input
-                          type="color"
-                          value={String(attrs.fill || "#dbeafe")}
-                          onChange={(e) => set({ fill: e.target.value })}
-                        />
-                      </label>
-                      <Cmd
-                        title={attrs.fill ? "Aucun remplissage" : "Remplir la forme"}
-                        active={!attrs.fill}
-                        onClick={() => set({ fill: attrs.fill ? "" : "#dbeafe" })}
-                      >
-                        <Droplets size={16} />
-                      </Cmd>
-                      <label className="elx-colorbtn" title="Couleur du contour">
-                        <input
-                          type="color"
-                          value={String(attrs.strokeColor || "#2563eb")}
-                          onChange={(e) => set({ strokeColor: e.target.value })}
-                        />
-                      </label>
-                      <select
-                        className="elx-select elx-select--size"
-                        title="Épaisseur du contour"
-                        value={Number(attrs.strokeWidth ?? 1)}
-                        onChange={(e) => set({ strokeWidth: Number(e.target.value) })}
-                      >
-                        {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
-                          <option key={w} value={w}>
-                            {w === 0 ? "Sans" : `${w} px`}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="elx-select"
-                        title="Type de trait"
-                        value={String(attrs.dash ?? "solid")}
-                        onChange={(e) => set({ dash: e.target.value as DashStyle })}
-                      >
-                        {(Object.keys(DASH_LABELS) as DashStyle[]).map((d) => (
-                          <option key={d} value={d}>
-                            {DASH_LABELS[d]}
-                          </option>
-                        ))}
-                      </select>
-                      {def.adj && (
-                        <input
-                          className="elx-range"
-                          type="range"
-                          title={def.adj.label}
-                          min={def.adj.min}
-                          max={def.adj.max}
-                          value={Number(attrs.adj ?? def.adj.default)}
-                          onChange={(e) => editor.chain().focus().setShapeAdj(Number(e.target.value)).run()}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <label className="elx-colorbtn" title="Remplissage de l'encadré">
-                        <input
-                          type="color"
-                          value={String(attrs.fill || "#f8fafc")}
-                          onChange={(e) => set({ fill: e.target.value })}
-                        />
-                      </label>
-                      <label className="elx-colorbtn" title="Couleur du filet">
-                        <input
-                          type="color"
-                          value={String(attrs.borderColor || "#cbd5e1")}
-                          onChange={(e) => set({ borderColor: e.target.value })}
-                        />
-                      </label>
-                      <select
-                        className="elx-select elx-select--size"
-                        title="Épaisseur du filet"
-                        value={Number(attrs.borderWidth ?? 1)}
-                        onChange={(e) => set({ borderWidth: Number(e.target.value) })}
-                      >
-                        {[0, 1, 2, 3, 4, 6, 8, 12].map((w) => (
-                          <option key={w} value={w}>
-                            {w === 0 ? "Sans" : `${w} px`}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  )}
-                  <span className="elx-optionbar__sep" />
-                  {/* Rotation par quarts : le geste fin est à la poignée, ici c'est
-                    le réglage rapide. */}
-                  <Cmd
-                    title="Faire pivoter de 90° (Format… pour un angle libre)"
-                    onClick={() => set({ rotation: (rotation + 90) % 360 })}
-                  >
-                    <RotateCw size={16} />
-                  </Cmd>
-                  {rotation !== 0 && (
-                    <Cmd title={`Redresser (${rotation}°)`} onClick={() => set({ rotation: 0 })}>
-                      <RemoveFormatting size={16} />
-                    </Cmd>
-                  )}
-                  <Cmd title="Format de la forme…" onClick={() => onOpenShapeFormat?.()}>
-                    <Settings2 size={16} />
-                  </Cmd>
-                  <Cmd
-                    title={isShape ? "Supprimer la forme" : "Supprimer la zone de texte (le contenu part avec elle)"}
-                    danger
-                    onClick={() => editor.chain().focus().deleteNode(target).run()}
-                  >
-                    <Trash2 size={16} />
-                  </Cmd>
-                  {!isShape && (
-                    <Cmd
-                      title="Retirer l'encadré en gardant son contenu dans le texte"
-                      onClick={() => editor.chain().focus().unwrapTextBox().run()}
-                    >
-                      <Combine size={16} />
-                    </Cmd>
-                  )}
-                </>
-              );
-            })()}
-
-          {editor.isActive("columnSection") && (
-            <>
-              <span className="elx-optionbar__title">
-                <Columns size={13} /> Colonnes
-              </span>
-              {[1, 2, 3, 4].map((n) => (
-                <Cmd
-                  key={n}
-                  title={n === 1 ? "Une colonne (supprimer les colonnes)" : `${n} colonnes`}
-                  active={columnCount === n}
-                  onClick={() => {
-                    const chain = editor.chain().focus();
-                    if (n <= 1) chain.unsetColumns().run();
-                    else chain.updateColumns({ count: n }).run();
-                  }}
-                >
-                  <span className="elx-colcount">{n}</span>
-                </Cmd>
-              ))}
-              <Cmd
-                title="Ligne séparatrice"
-                active={editor.getAttributes("columnSection").separator === true}
-                onClick={() =>
-                  editor
-                    .chain()
-                    .focus()
-                    .updateColumns({ separator: !(editor.getAttributes("columnSection").separator === true) })
-                    .run()
-                }
-              >
-                <SeparatorHorizontal size={16} style={{ transform: "rotate(90deg)" }} />
-              </Cmd>
-              <Cmd title="Autres colonnes…" onClick={() => onOpenColumns?.()}>
-                <FileCog size={16} />
-              </Cmd>
-            </>
-          )}
-
-          {editor.isActive("figure") && (
-            <>
-              <span className="elx-optionbar__title">
-                <ImageIcon size={13} /> Image
-              </span>
-              <Cmd
-                title="Aligner à gauche (habillage)"
-                active={editor.getAttributes("figure").align === "left"}
-                onClick={() => editor.chain().focus().setFigureAlign("left").run()}
-              >
-                <AlignLeft size={16} />
-              </Cmd>
-              <Cmd
-                title="Centrer"
-                active={editor.getAttributes("figure").align === "center"}
-                onClick={() => editor.chain().focus().setFigureAlign("center").run()}
-              >
-                <AlignCenter size={16} />
-              </Cmd>
-              <Cmd
-                title="Aligner à droite (habillage)"
-                active={editor.getAttributes("figure").align === "right"}
-                onClick={() => editor.chain().focus().setFigureAlign("right").run()}
-              >
-                <AlignRight size={16} />
-              </Cmd>
-              <select
-                className="elx-select elx-select--size"
-                title="Largeur de l'image"
-                value={(editor.getAttributes("figure").width as string) || ""}
-                onChange={(e) => editor.chain().focus().setFigureWidth(e.target.value).run()}
-              >
-                <option value="">Auto</option>
-                <option value="25%">25 %</option>
-                <option value="50%">50 %</option>
-                <option value="75%">75 %</option>
-                <option value="100%">100 %</option>
-              </select>
-            </>
-          )}
-
-          {editor.isActive("table") && (
-            <>
-              <span className="elx-optionbar__title">
-                <TableIcon size={13} /> Tableau
-              </span>
-              <Cmd title="Insérer une ligne" onClick={() => editor.chain().focus().addRowAfter().run()}>
-                <Plus size={16} />
-              </Cmd>
-              <Cmd title="Insérer une colonne" onClick={() => editor.chain().focus().addColumnAfter().run()}>
-                <Plus size={16} style={{ transform: "rotate(90deg)" }} />
-              </Cmd>
-              <Cmd title="Fusionner les cellules" onClick={() => editor.chain().focus().mergeCells().run()}>
-                <Combine size={16} />
-              </Cmd>
-              <Cmd title="Scinder la cellule" onClick={() => editor.chain().focus().splitCell().run()}>
-                <Split size={16} />
-              </Cmd>
-              <Cmd title="Supprimer la ligne" onClick={() => editor.chain().focus().deleteRow().run()}>
-                <Minus size={16} />
-              </Cmd>
-              <Cmd title="Supprimer la colonne" onClick={() => editor.chain().focus().deleteColumn().run()}>
-                <Minus size={16} style={{ transform: "rotate(90deg)" }} />
-              </Cmd>
-              <Cmd title="Supprimer le tableau" danger onClick={() => editor.chain().focus().deleteTable().run()}>
-                <Trash2 size={16} />
-              </Cmd>
-              <span className="elx-optionbar__sep" />
-              <select
-                className="elx-select"
-                title="Style du tableau"
-                value={(editor.getAttributes("table").tableStyle as string) || DEFAULT_TABLE_STYLE}
-                onChange={(e) =>
-                  editor
-                    .chain()
-                    .focus()
-                    .setTableStyle(e.target.value as never)
-                    .run()
-                }
-              >
-                {TABLE_STYLES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="elx-select"
-                title="Ajustement automatique"
-                value={(editor.getAttributes("table").tableFit as string) || "auto"}
-                onChange={(e) =>
-                  editor
-                    .chain()
-                    .focus()
-                    .setTableFit(e.target.value as never)
-                    .run()
-                }
-              >
-                {(Object.keys(TABLE_FIT_LABELS) as (keyof typeof TABLE_FIT_LABELS)[]).map((f) => (
-                  <option key={f} value={f}>
-                    {TABLE_FIT_LABELS[f]}
-                  </option>
-                ))}
-              </select>
-              {/* Alignement vertical dans la cellule : les trois valeurs de w:vAlign. */}
-              <Cmd
-                title="Aligner en haut de la cellule"
-                active={(editor.getAttributes("tableCell").vAlign ?? "top") === "top"}
-                onClick={() => editor.chain().focus().setCellVAlign("top").run()}
-              >
-                <AlignStartVertical size={16} />
-              </Cmd>
-              <Cmd
-                title="Centrer verticalement dans la cellule"
-                active={editor.getAttributes("tableCell").vAlign === "center"}
-                onClick={() => editor.chain().focus().setCellVAlign("center").run()}
-              >
-                <AlignCenterVertical size={16} />
-              </Cmd>
-              <Cmd
-                title="Aligner en bas de la cellule"
-                active={editor.getAttributes("tableCell").vAlign === "bottom"}
-                onClick={() => editor.chain().focus().setCellVAlign("bottom").run()}
-              >
-                <AlignEndVertical size={16} />
-              </Cmd>
-              <span className="elx-optionbar__sep" />
-              <Cmd
-                title="Trier ce tableau sur la colonne du curseur (croissant)"
-                onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "asc").run()}
-              >
-                <ArrowDownAZ size={16} />
-              </Cmd>
-              <Cmd
-                title="Trier ce tableau sur la colonne du curseur (décroissant)"
-                onClick={() => editor.chain().focus().sortTableRows(currentCellIndex(editor), "desc").run()}
-              >
-                <ArrowUpAZ size={16} />
-              </Cmd>
-            </>
-          )}
-
-          {editor.isActive("codeBlock") && (
-            <>
-              <span className="elx-optionbar__title">
-                <Code2 size={13} /> Code
-              </span>
-              <select
-                className="elx-select"
-                title="Langage du bloc de code"
-                value={(editor.getAttributes("codeBlock").language as string) || "plaintext"}
-                onChange={(e) =>
-                  editor.chain().focus().updateAttributes("codeBlock", { language: e.target.value }).run()
-                }
-              >
-                {CODE_LANGUAGES.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-
-          {isSuggesting(editor.state) && (
-            <>
-              <span className="elx-optionbar__title">
-                <Pencil size={13} /> Suivi actif
-              </span>
-              <Cmd
-                title="Accepter toutes les modifications"
-                onClick={() => editor.chain().focus().acceptAllChanges().run()}
-              >
-                <Check size={16} />
-              </Cmd>
-              <Cmd
-                title="Refuser toutes les modifications"
-                danger
-                onClick={() => editor.chain().focus().rejectAllChanges().run()}
-              >
-                <X size={16} />
-              </Cmd>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

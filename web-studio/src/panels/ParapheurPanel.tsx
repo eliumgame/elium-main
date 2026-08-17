@@ -141,9 +141,9 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel-section">
       <div className="panel-title-row">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Stamp size={16} /> Parapheur
-        </h3>
+        </h2>
         <Badge accent={STATUS_ACCENT[overall]}>{STATUS_LABEL[overall]}</Badge>
       </div>
       <p className="muted" style={{ marginBottom: 10 }}>

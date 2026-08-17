@@ -200,7 +200,7 @@ export default function Ribbon(p: RibbonProps) {
   const markupTool = ["highlight", "underline", "strikeout", "squiggly"].includes(p.tool);
 
   return (
-    <div className="pdfx-ribbon">
+    <div className="pdfx-ribbon" role="region" aria-label="Barre d'outils PDF">
       <div className="pdfx-tabs" role="tablist">
         {RIBBON_TABS.map((t) => (
           <button

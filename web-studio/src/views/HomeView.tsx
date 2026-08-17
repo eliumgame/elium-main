@@ -327,22 +327,12 @@ export default function HomeView({
               </p>
               <div className="library-grid">
                 {shown.map((d) => (
-                  <div
-                    key={d.id}
-                    className="library-card"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onRecoverDraft(d.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onRecoverDraft(d.id);
-                      }
-                    }}
-                  >
+                  <div key={d.id} className="library-card">
                     <div className="library-card__top">
-                      <FileText size={18} />
-                      <span className="library-card__title">{d.title}</span>
+                      <button type="button" className="library-card__open" onClick={() => onRecoverDraft(d.id)}>
+                        <FileText size={18} />
+                        <span className="library-card__title">{d.title}</span>
+                      </button>
                       <button
                         type="button"
                         className="icon-btn library-card__del"
@@ -421,22 +411,12 @@ export default function HomeView({
           ) : (
             <div className="library-grid">
               {filteredLibrary.map((d) => (
-                <div
-                  key={d.id}
-                  className="library-card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => void openFromLibrary(d)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      void openFromLibrary(d);
-                    }
-                  }}
-                >
+                <div key={d.id} className="library-card">
                   <div className="library-card__top">
-                    {d.locked ? <Lock size={18} /> : <FileText size={18} />}
-                    <span className="library-card__title">{d.title}</span>
+                    <button type="button" className="library-card__open" onClick={() => void openFromLibrary(d)}>
+                      {d.locked ? <Lock size={18} /> : <FileText size={18} />}
+                      <span className="library-card__title">{d.title}</span>
+                    </button>
                     <button
                       type="button"
                       className="icon-btn icon-btn--danger library-card__del"

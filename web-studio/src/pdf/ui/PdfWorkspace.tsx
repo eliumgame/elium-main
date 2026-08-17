@@ -1662,8 +1662,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             <FileText size={16} /> PDF
           </span>
         </header>
-        <div
+        <main
           className={`pdfx-dropzone ${dragOver ? "is-over" : ""}`}
+          aria-label="Ouvrir un PDF"
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -1701,7 +1702,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               <li>Caviardage destructif, chiffrement AES-256, OCR</li>
             </ul>
           </div>
-        </div>
+        </main>
         <input
           ref={openInput}
           type="file"
@@ -1827,7 +1828,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         </div>
 
         <div className="pdfx-pagenav">
-          <button className="pdfx-topbtn" onClick={() => goTo(view.current - 1)} disabled={view.current <= 1}>
+          <button
+            className="pdfx-topbtn"
+            onClick={() => goTo(view.current - 1)}
+            disabled={view.current <= 1}
+            title="Page précédente"
+            aria-label="Page précédente"
+          >
             <ChevronLeft size={16} />
           </button>
           <input
@@ -1840,17 +1847,24 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             aria-label="Numéro de page"
           />
           <span className="pdfx-pagenav__total">/ {pageCount}</span>
-          <button className="pdfx-topbtn" onClick={() => goTo(view.current + 1)} disabled={view.current >= pageCount}>
+          <button
+            className="pdfx-topbtn"
+            onClick={() => goTo(view.current + 1)}
+            disabled={view.current >= pageCount}
+            title="Page suivante"
+            aria-label="Page suivante"
+          >
             <ChevronRight size={16} />
           </button>
         </div>
 
         <div className="pdfx-zoombar">
-          <button className="pdfx-topbtn" onClick={() => zoomStep(-1)}>
+          <button className="pdfx-topbtn" onClick={() => zoomStep(-1)} title="Zoom arrière" aria-label="Zoom arrière">
             <ZoomOut size={16} />
           </button>
           <select
             className="pdfx-zoombar__select"
+            aria-label="Niveau de zoom"
             value={view.zoomMode === "custom" ? "custom" : view.zoomMode}
             onChange={(e) => {
               const v = e.target.value;
@@ -1868,7 +1882,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               </option>
             ))}
           </select>
-          <button className="pdfx-topbtn" onClick={() => zoomStep(1)}>
+          <button className="pdfx-topbtn" onClick={() => zoomStep(1)} title="Zoom avant" aria-label="Zoom avant">
             <ZoomIn size={16} />
           </button>
           <button className="pdfx-topbtn" onClick={() => void command("fullscreen")} title="Plein écran (F11)">
@@ -1924,7 +1938,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         </nav>
 
         {panel && (
-          <div className="pdfx-side">
+          <aside className="pdfx-side" aria-label="Panneau latéral">
             <Sidebar
               panel={panel}
               engine={engine}
@@ -2006,7 +2020,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               }}
               onFieldDelete={(id) => setState((s) => D.removeField(s, id))}
             />
-          </div>
+          </aside>
         )}
 
         {mode === "organise" ? (
@@ -2036,6 +2050,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             className={`pdfx-canvas pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
             ref={scrollRef}
             onScroll={onScroll}
+            role="main"
+            aria-label="Pages du document"
+            tabIndex={0}
             style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
           >
             <div className="pdfx-pages">

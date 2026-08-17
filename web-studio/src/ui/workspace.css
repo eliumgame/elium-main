@@ -21,8 +21,12 @@
   --x-chrome-3: #2c323f;
   --x-chrome-line: #363d4b;
   --x-chrome-text: #e7ebf2;
-  --x-chrome-soft: #a7b0c0;
-  --x-chrome-mute: #7d8798;
+  /* Éclaircis (étaient #a7b0c0 / #7d8798) : sur l'écran d'accueil du module,
+     le texte s'affiche sur --x-desk (suit le thème, #4a4f5a en clair) et non
+     sur le chrome toujours sombre — contre ce gris moyen, les anciennes
+     valeurs tombaient sous 4.5:1 (~3.5:1 et moins). */
+  --x-chrome-soft: #c9d0dc;
+  --x-chrome-mute: #c3cad6;
 
   --x-accent: #4f8cff;
   --x-accent-soft: rgba(79, 140, 255, 0.16);
@@ -71,8 +75,14 @@
   box-sizing: border-box;
 }
 
-.pdfx button,
-.elx button {
+/* :where() retire .pdfx/.elx de la spécificité : ce reset (spécificité d'un
+   seul type d'élément) doit toujours perdre face à la couleur explicite d'un
+   bouton du module (.pdfx-org__add, .eb, .pdfx-topbtn actif, etc. — au moins
+   une classe). Sans ça, la couleur toujours-claire du chrome sombre écrasait
+   des boutons qui suivent en réalité le thème clair/sombre de l'appli (texte
+   clair sur fond blanc en thème clair, contraste AA en échec). Les icon-boutons
+   qui n'ont volontairement pas de couleur propre continuent d'hériter. */
+:where(.pdfx, .elx) button {
   font: inherit;
   color: inherit;
 }

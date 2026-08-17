@@ -20,9 +20,9 @@ export default function InfoPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Info size={15} /> Document
-        </h3>
+        </h2>
         <Row label="Titre" value={m.title} />
         <Row label="Profil" value={def.label} />
         <Row label="Format" value={`elium v${m.formatVersion}`} />
@@ -46,7 +46,7 @@ export default function InfoPanel({ studio }: { studio: Studio }) {
       </section>
 
       <section className="panel-section">
-        <h3 className="panel-title">Confidentialité (RGPD)</h3>
+        <h2 className="panel-title">Confidentialité (RGPD)</h2>
         <Row label="Traitement" value={m.rgpd.localOnly ? "100% local" : "service en ligne utilisé"} />
         <Row
           label="Données personnelles"

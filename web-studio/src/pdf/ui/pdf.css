@@ -1073,7 +1073,10 @@
   box-shadow: var(--x-shadow-page);
   display: grid;
   place-items: center;
-  color: #94a3b8;
+  /* Le fond de cette vignette est TOUJOURS blanc (page vierge) quel que soit
+     le thème ; #94a3b8 échouait déjà l'AA sur blanc (cf. tokens.css) — même
+     gris que --el-text-muted clair, en dur car ce fond ne suit pas le thème. */
+  color: #586675;
   font-size: 11px;
 }
 .pdfx-org__num {

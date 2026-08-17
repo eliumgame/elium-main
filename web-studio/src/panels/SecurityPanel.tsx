@@ -18,9 +18,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
   return (
     <div className="panel">
       <section className="panel-section">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Lock size={15} /> Profil de protection
-        </h3>
+        </h2>
         <p className="muted">La protection est optionnelle. Choisissez un niveau simple ou avancé.</p>
 
         <div className="profile-grid">
@@ -54,9 +54,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
       </section>
 
       <section className="panel-section">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <CalendarClock size={15} /> Expiration d'accès
-        </h3>
+        </h2>
         <p className="muted">
           Date au-delà de laquelle le document est marqué comme expiré. Lorsqu'un sceau est apposé, cette date est
           authentifiée (inviolable).
@@ -107,9 +107,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
           </section>
 
           <section className="panel-section">
-            <h3 className="panel-title">
+            <h2 className="panel-title">
               <Users size={15} /> Destinataires (sans mot de passe)
-            </h3>
+            </h2>
             <p className="muted">
               Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé. Collez
               leurs clés publiques (une par ligne). Si renseigné, le mot de passe n'est pas demandé.
@@ -142,9 +142,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
       )}
 
       <section className="panel-section">
-        <h3 className="panel-title">
+        <h2 className="panel-title">
           <Users size={15} /> Votre clé de réception
-        </h3>
+        </h2>
         {studio.recipientPublic ? (
           <>
             <p className="muted">Partagez cette clé publique pour recevoir des documents chiffrés à votre intention.</p>

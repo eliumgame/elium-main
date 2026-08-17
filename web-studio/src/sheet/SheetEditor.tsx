@@ -618,7 +618,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   return (
     <div className={`sheet-app ${chrome.variant === "modal" ? "sheet-app--modal" : ""}`}>
       {/* Barre supérieure */}
-      <div className="sheet-bar">
+      <div className="sheet-bar" role="region" aria-label="Barre de titre du tableur">
         {chrome.onHome && (
           <button className="eb eb--sm eb--ghost" onClick={chrome.onHome} title="Accueil">
             <Home size={16} /> Accueil
@@ -651,7 +651,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
       {/* Barre de mise en forme (masquée en lecture seule) */}
       {canWrite && (
-        <div className="sheet-format">
+        <div className="sheet-format" role="region" aria-label="Barre de mise en forme">
           {store.undo && store.redo && (
             <div className="tool-group">
               <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={store.undo} disabled={!store.canUndo}>
@@ -691,6 +691,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
               key={`ff-${fontTick}`}
               className="tool-select"
               title="Police"
+              aria-label="Police"
               value={activeStyle.fontFamily ?? DEFAULT_FONT}
               onChange={(e) => applyStyle({ fontFamily: e.target.value })}
             >
@@ -711,6 +712,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             <select
               className="tool-select tool-select--sm"
               title="Taille de police"
+              aria-label="Taille de police"
               value={activeStyle.fontSize ?? 13}
               onChange={(e) => applyStyle({ fontSize: Number(e.target.value) })}
             >
@@ -782,6 +784,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             <select
               className="tool-select"
               title="Format des nombres"
+              aria-label="Format des nombres"
               value={activeStyle.fmt ?? "general"}
               onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })}
             >
@@ -912,7 +915,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       )}
 
       {/* Barre de formule */}
-      <div className="sheet-formula">
+      <div className="sheet-formula" role="region" aria-label="Barre de formule">
         <span className="sheet-formula__ref">{activeRef}</span>
         <input
           className="sheet-formula__input"
@@ -941,7 +944,15 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         />
       </div>
 
-      <div className="sheet-grid-wrap" ref={gridRef} tabIndex={0} onKeyDown={onGridKeyDown} onPaste={onPaste}>
+      <div
+        className="sheet-grid-wrap"
+        ref={gridRef}
+        tabIndex={0}
+        onKeyDown={onGridKeyDown}
+        onPaste={onPaste}
+        role="region"
+        aria-label="Grille de la feuille de calcul"
+      >
         {sheet && (
           <table className="sheet-grid">
             <colgroup>
@@ -952,7 +963,9 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             </colgroup>
             <thead>
               <tr>
-                <th className="sheet-corner" style={fz ? { zIndex: 7 } : undefined} />
+                <th className="sheet-corner" style={fz ? { zIndex: 7 } : undefined}>
+                  <span className="sr-only">Angle du quadrillage</span>
+                </th>
                 {Array.from({ length: sheet.cols }, (_, c) => (
                   <th key={c} className={c >= c0 && c <= c1 ? "is-hl" : ""} style={stickyStyle(c, -1)}>
                     {indexToCol(c)}

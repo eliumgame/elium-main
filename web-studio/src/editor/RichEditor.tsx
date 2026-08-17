@@ -525,7 +525,7 @@ export default function RichEditor({
         />
       )}
 
-      <div className="editor-body">
+      <main className="editor-body" aria-label="Zone d'édition du document">
         <div className="editor-scroll" ref={scrollRef} onClick={handleScrollClick}>
           {/* Zoom in two layers. The OUTER box reserves the scaled footprint in
             layout px (a transform occupies no space, so without it the scroll
@@ -648,7 +648,7 @@ export default function RichEditor({
         {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
           dedans : il doit rester visible pendant qu'on parcourt le document. */}
         {editor && proofingOpen && <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />}
-      </div>
+      </main>
 
       <EditorStatusBar
         editor={editor}

@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
@@ -19,7 +19,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    target: "esnext",
     rollupOptions: {
       output: {
         // Split the heaviest vendor libraries into their own chunks. Each is
@@ -27,16 +27,17 @@ export default defineConfig({
         // async — and tiptap/yjs are shared between the Studio and Drive editors
         // instead of duplicated. Keeps the main bundle small and caches well.
         manualChunks(id) {
-          if (!id.includes('node_modules')) return;
+          if (!id.includes("node_modules")) return;
           // React must have its own chunk: it's a dependency of @tiptap/react, so
           // without this it gets folded into vendor-tiptap and the eager main
           // bundle then static-imports (and eagerly loads) all of tiptap.
-          if (/[\\/]node_modules[\\/](react-dom|react|scheduler)[\\/]/.test(id)) return 'vendor-react';
-          if (id.includes('pdf-lib') || id.includes('@pdf-lib') || id.includes('fontkit')) return 'vendor-pdf-lib';
-          if (id.includes('pdfjs-dist')) return 'vendor-pdfjs';
-          if (id.includes('@tiptap') || id.includes('prosemirror')) return 'vendor-tiptap';
-          if (id.includes('yjs') || id.includes('y-protocols') || id.includes('lib0')) return 'vendor-yjs';
-          if (id.includes('lowlight') || id.includes('highlight.js') || id.includes('refractor')) return 'vendor-lowlight';
+          if (/[\\/]node_modules[\\/](react-dom|react|scheduler)[\\/]/.test(id)) return "vendor-react";
+          if (id.includes("pdf-lib") || id.includes("@pdf-lib") || id.includes("fontkit")) return "vendor-pdf-lib";
+          if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          if (id.includes("@tiptap") || id.includes("prosemirror")) return "vendor-tiptap";
+          if (id.includes("yjs") || id.includes("y-protocols") || id.includes("lib0")) return "vendor-yjs";
+          if (id.includes("lowlight") || id.includes("highlight.js") || id.includes("refractor"))
+            return "vendor-lowlight";
         },
       },
     },
@@ -46,5 +47,10 @@ export default defineConfig({
     // ~1,3 s chacune) : le délai par défaut de 5 s peut être dépassé sur une
     // machine chargée. On laisse une marge confortable.
     testTimeout: 30000,
+    // *.spec.ts (tests/a11y.spec.ts) est réservé à Playwright (voir
+    // playwright.config.ts) : il importe @playwright/test, pas les globals
+    // Vitest. Sans cette restriction, le glob par défaut de Vitest inclut
+    // aussi *.spec.ts et tente (et échoue) de l'exécuter.
+    include: ["tests/**/*.test.{ts,tsx}", "src/**/*.test.{ts,tsx}"],
   },
 });

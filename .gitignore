@@ -34,6 +34,10 @@ desktop.ini
 htmlcov/
 scratch_*.py
 scratch_*.cjs
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Environment
 .env

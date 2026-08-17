@@ -96,15 +96,20 @@ jobs:
     - name: Test (Vitest)
       working-directory: ./server
       run: npm test
+    - name: Audit dépendances de production
+      working-directory: ./server
+      run: npm audit --omit=dev --audit-level=high
 
   server-e2e:
     runs-on: ubuntu-latest
-    # Intégration lourde (Postgres embarqué + Fastify réel) : fragile selon l'environnement
-    # du runner (dépendances système du binaire Postgres) et NE conditionne pas les releases
-    # -> non bloquant. 136/136 vérifications en ~65s en local (vérifié 2026-08-17) ; ce
-    # commentaire dérive facilement du code (le fichier grossit à chaque fonctionnalité) —
-    # ne t'y fie pas pour juger de l'état réel, relance `npm run test:e2e` dans web-studio/.
-    continue-on-error: true
+    # Intégration lourde (Postgres embarqué + Fastify réel). Repassé bloquant le
+    # 2026-08-18 après avoir vérifié 5/5 exécutions vertes (3 runs CI Ubuntu réels
+    # dont un après la migration Fastify v5, + 2 runs locaux Windows), 136/136
+    # vérifications à chaque fois. Risque résiduel connu : le téléchargement de
+    # libicu60 ci-dessous dépend des miroirs archive.ubuntu.com — une panne réseau
+    # ferait échouer le job pour une raison sans rapport avec le code. Si ça devient
+    # source de flakiness, vendoriser le .deb ou passer par Docker plutôt que de
+    # redevenir non bloquant.
     steps:
     - uses: actions/checkout@v4
     - name: Installer libicu60 (dép. runtime du Postgres embarqué)

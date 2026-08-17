@@ -38,9 +38,17 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
     await expectNoSeriousViolations(page, "Accueil");
   });
 
+  test("Document — choix du niveau de protection", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Documents" }).click();
+    await expect(page.getByRole("dialog", { name: "Comment protéger ce document ?" })).toBeVisible();
+    await expectNoSeriousViolations(page, "Document (choix du niveau de protection)");
+  });
+
   test("Document", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Documents" }).click();
+    await page.getByRole("button", { name: "Simple" }).click();
     await expect(page.locator(".elx-ribbon")).toBeVisible();
     await expectNoSeriousViolations(page, "Document");
   });

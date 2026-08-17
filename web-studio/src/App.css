@@ -165,7 +165,7 @@
 }
 .badge--danger {
   background: var(--danger-bg);
-  color: var(--danger);
+  color: var(--el-danger-text);
 }
 
 /* --- Alerts ----------------------------------------------------------- */
@@ -2013,6 +2013,48 @@
   margin-top: 8px;
   font-size: 11px;
   color: var(--text-soft);
+}
+
+/* SecurityLevelPicker : le modal est large, la sidebar Sécurité ne l'est pas —
+   ces variantes ne s'appliquent qu'à l'intérieur du modal. */
+.profile-grid--quick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+.profile-card--quick {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+.profile-card--quick .profile-card__head {
+  color: var(--primary);
+  justify-content: flex-start;
+  gap: 10px;
+}
+.profile-card--quick .profile-card__label {
+  font-size: 15px;
+}
+.modal-body .profile-grid:not(.profile-grid--quick) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  margin: 14px 0;
+}
+.link-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--primary-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.link-toggle:hover {
+  text-decoration: underline;
 }
 
 .timeline {

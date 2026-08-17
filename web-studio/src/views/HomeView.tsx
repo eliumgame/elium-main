@@ -25,9 +25,11 @@ import { IMPORT_ACCEPT } from "../format/importers";
 import { listDriveDocs, getDriveDoc, deleteDriveDoc, type ResolvedDriveEntry } from "../format/drive-store";
 import { listDrafts, deleteDraft, type DraftEntry } from "../format/drafts-store";
 import { PROFILES } from "../format/profiles";
+import type { EliumProfile } from "../format/types";
 import { useDialogs } from "../ui/dialogs";
 import type { VaultSecret } from "../crypto/local-vault";
 import VersionFooter from "./VersionFooter";
+import SecurityLevelPicker from "../components/SecurityLevelPicker";
 import "../drive-cloud/drive-cloud.css";
 
 /** Brouillons montrés avant de devoir cliquer « afficher les autres ». */
@@ -46,7 +48,7 @@ export default function HomeView({
   onDownloadDraft,
   vaultSecret,
 }: {
-  onCreate: (tpl: Template) => void;
+  onCreate: (tpl: Template, profile?: EliumProfile) => void;
   onOpen: (file: File) => void;
   onOpenSettings: () => void;
   onNewSheet: () => void;
@@ -68,6 +70,10 @@ export default function HomeView({
   // finissaient par noyer l'accueil. On n'en montre que les plus récents, avec un
   // bouton pour tout déplier — la page reste une page d'accueil, pas une corbeille.
   const [showAllDrafts, setShowAllDrafts] = useState(false);
+  // Choix du niveau de protection avant la création : évite qu'un nouveau
+  // document reste non chiffré (profil "standard") sans que ce soit un choix
+  // conscient. `null` = picker fermé ; sinon, le modèle en attente de création.
+  const [pendingTemplate, setPendingTemplate] = useState<Template | null>(null);
   const { confirm, alert } = useDialogs();
 
   const reloadLibrary = () => {
@@ -168,7 +174,7 @@ export default function HomeView({
       name: "Documents",
       desc: "Éditeur de texte riche",
       icon: <FileText size={26} />,
-      onClick: () => onCreate(blank),
+      onClick: () => setPendingTemplate(blank),
     },
     {
       key: "sheets",
@@ -452,7 +458,7 @@ export default function HomeView({
         <h2 className="home__section-title">Modèles de documents</h2>
         <div className="template-grid">
           {TEMPLATES.map((t) => (
-            <button key={t.id} className="template-card" onClick={() => onCreate(t)}>
+            <button key={t.id} className="template-card" onClick={() => setPendingTemplate(t)}>
               <div className="template-card__label">{t.label}</div>
               <div className="template-card__desc">{t.description}</div>
             </button>
@@ -461,6 +467,17 @@ export default function HomeView({
       </section>
 
       <VersionFooter />
+
+      {pendingTemplate && (
+        <SecurityLevelPicker
+          onChoose={(profile) => {
+            const tpl = pendingTemplate;
+            setPendingTemplate(null);
+            onCreate(tpl, profile);
+          }}
+          onCancel={() => setPendingTemplate(null)}
+        />
+      )}
     </main>
   );
 }

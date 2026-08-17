@@ -109,6 +109,10 @@
   --el-danger: #dc2626;
   --el-danger-bg: #fef2f2;
   --el-danger-hover: #b91c1c;
+  /* --el-danger sur --el-danger-bg = ~4.41:1, sous le seuil AA (4.5:1) pour du
+     texte — variante TEXTE un peu plus sombre, réutilise --el-danger-hover
+     (déjà dans la palette) qui donne ~5.9:1. */
+  --el-danger-text: #b91c1c;
   --el-neutral: #475569;
   --el-neutral-bg: #f1f5f9;
 
@@ -285,6 +289,8 @@
   --el-danger: #f87171;
   --el-danger-bg: #3a1717;
   --el-danger-hover: #ef4444;
+  /* --el-danger sur --el-danger-bg est déjà >= 4.5:1 en sombre (~5.8:1). */
+  --el-danger-text: #f87171;
   --el-neutral: #9aa6b2;
   --el-neutral-bg: #222b3a;
 

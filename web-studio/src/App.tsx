@@ -550,9 +550,9 @@ export default function App() {
   // --- Home actions -------------------------------------------------------
 
   const onCreate = useCallback(
-    async (tpl: Template) => {
+    async (tpl: Template, profile: EliumProfile = "standard") => {
       const { title, doc } = tpl.build();
-      const f = await createEliumFile({ title, profile: "standard", doc });
+      const f = await createEliumFile({ title, profile, doc });
       setPassword("");
       await loadFile(f, { contentIntact: true, unchecked: true });
       setMode("studio");

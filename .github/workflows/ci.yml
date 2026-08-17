@@ -58,6 +58,9 @@ jobs:
     - name: Build Web Studio
       working-directory: ./web-studio
       run: npm run build
+    - name: Budget de bundle (régression de taille)
+      working-directory: ./web-studio
+      run: npm run check:bundle-budget
     - name: Run Web Studio Tests
       working-directory: ./web-studio
       run: npm test

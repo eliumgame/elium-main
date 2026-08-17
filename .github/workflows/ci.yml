@@ -64,9 +64,9 @@ jobs:
     - name: Install Chromium (Playwright, pour axe-core)
       working-directory: ./web-studio
       run: npx playwright install --with-deps chromium
-    - name: Accessibilité (axe-core) — 7 vues clés
+    - name: Tests navigateur (axe-core + parcours utilisateur réels)
       working-directory: ./web-studio
-      run: npm run test:a11y
+      run: npm run test:browser
     - name: Audit dépendances de production
       working-directory: ./web-studio
       run: npm audit --omit=dev --audit-level=high

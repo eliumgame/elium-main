@@ -1,16 +1,16 @@
 import { defineConfig } from "@playwright/test";
 
 /**
- * Config minimale dédiée aux tests d'accessibilité (axe-core) — voir
- * tests/a11y.spec.ts. Pas de tests fonctionnels Playwright ici : ceux-là
- * restent en Vitest (tests/*.test.ts) ; Playwright n'existe dans ce repo
- * QUE pour driver un vrai navigateur au service d'axe-core, qui a besoin
- * d'un rendu réel (calcul de contraste, mise en page) qu'un DOM jsdom ne
- * fournit pas.
+ * Config Playwright — voir tests/a11y.spec.ts (scan d'accessibilité axe-core)
+ * et tests/journeys.spec.ts (parcours utilisateur "gestes réels" : création/
+ * édition, round-trip chiffré, imports, exports réels, ouverture des modules).
+ * Les deux ont besoin d'un vrai navigateur (rendu, mise en page, téléchargements
+ * de fichiers) qu'un DOM jsdom ne fournit pas — le reste des tests fonctionnels
+ * (logique pure) reste en Vitest (tests/*.test.ts).
  */
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /a11y\.spec\.ts/,
+  testMatch: /(a11y|journeys)\.spec\.ts/,
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "list",

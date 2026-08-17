@@ -1,4 +1,4 @@
-import { Save, Eye, Pencil, Home, Settings } from "lucide-react";
+import { Save, Eye, Pencil, Home, Settings, Loader2 } from "lucide-react";
 import { Button } from "../ui/components";
 import StatusBadges from "./StatusBadges";
 import type { Studio } from "../studio/types";
@@ -49,9 +49,10 @@ export default function TopBar({ studio }: { studio: Studio }) {
               onClick={() => studio.save()}
               disabled={studio.busy}
               title="Enregistrer"
-              aria-label="Enregistrer"
+              aria-label={studio.busy ? "Enregistrement en cours" : "Enregistrer"}
             >
-              <Save size={16} /> <span className="eb__label">{studio.busy ? "…" : "Enregistrer"}</span>
+              {studio.busy ? <Loader2 size={16} className="icon-spin" /> : <Save size={16} />}{" "}
+              <span className="eb__label">{studio.busy ? "Enregistrement…" : "Enregistrer"}</span>
             </Button>
           </>
         ) : (

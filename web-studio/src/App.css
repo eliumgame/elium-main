@@ -369,6 +369,26 @@
   color: inherit;
 }
 
+/* Repère de traitement en cours (chiffrement/déchiffrement Argon2id) — la
+   boîte de dialogue de mot de passe s'est déjà refermée quand ce travail
+   s'exécute, donc rien d'autre à l'écran ne le montrerait. */
+.busy-indicator {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text-soft);
+  z-index: 200;
+}
+
 /* --- Brand ------------------------------------------------------------ */
 .brand {
   display: inline-flex;

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { X, Lock } from "lucide-react";
+import { X, Lock, Loader2 } from "lucide-react";
 import { Button } from "./ui/components";
 import HomeView from "./views/HomeView";
 // Heavy per-app views are code-split: their editors (tiptap, sheet & slides
@@ -1583,6 +1583,14 @@ export default function App() {
 
       {error && <Toast tone="danger" message={error} onClose={() => setError(null)} />}
       {toast && <Toast tone="success" message={toast} onClose={() => setToast(null)} />}
+      {/* Le mot de passe est validé et sa boîte de dialogue se referme AVANT que
+          le chiffrement/déchiffrement (Argon2id) ne s'exécute — sans ce repère,
+          les ~200 ms qui suivent ne montrent rien du tout. */}
+      {busy && (
+        <div className="busy-indicator" role="status" aria-live="polite">
+          <Loader2 size={14} className="icon-spin" /> Traitement en cours…
+        </div>
+      )}
     </div>
   );
 }

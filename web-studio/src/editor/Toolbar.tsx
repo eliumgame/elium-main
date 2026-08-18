@@ -84,6 +84,7 @@ import {
   Settings2,
   BringToFront,
   SendToBack,
+  SlidersHorizontal,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
@@ -192,6 +193,7 @@ function Dropdown({
   children,
   align = "left",
   big,
+  className,
 }: {
   label?: string;
   title: string;
@@ -199,6 +201,8 @@ function Dropdown({
   children: (close: () => void) => React.ReactNode;
   align?: "left" | "right";
   big?: boolean;
+  /** Ex. "elx-adv" : masqué en surface "Essentiel" (voir toggleDensity). */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -223,7 +227,7 @@ function Dropdown({
   }, [open]);
 
   return (
-    <div className="elx-drop" ref={wrapRef}>
+    <div className={`elx-drop ${className ?? ""}`} ref={wrapRef}>
       <button
         type="button"
         className={`elx-cmd ${big ? "elx-cmd--big" : ""} ${open ? "is-active" : ""}`}
@@ -273,6 +277,7 @@ function Cmd({
   label,
   big,
   danger,
+  className,
   children,
 }: {
   active?: boolean;
@@ -282,12 +287,14 @@ function Cmd({
   label?: string;
   big?: boolean;
   danger?: boolean;
+  /** Ex. "elx-adv" : masqué en surface "Essentiel" (voir toggleDensity). */
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      className={`elx-cmd ${big ? "elx-cmd--big" : ""} ${active ? "is-active" : ""} ${danger ? "is-danger" : ""}`}
+      className={`elx-cmd ${big ? "elx-cmd--big" : ""} ${active ? "is-active" : ""} ${danger ? "is-danger" : ""} ${className ?? ""}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
@@ -404,6 +411,28 @@ export default function Toolbar({
   const fontInputRef = useRef<HTMLInputElement>(null);
   const [fontTick, setFontTick] = useState(0);
   const [tab, setTab] = useState<RibbonTab>("home");
+  // Surface "Essentiel" par défaut : les commandes marquées .elx-adv restent
+  // dans le DOM (raccourcis clavier et fonctions intactes) mais sont masquées
+  // en CSS tant que l'utilisateur n'a pas demandé "Toutes les commandes" —
+  // préférence par onglet du navigateur, pas par document.
+  const [density, setDensity] = useState<"essential" | "full">(() => {
+    try {
+      return localStorage.getItem("elium-editor-density") === "full" ? "full" : "essential";
+    } catch {
+      return "essential";
+    }
+  });
+  const toggleDensity = useCallback(() => {
+    setDensity((d) => {
+      const next = d === "essential" ? "full" : "essential";
+      try {
+        localStorage.setItem("elium-editor-density", next);
+      } catch {
+        /* stockage indisponible — le choix reste actif pour la session en cours */
+      }
+      return next;
+    });
+  }, []);
   const { ref: ribbonRef, edges, nudge, sync: syncRibbon } = useRibbonScroll();
   // Chaque onglet a sa propre largeur de contenu : ce qui dépasse change avec lui.
   useEffect(() => {
@@ -548,23 +577,39 @@ export default function Toolbar({
 
   return (
     <div role="region" aria-label="Barre d'outils de mise en forme">
-      <div className="elx-ribbon" role="toolbar" aria-label="Mise en forme">
-        <div className="elx-tabs" role="tablist">
-          {/* En collaboration, le publipostage n'a pas de sens (il fabrique un
-            nouveau document local depuis une source de données) : l'onglet
-            disparaît plutôt que d'exposer une commande sans effet. */}
-          {TABS.filter((t) => !(collab && t.id === "merge")).map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              className={`elx-tab ${tab === t.id ? "is-active" : ""}`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
+      <div
+        className={`elx-ribbon ${density === "essential" ? "elx-ribbon--essential" : ""}`}
+        role="toolbar"
+        aria-label="Mise en forme"
+      >
+        <div className="elx-tabsrow">
+          <div className="elx-tabs" role="tablist">
+            {/* En collaboration, le publipostage n'a pas de sens (il fabrique un
+              nouveau document local depuis une source de données) : l'onglet
+              disparaît plutôt que d'exposer une commande sans effet. */}
+            {TABS.filter((t) => !(collab && t.id === "merge")).map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`elx-tab ${tab === t.id ? "is-active" : ""}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="elx-density-toggle"
+            onClick={toggleDensity}
+            title={density === "essential" ? "Afficher toutes les commandes" : "Revenir à l'essentiel"}
+            aria-pressed={density === "full"}
+          >
+            <SlidersHorizontal size={13} />
+            {density === "essential" ? "Toutes les commandes" : "Essentiel"}
+          </button>
         </div>
 
         {/* Le ruban défile quand il ne tient pas ; les chevrons et les dégradés
@@ -642,6 +687,7 @@ export default function Toolbar({
                   <Cmd
                     title="Importer une police (.ttf, .otf, .woff, .woff2)"
                     onClick={() => fontInputRef.current?.click()}
+                    className="elx-adv"
                   >
                     <Type size={16} />
                   </Cmd>
@@ -692,6 +738,7 @@ export default function Toolbar({
                     title="Barré"
                     active={editor.isActive("strike")}
                     onClick={() => editor.chain().focus().toggleStrike().run()}
+                    className="elx-adv"
                   >
                     <Strikethrough size={17} />
                   </Cmd>
@@ -699,6 +746,7 @@ export default function Toolbar({
                     title="Surlignage"
                     active={editor.isActive("highlight")}
                     onClick={() => editor.chain().focus().toggleHighlight().run()}
+                    className="elx-adv"
                   >
                     <Highlighter size={17} />
                   </Cmd>
@@ -706,6 +754,7 @@ export default function Toolbar({
                     title="Exposant (Ctrl+Maj+=)"
                     active={editor.isActive("superscript")}
                     onClick={() => editor.chain().focus().toggleSuperscript().run()}
+                    className="elx-adv"
                   >
                     <Superscript size={17} />
                   </Cmd>
@@ -713,22 +762,25 @@ export default function Toolbar({
                     title="Indice (Ctrl+=)"
                     active={editor.isActive("subscript")}
                     onClick={() => editor.chain().focus().toggleSubscript().run()}
+                    className="elx-adv"
                   >
                     <SubscriptIcon size={17} />
                   </Cmd>
                   <Cmd
                     title="Agrandir la police (Ctrl+Maj+>)"
                     onClick={() => editor.chain().focus().growFontSize().run()}
+                    className="elx-adv"
                   >
                     <ChevronUp size={17} />
                   </Cmd>
                   <Cmd
                     title="Réduire la police (Ctrl+Maj+<)"
                     onClick={() => editor.chain().focus().shrinkFontSize().run()}
+                    className="elx-adv"
                   >
                     <ChevronDown size={17} />
                   </Cmd>
-                  <Dropdown title="Modifier la casse" icon={<CaseSensitive size={17} />}>
+                  <Dropdown title="Modifier la casse" icon={<CaseSensitive size={17} />} className="elx-adv">
                     {(close) => (
                       <>
                         <div className="elx-menu__title">Modifier la casse</div>
@@ -753,10 +805,15 @@ export default function Toolbar({
                     title="Effacer la mise en forme (Ctrl+Espace)"
                     disabled={editor.state.selection.empty}
                     onClick={() => editor.chain().focus().clearCharFormatting().run()}
+                    className="elx-adv"
                   >
                     <RemoveFormatting size={17} />
                   </Cmd>
-                  <Cmd title="Police… (toutes les options de caractère)" onClick={() => onOpenFont?.()}>
+                  <Cmd
+                    title="Police… (toutes les options de caractère)"
+                    onClick={() => onOpenFont?.()}
+                    className="elx-adv"
+                  >
                     <Palette size={17} />
                   </Cmd>
                   <label className="elx-colorbtn" title="Couleur du texte">
@@ -851,7 +908,7 @@ export default function Toolbar({
                   >
                     <ListOrdered size={17} />
                   </Cmd>
-                  <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />}>
+                  <Dropdown title="Liste à plusieurs niveaux" icon={<ListTree size={17} />} className="elx-adv">
                     {(close) => (
                       <>
                         <div className="elx-menu__title">Bibliothèque de listes</div>
@@ -893,6 +950,7 @@ export default function Toolbar({
                     title="Liste de tâches"
                     active={editor.isActive("taskList")}
                     onClick={() => editor.chain().focus().toggleTaskList().run()}
+                    className="elx-adv"
                   >
                     <ListChecks size={17} />
                   </Cmd>
@@ -900,6 +958,7 @@ export default function Toolbar({
                     title="Citation"
                     active={editor.isActive("blockquote")}
                     onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                    className="elx-adv"
                   >
                     <Quote size={17} />
                   </Cmd>
@@ -907,12 +966,14 @@ export default function Toolbar({
                     title="Bloc de code"
                     active={editor.isActive("codeBlock")}
                     onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                    className="elx-adv"
                   >
                     <Code2 size={17} />
                   </Cmd>
                   <Cmd
                     title="Paragraphe… (espacement, retraits, enchaînements, bordures)"
                     onClick={() => onOpenParagraph?.()}
+                    className="elx-adv"
                   >
                     <Pilcrow size={17} />
                   </Cmd>

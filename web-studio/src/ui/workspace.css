@@ -290,6 +290,46 @@
   color: var(--x-chrome-text);
 }
 
+/* Surface "Essentiel" (Toolbar.tsx, éditeur Documents uniquement pour l'instant —
+   Tableur/Présentations/PDF gardent leurs rubans complets) : masque les commandes
+   marquées .elx-adv, sans les retirer du DOM ni de leurs gestionnaires — les
+   raccourcis clavier existants continuent de fonctionner même masquées. */
+.elx-ribbon--essential .elx-adv {
+  display: none;
+}
+
+.elx-tabsrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--x-chrome);
+  border-bottom: 1px solid var(--x-chrome-line);
+}
+.elx-tabsrow .elx-tabs {
+  border-bottom: none;
+  flex: 1;
+  min-width: 0;
+}
+.elx-density-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--x-chrome-line);
+  background: transparent;
+  color: var(--x-chrome-mute);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.elx-density-toggle:hover {
+  color: var(--x-chrome-text);
+  border-color: var(--x-chrome-mute);
+}
+
 .pdfx-tabs,
 .elx-tabs {
   display: flex;

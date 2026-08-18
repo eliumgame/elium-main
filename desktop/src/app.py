@@ -470,7 +470,14 @@ class EliumApp(QMainWindow):
                             # WebView Chromium récente bloque WebAssembly.compile() sous
                             # default-src 'self' → chiffrement/identité cassés.
                             "script-src 'self' 'wasm-unsafe-eval'; "
-                            "style-src 'self' https://fonts.googleapis.com; "
+                            # 'unsafe-inline' sur style-src : web-studio s'appuie sur
+                            # le style={} inline de React et injecte des <style> au
+                            # runtime (listSchemeStyles.ts) pour les listes multi-
+                            # niveaux, lettrines, bordures de tableau et soulignement
+                            # de correction. Surface bien plus restreinte qu'un
+                            # script-src 'unsafe-inline'/'unsafe-eval' (qui reste
+                            # strict) — pas d'exécution de code, juste du CSS.
+                            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
                             "font-src 'self' https://fonts.gstatic.com",
                         )
                         self.send_header("Cache-Control", "no-cache")

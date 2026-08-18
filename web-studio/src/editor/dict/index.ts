@@ -246,7 +246,50 @@ interface Candidate {
  * suit la fréquence réelle des fautes — accent, doublement de lettre, lettre en
  * trop, lettre manquante, inversion — puis la longueur.
  */
+/**
+ * Longueur au-delà de laquelle un « mot » n'en est plus un.
+ *
+ * Le plus long mot français courant tient en une vingtaine de lettres ; un
+ * jeton plus long est un hash, une URL collée sans espace ou un identifiant —
+ * jamais une faute à corriger. Sans ce plafond, `editNeighbors` (coût en
+ * longueur × alphabet) et le passage de secours qui le réutilise deviennent le
+ * seul poste de coût restant qui grandisse encore avec la longueur du texte :
+ * une longue chaîne collée, éditée caractère par caractère, repayerait son
+ * analyse complète à chaque frappe (le cache ci-dessous est par mot EXACT, donc
+ * ne protège pas un jeton qui change à chaque touche).
+ */
+const MAX_SUGGEST_WORD_LEN = 40;
+
+/**
+ * Enveloppe un calcul de suggestions dans un cache par mot (et par limite).
+ *
+ * Partagé par `embeddedDictionary` et `listDictionary` : les deux tournent à
+ * chaque frappe sur le paragraphe actif (voir `checkUnknown`), donc les deux
+ * ont besoin de ne jamais refaire l'analyse d'un mot qui n'a pas changé — pas
+ * seulement le dictionnaire embarqué.
+ */
+function cachedSuggest(compute: (word: string, limit: number) => string[]): (word: string, limit?: number) => string[] {
+  const cache = new Map<string, string[]>();
+  return (word, limit = 5) => {
+    const w = lower(word);
+    if (!w) return [];
+    const cacheKey = `${w}:${limit}`;
+    let found = cache.get(cacheKey);
+    if (!found) {
+      found = compute(w, limit);
+      cache.set(cacheKey, found);
+    }
+    // La casse du mot d'origine est rendue APRÈS le cache (qui, lui, ne connaît
+    // que la forme en minuscules) : corriger « Etre » en « être » obligerait à
+    // remajusculer à la main, et mettre en cache une entrée par variante de
+    // casse doublerait le cache pour rien.
+    const isCapital = /^\p{Lu}/u.test(word);
+    return isCapital ? found.map((c) => c.charAt(0).toLocaleUpperCase("fr") + c.slice(1)) : found;
+  };
+}
+
 function candidates(word: string, d: Built, alphabet: string, limit: number): string[] {
+  if (word.length > MAX_SUGGEST_WORD_LEN) return [];
   const seen = new Map<string, number>();
   const push = (w: string, cost: number) => {
     if (w === word || w.length < 2) return;
@@ -336,13 +379,6 @@ function isKnown(raw: string, d: Built): boolean {
 export function embeddedDictionary(lang: DictLang = "fr"): SpellChecker {
   const alphabet = lang === "en" ? ALPHABET_EN : ALPHABET_FR;
   const label = lang === "en" ? "English (embarqué)" : "Français (embarqué)";
-  // `suggest` recompute le voisinage entier d'un mot (plusieurs centaines de
-  // chaînes). Le correcteur tourne à CHAQUE frappe sur le paragraphe actif — un
-  // long paragraphe retape donc le même mot déjà-vu des dizaines de fois sans
-  // qu'il ait changé. Le cache est ce qui rend ce ré-examen gratuit ; sans lui,
-  // un mot absent du dictionnaire coûte son analyse complète à chaque frappe
-  // du RESTE du paragraphe, pas seulement à la sienne propre.
-  const suggestCache = new Map<string, string[]>();
   return {
     label,
     // Partiel, et il le dit : c'est ce qui met le correcteur en mode prudent
@@ -355,23 +391,17 @@ export function embeddedDictionary(lang: DictLang = "fr"): SpellChecker {
     known(word: string) {
       return isKnown(word, dict(lang));
     },
-    suggest(word: string, limit = 5) {
-      const w = lower(word);
-      if (!w) return [];
-      const cacheKey = `${w}:${limit}`;
-      let found = suggestCache.get(cacheKey);
-      if (!found) {
-        const d = dict(lang);
-        found = d.all.has(w) ? [] : candidates(w, d, alphabet, limit);
-        suggestCache.set(cacheKey, found);
-      }
-      // La casse du mot d'origine est rendue APRÈS le cache (qui, lui, ne connaît
-      // que la forme en minuscules) : corriger « Etre » en « être » obligerait à
-      // remajusculer à la main, et mettre en cache une entrée par variante de
-      // casse doublerait le cache pour rien.
-      const isCapital = /^\p{Lu}/u.test(word);
-      return isCapital ? found.map((c) => c.charAt(0).toLocaleUpperCase("fr") + c.slice(1)) : found;
-    },
+    // `suggest` recompute le voisinage entier d'un mot (plusieurs centaines de
+    // chaînes). Le correcteur tourne à CHAQUE frappe sur le paragraphe actif —
+    // un long paragraphe retape donc le même mot déjà-vu des dizaines de fois
+    // sans qu'il ait changé. `cachedSuggest` est ce qui rend ce ré-examen
+    // gratuit ; sans lui, un mot absent du dictionnaire coûte son analyse
+    // complète à chaque frappe du RESTE du paragraphe, pas seulement à la
+    // sienne propre.
+    suggest: cachedSuggest((w, limit) => {
+      const d = dict(lang);
+      return d.all.has(w) ? [] : candidates(w, d, alphabet, limit);
+    }),
   };
 }
 
@@ -401,11 +431,11 @@ export function listDictionary(list: Iterable<string>, label = "Dictionnaire imp
       const w = lower(word);
       return all.has(w) || bare.has(unaccent(w));
     },
-    suggest(word: string, limit = 5) {
-      const w = lower(word);
-      if (!w || all.has(w)) return [];
-      return candidates(w, d, ALPHABET_FR, limit);
-    },
+    // Même raisonnement que `embeddedDictionary` : sans ce cache, un dictionnaire
+    // importé repayait l'analyse complète d'un mot à chaque frappe du reste du
+    // paragraphe — la partie quadratique du bug d'origine était corrigée pour
+    // tout le monde, mais cette répétition-là ne l'était que pour l'embarqué.
+    suggest: cachedSuggest((w, limit) => (all.has(w) ? [] : candidates(w, d, ALPHABET_FR, limit))),
   };
 }
 

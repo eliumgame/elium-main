@@ -267,12 +267,22 @@ function candidates(word: string, d: Built, alphabet: string, limit: number): st
     const doubled = n.length !== word.length && /(.)\1/.test(n + word);
     push(n, doubled ? 2 : 3);
   }
-  // 4. Deux corrections : seulement si rien n'a été trouvé, car le coût grimpe.
+  // 4. Une correction + un accent : seulement si rien n'a été trouvé, car le
+  // coût grimpe (« deja » n'a pas de voisin à un seul edit ou un seul accent :
+  // « déjà » a besoin des DEUX — un edit sur « j » puis l'accent sur « e », par
+  // exemple). L'étage du dessous se limitait à `accentNeighbors(n)` en sortie
+  // d'edit ; ajouter aussi `editNeighbors(n, alphabet)` (deux edits sans accent)
+  // fait passer ce niveau de O(longueur × alphabet) à O((longueur × alphabet)²)
+  // — un mot SANS AUCUN voisin connu (un mot encore incomplet pendant la frappe,
+  // un mot étranger) ne remplit jamais `seen` et payait alors l'intégralité de
+  // ce carré, plusieurs SECONDES pour un seul mot, rejouées à chaque frappe du
+  // reste du paragraphe. Le cache de `suggest` ci-dessous absorbe la répétition
+  // d'un même mot, mais pas ce carré-là pour un mot jamais vu ; s'en tenir à
+  // l'edit-puis-accent (pas edit-puis-edit) couvre déjà tous les cas réels
+  // documentés (accent manquant + faute de frappe) pour un coût linéaire.
   if (!seen.size) {
     for (const n of editNeighbors(word, alphabet)) {
       for (const m of accentNeighbors(n)) push(m, 4);
-      for (const m of editNeighbors(n, alphabet)) push(m, 5);
-      if (seen.size > 40) break;
     }
   }
 
@@ -326,6 +336,13 @@ function isKnown(raw: string, d: Built): boolean {
 export function embeddedDictionary(lang: DictLang = "fr"): SpellChecker {
   const alphabet = lang === "en" ? ALPHABET_EN : ALPHABET_FR;
   const label = lang === "en" ? "English (embarqué)" : "Français (embarqué)";
+  // `suggest` recompute le voisinage entier d'un mot (plusieurs centaines de
+  // chaînes). Le correcteur tourne à CHAQUE frappe sur le paragraphe actif — un
+  // long paragraphe retape donc le même mot déjà-vu des dizaines de fois sans
+  // qu'il ait changé. Le cache est ce qui rend ce ré-examen gratuit ; sans lui,
+  // un mot absent du dictionnaire coûte son analyse complète à chaque frappe
+  // du RESTE du paragraphe, pas seulement à la sienne propre.
+  const suggestCache = new Map<string, string[]>();
   return {
     label,
     // Partiel, et il le dit : c'est ce qui met le correcteur en mode prudent
@@ -339,12 +356,19 @@ export function embeddedDictionary(lang: DictLang = "fr"): SpellChecker {
       return isKnown(word, dict(lang));
     },
     suggest(word: string, limit = 5) {
-      const d = dict(lang);
       const w = lower(word);
-      if (!w || d.all.has(w)) return [];
-      const found = candidates(w, d, alphabet, limit);
-      // La casse du mot d'origine est rendue : corriger « Etre » en « être »
-      // obligerait à remajusculer à la main.
+      if (!w) return [];
+      const cacheKey = `${w}:${limit}`;
+      let found = suggestCache.get(cacheKey);
+      if (!found) {
+        const d = dict(lang);
+        found = d.all.has(w) ? [] : candidates(w, d, alphabet, limit);
+        suggestCache.set(cacheKey, found);
+      }
+      // La casse du mot d'origine est rendue APRÈS le cache (qui, lui, ne connaît
+      // que la forme en minuscules) : corriger « Etre » en « être » obligerait à
+      // remajusculer à la main, et mettre en cache une entrée par variante de
+      // casse doublerait le cache pour rien.
       const isCapital = /^\p{Lu}/u.test(word);
       return isCapital ? found.map((c) => c.charAt(0).toLocaleUpperCase("fr") + c.slice(1)) : found;
     },

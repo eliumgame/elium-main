@@ -218,11 +218,14 @@ def write_elium(
             )
             recipient_fprs = [recipient_fingerprint(p) for p in recipients]  # type: ignore[union-attr]
         else:
-            if not password:
+            # A keyfile can stand in for the password entirely (mirrors
+            # elium-package.ts's `!opts.password && !opts.keyfile` guard): only
+            # reject when NEITHER was supplied.
+            if not password and not keyfile:
                 raise EliumPasswordRequired()
             content_bytes = EliumContainer.encode(
                 payload=payload,
-                password=password,
+                password=password or "",
                 manifest_meta={"files": [{"name": "content.json"}]},
                 keyfile=keyfile,
                 cascade=(profile == "secure_max"),
@@ -420,9 +423,12 @@ def read_elium(
                 raise EliumRecipientKeyRequired()
             payload = decrypt_as_recipient(content_bytes, recipient_private_hex)
         else:
-            if not password:
+            # Mirror of write_elium / elium-package.ts: a keyfile alone is a
+            # valid credential, so only reject when neither password nor
+            # keyfile is given.
+            if not password and not keyfile:
                 raise EliumPasswordRequired()
-            payload, _manifest, _header = EliumContainer.decode(content_bytes, password, keyfile=keyfile)
+            payload, _manifest, _header = EliumContainer.decode(content_bytes, password or "", keyfile=keyfile)
         if secure_meta:
             envelope = _safe_json_loads(payload, "contenu")
             if not isinstance(envelope, dict) or envelope.get("schema") != SECURE_SCHEMA:

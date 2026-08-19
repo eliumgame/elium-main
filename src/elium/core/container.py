@@ -53,8 +53,15 @@ class EliumContainer:
         cascade: bool = False,
         signing_key: Ed25519PrivateKey | None = None
     ) -> bytes:
-        if not password:
+        # A keyfile can stand in for the password entirely (mirrors
+        # elium-package.ts / EliumCryptoEngine): only reject when there is
+        # NEITHER. `derive_master_key` already binds the keyfile into the
+        # secret even with an empty password (password_bytes + b"|KF|" +
+        # sha256(keyfile)), so this never produces an unprotected/plaintext
+        # container.
+        if not password and not keyfile:
             raise ValueError("Password is required.")
+        password = password or ""
 
         salt = generate_salt()
         nonce_aes = generate_nonce()
@@ -144,6 +151,11 @@ class EliumContainer:
         Decodes a v3 container.
         Returns: (payload_bytes, manifest_dict, public_header_dict)
         """
+        # Normalize: a keyfile-only container is opened with an empty password
+        # (mirrors encode's "password or keyfile" contract) — avoid a None
+        # reaching derive_master_key's `.encode()` call.
+        password = password or ""
+
         if len(blob) < len(MAGIC_V3) + 4 + 8 + HMAC_SIZE:
             raise EliumFormatError("File too short to be a valid Elium container.")
 

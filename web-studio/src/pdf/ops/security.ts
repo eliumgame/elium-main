@@ -19,8 +19,10 @@ import {
   PDFArray,
   PDFDict,
   PDFHexString,
+  PDFInvalidObject,
   PDFName,
   PDFNumber,
+  PDFObjectStreamParser,
   PDFRawStream,
   PDFRef,
   PDFStream,
@@ -428,6 +430,188 @@ function toHex(bytes: Uint8Array): string {
 }
 
 // ---------------------------------------------------------------------------
+// Repairing object streams that pdf-lib's own parser lost
+// ---------------------------------------------------------------------------
+//
+// pdf-lib's parser decompresses any `/Type /ObjStm` (a compressed object
+// stream — dictionaries and other non-stream objects packed together and
+// Flate-encoded) *while parsing*, long before this module gets a chance to
+// decrypt anything. When the file is encrypted, that stream is still
+// ciphertext at that point, so decompression throws; pdf-lib swallows the
+// error (we load with `throwOnInvalidObject: false`) and just records the
+// object stream as a `PDFInvalidObject` — silently dropping every object that
+// was packed inside it. A page, font, or annotation dictionary that lived in
+// that object stream simply vanishes, with no error surfaced anywhere.
+//
+// Fixing this without patching pdf-lib itself: the raw bytes pdf-lib kept for
+// each `PDFInvalidObject` are the verbatim slice of the file it failed to
+// parse (dict + `stream` + ciphertext + `endstream`). We find the ones that
+// are actually object streams, decrypt their ciphertext ourselves with the
+// same per-object key/transform used for every other stream, and hand the
+// result to pdf-lib's own `PDFObjectStreamParser` — the exact code path a
+// normal, unencrypted object stream goes through — so the objects it contains
+// are assigned into the context just as if pdf-lib had parsed them correctly
+// the first time.
+//
+// Per ISO 32000-2 §7.6.2, strings nested inside an object stream are *not*
+// separately encrypted (the container stream already is), so every object we
+// recover this way is added to `plaintextRefs` and must be excluded from the
+// generic string-decryption walk below.
+//
+// If a candidate can't be confidently reconstructed (fields we need are
+// missing, or the "decrypted" bytes still don't parse), we do not guess: the
+// whole operation fails loudly instead of returning an incomplete document.
+
+function findAscii(hay: Uint8Array, needle: string, from = 0): number {
+  const n = needle.length;
+  outer: for (let i = from; i <= hay.length - n; i++) {
+    for (let j = 0; j < n; j++) if (hay[i + j] !== needle.charCodeAt(j)) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+function lastIndexOfAscii(hay: Uint8Array, needle: string): number {
+  const n = needle.length;
+  outer: for (let i = hay.length - n; i >= 0; i--) {
+    for (let j = 0; j < n; j++) if (hay[i + j] !== needle.charCodeAt(j)) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+/** Thrown when a file has encrypted compressed object streams we can't safely reconstruct. */
+export class UnsupportedEncryptedObjectStreams extends Error {
+  constructor() {
+    super(
+      "Ce PDF utilise des flux d'objets compressés chiffrés que la suppression de protection ne sait pas encore traiter correctement — le fichier de sortie serait incomplet.",
+    );
+    this.name = "UnsupportedEncryptedObjectStreams";
+  }
+}
+
+/**
+ * Attempt to reconstruct one encrypted `/ObjStm` that pdf-lib's parser dropped.
+ * Returns the object numbers it recovered, or `null` if it could not safely do so.
+ */
+async function repairOneObjectStream(
+  doc: PDFDocument,
+  ref: PDFRef,
+  raw: Uint8Array,
+  streamX: Transform,
+): Promise<string[] | null> {
+  const streamKw = findAscii(raw, "stream");
+  if (streamKw === -1) return null;
+  const dictText = String.fromCharCode(...raw.subarray(0, streamKw));
+
+  let contentStart = streamKw + "stream".length;
+  if (raw[contentStart] === 0x0d && raw[contentStart + 1] === 0x0a) contentStart += 2;
+  else if (raw[contentStart] === 0x0a || raw[contentStart] === 0x0d) contentStart += 1;
+
+  const endKw = lastIndexOfAscii(raw, "endstream");
+  if (endKw === -1 || endKw < contentStart) return null;
+
+  const nMatch = /\/N\s+(\d+)/.exec(dictText);
+  const firstMatch = /\/First\s+(\d+)/.exec(dictText);
+  if (!nMatch || !firstMatch) return null;
+  const filterMatch = /\/Filter\s*\/(\w+)/.exec(dictText);
+  const lengthMatch = /\/Length\s+(\d+)(?:\s+(\d+)\s+R)?/.exec(dictText);
+
+  let contentEnd = endKw;
+  let declared: number | null = null;
+  if (lengthMatch) {
+    if (lengthMatch[2] !== undefined) {
+      const resolved = doc.context.lookup(PDFRef.of(parseInt(lengthMatch[1], 10), parseInt(lengthMatch[2], 10)));
+      if (resolved instanceof PDFNumber) declared = resolved.asNumber();
+    } else {
+      declared = parseInt(lengthMatch[1], 10);
+    }
+  }
+  if (declared !== null) {
+    const candidateEnd = contentStart + declared;
+    if (candidateEnd >= contentStart && candidateEnd <= endKw) contentEnd = candidateEnd;
+  }
+  if (contentEnd === endKw) {
+    // No trustworthy declared length: fall back to the literal `endstream`
+    // marker, trimming a possible separator EOL that isn't part of the data.
+    while (contentEnd > contentStart && (raw[contentEnd - 1] === 0x0a || raw[contentEnd - 1] === 0x0d)) contentEnd--;
+  }
+
+  const ciphertext = raw.subarray(contentStart, contentEnd);
+  if (ciphertext.length === 0) return null;
+  const plaintext = streamX(ciphertext, ref);
+
+  const ctx = doc.context;
+  const before = new Set(ctx.enumerateIndirectObjects().map(([r]) => String(r)));
+  const fixedDict: PDFDict = ctx.obj({
+    Type: "ObjStm",
+    N: parseInt(nMatch[1], 10),
+    First: parseInt(firstMatch[1], 10),
+    Filter: filterMatch ? filterMatch[1] : undefined,
+    Length: plaintext.length,
+  });
+  const fixedStream = PDFRawStream.of(fixedDict, plaintext);
+  try {
+    await PDFObjectStreamParser.forStream(fixedStream).parseIntoContext();
+  } catch {
+    return null;
+  }
+  const recovered: string[] = [];
+  for (const [r] of ctx.enumerateIndirectObjects()) {
+    const tag = String(r);
+    if (!before.has(tag)) recovered.push(tag);
+  }
+  return recovered;
+}
+
+/**
+ * Find every `PDFInvalidObject` that is actually an encrypted `/ObjStm` pdf-lib's
+ * parser gave up on, and repair it in place. Mutates `plaintextRefs` with every
+ * object number recovered (their strings must not be decrypted a second time —
+ * see the comment above). Throws `UnsupportedEncryptedObjectStreams` if any
+ * candidate can't be confidently reconstructed.
+ */
+async function repairEncryptedObjectStreams(
+  doc: PDFDocument,
+  streamX: Transform,
+  plaintextRefs: Set<string>,
+): Promise<void> {
+  const ctx = doc.context;
+  const candidates: PDFRef[] = [];
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFInvalidObject)) continue;
+    const raw = (obj as unknown as { data: Uint8Array }).data;
+    const streamKw = findAscii(raw, "stream");
+    if (streamKw === -1) continue;
+    if (findAscii(raw.subarray(0, streamKw), "/ObjStm") === -1) continue;
+    candidates.push(ref);
+  }
+  if (candidates.length === 0) return;
+
+  for (const ref of candidates) {
+    const obj = ctx.lookup(ref);
+    if (!(obj instanceof PDFInvalidObject)) continue;
+    const raw = (obj as unknown as { data: Uint8Array }).data;
+    const recovered = await repairOneObjectStream(doc, ref, raw, streamX);
+    if (!recovered) throw new UnsupportedEncryptedObjectStreams();
+    ctx.delete(ref);
+    for (const tag of recovered) plaintextRefs.add(tag);
+  }
+
+  // `PDFDocument`'s constructor resolves and caches `this.catalog` once, at
+  // load time: `this.catalog = context.lookup(context.trailerInfo.Root)`. If
+  // the /Root catalog itself was packed into one of the object streams we
+  // just repaired, that cache is permanently `undefined` from the original
+  // (still-encrypted) load — nothing re-derives it automatically. Left
+  // stale, `doc.save()` crashes outright (it inspects the page tree via the
+  // catalog). Re-sync it now that the context has the real object.
+  const docWithCatalog = doc as unknown as { catalog: PDFObject | undefined };
+  if (!docWithCatalog.catalog) {
+    docWithCatalog.catalog = ctx.lookup(ctx.trailerInfo.Root);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -480,6 +664,15 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
 
   const streamX = decryptWith(info.v >= 5 ? "AESV3" : info.streamCfm === "None" && info.v < 4 ? "V2" : info.streamCfm);
   const stringX = decryptWith(info.v >= 5 ? "AESV3" : info.stringCfm === "None" && info.v < 4 ? "V2" : info.stringCfm);
+
+  // pdf-lib's own parser decompresses `/ObjStm` object streams while parsing —
+  // before we ever get a chance to decrypt them. If this file has any, they
+  // are still ciphertext at that point, decompression silently fails, and
+  // every object packed inside is dropped without a trace. Recover them here
+  // (or fail loudly if we can't) before touching anything else, so `skip`
+  // below can exclude their contents from the ordinary string-decryption walk
+  // (objects nested in an object stream are never separately encrypted).
+  await repairEncryptedObjectStreams(doc, streamX, skip);
 
   applySplitTransform(doc, streamX, stringX, skip);
 

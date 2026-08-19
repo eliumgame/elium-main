@@ -26,6 +26,15 @@ interface ShareRow {
   name: string;
 }
 
+interface LinkRow {
+  id: string;
+  hasPassword: boolean;
+  expiresAt: string | null;
+  maxDownloads: number | null;
+  downloadCount: number;
+  createdAt: string;
+}
+
 export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entry: DriveEntry; onClose: () => void }) {
   const d = useDrive();
   const [shares, setShares] = useState<ShareRow[]>([]);
@@ -43,6 +52,7 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [teamId, setTeamId] = useState("");
   const [teamRoleId, setTeamRoleId] = useState("");
+  const [links, setLinks] = useState<LinkRow[]>([]);
 
   const defaultRole = d.roleIdByKey["editor"] ?? d.roles[0]?.id ?? "";
   const viewerRole = d.roleIdByKey["viewer"] ?? defaultRole;
@@ -56,16 +66,26 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
     }
   }, [ctx.api, entry.id]);
 
+  const reloadLinks = useCallback(async () => {
+    try {
+      const { links: l } = await ctx.api.listLinks(entry.id);
+      setLinks((l as LinkRow[]) ?? []);
+    } catch {
+      setLinks([]);
+    }
+  }, [ctx.api, entry.id]);
+
   useEffect(() => {
     setRoleId(defaultRole);
     setLinkRoleId(viewerRole);
     setTeamRoleId(defaultRole);
     void reload();
+    void reloadLinks();
     ctx.api
       .listGroups(ctx.orgId)
       .then(({ groups }) => setTeams((groups as TeamOption[]) ?? []))
       .catch(() => setTeams([]));
-  }, [reload, defaultRole, viewerRole, ctx.api, ctx.orgId]);
+  }, [reload, reloadLinks, defaultRole, viewerRole, ctx.api, ctx.orgId]);
 
   const shareTeam = async () => {
     const team = teams.find((t) => t.id === teamId);
@@ -149,8 +169,25 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
       } else {
         setLinkUrl(`${location.origin}/?link=${token}#k=${secret}.${publicHex}`);
       }
+      await reloadLinks();
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Création du lien impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Revocation d'un lien individuel : ne touche qu'à ce lien (pas de rotation
+  // de clés) — les autres liens actifs et les partages restent inchangés.
+  const doRevokeLink = async (linkId: string) => {
+    setErr(null);
+    setBusy(true);
+    try {
+      await ctx.api.revokeLink(entry.id, linkId);
+      setInfo("Lien révoqué.");
+      await reloadLinks();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "Révocation du lien impossible.");
     } finally {
       setBusy(false);
     }
@@ -328,6 +365,39 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
           <p className="muted dc-share-link__note">
             Le secret de déchiffrement reste dans le fragment <code>#</code> du lien — le serveur ne le voit jamais.
           </p>
+
+          <div className="dc-share-link__list">
+            <h4 className="dc-share-list__title">Liens actifs</h4>
+            {links.length === 0 ? (
+              <p className="muted">Aucun lien externe actif pour cet élément.</p>
+            ) : (
+              links.map((l) => (
+                <div key={l.id} className="dc-share-row">
+                  <span className="dc-share-row__name">Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}</span>
+                  {l.expiresAt && (
+                    <span className="badge badge--neutral">
+                      Expire le {new Date(l.expiresAt).toLocaleDateString("fr-FR")}
+                    </span>
+                  )}
+                  {l.maxDownloads != null && (
+                    <span className="badge badge--neutral">
+                      {l.downloadCount}/{l.maxDownloads} téléchargement{l.maxDownloads > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {l.hasPassword && <span className="badge badge--neutral">Protégé par mot de passe</span>}
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    title="Révoquer ce lien"
+                    aria-label={`Révoquer le lien créé le ${new Date(l.createdAt).toLocaleDateString("fr-FR")}`}
+                    disabled={busy}
+                    onClick={() => void doRevokeLink(l.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>

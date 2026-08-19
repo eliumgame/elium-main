@@ -901,6 +901,12 @@
   font-size: 12px;
   margin-top: 8px;
 }
+.dc-share-link__list {
+  margin-top: 16px;
+}
+.dc-share-link__list .dc-share-row__name {
+  margin-right: auto;
+}
 
 /* ==========================================================================
    ROLES & PERMISSIONS

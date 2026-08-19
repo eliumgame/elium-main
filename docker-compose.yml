@@ -48,6 +48,12 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-elium}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-elium-secret-change-me}
       S3_FORCE_PATH_STYLE: "true"
+      # Optional collab backplane: cross-instance pub/sub relay + shared
+      # rate-limiting (server/src/collab/backplane.ts). Empty = no-op /
+      # mono-instance. Points at the bundled `redis` service below by
+      # default; override in .env to use an external Redis instead (e.g.
+      # scaling the API across more than one host).
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
       - blobs:/data/blobs
     healthcheck:
@@ -77,6 +83,17 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # Optional backplane for horizontal scale-out: cross-instance pub/sub relay
+  # + shared rate-limiting (server/src/collab/backplane.ts). Always on by
+  # default so a stock `docker compose up` is multi-instance-safe out of the
+  # box; the api degrades to mono-instance in-memory behavior if Redis is
+  # unreachable, so it's safe to remove this service for a minimal footprint.
+  # Only holds pub/sub messages + rate-limit counters, both fine to lose on
+  # restart, so no persistent volume is needed.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
 
   web:
     build:

@@ -4,7 +4,12 @@ import { PDFDocument, PDFName, PDFRawStream, type PDFContext, type PDFRef } from
 // Node-compatible build (no worker/DOM needed) — mirrors what `PdfEngine` runs
 // through Vite in the browser, just without the bundler-specific worker setup.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { hasImportableAnnots, importPageAnnots, resolveStampAppearanceImages, type RawAnnotation } from "../src/pdf/ops/import-annots";
+import {
+  hasImportableAnnots,
+  importPageAnnots,
+  resolveStampAppearanceImages,
+  type RawAnnotation,
+} from "../src/pdf/ops/import-annots";
 import { protectDocument } from "../src/pdf/ops/security";
 
 /**
@@ -42,7 +47,15 @@ function registerSolidRgbImage(ctx: PDFContext, w: number, h: number, rgb: [numb
   for (let i = 0; i < w * h; i++) samples.set(rgb, i * 3);
   return registerRawStream(
     ctx,
-    { Type: "XObject", Subtype: "Image", Width: w, Height: h, ColorSpace: "DeviceRGB", BitsPerComponent: 8, Filter: "FlateDecode" },
+    {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: w,
+      Height: h,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      Filter: "FlateDecode",
+    },
     zlibSync(samples),
   );
 }
@@ -83,7 +96,10 @@ function registerSquareAnnot(ctx: PDFContext, rect: number[]): PDFRef {
  * between two Squares (registered out of `/Annots` order, on purpose) plus a
  * text-only stamp with no picture at all; page 1 has a second, differently
  * coloured stamp — proof the per-page map does not conflate the two. */
-async function buildFixtureDoc(): Promise<{ doc: PDFDocument; refs: { jpeg: PDFRef; textOnly: PDFRef; green: PDFRef } }> {
+async function buildFixtureDoc(): Promise<{
+  doc: PDFDocument;
+  refs: { jpeg: PDFRef; textOnly: PDFRef; green: PDFRef };
+}> {
   const doc = await PDFDocument.create();
   const ctx = doc.context;
 
@@ -91,7 +107,15 @@ async function buildFixtureDoc(): Promise<{ doc: PDFDocument; refs: { jpeg: PDFR
   const sq1 = registerSquareAnnot(ctx, [10, 10, 60, 60]);
   const jpegImg = registerRawStream(
     ctx,
-    { Type: "XObject", Subtype: "Image", Width: 16, Height: 12, ColorSpace: "DeviceRGB", BitsPerComponent: 8, Filter: "DCTDecode" },
+    {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: 16,
+      Height: 12,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      Filter: "DCTDecode",
+    },
     jpegBytes(),
   );
   const jpegAp = registerAppearanceForm(ctx, jpegImg, 160, 120);

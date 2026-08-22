@@ -286,7 +286,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             }
             const pageAppearances = appearances?.get(page.from);
             const withImages = pageAppearances?.size
-              ? raw.map((a) => (a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a))
+              ? raw.map((a) =>
+                  a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a,
+                )
               : raw;
             const info = next.pages[page.from];
             const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };

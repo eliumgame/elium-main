@@ -174,7 +174,12 @@ function pdfName(dict: import("pdf-lib").PDFDict, key: string, PDFName: PdfLibNS
   return v instanceof PDFName ? v.asString().replace(/^\//, "") : undefined;
 }
 
-function pdfNumber(dict: import("pdf-lib").PDFDict, key: string, PDFName: PdfLibNS["PDFName"], PDFNumber: PdfLibNS["PDFNumber"]): number | undefined {
+function pdfNumber(
+  dict: import("pdf-lib").PDFDict,
+  key: string,
+  PDFName: PdfLibNS["PDFName"],
+  PDFNumber: PdfLibNS["PDFNumber"],
+): number | undefined {
   return dict.lookupMaybe(PDFName.of(key), PDFNumber)?.asNumber();
 }
 

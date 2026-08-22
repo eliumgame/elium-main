@@ -211,7 +211,10 @@ async function sweepScheduledKeyRotation(app: FastifyInstance): Promise<void> {
         app.log.warn({ org: org.id, days }, "housekeeping: rotation de clé signalée comme due (action admin requise)");
       }
     } catch (err) {
-      app.log.warn({ err, org: org.id }, "housekeeping: vérification de rotation de clé échouée pour cette org (ignorée)");
+      app.log.warn(
+        { err, org: org.id },
+        "housekeeping: vérification de rotation de clé échouée pour cette org (ignorée)",
+      );
     }
   }
 }

@@ -106,7 +106,14 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
                                       expires_at, created_by, can_sign)
              VALUES ($1,$2,$3,$4,false,$5,$6,true)
              RETURNING id`,
-            [id, sha256Hex(tokens[i]!), b.roleId, JSON.stringify(b.parties[i]!.wrappedKey), b.expiresAt ?? null, user.id],
+            [
+              id,
+              sha256Hex(tokens[i]!),
+              b.roleId,
+              JSON.stringify(b.parties[i]!.wrappedKey),
+              b.expiresAt ?? null,
+              user.id,
+            ],
           );
           const { rows: pt } = await c.query(
             `INSERT INTO signature_request_parties (request_id, party_index, label, link_id)

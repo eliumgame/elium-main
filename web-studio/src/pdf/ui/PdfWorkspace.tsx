@@ -65,7 +65,12 @@ import { signPdfBytes, verifyPdfSignatures, type PadesSignOptions } from "../ops
 import { generateSelfSignedP12 } from "../ops/self-cert";
 import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
 import { fromXfdf, toXfdf } from "../ops/xfdf";
-import { hasImportableAnnots, importPageAnnots, type RawAnnotation } from "../ops/import-annots";
+import {
+  hasImportableAnnots,
+  importPageAnnots,
+  resolveStampAppearanceImages,
+  type RawAnnotation,
+} from "../ops/import-annots";
 import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
@@ -264,13 +269,28 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const imported: Annot[] = [];
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
         if (!restore) {
+          // A Stamp's own picture never comes back from pdf.js's getAnnotations()
+          // (only a `hasAppearance` boolean) — resolving it needs a separate walk
+          // of the source bytes with pdf-lib, keyed by annotation. That walk parses
+          // the whole document, so it only runs once, lazily, the first time a page
+          // actually turns up a stamp with a picture to resolve.
+          let appearances: Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>> | null = null;
           for (const page of sourcePages) {
             if (page.from == null) continue;
             const raw = (await next.annotations(page.from)) as RawAnnotation[];
             if (!hasImportableAnnots(raw)) continue;
+            if (!appearances && raw.some((a) => a.subtype === "Stamp" && a.hasAppearance)) {
+              appearances = await resolveStampAppearanceImages(next.bytes, next.password).catch(
+                () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
+              );
+            }
+            const pageAppearances = appearances?.get(page.from);
+            const withImages = pageAppearances?.size
+              ? raw.map((a) => (a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a))
+              : raw;
             const info = next.pages[page.from];
             const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
-            imported.push(...importPageAnnots(raw, page.id, info?.h ?? 842, author, origin).annots);
+            imported.push(...importPageAnnots(withImages, page.id, info?.h ?? 842, author, origin).annots);
           }
         }
 

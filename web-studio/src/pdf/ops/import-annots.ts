@@ -10,7 +10,7 @@
 import { zlibSync } from "fflate";
 import type { Pt, Quad, Rect } from "../core/coords";
 import { rectOfPoints, rectOfQuads } from "../core/coords";
-import { concat } from "../core/contentstream";
+import { concat, parseContentStream } from "../core/contentstream";
 import type { Annot, AnnotKind, BorderStyle, LineEnding, Reply, ReviewStatus } from "../model/types";
 import { newId } from "../model/types";
 import { bytesToBase64 } from "../model/persist";
@@ -19,6 +19,8 @@ import { bytesToBase64 } from "../model/persist";
 export interface RawAnnotation {
   id?: string;
   subtype?: string;
+  /** True when pdf.js painted an `/AP /N` appearance stream for this annotation. */
+  hasAppearance?: boolean;
   rect?: number[];
   color?: Uint8ClampedArray | number[] | null;
   interiorColor?: Uint8ClampedArray | number[] | null;
@@ -155,6 +157,188 @@ function stampImageDataUrl(img: NonNullable<RawAnnotation["appearanceImage"]>): 
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Resolving a Stamp's `/AP /N` picture from the source PDF itself
+// ---------------------------------------------------------------------------
+
+/** Image-specific codecs a stream decoder does not unwrap — see `stampImageDataUrl`. */
+const IMAGE_CODECS = new Set(["DCTDecode", "DCT", "CCITTFaxDecode", "CCF", "JBIG2Decode", "JPXDecode"]);
+
+type AppearanceImage = NonNullable<RawAnnotation["appearanceImage"]>;
+type PdfLibNS = typeof import("pdf-lib");
+
+function pdfName(dict: import("pdf-lib").PDFDict, key: string, PDFName: PdfLibNS["PDFName"]): string | undefined {
+  const v = dict.lookup(PDFName.of(key));
+  return v instanceof PDFName ? v.asString().replace(/^\//, "") : undefined;
+}
+
+function pdfNumber(dict: import("pdf-lib").PDFDict, key: string, PDFName: PdfLibNS["PDFName"], PDFNumber: PdfLibNS["PDFNumber"]): number | undefined {
+  return dict.lookupMaybe(PDFName.of(key), PDFNumber)?.asNumber();
+}
+
+/**
+ * The image XObject actually painted by a Form XObject's own content stream
+ * (`/Im0 Do`, typically), resolved through its `/Resources /XObject` — not
+ * just "the only image in Resources", since a form can carry more than one
+ * and only walking the operators says which is really drawn. Recurses through
+ * nested Forms, bounded so a malformed/cyclic file cannot loop forever.
+ */
+function findPaintedImage(
+  form: import("pdf-lib").PDFRawStream,
+  pdfLib: PdfLibNS,
+  depth: number,
+): import("pdf-lib").PDFRawStream | null {
+  if (depth > 4) return null;
+  const { PDFDict, PDFName, PDFRawStream, decodePDFRawStream } = pdfLib;
+  const resources = form.dict.lookup(PDFName.of("Resources"));
+  if (!(resources instanceof PDFDict)) return null;
+  const xobjects = resources.lookup(PDFName.of("XObject"));
+  if (!(xobjects instanceof PDFDict)) return null;
+
+  let content: Uint8Array;
+  try {
+    content = decodePDFRawStream(form).decode();
+  } catch {
+    return null;
+  }
+  // A form can `Do` more than one XObject (e.g. a background rule); the last
+  // one painted is what actually ends up on top.
+  let picked: string | null = null;
+  for (const op of parseContentStream(content)) {
+    if (op.op === "Do" && op.args[0]?.t === "name") picked = op.args[0].v;
+  }
+  if (!picked) return null;
+  const target = xobjects.lookup(PDFName.of(picked));
+  if (!(target instanceof PDFRawStream)) return null;
+  const subtype = pdfName(target.dict, "Subtype", PDFName);
+  if (subtype === "Image") return target;
+  if (subtype === "Form") return findPaintedImage(target, pdfLib, depth + 1);
+  return null;
+}
+
+/**
+ * An image XObject's own sample bytes, with any *generic* filter peeled off —
+ * still codec-encoded when the filter is image-specific (DCTDecode et al.),
+ * exactly what `stampImageDataUrl` expects. `null` for chained filters (e.g.
+ * `[ASCII85Decode DCTDecode]`): rare for a Stamp's picture, and guessing which
+ * part of the chain is the "real" filter risks handing back bytes that look
+ * decodable but aren't — the labelled-box fallback is the honest answer there.
+ */
+function readImageBytes(
+  img: import("pdf-lib").PDFRawStream,
+  pdfLib: PdfLibNS,
+): { bytes: Uint8Array; filter: string | null } | null {
+  const { PDFArray, PDFName, decodePDFRawStream } = pdfLib;
+  const filterObj = img.dict.lookup(PDFName.of("Filter"));
+  let filter: string | null = null;
+  if (filterObj instanceof PDFName) filter = filterObj.asString().replace(/^\//, "");
+  else if (filterObj instanceof PDFArray) {
+    if (filterObj.size() > 1) return null; // chained filters — not handled, deliberately
+    const only = filterObj.size() === 1 ? filterObj.lookup(0) : undefined;
+    if (only instanceof PDFName) filter = only.asString().replace(/^\//, "");
+  } else if (filterObj !== undefined) {
+    return null; // unexpected shape
+  }
+
+  if (filter && IMAGE_CODECS.has(filter)) return { bytes: img.contents, filter };
+  try {
+    return { bytes: decodePDFRawStream(img).decode(), filter: null };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve every Stamp annotation's own picture across a whole source PDF, by
+ * walking the same bytes with pdf-lib — pdf.js's `getAnnotations()` never
+ * exposes appearance-stream pixels (see `appearanceImage`'s own doc comment).
+ * Returns a map from page index (0-based, matching `PdfEngine`) to a map from
+ * that annotation's pdf.js-reported `id` to its decoded picture, so the
+ * caller can attach one to the other by a simple lookup — never by position —
+ * since a wrong correlation would show the wrong picture on the wrong stamp,
+ * worse than the labelled-box fallback this replaces. pdf.js's `id` for an
+ * annotation backed by indirect reference `n g R` is the string `` `${n}R` ``
+ * when `g` is 0 (confirmed empirically against this project's own pdfjs-dist
+ * build) or `` `${n}R${g}` `` otherwise; building the same string from the
+ * matching pdf-lib ref — rather than parsing pdf.js's `id` — is what makes the
+ * two line up.
+ *
+ * Best-effort throughout: any failure (an encryption scheme `removeProtection`
+ * cannot undo, a malformed structure, a codec this codebase does not decode)
+ * simply leaves the affected stamps out of the map.
+ */
+export async function resolveStampAppearanceImages(
+  sourceBytes: Uint8Array,
+  password?: string | null,
+): Promise<Map<number, Map<string, AppearanceImage>>> {
+  const byPage = new Map<number, Map<string, AppearanceImage>>();
+  try {
+    const pdfLib = await import("pdf-lib");
+    const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef } = pdfLib;
+
+    let bytes = sourceBytes;
+    if (password) {
+      const { removeProtection } = await import("./security");
+      bytes = (await removeProtection(sourceBytes, password)).bytes;
+    }
+    const doc = await PDFDocument.load(bytes, {
+      ignoreEncryption: true,
+      throwOnInvalidObject: false,
+      updateMetadata: false,
+    });
+
+    const pages = doc.getPages();
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      const annotsArr = pages[pageIndex].node.Annots();
+      if (!(annotsArr instanceof PDFArray)) continue;
+      let pageMap: Map<string, AppearanceImage> | null = null;
+
+      for (let i = 0; i < annotsArr.size(); i++) {
+        const ref = annotsArr.get(i);
+        if (!(ref instanceof PDFRef)) continue;
+        const annotDict = annotsArr.lookup(i);
+        if (!(annotDict instanceof PDFDict)) continue;
+        if (pdfName(annotDict, "Subtype", PDFName) !== "Stamp") continue;
+
+        const ap = annotDict.lookup(PDFName.of("AP"));
+        if (!(ap instanceof PDFDict)) continue;
+        let n = ap.lookup(PDFName.of("N"));
+        if (n instanceof PDFDict) {
+          // A dictionary of named appearance states — pick the active one.
+          const as = annotDict.lookup(PDFName.of("AS"));
+          n = as instanceof PDFName ? n.lookup(as) : undefined;
+        }
+        if (!(n instanceof PDFRawStream)) continue;
+
+        const subtype = pdfName(n.dict, "Subtype", PDFName);
+        const imgStream = subtype === "Image" ? n : subtype === "Form" ? findPaintedImage(n, pdfLib, 0) : null;
+        if (!imgStream) continue;
+
+        const width = pdfNumber(imgStream.dict, "Width", PDFName, PDFNumber);
+        const height = pdfNumber(imgStream.dict, "Height", PDFName, PDFNumber);
+        if (!width || !height) continue;
+        const resolved = readImageBytes(imgStream, pdfLib);
+        if (!resolved) continue;
+
+        const key = ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
+        (pageMap ??= new Map()).set(key, {
+          bytes: resolved.bytes,
+          filter: resolved.filter,
+          width,
+          height,
+          colorSpace: pdfName(imgStream.dict, "ColorSpace", PDFName) ?? null,
+          bitsPerComponent: pdfNumber(imgStream.dict, "BitsPerComponent", PDFName, PDFNumber) ?? null,
+        });
+      }
+
+      if (pageMap) byPage.set(pageIndex, pageMap);
+    }
+  } catch {
+    /* best effort — every page's stamps keep the labelled-box fallback */
+  }
+  return byPage;
 }
 
 const KIND: Record<string, AnnotKind> = {

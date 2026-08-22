@@ -520,6 +520,9 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   // node_keys, replaces all org_recovery_keys, and bumps org_key_epoch. File
   // content is untouched (old versions still readable). Requires the payload to
   // cover EVERY current recovery admin so none is locked out.
+  // The DB-side mutation lives in `applyOrgKeyRotation` (module scope, below)
+  // so it's reusable — see that function's doc comment for why the periodic
+  // housekeeping sweep can only check the precondition, never invoke this.
   app.post("/:orgId/recovery/rotate-org", async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
     const b = z
@@ -537,55 +540,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     await requireOrgPerm(req, orgId, "recovery.perform");
     await requireOrgPerm(req, orgId, "org.settings.manage");
 
-    const updated = await withTx(async (c) => {
-      const org = await c.query<{ org_key_epoch: number }>(
-        `SELECT org_key_epoch FROM organizations WHERE id = $1 FOR UPDATE`,
-        [orgId],
-      );
-      if (!org.rows.length) throw notFound();
-      if (b.expectedEpoch !== undefined && org.rows[0]!.org_key_epoch !== b.expectedEpoch) {
-        throw conflict("La clé d'organisation a changé entre-temps — relancez la rotation.");
-      }
-
-      // The new recovery-admin set must cover EVERY current admin (no lock-out)
-      // and include the actor performing the rotation.
-      const current = await c.query<{ admin_user_id: string }>(
-        `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1`,
-        [orgId],
-      );
-      const provided = new Set(b.recoveryKeys.map((k) => k.adminUserId));
-      const missing = current.rows.map((r) => r.admin_user_id).filter((id) => !provided.has(id));
-      if (missing.length)
-        throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
-      if (!provided.has(actor.id)) throw badRequest("La rotation doit inclure l'administrateur qui l'effectue.");
-
-      await c.query(
-        `UPDATE organizations SET org_public_hex = $2, org_key_epoch = org_key_epoch + 1, updated_at = now() WHERE id = $1`,
-        [orgId, b.newOrgPublicHex],
-      );
-
-      // Replace every existing org-principal node key with its re-wrapped form.
-      let rewrapped = 0;
-      for (const nk of b.nodeKeys) {
-        const r = await c.query(
-          `UPDATE node_keys SET wrapped_key = $3
-             WHERE node_id = $1 AND principal_type = 'org' AND principal_id = $2`,
-          [nk.nodeId, orgId, JSON.stringify(nk.wrappedKey)],
-        );
-        rewrapped += r.rowCount ?? 0;
-      }
-
-      // Replace all recovery-admin wrapped copies of the (new) org private key.
-      await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1`, [orgId]);
-      for (const rk of b.recoveryKeys) {
-        await c.query(`INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private) VALUES ($1,$2,$3)`, [
-          orgId,
-          rk.adminUserId,
-          JSON.stringify(rk.wrappedOrgPrivate),
-        ]);
-      }
-      return rewrapped;
-    });
+    const rewrapped = await applyOrgKeyRotation(orgId, actor.id, b);
 
     await audit(
       orgId,
@@ -593,10 +548,47 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       "recovery.org.rotate",
       "org",
       orgId,
-      { nodesRewrapped: updated, admins: b.recoveryKeys.length },
+      { nodesRewrapped: rewrapped, admins: b.recoveryKeys.length },
       req.ip,
     );
-    return { ok: true, nodesRewrapped: updated };
+    return { ok: true, nodesRewrapped: rewrapped };
+  });
+
+  // --- Recovery: scheduled (opt-in) org key rotation config -----------------
+  // `settings.keyRotationDays` (0/absent = disabled) lets an org ask the
+  // periodic housekeeping sweep (lib/housekeeping.ts) to flag it once its
+  // keypair has gone unrotated for that many days. Existing orgs default to
+  // disabled (no column migration — reuses the settings JSON like scim-config).
+  app.get("/:orgId/recovery/rotation-config", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    await requireOrgPerm(req, orgId, "org.settings.view");
+    const row = await queryOne<{
+      settings: { keyRotationDays?: number; keyRotationLastRotatedAt?: string; keyRotationDueSince?: string } | null;
+    }>(`SELECT settings FROM organizations WHERE id = $1`, [orgId]);
+    if (!row) throw notFound();
+    const s = row.settings ?? {};
+    return {
+      keyRotationDays: s.keyRotationDays ?? null,
+      keyRotationLastRotatedAt: s.keyRotationLastRotatedAt ?? null,
+      keyRotationDueSince: s.keyRotationDueSince ?? null,
+    };
+  });
+
+  app.put("/:orgId/recovery/rotation-config", async (req) => {
+    const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
+    const b = z.object({ days: z.number().int().min(0).max(3650) }).parse(req.body);
+    const actor = requireUser(req);
+    await requireOrgPerm(req, orgId, "org.settings.manage");
+    const org = await queryOne<{ settings: unknown }>(
+      `UPDATE organizations
+          SET settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('keyRotationDays', $2::int),
+              updated_at = now()
+        WHERE id = $1 RETURNING settings`,
+      [orgId, b.days],
+    );
+    if (!org) throw notFound();
+    await audit(orgId, actor.id, "org.recovery.rotation-config.update", "org", orgId, { days: b.days }, req.ip);
+    return { keyRotationDays: b.days };
   });
 
   // --- Recovery: list the admins who hold a wrapped org private key ---------
@@ -666,4 +658,135 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
       })),
     };
   });
+}
+
+// ============================================================================
+// Scheduled org-key rotation — shared between the manual route above and the
+// periodic housekeeping sweep (see lib/housekeeping.ts). Exported at module
+// scope (not nested in orgRoutes) so housekeeping.ts can import them directly.
+//
+// IMPORTANT crypto constraint: the org keypair is zero-knowledge (see this
+// file's header comment) — the server NEVER holds any private key. Completing
+// a rotation needs a CLIENT to (1) generate a new org keypair, (2) decrypt and
+// re-wrap every node's org-principal CEK using the OLD org private key it
+// holds in memory, and (3) re-wrap the new org private key to every recovery
+// admin. None of that is possible from an unattended background job — it's a
+// cryptographic invariant, not a limitation that a cleverer refactor could
+// remove (giving the server that capability would mean the server can decrypt
+// content, which is exactly what zero-knowledge rules out).
+//
+// So `applyOrgKeyRotation` — the actual DB mutation — is only ever invoked
+// with a real, client-computed payload (from the route above). Housekeeping
+// instead calls `orgRotationPreconditionMet` (checkable without any payload)
+// and, when an org is both due and ready, `flagOrgKeyRotationDue` — a
+// crypto-free "please rotate" marker (settings + one audit entry) that
+// surfaces the pending state without ever touching key material itself.
+// ============================================================================
+
+export interface OrgRotationPayload {
+  newOrgPublicHex: string;
+  nodeKeys: { nodeId: string; wrappedKey: Record<string, unknown> }[];
+  recoveryKeys: { adminUserId: string; wrappedOrgPrivate: Record<string, unknown> }[];
+  expectedEpoch?: number;
+}
+
+/** The DB-side mutation behind `POST /:orgId/recovery/rotate-org`. Requires a
+ * real client-computed payload — see the module-level comment above for why
+ * this can never be called from an unattended context. */
+export async function applyOrgKeyRotation(
+  orgId: string,
+  actorUserId: string,
+  payload: OrgRotationPayload,
+): Promise<number> {
+  return withTx(async (c) => {
+    const org = await c.query<{ org_key_epoch: number }>(
+      `SELECT org_key_epoch FROM organizations WHERE id = $1 FOR UPDATE`,
+      [orgId],
+    );
+    if (!org.rows.length) throw notFound();
+    if (payload.expectedEpoch !== undefined && org.rows[0]!.org_key_epoch !== payload.expectedEpoch) {
+      throw conflict("La clé d'organisation a changé entre-temps — relancez la rotation.");
+    }
+
+    // The new recovery-admin set must cover EVERY current admin (no lock-out)
+    // and include the actor performing the rotation.
+    const current = await c.query<{ admin_user_id: string }>(
+      `SELECT admin_user_id FROM org_recovery_keys WHERE org_id = $1`,
+      [orgId],
+    );
+    const provided = new Set(payload.recoveryKeys.map((k) => k.adminUserId));
+    const missing = current.rows.map((r) => r.admin_user_id).filter((id) => !provided.has(id));
+    if (missing.length)
+      throw badRequest("La rotation doit re-chiffrer la clé pour tous les administrateurs de recouvrement.");
+    if (!provided.has(actorUserId)) throw badRequest("La rotation doit inclure l'administrateur qui l'effectue.");
+
+    // Bump the epoch/public key, and stamp settings so the next housekeeping
+    // pass knows this org just rotated (clears any stale "due" flag).
+    await c.query(
+      `UPDATE organizations SET org_public_hex = $2, org_key_epoch = org_key_epoch + 1,
+          settings = coalesce(settings, '{}'::jsonb)
+                     || jsonb_build_object('keyRotationLastRotatedAt', now()::text, 'keyRotationDueSince', NULL),
+          updated_at = now()
+        WHERE id = $1`,
+      [orgId, payload.newOrgPublicHex],
+    );
+
+    // Replace every existing org-principal node key with its re-wrapped form.
+    let rewrapped = 0;
+    for (const nk of payload.nodeKeys) {
+      const r = await c.query(
+        `UPDATE node_keys SET wrapped_key = $3
+           WHERE node_id = $1 AND principal_type = 'org' AND principal_id = $2`,
+        [nk.nodeId, orgId, JSON.stringify(nk.wrappedKey)],
+      );
+      rewrapped += r.rowCount ?? 0;
+    }
+
+    // Replace all recovery-admin wrapped copies of the (new) org private key.
+    await c.query(`DELETE FROM org_recovery_keys WHERE org_id = $1`, [orgId]);
+    for (const rk of payload.recoveryKeys) {
+      await c.query(`INSERT INTO org_recovery_keys (org_id, admin_user_id, wrapped_org_private) VALUES ($1,$2,$3)`, [
+        orgId,
+        rk.adminUserId,
+        JSON.stringify(rk.wrappedOrgPrivate),
+      ]);
+    }
+    return rewrapped;
+  });
+}
+
+/**
+ * True only if EVERY current recovery admin of `orgId` has a real P-256
+ * public key on file — this is the precondition the manual endpoint's payload
+ * must already satisfy (it can only submit a wrapped copy for an admin whose
+ * public key it has), checked here WITHOUT needing that payload so
+ * housekeeping can gate on it. An org with zero recovery admins is never
+ * "ready" (there would be no one to wrap the new key to).
+ */
+export async function orgRotationPreconditionMet(orgId: string): Promise<boolean> {
+  const rows = await query<{ p256_public_hex: string | null }>(
+    `SELECT u.p256_public_hex
+       FROM org_recovery_keys k
+       JOIN users u ON u.id = k.admin_user_id
+      WHERE k.org_id = $1`,
+    [orgId],
+  );
+  return rows.length > 0 && rows.every((r) => !!r.p256_public_hex);
+}
+
+/**
+ * Crypto-free "please rotate" marker, set once an org is due and ready.
+ * Idempotent: only the FIRST call after a rotation (or ever) actually writes —
+ * returns whether it just flagged (true) so the caller (housekeeping) logs and
+ * audits once instead of on every 15-minute sweep.
+ */
+export async function flagOrgKeyRotationDue(orgId: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `UPDATE organizations
+        SET settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('keyRotationDueSince', now()::text)
+      WHERE id = $1 AND settings->>'keyRotationDueSince' IS NULL
+      RETURNING id`,
+    [orgId],
+  );
+  return rows.length > 0;
 }

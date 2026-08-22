@@ -3,9 +3,10 @@
  * crée un circuit à 1..N signataires : chaque partie reçoit son propre lien scellé
  * « can_sign » (`?sign=<token>#k=priv.pub`), à transmettre hors bande. Option
  * « signer dans l'ordre ». La crypto est dans ops.ts ; le secret de déchiffrement
- * reste dans le fragment `#` (jamais envoyé au serveur). Suivi par poll.
+ * reste dans le fragment `#` (jamais envoyé au serveur). Suivi en temps réel via
+ * la WS d'événements d'organisation (+ poll de secours espacé).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered, XCircle } from "lucide-react";
 import { useDrive } from "../session";
 import { createSignRequestForNode, type DriveEntry, type OpsCtx, type SignPartyLink } from "../ops";
@@ -44,11 +45,77 @@ export default function SignRequestDialog({
     }
   }, [ctx, entry.id]);
 
+  // `loadStatus` change à chaque changement de `ctx`/`entry.id` (en pratique
+  // jamais pendant la vie de cette boîte de dialogue) ; on le garde dans une
+  // ref pour que l'abonnement WS ci-dessous n'ait pas à se reconnecter.
+  const loadStatusRef = useRef(loadStatus);
+  loadStatusRef.current = loadStatus;
+
   useEffect(() => {
     void loadStatus();
-    const t = setInterval(() => void loadStatus(), 8000); // poll léger tant que des parties sont en attente
-    return () => clearInterval(t);
   }, [loadStatus]);
+
+  // Actualisation INSTANTANÉE via WebSocket : le serveur pousse un ping
+  // « nodes-changed » (sans contenu) sur CHAQUE signature/refus (voir
+  // server/src/routes/signing.ts → notifyOrg), donc on relit le statut dès
+  // réception au lieu d'attendre le prochain tick de poll. Reconnexion
+  // automatique. Un poll de SECOURS très espacé couvre les coupures WS
+  // (proxys, veille, WS bloqué par un pare-feu) — même logique que
+  // DriveBrowser.tsx.
+  useEffect(() => {
+    const orgId = ctx.orgId;
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let reconnect: number | undefined;
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(ctx.api.orgEventsSocketUrl(orgId));
+      } catch {
+        reconnect = window.setTimeout(connect, 4000);
+        return;
+      }
+      ws.onmessage = (ev) => {
+        try {
+          if ((JSON.parse(String(ev.data)) as { type?: string }).type === "nodes-changed") {
+            void loadStatusRef.current();
+          }
+        } catch {
+          /* ping non-JSON ignoré */
+        }
+      };
+      ws.onclose = () => {
+        if (!closed) {
+          window.clearTimeout(reconnect);
+          reconnect = window.setTimeout(connect, 4000);
+        }
+      };
+      ws.onerror = () => {
+        try {
+          ws?.close();
+        } catch {
+          /* ignore */
+        }
+      };
+    };
+    connect();
+    // Filet de sécurité : poll rare (60 s), au cas où la connexion WS resterait
+    // coupée (bien plus espacé que l'ancien poll à 8 s, la WS couvrant déjà le
+    // cas nominal).
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadStatusRef.current();
+    }, 60000);
+    return () => {
+      closed = true;
+      window.clearTimeout(reconnect);
+      window.clearInterval(poll);
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [ctx.orgId, ctx.api]);
 
   const setLabel = (i: number, label: string) => setParties((ps) => ps.map((p, j) => (j === i ? { label } : p)));
   const addParty = () => setParties((ps) => (ps.length < 50 ? [...ps, { label: "" }] : ps));

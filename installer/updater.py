@@ -59,9 +59,7 @@ UPDATE_PUBLIC_KEY_HEX = "137934bb39b4e6a7de258019fc980db1024bd6f5fa47e4f38bc8468
 BUILD_CODE_HASH = "6f0508edfb3edf2dd233055a02dfeb10c80c7d8a06c3ecda47054d7eabdfc04e"
 _CODE_HASH_PLACEHOLDER = "__BUILD_CODE_HASH__"
 
-# URL « latest » stable : pointe toujours sur le dernier Release non-préversion.
 _MANIFEST_NAME = "latest.json"
-_DEFAULT_MANIFEST_URL = f"https://github.com/{REPO}/releases/latest/download/{_MANIFEST_NAME}"
 
 # Bornes de sécurité sur les tailles téléchargées (défense contre un artefact géant).
 _MAX_MANIFEST_BYTES = 256 * 1024        # 256 KiB
@@ -196,16 +194,76 @@ def _sha256(path: Path) -> str:
 # Récupération + vérification du manifeste
 # --------------------------------------------------------------------------- #
 
-def _manifest_url() -> str:
-    return os.environ.get("ELIUM_UPDATE_MANIFEST_URL", _DEFAULT_MANIFEST_URL)
+# Résout la release "latest" en un seul appel API atomique (voir
+# `_resolve_latest_asset_urls` ci-dessous pour la raison).
+_GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{REPO}/releases/latest"
+
+
+def _resolve_latest_asset_urls() -> Optional[tuple[str, str]]:
+    """URLs de `latest.json` et `latest.json.sig` pour LA MÊME release "latest".
+
+    `releases/latest/download/<fichier>` (l'alias historique) redirige
+    indépendamment pour CHAQUE fichier téléchargé — contrairement aux autres
+    artefacts (exe, web.zip), dont l'URL vient du manifeste déjà vérifié et
+    pointe donc directement sur le tag exact (`gen_manifest.py` : URLs en
+    `releases/download/<tag>/...`, jamais l'alias). Le manifeste et sa
+    signature n'ont pas ce luxe : c'est justement ce qui indique QUEL tag est
+    le plus récent, donc il faut d'abord le résoudre via l'alias — ou, comme
+    ici, un seul appel API. `fetch_manifest` appelait cet alias deux fois de
+    suite (une pour le manifeste,
+    une pour sa signature) : si une nouvelle release se publie entre les deux
+    résolutions — ou tant que le CDN n'a pas convergé sur tous ses points de
+    présence après coup — les deux requêtes peuvent aboutir sur DEUX releases
+    différentes. La signature est alors *correctement* rejetée (ce sont de vrais
+    octets non appariés, pas un faux positif du vérificateur), mais le résultat
+    observé est un rejet "SIGNATURE INVALIDE" intermittent qui n'a rien à voir
+    avec une vraie tentative de falsification — exactement le schéma vu dans
+    `update.log` (des rejets espacés de plusieurs jours, sans lien avec une
+    publication en cours, aux côtés de mises à jour qui finissent par passer).
+    Un seul appel à `/releases/latest` renvoie une release PRÉCISE avec les URLs
+    de TOUS ses assets (des liens de téléchargement épinglés à ce tag, pas
+    l'alias) : les deux fichiers proviennent alors garantis de la même release.
+    """
+    try:
+        raw = _http_get(_GITHUB_API_LATEST_RELEASE, _MAX_RELEASES_BYTES)
+        release = json.loads(raw)
+    except Exception as exc:
+        _log(f"fetch_manifest: résolution de la release latest échouée ({exc})")
+        return None
+    assets = {
+        a.get("name"): a.get("browser_download_url")
+        for a in (release.get("assets") or [])
+        if isinstance(a, dict)
+    }
+    manifest_url = assets.get(_MANIFEST_NAME)
+    sig_url = assets.get(f"{_MANIFEST_NAME}.sig")
+    if not manifest_url or not sig_url:
+        _log("fetch_manifest: latest.json/.sig absents des assets de la release")
+        return None
+    return manifest_url, sig_url
 
 
 def fetch_manifest() -> Optional[dict[str, Any]]:
-    """Télécharge latest.json + latest.json.sig, vérifie la signature, renvoie le dict."""
-    url = _manifest_url()
+    """Télécharge latest.json + latest.json.sig, vérifie la signature, renvoie le dict.
+
+    Par défaut, résout la release latest UNE fois puis télécharge les deux
+    fichiers depuis CETTE même release (voir `_resolve_latest_asset_urls`).
+    `ELIUM_UPDATE_MANIFEST_URL` (tests, ou une URL épinglée manuellement)
+    court-circuite cette résolution et télécharge directement l'URL donnée
+    + `.sig`, comme avant — ce chemin n'a pas la course puisqu'il désigne déjà
+    une paire de fichiers fixe.
+    """
+    override = os.environ.get("ELIUM_UPDATE_MANIFEST_URL")
     try:
-        raw = _http_get(url, _MAX_MANIFEST_BYTES)
-        sig_hex = _http_get(url + ".sig", _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
+        if override:
+            manifest_url, sig_url = override, override + ".sig"
+        else:
+            resolved = _resolve_latest_asset_urls()
+            if not resolved:
+                return None
+            manifest_url, sig_url = resolved
+        raw = _http_get(manifest_url, _MAX_MANIFEST_BYTES)
+        sig_hex = _http_get(sig_url, _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
     except Exception as exc:
         _log(f"fetch_manifest: échec réseau ({exc})")
         return None

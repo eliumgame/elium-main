@@ -129,6 +129,96 @@ def test_signature_accept_and_reject(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Résolution atomique de la release "latest" (fetch_manifest, chemin par défaut)
+#
+# Avant correctif : fetch_manifest suivait `releases/latest/download/<fichier>`
+# DEUX fois de suite (manifeste, puis signature) — deux résolutions indépendantes
+# de l'alias "latest". Une nouvelle release publiée entre les deux (ou un CDN pas
+# encore convergé) pouvait faire correspondre le manifeste d'une release à la
+# signature d'une AUTRE, rejetée à raison mais de façon intermittente et sans
+# rapport avec une vraie tentative de falsification — le schéma observé dans
+# `update.log` en usage réel. Le correctif résout la release en UN SEUL appel API
+# (`/releases/latest`) puis télécharge le manifeste et sa signature depuis les
+# URLs de CETTE MÊME release. Ces tests prouvent que ce chemin ne retombe jamais
+# sur l'alias, et gère proprement une release dont les assets manqueraient.
+# --------------------------------------------------------------------------- #
+
+def test_fetch_manifest_resolves_via_single_release_api_call(env, monkeypatch):
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    monkeypatch.delenv("ELIUM_UPDATE_MANIFEST_URL", raising=False)
+
+    raw = json.dumps({"version": "9.9.9", "artifacts": {}}).encode("utf-8")
+    sig_hex = priv.sign(raw).hex()
+    pinned_manifest_url = f"https://github.com/{updater.REPO}/releases/download/v9.9.9/latest.json"
+    pinned_sig_url = pinned_manifest_url + ".sig"
+
+    release_payload = json.dumps(
+        {
+            "tag_name": "v9.9.9",
+            "assets": [
+                {"name": "latest.json", "browser_download_url": pinned_manifest_url},
+                {"name": "latest.json.sig", "browser_download_url": pinned_sig_url},
+                {"name": "Elium.exe", "browser_download_url": "https://example/Elium.exe"},
+            ],
+        }
+    ).encode("utf-8")
+
+    calls: list[str] = []
+
+    def fake_http_get(url: str, max_bytes: int) -> bytes:
+        calls.append(url)
+        if url == updater._GITHUB_API_LATEST_RELEASE:
+            return release_payload
+        if url == pinned_manifest_url:
+            return raw
+        if url == pinned_sig_url:
+            return sig_hex.encode("ascii")
+        # L'alias "latest" ne doit JAMAIS être sollicité par le chemin par
+        # défaut : le voir apparaître ici serait la régression exacte corrigée.
+        raise AssertionError(f"URL alias inattendue : {url}")
+
+    monkeypatch.setattr(updater, "_http_get", fake_http_get)
+
+    manifest = updater.fetch_manifest()
+
+    assert manifest == {"version": "9.9.9", "artifacts": {}}
+    # Une seule résolution de la release, puis un fetch de chacun des deux
+    # fichiers CIBLÉS sur cette release précise — jamais l'alias `/latest/`.
+    assert calls == [updater._GITHUB_API_LATEST_RELEASE, pinned_manifest_url, pinned_sig_url]
+    assert all("/releases/latest/download/" not in c for c in calls)
+
+
+def test_fetch_manifest_missing_assets_in_release(env, monkeypatch):
+    monkeypatch.delenv("ELIUM_UPDATE_MANIFEST_URL", raising=False)
+    # La release existe mais ne porte pas (encore ?) les deux fichiers attendus.
+    release_payload = json.dumps({"tag_name": "v9.9.9", "assets": []}).encode("utf-8")
+    monkeypatch.setattr(updater, "_http_get", lambda url, max_bytes: release_payload)
+
+    assert updater.fetch_manifest() is None
+
+
+def test_fetch_manifest_override_env_bypasses_release_resolution(env, monkeypatch):
+    """`ELIUM_UPDATE_MANIFEST_URL` (tests, ou une URL épinglée manuellement)
+    continue de désigner directement une paire fixe, sans jamais appeler l'API
+    de résolution — c'est déjà le chemin exercé par tous les autres tests de ce
+    fichier ; celui-ci vérifie explicitement qu'il ne touche PAS à l'API."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    manifest_path = _publish(env / "release", priv, "4.1.0")
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+
+    def fail_if_called():
+        raise AssertionError("la résolution API ne doit pas être appelée quand l'URL est épinglée")
+
+    monkeypatch.setattr(updater, "_resolve_latest_asset_urls", fail_if_called)
+
+    manifest = updater.fetch_manifest()
+    assert manifest is not None
+    assert manifest["version"] == "4.1.0"
+
+
+# --------------------------------------------------------------------------- #
 # Flux web de bout en bout
 # --------------------------------------------------------------------------- #
 

@@ -6,7 +6,7 @@
  * token. Prend en charge les `.elium` (preuve Ed25519) ET les PDF (PAdES,
  * certificat auto-signé). Le signataire peut aussi refuser.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Cloud, PenLine, ShieldCheck, AlertTriangle, Loader, CheckCircle2, FileText, XCircle } from "lucide-react";
 import "../drive-cloud.css";
 import { DriveApi } from "../api";
@@ -18,6 +18,24 @@ import { generateIdentity, fingerprintOf } from "../../sign/keys";
 import { randomId, toHex } from "../../format/canonical";
 import { fingerprintWords } from "../../sign/safety-words";
 import type { EliumFile, EliumSignature } from "../../format/types";
+// Import PURS depuis le module PDF existant (aucun fichier sous src/pdf/ n'est
+// modifié) : même rendu de « signature tapée » que l'outil Signature de
+// l'espace de travail local (pdf/ops/sign.ts), et le même type de rectangle en
+// espace page (pdf/core/coords.ts) que celui attendu par `visible` de PAdES.
+import { typedSignatureToPng, SIGNATURE_FONTS } from "../../pdf/ops/sign";
+import type { Rect } from "../../pdf/core/coords";
+import type { PadesSignOptions } from "../../pdf/ops/pades";
+import { SignPlacementPreview } from "./SignPlacementPreview";
+
+/** Couleur d'encre par défaut de l'outil Signature local (pdf/ui/dialogs.tsx). */
+const SIGNATURE_COLOUR = "#0f172a";
+
+/** data:image/png;base64,... → octets bruts (même décodage que PdfWorkspace.visibleSigTarget). */
+function pngDataUrlToBytes(dataUrl: string): Uint8Array | undefined {
+  const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
+  if (!m) return undefined;
+  return Uint8Array.from(atob(m[1]!), (c) => c.charCodeAt(0));
+}
 
 type Ready =
   | { docType: "elium"; title: string; preview: string; file: EliumFile; nodeKey: Uint8Array }
@@ -40,6 +58,17 @@ export default function SignLinkView({ token, onHome }: { token: string; onHome:
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  // Placement VISIBLE de la signature (PDF uniquement) — optionnel : sans choix,
+  // on retombe sur la signature invisible historique (voir `sign()` ci-dessous).
+  const [wantsPlacement, setWantsPlacement] = useState(false);
+  const [placement, setPlacement] = useState<Rect | null>(null);
+  // Aperçu de la marque manuscrite (texte tapé → PNG), même rendu que l'outil
+  // Signature local ; un nom de repli tient l'aperçu à jour avant même que le
+  // signataire ait rempli son nom.
+  const mark = useMemo(
+    () => typedSignatureToPng(name.trim() || "Votre signature", SIGNATURE_FONTS[0].css, SIGNATURE_COLOUR),
+    [name],
+  );
 
   useEffect(() => {
     (async () => {
@@ -138,15 +167,25 @@ export default function SignLinkView({ token, onHome }: { token: string; onHome:
         setState({ phase: "done", title: doc.title, words: fingerprintWords(fpr) });
       } else {
         // PDF → PAdES avec un certificat auto-signé généré à la volée (RSA-2048,
-        // ~1–3 s, synchrone). Signature invisible mais valide (Adobe : « identité
-        // non vérifiée » car auto-signé). Le placement visuel est un raffinement futur.
+        // ~1–3 s, synchrone). Par défaut la signature reste invisible mais valide
+        // (Adobe : « identité non vérifiée » car auto-signé) ; si le signataire a
+        // choisi un emplacement sur l'aperçu de la page 1, elle devient VISIBLE à
+        // cet endroit avec son nom tapé comme apparence (même mécanisme que
+        // l'espace de travail local, `PdfWorkspace.signSelfSigned`).
         const { generateSelfSignedP12 } = await import("../../pdf/ops/self-cert");
         const { signPdfBytes } = await import("../../pdf/ops/pades");
         const pw = toHex(crypto.getRandomValues(new Uint8Array(16)));
         const p12 = generateSelfSignedP12(name.trim(), pw);
+        let visible: PadesSignOptions["visible"];
+        if (wantsPlacement && placement) {
+          const finalMark = typedSignatureToPng(name.trim() || "Signature", SIGNATURE_FONTS[0].css, SIGNATURE_COLOUR);
+          const imagePng = finalMark ? pngDataUrlToBytes(finalMark.src) : undefined;
+          visible = { page: 0, rect: placement, imagePng };
+        }
         const signed = await signPdfBytes(doc.bytes, p12, pw, {
           signerName: name.trim(),
           reason: role.trim() ? `Signé — ${role.trim()}` : "Signé via Elium",
+          visible,
         });
         await submitSignedElium(api, token, doc.nodeKey, signed);
         setState({ phase: "done", title: doc.title });
@@ -236,6 +275,40 @@ export default function SignLinkView({ token, onHome }: { token: string; onHome:
                 placeholder="Fonction (optionnel)"
                 disabled={busy}
               />
+              {state.phase === "ready" && state.doc.docType === "pdf" && (
+                <div style={{ margin: "2px 0 10px", textAlign: "left" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 13,
+                      cursor: busy ? "default" : "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={wantsPlacement}
+                      disabled={busy}
+                      onChange={(e) => {
+                        setWantsPlacement(e.target.checked);
+                        if (!e.target.checked) setPlacement(null);
+                      }}
+                    />
+                    Placer ma signature sur le document (optionnel)
+                  </label>
+                  {wantsPlacement && mark && (
+                    <SignPlacementPreview
+                      bytes={state.doc.bytes}
+                      markSrc={mark.src}
+                      markRatio={mark.ratio}
+                      value={placement}
+                      onChange={setPlacement}
+                      disabled={busy}
+                    />
+                  )}
+                </div>
+              )}
               {err && <p className="dc-error">{err}</p>}
               <button className="eb eb--primary eb--block" disabled={busy || !name.trim()}>
                 {busy ? (
@@ -252,7 +325,9 @@ export default function SignLinkView({ token, onHome }: { token: string; onHome:
             </form>
             <p className="muted" style={{ fontSize: 12 }}>
               {state.phase === "ready" && state.doc.docType === "pdf"
-                ? "Signature PAdES (certificat auto-signé) intégrée au PDF ; « identité non vérifiée » dans Adobe faute d'autorité de certification."
+                ? wantsPlacement && placement
+                  ? "Signature PAdES (certificat auto-signé) VISIBLE à l'emplacement choisi ; « identité non vérifiée » dans Adobe faute d'autorité de certification."
+                  : "Signature PAdES (certificat auto-signé) intégrée au PDF ; « identité non vérifiée » dans Adobe faute d'autorité de certification."
                 : "Signature = preuve cryptographique (Ed25519) intégrée au document ; l'émetteur pourra la vérifier."}
             </p>
           </>

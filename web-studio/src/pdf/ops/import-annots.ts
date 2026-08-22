@@ -7,10 +7,13 @@
  * a first-class Elium review — which is the whole point of interoperability.
  */
 
+import { zlibSync } from "fflate";
 import type { Pt, Quad, Rect } from "../core/coords";
 import { rectOfPoints, rectOfQuads } from "../core/coords";
+import { concat } from "../core/contentstream";
 import type { Annot, AnnotKind, BorderStyle, LineEnding, Reply, ReviewStatus } from "../model/types";
 import { newId } from "../model/types";
+import { bytesToBase64 } from "../model/persist";
 
 /** The shape pdf.js hands back from `page.getAnnotations()`. */
 export interface RawAnnotation {
@@ -40,6 +43,118 @@ export interface RawAnnotation {
   defaultAppearanceData?: { fontSize?: number; fontColor?: Uint8ClampedArray | number[] };
   url?: string;
   dest?: unknown;
+  /**
+   * The bitmap actually painted by a Stamp's `/AP /N` appearance stream, when
+   * whoever built this raw annotation was able to resolve it. pdf.js's own
+   * `getAnnotations()` never includes this — it reports only a boolean
+   * `hasAppearance`, the real pixels are rendered later straight to a canvas
+   * — so this only shows up when a caller separately walked the source
+   * PDF's structure (e.g. via pdf-lib, keyed by this annotation's own ref)
+   * to pull the image XObject out. Absent for text-only stamps ("APPROVED")
+   * and whenever no such resolution happened; the stamp then keeps the
+   * labelled-box fallback, exactly as before this field existed.
+   */
+  appearanceImage?: {
+    /** Sample bytes with every *generic* PDF stream filter already peeled
+     *  off (Flate/LZW/ASCII85/RunLength — e.g. via pdf-lib's
+     *  `decodePDFRawStream(...).decode()`). Still image-encoded when
+     *  `filter` names an image-specific codec (DCTDecode et al.), since
+     *  those aren't generic filters a stream decoder unwraps. */
+    bytes: Uint8Array;
+    /** The image XObject's final `/Filter`, so `bytes` can be read correctly. */
+    filter?: string | null;
+    width: number;
+    height: number;
+    /** `/ColorSpace`; only DeviceRGB and DeviceGray are decoded today. */
+    colorSpace?: string | null;
+    bitsPerComponent?: number | null;
+  } | null;
+}
+
+// ---------------------------------------------------------------------------
+// Turning a Stamp's appearance-stream image into a data URL
+// ---------------------------------------------------------------------------
+
+const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+let crcTable: Uint32Array | null = null;
+
+/** The standard PNG/zip CRC-32 (see the PNG spec's own reference code). */
+function crc32(bytes: Uint8Array): number {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crcTable[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function u32be(n: number): Uint8Array {
+  return Uint8Array.from([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const typeBytes = Uint8Array.from(type, (ch) => ch.charCodeAt(0));
+  const body = concat([typeBytes, data]);
+  return concat([u32be(data.length), body, u32be(crc32(body))]);
+}
+
+/**
+ * A minimal, spec-plain PNG around raw 8-bit DeviceRGB/DeviceGray samples —
+ * one IDAT, filter type "None" on every scanline, no interlacing. `fflate`'s
+ * `zlibSync` (already a dependency, already used the same way for a page's
+ * own content stream in ops/content.ts) does the actual compression; this is
+ * just the container bytes around it, so nothing here is a real image codec.
+ */
+function encodeRawSamplesAsPng(samples: Uint8Array, width: number, height: number, channels: 1 | 3): Uint8Array {
+  const stride = width * channels;
+  const raw = new Uint8Array(height * (stride + 1));
+  for (let y = 0; y < height; y++) {
+    raw[y * (stride + 1)] = 0; // filter type 0 — None
+    raw.set(samples.subarray(y * stride, y * stride + stride), y * (stride + 1) + 1);
+  }
+  const ihdr = concat([u32be(width), u32be(height), Uint8Array.from([8, channels === 1 ? 0 : 2, 0, 0, 0])]);
+  return concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", zlibSync(raw, { level: 6 })),
+    pngChunk("IEND", new Uint8Array(0)),
+  ]);
+}
+
+/**
+ * A Stamp's appearance image as a data URL, or `null` when this codebase
+ * cannot decode it — the caller keeps the labelled-box fallback in that case.
+ *
+ * Handled: DCTDecode (the bytes already *are* a complete JPEG file, so this
+ * is a plain base64 wrap) and fully-decompressed 8-bit DeviceRGB/DeviceGray
+ * samples (wrapped into a PNG above). Not handled — deliberately, rather
+ * than guessed at: Indexed palettes, DeviceCMYK, 1/2/4-bit depths, soft
+ * masks (transparency is dropped, never faked), and the CCITTFax/JBIG2/
+ * JPXDecode (JPEG 2000) image codecs, none of which this codebase decodes
+ * anywhere else either.
+ */
+function stampImageDataUrl(img: NonNullable<RawAnnotation["appearanceImage"]>): string | null {
+  const filter = (img.filter ?? "").replace(/^\//, "");
+  if (filter === "DCTDecode" || filter === "DCT") return `data:image/jpeg;base64,${bytesToBase64(img.bytes)}`;
+  if (filter) return null; // JPXDecode, CCITTFaxDecode, JBIG2Decode…
+
+  const channels = img.colorSpace === "DeviceGray" ? 1 : img.colorSpace === "DeviceRGB" ? 3 : 0;
+  if (!channels || img.bitsPerComponent !== 8) return null; // Indexed, CMYK, 1/2/4-bit…
+  const { width: w, height: h, bytes } = img;
+  if (!(w > 0) || !(h > 0) || bytes.length < w * h * channels) return null;
+
+  try {
+    const png = encodeRawSamplesAsPng(bytes, w, h, channels as 1 | 3);
+    return `data:image/png;base64,${bytesToBase64(png)}`;
+  } catch {
+    return null;
+  }
 }
 
 const KIND: Record<string, AnnotKind> = {
@@ -276,11 +391,21 @@ export function importPageAnnots(
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
         break;
-      case "stamp":
-        // The stamp's own appearance stream is what pdf.js paints; we keep the
-        // box and its metadata so it can be moved, commented and re-exported.
+      case "stamp": {
+        // pdf.js paints the appearance stream itself — but only as long as
+        // nothing has been imported yet: PdfWorkspace turns pdf.js's own
+        // annotation painting off the moment there is anything to import
+        // (so a re-exported comment doesn't get drawn twice, once by pdf.js
+        // and once by Elium). From that point on the picture has to live in
+        // the model, or it simply never appears again. `stampLabel` stays as
+        // a fallback (and for genuinely text-only stamps).
         annot.stampLabel = a.name || a.subject || "TAMPON";
+        if (a.appearanceImage) {
+          const src = stampImageDataUrl(a.appearanceImage);
+          if (src) annot.src = src;
+        }
         break;
+      }
       default:
         break;
     }

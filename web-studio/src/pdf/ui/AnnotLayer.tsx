@@ -854,9 +854,19 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     if (a.kind === "stamp" || a.kind === "image" || a.kind === "signature") {
       const tone = a.stampTone ?? "red";
       const label = a.kind === "signature" ? "Signature" : a.kind === "image" ? "Image" : a.stampLabel || "TAMPON";
+      // "stamp" used to mean a generated label box, so a boxy `contain` fit
+      // never mattered. Now that a stamp imported from an existing PDF can
+      // carry its real appearance-stream picture (see import-annots.ts), it
+      // has to stretch to the exact rect like "image" already does — export
+      // always maps a stamp's `.src` onto its rect this same way (see
+      // ops/annots-pdf.ts's `p.image(img, r.x, r.y, r.w, r.h)`), so `contain`
+      // would letterbox the editor view out of sync with what gets exported.
+      // "signature" keeps `contain`: it is placed with an aspect-preserving
+      // `ratio` up front, so the box already matches the picture.
+      const fit = a.kind === "signature" ? "contain" : "fill";
       return wrapper(
         a.src ? (
-          <StampImg src={a.src} fit={a.kind === "image" ? "fill" : "contain"} label={label} tone={tone} />
+          <StampImg src={a.src} fit={fit} label={label} tone={tone} />
         ) : (
           <div className="pdfx-stamp" data-tone={tone}>
             {label}

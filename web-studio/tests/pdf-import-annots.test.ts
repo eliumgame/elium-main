@@ -195,6 +195,156 @@ describe("Importing a PDF's existing markup", () => {
     expect(annots).toHaveLength(1);
     expect(skipped).toBe(2);
   });
+
+  // Regression: pdf.js only ever paints a Stamp's own appearance stream —
+  // it never hands the pixels back through getAnnotations(). Once anything
+  // is imported, PdfWorkspace turns pdf.js's own annotation painting off (so
+  // a re-exported comment isn't drawn twice), so a stamp that only carried
+  // its label used to lose its picture permanently, replaced by a plain
+  // "TAMPON" box. A caller that resolves the appearance stream itself (e.g.
+  // via pdf-lib against the source bytes) can now attach it as
+  // `appearanceImage`, and the picture survives the round trip.
+  describe("carries the stamp's own picture across when the appearance image is resolved", () => {
+    it("wraps a DCTDecode appearance image as a JPEG data URL, byte-for-byte", () => {
+      // Stand-in JPEG bytes (SOI … EOI markers); DCTDecode bytes are already
+      // a complete file, so this only has to prove nothing mangles them.
+      const jpegBytes = new Uint8Array([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0xff, 0xd9,
+      ]);
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Stamp",
+            name: "Approved",
+            appearanceImage: { bytes: jpegBytes, filter: "DCTDecode", width: 100, height: 60 },
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      const stamp = annots[0];
+      expect(stamp.kind).toBe("stamp");
+      expect(stamp.stampLabel).toBe("Approved"); // metadata is kept too, not replaced
+      expect(stamp.src).toMatch(/^data:image\/jpeg;base64,/);
+      const decoded = Uint8Array.from(Buffer.from(stamp.src!.split(",")[1], "base64"));
+      expect(decoded).toEqual(jpegBytes);
+    });
+
+    it("builds a real, well-formed PNG from raw DeviceRGB samples (no filter)", async () => {
+      const w = 4;
+      const h = 3;
+      const samples = new Uint8Array(w * h * 3);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 3;
+          samples[i] = x * 60;
+          samples[i + 1] = y * 80;
+          samples[i + 2] = 128;
+        }
+      }
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Stamp",
+            appearanceImage: { bytes: samples, filter: null, width: w, height: h, colorSpace: "DeviceRGB", bitsPerComponent: 8 },
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      const src = annots[0].src;
+      expect(src).toMatch(/^data:image\/png;base64,/);
+      // Not just non-empty: prove it decodes as a real PNG of the right size,
+      // using pdf-lib's own parser as an independent judge.
+      const pngBytes = Uint8Array.from(Buffer.from(src!.split(",")[1], "base64"));
+      const doc = await PDFDocument.create();
+      const embedded = await doc.embedPng(pngBytes);
+      expect(embedded.width).toBe(w);
+      expect(embedded.height).toBe(h);
+    });
+
+    it("builds a PNG from raw DeviceGray samples too", async () => {
+      const w = 3;
+      const h = 2;
+      const samples = Uint8Array.from([10, 20, 30, 40, 50, 60]);
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Stamp",
+            appearanceImage: { bytes: samples, filter: undefined, width: w, height: h, colorSpace: "DeviceGray", bitsPerComponent: 8 },
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      const src = annots[0].src;
+      expect(src).toMatch(/^data:image\/png;base64,/);
+      const pngBytes = Uint8Array.from(Buffer.from(src!.split(",")[1], "base64"));
+      const doc = await PDFDocument.create();
+      const embedded = await doc.embedPng(pngBytes);
+      expect(embedded.width).toBe(w);
+      expect(embedded.height).toBe(h);
+    });
+
+    it("keeps the labelled-box fallback for a text-only stamp (no appearance image at all)", () => {
+      const { annots } = importPageAnnots(
+        [raw({ subtype: "Stamp", name: "Rejected", appearanceImage: null })],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      expect(annots[0].stampLabel).toBe("Rejected");
+      expect(annots[0].src).toBeUndefined();
+    });
+
+    it("keeps the labelled-box fallback for image codecs it cannot decode (e.g. JPEG 2000)", () => {
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Stamp",
+            name: "Confidential",
+            appearanceImage: {
+              bytes: new Uint8Array([1, 2, 3, 4]),
+              filter: "JPXDecode",
+              width: 10,
+              height: 10,
+            },
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      expect(annots[0].stampLabel).toBe("Confidential");
+      expect(annots[0].src).toBeUndefined();
+    });
+
+    it("keeps the labelled-box fallback for colour spaces it cannot decode (e.g. CMYK)", () => {
+      const { annots } = importPageAnnots(
+        [
+          raw({
+            subtype: "Stamp",
+            appearanceImage: {
+              bytes: new Uint8Array(16),
+              filter: null,
+              width: 2,
+              height: 2,
+              colorSpace: "DeviceCMYK",
+              bitsPerComponent: 8,
+            },
+          }),
+        ],
+        "p1",
+        PAGE_H,
+        "Moi",
+      );
+      expect(annots[0].src).toBeUndefined();
+    });
+  });
 });
 
 describe("Imported markup is written back exactly once", () => {

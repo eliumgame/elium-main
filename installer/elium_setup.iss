@@ -13,7 +13,7 @@
 ; ============================================================================
 
 #define AppName "Elium"
-#define AppVersion "4.4.3"
+#define AppVersion "4.4.4"
 #define AppPublisher "Elium Authors"
 #define AppURL "https://github.com/eliumgame/elium-main"
 #define AppExeName "Elium.exe"

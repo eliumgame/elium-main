@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import rateLimit from "@fastify/rate-limit";
 import { ZodError } from "zod";
 
 const USER = "00000000-0000-4000-8000-0000000000aa";
@@ -57,15 +58,20 @@ const mWithTx = vi.mocked(withTx);
 const mAudit = vi.mocked(audit);
 const mNotify = vi.mocked(notifyOrg);
 
+/** Mirrors app.ts's global limit, so per-route `config.rateLimit` overrides (like in production) actually apply. */
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.addContentTypeParser("application/octet-stream", (_req, payload, done) => done(null, payload));
+  await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ApiError) {
       return reply.status(err.statusCode).send({ error: { code: err.code, message: err.message } });
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: { code: "bad_request", message: "validation" } });
+    }
+    if ((err as { statusCode?: number }).statusCode === 429) {
+      return reply.status(429).send({ error: { code: "rate_limited", message: "Trop de requêtes." } });
     }
     return reply.status(500).send({ error: { code: "internal", message: err.message } });
   });
@@ -171,6 +177,33 @@ describe("POST /api/nodes/:id/sign-requests (création)", () => {
       payload: { roleId: ROLE, parties: [] },
     });
     expect(res.statusCode).toBe(400); // zod: min(1)
+    await app.close();
+  });
+});
+
+describe("rate limiting : POST /api/nodes/:id/sign-requests", () => {
+  it("limité à 20/min", async () => {
+    mQueryOne.mockResolvedValue({ id: ROLE }); // role check, valide à chaque itération
+    mWithTx.mockImplementation(
+      txDispatch([
+        [/INSERT INTO share_links/, { rows: [{ id: LINK }] }],
+        [/INSERT INTO signature_requests/, { rows: [{ id: REQ }] }],
+        [/INSERT INTO signature_request_parties/, { rows: [{ id: PARTY }] }],
+      ]) as never,
+    );
+
+    const app = await makeApp();
+    let last = 0;
+    for (let i = 0; i < 21; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/nodes/${NODE}/sign-requests`,
+        payload: { roleId: ROLE, parties: [{ wrappedKey: { c: "x" } }] },
+      });
+      last = res.statusCode;
+      if (i < 20) expect(res.statusCode).toBe(200);
+    }
+    expect(last).toBe(429);
     await app.close();
   });
 });

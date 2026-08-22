@@ -68,65 +68,69 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
     deadline: z.string().datetime().optional(),
     parties: z.array(partySchema).min(1).max(50),
   });
-  app.post("/nodes/:id/sign-requests", { preHandler: authenticate }, async (req) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const b = createSchema.parse(req.body);
-    const user = requireUser(req);
+  app.post(
+    "/nodes/:id/sign-requests",
+    { preHandler: authenticate, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+      const b = createSchema.parse(req.body);
+      const user = requireUser(req);
 
-    // Créer un lien de signature = créer un lien externe (capacité réutilisée ;
-    // une permission dédiée node.sign.request pourra suivre).
-    const access = await requireNodePerm(req, id, "node.share.link");
-    if (access.kind !== "file") throw badRequest("Seuls les fichiers peuvent être envoyés en signature.");
+      // Créer un lien de signature = créer un lien externe (capacité réutilisée ;
+      // une permission dédiée node.sign.request pourra suivre).
+      const access = await requireNodePerm(req, id, "node.share.link");
+      if (access.kind !== "file") throw badRequest("Seuls les fichiers peuvent être envoyés en signature.");
 
-    const role = await queryOne<{ id: string }>(
-      `SELECT id FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
-      [b.roleId, access.orgId],
-    );
-    if (!role) throw badRequest("Rôle invalide pour cette organisation.");
-
-    // Un token de lien par partie (chacune a sa propre paire de clés côté client).
-    const tokens = b.parties.map(() => randomToken(32));
-
-    const out = await withTx(async (c) => {
-      const { rows: rq } = await c.query(
-        `INSERT INTO signature_requests (org_id, node_id, created_by, ordered, deadline)
-         VALUES ($1,$2,$3,$4,$5)
-         RETURNING id`,
-        [access.orgId, id, user.id, b.ordered, b.deadline ?? null],
+      const role = await queryOne<{ id: string }>(
+        `SELECT id FROM roles WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
+        [b.roleId, access.orgId],
       );
-      const requestId = rq[0].id as string;
+      if (!role) throw badRequest("Rôle invalide pour cette organisation.");
 
-      const parties: Array<{ partyId: string; index: number; token: string }> = [];
-      for (let i = 0; i < b.parties.length; i++) {
-        const { rows: lk } = await c.query(
-          `INSERT INTO share_links (node_id, token_hash, role_id, wrapped_key, has_password,
-                                    expires_at, created_by, can_sign)
-           VALUES ($1,$2,$3,$4,false,$5,$6,true)
-           RETURNING id`,
-          [id, sha256Hex(tokens[i]!), b.roleId, JSON.stringify(b.parties[i]!.wrappedKey), b.expiresAt ?? null, user.id],
-        );
-        const { rows: pt } = await c.query(
-          `INSERT INTO signature_request_parties (request_id, party_index, label, link_id)
-           VALUES ($1,$2,$3,$4)
-           RETURNING id`,
-          [requestId, i, b.parties[i]!.label ?? null, lk[0].id],
-        );
-        parties.push({ partyId: pt[0].id as string, index: i, token: tokens[i]! });
-      }
-      return { requestId, parties };
-    });
+      // Un token de lien par partie (chacune a sa propre paire de clés côté client).
+      const tokens = b.parties.map(() => randomToken(32));
 
-    await audit(
-      access.orgId,
-      user.id,
-      "node.sign.request",
-      "file",
-      id,
-      { requestId: out.requestId, parties: out.parties.length, ordered: b.ordered },
-      req.ip,
-    );
-    return { requestId: out.requestId, parties: out.parties };
-  });
+      const out = await withTx(async (c) => {
+        const { rows: rq } = await c.query(
+          `INSERT INTO signature_requests (org_id, node_id, created_by, ordered, deadline)
+           VALUES ($1,$2,$3,$4,$5)
+           RETURNING id`,
+          [access.orgId, id, user.id, b.ordered, b.deadline ?? null],
+        );
+        const requestId = rq[0].id as string;
+
+        const parties: Array<{ partyId: string; index: number; token: string }> = [];
+        for (let i = 0; i < b.parties.length; i++) {
+          const { rows: lk } = await c.query(
+            `INSERT INTO share_links (node_id, token_hash, role_id, wrapped_key, has_password,
+                                      expires_at, created_by, can_sign)
+             VALUES ($1,$2,$3,$4,false,$5,$6,true)
+             RETURNING id`,
+            [id, sha256Hex(tokens[i]!), b.roleId, JSON.stringify(b.parties[i]!.wrappedKey), b.expiresAt ?? null, user.id],
+          );
+          const { rows: pt } = await c.query(
+            `INSERT INTO signature_request_parties (request_id, party_index, label, link_id)
+             VALUES ($1,$2,$3,$4)
+             RETURNING id`,
+            [requestId, i, b.parties[i]!.label ?? null, lk[0].id],
+          );
+          parties.push({ partyId: pt[0].id as string, index: i, token: tokens[i]! });
+        }
+        return { requestId, parties };
+      });
+
+      await audit(
+        access.orgId,
+        user.id,
+        "node.sign.request",
+        "file",
+        id,
+        { requestId: out.requestId, parties: out.parties.length, ordered: b.ordered },
+        req.ip,
+      );
+      return { requestId: out.requestId, parties: out.parties };
+    },
+  );
 
   // =====================================================================
   //  Authentifié — tableau de suivi (poll)

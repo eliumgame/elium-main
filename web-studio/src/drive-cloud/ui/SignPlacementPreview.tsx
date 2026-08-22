@@ -150,9 +150,7 @@ export function SignPlacementPreview({
       wrap.removeEventListener("pointercancel", finish);
       setDraft(null);
       if (!pageSize) return;
-      const rect = moved
-        ? clampRect(rectFromPoints(start, last), pageSize)
-        : defaultRectAt(start, pageSize, markRatio);
+      const rect = moved ? clampRect(rectFromPoints(start, last), pageSize) : defaultRectAt(start, pageSize, markRatio);
       onChange(rect.w < 8 || rect.h < 8 ? defaultRectAt(start, pageSize, markRatio) : rect);
     };
     wrap.addEventListener("pointermove", move);

@@ -248,7 +248,14 @@ describe("Importing a PDF's existing markup", () => {
         [
           raw({
             subtype: "Stamp",
-            appearanceImage: { bytes: samples, filter: null, width: w, height: h, colorSpace: "DeviceRGB", bitsPerComponent: 8 },
+            appearanceImage: {
+              bytes: samples,
+              filter: null,
+              width: w,
+              height: h,
+              colorSpace: "DeviceRGB",
+              bitsPerComponent: 8,
+            },
           }),
         ],
         "p1",
@@ -274,7 +281,14 @@ describe("Importing a PDF's existing markup", () => {
         [
           raw({
             subtype: "Stamp",
-            appearanceImage: { bytes: samples, filter: undefined, width: w, height: h, colorSpace: "DeviceGray", bitsPerComponent: 8 },
+            appearanceImage: {
+              bytes: samples,
+              filter: undefined,
+              width: w,
+              height: h,
+              colorSpace: "DeviceGray",
+              bitsPerComponent: 8,
+            },
           }),
         ],
         "p1",

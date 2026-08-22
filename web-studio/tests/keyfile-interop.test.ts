@@ -103,8 +103,6 @@ describe.skipIf(!hasPython)("Keyfile-only .elium — cross-language interop (Pyt
 
     // Still must refuse without the keyfile, and with the wrong one.
     await expect(readEliumPackage(new Uint8Array(blob), {})).rejects.toBeTruthy();
-    await expect(
-      readEliumPackage(new Uint8Array(blob), { keyfile: new Uint8Array([9, 9, 9]) }),
-    ).rejects.toBeTruthy();
+    await expect(readEliumPackage(new Uint8Array(blob), { keyfile: new Uint8Array([9, 9, 9]) })).rejects.toBeTruthy();
   });
 });

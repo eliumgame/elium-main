@@ -373,7 +373,9 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
             ) : (
               links.map((l) => (
                 <div key={l.id} className="dc-share-row">
-                  <span className="dc-share-row__name">Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}</span>
+                  <span className="dc-share-row__name">
+                    Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}
+                  </span>
                   {l.expiresAt && (
                     <span className="badge badge--neutral">
                       Expire le {new Date(l.expiresAt).toLocaleDateString("fr-FR")}

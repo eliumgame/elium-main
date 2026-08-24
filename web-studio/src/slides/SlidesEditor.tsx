@@ -592,7 +592,12 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   <div className="sv-bg-label">Couleur unie</div>
                   <div className="sv-bg-swatches">
                     {SOLID_PRESETS.map((c) => (
-                      <button key={c} className="sv-swatch" style={{ background: c }} onClick={() => applyBg(c)} />
+                      <button
+                        key={c}
+                        className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
+                        style={{ background: c }}
+                        onClick={() => applyBg(c)}
+                      />
                     ))}
                     <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
                       <input
@@ -607,7 +612,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     {GRADIENT_PRESETS.map((g) => (
                       <button
                         key={g}
-                        className="sv-swatch sv-swatch--grad"
+                        className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
                         style={{ backgroundImage: g }}
                         onClick={() => applyBg(g)}
                       />
@@ -832,7 +837,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     {TEXT_COLORS.map((c) => (
                       <button
                         key={c}
-                        className="sv-swatch"
+                        className={`sv-swatch ${sel!.color === c ? "is-active" : ""}`}
                         style={{ background: c }}
                         onClick={() => {
                           store.updateEl(sel!.id, { color: c });
@@ -1215,7 +1220,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                               : undefined
                           }
                         />
-                        {tpl.label}
+                        <span className="sv-tpl-item__label">{tpl.label}</span>
                       </button>
                     ))}
                   </div>

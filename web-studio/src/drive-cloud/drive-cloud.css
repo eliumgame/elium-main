@@ -368,7 +368,7 @@
   border: 1px solid transparent;
   background: none;
   border-radius: 9px;
-  color: var(--x-chrome-soft, #a7b0c0);
+  color: var(--x-chrome-soft, #c9d0dc);
   font-size: 13.5px;
   font-weight: 550;
   cursor: pointer;
@@ -419,7 +419,7 @@
 }
 .dc-userchip__mail {
   font-size: 11px;
-  color: var(--x-chrome-mute, #7d8798);
+  color: var(--x-chrome-mute, #c3cad6);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -432,7 +432,7 @@
   padding: 8px;
   border: none;
   background: none;
-  color: var(--x-chrome-soft, #a7b0c0);
+  color: var(--x-chrome-soft, #c9d0dc);
   font-size: 12.5px;
   cursor: pointer;
   border-radius: 9px;
@@ -471,7 +471,7 @@
   white-space: nowrap;
 }
 .dc-orgswitch__btn > svg:last-child {
-  color: var(--x-chrome-mute, #7d8798);
+  color: var(--x-chrome-mute, #c3cad6);
 }
 .dc-orgswitch__menu {
   position: absolute;

@@ -19,6 +19,9 @@ import {
 } from "./node-crypto";
 import { generateRecipientKeypair } from "../crypto/recipients";
 import { fromHex } from "../format/canonical";
+import { readEliumPackage, writeEliumPackage } from "../format/elium-package";
+import { alignCircuitWithRequest } from "../format/document";
+import type { EliumFile } from "../format/types";
 
 export interface OpsCtx {
   api: DriveApi;
@@ -372,6 +375,11 @@ export interface SignPartyLink {
   token: string;
   secret: string; // scalaire privé de la paire de lien (va dans le fragment #)
   publicHex: string;
+  /** Server-issued `signature_request_parties.id` — reused verbatim as this
+   *  party's `ParapheurParty.id` in the embedded circuit (see
+   *  `alignCircuitWithRequest`), so a link can name its own row without the
+   *  server ever knowing what a `ParapheurParty` is. */
+  partyId: string;
 }
 export async function createSignRequestForNode(
   ctx: OpsCtx,
@@ -402,8 +410,59 @@ export async function createSignRequestForNode(
       token: c.token,
       secret: kps[c.index]!.privateHex,
       publicHex: kps[c.index]!.publicHex,
+      partyId: c.partyId,
     }));
   return { requestId, parties: links };
+}
+
+/**
+ * Best-effort: download, decrypt and parse an entry's CURRENT content as an
+ * `EliumFile`, for parapheur-circuit reconciliation around a sign request.
+ * Returns null for anything that isn't (right now, readably) a plain `.elium`
+ * — no content yet, an undecryptable node key, or a body that itself needs a
+ * password/keyfile/recipient key we don't have here — so callers fall back to
+ * a sign request with no embedded circuit rather than failing outright.
+ */
+export async function loadEliumFile(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+): Promise<{ file: EliumFile; nodeKey: Uint8Array } | null> {
+  if (!entry.hasContent) return null;
+  const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
+  if (!key) return null;
+  try {
+    const { bytes, nonceHex } = await ctx.api.getContent(entry.id);
+    const plaintext = await decryptContent(key, nonceHex, bytes);
+    const { file } = await readEliumPackage(plaintext, {});
+    return { file, nodeKey: key };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Embed/align the document's parapheur circuit with a just-created sign
+ * request's parties (see `alignCircuitWithRequest`), then re-upload it
+ * re-encrypted under the same node key. Best effort BY DESIGN — the sign
+ * request already exists server-side regardless of whether this succeeds, so
+ * callers should surface a soft warning on failure rather than undo the
+ * request. `loaded` should be read as fresh as practical (right before this
+ * call) since it's about to overwrite the node's content wholesale.
+ */
+export async function syncCircuitForSignRequest(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  loaded: { file: EliumFile; nodeKey: Uint8Array },
+  parties: { partyId: string; label?: string }[],
+): Promise<void> {
+  const nf = alignCircuitWithRequest(
+    loaded.file,
+    parties.map((p) => p.partyId),
+    parties.map((p) => p.label),
+  );
+  const bytes = await writeEliumPackage(nf, { carryForwardSeal: loaded.file.manifest.seal });
+  const enc = await encryptContent(loaded.nodeKey, bytes);
+  await ctx.api.putContent(entry.id, enc.ciphertext, enc.nonceHex);
 }
 
 /**

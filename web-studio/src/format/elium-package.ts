@@ -33,6 +33,7 @@ import {
   ELIUM_FORMAT,
   ELIUM_FORMAT_VERSION,
   ELIUM_MIMETYPE,
+  type DocumentSeal,
   type EliumFile,
   type EliumManifest,
   type EliumParapheur,
@@ -58,6 +59,18 @@ export interface WriteOptions {
   keyfile?: Uint8Array;
   /** Ed25519 private key (hex) used to seal the integrity-critical parts. */
   sealPrivateKeyHex?: string;
+  /**
+   * Carry an EXISTING seal forward unchanged when this write touches nothing
+   * the seal covers (the manifest's integrity subset / signatures / journal —
+   * see sign/seal.ts) and no `sealPrivateKeyHex` is given to compute a fresh
+   * one. Used for a parapheur-only update: the circuit is deliberately outside
+   * what the seal signs (see EliumParapheur), so preserving it here is exact,
+   * not a shortcut. Safe even if misapplied elsewhere — `verifySeal` re-derives
+   * the signed message from the ACTUAL output bytes, so a carried-forward seal
+   * that no longer matches simply reads "broken" on next read; it can never be
+   * mistaken for a fresh "valid" claim.
+   */
+  carryForwardSeal?: DocumentSeal;
   /** Expected seal/proof signer key (hex) for attribution on read. */
   trustedKeyHex?: string;
   /** Encrypt title/signatures/journal inside the body (encrypted profiles only). */
@@ -278,6 +291,8 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   // Seal the integrity-critical parts (the clear, possibly-redacted entries).
   if (opts.sealPrivateKeyHex) {
     manifest.seal = await createSeal(manifest, clearSignatures, clearJournal, opts.sealPrivateKeyHex);
+  } else if (opts.carryForwardSeal) {
+    manifest.seal = opts.carryForwardSeal;
   }
 
   const resIndex: EliumResource[] = file.resourceIndex;

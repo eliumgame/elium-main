@@ -12,7 +12,7 @@ import "../drive-cloud.css";
 import { DriveApi } from "../api";
 import { openSignLink, submitSignedElium } from "../ops";
 import { readEliumPackage, writeEliumPackage, EliumPasswordRequired } from "../../format/elium-package";
-import { addSignature, extractText } from "../../format/document";
+import { addSignature, extractText, markPartySigned } from "../../format/document";
 import { createProof } from "../../sign/proof";
 import { generateIdentity, fingerprintOf } from "../../sign/keys";
 import { randomId, toHex } from "../../format/canonical";
@@ -53,7 +53,21 @@ function isPdf(bytes: Uint8Array): boolean {
   return bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46; // %PDF
 }
 
-export default function SignLinkView({ token, onHome }: { token: string; onHome: () => void }) {
+export default function SignLinkView({
+  token,
+  partyId,
+  onHome,
+}: {
+  token: string;
+  /** `?party=` — correlates this link to its `ParapheurParty.id` in the
+   *  document's circuit, so signing can update that ONE party's status (see
+   *  `format/document.ts#markPartySigned`). Absent for links minted before
+   *  this bridge existed, or when the document has no circuit at all — the
+   *  signature still succeeds, it just can't reconcile back into a Parapheur
+   *  circuit that doesn't (yet) know this party. */
+  partyId?: string | null;
+  onHome: () => void;
+}) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -160,7 +174,22 @@ export default function SignLinkView({ token, onHome }: { token: string; onHome:
           level: "advanced",
           createdAt: new Date().toISOString(),
         };
-        const nf = await addSignature(doc.file, sig);
+        let nf = await addSignature(doc.file, sig);
+        // Bridge vers le circuit local (Parapheur) : ne touche QUE la partie
+        // désignée par `partyId` (issu du lien, jamais du contenu du document
+        // lui-même) — voir markPartySigned pour l'invariant "jamais une autre
+        // partie". Absent ou sans correspondance → no-op, comportement
+        // inchangé (ancien lien, ou document sans circuit).
+        if (partyId) {
+          const at = new Date().toISOString();
+          nf = markPartySigned(nf, partyId, {
+            status: "signed",
+            signatureId: sigId,
+            publicKeyHex: id.publicKeyHex,
+            signedAt: at,
+            updatedAt: at,
+          });
+        }
         const signedBytes = await writeEliumPackage(nf, { sealPrivateKeyHex: id.privateKeyHex! });
         const fpr = await fingerprintOf(id.publicKeyHex);
         await submitSignedElium(api, token, doc.nodeKey, signedBytes, fpr);

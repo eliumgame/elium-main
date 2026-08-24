@@ -20,6 +20,7 @@ import {
   type EliumProfile,
   type EliumSignature,
   type PageSettings,
+  type ParapheurParty,
   type ProseMirrorNode,
 } from "./types";
 
@@ -162,6 +163,54 @@ export async function addSignature(file: EliumFile, signature: EliumSignature): 
 
 export function removeSignature(file: EliumFile, id: string): EliumFile {
   return { ...file, signatures: file.signatures.filter((s) => s.id !== id) };
+}
+
+// --- Parapheur bridge (local circuit <-> cloud sign-by-link requests) -----
+
+/**
+ * Update exactly ONE party of the circuit by id; every other party is left
+ * byte-for-byte untouched, and this is a no-op when there is no circuit or no
+ * matching party. This is the single choke point an account-less remote
+ * signer's write-back goes through (see SignLinkView): their link resolves to
+ * exactly one party id, so this function is what makes it structurally
+ * impossible for that write-back to touch anyone else's row.
+ */
+export function markPartySigned(file: EliumFile, partyId: string, patch: Partial<ParapheurParty>): EliumFile {
+  const parties = file.parapheur?.parties;
+  if (!parties?.some((p) => p.id === partyId)) return file;
+  return {
+    ...file,
+    parapheur: { ...file.parapheur!, parties: parties.map((p) => (p.id === partyId ? { ...p, ...patch } : p)) },
+  };
+}
+
+/**
+ * Align the document's embedded circuit with the parties of a cloud sign
+ * request about to exist server-side, so the two never describe a different
+ * signer list. When the circuit already has the same number of parties, its
+ * existing entries (name/role/status/signatureId…) are kept and only their
+ * `id` is re-pointed to the request's party id (the correlation a remote
+ * signer's link needs) — an existing "signed" party is never reset. Otherwise
+ * (no circuit yet, or the party count changed) a fresh "pending" circuit is
+ * built from `labels`, in the SAME order as `requestPartyIds` — never a
+ * disconnected, ad-hoc list.
+ */
+export function alignCircuitWithRequest(
+  file: EliumFile,
+  requestPartyIds: string[],
+  labels: (string | undefined)[],
+): EliumFile {
+  const existing = file.parapheur?.parties;
+  const parties: ParapheurParty[] =
+    existing && existing.length === requestPartyIds.length
+      ? existing.map((p, i) => ({ ...p, id: requestPartyIds[i]! }))
+      : requestPartyIds.map((id, i) => ({
+          id,
+          name: labels[i]?.trim() || `Signataire ${i + 1}`,
+          role: "",
+          status: "pending",
+        }));
+  return { ...file, parapheur: { ...(file.parapheur ?? {}), parties, requestedAt: nowIso() } };
 }
 
 /** Best-effort plain-text extraction (for previews / search). */

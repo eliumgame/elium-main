@@ -1376,12 +1376,23 @@ export default function App() {
       return null;
     }
   })();
+  // `?party=` : correlates the link to its ParapheurParty.id in the document's
+  // circuit (see SignLinkView / format/document.ts#markPartySigned). Absent
+  // for links minted before this bridge, or for documents without a circuit.
+  const signPartyId = (() => {
+    try {
+      return new URLSearchParams(window.location.search).get("party");
+    } catch {
+      return null;
+    }
+  })();
   if (signToken) {
     return (
       <div className="app">
         <Suspense fallback={<div className="pdf-loading">Ouverture de la demande de signature…</div>}>
           <SignLinkView
             token={signToken}
+            partyId={signPartyId}
             onHome={() => {
               try {
                 window.history.replaceState(null, "", window.location.pathname);

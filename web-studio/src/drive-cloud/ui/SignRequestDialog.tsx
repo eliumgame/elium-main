@@ -7,9 +7,16 @@
  * la WS d'événements d'organisation (+ poll de secours espacé).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered, XCircle } from "lucide-react";
+import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered, XCircle, Loader } from "lucide-react";
 import { useDrive } from "../session";
-import { createSignRequestForNode, type DriveEntry, type OpsCtx, type SignPartyLink } from "../ops";
+import {
+  createSignRequestForNode,
+  loadEliumFile,
+  syncCircuitForSignRequest,
+  type DriveEntry,
+  type OpsCtx,
+  type SignPartyLink,
+} from "../ops";
 import type { SignRequestDto } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 
@@ -31,6 +38,34 @@ export default function SignRequestDialog({
   const [links, setLinks] = useState<SignPartyLink[] | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [requests, setRequests] = useState<SignRequestDto[] | null>(null);
+  // Le document a-t-il DÉJÀ un circuit de signature (Parapheur) ? Si oui, ses
+  // parties (source de vérité — voir alignCircuitWithRequest) préremplissent la
+  // liste ci-dessous en lecture seule : la demande DOIT en dériver, pas exister
+  // comme une liste ad-hoc déconnectée. `circuitLoading` évite d'envoyer la
+  // demande avant d'avoir eu la réponse (sans quoi on partirait sur la ligne
+  // vide par défaut alors qu'un circuit existant allait arriver).
+  const [circuitLoading, setCircuitLoading] = useState(true);
+  const [hasExistingCircuit, setHasExistingCircuit] = useState(false);
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCircuitLoading(true);
+    (async () => {
+      const loaded = await loadEliumFile(ctx, entry);
+      if (cancelled) return;
+      const existing = loaded?.file.parapheur?.parties;
+      if (existing?.length) {
+        setParties(existing.map((p) => ({ label: p.name })));
+        setHasExistingCircuit(true);
+      }
+      setCircuitLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id]);
 
   // Un lien de signature n'a pas besoin d'un rôle privilégié (l'accès est scellé
   // par le token) : on attache le rôle de lecture le moins permissif disponible.
@@ -121,10 +156,16 @@ export default function SignRequestDialog({
   const addParty = () => setParties((ps) => (ps.length < 50 ? [...ps, { label: "" }] : ps));
   const removeParty = (i: number) => setParties((ps) => (ps.length > 1 ? ps.filter((_, j) => j !== i) : ps));
 
-  const urlFor = (l: SignPartyLink) => `${location.origin}/?sign=${l.token}#k=${l.secret}.${l.publicHex}`;
+  // `party=` correlate ce lien à son `ParapheurParty.id` dans le circuit
+  // embarqué (voir alignCircuitWithRequest) : un simple UUID opaque déjà connu
+  // du serveur (c'est son propre id de ligne), qui ne lui apprend rien de plus
+  // sur le format .elium — la réconciliation reste entièrement côté client.
+  const urlFor = (l: SignPartyLink) =>
+    `${location.origin}/?sign=${l.token}&party=${l.partyId}#k=${l.secret}.${l.publicHex}`;
 
   const createLinks = async () => {
     setErr(null);
+    setSyncWarning(null);
     setBusy(true);
     try {
       const opts: { ordered?: boolean; expiresAt?: string } = { ordered };
@@ -133,6 +174,21 @@ export default function SignRequestDialog({
       const { parties: created } = await createSignRequestForNode(ctx, entry, roleId, clean, opts);
       setLinks(created);
       await loadStatus();
+      // Bridge vers le circuit local (Parapheur) : le document EST la source de
+      // vérité, donc on le relit à cet instant précis (pas le snapshot chargé à
+      // l'ouverture de la boîte de dialogue, potentiellement périmé) avant de le
+      // réécrire — best effort : la demande existe déjà côté serveur, un échec
+      // ici ne doit pas donner l'impression que la demande entière a échoué.
+      try {
+        const fresh = await loadEliumFile(ctx, entry);
+        if (fresh) await syncCircuitForSignRequest(ctx, entry, fresh, created);
+      } catch (e) {
+        setSyncWarning(
+          "Le circuit du document (Parapheur) n'a pas pu être synchronisé : " +
+            (e instanceof Error ? e.message : "erreur inconnue") +
+            ". Les liens de signature fonctionnent malgré tout ; le suivi ci-dessous reste fiable.",
+        );
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Création de la demande impossible.");
     } finally {
@@ -173,6 +229,17 @@ export default function SignRequestDialog({
             <h3 className="dc-share-list__title">
               <PenLine size={15} /> Signataires
             </h3>
+            {circuitLoading && (
+              <p className="muted" style={{ fontSize: 12 }}>
+                <Loader size={12} className="dc-spin" /> Vérification du circuit existant du document…
+              </p>
+            )}
+            {hasExistingCircuit && !circuitLoading && (
+              <p className="muted" style={{ fontSize: 12 }}>
+                Ce document a déjà un circuit de signature (Parapheur) : la demande en reprend les signataires, dans le
+                même ordre. Modifiez la liste depuis le panneau Parapheur du document.
+              </p>
+            )}
             {parties.map((p, i) => (
               <div key={i} className="dc-sign-partyrow">
                 <span className="dc-sign-partyrow__n">{i + 1}</span>
@@ -181,18 +248,26 @@ export default function SignRequestDialog({
                   value={p.label}
                   onChange={(e) => setLabel(i, e.target.value)}
                   placeholder={`Libellé du signataire ${i + 1} (optionnel)`}
+                  readOnly={hasExistingCircuit}
+                  disabled={circuitLoading}
                 />
-                {parties.length > 1 && (
-                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)}>
+                {parties.length > 1 && !hasExistingCircuit && (
+                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)} disabled={circuitLoading}>
                     <Trash2 size={15} />
                   </button>
                 )}
               </div>
             ))}
             <div className="dc-sign-controls">
-              <button className="eb eb--sm eb--outline" onClick={addParty} disabled={parties.length >= 50}>
-                <Plus size={14} /> Ajouter un signataire
-              </button>
+              {!hasExistingCircuit && (
+                <button
+                  className="eb eb--sm eb--outline"
+                  onClick={addParty}
+                  disabled={parties.length >= 50 || circuitLoading}
+                >
+                  <Plus size={14} /> Ajouter un signataire
+                </button>
+              )}
               <label className="dc-sign-check" title="Chaque signataire ne peut signer qu'après le précédent">
                 <input type="checkbox" checked={ordered} onChange={(e) => setOrdered(e.target.checked)} />
                 <ListOrdered size={14} /> Signer dans l'ordre
@@ -207,7 +282,7 @@ export default function SignRequestDialog({
               </label>
             </div>
             {err && <p className="dc-error">{err}</p>}
-            <button className="eb eb--primary" disabled={busy} onClick={() => void createLinks()}>
+            <button className="eb eb--primary" disabled={busy || circuitLoading} onClick={() => void createLinks()}>
               <PenLine size={14} />{" "}
               {busy ? "Création…" : `Créer ${parties.length > 1 ? parties.length + " liens" : "le lien"}`}
             </button>
@@ -234,6 +309,7 @@ export default function SignRequestDialog({
             <p className="muted dc-share-link__note">
               Transmettez chaque lien au signataire concerné. Le serveur ne voit jamais le secret.
             </p>
+            {syncWarning && <p className="dc-error">{syncWarning}</p>}
           </div>
         )}
 

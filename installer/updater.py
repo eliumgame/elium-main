@@ -24,6 +24,7 @@ Réseau : urllib (stdlib) uniquement, aucune dépendance ajoutée.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -65,6 +67,17 @@ _MANIFEST_NAME = "latest.json"
 _MAX_MANIFEST_BYTES = 256 * 1024        # 256 KiB
 _MAX_ARTIFACT_BYTES = 400 * 1024 * 1024  # 400 MiB
 _HTTP_TIMEOUT = 15  # secondes
+
+# Retry borné + backoff sur un échec réseau TRANSITOIRE d'UNE requête _http_get
+# donnée (timeout, connexion refusée/réinitialisée, DNS temporairement
+# indisponible...). _HTTP_MAX_ATTEMPTS compte la tentative initiale : 3 = 1
+# essai + jusqu'à 2 reprises. Ce retry ne re-résout JAMAIS "quelle release est
+# la dernière" entre deux tentatives : chaque tentative reste sur exactement la
+# même URL déjà figée par l'appelant (voir docstring de `_http_get`), donc il
+# ne peut pas rouvrir la course corrigée dans `_resolve_latest_asset_urls`
+# (commit 4cf9654).
+_HTTP_MAX_ATTEMPTS = 3
+_HTTP_RETRY_BACKOFF_BASE = 0.5  # secondes ; doublé à chaque reprise (0.5s, 1s, ...)
 
 _USER_AGENT = "Elium-Updater/1.0"
 
@@ -163,14 +176,63 @@ def effective_version() -> str:
 # Réseau + crypto
 # --------------------------------------------------------------------------- #
 
-def _http_get(url: str, max_bytes: int) -> bytes:
+def _urlopen_read(url: str, max_bytes: int) -> bytes:
+    """UNE tentative de GET (sans retry). Isolé pour être remplaçable en test."""
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     # nosec B310 : schéma https connu, URL construite à partir de constantes/manifeste vérifié.
     with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # noqa: S310
-        data = resp.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise ValueError(f"Réponse trop volumineuse (> {max_bytes} octets) : {url}")
-    return data
+        return resp.read(max_bytes + 1)
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """Vrai pour un incident réseau où retenter LA MÊME requête a une chance de
+    réussir (timeout, connexion refusée/réinitialisée, DNS temporairement
+    indisponible, coupure en cours de lecture).
+
+    FAUX pour une réponse HTTP d'erreur (`HTTPError`, ex. 404/500) : c'est une
+    réponse applicative reçue avec succès, pas un incident réseau — retenter ne
+    changerait rien tant que le serveur répond ainsi, et certains statuts
+    (401/403/404) ne doivent jamais être masqués par un retry silencieux.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        return False
+    return isinstance(exc, (urllib.error.URLError, http.client.HTTPException, OSError))
+
+
+def _http_get(url: str, max_bytes: int) -> bytes:
+    """GET borné en taille (stdlib urllib), avec retry borné + backoff exponentiel
+    sur un échec réseau TRANSITOIRE (voir `_is_transient_network_error`).
+
+    Ce qui n'est JAMAIS retenté ici :
+      - une réponse HTTP d'erreur (`HTTPError`) : réponse applicative reçue avec
+        succès, pas un incident réseau ;
+      - une réponse trop volumineuse (`ValueError` ci-dessous) : rejet définitif,
+        la taille ne change pas en réessayant ;
+      - un échec de vérification de signature (`_verify_signature`) : il se
+        produit APRÈS le retour de cette fonction, sur les octets déjà reçus —
+        jamais retenté, car les octets n'ont pas changé, et cette fonction ne
+        rappelle JAMAIS `_resolve_latest_asset_urls` entre deux tentatives :
+        chaque tentative reste sur la même URL déjà figée par l'appelant, donc
+        ce retry ne peut pas rouvrir la course "quelle release est la plus
+        récente" corrigée dans `_resolve_latest_asset_urls` (commit 4cf9654).
+    """
+    for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
+        try:
+            data = _urlopen_read(url, max_bytes)
+        except Exception as exc:
+            if attempt >= _HTTP_MAX_ATTEMPTS or not _is_transient_network_error(exc):
+                raise
+            delay = _HTTP_RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+            _log(
+                f"_http_get: échec réseau transitoire ({exc}) — "
+                f"tentative {attempt}/{_HTTP_MAX_ATTEMPTS}, nouvel essai dans {delay:.1f}s ({url})"
+            )
+            time.sleep(delay)
+            continue
+        if len(data) > max_bytes:
+            raise ValueError(f"Réponse trop volumineuse (> {max_bytes} octets) : {url}")
+        return data
+    raise AssertionError("_http_get: boucle de retry terminée sans retour")  # pragma: no cover
 
 
 def _verify_signature(message: bytes, signature_hex: str) -> bool:

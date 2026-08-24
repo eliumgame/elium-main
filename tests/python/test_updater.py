@@ -129,6 +129,115 @@ def test_signature_accept_and_reject(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Retry réseau borné dans _http_get (échecs TRANSITOIRES uniquement)
+#
+# `_http_get` sait maintenant retenter, avec backoff, un échec réseau
+# transitoire (timeout, connexion refusée/réinitialisée...) d'UNE requête
+# donnée — jamais une réponse HTTP d'erreur (HTTPError) ni une réponse trop
+# volumineuse, et jamais un échec de vérification de signature (qui se
+# produit après coup, sur les octets déjà reçus, et reste un rejet immédiat
+# et définitif). On monkeypatch `_urlopen_read` (la tentative unique, sans
+# retry) plutôt que `urllib.request.urlopen` pour compter précisément les
+# tentatives sans dépendre des détails d'implémentation d'urllib.
+# --------------------------------------------------------------------------- #
+
+def test_http_get_retries_transient_error_then_succeeds(env, monkeypatch):
+    monkeypatch.setattr(updater, "_HTTP_RETRY_BACKOFF_BASE", 0)
+    calls = {"n": 0}
+
+    def flaky(url, max_bytes):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise TimeoutError("connexion expirée")
+        return b"payload"
+
+    monkeypatch.setattr(updater, "_urlopen_read", flaky)
+
+    assert updater._http_get("https://example.invalid/x", 1024) == b"payload"
+    assert calls["n"] == 3   # 2 échecs transitoires absorbés + 1 succès
+
+
+def test_http_get_gives_up_after_max_attempts(env, monkeypatch):
+    monkeypatch.setattr(updater, "_HTTP_RETRY_BACKOFF_BASE", 0)
+    calls = {"n": 0}
+
+    def always_fails(url, max_bytes):
+        calls["n"] += 1
+        raise ConnectionResetError("connexion réinitialisée")
+
+    monkeypatch.setattr(updater, "_urlopen_read", always_fails)
+
+    with pytest.raises(ConnectionResetError):
+        updater._http_get("https://example.invalid/x", 1024)
+
+    # Plafonné à _HTTP_MAX_ATTEMPTS, jamais de retry illimité.
+    assert calls["n"] == updater._HTTP_MAX_ATTEMPTS
+
+
+def test_http_get_does_not_retry_http_error(env, monkeypatch):
+    """Une réponse HTTP d'erreur (ex. 404) est une réponse applicative reçue
+    avec succès, pas un incident réseau : échec immédiat, aucune reprise."""
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def not_found(url, max_bytes):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(updater, "_urlopen_read", not_found)
+
+    with pytest.raises(urllib.error.HTTPError):
+        updater._http_get("https://example.invalid/x", 1024)
+
+    assert calls["n"] == 1
+
+
+def test_http_get_does_not_retry_oversized_response(env, monkeypatch):
+    """Une réponse trop volumineuse est un rejet définitif (donnée invalide),
+    pas un incident réseau -> pas de reprise non plus."""
+    calls = {"n": 0}
+
+    def too_big(url, max_bytes):
+        calls["n"] += 1
+        return b"x" * (max_bytes + 10)
+
+    monkeypatch.setattr(updater, "_urlopen_read", too_big)
+
+    with pytest.raises(ValueError):
+        updater._http_get("https://example.invalid/x", 16)
+
+    assert calls["n"] == 1
+
+
+def test_invalid_signature_never_triggers_retry(env, monkeypatch):
+    """Piège explicite de la consigne : un échec de vérification de signature
+    doit rester un rejet immédiat et définitif, jamais retenté — à l'opposé
+    d'un échec réseau transitoire. Preuve par comptage : lors d'une résolution
+    complète (fetch_manifest) avec une signature corrompue, chaque URL n'est
+    interrogée qu'UNE seule fois (aucune boucle de retry déclenchée)."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    release = env / "release"
+    manifest_path = _publish(release, priv, "4.1.0")
+    (release / "latest.json.sig").write_text("00" * 64, encoding="utf-8")  # corrompue
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+
+    real_http_get = updater._http_get
+    calls: list[str] = []
+
+    def counting(url, max_bytes):
+        calls.append(url)
+        return real_http_get(url, max_bytes)
+
+    monkeypatch.setattr(updater, "_http_get", counting)
+
+    assert updater.fetch_manifest() is None
+    # latest.json + latest.json.sig : une requête chacun, jamais plus.
+    assert len(calls) == 2
+
+
+# --------------------------------------------------------------------------- #
 # Résolution atomique de la release "latest" (fetch_manifest, chemin par défaut)
 #
 # Avant correctif : fetch_manifest suivait `releases/latest/download/<fichier>`

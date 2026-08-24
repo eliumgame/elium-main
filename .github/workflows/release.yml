@@ -145,6 +145,7 @@ jobs:
 
       - name: Publier la GitHub Release
         if: steps.guard.outputs.has_key == 'true'
+        id: publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -159,9 +160,63 @@ jobs:
             # publiée est exactement le cas qui passe inaperçu.
             echo "::warning title=Aucune release publiée::v${V} existe déjà. Bumpez __version__ dans src/elium/__init__.py (ou lancez installer/stamp_version.py X.Y.Z) pour publier."
             echo "### ⚠️ Aucune release publiée — v${V} existe déjà" >> "$GITHUB_STEP_SUMMARY"
+            echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           gh release create "v${V}" "${ASSETS[@]}" \
             --target "${{ github.sha }}" \
             --title "Elium ${V}" \
             --generate-notes
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Vérifier la publication (health-check post-release)
+        # Ne tourne QUE si une release a été VRAIMENT publiée à l'étape
+        # précédente (pas sur le no-op "v${V} existe déjà").
+        if: steps.guard.outputs.has_key == 'true' && steps.publish.outputs.published == 'true'
+        shell: bash
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          # ------------------------------------------------------------- #
+          # Décision : PAS de rollback automatique (pas de `gh release
+          # delete`) sur un health-check en échec. Alerte visible + job en
+          # échec, décision humaine ensuite. Pourquoi :
+          #
+          #  1. Faux positifs plausibles et coûteux à masquer par un rollback
+          #     silencieux : verify_release.py retélécharge les assets à
+          #     peine publiés, une propagation CDN incomplète peut le faire
+          #     échouer sur une release en réalité saine (le même phénomène,
+          #     côté disponibilité, que la course de résolution de tag
+          #     corrigée en 4cf9654 — verify_release.py absorbe une partie du
+          #     risque avec ses propres reprises espacées, mais pas la
+          #     totalité). Supprimer automatiquement détruirait une bonne
+          #     release à cause d'un blip transitoire.
+          #  2. Risque en vol : un poste utilisateur peut avoir déjà commencé
+          #     à télécharger cette release au moment où un rollback
+          #     automatique la supprimerait — casser une mise à jour qui
+          #     aurait pu réussir est pire que la laisser en place.
+          #  3. Le design côté client absorbe déjà l'essentiel du risque d'une
+          #     release réellement cassée : signature Ed25519 + sha256
+          #     vérifiés avant toute écriture, et « le moindre échec =>
+          #     artefact jeté, l'app continue sur la version courante. Jamais
+          #     de crash. » (installer/updater.py, en-tête du module). Une
+          #     release cassée reste donc seulement non installable jusqu'à
+          #     correction — elle ne met personne en danger.
+          #  4. Une suppression automatique de release est une action
+          #     destructrice, difficile à annuler proprement (le tag redevient
+          #     réutilisable, source de confusion) et déclenchée sans
+          #     supervision humaine — le pire moment pour improviser.
+          #
+          # Donc : échec => `::warning::` explicite + step en échec (run rouge,
+          # notifications sur push) pour qu'un humain inspecte et choisisse
+          # (rollback manuel via le bouton client existant, suppression
+          # manuelle de la release, ou publication corrective) — jamais
+          # d'action automatique sur la release elle-même.
+          # ------------------------------------------------------------- #
+          if python installer/verify_release.py "$V"; then
+            echo "### ✅ Health-check post-publication OK pour v${V}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Health-check post-publication échoué::La release v${V} a été publiée mais son manifeste/ses assets n'ont pas pu être re-vérifiés après coup (signature/sha256/disponibilité). ROLLBACK NON AUTOMATIQUE : inspectez les logs de ce job et décidez (rollback manuel, suppression manuelle, ou republication)."
+            echo "### ❌ Health-check post-publication ÉCHOUÉ pour v${V} — rollback NON automatique, décision manuelle requise" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

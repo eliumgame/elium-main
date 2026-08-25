@@ -1,23 +1,48 @@
 /**
  * XLSX export — the inverse of xlsx-import.ts. Produces a valid SpreadsheetML
- * (OPC) package: a workbook, one worksheet per sheet, and a styles part.
+ * (OPC) package: a workbook, one worksheet per sheet, a styles part, and
+ * (when present) merged cells, conditional formatting, data validation,
+ * column widths, frozen panes and native charts.
  *
  * - numbers        → numeric cells (`<v>`)
  * - text           → inline strings (`t="inlineStr"`) so no shared-strings part
  *                    is needed
  * - formulas (`=`) → `<f>` without a cached value; `fullCalcOnLoad` makes Excel
  *                    and LibreOffice recompute on open (keeps us decoupled from
- *                    the formula engine)
- * - cell styles    → a deduplicated numFmt/font/fill/xf table (number format,
- *                    bold/italic, text colour, fill, horizontal alignment)
+ *                    the formula engine — chart series read the SAME recomputed
+ *                    cells, via `<c:f>` range refs rather than baked-in caches)
+ * - cell styles    → a deduplicated numFmt/font/fill/border/xf table (number
+ *                    format, bold/italic, text colour, fill, borders, alignment)
+ * - condFormats    → native `cellIs` / `containsText` / `containsBlanks` /
+ *                    `colorScale` rules, non-scale ones via a `<dxfs>` entry
+ * - validations    → native `<dataValidation>` (list/decimal/textLength/date)
+ * - charts         → a `<c:chart>` DrawingML part per chart, anchored below the
+ *                    grid, wired through a per-sheet drawing part + rels — the
+ *                    same pattern `slides/pptx.ts` uses for PPTX charts, adapted
+ *                    to reference live cell ranges instead of literal data
  */
 import { zipSync, strToU8 } from "fflate";
-import type { Workbook, SheetData, CellStyle, NumFmt } from "./model";
+import { quoteSheetName } from "./formula";
+import type {
+  Workbook,
+  SheetData,
+  CellStyle,
+  NumFmt,
+  CondRule,
+  DataValidation,
+  MergeRect,
+  ChartSpec,
+  BorderSide,
+  CellBorder,
+} from "./model";
 
 const NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types";
 const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"; // rel types base
+const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
+const C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+const XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
 
 const xe = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -33,6 +58,8 @@ export function colLetters(n: number): string {
   }
   return s;
 }
+const a1 = (c: number, r: number): string => `${colLetters(c)}${r + 1}`;
+const rangeRef = (c0: number, r0: number, c1: number, r1: number): string => `${a1(c0, r0)}:${a1(c1, r1)}`;
 
 function parseKey(key: string): { col: number; row: number } | null {
   const m = /^([A-Z]+)(\d+)$/.exec(key);
@@ -55,6 +82,15 @@ function hex6(c: string | undefined): string | null {
   return /^[0-9a-fA-F]{6}$/.test(h) ? h.toUpperCase() : null;
 }
 
+// Excel/Sheets serial-date epoch (matches sheet/format.ts's rendering epoch, so a
+// validation bound round-trips to the exact same date after import).
+const DATE_EPOCH = Date.UTC(1899, 11, 30);
+function dateStrToSerial(s: string | undefined): number | null {
+  if (!s) return null;
+  const t = Date.parse(s.trim());
+  return Number.isNaN(t) ? null : Math.round((t - DATE_EPOCH) / 86400000);
+}
+
 // Custom number-format codes (built-in id 0 = "General" needs no numFmt entry).
 const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
   number: "0.00",
@@ -65,7 +101,7 @@ const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
   datetime: "yyyy\\-mm\\-dd\\ hh:mm",
 };
 
-/** Accumulates the numFmt/font/fill/xf tables while cells are serialized. */
+/** Accumulates the numFmt/font/fill/border/xf/dxf tables while cells & rules are serialized. */
 function createStyleTable() {
   const numFmts = new Map<string, number>(); // code → id (≥164)
   let nextFmtId = 164;
@@ -116,6 +152,25 @@ function createStyleTable() {
     return id;
   };
 
+  // Border id 0 = no border on any side (matches the pre-existing default xf).
+  const borders: string[] = ["<border/>"];
+  const borderKey = new Map<string, number>();
+  const sideKey = (s?: BorderSide) => (s ? `${s.style}:${hex6(s.color) ?? "000000"}` : "");
+  const sideXml = (tag: string, s?: BorderSide) =>
+    s ? `<${tag} style="${s.style}"><color rgb="FF${hex6(s.color) ?? "000000"}"/></${tag}>` : `<${tag}/>`;
+  const borderId = (b?: CellBorder): number => {
+    if (!b || (!b.top && !b.right && !b.bottom && !b.left)) return 0;
+    const key = `${sideKey(b.left)}|${sideKey(b.right)}|${sideKey(b.top)}|${sideKey(b.bottom)}`;
+    const found = borderKey.get(key);
+    if (found !== undefined) return found;
+    borders.push(
+      `<border>${sideXml("left", b.left)}${sideXml("right", b.right)}${sideXml("top", b.top)}${sideXml("bottom", b.bottom)}<diagonal/></border>`,
+    );
+    const id = borders.length - 1;
+    borderKey.set(key, id);
+    return id;
+  };
+
   const xfs: string[] = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];
   const xfKey = new Map<string, number>();
   const xfIndexOf = (st?: CellStyle): number => {
@@ -123,21 +178,37 @@ function createStyleTable() {
     const nf = fmtId(st.fmt);
     const fo = fontId(st);
     const fi = fillId(st);
+    const bo = borderId(st.border);
     const al = st.align && st.align !== "left" ? st.align : undefined;
-    if (!nf && !fo && !fi && !al) return 0;
-    const key = `${nf}|${fo}|${fi}|${al ?? ""}`;
+    if (!nf && !fo && !fi && !bo && !al) return 0;
+    const key = `${nf}|${fo}|${fi}|${bo}|${al ?? ""}`;
     const found = xfKey.get(key);
     if (found !== undefined) return found;
     const attrs =
-      `numFmtId="${nf}" fontId="${fo}" fillId="${fi}" borderId="0" xfId="0"` +
+      `numFmtId="${nf}" fontId="${fo}" fillId="${fi}" borderId="${bo}" xfId="0"` +
       (nf ? ' applyNumberFormat="1"' : "") +
       (fo ? ' applyFont="1"' : "") +
       (fi ? ' applyFill="1"' : "") +
+      (bo ? ' applyBorder="1"' : "") +
       (al ? ' applyAlignment="1"' : "");
     xfs.push(al ? `<xf ${attrs}><alignment horizontal="${al}"/></xf>` : `<xf ${attrs}/>`);
     const id = xfs.length - 1;
     xfKey.set(key, id);
     return id;
+  };
+
+  // Differential formats (dxf) for conditional-formatting rules that paint a
+  // fill/colour/bold (colour-scale rules carry their colours inline instead).
+  const dxfs: string[] = [];
+  const dxfIndexOfCond = (rule: CondRule): number | undefined => {
+    if (rule.op === "colorScale" || (!rule.fill && !rule.color && !rule.bold)) return undefined;
+    const parts: string[] = [];
+    const col = hex6(rule.color);
+    if (rule.bold || col) parts.push(`<font>${rule.bold ? "<b/>" : ""}${col ? `<color rgb="FF${col}"/>` : ""}</font>`);
+    const fillCol = hex6(rule.fill);
+    if (fillCol) parts.push(`<fill><patternFill><bgColor rgb="FF${fillCol}"/></patternFill></fill>`);
+    dxfs.push(`<dxf>${parts.join("")}</dxf>`);
+    return dxfs.length - 1;
   };
 
   const toXml = (): string => {
@@ -149,16 +220,18 @@ function createStyleTable() {
       numFmtsBlock +
       `<fonts count="${fonts.length}">${fonts.join("")}</fonts>` +
       `<fills count="${fills.length}">${fills.join("")}</fills>` +
-      `<borders count="1"><border/></borders>` +
+      `<borders count="${borders.length}">${borders.join("")}</borders>` +
       `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
       `<cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs>` +
       `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
+      (dxfs.length ? `<dxfs count="${dxfs.length}">${dxfs.join("")}</dxfs>` : `<dxfs count="0"/>`) +
       `</styleSheet>`
     );
   };
 
-  return { xfIndexOf, toXml };
+  return { xfIndexOf, dxfIndexOfCond, toXml };
 }
+type StyleTable = ReturnType<typeof createStyleTable>;
 
 function cellXml(key: string, raw: string, s: number): string {
   const sAttr = s ? ` s="${s}"` : "";
@@ -171,7 +244,246 @@ function cellXml(key: string, raw: string, s: number): string {
   return `<c r="${key}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xe(raw)}</t></is></c>`;
 }
 
-function sheetXml(sheet: SheetData, styles: ReturnType<typeof createStyleTable>): string {
+/** mergeCells — one <mergeCell> per merged rectangle (§18.3.1.55). */
+function mergeCellsXml(merges: MergeRect[] | undefined): string {
+  if (!merges || !merges.length) return "";
+  const cells = merges.map((m) => `<mergeCell ref="${rangeRef(m.c0, m.r0, m.c1, m.r1)}"/>`).join("");
+  return `<mergeCells count="${merges.length}">${cells}</mergeCells>`;
+}
+
+/** Column widths: px → Excel's "characters" width unit (Calibri 11 heuristic, the widely-used 7px/char approximation). */
+const pxToCharWidth = (px: number): number => Math.max(0, Math.round(((px - 5) / 7) * 100) / 100);
+function colsXml(colWidths: Record<number, number> | undefined): string {
+  const entries = Object.entries(colWidths ?? {});
+  if (!entries.length) return "";
+  const cols = entries
+    .map(([k, px]) => ({ idx: Number(k), w: pxToCharWidth(px) }))
+    .filter((e) => Number.isFinite(e.idx) && e.idx >= 0)
+    .sort((a, b) => a.idx - b.idx)
+    .map((e) => `<col min="${e.idx + 1}" max="${e.idx + 1}" width="${e.w}" customWidth="1"/>`)
+    .join("");
+  return cols ? `<cols>${cols}</cols>` : "";
+}
+
+/** sheetViews/pane — frozen leading rows/cols (§18.3.1.87). Omitted when no freeze is set. */
+function sheetViewsXml(freeze: SheetData["freeze"]): string {
+  if (!freeze || (freeze.rows <= 0 && freeze.cols <= 0)) return "";
+  const { rows, cols } = freeze;
+  const topLeft = a1(cols, rows);
+  const activePane = cols > 0 && rows > 0 ? "bottomRight" : cols > 0 ? "topRight" : "bottomLeft";
+  return (
+    `<sheetViews><sheetView workbookViewId="0">` +
+    `<pane xSplit="${cols}" ySplit="${rows}" topLeftCell="${topLeft}" activePane="${activePane}" state="frozen"/>` +
+    `<selection pane="${activePane}" activeCell="${topLeft}" sqref="${topLeft}"/>` +
+    `</sheetView></sheetViews>`
+  );
+}
+
+const CF_OP_XML: Record<string, string> = {
+  gt: "greaterThan",
+  lt: "lessThan",
+  ge: "greaterThanOrEqual",
+  le: "lessThanOrEqual",
+  eq: "equal",
+  ne: "notEqual",
+};
+
+/** A numeric-or-text formula operand for a cellIs rule (quoted when not a bare number). */
+const cfOperand = (v: string | undefined): string => {
+  const n = Number(v ?? "");
+  return v !== undefined && v.trim() !== "" && !Number.isNaN(n) ? xe(v) : `"${xe(v ?? "")}"`;
+};
+
+/** Conditional formatting: one <conditionalFormatting sqref> block per rule (§18.3.1.18). */
+function condFormattingXml(rules: CondRule[] | undefined, styles: StyleTable): string {
+  if (!rules || !rules.length) return "";
+  return rules
+    .map((rule, i) => {
+      const sqref = rangeRef(rule.c0, rule.r0, rule.c1, rule.r1);
+      const priority = i + 1;
+      const anchor = a1(rule.c0, rule.r0);
+      if (rule.op === "colorScale") {
+        const sc = rule.scale;
+        if (!sc) return "";
+        const minC = hex6(sc.min) ?? "FFFFFF";
+        const maxC = hex6(sc.max) ?? "FFFFFF";
+        const stops = sc.mid
+          ? `<cfvo type="min"/><cfvo type="percentile" val="50"/><cfvo type="max"/>` +
+            `<color rgb="FF${minC}"/><color rgb="FF${hex6(sc.mid) ?? "FFFFFF"}"/><color rgb="FF${maxC}"/>`
+          : `<cfvo type="min"/><cfvo type="max"/><color rgb="FF${minC}"/><color rgb="FF${maxC}"/>`;
+        return `<conditionalFormatting sqref="${sqref}"><cfRule type="colorScale" priority="${priority}"><colorScale>${stops}</colorScale></cfRule></conditionalFormatting>`;
+      }
+      const dxfId = styles.dxfIndexOfCond(rule);
+      const dxfAttr = dxfId !== undefined ? ` dxfId="${dxfId}"` : "";
+      switch (rule.op) {
+        case "gt":
+        case "lt":
+        case "ge":
+        case "le":
+        case "eq":
+        case "ne":
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="cellIs" operator="${CF_OP_XML[rule.op]}" priority="${priority}"${dxfAttr}>` +
+            `<formula>${cfOperand(rule.v1)}</formula></cfRule></conditionalFormatting>`
+          );
+        case "between": {
+          const n1 = Number(rule.v1 ?? ""),
+            n2 = Number(rule.v2 ?? "");
+          const lo = Math.min(n1, n2),
+            hi = Math.max(n1, n2);
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="cellIs" operator="between" priority="${priority}"${dxfAttr}>` +
+            `<formula>${Number.isFinite(lo) ? lo : 0}</formula><formula>${Number.isFinite(hi) ? hi : 0}</formula></cfRule></conditionalFormatting>`
+          );
+        }
+        case "contains": {
+          const txt = rule.v1 ?? "";
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="containsText" operator="containsText" text="${xe(txt)}" priority="${priority}"${dxfAttr}>` +
+            `<formula>NOT(ISERROR(SEARCH("${xe(txt)}",${anchor})))</formula></cfRule></conditionalFormatting>`
+          );
+        }
+        case "empty":
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="containsBlanks" priority="${priority}"${dxfAttr}>` +
+            `<formula>LEN(TRIM(${anchor}))=0</formula></cfRule></conditionalFormatting>`
+          );
+        case "notEmpty":
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="notContainsBlanks" priority="${priority}"${dxfAttr}>` +
+            `<formula>LEN(TRIM(${anchor}))&gt;0</formula></cfRule></conditionalFormatting>`
+          );
+        default:
+          return "";
+      }
+    })
+    .join("");
+}
+
+const DV_OP_XML: Record<string, string> = {
+  between: "between",
+  notBetween: "notBetween",
+  gt: "greaterThan",
+  lt: "lessThan",
+  ge: "greaterThanOrEqual",
+  le: "lessThanOrEqual",
+  eq: "equal",
+  ne: "notEqual",
+};
+
+/** Data validation: native <dataValidation> (§18.3.1.32); soft in our model, so errors don't block entry. */
+function dataValidationXml(rules: DataValidation[] | undefined): string {
+  if (!rules || !rules.length) return "";
+  const body = rules
+    .map((v) => {
+      const sqref = rangeRef(v.c0, v.r0, v.c1, v.r1);
+      const allowBlank = v.allowBlank === false ? 0 : 1;
+      if (v.type === "list") {
+        const items = (v.list ?? []).map((s) => s.replace(/"/g, "'")).join(",");
+        return (
+          `<dataValidation type="list" allowBlank="${allowBlank}" showInputMessage="1" showErrorMessage="1" sqref="${sqref}">` +
+          `<formula1>"${xe(items)}"</formula1></dataValidation>`
+        );
+      }
+      const typeXml = v.type === "number" ? "decimal" : v.type === "textLength" ? "textLength" : "date";
+      const operand = (s: string | undefined): string => {
+        if (v.type === "date") {
+          const serial = dateStrToSerial(s);
+          return serial != null ? String(serial) : "0";
+        }
+        const n = Number(s ?? "");
+        return Number.isFinite(n) ? String(n) : "0";
+      };
+      const opXml = DV_OP_XML[v.op ?? "between"] ?? "between";
+      const needs2 = v.op === "between" || v.op === "notBetween";
+      const f1 = `<formula1>${operand(v.v1)}</formula1>`;
+      const f2 = needs2 ? `<formula2>${operand(v.v2)}</formula2>` : "";
+      return (
+        `<dataValidation type="${typeXml}" operator="${opXml}" allowBlank="${allowBlank}" showInputMessage="1" showErrorMessage="1" sqref="${sqref}">` +
+        `${f1}${f2}</dataValidation>`
+      );
+    })
+    .join("");
+  return `<dataValidations count="${rules.length}">${body}</dataValidations>`;
+}
+
+/**
+ * A self-contained DrawingML chart part whose series reference the sheet's own
+ * cells (`<c:f>`), mirroring how the grid gets its data — Excel recalculates the
+ * range on open (fullCalcOnLoad) and the chart follows. No cache is written:
+ * this exporter never runs the formula engine, same rationale as `<f>` cells.
+ * Mirrors slides/pptx.ts's `chartXml`, adapted from literal to range data.
+ */
+const absA1 = (c: number, r: number): string => `$${colLetters(c)}$${r + 1}`;
+const absRangeRef = (c: number, r0: number, r1: number): string => `${absA1(c, r0)}:${absA1(c, r1)}`;
+
+function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
+  const oneCol = chart.c0 === chart.c1;
+  const valCol = oneCol ? chart.c0 : chart.c0 + 1;
+  const valRef = `${sheetNameQuoted}!${absRangeRef(valCol, chart.r0, chart.r1)}`;
+  const catRef = oneCol ? null : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
+  const AX_CAT = 111111111,
+    AX_VAL = 222222222;
+  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
+  const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
+  const serHead = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
+  const axes =
+    `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
+    `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
+
+  let plot: string;
+  if (chart.type === "pie") {
+    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${serHead}${catXml}${valXml}</c:ser></c:pieChart>`;
+  } else if (chart.type === "line") {
+    plot =
+      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` +
+      `<c:ser>${serHead}<c:marker><c:symbol val="circle"/></c:marker>${catXml}${valXml}<c:smooth val="0"/></c:ser>` +
+      `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
+  } else {
+    plot =
+      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` +
+      `<c:ser>${serHead}${catXml}${valXml}</c:ser>` +
+      `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
+  }
+
+  const title = chart.title
+    ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${xe(chart.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
+    : `<c:autoTitleDeleted val="1"/>`;
+
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<c:chartSpace xmlns:c="${C_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">` +
+    `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>` +
+    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`
+  );
+}
+
+/** xl/drawings/drawingN.xml — one graphicFrame per chart, stacked below `baseRow`. */
+function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
+  const ANCHOR_ROWS = 16,
+    ANCHOR_COLS = 8;
+  const anchors = chartRIds
+    .map((rId, i) => {
+      const top = baseRow + i * ANCHOR_ROWS;
+      const bottom = top + ANCHOR_ROWS - 1;
+      return (
+        `<xdr:twoCellAnchor editAs="oneCell">` +
+        `<xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${top}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
+        `<xdr:to><xdr:col>${ANCHOR_COLS}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${bottom}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+        `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${i + 2}" name="Graphique ${i + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
+        `<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>` +
+        `<a:graphic><a:graphicData uri="${C_NS}"><c:chart xmlns:c="${C_NS}" xmlns:r="${R_NS}" r:id="${rId}"/></a:graphicData></a:graphic>` +
+        `</xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`
+      );
+    })
+    .join("");
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<xdr:wsDr xmlns:xdr="${XDR_NS}" xmlns:a="${A_NS}">${anchors}</xdr:wsDr>`
+  );
+}
+
+function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
@@ -201,7 +513,13 @@ function sheetXml(sheet: SheetData, styles: ReturnType<typeof createStyleTable>)
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<worksheet xmlns="${NS}" xmlns:r="${R_NS}">` +
     `<dimension ref="${dim}"/>` +
+    sheetViewsXml(sheet.freeze) +
+    colsXml(sheet.colWidths) +
     `<sheetData>${rows}</sheetData>` +
+    mergeCellsXml(sheet.merges) +
+    condFormattingXml(sheet.condFormats, styles) +
+    dataValidationXml(sheet.validations) +
+    (hasDrawing ? `<drawing r:id="rId1"/>` : "") +
     `</worksheet>`
   );
 }
@@ -223,14 +541,43 @@ function sanitizeNames(sheets: SheetData[]): string[] {
   });
 }
 
+const RELS = (rels: { id: string; type: string; target: string }[]) =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL}s">` +
+  rels.map((r) => `<Relationship Id="${r.id}" Type="${r.type}" Target="${r.target}"/>`).join("") +
+  `</Relationships>`;
+
+const T = {
+  drawing: `${REL}/drawing`,
+  chart: `${REL}/chart`,
+};
+
 export function workbookToXlsx(wb: Workbook): Uint8Array {
   const styles = createStyleTable();
   const names = sanitizeNames(wb.sheets);
   const files: Record<string, Uint8Array> = {};
+  let chartCounter = 0;
 
-  // Worksheets (serialize first so the style table is fully populated).
+  // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
+  // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
   wb.sheets.forEach((sheet, i) => {
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles));
+    const charts = sheet.charts ?? [];
+    const sheetNameQ = quoteSheetName(names[i]!);
+    const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
+    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0));
+
+    if (charts.length) {
+      const chartNames = charts.map(() => `chart${++chartCounter}.xml`);
+      files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(
+        RELS([{ id: "rId1", type: T.drawing, target: `../drawings/drawing${i + 1}.xml` }]),
+      );
+      files[`xl/drawings/drawing${i + 1}.xml`] = strToU8(sheetDrawingXml(chartRIds, sheet.rows + 2));
+      files[`xl/drawings/_rels/drawing${i + 1}.xml.rels`] = strToU8(
+        RELS(charts.map((_, ci) => ({ id: chartRIds[ci]!, type: T.chart, target: `../charts/${chartNames[ci]!}` }))),
+      );
+      charts.forEach((chart, ci) => {
+        files[`xl/charts/${chartNames[ci]!}`] = strToU8(chartXml(chart, sheetNameQ));
+      });
+    }
   });
   files["xl/styles.xml"] = strToU8(styles.toXml());
 
@@ -260,6 +607,19 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
       `<Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/>` +
       `</Relationships>`,
   );
+  const drawingOverrides = wb.sheets
+    .map((sheet, i) => (sheet.charts?.length ? i : -1))
+    .filter((i) => i >= 0)
+    .map(
+      (i) =>
+        `<Override PartName="/xl/drawings/drawing${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`,
+    )
+    .join("");
+  const chartOverrides = Array.from(
+    { length: chartCounter },
+    (_, i) =>
+      `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
+  ).join("");
   const overrides =
     `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
     wb.sheets
@@ -268,7 +628,9 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
           `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
       )
       .join("") +
-    `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`;
+    `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
+    drawingOverrides +
+    chartOverrides;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +
       `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +

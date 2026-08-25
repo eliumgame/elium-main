@@ -1,6 +1,19 @@
 /** Spreadsheet workbook model (in-memory; persisted locally via sheet-store). */
 export type NumFmt = "general" | "number" | "int" | "currency" | "percent" | "date" | "datetime";
 
+/** One border edge: line style + colour. Mirrors OOXML's `<left>/<right>/<top>/<bottom>` border sides. */
+export type BorderStyle = "thin" | "medium" | "thick" | "dashed" | "dotted" | "double";
+export interface BorderSide {
+  style: BorderStyle;
+  color?: string; // hex; defaults to black on render/export when absent
+}
+export interface CellBorder {
+  top?: BorderSide;
+  right?: BorderSide;
+  bottom?: BorderSide;
+  left?: BorderSide;
+}
+
 export interface CellStyle {
   bold?: boolean;
   italic?: boolean;
@@ -10,6 +23,7 @@ export interface CellStyle {
   fmt?: NumFmt;
   fontFamily?: string; // font name (shared registry)
   fontSize?: number; // px
+  border?: CellBorder;
 }
 
 export type ChartType = "bar" | "line" | "pie";

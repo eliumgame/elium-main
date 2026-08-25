@@ -5,12 +5,21 @@
  *   - Indent / PageBreak : block layout helpers
  *   - TableOfContents     : auto-updating, clickable heading index
  *   - Figure              : image with editable caption + alignment/wrapping
- *   - Comment             : inline annotation mark (id/author/text/resolved)
+ *   - Comment             : inline annotation mark (id/author/text/resolved/replies)
  */
 import { Extension, Mark, Node, mergeAttributes } from "@tiptap/core";
-import type { Node as PMNode } from "@tiptap/pm/model";
+import type { Node as PMNode, MarkType } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 
 const MAX_INDENT = 8;
+
+/** One reply in a comment's thread — mirrors the PDF module's `Reply` (types.ts). */
+export interface CommentReply {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}
 
 export interface CommentAttrs {
   id: string;
@@ -18,6 +27,8 @@ export interface CommentAttrs {
   text: string;
   resolved: boolean;
   createdAt: string;
+  /** The thread's replies, oldest first. */
+  replies: CommentReply[];
 }
 
 declare module "@tiptap/core" {
@@ -41,6 +52,8 @@ declare module "@tiptap/core" {
       setComment: (attrs: CommentAttrs) => ReturnType;
       resolveComment: (id: string, resolved: boolean) => ReturnType;
       removeComment: (id: string) => ReturnType;
+      addCommentReply: (id: string, reply: CommentReply) => ReturnType;
+      removeCommentReply: (id: string, replyId: string) => ReturnType;
     };
     footnote: {
       insertFootnote: (text: string) => ReturnType;
@@ -403,9 +416,45 @@ export const Figure = Node.create({
 });
 
 /**
- * Comment: an inline mark anchoring a reviewer annotation on a text range.
- * The annotation body (author/text/resolved/date) rides in the mark attributes,
- * so comments persist inside the document JSON with no package-format change.
+ * Replace every comment mark matching `id` with `next(oldAttrs)` (or drop it
+ * entirely when `next` is null) — used by resolve/remove/reply below.
+ *
+ * This mark sets `excludes: ""` so several comment threads can overlap the
+ * same text (see renderHTML above). That makes BOTH naive approaches wrong:
+ *   - `tr.addMark(from, to, markType.create(newAttrs))` alone leaves the OLD
+ *     instance sitting right next to the new one — same type, different attrs,
+ *     neither excludes the other, so the node ends up carrying both.
+ *   - `tr.removeMark(from, to, markType)` (passing the TYPE) strips every
+ *     comment thread in range, not just `id` — collateral damage the moment
+ *     two threads overlap.
+ * Removing the exact old Mark INSTANCE first, then adding the new one, avoids
+ * both.
+ */
+function updateCommentMarks(
+  doc: PMNode,
+  tr: Transaction,
+  markType: MarkType,
+  id: string,
+  next: ((attrs: CommentAttrs) => CommentAttrs) | null,
+): boolean {
+  let changed = false;
+  doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    for (const m of node.marks) {
+      if (m.type !== markType || m.attrs.id !== id) continue;
+      tr.removeMark(pos, pos + node.nodeSize, m);
+      if (next) tr.addMark(pos, pos + node.nodeSize, markType.create(next(m.attrs as CommentAttrs)));
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+/**
+ * Comment: an inline mark anchoring a reviewer annotation — with its reply
+ * thread — on a text range. The annotation body (author/text/resolved/date/
+ * replies) rides in the mark attributes, so comments persist inside the
+ * document JSON with no package-format change.
  */
 export const Comment = Mark.create({
   name: "comment",
@@ -419,6 +468,7 @@ export const Comment = Mark.create({
       text: { default: "" },
       resolved: { default: false },
       createdAt: { default: "" },
+      replies: { default: [] },
     };
   },
 
@@ -429,14 +479,22 @@ export const Comment = Mark.create({
   renderHTML({ HTMLAttributes }) {
     const a = HTMLAttributes as Record<string, unknown>;
     const resolved = a.resolved === true || a.resolved === "true";
+    const replyCount = Array.isArray(a.replies) ? a.replies.length : 0;
+    const title = [
+      a.text == null ? "" : String(a.text),
+      replyCount ? `(${replyCount} réponse${replyCount > 1 ? "s" : ""})` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     return [
       "span",
       mergeAttributes({
         "data-comment-id": a.id == null ? "" : String(a.id),
         "data-comment-author": a.author == null ? "" : String(a.author),
         "data-comment-resolved": resolved ? "true" : "false",
+        "data-comment-reply-count": String(replyCount),
         class: `elium-comment${resolved ? " elium-comment--resolved" : ""}`,
-        title: a.text == null ? "" : String(a.text),
+        title,
       }),
       0,
     ];
@@ -455,16 +513,7 @@ export const Comment = Mark.create({
         ({ state, tr, dispatch }) => {
           const markType = state.schema.marks.comment;
           if (!markType) return false;
-          let changed = false;
-          state.doc.descendants((node, pos) => {
-            if (!node.isText) return;
-            for (const m of node.marks) {
-              if (m.type === markType && m.attrs.id === id) {
-                tr.addMark(pos, pos + node.nodeSize, markType.create({ ...m.attrs, resolved }));
-                changed = true;
-              }
-            }
-          });
+          const changed = updateCommentMarks(state.doc, tr, markType, id, (attrs) => ({ ...attrs, resolved }));
           if (changed && dispatch) dispatch(tr);
           return changed;
         },
@@ -475,16 +524,36 @@ export const Comment = Mark.create({
         ({ state, tr, dispatch }) => {
           const markType = state.schema.marks.comment;
           if (!markType) return false;
-          let changed = false;
-          state.doc.descendants((node, pos) => {
-            if (!node.isText) return;
-            for (const m of node.marks) {
-              if (m.type === markType && m.attrs.id === id) {
-                tr.removeMark(pos, pos + node.nodeSize, markType);
-                changed = true;
-              }
-            }
-          });
+          const changed = updateCommentMarks(state.doc, tr, markType, id, null);
+          if (changed && dispatch) dispatch(tr);
+          return changed;
+        },
+
+      // Append a reply to every range carrying this comment id (there is
+      // normally only one, but a comment split across formatting runs carries
+      // the mark on each — all copies must agree so the thread stays in sync).
+      addCommentReply:
+        (id, reply) =>
+        ({ state, tr, dispatch }) => {
+          const markType = state.schema.marks.comment;
+          if (!markType) return false;
+          const changed = updateCommentMarks(state.doc, tr, markType, id, (attrs) => ({
+            ...attrs,
+            replies: [...(Array.isArray(attrs.replies) ? attrs.replies : []), reply],
+          }));
+          if (changed && dispatch) dispatch(tr);
+          return changed;
+        },
+
+      removeCommentReply:
+        (id, replyId) =>
+        ({ state, tr, dispatch }) => {
+          const markType = state.schema.marks.comment;
+          if (!markType) return false;
+          const changed = updateCommentMarks(state.doc, tr, markType, id, (attrs) => ({
+            ...attrs,
+            replies: (Array.isArray(attrs.replies) ? attrs.replies : []).filter((r) => r.id !== replyId),
+          }));
           if (changed && dispatch) dispatch(tr);
           return changed;
         },

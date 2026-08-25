@@ -5,7 +5,9 @@
  * ride on the existing track-changes marks (`insertion` / `deletion` from
  * `TrackChanges.ts`), so the result opens in the normal review UI: the user walks
  * the changes and accepts or rejects them with the buttons that are already
- * there — no separate comparison viewer to learn.
+ * there — no separate comparison viewer to learn. Each mark also gets its own
+ * id (one per contiguous del/ins run, or per wholly-added/removed block), so a
+ * single change from a comparison can be accepted or rejected on its own too.
  *
  * Strategy, mirroring what Word's compare does:
  *   1. block-level diff (LCS over block signatures, which include the block's
@@ -24,6 +26,7 @@
  */
 
 import type { ProseMirrorNode } from "../format/types";
+import { newChangeId } from "./TrackChanges";
 
 export interface CompareSummary {
   /** Characters of text present only in the revision. */
@@ -239,9 +242,16 @@ function detokenize(tokens: { token: Token; change: InlineMark | null }[]): Pros
 // =========================================================================
 
 interface Ctx {
-  ins: InlineMark;
-  del: InlineMark;
+  author: string;
+  ts: string;
   summary: CompareSummary;
+}
+
+/** A fresh change mark of `kind`, carrying its own id (see TrackChanges.ts —
+ *  giving every logical edit its own id is what lets the reviewer accept or
+ *  reject ONE of them without touching the rest of the comparison). */
+function mark(kind: "insertion" | "deletion", ctx: Ctx): InlineMark {
+  return { type: kind, attrs: { author: ctx.author, ts: ctx.ts, id: newChangeId() } };
 }
 
 const isEmptyText = (t: string) => t.trim() === "";
@@ -255,18 +265,29 @@ function diffInline(a: ProseMirrorNode, b: ProseMirrorNode, ctx: Ctx): ProseMirr
     tb.map((t) => t.key),
   );
   const merged: { token: Token; change: InlineMark | null }[] = [];
+  // Consecutive del/ins tokens share ONE id (one edit typed/deleted "in one
+  // sitting"); an intervening equal token, or switching from del to ins (a
+  // replacement — two independent choices to accept/reject), starts a new one.
+  let delMark: InlineMark | null = null;
+  let insMark: InlineMark | null = null;
   for (const op of ops) {
     if (op.kind === "equal") {
+      delMark = null;
+      insMark = null;
       // Keep the revision's token, so formatting changes adopt the revision.
       merged.push({ token: tb[op.b]!, change: null });
     } else if (op.kind === "del") {
+      insMark = null;
+      if (!delMark) delMark = mark("deletion", ctx);
       const token = ta[op.a]!;
-      merged.push({ token, change: ctx.del });
+      merged.push({ token, change: delMark });
       if (token.text && !isEmptyText(token.text)) ctx.summary.deletions += token.text.length;
       if (token.node) ctx.summary.deletions += 1;
     } else {
+      delMark = null;
+      if (!insMark) insMark = mark("insertion", ctx);
       const token = tb[op.b]!;
-      merged.push({ token, change: ctx.ins });
+      merged.push({ token, change: insMark });
       if (token.text && !isEmptyText(token.text)) ctx.summary.insertions += token.text.length;
       if (token.node) ctx.summary.insertions += 1;
     }
@@ -274,7 +295,8 @@ function diffInline(a: ProseMirrorNode, b: ProseMirrorNode, ctx: Ctx): ProseMirr
   return detokenize(merged);
 }
 
-/** Mark every text token of a block as wholly inserted or wholly deleted. */
+/** Mark every text token of a block as wholly inserted or wholly deleted (one
+ *  shared id across the whole subtree: it is one change, not one per word). */
 function markWhole(node: ProseMirrorNode, change: InlineMark, ctx: Ctx): ProseMirrorNode | null {
   if (STRUCTURAL.has(node.type)) {
     ctx.summary.structural += 1;
@@ -336,21 +358,21 @@ function diffBlocks(aBlocks: ProseMirrorNode[], bBlocks: ProseMirrorNode[], ctx:
         ctx.summary.blocksChanged += 1;
         out.push({ ...b, content: diffInline(a, b, ctx) });
       } else {
-        const deleted = markWhole(a, ctx.del, ctx);
+        const deleted = markWhole(a, mark("deletion", ctx), ctx);
         if (deleted) out.push(deleted);
-        const inserted = markWhole(b, ctx.ins, ctx);
+        const inserted = markWhole(b, mark("insertion", ctx), ctx);
         if (inserted) out.push(inserted);
         ctx.summary.blocksRemoved += 1;
         ctx.summary.blocksAdded += 1;
       }
     }
     for (let k = paired; k < dels.length; k++) {
-      const deleted = markWhole(aBlocks[dels[k]!]!, ctx.del, ctx);
+      const deleted = markWhole(aBlocks[dels[k]!]!, mark("deletion", ctx), ctx);
       if (deleted) out.push(deleted);
       ctx.summary.blocksRemoved += 1;
     }
     for (let k = paired; k < inss.length; k++) {
-      const inserted = markWhole(bBlocks[inss[k]!]!, ctx.ins, ctx);
+      const inserted = markWhole(bBlocks[inss[k]!]!, mark("insertion", ctx), ctx);
       if (inserted) out.push(inserted);
       ctx.summary.blocksAdded += 1;
     }
@@ -370,11 +392,9 @@ export function compareDocuments(
   revised: ProseMirrorNode,
   opts: CompareOptions = {},
 ): CompareResult {
-  const author = opts.author ?? "Comparaison";
-  const ts = opts.ts ?? "";
   const ctx: Ctx = {
-    ins: { type: "insertion", attrs: { author, ts } },
-    del: { type: "deletion", attrs: { author, ts } },
+    author: opts.author ?? "Comparaison",
+    ts: opts.ts ?? "",
     summary: { insertions: 0, deletions: 0, blocksAdded: 0, blocksRemoved: 0, blocksChanged: 0, structural: 0 },
   };
 

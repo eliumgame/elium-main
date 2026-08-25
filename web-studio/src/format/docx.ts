@@ -8,8 +8,12 @@
  * (including real multilevel schemes), blockquotes, code blocks, tables,
  * images/figures (embedded media), page breaks, section breaks, newspaper
  * columns, bookmarks, cross-references, index marks and mail-merge fields.
- * Comment annotations are dropped on export (the annotated text stays), matching
- * the HTML/Markdown exporters.
+ * Comments round-trip through real `word/comments.xml` (commentRangeStart/End
+ * + commentReference — see docx-comments.ts): the anchor, author, date and text
+ * survive. Only the ROOT comment does — replies and the resolved flag are
+ * Elium-native extensions with no plain OOXML representation (see
+ * docx-comments.ts for why that stays that way) and are dropped on export,
+ * matching the HTML/Markdown exporters.
  *
  * Word-native constructs are emitted as real FIELDS rather than frozen text —
  * `REF`/`PAGEREF` for renvois, `XE` for index marks, `MERGEFIELD` for merge
@@ -43,6 +47,13 @@ import {
   notesPartXml,
   notesRelXml,
 } from "./docx-notes";
+import {
+  COMMENTS_PART,
+  commentsContentTypeXml,
+  commentsPartXml,
+  commentsRelXml,
+  type CommentEntry,
+} from "./docx-comments";
 
 // =========================================================================
 // XML helpers
@@ -254,6 +265,10 @@ interface WriteCtx {
   changeId: number; // unique w:id per tracked-change (w:ins/w:del) element
   footnotes?: NoteEntry[]; // collectées pour la numérotation et footnotes.xml
   endnotes?: NoteEntry[]; // idem pour endnotes.xml
+  /** Root comments collected while writing the body, for comments.xml. */
+  comments: CommentEntry[];
+  /** Elium comment mark id -> allocated `w:id`, so each thread is only added once. */
+  commentDocxId: Map<string, number>;
   /** Une zone de texte a été écrite : le `v:shapetype` doit être déclaré. */
   needsTextBoxType?: boolean;
   /** Identifiants uniques des formes de zone de texte. */
@@ -458,76 +473,120 @@ function refInstr(name: string, display: RefDisplay): string {
   }
 }
 
+/** The comment marks (there is normally at most one, but `excludes: ""` lets
+ *  Elium's Comment mark overlap another) carried by a text node, if any. */
+function commentMarksOf(c: ProseMirrorNode): { id: string; attrs: Record<string, unknown> }[] {
+  if (c.type !== "text") return [];
+  return (c.marks ?? [])
+    .filter((m) => m.type === "comment")
+    .map((m) => ({ id: String(m.attrs?.id ?? ""), attrs: m.attrs ?? {} }))
+    .filter((m) => m.id);
+}
+
+/** Allocates (once) the `w:id` for an Elium comment thread and records its
+ *  root text/author/date for `comments.xml` — root only, see docx-comments.ts. */
+function commentDocxIdFor(ctx: WriteCtx, id: string, attrs: Record<string, unknown>): number {
+  const existing = ctx.commentDocxId.get(id);
+  if (existing != null) return existing;
+  const docxId = ctx.comments.length;
+  ctx.commentDocxId.set(id, docxId);
+  ctx.comments.push({
+    docxId,
+    author: String(attrs.author ?? ""),
+    date: String(attrs.createdAt ?? ""),
+    text: String(attrs.text ?? ""),
+  });
+  return docxId;
+}
+
 function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
-  return (node.content ?? [])
-    .map((c) => {
-      if (c.type === "hardBreak") return "<w:r><w:br/></w:r>";
-      // Une vraie tabulation Word : c'est `w:tabs` du paragraphe qui dit où elle
-      // s'arrête, donc rien à calculer ici.
-      if (c.type === "tab") return "<w:r><w:tab/></w:r>";
-      // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
-      // renumérote, les place en bas de page ou en fin de document, et les
-      // expose dans son propre gestionnaire de notes.
-      if (c.type === "footnote" || c.type === "endnote") {
-        const kind: NoteKind = c.type;
-        const pool = (kind === "endnote" ? ctx.endnotes : ctx.footnotes) ?? [];
-        const entry = pool.find((f) => f.id === String(c.attrs?.id));
-        if (!entry) return "";
-        return noteReferenceXml(kind, entry.number);
+  const content = node.content ?? [];
+  const commentIds = content.map(commentMarksOf);
+  const out: string[] = [];
+  content.forEach((c, i) => {
+    const here = commentIds[i]!;
+    const before = new Set((commentIds[i - 1] ?? []).map((m) => m.id));
+    const after = new Set((commentIds[i + 1] ?? []).map((m) => m.id));
+    for (const m of here) {
+      if (!before.has(m.id)) out.push(`<w:commentRangeStart w:id="${commentDocxIdFor(ctx, m.id, m.attrs)}"/>`);
+    }
+    out.push(inlineItemXml(c, ctx));
+    for (const m of here) {
+      if (!after.has(m.id)) {
+        const docxId = commentDocxIdFor(ctx, m.id, m.attrs);
+        out.push(`<w:commentRangeEnd w:id="${docxId}"/><w:r><w:commentReference w:id="${docxId}"/></w:r>`);
       }
-      // A signet becomes a real Word bookmark (named after its label, so it
-      // shows up usefully in Word's own bookmark list).
-      if (c.type === "bookmark") {
-        const id = String(c.attrs?.id ?? "");
-        if (!id) return "";
-        return bookmarkXml(ctx, bookmarkNameFor(ctx, id, String(c.attrs?.label ?? "")));
-      }
-      // A renvoi becomes a REF/PAGEREF field with its current text cached, so it
-      // reads correctly before the first update and refreshes natively after.
-      if (c.type === "crossReference") {
-        const anchor = String(c.attrs?.targetId ?? "");
-        if (!anchor) return "";
-        const display = (String(c.attrs?.display ?? "text") || "text") as RefDisplay;
-        const target = ctx.targets.find((t) => t.anchorId === anchor);
-        const cached = String(c.attrs?.cached ?? "") || (target ? referenceLabel(target, display, null) : "");
-        const name = bookmarkNameFor(ctx, anchor, target?.kind === "bookmark" ? target.text : "");
-        return fieldXml(refInstr(name, display), cached);
-      }
-      // An index mark becomes an XE field: invisible in the text, and Word can
-      // build its own index from it.
-      if (c.type === "indexEntry") {
-        const term = String(c.attrs?.term ?? "").trim();
-        if (!term) return "";
-        const sub = String(c.attrs?.sub ?? "").trim();
-        // Word's XE syntax separates sub-entries with a colon.
-        const entry = sub ? `${term}:${sub}` : term;
-        return `<w:fldSimple w:instr="${xmlEsc(` XE "${entry.replace(/"/g, "'")}" `)}"/>`;
-      }
-      // A merge field becomes a real MERGEFIELD, so Word's own mail merge can
-      // drive the document.
-      if (c.type === "mergeField") {
-        const field = String(c.attrs?.field ?? "").trim();
-        if (!field) return "";
-        return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
-      }
-      if (c.type === "text") {
-        const marks = c.marks ?? [];
-        const link = marks.find((m) => m.type === "link");
-        if (link) {
-          const href = String(link.attrs?.href ?? "#");
-          const rId = addRel(
-            ctx,
-            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-            href,
-            "External",
-          );
-          return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks, ctx)}</w:hyperlink>`;
-        }
-        return runXml(c.text ?? "", marks, ctx);
-      }
-      return "";
-    })
-    .join("");
+    }
+  });
+  return out.join("");
+}
+
+function inlineItemXml(c: ProseMirrorNode, ctx: WriteCtx): string {
+  if (c.type === "hardBreak") return "<w:r><w:br/></w:r>";
+  // Une vraie tabulation Word : c'est `w:tabs` du paragraphe qui dit où elle
+  // s'arrête, donc rien à calculer ici.
+  if (c.type === "tab") return "<w:r><w:tab/></w:r>";
+  // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
+  // renumérote, les place en bas de page ou en fin de document, et les
+  // expose dans son propre gestionnaire de notes.
+  if (c.type === "footnote" || c.type === "endnote") {
+    const kind: NoteKind = c.type;
+    const pool = (kind === "endnote" ? ctx.endnotes : ctx.footnotes) ?? [];
+    const entry = pool.find((f) => f.id === String(c.attrs?.id));
+    if (!entry) return "";
+    return noteReferenceXml(kind, entry.number);
+  }
+  // A signet becomes a real Word bookmark (named after its label, so it
+  // shows up usefully in Word's own bookmark list).
+  if (c.type === "bookmark") {
+    const id = String(c.attrs?.id ?? "");
+    if (!id) return "";
+    return bookmarkXml(ctx, bookmarkNameFor(ctx, id, String(c.attrs?.label ?? "")));
+  }
+  // A renvoi becomes a REF/PAGEREF field with its current text cached, so it
+  // reads correctly before the first update and refreshes natively after.
+  if (c.type === "crossReference") {
+    const anchor = String(c.attrs?.targetId ?? "");
+    if (!anchor) return "";
+    const display = (String(c.attrs?.display ?? "text") || "text") as RefDisplay;
+    const target = ctx.targets.find((t) => t.anchorId === anchor);
+    const cached = String(c.attrs?.cached ?? "") || (target ? referenceLabel(target, display, null) : "");
+    const name = bookmarkNameFor(ctx, anchor, target?.kind === "bookmark" ? target.text : "");
+    return fieldXml(refInstr(name, display), cached);
+  }
+  // An index mark becomes an XE field: invisible in the text, and Word can
+  // build its own index from it.
+  if (c.type === "indexEntry") {
+    const term = String(c.attrs?.term ?? "").trim();
+    if (!term) return "";
+    const sub = String(c.attrs?.sub ?? "").trim();
+    // Word's XE syntax separates sub-entries with a colon.
+    const entry = sub ? `${term}:${sub}` : term;
+    return `<w:fldSimple w:instr="${xmlEsc(` XE "${entry.replace(/"/g, "'")}" `)}"/>`;
+  }
+  // A merge field becomes a real MERGEFIELD, so Word's own mail merge can
+  // drive the document.
+  if (c.type === "mergeField") {
+    const field = String(c.attrs?.field ?? "").trim();
+    if (!field) return "";
+    return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
+  }
+  if (c.type === "text") {
+    const marks = c.marks ?? [];
+    const link = marks.find((m) => m.type === "link");
+    if (link) {
+      const href = String(link.attrs?.href ?? "#");
+      const rId = addRel(
+        ctx,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        href,
+        "External",
+      );
+      return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks, ctx)}</w:hyperlink>`;
+    }
+    return runXml(c.text ?? "", marks, ctx);
+  }
+  return "";
 }
 
 /** Word paragraph properties, including the full Paragraphe dialog set. */
@@ -998,6 +1057,8 @@ export function docToDocx(file: EliumFile): Uint8Array {
     relCount: 100,
     drawingId: 1,
     changeId: 0,
+    comments: [],
+    commentDocxId: new Map(),
     numIds: new Map(),
     abstracts: [],
     bookmarkSeq: 0,
@@ -1110,6 +1171,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
   const noteRels =
     (footnotes.length ? notesRelXml("footnote", `rId${ctx.relCount++}`) : "") +
     (endnotes.length ? notesRelXml("endnote", `rId${ctx.relCount++}`) : "");
+  const commentsRel = ctx.comments.length ? commentsRelXml(`rId${ctx.relCount++}`) : "";
 
   const baseRels =
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
@@ -1118,7 +1180,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     // l'ignore purement et simplement.
     '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>';
   const documentRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${headerRel}${noteRels}${ctx.rels.join("")}</Relationships>`;
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${baseRels}${headerRel}${noteRels}${commentsRel}${ctx.rels.join("")}</Relationships>`;
 
   const mediaDefaults = Object.keys(ctx.media)
     .map((f) => f.split(".").pop() ?? "png")
@@ -1132,7 +1194,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
+<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1170,6 +1232,10 @@ export function docToDocx(file: EliumFile): Uint8Array {
   // Les vraies parties de notes : Word les renumérote et les place lui-même.
   if (footnotes.length) files[NOTE_PART.footnote] = strToU8(notesPartXml("footnote", footnotes));
   if (endnotes.length) files[NOTE_PART.endnote] = strToU8(notesPartXml("endnote", endnotes));
+  // Idem pour les commentaires : la relation et le content-type sont déjà
+  // déclarés (voir commentsRel / ctx.comments.length plus haut) — sans cette
+  // écriture, le paquet pointerait vers une partie absente (docx corrompu).
+  if (ctx.comments.length) files[COMMENTS_PART] = strToU8(commentsPartXml(ctx.comments));
 
   for (const [name, bytes] of Object.entries(ctx.media)) files[`word/media/${name}`] = bytes;
 
@@ -1476,6 +1542,33 @@ function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
   return { docDefaults, styleProps: (id) => (id ? resolve(id, new Set()) : {}) };
 }
 
+/** `word/comments.xml`, parsed once per import and cached on the zip object
+ *  itself — `inlineFromParagraph` runs once per paragraph and would otherwise
+ *  re-parse the same (normally tiny) part every time. */
+const commentsCache = new WeakMap<object, Map<number, { author: string; date: string; text: string }>>();
+function commentsFor(zip: Record<string, Uint8Array>): Map<number, { author: string; date: string; text: string }> {
+  const hit = commentsCache.get(zip);
+  if (hit) return hit;
+  const out = new Map<number, { author: string; date: string; text: string }>();
+  const raw = zip[COMMENTS_PART];
+  if (raw) {
+    const root = parseXml(strFromU8(raw));
+    for (const c of descendants(root, "w:comment")) {
+      const id = Number(c.attrs["w:id"]);
+      if (!Number.isFinite(id)) continue;
+      out.set(id, {
+        author: c.attrs["w:author"] ?? "",
+        date: c.attrs["w:date"] ?? "",
+        text: descendants(c, "w:p")
+          .map((para) => runText(para))
+          .join("\n"),
+      });
+    }
+  }
+  commentsCache.set(zip, out);
+  return out;
+}
+
 function inlineFromParagraph(
   p: XmlEl,
   rels: Record<string, string>,
@@ -1483,6 +1576,28 @@ function inlineFromParagraph(
   sty: StyleResolver,
   baseProps: RunProps,
 ): { nodes: ProseMirrorNode[]; pageBreak: boolean; figure?: ProseMirrorNode } {
+  // Comment ranges currently open at this point in the paragraph — a comment
+  // spanning a paragraph boundary is a documented scope limit (see docx-comments.ts).
+  const openComments: number[] = [];
+  const commentBodies = commentsFor(zip);
+  const commentMarksNow = (): { type: string; attrs?: Record<string, unknown> }[] =>
+    openComments.flatMap((docxId) => {
+      const body = commentBodies.get(docxId);
+      if (!body) return [];
+      return [
+        {
+          type: "comment",
+          attrs: {
+            id: `docx-comment-${docxId}`,
+            author: body.author,
+            text: body.text,
+            resolved: false,
+            createdAt: body.date,
+            replies: [],
+          },
+        },
+      ];
+    });
   // Effective run marks = paragraph base ⊕ the run's character style ⊕ inline
   // rPr (inline wins). This is what recovers colour/font/size set via styles.
   const runMarks = (r: XmlEl): { type: string; attrs?: Record<string, unknown> }[] => {
@@ -1529,7 +1644,7 @@ function inlineFromParagraph(
       }
     }
     const text = runText(r);
-    if (text) pushText(text, [...runMarks(r), ...extra]);
+    if (text) pushText(text, [...runMarks(r), ...extra, ...commentMarksNow()]);
   };
 
   // Word fields come in two shapes: the self-contained <w:fldSimple>, and the
@@ -1587,11 +1702,18 @@ function inlineFromParagraph(
       // children of the paragraph — without this branch that text was never
       // read at all (silent data loss on import). Map to Elium's own
       // insertion/deletion marks (TrackChanges.ts) using the w:author/w:date
-      // straight off the element, so track-changes state round-trips too.
+      // straight off the element, so track-changes state round-trips too. The
+      // element's own `w:id` becomes Elium's change id: every run inside this
+      // ONE <w:ins>/<w:del> (even split across formatting boundaries) is then
+      // one logical change for `acceptChange`/`rejectChange`.
       const trackMark = [
         {
           type: c.name === "w:ins" ? "insertion" : "deletion",
-          attrs: { author: c.attrs["w:author"] ?? "", ts: c.attrs["w:date"] ?? "" },
+          attrs: {
+            author: c.attrs["w:author"] ?? "",
+            ts: c.attrs["w:date"] ?? "",
+            id: `docx-${c.name === "w:ins" ? "ins" : "del"}-${c.attrs["w:id"] ?? ""}`,
+          },
         },
       ];
       for (const r of children(c, "w:r")) handleRun(r, trackMark);
@@ -1602,6 +1724,13 @@ function inlineFromParagraph(
         const linkMark = href ? [{ type: "link", attrs: { href } }] : [];
         for (const r of children(hl, "w:r")) handleRun(r, [...trackMark, ...linkMark]);
       }
+    } else if (c.name === "w:commentRangeStart") {
+      const id = Number(c.attrs["w:id"]);
+      if (Number.isFinite(id)) openComments.push(id);
+    } else if (c.name === "w:commentRangeEnd") {
+      const id = Number(c.attrs["w:id"]);
+      const at = openComments.indexOf(id);
+      if (at >= 0) openComments.splice(at, 1);
     }
   }
   return { nodes, pageBreak, figure };

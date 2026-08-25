@@ -16,13 +16,14 @@
  * réouverture et se propagent aux co-éditeurs (parité avec la surface locale).
  */
 import { useMemo, useRef, useState } from "react";
-import { X, Wifi, WifiOff, Loader } from "lucide-react";
+import { X, Wifi, WifiOff, Loader, PanelRightOpen, MessageSquare } from "lucide-react";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import * as Y from "yjs";
 import { useEffect } from "react";
 import type { Editor } from "@tiptap/react";
 import RichEditor from "../../editor/RichEditor";
+import CommentsPanel from "../../panels/CommentsPanel";
 import { DEFAULT_PAGE } from "../../format/document";
 import {
   ELIUM_DOC_SCHEMA,
@@ -174,6 +175,13 @@ export default function CollabDocEditor({
   // l'import). Le fragment Yjs « default » porte le contenu de l'éditeur ; s'il
   // n'est pas vide, un contenu existe déjà et on ne touche à rien.
   const editorRef = useRef<Editor | null>(null);
+  // Mirrored into state (not just the ref) so the comments panel below re-renders
+  // once the editor is actually ready — a ref write alone triggers nothing.
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+  // Comments are the one inspector tab that makes sense on a collaborative
+  // document (signatures/parapheur/versions/security are file-local — see the
+  // module header); its own toggle mirrors the local surface's Ctrl+\ panel.
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const seededRef = useRef(false);
   useEffect(() => {
     if (!seed || seededRef.current) return;
@@ -225,13 +233,25 @@ export default function CollabDocEditor({
           </div>
           <div className="dc-doc__spacer" />
           {!canWrite && status === "open" && <span className="badge badge--neutral">Lecture seule</span>}
+          <button
+            className="icon-btn"
+            onClick={() => setCommentsOpen((v) => !v)}
+            aria-label="Commentaires"
+            title="Commentaires"
+          >
+            {commentsOpen ? <PanelRightOpen size={18} /> : <MessageSquare size={18} />}
+          </button>
           <button className="icon-btn" onClick={onClose} aria-label="Fermer">
             <X size={18} />
           </button>
         </header>
 
         {/* Le VRAI éditeur, en mode collaboratif. Signature/comparaison/
-            publipostage sont masqués (propres au fichier local). */}
+            publipostage sont masqués (propres au fichier local) ; les
+            commentaires, eux, ont bien un sens ici (voir `commentsOpen`
+            ci-dessus) — suivi des modifications et accepter/refuser une
+            modification marchent déjà nativement : ce sont des marques
+            ProseMirror ordinaires portées par le même Y.Doc que le texte. */}
         <div className="dc-doc__editor">
           <RichEditor
             documentModel={documentModel}
@@ -239,9 +259,14 @@ export default function CollabDocEditor({
             collab={{ extensions: collabExtensions }}
             onEditorReady={(ed) => {
               editorRef.current = ed;
+              setEditorInstance(ed);
             }}
             commentAuthor={me.name}
             docTitle={title}
+            // Same panel either way: the toolbar's own "Inspecteur" toggle
+            // (Affichage) and the header button above both open it.
+            inspectorOpen={commentsOpen}
+            onToggleInspector={() => setCommentsOpen((v) => !v)}
             signatures={[]}
             selectedSignatureId={null}
             onDocChange={() => {}}
@@ -270,6 +295,24 @@ export default function CollabDocEditor({
               putMeta("page", next);
             }}
           />
+          {commentsOpen && (
+            <aside className="inspector">
+              <div className="inspector__header">
+                <span className="inspector__title">Commentaires</span>
+                <button
+                  className="inspector__close"
+                  onClick={() => setCommentsOpen(false)}
+                  title="Fermer le panneau"
+                  aria-label="Fermer le panneau des commentaires"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="inspector__content">
+                <CommentsPanel editor={editorInstance} commentAuthor={me.name} />
+              </div>
+            </aside>
+          )}
         </div>
       </div>
     </div>

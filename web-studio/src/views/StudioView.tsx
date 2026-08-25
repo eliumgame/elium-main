@@ -80,6 +80,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
           editor={editor}
           open={inspectorOpen}
           onToggle={() => setInspectorOpen((v) => !v)}
+          commentAuthor={commentAuthor}
         />
       </div>
       {pageSettingsOpen && (

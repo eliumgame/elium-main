@@ -38,9 +38,11 @@ interface Props {
   editor?: Editor | null;
   open: boolean;
   onToggle: () => void;
+  /** Display name stamped on new replies in the comments panel. */
+  commentAuthor?: string;
 }
 
-export default function InspectorPanel({ studio, editor, open, onToggle }: Props) {
+export default function InspectorPanel({ studio, editor, open, onToggle, commentAuthor }: Props) {
   const [active, setActive] = useState<PanelId>("signatures");
   const activeLabel = TABS.find((t) => t.id === active)?.label ?? "";
 
@@ -105,7 +107,7 @@ export default function InspectorPanel({ studio, editor, open, onToggle }: Props
       <div className="inspector__content">
         {active === "signatures" && <SignaturesPanel studio={studio} />}
         {active === "parapheur" && <ParapheurPanel studio={studio} />}
-        {active === "comments" && <CommentsPanel editor={editor ?? null} />}
+        {active === "comments" && <CommentsPanel editor={editor ?? null} commentAuthor={commentAuthor} />}
         {active === "security" && <SecurityPanel studio={studio} />}
         {active === "tracking" && <TrackingPanel studio={studio} />}
         {active === "versions" && <VersionsPanel studio={studio} editor={editor ?? null} />}

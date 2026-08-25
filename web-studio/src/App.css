@@ -5660,3 +5660,94 @@
   font-style: italic;
   font-size: 12px;
 }
+
+/* --- Suivi des modifications : accepter/refuser une modification ---------- */
+/* Même positionnement que .proofpop (coordonnées de fenêtre, voir TrackChangePopover). */
+.trackpop {
+  position: fixed;
+  z-index: var(--el-z-popover, 80);
+  min-width: 170px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--el-elev-4, 0 12px 30px rgba(15, 23, 42, 0.22));
+}
+.trackpop__head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px 7px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.trackpop__kind {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.trackpop__author {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.trackpop__actions {
+  display: flex;
+  gap: 4px;
+}
+.trackpop__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.trackpop__item--accept {
+  color: var(--success, #16a34a);
+}
+.trackpop__item--accept:hover {
+  background: var(--success, #16a34a);
+  color: #fff;
+}
+.trackpop__item--reject {
+  color: var(--el-danger);
+}
+.trackpop__item--reject:hover {
+  background: var(--el-danger);
+  color: #fff;
+}
+
+/* --- Suivi des modifications : repère de saut/fusion de paragraphe -------- */
+/* Ligne pointillée avant le texte : le repère marque OÙ vit le changement de
+   structure (pas de caractère à souligner), et se clique comme une insertion
+   ou une suppression pour ouvrir le même menu accepter/refuser. */
+.elium-break-marker {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-right: 3px;
+  font-weight: 700;
+  user-select: none;
+}
+.elium-break-marker--split {
+  color: var(--el-seal);
+  background: color-mix(in srgb, var(--el-seal) 14%, transparent);
+}
+.elium-break-marker--merge {
+  color: var(--el-danger);
+  background: color-mix(in srgb, var(--el-danger) 14%, transparent);
+  text-decoration: line-through;
+}
+.elium-break-pending--merge {
+  border-top: 1px dashed var(--el-danger);
+}

@@ -24,6 +24,8 @@ import Ruler from "./Ruler";
 import ProofingPanel from "./ProofingPanel";
 import ProofPopover from "./ProofPopover";
 import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofingExtension";
+import TrackChangePopover from "./TrackChangePopover";
+import { onTrackChangeRequest, type TrackChangeRequest } from "./TrackChanges";
 import SymbolModal from "./SymbolModal";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
@@ -203,6 +205,11 @@ export default function RichEditor({
   // Correction au clic droit : le geste attendu sur un mot souligné.
   const [proofRequest, setProofRequest] = useState<ProofRequest | null>(null);
   useEffect(() => onProofRequest(setProofRequest), []);
+
+  // Accepter/refuser UNE modification : clic sur une insertion, une suppression
+  // ou un repère de saut/fusion de paragraphe (voir TrackChanges.ts).
+  const [trackRequest, setTrackRequest] = useState<TrackChangeRequest | null>(null);
+  useEffect(() => onTrackChangeRequest(setTrackRequest), []);
 
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
@@ -663,6 +670,10 @@ export default function RichEditor({
 
       {editor && proofRequest && (
         <ProofPopover editor={editor} request={proofRequest} onClose={() => setProofRequest(null)} />
+      )}
+
+      {editor && trackRequest && (
+        <TrackChangePopover editor={editor} request={trackRequest} onClose={() => setTrackRequest(null)} />
       )}
 
       {editor && dialog === "font" && <FontDialog editor={editor} onClose={() => setDialog(null)} />}

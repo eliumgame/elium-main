@@ -2583,6 +2583,60 @@
   gap: 4px;
   flex-wrap: wrap;
 }
+.comment-card__replies {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.comment-reply__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.comment-reply__author {
+  font-weight: 600;
+  font-size: 12px;
+}
+.comment-reply__date {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.comment-reply__remove {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px;
+  display: flex;
+}
+.comment-reply__remove:hover {
+  color: var(--el-danger);
+}
+.comment-reply__text {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.comment-card__composer {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.comment-card__composer-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+}
 
 /* --- Editor: find & replace bar ------------------------------------------- */
 .find-bar {

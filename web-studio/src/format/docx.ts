@@ -523,69 +523,69 @@ function inlineRuns(node: ProseMirrorNode, ctx: WriteCtx): string {
 
 function inlineItemXml(c: ProseMirrorNode, ctx: WriteCtx): string {
   if (c.type === "hardBreak") return "<w:r><w:br/></w:r>";
-      // Une vraie tabulation Word : c'est `w:tabs` du paragraphe qui dit où elle
-      // s'arrête, donc rien à calculer ici.
-      if (c.type === "tab") return "<w:r><w:tab/></w:r>";
-      // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
-      // renumérote, les place en bas de page ou en fin de document, et les
-      // expose dans son propre gestionnaire de notes.
-      if (c.type === "footnote" || c.type === "endnote") {
-        const kind: NoteKind = c.type;
-        const pool = (kind === "endnote" ? ctx.endnotes : ctx.footnotes) ?? [];
-        const entry = pool.find((f) => f.id === String(c.attrs?.id));
-        if (!entry) return "";
-        return noteReferenceXml(kind, entry.number);
-      }
-      // A signet becomes a real Word bookmark (named after its label, so it
-      // shows up usefully in Word's own bookmark list).
-      if (c.type === "bookmark") {
-        const id = String(c.attrs?.id ?? "");
-        if (!id) return "";
-        return bookmarkXml(ctx, bookmarkNameFor(ctx, id, String(c.attrs?.label ?? "")));
-      }
-      // A renvoi becomes a REF/PAGEREF field with its current text cached, so it
-      // reads correctly before the first update and refreshes natively after.
-      if (c.type === "crossReference") {
-        const anchor = String(c.attrs?.targetId ?? "");
-        if (!anchor) return "";
-        const display = (String(c.attrs?.display ?? "text") || "text") as RefDisplay;
-        const target = ctx.targets.find((t) => t.anchorId === anchor);
-        const cached = String(c.attrs?.cached ?? "") || (target ? referenceLabel(target, display, null) : "");
-        const name = bookmarkNameFor(ctx, anchor, target?.kind === "bookmark" ? target.text : "");
-        return fieldXml(refInstr(name, display), cached);
-      }
-      // An index mark becomes an XE field: invisible in the text, and Word can
-      // build its own index from it.
-      if (c.type === "indexEntry") {
-        const term = String(c.attrs?.term ?? "").trim();
-        if (!term) return "";
-        const sub = String(c.attrs?.sub ?? "").trim();
-        // Word's XE syntax separates sub-entries with a colon.
-        const entry = sub ? `${term}:${sub}` : term;
-        return `<w:fldSimple w:instr="${xmlEsc(` XE "${entry.replace(/"/g, "'")}" `)}"/>`;
-      }
-      // A merge field becomes a real MERGEFIELD, so Word's own mail merge can
-      // drive the document.
-      if (c.type === "mergeField") {
-        const field = String(c.attrs?.field ?? "").trim();
-        if (!field) return "";
-        return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
-      }
-      if (c.type === "text") {
-        const marks = c.marks ?? [];
-        const link = marks.find((m) => m.type === "link");
-        if (link) {
-          const href = String(link.attrs?.href ?? "#");
-          const rId = addRel(
-            ctx,
-            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-            href,
-            "External",
-          );
-          return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks, ctx)}</w:hyperlink>`;
-        }
-        return runXml(c.text ?? "", marks, ctx);
-      }
+  // Une vraie tabulation Word : c'est `w:tabs` du paragraphe qui dit où elle
+  // s'arrête, donc rien à calculer ici.
+  if (c.type === "tab") return "<w:r><w:tab/></w:r>";
+  // Un vrai appel de note Word, pas un « [1] » en exposant : Word les
+  // renumérote, les place en bas de page ou en fin de document, et les
+  // expose dans son propre gestionnaire de notes.
+  if (c.type === "footnote" || c.type === "endnote") {
+    const kind: NoteKind = c.type;
+    const pool = (kind === "endnote" ? ctx.endnotes : ctx.footnotes) ?? [];
+    const entry = pool.find((f) => f.id === String(c.attrs?.id));
+    if (!entry) return "";
+    return noteReferenceXml(kind, entry.number);
+  }
+  // A signet becomes a real Word bookmark (named after its label, so it
+  // shows up usefully in Word's own bookmark list).
+  if (c.type === "bookmark") {
+    const id = String(c.attrs?.id ?? "");
+    if (!id) return "";
+    return bookmarkXml(ctx, bookmarkNameFor(ctx, id, String(c.attrs?.label ?? "")));
+  }
+  // A renvoi becomes a REF/PAGEREF field with its current text cached, so it
+  // reads correctly before the first update and refreshes natively after.
+  if (c.type === "crossReference") {
+    const anchor = String(c.attrs?.targetId ?? "");
+    if (!anchor) return "";
+    const display = (String(c.attrs?.display ?? "text") || "text") as RefDisplay;
+    const target = ctx.targets.find((t) => t.anchorId === anchor);
+    const cached = String(c.attrs?.cached ?? "") || (target ? referenceLabel(target, display, null) : "");
+    const name = bookmarkNameFor(ctx, anchor, target?.kind === "bookmark" ? target.text : "");
+    return fieldXml(refInstr(name, display), cached);
+  }
+  // An index mark becomes an XE field: invisible in the text, and Word can
+  // build its own index from it.
+  if (c.type === "indexEntry") {
+    const term = String(c.attrs?.term ?? "").trim();
+    if (!term) return "";
+    const sub = String(c.attrs?.sub ?? "").trim();
+    // Word's XE syntax separates sub-entries with a colon.
+    const entry = sub ? `${term}:${sub}` : term;
+    return `<w:fldSimple w:instr="${xmlEsc(` XE "${entry.replace(/"/g, "'")}" `)}"/>`;
+  }
+  // A merge field becomes a real MERGEFIELD, so Word's own mail merge can
+  // drive the document.
+  if (c.type === "mergeField") {
+    const field = String(c.attrs?.field ?? "").trim();
+    if (!field) return "";
+    return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
+  }
+  if (c.type === "text") {
+    const marks = c.marks ?? [];
+    const link = marks.find((m) => m.type === "link");
+    if (link) {
+      const href = String(link.attrs?.href ?? "#");
+      const rId = addRel(
+        ctx,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        href,
+        "External",
+      );
+      return `<w:hyperlink r:id="${rId}">${runXml(c.text ?? "", marks, ctx)}</w:hyperlink>`;
+    }
+    return runXml(c.text ?? "", marks, ctx);
+  }
   return "";
 }
 

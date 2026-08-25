@@ -482,6 +482,7 @@ export default function Toolbar({
         text,
         resolved: false,
         createdAt: new Date().toISOString(),
+        replies: [],
       })
       .run();
   }, [editor, commentAuthor, prompt]);

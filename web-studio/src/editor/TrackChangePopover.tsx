@@ -64,10 +64,20 @@ export default function TrackChangePopover({
         {request.author && <span className="trackpop__author">{request.author}</span>}
       </div>
       <div className="trackpop__actions">
-        <button type="button" className="trackpop__item trackpop__item--accept" onMouseDown={(e) => e.preventDefault()} onClick={accept}>
+        <button
+          type="button"
+          className="trackpop__item trackpop__item--accept"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={accept}
+        >
           <Check size={13} /> Accepter
         </button>
-        <button type="button" className="trackpop__item trackpop__item--reject" onMouseDown={(e) => e.preventDefault()} onClick={reject}>
+        <button
+          type="button"
+          className="trackpop__item trackpop__item--reject"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={reject}
+        >
           <X size={13} /> Refuser
         </button>
       </div>

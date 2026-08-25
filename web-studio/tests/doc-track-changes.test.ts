@@ -162,8 +162,16 @@ describe("TrackChanges — frappe et suppression suivies", () => {
   it("taper sur une sélection marque le texte remplacé en suppression et insère la frappe", () => {
     editor = makeSuggestingEditor();
     expect(typeText(editor, 1, 8, "Salut")).toBe(true); // remplace "Bonjour"
-    expect(marksOf(editor, "deletion").map((m) => m.text).join("")).toBe("Bonjour");
-    expect(marksOf(editor, "insertion").map((m) => m.text).join("")).toBe("Salut");
+    expect(
+      marksOf(editor, "deletion")
+        .map((m) => m.text)
+        .join(""),
+    ).toBe("Bonjour");
+    expect(
+      marksOf(editor, "insertion")
+        .map((m) => m.text)
+        .join(""),
+    ).toBe("Salut");
     // rien n'est réellement retiré tant que rien n'est accepté/refusé
     expect(editor.getText()).toBe("BonjourSalut le monde");
   });

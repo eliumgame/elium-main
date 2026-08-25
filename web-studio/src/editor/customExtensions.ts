@@ -480,7 +480,10 @@ export const Comment = Mark.create({
     const a = HTMLAttributes as Record<string, unknown>;
     const resolved = a.resolved === true || a.resolved === "true";
     const replyCount = Array.isArray(a.replies) ? a.replies.length : 0;
-    const title = [a.text == null ? "" : String(a.text), replyCount ? `(${replyCount} réponse${replyCount > 1 ? "s" : ""})` : ""]
+    const title = [
+      a.text == null ? "" : String(a.text),
+      replyCount ? `(${replyCount} réponse${replyCount > 1 ? "s" : ""})` : "",
+    ]
       .filter(Boolean)
       .join(" ");
     return [

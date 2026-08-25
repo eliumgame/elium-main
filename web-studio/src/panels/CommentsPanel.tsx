@@ -56,7 +56,12 @@ export default function CommentsPanel({ editor, commentAuthor }: { editor: Edito
     if (!editor) return;
     const text = (drafts[id] ?? "").trim();
     if (!text) return;
-    const reply: CommentReply = { id: newReplyId(), author: commentAuthor || "Vous", text, createdAt: new Date().toISOString() };
+    const reply: CommentReply = {
+      id: newReplyId(),
+      author: commentAuthor || "Vous",
+      text,
+      createdAt: new Date().toISOString(),
+    };
     editor.chain().focus().addCommentReply(id, reply).run();
     setDrafts((d) => ({ ...d, [id]: "" }));
   };
@@ -98,7 +103,9 @@ export default function CommentsPanel({ editor, commentAuthor }: { editor: Edito
             <div key={r.id} className="comment-reply">
               <div className="comment-reply__head">
                 <span className="comment-reply__author">{r.author || "Anonyme"}</span>
-                {r.createdAt && <span className="comment-reply__date">{new Date(r.createdAt).toLocaleDateString()}</span>}
+                {r.createdAt && (
+                  <span className="comment-reply__date">{new Date(r.createdAt).toLocaleDateString()}</span>
+                )}
                 <button
                   className="comment-reply__remove"
                   title="Supprimer la réponse"

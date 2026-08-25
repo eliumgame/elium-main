@@ -326,7 +326,9 @@ export const TrackChanges = Extension.create<{ author: string }>({
             parseHTML: () => null, // never round-trips through pasted/copied HTML — Elium JSON only
             renderHTML: (attrs: Record<string, unknown>) => {
               const tb = attrs.trackBreak as TrackBreak | null;
-              return tb ? { "data-track-break": tb.kind, class: `elium-break-pending elium-break-pending--${tb.kind}` } : {};
+              return tb
+                ? { "data-track-break": tb.kind, class: `elium-break-pending elium-break-pending--${tb.kind}` }
+                : {};
             },
           },
         },
@@ -358,7 +360,8 @@ export const TrackChanges = Extension.create<{ author: string }>({
           tr.removeMark(0, state.doc.content.size, ins); // accept insertions: keep text (position-preserving, first)
           const edits: PendingEdit[] = [];
           state.doc.descendants((node, pos) => {
-            if (node.isText && del.isInSet(node.marks)) edits.push({ at: pos, run: () => tr.delete(pos, pos + node.nodeSize) });
+            if (node.isText && del.isInSet(node.marks))
+              edits.push({ at: pos, run: () => tr.delete(pos, pos + node.nodeSize) });
             const tb = (node.attrs as { trackBreak?: TrackBreak | null }).trackBreak;
             if (tb?.kind === "split") {
               edits.push({
@@ -386,7 +389,8 @@ export const TrackChanges = Extension.create<{ author: string }>({
           tr.removeMark(0, state.doc.content.size, del); // reject deletions: keep text (position-preserving, first)
           const edits: PendingEdit[] = [];
           state.doc.descendants((node, pos) => {
-            if (node.isText && ins.isInSet(node.marks)) edits.push({ at: pos, run: () => tr.delete(pos, pos + node.nodeSize) });
+            if (node.isText && ins.isInSet(node.marks))
+              edits.push({ at: pos, run: () => tr.delete(pos, pos + node.nodeSize) });
             const tb = (node.attrs as { trackBreak?: TrackBreak | null }).trackBreak;
             if (tb?.kind === "split") {
               edits.push({ at: pos, run: () => tr.join(pos) });
@@ -502,7 +506,9 @@ export const TrackChanges = Extension.create<{ author: string }>({
               tr = tr.addMark(from, to, delMark.create({ author, ts: nowIso(), id: reuseDel ?? newChangeId() })); // mark replaced text deleted
             }
             const reuseIns = markIdAt(state.doc, to - 1, insMark, author);
-            const node = state.schema.text(text, [insMark.create({ author, ts: nowIso(), id: reuseIns ?? newChangeId() })]);
+            const node = state.schema.text(text, [
+              insMark.create({ author, ts: nowIso(), id: reuseIns ?? newChangeId() }),
+            ]);
             tr = tr.insert(to, node);
             const after = to + text.length;
             tr = tr.setSelection(TextSelection.create(tr.doc, after));
@@ -514,7 +520,14 @@ export const TrackChanges = Extension.create<{ author: string }>({
             if (!requestListener || event.button !== 0) return false;
             const hit = changeSpanAt(view.state.doc, pos);
             if (!hit) return false;
-            requestListener({ x: event.clientX, y: event.clientY, kind: hit.kind, pos, author: hit.author, ts: hit.ts });
+            requestListener({
+              x: event.clientX,
+              y: event.clientY,
+              kind: hit.kind,
+              pos,
+              author: hit.author,
+              ts: hit.ts,
+            });
             return false; // never steal the click: cursor placement still happens
           },
           decorations(state) {
@@ -541,7 +554,14 @@ export const TrackChanges = Extension.create<{ author: string }>({
                     el.addEventListener("click", (e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      requestListener?.({ x: e.clientX, y: e.clientY, kind: tb.kind, pos, author: tb.author, ts: tb.ts });
+                      requestListener?.({
+                        x: e.clientX,
+                        y: e.clientY,
+                        kind: tb.kind,
+                        pos,
+                        author: tb.author,
+                        ts: tb.ts,
+                      });
                     });
                     return el;
                   },

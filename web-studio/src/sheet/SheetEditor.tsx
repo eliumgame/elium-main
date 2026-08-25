@@ -41,6 +41,8 @@ import {
   Tag,
   Combine,
   TableProperties,
+  Grid3x3,
+  Eraser,
 } from "lucide-react";
 import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
 import { useDialogs } from "../ui/dialogs";
@@ -61,6 +63,7 @@ import { csvToWorkbook } from "./csv";
 import {
   newId,
   type CellStyle,
+  type BorderSide,
   type NumFmt,
   type ChartSpec,
   type ChartType,
@@ -73,6 +76,24 @@ import type { SheetStore, SheetEditorChrome } from "./store";
 type Pos = { c: number; r: number };
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
 const absCell = (c: number, r: number) => `$${indexToCol(c)}$${r + 1}`;
+const BORDER_WIDTH: Record<BorderSide["style"], number> = {
+  thin: 1,
+  medium: 2,
+  thick: 3,
+  dashed: 1,
+  dotted: 1,
+  double: 3,
+};
+const BORDER_LINE: Record<BorderSide["style"], string> = {
+  thin: "solid",
+  medium: "solid",
+  thick: "solid",
+  dashed: "dashed",
+  dotted: "dotted",
+  double: "double",
+};
+const borderCss = (s?: BorderSide): string | undefined =>
+  s ? `${BORDER_WIDTH[s.style]}px ${BORDER_LINE[s.style]} ${s.color ?? "#0f172a"}` : undefined;
 
 const ROWHEAD_W = 44; // largeur de la colonne des numéros de ligne (px)
 const HEADER_H = 28; // hauteur de la ligne d'en-tête des colonnes (doit correspondre au CSS)
@@ -324,6 +345,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const applyStyle = (patch: Partial<CellStyle>) => store.applyStyle(active, rectRefs(), patch);
   const activeStyle = sheet?.styles?.[activeRef] ?? {};
   const toggle = (key: "bold" | "italic") => applyStyle({ [key]: !activeStyle[key] });
+  const THIN_BORDER: BorderSide = { style: "thin", color: "#0f172a" };
+  const setBorderAll = () =>
+    applyStyle({ border: { top: THIN_BORDER, right: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER } });
+  const clearBorder = () => applyStyle({ border: undefined });
   const importFont = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -884,6 +909,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             >
               <Combine size={15} />
             </button>
+            <button className="icon-btn" title="Quadriller (toutes les bordures)" onClick={setBorderAll}>
+              <Grid3x3 size={15} />
+            </button>
+            <button className="icon-btn" title="Supprimer les bordures" onClick={clearBorder}>
+              <Eraser size={15} />
+            </button>
           </div>
           {store.growSheet && (
             <div className="tool-group">
@@ -1043,6 +1074,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         background: cf.background ?? st?.fill,
                         fontFamily: st?.fontFamily ? fontCss(st.fontFamily) : undefined,
                         fontSize: st?.fontSize ? `${st.fontSize}px` : undefined,
+                        borderTop: borderCss(st?.border?.top),
+                        borderRight: borderCss(st?.border?.right),
+                        borderBottom: borderCss(st?.border?.bottom),
+                        borderLeft: borderCss(st?.border?.left),
                         ...stickyStyle(c, r),
                       };
                       // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).

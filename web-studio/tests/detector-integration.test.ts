@@ -6,7 +6,7 @@ import { writeEliumPackage } from "../src/format/elium-package";
 import { EliumPasswordRequired, loadDocumentModel } from "../src/detector/ingest/loadFile";
 import { runAnalysis } from "../src/detector/runAnalysis";
 import type { ProseMirrorNode } from "../src/format/types";
-import type { SearchProvider, SearchResult } from "../src/detector/types";
+import type { DocumentModel, SearchProvider, SearchResult } from "../src/detector/types";
 
 function fakeFile(name: string, bytes: Uint8Array): File {
   return {
@@ -116,5 +116,44 @@ describe("Détecteur — intégration loadFile + runAnalysis", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z", signal: controller.signal })).rejects.toThrow();
+  });
+});
+
+describe("Détecteur — réglage de sensibilité (disabledSignals)", () => {
+  function listHeavyModel(): DocumentModel {
+    const paragraphs = Array.from({ length: 25 }, (_, i) => ({
+      index: i,
+      text: `Élément numéro ${i} de cette liste, rédigé pour être suffisamment long et réaliste.`,
+      runs: [{ text: "x" }],
+      listItem: i < 16, // 16/25 = 64% > le seuil de 40%
+    }));
+    return {
+      paragraphs,
+      images: [],
+      metadata: { sourceFormat: "elium", title: "Liste" },
+    };
+  }
+
+  it("exclut du rapport et du score un signal désactivé", async () => {
+    const model = listHeavyModel();
+
+    const full = await runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z" });
+    const texteCategory = full.categories.find((c) => c.category === "texte")!;
+    expect(texteCategory.findings.some((f) => f.signal === "densite_listes_elevee")).toBe(true);
+
+    const filtered = await runAnalysis(model, {
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      disabledSignals: new Set(["densite_listes_elevee"]),
+    });
+    const filteredTexte = filtered.categories.find((c) => c.category === "texte")!;
+    expect(filteredTexte.findings.some((f) => f.signal === "densite_listes_elevee")).toBe(false);
+    expect(filteredTexte.score).toBeLessThanOrEqual(texteCategory.score);
+  });
+
+  it("un disabledSignals vide ou absent ne change rien", async () => {
+    const model = listHeavyModel();
+    const a = await runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z" });
+    const b = await runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z", disabledSignals: new Set() });
+    expect(a.overallScore).toBe(b.overallScore);
   });
 });

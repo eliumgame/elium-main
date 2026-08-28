@@ -12,7 +12,7 @@ import { analyzeMetadataSignals } from "./metadataSignals";
 import { runPlagiarismScan } from "./plagiarism/runPlagiarismScan";
 import { computeReport } from "./scoring";
 import { analyzeTextSignals } from "./textSignals";
-import type { AnalysisProgress, AnalysisReport, DocumentModel, SearchProvider } from "./types";
+import type { AnalysisProgress, AnalysisReport, DocumentModel, Finding, SearchProvider } from "./types";
 
 export interface RunAnalysisPlagiarismOptions {
   provider: SearchProvider;
@@ -24,8 +24,16 @@ export interface RunAnalysisOptions {
   /** Horodatage ISO fourni par l'appelant — reporté tel quel dans le rapport. */
   generatedAt: string;
   plagiarism?: RunAnalysisPlagiarismOptions;
+  /** Ids de `Finding.signal` (voir signalCatalog.ts) à exclure du rapport et du score —
+   *  réglage de sensibilité pour réduire les faux positifs sur un type de document donné. */
+  disabledSignals?: ReadonlySet<string>;
   signal?: AbortSignal;
   onProgress?: (progress: AnalysisProgress) => void;
+}
+
+function withoutDisabled(findings: Finding[], disabled: ReadonlySet<string> | undefined): Finding[] {
+  if (!disabled || disabled.size === 0) return findings;
+  return findings.filter((f) => !disabled.has(f.signal));
 }
 
 function yieldToMain(): Promise<void> {
@@ -37,30 +45,30 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 export async function runAnalysis(model: DocumentModel, opts: RunAnalysisOptions): Promise<AnalysisReport> {
-  const { signal, onProgress } = opts;
+  const { signal, onProgress, disabledSignals } = opts;
 
   throwIfAborted(signal);
   onProgress?.({ stage: "texte", processed: 0, total: 1 });
-  const texte = analyzeTextSignals(model.paragraphs);
+  const texte = withoutDisabled(analyzeTextSignals(model.paragraphs), disabledSignals);
   onProgress?.({ stage: "texte", processed: 1, total: 1 });
   await yieldToMain();
 
   throwIfAborted(signal);
   onProgress?.({ stage: "mise_en_forme", processed: 0, total: 1 });
-  const mise_en_forme = analyzeFormattingSignals(model.paragraphs);
+  const mise_en_forme = withoutDisabled(analyzeFormattingSignals(model.paragraphs), disabledSignals);
   onProgress?.({ stage: "mise_en_forme", processed: 1, total: 1 });
   await yieldToMain();
 
   throwIfAborted(signal);
   onProgress?.({ stage: "metadonnees", processed: 0, total: 1 });
-  const metadonnees = analyzeMetadataSignals(model.metadata, model.paragraphs);
+  const metadonnees = withoutDisabled(analyzeMetadataSignals(model.metadata, model.paragraphs), disabledSignals);
   onProgress?.({ stage: "metadonnees", processed: 1, total: 1 });
   await yieldToMain();
 
   throwIfAborted(signal);
   const imageTotal = model.images.length || 1;
   onProgress?.({ stage: "image", processed: 0, total: imageTotal });
-  const image = analyzeImageSignals(model.images);
+  const image = withoutDisabled(analyzeImageSignals(model.images), disabledSignals);
   onProgress?.({ stage: "image", processed: imageTotal, total: imageTotal });
   await yieldToMain();
 

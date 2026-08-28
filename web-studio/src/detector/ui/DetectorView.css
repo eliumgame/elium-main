@@ -184,6 +184,78 @@
   gap: 10px;
 }
 
+/* --- Réglages de sensibilité ---------------------------------------------- */
+.det-sensitivity {
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-md);
+  background: var(--el-surface-2);
+  overflow: hidden;
+}
+.det-sensitivity__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--el-text);
+  font-size: var(--el-fs-sm);
+  font-weight: var(--el-fw-semibold);
+}
+.det-sensitivity__count {
+  margin-left: 8px;
+  font-size: var(--el-fs-2xs);
+  font-weight: var(--el-fw-medium);
+  color: var(--el-text-muted);
+}
+.det-sensitivity__chevron {
+  font-size: var(--el-fs-lg);
+  color: var(--el-text-muted);
+  line-height: 1;
+}
+.det-sensitivity__body {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--el-border);
+}
+.det-sensitivity__hint {
+  margin: 12px 0;
+  font-size: var(--el-fs-xs);
+  color: var(--el-text-muted);
+  line-height: var(--el-lh-base);
+}
+.det-sensitivity__group {
+  margin-bottom: 14px;
+}
+.det-sensitivity__group h4 {
+  margin: 0 0 6px;
+  font-size: var(--el-fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--el-ls-caps);
+  color: var(--el-text-muted);
+  font-weight: var(--el-fw-semibold);
+}
+.det-sensitivity__row {
+  align-items: flex-start;
+  padding: 6px 0;
+}
+.det-sensitivity__badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--el-radius-pill);
+  background: var(--el-surface-3);
+  color: var(--el-text-muted);
+  font-size: var(--el-fs-2xs);
+}
+.det-sensitivity__desc {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--el-fs-2xs);
+  color: var(--el-text-muted);
+  font-weight: var(--el-fw-regular);
+}
+
 /* --- Analyse en cours ---------------------------------------------------- */
 .det-progress {
   display: flex;
@@ -371,6 +443,22 @@
   padding: 2px 8px;
   border-radius: var(--el-radius-pill);
   background: var(--el-surface-3);
+}
+.det-finding__show {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-pill);
+  background: transparent;
+  color: var(--el-primary-text);
+  font-size: var(--el-fs-2xs);
+  cursor: pointer;
+}
+.det-finding__show:hover {
+  background: var(--el-primary-50);
 }
 .det-finding__label {
   margin: 0 0 6px;

@@ -7,7 +7,7 @@
  * à déclencher par accident (voir `buildPlagiarismOption`).
  */
 import { useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ExternalLink, FileText, Loader2, UploadCloud } from "lucide-react";
+import { ArrowLeft, Eye, ExternalLink, FileText, Loader2, UploadCloud } from "lucide-react";
 import { Alert, Badge, Button, EmptyState, Field } from "../../ui/components";
 import { Tabs } from "../../ui/components";
 import { useDialogs } from "../../ui/dialogs";
@@ -30,7 +30,39 @@ import {
 } from "../ingest/loadFile";
 import { runAnalysis } from "../runAnalysis";
 import { createBingProvider, createSerperProvider } from "../plagiarism/searchProviders";
+import { signalsByCategory, type SignalCatalogEntry } from "../signalCatalog";
+import DocumentPreview from "./DocumentPreview";
 import "./DetectorView.css";
+
+const CATEGORY_TITLES: Record<SignalCategory, string> = {
+  texte: "Texte",
+  mise_en_forme: "Mise en forme",
+  metadonnees: "Métadonnées",
+  image: "Images",
+  plagiat: "Plagiat",
+};
+
+const DISABLED_SIGNALS_KEY = "elium-detector-disabled-signals";
+
+function loadDisabledSignals(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISABLED_SIGNALS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? new Set(arr.filter((v) => typeof v === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDisabledSignals(set: Set<string>): void {
+  try {
+    localStorage.setItem(DISABLED_SIGNALS_KEY, JSON.stringify([...set]));
+  } catch {
+    // stockage indisponible (navigation privée, quota) : le réglage retombera
+    // simplement à "tout activé" à la prochaine session, rien de grave.
+  }
+}
 
 type Phase = "upload" | "reading" | "ready" | "analyzing" | "report";
 
@@ -72,6 +104,26 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
     localStorage.getItem(SEARCH_PROVIDER_KEY) === "bing" ? "bing" : "serper",
   );
   const [searchApiKey, setSearchApiKey] = useState(() => localStorage.getItem(SEARCH_API_KEY_KEY) ?? "");
+
+  const [disabledSignals, setDisabledSignals] = useState<Set<string>>(() => loadDisabledSignals());
+  const [sensitivityOpen, setSensitivityOpen] = useState(false);
+  const toggleSignal = (id: string) => {
+    setDisabledSignals((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveDisabledSignals(next);
+      return next;
+    });
+  };
+
+  const [focusedFinding, setFocusedFinding] = useState<Finding | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const showInDocument = (f: Finding) => {
+    if (f.location.paragraphIndex == null) return;
+    setFocusedFinding(f);
+    setPreviewOpen(true);
+  };
 
   const changeProvider = (v: "serper" | "bing") => {
     setSearchProvider(v);
@@ -153,9 +205,12 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
         signal: controller.signal,
         onProgress: setProgress,
         plagiarism: buildPlagiarismOption(),
+        disabledSignals,
       });
       setReport(result);
       setActiveTab("texte");
+      setFocusedFinding(null);
+      setPreviewOpen(false);
       setPhase("report");
     } catch (err) {
       if (controller.signal.aborted) {
@@ -185,6 +240,8 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
     setProgress(null);
     setLoadError(null);
     setPlagiarismEnabled(false);
+    setFocusedFinding(null);
+    setPreviewOpen(false);
   }
 
   const tabs = (() => {
@@ -335,6 +392,13 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               )}
             </div>
 
+            <SensitivitySettings
+              open={sensitivityOpen}
+              onToggleOpen={() => setSensitivityOpen((o) => !o)}
+              disabledSignals={disabledSignals}
+              onToggleSignal={toggleSignal}
+            />
+
             <div className="det-actions">
               <Button variant="outline" onClick={resetAll}>
                 Changer de fichier
@@ -408,6 +472,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                     <CategoryPanel
                       category={cat}
                       metadata={activeTab === "metadonnees" ? report.documentMetadata : undefined}
+                      onShowInDocument={showInDocument}
                     />
                   );
                 })()
@@ -425,6 +490,14 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
           </div>
         )}
       </div>
+
+      {previewOpen && model && (
+        <DocumentPreview
+          paragraphs={model.paragraphs}
+          focused={focusedFinding}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -478,12 +551,18 @@ function severityLabel(s: SignalSeverity): string {
   }
 }
 
-function FindingCard({ finding }: { finding: Finding }) {
+function FindingCard({ finding, onShowInDocument }: { finding: Finding; onShowInDocument?: (f: Finding) => void }) {
+  const canShow = onShowInDocument && finding.location.paragraphIndex != null;
   return (
     <article className="det-finding">
       <div className="det-finding__head">
         <Badge accent={severityAccent(finding.severity)}>{severityLabel(finding.severity)}</Badge>
         <span className="det-finding__location">{finding.location.label}</span>
+        {canShow && (
+          <button type="button" className="det-finding__show" onClick={() => onShowInDocument!(finding)}>
+            <Eye size={13} /> Voir dans le document
+          </button>
+        )}
       </div>
       <h3 className="det-finding__label">{finding.label}</h3>
       <p className="det-finding__explanation">{finding.explanation}</p>
@@ -516,7 +595,15 @@ function MetadataList({ meta }: { meta: DocumentMetadata }) {
   );
 }
 
-function CategoryPanel({ category, metadata }: { category: CategoryReport; metadata?: DocumentMetadata }) {
+function CategoryPanel({
+  category,
+  metadata,
+  onShowInDocument,
+}: {
+  category: CategoryReport;
+  metadata?: DocumentMetadata;
+  onShowInDocument?: (f: Finding) => void;
+}) {
   const findings = sortedFindings(category.findings);
   return (
     <div className="det-category">
@@ -529,8 +616,64 @@ function CategoryPanel({ category, metadata }: { category: CategoryReport; metad
       ) : (
         <div className="det-findings">
           {findings.map((f) => (
-            <FindingCard key={f.id} finding={f} />
+            <FindingCard key={f.id} finding={f} onShowInDocument={onShowInDocument} />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SensitivitySettings({
+  open,
+  onToggleOpen,
+  disabledSignals,
+  onToggleSignal,
+}: {
+  open: boolean;
+  onToggleOpen: () => void;
+  disabledSignals: Set<string>;
+  onToggleSignal: (id: string) => void;
+}) {
+  const grouped = signalsByCategory();
+  const disabledCount = disabledSignals.size;
+  return (
+    <div className="det-sensitivity">
+      <button type="button" className="det-sensitivity__toggle" onClick={onToggleOpen} aria-expanded={open}>
+        <span>
+          Réglages de sensibilité
+          {disabledCount > 0 && <span className="det-sensitivity__count">{disabledCount} désactivé(s)</span>}
+        </span>
+        <span className="det-sensitivity__chevron">{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div className="det-sensitivity__body">
+          <p className="det-sensitivity__hint">
+            Désactivez un signal qui produit trop de faux positifs pour ce type de document (ex. un document
+            technique qui utilise légitimement beaucoup de listes). Un signal désactivé n'apparaît plus dans le
+            rapport et ne compte plus dans le score. Ce choix est mémorisé sur cet appareil.
+          </p>
+          {(Object.keys(CATEGORY_TITLES) as SignalCategory[])
+            .filter((cat) => cat !== "plagiat" && grouped[cat]?.length)
+            .map((cat) => (
+              <div className="det-sensitivity__group" key={cat}>
+                <h4>{CATEGORY_TITLES[cat]}</h4>
+                {grouped[cat].map((entry: SignalCatalogEntry) => (
+                  <label className="checkbox-row det-sensitivity__row" key={entry.id}>
+                    <input
+                      type="checkbox"
+                      checked={!disabledSignals.has(entry.id)}
+                      onChange={() => onToggleSignal(entry.id)}
+                    />
+                    <span>
+                      {entry.label}
+                      {!entry.affectsScore && <span className="det-sensitivity__badge">informatif</span>}
+                      <span className="det-sensitivity__desc">{entry.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ))}
         </div>
       )}
     </div>

@@ -1,0 +1,103 @@
+.det-preview {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 42vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--el-surface);
+  border-left: 1px solid var(--el-border);
+  box-shadow: var(--el-shadow-lg, 0 0 24px rgba(0, 0, 0, 0.25));
+  z-index: 40;
+}
+.det-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--el-border);
+  flex: none;
+}
+.det-preview__head h3 {
+  margin: 0;
+  font-size: var(--el-fs-md);
+  font-weight: var(--el-fw-semibold);
+  color: var(--el-text);
+}
+.det-preview__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 40px;
+}
+.det-preview__para {
+  margin: 0 0 12px;
+  font-size: var(--el-fs-sm);
+  line-height: var(--el-lh-prose);
+  color: var(--el-text-soft);
+  border-radius: var(--el-radius-sm);
+  padding: 2px 6px;
+  transition: background var(--el-motion-base) var(--el-ease-standard);
+}
+.det-preview__para.is-heading {
+  font-weight: var(--el-fw-bold);
+  color: var(--el-text);
+  font-size: var(--el-fs-md);
+}
+.det-preview__para.is-list {
+  padding-left: 18px;
+  position: relative;
+}
+.det-preview__para.is-list::before {
+  content: "•";
+  position: absolute;
+  left: 4px;
+  color: var(--el-text-muted);
+}
+.det-preview__para.is-focused {
+  background: var(--el-primary-50);
+  outline: 1px solid var(--el-primary-100);
+}
+.det-preview__mark {
+  background: var(--el-warning);
+  color: var(--el-warning-bg);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: var(--el-fw-semibold);
+}
+.det-preview__notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--el-radius-md);
+  background: var(--el-surface-2);
+  color: var(--el-text-muted);
+  font-size: var(--el-fs-xs);
+}
+.det-preview__more {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 8px;
+  border: 1px dashed var(--el-border-strong);
+  border-radius: var(--el-radius-md);
+  background: transparent;
+  color: var(--el-primary-text);
+  font-size: var(--el-fs-xs);
+  cursor: pointer;
+}
+.det-preview__more:hover {
+  background: var(--el-surface-2);
+}
+
+@media (max-width: 900px) {
+  .det-preview {
+    width: 100%;
+  }
+}
+
+@media print {
+  .det-preview {
+    display: none !important;
+  }
+}

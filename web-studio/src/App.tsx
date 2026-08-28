@@ -12,6 +12,7 @@ const DriveCloudView = lazy(() => import("./views/DriveCloudView")); // cloud SD
 const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // public share-link opener
 const SignLinkView = lazy(() => import("./drive-cloud/ui/SignLinkView")); // public sign-request opener (Approche A)
 const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
+const DetectorView = lazy(() => import("./detector/ui/DetectorView")); // analyse IA/plagiat, hors bundle principal
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
 import type { Deck } from "./slides/model";
@@ -1490,6 +1491,10 @@ export default function App() {
         <Suspense fallback={<div className="pdf-loading">Chargement de la documentation…</div>}>
           <DocumentationView onHome={() => setMode("home")} />
         </Suspense>
+      ) : mode === "detector" ? (
+        <Suspense fallback={<div className="pdf-loading">Chargement du Détecteur…</div>}>
+          <DetectorView onHome={() => setMode("home")} />
+        </Suspense>
       ) : mode === "home" || !studio ? (
         <HomeView
           onCreate={onCreate}
@@ -1512,6 +1517,7 @@ export default function App() {
           }}
           onOpenDriveCloud={() => setMode("drive-cloud")}
           onOpenDocumentation={() => setMode("documentation")}
+          onOpenDetector={() => setMode("detector")}
           onRecoverDraft={recoverDraft}
           onDownloadDraft={downloadDraft}
           vaultSecret={vaultSecret}

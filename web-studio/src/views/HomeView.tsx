@@ -19,6 +19,7 @@ import {
   Cloud,
   Users,
   BookOpen,
+  ScanSearch,
 } from "lucide-react";
 import { TEMPLATES, type Template } from "../editor/templates";
 import { IMPORT_ACCEPT } from "../format/importers";
@@ -44,6 +45,7 @@ export default function HomeView({
   onNewPdf,
   onOpenDriveCloud,
   onOpenDocumentation,
+  onOpenDetector,
   onRecoverDraft,
   onDownloadDraft,
   vaultSecret,
@@ -56,6 +58,7 @@ export default function HomeView({
   onNewPdf: () => void;
   onOpenDriveCloud: () => void;
   onOpenDocumentation: () => void;
+  onOpenDetector: () => void;
   onRecoverDraft: (id: string) => void;
   onDownloadDraft: (id: string) => void;
   /** Set only when the opt-in local vault (Settings) is configured and unlocked. */
@@ -251,6 +254,26 @@ export default function HomeView({
           </span>
           <span className="home__drive-cta__meta">
             <Users size={16} /> Multi-utilisateurs
+          </span>
+          <span className="app-tile__go">
+            <ArrowRight size={18} />
+          </span>
+        </button>
+      </section>
+
+      <section className="home__section">
+        <button className="home__drive-cta home__drive-cta--detector" onClick={onOpenDetector}>
+          <span className="home__drive-cta__icon">
+            <ScanSearch size={28} />
+          </span>
+          <span className="home__drive-cta__body">
+            <span className="home__drive-cta__title">
+              Détecteur <span className="home__pill">Nouveau</span>
+            </span>
+            <span className="home__drive-cta__desc">
+              Analyse un document (.elium, .docx, .pdf) à la recherche de signaux de rédaction par IA, d'anomalies de
+              mise en forme/métadonnées/images — et, en option, de plagiat sur le web.
+            </span>
           </span>
           <span className="app-tile__go">
             <ArrowRight size={18} />

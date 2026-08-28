@@ -694,6 +694,12 @@
   }
 }
 
+/* Détecteur — même grammaire de carte que le CTA Drive, accent distinct pour
+   ne pas laisser croire à un lien avec le Drive entreprise. */
+.home__drive-cta--detector .home__drive-cta__icon {
+  background: linear-gradient(150deg, #10b981, #047857);
+}
+
 /* Ouvrir / zone de dépôt */
 .dropzone {
   background: var(--surface);

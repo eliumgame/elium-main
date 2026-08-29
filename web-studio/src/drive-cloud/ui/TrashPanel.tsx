@@ -43,8 +43,19 @@ export default function TrashPanel() {
     void reload();
   }, [reload]);
 
+  // `restoreNode`/`purgeNode` used to fail silently (`.catch(() => {})`) — an
+  // admin clicking "Restaurer" on a node they no longer have rights to (e.g.
+  // its key was rotated away) saw nothing happen, with no clue why.
+  const fail = async (title: string, e: unknown) => {
+    await dialogs.alert({ title, message: e instanceof Error ? e.message : "Erreur." });
+  };
+
   const restore = async (e: DriveEntry) => {
-    await d.api.restoreNode(e.id).catch(() => {});
+    try {
+      await d.api.restoreNode(e.id);
+    } catch (err) {
+      await fail("Restauration impossible", err);
+    }
     await reload();
   };
   const purge = async (e: DriveEntry) => {
@@ -57,13 +68,17 @@ export default function TrashPanel() {
       }))
     )
       return;
-    await d.api.purgeNode(e.id).catch(() => {});
+    try {
+      await d.api.purgeNode(e.id);
+    } catch (err) {
+      await fail("Suppression impossible", err);
+    }
     await reload();
   };
 
   if (denied)
     return (
-      <div className="dc-empty-list">
+      <div className="elx-empty">
         <Trash2 size={30} />
         <p>Vous n'avez pas accès à la corbeille de cette organisation.</p>
       </div>
@@ -74,40 +89,40 @@ export default function TrashPanel() {
       <div className="dc-toolbar">
         <span className="muted">{entries.length} élément(s) dans la corbeille</span>
         <div className="dc-toolbar__spacer" />
-        <button className="icon-btn" title="Actualiser" onClick={() => void reload()}>
+        <button className="elx-icon" title="Actualiser" onClick={() => void reload()}>
           <RefreshCw size={15} />
         </button>
       </div>
       {loading ? (
         <p className="muted dc-pad">Chargement…</p>
       ) : entries.length === 0 ? (
-        <div className="dc-empty-list">
+        <div className="elx-empty">
           <Trash2 size={34} />
           <p>La corbeille est vide.</p>
         </div>
       ) : (
-        <table className="dc-table">
+        <table className="dcx-table">
           <thead>
             <tr>
               <th>Nom</th>
               <th>Mis à la corbeille</th>
-              <th className="dc-table__actions">Actions</th>
+              <th className="dcx-col-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {entries.map((e) => (
-              <tr key={e.id} className="dc-row">
-                <td className="dc-row__name" style={{ cursor: "default" }}>
+              <tr key={e.id} className="dcx-row" style={{ cursor: "default" }}>
+                <td className="dcx-row__name">
                   {e.kind === "folder" ? <Folder size={18} className="dc-ic--folder" /> : <FileIcon size={18} />}
                   <span>{e.name}</span>
                 </td>
-                <td className="dc-row__muted">{e.trashedAt ? new Date(e.trashedAt).toLocaleString("fr-FR") : "—"}</td>
-                <td className="dc-row__actions">
-                  <button className="icon-btn" title="Restaurer" onClick={() => void restore(e)}>
+                <td className="dcx-row__muted">{e.trashedAt ? new Date(e.trashedAt).toLocaleString("fr-FR") : "—"}</td>
+                <td className="dcx-row__actions">
+                  <button className="elx-icon" title="Restaurer" onClick={() => void restore(e)}>
                     <RotateCcw size={15} />
                   </button>
                   <button
-                    className="icon-btn icon-btn--danger"
+                    className="elx-icon elx-icon--danger"
                     title="Supprimer définitivement"
                     onClick={() => void purge(e)}
                   >

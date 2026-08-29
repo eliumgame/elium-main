@@ -51,6 +51,8 @@ import {
   LayoutGrid,
   Table as TableIcon,
   BarChart3,
+  LineChart,
+  PieChart,
   Plus as PlusIcon,
   Minus as MinusIcon,
   AlignStartVertical,
@@ -103,17 +105,22 @@ const TRANSITIONS: { value: SlideTransition; label: string }[] = [
   { value: "morph", label: "Morph" },
 ];
 const SHAPES: { kind: ShapeKind; icon: ReactNode; label: string }[] = [
-  { kind: "rect", icon: <Square size={16} />, label: "Rectangle" },
-  { kind: "roundRect", icon: <Square size={16} />, label: "Rectangle arrondi" },
-  { kind: "ellipse", icon: <Circle size={16} />, label: "Ellipse" },
-  { kind: "triangle", icon: <Triangle size={16} />, label: "Triangle" },
-  { kind: "diamond", icon: <Diamond size={16} />, label: "Losange" },
-  { kind: "pentagon", icon: <Hexagon size={16} />, label: "Pentagone" },
-  { kind: "hexagon", icon: <Hexagon size={16} />, label: "Hexagone" },
-  { kind: "star", icon: <Star size={16} />, label: "Étoile" },
-  { kind: "chevron", icon: <ChevronRight size={16} />, label: "Chevron" },
-  { kind: "line", icon: <Minus size={16} />, label: "Trait" },
-  { kind: "arrow", icon: <ArrowRight size={16} />, label: "Flèche" },
+  { kind: "rect", icon: <Square size={18} />, label: "Rectangle" },
+  { kind: "roundRect", icon: <Square size={18} />, label: "Rect. arrondi" },
+  { kind: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
+  { kind: "triangle", icon: <Triangle size={18} />, label: "Triangle" },
+  { kind: "diamond", icon: <Diamond size={18} />, label: "Losange" },
+  { kind: "pentagon", icon: <Hexagon size={18} />, label: "Pentagone" },
+  { kind: "hexagon", icon: <Hexagon size={18} />, label: "Hexagone" },
+  { kind: "star", icon: <Star size={18} />, label: "Étoile" },
+  { kind: "chevron", icon: <ChevronRight size={18} />, label: "Chevron" },
+  { kind: "line", icon: <Minus size={18} />, label: "Trait" },
+  { kind: "arrow", icon: <ArrowRight size={18} />, label: "Flèche" },
+];
+const CHART_KINDS: { kind: ChartKind; icon: ReactNode; label: string }[] = [
+  { kind: "bar", icon: <BarChart3 size={18} />, label: "Barres" },
+  { kind: "line", icon: <LineChart size={18} />, label: "Courbe" },
+  { kind: "pie", icon: <PieChart size={18} />, label: "Camembert" },
 ];
 const TEXT_COLORS = ["#0f172a", "#ffffff", "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#2563eb", "#7c3aed", "#db2777"];
 
@@ -699,17 +706,22 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <Square size={15} /> Forme ▾
             </button>
             {shapeMenu && (
-              <div className="sv-menu__pop" onMouseLeave={() => setShapeMenu(false)}>
+              <div
+                className="sv-menu__pop sv-gallery-pop sv-gallery-pop--shapes"
+                onMouseLeave={() => setShapeMenu(false)}
+              >
                 {SHAPES.map((s) => (
                   <button
                     key={s.kind}
-                    className="sv-menu__item"
+                    className="sv-gallery-item"
+                    title={s.label}
                     onClick={() => {
                       addEl(newShapeElement(s.kind));
                       setShapeMenu(false);
                     }}
                   >
-                    {s.icon} {s.label}
+                    <span className="sv-gallery-icon">{s.icon}</span>
+                    <span className="sv-gallery-label">{s.label}</span>
                   </button>
                 ))}
               </div>
@@ -727,23 +739,22 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <BarChart3 size={15} /> Graphique ▾
             </button>
             {chartInsMenu && (
-              <div className="sv-menu__pop" onMouseLeave={() => setChartInsMenu(false)}>
-                {(
-                  [
-                    ["bar", "Barres"],
-                    ["line", "Courbe"],
-                    ["pie", "Camembert"],
-                  ] as [ChartKind, string][]
-                ).map(([k, label]) => (
+              <div
+                className="sv-menu__pop sv-gallery-pop sv-gallery-pop--charts"
+                onMouseLeave={() => setChartInsMenu(false)}
+              >
+                {CHART_KINDS.map((c) => (
                   <button
-                    key={k}
-                    className="sv-menu__item"
+                    key={c.kind}
+                    className="sv-gallery-item"
+                    title={c.label}
                     onClick={() => {
-                      addEl(newChartElement(k));
+                      addEl(newChartElement(c.kind));
                       setChartInsMenu(false);
                     }}
                   >
-                    {label}
+                    <span className="sv-gallery-icon">{c.icon}</span>
+                    <span className="sv-gallery-label">{c.label}</span>
                   </button>
                 ))}
               </div>

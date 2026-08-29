@@ -424,6 +424,19 @@
   background: var(--primary);
 }
 
+/* Top bar: clusters the theme/transition/background pickers into one visible
+   chip so "réglages de la présentation" reads as a group instead of loose
+   controls floating next to unrelated buttons. */
+.sv-bar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
 /* Background picker + template gallery */
 .sv-bg-pop {
   min-width: 252px;
@@ -536,6 +549,72 @@
 .sv-tpl-item:hover .sv-tpl-preview {
   transform: translateY(-1px);
   box-shadow: 0 5px 12px rgba(2, 6, 23, 0.22);
+}
+
+/* Insert galleries (shapes, chart kinds): icon tiles rather than a plain text
+   list, same grammar as the template gallery above (tile lifts + shadows on
+   hover) so every "pick a visual" menu in the toolbar now reads the same way. */
+.sv-gallery-pop {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+}
+.sv-gallery-pop--shapes {
+  grid-template-columns: repeat(4, 1fr);
+  width: 212px;
+}
+.sv-gallery-pop--charts {
+  grid-template-columns: repeat(3, 1fr);
+  width: 190px;
+}
+.sv-gallery-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 3px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text-soft);
+  transition:
+    background var(--el-motion-fast) var(--el-ease-standard),
+    color var(--el-motion-fast) var(--el-ease-standard);
+}
+.sv-gallery-item:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.sv-gallery-item:hover .sv-gallery-icon {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 10px rgba(2, 6, 23, 0.16);
+}
+.sv-gallery-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: inherit;
+  transition:
+    transform var(--el-motion-fast) var(--el-ease-standard),
+    box-shadow var(--el-motion-fast) var(--el-ease-standard),
+    border-color var(--el-motion-fast) var(--el-ease-standard);
+}
+.sv-gallery-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Table + chart elements */

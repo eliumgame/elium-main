@@ -1038,6 +1038,59 @@
   flex-wrap: wrap;
 }
 
+/* "Gérer les diapositives" dialog: the rail's reorder/duplicate/delete, at a
+   size where a whole deck can be scanned and rearranged without switching
+   slides one at a time. */
+.sv-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sv-manager__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.sv-manager__row.is-active {
+  border-color: var(--primary);
+  background: var(--primary-50, rgba(37, 99, 235, 0.08));
+}
+.sv-manager__preview {
+  position: relative;
+  flex: none;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.12);
+}
+.sv-manager__num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.65);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 17px;
+}
+.sv-manager__actions {
+  display: flex;
+  gap: 2px;
+}
+
 /* --- Presenter ------------------------------------------------------------ */
 .sv-present-canvas {
   position: relative;

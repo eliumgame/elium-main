@@ -67,6 +67,7 @@ import {
   ArrowUp,
   ArrowDown,
   Settings2,
+  GalleryVerticalEnd,
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { Modal, Button } from "../ui/components";
@@ -182,6 +183,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   >(null);
   const [hasClipboard, setHasClipboard] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -1293,6 +1295,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   </div>
                 )}
               </div>
+              <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>
+                <GalleryVerticalEnd size={13} /> Gérer
+              </button>
             </div>
           )}
         </aside>
@@ -1445,6 +1450,61 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 </button>
               </div>
             </section>
+          </div>
+        </Modal>
+      )}
+
+      {managerOpen && (
+        <Modal
+          title="Gérer les diapositives"
+          onClose={() => setManagerOpen(false)}
+          wide
+          footer={
+            <Button variant="primary" onClick={() => setManagerOpen(false)}>
+              Fermer
+            </Button>
+          }
+        >
+          <div className="sv-manager">
+            {deck.slides.map((s, i) => (
+              <div key={s.id} className={`sv-manager__row ${i === activeIdx ? "is-active" : ""}`}>
+                <button
+                  className="sv-manager__preview"
+                  title="Aller à cette diapositive"
+                  onClick={() => {
+                    store.setActive(i);
+                    setManagerOpen(false);
+                  }}
+                >
+                  <span className="sv-manager__num">{i + 1}</span>
+                  <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={160 / REF_H} />
+                </button>
+                <div className="sv-manager__actions">
+                  <button className="icon-btn" title="Monter" disabled={i === 0} onClick={() => store.moveSlide(i, -1)}>
+                    <ArrowUp size={15} />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Descendre"
+                    disabled={i === deck.slides.length - 1}
+                    onClick={() => store.moveSlide(i, 1)}
+                  >
+                    <ArrowDown size={15} />
+                  </button>
+                  <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
+                    <Copy size={15} />
+                  </button>
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    title="Supprimer"
+                    disabled={deck.slides.length <= 1}
+                    onClick={() => store.removeSlide(i)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </Modal>
       )}

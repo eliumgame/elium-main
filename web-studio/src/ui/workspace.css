@@ -629,6 +629,39 @@
   color: var(--x-chrome-text);
   font-size: 12px;
 }
+
+/* Variante « surface claire » : mêmes proportions que `.elx-select`, mais
+   pour un contrôle posé sur `--x-panel` (dialogues) plutôt que sur le chrome
+   sombre (topbar/ruban). `.elx-input` est son équivalent texte libre. */
+.elx-select--surface {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel);
+  color: var(--x-text);
+  font-size: 12.5px;
+}
+.elx-input {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel);
+  color: var(--x-text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.elx-input:focus,
+.elx-select--surface:focus {
+  outline: none;
+  border-color: var(--el-primary);
+  box-shadow: var(--el-ring);
+}
+.elx-input:disabled,
+.elx-select--surface:disabled {
+  opacity: 0.6;
+}
 .pdfx-select--font,
 .elx-select--font {
   max-width: 130px;
@@ -1010,6 +1043,16 @@
 .elx-icon.is-on {
   background: var(--el-primary-100);
   color: var(--el-primary-text);
+}
+.pdfx-icon.elx-icon--danger:hover,
+.elx-icon--danger:hover {
+  background: var(--el-danger-bg);
+  color: var(--el-danger);
+}
+.pdfx-icon:disabled,
+.elx-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .pdfx-empty,
@@ -2611,6 +2654,103 @@
   .dcx-row td:nth-child(3) {
     display: none;
   }
+}
+
+/* --- Drive : dialogues (Partage, Corbeille, Versions, Recouvrement, …) ----
+   Même chrome que le reste du module (`--x-radius`, `.elx-*`) — remplace
+   l'ancien `.dc-modal` (rayon 18px figé, boutons `.eb`/`.icon-btn` génériques). */
+.dcx-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--el-z-modal, 1300);
+  background: rgba(15, 23, 42, 0.5);
+  display: grid;
+  place-items: center;
+  padding: 5vh 16px;
+  backdrop-filter: blur(2px);
+}
+.dcx-modal {
+  width: 100%;
+  max-width: 540px;
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--x-panel);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  box-shadow: var(--x-shadow-pop);
+  padding: 20px;
+  color: var(--x-text);
+}
+.dcx-modal--wide {
+  max-width: 720px;
+}
+.dcx-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.dcx-modal__head h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 17px;
+  margin: 0;
+}
+.dcx-modal__section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--x-line);
+}
+/* En-tête de section : libellé discret, en capitales — reprend le style des
+   groupes du ruban (`.elx-optionbar__title`) pour rester dans le même langage. */
+.dcx-modal__section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--x-mute);
+}
+
+/* Rangée de champs compacts côte à côte (rôle, expiration, mot de passe…),
+   chacun avec son libellé au-dessus — partagée par ShareDialog et les
+   dialogues voisins. */
+.dcx-fieldrow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.dcx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dcx-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--x-mute);
+}
+.dcx-field--grow {
+  flex: 1;
+  min-width: 160px;
+}
+/* Rangée simple d'un formulaire inline (ex. « e-mail + rôle + Partager »). */
+.dcx-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.dcx-inline .elx-input {
+  flex: 1;
+  min-width: 160px;
 }
 
 /* --- Ruban : affordance de défilement -------------------------------------- */

@@ -199,42 +199,42 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
 
   return (
     <div
-      className="dc-modal-overlay"
+      className="dcx-modal-overlay elx"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dc-modal" role="dialog" aria-modal="true">
-        <header className="dc-modal__head">
+      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true">
+        <header className="dcx-modal__head">
           <h2>
             <Share2 size={18} /> Partager « {entry.name} »
           </h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+          <button className="elx-icon" onClick={onClose} aria-label="Fermer">
             <X size={18} />
           </button>
         </header>
 
-        <form className="dc-share-add" onSubmit={addShare}>
+        <form className="dcx-inline" onSubmit={addShare}>
           <input
-            className="input"
+            className="elx-input"
             type="email"
             placeholder="E-mail du membre"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <select className="tool-select" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          <select className="elx-select--surface" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
             {d.roles.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
               </option>
             ))}
           </select>
-          <button className="eb eb--sm eb--primary" disabled={busy || !email.trim()}>
+          <button className="elx-mini elx-mini--primary" disabled={busy || !email.trim()}>
             <UserPlus size={14} /> Partager
           </button>
         </form>
-        {err && <p className="dc-error">{err}</p>}
+        {err && <p className="elx-form__error">{err}</p>}
         {rotating && (
           <p className="muted" role="status" aria-busy="true">
             {rotating}
@@ -247,9 +247,9 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
         )}
 
         {teams.length > 0 && (
-          <div className="dc-share-team">
-            <Users2 size={16} className="dc-invite__ic" />
-            <select className="tool-select" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+          <div className="dcx-inline">
+            <Users2 size={16} style={{ color: "var(--x-mute)", flex: "none" }} />
+            <select className="elx-select--surface" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
               <option value="">Partager avec une équipe…</option>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -257,36 +257,34 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 </option>
               ))}
             </select>
-            <select className="tool-select" value={teamRoleId} onChange={(e) => setTeamRoleId(e.target.value)}>
+            <select className="elx-select--surface" value={teamRoleId} onChange={(e) => setTeamRoleId(e.target.value)}>
               {d.roles.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
                 </option>
               ))}
             </select>
-            <button className="eb eb--sm eb--outline" disabled={busy || !teamId} onClick={() => void shareTeam()}>
+            <button className="elx-mini" disabled={busy || !teamId} onClick={() => void shareTeam()}>
               Partager
             </button>
           </div>
         )}
 
-        <div className="dc-share-list">
-          <h3 className="dc-share-list__title">Accès actuels</h3>
+        <div className="dcx-modal__section">
+          <h3 className="dcx-modal__section-title">Accès actuels</h3>
           {shares.length === 0 ? (
-            <p className="muted">
+            <p className="elx-empty">
               Aucun partage direct. Le propriétaire et le recouvrement d'organisation ont toujours accès.
             </p>
           ) : (
             shares.map((s) => (
-              <div key={s.id} className="dc-share-row">
-                <span className="dc-share-row__name">{s.name}</span>
-                <span className="badge badge--neutral">{s.roleName}</span>
-                <span className="dc-share-row__type">
-                  {s.principalType === "org" ? "recouvrement" : s.principalType}
-                </span>
+              <div key={s.id} className="elx-row">
+                <span className="elx-row__label">{s.name}</span>
+                <span className="elx-chip">{s.roleName}</span>
+                <span className="elx-row__meta">{s.principalType === "org" ? "recouvrement" : s.principalType}</span>
                 {s.principalType !== "org" && (
                   <button
-                    className="icon-btn icon-btn--danger"
+                    className="elx-icon elx-icon--danger"
                     title="Retirer l'accès (rotation des clés)"
                     aria-label={`Retirer l'accès de ${s.name}`}
                     disabled={busy}
@@ -300,14 +298,18 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
           )}
         </div>
 
-        <div className="dc-share-link">
-          <h3 className="dc-share-list__title">
-            <Link2 size={15} /> Lien externe
+        <div className="dcx-modal__section">
+          <h3 className="dcx-modal__section-title">
+            <Link2 size={13} /> Lien externe
           </h3>
-          <div className="dc-share-link__row">
-            <label className="dc-share-link__field">
+          <div className="dcx-fieldrow">
+            <label className="dcx-field">
               <span>Rôle</span>
-              <select className="tool-select" value={linkRoleId} onChange={(e) => setLinkRoleId(e.target.value)}>
+              <select
+                className="elx-select--surface"
+                value={linkRoleId}
+                onChange={(e) => setLinkRoleId(e.target.value)}
+              >
                 {d.roles.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
@@ -315,19 +317,24 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 ))}
               </select>
             </label>
-            <label className="dc-share-link__field">
+            <label className="dcx-field">
               <span>Expiration</span>
-              <select className="tool-select" value={linkExpiry} onChange={(e) => setLinkExpiry(e.target.value)}>
+              <select
+                className="elx-select--surface"
+                value={linkExpiry}
+                onChange={(e) => setLinkExpiry(e.target.value)}
+              >
                 <option value="">Jamais</option>
                 <option value="1">1 jour</option>
                 <option value="7">7 jours</option>
                 <option value="30">30 jours</option>
               </select>
             </label>
-            <label className="dc-share-link__field">
+            <label className="dcx-field">
               <span>Téléchargements max</span>
               <input
-                className="input dc-share-link__num"
+                className="elx-input"
+                style={{ width: 92 }}
                 type="number"
                 min={1}
                 placeholder="∞"
@@ -335,10 +342,11 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 onChange={(e) => setLinkMaxDl(e.target.value)}
               />
             </label>
-            <label className="dc-share-link__field">
+            <label className="dcx-field">
               <span>Mot de passe</span>
               <input
-                className="input dc-share-link__pwd"
+                className="elx-input"
+                style={{ width: 140 }}
                 type="text"
                 placeholder="facultatif"
                 value={linkPassword}
@@ -346,49 +354,41 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
                 autoComplete="off"
               />
             </label>
-            <button
-              className="eb eb--sm eb--outline dc-share-link__create"
-              onClick={() => void makeLink()}
-              disabled={busy}
-            >
+            <button className="elx-mini" style={{ marginLeft: "auto" }} onClick={() => void makeLink()} disabled={busy}>
               <Link2 size={14} /> Créer un lien
             </button>
           </div>
           {linkUrl && (
-            <div className="dc-share-link__out">
-              <input className="input" readOnly value={linkUrl} onFocus={(e) => e.currentTarget.select()} />
-              <button className="icon-btn" title="Copier" onClick={() => copy(linkUrl)}>
+            <div className="dcx-inline" style={{ marginTop: 8, marginBottom: 0 }}>
+              <input className="elx-input" readOnly value={linkUrl} onFocus={(e) => e.currentTarget.select()} />
+              <button className="elx-icon" title="Copier" onClick={() => copy(linkUrl)}>
                 <Copy size={15} />
               </button>
             </div>
           )}
-          <p className="muted dc-share-link__note">
+          <p className="muted" style={{ marginTop: 8, fontSize: 12 }}>
             Le secret de déchiffrement reste dans le fragment <code>#</code> du lien — le serveur ne le voit jamais.
           </p>
 
-          <div className="dc-share-link__list">
-            <h4 className="dc-share-list__title">Liens actifs</h4>
+          <div style={{ marginTop: 16 }}>
+            <h4 className="dcx-modal__section-title">Liens actifs</h4>
             {links.length === 0 ? (
-              <p className="muted">Aucun lien externe actif pour cet élément.</p>
+              <p className="elx-empty">Aucun lien externe actif pour cet élément.</p>
             ) : (
               links.map((l) => (
-                <div key={l.id} className="dc-share-row">
-                  <span className="dc-share-row__name">
-                    Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}
-                  </span>
+                <div key={l.id} className="elx-row">
+                  <span className="elx-row__label">Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}</span>
                   {l.expiresAt && (
-                    <span className="badge badge--neutral">
-                      Expire le {new Date(l.expiresAt).toLocaleDateString("fr-FR")}
-                    </span>
+                    <span className="elx-chip">Expire le {new Date(l.expiresAt).toLocaleDateString("fr-FR")}</span>
                   )}
                   {l.maxDownloads != null && (
-                    <span className="badge badge--neutral">
+                    <span className="elx-chip">
                       {l.downloadCount}/{l.maxDownloads} téléchargement{l.maxDownloads > 1 ? "s" : ""}
                     </span>
                   )}
-                  {l.hasPassword && <span className="badge badge--neutral">Protégé par mot de passe</span>}
+                  {l.hasPassword && <span className="elx-chip">Protégé par mot de passe</span>}
                   <button
-                    className="icon-btn icon-btn--danger"
+                    className="elx-icon elx-icon--danger"
                     title="Révoquer ce lien"
                     aria-label={`Révoquer le lien créé le ${new Date(l.createdAt).toLocaleDateString("fr-FR")}`}
                     disabled={busy}

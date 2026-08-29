@@ -2717,6 +2717,18 @@
   color: var(--x-mute);
 }
 
+/* Pied de dialogue (actions de validation) — même séparateur qu'une section,
+   boutons alignés à droite (Sheet : CondFormatModal, PivotModal, …). */
+.dcx-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--x-line);
+}
+
 /* Rangée de champs compacts côte à côte (rôle, expiration, mot de passe…),
    chacun avec son libellé au-dessus — partagée par ShareDialog et les
    dialogues voisins. */

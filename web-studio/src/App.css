@@ -4219,10 +4219,6 @@
   flex-wrap: wrap;
   margin-top: 12px;
 }
-.cf-style-row .tool-color,
-.cf-scale-row .tool-color {
-  border: 1px solid var(--border);
-}
 .cf-mid-toggle {
   margin-top: 0;
 }
@@ -4267,11 +4263,6 @@
   font-size: 13px;
   color: var(--text-soft);
 }
-.cf-empty {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 6px 0 0;
-}
 .pivot-form {
   display: flex;
   flex-direction: column;
@@ -4289,7 +4280,7 @@
   font-weight: 600;
   color: var(--text-soft);
 }
-.pivot-row .settings__select {
+.pivot-row .elx-select--surface {
   width: 100%;
 }
 .sheet-tabs {

@@ -1,64 +1,72 @@
 /**
- * Panneau latéral : relit le `DocumentModel` en texte simple et surligne
- * l'emplacement exact d'un `Finding` (le paragraphe entier, et en plus la
- * sous-chaîne précise quand `finding.evidence` se retrouve littéralement dans
- * le texte du paragraphe). Fenêtré (voir `previewWindow.ts`) pour rester
- * fluide sur un document de plusieurs centaines de pages.
+ * Panneau latéral : relit le `DocumentModel` en texte simple, propre (pas de
+ * gros bloc de fond), et souligne en rouge ondulé — même langage visuel que
+ * les soulignements du correcteur dans l'éditeur (`editor/proofingExtension.ts`)
+ * — chaque passage repéré par le rapport, pas seulement celui sur lequel on
+ * vient de cliquer. « Voir dans le document » scrolle vers le bon paragraphe
+ * et lui applique un bref flash, sans altérer durablement la lecture.
+ * Fenêtré (voir `previewWindow.ts`) pour rester fluide sur un document de
+ * plusieurs centaines de pages.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../ui/components";
-import type { Finding, ParagraphModel } from "../types";
+import type { ParagraphModel } from "../types";
 import { ensureCovers, windowAround, expandStart, expandEnd, type PreviewWindow } from "./previewWindow";
+import { flagsByParagraph, segmentParagraph, type PreviewFlag } from "./previewFlags";
 import "./DocumentPreview.css";
 
 export default function DocumentPreview({
   paragraphs,
-  focused,
+  flags,
+  focusedId,
   onClose,
 }: {
   paragraphs: ParagraphModel[];
-  focused: Finding | null;
+  flags: PreviewFlag[];
+  focusedId: string | null;
   onClose: () => void;
 }) {
   const total = paragraphs.length;
-  const [win, setWin] = useState<PreviewWindow>(() =>
-    windowAround(total, focused?.location.paragraphIndex ?? 0),
-  );
+  const focused = flags.find((f) => f.id === focusedId) ?? null;
+  const [win, setWin] = useState<PreviewWindow>(() => windowAround(total, focused?.paragraphIndex ?? 0));
   const paraRefs = useRef<Map<number, HTMLElement>>(new Map());
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const grouped = useMemo(() => flagsByParagraph(flags), [flags]);
+  const [flashIndex, setFlashIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    const target = focused?.location.paragraphIndex;
+    const target = focused?.paragraphIndex;
     if (target == null) return;
     setWin((w) => ensureCovers(w, total, target));
-    // Le nœud cible n'existe pas forcément encore dans le DOM tant que la
-    // fenêtre n'a pas été étendue et re-rendue — un micro-délai suffit ici,
-    // le scroll n'a pas besoin d'être synchrone avec le clic.
     const t = setTimeout(() => {
       paraRefs.current.get(target)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFlashIndex(target);
     }, 30);
-    return () => clearTimeout(t);
+    const clear = setTimeout(() => setFlashIndex(null), 1800);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(clear);
+    };
   }, [focused, total]);
 
-  const focusedIndex = focused?.location.paragraphIndex;
   const visible = paragraphs.slice(win.start, win.end);
 
   return (
     <aside className="det-preview" aria-label="Aperçu du document">
       <div className="det-preview__head">
-        <h3>Aperçu du document</h3>
+        <div>
+          <h3>Aperçu du document</h3>
+          {flags.length > 0 && (
+            <p className="det-preview__head-hint">{flags.length} passage(s) repéré(s), soulignés en rouge</p>
+          )}
+        </div>
         <Button variant="ghost" size="sm" onClick={onClose}>
           <X size={15} /> Fermer
         </Button>
       </div>
-      <div className="det-preview__body" ref={bodyRef}>
+      <div className="det-preview__body">
         {win.start > 0 && (
-          <button
-            type="button"
-            className="det-preview__more"
-            onClick={() => setWin((w) => expandStart(w, total))}
-          >
+          <button type="button" className="det-preview__more" onClick={() => setWin((w) => expandStart(w, total))}>
             Charger les paragraphes précédents ({win.start} restants)
           </button>
         )}
@@ -69,7 +77,7 @@ export default function DocumentPreview({
           </p>
         )}
         {visible.map((p) => {
-          const isFocused = p.index === focusedIndex;
+          const paraFlags = grouped.get(p.index);
           return (
             <p
               key={p.index}
@@ -79,14 +87,14 @@ export default function DocumentPreview({
               }}
               className={[
                 "det-preview__para",
-                isFocused ? "is-focused" : "",
                 p.heading ? "is-heading" : "",
                 p.listItem ? "is-list" : "",
+                flashIndex === p.index ? "is-flash" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
             >
-              {renderWithEvidence(p.text, isFocused ? focused?.evidence : undefined)}
+              {renderParagraph(p.text, paraFlags)}
             </p>
           );
         })}
@@ -100,16 +108,17 @@ export default function DocumentPreview({
   );
 }
 
-function renderWithEvidence(text: string, evidence: string | undefined): ReactNode {
-  if (!text) return " ";
-  if (!evidence) return text;
-  const idx = text.indexOf(evidence);
-  if (idx === -1) return text;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="det-preview__mark">{text.slice(idx, idx + evidence.length)}</mark>
-      {text.slice(idx + evidence.length)}
-    </>
+function renderParagraph(text: string, flags: PreviewFlag[] | undefined): ReactNode {
+  if (!text) return " ";
+  if (!flags || flags.length === 0) return text;
+  const segments = segmentParagraph(text, flags);
+  return segments.map((seg, i) =>
+    seg.flagged ? (
+      <span key={i} className="det-preview__flag" title={seg.labels?.join(" · ")}>
+        {seg.text}
+      </span>
+    ) : (
+      <span key={i}>{seg.text}</span>
+    ),
   );
 }

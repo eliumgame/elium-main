@@ -6,7 +6,7 @@
  * `runAnalysis` que si l'utilisateur a coché la case ET saisi une clé — impossible
  * à déclencher par accident (voir `buildPlagiarismOption`).
  */
-import { useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Eye, ExternalLink, FileText, Loader2, UploadCloud } from "lucide-react";
 import { Alert, Badge, Button, EmptyState, Field } from "../../ui/components";
 import { Tabs } from "../../ui/components";
@@ -32,6 +32,7 @@ import { runAnalysis } from "../runAnalysis";
 import { createBingProvider, createSerperProvider } from "../plagiarism/searchProviders";
 import { signalsByCategory, type SignalCatalogEntry } from "../signalCatalog";
 import DocumentPreview from "./DocumentPreview";
+import type { PreviewFlag } from "./previewFlags";
 import "./DetectorView.css";
 
 const CATEGORY_TITLES: Record<SignalCategory, string> = {
@@ -53,6 +54,30 @@ function loadDisabledSignals(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/** Tous les points repérés du rapport, quelle que soit la catégorie active à
+ *  l'écran — l'aperçu souligne le document dans son ensemble, pas seulement
+ *  l'onglet ouvert. */
+function buildPreviewFlags(report: AnalysisReport): PreviewFlag[] {
+  const flags: PreviewFlag[] = [];
+  for (const cat of report.categories) {
+    for (const f of cat.findings) {
+      if (f.location.paragraphIndex == null) continue;
+      flags.push({ id: f.id, paragraphIndex: f.location.paragraphIndex, label: f.label, evidence: f.evidence });
+    }
+  }
+  if (report.plagiarism) {
+    report.plagiarism.matches.forEach((m, i) => {
+      flags.push({
+        id: `plagiat-${m.paragraphIndex}-${i}`,
+        paragraphIndex: m.paragraphIndex,
+        label: `Correspondance possible avec ${m.sourceTitle || m.url}`,
+        evidence: m.passage,
+      });
+    });
+  }
+  return flags;
 }
 
 function saveDisabledSignals(set: Set<string>): void {
@@ -117,11 +142,12 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
     });
   };
 
-  const [focusedFinding, setFocusedFinding] = useState<Finding | null>(null);
+  const [focusedFlagId, setFocusedFlagId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const showInDocument = (f: Finding) => {
-    if (f.location.paragraphIndex == null) return;
-    setFocusedFinding(f);
+  const previewFlags = useMemo(() => (report ? buildPreviewFlags(report) : []), [report]);
+  const showInDocument = (id: string, paragraphIndex: number | undefined) => {
+    if (paragraphIndex == null) return;
+    setFocusedFlagId(id);
     setPreviewOpen(true);
   };
 
@@ -209,7 +235,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
       });
       setReport(result);
       setActiveTab("texte");
-      setFocusedFinding(null);
+      setFocusedFlagId(null);
       setPreviewOpen(false);
       setPhase("report");
     } catch (err) {
@@ -240,7 +266,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
     setProgress(null);
     setLoadError(null);
     setPlagiarismEnabled(false);
-    setFocusedFinding(null);
+    setFocusedFlagId(null);
     setPreviewOpen(false);
   }
 
@@ -463,7 +489,11 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
 
             <div className="det-tabpanel">
               {activeTab === "plagiat" && report.plagiarism ? (
-                <PlagiarismPanel result={report.plagiarism} totalParagraphs={model?.paragraphs.length ?? 0} />
+                <PlagiarismPanel
+                  result={report.plagiarism}
+                  totalParagraphs={model?.paragraphs.length ?? 0}
+                  onShowInDocument={showInDocument}
+                />
               ) : (
                 (() => {
                   const cat = report.categories.find((c) => c.category === activeTab);
@@ -494,7 +524,8 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
       {previewOpen && model && (
         <DocumentPreview
           paragraphs={model.paragraphs}
-          focused={focusedFinding}
+          flags={previewFlags}
+          focusedId={focusedFlagId}
           onClose={() => setPreviewOpen(false)}
         />
       )}
@@ -551,7 +582,13 @@ function severityLabel(s: SignalSeverity): string {
   }
 }
 
-function FindingCard({ finding, onShowInDocument }: { finding: Finding; onShowInDocument?: (f: Finding) => void }) {
+function FindingCard({
+  finding,
+  onShowInDocument,
+}: {
+  finding: Finding;
+  onShowInDocument?: (id: string, paragraphIndex: number | undefined) => void;
+}) {
   const canShow = onShowInDocument && finding.location.paragraphIndex != null;
   return (
     <article className="det-finding">
@@ -559,7 +596,11 @@ function FindingCard({ finding, onShowInDocument }: { finding: Finding; onShowIn
         <Badge accent={severityAccent(finding.severity)}>{severityLabel(finding.severity)}</Badge>
         <span className="det-finding__location">{finding.location.label}</span>
         {canShow && (
-          <button type="button" className="det-finding__show" onClick={() => onShowInDocument!(finding)}>
+          <button
+            type="button"
+            className="det-finding__show"
+            onClick={() => onShowInDocument!(finding.id, finding.location.paragraphIndex)}
+          >
             <Eye size={13} /> Voir dans le document
           </button>
         )}
@@ -602,7 +643,7 @@ function CategoryPanel({
 }: {
   category: CategoryReport;
   metadata?: DocumentMetadata;
-  onShowInDocument?: (f: Finding) => void;
+  onShowInDocument?: (id: string, paragraphIndex: number | undefined) => void;
 }) {
   const findings = sortedFindings(category.findings);
   return (
@@ -683,9 +724,11 @@ function SensitivitySettings({
 function PlagiarismPanel({
   result,
   totalParagraphs,
+  onShowInDocument,
 }: {
   result: NonNullable<AnalysisReport["plagiarism"]>;
   totalParagraphs: number;
+  onShowInDocument?: (id: string, paragraphIndex: number | undefined) => void;
 }): ReactNode {
   return (
     <div className="det-category">
@@ -702,6 +745,15 @@ function PlagiarismPanel({
               <div className="det-finding__head">
                 <Badge accent="warning">{Math.round(m.similarity * 100)}% de similarité</Badge>
                 <span className="det-finding__location">Paragraphe {m.paragraphIndex + 1}</span>
+                {onShowInDocument && (
+                  <button
+                    type="button"
+                    className="det-finding__show"
+                    onClick={() => onShowInDocument(`plagiat-${m.paragraphIndex}-${i}`, m.paragraphIndex)}
+                  >
+                    <Eye size={13} /> Voir dans le document
+                  </button>
+                )}
               </div>
               <h3 className="det-finding__label">{m.sourceTitle || m.url}</h3>
               <blockquote className="det-finding__evidence">{m.passage}</blockquote>

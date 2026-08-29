@@ -2,11 +2,11 @@
 import "./pdfjs-node-shim";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import { documentModelFromProseMirrorDoc } from "../src/detector/ingest/fromProseMirror";
-import { documentModelFromPdf } from "../src/detector/ingest/fromPdf";
+import { documentModelFromPdf, withTimeout, IMAGE_EXTRACTION_TIMEOUT_MS } from "../src/detector/ingest/fromPdf";
 import { PdfPasswordRequired } from "../src/pdf/core/engine";
 import { protectDocument } from "../src/pdf/ops/security";
 import type { ProseMirrorNode } from "../src/format/types";
@@ -328,6 +328,39 @@ describe("documentModelFromPdf — images", () => {
     expect(images[0].width).toBe(16);
     expect(images[0].height).toBe(12);
     expect(images[0].bytes).toEqual(jpegBytes());
+  });
+});
+
+// L'extraction d'images (pdf-lib) s'est mesurée à largement plus de 30s sur un
+// document réel volumineux en conditions dégradées, alors que l'extraction de
+// texte (pdf.js) du même fichier prenait moins d'une seconde — sans qu'aucune
+// page ne soit individuellement en cause (voir fromPdf.ts). withTimeout borne
+// cette attente pour que l'analyse ne reste jamais bloquée indéfiniment.
+describe("withTimeout — borne l'extraction d'images pour ne jamais bloquer l'analyse", () => {
+  it("résout avec la valeur de la promesse quand elle se règle avant l'échéance", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 1000)).resolves.toBe("ok");
+  });
+
+  it("propage un vrai rejet de la promesse enveloppée avant l'échéance", async () => {
+    await expect(withTimeout(Promise.reject(new Error("boom")), 1000)).rejects.toThrow("boom");
+  });
+
+  it("rejette une fois l'échéance atteinte, même si la promesse enveloppée ne se règle jamais", async () => {
+    vi.useFakeTimers();
+    try {
+      const neverResolves = new Promise(() => {});
+      const result = withTimeout(neverResolves, 5000);
+      const assertion = expect(result).rejects.toThrow(/Délai dépassé/);
+      await vi.advanceTimersByTimeAsync(5000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("IMAGE_EXTRACTION_TIMEOUT_MS est un budget raisonnable et borné", () => {
+    expect(IMAGE_EXTRACTION_TIMEOUT_MS).toBeGreaterThan(1000);
+    expect(IMAGE_EXTRACTION_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
   });
 });
 

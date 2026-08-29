@@ -21,6 +21,15 @@
  * réduction de portée acceptable plutôt qu'une lacune. Best effort : une
  * image individuelle qui ne s'extrait pas proprement est sautée, jamais
  * fatale pour le reste du document.
+ *
+ * `PDFDocument.load` (pdf-lib) fait un parsing JS pur, complet et synchrone
+ * de tout l'objet PDF — sur un document réel volumineux/complexe, mesuré en
+ * pratique à largement plus de 30s dans certains environnements (contre
+ * <1s pour l'extraction de texte pdf.js du même fichier), sans qu'aucune
+ * page individuelle ne soit en cause. C'est un budget de temps, pas une
+ * fonctionnalité : `IMAGE_EXTRACTION_TIMEOUT_MS` borne l'attente pour que
+ * l'analyse ne reste jamais bloquée indéfiniment sur cette seule étape —
+ * au pire on perd les signaux image, jamais l'analyse entière.
  */
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
 import { PdfEngine } from "../../pdf/core/engine";
@@ -115,6 +124,27 @@ function parsePdfInfoDate(raw: string | undefined): string | undefined {
 // Images (JPEG / DCTDecode uniquement)
 // ---------------------------------------------------------------------------
 
+export const IMAGE_EXTRACTION_TIMEOUT_MS = 10_000;
+
+/** Résout avec `promise`, ou rejette après `ms` — `promise` elle-même continue
+ *  en arrière-plan (pdf-lib n'offre pas d'annulation) mais son résultat est
+ *  alors ignoré : on n'attend juste plus après elle. */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Délai dépassé (${ms}ms)`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function extractImages(bytes: Uint8Array, pageCount: number): Promise<ImageModel[]> {
   const images: ImageModel[] = [];
   let doc: PDFDocument;
@@ -122,8 +152,14 @@ async function extractImages(bytes: Uint8Array, pageCount: number): Promise<Imag
     // ignoreEncryption: un PDF chiffré n'est de toute façon pas exploitable
     // par pdf-lib (il ne déchiffre pas les flux) — sans cette option `load`
     // lèverait avant même qu'on ait la chance de le constater nous-mêmes et
-    // de simplement renvoyer une liste d'images vide.
-    doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+    // de simplement renvoyer une liste d'images vide. Le timeout couvre le cas
+    // (mesuré sur un document réel) où ce parsing devient disproportionnellement
+    // lent — mieux vaut un rapport sans signaux image qu'une analyse qui ne
+    // se termine jamais.
+    doc = await withTimeout(
+      PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }),
+      IMAGE_EXTRACTION_TIMEOUT_MS,
+    );
   } catch {
     return images;
   }

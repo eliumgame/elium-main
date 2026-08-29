@@ -2,6 +2,10 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { generateRecipientKeypair } from "../src/crypto/recipients";
+import { generateNodeKey, wrapNodeKeyFor, encryptName, encryptContent } from "../src/drive-cloud/node-crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +33,45 @@ async function expectNoSeriousViolations(page: Page, label: string) {
     )
     .join("\n");
   expect(blocking, `Violations axe-core sérieuses/critiques sur "${label}":\n${detail}`).toEqual([]);
+}
+
+/**
+ * SignLinkView (signataire externe, sans compte) résout un token contre le
+ * serveur Drive et déchiffre le document dans le navigateur — il n'y a pas de
+ * mode "hors-ligne" pour l'atteindre. On simule donc le serveur : fabrique une
+ * VRAIE enveloppe chiffrée (même crypto que la production — node-crypto.ts /
+ * crypto/recipients.ts) pour un lien de signature PDF, puis intercepte les
+ * deux routes publiques qu'`openSignLink` (drive-cloud/ops.ts) appelle. Le
+ * secret de déchiffrement voyage dans le fragment d'URL, jamais envoyé au
+ * serveur (ni ici à l'interception réseau) — cohérent avec l'invariant réel.
+ */
+async function mockSignLink(page: Page, opts: { name: string; bytes: Uint8Array }): Promise<string> {
+  const kp = await generateRecipientKeypair();
+  const nodeKey = generateNodeKey();
+  const wrappedKey = await wrapNodeKeyFor(nodeKey, kp.publicHex);
+  const encName = await encryptName(nodeKey, opts.name);
+  const content = await encryptContent(nodeKey, opts.bytes);
+  const token = randomUUID();
+
+  await page.route(`**/api/links/${token}`, (route) =>
+    route.fulfill({
+      json: {
+        node: { kind: "file", hasContent: true, nameEncrypted: encName.nameEncrypted, nameNonce: encName.nameNonce },
+        wrappedKey,
+        hasPassword: false,
+        roleKey: "signer",
+      },
+    }),
+  );
+  await page.route(`**/api/links/${token}/content`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/octet-stream",
+      headers: { "x-content-nonce": content.nonceHex },
+      body: Buffer.from(content.ciphertext),
+    }),
+  );
+  return `/?sign=${token}#k=${kp.privateHex}.${kp.publicHex}`;
 }
 
 test.describe("Accessibilité (axe-core) — vues clés", () => {
@@ -94,5 +137,23 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
     await page.getByRole("button", { name: "Documentation", exact: true }).click();
     await expect(page.locator(".doc-body")).toBeVisible();
     await expectNoSeriousViolations(page, "Documentation");
+  });
+
+  test("Signature à distance (lien externe, sans compte)", async ({ page }) => {
+    const bytes = await readFile(path.join(__dirname, "fixtures", "minimal.pdf"));
+    const url = await mockSignLink(page, { name: "Contrat.pdf", bytes: new Uint8Array(bytes) });
+    await page.goto(url);
+    await expect(page.getByRole("heading", { name: "Contrat.pdf" })).toBeVisible();
+    await expectNoSeriousViolations(page, "Signature à distance (lien externe)");
+  });
+
+  test("Signature à distance — placement de la signature sur le PDF", async ({ page }) => {
+    const bytes = await readFile(path.join(__dirname, "fixtures", "minimal.pdf"));
+    const url = await mockSignLink(page, { name: "Contrat.pdf", bytes: new Uint8Array(bytes) });
+    await page.goto(url);
+    await page.getByLabel("Votre nom").fill("Alix Martin");
+    await page.getByRole("checkbox", { name: /Placer ma signature/ }).click();
+    await expect(page.getByAltText("Page 1 du document à signer")).toBeVisible();
+    await expectNoSeriousViolations(page, "Signature à distance (placement)");
   });
 });

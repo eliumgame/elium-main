@@ -129,6 +129,7 @@ describe("buildReportDoc — structure générale", () => {
       baseReport({
         plagiarism: {
           checkedPassages: 5,
+          failedPassages: 0,
           provider: "Serper",
           matches: [{ paragraphIndex: 0, passage: "extrait suspect", url: "https://exemple.test/a", sourceTitle: "Source A", similarity: 0.87 }],
         },
@@ -140,6 +141,58 @@ describe("buildReportDoc — structure générale", () => {
     expect(texts).toContain("Plagiat");
     expect(texts).toContain("87% de similarité");
     expect(texts).toContain("extrait suspect");
+  });
+
+  it("signale clairement quand la vérification a totalement échoué, pour ne pas la confondre avec un document propre", () => {
+    const doc = buildReportDoc(
+      baseReport({
+        plagiarism: {
+          checkedPassages: 12,
+          failedPassages: 12,
+          lastError: "Clé API invalide ou quota dépassé (Serper)",
+          provider: "Serper",
+          matches: [],
+        },
+      }),
+      { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
+      "x.docx",
+    );
+    const texts = flatten(doc).map(textNodesOf).join(" | ");
+    expect(texts).toContain("Vérification impossible");
+    expect(texts).toContain("Clé API invalide ou quota dépassé (Serper)");
+    expect(texts).toContain("ne signifie pas que le document est propre");
+  });
+
+  it("signale un échec partiel sans le confondre avec un échec total", () => {
+    const doc = buildReportDoc(
+      baseReport({
+        plagiarism: {
+          checkedPassages: 10,
+          failedPassages: 3,
+          provider: "Serper",
+          matches: [],
+        },
+      }),
+      { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
+      "x.docx",
+    );
+    const texts = flatten(doc).map(textNodesOf).join(" | ");
+    expect(texts).toContain("Vérification partielle");
+    expect(texts).toContain("3 vérification(s) sur 10");
+    expect(texts).not.toContain("Vérification impossible");
+  });
+
+  it("n'affiche aucun avertissement quand tout s'est bien passé", () => {
+    const doc = buildReportDoc(
+      baseReport({
+        plagiarism: { checkedPassages: 8, failedPassages: 0, provider: "Serper", matches: [] },
+      }),
+      { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
+      "x.docx",
+    );
+    const texts = flatten(doc).map(textNodesOf).join(" | ");
+    expect(texts).not.toContain("Vérification impossible");
+    expect(texts).not.toContain("Vérification partielle");
   });
 });
 

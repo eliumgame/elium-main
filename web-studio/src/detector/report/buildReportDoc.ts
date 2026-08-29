@@ -128,16 +128,41 @@ export function buildReportDoc(report: AnalysisReport, model: DocumentModel, fil
   }
 
   if (report.plagiarism) {
+    const { checkedPassages, failedPassages, lastError, matches: plagiarismMatches, provider } = report.plagiarism;
+    const allFailed = failedPassages > 0 && failedPassages === checkedPassages;
+    const somePassagesFailed = failedPassages > 0 && !allFailed;
+
     content.push(heading(2, `${CATEGORY_TITLES.plagiat}`));
-    content.push(
-      paragraph(
-        `${report.plagiarism.checkedPassages} passage(s) vérifié(s), ${report.plagiarism.matches.length} correspondance(s) trouvée(s) via ${report.plagiarism.provider}.`,
-      ),
-    );
-    if (report.plagiarism.matches.length === 0) {
+    if (allFailed) {
+      content.push(
+        {
+          type: "paragraph",
+          content: [
+            ...bold(
+              `[Vérification impossible] Les ${failedPassages} tentative(s) ont toutes échoué${lastError ? ` (${lastError})` : ""}. `,
+            )!,
+            {
+              type: "text",
+              text: "« Aucune correspondance » ci-dessous ne signifie pas que le document est propre : il n'a en réalité pas pu être vérifié.",
+            },
+          ],
+        },
+      );
+    } else if (somePassagesFailed) {
+      content.push(
+        {
+          type: "paragraph",
+          content: bold(
+            `[Vérification partielle] ${failedPassages} vérification(s) sur ${checkedPassages} ont échoué${lastError ? ` (${lastError})` : ""} et ne sont pas prises en compte ci-dessous.`,
+          ),
+        },
+      );
+    }
+    content.push(paragraph(`${checkedPassages} passage(s) vérifié(s), ${plagiarismMatches.length} correspondance(s) trouvée(s) via ${provider}.`));
+    if (plagiarismMatches.length === 0) {
       content.push(paragraph("Aucune correspondance trouvée sur le web.", { muted: true }));
     }
-    for (const m of report.plagiarism.matches) content.push(...plagiarismMatchBlock(m));
+    for (const m of plagiarismMatches) content.push(...plagiarismMatchBlock(m));
   }
 
   content.push(heading(1, "Document analysé (annoté)"));

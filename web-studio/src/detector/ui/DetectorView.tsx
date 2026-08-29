@@ -744,14 +744,37 @@ function PlagiarismPanel({
   totalParagraphs: number;
   onShowInDocument?: (id: string, paragraphIndex: number | undefined) => void;
 }): ReactNode {
+  const allFailed = result.failedPassages > 0 && result.failedPassages === result.checkedPassages;
+  const somePassagesFailed = result.failedPassages > 0 && !allFailed;
+  const verifiedPassages = result.checkedPassages - result.failedPassages;
+
   return (
     <div className="det-category">
+      {allFailed && (
+        <Alert tone="danger" title="Vérification impossible">
+          Les {result.failedPassages} tentative(s) de vérification ont toutes échoué
+          {result.lastError ? ` (${result.lastError})` : ""} — probablement une clé API invalide ou un quota
+          dépassé. « Aucune correspondance trouvée » ci-dessous ne veut pas dire que le document est propre : il
+          n'a en réalité pas pu être vérifié du tout.
+        </Alert>
+      )}
+      {somePassagesFailed && (
+        <Alert tone="warning" title="Vérification partielle">
+          {result.failedPassages} vérification(s) sur {result.checkedPassages} ont échoué
+          {result.lastError ? ` (${result.lastError})` : ""} et n'ont pas pu être prises en compte. Le résultat
+          ci-dessous ne porte que sur les {verifiedPassages} passage(s) effectivement vérifié(s).
+        </Alert>
+      )}
       <p className="det-plagiarism-summary">
         {result.checkedPassages} passage(s) vérifié(s) sur {totalParagraphs} paragraphe(s) du document,{" "}
         {result.matches.length} correspondance(s) trouvée(s) via {result.provider}.
       </p>
       {result.matches.length === 0 ? (
-        <EmptyState title="Aucune correspondance trouvée sur le web." />
+        <EmptyState
+          title={
+            allFailed ? "Aucune correspondance — mais la vérification a échoué, voir ci-dessus." : "Aucune correspondance trouvée sur le web."
+          }
+        />
       ) : (
         <div className="det-findings">
           {result.matches.map((m, i) => (

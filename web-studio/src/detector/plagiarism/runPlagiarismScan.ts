@@ -43,6 +43,8 @@ export async function runPlagiarismScan(
   const total = passages.length;
   const matches: PlagiarismMatch[] = [];
   let processed = 0;
+  let failed = 0;
+  let lastError: string | undefined;
   let aborted = signal?.aborted ?? false;
 
   const checkPassage = async (passage: SelectedPassage): Promise<void> => {
@@ -67,9 +69,14 @@ export async function runPlagiarismScan(
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) {
         aborted = true;
+      } else {
+        // A non-abort failure (rate limit, transient network error, invalid
+        // key) only drops this one passage — the rest of the scan still runs
+        // — but it's tracked so the caller can tell "verified clean" apart
+        // from "couldn't verify".
+        failed++;
+        lastError = err instanceof Error ? err.message : String(err);
       }
-      // A non-abort failure (rate limit, transient network error) only drops
-      // this one passage — the rest of the scan still runs.
     } finally {
       processed++;
       opts.onProgress?.(processed, total);
@@ -89,6 +96,8 @@ export async function runPlagiarismScan(
 
   return {
     checkedPassages: processed,
+    failedPassages: failed,
+    ...(lastError != null && { lastError }),
     matches,
     provider: provider.name,
   };

@@ -146,6 +146,13 @@ export interface PlagiarismMatch {
 
 export interface PlagiarismScanResult {
   checkedPassages: number;
+  /** Among `checkedPassages`, how many failed outright (network error, invalid
+   *  API key, quota exceeded) rather than succeeding with zero matching
+   *  results. A high count here means "couldn't verify", not "verified clean". */
+  failedPassages: number;
+  /** One representative error message from a failed passage, if any — surfaced
+   *  to help distinguish "clé API invalide" from a generic network hiccup. */
+  lastError?: string;
   matches: PlagiarismMatch[];
   provider: string;
 }

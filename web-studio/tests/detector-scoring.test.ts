@@ -247,6 +247,7 @@ describe("computeReport — le plagiat traverse tel quel, jamais mélangé au sc
   it("plagiarism est retransmis strictement identique (même référence) et exclu du calcul de overallScore", () => {
     const plagiarism: PlagiarismScanResult = {
       checkedPassages: 5,
+      failedPassages: 0,
       matches: [
         {
           paragraphIndex: 2,

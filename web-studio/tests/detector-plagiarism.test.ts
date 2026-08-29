@@ -238,6 +238,45 @@ describe("runPlagiarismScan", () => {
     expect(result.matches).toEqual([]);
   });
 
+  it("tracks failed passages separately from successful ones with zero matches, and never counts a failure as an abort", async () => {
+    const paragraphs = Array.from({ length: 4 }, (_, i) => para(i, distinctiveParagraph(i)));
+    const provider = fakeProvider("Fake", async () => {
+      throw new Error("Clé API invalide ou quota dépassé (Serper)");
+    });
+
+    const result = await runPlagiarismScan(paragraphs, provider);
+
+    expect(result.checkedPassages).toBe(4);
+    expect(result.failedPassages).toBe(4);
+    expect(result.matches).toEqual([]);
+    expect(result.lastError).toBe("Clé API invalide ou quota dépassé (Serper)");
+  });
+
+  it("only counts genuine failures, not the passages that succeeded with zero results", async () => {
+    const paragraphs = Array.from({ length: 4 }, (_, i) => para(i, distinctiveParagraph(i)));
+    let call = 0;
+    const provider = fakeProvider("Fake", async () => {
+      call++;
+      if (call === 1) throw new Error("Échec de la recherche (Serper) : le service a répondu avec le code 500");
+      return [];
+    });
+
+    const result = await runPlagiarismScan(paragraphs, provider);
+
+    expect(result.checkedPassages).toBe(4);
+    expect(result.failedPassages).toBe(1);
+  });
+
+  it("does not report a lastError, and reports zero failedPassages, when nothing fails", async () => {
+    const paragraphs = Array.from({ length: 3 }, (_, i) => para(i, distinctiveParagraph(i)));
+    const provider = fakeProvider("Fake", async () => []);
+
+    const result = await runPlagiarismScan(paragraphs, provider);
+
+    expect(result.failedPassages).toBe(0);
+    expect(result.lastError).toBeUndefined();
+  });
+
   it("stops early on a mid-scan abort and returns what was gathered so far, without throwing", async () => {
     const paragraphs = Array.from({ length: 10 }, (_, i) => para(i, distinctiveParagraph(i)));
     const controller = new AbortController();
@@ -252,6 +291,7 @@ describe("runPlagiarismScan", () => {
       signal: controller.signal,
       concurrency: 1,
     });
+    expect(result.failedPassages).toBe(0); // an abort is a deliberate cancellation, never a failure
 
     expect(calls).toBe(1);
     expect(result.checkedPassages).toBe(1);

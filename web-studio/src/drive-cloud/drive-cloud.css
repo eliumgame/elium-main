@@ -2317,7 +2317,7 @@
   font-size: 13px;
 }
 .dc-sign-ok {
-  color: #16a34a;
+  color: var(--success);
   flex: none;
 }
 .dc-sign-wait {
@@ -2325,7 +2325,7 @@
   flex: none;
 }
 .dc-sign-no {
-  color: #dc2626;
+  color: var(--danger);
   flex: none;
 }
 

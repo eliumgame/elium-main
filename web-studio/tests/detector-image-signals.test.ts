@@ -157,6 +157,32 @@ describe("Détecteur — signaux image", () => {
     expect(findings[0]!.evidence).toContain("trainedAlgorithmicMedia");
   });
 
+  it("détecte un C2PA embarqué dans le chunk PNG « caBX » (Google Gemini/Imagen)", () => {
+    // Motif confirmé sur une vraie image générée par Gemini : le chunk caBX
+    // embarque un manifeste JUMBF/CBOR binaire, mais la valeur digitalSourceType
+    // y reste lisible en clair au milieu des octets binaires — exactement comme
+    // pour le JUMBF en APP11 JPEG (voir le test ci-dessus).
+    const cabxData = [
+      ...ascii("\x00\x00=3jumb\x00\x00\x00\x1ejumdc2pa"),
+      ...ascii('Google Generative AI".qdigitalSourceTypexFhttp://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia END'),
+    ];
+    const bytes = buildPng([pngChunk("caBX", cabxData)]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.signal).toBe("image_c2pa_ai_source");
+    // La citation doit être l'URI IPTC propre, sans le bruit binaire CBOR/JUMBF
+    // ("Google Generative AI".qdigitalSourceTypex...) qui la précède dans les
+    // octets bruts — motif réel observé sur une vraie image Gemini.
+    expect(findings[0]!.evidence).toBe("http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia");
+    expect(findings[0]!.explanation).toContain("caBX");
+  });
+
+  it("ignore un chunk caBX sans digitalSourceType IA (ex. juste une signature C2PA générique)", () => {
+    const bytes = buildPng([pngChunk("caBX", ascii("jumb jumd c2pa some_other_unrelated_manifest_content"))]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);
+    expect(findings.some((f) => f.signal === "image_c2pa_ai_source")).toBe(false);
+  });
+
   it("détecte une balise EXIF Software nommant un générateur connu (priorité 3)", () => {
     const bytes = buildJpeg([{ marker: 0xe1, data: exifApp1([{ tag: TAG_SOFTWARE, value: "Midjourney 6.1" }]) }]);
     const findings = analyzeImageSignals([image(bytes, { width: 1024, height: 1024 })]);

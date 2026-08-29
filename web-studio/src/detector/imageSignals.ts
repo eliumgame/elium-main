@@ -2,8 +2,9 @@
  * Détecteur — signaux "image" : cherche des marqueurs de provenance IA dans
  * les octets bruts des images (JPEG/PNG), sans dépendance externe. Ordre de
  * priorité (le plus fiable en premier) :
- *   1. C2PA/IPTC `digitalSourceType` (XMP APP1 ou JUMBF APP11 en JPEG) — une
- *      déclaration de provenance embarquée par l'outil de création lui-même.
+ *   1. C2PA/IPTC `digitalSourceType` (XMP APP1 ou JUMBF APP11 en JPEG, chunk
+ *      `caBX` en PNG) — une déclaration de provenance embarquée et souvent
+ *      signée par l'outil de création lui-même (ex. Google Gemini/Imagen).
  *   2. Métadonnées PNG de génération (chunk tEXt/zTXt/iTXt "parameters" ou
  *      "Software"), convention Stable Diffusion WebUI (AUTOMATIC1111).
  *   3. Balises EXIF Make/Model/Software nommant un générateur connu.
@@ -155,8 +156,20 @@ function extractXmpText(app1Data: Uint8Array): string | undefined {
 
 /** IPTC PlusVocabulary digitalSourceType URIs naming AI/algorithmic authorship,
  * e.g. ".../trainedAlgorithmicMedia" and ".../compositeWithTrainedAlgorithmicMedia"
- * (the latter contains the former as a substring, so one pattern covers both). */
-const C2PA_AI_SOURCE_RE = /[a-z0-9:/_.-]*trainedalgorithmicmedia[a-z0-9:/_.-]*/i;
+ * (the latter contains the former as a substring, so one pattern covers both).
+ * Tried first: anchored on "http(s)://" for a clean, exact URI — the value IPTC
+ * actually standardizes and what a real CBOR/JUMBF manifest encodes as one
+ * contiguous run of bytes (confirmed on a real Google Gemini PNG: the raw
+ * bytes read literally `http://cv.iptc.org/.../trainedAlgorithmicMedia` with
+ * no separator, so a bare charset sweep pulls in whatever CBOR/binary noise
+ * happens to sit right before "http" too). Falls back to the loose sweep
+ * (no scheme required) for a manifest that only carries the bare keyword. */
+const C2PA_AI_SOURCE_URL_RE = /https?:\/\/[a-z0-9:/_.-]*trainedalgorithmicmedia[a-z0-9:/_.-]*/i;
+const C2PA_AI_SOURCE_LOOSE_RE = /[a-z0-9:/_.-]*trainedalgorithmicmedia[a-z0-9:/_.-]*/i;
+
+function matchC2paAiSource(text: string): string | undefined {
+  return C2PA_AI_SOURCE_URL_RE.exec(text)?.[0] ?? C2PA_AI_SOURCE_LOOSE_RE.exec(text)?.[0];
+}
 
 interface C2paHit {
   source: string;
@@ -165,12 +178,12 @@ interface C2paHit {
 
 function findC2paAiSource(xmpTexts: string[], jumbfTexts: string[]): C2paHit | undefined {
   for (const t of xmpTexts) {
-    const m = C2PA_AI_SOURCE_RE.exec(t);
-    if (m) return { source: "XMP", value: m[0] };
+    const m = matchC2paAiSource(t);
+    if (m) return { source: "XMP", value: m };
   }
   for (const t of jumbfTexts) {
-    const m = C2PA_AI_SOURCE_RE.exec(t);
-    if (m) return { source: "C2PA/JUMBF", value: m[0] };
+    const m = matchC2paAiSource(t);
+    if (m) return { source: "C2PA/JUMBF", value: m };
   }
   return undefined;
 }
@@ -408,6 +421,30 @@ function analyzeOneImage(image: ImageModel): Finding[] {
     }
   } else if (isPng(bytes)) {
     const chunks = readPngChunks(bytes);
+
+    // `caBX` est le chunk PNG standardisé par C2PA pour embarquer le même
+    // manifeste JUMBF que celui utilisé dans les JPEG (APP11) — Google
+    // Gemini/Imagen, entre autres, l'utilise pour signer ses images avec un
+    // `digitalSourceType` IPTC (confirmé en pratique sur une vraie image
+    // Gemini : chunk `caBX` contenant literallement la chaîne
+    // ".../digitalsourcetype/trainedAlgorithmicMedia" signée par un
+    // certificat Google C2PA Media Services).
+    const cabxTexts = chunks.filter((c) => c.type === "caBX").map((c) => bytesToLatin1(c.data));
+    const pngC2paHit = findC2paAiSource([], cabxTexts);
+    if (pngC2paHit) {
+      findings.push(
+        makeFinding(
+          image,
+          "image_c2pa_ai_source",
+          "Métadonnées C2PA/IPTC : source déclarée générée par IA",
+          `Le chunk PNG « caBX » de cette image contient un manifeste C2PA déclarant un « digitalSourceType » IPTC valant « ${pngC2paHit.value} », une valeur normalisée réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). C'est le signal le plus fiable de ce détecteur : cette déclaration de provenance est embarquée et signée directement par l'outil de création (Google Gemini/Imagen, Adobe Firefly, ou tout autre logiciel conforme C2PA), et non déduite statistiquement.`,
+          "eleve",
+          0.97,
+          pngC2paHit.value,
+        ),
+      );
+    }
+
     const hit = findPngGenerationMetadata(chunks);
     if (hit) {
       const isParameters = hit.kind === "parameters";

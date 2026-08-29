@@ -373,6 +373,12 @@
   font-size: var(--el-fs-xs);
   color: var(--el-text-muted);
 }
+.det-score__confidence-note {
+  margin: 4px 0 0;
+  font-size: var(--el-fs-xs);
+  line-height: var(--el-lh-base);
+  color: var(--el-text-muted);
+}
 
 .det-tabpanel {
   min-height: 200px;

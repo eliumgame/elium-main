@@ -480,6 +480,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                     Généré le {new Date(report.generatedAt).toLocaleString("fr-FR")}
                   </span>
                 </div>
+                <p className="det-score__confidence-note">{confidenceExplanation(report.confidence)}</p>
               </div>
             </div>
 
@@ -543,6 +544,21 @@ function confidenceAccent(confidence: AnalysisReport["confidence"]): "warning" |
   if (confidence === "faible") return "warning";
   if (confidence === "haute") return "success";
   return "neutral";
+}
+
+/** La confiance mesure la quantité de texte disponible pour les statistiques
+ *  (seuils exacts dans scoring.ts : faible sous 300 mots ou 5 paragraphes,
+ *  haute au-delà de 3000 mots ET 20 paragraphes) — ce n'est PAS une seconde
+ *  note sur la fiabilité du score lui-même, d'où ce mémo pour éviter la
+ *  confusion entre les deux nombres affichés côte à côte. */
+function confidenceExplanation(confidence: AnalysisReport["confidence"]): string {
+  if (confidence === "faible") {
+    return "Confiance faible : ce document est trop court (moins de 300 mots ou 5 paragraphes) pour que les statistiques soient significatives — le score ci-contre est peu fiable, quel qu'il soit.";
+  }
+  if (confidence === "haute") {
+    return "Confiance haute : ce document est assez long (plus de 3000 mots et 20 paragraphes) pour que les statistiques du texte soient significatives.";
+  }
+  return "Confiance moyenne : ce document a une longueur intermédiaire — ni trop court pour fausser les statistiques, ni assez long pour une confiance maximale.";
 }
 
 function severityRank(s: SignalSeverity): number {

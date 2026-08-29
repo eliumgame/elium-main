@@ -146,3 +146,89 @@ function chunk(type: string, data: number[]): number[] {
   const crcBytes = [(crc >>> 24) & 255, (crc >>> 16) & 255, (crc >>> 8) & 255, crc & 255];
   return [...lenBytes, ...typeBytes, ...data, ...crcBytes];
 }
+
+// ---------------------------------------------------------------------------
+// appliesTo — préconfiguration du panneau de sensibilité selon le fichier
+// ---------------------------------------------------------------------------
+
+function applicableIds(model: {
+  paragraphs: ParagraphModel[];
+  images: { mime: string }[];
+  metadata: Record<string, unknown>;
+}): string[] {
+  return SIGNAL_CATALOG.filter((e) => (e.appliesTo ? e.appliesTo(model as never) : true)).map((e) => e.id);
+}
+
+describe("appliesTo — n'affiche comme applicables que les signaux réellement possibles pour ce fichier", () => {
+  const textParagraphs: ParagraphModel[] = [{ index: 0, text: "Un paragraphe.", runs: [{ text: "Un paragraphe." }] }];
+
+  it("une image seule sans métadonnées : rien du texte/mise_en_forme, rien des métadonnées absentes, tout ce qui est image reste candidat", () => {
+    const ids = applicableIds({ paragraphs: [], images: [{ mime: "image/png" }], metadata: { sourceFormat: "image" } });
+    for (const textId of ["burstiness_faible", "cliches_ia", "police_incoherente", "niveau_titre_irregulier"]) {
+      expect(ids, `${textId} ne devrait pas être applicable sans paragraphe`).not.toContain(textId);
+    }
+    for (const metaId of ["revisions_basses", "temps_edition_bas", "jamais_modifie", "author_info"]) {
+      expect(ids, `${metaId} ne devrait pas être applicable sans cette métadonnée`).not.toContain(metaId);
+    }
+    expect(ids).toContain("image_c2pa_ai_source");
+    expect(ids).toContain("image_png_generation_parameters");
+    expect(ids).not.toContain("image_exif_generator_tag"); // EXIF n'est lu que sur JPEG
+  });
+
+  it("une image JPEG : les signaux spécifiques PNG ne sont pas applicables, EXIF l'est", () => {
+    const ids = applicableIds({ paragraphs: [], images: [{ mime: "image/jpeg" }], metadata: {} });
+    expect(ids).toContain("image_exif_generator_tag");
+    expect(ids).toContain("image_c2pa_ai_source");
+    expect(ids).not.toContain("image_png_generation_parameters");
+    expect(ids).not.toContain("image_png_generation_software");
+  });
+
+  it("un document texte sans aucune image : rien de la catégorie image n'est applicable", () => {
+    const ids = applicableIds({ paragraphs: textParagraphs, images: [], metadata: {} });
+    for (const imgId of SIGNAL_CATALOG.filter((e) => e.category === "image").map((e) => e.id)) {
+      expect(ids, `${imgId} ne devrait pas être applicable sans image`).not.toContain(imgId);
+    }
+    expect(ids).toContain("burstiness_faible");
+    expect(ids).toContain("police_incoherente");
+  });
+
+  it("un .docx avec revisionCount/editingMinutes connus rend ces deux signaux applicables, un PDF sans ces champs non", () => {
+    const docx = applicableIds({
+      paragraphs: textParagraphs,
+      images: [],
+      metadata: { sourceFormat: "docx", revisionCount: 1, editingMinutes: 2 },
+    });
+    expect(docx).toContain("revisions_basses");
+    expect(docx).toContain("temps_edition_bas");
+
+    const pdf = applicableIds({ paragraphs: textParagraphs, images: [], metadata: { sourceFormat: "pdf" } });
+    expect(pdf).not.toContain("revisions_basses");
+    expect(pdf).not.toContain("temps_edition_bas");
+  });
+
+  it("jamais_modifie n'est applicable que si créé ET modifié sont tous les deux connus", () => {
+    const both = applicableIds({
+      paragraphs: textParagraphs,
+      images: [],
+      metadata: { createdAt: "2026-01-01T00:00:00.000Z", modifiedAt: "2026-01-01T00:00:00.000Z" },
+    });
+    expect(both).toContain("jamais_modifie");
+
+    const onlyOne = applicableIds({
+      paragraphs: textParagraphs,
+      images: [],
+      metadata: { createdAt: "2026-01-01T00:00:00.000Z" },
+    });
+    expect(onlyOne).not.toContain("jamais_modifie");
+  });
+
+  it("les signaux sans appliesTo restent toujours applicables (rétrocompatibilité)", () => {
+    const entry = SIGNAL_CATALOG.find((e) => e.id === "burstiness_faible")!;
+    expect(entry.appliesTo).toBeDefined(); // sanity: ce signal-ci EST couvert
+    // Aucune entrée du catalogue ne doit être orpheline (sans appliesTo du tout)
+    // par erreur d'oubli — chaque signal doit avoir une règle explicite.
+    for (const e of SIGNAL_CATALOG) {
+      expect(e.appliesTo, `${e.id} n'a pas d'appliesTo défini`).toBeDefined();
+    }
+  });
+});

@@ -230,15 +230,37 @@
 }
 .det-sensitivity__group h4 {
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: var(--el-fs-2xs);
   text-transform: uppercase;
   letter-spacing: var(--el-ls-caps);
   color: var(--el-text-muted);
   font-weight: var(--el-fw-semibold);
 }
+.det-sensitivity__applicable-count {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: var(--el-fw-regular);
+  color: var(--el-text-muted);
+  opacity: 0.8;
+}
+.det-sensitivity__none {
+  margin: 0 0 8px;
+  font-size: var(--el-fs-2xs);
+  font-style: italic;
+  color: var(--el-text-muted);
+}
 .det-sensitivity__row {
   align-items: flex-start;
   padding: 6px 0;
+}
+.det-sensitivity__row.is-inapplicable {
+  opacity: 0.5;
+}
+.det-sensitivity__row.is-inapplicable input[type="checkbox"] {
+  cursor: not-allowed;
 }
 .det-sensitivity__badge {
   margin-left: 6px;

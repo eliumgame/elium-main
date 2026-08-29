@@ -429,6 +429,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               onToggleOpen={() => setSensitivityOpen((o) => !o)}
               disabledSignals={disabledSignals}
               onToggleSignal={toggleSignal}
+              model={model}
             />
 
             <div className="det-actions">
@@ -687,16 +688,23 @@ function CategoryPanel({
   );
 }
 
+function isSignalApplicable(entry: SignalCatalogEntry, model: DocumentModel | null): boolean {
+  if (!model || !entry.appliesTo) return true;
+  return entry.appliesTo(model);
+}
+
 function SensitivitySettings({
   open,
   onToggleOpen,
   disabledSignals,
   onToggleSignal,
+  model,
 }: {
   open: boolean;
   onToggleOpen: () => void;
   disabledSignals: Set<string>;
   onToggleSignal: (id: string) => void;
+  model: DocumentModel | null;
 }) {
   const grouped = signalsByCategory();
   const disabledCount = disabledSignals.size;
@@ -714,29 +722,57 @@ function SensitivitySettings({
           <p className="det-sensitivity__hint">
             Désactivez un signal qui produit trop de faux positifs pour ce type de document (ex. un document
             technique qui utilise légitimement beaucoup de listes). Un signal désactivé n'apparaît plus dans le
-            rapport et ne compte plus dans le score. Ce choix est mémorisé sur cet appareil.
+            rapport et ne compte plus dans le score. Ce choix est mémorisé sur cet appareil. Les signaux grisés ne
+            peuvent structurellement pas s'appliquer au fichier chargé (ex. un signal PNG sur une image JPEG).
           </p>
           {(Object.keys(CATEGORY_TITLES) as SignalCategory[])
             .filter((cat) => cat !== "plagiat" && grouped[cat]?.length)
-            .map((cat) => (
-              <div className="det-sensitivity__group" key={cat}>
-                <h4>{CATEGORY_TITLES[cat]}</h4>
-                {grouped[cat].map((entry: SignalCatalogEntry) => (
-                  <label className="checkbox-row det-sensitivity__row" key={entry.id}>
-                    <input
-                      type="checkbox"
-                      checked={!disabledSignals.has(entry.id)}
-                      onChange={() => onToggleSignal(entry.id)}
-                    />
-                    <span>
-                      {entry.label}
-                      {!entry.affectsScore && <span className="det-sensitivity__badge">informatif</span>}
-                      <span className="det-sensitivity__desc">{entry.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ))}
+            .map((cat) => {
+              const entries = grouped[cat];
+              const applicableCount = entries.filter((e) => isSignalApplicable(e, model)).length;
+              return (
+                <div className="det-sensitivity__group" key={cat}>
+                  <h4>
+                    {CATEGORY_TITLES[cat]}
+                    {model && applicableCount < entries.length && (
+                      <span className="det-sensitivity__applicable-count">
+                        {applicableCount}/{entries.length} applicables
+                      </span>
+                    )}
+                  </h4>
+                  {model && applicableCount === 0 ? (
+                    <p className="det-sensitivity__none">
+                      Aucun signal de cette catégorie ne s'applique à ce fichier.
+                    </p>
+                  ) : (
+                    entries.map((entry: SignalCatalogEntry) => {
+                      const applicable = isSignalApplicable(entry, model);
+                      return (
+                        <label
+                          className={`checkbox-row det-sensitivity__row ${applicable ? "" : "is-inapplicable"}`}
+                          key={entry.id}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={!applicable}
+                            checked={applicable && !disabledSignals.has(entry.id)}
+                            onChange={() => onToggleSignal(entry.id)}
+                          />
+                          <span>
+                            {entry.label}
+                            {!applicable && <span className="det-sensitivity__badge">non applicable ici</span>}
+                            {applicable && !entry.affectsScore && (
+                              <span className="det-sensitivity__badge">informatif</span>
+                            )}
+                            <span className="det-sensitivity__desc">{entry.description}</span>
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
     </div>

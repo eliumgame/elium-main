@@ -232,7 +232,7 @@ export default function RecoveryPanel() {
 
   if (denied) {
     return (
-      <div className="dc-empty-list">
+      <div className="elx-empty">
         <LifeBuoy size={30} />
         <p>
           Le recouvrement d'organisation est réservé aux administrateurs disposant de la permission « Recouvrer les
@@ -243,7 +243,7 @@ export default function RecoveryPanel() {
   }
 
   return (
-    <div className="dc-sso">
+    <div className="elx-panel">
       {err && (
         <div className="dc-error" role="alert">
           {err}
@@ -251,7 +251,7 @@ export default function RecoveryPanel() {
       )}
       {msg && <div className="dc-sso__ok">{msg}</div>}
 
-      <div className="dc-rec__warn">
+      <div className="elx-notice elx-notice--warn">
         <ShieldAlert size={18} />
         <p>
           La <strong>clé de recouvrement d'organisation</strong> peut déchiffrer n'importe quel fichier de l'org. Elle
@@ -262,38 +262,38 @@ export default function RecoveryPanel() {
       </div>
 
       {/* --- Recovery admins ------------------------------------------------ */}
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <UserCog size={18} /> Administrateurs de recouvrement
         </h2>
         <p className="muted">
           Les personnes qui peuvent recouvrer les fichiers (elles détiennent une copie emballée de la clé privée d'org).
         </p>
 
-        <table className="dc-table">
+        <table className="dcx-table">
           <thead>
             <tr>
               <th>Administrateur</th>
-              <th className="dc-table__actions">Depuis</th>
+              <th className="dcx-col-actions">Depuis</th>
             </tr>
           </thead>
           <tbody>
             {admins.map((a) => (
-              <tr key={a.userId} className="dc-row">
-                <td className="dc-row__name">
+              <tr key={a.userId} className="dcx-row" style={{ cursor: "default" }}>
+                <td className="dcx-row__name">
                   <span className="dc-avatar">{(a.displayName || a.email).slice(0, 1).toUpperCase()}</span>
                   <span>
                     <b>{a.displayName || "—"}</b>
                     <br />
-                    <span className="dc-row__muted">{a.email}</span>
+                    <span className="dcx-row__muted">{a.email}</span>
                   </span>
                 </td>
-                <td className="dc-row__muted">{a.since ? new Date(a.since).toLocaleDateString() : "—"}</td>
+                <td className="dcx-row__muted">{a.since ? new Date(a.since).toLocaleDateString() : "—"}</td>
               </tr>
             ))}
             {admins.length === 0 && (
               <tr>
-                <td colSpan={2} className="dc-row__muted">
+                <td colSpan={2} className="dcx-row__muted">
                   Aucun administrateur de recouvrement.
                 </td>
               </tr>
@@ -301,9 +301,9 @@ export default function RecoveryPanel() {
           </tbody>
         </table>
 
-        <div className="dc-rec__promote">
-          <KeyRound size={16} className="dc-invite__ic" />
-          <select className="tool-select" value={promoteId} onChange={(e) => setPromoteId(e.target.value)}>
+        <div className="dcx-modal__section dcx-inline" style={{ marginBottom: 0 }}>
+          <KeyRound size={16} style={{ color: "var(--x-mute)", flex: "none" }} />
+          <select className="elx-select--surface" value={promoteId} onChange={(e) => setPromoteId(e.target.value)}>
             <option value="">Promouvoir un membre…</option>
             {promotable.map((m) => (
               <option key={m.userId} value={m.userId}>
@@ -312,7 +312,7 @@ export default function RecoveryPanel() {
             ))}
           </select>
           <button
-            className="eb eb--sm eb--primary"
+            className="elx-mini elx-mini--primary"
             disabled={busy || !promoteId || !ctx}
             onClick={() => void promote()}
           >
@@ -322,8 +322,8 @@ export default function RecoveryPanel() {
       </section>
 
       {/* --- Rotate the org key -------------------------------------------- */}
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <RefreshCw size={18} /> Rotation de la clé d'organisation
         </h2>
         <p className="muted">
@@ -333,18 +333,14 @@ export default function RecoveryPanel() {
           lisibles.
         </p>
         {rotProgress !== null && <p className="muted">Ré-emballage en cours… {rotProgress} %</p>}
-        <button
-          className="eb eb--sm eb--outline"
-          disabled={busy || !ctx || admins.length === 0}
-          onClick={() => void rotate()}
-        >
+        <button className="elx-mini" disabled={busy || !ctx || admins.length === 0} onClick={() => void rotate()}>
           <RefreshCw size={14} /> Faire tourner la clé
         </button>
       </section>
 
       {/* --- Restore access ------------------------------------------------- */}
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <FolderTree size={18} /> Restaurer l'accès à un fichier
         </h2>
         <p className="muted">
@@ -353,49 +349,50 @@ export default function RecoveryPanel() {
         </p>
 
         {nodes === null ? (
-          <button className="eb eb--sm eb--outline" disabled={loadingTree || !ctx} onClick={() => void loadTree()}>
+          <button className="elx-mini" disabled={loadingTree || !ctx} onClick={() => void loadTree()}>
             <FolderTree size={14} />{" "}
             {loadingTree ? "Déchiffrement…" : "Charger l'arborescence (déchiffre les noms avec la clé d'org)"}
           </button>
         ) : (
           <>
-            <div className="dc-rec__search">
-              <Search size={15} />
-              <input
-                className="input"
-                placeholder="Filtrer par nom…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <button className="icon-btn" title="Recharger" onClick={() => void loadTree()} disabled={loadingTree}>
+            <div className="dcx-inline">
+              <label className="dcx-search" style={{ flex: 1 }}>
+                <Search size={14} />
+                <input placeholder="Filtrer par nom…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+              </label>
+              <button className="elx-icon" title="Recharger" onClick={() => void loadTree()} disabled={loadingTree}>
                 <RotateCcw size={15} />
               </button>
             </div>
-            <div className="dc-rec__tree">
+            <div className="elx-tree">
               {shownNodes.map((n) => (
                 <button
                   key={n.id}
-                  className={`dc-rec__node ${selectedNode === n.id ? "is-active" : ""}`}
+                  className={`elx-tree__node ${selectedNode === n.id ? "is-active" : ""}`}
                   onClick={() => setSelectedNode(n.id)}
                 >
                   {n.kind === "folder" ? <Folder size={15} /> : <FileText size={15} />}
-                  <span className="dc-rec__nodename">{n.name}</span>
+                  <span className="elx-tree__name">{n.name}</span>
                   {n.parentId && nameById.has(n.parentId) && (
-                    <span className="dc-rec__path">dans {nameById.get(n.parentId)}</span>
+                    <span className="elx-tree__path">dans {nameById.get(n.parentId)}</span>
                   )}
                 </button>
               ))}
               {shownNodes.length === 0 && (
-                <p className="dc-row__muted" style={{ padding: "10px 12px" }}>
+                <p className="muted" style={{ padding: "10px 12px" }}>
                   Aucun nœud.
                 </p>
               )}
             </div>
 
-            <div className="dc-rec__grant">
-              <label className="field">
-                <span className="field__label">Rendre l'accès à</span>
-                <select className="tool-select" value={targetUser} onChange={(e) => setTargetUser(e.target.value)}>
+            <div className="dcx-modal__section dcx-fieldrow">
+              <label className="dcx-field dcx-field--grow">
+                <span>Rendre l'accès à</span>
+                <select
+                  className="elx-select--surface"
+                  value={targetUser}
+                  onChange={(e) => setTargetUser(e.target.value)}
+                >
                   <option value="">Choisir un membre…</option>
                   {members.map((m) => (
                     <option key={m.userId} value={m.userId}>
@@ -404,9 +401,13 @@ export default function RecoveryPanel() {
                   ))}
                 </select>
               </label>
-              <label className="field">
-                <span className="field__label">Avec le rôle</span>
-                <select className="tool-select" value={grantRole} onChange={(e) => setGrantRole(e.target.value)}>
+              <label className="dcx-field dcx-field--grow">
+                <span>Avec le rôle</span>
+                <select
+                  className="elx-select--surface"
+                  value={grantRole}
+                  onChange={(e) => setGrantRole(e.target.value)}
+                >
                   {d.roles.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
@@ -415,7 +416,7 @@ export default function RecoveryPanel() {
                 </select>
               </label>
               <button
-                className="eb eb--sm eb--primary"
+                className="elx-mini elx-mini--primary"
                 disabled={busy || !selectedNode || !targetUser || !grantRole || !ctx}
                 onClick={() => void restore()}
               >

@@ -717,6 +717,13 @@
   left: auto;
   right: 0;
 }
+/* Panneau large (bibliothèque de formules du Tableur : signature + description
+   sur deux lignes, plusieurs catégories) — la largeur par défaut (210px) les
+   ferait passer à la ligne. */
+.pdfx-menu--wide,
+.elx-menu--wide {
+  width: 300px;
+}
 
 .pdfx-menu__title,
 .elx-menu__title {
@@ -751,6 +758,15 @@
   background: var(--x-accent-soft);
   border-color: var(--x-accent-line);
   color: #fff;
+}
+.pdfx-menu__item:disabled,
+.elx-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdfx-menu__item:disabled:hover,
+.elx-menu__item:disabled:hover {
+  background: none;
 }
 .pdfx-menu__sep,
 .elx-menu__sep {
@@ -2715,6 +2731,18 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--x-mute);
+}
+
+/* Pied de dialogue (actions de validation) — même séparateur qu'une section,
+   boutons alignés à droite (Sheet : CondFormatModal, PivotModal, …). */
+.dcx-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--x-line);
 }
 
 /* Rangée de champs compacts côte à côte (rôle, expiration, mot de passe…),

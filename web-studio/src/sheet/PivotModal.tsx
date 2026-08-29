@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Table2 } from "lucide-react";
-import { Modal, Button } from "../ui/components";
+import SheetModal from "./SheetModal";
 import { PIVOT_AGGS, type PivotAgg, type PivotConfig } from "./pivot";
 
 interface Props {
@@ -30,85 +30,85 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
   };
 
   return (
-    <Modal
+    <SheetModal
       title="Tableau croisé dynamique"
       onClose={onClose}
       footer={
         <>
-          <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" onClick={create} disabled={!enough}>
+          <button className="elx-mini" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="elx-mini elx-mini--primary" onClick={create} disabled={!enough}>
             <Table2 size={14} /> Créer dans une nouvelle feuille
-          </Button>
+          </button>
         </>
       }
     >
-      <div className="settings">
-        <section className="settings__section">
-          <h3 className="settings__title">Source — plage {rangeLabel}</h3>
-          {!enough ? (
-            <p className="cf-empty">
-              Sélectionnez une plage d'au moins deux colonnes, en-têtes compris (la première ligne sert de noms de
-              champs).
-            </p>
-          ) : (
-            <div className="pivot-form">
-              <label className="pivot-row">
-                <span className="pivot-row__lbl">Lignes</span>
-                <select
-                  className="settings__select"
-                  value={rowField}
-                  onChange={(e) => setRowField(Number(e.target.value))}
-                >
-                  {fields.map((f) => (
-                    <option key={f.i} value={f.i}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="pivot-row">
-                <span className="pivot-row__lbl">Colonnes</span>
-                <select
-                  className="settings__select"
-                  value={colField === null ? "" : colField}
-                  onChange={(e) => setColField(e.target.value === "" ? null : Number(e.target.value))}
-                >
-                  <option value="">(aucune)</option>
-                  {fields.map((f) => (
-                    <option key={f.i} value={f.i}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="pivot-row">
-                <span className="pivot-row__lbl">Valeurs</span>
-                <select
-                  className="settings__select"
-                  value={valueField}
-                  onChange={(e) => setValueField(Number(e.target.value))}
-                >
-                  {fields.map((f) => (
-                    <option key={f.i} value={f.i}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="pivot-row">
-                <span className="pivot-row__lbl">Agréger par</span>
-                <select className="settings__select" value={agg} onChange={(e) => setAgg(e.target.value as PivotAgg)}>
-                  {PIVOT_AGGS.map((a) => (
-                    <option key={a.value} value={a.value}>
-                      {a.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-        </section>
-      </div>
-    </Modal>
+      <section className="dcx-modal__section">
+        <h3 className="dcx-modal__section-title">Source — plage {rangeLabel}</h3>
+        {!enough ? (
+          <p className="elx-empty">
+            Sélectionnez une plage d'au moins deux colonnes, en-têtes compris (la première ligne sert de noms de
+            champs).
+          </p>
+        ) : (
+          <div className="pivot-form">
+            <label className="pivot-row">
+              <span className="pivot-row__lbl">Lignes</span>
+              <select
+                className="elx-select--surface"
+                value={rowField}
+                onChange={(e) => setRowField(Number(e.target.value))}
+              >
+                {fields.map((f) => (
+                  <option key={f.i} value={f.i}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pivot-row">
+              <span className="pivot-row__lbl">Colonnes</span>
+              <select
+                className="elx-select--surface"
+                value={colField === null ? "" : colField}
+                onChange={(e) => setColField(e.target.value === "" ? null : Number(e.target.value))}
+              >
+                <option value="">(aucune)</option>
+                {fields.map((f) => (
+                  <option key={f.i} value={f.i}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pivot-row">
+              <span className="pivot-row__lbl">Valeurs</span>
+              <select
+                className="elx-select--surface"
+                value={valueField}
+                onChange={(e) => setValueField(Number(e.target.value))}
+              >
+                {fields.map((f) => (
+                  <option key={f.i} value={f.i}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pivot-row">
+              <span className="pivot-row__lbl">Agréger par</span>
+              <select className="elx-select--surface" value={agg} onChange={(e) => setAgg(e.target.value as PivotAgg)}>
+                {PIVOT_AGGS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+      </section>
+    </SheetModal>
   );
 }

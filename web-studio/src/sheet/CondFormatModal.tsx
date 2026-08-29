@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Trash2, Plus } from "lucide-react";
-import { Modal, Button } from "../ui/components";
+import SheetModal from "./SheetModal";
 import { COND_OPS, describeRule } from "./condformat";
 import { indexToCol } from "./formula";
 import type { CondRule, CondOp } from "./model";
@@ -44,129 +44,145 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
   };
 
   return (
-    <Modal title="Mise en forme conditionnelle" onClose={onClose} footer={<Button onClick={onClose}>Fermer</Button>}>
-      <div className="settings">
-        <section className="settings__section">
-          <h3 className="settings__title">Nouvelle règle — plage {rangeLabel}</h3>
-          <div className="cf-form">
-            <select
-              className="settings__select"
-              value={op}
-              onChange={(e) => setOp(e.target.value as CondOp)}
-              aria-label="Condition"
-            >
-              {COND_OPS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            {needs >= 1 && !isScale && (
+    <SheetModal
+      title="Mise en forme conditionnelle"
+      onClose={onClose}
+      footer={
+        <button className="elx-mini" onClick={onClose}>
+          Fermer
+        </button>
+      }
+    >
+      <section className="dcx-modal__section">
+        <h3 className="dcx-modal__section-title">Nouvelle règle — plage {rangeLabel}</h3>
+        <div className="dcx-inline">
+          <select
+            className="elx-select--surface"
+            value={op}
+            onChange={(e) => setOp(e.target.value as CondOp)}
+            aria-label="Condition"
+          >
+            {COND_OPS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {needs >= 1 && !isScale && (
+            <input
+              className="elx-input cf-val"
+              value={v1}
+              onChange={(e) => setV1(e.target.value)}
+              placeholder={op === "contains" ? "texte" : "valeur"}
+            />
+          )}
+          {needs >= 2 && !isScale && (
+            <>
+              <span className="cf-and">et</span>
               <input
-                className="settings__input cf-val"
-                value={v1}
-                onChange={(e) => setV1(e.target.value)}
-                placeholder={op === "contains" ? "texte" : "valeur"}
+                className="elx-input cf-val"
+                value={v2}
+                onChange={(e) => setV2(e.target.value)}
+                placeholder="valeur"
               />
-            )}
-            {needs >= 2 && !isScale && (
-              <>
-                <span className="cf-and">et</span>
-                <input
-                  className="settings__input cf-val"
-                  value={v2}
-                  onChange={(e) => setV2(e.target.value)}
-                  placeholder="valeur"
-                />
-              </>
-            )}
-          </div>
+            </>
+          )}
+        </div>
 
-          {isScale ? (
-            <div className="cf-scale-row">
-              <label className="tool-color" title="Couleur minimale">
-                <span>Min</span>
+        {isScale ? (
+          <div className="cf-scale-row">
+            <label className="dcx-field" title="Couleur minimale">
+              <span>Min</span>
+              <span className="elx-colorbtn">
                 <input type="color" value={scaleMin} onChange={(e) => setScaleMin(e.target.value)} />
-              </label>
-              <label className="checkbox-row cf-mid-toggle">
-                <input type="checkbox" checked={useMid} onChange={(e) => setUseMid(e.target.checked)} />
-                <span>Milieu</span>
-              </label>
-              {useMid && (
-                <label className="tool-color" title="Couleur médiane">
-                  <input type="color" value={scaleMid} onChange={(e) => setScaleMid(e.target.value)} />
-                </label>
-              )}
-              <label className="tool-color" title="Couleur maximale">
-                <span>Max</span>
-                <input type="color" value={scaleMax} onChange={(e) => setScaleMax(e.target.value)} />
-              </label>
-              <span
-                className="cf-scale-preview"
-                style={{
-                  background: `linear-gradient(90deg, ${scaleMin}, ${useMid ? scaleMid + "," : ""} ${scaleMax})`,
-                }}
-              />
-            </div>
-          ) : (
-            <div className="cf-style-row">
-              <label className="tool-color" title="Remplissage">
-                <span>Remplissage</span>
-                <input type="color" value={fill} onChange={(e) => setFill(e.target.value)} />
-              </label>
-              <label className="tool-color" title="Texte">
-                <span>Texte</span>
-                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
-              </label>
-              <label className="checkbox-row">
-                <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
-                <span>Gras</span>
-              </label>
-              <span className="cf-preview" style={{ background: fill, color, fontWeight: bold ? 700 : 400 }}>
-                Aa 123
               </span>
-            </div>
-          )}
-
-          <div style={{ marginTop: 10 }}>
-            <Button size="sm" variant="primary" onClick={add}>
-              <Plus size={14} /> Ajouter la règle
-            </Button>
+            </label>
+            <label className="checkbox-row cf-mid-toggle">
+              <input type="checkbox" checked={useMid} onChange={(e) => setUseMid(e.target.checked)} />
+              <span>Milieu</span>
+            </label>
+            {useMid && (
+              <label className="dcx-field" title="Couleur médiane">
+                <span className="elx-colorbtn">
+                  <input type="color" value={scaleMid} onChange={(e) => setScaleMid(e.target.value)} />
+                </span>
+              </label>
+            )}
+            <label className="dcx-field" title="Couleur maximale">
+              <span>Max</span>
+              <span className="elx-colorbtn">
+                <input type="color" value={scaleMax} onChange={(e) => setScaleMax(e.target.value)} />
+              </span>
+            </label>
+            <span
+              className="cf-scale-preview"
+              style={{
+                background: `linear-gradient(90deg, ${scaleMin}, ${useMid ? scaleMid + "," : ""} ${scaleMax})`,
+              }}
+            />
           </div>
-        </section>
+        ) : (
+          <div className="cf-style-row">
+            <label className="dcx-field" title="Remplissage">
+              <span>Remplissage</span>
+              <span className="elx-colorbtn">
+                <input type="color" value={fill} onChange={(e) => setFill(e.target.value)} />
+              </span>
+            </label>
+            <label className="dcx-field" title="Texte">
+              <span>Texte</span>
+              <span className="elx-colorbtn">
+                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+              </span>
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
+              <span>Gras</span>
+            </label>
+            <span className="cf-preview" style={{ background: fill, color, fontWeight: bold ? 700 : 400 }}>
+              Aa 123
+            </span>
+          </div>
+        )}
 
-        <section className="settings__section">
-          <h3 className="settings__title">Règles ({rules.length})</h3>
-          {rules.length === 0 ? (
-            <p className="cf-empty">Aucune règle. Sélectionnez une plage et ajoutez-en une.</p>
-          ) : (
-            <ul className="cf-rule-list">
-              {rules.map((r) => {
-                const span = `${indexToCol(r.c0)}${r.r0 + 1}:${indexToCol(r.c1)}${r.r1 + 1}`;
-                const swatch =
-                  r.op === "colorScale"
-                    ? `linear-gradient(90deg, ${r.scale?.min}, ${r.scale?.mid ? r.scale.mid + "," : ""} ${r.scale?.max})`
-                    : (r.fill ?? "transparent");
-                return (
-                  <li key={r.id} className="cf-rule">
-                    <span className="cf-swatch" style={{ background: swatch, color: r.color }} />
-                    <span className="cf-rule__desc">
-                      <strong>{span}</strong> — {describeRule(r)}
-                    </span>
-                    <button
-                      className="icon-btn icon-btn--danger"
-                      title="Supprimer la règle"
-                      onClick={() => onRemove(r.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </div>
-    </Modal>
+        <div style={{ marginTop: 10 }}>
+          <button className="elx-mini elx-mini--primary" onClick={add}>
+            <Plus size={14} /> Ajouter la règle
+          </button>
+        </div>
+      </section>
+
+      <section className="dcx-modal__section">
+        <h3 className="dcx-modal__section-title">Règles ({rules.length})</h3>
+        {rules.length === 0 ? (
+          <p className="elx-empty">Aucune règle. Sélectionnez une plage et ajoutez-en une.</p>
+        ) : (
+          <ul className="cf-rule-list">
+            {rules.map((r) => {
+              const span = `${indexToCol(r.c0)}${r.r0 + 1}:${indexToCol(r.c1)}${r.r1 + 1}`;
+              const swatch =
+                r.op === "colorScale"
+                  ? `linear-gradient(90deg, ${r.scale?.min}, ${r.scale?.mid ? r.scale.mid + "," : ""} ${r.scale?.max})`
+                  : (r.fill ?? "transparent");
+              return (
+                <li key={r.id} className="cf-rule">
+                  <span className="cf-swatch" style={{ background: swatch, color: r.color }} />
+                  <span className="cf-rule__desc">
+                    <strong>{span}</strong> — {describeRule(r)}
+                  </span>
+                  <button
+                    className="elx-icon elx-icon--danger"
+                    title="Supprimer la règle"
+                    onClick={() => onRemove(r.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </SheetModal>
   );
 }

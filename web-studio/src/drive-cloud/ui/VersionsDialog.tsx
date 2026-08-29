@@ -74,47 +74,47 @@ export default function VersionsDialog({
 
   return (
     <div
-      className="dc-modal-overlay"
+      className="dcx-modal-overlay elx"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dc-modal">
-        <header className="dc-modal__head">
+      <div className="dcx-modal" role="dialog" aria-modal="true">
+        <header className="dcx-modal__head">
           <h2>
             <History size={18} /> Historique — « {entry.name} »
           </h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+          <button className="elx-icon" onClick={onClose} aria-label="Fermer">
             <X size={18} />
           </button>
         </header>
         {versions.length === 0 ? (
-          <p className="muted">Aucune version enregistrée.</p>
+          <p className="elx-empty">Aucune version enregistrée.</p>
         ) : (
-          <table className="dc-table">
+          <table className="dcx-table">
             <thead>
               <tr>
                 <th>Version</th>
                 <th>Taille</th>
                 <th>Date</th>
-                <th className="dc-table__actions">Actions</th>
+                <th className="dcx-col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
               {versions.map((v) => (
-                <tr key={v.id} className="dc-row">
+                <tr key={v.id} className="dcx-row" style={{ cursor: "default" }}>
                   <td>
                     <b>v{v.versionNo}</b>
-                    {v.createdByEmail ? <span className="dc-row__muted"> · {v.createdByEmail}</span> : null}
+                    {v.createdByEmail ? <span className="dcx-row__muted"> · {v.createdByEmail}</span> : null}
                   </td>
-                  <td className="dc-row__muted">{humanSize(v.sizeBytes)}</td>
-                  <td className="dc-row__muted">{new Date(v.createdAt).toLocaleString("fr-FR")}</td>
-                  <td className="dc-row__actions">
-                    <button className="icon-btn" title="Télécharger cette version" onClick={() => void download(v)}>
+                  <td className="dcx-row__muted">{humanSize(v.sizeBytes)}</td>
+                  <td className="dcx-row__muted">{new Date(v.createdAt).toLocaleString("fr-FR")}</td>
+                  <td className="dcx-row__actions">
+                    <button className="elx-icon" title="Télécharger cette version" onClick={() => void download(v)}>
                       <Download size={15} />
                     </button>
                     <button
-                      className="icon-btn"
+                      className="elx-icon"
                       title="Restaurer cette version"
                       disabled={busy}
                       onClick={() => void restore(v)}

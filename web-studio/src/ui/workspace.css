@@ -2753,6 +2753,114 @@
   min-width: 160px;
 }
 
+/* --- Drive : panneaux admin pleine page (Recouvrement, Membres, …) --------
+   Même chrome que les dialogues (`--x-radius`, `.elx-*`) — remplace l'ancien
+   `.dc-sso`/`.dc-sso__card` (tokens legacy `--surface`/`--border`, encore
+   utilisés par les panneaux non migrés). */
+.elx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+.elx-panel__card {
+  background: var(--x-panel);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  padding: 18px 20px;
+  box-shadow: var(--el-elev-1);
+}
+.elx-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--x-text);
+}
+
+/* Bandeau d'alerte avec icône (ex. clé de recouvrement, zone de danger). */
+.elx-notice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--x-radius);
+  background: var(--el-surface-2);
+  border: 1px solid var(--x-line);
+  color: var(--x-text);
+}
+.elx-notice > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--x-mute);
+}
+.elx-notice p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.elx-notice--warn {
+  border-color: var(--el-warning);
+  background: var(--el-warning-bg);
+}
+.elx-notice--warn > svg {
+  color: var(--el-warning);
+}
+
+/* Arborescence sélectionnable (restauration d'accès, recouvrement). */
+.elx-tree {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  background: var(--el-surface-2);
+}
+.elx-tree__node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--x-line);
+  background: none;
+  color: var(--x-text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.elx-tree__node:last-child {
+  border-bottom: none;
+}
+.elx-tree__node:hover {
+  background: var(--el-surface-3);
+}
+.elx-tree__node.is-active {
+  background: var(--el-primary-50);
+  color: var(--el-primary);
+  font-weight: 600;
+}
+.elx-tree__node > svg {
+  flex: none;
+  color: var(--x-mute);
+}
+.elx-tree__node.is-active > svg {
+  color: var(--el-primary);
+}
+.elx-tree__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.elx-tree__path {
+  color: var(--x-mute);
+  font-size: 12px;
+  flex: none;
+}
+
 /* --- Ruban : affordance de défilement -------------------------------------- */
 /* `overflow-x: auto` sans indicateur, c'est la moitié d'un onglet invisible sans
    que rien ne le signale. Le dégradé dit qu'il reste du contenu, le chevron

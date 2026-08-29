@@ -537,27 +537,3 @@
     width: 100%;
   }
 }
-
-@media print {
-  .det-header,
-  .det-upload,
-  .det-ready,
-  .det-progress,
-  .det-actions {
-    display: none !important;
-  }
-  .det-page {
-    position: static;
-    background: #fff;
-  }
-  .det-body {
-    overflow: visible;
-  }
-  .det-report {
-    max-width: none;
-  }
-  .det-finding {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-}

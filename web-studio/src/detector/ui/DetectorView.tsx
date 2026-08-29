@@ -31,17 +31,16 @@ import {
 import { runAnalysis } from "../runAnalysis";
 import { createBingProvider, createSerperProvider } from "../plagiarism/searchProviders";
 import { signalsByCategory, type SignalCatalogEntry } from "../signalCatalog";
+import {
+  CATEGORY_TITLES,
+  buildPreviewFlags,
+  confidenceExplanation,
+  severityLabel,
+  sortedFindings,
+} from "../reportPresentation";
+import { exportReportAsDocx, exportReportAsPdf } from "../report/exportReport";
 import DocumentPreview from "./DocumentPreview";
-import type { PreviewFlag } from "./previewFlags";
 import "./DetectorView.css";
-
-const CATEGORY_TITLES: Record<SignalCategory, string> = {
-  texte: "Texte",
-  mise_en_forme: "Mise en forme",
-  metadonnees: "Métadonnées",
-  image: "Images",
-  plagiat: "Plagiat",
-};
 
 const DISABLED_SIGNALS_KEY = "elium-detector-disabled-signals";
 
@@ -54,30 +53,6 @@ function loadDisabledSignals(): Set<string> {
   } catch {
     return new Set();
   }
-}
-
-/** Tous les points repérés du rapport, quelle que soit la catégorie active à
- *  l'écran — l'aperçu souligne le document dans son ensemble, pas seulement
- *  l'onglet ouvert. */
-function buildPreviewFlags(report: AnalysisReport): PreviewFlag[] {
-  const flags: PreviewFlag[] = [];
-  for (const cat of report.categories) {
-    for (const f of cat.findings) {
-      if (f.location.paragraphIndex == null) continue;
-      flags.push({ id: f.id, paragraphIndex: f.location.paragraphIndex, label: f.label, evidence: f.evidence });
-    }
-  }
-  if (report.plagiarism) {
-    report.plagiarism.matches.forEach((m, i) => {
-      flags.push({
-        id: `plagiat-${m.paragraphIndex}-${i}`,
-        paragraphIndex: m.paragraphIndex,
-        label: `Correspondance possible avec ${m.sourceTitle || m.url}`,
-        evidence: m.passage,
-      });
-    });
-  }
-  return flags;
 }
 
 function saveDisabledSignals(set: Set<string>): void {
@@ -144,6 +119,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
 
   const [focusedFlagId, setFocusedFlagId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [exporting, setExporting] = useState<"docx" | "pdf" | null>(null);
   const previewFlags = useMemo(() => (report ? buildPreviewFlags(report) : []), [report]);
   const showInDocument = (id: string, paragraphIndex: number | undefined) => {
     if (paragraphIndex == null) return;
@@ -268,6 +244,22 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
     setPlagiarismEnabled(false);
     setFocusedFlagId(null);
     setPreviewOpen(false);
+  }
+
+  async function handleExport(kind: "docx" | "pdf") {
+    if (!report || !model) return;
+    setExporting(kind);
+    try {
+      if (kind === "docx") await exportReportAsDocx(report, model, fileName);
+      else await exportReportAsPdf(report, model, fileName);
+    } catch (err) {
+      await dialogs.alert({
+        title: kind === "docx" ? "Échec de l'export .docx" : "Échec de l'export PDF",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setExporting(null);
+    }
   }
 
   const tabs = (() => {
@@ -521,8 +513,11 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               <Button variant="outline" onClick={resetAll}>
                 Nouvelle analyse
               </Button>
-              <Button variant="primary" onClick={() => window.print()}>
-                Imprimer / Exporter en PDF
+              <Button variant="outline" disabled={exporting != null} onClick={() => void handleExport("docx")}>
+                {exporting === "docx" ? "Export…" : "Exporter en .docx"}
+              </Button>
+              <Button variant="primary" disabled={exporting != null} onClick={() => void handleExport("pdf")}>
+                {exporting === "pdf" ? "Export…" : "Exporter en PDF"}
               </Button>
             </div>
           </div>
@@ -553,32 +548,6 @@ function confidenceAccent(confidence: AnalysisReport["confidence"]): "warning" |
   return "neutral";
 }
 
-/** La confiance mesure la quantité de texte disponible pour les statistiques
- *  (seuils exacts dans scoring.ts : faible sous 300 mots ou 5 paragraphes,
- *  haute au-delà de 3000 mots ET 20 paragraphes) — ce n'est PAS une seconde
- *  note sur la fiabilité du score lui-même, d'où ce mémo pour éviter la
- *  confusion entre les deux nombres affichés côte à côte. */
-function confidenceExplanation(confidence: AnalysisReport["confidence"]): string {
-  if (confidence === "faible") {
-    return "Confiance faible : ce document est trop court (moins de 300 mots ou 5 paragraphes) pour que les statistiques soient significatives — le score ci-contre est peu fiable, quel qu'il soit.";
-  }
-  if (confidence === "haute") {
-    return "Confiance haute : ce document est assez long (plus de 3000 mots et 20 paragraphes) pour que les statistiques du texte soient significatives.";
-  }
-  return "Confiance moyenne : ce document a une longueur intermédiaire — ni trop court pour fausser les statistiques, ni assez long pour une confiance maximale.";
-}
-
-function severityRank(s: SignalSeverity): number {
-  return { eleve: 0, moyen: 1, faible: 2, info: 3 }[s];
-}
-
-function sortedFindings(findings: Finding[]): Finding[] {
-  return [...findings].sort((a, b) => {
-    const rank = severityRank(a.severity) - severityRank(b.severity);
-    return rank !== 0 ? rank : b.weight - a.weight;
-  });
-}
-
 function severityAccent(s: SignalSeverity): "neutral" | "info" | "warning" | "danger" {
   switch (s) {
     case "eleve":
@@ -589,19 +558,6 @@ function severityAccent(s: SignalSeverity): "neutral" | "info" | "warning" | "da
       return "info";
     case "info":
       return "neutral";
-  }
-}
-
-function severityLabel(s: SignalSeverity): string {
-  switch (s) {
-    case "eleve":
-      return "Élevé";
-    case "moyen":
-      return "Moyen";
-    case "faible":
-      return "Faible";
-    case "info":
-      return "Info";
   }
 }
 

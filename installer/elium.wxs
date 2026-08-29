@@ -16,7 +16,7 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
-  <?define Version = "4.4.10" ?>
+  <?define Version = "4.4.11" ?>
   <?define Publisher = "Elium Authors" ?>
   <?define AppUrl = "https://github.com/eliumgame/elium-main" ?>
   <!-- UpgradeCode : NE JAMAIS CHANGER (identité du produit entre versions). -->

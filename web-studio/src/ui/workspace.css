@@ -717,6 +717,13 @@
   left: auto;
   right: 0;
 }
+/* Panneau large (bibliothèque de formules du Tableur : signature + description
+   sur deux lignes, plusieurs catégories) — la largeur par défaut (210px) les
+   ferait passer à la ligne. */
+.pdfx-menu--wide,
+.elx-menu--wide {
+  width: 300px;
+}
 
 .pdfx-menu__title,
 .elx-menu__title {
@@ -751,6 +758,15 @@
   background: var(--x-accent-soft);
   border-color: var(--x-accent-line);
   color: #fff;
+}
+.pdfx-menu__item:disabled,
+.elx-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdfx-menu__item:disabled:hover,
+.elx-menu__item:disabled:hover {
+  background: none;
 }
 .pdfx-menu__sep,
 .elx-menu__sep {

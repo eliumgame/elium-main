@@ -4046,71 +4046,57 @@
   box-shadow: inset 0 0 0 2px var(--primary-100);
 }
 
-/* Barre de mise en forme du tableur */
-.sheet-format {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding: 5px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-.fx-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: var(--el-z-dropdown);
-  width: 290px;
-  max-height: 360px;
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  box-shadow: var(--shadow-lg);
-  padding: 6px;
-}
-.fx-cat__title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  padding: 8px 8px 4px;
-}
-.fx-item {
+/* Ruban du tableur : ex-`.sheet-format`, remplacé par le ruban partagé
+   `.elx-ribbon`/`.elx-group`/`.elx-cmd` (voir src/ui/workspace.css et
+   SheetEditor.tsx) — ne restent ici que les bouts propres au Tableur : le
+   contenu à deux lignes des entrées de la bibliothèque de formules, et le
+   chip de filtre actif (retoné aux jetons du chrome sombre, `--x-*`, plutôt
+   qu'aux jetons clairs `--primary-*` puisqu'il vit maintenant dans le ruban). */
+.fx-item__body {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 1px;
-  width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: var(--r-sm);
-}
-.fx-item:hover {
-  background: var(--primary-50);
 }
 .fx-item__sig {
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--primary);
+  color: var(--x-accent);
   font-weight: 600;
 }
 .fx-item__desc {
   font-size: 11.5px;
-  color: var(--text-muted);
+  color: var(--x-chrome-mute);
 }
 
 .sheet-filter-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
-  color: var(--primary);
-  background: var(--primary-50);
-  border: 1px solid var(--primary-100);
-  border-radius: 999px;
+  height: 26px;
+  margin: 3px 0;
   padding: 2px 4px 2px 10px;
+  font-size: 12px;
+  color: #cfe0ff;
+  background: var(--x-accent-soft);
+  border: 1px solid var(--x-accent-line);
+  border-radius: 999px;
+}
+.sheet-filter-chip__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.sheet-filter-chip__close:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 .sheet-charts {
   display: flex;
@@ -4171,30 +4157,6 @@
   font-family: inherit;
   background: var(--surface);
   color: var(--text);
-}
-
-/* Menu déroulant générique (réutilise le cadre du panneau fx) */
-.fx-panel--menu {
-  width: 248px;
-  padding: 4px;
-}
-.fx-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  font-size: 13px;
-  color: var(--text);
-}
-.fx-menu-item:hover {
-  background: var(--primary-50);
-}
-.fx-menu-item:disabled {
-  color: var(--text-muted);
-}
-.fx-menu-item:disabled:hover {
-  background: transparent;
 }
 
 /* Mise en forme conditionnelle (modale) */

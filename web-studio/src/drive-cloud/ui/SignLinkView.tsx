@@ -289,21 +289,20 @@ export default function SignLinkView({
               }}
               className="dc-auth__form"
             >
-              <input
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Votre nom"
-                autoFocus
-                disabled={busy}
-              />
-              <input
-                className="input"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="Fonction (optionnel)"
-                disabled={busy}
-              />
+              <label className="field">
+                <span className="field__label">Votre nom</span>
+                <input
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                  disabled={busy}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Fonction (optionnel)</span>
+                <input className="input" value={role} onChange={(e) => setRole(e.target.value)} disabled={busy} />
+              </label>
               {state.phase === "ready" && state.doc.docType === "pdf" && (
                 <div style={{ margin: "2px 0 10px", textAlign: "left" }}>
                   <label
@@ -338,7 +337,11 @@ export default function SignLinkView({
                   )}
                 </div>
               )}
-              {err && <p className="dc-error">{err}</p>}
+              {err && (
+                <p className="dc-error" role="alert">
+                  {err}
+                </p>
+              )}
               <button className="eb eb--primary eb--block" disabled={busy || !name.trim()}>
                 {busy ? (
                   state.label

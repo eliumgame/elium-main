@@ -98,11 +98,15 @@ function ShapeSvg({ el }: { el: SlideElement }) {
 }
 
 // --- Theme backgrounds ------------------------------------------------------
-export function slideBackground(slide: Slide, theme: SlideTheme): string {
-  if (slide.background) return slide.background;
+/** The slide background a theme renders with when no per-slide override is set
+ *  — also used by the "Réglages" dialog to preview each theme swatch. */
+export function themeDefaultBg(theme: SlideTheme): string {
   if (theme === "dark") return "#0d1117";
   if (theme === "brand") return "linear-gradient(160deg, #1d4ed8, #1e3a8a)";
   return "#ffffff";
+}
+export function slideBackground(slide: Slide, theme: SlideTheme): string {
+  return slide.background ?? themeDefaultBg(theme);
 }
 export function themeText(theme: SlideTheme): string {
   return theme === "dark" || theme === "brand" ? "#f8fafc" : "#0f172a";

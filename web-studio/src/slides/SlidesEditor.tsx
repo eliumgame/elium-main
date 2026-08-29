@@ -66,8 +66,10 @@ import {
   Check,
   ArrowUp,
   ArrowDown,
+  Settings2,
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
+import { Modal, Button } from "../ui/components";
 import {
   elementsOf,
   newElementId,
@@ -91,7 +93,7 @@ import { ANIM_EFFECTS, ANIM_TRIGGERS, revealAt, maxStep } from "./playback";
 import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from "./templates";
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
-import SlideCanvas from "./canvas";
+import SlideCanvas, { themeDefaultBg } from "./canvas";
 import { CtxMenu, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
@@ -172,7 +174,6 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [shapeMenu, setShapeMenu] = useState(false);
   const [colorMenu, setColorMenu] = useState(false);
   const [animMenu, setAnimMenu] = useState(false);
-  const [bgMenu, setBgMenu] = useState(false);
   const [tplMenu, setTplMenu] = useState(false);
   const [chartInsMenu, setChartInsMenu] = useState(false);
   const [chartMenu, setChartMenu] = useState(false);
@@ -180,6 +181,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     { kind: "element" | "canvas"; x: number; y: number } | { kind: "slide"; i: number; x: number; y: number } | null
   >(null);
   const [hasClipboard, setHasClipboard] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -542,7 +544,6 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     setShapeMenu(false);
     setColorMenu(false);
     setAnimMenu(false);
-    setBgMenu(false);
     setTplMenu(false);
     setChartInsMenu(false);
     setChartMenu(false);
@@ -695,109 +696,16 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
         {canWrite && (
-          <>
-            <select
-              className="tool-select"
-              title="Thème"
-              aria-label="Thème"
-              value={theme}
-              onChange={(e) => store.setDeckField({ theme: e.target.value as SlideTheme })}
-            >
-              {THEMES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  Thème : {t.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="tool-select"
-              title="Transition"
-              aria-label="Transition"
-              value={deck.transition ?? "fade"}
-              onChange={(e) => store.setDeckField({ transition: e.target.value as SlideTransition })}
-            >
-              {TRANSITIONS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  Transition : {t.label}
-                </option>
-              ))}
-            </select>
-            <div className="sv-menu">
-              <button
-                className={`icon-btn ${active?.background ? "is-active" : ""}`}
-                title="Fond de la diapo"
-                onClick={() => setBgMenu((v) => !v)}
-              >
-                <Palette size={16} />
-              </button>
-              {bgMenu && (
-                <div className="sv-menu__pop sv-bg-pop sv-bg-pop--right" onMouseLeave={() => setBgMenu(false)}>
-                  <div className="sv-anim-hint">Fond de la diapo</div>
-                  <button className="eb eb--sm eb--ghost" onClick={() => applyBg(undefined)}>
-                    Aucun (thème)
-                  </button>
-                  <div className="sv-bg-label">Couleur unie</div>
-                  <div className="sv-bg-swatches">
-                    {SOLID_PRESETS.map((c) => (
-                      <button
-                        key={c}
-                        className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
-                        style={{ background: c }}
-                        onClick={() => applyBg(c)}
-                      />
-                    ))}
-                    <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
-                      <input
-                        type="color"
-                        aria-label="Couleur personnalisée"
-                        onChange={(e) => applyBg(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div className="sv-bg-label">Dégradé</div>
-                  <div className="sv-bg-swatches">
-                    {GRADIENT_PRESETS.map((g) => (
-                      <button
-                        key={g}
-                        className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
-                        style={{ backgroundImage: g }}
-                        onClick={() => applyBg(g)}
-                      />
-                    ))}
-                  </div>
-                  <div className="sv-bg-grad">
-                    <input
-                      type="color"
-                      title="Couleur 1"
-                      aria-label="Couleur 1"
-                      value={bgC1}
-                      onChange={(e) => setBgC1(e.target.value)}
-                    />
-                    <input
-                      type="color"
-                      title="Couleur 2"
-                      aria-label="Couleur 2"
-                      value={bgC2}
-                      onChange={(e) => setBgC2(e.target.value)}
-                    />
-                    <input
-                      className="input sv-num"
-                      type="number"
-                      min={0}
-                      max={360}
-                      title="Angle"
-                      aria-label="Angle du dégradé"
-                      value={bgAngle}
-                      onChange={(e) => setBgAngle(Number(e.target.value))}
-                    />
-                    <button className="eb eb--sm eb--outline" onClick={() => applyBg(gradientCss(bgC1, bgC2, bgAngle))}>
-                      Dégradé
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
+          <button
+            className="eb eb--sm eb--outline"
+            title="Réglages de la présentation"
+            onClick={() => {
+              closePopovers();
+              setSettingsOpen(true);
+            }}
+          >
+            <Settings2 size={14} /> Réglages
+          </button>
         )}
         {canWrite && store.replaceDeck && (
           <>
@@ -1432,6 +1340,113 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
       )}
       {ctxMenu?.kind === "slide" && (
         <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={slideMenuEntries(ctxMenu.i)} onClose={() => setCtxMenu(null)} />
+      )}
+
+      {settingsOpen && (
+        <Modal
+          title="Réglages de la présentation"
+          onClose={() => setSettingsOpen(false)}
+          wide
+          footer={
+            <Button variant="primary" onClick={() => setSettingsOpen(false)}>
+              Fermer
+            </Button>
+          }
+        >
+          <div className="sv-settings">
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">Thème</h3>
+              <div className="sv-theme-row">
+                {THEMES.map((t) => (
+                  <button
+                    key={t.value}
+                    className={`sv-tpl-item ${theme === t.value ? "is-active" : ""}`}
+                    onClick={() => store.setDeckField({ theme: t.value })}
+                  >
+                    <span className="sv-tpl-preview" style={{ background: themeDefaultBg(t.value) }} />
+                    <span className="sv-tpl-item__label">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">Transition par défaut</h3>
+              <div className="sv-pill-row">
+                {TRANSITIONS.map((t) => (
+                  <button
+                    key={t.value}
+                    className={`sv-pill ${(deck.transition ?? "fade") === t.value ? "is-active" : ""}`}
+                    onClick={() => store.setDeckField({ transition: t.value })}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">
+                <Palette size={14} /> Fond de cette diapo
+              </h3>
+              <button className="eb eb--sm eb--ghost" onClick={() => applyBg(undefined)}>
+                Aucun (thème)
+              </button>
+              <div className="sv-bg-label">Couleur unie</div>
+              <div className="sv-bg-swatches">
+                {SOLID_PRESETS.map((c) => (
+                  <button
+                    key={c}
+                    className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
+                    style={{ background: c }}
+                    onClick={() => applyBg(c)}
+                  />
+                ))}
+                <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
+                  <input type="color" aria-label="Couleur personnalisée" onChange={(e) => applyBg(e.target.value)} />
+                </label>
+              </div>
+              <div className="sv-bg-label">Dégradé</div>
+              <div className="sv-bg-swatches">
+                {GRADIENT_PRESETS.map((g) => (
+                  <button
+                    key={g}
+                    className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
+                    style={{ backgroundImage: g }}
+                    onClick={() => applyBg(g)}
+                  />
+                ))}
+              </div>
+              <div className="sv-bg-grad">
+                <input
+                  type="color"
+                  title="Couleur 1"
+                  aria-label="Couleur 1"
+                  value={bgC1}
+                  onChange={(e) => setBgC1(e.target.value)}
+                />
+                <input
+                  type="color"
+                  title="Couleur 2"
+                  aria-label="Couleur 2"
+                  value={bgC2}
+                  onChange={(e) => setBgC2(e.target.value)}
+                />
+                <input
+                  className="input sv-num"
+                  type="number"
+                  min={0}
+                  max={360}
+                  title="Angle"
+                  aria-label="Angle du dégradé"
+                  value={bgAngle}
+                  onChange={(e) => setBgAngle(Number(e.target.value))}
+                />
+                <button className="eb eb--sm eb--outline" onClick={() => applyBg(gradientCss(bgC1, bgC2, bgAngle))}>
+                  Dégradé
+                </button>
+              </div>
+            </section>
+          </div>
+        </Modal>
       )}
 
       {presenting &&

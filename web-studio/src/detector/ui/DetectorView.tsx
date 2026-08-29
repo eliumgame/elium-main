@@ -295,8 +295,9 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
         <div className="det-header__titles">
           <h1 className="det-header__title">Détecteur</h1>
           <p className="det-header__subtitle">
-            Analyse un document (.elium, .docx, .pdf) à la recherche de signaux de rédaction par IA et d'anomalies de
-            mise en forme, de métadonnées et d'images — avec une vérification optionnelle de plagiat sur le web.
+            Analyse un document (.elium, .docx, .pdf) ou une image seule (.png, .jpg, .webp) à la recherche de
+            signaux de rédaction ou de génération par IA, d'anomalies de mise en forme et de métadonnées — avec une
+            vérification optionnelle de plagiat sur le web.
           </p>
         </div>
       </header>
@@ -326,10 +327,10 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 <div className="det-dropzone__icon">
                   <UploadCloud size={28} />
                 </div>
-                <h2>Déposez un document à analyser</h2>
+                <h2>Déposez un document ou une image à analyser</h2>
                 <p>
-                  Formats acceptés : .elium, .docx, .pdf. Le document reste sur votre appareil ; rien n'en sort sans
-                  votre accord explicite (voir la vérification de plagiat, plus loin).
+                  Formats acceptés : .elium, .docx, .pdf, .png, .jpg, .webp. Le fichier reste sur votre appareil ;
+                  rien n'en sort sans votre accord explicite (voir la vérification de plagiat, plus loin).
                 </p>
                 <div className="det-dropzone__actions">
                   <Button variant="primary" onClick={() => fileInputRef.current?.click()}>
@@ -339,7 +340,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".elium,.docx,.pdf"
+                  accept=".elium,.docx,.pdf,.png,.jpg,.jpeg,.webp"
                   className="visually-hidden"
                   onChange={(e) => {
                     onFileChosen(e.target.files?.[0]);
@@ -365,9 +366,14 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               <div>
                 <div className="det-ready__filename">{fileName}</div>
                 <div className="det-ready__filemeta">
-                  {model.paragraphs.length} paragraphe(s)
-                  {model.images.length > 0 ? `, ${model.images.length} image(s)` : ""}
-                  {model.metadata.pageCount ? `, ${model.metadata.pageCount} page(s)` : ""}
+                  {model.metadata.sourceFormat === "image"
+                    ? "Image seule" +
+                      (model.images[0]?.width && model.images[0]?.height
+                        ? ` — ${model.images[0].width}×${model.images[0].height}`
+                        : "")
+                    : `${model.paragraphs.length} paragraphe(s)` +
+                      (model.images.length > 0 ? `, ${model.images.length} image(s)` : "") +
+                      (model.metadata.pageCount ? `, ${model.metadata.pageCount} page(s)` : "")}
                 </div>
               </div>
             </div>

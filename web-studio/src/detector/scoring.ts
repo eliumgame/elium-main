@@ -41,13 +41,21 @@ const SATURATION_K = 7;
 const CATEGORY_ORDER: (keyof FindingsByCategory)[] = ["texte", "mise_en_forme", "metadonnees", "image"];
 
 // v1 always runs all four categories, so the weighted average below is a
-// fixed weighting with no renormalization for missing categories.
+// fixed weighting — EXCEPT for the one case where a whole category is
+// structurally guaranteed to be empty rather than merely uninformative: a
+// document with zero paragraphs (a standalone image upload, see
+// ingest/loadFile.ts) can never produce a "texte"/"mise_en_forme" finding by
+// construction, since those engines only ever read `paragraphs`. Counting
+// them in the average would silently dilute a real image/metadata finding
+// toward 0 — see the renormalization in computeReport below.
 const CATEGORY_WEIGHT: Record<keyof FindingsByCategory, number> = {
   texte: 0.45,
   mise_en_forme: 0.2,
   metadonnees: 0.15,
   image: 0.2,
 };
+
+const TEXT_DEPENDENT_CATEGORIES: ReadonlySet<keyof FindingsByCategory> = new Set(["texte", "mise_en_forme"]);
 
 function categoryScore(findings: Finding[]): number {
   const rawSum = findings.reduce((sum, f) => sum + f.weight * SEVERITY_MULTIPLIER[f.severity], 0);
@@ -84,9 +92,15 @@ export function computeReport(
     findings: findingsByCategory[c.category],
   }));
 
-  const overallScore = Math.round(
-    categoryScores.reduce((sum, c) => sum + c.score * CATEGORY_WEIGHT[c.category], 0),
-  );
+  const hasText = model.paragraphs.length > 0;
+  const weighted = hasText
+    ? categoryScores
+    : categoryScores.filter((c) => !TEXT_DEPENDENT_CATEGORIES.has(c.category));
+  const totalWeight = weighted.reduce((sum, c) => sum + CATEGORY_WEIGHT[c.category], 0);
+  const overallScore =
+    totalWeight > 0
+      ? Math.round(weighted.reduce((sum, c) => sum + c.score * CATEGORY_WEIGHT[c.category], 0) / totalWeight)
+      : 0;
 
   return {
     overallScore,

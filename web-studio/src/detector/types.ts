@@ -73,7 +73,7 @@ export interface ImageModel {
 }
 
 export interface DocumentMetadata {
-  sourceFormat: "elium" | "docx" | "pdf";
+  sourceFormat: "elium" | "docx" | "pdf" | "image";
   title?: string;
   author?: string;
   /** Producing application, when known (Word, Google Docs, a PDF producer, a specific converter...). */

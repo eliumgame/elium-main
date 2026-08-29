@@ -1,10 +1,11 @@
 /**
  * Point d'entrée unique du Détecteur : détecte le format d'un fichier ouvert
- * par l'utilisateur (.elium / .docx / .pdf) et le convertit en `DocumentModel`
- * via le bon pipeline d'ingestion. Les exceptions de mot de passe des lecteurs
- * sous-jacents (`EliumPasswordRequired`, `EliumRecipientKeyRequired`,
- * `PdfPasswordRequired`) sont ré-exportées telles quelles : c'est l'appelant
- * (l'UI) qui sait proposer une invite et relancer avec le mot de passe.
+ * par l'utilisateur (.elium / .docx / .pdf / une image seule) et le convertit
+ * en `DocumentModel` via le bon pipeline d'ingestion. Les exceptions de mot
+ * de passe des lecteurs sous-jacents (`EliumPasswordRequired`,
+ * `EliumRecipientKeyRequired`, `PdfPasswordRequired`) sont ré-exportées
+ * telles quelles : c'est l'appelant (l'UI) qui sait proposer une invite et
+ * relancer avec le mot de passe.
  */
 import { strFromU8, unzipSync } from "fflate";
 import { docxToDoc } from "../../format/docx";
@@ -16,12 +17,13 @@ import {
 } from "../../format/elium-package";
 import { PdfPasswordRequired } from "../../pdf/core/engine";
 import type { DocumentMetadata, DocumentModel } from "../types";
+import { readImageDimensions } from "./imageDimensions";
 import { documentModelFromPdf } from "./fromPdf";
 import { documentModelFromProseMirrorDoc } from "./fromProseMirror";
 
 export { EliumPasswordRequired, EliumRecipientKeyRequired, PdfPasswordRequired };
 
-export type DetectorFileKind = "elium" | "docx" | "pdf";
+export type DetectorFileKind = "elium" | "docx" | "pdf" | "image";
 
 export interface LoadFileOptions {
   password?: string;
@@ -29,12 +31,31 @@ export interface LoadFileOptions {
 }
 
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46]; // "%PDF"
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
+function isWebp(bytes: Uint8Array): boolean {
+  // "RIFF" .... "WEBP" — la taille (4 octets) sépare les deux marqueurs.
+  if (bytes.length < 12) return false;
+  const riff = String.fromCharCode(...bytes.subarray(0, 4));
+  const webp = String.fromCharCode(...bytes.subarray(8, 12));
+  return riff === "RIFF" && webp === "WEBP";
+}
+
+function detectImageMime(name: string, bytes: Uint8Array): string | null {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  if (ext === "png" || PNG_MAGIC.every((b, i) => bytes[i] === b)) return "image/png";
+  if (["jpg", "jpeg"].includes(ext) || JPEG_MAGIC.every((b, i) => bytes[i] === b)) return "image/jpeg";
+  if (ext === "webp" || isWebp(bytes)) return "image/webp";
+  return null;
+}
 
 export function detectFileKind(name: string, bytes: Uint8Array): DetectorFileKind | null {
   const ext = name.toLowerCase().split(".").pop() ?? "";
   if (ext === "pdf" || PDF_MAGIC.every((b, i) => bytes[i] === b)) return "pdf";
   if (ext === "docx") return "docx";
   if (ext === "elium" || looksLikeV4Package(bytes)) return "elium";
+  if (detectImageMime(name, bytes)) return "image";
   return null;
 }
 
@@ -65,8 +86,18 @@ export async function loadDocumentModel(file: File, opts: LoadFileOptions = {}):
     return { paragraphs, images, metadata };
   }
 
+  if (kind === "image") {
+    const mime = detectImageMime(file.name, bytes)!;
+    const { width, height } = readImageDimensions(bytes);
+    return {
+      paragraphs: [],
+      images: [{ index: 0, bytes, mime, ...(width != null && { width }), ...(height != null && { height }) }],
+      metadata: { sourceFormat: "image", title: file.name },
+    };
+  }
+
   throw new UnsupportedFileError(
-    `Format de fichier non pris en charge : « ${file.name} ». Formats acceptés : .elium, .docx, .pdf.`,
+    `Format de fichier non pris en charge : « ${file.name} ». Formats acceptés : .elium, .docx, .pdf, ou une image seule (.png, .jpg, .webp).`,
   );
 }
 

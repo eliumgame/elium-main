@@ -157,3 +157,56 @@ describe("Détecteur — réglage de sensibilité (disabledSignals)", () => {
     expect(a.overallScore).toBe(b.overallScore);
   });
 });
+
+describe("Détecteur — une image seule (sans document conteneur)", () => {
+  function pngWithParametersChunk(): Uint8Array {
+    const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0));
+    const push32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+    const chunk = (type: string, data: number[]) => [...push32(data.length), ...ascii(type), ...data, 0, 0, 0, 0];
+    const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const ihdr = chunk("IHDR", [...push32(512), ...push32(512), 8, 2, 0, 0, 0]);
+    const text = chunk("tEXt", [...ascii("parameters"), 0, ...ascii("a photorealistic cat, steps: 30, seed: 42")]);
+    const iend = chunk("IEND", []);
+    return new Uint8Array([...sig, ...ihdr, ...text, ...iend]);
+  }
+
+  it("charge un .png ouvert seul : 0 paragraphe, 1 image, métadonnées minimales", async () => {
+    const model = await loadDocumentModel(fakeFile("photo.png", pngWithParametersChunk()));
+    expect(model.paragraphs).toEqual([]);
+    expect(model.images).toHaveLength(1);
+    expect(model.images[0].mime).toBe("image/png");
+    expect(model.images[0].width).toBe(512);
+    expect(model.images[0].height).toBe(512);
+    expect(model.metadata.sourceFormat).toBe("image");
+  });
+
+  it("le score global reflète directement la catégorie image, sans être dilué par les catégories texte vides", async () => {
+    const model = await loadDocumentModel(fakeFile("photo.png", pngWithParametersChunk()));
+    const report = await runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z" });
+
+    const imageCategory = report.categories.find((c) => c.category === "image")!;
+    const metaCategory = report.categories.find((c) => c.category === "metadonnees")!;
+    expect(imageCategory.score).toBeGreaterThan(0); // le chunk "parameters" doit avoir déclenché un signal
+
+    // Repondération : seules metadonnees (0.15) et image (0.20) comptent ici
+    // (texte/mise_en_forme sont exclues, structurellement vides sans paragraphe).
+    const expected = Math.round((metaCategory.score * 0.15 + imageCategory.score * 0.2) / 0.35);
+    expect(report.overallScore).toBe(expected);
+    // Le score dilué par les 4 poids fixes (ancien comportement) aurait été
+    // nettement plus bas — la repondération doit rapprocher le score global
+    // du signal image réel, pas le noyer.
+    expect(report.overallScore).toBeGreaterThan(Math.round(imageCategory.score * 0.2));
+  });
+
+  it("confiance toujours 'faible' pour une image seule — aucune statistique de texte n'est possible", async () => {
+    const model = await loadDocumentModel(fakeFile("photo.png", pngWithParametersChunk()));
+    const report = await runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z" });
+    expect(report.confidence).toBe("faible");
+  });
+
+  it("rejette toujours un format vraiment non supporté (ex. .txt)", async () => {
+    await expect(loadDocumentModel(fakeFile("notes.txt", new TextEncoder().encode("hello")))).rejects.toThrow(
+      /non pris en charge/,
+    );
+  });
+});

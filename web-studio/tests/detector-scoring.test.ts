@@ -177,6 +177,45 @@ describe("computeReport — toutes catégories combinées pèsent correctement",
   });
 });
 
+describe("computeReport — repondération sans paragraphe (image seule)", () => {
+  it("exclut texte/mise_en_forme du score global quand paragraphs est vide, sans y toucher pour les scores par catégorie", () => {
+    const findings = emptyFindings();
+    findings.image = [makeFinding({ category: "image", severity: "eleve", weight: 1, location: { label: "Image 1" } })];
+    findings.metadonnees = [
+      makeFinding({ category: "metadonnees", severity: "moyen", weight: 0.5, location: { label: "Document" } }),
+    ];
+
+    const model: ScoringDocumentModel = { paragraphs: [], images: [], metadata: { sourceFormat: "image" } };
+    const report = computeReport(model, findings, undefined, "x");
+
+    const imageScore = report.categories.find((c) => c.category === "image")!.score;
+    const metaScore = report.categories.find((c) => c.category === "metadonnees")!.score;
+    // Les catégories elles-mêmes restent calculées normalement — seule la
+    // moyenne pondérée globale change.
+    expect(imageScore).toBeGreaterThan(0);
+    expect(report.categories.find((c) => c.category === "texte")!.score).toBe(0);
+
+    const expected = Math.round((metaScore * 0.15 + imageScore * 0.2) / 0.35);
+    expect(report.overallScore).toBe(expected);
+  });
+
+  it("ne change rien dès qu'il y a au moins un paragraphe, même vide de findings texte", () => {
+    const findings = emptyFindings();
+    findings.image = [makeFinding({ category: "image", severity: "eleve", weight: 1, location: { label: "Image 1" } })];
+
+    const withText = computeReport(baseModel(paragraphsOfWords(1, 3)), findings, undefined, "x");
+    const imageScore = withText.categories.find((c) => c.category === "image")!.score;
+    expect(withText.overallScore).toBe(Math.round(imageScore * 0.2));
+  });
+
+  it("renvoie 0 (jamais NaN) quand aucun signal n'existe pour une image seule", () => {
+    const model: ScoringDocumentModel = { paragraphs: [], images: [], metadata: { sourceFormat: "image" } };
+    const report = computeReport(model, emptyFindings(), undefined, "x");
+    expect(report.overallScore).toBe(0);
+    expect(Number.isNaN(report.overallScore)).toBe(false);
+  });
+});
+
 describe("computeReport — confiance selon la taille du document", () => {
   const findings = emptyFindings();
 

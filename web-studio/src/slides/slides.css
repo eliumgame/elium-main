@@ -369,6 +369,49 @@
 .sv-menu__item:hover {
   background: var(--surface-3);
 }
+.sv-menu__item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.sv-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+.sv-menu__item svg {
+  flex: none;
+}
+.sv-menu__item--danger {
+  color: var(--danger);
+}
+.sv-menu__item--danger:hover {
+  background: var(--danger-bg);
+}
+.sv-menu__kbd {
+  margin-left: auto;
+  padding-left: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.sv-menu__sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+/* Context menus (right-click on a slide/element/thumbnail): anchored to the
+   click point in viewport coordinates, not to a toolbar trigger. */
+.sv-ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--el-z-dropdown, 1000) - 1);
+  cursor: default;
+}
+.sv-ctxmenu {
+  position: fixed;
+  min-width: 216px;
+}
 .sv-colors {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -424,30 +467,18 @@
   background: var(--primary);
 }
 
-/* Top bar: clusters the theme/transition/background pickers into one visible
-   chip so "réglages de la présentation" reads as a group instead of loose
-   controls floating next to unrelated buttons. */
-.sv-bar-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 5px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-/* Background picker + template gallery */
-.sv-bg-pop {
-  min-width: 252px;
-  gap: 8px;
-  padding: 12px;
-}
-.sv-bg-pop--right {
+/* A popover anchored near the right edge of the bar (e.g. Exporter) must open
+   leftwards, or it renders off-screen. */
+.sv-menu__pop--right {
   left: auto;
   right: 0;
   transform-origin: top right;
 }
+.sv-export-pop {
+  min-width: 208px;
+}
+
+/* Template gallery */
 .sv-bg-label {
   font-size: 11px;
   font-weight: 700;
@@ -496,6 +527,59 @@
   background: none;
   cursor: pointer;
 }
+/* "Réglages de la présentation" dialog: groups the theme/transition/background
+   controls that used to float loose in the top bar into one place. */
+.sv-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.sv-settings__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+.sv-theme-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 440px;
+}
+.sv-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sv-pill {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--el-motion-fast) var(--el-ease-standard),
+    color var(--el-motion-fast) var(--el-ease-standard),
+    border-color var(--el-motion-fast) var(--el-ease-standard);
+}
+.sv-pill:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.sv-pill.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 .sv-tpl-pop {
   width: min(320px, 88vw);
   max-height: 62vh;
@@ -525,6 +609,13 @@
 .sv-tpl-item:hover {
   background: var(--surface-3);
   border-color: var(--border-strong);
+}
+.sv-tpl-item.is-active {
+  border-color: var(--primary);
+  background: var(--primary-50, rgba(37, 99, 235, 0.08));
+}
+.sv-tpl-item.is-active .sv-tpl-preview {
+  box-shadow: 0 0 0 2px var(--primary);
 }
 .sv-tpl-item__label {
   font-size: 11.5px;
@@ -945,6 +1036,59 @@
   gap: 6px;
   padding: 10px 4px 6px;
   flex-wrap: wrap;
+}
+
+/* "Gérer les diapositives" dialog: the rail's reorder/duplicate/delete, at a
+   size where a whole deck can be scanned and rearranged without switching
+   slides one at a time. */
+.sv-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sv-manager__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.sv-manager__row.is-active {
+  border-color: var(--primary);
+  background: var(--primary-50, rgba(37, 99, 235, 0.08));
+}
+.sv-manager__preview {
+  position: relative;
+  flex: none;
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.12);
+}
+.sv-manager__num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.65);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 17px;
+}
+.sv-manager__actions {
+  display: flex;
+  gap: 2px;
 }
 
 /* --- Presenter ------------------------------------------------------------ */

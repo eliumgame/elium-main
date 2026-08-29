@@ -61,8 +61,16 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  Scissors,
+  ClipboardPaste,
+  Check,
+  ArrowUp,
+  ArrowDown,
+  Settings2,
+  GalleryVerticalEnd,
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
+import { Modal, Button } from "../ui/components";
 import {
   elementsOf,
   newElementId,
@@ -86,7 +94,8 @@ import { ANIM_EFFECTS, ANIM_TRIGGERS, revealAt, maxStep } from "./playback";
 import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from "./templates";
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
-import SlideCanvas from "./canvas";
+import SlideCanvas, { themeDefaultBg } from "./canvas";
+import { CtxMenu, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import type { DeckStore } from "./store";
@@ -166,10 +175,15 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [shapeMenu, setShapeMenu] = useState(false);
   const [colorMenu, setColorMenu] = useState(false);
   const [animMenu, setAnimMenu] = useState(false);
-  const [bgMenu, setBgMenu] = useState(false);
   const [tplMenu, setTplMenu] = useState(false);
   const [chartInsMenu, setChartInsMenu] = useState(false);
   const [chartMenu, setChartMenu] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<
+    { kind: "element" | "canvas"; x: number; y: number } | { kind: "slide"; i: number; x: number; y: number } | null
+  >(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [managerOpen, setManagerOpen] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -184,7 +198,10 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
   // --- multi-selection ops (groups, copy/paste, duplicate) ---
   const copySelection = () => {
-    if (selIds.length) clipboard.current = elements.filter((e) => selIds.includes(e.id));
+    if (selIds.length) {
+      clipboard.current = elements.filter((e) => selIds.includes(e.id));
+      setHasClipboard(true);
+    }
   };
   const pasteClipboard = () => {
     if (!clipboard.current.length) return;
@@ -524,6 +541,132 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     setMorphFrom(trans === "morph" && deck.slides[from] ? from : null);
   }, [presentIdx, presenting]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // --- context menus (right-click on an element / the canvas / a slide) ---
+  const closePopovers = () => {
+    setShapeMenu(false);
+    setColorMenu(false);
+    setAnimMenu(false);
+    setTplMenu(false);
+    setChartInsMenu(false);
+    setChartMenu(false);
+  };
+  const onElementContext = (e: React.MouseEvent, id: string) => {
+    if (!canWrite) return;
+    if (!selIds.includes(id)) setSelIds([id]);
+    closePopovers();
+    setCtxMenu({ kind: "element", x: e.clientX, y: e.clientY });
+  };
+  const onCanvasContext = (e: React.MouseEvent) => {
+    if (!canWrite) return;
+    closePopovers();
+    setCtxMenu({ kind: "canvas", x: e.clientX, y: e.clientY });
+  };
+  const onSlideContext = (e: React.MouseEvent, i: number) => {
+    if (!canWrite) return;
+    store.setActive(i);
+    closePopovers();
+    setCtxMenu({ kind: "slide", i, x: e.clientX, y: e.clientY });
+  };
+  const elementMenuEntries = (): MenuEntry[] => {
+    if (!sel) return [];
+    const hasAnim = !!animOf(sel.id);
+    return [
+      {
+        label: "Couper",
+        icon: <Scissors size={14} />,
+        kbd: "Ctrl+X",
+        onClick: () => {
+          copySelection();
+          removeSelection();
+        },
+      },
+      { label: "Copier", icon: <Copy size={14} />, kbd: "Ctrl+C", onClick: copySelection },
+      {
+        label: "Coller",
+        icon: <ClipboardPaste size={14} />,
+        kbd: "Ctrl+V",
+        disabled: !hasClipboard,
+        onClick: pasteClipboard,
+      },
+      { sep: true },
+      { label: "Dupliquer", icon: <Copy size={14} />, kbd: "Ctrl+D", onClick: duplicateSelection },
+      { sep: true },
+      { label: "Premier plan", icon: <BringToFront size={14} />, onClick: () => store.reorderEl(sel.id, "front") },
+      { label: "Arrière-plan", icon: <SendToBack size={14} />, onClick: () => store.reorderEl(sel.id, "back") },
+      { sep: true },
+      {
+        label: "Grouper",
+        icon: <Group size={14} />,
+        kbd: "Ctrl+G",
+        disabled: !canGroup,
+        onClick: groupSelection,
+      },
+      {
+        label: "Dégrouper",
+        icon: <Ungroup size={14} />,
+        kbd: "Ctrl+Maj+G",
+        disabled: !canUngroup,
+        onClick: ungroupSelection,
+      },
+      { sep: true },
+      {
+        label: hasAnim ? "Modifier l'animation" : "Ajouter une animation",
+        icon: <Sparkles size={14} />,
+        onClick: () => {
+          if (!hasAnim) upsertAnim(sel.id, {});
+          setAnimMenu(true);
+        },
+      },
+      { sep: true },
+      { label: "Supprimer", icon: <Trash2 size={14} />, kbd: "Suppr", danger: true, onClick: removeSelection },
+    ];
+  };
+  const canvasMenuEntries = (): MenuEntry[] => [
+    {
+      label: "Coller",
+      icon: <ClipboardPaste size={14} />,
+      kbd: "Ctrl+V",
+      disabled: !hasClipboard,
+      onClick: pasteClipboard,
+    },
+    { sep: true },
+    { label: "Texte", icon: <Type size={14} />, onClick: () => addEl(newTextElement()) },
+    { label: "Forme", icon: <Square size={14} />, onClick: () => addEl(newShapeElement("rect")) },
+    { label: "Image", icon: <ImageIcon size={14} />, onClick: () => imgRef.current?.click() },
+    { label: "Tableau", icon: <TableIcon size={14} />, onClick: () => addEl(newTableElement()) },
+  ];
+  const slideMenuEntries = (i: number): MenuEntry[] => {
+    const s = deck.slides[i];
+    const entries: MenuEntry[] = [
+      { label: "Dupliquer", icon: <Copy size={14} />, onClick: () => store.duplicateSlide(i) },
+      { sep: true },
+      { label: "Monter", icon: <ArrowUp size={14} />, disabled: i === 0, onClick: () => store.moveSlide(i, -1) },
+      {
+        label: "Descendre",
+        icon: <ArrowDown size={14} />,
+        disabled: i === deck.slides.length - 1,
+        onClick: () => store.moveSlide(i, 1),
+      },
+      { sep: true },
+    ];
+    for (const t of TRANSITIONS) {
+      entries.push({
+        label: `Transition : ${t.label}`,
+        icon: s?.transition === t.value ? <Check size={14} /> : <span style={{ width: 14, display: "inline-block" }} />,
+        onClick: () => store.patchSlide({ transition: t.value }, true),
+      });
+    }
+    entries.push({ sep: true });
+    entries.push({
+      label: "Supprimer",
+      icon: <Trash2 size={14} />,
+      danger: true,
+      disabled: deck.slides.length <= 1,
+      onClick: () => store.removeSlide(i),
+    });
+    return entries;
+  };
+
   const isText = sel?.type === "text";
   const isShape = sel?.type === "shape";
   const isTable = sel?.type === "table";
@@ -555,109 +698,16 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
         {canWrite && (
-          <>
-            <select
-              className="tool-select"
-              title="Thème"
-              aria-label="Thème"
-              value={theme}
-              onChange={(e) => store.setDeckField({ theme: e.target.value as SlideTheme })}
-            >
-              {THEMES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  Thème : {t.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="tool-select"
-              title="Transition"
-              aria-label="Transition"
-              value={deck.transition ?? "fade"}
-              onChange={(e) => store.setDeckField({ transition: e.target.value as SlideTransition })}
-            >
-              {TRANSITIONS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  Transition : {t.label}
-                </option>
-              ))}
-            </select>
-            <div className="sv-menu">
-              <button
-                className={`icon-btn ${active?.background ? "is-active" : ""}`}
-                title="Fond de la diapo"
-                onClick={() => setBgMenu((v) => !v)}
-              >
-                <Palette size={16} />
-              </button>
-              {bgMenu && (
-                <div className="sv-menu__pop sv-bg-pop sv-bg-pop--right" onMouseLeave={() => setBgMenu(false)}>
-                  <div className="sv-anim-hint">Fond de la diapo</div>
-                  <button className="eb eb--sm eb--ghost" onClick={() => applyBg(undefined)}>
-                    Aucun (thème)
-                  </button>
-                  <div className="sv-bg-label">Couleur unie</div>
-                  <div className="sv-bg-swatches">
-                    {SOLID_PRESETS.map((c) => (
-                      <button
-                        key={c}
-                        className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
-                        style={{ background: c }}
-                        onClick={() => applyBg(c)}
-                      />
-                    ))}
-                    <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
-                      <input
-                        type="color"
-                        aria-label="Couleur personnalisée"
-                        onChange={(e) => applyBg(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div className="sv-bg-label">Dégradé</div>
-                  <div className="sv-bg-swatches">
-                    {GRADIENT_PRESETS.map((g) => (
-                      <button
-                        key={g}
-                        className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
-                        style={{ backgroundImage: g }}
-                        onClick={() => applyBg(g)}
-                      />
-                    ))}
-                  </div>
-                  <div className="sv-bg-grad">
-                    <input
-                      type="color"
-                      title="Couleur 1"
-                      aria-label="Couleur 1"
-                      value={bgC1}
-                      onChange={(e) => setBgC1(e.target.value)}
-                    />
-                    <input
-                      type="color"
-                      title="Couleur 2"
-                      aria-label="Couleur 2"
-                      value={bgC2}
-                      onChange={(e) => setBgC2(e.target.value)}
-                    />
-                    <input
-                      className="input sv-num"
-                      type="number"
-                      min={0}
-                      max={360}
-                      title="Angle"
-                      aria-label="Angle du dégradé"
-                      value={bgAngle}
-                      onChange={(e) => setBgAngle(Number(e.target.value))}
-                    />
-                    <button className="eb eb--sm eb--outline" onClick={() => applyBg(gradientCss(bgC1, bgC2, bgAngle))}>
-                      Dégradé
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
+          <button
+            className="eb eb--sm eb--outline"
+            title="Réglages de la présentation"
+            onClick={() => {
+              closePopovers();
+              setSettingsOpen(true);
+            }}
+          >
+            <Settings2 size={14} /> Réglages
+          </button>
         )}
         {canWrite && store.replaceDeck && (
           <>
@@ -1153,7 +1203,15 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           {deck.slides.map((s, i) => {
             const here = peers?.filter((p) => p.slide === i) ?? [];
             return (
-              <div key={s.id} className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}>
+              <div
+                key={s.id}
+                className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}
+                onContextMenu={(e) => {
+                  if (!canWrite) return;
+                  e.preventDefault();
+                  onSlideContext(e, i);
+                }}
+              >
                 <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
                   <span className="slide-thumb__num">{i + 1}</span>
                   <span className="sv-thumb__canvas">
@@ -1237,6 +1295,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   </div>
                 )}
               </div>
+              <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>
+                <GalleryVerticalEnd size={13} /> Gérer
+              </button>
             </div>
           )}
         </aside>
@@ -1255,6 +1316,8 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 onSelectionChange={setSelIds}
                 onChange={(id, patch, commit) => store.updateEl(id, patch, commit)}
                 onBeginChange={store.beginChange}
+                onElementContext={onElementContext}
+                onCanvasContext={onCanvasContext}
               />
             )}
           </div>
@@ -1273,6 +1336,178 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           />
         </main>
       </div>
+
+      {ctxMenu?.kind === "element" && sel && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={elementMenuEntries()} onClose={() => setCtxMenu(null)} />
+      )}
+      {ctxMenu?.kind === "canvas" && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={canvasMenuEntries()} onClose={() => setCtxMenu(null)} />
+      )}
+      {ctxMenu?.kind === "slide" && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={slideMenuEntries(ctxMenu.i)} onClose={() => setCtxMenu(null)} />
+      )}
+
+      {settingsOpen && (
+        <Modal
+          title="Réglages de la présentation"
+          onClose={() => setSettingsOpen(false)}
+          wide
+          footer={
+            <Button variant="primary" onClick={() => setSettingsOpen(false)}>
+              Fermer
+            </Button>
+          }
+        >
+          <div className="sv-settings">
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">Thème</h3>
+              <div className="sv-theme-row">
+                {THEMES.map((t) => (
+                  <button
+                    key={t.value}
+                    className={`sv-tpl-item ${theme === t.value ? "is-active" : ""}`}
+                    onClick={() => store.setDeckField({ theme: t.value })}
+                  >
+                    <span className="sv-tpl-preview" style={{ background: themeDefaultBg(t.value) }} />
+                    <span className="sv-tpl-item__label">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">Transition par défaut</h3>
+              <div className="sv-pill-row">
+                {TRANSITIONS.map((t) => (
+                  <button
+                    key={t.value}
+                    className={`sv-pill ${(deck.transition ?? "fade") === t.value ? "is-active" : ""}`}
+                    onClick={() => store.setDeckField({ transition: t.value })}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="sv-settings__section">
+              <h3 className="sv-settings__label">
+                <Palette size={14} /> Fond de cette diapo
+              </h3>
+              <button className="eb eb--sm eb--ghost" onClick={() => applyBg(undefined)}>
+                Aucun (thème)
+              </button>
+              <div className="sv-bg-label">Couleur unie</div>
+              <div className="sv-bg-swatches">
+                {SOLID_PRESETS.map((c) => (
+                  <button
+                    key={c}
+                    className={`sv-swatch ${active?.background === c ? "is-active" : ""}`}
+                    style={{ background: c }}
+                    onClick={() => applyBg(c)}
+                  />
+                ))}
+                <label className="sv-swatch sv-swatch--pick" title="Couleur personnalisée">
+                  <input type="color" aria-label="Couleur personnalisée" onChange={(e) => applyBg(e.target.value)} />
+                </label>
+              </div>
+              <div className="sv-bg-label">Dégradé</div>
+              <div className="sv-bg-swatches">
+                {GRADIENT_PRESETS.map((g) => (
+                  <button
+                    key={g}
+                    className={`sv-swatch sv-swatch--grad ${active?.background === g ? "is-active" : ""}`}
+                    style={{ backgroundImage: g }}
+                    onClick={() => applyBg(g)}
+                  />
+                ))}
+              </div>
+              <div className="sv-bg-grad">
+                <input
+                  type="color"
+                  title="Couleur 1"
+                  aria-label="Couleur 1"
+                  value={bgC1}
+                  onChange={(e) => setBgC1(e.target.value)}
+                />
+                <input
+                  type="color"
+                  title="Couleur 2"
+                  aria-label="Couleur 2"
+                  value={bgC2}
+                  onChange={(e) => setBgC2(e.target.value)}
+                />
+                <input
+                  className="input sv-num"
+                  type="number"
+                  min={0}
+                  max={360}
+                  title="Angle"
+                  aria-label="Angle du dégradé"
+                  value={bgAngle}
+                  onChange={(e) => setBgAngle(Number(e.target.value))}
+                />
+                <button className="eb eb--sm eb--outline" onClick={() => applyBg(gradientCss(bgC1, bgC2, bgAngle))}>
+                  Dégradé
+                </button>
+              </div>
+            </section>
+          </div>
+        </Modal>
+      )}
+
+      {managerOpen && (
+        <Modal
+          title="Gérer les diapositives"
+          onClose={() => setManagerOpen(false)}
+          wide
+          footer={
+            <Button variant="primary" onClick={() => setManagerOpen(false)}>
+              Fermer
+            </Button>
+          }
+        >
+          <div className="sv-manager">
+            {deck.slides.map((s, i) => (
+              <div key={s.id} className={`sv-manager__row ${i === activeIdx ? "is-active" : ""}`}>
+                <button
+                  className="sv-manager__preview"
+                  title="Aller à cette diapositive"
+                  onClick={() => {
+                    store.setActive(i);
+                    setManagerOpen(false);
+                  }}
+                >
+                  <span className="sv-manager__num">{i + 1}</span>
+                  <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={160 / REF_H} />
+                </button>
+                <div className="sv-manager__actions">
+                  <button className="icon-btn" title="Monter" disabled={i === 0} onClick={() => store.moveSlide(i, -1)}>
+                    <ArrowUp size={15} />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Descendre"
+                    disabled={i === deck.slides.length - 1}
+                    onClick={() => store.moveSlide(i, 1)}
+                  >
+                    <ArrowDown size={15} />
+                  </button>
+                  <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
+                    <Copy size={15} />
+                  </button>
+                  <button
+                    className="icon-btn icon-btn--danger"
+                    title="Supprimer"
+                    disabled={deck.slides.length <= 1}
+                    onClick={() => store.removeSlide(i)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {presenting &&
         (() => {

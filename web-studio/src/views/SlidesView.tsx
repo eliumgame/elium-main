@@ -5,7 +5,8 @@
  * is the shared component, so it stays in lockstep with the Drive collaborative
  * editor.
  */
-import { Download, Save } from "lucide-react";
+import { useState } from "react";
+import { Download, FileDown, Save } from "lucide-react";
 import { elementsOf, type Deck } from "../slides/model";
 import { useLocalDeckStore } from "../slides/useLocalDeckStore";
 import SlidesEditor from "../slides/SlidesEditor";
@@ -24,6 +25,7 @@ export default function SlidesView({
 }) {
   const dialogs = useDialogs();
   const store = useLocalDeckStore(initial);
+  const [exportMenu, setExportMenu] = useState(false);
 
   const saveElium = async () => {
     const active = store.deck.slides[store.active];
@@ -55,14 +57,35 @@ export default function SlidesView({
         title: "Présentations",
         onHome,
         headerActions: (
-          <>
-            <button className="eb eb--sm eb--outline" onClick={exportPptx} title="Exporter en PowerPoint">
-              <Download size={14} /> PPTX
+          <div className="sv-menu">
+            <button className="eb eb--sm eb--outline" onClick={() => setExportMenu((v) => !v)}>
+              <Download size={14} /> Exporter ▾
             </button>
-            <button className="eb eb--sm eb--outline" onClick={saveElium}>
-              <Save size={14} /> .elium
-            </button>
-          </>
+            {exportMenu && (
+              <div className="sv-menu__pop sv-menu__pop--right sv-export-pop" onMouseLeave={() => setExportMenu(false)}>
+                <button
+                  className="sv-menu__item"
+                  onClick={() => {
+                    setExportMenu(false);
+                    exportPptx();
+                  }}
+                >
+                  <FileDown size={15} />
+                  <span>PowerPoint (.pptx)</span>
+                </button>
+                <button
+                  className="sv-menu__item"
+                  onClick={() => {
+                    setExportMenu(false);
+                    saveElium();
+                  }}
+                >
+                  <Save size={15} />
+                  <span>Format .elium…</span>
+                </button>
+              </div>
+            )}
+          </div>
         ),
       }}
     />

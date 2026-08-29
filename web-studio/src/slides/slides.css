@@ -467,30 +467,18 @@
   background: var(--primary);
 }
 
-/* Top bar: clusters the theme/transition/background pickers into one visible
-   chip so "réglages de la présentation" reads as a group instead of loose
-   controls floating next to unrelated buttons. */
-.sv-bar-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 5px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-/* Background picker + template gallery */
-.sv-bg-pop {
-  min-width: 252px;
-  gap: 8px;
-  padding: 12px;
-}
-.sv-bg-pop--right {
+/* A popover anchored near the right edge of the bar (e.g. Exporter) must open
+   leftwards, or it renders off-screen. */
+.sv-menu__pop--right {
   left: auto;
   right: 0;
   transform-origin: top right;
 }
+.sv-export-pop {
+  min-width: 208px;
+}
+
+/* Template gallery */
 .sv-bg-label {
   font-size: 11px;
   font-weight: 700;

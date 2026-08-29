@@ -9,7 +9,8 @@
 import { Wifi, WifiOff, Loader, Presentation } from "lucide-react";
 import type { DriveApi } from "../api";
 import SlidesEditor from "../../slides/SlidesEditor";
-import { useCollabDeckStore, initialsOf } from "../useCollabDeckStore";
+import { useCollabDeckStore } from "../useCollabDeckStore";
+import { initialsOf } from "../presence-colors";
 
 export default function CollabSlidesEditor({
   api,

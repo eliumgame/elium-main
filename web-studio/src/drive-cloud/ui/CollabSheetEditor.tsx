@@ -9,7 +9,8 @@
 import { Wifi, WifiOff, Loader, Download, Table2 } from "lucide-react";
 import type { DriveApi } from "../api";
 import SheetEditor from "../../sheet/SheetEditor";
-import { useCollabSheetStore, initialsOf } from "../useCollabSheetStore";
+import { useCollabSheetStore } from "../useCollabSheetStore";
+import { initialsOf } from "../presence-colors";
 import { workbookToXlsx } from "../../sheet/xlsx-export";
 import { downloadBlob } from "../../export/exporters";
 

@@ -31,20 +31,10 @@ import {
   EL_TEXT_FIELDS,
   SLIDE_TEXT_FIELDS,
 } from "./collab-slides-crdt";
+import { colorForId } from "./presence-colors";
 import type { DeckStore, DeckStatus, DeckPeer } from "../slides/store";
 
 type YMap = Y.Map<unknown>;
-
-const PALETTE = ["#2563eb", "#16a34a", "#db2777", "#ca8a04", "#7c3aed", "#0ea5e9", "#dc2626", "#0d9488"];
-export const colorForId = (id: string) => {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length]!;
-};
-export const initialsOf = (s: string) => {
-  const p = s.split(/[@\s.]+/).filter(Boolean);
-  return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "?";
-};
 
 const STATUS_MAP: Record<CollabStatus, DeckStatus> = {
   connecting: "connecting",

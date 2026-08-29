@@ -1042,6 +1042,7 @@ export function SignatureDialog({
   const strokes = useRef<Pt[][]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dirty, setDirty] = useState(false);
+  const [empty, setEmpty] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1095,9 +1096,10 @@ export function SignatureDialog({
   const confirm = () => {
     const made = build();
     if (!made || !made.src) {
-      window.alert("Signature vide : dessinez, tapez ou importez une signature avant de la placer.");
+      setEmpty(true);
       return;
     }
+    setEmpty(false);
     if (store) {
       onSave({
         id: `sig_${Date.now().toString(36)}`,
@@ -1117,6 +1119,11 @@ export function SignatureDialog({
       wide
       footer={
         <>
+          {empty && (
+            <p className="pdfx-form__error" role="alert">
+              Signature vide : dessinez, tapez ou importez une signature avant de la placer.
+            </p>
+          )}
           <label className="pdfx-check">
             <input type="checkbox" checked={store} onChange={(e) => setStore(e.target.checked)} /> Mémoriser
           </label>
@@ -1155,13 +1162,31 @@ export function SignatureDialog({
       )}
 
       <div className="pdfx-segment pdfx-segment--wide">
-        <button className={tab === "draw" ? "is-on" : ""} onClick={() => setTab("draw")}>
+        <button
+          className={tab === "draw" ? "is-on" : ""}
+          onClick={() => {
+            setTab("draw");
+            setEmpty(false);
+          }}
+        >
           Dessiner
         </button>
-        <button className={tab === "type" ? "is-on" : ""} onClick={() => setTab("type")}>
+        <button
+          className={tab === "type" ? "is-on" : ""}
+          onClick={() => {
+            setTab("type");
+            setEmpty(false);
+          }}
+        >
           Saisir
         </button>
-        <button className={tab === "import" ? "is-on" : ""} onClick={() => setTab("import")}>
+        <button
+          className={tab === "import" ? "is-on" : ""}
+          onClick={() => {
+            setTab("import");
+            setEmpty(false);
+          }}
+        >
           Importer
         </button>
       </div>

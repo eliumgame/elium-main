@@ -369,6 +369,49 @@
 .sv-menu__item:hover {
   background: var(--surface-3);
 }
+.sv-menu__item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.sv-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+.sv-menu__item svg {
+  flex: none;
+}
+.sv-menu__item--danger {
+  color: var(--danger);
+}
+.sv-menu__item--danger:hover {
+  background: var(--danger-bg);
+}
+.sv-menu__kbd {
+  margin-left: auto;
+  padding-left: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.sv-menu__sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+/* Context menus (right-click on a slide/element/thumbnail): anchored to the
+   click point in viewport coordinates, not to a toolbar trigger. */
+.sv-ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--el-z-dropdown, 1000) - 1);
+  cursor: default;
+}
+.sv-ctxmenu {
+  position: fixed;
+  min-width: 216px;
+}
 .sv-colors {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

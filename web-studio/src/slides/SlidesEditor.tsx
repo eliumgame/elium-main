@@ -61,6 +61,11 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  Scissors,
+  ClipboardPaste,
+  Check,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import {
@@ -87,6 +92,7 @@ import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from ".
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
 import SlideCanvas from "./canvas";
+import { CtxMenu, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import type { DeckStore } from "./store";
@@ -170,6 +176,10 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [tplMenu, setTplMenu] = useState(false);
   const [chartInsMenu, setChartInsMenu] = useState(false);
   const [chartMenu, setChartMenu] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<
+    { kind: "element" | "canvas"; x: number; y: number } | { kind: "slide"; i: number; x: number; y: number } | null
+  >(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -184,7 +194,10 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
   // --- multi-selection ops (groups, copy/paste, duplicate) ---
   const copySelection = () => {
-    if (selIds.length) clipboard.current = elements.filter((e) => selIds.includes(e.id));
+    if (selIds.length) {
+      clipboard.current = elements.filter((e) => selIds.includes(e.id));
+      setHasClipboard(true);
+    }
   };
   const pasteClipboard = () => {
     if (!clipboard.current.length) return;
@@ -523,6 +536,133 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     const trans = deck.slides[presentIdx]?.transition ?? deck.transition ?? "none";
     setMorphFrom(trans === "morph" && deck.slides[from] ? from : null);
   }, [presentIdx, presenting]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- context menus (right-click on an element / the canvas / a slide) ---
+  const closePopovers = () => {
+    setShapeMenu(false);
+    setColorMenu(false);
+    setAnimMenu(false);
+    setBgMenu(false);
+    setTplMenu(false);
+    setChartInsMenu(false);
+    setChartMenu(false);
+  };
+  const onElementContext = (e: React.MouseEvent, id: string) => {
+    if (!canWrite) return;
+    if (!selIds.includes(id)) setSelIds([id]);
+    closePopovers();
+    setCtxMenu({ kind: "element", x: e.clientX, y: e.clientY });
+  };
+  const onCanvasContext = (e: React.MouseEvent) => {
+    if (!canWrite) return;
+    closePopovers();
+    setCtxMenu({ kind: "canvas", x: e.clientX, y: e.clientY });
+  };
+  const onSlideContext = (e: React.MouseEvent, i: number) => {
+    if (!canWrite) return;
+    store.setActive(i);
+    closePopovers();
+    setCtxMenu({ kind: "slide", i, x: e.clientX, y: e.clientY });
+  };
+  const elementMenuEntries = (): MenuEntry[] => {
+    if (!sel) return [];
+    const hasAnim = !!animOf(sel.id);
+    return [
+      {
+        label: "Couper",
+        icon: <Scissors size={14} />,
+        kbd: "Ctrl+X",
+        onClick: () => {
+          copySelection();
+          removeSelection();
+        },
+      },
+      { label: "Copier", icon: <Copy size={14} />, kbd: "Ctrl+C", onClick: copySelection },
+      {
+        label: "Coller",
+        icon: <ClipboardPaste size={14} />,
+        kbd: "Ctrl+V",
+        disabled: !hasClipboard,
+        onClick: pasteClipboard,
+      },
+      { sep: true },
+      { label: "Dupliquer", icon: <Copy size={14} />, kbd: "Ctrl+D", onClick: duplicateSelection },
+      { sep: true },
+      { label: "Premier plan", icon: <BringToFront size={14} />, onClick: () => store.reorderEl(sel.id, "front") },
+      { label: "Arrière-plan", icon: <SendToBack size={14} />, onClick: () => store.reorderEl(sel.id, "back") },
+      { sep: true },
+      {
+        label: "Grouper",
+        icon: <Group size={14} />,
+        kbd: "Ctrl+G",
+        disabled: !canGroup,
+        onClick: groupSelection,
+      },
+      {
+        label: "Dégrouper",
+        icon: <Ungroup size={14} />,
+        kbd: "Ctrl+Maj+G",
+        disabled: !canUngroup,
+        onClick: ungroupSelection,
+      },
+      { sep: true },
+      {
+        label: hasAnim ? "Modifier l'animation" : "Ajouter une animation",
+        icon: <Sparkles size={14} />,
+        onClick: () => {
+          if (!hasAnim) upsertAnim(sel.id, {});
+          setAnimMenu(true);
+        },
+      },
+      { sep: true },
+      { label: "Supprimer", icon: <Trash2 size={14} />, kbd: "Suppr", danger: true, onClick: removeSelection },
+    ];
+  };
+  const canvasMenuEntries = (): MenuEntry[] => [
+    {
+      label: "Coller",
+      icon: <ClipboardPaste size={14} />,
+      kbd: "Ctrl+V",
+      disabled: !hasClipboard,
+      onClick: pasteClipboard,
+    },
+    { sep: true },
+    { label: "Texte", icon: <Type size={14} />, onClick: () => addEl(newTextElement()) },
+    { label: "Forme", icon: <Square size={14} />, onClick: () => addEl(newShapeElement("rect")) },
+    { label: "Image", icon: <ImageIcon size={14} />, onClick: () => imgRef.current?.click() },
+    { label: "Tableau", icon: <TableIcon size={14} />, onClick: () => addEl(newTableElement()) },
+  ];
+  const slideMenuEntries = (i: number): MenuEntry[] => {
+    const s = deck.slides[i];
+    const entries: MenuEntry[] = [
+      { label: "Dupliquer", icon: <Copy size={14} />, onClick: () => store.duplicateSlide(i) },
+      { sep: true },
+      { label: "Monter", icon: <ArrowUp size={14} />, disabled: i === 0, onClick: () => store.moveSlide(i, -1) },
+      {
+        label: "Descendre",
+        icon: <ArrowDown size={14} />,
+        disabled: i === deck.slides.length - 1,
+        onClick: () => store.moveSlide(i, 1),
+      },
+      { sep: true },
+    ];
+    for (const t of TRANSITIONS) {
+      entries.push({
+        label: `Transition : ${t.label}`,
+        icon: s?.transition === t.value ? <Check size={14} /> : <span style={{ width: 14, display: "inline-block" }} />,
+        onClick: () => store.patchSlide({ transition: t.value }, true),
+      });
+    }
+    entries.push({ sep: true });
+    entries.push({
+      label: "Supprimer",
+      icon: <Trash2 size={14} />,
+      danger: true,
+      disabled: deck.slides.length <= 1,
+      onClick: () => store.removeSlide(i),
+    });
+    return entries;
+  };
 
   const isText = sel?.type === "text";
   const isShape = sel?.type === "shape";
@@ -1153,7 +1293,15 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           {deck.slides.map((s, i) => {
             const here = peers?.filter((p) => p.slide === i) ?? [];
             return (
-              <div key={s.id} className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}>
+              <div
+                key={s.id}
+                className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}
+                onContextMenu={(e) => {
+                  if (!canWrite) return;
+                  e.preventDefault();
+                  onSlideContext(e, i);
+                }}
+              >
                 <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
                   <span className="slide-thumb__num">{i + 1}</span>
                   <span className="sv-thumb__canvas">
@@ -1255,6 +1403,8 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 onSelectionChange={setSelIds}
                 onChange={(id, patch, commit) => store.updateEl(id, patch, commit)}
                 onBeginChange={store.beginChange}
+                onElementContext={onElementContext}
+                onCanvasContext={onCanvasContext}
               />
             )}
           </div>
@@ -1273,6 +1423,16 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           />
         </main>
       </div>
+
+      {ctxMenu?.kind === "element" && sel && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={elementMenuEntries()} onClose={() => setCtxMenu(null)} />
+      )}
+      {ctxMenu?.kind === "canvas" && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={canvasMenuEntries()} onClose={() => setCtxMenu(null)} />
+      )}
+      {ctxMenu?.kind === "slide" && (
+        <CtxMenu x={ctxMenu.x} y={ctxMenu.y} entries={slideMenuEntries(ctxMenu.i)} onClose={() => setCtxMenu(null)} />
+      )}
 
       {presenting &&
         (() => {

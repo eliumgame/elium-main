@@ -124,6 +124,9 @@ export interface SlideCanvasProps {
   onSelectionChange?: (ids: string[]) => void;
   onChange?: (id: string, patch: Partial<SlideElement>, commit: boolean) => void;
   onBeginChange?: () => void;
+  /** Right-click on one element, resp. on the empty canvas — opens a context menu. */
+  onElementContext?: (e: React.MouseEvent, id: string) => void;
+  onCanvasContext?: (e: React.MouseEvent) => void;
   /** Presenter playback: hides not-yet-revealed elements, animates entering ones. */
   reveal?: RevealState;
 }
@@ -260,6 +263,8 @@ export default function SlideCanvas({
   onSelectionChange,
   onChange,
   onBeginChange,
+  onElementContext,
+  onCanvasContext,
   reveal,
 }: SlideCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -476,6 +481,12 @@ export default function SlideCanvas({
       onMouseDown={(e) => {
         if (editable && e.target === e.currentTarget) beginMarquee(e);
       }}
+      onContextMenu={(e) => {
+        if (editable && e.target === e.currentTarget && onCanvasContext) {
+          e.preventDefault();
+          onCanvasContext(e);
+        }
+      }}
     >
       {elements.map((elm) => {
         const selected = editable && selSet.has(elm.id);
@@ -500,6 +511,12 @@ export default function SlideCanvas({
             style={box}
             onMouseDown={(e) => {
               if (!editing) beginMove(e, elm.id);
+            }}
+            onContextMenu={(e) => {
+              if (!editable || !onElementContext) return;
+              e.preventDefault();
+              e.stopPropagation();
+              onElementContext(e, elm.id);
             }}
             onDoubleClick={(e) => {
               if (editable && (elm.type === "text" || elm.type === "table")) {

@@ -16,7 +16,7 @@
  * réellement affiché (même logique que les imports différés de pades/self-cert
  * dans `SignLinkView.tsx`).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Loader } from "lucide-react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import type { Pt, Rect, Size } from "../../pdf/core/coords";
@@ -25,6 +25,26 @@ import { rectFromPoints } from "../../pdf/core/coords";
 const PREVIEW_MAX_WIDTH = 480;
 /** En-deça de ce déplacement (px écran), un geste est traité comme un clic. */
 const DRAG_THRESHOLD_PX = 4;
+/** Pas de déplacement au clavier, en points PDF (espace page) — Maj = pas large. */
+const ARROW_STEP_PT = 4;
+const ARROW_STEP_PT_FAST = 24;
+
+/** Texte annoncé par le lecteur d'écran : reflète l'emplacement courant (ou son
+ *  absence) pour l'alternative clavier, qui n'a pas de retour visuel de survol. */
+function describePlacement(r: Rect | null, size: Size | null): string {
+  if (!r || !size) {
+    return (
+      "Aucun emplacement choisi. Avec le focus sur la zone de la page, appuyez sur une flèche ou sur Entrée " +
+      "pour placer votre signature au centre, puis déplacez-la avec les flèches (Maj+flèche pour un pas plus large)."
+    );
+  }
+  const xPct = Math.round((r.x / size.w) * 100);
+  const yPct = Math.round((r.y / size.h) * 100);
+  return (
+    `Signature placée à ${xPct} % du bord gauche et ${yPct} % du haut de la page. ` +
+    "Flèches pour déplacer, Suppr pour effacer le placement."
+  );
+}
 
 function clampRect(r: Rect, size: Size): Rect {
   const w = Math.min(Math.max(1, r.w), size.w);
@@ -68,6 +88,7 @@ export function SignPlacementPreview({
   const [draft, setDraft] = useState<Rect | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const liveId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +179,49 @@ export function SignPlacementPreview({
     wrap.addEventListener("pointercancel", finish);
   };
 
+  // Alternative clavier au glisser-déposer souris/tactile ci-dessus : mêmes
+  // deux gestes ("clic = emplacement par défaut", "glisser = déplacement"),
+  // rejoués au clavier. Première flèche/Entrée sans placement = pose le
+  // rectangle par défaut au centre (équivalent du clic) ; flèches ensuite =
+  // déplacement (équivalent du glisser) ; Suppr = "Effacer le placement".
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled || !pageSize) return;
+    const centre = { x: pageSize.w / 2, y: pageSize.h / 2 };
+    switch (e.key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+      case "ArrowUp":
+      case "ArrowDown": {
+        e.preventDefault();
+        if (!value) {
+          onChange(defaultRectAt(centre, pageSize, markRatio));
+          break;
+        }
+        const step = e.shiftKey ? ARROW_STEP_PT_FAST : ARROW_STEP_PT;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        onChange(clampRect({ ...value, x: value.x + dx, y: value.y + dy }, pageSize));
+        break;
+      }
+      case "Enter":
+      case " ":
+        if (!value) {
+          e.preventDefault();
+          onChange(defaultRectAt(centre, pageSize, markRatio));
+        }
+        break;
+      case "Delete":
+      case "Backspace":
+        if (value) {
+          e.preventDefault();
+          onChange(null);
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
   const shown = draft ?? value;
 
   return (
@@ -176,7 +240,13 @@ export function SignPlacementPreview({
         <>
           <div
             ref={wrapRef}
+            className="dc-sign-placement"
+            role="group"
+            aria-label="Emplacement de la signature sur la page 1"
+            aria-describedby={liveId}
+            tabIndex={disabled ? -1 : 0}
             onPointerDown={onPointerDown}
+            onKeyDown={onKeyDown}
             style={{
               position: "relative",
               display: "inline-block",
@@ -224,7 +294,8 @@ export function SignPlacementPreview({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-              Cliquez ou faites glisser sur la page pour placer votre signature.
+              Cliquez ou faites glisser sur la page pour placer votre signature — ou donnez-lui le focus (Tab) et
+              utilisez les flèches du clavier.
             </p>
             {value && !disabled && (
               <button
@@ -237,6 +308,12 @@ export function SignPlacementPreview({
               </button>
             )}
           </div>
+          {/* Annonce vocale de l'emplacement courant — seule façon pour un lecteur
+              d'écran de savoir où en est le placement clavier, qui n'a pas de
+              retour visuel de survol contrairement à la souris. */}
+          <p id={liveId} aria-live="polite" className="sr-only">
+            {describePlacement(value, pageSize)}
+          </p>
         </>
       )}
     </div>

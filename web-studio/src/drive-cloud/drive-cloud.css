@@ -2286,6 +2286,12 @@
   margin: 4px 0 14px;
   color: var(--text, inherit);
 }
+/* Zone de placement (SignPlacementPreview) — focusable au clavier, voir
+   l'alternative aux gestes souris/tactile dans le composant. */
+.dc-sign-placement:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 
 /* Suivi des parties d'une demande de signature (SignRequestDialog) */
 .dc-sign-status {

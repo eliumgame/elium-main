@@ -38,6 +38,7 @@ import AuditPanel from "../drive-cloud/ui/AuditPanel";
 import SecurityPanel from "../drive-cloud/ui/SecurityPanel";
 import SsoScimPanel from "../drive-cloud/ui/SsoScimPanel";
 import RecoveryPanel from "../drive-cloud/ui/RecoveryPanel";
+import { useDialogs } from "../ui/dialogs";
 
 type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso" | "recovery";
 
@@ -88,6 +89,7 @@ function initials(s: string): string {
 
 function CreateOrgCard() {
   const d = useDrive();
+  const dialogs = useDialogs();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const submit = async (e: React.FormEvent) => {
@@ -97,7 +99,14 @@ function CreateOrgCard() {
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 60);
-    await d.createOrg(name, s).catch(() => {});
+    try {
+      await d.createOrg(name, s);
+    } catch (err) {
+      await dialogs.alert({
+        title: "Création impossible",
+        message: err instanceof Error ? err.message : "Erreur.",
+      });
+    }
   };
   return (
     <div className="dc-hero-empty">

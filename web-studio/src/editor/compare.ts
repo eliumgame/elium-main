@@ -157,22 +157,51 @@ export function diffSeq(a: string[], b: string[]): DiffOp[] {
 const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /**
+ * Attributes that change a block's meaning or rendering without ever showing
+ * up in its text content, keyed by node type. A figure's image can be swapped
+ * (or a column section's column count changed) while every descendant
+ * paragraph's text stays byte-identical, so these have to be folded into the
+ * signature by hand — otherwise the diff is blind to them and no change mark
+ * is produced. Extend this map as more attribute-only-meaningful block types
+ * appear (e.g. a shape's fill, a table's column widths).
+ */
+const SIGNIFICANT_ATTRS: Record<string, readonly string[]> = {
+  figure: ["src", "width", "align"],
+  columnSection: ["count", "gapMm", "separator"],
+};
+
+/** Signature fragment for a node's own significant attributes (empty for
+ *  types with none — the vast majority, whose attrs are cosmetic/screen-only
+ *  and deliberately excluded so formatting-only changes keep going through
+ *  the dedicated `attrsDiffer` path instead of the word-level diff). */
+function attrsSig(node: ProseMirrorNode): string {
+  const keys = SIGNIFICANT_ATTRS[node.type];
+  if (!keys || !keys.length) return "";
+  const attrs = node.attrs ?? {};
+  return ` {${keys.map((k) => `${k}:${JSON.stringify(attrs[k])}`).join(",")}}`;
+}
+
+/**
  * Signature of a block's contents. Inline atoms (footnotes, renvois, merge
  * fields, bookmarks, index marks) have no text, so they are represented by their
  * type and attributes — otherwise adding or removing one would be invisible to
- * the block-level diff and the node would be silently dropped.
+ * the block-level diff and the node would be silently dropped. Non-empty nodes
+ * with significant attributes (see `SIGNIFICANT_ATTRS`) fold those in too, so
+ * e.g. a figure nested inside a list or table still marks a change when only
+ * its image is swapped.
  */
 function contentSig(node: ProseMirrorNode): string {
   if (node.text != null) return node.text;
   const kids = node.content ?? [];
   if (!kids.length) return `\u0000${node.type}:${JSON.stringify(node.attrs ?? {})}`;
-  return kids.map(contentSig).join("");
+  return attrsSig(node) + kids.map(contentSig).join("");
 }
 
-/** Signature used for the block-level diff: type, level and full contents. */
+/** Signature used for the block-level diff: type, level, significant
+ *  attributes and full contents. */
 function blockSig(node: ProseMirrorNode): string {
   const level = node.attrs?.level != null ? `:${node.attrs.level}` : "";
-  return `${node.type}${level}|${normalize((node.content ?? []).map(contentSig).join(""))}`;
+  return `${node.type}${level}${attrsSig(node)}|${normalize((node.content ?? []).map(contentSig).join(""))}`;
 }
 
 // =========================================================================

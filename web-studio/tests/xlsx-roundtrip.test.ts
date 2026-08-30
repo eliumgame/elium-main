@@ -503,6 +503,21 @@ describe("XLSX round trip — named ranges", () => {
   });
 });
 
+describe("XLSX round trip — AutoFilter (view filter)", () => {
+  it("the {col, query} view filter survives as a native <autoFilter>", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 10, cols: 4, cells: { A1: "Café" }, filter: { col: 1, query: "abc" } }],
+    };
+    expect(roundTrip(wb).sheets[0]!.filter).toEqual({ col: 1, query: "abc" });
+  });
+
+  it("a sheet with no filter round-trips without a `filter` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).sheets[0]!.filter).toBeUndefined();
+  });
+});
+
 describe("XLSX round trip — collaborative Tableur parity", () => {
   it("a SheetData round-tripped through the collab CRDT model still exports/imports identically", () => {
     // Dual-platform parity check: the same rich SheetData that survives XLSX

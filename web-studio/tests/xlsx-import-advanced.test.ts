@@ -189,6 +189,27 @@ describe("XLSX import — custom number formats", () => {
   });
 });
 
+describe("XLSX import — AutoFilter (view filter)", () => {
+  it("resolves colId relative to the filtered range's first column (not assumed to start at A)", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="C1"/></row></sheetData>
+    <autoFilter ref="C1:E20">
+      <filterColumn colId="1"><customFilters><customFilter val="*abc*"/></customFilters></filterColumn>
+    </autoFilter></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    // colId=1 relative to C (col 2) → column D (col 3)
+    expect(wb.sheets[0]!.filter).toEqual({ col: 3, query: "abc" });
+  });
+
+  it("falls back to the first value of a checkbox <filters> list", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"/></row></sheetData>
+    <autoFilter ref="A1:B20">
+      <filterColumn colId="0"><filters><filter val="Oui"/><filter val="Non"/></filters></filterColumn>
+    </autoFilter></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    expect(wb.sheets[0]!.filter).toEqual({ col: 0, query: "Oui" });
+  });
+});
+
 describe("XLSX import — conditional formatting top10 / duplicateValues", () => {
   it("reads a top10 rule (rank/bottom/percent attributes)", () => {
     const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>

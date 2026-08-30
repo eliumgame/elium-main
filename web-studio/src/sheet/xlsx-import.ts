@@ -3,7 +3,8 @@
  * (already used by the DOCX module) and parses the XML with the browser
  * DOMParser. Reads shared strings, cell values/formulas AND styles (numFmt,
  * font, fill, border), merged cells, column widths, row heights, frozen panes,
- * conditional formatting, data validation and native charts — the inverse of xlsx-export.ts,
+ * conditional formatting, data validation, AutoFilter and native charts — the
+ * inverse of xlsx-export.ts,
  * so a workbook survives an export → re-import round trip, and reopening an
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
@@ -522,6 +523,36 @@ function parseFreeze(doc: Document): { rows: number; cols: number } | undefined 
   return rows > 0 || cols > 0 ? { rows, cols } : undefined;
 }
 
+/**
+ * `<autoFilter ref="A1:D20"><filterColumn colId="N">…</filterColumn>…</autoFilter>`
+ * → our single {col, query} view filter (the inverse of xlsx-export.ts's
+ * `autoFilterXml`). `colId` is relative to the filtered range's first column,
+ * so it's resolved against `ref` rather than assumed to start at A. Only the
+ * FIRST filtered column is kept (our model has one), and only a criteria
+ * shape with a free-text equivalent: a wildcard/plain `<customFilter val>`
+ * (Excel's own "contains" text filter — our exporter always writes exactly
+ * this) or the first value of a checkbox `<filters><filter val>` list.
+ * Anything else (dates, top10, dynamic, multiple criteria) has no equivalent
+ * in our model and is skipped — degrade gracefully, same pattern as
+ * condFormats/validations above.
+ */
+function parseAutoFilter(doc: Document): SheetData["filter"] | undefined {
+  const af = doc.getElementsByTagName("autoFilter")[0];
+  const fc = af?.getElementsByTagName("filterColumn")[0];
+  if (!af || !fc) return undefined;
+  const rect = parseRangeRef(af.getAttribute("ref") ?? "");
+  const colId = Number(fc.getAttribute("colId") ?? "0");
+  const col = (rect?.c0 ?? 0) + (Number.isFinite(colId) ? colId : 0);
+
+  const customVal = fc.getElementsByTagName("customFilter")[0]?.getAttribute("val");
+  if (customVal != null) {
+    const query = customVal.replace(/^\*/, "").replace(/\*$/, "");
+    return query ? { col, query } : undefined;
+  }
+  const filterVal = fc.getElementsByTagName("filter")[0]?.getAttribute("val");
+  return filterVal ? { col, query: filterVal } : undefined;
+}
+
 // ── conditional formatting / data validation ────────────────────────────────
 
 const CF_OP_REV: Record<string, CondOp> = {
@@ -896,6 +927,8 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (condFormats.length) sh.condFormats = condFormats;
   const validations = parseValidations(doc, name, sh.cells);
   if (validations.length) sh.validations = validations;
+  const filter = parseAutoFilter(doc);
+  if (filter) sh.filter = filter;
 
   return sh;
 }

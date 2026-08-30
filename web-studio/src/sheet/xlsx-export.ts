@@ -16,6 +16,9 @@
  * - condFormats    → native `cellIs` / `containsText` / `containsBlanks` /
  *                    `colorScale` rules, non-scale ones via a `<dxfs>` entry
  * - validations    → native `<dataValidation>` (list/decimal/textLength/date)
+ * - view filter    → native `<autoFilter>` (one wildcard `<customFilter>`,
+ *                    the closest native equivalent to our single free-text
+ *                    "contains" column filter)
  * - charts         → a `<c:chart>` DrawingML part per chart, anchored below the
  *                    grid, wired through a per-sheet drawing part + rels — the
  *                    same pattern `slides/pptx.ts` uses for PPTX charts, adapted
@@ -252,6 +255,23 @@ function mergeCellsXml(merges: MergeRect[] | undefined): string {
   if (!merges || !merges.length) return "";
   const cells = merges.map((m) => `<mergeCell ref="${rangeRef(m.c0, m.r0, m.c1, m.r1)}"/>`).join("");
   return `<mergeCells count="${merges.length}">${cells}</mergeCells>`;
+}
+
+/**
+ * AutoFilter (§18.3.1.2): our model has a single filtered column with a
+ * free-text "contains" query (no bounded table range, no checkbox value
+ * list), so it maps to ONE `<filterColumn>` with a wildcard `<customFilter>`
+ * (`*query*`) over the sheet's whole used range starting at A1 — this is
+ * exactly what Excel itself writes for its own "Text Filters → Contains".
+ */
+function autoFilterXml(filter: SheetData["filter"], sheet: SheetData): string {
+  if (!filter || !filter.query) return "";
+  const ref = rangeRef(0, 0, Math.max(0, sheet.cols - 1), Math.max(0, sheet.rows - 1));
+  return (
+    `<autoFilter ref="${ref}">` +
+    `<filterColumn colId="${Math.max(0, filter.col)}"><customFilters><customFilter val="${xe(`*${filter.query}*`)}"/></customFilters></filterColumn>` +
+    `</autoFilter>`
+  );
 }
 
 /** Column widths: px → Excel's "characters" width unit (Calibri 11 heuristic, the widely-used 7px/char approximation). */
@@ -572,6 +592,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): st
     sheetViewsXml(sheet.freeze) +
     colsXml(sheet.colWidths) +
     `<sheetData>${rows}</sheetData>` +
+    autoFilterXml(sheet.filter, sheet) +
     mergeCellsXml(sheet.merges) +
     condFormattingXml(sheet.condFormats, styles) +
     dataValidationXml(sheet.validations) +

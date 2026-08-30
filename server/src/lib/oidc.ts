@@ -218,11 +218,31 @@ async function fetchJwksUri(
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
   try {
-    res = await fetchImpl(uri, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    // redirect:"manual" — anti-SSRF. A `jwksUri` is admin-configured and
+    // usually a stable, trusted IdP endpoint, but IdPs occasionally serve the
+    // JWKS behind a redirect (CDN migration, vanity→canonical host, …). If we
+    // followed it automatically (Node's default), a compromised/rewritten
+    // config or a MITM'd first hop could redirect the fetch to an internal
+    // address (cloud metadata IP 169.254.169.254, localhost, a private RFC
+    // 1918 range) and exfiltrate it as "keys". Node's undici fetch honors
+    // `redirect:"manual"` by NOT following the Location header and returning
+    // the real 3xx status/headers as-is (unlike the browser's opaque-redirect
+    // behavior) — so we can see and explicitly reject it below rather than
+    // trusting wherever it points.
+    res = await fetchImpl(uri, {
+      signal: ctrl.signal,
+      headers: { accept: "application/json" },
+      redirect: "manual",
+    });
   } catch {
     throw new OidcError("JWKS injoignable (réseau).");
   } finally {
     clearTimeout(timer);
+  }
+  if (res.status >= 300 && res.status < 400) {
+    throw new OidcError(
+      "JWKS: redirection refusée (SSRF) — configurez directement l'URL finale du jwks_uri.",
+    );
   }
   if (!res.ok) throw new OidcError(`JWKS: réponse ${res.status}.`);
   let body: unknown;

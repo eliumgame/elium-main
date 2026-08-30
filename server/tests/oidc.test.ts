@@ -276,6 +276,19 @@ describe("dynamic JWKS (jwksUri)", () => {
     expect(calls).toBe(2);
   });
 
+  it("rejects a jwksUri fetch that answers with a redirect (anti-SSRF)", async () => {
+    __clearJwksCache();
+    const { priv } = makeKeys("RS256");
+    let sawManual: RequestInit["redirect"];
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      sawManual = init?.redirect;
+      return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } });
+    }) as unknown as typeof fetch;
+    const token = makeToken("RS256", priv, defaultPayload(), { kid: "kid-1" });
+    await expect(verifyIdTokenAsync(token, dynCfg(), { fetchImpl })).rejects.toThrow(/redirection refusée/);
+    expect(sawManual).toBe("manual");
+  });
+
   it("throws when neither static keys nor a jwksUri are configured", async () => {
     __clearJwksCache();
     const { priv } = makeKeys("RS256");

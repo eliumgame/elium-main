@@ -34,6 +34,7 @@ import type {
   ChartSpec,
   BorderSide,
   CellBorder,
+  NamedRange,
 } from "./model";
 
 const NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -541,6 +542,15 @@ function sanitizeNames(sheets: SheetData[]): string[] {
   });
 }
 
+/** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
+function definedNamesBlock(names: NamedRange[] | undefined): string {
+  if (!names || !names.length) return "";
+  const body = names
+    .map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`)
+    .join("");
+  return `<definedNames>${body}</definedNames>`;
+}
+
 const RELS = (rels: { id: string; type: string; target: string }[]) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL}s">` +
   rels.map((r) => `<Relationship Id="${r.id}" Type="${r.type}" Target="${r.target}"/>`).join("") +
@@ -585,10 +595,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
   const sheetTags = names
     .map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join("");
+  const definedNamesXml = definedNamesBlock(wb.names);
   files["xl/workbook.xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +
       `<sheets>${sheetTags}</sheets>` +
+      definedNamesXml +
       `<calcPr fullCalcOnLoad="1"/>` +
       `</workbook>`,
   );

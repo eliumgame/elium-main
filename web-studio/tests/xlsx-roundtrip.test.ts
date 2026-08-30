@@ -376,6 +376,32 @@ describe("XLSX round trip — everything together, multi-sheet", () => {
   });
 });
 
+describe("XLSX round trip — named ranges", () => {
+  it("workbook-scoped defined names survive export → re-import", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "Ventes", rows: 10, cols: 6, cells: { B4: "42" } }],
+      names: [
+        { name: "TOTAL", ref: "Ventes!$B$4" },
+        { name: "PLAGE", ref: "Ventes!$A$1:$B$3" },
+      ],
+    };
+    const back = roundTrip(wb);
+    expect(back.names).toEqual(
+      expect.arrayContaining([
+        { name: "TOTAL", ref: "Ventes!$B$4" },
+        { name: "PLAGE", ref: "Ventes!$A$1:$B$3" },
+      ]),
+    );
+    expect(back.names).toHaveLength(2);
+  });
+
+  it("a workbook with no names round-trips without a `names` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).names).toBeUndefined();
+  });
+});
+
 describe("XLSX round trip — collaborative Tableur parity", () => {
   it("a SheetData round-tripped through the collab CRDT model still exports/imports identically", () => {
     // Dual-platform parity check: the same rich SheetData that survives XLSX

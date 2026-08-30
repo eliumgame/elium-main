@@ -17,6 +17,7 @@
  *   • cells / styles           : inchangés (voir collab-sheet-crdt.ts). NE PAS
  *                                toucher : casserait les documents déjà partagés.
  *   • colWidths / rowHeights   : `Y.Map<number>`  clé = index de colonne / ligne.
+ *   • notes                    : `Y.Map<string>`  clé = référence "A1" (commentaires de cellule).
  *   • merges                   : `Y.Map<MergeRect>` clé = géométrie (les fusions
  *                                n'ont pas d'id ; deux fusions disjointes posées
  *                                en même temps ont des clés différentes → les
@@ -71,6 +72,7 @@ export function newYSheet(name: string, rows = 20, cols = 8): YSheet {
   ys.set("styles", new Y.Map());
   ys.set("colWidths", new Y.Map());
   ys.set("rowHeights", new Y.Map());
+  ys.set("notes", new Y.Map());
   ys.set("merges", new Y.Map());
   ys.set("condFormats", new Y.Map());
   ys.set("validations", new Y.Map());
@@ -87,6 +89,7 @@ export function ensureSheetStructures(ys: YSheet): void {
   if (!(ys.get("styles") instanceof Y.Map)) ys.set("styles", new Y.Map());
   if (!(ys.get("colWidths") instanceof Y.Map)) ys.set("colWidths", new Y.Map());
   if (!(ys.get("rowHeights") instanceof Y.Map)) ys.set("rowHeights", new Y.Map());
+  if (!(ys.get("notes") instanceof Y.Map)) ys.set("notes", new Y.Map());
   if (!(ys.get("merges") instanceof Y.Map)) ys.set("merges", new Y.Map());
   if (!(ys.get("condFormats") instanceof Y.Map)) ys.set("condFormats", new Y.Map());
   if (!(ys.get("validations") instanceof Y.Map)) ys.set("validations", new Y.Map());
@@ -114,6 +117,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
     const n = Number(k);
     if (Number.isFinite(n) && typeof h === "number") rowHeights[n] = h;
   }
+  const notes = Object.fromEntries(asMap<string>(ys, "notes")?.entries() ?? []) as Record<string, string>;
 
   const merges = [...(asMap<MergeRect>(ys, "merges")?.values() ?? [])].map((m) => ({ ...m }));
   const condFormats = [...(asMap<CondRule>(ys, "condFormats")?.values() ?? [])].map((r) => ({ ...r }));
@@ -132,6 +136,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   };
   if (Object.keys(colWidths).length) out.colWidths = colWidths;
   if (Object.keys(rowHeights).length) out.rowHeights = rowHeights;
+  if (Object.keys(notes).length) out.notes = notes;
   if (merges.length) out.merges = merges;
   if (condFormats.length) out.condFormats = condFormats;
   if (validations.length) out.validations = validations;
@@ -283,6 +288,7 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
       asMap<number>(ys, "rowHeights")!,
       new Map(Object.entries(target.rowHeights ?? {}).map(([k, v]) => [String(k), v])),
     );
+    reconcileMap(asMap<string>(ys, "notes")!, new Map(Object.entries(target.notes ?? {})));
     reconcileMap(asMap<MergeRect>(ys, "merges")!, new Map((target.merges ?? []).map((m) => [mergeKey(m), m])));
     reconcileMap(asMap<CondRule>(ys, "condFormats")!, new Map((target.condFormats ?? []).map((r) => [r.id, r])));
     reconcileMap(asMap<DataValidation>(ys, "validations")!, new Map((target.validations ?? []).map((v) => [v.id, v])));

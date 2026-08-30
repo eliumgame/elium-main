@@ -342,4 +342,14 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
     expect(cells.get("A1")).toBe(a1Before); // A1 : MÊME instance, non réécrite
     expect(sheetSnapshot(ys).cells).toEqual({ A1: "stable", A2: "neuf" });
   });
+
+  it("les commentaires de cellule (notes) survivent un import dans le classeur collaboratif", () => {
+    const { ydoc, sheets, names } = makePeer();
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F1", rows: 5, cols: 5, cells: { A1: "x" }, notes: { A1: "Une note." } }],
+    };
+    loadWorkbookIntoDoc(ydoc, sheets, names, wb);
+    expect(workbookSnapshot(sheets, names, 0).sheets[0]!.notes).toEqual({ A1: "Une note." });
+  });
 });

@@ -3,8 +3,8 @@
  * (already used by the DOCX module) and parses the XML with the browser
  * DOMParser. Reads shared strings, cell values/formulas AND styles (numFmt,
  * font, fill, border), merged cells, column widths, row heights, frozen panes,
- * conditional formatting, data validation, AutoFilter and native charts — the
- * inverse of xlsx-export.ts,
+ * conditional formatting, data validation, AutoFilter, cell comments and
+ * native charts — the inverse of xlsx-export.ts,
  * so a workbook survives an export → re-import round trip, and reopening an
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
@@ -791,6 +791,38 @@ function parseChartSpec(doc: Document): ChartSpec | null {
   return { id: newId("chart"), type: chartKind(doc), ...rect, ...(title ? { title } : {}) };
 }
 
+/**
+ * Resolve a worksheet's `xl/commentsN.xml` cell comments ("notes") into a
+ * `{ref -> text}` map, via the worksheet's OWN `.rels` (Type ending in
+ * "/comments") — unlike charts, no in-body element points to this part (see
+ * the note on `commentsXml` in xlsx-export.ts), so we look at every
+ * relationship directly rather than reusing `relTargets` (which only keys by
+ * Id, not Type). Shapes/VBA/legacy VML indicator are out of scope.
+ */
+function parseSheetComments(zip: Record<string, Uint8Array>, sheetPath: string): Record<string, string> {
+  const relsDoc = parseXml(zip[relsPathOf(sheetPath)]);
+  if (!relsDoc) return {};
+  const rels = relsDoc.getElementsByTagName("Relationship");
+  let target: string | undefined;
+  for (let i = 0; i < rels.length; i++) {
+    if ((rels[i].getAttribute("Type") ?? "").endsWith("/comments")) {
+      target = rels[i].getAttribute("Target") ?? undefined;
+      break;
+    }
+  }
+  if (!target) return {};
+  const doc = parseXml(zip[resolvePath(sheetPath.replace(/\/[^/]+$/, ""), target)]);
+  if (!doc) return {};
+  const out: Record<string, string> = {};
+  const comments = doc.getElementsByTagName("comment");
+  for (let i = 0; i < comments.length; i++) {
+    const ref = comments[i].getAttribute("ref");
+    const text = textOf(comments[i]);
+    if (ref && text) out[ref.toUpperCase()] = text;
+  }
+  return out;
+}
+
 /** Resolve a worksheet's drawing → chart parts into ChartSpecs (empty when the sheet has no drawing). */
 function parseSheetCharts(zip: Record<string, Uint8Array>, sheetPath: string, sheetDoc: Document): ChartSpec[] {
   const drawingRid = sheetDoc.getElementsByTagName("drawing")[0]?.getAttribute("r:id");
@@ -955,10 +987,15 @@ export function importXlsx(bytes: Uint8Array): Workbook {
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
   const wb = parseXml(zip["xl/workbook.xml"]);
 
-  const withCharts = (path: string, sh: SheetData, doc: Document | null): SheetData => {
+  const withSheetExtras = (path: string, sh: SheetData, doc: Document | null): SheetData => {
     if (!doc) return sh;
     const charts = parseSheetCharts(zip, path, doc);
-    return charts.length ? { ...sh, charts } : sh;
+    const notes = parseSheetComments(zip, path);
+    return {
+      ...sh,
+      ...(charts.length ? { charts } : {}),
+      ...(Object.keys(notes).length ? { notes } : {}),
+    };
   };
 
   const sheets: SheetData[] = [];
@@ -970,7 +1007,7 @@ export function importXlsx(bytes: Uint8Array): Workbook {
       const target = rid ? rels[rid] : undefined;
       const path = target ? resolvePath("xl", target) : `xl/worksheets/sheet${i + 1}.xml`;
       const doc = parseXml(zip[path]);
-      sheets.push(withCharts(path, parseSheet(doc, shared, name, ps), doc));
+      sheets.push(withSheetExtras(path, parseSheet(doc, shared, name, ps), doc));
     }
   }
   // Fallback: no workbook.xml mapping — read sheet files directly.
@@ -980,7 +1017,7 @@ export function importXlsx(bytes: Uint8Array): Workbook {
       .sort();
     names.forEach((k, i) => {
       const doc = parseXml(zip[k]);
-      sheets.push(withCharts(k, parseSheet(doc, shared, `Feuille ${i + 1}`, ps), doc));
+      sheets.push(withSheetExtras(k, parseSheet(doc, shared, `Feuille ${i + 1}`, ps), doc));
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));

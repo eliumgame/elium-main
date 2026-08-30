@@ -503,6 +503,26 @@ describe("XLSX round trip — named ranges", () => {
   });
 });
 
+describe("XLSX round trip — cell comments (notes)", () => {
+  it("survive export → re-import, on more than one sheet", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        { name: "F1", rows: 5, cols: 5, cells: { A1: "x" }, notes: { A1: "Une note.", B2: "Une autre." } },
+        { name: "F2", rows: 5, cols: 5, cells: {}, notes: { C3: "Sur la 2e feuille." } },
+      ],
+    };
+    const back = roundTrip(wb);
+    expect(back.sheets[0]!.notes).toEqual({ A1: "Une note.", B2: "Une autre." });
+    expect(back.sheets[1]!.notes).toEqual({ C3: "Sur la 2e feuille." });
+  });
+
+  it("a sheet with no notes round-trips without a `notes` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).sheets[0]!.notes).toBeUndefined();
+  });
+});
+
 describe("XLSX round trip — AutoFilter (view filter)", () => {
   it("the {col, query} view filter survives as a native <autoFilter>", () => {
     const wb: Workbook = {

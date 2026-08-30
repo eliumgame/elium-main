@@ -6,10 +6,12 @@
  *
  * Le même plan de relocalisation qui déplace les cellules réécrit AUSSI les
  * références dans les formules survivantes : `=SOMME(A1:A5)` suit les lignes
- * insérées/supprimées. Les largeurs de colonnes suivent leur colonne, et les
- * hauteurs de ligne suivent leur ligne. (Comme le Tableur local historique, les
- * plages des fusions / mises en forme conditionnelles / validations ne sont pas
- * redécalées — comportement conservé à l'identique pour la parité.)
+ * insérées/supprimées. Les largeurs de colonnes suivent leur colonne, les
+ * hauteurs de ligne suivent leur ligne, et les commentaires de cellule
+ * suivent leur cellule (comme les styles). (Comme le Tableur local
+ * historique, les plages des fusions / mises en forme conditionnelles /
+ * validations ne sont pas redécalées — comportement conservé à l'identique
+ * pour la parité.)
  */
 import { indexToCol, parseRef, rewriteRefs, type RefMap } from "./formula";
 import { visibleRowsInRange } from "./filter";
@@ -34,13 +36,14 @@ function reindexCells(
   return out;
 }
 
-function reindexStyles(
-  styles: Record<string, CellStyle> | undefined,
+/** Reindexes any "A1" -> value map (styles, notes, …) through the same relocation plan as cells. */
+function reindexRefMap<T>(
+  map: Record<string, T> | undefined,
   fn: (c: number, r: number) => Pos | null,
-): Record<string, CellStyle> | undefined {
-  if (!styles) return undefined;
-  const out: Record<string, CellStyle> = {};
-  for (const [ref, v] of Object.entries(styles)) {
+): Record<string, T> | undefined {
+  if (!map) return undefined;
+  const out: Record<string, T> = {};
+  for (const [ref, v] of Object.entries(map)) {
     const p = parseRef(ref);
     if (!p) continue;
     const np = fn(p.col, p.row);
@@ -85,9 +88,12 @@ function structural(
     rows: Math.max(1, sheet.rows + dRows),
     cells: reindexCells(sheet.cells, fn, rewrite),
   };
-  const styles = reindexStyles(sheet.styles, fn);
+  const styles = reindexRefMap(sheet.styles, fn);
   if (styles) next.styles = styles;
   else delete next.styles;
+  const notes = reindexRefMap(sheet.notes, fn);
+  if (notes) next.notes = notes;
+  else delete next.notes;
   if (colWidths) next.colWidths = colWidths;
   else delete next.colWidths;
   if (rowHeights) next.rowHeights = rowHeights;

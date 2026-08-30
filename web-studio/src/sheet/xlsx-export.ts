@@ -19,6 +19,8 @@
  * - view filter    → native `<autoFilter>` (one wildcard `<customFilter>`,
  *                    the closest native equivalent to our single free-text
  *                    "contains" column filter)
+ * - notes          → native `xl/commentsN.xml` cell comments (no VML shape
+ *                    part — see commentsXml below)
  * - charts         → a `<c:chart>` DrawingML part per chart, anchored below the
  *                    grid, wired through a per-sheet drawing part + rels — the
  *                    same pattern `slides/pptx.ts` uses for PPTX charts, adapted
@@ -635,7 +637,31 @@ const RELS = (rels: { id: string; type: string; target: string }[]) =>
 const T = {
   drawing: `${REL}/drawing`,
   chart: `${REL}/chart`,
+  comments: `${REL}/comments`,
 };
+
+/**
+ * xl/commentsN.xml (§18.7) — cell comments ("notes"), one `<comment>` per
+ * annotated cell. Discovered by Excel purely through the worksheet's own
+ * relationship (Type=".../comments"); unlike charts this needs no in-body
+ * `<legacyDrawing>` reference — that element only wires up the VML shape for
+ * the little red-corner indicator, which we don't draw, so it's omitted (the
+ * comment TEXT still round-trips through any conformant reader, ours included).
+ */
+function commentsXml(notes: Record<string, string> | undefined): string | null {
+  const entries = Object.entries(notes ?? {}).filter(([, text]) => text && text.trim() !== "");
+  if (!entries.length) return null;
+  const list = entries
+    .map(
+      ([ref, text]) =>
+        `<comment ref="${xe(ref)}" authorId="0"><text><t xml:space="preserve">${xe(text)}</t></text></comment>`,
+    )
+    .join("");
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<comments xmlns="${NS}"><authors><author></author></authors><commentList>${list}</commentList></comments>`
+  );
+}
 
 export function workbookToXlsx(wb: Workbook): Uint8Array {
   const styles = createStyleTable();
@@ -645,17 +671,18 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
 
   // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
   // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
+  const commentSheets: number[] = []; // sheet indices that got a comments part (for Content_Types)
   wb.sheets.forEach((sheet, i) => {
     const charts = sheet.charts ?? [];
+    const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
     const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
     files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0));
 
+    const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {
       const chartNames = charts.map(() => `chart${++chartCounter}.xml`);
-      files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(
-        RELS([{ id: "rId1", type: T.drawing, target: `../drawings/drawing${i + 1}.xml` }]),
-      );
+      sheetRels.push({ id: "rId1", type: T.drawing, target: `../drawings/drawing${i + 1}.xml` });
       files[`xl/drawings/drawing${i + 1}.xml`] = strToU8(sheetDrawingXml(chartRIds, sheet.rows + 2));
       files[`xl/drawings/_rels/drawing${i + 1}.xml.rels`] = strToU8(
         RELS(charts.map((_, ci) => ({ id: chartRIds[ci]!, type: T.chart, target: `../charts/${chartNames[ci]!}` }))),
@@ -664,6 +691,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
         files[`xl/charts/${chartNames[ci]!}`] = strToU8(chartXml(chart, sheetNameQ));
       });
     }
+    if (notesXml) {
+      files[`xl/comments${i + 1}.xml`] = strToU8(notesXml);
+      sheetRels.push({ id: `rId${sheetRels.length + 1}`, type: T.comments, target: `../comments${i + 1}.xml` });
+      commentSheets.push(i);
+    }
+    if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
   });
   files["xl/styles.xml"] = strToU8(styles.toXml());
 
@@ -708,6 +741,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
     (_, i) =>
       `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
   ).join("");
+  const commentsOverrides = commentSheets
+    .map(
+      (i) =>
+        `<Override PartName="/xl/comments${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>`,
+    )
+    .join("");
   const overrides =
     `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
     wb.sheets
@@ -718,7 +757,8 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
       .join("") +
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
     drawingOverrides +
-    chartOverrides;
+    chartOverrides +
+    commentsOverrides;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +
       `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +

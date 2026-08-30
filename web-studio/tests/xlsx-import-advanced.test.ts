@@ -189,6 +189,39 @@ describe("XLSX import — custom number formats", () => {
   });
 });
 
+describe("XLSX import — cell comments (notes)", () => {
+  it("reads xl/commentsN.xml via the worksheet's own .rels, alongside an (ignored) VML rel", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>
+      <legacyDrawing r:id="rId2"/></worksheet>`;
+    const sheetRels = `<?xml version="1.0"?><Relationships xmlns="${REL}s">
+      <Relationship Id="rId1" Type="${REL}/comments" Target="../comments1.xml"/>
+      <Relationship Id="rId2" Type="${REL}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/>
+    </Relationships>`;
+    const comments1 = `<comments xmlns="${NS}"><authors><author>Auteur</author></authors>
+      <commentList><comment ref="A1" authorId="0"><text><t>Vérifier ce total.</t></text></comment></commentList>
+    </comments>`;
+    const zip: Record<string, Uint8Array> = {
+      "xl/workbook.xml": strToU8(
+        `<workbook xmlns="${NS}" xmlns:r="${R_NS}"><sheets><sheet name="Feuille" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      ),
+      "xl/_rels/workbook.xml.rels": strToU8(
+        `<?xml version="1.0"?><Relationships xmlns="${REL}s"><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+      ),
+      "xl/worksheets/sheet1.xml": strToU8(sheet1),
+      "xl/worksheets/_rels/sheet1.xml.rels": strToU8(sheetRels),
+      "xl/comments1.xml": strToU8(comments1),
+    };
+    const wb = importXlsx(zipSync(zip, { level: 0 }));
+    expect(wb.sheets[0]!.notes).toEqual({ A1: "Vérifier ce total." });
+  });
+
+  it("a sheet with no comments relationship has no `notes`", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    expect(wb.sheets[0]!.notes).toBeUndefined();
+  });
+});
+
 describe("XLSX import — AutoFilter (view filter)", () => {
   it("resolves colId relative to the filtered range's first column (not assumed to start at A)", () => {
     const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="C1"/></row></sheetData>

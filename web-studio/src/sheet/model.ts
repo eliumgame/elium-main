@@ -117,6 +117,7 @@ export interface SheetData {
   filter?: { col: number; query: string }; // view filter (hides non-matching rows)
   colWidths?: Record<number, number>; // column index -> width px (default DEFAULT_COL_W)
   rowHeights?: Record<number, number>; // row index -> height px (default ROW_H)
+  notes?: Record<string, string>; // "A1" -> cell comment text (Excel's classic "notes", not threaded comments)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling
 }
 

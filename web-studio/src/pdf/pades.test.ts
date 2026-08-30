@@ -154,3 +154,76 @@ function binToU8Str(u: Uint8Array): string {
   for (let i = 0; i < u.length; i += CHUNK) s += String.fromCharCode(...u.subarray(i, i + CHUNK));
   return s;
 }
+
+/** Lit le /ByteRange brut d'un PDF signé et renvoie la taille du trou /Contents
+ *  réservé (c - b), pour comparer la réservation entre deux signatures. */
+function reservedContentsSpan(signed: Uint8Array): number {
+  const s = binToU8Str(signed);
+  const m = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(s);
+  if (!m) throw new Error("/ByteRange introuvable");
+  return parseInt(m[3]!, 10) - parseInt(m[2]!, 10);
+}
+
+/** PKCS#12 avec un signataire + une longue liste de certificats de "chaîne"
+ *  factices (auto-signés, sans lien de confiance réel — seule leur taille DER
+ *  compte ici) pour gonfler artificiellement le CMS bien au-delà de l'ancienne
+ *  réservation fixe de 16 Kio. Réutilise la MÊME paire de clés pour éviter de
+ *  regénérer du RSA à chaque certificat (coûteux) : seule la signature de
+ *  certificat (rapide) varie. */
+function makeP12WithLongChain(cn: string, password: string, fillerCount: number): Uint8Array {
+  const keys = forge.pki.rsa.generateKeyPair(2048);
+  const makeCert = (name: string, serial: string) => {
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = serial;
+    cert.validity.notBefore = new Date(Date.UTC(2020, 0, 1));
+    cert.validity.notAfter = new Date(Date.UTC(2035, 0, 1));
+    const attrs = [
+      { name: "commonName", value: name },
+      { name: "organizationName", value: "Elium" },
+    ];
+    cert.setSubject(attrs);
+    cert.setIssuer(attrs);
+    cert.sign(keys.privateKey, forge.md.sha256.create());
+    return cert;
+  };
+  const signerCert = makeCert(cn, "01");
+  const filler = Array.from({ length: fillerCount }, (_, i) => makeCert(`Filler CA ${i}`, String(i + 2)));
+  const p12Asn1 = forge.pkcs12.toPkcs12Asn1(keys.privateKey, [signerCert, ...filler], password, {
+    algorithm: "3des",
+  });
+  return binToU8(forge.asn1.toDer(p12Asn1).getBytes());
+}
+
+describe("PAdES-B — dimensionnement dynamique du placeholder /Contents", () => {
+  it("réserve plus d'espace pour une longue chaîne de certification qu'un signataire seul", async () => {
+    const pdf = await makePdf();
+
+    const shortChainP12 = makeP12WithLongChain("Alice", "pw", 0);
+    const signedShort = await signPdfBytes(pdf, shortChainP12, "pw");
+    expect(verifyPdfSignatures(signedShort)[0]!.valid).toBe(true);
+
+    const longChainP12 = makeP12WithLongChain("Alice", "pw", 60);
+    const signedLong = await signPdfBytes(pdf, longChainP12, "pw");
+    expect(verifyPdfSignatures(signedLong)[0]!.valid).toBe(true);
+
+    // La réservation suit la taille réelle du CMS (certificats embarqués), pas
+    // une constante : une chaîne longue obtient un trou /Contents plus large.
+    expect(reservedContentsSpan(signedLong)).toBeGreaterThan(reservedContentsSpan(signedShort));
+  }, 30000);
+
+  it("signe avec succès une chaîne de certification trop longue pour l'ancienne réservation fixe (16 Kio)", async () => {
+    // ~60 certificats auto-signés supplémentaires embarqués dans le CMS
+    // dépassent largement 16 Kio de DER une fois sérialisés — avec la
+    // constante figée d'origine, la signature échouait tard (après saisie du
+    // mot de passe) avec « Signature trop volumineuse pour l'espace /Contents
+    // réservé. ». Le dimensionnement dynamique doit absorber ce cas.
+    const p12 = makeP12WithLongChain("Dave", "pw", 60);
+    const pdf = await makePdf();
+    const signed = await signPdfBytes(pdf, p12, "pw");
+    const res = verifyPdfSignatures(signed);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.digestMatches).toBe(true);
+    expect(res[0]!.valid).toBe(true);
+  }, 30000);
+});

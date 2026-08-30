@@ -75,7 +75,7 @@ class EliumRecipientKeyRequired(EliumPackageError):
         )
 
 
-def _collect_personal_data(signatures: list[dict]) -> list[str]:
+def _collect_personal_data(signatures: list[dict], parapheur: dict | None = None) -> list[str]:
     found: set[str] = set()
     for s in signatures:
         signer = s.get("signer") or {}
@@ -87,6 +87,18 @@ def _collect_personal_data(signatures: list[dict]) -> list[str]:
             found.add("organisation")
         if s.get("proof"):
             found.add("empreinte de clé publique")
+    # The Parapheur (signature circuit) carries its own personal data — party
+    # names/roles and the requester's name — independently of `signatures`. When
+    # it travels in the clear (no encrypt_metadata), the RGPD notice must not
+    # under-report it.
+    if parapheur:
+        for party in parapheur.get("parties") or []:
+            if party.get("name"):
+                found.add("nom de partie du circuit de signature")
+            if party.get("role"):
+                found.add("rôle de partie du circuit de signature")
+        if parapheur.get("requester"):
+            found.add("nom du demandeur (circuit de signature)")
     return sorted(found)
 
 
@@ -104,6 +116,7 @@ def _build_manifest(
     metadata_encrypted: bool = False,
     recipient_fprs: list[str] | None = None,
     doc_id: str | None = None,
+    parapheur: dict | None = None,
 ) -> dict[str, Any]:
     p = PROFILES[profile]
     protection = {
@@ -139,7 +152,7 @@ def _build_manifest(
         },
         "rgpd": {
             "localOnly": True,
-            "storedPersonalData": _collect_personal_data(signatures),
+            "storedPersonalData": _collect_personal_data(signatures, parapheur),
             "notice": _RGPD_NOTICE,
         },
     }
@@ -252,6 +265,7 @@ def write_elium(
         metadata_encrypted=secure_meta,
         recipient_fprs=recipient_fprs,
         doc_id=doc_id,
+        parapheur=clear_parapheur,
     )
 
     # Optional cryptographic seal: one Ed25519 anchor over the integrity-critical

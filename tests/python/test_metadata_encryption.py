@@ -82,6 +82,44 @@ def test_wrong_password_still_rejected():
         read_elium(blob, password="mauvais")  # noqa: S106
 
 
+PARAPHEUR = {
+    "parties": [{"id": "p1", "name": "Jean Dupont", "role": "DRH", "status": "pending"}],
+    "requester": "Alice Martin",
+}
+
+
+def test_parapheur_personal_data_surfaces_in_clear_rgpd_notice():
+    """P2: a Parapheur (signature circuit) traveling in the clear (no
+    encrypt_metadata) carries personal data of its own (party names/roles,
+    requester) — the RGPD notice must report it even with zero `signatures`."""
+    doc = create_document_model(text_to_doc("Circuit en clair"))
+    blob = write_elium(doc, profile="protected", title="Circuit", password=PWD, parapheur=PARAPHEUR)
+    man = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
+    reported = man["rgpd"]["storedPersonalData"]
+    assert "nom de partie du circuit de signature" in reported
+    assert "rôle de partie du circuit de signature" in reported
+    assert "nom du demandeur (circuit de signature)" in reported
+
+
+def test_parapheur_personal_data_hidden_when_metadata_encrypted():
+    """With encrypt_metadata, the Parapheur travels inside the encrypted
+    envelope: the clear manifest must stay fully redacted (no personal data
+    reported, no party name leaked on disk)."""
+    doc = create_document_model(text_to_doc("Circuit chiffré"))
+    blob = write_elium(
+        doc, profile="secure_max", title="Circuit", password=PWD,
+        parapheur=PARAPHEUR, encrypt_metadata=True,
+    )
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    man = json.loads(z.read(ENTRY_MANIFEST))
+    assert man["rgpd"]["storedPersonalData"] == []
+    assert "parapheur/circuit.json" not in z.namelist()
+    assert "Jean Dupont" not in json.dumps(man)
+
+    r = read_elium(blob, password=PWD)
+    assert r["parapheur"] == PARAPHEUR
+
+
 def test_non_secure_encrypted_file_unchanged():
     """Without encrypt_metadata, behaviour is the legacy one (title in clear)."""
     doc = create_document_model(text_to_doc("x"))

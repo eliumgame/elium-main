@@ -135,3 +135,6 @@ jobs:
     - name: Run multi-user E2E (embedded Postgres, real Fastify app, real SDK)
       working-directory: ./web-studio
       run: npm run test:e2e
+    - name: Run collaborative Tableur E2E (embedded Postgres, real WS relay, 2 clients)
+      working-directory: ./web-studio
+      run: npm run test:e2e:sheet

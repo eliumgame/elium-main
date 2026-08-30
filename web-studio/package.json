@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:e2e": "tsx tests/e2e-multiuser.ts",
+    "test:e2e:sheet": "tsx tests/e2e-collab-sheet.ts",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "lint:fix": "eslint --fix \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",

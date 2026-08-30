@@ -31,6 +31,18 @@ interface UpdStatus {
 const TAGLINE =
   "Traitement 100 % local · aucune donnée envoyée en ligne sans action explicite · conforme RGPD par conception";
 
+/**
+ * Jeton anti-CSRF du lanceur desktop (installer/elium_launcher.py) : injecté par
+ * le serveur local dans une balise <meta name="elium-token"> du document servi
+ * (jamais un script inline, la CSP stricte l'interdit), relu ici à chaque appel.
+ * Absent en dehors du lanceur (navigateur/dev) : les routes ciblées répondent
+ * alors 404 de toute façon, cf. le commentaire d'en-tête du fichier.
+ */
+function eliumToken(): string {
+  const meta = document.querySelector('meta[name="elium-token"]');
+  return meta?.getAttribute("content") ?? "";
+}
+
 export default function VersionFooter() {
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -109,16 +121,25 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
     setErr(null);
     setBusy(true);
     setStatus({ state: "downloading", version, progress: 0 });
-    await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, { method: "POST" }).catch(() => {});
+    await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, {
+      method: "POST",
+      headers: { "X-Elium-Token": eliumToken() },
+    }).catch(() => {});
   };
   const undo = async () => {
     setErr(null);
     setBusy(true);
-    await fetch("/__rollback__/undo", { method: "POST" }).catch(() => {});
+    await fetch("/__rollback__/undo", {
+      method: "POST",
+      headers: { "X-Elium-Token": eliumToken() },
+    }).catch(() => {});
   };
   const reload = () => window.location.reload();
   const restart = async () => {
-    await fetch("/__update__/restart", { method: "POST" }).catch(() => {});
+    await fetch("/__update__/restart", {
+      method: "POST",
+      headers: { "X-Elium-Token": eliumToken() },
+    }).catch(() => {});
   };
 
   const ready = status?.state === "web-ready" || status?.state === "exe-ready";

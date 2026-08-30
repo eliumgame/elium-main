@@ -47,6 +47,25 @@ import type { KdfParams } from "../src/drive-cloud/kdf";
 import type { RoleDef } from "../src/drive-cloud/types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Poll `cond` until it becomes true or `timeoutMs` elapses, then return —
+ * never throws. Replaces a fixed sleep() before a CRDT-convergence /
+ * relay-readiness assertion: resolves as soon as the real condition holds
+ * (fast on a healthy run) instead of always paying a worst-case fixed delay,
+ * and doesn't flake on a slower box the way a too-short fixed sleep would.
+ * The caller's own `ok(...)` check right after still does the actual
+ * pass/fail assertion — this only decides how long to wait first. Also used
+ * (with a short timeout) to give a NEGATIVE assertion — "this write must be
+ * rejected" — a fair chance to observe the bad state before concluding it
+ * never arrived.
+ */
+async function waitUntil(cond: () => boolean, timeoutMs = 5000, intervalMs = 25): Promise<void> {
+  const start = Date.now();
+  while (!cond() && Date.now() - start < timeoutMs) {
+    await sleep(intervalMs);
+  }
+}
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const eq = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -406,7 +425,13 @@ async function main(): Promise<void> {
     const ydocA = new Y.Doc();
     const ydocB = new Y.Doc();
     let canWriteB: boolean | null = null;
-    provA = new EncryptedYjsProvider(alice.api, doc.id, keyA!, ydocA, { name: "Alice", color: "#e11d48" }, {});
+    let statusA: string | null = null;
+    let statusB: string | null = null;
+    provA = new EncryptedYjsProvider(alice.api, doc.id, keyA!, ydocA, { name: "Alice", color: "#e11d48" }, {
+      onStatus: (s) => {
+        statusA = s;
+      },
+    });
     provB = new EncryptedYjsProvider(
       bob.api,
       doc.id,
@@ -414,6 +439,9 @@ async function main(): Promise<void> {
       ydocB,
       { name: "Bob", color: "#16a34a" },
       {
+        onStatus: (s) => {
+          statusB = s;
+        },
         onReady: (c) => {
           canWriteB = c;
         },
@@ -421,10 +449,14 @@ async function main(): Promise<void> {
     );
     await provA.connect();
     await provB.connect();
-    await sleep(600);
+    // Un update émis avant que le socket local ne soit OUVERT est perdu
+    // (EncryptedCollabChannel.sendUpdate n'écrit que si readyState === OPEN,
+    // il ne met rien en attente) : il faut donc attendre les DEUX sockets
+    // ouverts — pas juste "un peu" — avant qu'Alice n'écrive.
+    await waitUntil(() => statusA === "open" && statusB === "open" && canWriteB !== null);
 
     ydocA.getText("t").insert(0, "Bonjour multi-utilisateurs !");
-    await sleep(1200);
+    await waitUntil(() => ydocB.getText("t").toString() === "Bonjour multi-utilisateurs !", 8000);
     ok(
       "convergence CRDT A→B (updates chiffrés via le relais)",
       ydocB.getText("t").toString() === "Bonjour multi-utilisateurs !",
@@ -432,7 +464,7 @@ async function main(): Promise<void> {
     );
 
     ydocB.getText("t").insert(0, "Re : ");
-    await sleep(1200);
+    await waitUntil(() => ydocA.getText("t").toString() === "Re : Bonjour multi-utilisateurs !", 8000);
     ok(
       "convergence CRDT B→A",
       ydocA.getText("t").toString() === "Re : Bonjour multi-utilisateurs !",
@@ -463,7 +495,13 @@ async function main(): Promise<void> {
     const ydocRA = new Y.Doc();
     const ydocRB = new Y.Doc();
     let canWriteRB: boolean | null = null;
-    provA = new EncryptedYjsProvider(alice.api, roDoc.id, roKeyA!, ydocRA, { name: "Alice", color: "#e11d48" }, {});
+    let statusRA: string | null = null;
+    let statusRB: string | null = null;
+    provA = new EncryptedYjsProvider(alice.api, roDoc.id, roKeyA!, ydocRA, { name: "Alice", color: "#e11d48" }, {
+      onStatus: (s) => {
+        statusRA = s;
+      },
+    });
     provB2 = new EncryptedYjsProvider(
       bob.api,
       roDoc.id,
@@ -471,6 +509,9 @@ async function main(): Promise<void> {
       ydocRB,
       { name: "Bob", color: "#16a34a" },
       {
+        onStatus: (s) => {
+          statusRB = s;
+        },
         onReady: (c) => {
           canWriteRB = c;
         },
@@ -478,11 +519,11 @@ async function main(): Promise<void> {
     );
     await provA.connect();
     await provB2.connect();
-    await sleep(600);
+    await waitUntil(() => statusRA === "open" && statusRB === "open" && canWriteRB !== null);
     ok("Bob connecté en lecture seule (canWrite=false)", canWriteRB === false, String(canWriteRB));
 
     ydocRA.getText("t").insert(0, "Officiel. ");
-    await sleep(900);
+    await waitUntil(() => ydocRB.getText("t").toString() === "Officiel. ", 8000);
     ok(
       "le lecteur reçoit bien les updates de l'éditeur",
       ydocRB.getText("t").toString() === "Officiel. ",
@@ -491,7 +532,10 @@ async function main(): Promise<void> {
 
     const before = ydocRA.getText("t").toString();
     ydocRB.getText("t").insert(0, "SABOTAGE-");
-    await sleep(1000);
+    // Assertion NÉGATIVE (le relais doit REJETER cette écriture) : on laisse
+    // une fenêtre raisonnable à une éventuelle mauvaise propagation de se
+    // manifester, plutôt que d'attendre bêtement un temps fixe plus long.
+    await waitUntil(() => ydocRA.getText("t").toString() !== before, 2000);
     ok(
       "le relais REJETTE les écritures d'un lecteur",
       ydocRA.getText("t").toString() === before,

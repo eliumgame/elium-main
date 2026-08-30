@@ -81,10 +81,13 @@ export interface SignParty {
   id: string;
   index: number;
   label: string | null;
-  status: "pending" | "signed" | "declined";
+  /** "cancelled" = the issuer revoked this party's link (see `revokeLink`). */
+  status: "pending" | "signed" | "declined" | "cancelled";
   signerFpr: string | null;
   signedAt: string | null;
   submissionVersionId: string | null;
+  /** The `share_links` row backing this party — pass to `revokeLink` to cancel it. */
+  linkId: string;
 }
 /** A signature request on a node, with its parties (status board DTO). */
 export interface SignRequestDto {
@@ -695,6 +698,20 @@ export class DriveApi {
   /** Status board of a node's signature requests (for the emitter to poll). */
   getSignRequests(nodeId: string) {
     return this.json<{ requests: SignRequestDto[] }>("GET", `/nodes/${nodeId}/sign-requests`);
+  }
+  /**
+   * Remind a signer who's ignoring their link: the server can't resend the
+   * URL itself (its secret never left the emitter's browser), so this only
+   * reactivates the link server-side (pushes back its expiry if it had
+   * lapsed) and logs a dedicated audit trail entry — the emitter re-sends the
+   * SAME link they already copied out of band.
+   */
+  remindSignParty(nodeId: string, requestId: string, partyId: string) {
+    return this.json<{ ok: boolean; reactivated: boolean; expiresAt: string | null }>(
+      "POST",
+      `/nodes/${nodeId}/sign-requests/${requestId}/parties/${partyId}/remind`,
+      { body: {} },
+    );
   }
   /** ANONYMOUS token-sealed write-back of the signed artifact — no account.
    *  The ciphertext is the signed .elium re-encrypted under the node CEK. */

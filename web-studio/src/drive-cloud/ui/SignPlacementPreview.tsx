@@ -227,20 +227,20 @@ export function SignPlacementPreview({
   return (
     <div style={{ marginTop: 6 }}>
       {error && (
-        <p className="dc-error" style={{ fontSize: 12 }}>
+        <p className="elx-form__error" style={{ fontSize: 12 }}>
           {error}
         </p>
       )}
       {!error && !(pageImgSrc && pageSize) && (
         <p className="muted" style={{ fontSize: 12 }}>
-          <Loader size={13} className="dc-spin" /> Chargement de l'aperçu de la page…
+          <Loader size={13} className="elx-spin" /> Chargement de l'aperçu de la page…
         </p>
       )}
       {pageImgSrc && pageSize && (
         <>
           <div
             ref={wrapRef}
-            className="dc-sign-placement"
+            className="elx-signplace"
             role="group"
             aria-label="Emplacement de la signature sur la page 1"
             aria-describedby={liveId}
@@ -252,7 +252,7 @@ export function SignPlacementPreview({
               display: "inline-block",
               maxWidth: "100%",
               lineHeight: 0,
-              border: "1px solid var(--border, rgba(127,127,127,0.3))",
+              border: "1px solid var(--x-line, rgba(127,127,127,0.3))",
               borderRadius: 8,
               overflow: "hidden",
               cursor: disabled ? "default" : "crosshair",
@@ -298,12 +298,7 @@ export function SignPlacementPreview({
               utilisez les flèches du clavier.
             </p>
             {value && !disabled && (
-              <button
-                type="button"
-                className="dc-auth__switch"
-                style={{ fontSize: 12, padding: 0 }}
-                onClick={() => onChange(null)}
-              >
+              <button type="button" className="elx-mini" style={{ fontSize: 12 }} onClick={() => onChange(null)}>
                 Effacer le placement
               </button>
             )}

@@ -2,7 +2,7 @@
  * XLSX export — the inverse of xlsx-import.ts. Produces a valid SpreadsheetML
  * (OPC) package: a workbook, one worksheet per sheet, a styles part, and
  * (when present) merged cells, conditional formatting, data validation,
- * column widths, frozen panes and native charts.
+ * column widths, row heights, frozen panes and native charts.
  *
  * - numbers        → numeric cells (`<v>`)
  * - text           → inline strings (`t="inlineStr"`) so no shared-strings part
@@ -525,6 +525,9 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
   );
 }
 
+/** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
+const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
+
 function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
@@ -540,14 +543,23 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): st
     maxCol = Math.max(maxCol, pos.col);
     maxRow = Math.max(maxRow, pos.row);
   }
-  const rows = [...byRow.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([r, list]) => {
+  // A row present ONLY as a custom height (no cell content) still needs its own
+  // <row> element — else the height has nowhere to be written. `byRow` keys are
+  // already 1-based (straight from `parseKey`'s A1-style parsing); `rowHeights`
+  // keys are 0-based (row index, like `colWidths`), hence the +1/-1 below.
+  const rowKeys = new Set<number>(byRow.keys());
+  for (const k of Object.keys(sheet.rowHeights ?? {})) rowKeys.add(Number(k) + 1);
+  const rows = [...rowKeys]
+    .sort((a, b) => a - b)
+    .map((r) => {
+      const list = byRow.get(r) ?? [];
       const cells = list
         .sort((a, b) => a.col - b.col)
         .map((c) => cellXml(c.key, c.raw, c.s))
         .join("");
-      return `<row r="${r}">${cells}</row>`;
+      const customH = sheet.rowHeights?.[r - 1];
+      const htAttr = customH != null ? ` ht="${pxToPt(customH)}" customHeight="1"` : "";
+      return `<row r="${r}"${htAttr}>${cells}</row>`;
     })
     .join("");
   const dim = `A1:${colLetters(maxCol)}${maxRow}`;

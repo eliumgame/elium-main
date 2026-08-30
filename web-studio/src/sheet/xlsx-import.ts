@@ -2,8 +2,8 @@
  * XLSX (SpreadsheetML) importer — no new dependency. Unzips with fflate
  * (already used by the DOCX module) and parses the XML with the browser
  * DOMParser. Reads shared strings, cell values/formulas AND styles (numFmt,
- * font, fill, border), merged cells, column widths, frozen panes, conditional
- * formatting, data validation and native charts — the inverse of xlsx-export.ts,
+ * font, fill, border), merged cells, column widths, row heights, frozen panes,
+ * conditional formatting, data validation and native charts — the inverse of xlsx-export.ts,
  * so a workbook survives an export → re-import round trip, and reopening an
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
@@ -484,6 +484,26 @@ function parseColWidths(doc: Document): Record<number, number> {
   return out;
 }
 
+/** Excel's row "points" height unit → px (inverse of xlsx-export.ts's `pxToPt`, same 0.75pt/px heuristic). */
+const ptToPx = (pt: number): number => Math.max(1, Math.round((pt * 4) / 3));
+/** `<row r="N" ht="…" customHeight="1">` → 0-based row index -> height px. Rows with no explicit `ht` (auto-height) are skipped. */
+function parseRowHeights(doc: Document): Record<number, number> {
+  const out: Record<number, number> = {};
+  const els = doc.getElementsByTagName("row");
+  for (let i = 0; i < els.length; i++) {
+    const row = els[i];
+    if (row.getAttribute("customHeight") !== "1") continue;
+    const htAttr = row.getAttribute("ht");
+    const rAttr = row.getAttribute("r");
+    if (!htAttr || !rAttr) continue;
+    const r = Number(rAttr);
+    const ht = Number(htAttr);
+    if (!Number.isFinite(r) || r < 1 || !Number.isFinite(ht)) continue;
+    out[r - 1] = ptToPx(ht);
+  }
+  return out;
+}
+
 function parseFreeze(doc: Document): { rows: number; cols: number } | undefined {
   const pane = doc.getElementsByTagName("pane")[0];
   const state = pane?.getAttribute("state");
@@ -859,6 +879,8 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (merges.length) sh.merges = merges;
   const colWidths = parseColWidths(doc);
   if (Object.keys(colWidths).length) sh.colWidths = colWidths;
+  const rowHeights = parseRowHeights(doc);
+  if (Object.keys(rowHeights).length) sh.rowHeights = rowHeights;
   const freeze = parseFreeze(doc);
   if (freeze) sh.freeze = freeze;
   const condFormats = parseCondFormats(doc, ps);

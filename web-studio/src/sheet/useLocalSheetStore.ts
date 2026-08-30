@@ -138,6 +138,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   // --- géométrie & vue ---
   const setColWidth = (s: number, col: number, w: number) =>
     patchSheet(s, (sh) => ({ ...sh, colWidths: { ...(sh.colWidths ?? {}), [col]: Math.max(24, Math.round(w)) } }));
+  const setRowHeight = (s: number, row: number, h: number) =>
+    patchSheet(s, (sh) => ({ ...sh, rowHeights: { ...(sh.rowHeights ?? {}), [row]: Math.max(16, Math.round(h)) } }));
   const setFreeze = (s: number, rows: number, cols: number) =>
     patchSheet(s, (sh) => (rows <= 0 && cols <= 0 ? { ...sh, freeze: undefined } : { ...sh, freeze: { rows, cols } }));
   const setFilter = (s: number, col: number, query: string) =>
@@ -240,6 +242,7 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     sortRange,
     fillRange,
     setColWidth,
+    setRowHeight,
     setFreeze,
     setFilter,
     toggleMerge,

@@ -6,10 +6,10 @@
  *
  * Le même plan de relocalisation qui déplace les cellules réécrit AUSSI les
  * références dans les formules survivantes : `=SOMME(A1:A5)` suit les lignes
- * insérées/supprimées. Les largeurs de colonnes suivent leur colonne. (Comme le
- * Tableur local historique, les plages des fusions / mises en forme
- * conditionnelles / validations ne sont pas redécalées — comportement conservé
- * à l'identique pour la parité.)
+ * insérées/supprimées. Les largeurs de colonnes suivent leur colonne, et les
+ * hauteurs de ligne suivent leur ligne. (Comme le Tableur local historique, les
+ * plages des fusions / mises en forme conditionnelles / validations ne sont pas
+ * redécalées — comportement conservé à l'identique pour la parité.)
  */
 import { indexToCol, parseRef, rewriteRefs, type RefMap } from "./formula";
 import { visibleRowsInRange } from "./filter";
@@ -70,6 +70,14 @@ function structural(
       if (np) colWidths[np.c] = w;
     }
   }
+  let rowHeights: Record<number, number> | undefined;
+  if (sheet.rowHeights) {
+    rowHeights = {};
+    for (const [k, h] of Object.entries(sheet.rowHeights)) {
+      const np = fn(0, Number(k));
+      if (np) rowHeights[np.r] = h;
+    }
+  }
 
   const next: SheetData = {
     ...sheet,
@@ -82,6 +90,8 @@ function structural(
   else delete next.styles;
   if (colWidths) next.colWidths = colWidths;
   else delete next.colWidths;
+  if (rowHeights) next.rowHeights = rowHeights;
+  else delete next.rowHeights;
   return next;
 }
 

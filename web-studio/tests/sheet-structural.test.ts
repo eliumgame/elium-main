@@ -9,6 +9,7 @@ const base = (): SheetData => ({
   cells: { A1: "1", A2: "2", A3: "=SOMME(A1:A2)", B1: "10", C1: "20" },
   styles: { A1: { bold: true } },
   colWidths: { 1: 150 },
+  rowHeights: { 1: 60 },
 });
 
 describe("Opérations structurelles pures (partagées local/collab)", () => {
@@ -19,6 +20,7 @@ describe("Opérations structurelles pures (partagées local/collab)", () => {
     expect(s.cells.A3).toBe("2"); // A2 a glissé en A3
     expect(s.cells.A4).toBe("=SOMME(A1:A3)"); // formule réécrite (A2→A3)
     expect(s.styles!.A1).toEqual({ bold: true });
+    expect(s.rowHeights).toEqual({ 2: 60 }); // hauteur de la ligne 1 → 2 (a glissé avec elle)
   });
 
   it("supprime une ligne : décalage vers le haut + réécriture des formules", () => {
@@ -29,6 +31,12 @@ describe("Opérations structurelles pures (partagées local/collab)", () => {
     // → #REF!, exactement comme le Tableur local (moteur de formules partagé).
     expect(s.cells.A2).toBe("=SOMME(#REF!:A1)");
     expect(s.cells.B1).toBeUndefined(); // B1 supprimé avec la ligne
+    expect(s.rowHeights).toEqual({ 0: 60 }); // hauteur de la ligne 1 → 0 (a remonté)
+  });
+
+  it("supprime la ligne portant une hauteur personnalisée : elle disparaît", () => {
+    const s = deleteRow(base(), 1);
+    expect(s.rowHeights ?? {}).toEqual({});
   });
 
   it("insère une colonne : décalage à droite + largeurs suivies", () => {

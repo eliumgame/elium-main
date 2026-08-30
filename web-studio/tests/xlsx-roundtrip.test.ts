@@ -61,6 +61,30 @@ describe("XLSX round trip — column widths & frozen panes", () => {
     expect(back.colWidths?.[2]).toBeLessThanOrEqual(90);
   });
 
+  it("rowHeights survive (within the 0.75pt/px rounding heuristic), incl. a row with no cells", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        { name: "F", rows: 5, cols: 5, cells: { A1: "x", A4: "y" }, rowHeights: { 0: 50, 3: 20 } },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!;
+    expect(back.rowHeights?.[0]).toBeGreaterThanOrEqual(45);
+    expect(back.rowHeights?.[0]).toBeLessThanOrEqual(55);
+    expect(back.rowHeights?.[3]).toBeGreaterThanOrEqual(15);
+    expect(back.rowHeights?.[3]).toBeLessThanOrEqual(25);
+  });
+
+  it("a custom row height with NO cell content still survives (its own <row> element)", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 5, cols: 5, cells: {}, rowHeights: { 2: 40 } }],
+    };
+    const back = roundTrip(wb).sheets[0]!;
+    expect(back.rowHeights?.[2]).toBeGreaterThanOrEqual(35);
+    expect(back.rowHeights?.[2]).toBeLessThanOrEqual(45);
+  });
+
   it("freeze (rows + cols) survives exactly", () => {
     const wb: Workbook = {
       active: 0,

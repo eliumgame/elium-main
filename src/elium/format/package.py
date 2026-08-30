@@ -11,6 +11,7 @@ import uuid
 import zipfile
 from typing import Any
 
+from elium import __version__
 from elium.core.container import EliumContainer
 from elium.core.exceptions import EliumError
 from elium.crypto.recipients import (
@@ -135,7 +136,7 @@ def _build_manifest(
         "format": ELIUM_FORMAT,
         "formatVersion": ELIUM_FORMAT_VERSION,
         "profile": profile,
-        "generator": "elium-py/4.0.0",
+        "generator": f"elium-py/{__version__}",
         # Stable unique document id (mirror of elium-package.ts). Local index key;
         # NOT part of the signed seal subset.
         "docId": doc_id or str(uuid.uuid4()),

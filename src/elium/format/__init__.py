@@ -8,7 +8,13 @@ package; encryption reuses the audited v3 container (`elium.core.container`).
 
 from elium.format.canonical import canonical_json, hash_canonical, now_iso, sha256_hex
 from elium.format.journal import append_event, empty_journal, verify_journal
-from elium.format.package import EliumPackageError, read_elium, write_elium
+from elium.format.package import (
+    EliumPackageError,
+    EliumPasswordRequired,
+    EliumRecipientKeyRequired,
+    read_elium,
+    write_elium,
+)
 from elium.format.profiles import PROFILES
 
 __all__ = [
@@ -22,5 +28,7 @@ __all__ = [
     "read_elium",
     "write_elium",
     "EliumPackageError",
+    "EliumPasswordRequired",
+    "EliumRecipientKeyRequired",
     "PROFILES",
 ]

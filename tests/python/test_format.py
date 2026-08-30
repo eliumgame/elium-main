@@ -5,6 +5,7 @@ import zipfile
 
 import pytest
 
+from elium import __version__
 from elium.core.exceptions import EliumSecurityError
 from elium.format.document import create_document_model, extract_text, text_to_doc
 from elium.format.journal import append_event, empty_journal, verify_journal
@@ -106,6 +107,26 @@ def test_rejects_duplicate_entries():
     entries.append(("manifest.json", b"{}"))
     with pytest.raises(EliumPackageError, match="dupliqu"):
         read_elium(_repack(entries))
+
+
+def test_package_error_types_exported_from_format():
+    """EliumPasswordRequired/EliumRecipientKeyRequired are imported directly
+    from elium.format elsewhere in the codebase but weren't part of its
+    public __all__/re-exports — only EliumPackageError was."""
+    from elium.format import EliumPasswordRequired as TopPasswordRequired
+    from elium.format import EliumRecipientKeyRequired as TopRecipientKeyRequired
+    from elium.format.package import EliumPasswordRequired, EliumRecipientKeyRequired
+
+    assert TopPasswordRequired is EliumPasswordRequired
+    assert TopRecipientKeyRequired is EliumRecipientKeyRequired
+
+
+def test_manifest_generator_reflects_package_version():
+    """The manifest's `generator` must track elium.__version__, not a hardcoded
+    string that goes stale on every release."""
+    blob = write_elium(make_model(), profile="standard", title="T")
+    result = read_elium(blob)
+    assert result["manifest"]["generator"] == f"elium-py/{__version__}"
 
 
 def test_resource_roundtrip_verified():

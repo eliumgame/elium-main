@@ -36,6 +36,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { key: "node.share.internal", domain: "share", scope: "node", label: "Partager (interne : membres/groupes)" },
   { key: "node.share.link", domain: "share", scope: "node", label: "Créer un lien externe" },
   { key: "node.share.manage", domain: "share", scope: "node", label: "Gérer / révoquer les partages" },
+  { key: "node.sign.request", domain: "share", scope: "node", label: "Demander une signature par lien" },
   { key: "node.acl.view", domain: "share", scope: "node", label: "Voir les accès" },
   { key: "node.acl.manage", domain: "share", scope: "node", label: "Gérer les accès (attribuer des rôles)" },
 

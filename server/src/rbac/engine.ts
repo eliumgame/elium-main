@@ -189,6 +189,7 @@ const OWNER_NODE_PERMS: readonly string[] = [
   "node.share.internal",
   "node.share.link",
   "node.share.manage",
+  "node.sign.request",
   "node.acl.view",
   "node.acl.manage",
 ];

@@ -339,6 +339,12 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- List a node's active links ------------------------------------------
+  // LEFT JOIN signature_request_parties: a link minted by POST
+  // /nodes/:id/sign-requests carries `can_sign` + is the sole link for exactly
+  // one party (idx_srp_link) — surfacing that here lets any link-management UI
+  // (not just SignRequestDialog) show which links are signature links, with
+  // their signer label, and revoke them through the SAME route (whose DELETE
+  // now also cancels the party — see below).
   app.get("/nodes/:id/links", { preHandler: authenticate }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     await requireNodePerm(req, id, "node.acl.view");
@@ -350,11 +356,16 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
       max_downloads: number | null;
       download_count: number;
       created_at: string;
+      can_sign: boolean;
+      party_label: string | null;
+      party_status: string | null;
     }>(
-      `SELECT id, has_password, expires_at, max_downloads, download_count, created_at
-         FROM share_links
-        WHERE node_id = $1 AND revoked_at IS NULL
-        ORDER BY created_at DESC`,
+      `SELECT sl.id, sl.has_password, sl.expires_at, sl.max_downloads, sl.download_count, sl.created_at,
+              sl.can_sign, p.label AS party_label, p.status AS party_status
+         FROM share_links sl
+         LEFT JOIN signature_request_parties p ON p.link_id = sl.id
+        WHERE sl.node_id = $1 AND sl.revoked_at IS NULL
+        ORDER BY sl.created_at DESC`,
       [id],
     );
 
@@ -366,26 +377,71 @@ export default async function shareRoutes(app: FastifyInstance): Promise<void> {
         maxDownloads: r.max_downloads ?? null,
         downloadCount: r.download_count,
         createdAt: r.created_at,
+        canSign: r.can_sign,
+        partyLabel: r.party_label ?? null,
+        partyStatus: r.party_status ?? null,
       })),
     };
   });
 
   // --- Revoke a share link --------------------------------------------------
+  // Un lien de signature (`can_sign`) peut aussi être révoqué par qui a pu
+  // envoyer la demande (`node.sign.request`), pas seulement par
+  // `node.share.manage` — symétrique avec sa création (voir POST
+  // /nodes/:id/sign-requests). La révocation est transactionnelle : elle
+  // annule AUSSI la partie de signature associée (sinon elle resterait
+  // « en attente » indéfiniment derrière un lien mort).
   app.delete("/nodes/:id/links/:linkId", { preHandler: authenticate }, async (req) => {
     const { id, linkId } = z.object({ id: z.string().uuid(), linkId: z.string().uuid() }).parse(req.params);
     const user = requireUser(req);
 
-    const access = await requireNodePerm(req, id, "node.share.manage");
-
-    const row = await queryOne<{ id: string }>(
-      `UPDATE share_links SET revoked_at = now()
-        WHERE id = $1 AND node_id = $2 AND revoked_at IS NULL
-        RETURNING id`,
+    const target = await queryOne<{ can_sign: boolean }>(
+      `SELECT can_sign FROM share_links WHERE id = $1 AND node_id = $2 AND revoked_at IS NULL`,
       [linkId, id],
     );
-    if (!row) throw notFound("Lien introuvable.");
+    if (!target) throw notFound("Lien introuvable.");
 
-    await audit(access.orgId, user.id, "node.link.revoke", access.kind, id, { linkId }, req.ip);
+    let access: Awaited<ReturnType<typeof requireNodePerm>>;
+    try {
+      access = await requireNodePerm(req, id, "node.share.manage");
+    } catch (err) {
+      // Un lien de signature (can_sign) peut aussi être révoqué par qui a pu
+      // envoyer la demande (node.sign.request), pas seulement par
+      // node.share.manage — symétrique avec sa création (POST
+      // /nodes/:id/sign-requests). Un lien ordinaire retombe sur l'erreur
+      // d'origine (pas de permission de repli).
+      if (!target.can_sign) throw err;
+      access = await requireNodePerm(req, id, "node.sign.request");
+    }
+
+    const revoked = await withTx(async (c) => {
+      const { rows } = await c.query(
+        `UPDATE share_links SET revoked_at = now()
+          WHERE id = $1 AND node_id = $2 AND revoked_at IS NULL
+          RETURNING id`,
+        [linkId, id],
+      );
+      if (!rows[0]) return false;
+      if (target.can_sign) {
+        await c.query(
+          `UPDATE signature_request_parties SET status = 'cancelled'
+            WHERE link_id = $1 AND status = 'pending'`,
+          [linkId],
+        );
+      }
+      return true;
+    });
+    if (!revoked) throw notFound("Lien introuvable.");
+
+    await audit(
+      access.orgId,
+      user.id,
+      "node.link.revoke",
+      access.kind,
+      id,
+      { linkId, cancelledSignParty: target.can_sign },
+      req.ip,
+    );
     return { ok: true };
   });
 

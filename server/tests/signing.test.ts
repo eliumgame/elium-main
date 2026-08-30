@@ -370,7 +370,7 @@ describe("GET /api/nodes/:id/sign-requests (suivi)", () => {
         request_id: REQ, request_status: "pending", ordered: false, deadline: null,
         created_at: "2026-08-11T00:00:00Z", completed_at: null,
         party_id: PARTY, party_index: 0, label: "Direction", party_status: "signed",
-        signer_fpr: "abcd", signed_at: "2026-08-11T01:00:00Z", submission_version_id: VER,
+        signer_fpr: "abcd", signed_at: "2026-08-11T01:00:00Z", submission_version_id: VER, link_id: LINK,
       },
       {
         request_id: REQ, request_status: "pending", ordered: false, deadline: null,
@@ -387,8 +387,81 @@ describe("GET /api/nodes/:id/sign-requests (suivi)", () => {
     expect(body.requests).toHaveLength(1);
     expect(body.requests[0].id).toBe(REQ);
     expect(body.requests[0].parties).toHaveLength(2);
-    expect(body.requests[0].parties[0]).toMatchObject({ index: 0, status: "signed", signerFpr: "abcd", submissionVersionId: VER });
+    expect(body.requests[0].parties[0]).toMatchObject({ index: 0, status: "signed", signerFpr: "abcd", submissionVersionId: VER, linkId: LINK });
     expect(body.requests[0].parties[1]).toMatchObject({ index: 1, status: "pending", signerFpr: null });
+    await app.close();
+  });
+});
+
+describe("POST /api/nodes/:id/sign-requests/:requestId/parties/:partyId/remind (relance)", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    party_status: "pending",
+    link_id: LINK,
+    link_revoked_at: null,
+    link_expires_at: null,
+    ...over,
+  });
+  const url = `/api/nodes/${NODE}/sign-requests/${REQ}/parties/${PARTY}/remind`;
+
+  it("journalise un rappel sans toucher au lien quand il n'est pas expiré", async () => {
+    mQueryOne.mockResolvedValueOnce(row());
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, reactivated: false, expiresAt: null });
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "node.sign.remind",
+      "file",
+      NODE,
+      { requestId: REQ, partyId: PARTY, reactivated: false },
+      expect.any(String),
+    );
+    await app.close();
+  });
+
+  it("réactive (repousse l'expiration) un lien expiré", async () => {
+    mQueryOne
+      .mockResolvedValueOnce(row({ link_expires_at: "2020-01-01T00:00:00Z" }))
+      .mockResolvedValueOnce({ expires_at: "2026-09-01T00:00:00Z" });
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, reactivated: true, expiresAt: "2026-09-01T00:00:00Z" });
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "node.sign.remind",
+      "file",
+      NODE,
+      { requestId: REQ, partyId: PARTY, reactivated: true },
+      expect.any(String),
+    );
+    await app.close();
+  });
+
+  it("404 quand la partie est introuvable", async () => {
+    mQueryOne.mockResolvedValueOnce(null);
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("409 quand la partie n'est plus en attente", async () => {
+    mQueryOne.mockResolvedValueOnce(row({ party_status: "signed" }));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(409);
+    await app.close();
+  });
+
+  it("409 quand le lien a été révoqué", async () => {
+    mQueryOne.mockResolvedValueOnce(row({ link_revoked_at: "2026-08-01T00:00:00Z" }));
+    const app = await makeApp();
+    const res = await app.inject({ method: "POST", url });
+    expect(res.statusCode).toBe(409);
     await app.close();
   });
 });

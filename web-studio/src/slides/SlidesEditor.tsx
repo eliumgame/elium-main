@@ -71,6 +71,7 @@ import {
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { Modal, Button } from "../ui/components";
+import { useDialogs } from "../ui/dialogs";
 import {
   elementsOf,
   newElementId,
@@ -163,6 +164,7 @@ export interface SlidesEditorChrome {
 }
 
 export default function SlidesEditor({ store, chrome }: { store: DeckStore; chrome: SlidesEditorChrome }) {
+  const dialogs = useDialogs();
   const { deck, active: activeIdx, canWrite } = store;
   const [presenting, setPresenting] = useState(false);
   const [presentIdx, setPresentIdx] = useState(0);
@@ -277,8 +279,17 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     e.target.value = "";
     if (!file || !store.replaceDeck) return;
     try {
-      store.replaceDeck(await importPptxFile(file));
+      const unsupportedCharts: string[] = [];
+      store.replaceDeck(await importPptxFile(file, (label) => unsupportedCharts.push(label)));
       setSelId(null);
+      if (unsupportedCharts.length) {
+        void dialogs.alert({
+          title: "Graphiques non importés",
+          message:
+            `Ce PowerPoint contient des graphiques de type ${unsupportedCharts.map((l) => `« ${l} »`).join(", ")} ` +
+            "qu'Élium ne sait pas encore reproduire (bar/ligne/camembert uniquement). Ils n'ont pas été importés.",
+        });
+      }
     } catch {
       /* ignore an unreadable / invalid .pptx */
     }
@@ -411,10 +422,20 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     } as PresenterMsg);
 
   const openPresenter = () => {
+    const win = window.open(`${window.location.pathname}?presenter=1`, "elium-presenter", "width=1200,height=800");
+    if (!win) {
+      void dialogs.alert({
+        title: "Fenêtre orateur bloquée",
+        message:
+          "Le navigateur a bloqué l'ouverture de la fenêtre orateur (bloqueur de popups). " +
+          "Autorisez les popups pour ce site puis relancez le mode présentateur.",
+      });
+      return;
+    }
+    winRef.current = win;
     startedAtRef.current = Date.now();
     prevIdxRef.current = activeIdx;
     setMorphFrom(null);
-    winRef.current = window.open(`${window.location.pathname}?presenter=1`, "elium-presenter", "width=1200,height=800");
     setPresentIdx(activeIdx);
     setPresentStep(0);
     setPresenting(true);

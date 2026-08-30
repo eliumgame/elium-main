@@ -407,9 +407,10 @@ def read_elium(
 
     recorded = manifest.get("integrity", {}).get("contentHash")
     if recorded:
-        integrity = {"contentIntact": sha256_hex(content_bytes) == recorded, "unchecked": False}
+        content_intact = sha256_hex(content_bytes) == recorded
+        integrity = {"contentIntact": content_intact, "unchecked": False, "resourcesTampered": []}
     else:
-        integrity = {"contentIntact": True, "unchecked": True}
+        integrity = {"contentIntact": True, "unchecked": True, "resourcesTampered": []}
 
     secure_meta = bool(manifest.get("protection", {}).get("metadataEncrypted"))
     use_recipients = bool(manifest.get("protection", {}).get("recipients"))
@@ -455,6 +456,31 @@ def read_elium(
     signatures = _read_json(ENTRY_SIGNATURES, [])
     journal = _read_json(ENTRY_JOURNAL, empty_journal())
     parapheur = _read_json(ENTRY_PARAPHEUR, None)
+    resource_index = _read_json(ENTRY_RESINDEX, [])
+
+    # Ressources content-addressed : l'`id` DOIT valoir sha256(octets). Une
+    # ressource dont le hash ne correspond pas a été substituée/corrompue — on ne
+    # la charge PAS (anti-falsification d'image/tampon/police, y compris dans un
+    # document scellé où le sceau ne couvre pas les octets des ressources). Les
+    # fichiers valides passent (id écrit = sha256 à l'ajout). Mirror of
+    # elium-package.ts (readEliumPackage).
+    resources: dict[str, bytes] = {}
+    resources_tampered: list[str] = []
+    for res in resource_index:
+        res_id = res.get("id") if isinstance(res, dict) else None
+        if not res_id:
+            continue
+        try:
+            data = _read_capped(f"resources/{res_id}")
+        except KeyError:
+            continue
+        if sha256_hex(data) == res_id:
+            resources[res_id] = data
+        else:
+            resources_tampered.append(res_id)
+    if resources_tampered:
+        integrity = {**integrity, "resourcesTampered": resources_tampered}
+
     # The seal is verified over the clear (redacted, when secure) entries.
     seal_verdict = verify_seal(manifest, signatures, journal, trusted_key_hex=trusted_key_hex)
 
@@ -473,7 +499,8 @@ def read_elium(
         "signatures": signatures,
         "journal": journal,
         "parapheur": parapheur,
-        "resourceIndex": _read_json(ENTRY_RESINDEX, []),
+        "resourceIndex": resource_index,
+        "resources": resources,
         "integrity": integrity,
         "seal": {"verdict": seal_verdict, "fingerprint": (manifest.get("seal") or {}).get("fingerprint")},
     }

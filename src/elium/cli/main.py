@@ -12,6 +12,7 @@ from elium.format.document import (
     create_document_model,
     create_journal,
     extract_text,
+    record_save,
     record_signature_added,
     text_to_doc,
 )
@@ -259,6 +260,11 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         with open(args.seal_key, encoding="utf-8") as f:
             seal_key = f.read().strip()
 
+    # Journaliser la modification (sauvegarde) AVANT l'écriture, comme le fait
+    # le Studio à chaque enregistrement — sinon le journal d'un document signé
+    # en CLI ne trace jamais sa propre modification.
+    record_save(journal, profile)
+
     out = write_elium(
         model,
         profile=profile,
@@ -266,6 +272,12 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         language=manifest.get("language", "fr"),
         signatures=signatures,
         journal=journal,
+        # Préserver les ressources embarquées (images/polices) et le circuit
+        # Parapheur : sans ça, une simple re-signature en CLI les supprimait
+        # silencieusement de l'archive réécrite.
+        resource_index=result["resourceIndex"],
+        resources=result["resources"],
+        parapheur=result["parapheur"],
         created_at=manifest.get("createdAt"),
         doc_id=manifest.get("docId"),
         password=password,

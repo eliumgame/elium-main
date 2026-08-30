@@ -6,7 +6,9 @@ import json
 from unittest.mock import patch
 
 from elium.cli.main import main
-from elium.format.package import read_elium
+from elium.format.canonical import sha256_hex
+from elium.format.document import create_document_model, text_to_doc
+from elium.format.package import read_elium, write_elium
 from elium.format.proof import generate_identity
 
 
@@ -54,9 +56,37 @@ def test_doc_sign_adds_signature_and_journal_event(tmp_path):
     sig = result["signatures"][0]
     assert sig["signer"] == {"name": "Alice", "role": "Gérante"}
     assert sig["level"] == "advanced"
-    assert _types(result) == ["document.created", "signature.added"]
+    # The re-signature is journalled both as the signature event and as the
+    # save that persisted it (record_save), just like a Studio save.
+    assert _types(result) == ["document.created", "signature.added", "document.modified"]
     # docId preserved across the re-write.
     assert read_elium(doc.read_bytes())["manifest"]["docId"] == result["manifest"]["docId"]
+
+
+def test_doc_sign_preserves_embedded_resources(tmp_path):
+    """P0: re-signing via the CLI must not silently drop embedded resources
+    (images/fonts) — write_elium was previously called without resource_index/
+    resources, wiping the archive's resources/ entries on every re-signature."""
+    model = create_document_model(text_to_doc("Contrat avec logo"))
+    img_bytes = b"\x89PNG-fake-bytes-for-test"
+    res_id = sha256_hex(img_bytes)
+    resource_index = [{"id": res_id, "name": "logo.png", "mime": "image/png", "size": len(img_bytes), "kind": "image"}]
+    blob = write_elium(
+        model, profile="signed", title="Avec logo",
+        resource_index=resource_index, resources={res_id: img_bytes},
+    )
+    doc = tmp_path / "logo.elium"
+    doc.write_bytes(blob)
+
+    ident = generate_identity()
+    key = tmp_path / "key.hex"
+    key.write_text(ident["privateKeyHex"], encoding="utf-8")
+    run("doc-sign", str(doc), "--key", str(key), "--name", "Alice")
+
+    result = read_elium(doc.read_bytes())
+    assert result["resourceIndex"] == resource_index
+    assert result["resources"][res_id] == img_bytes
+    assert result["integrity"]["resourcesTampered"] == []
 
 
 def test_doc_verify_reports_valid_signature(tmp_path, capsys):
@@ -93,7 +123,7 @@ def test_doc_sign_reseal_covers_enriched_journal(tmp_path):
     run("doc-sign", str(doc), "--key", str(sealf), "--name", "Carol", "--seal-key", str(sealf))
     result = read_elium(doc.read_bytes(), trusted_key_hex=ident["publicKeyHex"])
     assert result["seal"]["verdict"] == "valid"  # seal re-anchored over the new journal + signature
-    assert _types(result) == ["document.created", "signature.added"]
+    assert _types(result) == ["document.created", "signature.added", "document.modified"]
 
 
 def test_doc_open_text_prints_content(tmp_path, capsys):

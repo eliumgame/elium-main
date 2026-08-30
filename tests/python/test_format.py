@@ -108,6 +108,49 @@ def test_rejects_duplicate_entries():
         read_elium(_repack(entries))
 
 
+def test_resource_roundtrip_verified():
+    """Embedded resource bytes are exposed and content-addressing is verified
+    (id == sha256(bytes)), mirroring elium-package.ts's readEliumPackage."""
+    from elium.format.canonical import sha256_hex
+
+    img = b"\x89PNG-fake-image-bytes"
+    res_id = sha256_hex(img)
+    resource_index = [{"id": res_id, "name": "logo.png", "mime": "image/png", "size": len(img), "kind": "image"}]
+    blob = write_elium(
+        make_model(), profile="standard", title="T",
+        resource_index=resource_index, resources={res_id: img},
+    )
+    result = read_elium(blob)
+    assert result["resourceIndex"] == resource_index
+    assert result["resources"] == {res_id: img}
+    assert result["integrity"]["resourcesTampered"] == []
+
+
+def test_resource_tamper_detected():
+    """A resource whose stored bytes no longer hash to its content-addressed id
+    is flagged as tampered and NOT surfaced in `resources` (anti-substitution)."""
+    from elium.format.canonical import sha256_hex
+
+    img = b"original bytes"
+    res_id = sha256_hex(img)
+    resource_index = [{"id": res_id, "name": "seal.png", "mime": "image/png", "size": len(img), "kind": "image"}]
+    blob = write_elium(
+        make_model(), profile="standard", title="T",
+        resource_index=resource_index, resources={res_id: img},
+    )
+    zin = zipfile.ZipFile(io.BytesIO(blob))
+    entries = {name: zin.read(name) for name in zin.namelist()}
+    entries[f"resources/{res_id}"] = b"substituted bytes"
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+
+    result = read_elium(out.getvalue())
+    assert result["integrity"]["resourcesTampered"] == [res_id]
+    assert res_id not in result["resources"]
+
+
 def test_journal_chain_and_tamper():
     j = empty_journal()
     j = append_event(j, "document.created", data={"title": "x"})

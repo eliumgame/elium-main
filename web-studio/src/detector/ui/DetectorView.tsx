@@ -30,7 +30,7 @@ import {
 } from "../ingest/loadFile";
 import { runAnalysis } from "../runAnalysis";
 import { createBingProvider, createSerperProvider } from "../plagiarism/searchProviders";
-import { signalsByCategory, type SignalCatalogEntry } from "../signalCatalog";
+import { ADMINISTRATIVE_STYLE_PRESET, signalsByCategory, type SignalCatalogEntry } from "../signalCatalog";
 import {
   CATEGORY_TITLES,
   buildPreviewFlags,
@@ -112,6 +112,14 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      saveDisabledSignals(next);
+      return next;
+    });
+  };
+  const applyAdministrativeStylePreset = () => {
+    setDisabledSignals((prev) => {
+      const next = new Set(prev);
+      for (const id of ADMINISTRATIVE_STYLE_PRESET) next.add(id);
       saveDisabledSignals(next);
       return next;
     });
@@ -385,6 +393,13 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 />
                 <span>Vérifier aussi le plagiat sur le web (optionnel)</span>
               </label>
+              <p className="det-plagiarism-disclaimer">
+                Recherche web publique uniquement (Serper/Google ou Bing) — aucune base académique ni dépôt de
+                travaux universitaires n'est consulté. Échantillonnage partiel (60 passages au maximum) comparé à de
+                courts extraits (snippets) tronqués renvoyés par le moteur, jamais au texte intégral des pages
+                trouvées. Ceci ne remplace pas un outil de détection de plagiat académique dédié : une absence de
+                correspondance ne prouve pas l'absence de plagiat.
+              </p>
               {plagiarismEnabled && (
                 <div className="det-plagiarism-fields">
                   <Field label="Moteur de recherche">
@@ -421,6 +436,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               onToggleOpen={() => setSensitivityOpen((o) => !o)}
               disabledSignals={disabledSignals}
               onToggleSignal={toggleSignal}
+              onApplyAdministrativeStylePreset={applyAdministrativeStylePreset}
               model={model}
             />
 
@@ -654,12 +670,14 @@ function SensitivitySettings({
   onToggleOpen,
   disabledSignals,
   onToggleSignal,
+  onApplyAdministrativeStylePreset,
   model,
 }: {
   open: boolean;
   onToggleOpen: () => void;
   disabledSignals: Set<string>;
   onToggleSignal: (id: string) => void;
+  onApplyAdministrativeStylePreset: () => void;
   model: DocumentModel | null;
 }) {
   const grouped = signalsByCategory();
@@ -681,6 +699,15 @@ function SensitivitySettings({
             rapport et ne compte plus dans le score. Ce choix est mémorisé sur cet appareil. Les signaux grisés ne
             peuvent structurellement pas s'appliquer au fichier chargé (ex. un signal PNG sur une image JPEG).
           </p>
+          <Alert tone="warning" title="Seuils non calibrés sur corpus réel">
+            Les seuils des signaux « texte » (régularité, clichés, amorces répétées, densité de listes…) sont des
+            valeurs de bon sens, pas calibrées sur un corpus réel de textes humains variés. Un écrit administratif ou
+            technique français très structuré (clauses répétées, nombreuses listes à puces, formules d'ouverture
+            figées) risque particulièrement de déclencher de faux positifs sur ces signaux.
+          </Alert>
+          <Button variant="outline" size="sm" className="det-sensitivity__preset" onClick={onApplyAdministrativeStylePreset}>
+            Appliquer le préréglage « style administratif/technique »
+          </Button>
           {(Object.keys(CATEGORY_TITLES) as SignalCategory[])
             .filter((cat) => cat !== "plagiat" && grouped[cat]?.length)
             .map((cat) => {
@@ -750,6 +777,11 @@ function PlagiarismPanel({
 
   return (
     <div className="det-category">
+      <Alert tone="info">
+        Recherche web publique uniquement (aucune base académique ni dépôt de travaux universitaires) sur un
+        échantillon partiel de passages, comparés à de courts extraits (snippets) tronqués renvoyés par le moteur —
+        pas au texte intégral des pages trouvées. Ne remplace pas un outil de détection de plagiat académique dédié.
+      </Alert>
       {allFailed && (
         <Alert tone="danger" title="Vérification impossible">
           Les {result.failedPassages} tentative(s) de vérification ont toutes échoué

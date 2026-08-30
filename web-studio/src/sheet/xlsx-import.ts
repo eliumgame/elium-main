@@ -8,7 +8,7 @@
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
 import { unzipSync, strFromU8 } from "fflate";
-import { parseRef } from "./formula";
+import { parseRef, rewriteRefs } from "./formula";
 import {
   emptySheet,
   newId,
@@ -26,6 +26,7 @@ import {
   type ChartType,
   type BorderSide,
   type BorderStyle,
+  type NamedRange,
 } from "./model";
 
 function parseXml(bytes: Uint8Array | undefined): Document | null {
@@ -105,6 +106,107 @@ function argbToHex(rgb: string | null | undefined): string | undefined {
   return undefined;
 }
 
+// ── theme colours (xl/theme/theme1.xml) ─────────────────────────────────────
+//
+// A `<color theme="N" tint="…"/>` (used pervasively by Excel-authored files —
+// every default font/fill color is a theme reference, not a literal rgb) names
+// one of the 12 slots of the theme's `<a:clrScheme>` by INDEX. That index order
+// is NOT the document order of the scheme's children: Excel's UI (and every
+// other reader — LibreOffice, openpyxl, SheetJS) swaps the first two dk/lt
+// pairs, a well-known OOXML quirk. `tint` then lightens (>0) or darkens (<0)
+// the resolved colour by adjusting its HSL lightness (ECMA-376 §18.8.3 ApplyTint).
+
+/** `<a:srgbClr val="RRGGBB"/>` or `<a:sysClr val="windowText" lastClr="RRGGBB"/>` → lowercase hex (no '#'). */
+function themeSlotHex(el: Element | undefined): string | undefined {
+  if (!el) return undefined;
+  const srgb = el.getElementsByTagName("a:srgbClr")[0];
+  if (srgb) return srgb.getAttribute("val")?.toLowerCase();
+  const sys = el.getElementsByTagName("a:sysClr")[0];
+  if (sys) return (sys.getAttribute("lastClr") ?? sys.getAttribute("val"))?.toLowerCase();
+  return undefined;
+}
+
+/** Theme index → hex (no '#'), in the UI index order (lt1, dk1, lt2, dk2, accent1-6, hlink, folHlink). */
+function parseThemeColors(zip: Record<string, Uint8Array>): string[] {
+  const doc = parseXml(zip["xl/theme/theme1.xml"]);
+  const scheme = doc?.getElementsByTagName("a:clrScheme")[0];
+  const TAGS = [
+    "a:lt1",
+    "a:dk1",
+    "a:lt2",
+    "a:dk2",
+    "a:accent1",
+    "a:accent2",
+    "a:accent3",
+    "a:accent4",
+    "a:accent5",
+    "a:accent6",
+    "a:hlink",
+    "a:folHlink",
+  ];
+  return TAGS.map((tag) => themeSlotHex(scheme?.getElementsByTagName(tag)[0]) ?? "000000");
+}
+
+function hexToRgb01(hex: string): [number, number, number] {
+  const h = hex.replace(/^#/, "").padEnd(6, "0");
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hslToRgb([h, s, l]: [number, number, number]): [number, number, number] {
+  if (s === 0) return [l, l, l];
+  const hue2rgb = (p: number, q: number, t: number): number => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3)];
+}
+/** ECMA-376 §18.8.3 ApplyTint: shifts HSL lightness toward black (tint<0) or white (tint>0). */
+function applyTint(hex: string, tint: number): string {
+  if (!tint) return hex;
+  const [h, s, l] = rgbToHsl(hexToRgb01(hex));
+  const l2 = Math.min(1, Math.max(0, tint < 0 ? l * (1 + tint) : l * (1 - tint) + tint));
+  const [r, g, b] = hslToRgb([h, s, l2]);
+  const to255 = (x: number) =>
+    Math.round(Math.min(1, Math.max(0, x)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `${to255(r)}${to255(g)}${to255(b)}`;
+}
+
+/** Resolve a `<color .../>` element: literal `rgb`, or a theme+tint reference. Indexed (legacy) palette → undefined. */
+function colorOf(el: Element | null | undefined, theme: string[]): string | undefined {
+  if (!el) return undefined;
+  const rgb = el.getAttribute("rgb");
+  if (rgb) return argbToHex(rgb);
+  const themeAttr = el.getAttribute("theme");
+  if (themeAttr != null) {
+    const base = theme[Number(themeAttr)];
+    if (!base) return undefined;
+    const tintAttr = el.getAttribute("tint");
+    return `#${applyTint(base, tintAttr ? Number(tintAttr) : 0)}`;
+  }
+  return undefined;
+}
+
 // Excel/Sheets serial-date epoch (matches sheet/format.ts's rendering epoch and
 // xlsx-export.ts's writer, so a validation bound round-trips to the same date).
 const DATE_EPOCH = Date.UTC(1899, 11, 30);
@@ -147,6 +249,7 @@ interface ParsedStyles {
   borders: ParsedBorder[];
   numFmts: Map<number, string>;
   dxfs: ParsedDxf[];
+  theme: string[];
 }
 
 // The subset of ECMA-376 built-in numFmt codes (§18.8.30) common enough to
@@ -228,14 +331,14 @@ const BORDER_STYLE_MAP: Record<string, BorderStyle> = {
   mediumDashDotDot: "dashed",
   slantDashDot: "dashed",
 };
-function parseSide(el: Element | undefined): BorderSide | undefined {
+function parseSide(el: Element | undefined, theme: string[]): BorderSide | undefined {
   const style = el?.getAttribute("style");
   if (!el || !style || style === "none") return undefined;
-  const color = argbToHex(el.getElementsByTagName("color")[0]?.getAttribute("rgb"));
+  const color = colorOf(el.getElementsByTagName("color")[0], theme);
   return { style: BORDER_STYLE_MAP[style] ?? "thin", ...(color ? { color } : {}) };
 }
 
-function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
+function parseStylesXml(zip: Record<string, Uint8Array>, theme: string[]): ParsedStyles {
   const doc = parseXml(zip["xl/styles.xml"]);
 
   const numFmts = new Map<number, string>();
@@ -254,7 +357,7 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
     fonts.push({
       bold: !!f.getElementsByTagName("b")[0],
       italic: !!f.getElementsByTagName("i")[0],
-      color: argbToHex(f.getElementsByTagName("color")[0]?.getAttribute("rgb")),
+      color: colorOf(f.getElementsByTagName("color")[0], theme),
       name: f.getElementsByTagName("name")[0]?.getAttribute("val") ?? undefined,
       sz: sz ? Number(sz) : undefined,
     });
@@ -269,10 +372,9 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
       fills.push(undefined);
       continue;
     }
-    const rgb =
-      pf.getElementsByTagName("fgColor")[0]?.getAttribute("rgb") ??
-      pf.getElementsByTagName("bgColor")[0]?.getAttribute("rgb");
-    fills.push(argbToHex(rgb));
+    const resolved =
+      colorOf(pf.getElementsByTagName("fgColor")[0], theme) ?? colorOf(pf.getElementsByTagName("bgColor")[0], theme);
+    fills.push(resolved);
   }
 
   const borders: ParsedBorder[] = [];
@@ -280,10 +382,10 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
   for (let i = 0; i < borderEls.length; i++) {
     const b = borderEls[i];
     borders.push({
-      left: parseSide(b.getElementsByTagName("left")[0]),
-      right: parseSide(b.getElementsByTagName("right")[0]),
-      top: parseSide(b.getElementsByTagName("top")[0]),
-      bottom: parseSide(b.getElementsByTagName("bottom")[0]),
+      left: parseSide(b.getElementsByTagName("left")[0], theme),
+      right: parseSide(b.getElementsByTagName("right")[0], theme),
+      top: parseSide(b.getElementsByTagName("top")[0], theme),
+      bottom: parseSide(b.getElementsByTagName("bottom")[0], theme),
     });
   }
 
@@ -307,17 +409,17 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
     const dxf = dxfEls[i];
     const fontEl = dxf.getElementsByTagName("font")[0];
     const fillEl = dxf.getElementsByTagName("fill")[0];
-    const fillRgb =
-      fillEl?.getElementsByTagName("bgColor")[0]?.getAttribute("rgb") ??
-      fillEl?.getElementsByTagName("fgColor")[0]?.getAttribute("rgb");
+    const fillColor =
+      colorOf(fillEl?.getElementsByTagName("bgColor")[0], theme) ??
+      colorOf(fillEl?.getElementsByTagName("fgColor")[0], theme);
     dxfs.push({
       bold: !!fontEl?.getElementsByTagName("b")[0],
-      color: argbToHex(fontEl?.getElementsByTagName("color")[0]?.getAttribute("rgb")),
-      fill: argbToHex(fillRgb),
+      color: colorOf(fontEl?.getElementsByTagName("color")[0], theme),
+      fill: fillColor,
     });
   }
 
-  return { xfs, fonts, fills, borders, numFmts, dxfs };
+  return { xfs, fonts, fills, borders, numFmts, dxfs, theme };
 }
 
 const DEFAULT_FONT_PT = 11; // matches xlsx-export.ts's own default (11pt when no fontSize style is set)
@@ -427,7 +529,7 @@ function parseCondFormats(doc: Document, ps: ParsedStyles): CondRule[] {
 
       if (type === "colorScale") {
         const colors = [...(el.getElementsByTagName("colorScale")[0]?.getElementsByTagName("color") ?? [])].map(
-          (c) => argbToHex(c.getAttribute("rgb")) ?? "#ffffff",
+          (c) => colorOf(c, ps.theme) ?? "#ffffff",
         );
         if (colors.length >= 2) {
           const scale =
@@ -589,6 +691,36 @@ function parseSheetCharts(zip: Record<string, Uint8Array>, sheetPath: string, sh
 
 // ── worksheet ────────────────────────────────────────────────────────────
 
+/** A "master" shared formula (`<f t="shared" si="N">…</f>`): its body + the cell it lives on. */
+interface SharedFormulaEntry {
+  formula: string;
+  col: number;
+  row: number;
+}
+
+/**
+ * First pass over a worksheet's cells: index every shared-formula GROUP by its
+ * `si` id, keyed to the master cell (the one that actually carries the formula
+ * text — every other member of the group is `<f t="shared" si="N"/>` with no
+ * text at all, relying on this table). Excel always writes the master first,
+ * but nothing in the spec requires that, hence the separate pass instead of
+ * resolving followers inline as we walk the cells once.
+ */
+function collectSharedFormulas(cells: HTMLCollectionOf<Element>): Map<number, SharedFormulaEntry> {
+  const table = new Map<number, SharedFormulaEntry>();
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    const f = c.getElementsByTagName("f")[0];
+    if (!f || f.getAttribute("t") !== "shared" || !f.textContent) continue;
+    const si = Number(f.getAttribute("si"));
+    if (!Number.isFinite(si) || table.has(si)) continue; // first (master) wins
+    const ref = c.getAttribute("r");
+    const pos = ref ? parseRef(ref.toUpperCase()) : null;
+    if (pos) table.set(si, { formula: f.textContent, col: pos.col, row: pos.row });
+  }
+  return table;
+}
+
 function parseSheet(doc: Document | null, shared: string[], name: string, ps: ParsedStyles): SheetData {
   const sh = emptySheet(name);
   if (!doc) return sh;
@@ -596,6 +728,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   let maxRow = 19;
   const styles: Record<string, CellStyle> = {};
   const cells = doc.getElementsByTagName("c");
+  const sharedFormulas = collectSharedFormulas(cells);
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
     const ref = c.getAttribute("r");
@@ -615,6 +748,21 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
     if (f && f.textContent) {
       sh.cells[upref] = "=" + f.textContent;
       continue;
+    }
+    if (f && f.getAttribute("t") === "shared" && pos) {
+      // Follower of a "filled-down" formula: no formula text of its own —
+      // re-derive it from the master by shifting relative references by the
+      // (col,row) offset between this cell and the master (Excel fill semantics:
+      // relative refs shift, $-anchored ones stay put — respectAnchors=true).
+      const si = Number(f.getAttribute("si"));
+      const master = Number.isFinite(si) ? sharedFormulas.get(si) : undefined;
+      if (master) {
+        const dCol = pos.col - master.col;
+        const dRow = pos.row - master.row;
+        const shifted = rewriteRefs(master.formula, (col, row) => ({ col: col + dCol, row: row + dRow }), true);
+        sh.cells[upref] = "=" + shifted;
+        continue;
+      }
     }
     const t = c.getAttribute("t");
     if (t === "inlineStr") {
@@ -653,10 +801,25 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   return sh;
 }
 
+/** <definedNames><definedName name="X">Sheet!$A$1</definedName>…</definedNames> — workbook-scoped named ranges. */
+function parseDefinedNames(wb: Document | null): NamedRange[] {
+  if (!wb) return [];
+  const out: NamedRange[] = [];
+  const els = wb.getElementsByTagName("definedName");
+  for (let i = 0; i < els.length; i++) {
+    const name = els[i].getAttribute("name");
+    const ref = els[i].textContent?.trim();
+    // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, …) — not user-facing.
+    if (name && ref && !name.startsWith("_xlnm")) out.push({ name, ref });
+  }
+  return out;
+}
+
 export function importXlsx(bytes: Uint8Array): Workbook {
   const zip = unzipSync(bytes);
   const shared = parseSharedStrings(zip);
-  const ps = parseStylesXml(zip);
+  const theme = parseThemeColors(zip);
+  const ps = parseStylesXml(zip, theme);
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
   const wb = parseXml(zip["xl/workbook.xml"]);
 
@@ -689,5 +852,6 @@ export function importXlsx(bytes: Uint8Array): Workbook {
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
-  return { sheets, active: 0 };
+  const names = parseDefinedNames(wb);
+  return { sheets, active: 0, ...(names.length ? { names } : {}) };
 }

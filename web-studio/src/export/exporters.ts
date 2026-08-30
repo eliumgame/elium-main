@@ -266,7 +266,17 @@ function blockStyle(node: ProseMirrorNode): string {
   if (a && a !== "left") parts.push(`text-align:${esc(String(a))}`);
   const indent = Number(node.attrs?.indent) || 0;
   if (indent > 0) parts.push(`margin-left:${indent * 2}em`);
-  return parts.length ? ` style="${parts.join(";")}"` : "";
+  // Enchaînements ("solidaire avec le suivant" / "lignes solidaires" / "saut de
+  // page avant") : ces trois attributs pilotent la pagination À L'ÉCRAN
+  // (Pagination.ts) mais le moteur d'impression du navigateur les ignore tant
+  // qu'ils ne sont pas traduits ici — les mêmes attributs `data-*` que
+  // l'éditeur (paragraphFormat.ts), lus par les règles `[data-keep-next]` /
+  // `[data-keep-lines]` de PRINT_CSS ; "saut de page avant" n'a pas besoin
+  // d'une règle séparée, un style en ligne suffit (comme dans l'éditeur).
+  if (node.attrs?.pageBreakBefore) parts.push("break-before:page");
+  const dataAttrs =
+    (node.attrs?.keepNext ? ' data-keep-next="true"' : "") + (node.attrs?.keepLines ? ' data-keep-lines="true"' : "");
+  return dataAttrs + (parts.length ? ` style="${parts.join(";")}"` : "");
 }
 
 /** `id`/anchor attribute for a renvoi target (heading, figure, table). */
@@ -923,6 +933,13 @@ const PRINT_CSS = `
   .elium-index__sublist{padding-left:16px}
   .elium-index__list li{margin:2px 0}
   .elium-index__pages{color:#64748b;font-size:.9em}
+  /* Paragraphes/lignes solidaires ("keepNext"/"keepLines") : ces attributs
+     pilotent la pagination À L'ÉCRAN (Pagination.ts) mais n'avaient aucune
+     traduction ici — seul "saut de page avant" avait sa règle. Sans elles, un
+     titre (keepNext par défaut sur tous les styles Titre) pouvait rester seul
+     en bas de page à l'export PDF alors que l'écran le déplaçait. */
+  [data-keep-next]{break-after:avoid-page;page-break-after:avoid}
+  [data-keep-lines]{break-inside:avoid-page;page-break-inside:avoid}
 `;
 
 /**

@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { Fragment, Slice } from "@tiptap/pm/model";
 import { Insertion, Deletion, TrackChanges, isSuggesting } from "../src/editor/TrackChanges";
 
 /**
@@ -39,6 +40,17 @@ function pressKey(editor: Editor, key: string): boolean {
   const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
   editor.view.dom.dispatchEvent(event);
   return event.defaultPrevented;
+}
+
+/** Invokes the SAME plugin prop ProseMirror's own paste handler calls — see
+ *  TrackChanges.ts's `handlePaste` — with a plain-text slice, without needing
+ *  a real clipboard event/DataTransfer, which jsdom does not implement. */
+function pasteText(editor: Editor, text: string): boolean {
+  const slice = new Slice(Fragment.from(editor.state.schema.text(text)), 0, 0);
+  // jsdom has no ClipboardEvent constructor; the handler never reads the
+  // event itself (only the slice), so a plain Event stands in for it.
+  const event = new Event("paste", { cancelable: true }) as ClipboardEvent;
+  return !!editor.view.someProp("handlePaste", (f) => f(editor.view, event, slice));
 }
 
 function marksOf(editor: Editor, markName: "insertion" | "deletion"): { id: string; text: string }[] {
@@ -174,6 +186,43 @@ describe("TrackChanges — frappe et suppression suivies", () => {
     ).toBe("Salut");
     // rien n'est réellement retiré tant que rien n'est accepté/refusé
     expect(editor.getText()).toBe("BonjourSalut le monde");
+  });
+});
+
+describe("TrackChanges — collage suivi", () => {
+  it("le texte collé est marqué inséré, en UN seul changement logique", () => {
+    // Non-régression du constat P2 : le collage était totalement ignoré en
+    // mode suggestion (limite documentée), donc invisible à la relecture.
+    editor = makeSuggestingEditor();
+    editor.commands.setTextSelection(1);
+    expect(pasteText(editor, "Salut, ")).toBe(true);
+    expect(editor.getText()).toBe("Salut, Bonjour le monde");
+    const ins = marksOf(editor, "insertion");
+    expect(ins.map((m) => m.text).join("")).toBe("Salut, ");
+    expect(new Set(ins.map((m) => m.id)).size).toBe(1); // un seul id pour tout le fragment collé
+  });
+
+  it("coller sur une sélection marque le texte remplacé en suppression et insère le collé", () => {
+    editor = makeSuggestingEditor();
+    editor.commands.setTextSelection({ from: 1, to: 8 }); // sélectionne "Bonjour"
+    expect(pasteText(editor, "Salut")).toBe(true);
+    expect(
+      marksOf(editor, "deletion")
+        .map((m) => m.text)
+        .join(""),
+    ).toBe("Bonjour");
+    expect(
+      marksOf(editor, "insertion")
+        .map((m) => m.text)
+        .join(""),
+    ).toBe("Salut");
+    // rien n'est réellement retiré tant que rien n'est accepté/refusé
+    expect(editor.getText()).toBe("BonjourSalut le monde");
+  });
+
+  it("le collage désactivé (mode suggestion off) insère normalement, sans marque", () => {
+    editor = makeEditor();
+    expect(pasteText(editor, "X")).toBe(false); // handler décline : le collage natif prend le relais
   });
 });
 

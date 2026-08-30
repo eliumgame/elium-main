@@ -30,18 +30,22 @@
  *     list item, task item or code block): those keep today's untracked
  *     behaviour rather than risk a broken split/lift/indent.
  *
- * Known limitation (documented, not tracked): paste. Determining "what changed"
- * inside an arbitrary pasted fragment — which may itself carry formatting, lists,
- * tables — would need a full structural diff against the surrounding document
- * (essentially reimplementing `compare.ts` on every keystroke's paste), not a
- * local mark-on-insert like typing. `compare.ts` already exists for exactly this
- * ("compare with another version") and is the supported way to review a large
- * external change; suggestion mode stays focused on live editing.
+ * Paste: determining word-for-word "what changed" inside an arbitrary pasted
+ * fragment — which may itself carry formatting, lists, tables — would need a
+ * full structural diff against the surrounding document (essentially
+ * reimplementing `compare.ts` on every paste). Suggestion mode does not do
+ * that; instead the WHOLE pasted fragment is wrapped in a single insertion
+ * mark (one id, so one click accepts or rejects the entire paste), the same
+ * coarse granularity `markWhole` in `compare.ts` uses for a wholly-added
+ * block. Any text replaced by the paste is marked for deletion first, exactly
+ * like typing over a selection (`handleTextInput` below). `compare.ts`
+ * remains the supported way to review a large external change word-by-word.
  */
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import type { EditorState } from "@tiptap/pm/state";
-import type { Node as PMNode, MarkType } from "@tiptap/pm/model";
+import { Fragment, Slice } from "@tiptap/pm/model";
+import type { Node as PMNode, MarkType, Mark as PMMark } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/core";
 
@@ -154,6 +158,22 @@ function markIdAt(doc: PMNode, charPos: number, markType: MarkType, author: stri
     if (m && String(m.attrs.author ?? "") === author) found = String(m.attrs.id ?? "") || null;
   });
   return found;
+}
+
+/**
+ * Recursively apply `mark` to every inline leaf (text node or inline atom —
+ * footnote, renvoi, merge field…) in a pasted fragment, preserving block
+ * structure and each leaf's existing marks. Block atoms (image, horizontal
+ * rule…) are left as-is: marks don't apply to block nodes. See the module
+ * header for why the whole fragment gets one mark rather than a word diff.
+ */
+function markFragmentInsertion(fragment: Fragment, mark: PMMark): Fragment {
+  const mapped: PMNode[] = [];
+  fragment.forEach((node) => {
+    if (node.isLeaf) mapped.push(node.isInline ? node.mark(mark.addToSet(node.marks)) : node);
+    else mapped.push(node.copy(markFragmentInsertion(node.content, mark)));
+  });
+  return Fragment.fromArray(mapped);
 }
 
 /** Mark (or, for own insertions, remove) the character adjacent to the cursor. */
@@ -512,6 +532,29 @@ export const TrackChanges = Extension.create<{ author: string }>({
             tr = tr.insert(to, node);
             const after = to + text.length;
             tr = tr.setSelection(TextSelection.create(tr.doc, after));
+            tr.setMeta(trackKey, { skip: true });
+            view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+          handlePaste(view, _event, slice) {
+            if (!isSuggesting(view.state)) return false;
+            const { state } = view;
+            const insMark = state.schema.marks.insertion;
+            const delMark = state.schema.marks.deletion;
+            if (!insMark) return false;
+            const { from, to } = state.selection;
+            const markedContent = markFragmentInsertion(
+              slice.content,
+              insMark.create({ author, ts: nowIso(), id: newChangeId() }),
+            );
+            const markedSlice = new Slice(markedContent, slice.openStart, slice.openEnd);
+            let tr = state.tr;
+            if (from < to && delMark) {
+              const reuseDel = markIdAt(state.doc, from - 1, delMark, author);
+              tr = tr.addMark(from, to, delMark.create({ author, ts: nowIso(), id: reuseDel ?? newChangeId() })); // mark replaced text deleted, same as typing over a selection
+              tr = tr.setSelection(TextSelection.create(tr.doc, to));
+            }
+            tr = tr.replaceSelection(markedSlice); // inserts after the (kept, marked-for-deletion) old text
             tr.setMeta(trackKey, { skip: true });
             view.dispatch(tr.scrollIntoView());
             return true;

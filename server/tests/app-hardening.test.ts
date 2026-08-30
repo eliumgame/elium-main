@@ -107,6 +107,17 @@ describe("en-têtes de sécurité (helmet durci)", () => {
     expect(res.headers["x-powered-by"]).toBeUndefined();
     await app.close();
   });
+
+  it("/api/health expose l'état du backplane collab (jamais silencieux)", async () => {
+    const { buildApp } = await import("../src/app.js");
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/health" });
+    const body = res.json() as { collab?: { redis?: string } };
+    // Aucun REDIS_URL configuré dans les tests → mono-instance explicite, pas
+    // une panne masquée.
+    expect(body.collab?.redis).toBe("disabled");
+    await app.close();
+  });
 });
 
 describe("trustProxy — anti-usurpation d'IP (rate-limit)", () => {

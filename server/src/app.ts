@@ -26,7 +26,7 @@ import versionRoutes from "./routes/versions.js";
 import ssoRoutes from "./routes/sso.js";
 import scimRoutes from "./routes/scim.js";
 import { registerCollab } from "./collab/relay.js";
-import { createRateLimitRedis } from "./collab/backplane.js";
+import { createRateLimitRedis, getBackplaneHealth } from "./collab/backplane.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -122,7 +122,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.status(500).send({ error: { code: "internal", message: "Erreur interne du serveur." } });
   });
 
-  app.get("/api/health", async () => ({ ok: true, service: "elium-server", version: config.version }));
+  app.get("/api/health", async () => ({
+    ok: true,
+    service: "elium-server",
+    version: config.version,
+    collab: { redis: getBackplaneHealth().status },
+  }));
 
   await app.register(authRoutes, { prefix: "/api/auth" });
   await app.register(userRoutes, { prefix: "/api/users" });

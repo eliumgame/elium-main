@@ -8,7 +8,7 @@
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
 import { unzipSync, strFromU8 } from "fflate";
-import { parseRef, rewriteRefs } from "./formula";
+import { parseRef, rewriteRefs, indexToCol } from "./formula";
 import {
   emptySheet,
   newId,
@@ -559,9 +559,24 @@ function parseCondFormats(doc: Document, ps: ParsedStyles): CondRule[] {
         const rule: CondRule = { ...base, op: "notEmpty" };
         applyDxf(rule, dxf);
         out.push(rule);
+      } else if (type === "top10") {
+        const rankAttr = Number(el.getAttribute("rank") ?? "10");
+        const rule: CondRule = {
+          ...base,
+          op: "top10",
+          rank: Number.isFinite(rankAttr) && rankAttr > 0 ? rankAttr : 10,
+          ...(el.getAttribute("bottom") === "1" ? { bottom: true } : {}),
+          ...(el.getAttribute("percent") === "1" ? { percent: true } : {}),
+        };
+        applyDxf(rule, dxf);
+        out.push(rule);
+      } else if (type === "duplicateValues") {
+        const rule: CondRule = { ...base, op: "duplicate" };
+        applyDxf(rule, dxf);
+        out.push(rule);
       }
-      // Other rule types (expression, top10, duplicateValues, …) come from other
-      // tools and have no equivalent in our model — skipped, degrade gracefully.
+      // Other rule types (expression, uniqueValues, …) come from other tools
+      // and have no equivalent in our model — skipped, degrade gracefully.
     }
   }
   return out;
@@ -578,7 +593,35 @@ const DV_OP_REV: Record<string, ValidationOp> = {
   notEqual: "ne",
 };
 
-function parseValidations(doc: Document): DataValidation[] {
+/**
+ * Resolve a `formula1` that is a cell-range reference (not a quoted literal
+ * list) into its current cell values — e.g. `$A$1:$A$5` or `Sheet1!$A$1:$A$5`.
+ * Excel itself keeps the dropdown live against that range; we have no notion
+ * of a range-backed validation in the model, so this takes a one-time
+ * snapshot at import time (same simplification other xlsx round-trippers take
+ * for a "static" reading). A reference to a sheet OTHER than the one being
+ * parsed can't be resolved here (sheets are parsed one at a time) and is
+ * skipped — a known limitation, not a crash.
+ */
+function resolveListRange(ref: string, sheetName: string, cells: Record<string, string>): string[] {
+  const bang = ref.lastIndexOf("!");
+  if (bang >= 0) {
+    const sheetPart = ref.slice(0, bang).trim().replace(/^'|'$/g, "");
+    if (sheetPart !== sheetName) return [];
+  }
+  const rect = parseRangeRef(ref);
+  if (!rect) return [];
+  const out: string[] = [];
+  for (let r = rect.r0; r <= rect.r1; r++) {
+    for (let c = rect.c0; c <= rect.c1; c++) {
+      const v = cells[`${indexToCol(c)}${r + 1}`];
+      if (v !== undefined && v !== "") out.push(v);
+    }
+  }
+  return out;
+}
+
+function parseValidations(doc: Document, sheetName: string, cells: Record<string, string>): DataValidation[] {
   const out: DataValidation[] = [];
   const els = doc.getElementsByTagName("dataValidation");
   for (let i = 0; i < els.length; i++) {
@@ -592,12 +635,18 @@ function parseValidations(doc: Document): DataValidation[] {
     const base = { id: newId("dv"), ...range, allowBlank };
 
     if (type === "list") {
-      const raw = f1 !== undefined ? unquote(f1) : "";
-      const list = raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      out.push({ ...base, type: "list", list });
+      const raw = f1 ?? "";
+      // Per ECMA-376 §18.3.1.32: formula1 for a list is EITHER a quoted,
+      // comma-separated literal ("Oui,Non,Peut-être") OR an unquoted cell-range
+      // reference / defined name. Only the former was previously understood —
+      // a plain range reference silently produced a single bogus option.
+      const list = raw.startsWith('"')
+        ? unquote(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : resolveListRange(raw, sheetName, cells);
+      if (list.length) out.push({ ...base, type: "list", list });
       continue;
     }
     const vType: ValidationType | undefined =
@@ -814,7 +863,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (freeze) sh.freeze = freeze;
   const condFormats = parseCondFormats(doc, ps);
   if (condFormats.length) sh.condFormats = condFormats;
-  const validations = parseValidations(doc);
+  const validations = parseValidations(doc, name, sh.cells);
   if (validations.length) sh.validations = validations;
 
   return sh;

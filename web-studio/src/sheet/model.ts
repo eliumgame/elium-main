@@ -39,7 +39,19 @@ export interface ChartSpec {
 }
 
 export type CondOp =
-  "gt" | "lt" | "ge" | "le" | "eq" | "ne" | "between" | "contains" | "empty" | "notEmpty" | "colorScale";
+  | "gt"
+  | "lt"
+  | "ge"
+  | "le"
+  | "eq"
+  | "ne"
+  | "between"
+  | "contains"
+  | "empty"
+  | "notEmpty"
+  | "colorScale"
+  | "top10" // top/bottom N (or N%) values in the range (Excel type="top10")
+  | "duplicate"; // values that occur more than once in the range (Excel type="duplicateValues")
 
 /** A conditional-formatting rule applied over a rectangular range. */
 export interface CondRule {
@@ -55,6 +67,9 @@ export interface CondRule {
   color?: string; // text colour applied on match
   bold?: boolean;
   scale?: { min: string; max: string; mid?: string }; // colour scale (op="colorScale")
+  rank?: number; // op="top10": N (default 10)
+  bottom?: boolean; // op="top10": bottom N instead of top N
+  percent?: boolean; // op="top10": N% of the range instead of a fixed count
 }
 
 /** Data-validation kinds and numeric/length/date comparison operators. */

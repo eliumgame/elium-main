@@ -134,3 +134,62 @@ describe("XLSX import — theme colours (color theme=\"N\" tint=\"…\")", () =>
     expect(wb.sheets[0]!.styles?.A1?.color).toBe("#ab1234");
   });
 });
+
+describe("XLSX import — data validation list referencing a cell range", () => {
+  it("resolves an unquoted range reference (formula1) against the sheet's own cells", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData>
+      <row r="1"><c r="D1" t="inlineStr"><is><t>Café</t></is></c></row>
+      <row r="2"><c r="D2" t="inlineStr"><is><t>Thé</t></is></c></row>
+      <row r="3"><c r="D3" t="inlineStr"><is><t>Chocolat</t></is></c></row>
+      <row r="5"><c r="A5"/></row>
+    </sheetData>
+    <dataValidations count="1">
+      <dataValidation type="list" allowBlank="1" sqref="A5"><formula1>$D$1:$D$3</formula1></dataValidation>
+    </dataValidations></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    const v = wb.sheets[0]!.validations?.[0];
+    expect(v?.type).toBe("list");
+    expect(v?.list).toEqual(["Café", "Thé", "Chocolat"]);
+  });
+
+  it("a quoted literal list still works exactly as before (no regression)", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"/></row></sheetData>
+    <dataValidations count="1">
+      <dataValidation type="list" allowBlank="1" sqref="A1"><formula1>"Oui,Non"</formula1></dataValidation>
+    </dataValidations></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    expect(wb.sheets[0]!.validations?.[0]?.list).toEqual(["Oui", "Non"]);
+  });
+
+  it("an unresolvable cross-sheet range reference is skipped, not crashed on", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"/></row></sheetData>
+    <dataValidations count="1">
+      <dataValidation type="list" allowBlank="1" sqref="A1"><formula1>'Autre Feuille'!$A$1:$A$3</formula1></dataValidation>
+    </dataValidations></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    expect(wb.sheets[0]!.validations ?? []).toHaveLength(0);
+  });
+});
+
+describe("XLSX import — conditional formatting top10 / duplicateValues", () => {
+  it("reads a top10 rule (rank/bottom/percent attributes)", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>
+    <conditionalFormatting sqref="A1:A5">
+      <cfRule type="top10" rank="3" bottom="1" priority="1"/>
+    </conditionalFormatting></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    const rule = wb.sheets[0]!.condFormats?.[0];
+    expect(rule?.op).toBe("top10");
+    expect(rule?.rank).toBe(3);
+    expect(rule?.bottom).toBe(true);
+  });
+
+  it("reads a duplicateValues rule", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>
+    <conditionalFormatting sqref="A1:A5">
+      <cfRule type="duplicateValues" priority="1"/>
+    </conditionalFormatting></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    expect(wb.sheets[0]!.condFormats?.[0]?.op).toBe("duplicate");
+  });
+});

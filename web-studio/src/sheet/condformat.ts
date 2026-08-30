@@ -112,19 +112,74 @@ export const COND_OPS: { value: CondRule["op"]; label: string; needs: 0 | 1 | 2 
   { value: "empty", label: "Est vide", needs: 0 },
   { value: "notEmpty", label: "N'est pas vide", needs: 0 },
   { value: "colorScale", label: "Échelle de couleurs", needs: 0 },
+  { value: "top10", label: "Top 10 valeurs", needs: 0 },
+  { value: "duplicate", label: "Valeurs en double", needs: 0 },
 ];
 
 export function describeRule(rule: CondRule): string {
   if (rule.op === "colorScale") return "Échelle de couleurs";
   if (rule.op === "between") return `Compris entre ${rule.v1 ?? ""} et ${rule.v2 ?? ""}`;
+  if (rule.op === "top10") {
+    const rank = rule.rank ?? 10;
+    const which = rule.bottom ? "les plus faibles" : "les plus élevées";
+    return `${rank}${rule.percent ? "%" : ""} valeurs ${which}`;
+  }
+  if (rule.op === "duplicate") return "Valeurs en double";
   const op = COND_OPS.find((o) => o.value === rule.op);
   if (op?.needs === 0) return op.label;
   return `${op?.label ?? rule.op} « ${rule.v1 ?? ""} »`;
 }
 
+/** Cells (as `"c,r"` keys) matching a "top10" rule: the top/bottom N (or N%) numeric values in its range. */
+function computeTop10Matches(
+  rule: CondRule,
+  getValue: (c: number, r: number) => CellValue,
+): Set<string> {
+  const cells: { key: string; n: number }[] = [];
+  for (let r = rule.r0; r <= rule.r1; r++) {
+    for (let c = rule.c0; c <= rule.c1; c++) {
+      const n = toNum(getValue(c, r));
+      if (n !== null) cells.push({ key: `${c},${r}`, n });
+    }
+  }
+  if (!cells.length) return new Set();
+  const rank = Math.max(1, Math.round(rule.rank ?? 10));
+  const count = rule.percent ? Math.max(1, Math.ceil((rank / 100) * cells.length)) : Math.min(rank, cells.length);
+  const sorted = [...cells].sort((a, b) => (rule.bottom ? a.n - b.n : b.n - a.n));
+  const threshold = sorted[count - 1]!.n;
+  const match = new Set<string>();
+  for (const cell of cells) {
+    if (rule.bottom ? cell.n <= threshold : cell.n >= threshold) match.add(cell.key);
+  }
+  return match;
+}
+
+/** Cells (as `"c,r"` keys) matching a "duplicate" rule: displayed text occurring more than once in its range. */
+function computeDuplicateMatches(
+  rule: CondRule,
+  getText: (c: number, r: number) => string,
+): Set<string> {
+  const texts = new Map<string, string[]>(); // text -> keys
+  for (let r = rule.r0; r <= rule.r1; r++) {
+    for (let c = rule.c0; c <= rule.c1; c++) {
+      const t = getText(c, r);
+      if (t.trim() === "") continue;
+      const keys = texts.get(t);
+      if (keys) keys.push(`${c},${r}`);
+      else texts.set(t, [`${c},${r}`]);
+    }
+  }
+  const match = new Set<string>();
+  for (const keys of texts.values()) {
+    if (keys.length > 1) for (const k of keys) match.add(k);
+  }
+  return match;
+}
+
 /**
- * Build a per-cell styler from a sheet's rules. Colour-scale min/max are
- * precomputed once; later rules override earlier ones on overlap.
+ * Build a per-cell styler from a sheet's rules. Colour-scale min/max and the
+ * whole-range "top10"/"duplicate" match sets are precomputed once; later
+ * rules override earlier ones on overlap.
  */
 export function buildCondFormatter(
   rules: CondRule[] | undefined,
@@ -133,19 +188,25 @@ export function buildCondFormatter(
 ): (c: number, r: number) => CondStyle {
   if (!rules || rules.length === 0) return () => ({});
   const stats = new Map<string, { min: number; max: number }>();
+  const rangeMatches = new Map<string, Set<string>>();
   for (const rule of rules) {
-    if (rule.op !== "colorScale") continue;
-    let min = Infinity,
-      max = -Infinity;
-    for (let r = rule.r0; r <= rule.r1; r++) {
-      for (let c = rule.c0; c <= rule.c1; c++) {
-        const n = toNum(getValue(c, r));
-        if (n === null) continue;
-        if (n < min) min = n;
-        if (n > max) max = n;
+    if (rule.op === "colorScale") {
+      let min = Infinity,
+        max = -Infinity;
+      for (let r = rule.r0; r <= rule.r1; r++) {
+        for (let c = rule.c0; c <= rule.c1; c++) {
+          const n = toNum(getValue(c, r));
+          if (n === null) continue;
+          if (n < min) min = n;
+          if (n > max) max = n;
+        }
       }
+      if (min !== Infinity) stats.set(rule.id, { min, max });
+    } else if (rule.op === "top10") {
+      rangeMatches.set(rule.id, computeTop10Matches(rule, getValue));
+    } else if (rule.op === "duplicate") {
+      rangeMatches.set(rule.id, computeDuplicateMatches(rule, getText));
     }
-    if (min !== Infinity) stats.set(rule.id, { min, max });
   }
   return (c, r) => {
     let out: CondStyle = {};
@@ -157,6 +218,11 @@ export function buildCondFormatter(
         const n = toNum(getValue(c, r));
         if (n === null) continue;
         out = { ...out, background: colorScaleFill(rule.scale, n, s.min, s.max) };
+      } else if (rule.op === "top10" || rule.op === "duplicate") {
+        if (!rangeMatches.get(rule.id)?.has(`${c},${r}`)) continue;
+        if (rule.fill) out = { ...out, background: rule.fill };
+        if (rule.color) out = { ...out, color: rule.color };
+        if (rule.bold) out = { ...out, fontWeight: 700 };
       } else if (ruleMatches(rule, getValue(c, r), getText(c, r))) {
         if (rule.fill) out = { ...out, background: rule.fill };
         if (rule.color) out = { ...out, color: rule.color };

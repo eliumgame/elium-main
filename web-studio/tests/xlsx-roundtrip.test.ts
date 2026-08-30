@@ -241,6 +241,22 @@ describe("XLSX round trip — conditional formatting", () => {
     expect(strip(roundTrip(sheetWith(two)).sheets[0]!.condFormats![0]!)).toEqual(strip(two));
     expect(strip(roundTrip(sheetWith(three)).sheets[0]!.condFormats![0]!)).toEqual(strip(three));
   });
+
+  it("top10 (incl. bottom/percent) and duplicateValues survive", () => {
+    const rules: CondRule[] = [
+      // rank is always round-tripped explicitly (export writes the Excel-required
+      // rank="10" default when unset), so it's spelled out here too for the equality check.
+      { id: "t1", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 10, fill: "#ffcccc" },
+      { id: "t2", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 3, bottom: true, color: "#0000ff" },
+      { id: "t3", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 25, percent: true, bold: true },
+      { id: "d1", c0: 0, r0: 0, c1: 0, r1: 4, op: "duplicate", fill: "#eeeeee" },
+    ];
+    for (const rule of rules) {
+      const back = roundTrip(sheetWith(rule)).sheets[0]!.condFormats!;
+      expect(back).toHaveLength(1);
+      expect(strip(back[0]!)).toEqual(strip(rule));
+    }
+  });
 });
 
 describe("XLSX round trip — data validation", () => {

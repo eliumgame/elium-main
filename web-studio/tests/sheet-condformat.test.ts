@@ -87,5 +87,48 @@ describe("conditional formatting — formatter & describe", () => {
     expect(describeRule(rule("gt", { v1: "10" }))).toContain("Supérieur");
     expect(describeRule(rule("colorScale"))).toBe("Échelle de couleurs");
     expect(describeRule(rule("between", { v1: "1", v2: "9" }))).toContain("entre 1 et 9");
+    expect(describeRule(rule("top10", { rank: 3 }))).toContain("3");
+    expect(describeRule(rule("duplicate"))).toBe("Valeurs en double");
+  });
+
+  it("top10 highlights the highest N (default 10, capped to the range size)", () => {
+    const rules: CondRule[] = [rule("top10", { r1: 3, rank: 2, fill: "#fff" })];
+    const values: Record<string, number> = { "0,0": 5, "0,1": 9, "0,2": 1, "0,3": 7 };
+    const fmt = buildCondFormatter(
+      rules,
+      (c, r) => values[`${c},${r}`] ?? "",
+      () => "",
+    );
+    expect(fmt(0, 1).background).toBe("#fff"); // 9 -> top
+    expect(fmt(0, 3).background).toBe("#fff"); // 7 -> top
+    expect(fmt(0, 0).background).toBeUndefined(); // 5 -> not in top 2
+    expect(fmt(0, 2).background).toBeUndefined(); // 1 -> not in top 2
+  });
+
+  it("top10 with bottom:true highlights the lowest N instead", () => {
+    const rules: CondRule[] = [rule("top10", { rank: 1, bottom: true, fill: "#fff" })];
+    const values: Record<string, number> = { "0,0": 5, "0,1": 9, "0,2": 1 };
+    const fmt = buildCondFormatter(
+      rules,
+      (c, r) => values[`${c},${r}`] ?? "",
+      () => "",
+    );
+    expect(fmt(0, 2).background).toBe("#fff"); // 1 -> lowest
+    expect(fmt(0, 0).background).toBeUndefined();
+    expect(fmt(0, 1).background).toBeUndefined();
+  });
+
+  it("duplicate highlights every cell whose text repeats, ignores blanks", () => {
+    const rules: CondRule[] = [rule("duplicate", { fill: "#fee" })];
+    const texts: Record<string, string> = { "0,0": "a", "0,1": "b", "0,2": "a", "0,3": "" };
+    const fmt = buildCondFormatter(
+      rules,
+      () => "",
+      (c, r) => texts[`${c},${r}`] ?? "",
+    );
+    expect(fmt(0, 0).background).toBe("#fee");
+    expect(fmt(0, 2).background).toBe("#fee");
+    expect(fmt(0, 1).background).toBeUndefined(); // "b" is unique
+    expect(fmt(0, 3).background).toBeUndefined(); // blank never counts as a duplicate
   });
 });

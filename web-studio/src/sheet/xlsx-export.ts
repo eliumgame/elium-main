@@ -354,6 +354,16 @@ function condFormattingXml(rules: CondRule[] | undefined, styles: StyleTable): s
             `<conditionalFormatting sqref="${sqref}"><cfRule type="notContainsBlanks" priority="${priority}"${dxfAttr}>` +
             `<formula>LEN(TRIM(${anchor}))&gt;0</formula></cfRule></conditionalFormatting>`
           );
+        case "top10": {
+          const rank = Math.max(1, Math.round(rule.rank ?? 10));
+          const bottomAttr = rule.bottom ? ` bottom="1"` : "";
+          const percentAttr = rule.percent ? ` percent="1"` : "";
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="top10" rank="${rank}"${bottomAttr}${percentAttr} priority="${priority}"${dxfAttr}/></conditionalFormatting>`
+          );
+        }
+        case "duplicate":
+          return `<conditionalFormatting sqref="${sqref}"><cfRule type="duplicateValues" priority="${priority}"${dxfAttr}/></conditionalFormatting>`;
         default:
           return "";
       }

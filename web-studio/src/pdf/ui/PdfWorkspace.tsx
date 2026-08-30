@@ -774,6 +774,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !bytesRef.current) return;
+    if (engine?.info.signed && !(await confirmResign())) return;
     const pw = await dialogs.prompt({
       title: "Signer avec un certificat (PAdES)",
       label: `Mot de passe du certificat « ${file.name} »`,
@@ -798,6 +799,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   // Signe avec un certificat auto-signé généré dans l'app (zéro certificat à
   // fournir). Adobe : « signé » mais « identité non vérifiée » (pas de CA).
+  // Le flux de signature PAdES est MONO-signature (cf. ops/pades.ts) : signer un
+  // PDF déjà signé écrase silencieusement le trou /Contents précédent et
+  // invalide la signature existante. On avertit explicitement et on demande
+  // confirmation avant de continuer.
+  const confirmResign = () =>
+    dialogs.confirm({
+      title: "Document déjà signé",
+      message:
+        "Ce PDF contient déjà une signature électronique. Elium ne gère qu'une seule signature par document : " +
+        "en signer une nouvelle invalidera silencieusement la signature existante. Continuer quand même ?",
+      confirmLabel: "Signer quand même",
+    });
+
   const signSelfSigned = async () => {
     if (!bytesRef.current) return;
     const target = visibleSigTarget();
@@ -809,6 +823,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       );
       return;
     }
+    if (engine?.info.signed && !(await confirmResign())) return;
     setBusy(true);
     const id = toast("progress", "Génération du certificat et signature…");
     try {

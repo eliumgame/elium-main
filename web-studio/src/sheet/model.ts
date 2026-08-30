@@ -1,5 +1,9 @@
 /** Spreadsheet workbook model (in-memory; persisted locally via sheet-store). */
-export type NumFmt = "general" | "number" | "int" | "currency" | "percent" | "date" | "datetime";
+// "custom" preserves an Excel format code our fixed categories can't represent
+// (e.g. "mm:ss", a currency other than EUR, a custom accounting format): the
+// RAW code round-trips (see CellStyle.customFmt) even though on-screen
+// rendering falls back to a plain number (no code interpreter — see format.ts).
+export type NumFmt = "general" | "number" | "int" | "currency" | "percent" | "date" | "datetime" | "custom";
 
 /** One border edge: line style + colour. Mirrors OOXML's `<left>/<right>/<top>/<bottom>` border sides. */
 export type BorderStyle = "thin" | "medium" | "thick" | "dashed" | "dotted" | "double";
@@ -21,6 +25,7 @@ export interface CellStyle {
   color?: string; // text color (hex)
   fill?: string; // background color (hex)
   fmt?: NumFmt;
+  customFmt?: string; // raw Excel format code, only meaningful when fmt === "custom"
   fontFamily?: string; // font name (shared registry)
   fontSize?: number; // px
   border?: CellBorder;

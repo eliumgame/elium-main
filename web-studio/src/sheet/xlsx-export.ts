@@ -93,7 +93,9 @@ function dateStrToSerial(s: string | undefined): number | null {
 }
 
 // Custom number-format codes (built-in id 0 = "General" needs no numFmt entry).
-const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
+// "custom" has no fixed code here — it writes back CellStyle.customFmt instead
+// (the raw code an import couldn't fit into any other category).
+const NUMFMT_CODE: Record<Exclude<NumFmt, "general" | "custom">, string> = {
   number: "0.00",
   int: "0",
   currency: "#,##0.00\\ €",
@@ -106,9 +108,9 @@ const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
 function createStyleTable() {
   const numFmts = new Map<string, number>(); // code → id (≥164)
   let nextFmtId = 164;
-  const fmtId = (fmt?: NumFmt): number => {
+  const fmtId = (fmt?: NumFmt, customFmt?: string): number => {
     if (!fmt || fmt === "general") return 0;
-    const code = NUMFMT_CODE[fmt];
+    const code = fmt === "custom" ? customFmt || "General" : NUMFMT_CODE[fmt];
     if (!numFmts.has(code)) numFmts.set(code, nextFmtId++);
     return numFmts.get(code)!;
   };
@@ -176,7 +178,7 @@ function createStyleTable() {
   const xfKey = new Map<string, number>();
   const xfIndexOf = (st?: CellStyle): number => {
     if (!st) return 0;
-    const nf = fmtId(st.fmt);
+    const nf = fmtId(st.fmt, st.customFmt);
     const fo = fontId(st);
     const fi = fillId(st);
     const bo = borderId(st.border);

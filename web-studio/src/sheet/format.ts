@@ -33,6 +33,10 @@ function formatNumber(n: number, fmt: NumFmt): string {
       return serialToDate(n);
     case "datetime":
       return serialToDateTime(n);
+    case "custom":
+      // No interpreter for the raw Excel format code (CellStyle.customFmt) —
+      // approximate with a plain number rather than lose the value entirely.
+      return String(n);
     default:
       return String(n);
   }

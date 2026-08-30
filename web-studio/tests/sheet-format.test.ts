@@ -21,4 +21,8 @@ describe("number formats", () => {
   it("passes non-numeric values through to the fallback", () => {
     expect(formatValue("texte", "datetime", "texte")).toBe("texte");
   });
+
+  it("custom format renders an approximate plain number (no code interpreter)", () => {
+    expect(formatValue(90, "custom", "90")).toBe("90");
+  });
 });

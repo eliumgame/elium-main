@@ -171,6 +171,24 @@ describe("XLSX import — data validation list referencing a cell range", () => 
   });
 });
 
+describe("XLSX import — custom number formats", () => {
+  it("a format code fitting none of our fixed categories is preserved as custom, not dropped", () => {
+    const styles = `<styleSheet xmlns="${NS}">
+      <numFmts count="1"><numFmt numFmtId="164" formatCode="mm:ss"/></numFmts>
+      <fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font></fonts>
+      <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+      <borders count="1"><border/></borders>
+      <cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+      <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>
+    </styleSheet>`;
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1" s="1"><v>90</v></c></row></sheetData></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1, styles }));
+    const st = wb.sheets[0]!.styles?.A1;
+    expect(st?.fmt).toBe("custom");
+    expect(st?.customFmt).toBe("mm:ss");
+  });
+});
+
 describe("XLSX import — conditional formatting top10 / duplicateValues", () => {
   it("reads a top10 rule (rank/bottom/percent attributes)", () => {
     const sheet1 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>

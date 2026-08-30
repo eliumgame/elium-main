@@ -172,6 +172,24 @@ describe("XLSX round trip — cell styles (incl. borders)", () => {
     expect(back.E1?.fmt).toBe("datetime");
   });
 
+  it("a custom format (fmt+customFmt) round-trips its exact raw code", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        {
+          name: "F",
+          rows: 2,
+          cols: 2,
+          cells: { A1: "90" },
+          styles: { A1: { fmt: "custom", customFmt: "mm:ss" } },
+        },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!.styles!.A1;
+    expect(back?.fmt).toBe("custom");
+    expect(back?.customFmt).toBe("mm:ss");
+  });
+
   it("a cell with no style stays without a styles entry", () => {
     const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 3, cols: 3, cells: { A1: "plain" } }] };
     expect(roundTrip(wb).sheets[0]!.styles?.A1).toBeUndefined();

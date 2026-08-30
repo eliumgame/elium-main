@@ -294,7 +294,13 @@ const OURS_NUMFMT: Record<string, NumFmt> = {
   "yyyy\\-mm\\-dd\\ hh:mm": "datetime",
 };
 
-/** Best-effort classification of an arbitrary Excel format code into our fixed NumFmt set. */
+/**
+ * Best-effort classification of an arbitrary Excel format code into our fixed
+ * NumFmt set. A code that fits none of our categories (e.g. "mm:ss", a
+ * non-EUR currency, an accounting format) classifies as "custom" — the caller
+ * then keeps the raw code (CellStyle.customFmt) instead of silently losing it
+ * to "general", even though on-screen rendering stays approximate.
+ */
 function classifyNumFmt(code: string): NumFmt {
   if (!code || code === "General" || code === "@") return "general";
   const ours = OURS_NUMFMT[code];
@@ -308,12 +314,14 @@ function classifyNumFmt(code: string): NumFmt {
   if (/[$€£¥]/.test(bare) || code.includes("[$")) return "currency";
   if (/0\.0/.test(bare)) return "number";
   if (/^[#0]+$/.test(bare.replace(/[,; ]/g, ""))) return "int";
-  return "general";
+  return "custom";
 }
-function numFmtIdToOurs(id: number, custom: Map<number, string>): NumFmt {
-  if (!id) return "general";
+function numFmtIdToOurs(id: number, custom: Map<number, string>): { fmt: NumFmt; code?: string } {
+  if (!id) return { fmt: "general" };
   const code = custom.get(id) ?? BUILTIN_NUMFMTS[id];
-  return code ? classifyNumFmt(code) : "general";
+  if (!code) return { fmt: "general" };
+  const fmt = classifyNumFmt(code);
+  return fmt === "custom" ? { fmt, code } : { fmt };
 }
 
 const BORDER_STYLE_MAP: Record<string, BorderStyle> = {
@@ -447,8 +455,9 @@ function xfToCellStyle(xfIndex: number, ps: ParsedStyles): CellStyle {
     };
   }
   if (xf.align) st.align = xf.align;
-  const fmt = numFmtIdToOurs(xf.numFmtId, ps.numFmts);
+  const { fmt, code } = numFmtIdToOurs(xf.numFmtId, ps.numFmts);
   if (fmt !== "general") st.fmt = fmt;
+  if (fmt === "custom" && code) st.customFmt = code;
   return st;
 }
 

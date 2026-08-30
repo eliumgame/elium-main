@@ -1,8 +1,9 @@
 /**
  * LocalDeckStore — the local-suite backend for the unified Présentations editor.
  * Backs the DeckStore contract with useUndoable (in-memory undo/redo) and the
- * IndexedDB deck-store (autosave/restore). Single-user, so `active` lives in the
- * deck and there is no presence.
+ * IndexedDB deck-store (autosave/restore, encrypted at rest when the app vault
+ * is active — see deck-store.ts). Single-user, so `active` lives in the deck
+ * and there is no presence.
  */
 import { useEffect, useRef } from "react";
 import { useUndoable } from "../ui/useUndoable";
@@ -18,6 +19,7 @@ import {
   type SlideElement,
 } from "./model";
 import { loadDeck, saveDeck } from "./deck-store";
+import type { VaultSecret } from "../crypto/local-vault";
 import type { DeckStore } from "./store";
 
 const migrate = (d: Deck): Deck => ({ ...d, slides: d.slides.map(withElements) });
@@ -27,7 +29,7 @@ export interface LocalDeckStore extends DeckStore {
   deck: Deck;
 }
 
-export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
+export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): LocalDeckStore {
   const {
     value: deck,
     set,
@@ -43,7 +45,7 @@ export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
   // Load persisted deck on mount (only when not opening an explicit .elium deck).
   useEffect(() => {
     if (initial) return;
-    loadDeck()
+    loadDeck(vaultSecret)
       .then((d) => d && reset(migrate(d)))
       .catch(() => {});
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -51,14 +53,16 @@ export function useLocalDeckStore(initial?: Deck): LocalDeckStore {
   // Debounced autosave + save on unmount.
   const deckRef = useRef(deck);
   deckRef.current = deck;
+  const secretRef = useRef(vaultSecret);
+  secretRef.current = vaultSecret;
   useEffect(() => {
     if (initial) return;
-    const t = setTimeout(() => void saveDeck(deck), 400);
+    const t = setTimeout(() => void saveDeck(deck, secretRef.current), 400);
     return () => clearTimeout(t);
   }, [deck, initial]);
   useEffect(
     () => () => {
-      if (!initial) void saveDeck(deckRef.current);
+      if (!initial) void saveDeck(deckRef.current, secretRef.current);
     },
     [initial],
   ); // eslint-disable-line react-hooks/exhaustive-deps

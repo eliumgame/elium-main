@@ -108,6 +108,7 @@ export default function CollabDocEditor({
   const [page, setPage] = useState<PageSettings>(() => ({ ...DEFAULT_PAGE }));
   const [styles, setStyles] = useState<EliumDocStyle[]>([]);
   const [watermark, setWatermark] = useState<EliumWatermark | undefined>(undefined);
+  const [theme, setTheme] = useState<string | undefined>(undefined);
 
   // Reflète la Y.Map (chargement initial après sync du backlog + updates
   // distants) dans l'état local. Les écritures se font dans les callbacks
@@ -117,9 +118,11 @@ export default function CollabDocEditor({
       const p = meta.get("page") as PageSettings | undefined;
       const s = meta.get("styles") as EliumDocStyle[] | undefined;
       const w = meta.get("watermark") as EliumWatermark | null | undefined;
+      const th = meta.get("theme") as string | null | undefined;
       if (p) setPage(p);
       if (s) setStyles(s);
       if (w !== undefined) setWatermark(w ?? undefined);
+      if (th !== undefined) setTheme(th ?? undefined);
     };
     meta.observe(apply);
     apply();
@@ -140,9 +143,10 @@ export default function CollabDocEditor({
       page,
       styles,
       ...(watermark ? { watermark } : {}),
+      ...(theme ? { theme } : {}),
       doc: { type: "doc", content: [{ type: "paragraph" }] },
     }),
-    [page, styles, watermark],
+    [page, styles, watermark, theme],
   );
 
   useEffect(() => {
@@ -284,6 +288,14 @@ export default function CollabDocEditor({
             onStylesChange={(s) => {
               setStyles(s);
               putMeta("styles", s);
+            }}
+            onThemeChange={(th, s) => {
+              setTheme(th);
+              setStyles(s);
+              ydoc.transact(() => {
+                meta.set("theme", th);
+                meta.set("styles", s);
+              });
             }}
             onWatermarkChange={(m) => {
               setWatermark(m);

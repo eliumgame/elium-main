@@ -70,6 +70,7 @@ export default function StudioView({ studio }: { studio: Studio }) {
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen((v) => !v)}
           onStylesChange={studio.updateStyles}
+          onThemeChange={studio.updateDocTheme}
           onWatermarkChange={studio.updateWatermark}
           // Le quadrillage est un réglage de page : il suit le même chemin que
           // les marges ou le format, donc il est persisté dans le `.elium`.

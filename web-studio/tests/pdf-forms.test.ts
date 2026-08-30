@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PDFCheckBox, PDFDocument, PDFDropdown, PDFRadioGroup, PDFTextField, StandardFonts } from "pdf-lib";
+import { PDFCheckBox, PDFDocument, PDFDropdown, PDFName, PDFRadioGroup, PDFSignature, PDFTextField, StandardFonts } from "pdf-lib";
 import {
   createFields,
   fillForm,
@@ -282,12 +282,26 @@ describe("forms — createFields (checkbox / radio / dropdown / listbox / signat
     expect((field as PDFDropdown).getSelected()).toEqual(["BE"]);
   });
 
-  it("falls back to a read-only text placeholder for a signature field (pdf-lib limitation)", async () => {
+  it("builds a real /FT /Sig widget for a signature field, not a text-field stand-in", async () => {
     const { doc, font, page } = await docWithFont();
-    createFields({ doc, font }, [fieldBase({ kind: "signature", name: "signature" })], () => ({ page, height: 400 }));
+    createFields(
+      { doc, font },
+      [fieldBase({ kind: "signature", name: "signature", required: true, rect: { x: 40, y: 40, w: 150, h: 40 } })],
+      () => ({ page, height: 400 }),
+    );
+    // pdf-lib's own parser recognises /FT /Sig and hands back a PDFSignature —
+    // proof the field is a genuine signature widget, not a read-only text field.
     const field = doc.getForm().getField("signature");
-    expect(field).toBeInstanceOf(PDFTextField);
-    expect((field as PDFTextField).isReadOnly()).toBe(true);
+    expect(field).toBeInstanceOf(PDFSignature);
+    expect(field.isRequired()).toBe(true);
+    expect(doc.getForm().getSignature("signature").ref).toEqual((field as PDFSignature).ref);
+
+    // The widget is a real page annotation, linked into the AcroForm's /Fields.
+    const widgetDict = (field as PDFSignature).acroField.dict;
+    expect(widgetDict.lookup(PDFName.of("FT"))).toBe(PDFName.of("Sig"));
+    expect(widgetDict.lookup(PDFName.of("Subtype"))).toBe(PDFName.of("Widget"));
+    const annots = page.node.Annots();
+    expect(annots?.asArray().some((r) => doc.context.lookup(r) === widgetDict)).toBe(true);
   });
 
   it("skips fields whose target page cannot be resolved, without throwing", async () => {

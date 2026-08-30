@@ -326,6 +326,49 @@ describe("XLSX round trip — charts", () => {
     expect(back.map((c) => c.type).sort()).toEqual(["bar", "pie"]);
   });
 
+  it("a multi-series bar chart (3+ columns) charts EVERY series, not just the first", () => {
+    const chart: ChartSpec = { id: "multi", type: "bar", c0: 0, r0: 1, c1: 3, r1: 4 };
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        {
+          name: "F",
+          rows: 6,
+          cols: 4,
+          cells: {
+            A1: "Produit",
+            B1: "T1",
+            C1: "T2",
+            D1: "T3",
+            A2: "Café",
+            B2: "3",
+            C2: "4",
+            D2: "5",
+            A3: "Thé",
+            B3: "2",
+            C3: "3",
+            D3: "1",
+          },
+          charts: [chart],
+        },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!.charts!;
+    expect(back).toHaveLength(1);
+    // The bounding rectangle (all 3 series columns + the category column) is recovered.
+    expect(strip(back[0]!)).toEqual(strip(chart));
+  });
+
+  it("a multi-series line chart survives the same way", () => {
+    const chart: ChartSpec = { id: "multiline", type: "line", c0: 1, r0: 0, c1: 4, r1: 3, title: "Multi" };
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 6, cols: 6, cells: { B1: "x" }, charts: [chart] }],
+    };
+    const back = roundTrip(wb).sheets[0]!.charts!;
+    expect(strip(back[0]!)).toEqual(strip(chart));
+  });
+
   it("charts on different sheets don't collide (global chart-part numbering)", () => {
     const wb: Workbook = {
       active: 0,

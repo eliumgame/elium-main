@@ -623,10 +623,15 @@ function parseValidations(doc: Document): DataValidation[] {
 
 // ── native charts (DrawingML, via the sheet's drawing relationship) ────────
 
-function firstFormulaRef(doc: Document, tag: "cat" | "val"): string | undefined {
-  const el = doc.getElementsByTagName(`c:${tag}`)[0];
-  const f = el?.getElementsByTagName("c:f")[0];
-  return f?.textContent?.trim() || undefined;
+/** Every `<c:cat>`/`<c:val>` cell-range formula in the chart, in document order (one `<c:val>` per series). */
+function allFormulaRefs(doc: Document, tag: "cat" | "val"): string[] {
+  const els = doc.getElementsByTagName(`c:${tag}`);
+  const out: string[] = [];
+  for (let i = 0; i < els.length; i++) {
+    const ref = els[i].getElementsByTagName("c:f")[0]?.textContent?.trim();
+    if (ref) out.push(ref);
+  }
+  return out;
 }
 function chartTitle(doc: Document): string | undefined {
   const title = doc.getElementsByTagName("c:title")[0];
@@ -636,6 +641,12 @@ function chartTitle(doc: Document): string | undefined {
     for (let i = 0; i < runs.length; i++) s += runs[i].textContent ?? "";
     if (s.trim()) return s;
   }
+  // Fallback: our own exporter also stashes a single series' <c:tx><c:v> as its
+  // name when the chart has a title (belt-and-braces for readers that only look
+  // at the series name). Only trust that as the CHART's title when there is
+  // exactly one series — with several series, each has its own literal <c:tx>
+  // name (e.g. "Colonne C") and none of those is the chart's title.
+  if (doc.getElementsByTagName("c:ser").length !== 1) return undefined;
   const v = doc.getElementsByTagName("c:tx")[0]?.getElementsByTagName("c:v")[0]?.textContent;
   return v?.trim() ? v : undefined;
 }
@@ -645,20 +656,28 @@ function chartKind(doc: Document): ChartType {
   return "bar";
 }
 
-/** Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's `chartXml`). */
+/**
+ * Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's
+ * `chartXml`). Reads EVERY `<c:val>` (one per `<c:ser>`, i.e. every series, not
+ * just the first) and reconstructs the bounding rectangle assuming the shape our
+ * own exporter — and most real-world spreadsheet tools — produce: a category
+ * column immediately followed by one contiguous column per series.
+ */
 function parseChartSpec(doc: Document): ChartSpec | null {
-  const catRef = firstFormulaRef(doc, "cat");
-  const valRef = firstFormulaRef(doc, "val");
-  const cat = catRef ? parseRangeRef(catRef) : null;
-  const val = valRef ? parseRangeRef(valRef) : null;
-  let rect: { c0: number; r0: number; c1: number; r1: number };
-  if (val) {
-    rect = { c0: cat ? cat.c0 : val.c0, r0: val.r0, c1: val.c0, r1: val.r1 };
-  } else if (cat) {
-    rect = { c0: cat.c0, r0: cat.r0, c1: cat.c0, r1: cat.r1 };
-  } else {
-    return null; // pure literal chart (no cell refs) — can't recover a source range
-  }
+  const catRefs = allFormulaRefs(doc, "cat");
+  const valRefs = allFormulaRefs(doc, "val");
+  const cat = catRefs[0] ? parseRangeRef(catRefs[0]) : null;
+  const vals = valRefs.map(parseRangeRef).filter((v): v is NonNullable<typeof v> => v !== null);
+  if (!vals.length && !cat) return null; // pure literal chart (no cell refs) — can't recover a source range
+
+  const cols = [...(cat ? [cat.c0] : []), ...vals.map((v) => v.c0)];
+  const rowsOf = vals.length ? vals : cat ? [cat] : [];
+  const rect = {
+    c0: Math.min(...cols),
+    c1: Math.max(...cols),
+    r0: Math.min(...rowsOf.map((v) => v.r0)),
+    r1: Math.max(...rowsOf.map((v) => v.r1)),
+  };
   const title = chartTitle(doc);
   return { id: newId("chart"), type: chartKind(doc), ...rect, ...(title ? { title } : {}) };
 }

@@ -603,23 +603,31 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   // --- graphiques -----------------------------------------------------------
-  const chartData = (spec: ChartSpec) => {
+  // A chart's source rectangle (c0,r0)-(c1,r1): a single column (c0===c1) is one
+  // unnamed series with no category axis; a wider rectangle treats column c0 as
+  // the shared category axis and EVERY remaining column (c0+1..c1) as its own
+  // series — so a 3+ column selection charts all of them, not just the first.
+  const chartData = (spec: ChartSpec): { labels: string[]; series: { label: string; values: number[] }[] } => {
     const oneCol = spec.c0 === spec.c1;
     const labels: string[] = [];
-    const values: number[] = [];
     for (let r = spec.r0; r <= spec.r1; r++) {
       if (oneCol) {
-        const v = calc.valueOf(cellRef(spec.c0, r));
         labels.push(String(r - spec.r0 + 1));
-        values.push(typeof v === "number" ? v : Number(v) || 0);
       } else {
         const lab = calc.valueOf(cellRef(spec.c0, r));
-        const val = calc.valueOf(cellRef(spec.c0 + 1, r));
         labels.push(typeof lab === "number" ? String(lab) : String(lab ?? ""));
-        values.push(typeof val === "number" ? val : Number(val) || 0);
       }
     }
-    return { labels, values };
+    const valCols = oneCol ? [spec.c0] : [];
+    if (!oneCol) for (let c = spec.c0 + 1; c <= spec.c1; c++) valCols.push(c);
+    const series = valCols.map((col) => ({
+      label: oneCol ? "Série 1" : `Colonne ${indexToCol(col)}`,
+      values: Array.from({ length: spec.r1 - spec.r0 + 1 }, (_, i) => {
+        const v = calc.valueOf(cellRef(col, spec.r0 + i));
+        return typeof v === "number" ? v : Number(v) || 0;
+      }),
+    }));
+    return { labels, series };
   };
   const addChart = () => store.setChart(active, { id: newId("chart"), type: "bar", c0, r0, c1, r1 });
   const setChartType = (id: string, type: ChartType) => {
@@ -1194,7 +1202,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       {(sheet?.charts?.length ?? 0) > 0 && (
         <div className="sheet-charts">
           {sheet!.charts!.map((ch) => {
-            const { labels, values } = chartData(ch);
+            const { labels, series } = chartData(ch);
             return (
               <div key={ch.id} className="sheet-chart">
                 <div className="sheet-chart__head">
@@ -1221,7 +1229,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                     </button>
                   )}
                 </div>
-                <SheetChart type={ch.type} labels={labels} values={values} />
+                <SheetChart type={ch.type} labels={labels} series={series} />
               </div>
             );
           })}

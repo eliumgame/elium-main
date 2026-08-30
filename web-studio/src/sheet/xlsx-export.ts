@@ -418,32 +418,63 @@ function dataValidationXml(rules: DataValidation[] | undefined): string {
 const absA1 = (c: number, r: number): string => `$${colLetters(c)}$${r + 1}`;
 const absRangeRef = (c: number, r0: number, r1: number): string => `${absA1(c, r0)}:${absA1(c, r1)}`;
 
+/**
+ * The value columns charted for a source rectangle: a single column (c0===c1)
+ * is one unnamed series with no category axis; a wider rectangle treats column
+ * c0 as the shared category axis and EVERY remaining column as its own series
+ * — one `<c:ser>` per column, not just the first (multi-series charts).
+ */
+function chartValueCols(chart: ChartSpec): number[] {
+  if (chart.c0 === chart.c1) return [chart.c0];
+  const cols: number[] = [];
+  for (let c = chart.c0 + 1; c <= chart.c1; c++) cols.push(c);
+  return cols;
+}
+
 function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
   const oneCol = chart.c0 === chart.c1;
-  const valCol = oneCol ? chart.c0 : chart.c0 + 1;
-  const valRef = `${sheetNameQuoted}!${absRangeRef(valCol, chart.r0, chart.r1)}`;
+  const valCols = chartValueCols(chart);
   const catRef = oneCol ? null : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
+  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
   const AX_CAT = 111111111,
     AX_VAL = 222222222;
-  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
-  const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-  const serHead = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
+
+  /** One `<c:ser>` per value column — series 0 is named after the chart title
+   * (kept exactly as before for the single-series case), later ones after
+   * their column letter, so the legend can tell them apart. */
+  const seriesXml = (lineMarkers: boolean): string =>
+    valCols
+      .map((col, i) => {
+        const valRef = `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`;
+        const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
+        const name = i === 0 ? chart.title : `Colonne ${colLetters(col)}`;
+        const head = `<c:idx val="${i}"/><c:order val="${i}"/>${name ? `<c:tx><c:v>${xe(name)}</c:v></c:tx>` : ""}`;
+        const marker = lineMarkers ? `<c:marker><c:symbol val="circle"/></c:marker>` : "";
+        const smooth = lineMarkers ? `<c:smooth val="0"/>` : "";
+        return `<c:ser>${head}${marker}${catXml}${valXml}${smooth}</c:ser>`;
+      })
+      .join("");
+
   const axes =
     `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
     `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
 
   let plot: string;
   if (chart.type === "pie") {
-    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${serHead}${catXml}${valXml}</c:ser></c:pieChart>`;
+    // Pie charts vary colour BY POINT, not by series, and Excel doesn't give
+    // multiple pie series a meaningful rendering — only the first value column
+    // is charted (unchanged single-series behaviour for this chart type).
+    const valRef = `${sheetNameQuoted}!${absRangeRef(valCols[0]!, chart.r0, chart.r1)}`;
+    const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
+    const head = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
+    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${head}${catXml}${valXml}</c:ser></c:pieChart>`;
   } else if (chart.type === "line") {
     plot =
-      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}<c:marker><c:symbol val="circle"/></c:marker>${catXml}${valXml}<c:smooth val="0"/></c:ser>` +
+      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${seriesXml(true)}` +
       `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
   } else {
     plot =
-      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}${catXml}${valXml}</c:ser>` +
+      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${seriesXml(false)}` +
       `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
   }
 

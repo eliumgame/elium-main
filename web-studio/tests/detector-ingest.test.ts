@@ -329,6 +329,39 @@ describe("documentModelFromPdf — images", () => {
     expect(images[0].height).toBe(12);
     expect(images[0].bytes).toEqual(jpegBytes());
   });
+
+  // Constat détecteur : une image PNG collée dans un PDF n'est jamais extraite
+  // (seul le flux JPEG/DCTDecode l'est) et ne passe donc jamais par la
+  // vérification C2PA — `skippedNonJpegImages` existe pour que le panneau
+  // Images puisse avertir de ce cas plutôt que de rester silencieux.
+  it("compte les images non-JPEG (PNG) ignorées dans metadata.skippedNonJpegImages", async () => {
+    const tinyPngBytes = Uint8Array.from(
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
+    );
+    const pdf = await PDFDocument.create();
+    const jpeg = await pdf.embedJpg(jpegBytes());
+    const png = await pdf.embedPng(tinyPngBytes);
+    const page = pdf.addPage([200, 200]);
+    page.drawImage(jpeg, { x: 0, y: 0, width: 80, height: 60 });
+    page.drawImage(png, { x: 0, y: 100, width: 10, height: 10 });
+    const bytes = await pdf.save();
+
+    const { images, metadata } = await documentModelFromPdf(bytes);
+    // Seul le JPEG est extrait ; le PNG est compté comme ignoré, pas silencieusement perdu.
+    expect(images).toHaveLength(1);
+    expect(images[0].mime).toBe("image/jpeg");
+    expect(metadata.skippedNonJpegImages).toBe(1);
+  });
+
+  it("ne renseigne pas skippedNonJpegImages quand toutes les images sont du JPEG", async () => {
+    const pdf = await PDFDocument.create();
+    const jpeg = await pdf.embedJpg(jpegBytes());
+    pdf.addPage([200, 200]).drawImage(jpeg, { x: 0, y: 0, width: 80, height: 60 });
+    const bytes = await pdf.save();
+
+    const { metadata } = await documentModelFromPdf(bytes);
+    expect(metadata.skippedNonJpegImages).toBeUndefined();
+  });
 });
 
 // L'extraction d'images (pdf-lib) s'est mesurée à largement plus de 30s sur un

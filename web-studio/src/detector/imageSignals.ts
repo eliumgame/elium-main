@@ -1,21 +1,32 @@
 /**
  * Détecteur — signaux "image" : cherche des marqueurs de provenance IA dans
- * les octets bruts des images (JPEG/PNG), sans dépendance externe. Ordre de
- * priorité (le plus fiable en premier) :
- *   1. C2PA/IPTC `digitalSourceType` (XMP APP1 ou JUMBF APP11 en JPEG, chunk
- *      `caBX` en PNG) — une déclaration de provenance embarquée et souvent
- *      signée par l'outil de création lui-même (ex. Google Gemini/Imagen).
- *   2. Métadonnées PNG de génération (chunk tEXt/zTXt/iTXt "parameters" ou
- *      "Software"), convention Stable Diffusion WebUI (AUTOMATIC1111).
- *   3. Balises EXIF Make/Model/Software nommant un générateur connu.
- *   4. Signal faible : aucune EXIF appareil + résolution typique d'un
- *      générateur — jamais une preuve à lui seul, seulement complémentaire.
+ * les octets bruts des images (JPEG/PNG/WebP), sans dépendance externe.
+ * Signaux produits, sans hiérarchie de fiabilité stricte :
+ *   - C2PA/IPTC `digitalSourceType` (XMP APP1 ou JUMBF APP11 en JPEG, chunk
+ *     `caBX` en PNG, XMP RIFF en WebP) — une déclaration de provenance
+ *     embarquée par l'outil de création. IMPORTANT : cette recherche est une
+ *     simple sous-chaîne dans les octets bruts, PAS un parsing JUMBF/CBOR
+ *     structuré et PAS une vérification cryptographique de signature/certificat
+ *     — voir `matchC2paAiSource` plus bas. C'est une provenance *déclarée*,
+ *     non authentifiée : à corroborer, jamais à traiter seule comme une preuve.
+ *   - Métadonnées PNG de génération (chunk tEXt/zTXt/iTXt "parameters" ou
+ *     "Software"), convention Stable Diffusion WebUI (AUTOMATIC1111).
+ *   - Balises EXIF Make/Model/Software nommant un générateur connu (JPEG et
+ *     WebP).
+ *   - Signal faible : aucune EXIF appareil + résolution typique d'un
+ *     générateur — jamais une preuve à lui seul, seulement complémentaire.
+ * Le format WebP ne reçoit qu'un parsing basique (chunks RIFF EXIF/XMP), sans
+ * équivalent JUMBF/`caBX` structuré — un finding informatif le rappelle sur
+ * chaque image WebP. De même, l'absence de déclaration C2PA sur une image
+ * JPEG/PNG est distinguée explicitement d'un état "propre" : voir le finding
+ * de synthèse `image_c2pa_verification_status` en fin de module, sur le
+ * modèle de `failedPassages` côté plagiat (types.ts).
  * Le parsing binaire est volontairement défensif : toute image malformée ou
  * tronquée est ignorée (try/catch par image), jamais une exception qui
  * interromprait l'analyse du document entier.
  */
 import { unzlibSync } from "fflate";
-import type { Finding, ImageModel, SignalSeverity } from "./types";
+import type { DocumentMetadata, Finding, ImageModel, SignalSeverity } from "./types";
 
 const KNOWN_AI_GENERATORS = [
   "Midjourney",
@@ -207,7 +218,19 @@ function readExif(app1Data: Uint8Array): ExifTags | undefined {
   for (let k = 0; k < EXIF_ID.length; k++) {
     if (app1Data[k] !== EXIF_ID[k]) return undefined;
   }
-  const tiff = app1Data.subarray(EXIF_ID.length);
+  return parseTiffIfd0(app1Data.subarray(EXIF_ID.length));
+}
+
+/** WebP's `EXIF` RIFF chunk carries a raw TIFF stream — most encoders omit the
+ * "Exif\0\0" prefix JPEG's APP1 uses, though some tools add it anyway; accept
+ * either. */
+function readExifFromWebpChunk(chunkData: Uint8Array): ExifTags | undefined {
+  const hasPrefix =
+    chunkData.length >= EXIF_ID.length && EXIF_ID.every((b, i) => chunkData[i] === b);
+  return parseTiffIfd0(hasPrefix ? chunkData.subarray(EXIF_ID.length) : chunkData);
+}
+
+function parseTiffIfd0(tiff: Uint8Array): ExifTags | undefined {
   if (tiff.length < 8) return undefined;
   const view = new DataView(tiff.buffer, tiff.byteOffset, tiff.byteLength);
   let little: boolean;
@@ -285,6 +308,44 @@ function isPng(bytes: Uint8Array): boolean {
 
 function isJpeg(bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+}
+
+// ---- WebP (RIFF) chunk walking — basic EXIF/XMP only, no JUMBF equivalent -
+
+function isWebp(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  return (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 && // "RIFF"
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50 // "WEBP"
+  );
+}
+
+interface RiffChunk {
+  fourCC: string;
+  data: Uint8Array;
+}
+
+/** RIFF chunks: 4-byte FourCC + 4-byte little-endian size + data, padded to an
+ * even byte count. No CRC to verify (RIFF has none, unlike PNG). */
+function readWebpChunks(bytes: Uint8Array): RiffChunk[] {
+  const chunks: RiffChunk[] = [];
+  let i = 12; // past "RIFF" + size(4) + "WEBP"
+  while (i + 8 <= bytes.length) {
+    const fourCC = String.fromCharCode(bytes[i]!, bytes[i + 1]!, bytes[i + 2]!, bytes[i + 3]!);
+    const size = (bytes[i + 4]! | (bytes[i + 5]! << 8) | (bytes[i + 6]! << 16) | (bytes[i + 7]! << 24)) >>> 0;
+    const dataStart = i + 8;
+    const dataEnd = dataStart + size;
+    if (dataEnd > bytes.length) break;
+    chunks.push({ fourCC, data: bytes.subarray(dataStart, dataEnd) });
+    i = dataEnd + (size % 2); // RIFF pads odd-sized chunks with one byte
+  }
+  return chunks;
 }
 
 function readPngChunks(bytes: Uint8Array): PngChunk[] {
@@ -393,10 +454,10 @@ function analyzeOneImage(image: ImageModel): Finding[] {
         makeFinding(
           image,
           "image_c2pa_ai_source",
-          "Métadonnées C2PA/IPTC : source déclarée générée par IA",
-          `Les métadonnées ${c2paHit.source} intégrées dans ce JPEG déclarent un « digitalSourceType » IPTC valant « ${c2paHit.value} », une valeur normalisée réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). C'est le signal le plus fiable de ce détecteur : cette déclaration de provenance est embarquée directement par l'outil de création (Adobe Firefly, Bing Image Creator, ou tout autre logiciel conforme C2PA), et non déduite statistiquement.`,
-          "eleve",
-          0.97,
+          "Métadonnées C2PA/IPTC : provenance déclarée IA (non authentifiée)",
+          `Les métadonnées ${c2paHit.source} intégrées dans ce JPEG contiennent la chaîne « ${c2paHit.value} », qui correspond à la valeur IPTC digitalSourceType réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). Attention : cette détection est une simple recherche de sous-chaîne dans les octets bruts du segment ${c2paHit.source} — ce n'est ni un parsing JUMBF/CBOR structuré, ni une vérification cryptographique de la signature ou du certificat du manifeste C2PA. Il s'agit d'une provenance déclarée, non authentifiée : n'importe qui peut injecter cette chaîne dans un faux segment pour produire ce signal (faux positif trivial), et supprimer le segment d'un contenu réellement généré par IA le fait disparaître sans rien prouver (faux négatif silencieux). À traiter comme un indice à corroborer, jamais comme une preuve à lui seul.`,
+          "moyen",
+          0.45,
           c2paHit.value,
         ),
       );
@@ -436,10 +497,10 @@ function analyzeOneImage(image: ImageModel): Finding[] {
         makeFinding(
           image,
           "image_c2pa_ai_source",
-          "Métadonnées C2PA/IPTC : source déclarée générée par IA",
-          `Le chunk PNG « caBX » de cette image contient un manifeste C2PA déclarant un « digitalSourceType » IPTC valant « ${pngC2paHit.value} », une valeur normalisée réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). C'est le signal le plus fiable de ce détecteur : cette déclaration de provenance est embarquée et signée directement par l'outil de création (Google Gemini/Imagen, Adobe Firefly, ou tout autre logiciel conforme C2PA), et non déduite statistiquement.`,
-          "eleve",
-          0.97,
+          "Métadonnées C2PA/IPTC : provenance déclarée IA (non authentifiée)",
+          `Le chunk PNG « caBX » de cette image contient la chaîne « ${pngC2paHit.value} », qui correspond à la valeur IPTC digitalSourceType réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). Attention : cette détection est une simple recherche de sous-chaîne dans les octets bruts du chunk caBX — ce n'est ni un parsing JUMBF/CBOR structuré, ni une vérification cryptographique de la signature ou du certificat du manifeste C2PA. Il s'agit d'une provenance déclarée, non authentifiée : n'importe qui peut injecter cette chaîne dans un faux chunk pour produire ce signal (faux positif trivial), et supprimer le chunk d'un contenu réellement généré par IA le fait disparaître sans rien prouver (faux négatif silencieux). À traiter comme un indice à corroborer, jamais comme une preuve à lui seul.`,
+          "moyen",
+          0.45,
           pngC2paHit.value,
         ),
       );
@@ -464,6 +525,60 @@ function analyzeOneImage(image: ImageModel): Finding[] {
         ),
       );
     }
+  } else if (isWebp(bytes)) {
+    const chunks = readWebpChunks(bytes);
+    const xmpChunk = chunks.find((c) => c.fourCC === "XMP ");
+    const exifChunk = chunks.find((c) => c.fourCC === "EXIF");
+
+    if (xmpChunk) {
+      const xmpText = utf8Decode(xmpChunk.data);
+      const webpC2paValue = matchC2paAiSource(xmpText);
+      if (webpC2paValue) {
+        findings.push(
+          makeFinding(
+            image,
+            "image_c2pa_ai_source",
+            "Métadonnées C2PA/IPTC : provenance déclarée IA (non authentifiée)",
+            `Le chunk RIFF « XMP » de ce WebP contient la chaîne « ${webpC2paValue} », qui correspond à la valeur IPTC digitalSourceType réservée aux contenus produits ou composés par un algorithme entraîné (IA générative). Attention : cette détection est une simple recherche de sous-chaîne dans les octets bruts du chunk XMP — ce n'est ni un parsing JUMBF/CBOR structuré, ni une vérification cryptographique de la signature ou du certificat d'un manifeste C2PA (le WebP n'a d'ailleurs pas d'équivalent structuré au JUMBF/caBX ici recherché). Il s'agit d'une provenance déclarée, non authentifiée : n'importe qui peut injecter cette chaîne dans un faux chunk pour produire ce signal (faux positif trivial), et supprimer le chunk d'un contenu réellement généré par IA le fait disparaître sans rien prouver (faux négatif silencieux). À traiter comme un indice à corroborer, jamais comme une preuve à lui seul.`,
+            "moyen",
+            0.45,
+            webpC2paValue,
+          ),
+        );
+      }
+    }
+
+    if (exifChunk) {
+      const exifTags = readExifFromWebpChunk(exifChunk.data);
+      if (exifTags) {
+        hasCameraExif = true;
+        const hit = matchExifGenerator(exifTags);
+        if (hit) {
+          findings.push(
+            makeFinding(
+              image,
+              "image_exif_generator_tag",
+              `Balise EXIF « ${hit.field} » : outil de génération IA connu`,
+              `La balise EXIF ${hit.field} de cette image vaut « ${hit.value} », qui correspond au nom d'un outil de génération d'image par IA connu (${hit.generator}). Ce champ est écrit directement par le logiciel qui a produit ou exporté l'image.`,
+              "moyen",
+              0.6,
+              hit.value,
+            ),
+          );
+        }
+      }
+    }
+
+    findings.push(
+      makeFinding(
+        image,
+        "image_webp_limited_check",
+        "Vérification limitée pour le format WebP",
+        "La vérification pour ce format WebP se limite aux métadonnées EXIF et XMP basiques (chunks RIFF) : contrairement au JPEG (JUMBF/APP11) et au PNG (chunk caBX), aucun équivalent structuré de manifeste C2PA n'est recherché pour ce conteneur. L'absence de signal ci-dessus ne permet donc pas de conclure à l'authenticité de cette image — la vérification est simplement plus limitée que pour un JPEG ou un PNG.",
+        "info",
+        0,
+      ),
+    );
   }
 
   if (!hasCameraExif && isAiTypicalResolution(image.width, image.height)) {
@@ -483,14 +598,83 @@ function analyzeOneImage(image: ImageModel): Finding[] {
   return findings;
 }
 
-export function analyzeImageSignals(images: ImageModel[]): Finding[] {
+/** Only JPEG/PNG are checked for a C2PA declaration in any structured sense
+ * (JUMBF/APP11, chunk `caBX`) — WebP only gets a bare XMP substring sweep (see
+ * `image_webp_limited_check`), so it is deliberately excluded from the
+ * "checkable" count below: counting it in would make an unchecked format look
+ * like a verified-clean one. */
+function isC2paCheckable(bytes: Uint8Array): boolean {
+  return isJpeg(bytes) || isPng(bytes);
+}
+
+/**
+ * Distinguishes "no C2PA chunk found" (verification inconclusive) from
+ * "verified clean" — exactly the distinction `PlagiarismScanResult.failedPassages`
+ * already draws against `checkedPassages` (see types.ts): a document with zero
+ * `image_c2pa_ai_source` findings must not silently read as "checked, nothing
+ * suspicious" when in fact no provenance chunk was even present to examine.
+ */
+function buildC2paCoverageFinding(checkableCount: number, declaredCount: number): Finding | undefined {
+  const undeclared = checkableCount - declaredCount;
+  if (undeclared <= 0) return undefined;
+  return {
+    id: "img-c2pa-verification-status",
+    category: "image",
+    signal: "image_c2pa_verification_status",
+    label: "Vérification C2PA : absence de déclaration, pas une preuve d'authenticité",
+    explanation:
+      `Sur ${checkableCount} image(s) JPEG/PNG analysée(s) dans ce document, ${undeclared} ne comporte(nt) aucune ` +
+      "déclaration C2PA détectée par ce détecteur. Cette absence NE PROUVE PAS l'authenticité de ces images : elle " +
+      "signifie seulement qu'aucun marqueur de provenance n'a été trouvé dans leurs octets — une photo authentique " +
+      "et un contenu généré par IA qui n'embarque pas de manifeste C2PA produisent tous les deux ce même résultat " +
+      "« propre » en apparence. Il s'agit d'une vérification non concluante, à ne jamais confondre avec une " +
+      "vérification réussie.",
+    severity: "info",
+    weight: 0,
+    location: { label: "Ensemble des images" },
+  };
+}
+
+function buildPdfNonJpegSkippedFinding(skippedCount: number): Finding {
+  return {
+    id: "img-pdf-non-jpeg-skipped",
+    category: "image",
+    signal: "image_pdf_non_jpeg_skipped",
+    label: "Images non-JPEG ignorées dans ce PDF",
+    explanation:
+      `Ce PDF contient ${skippedCount} image(s) dans un format autre que JPEG (PNG, etc.) qui n'ont pas été ` +
+      "extraites pour l'analyse : seul le flux JPEG (filtre DCTDecode) est actuellement pris en charge, car c'est le " +
+      "seul qui préserve les octets d'origine (EXIF compris) sans redécodage. Ces images n'ont donc fait l'objet " +
+      "d'aucune vérification C2PA/EXIF — leur absence ci-dessus ne veut pas dire qu'elles sont propres.",
+    severity: "info",
+    weight: 0,
+    location: { label: "Document PDF" },
+  };
+}
+
+export function analyzeImageSignals(images: ImageModel[], metadata?: DocumentMetadata): Finding[] {
   const findings: Finding[] = [];
+  let checkableCount = 0;
+  let declaredCount = 0;
   for (const image of images) {
     try {
-      findings.push(...analyzeOneImage(image));
+      const perImage = analyzeOneImage(image);
+      findings.push(...perImage);
+      if (isC2paCheckable(image.bytes)) {
+        checkableCount++;
+        if (perImage.some((f) => f.signal === "image_c2pa_ai_source")) declaredCount++;
+      }
     } catch {
       // Malformed/truncated image bytes: skip this image, keep analyzing the rest.
     }
   }
+
+  const coverage = buildC2paCoverageFinding(checkableCount, declaredCount);
+  if (coverage) findings.push(coverage);
+
+  if (metadata?.skippedNonJpegImages) {
+    findings.push(buildPdfNonJpegSkippedFinding(metadata.skippedNonJpegImages));
+  }
+
   return findings;
 }

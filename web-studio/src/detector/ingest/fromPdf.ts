@@ -17,10 +17,14 @@
  * octet pour octet (PDF ne fait qu'y coller les données déjà compressées),
  * ce qui préserve les octets EXIF d'origine. C'est précisément ce qui compte
  * ici : un autre filtre (JPXDecode, CCITTFaxDecode…) perdrait cette
- * préservation de toute façon, donc les ignorer silencieusement est une
- * réduction de portée acceptable plutôt qu'une lacune. Best effort : une
- * image individuelle qui ne s'extrait pas proprement est sautée, jamais
- * fatale pour le reste du document.
+ * préservation de toute façon. Ces images ignorées (typiquement un PNG collé
+ * dans le PDF) ne sont PAS passées sous silence pour autant : leur nombre est
+ * compté (`ImageExtractionResult.skippedNonJpeg`, avant tout filtrage) et
+ * remonté dans `DocumentMetadata.skippedNonJpegImages`, pour qu'un
+ * avertissement explicite s'affiche dans le panneau Images plutôt que de
+ * laisser croire que ces images ont été vérifiées. Best effort : une image
+ * individuelle qui ne s'extrait pas proprement est sautée, jamais fatale pour
+ * le reste du document.
  *
  * `PDFDocument.load` (pdf-lib) fait un parsing JS pur, complet et synchrone
  * de tout l'objet PDF — sur un document réel volumineux/complexe, mesuré en
@@ -47,8 +51,10 @@ export async function documentModelFromPdf(bytes: Uint8Array, password?: string)
   const engine = await PdfEngine.open(bytes, password);
   try {
     const paragraphs = await extractParagraphs(engine);
-    const images = await extractImages(bytes, engine.pageCount);
-    return { paragraphs, images, metadata: metadataFromEngine(engine) };
+    const { images, skippedNonJpeg } = await extractImages(bytes, engine.pageCount);
+    const metadata = metadataFromEngine(engine);
+    if (skippedNonJpeg > 0) metadata.skippedNonJpegImages = skippedNonJpeg;
+    return { paragraphs, images, metadata };
   } finally {
     engine.destroy();
   }
@@ -145,8 +151,17 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function extractImages(bytes: Uint8Array, pageCount: number): Promise<ImageModel[]> {
+interface ImageExtractionResult {
+  images: ImageModel[];
+  /** Compté avant tout filtrage sur le flux DCTDecode — cf. constat détecteur
+   *  sur les images non-JPEG collées dans un PDF (PNG, etc.) jamais soumises
+   *  à la vérification C2PA/EXIF, jusqu'ici sans aucun avertissement. */
+  skippedNonJpeg: number;
+}
+
+async function extractImages(bytes: Uint8Array, pageCount: number): Promise<ImageExtractionResult> {
   const images: ImageModel[] = [];
+  let skippedNonJpeg = 0;
   let doc: PDFDocument;
   try {
     // ignoreEncryption: un PDF chiffré n'est de toute façon pas exploitable
@@ -161,24 +176,27 @@ async function extractImages(bytes: Uint8Array, pageCount: number): Promise<Imag
       IMAGE_EXTRACTION_TIMEOUT_MS,
     );
   } catch {
-    return images;
+    return { images, skippedNonJpeg };
   }
   const pages = Math.min(pageCount, doc.getPageCount());
   for (let i = 0; i < pages; i++) {
     try {
-      extractPageImages(doc, i, images);
+      skippedNonJpeg += extractPageImages(doc, i, images);
     } catch {
       // Page structurellement inexploitable (résolution de référence
       // cassée, etc.) : on saute ses images, le reste du document continue.
     }
   }
-  return images;
+  return { images, skippedNonJpeg };
 }
 
-function extractPageImages(doc: PDFDocument, pageIndex: number, images: ImageModel[]): void {
+/** Renvoie le nombre d'XObjects Image rencontrés sur cette page dont le
+ *  filtre n'est pas DCTDecode (donc ignorés) — voir `ImageExtractionResult`. */
+function extractPageImages(doc: PDFDocument, pageIndex: number, images: ImageModel[]): number {
+  let skippedNonJpeg = 0;
   const page = doc.getPage(pageIndex);
   const xobjects = page.node.Resources()?.lookup(PDFName.of("XObject"));
-  if (!(xobjects instanceof PDFDict)) return;
+  if (!(xobjects instanceof PDFDict)) return skippedNonJpeg;
   for (const name of xobjects.keys()) {
     try {
       const stream = xobjects.lookup(name);
@@ -186,7 +204,10 @@ function extractPageImages(doc: PDFDocument, pageIndex: number, images: ImageMod
       const dict = stream.dict;
       const subtype = dict.lookup(PDFName.of("Subtype"));
       if (!(subtype instanceof PDFName) || subtype.asString().replace(/^\//, "") !== "Image") continue;
-      if (!isDctEncoded(dict)) continue;
+      if (!isDctEncoded(dict)) {
+        skippedNonJpeg++;
+        continue;
+      }
       const jpegBytes = stream.getContents(); // raw, undecoded — the JPEG itself
       if (!jpegBytes.length) continue;
       const image: ImageModel = { index: images.length, bytes: jpegBytes, mime: "image/jpeg", pageIndex };
@@ -200,6 +221,7 @@ function extractPageImages(doc: PDFDocument, pageIndex: number, images: ImageMod
       // page de ses images.
     }
   }
+  return skippedNonJpeg;
 }
 
 function isDctEncoded(dict: PDFDict): boolean {

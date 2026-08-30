@@ -34,13 +34,22 @@ type ModelSlice = Pick<DocumentModel, "paragraphs" | "images" | "metadata">;
 
 const hasText = (m: ModelSlice) => m.paragraphs.length > 0;
 const hasImageOfType = (mime: string) => (m: ModelSlice) => m.images.some((i) => i.mime === mime);
-const hasAnyRecognizedImage = (m: ModelSlice) =>
-  m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png");
+const hasImageOfAnyType = (mimes: string[]) => (m: ModelSlice) => m.images.some((i) => mimes.includes(i.mime));
+/** JPEG/PNG uniquement : les deux seuls formats où une déclaration C2PA est
+ *  cherchée dans un chunk structuré (JUMBF/APP11, `caBX`) — sert à la
+ *  distinction "chunk absent" (vérification impossible) vs "propre", voir
+ *  `image_c2pa_verification_status` dans imageSignals.ts. */
+const hasJpegOrPngImage = (m: ModelSlice) => m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png");
+/** Le signal `image_c2pa_ai_source` lui-même peut se déclencher sur JPEG, PNG
+ *  ET WebP (XMP basique) — voir imageSignals.ts. */
+const hasC2paCapableImage = (m: ModelSlice) =>
+  m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png" || i.mime === "image/webp");
 const hasImages = (m: ModelSlice) => m.images.length > 0;
 const hasMetadataField =
   (field: keyof DocumentModel["metadata"]) =>
   (m: ModelSlice) =>
     m.metadata[field] != null;
+const isPdf = (m: ModelSlice) => m.metadata.sourceFormat === "pdf";
 
 export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
   {
@@ -175,20 +184,20 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
   {
     id: "image_c2pa_ai_source",
     category: "image",
-    label: "Provenance C2PA/IPTC déclarée IA",
+    label: "Provenance C2PA/IPTC déclarée IA (non authentifiée)",
     description:
-      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant explicitement un contenu généré/composé par IA — le signal le plus fiable disponible. Pris en charge pour JPEG (XMP/JUMBF) et PNG (chunk caBX).",
+      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant un contenu généré/composé par IA. ATTENTION : simple recherche de sous-chaîne dans les octets bruts, ni parsing JUMBF/CBOR structuré ni vérification cryptographique de signature/certificat — une provenance déclarée, pas authentifiée, facilement falsifiable ou supprimable. Cherché en JPEG (XMP/JUMBF), PNG (chunk caBX) et WebP (XMP basique).",
     affectsScore: true,
-    appliesTo: hasAnyRecognizedImage,
+    appliesTo: hasC2paCapableImage,
   },
   {
     id: "image_exif_generator_tag",
     category: "image",
     label: "Balise EXIF d'un générateur IA connu",
     description:
-      "Balise EXIF Make/Model/Software correspondant au nom d'un outil de génération d'image par IA connu. EXIF n'est lu que sur les images JPEG.",
+      "Balise EXIF Make/Model/Software correspondant au nom d'un outil de génération d'image par IA connu. EXIF n'est lu que sur les images JPEG et WebP (pas PNG).",
     affectsScore: true,
-    appliesTo: hasImageOfType("image/jpeg"),
+    appliesTo: hasImageOfAnyType(["image/jpeg", "image/webp"]),
   },
   {
     id: "image_png_generation_parameters",
@@ -215,7 +224,52 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     affectsScore: true,
     appliesTo: hasImages,
   },
+  {
+    id: "image_c2pa_verification_status",
+    category: "image",
+    label: "Vérification C2PA : absence de déclaration ≠ preuve d'authenticité",
+    description:
+      "Rappel informatif : sur les images JPEG/PNG sans déclaration C2PA détectée, l'absence de signal ne prouve rien — c'est une vérification non concluante, pas une vérification réussie (même logique que « failedPassages » côté plagiat).",
+    affectsScore: false,
+    appliesTo: hasJpegOrPngImage,
+  },
+  {
+    id: "image_webp_limited_check",
+    category: "image",
+    label: "Vérification limitée pour le format WebP (informatif)",
+    description:
+      "Le WebP ne reçoit qu'un parsing basique des chunks RIFF EXIF/XMP, sans équivalent structuré au JUMBF (JPEG) ou au chunk caBX (PNG) — rappelé sur chaque image WebP analysée.",
+    affectsScore: false,
+    appliesTo: hasImageOfType("image/webp"),
+  },
+  {
+    id: "image_pdf_non_jpeg_skipped",
+    category: "image",
+    label: "Images non-JPEG ignorées dans un PDF (informatif)",
+    description:
+      "Un PDF peut contenir des images collées dans un format autre que JPEG (PNG, etc.) : seul le flux JPEG (filtre DCTDecode) est extrait pour l'analyse, ces autres images ne sont donc jamais vérifiées — ce signal le rappelle explicitement plutôt que de rester silencieux.",
+    affectsScore: false,
+    appliesTo: isPdf,
+  },
 ];
+
+/**
+ * Note de calibrage (constat d'audit) : les seuils des heuristiques "texte" ci-
+ * dessus (coefficients de variation, taux pour 1000 mots, parts de phrases…)
+ * sont des valeurs de bon sens documentées dans `textSignals.ts`, PAS calibrées
+ * sur un corpus réel de textes humains variés. Un écrit administratif ou
+ * technique français très structuré (clauses répétées, listes à puces
+ * nombreuses, formules d'ouverture figées d'un paragraphe à l'autre) peut donc
+ * déclencher des faux positifs sur `cliches_ia`, `densite_listes_elevee` et
+ * `amorces_repetees` en particulier. `ADMINISTRATIVE_STYLE_PRESET` ci-dessous
+ * couvre ce cas précis ; l'UI (DetectorView) affiche en plus cet avertissement
+ * en toutes lettres près des réglages de sensibilité.
+ */
+export const ADMINISTRATIVE_STYLE_PRESET: ReadonlySet<string> = new Set([
+  "cliches_ia",
+  "densite_listes_elevee",
+  "amorces_repetees",
+]);
 
 export function signalsByCategory(): Record<SignalCategory | "plagiat", SignalCatalogEntry[]> {
   const grouped: Record<string, SignalCatalogEntry[]> = {};

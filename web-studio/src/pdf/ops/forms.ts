@@ -328,6 +328,10 @@ export function createFields(
           const option = (typeof f.defaultValue === "string" && f.defaultValue) || f.options?.[0]?.value || "Option1";
           if (f.required) group.enableRequired();
           group.addOptionToPage(option, page, at);
+          // Unlike checkbox/dropdown/listbox below, addOptionToPage() alone never
+          // marks the button selected — without this the requested default is
+          // silently ignored and the group opens with no value at all.
+          if (typeof f.defaultValue === "string" && f.defaultValue) group.select(option);
           break;
         }
         case "dropdown": {

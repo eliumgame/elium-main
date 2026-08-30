@@ -85,6 +85,7 @@ import {
   BringToFront,
   SendToBack,
   SlidersHorizontal,
+  FunctionSquare,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
@@ -159,6 +160,7 @@ interface ToolbarProps {
   onOpenStyles?: () => void;
   onOpenCaption?: () => void;
   onOpenSymbol?: () => void;
+  onOpenEquation?: () => void;
   /** Volet du correcteur. */
   proofingOpen?: boolean;
   onToggleProofing?: () => void;
@@ -394,6 +396,7 @@ export default function Toolbar({
   onOpenStyles,
   onOpenCaption,
   onOpenSymbol,
+  onOpenEquation,
   onOpenWatermark,
   rulerVisible,
   onToggleRuler,
@@ -1094,6 +1097,9 @@ export default function Toolbar({
                   </Cmd>
                   <Cmd title="Insérer un symbole" onClick={() => onOpenSymbol?.()}>
                     <Sigma size={17} />
+                  </Cmd>
+                  <Cmd title="Insérer une équation" onClick={() => onOpenEquation?.()}>
+                    <FunctionSquare size={17} />
                   </Cmd>
                 </Group>
                 <Group title="Ornements">

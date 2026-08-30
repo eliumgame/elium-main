@@ -2926,6 +2926,22 @@
   outline: 2px solid var(--primary);
   border-radius: 2px;
 }
+/* Équation (voir editor/equationExtension.ts) : le rendu KaTeX arrive après un
+   import() différé, donc la source LaTeX brute s'affiche un instant — garder
+   une police lisible pour ce court intervalle plutôt qu'un flash de vide. */
+.elium-equation {
+  display: inline-block;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  font-family: "Cambria Math", Cambria, serif;
+}
+.elium-equation:hover {
+  background: var(--surface-hover, rgba(37, 99, 235, 0.08));
+}
+.ProseMirror-selectednode.elium-equation {
+  outline: 2px solid var(--primary);
+}
 .elium-footnotes {
   margin-top: 28px;
   padding-top: 12px;

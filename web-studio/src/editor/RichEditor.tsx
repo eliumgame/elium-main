@@ -27,6 +27,8 @@ import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofing
 import TrackChangePopover from "./TrackChangePopover";
 import { onTrackChangeRequest, type TrackChangeRequest } from "./TrackChanges";
 import SymbolModal from "./SymbolModal";
+import EquationModal from "./EquationModal";
+import { onEquationEditRequest, type EquationEditRequest } from "./equationExtension";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -211,6 +213,11 @@ export default function RichEditor({
   const [trackRequest, setTrackRequest] = useState<TrackChangeRequest | null>(null);
   useEffect(() => onTrackChangeRequest(setTrackRequest), []);
 
+  // Cliquer une équation rendue rouvre le même dialogue, pré-rempli (voir
+  // equationExtension.ts).
+  const [equationEdit, setEquationEdit] = useState<EquationEditRequest | null>(null);
+  useEffect(() => onEquationEditRequest(setEquationEdit), []);
+
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
   useEffect(() => {
@@ -247,6 +254,7 @@ export default function RichEditor({
     | "styles"
     | "caption"
     | "symbol"
+    | "equation"
     | "watermark"
     | "grid"
     | "shape"
@@ -495,6 +503,7 @@ export default function RichEditor({
           onOpenStyles={() => setDialog("styles")}
           onOpenCaption={() => setDialog("caption")}
           onOpenSymbol={() => setDialog("symbol")}
+          onOpenEquation={() => setDialog("equation")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
           onOpenWatermark={() => setDialog("watermark")}
@@ -688,6 +697,15 @@ export default function RichEditor({
       )}
       {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "equation" && <EquationModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && equationEdit && (
+        <EquationModal
+          editor={editor}
+          editingPos={equationEdit.pos}
+          initialLatex={equationEdit.latex}
+          onClose={() => setEquationEdit(null)}
+        />
+      )}
       {dialog === "watermark" && (
         <WatermarkModal
           value={documentModel.watermark as never}

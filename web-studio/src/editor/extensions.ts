@@ -50,6 +50,7 @@ import { CharFormat, Subscript, Superscript } from "./charFormat";
 import { ParagraphFormat } from "./paragraphFormat";
 import { NamedStyles } from "./styleExtension";
 import { Caption, TableOfFigures } from "./captionExtension";
+import { Equation } from "./equationExtension";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
 import { Pagination, type PaginationOptions } from "./Pagination";
@@ -118,6 +119,7 @@ export function buildExtensions(
     NamedStyles,
     Caption,
     TableOfFigures,
+    Equation,
     Comment,
     Insertion,
     Deletion,

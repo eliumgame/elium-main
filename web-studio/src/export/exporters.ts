@@ -450,6 +450,12 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       return "<hr>";
     case "image":
       return `<img src="${esc(String(node.attrs?.src ?? ""))}" alt="${esc(String(node.attrs?.alt ?? ""))}">`;
+    // Repli minimal : la source LaTeX telle quelle, pas de rendu KaTeX à
+    // l'export (voir editor/equationExtension.ts — embarquer la feuille de
+    // style et les polices de KaTeX dans chaque export serait disproportionné
+    // pour quelques formules).
+    case "equation":
+      return `<code class="elium-equation">${esc(String(node.attrs?.latex ?? ""))}</code>`;
     case "figure": {
       const align = esc(String(node.attrs?.align ?? "center"));
       const w = node.attrs?.width ? safeCss(String(node.attrs.width)) : "";
@@ -674,6 +680,9 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
       return figureTableFlat(node, ctx, true);
     case "mergeField":
       return `«${String(node.attrs?.field ?? "")}»`;
+    // Repli minimal, comme en HTML : la source LaTeX, en code inline.
+    case "equation":
+      return `\`${String(node.attrs?.latex ?? "")}\``;
     case "bulletList":
     case "orderedList":
       return listMd(node, ctx);
@@ -806,6 +815,8 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
       return figureTableFlat(node, ctx, false);
     case "mergeField":
       return `«${String(node.attrs?.field ?? "")}»`;
+    case "equation":
+      return String(node.attrs?.latex ?? "");
     case "bulletList":
     case "orderedList":
       return listText(node, ctx);
@@ -926,6 +937,8 @@ const PRINT_CSS = `
   .elium-columns > *{break-inside:avoid-column}
   .elium-xref{color:#1d4ed8;text-decoration:none}
   .elium-mergefield{white-space:nowrap}
+  /* Repli d'export (source LaTeX, pas de rendu KaTeX) — voir editor/equationExtension.ts. */
+  .elium-equation{font-family:"Cambria Math",Cambria,serif;padding:0 2px}
   .elium-index{margin-top:32px;page-break-inside:auto}
   .elium-index__title{font-size:1.2em;margin-bottom:8px}
   .elium-index__letter{margin-top:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;font-size:.85em}

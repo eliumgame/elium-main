@@ -41,6 +41,7 @@
     "@tiptap/starter-kit": "^3.26.0",
     "fflate": "^0.8.3",
     "hash-wasm": "^4.11.0",
+    "katex": "^0.18.4",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.300.0",
     "node-forge": "^1.4.0",

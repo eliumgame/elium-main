@@ -21,15 +21,7 @@ import type { SignatureDraft } from "../sign/SignatureCreator";
 import type { VaultSecret } from "../crypto/local-vault";
 
 export type StudioMode =
-  | "home"
-  | "studio"
-  | "viewer"
-  | "sheet"
-  | "slides"
-  | "pdf"
-  | "drive-cloud"
-  | "documentation"
-  | "detector";
+  "home" | "studio" | "viewer" | "sheet" | "slides" | "pdf" | "drive-cloud" | "documentation" | "detector";
 export type ExportKind = "html" | "md" | "text" | "pdf" | "report" | "docx";
 export type PanelId =
   "signatures" | "parapheur" | "comments" | "security" | "tracking" | "versions" | "export" | "info";
@@ -71,6 +63,8 @@ export interface Studio {
   updatePage(patch: Partial<PageSettings>): void;
   /** Replace the document's own named styles. */
   updateStyles(styles: EliumDocStyle[]): void;
+  /** Applique un thème (voir editor/themes.ts) : styles ET mémo ensemble. */
+  updateDocTheme(theme: string, styles: EliumDocStyle[]): void;
   /** Le filigrane appartient au document entier, pas à un nœud. */
   updateWatermark(mark: EliumWatermark): void;
   openSignatureCreator(): void;

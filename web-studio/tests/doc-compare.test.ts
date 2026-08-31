@@ -230,6 +230,33 @@ describe("Comparaison — documents", () => {
     expect(merged.content).toEqual([{ type: "paragraph" }]);
   });
 
+  it("marque le remplacement de l'image d'une figure malgré une légende inchangée", () => {
+    // Non-régression du constat P2 : contentSig/blockSig ignoraient les
+    // attributs des blocs non-vides, donc remplacer l'image d'une figure en
+    // gardant la même légende ne produisait aucune marque de changement.
+    const figure = (src: string): ProseMirrorNode => ({
+      type: "figure",
+      attrs: { src, alt: "", align: "center", width: null },
+      content: [{ type: "text", text: "Légende" }],
+    });
+    const { doc: merged, summary } = compareDocuments(doc(figure("a.png")), doc(figure("b.png")));
+    expect(summary.blocksChanged).toBe(1);
+    expect(merged.content![0]!.attrs).toMatchObject({ src: "b.png" });
+  });
+
+  it("marque le changement du nombre de colonnes d'une section, texte inchangé", () => {
+    const section = (count: number): ProseMirrorNode => ({
+      type: "columnSection",
+      attrs: { count, gapMm: 8, separator: false },
+      content: [p("texte identique")],
+    });
+    const { doc: merged, summary } = compareDocuments(doc(section(2)), doc(section(3)));
+    expect(summary.blocksChanged).toBeGreaterThanOrEqual(1);
+    expect(merged.content![0]!.attrs).toMatchObject({ count: 3 });
+    // Le texte lui-même n'est pas touché : pas de marques ins/del.
+    expect(pieces(merged)).toEqual(["texte identique"]);
+  });
+
   it("gère un document entièrement réécrit", () => {
     const { doc: merged, summary } = compareDocuments(doc(p("ancien texte")), doc(p("nouveau contenu")));
     expect(accepted(merged)).toBe("nouveau contenu");

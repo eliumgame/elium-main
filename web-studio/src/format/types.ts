@@ -102,6 +102,15 @@ export interface EliumDocumentModel {
   /** Document-defined named styles (optional; absent in older files). */
   styles?: EliumDocStyle[];
   /**
+   * Named colour/font preset last applied via the "Thème" dialog (see
+   * `editor/themes.ts`). Purely a memo — applying a theme writes its concrete
+   * overrides straight into `styles` above, so every consumer (export, DOCX,
+   * the editor itself) keeps working unchanged; this field only lets the
+   * dialog highlight the active choice and survives a reopen. Absent when no
+   * theme has ever been applied, or after a style is hand-edited away from it.
+   */
+  theme?: string;
+  /**
    * Filigrane du document. Il appartient au document entier, pas à un nœud : il
    * se dessine en fond de feuille et ne doit ni être sélectionnable ni compter
    * dans la pagination. Absent des fichiers antérieurs.

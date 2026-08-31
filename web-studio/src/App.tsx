@@ -788,6 +788,11 @@ export default function App() {
     setFile((prev) => (prev ? { ...prev, document: { ...prev.document, styles } } : prev));
   }, []);
 
+  /** Applique un thème : styles ET mémo écrits ensemble (voir editor/themes.ts). */
+  const updateDocTheme = useCallback((theme: string, styles: EliumDocStyle[]) => {
+    setFile((prev) => (prev ? { ...prev, document: { ...prev.document, theme, styles } } : prev));
+  }, []);
+
   const updateWatermark = useCallback((watermark: EliumWatermark) => {
     setFile((prev) => (prev ? { ...prev, document: { ...prev.document, watermark } } : prev));
   }, []);
@@ -1328,6 +1333,7 @@ export default function App() {
         setEncryptMetadata,
         updatePage,
         updateStyles,
+        updateDocTheme,
         updateWatermark,
         setRecipients,
         generateRecipientKey,

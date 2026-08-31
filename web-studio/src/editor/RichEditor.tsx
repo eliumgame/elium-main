@@ -27,6 +27,9 @@ import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofing
 import TrackChangePopover from "./TrackChangePopover";
 import { onTrackChangeRequest, type TrackChangeRequest } from "./TrackChanges";
 import SymbolModal from "./SymbolModal";
+import ThemeModal from "./ThemeModal";
+import EquationModal from "./EquationModal";
+import { onEquationEditRequest, type EquationEditRequest } from "./equationExtension";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -83,6 +86,9 @@ interface RichEditorProps {
   docTitle?: string;
   /** Persist the document's own named styles. */
   onStylesChange?: (styles: EliumDocStyle[]) => void;
+  /** Le thème (voir themes.ts) touche les styles ET son propre mémo ; les deux
+   *  se persistent ensemble, comme une seule action côté document. */
+  onThemeChange?: (theme: string, styles: EliumDocStyle[]) => void;
   /** Le filigrane appartient au document : c'est la vue qui le persiste. */
   onWatermarkChange?: (mark: EliumWatermark) => void;
   /** Le quadrillage est un réglage de page : la vue le persiste comme les marges. */
@@ -120,6 +126,7 @@ export default function RichEditor({
   onToggleInspector,
   docTitle,
   onStylesChange,
+  onThemeChange,
   onWatermarkChange,
   onGridChange,
   collab,
@@ -211,6 +218,11 @@ export default function RichEditor({
   const [trackRequest, setTrackRequest] = useState<TrackChangeRequest | null>(null);
   useEffect(() => onTrackChangeRequest(setTrackRequest), []);
 
+  // Cliquer une équation rendue rouvre le même dialogue, pré-rempli (voir
+  // equationExtension.ts).
+  const [equationEdit, setEquationEdit] = useState<EquationEditRequest | null>(null);
+  useEffect(() => onEquationEditRequest(setEquationEdit), []);
+
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
   useEffect(() => {
@@ -247,6 +259,8 @@ export default function RichEditor({
     | "styles"
     | "caption"
     | "symbol"
+    | "equation"
+    | "theme"
     | "watermark"
     | "grid"
     | "shape"
@@ -495,6 +509,8 @@ export default function RichEditor({
           onOpenStyles={() => setDialog("styles")}
           onOpenCaption={() => setDialog("caption")}
           onOpenSymbol={() => setDialog("symbol")}
+          onOpenEquation={() => setDialog("equation")}
+          onOpenTheme={() => setDialog("theme")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
           onOpenWatermark={() => setDialog("watermark")}
@@ -688,6 +704,23 @@ export default function RichEditor({
       )}
       {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "equation" && <EquationModal editor={editor} onClose={() => setDialog(null)} />}
+      {dialog === "theme" && (
+        <ThemeModal
+          activeTheme={documentModel.theme}
+          currentStyles={documentModel.styles}
+          onApply={(theme, styles) => onThemeChange?.(theme, styles)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {editor && equationEdit && (
+        <EquationModal
+          editor={editor}
+          editingPos={equationEdit.pos}
+          initialLatex={equationEdit.latex}
+          onClose={() => setEquationEdit(null)}
+        />
+      )}
       {dialog === "watermark" && (
         <WatermarkModal
           value={documentModel.watermark as never}

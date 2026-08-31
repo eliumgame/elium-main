@@ -85,6 +85,8 @@ import {
   BringToFront,
   SendToBack,
   SlidersHorizontal,
+  FunctionSquare,
+  Paintbrush2,
 } from "lucide-react";
 import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
@@ -159,6 +161,8 @@ interface ToolbarProps {
   onOpenStyles?: () => void;
   onOpenCaption?: () => void;
   onOpenSymbol?: () => void;
+  onOpenEquation?: () => void;
+  onOpenTheme?: () => void;
   /** Volet du correcteur. */
   proofingOpen?: boolean;
   onToggleProofing?: () => void;
@@ -394,6 +398,8 @@ export default function Toolbar({
   onOpenStyles,
   onOpenCaption,
   onOpenSymbol,
+  onOpenEquation,
+  onOpenTheme,
   onOpenWatermark,
   rulerVisible,
   onToggleRuler,
@@ -864,6 +870,9 @@ export default function Toolbar({
                       </>
                     )}
                   </Dropdown>
+                  <Cmd title="Thème du document (couleurs et polices)" onClick={() => onOpenTheme?.()}>
+                    <Paintbrush2 size={17} />
+                  </Cmd>
                   <Cmd
                     title="Citation"
                     active={editor.isActive("blockquote")}
@@ -1094,6 +1103,9 @@ export default function Toolbar({
                   </Cmd>
                   <Cmd title="Insérer un symbole" onClick={() => onOpenSymbol?.()}>
                     <Sigma size={17} />
+                  </Cmd>
+                  <Cmd title="Insérer une équation" onClick={() => onOpenEquation?.()}>
+                    <FunctionSquare size={17} />
                   </Cmd>
                 </Group>
                 <Group title="Ornements">

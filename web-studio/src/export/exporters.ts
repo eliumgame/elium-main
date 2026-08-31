@@ -266,7 +266,17 @@ function blockStyle(node: ProseMirrorNode): string {
   if (a && a !== "left") parts.push(`text-align:${esc(String(a))}`);
   const indent = Number(node.attrs?.indent) || 0;
   if (indent > 0) parts.push(`margin-left:${indent * 2}em`);
-  return parts.length ? ` style="${parts.join(";")}"` : "";
+  // Enchaînements ("solidaire avec le suivant" / "lignes solidaires" / "saut de
+  // page avant") : ces trois attributs pilotent la pagination À L'ÉCRAN
+  // (Pagination.ts) mais le moteur d'impression du navigateur les ignore tant
+  // qu'ils ne sont pas traduits ici — les mêmes attributs `data-*` que
+  // l'éditeur (paragraphFormat.ts), lus par les règles `[data-keep-next]` /
+  // `[data-keep-lines]` de PRINT_CSS ; "saut de page avant" n'a pas besoin
+  // d'une règle séparée, un style en ligne suffit (comme dans l'éditeur).
+  if (node.attrs?.pageBreakBefore) parts.push("break-before:page");
+  const dataAttrs =
+    (node.attrs?.keepNext ? ' data-keep-next="true"' : "") + (node.attrs?.keepLines ? ' data-keep-lines="true"' : "");
+  return dataAttrs + (parts.length ? ` style="${parts.join(";")}"` : "");
 }
 
 /** `id`/anchor attribute for a renvoi target (heading, figure, table). */
@@ -440,6 +450,12 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       return "<hr>";
     case "image":
       return `<img src="${esc(String(node.attrs?.src ?? ""))}" alt="${esc(String(node.attrs?.alt ?? ""))}">`;
+    // Repli minimal : la source LaTeX telle quelle, pas de rendu KaTeX à
+    // l'export (voir editor/equationExtension.ts — embarquer la feuille de
+    // style et les polices de KaTeX dans chaque export serait disproportionné
+    // pour quelques formules).
+    case "equation":
+      return `<code class="elium-equation">${esc(String(node.attrs?.latex ?? ""))}</code>`;
     case "figure": {
       const align = esc(String(node.attrs?.align ?? "center"));
       const w = node.attrs?.width ? safeCss(String(node.attrs.width)) : "";
@@ -664,6 +680,9 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
       return figureTableFlat(node, ctx, true);
     case "mergeField":
       return `«${String(node.attrs?.field ?? "")}»`;
+    // Repli minimal, comme en HTML : la source LaTeX, en code inline.
+    case "equation":
+      return `\`${String(node.attrs?.latex ?? "")}\``;
     case "bulletList":
     case "orderedList":
       return listMd(node, ctx);
@@ -796,6 +815,8 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
       return figureTableFlat(node, ctx, false);
     case "mergeField":
       return `«${String(node.attrs?.field ?? "")}»`;
+    case "equation":
+      return String(node.attrs?.latex ?? "");
     case "bulletList":
     case "orderedList":
       return listText(node, ctx);
@@ -916,6 +937,8 @@ const PRINT_CSS = `
   .elium-columns > *{break-inside:avoid-column}
   .elium-xref{color:#1d4ed8;text-decoration:none}
   .elium-mergefield{white-space:nowrap}
+  /* Repli d'export (source LaTeX, pas de rendu KaTeX) — voir editor/equationExtension.ts. */
+  .elium-equation{font-family:"Cambria Math",Cambria,serif;padding:0 2px}
   .elium-index{margin-top:32px;page-break-inside:auto}
   .elium-index__title{font-size:1.2em;margin-bottom:8px}
   .elium-index__letter{margin-top:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;font-size:.85em}
@@ -923,6 +946,13 @@ const PRINT_CSS = `
   .elium-index__sublist{padding-left:16px}
   .elium-index__list li{margin:2px 0}
   .elium-index__pages{color:#64748b;font-size:.9em}
+  /* Paragraphes/lignes solidaires ("keepNext"/"keepLines") : ces attributs
+     pilotent la pagination À L'ÉCRAN (Pagination.ts) mais n'avaient aucune
+     traduction ici — seul "saut de page avant" avait sa règle. Sans elles, un
+     titre (keepNext par défaut sur tous les styles Titre) pouvait rester seul
+     en bas de page à l'export PDF alors que l'écran le déplaçait. */
+  [data-keep-next]{break-after:avoid-page;page-break-after:avoid}
+  [data-keep-lines]{break-inside:avoid-page;page-break-inside:avoid}
 `;
 
 /**

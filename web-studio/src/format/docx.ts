@@ -571,6 +571,12 @@ function inlineItemXml(c: ProseMirrorNode, ctx: WriteCtx): string {
     if (!field) return "";
     return fieldXml(` MERGEFIELD ${field} \\* MERGEFORMAT `, `«${field}»`);
   }
+  // Repli minimal : la source LaTeX en italique, pas d'équation OMML — voir
+  // editor/equationExtension.ts pour la justification (v1 volontairement
+  // simple, la source reste lisible et re-modifiable au ré-import).
+  if (c.type === "equation") {
+    return runXml(String(c.attrs?.latex ?? ""), [{ type: "italic" }], ctx);
+  }
   if (c.type === "text") {
     const marks = c.marks ?? [];
     const link = marks.find((m) => m.type === "link");

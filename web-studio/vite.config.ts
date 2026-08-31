@@ -38,6 +38,10 @@ export default defineConfig({
           if (id.includes("yjs") || id.includes("y-protocols") || id.includes("lib0")) return "vendor-yjs";
           if (id.includes("lowlight") || id.includes("highlight.js") || id.includes("refractor"))
             return "vendor-lowlight";
+          // Only pulled in by the equation node view's dynamic import() (see
+          // equationExtension.ts) — its own chunk keeps it out of the eager
+          // main bundle for documents with no equation in them.
+          if (id.includes("katex")) return "vendor-katex";
         },
       },
     },

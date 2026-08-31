@@ -198,9 +198,15 @@ async function addGroupMembers(orgId: string, groupId: string, members: { value?
   return emails;
 }
 
+// Plafond dédié (au lieu du seul plafond global 600/min/IP) : un jeton SCIM
+// volé/mal configuré ne doit pas pouvoir cribler le provisioning (énumération
+// d'utilisateurs, spam d'invitations) à la même cadence qu'un usage normal
+// d'IdP (sync périodique). Même convention que auth.ts/signing.ts.
+const rl = (max: number) => ({ config: { rateLimit: { max, timeWindow: "1 minute" } } });
+
 export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   // --- List / filter members ------------------------------------------------
-  app.get("/scim/v2/Users", async (req, reply) => {
+  app.get("/scim/v2/Users", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const filter = String((req.query as { filter?: string }).filter ?? "");
     const m = /userName eq "([^"]+)"/i.exec(filter);
@@ -226,7 +232,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Get one member -------------------------------------------------------
-  app.get("/scim/v2/Users/:id", async (req, reply) => {
+  app.get("/scim/v2/Users/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const row = await queryOne<MemberRow>(
@@ -239,7 +245,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- Provision (create) → an invite the person completes by registering ---
-  app.post("/scim/v2/Users", async (req, reply) => {
+  app.post("/scim/v2/Users", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const b = z.object({ userName: z.string().email().max(320), active: z.boolean().optional() }).parse(req.body);
     const email = b.userName.toLowerCase();
@@ -283,7 +289,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- De-provision / re-activate (PATCH active) ----------------------------
-  app.patch("/scim/v2/Users/:id", async (req, reply) => {
+  app.patch("/scim/v2/Users/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const body = (req.body ?? {}) as { Operations?: { op?: string; path?: string; value?: unknown }[] };
@@ -314,7 +320,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- De-provision (DELETE) → suspend membership ---------------------------
-  app.delete("/scim/v2/Users/:id", async (req, reply) => {
+  app.delete("/scim/v2/Users/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const r = await query(
@@ -330,7 +336,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   // === Groups ================================================================
   // NOT cryptographic teams — provisioning metadata + optional role mapping.
 
-  app.get("/scim/v2/Groups", async (req, reply) => {
+  app.get("/scim/v2/Groups", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const filter = String((req.query as { filter?: string }).filter ?? "");
     const m = /displayName eq "([^"]+)"/i.exec(filter);
@@ -354,7 +360,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/scim/v2/Groups/:id", async (req, reply) => {
+  app.get("/scim/v2/Groups/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const g = await queryOne<GroupRow>(
@@ -366,7 +372,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     return scimGroup(g, await groupMembers(g.id));
   });
 
-  app.post("/scim/v2/Groups", async (req, reply) => {
+  app.post("/scim/v2/Groups", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const b = z
       .object({
@@ -409,7 +415,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Replace (PUT): displayName + full member set.
-  app.put("/scim/v2/Groups/:id", async (req, reply) => {
+  app.put("/scim/v2/Groups/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const b = z
@@ -454,7 +460,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Patch (PATCH): add / remove members, replace displayName.
-  app.patch("/scim/v2/Groups/:id", async (req, reply) => {
+  app.patch("/scim/v2/Groups/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const g = await queryOne<GroupRow>(
@@ -510,7 +516,7 @@ export default async function scimRoutes(app: FastifyInstance): Promise<void> {
     return scimGroup(g2!, await groupMembers(id));
   });
 
-  app.delete("/scim/v2/Groups/:id", async (req, reply) => {
+  app.delete("/scim/v2/Groups/:id", rl(100), async (req, reply) => {
     const orgId = await orgFromScim(req);
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const r = await query(`DELETE FROM scim_groups WHERE id = $1 AND org_id = $2 RETURNING id`, [id, orgId]);

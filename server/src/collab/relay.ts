@@ -126,7 +126,7 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     if (m.k === "bcast") broadcast(m.nodeId, null, m.message);
     else if (m.k === "kick") kickRoomLocal(m.nodeId, m.reason);
     else if (m.k === "org") notifyOrgLocal(m.orgId);
-  });
+  }, app.log);
 
   // --- WebSocket : canal d'événements de l'organisation --------------------
   const orgWsHandler = async (socket: WsConn, req: FastifyRequest) => {

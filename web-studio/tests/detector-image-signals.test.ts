@@ -104,7 +104,7 @@ function image(bytes: Uint8Array, overrides: Partial<ImageModel> = {}): ImageMod
 // ---- Tests ------------------------------------------------------------------
 
 describe("Détecteur — signaux image", () => {
-  it("ne signale rien pour une vraie photo (EXIF appareil, résolution non générative)", () => {
+  it("ne signale rien pour une vraie photo, à part le rappel que l'absence de C2PA n'est pas une preuve", () => {
     const bytes = buildJpeg([
       {
         marker: 0xe1,
@@ -116,10 +116,15 @@ describe("Détecteur — signaux image", () => {
       },
     ]);
     const findings = analyzeImageSignals([image(bytes, { width: 6000, height: 4000 })]);
-    expect(findings).toEqual([]);
+    // Aucun signal à charge — seul le rappel informatif (poids 0) que l'absence de
+    // déclaration C2PA est une vérification non concluante, pas une preuve de propreté.
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.signal).toBe("image_c2pa_verification_status");
+    expect(findings[0]!.severity).toBe("info");
+    expect(findings[0]!.weight).toBe(0);
   });
 
-  it("détecte digitalSourceType=trainedAlgorithmicMedia dans le XMP (C2PA/IPTC, priorité 1)", () => {
+  it("détecte digitalSourceType=trainedAlgorithmicMedia dans le XMP (C2PA/IPTC)", () => {
     const xml =
       '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description ' +
       'plus:digitalSourceType="http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"/>' +
@@ -127,16 +132,21 @@ describe("Détecteur — signaux image", () => {
     const bytes = buildJpeg([{ marker: 0xe1, data: xmpApp1(xml) }]);
     const findings = analyzeImageSignals([image(bytes, { index: 4 })]);
 
+    // Déclaré => pas de finding de couverture C2PA en plus (voir test ci-dessus).
     expect(findings).toHaveLength(1);
     const f = findings[0]!;
     expect(f.category).toBe("image");
     expect(f.signal).toBe("image_c2pa_ai_source");
-    expect(f.severity).toBe("eleve");
-    expect(f.weight).toBeGreaterThan(0.9);
+    // Signal spoofable (simple sous-chaîne, aucune vérification cryptographique) :
+    // ni le plus sévère, ni le plus lourd du catalogue (voir image_png_generation_parameters à 0.93).
+    expect(f.severity).toBe("moyen");
+    expect(f.weight).toBeLessThan(0.6);
+    expect(f.weight).toBeGreaterThan(0);
     expect(f.location).toEqual({ imageIndex: 4, label: "Image 5" });
     expect(f.evidence).toContain("trainedAlgorithmicMedia");
     expect(f.explanation).toContain("trainedAlgorithmicMedia");
-    expect(f.explanation).toMatch(/plus fiable/);
+    expect(f.explanation).toMatch(/non authentifiée/);
+    expect(f.explanation).not.toMatch(/plus fiable/);
   });
 
   it("détecte aussi la variante compositeWithTrainedAlgorithmicMedia", () => {
@@ -183,14 +193,14 @@ describe("Détecteur — signaux image", () => {
     expect(findings.some((f) => f.signal === "image_c2pa_ai_source")).toBe(false);
   });
 
-  it("détecte une balise EXIF Software nommant un générateur connu (priorité 3)", () => {
+  it("détecte une balise EXIF Software nommant un générateur connu", () => {
     const bytes = buildJpeg([{ marker: 0xe1, data: exifApp1([{ tag: TAG_SOFTWARE, value: "Midjourney 6.1" }]) }]);
     const findings = analyzeImageSignals([image(bytes, { width: 1024, height: 1024 })]);
 
     // EXIF present => the weak "no EXIF" heuristic must NOT also fire, even at an AI-typical resolution.
-    expect(findings).toHaveLength(1);
-    const f = findings[0]!;
-    expect(f.signal).toBe("image_exif_generator_tag");
+    // No C2PA declaration => the coverage reminder finding is also present alongside it.
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_exif_generator_tag")!;
     expect(f.severity).toBe("moyen");
     expect(f.evidence).toBe("Midjourney 6.1");
     expect(f.explanation).toContain("Midjourney 6.1");
@@ -199,12 +209,12 @@ describe("Détecteur — signaux image", () => {
   it("détecte une balise EXIF Make nommant un générateur connu", () => {
     const bytes = buildJpeg([{ marker: 0xe1, data: exifApp1([{ tag: TAG_MAKE, value: "Stable Diffusion" }]) }]);
     const findings = analyzeImageSignals([image(bytes)]);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]!.signal).toBe("image_exif_generator_tag");
-    expect(findings[0]!.label).toContain("Fabricant");
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_exif_generator_tag")!;
+    expect(f.label).toContain("Fabricant");
   });
 
-  it("détecte un chunk PNG tEXt « parameters » (Stable Diffusion WebUI, priorité 2)", () => {
+  it("détecte un chunk PNG tEXt « parameters » (Stable Diffusion WebUI)", () => {
     const prompt =
       "a cinematic photo of a red fox in a forest, masterpiece, highly detailed\n" +
       "Negative prompt: blurry, low quality\n" +
@@ -212,10 +222,9 @@ describe("Détecteur — signaux image", () => {
     const bytes = buildPng([tEXtChunk("parameters", prompt)]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);
 
-    expect(findings).toHaveLength(1);
-    const f = findings[0]!;
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_png_generation_parameters")!;
     expect(f.category).toBe("image");
-    expect(f.signal).toBe("image_png_generation_parameters");
     expect(f.severity).toBe("eleve");
     expect(f.evidence).toContain("Steps: 24");
     expect(f.explanation).toContain("AUTOMATIC1111");
@@ -225,42 +234,43 @@ describe("Détecteur — signaux image", () => {
     const prompt = "un chat astronaute, style aquarelle, Steps: 30, Seed: 42";
     const bytes = buildPng([iTXtChunk("parameters", prompt, true)]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]!.signal).toBe("image_png_generation_parameters");
-    expect(findings[0]!.evidence).toContain("Seed: 42");
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_png_generation_parameters")!;
+    expect(f.evidence).toContain("Seed: 42");
   });
 
   it("détecte un chunk PNG « Software » nommant un générateur connu", () => {
     const bytes = buildPng([tEXtChunk("Software", "NightCafe Creator")]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]!.signal).toBe("image_png_generation_software");
-    expect(findings[0]!.evidence).toContain("NightCafe Creator");
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_png_generation_software")!;
+    expect(f.evidence).toContain("NightCafe Creator");
   });
 
-  it("ne signale rien pour un PNG sans chunk texte pertinent", () => {
+  it("ne signale rien pour un PNG sans chunk texte pertinent, à part le rappel de couverture C2PA", () => {
     const bytes = buildPng([tEXtChunk("Comment", "Créé avec GIMP")]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/png", width: 3000, height: 2000 })]);
-    expect(findings).toEqual([]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.signal).toBe("image_c2pa_verification_status");
   });
 
-  it("signal faible : résolution typique d'un générateur, sans aucune EXIF (priorité 4)", () => {
+  it("signal faible : résolution typique d'un générateur, sans aucune EXIF", () => {
     const bytes = buildJpeg([]); // SOI+EOI only, no APP1 at all
     const findings = analyzeImageSignals([image(bytes, { width: 1024, height: 1792 })]);
 
-    expect(findings).toHaveLength(1);
-    const f = findings[0]!;
-    expect(f.signal).toBe("image_no_exif_generator_resolution");
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_no_exif_generator_resolution")!;
     expect(f.severity).toBe("faible");
     expect(f.weight).toBeLessThan(0.3);
     expect(f.evidence).toBe("1024×1792");
     expect(f.explanation).toMatch(/ne prouve rien/);
   });
 
-  it("ne signale rien sans EXIF si la résolution n'est pas typique d'un générateur", () => {
+  it("ne signale rien sans EXIF si la résolution n'est pas typique d'un générateur, à part le rappel de couverture C2PA", () => {
     const bytes = buildJpeg([]);
     const findings = analyzeImageSignals([image(bytes, { width: 4032, height: 3024 })]);
-    expect(findings).toEqual([]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.signal).toBe("image_c2pa_verification_status");
   });
 
   it("cumule plusieurs signaux distincts sur une même image quand ils sont tous présents", () => {
@@ -281,8 +291,10 @@ describe("Détecteur — signaux image", () => {
       image(bytes, { index: 2, width: 1024, height: 1024 }),
     ];
     const findings = analyzeImageSignals(images);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]!.location).toEqual({ imageIndex: 2, label: "Image 3" });
+    // 1 finding per image (the 100×100 one isn't AI-typical) + 1 coverage reminder.
+    expect(findings).toHaveLength(2);
+    const f = findings.find((x) => x.signal === "image_no_exif_generator_resolution")!;
+    expect(f.location).toEqual({ imageIndex: 2, label: "Image 3" });
   });
 
   it("ne lève jamais d'exception sur des octets malformés/tronqués et ignore simplement l'image", () => {
@@ -298,5 +310,70 @@ describe("Détecteur — signaux image", () => {
 
   it("retourne un tableau vide pour un document sans image", () => {
     expect(analyzeImageSignals([])).toEqual([]);
+  });
+});
+
+// ---- WebP fixtures (basic RIFF chunk builder) -------------------------------
+
+function webpChunk(fourCC: string, data: number[]): number[] {
+  const chunk = [...ascii(fourCC), ...le32(data.length), ...data];
+  if (data.length % 2 === 1) chunk.push(0); // RIFF pads odd-sized chunks
+  return chunk;
+}
+
+function buildWebp(chunks: number[][]): Uint8Array {
+  const payload = chunks.flat();
+  return new Uint8Array([...ascii("RIFF"), ...le32(4 + payload.length), ...ascii("WEBP"), ...payload]);
+}
+
+describe("Détecteur — signaux image (WebP, parsing basique)", () => {
+  it("détecte une balise EXIF d'un générateur connu dans le chunk RIFF EXIF, et avertit d'une vérification limitée", () => {
+    const exifData = Array.from(buildTiffAscii([{ tag: TAG_SOFTWARE, value: "Midjourney 6.1" }]));
+    const bytes = buildWebp([webpChunk("EXIF", exifData)]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
+
+    const signals = findings.map((f) => f.signal).sort();
+    expect(signals).toEqual(["image_exif_generator_tag", "image_webp_limited_check"]);
+    expect(findings.find((f) => f.signal === "image_exif_generator_tag")!.evidence).toBe("Midjourney 6.1");
+    const limited = findings.find((f) => f.signal === "image_webp_limited_check")!;
+    expect(limited.severity).toBe("info");
+    expect(limited.weight).toBe(0);
+  });
+
+  it("détecte une déclaration C2PA dans le chunk RIFF XMP d'un WebP", () => {
+    const xml = 'plus:digitalSourceType="http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"';
+    const bytes = buildWebp([webpChunk("XMP ", ascii(xml))]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
+
+    expect(findings.some((f) => f.signal === "image_c2pa_ai_source")).toBe(true);
+    // WebP est structurellement exclu du décompte "checkable" JPEG/PNG (voir
+    // isC2paCheckable) : pas de finding de couverture C2PA ajouté pour ce format,
+    // même seul dans le document — il aurait l'air "vérifié" à tort sinon.
+    expect(findings.some((f) => f.signal === "image_c2pa_verification_status")).toBe(false);
+  });
+
+  it("un WebP sans chunk EXIF ni XMP ne produit que l'avertissement de vérification limitée", () => {
+    const bytes = buildWebp([]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.signal).toBe("image_webp_limited_check");
+  });
+});
+
+// ---- Constat détecteur : images PDF non-JPEG ignorées à l'ingestion --------
+
+describe("Détecteur — avertissement images non-JPEG ignorées (PDF)", () => {
+  it("ajoute un finding informatif quand l'ingestion PDF signale des images non-JPEG ignorées", () => {
+    const findings = analyzeImageSignals([], { sourceFormat: "pdf", skippedNonJpegImages: 2 });
+    expect(findings).toHaveLength(1);
+    const f = findings[0]!;
+    expect(f.signal).toBe("image_pdf_non_jpeg_skipped");
+    expect(f.severity).toBe("info");
+    expect(f.weight).toBe(0);
+    expect(f.explanation).toContain("2 image");
+  });
+
+  it("n'ajoute rien si aucune image n'a été ignorée", () => {
+    expect(analyzeImageSignals([], { sourceFormat: "pdf" })).toEqual([]);
   });
 });

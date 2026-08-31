@@ -177,6 +177,12 @@
 .det-plagiarism-fields select.input {
   cursor: pointer;
 }
+.det-plagiarism-disclaimer {
+  margin: 10px 0 0;
+  font-size: var(--el-fs-xs);
+  color: var(--el-text-muted);
+  line-height: var(--el-lh-base);
+}
 
 .det-actions {
   display: flex;
@@ -224,6 +230,9 @@
   font-size: var(--el-fs-xs);
   color: var(--el-text-muted);
   line-height: var(--el-lh-base);
+}
+.det-sensitivity__preset {
+  margin: 0 0 14px;
 }
 .det-sensitivity__group {
   margin-bottom: 14px;

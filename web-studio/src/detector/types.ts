@@ -85,6 +85,11 @@ export interface DocumentMetadata {
   editingMinutes?: number;
   revisionCount?: number;
   pageCount?: number;
+  /** PDF only: count of embedded images that were NOT extracted for analysis
+   *  because their filter isn't DCTDecode (JPEG) — e.g. a pasted PNG. These
+   *  images never reach `analyzeImageSignals`, so this is the only way the
+   *  Détecteur can warn that they went unchecked instead of staying silent. */
+  skippedNonJpegImages?: number;
 }
 
 export interface DocumentModel {

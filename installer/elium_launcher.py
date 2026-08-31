@@ -12,9 +12,11 @@ Usage : Elium.exe [fichier.elium]
         démarrage via l'endpoint local /__open__.
 """
 
+import hmac
 import http.server
 import json
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -22,7 +24,9 @@ import threading
 import urllib.parse
 import webbrowser
 from functools import partial
+from html import escape as _html_escape
 from pathlib import Path
+from typing import Optional
 
 # Module d'auto-update (embarqué à côté du lanceur, cf. installer/elium.spec).
 # Import tolérant : si absent/cassé, l'app tourne normalement, sans màj.
@@ -31,6 +35,52 @@ try:
     import updater  # type: ignore
 except Exception:  # pragma: no cover - défensif
     updater = None  # type: ignore
+
+
+# --------------------------------------------------------------------------- #
+# Anti-CSRF sur les routes d'état (démarrage/redémarrage de mise à jour, rollback)
+#
+# Le serveur loopback écoute sur un port PRÉVISIBLE (3000-3100, cf. find_free_port)
+# et sans authentification réseau : sans ce jeton, n'importe quelle page web
+# ouverte pendant qu'Elium tourne pourrait forcer un rollback/redémarrage par un
+# simple fetch() en croisant les ports. Défense :
+#   1) Un jeton ALÉATOIRE généré à chaque lancement du process (_SESSION_TOKEN),
+#      injecté UNIQUEMENT dans le document HTML servi par CE process (une balise
+#      <meta>, jamais un script inline — la CSP stricte l'interdirait, cf.
+#      _serve_index_with_banner). Une page tierce ne peut ni le lire (Same-Origin
+#      Policy : elle ne peut pas fetch()/parser ce document depuis une autre
+#      origine) ni le deviner. Exigé en en-tête X-Elium-Token sur do_POST.
+#   2) En défense supplémentaire : vérification Origin (ou Host à défaut) ==
+#      127.0.0.1:<port> de CE serveur.
+# Les deux DOIVENT passer pour qu'une route d'état soit honorée.
+_SESSION_TOKEN = secrets.token_urlsafe(32)
+
+
+def _token_meta_tag() -> bytes:
+    """Balise <meta> portant le jeton de session, à injecter dans le document servi."""
+    return (
+        b'<meta name="elium-token" content="'
+        + _html_escape(_SESSION_TOKEN, quote=True).encode("ascii")
+        + b'">'
+    )
+
+
+def _is_authorized_state_request(
+    token: Optional[str], origin: Optional[str], host: Optional[str], port: int
+) -> bool:
+    """True si une requête POST vers une route d'état est légitime.
+
+    `token` doit correspondre EXACTEMENT (comparaison à temps constant) au jeton
+    de CETTE session. `origin`, quand le navigateur l'envoie (cas normal pour un
+    fetch POST), doit désigner ce serveur ; à défaut on retombe sur `Host` (qui,
+    lui, est toujours présent en HTTP/1.1).
+    """
+    if not hmac.compare_digest(token or "", _SESSION_TOKEN):
+        return False
+    expected = f"http://127.0.0.1:{port}"
+    if origin is not None:
+        return origin == expected
+    return (host or "") == f"127.0.0.1:{port}"
 
 
 # Carte de mise à jour : une seule carte discrète, un seul bouton, une barre animée.
@@ -174,7 +224,14 @@ UPDATE_JS = """
     document.body.appendChild(card);
   }
   function post(path) {
-    return fetch(path, { method: 'POST' }).then(function (r) { return r.json(); }).catch(function () {});
+    // Jeton anti-CSRF relu depuis la balise <meta> injectée dans CE document
+    // (jamais un script inline, cf. _serve_index_with_banner côté serveur) —
+    // relu à chaque appel plutôt que mis en cache, pour ne dépendre d'aucun
+    // ordre d'exécution avec l'injection de la balise.
+    var meta = document.querySelector('meta[name="elium-token"]');
+    var token = meta ? meta.getAttribute('content') : '';
+    return fetch(path, { method: 'POST', headers: { 'X-Elium-Token': token } })
+      .then(function (r) { return r.json(); }).catch(function () {});
   }
   function set(icon, t, s) { badge.textContent = icon; title.textContent = t; sub.textContent = s; }
   function syncNotes() {
@@ -478,6 +535,15 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        port = self.server.server_address[1]
+        if not _is_authorized_state_request(
+            self.headers.get("X-Elium-Token"),
+            self.headers.get("Origin"),
+            self.headers.get("Host"),
+            port,
+        ):
+            self.send_error(403, "Requête non autorisée (jeton de session ou origine invalide)")
+            return
         clean = self.path.split("?", 1)[0]
         if clean == "/__update__/start":
             status = {"state": "idle"}
@@ -521,7 +587,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, "index.html introuvable")
             return
         tag = (
-            b'<link rel="stylesheet" href="/__elium_update.css">'
+            _token_meta_tag()
+            + b'<link rel="stylesheet" href="/__elium_update.css">'
             b'<script src="/__elium_update.js" defer></script>'
         )
         if b"</body>" in html:

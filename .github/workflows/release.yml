@@ -1,8 +1,24 @@
 name: Elium — Publication auto (push master)
 
-# Modèle « dès que je push, ça se met à jour » : chaque push sur master (hors docs)
+# Modèle « dès que je push, ça se met à jour » : chaque push sur master
 # construit l'app Windows, signe le manifeste et publie une GitHub Release. Les apps
 # installées la récupèrent automatiquement. Aucun tag manuel.
+#
+# Déclenchement — CE workflow ne démarre PLUS directement sur push : un commit qui
+# casse un test Vitest/lint/a11y/serveur mais compile aurait pu être publié et
+# auto-distribué à toute la base installée en ne passant QUE pytest. Il attend
+# désormais la fin du workflow "Elium CI" (.github/workflows/ci.yml, qui lui
+# tourne sur push comme avant) et vérifie, dans le job "gate" ci-dessous :
+#   - que c'est bien CE workflow CI référencé par son NOM ("Elium CI") qui vient
+#     de tourner (déclenchement `workflow_run`) ;
+#   - que sa conclusion est EXACTEMENT "success" (pas "failure"/"cancelled") ;
+#   - que la branche testée (`head_branch`) est bien `master` (écarte les runs CI
+#     déclenchés par une pull_request depuis une autre branche) ;
+#   - que le dépôt source du run CI est bien CE dépôt (écarte un run CI d'un fork).
+# Tout le reste du job (checkout, build, signature, publication) s'exécute alors
+# sur le SHA EXACT (`head_sha`) qui a été testé par CI — jamais un autre commit.
+# `workflow_dispatch` reste un contournement MANUEL volontaire (republication
+# d'urgence) qui ne repasse pas par ce contrôle CI.
 #
 # Pré-requis (une seule fois) :
 #   - Repo PUBLIC (sinon les utilisateurs ne peuvent pas télécharger les assets).
@@ -10,24 +26,48 @@ name: Elium — Publication auto (push master)
 #     Tant qu'il est absent, ce workflow s'exécute mais NE PUBLIE PAS (run vert, pas d'échec).
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Elium CI"]
+    types: [completed]
     branches: [master]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.github/**'   # les tweaks de workflow/CI ne publient pas de release
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: write   # crée/met à jour l'issue de suivi si le health-check post-publication échoue
 
 jobs:
   release:
     runs-on: windows-latest
     steps:
+      - name: Vérifier le déclencheur (CI verte sur ce commit master, ou déclenchement manuel)
+        id: gate
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Déclenchement manuel (workflow_dispatch) — contrôle CI volontairement contourné."
+          elif [ "${{ github.event_name }}" = "workflow_run" ] \
+            && [ "${{ github.event.workflow_run.conclusion }}" = "success" ] \
+            && [ "${{ github.event.workflow_run.head_branch }}" = "master" ] \
+            && [ "${{ github.event.workflow_run.head_repository.full_name }}" = "${{ github.repository }}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            echo "Elium CI réussi sur master @ ${{ github.event.workflow_run.head_sha }} — publication autorisée."
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Publication ignorée::Elium CI n'a pas terminé en succès sur master pour ce commit (event=${{ github.event_name }}, conclusion=${{ github.event.workflow_run.conclusion }}, branche=${{ github.event.workflow_run.head_branch }})."
+            echo "### ⛔ Publication ignorée — Elium CI n'est pas vert sur ce commit master" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.ok == 'true'
         with:
+          # SHA exact validé par le gate ci-dessus (jamais un autre commit qui
+          # aurait pu atterrir sur master entre la fin de CI et ce run).
+          ref: ${{ steps.gate.outputs.sha }}
           # Historique ET tags complets : installer/changelog.py dérive les
           # nouveautés de `git log <tag précédent>..HEAD`. Un checkout
           # superficiel (le défaut) donnerait une liste vide, donc une carte de
@@ -36,6 +76,7 @@ jobs:
 
       - name: Vérifier le secret de signature
         id: guard
+        if: steps.gate.outputs.ok == 'true'
         shell: bash
         env:
           KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
@@ -138,7 +179,11 @@ jobs:
           mkdir -p dist
           python installer/changelog.py --version "$V" --out dist/changelog.json $PREV \
             || echo "::warning::changelog indisponible — manifeste publié sans notes détaillées"
-          ARGS=(--version "$V" --commit "${{ github.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
+          # SHA du commit gate ci-dessus (validé par CI, checkouté explicitement),
+          # PAS github.sha : sur un déclenchement workflow_run, github.sha désigne
+          # le HEAD de master au moment de CE run, qui peut différer (course avec
+          # un push ultérieur) du commit qui a réellement été testé.
+          ARGS=(--version "$V" --commit "${{ steps.gate.outputs.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
           if [ -f dist/changelog.json ]; then ARGS+=(--changelog-file dist/changelog.json); fi
           if [ -f "$MSI" ]; then ARGS+=(--msi "$MSI"); fi
           python installer/gen_manifest.py "${ARGS[@]}"
@@ -164,10 +209,29 @@ jobs:
             exit 0
           fi
           gh release create "v${V}" "${ASSETS[@]}" \
-            --target "${{ github.sha }}" \
+            --target "${{ steps.gate.outputs.sha }}" \
             --title "Elium ${V}" \
             --generate-notes
           echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Vérifier la présence du MSI (alerte si absent)
+        # L'étape WiX est en continue-on-error (best-effort, cf. son commentaire) :
+        # si elle échoue, l'asset MSI est simplement omis de la release SANS que
+        # rien ne le signale ailleurs que dans les logs de cette étape précise —
+        # contrairement au changelog manquant, qui a déjà son propre `::warning::`
+        # ci-dessus. Cette étape rend l'omission visible au même endroit (résumé du
+        # job), que la release ait été publiée ou non (no-op inclus).
+        if: steps.guard.outputs.has_key == 'true'
+        shell: bash
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          MSI="installer/output/Elium-${V}-Setup.msi"
+          if [ -f "$MSI" ]; then
+            echo "  [ok]   $MSI présent"
+          else
+            echo "::warning title=MSI absent::Le build WiX (best-effort, continue-on-error) a échoué ou n'a produit aucun installeur — v${V} est publiée SANS MSI (exe + web uniquement). Voir les logs de l'étape « Builder le MSI » ci-dessus pour la cause."
+            echo "### ⚠️ MSI absent pour v${V} — build WiX échoué, release sans installeur MSI" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Vérifier la publication (health-check post-release)
         # Ne tourne QUE si une release a été VRAIMENT publiée à l'étape
@@ -176,6 +240,7 @@ jobs:
         shell: bash
         env:
           V: ${{ steps.ver.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # ------------------------------------------------------------- #
           # Décision : PAS de rollback automatique (pas de `gh release
@@ -218,5 +283,30 @@ jobs:
           else
             echo "::warning title=Health-check post-publication échoué::La release v${V} a été publiée mais son manifeste/ses assets n'ont pas pu être re-vérifiés après coup (signature/sha256/disponibilité). ROLLBACK NON AUTOMATIQUE : inspectez les logs de ce job et décidez (rollback manuel, suppression manuelle, ou republication)."
             echo "### ❌ Health-check post-publication ÉCHOUÉ pour v${V} — rollback NON automatique, décision manuelle requise" >> "$GITHUB_STEP_SUMMARY"
+
+            # ----------------------------------------------------------- #
+            # Visibilité HORS de l'onglet Actions, sans secret supplémentaire :
+            # ouvre (ou commente, si une est déjà ouverte) une issue GitHub dédiée
+            # via le GITHUB_TOKEN par défaut (permissions.issues: write ci-dessus).
+            # `gh label create --force` est idempotent : crée le label la première
+            # fois, ne fait rien d'observable les fois suivantes.
+            # ----------------------------------------------------------- #
+            gh label create "release-health-check-failed" \
+              --color "B60205" \
+              --description "Health-check post-publication d'une release Elium en échec (voir release.yml)" \
+              --force || true
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            BODY=$(printf '%s\n\n%s' \
+              "Le health-check post-publication a échoué pour **v${V}** (workflow release.yml, [run #${{ github.run_id }}](${RUN_URL}))." \
+              "ROLLBACK NON automatique : voir les logs du run ci-dessus pour la raison précise (signature/sha256/disponibilité), puis décider — rollback manuel via le bouton client existant, suppression manuelle de la release, ou republication corrective.")
+            EXISTING=$(gh issue list --label "release-health-check-failed" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --body "$BODY" || true
+            else
+              gh issue create \
+                --title "Health-check de publication en échec — v${V}" \
+                --label "release-health-check-failed" \
+                --body "$BODY" || true
+            fi
             exit 1
           fi

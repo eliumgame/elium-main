@@ -7,6 +7,7 @@ embarquée par monkeypatch — aucune dépendance à la clé locale (gitignorée
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import zipfile
@@ -207,6 +208,95 @@ def test_http_get_does_not_retry_oversized_response(env, monkeypatch):
     with pytest.raises(ValueError):
         updater._http_get("https://example.invalid/x", 16)
 
+    assert calls["n"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Même retry réseau borné, mais pour le téléchargement d'ARTEFACT (_download_verified)
+#
+# `_download_verified` (exe/msi/zip — le téléchargement le plus long et le plus
+# exposé) urlopen() directement, sans passer par `_http_get`/`_urlopen_read` :
+# il a donc besoin de SA PROPRE couverture, avec la même logique (retry borné +
+# backoff sur un incident réseau transitoire, jamais sur une réponse trop
+# volumineuse). On monkeypatch `urllib.request.urlopen` (la seule primitive que
+# `_download_verified` appelle) plutôt que `_urlopen_read`, qui n'entre pas en jeu ici.
+# --------------------------------------------------------------------------- #
+
+class _FakeUrlopenResponse:
+    """Contexte minimal imitant l'objet renvoyé par urllib.request.urlopen."""
+
+    def __init__(self, payload: bytes):
+        self._chunks = [payload, b""]  # un seul chunk puis fin de flux
+        self._i = 0
+
+    def read(self, _n: int) -> bytes:
+        chunk = self._chunks[self._i]
+        self._i = min(self._i + 1, len(self._chunks) - 1)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_download_verified_retries_transient_error_then_succeeds(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_HTTP_RETRY_BACKOFF_BASE", 0)
+    payload = b"contenu de l'artefact"
+    sha = hashlib.sha256(payload).hexdigest()
+    calls = {"n": 0}
+
+    def flaky_urlopen(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise TimeoutError("connexion expirée")
+        return _FakeUrlopenResponse(payload)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", flaky_urlopen)
+    dest = tmp_path / "artifact.bin"
+    art = {"url": "https://example.invalid/a.bin", "sha256": sha, "size": len(payload)}
+
+    assert updater._download_verified(art, dest) is True
+    assert calls["n"] == 3  # 2 échecs transitoires absorbés + 1 succès
+    assert dest.read_bytes() == payload
+
+
+def test_download_verified_gives_up_after_max_attempts(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_HTTP_RETRY_BACKOFF_BASE", 0)
+    calls = {"n": 0}
+
+    def always_fails(req, timeout=None):
+        calls["n"] += 1
+        raise ConnectionResetError("connexion réinitialisée")
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", always_fails)
+    dest = tmp_path / "artifact.bin"
+    art = {"url": "https://example.invalid/a.bin", "sha256": "00" * 32, "size": 10}
+
+    # Contrairement à `_http_get`, `_download_verified` ne lève jamais : un échec
+    # définitif se traduit par False (design existant, cf. son appelant apply_web_update).
+    assert updater._download_verified(art, dest) is False
+    assert calls["n"] == updater._HTTP_MAX_ATTEMPTS
+    assert not dest.exists()
+    assert not dest.with_suffix(dest.suffix + ".part").exists()  # fichier .part nettoyé
+
+
+def test_download_verified_does_not_retry_oversized_artifact(env, monkeypatch, tmp_path):
+    """Un artefact plus gros que ce que le manifeste annonce est un rejet définitif
+    (donnée invalide), jamais un incident réseau -> aucune reprise."""
+    monkeypatch.setattr(updater, "_MAX_ARTIFACT_BYTES", 16)  # borne réduite : pas besoin d'un vrai gros fichier
+    calls = {"n": 0}
+
+    def too_big(req, timeout=None):
+        calls["n"] += 1
+        return _FakeUrlopenResponse(b"x" * 64)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", too_big)
+    dest = tmp_path / "artifact.bin"
+    art = {"url": "https://example.invalid/a.bin", "sha256": "00" * 32, "size": 10}
+
+    assert updater._download_verified(art, dest) is False
     assert calls["n"] == 1
 
 

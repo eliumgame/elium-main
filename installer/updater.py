@@ -362,7 +362,18 @@ def _download_verified(
     dest: Path,
     on_progress: Optional[Callable[[int], None]] = None,
 ) -> bool:
-    """Télécharge art['url'] en flux vers dest (progression 0-100), vérifie sha256."""
+    """Télécharge art['url'] en flux vers dest (progression 0-100), vérifie sha256.
+
+    Même retry borné + backoff qu'`_http_get` sur un échec réseau TRANSITOIRE
+    (voir `_is_transient_network_error`) : c'est le téléchargement le plus long
+    et le plus exposé (exe/msi/zip, potentiellement plusieurs dizaines de Mo,
+    contre quelques Ko pour le manifeste), il n'y a aucune raison qu'il soit
+    moins résilient qu'`_http_get` à un timeout/une coupure transitoire. Une
+    reprise repart de zéro (le fichier `.part` est retiré puis réécrit intégralement
+    à chaque tentative : pas de reprise partielle/Range ici). Comme dans
+    `_http_get`, une réponse trop volumineuse (`ValueError`) reste un rejet
+    définitif, jamais retentée.
+    """
     url = art.get("url")
     expected = str(art.get("sha256", "")).lower()
     if not url or not expected:
@@ -371,27 +382,38 @@ def _download_verified(
     total = int(art.get("size", 0) or 0)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    digest = hashlib.sha256()
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-        # noqa: S310 — schéma https connu / manifeste vérifié en amont.
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp, open(tmp, "wb") as out:  # noqa: S310
-            received = 0
-            while True:
-                chunk = resp.read(256 * 1024)
-                if not chunk:
-                    break
-                received += len(chunk)
-                if received > _MAX_ARTIFACT_BYTES:
-                    raise ValueError("artefact trop volumineux")
-                out.write(chunk)
-                digest.update(chunk)
-                if on_progress and total:
-                    on_progress(min(99, int(received * 100 / total)))
-    except Exception as exc:
-        _log(f"_download_verified: échec téléchargement {url} ({exc})")
-        _safe_unlink(tmp)
-        return False
+
+    for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
+        digest = hashlib.sha256()
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            # noqa: S310 — schéma https connu / manifeste vérifié en amont.
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp, open(tmp, "wb") as out:  # noqa: S310
+                received = 0
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if received > _MAX_ARTIFACT_BYTES:
+                        raise ValueError("artefact trop volumineux")
+                    out.write(chunk)
+                    digest.update(chunk)
+                    if on_progress and total:
+                        on_progress(min(99, int(received * 100 / total)))
+        except Exception as exc:
+            _safe_unlink(tmp)
+            if attempt < _HTTP_MAX_ATTEMPTS and _is_transient_network_error(exc):
+                delay = _HTTP_RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+                _log(
+                    f"_download_verified: échec réseau transitoire ({exc}) — "
+                    f"tentative {attempt}/{_HTTP_MAX_ATTEMPTS}, nouvel essai dans {delay:.1f}s ({url})"
+                )
+                time.sleep(delay)
+                continue
+            _log(f"_download_verified: échec téléchargement {url} ({exc})")
+            return False
+        break  # succès : sort de la boucle de retry, poursuit vers la vérification sha256
 
     if digest.hexdigest() != expected:
         _log(f"_download_verified: sha256 mismatch {url} (attendu {expected})")

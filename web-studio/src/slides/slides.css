@@ -40,7 +40,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: #94a3b8;
+  color: var(--el-slate-400);
 }
 .pv__bar {
   grid-column: 1 / -1;
@@ -54,7 +54,7 @@
   gap: 6px;
   font-weight: 700;
   font-size: 13px;
-  color: #93c5fd;
+  color: var(--el-blue-300);
   background: rgba(59, 130, 246, 0.16);
   padding: 5px 11px;
   border-radius: 999px;
@@ -65,7 +65,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #cbd5e1;
+  color: var(--el-slate-300);
   font-weight: 600;
 }
 .pv__timer {
@@ -116,7 +116,7 @@
 .pv__pos {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--el-slate-300);
   min-width: 140px;
   text-align: center;
 }
@@ -131,7 +131,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--el-slate-500);
 }
 .pv__next {
   width: 100%;
@@ -145,8 +145,8 @@
   display: grid;
   place-items: center;
   height: 100%;
-  background: #1e293b;
-  color: #94a3b8;
+  background: var(--el-slate-800);
+  color: var(--el-slate-400);
   font-size: 13px;
 }
 .pv__notes {
@@ -160,10 +160,10 @@
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
-  color: #e2e8f0;
+  color: var(--el-slate-200);
 }
 .pv__notes-empty {
-  color: #64748b;
+  color: var(--el-slate-500);
   font-style: italic;
 }
 .pv__banner {
@@ -171,8 +171,8 @@
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
-  background: #1d4ed8;
-  color: #fff;
+  background: var(--el-blue-700);
+  color: var(--el-primary-contrast);
   padding: 8px 16px;
   border-radius: 999px;
   font-weight: 600;
@@ -463,7 +463,7 @@
 }
 .sv-toolbar .icon-btn.is-active,
 .sheet-bar .icon-btn.is-active {
-  color: #fff;
+  color: var(--el-primary-contrast);
   background: var(--primary);
 }
 
@@ -577,7 +577,7 @@
 .sv-pill.is-active {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
+  color: var(--el-primary-contrast);
 }
 
 .sv-tpl-pop {
@@ -716,7 +716,7 @@
   table-layout: fixed;
 }
 .ce-td {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--el-slate-300);
   padding: 3px 8px;
   vertical-align: middle;
   overflow: hidden;
@@ -883,7 +883,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: #0f172a;
+  color: var(--el-slate-900);
   padding: 4px;
   pointer-events: none;
 }

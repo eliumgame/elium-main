@@ -21,6 +21,12 @@ import {
   type ChartKind,
 } from "./model";
 
+// PowerPoint preset geometries (<a:prstGeom prst="…">) with no closed-form
+// support only degrade to "rect" (see PRST_TO_KIND lookup below) — this table
+// only ever maps onto a ShapeKind Élium already renders, never introduces a
+// new one. Free-form geometry (<a:custGeom>) stays unsupported: it has no
+// "prst" name to key off at all, only raw path data Élium's shape model has
+// no representation for.
 const PRST_TO_KIND: Record<string, ShapeKind> = {
   rect: "rect",
   roundRect: "roundRect",
@@ -34,6 +40,40 @@ const PRST_TO_KIND: Record<string, ShapeKind> = {
   cloud: "cloud",
   heart: "heart",
   line: "line",
+  // Right triangle: same closed-form family as "triangle", just a different angle.
+  rtTriangle: "triangle",
+  // Rounded-corner variants (one/two rounded or snipped corners, plaques): the
+  // roundRect render is a much closer approximation than a plain rectangle.
+  round1Rect: "roundRect",
+  round2SameRect: "roundRect",
+  round2DiagRect: "roundRect",
+  snipRoundRect: "roundRect",
+  snip1Rect: "roundRect",
+  snip2SameRect: "roundRect",
+  snip2DiagRect: "roundRect",
+  plaque: "roundRect",
+  // Directional block arrows: all render as the same single arrow glyph
+  // (orientation/rotation is lost, but "arrow" is still the right shape family).
+  rightArrow: "arrow",
+  leftArrow: "arrow",
+  upArrow: "arrow",
+  downArrow: "arrow",
+  leftRightArrow: "arrow",
+  upDownArrow: "arrow",
+  bentUpArrow: "arrow",
+  quadArrow: "arrow",
+  // Multi-point stars and starbursts/seals: all render as the same 5-point star.
+  star4: "star",
+  star6: "star",
+  star8: "star",
+  star10: "star",
+  star12: "star",
+  star16: "star",
+  star24: "star",
+  star32: "star",
+  irregularSeal1: "star",
+  irregularSeal2: "star",
+  sun: "star",
 };
 
 const attr = (xml: string, name: string): string | undefined => {
@@ -293,9 +333,56 @@ function parseSp(block: string, cx: number, cy: number): SlideElement | null {
   );
 }
 
-/** Parse a DrawingML chart part (literal or cached data) back to ChartData. */
-function parseChart(xml: string): ChartData | null {
-  const kind: ChartKind = /<c:pieChart\b/.test(xml) ? "pie" : /<c:lineChart\b/.test(xml) ? "line" : "bar";
+// DrawingML chart-type tags that map onto an Élium ChartKind. Doughnut has no
+// dedicated Élium kind but is the same "proportions of a whole" data shape as
+// pie, so it degrades to "pie" (a real equivalent, not a mislabel — just no hole).
+const SUPPORTED_CHART_TAGS: Record<string, ChartKind> = {
+  "c:barChart": "bar",
+  "c:bar3DChart": "bar",
+  "c:lineChart": "line",
+  "c:line3DChart": "line",
+  "c:pieChart": "pie",
+  "c:pie3DChart": "pie",
+  "c:ofPieChart": "pie",
+  "c:doughnutChart": "pie",
+};
+// Chart-type tags Élium has no visual equivalent for at all — these must warn
+// rather than silently degrade into "bar" (misrepresents the data entirely:
+// e.g. an area trend or an x/y scatter plotted as discrete bars).
+const UNSUPPORTED_CHART_LABELS: Record<string, string> = {
+  "c:areaChart": "aire",
+  "c:area3DChart": "aire",
+  "c:scatterChart": "nuage de points",
+  "c:bubbleChart": "nuage de points (bulles)",
+  "c:radarChart": "radar",
+  "c:stockChart": "boursier",
+  "c:surfaceChart": "surface",
+  "c:surface3DChart": "surface",
+};
+
+/** Detects the chart's real DrawingML type. Multiple *different* chart-type
+ *  tags in one part (a combo chart, e.g. bar+line) has no single supported
+ *  kind either, so it is also reported as unsupported ("combiné"). */
+function detectChartKind(xml: string): { kind?: ChartKind; unsupportedLabel?: string } {
+  const supported = Object.keys(SUPPORTED_CHART_TAGS).filter((t) => new RegExp(`<${t}\\b`).test(xml));
+  const unsupported = Object.keys(UNSUPPORTED_CHART_LABELS).filter((t) => new RegExp(`<${t}\\b`).test(xml));
+  const distinctKinds = new Set(supported.map((t) => SUPPORTED_CHART_TAGS[t]!));
+  const distinctLabels = new Set(unsupported.map((t) => UNSUPPORTED_CHART_LABELS[t]!));
+  if (unsupported.length && supported.length) return { unsupportedLabel: "combiné" };
+  if (distinctLabels.size > 1) return { unsupportedLabel: "combiné" };
+  if (distinctLabels.size === 1) return { unsupportedLabel: [...distinctLabels][0] };
+  if (distinctKinds.size > 1) return { unsupportedLabel: "combiné" };
+  if (distinctKinds.size === 1) return { kind: [...distinctKinds][0] };
+  return {}; // no recognized chart-type tag at all (malformed/unknown part)
+}
+
+/** Parse a DrawingML chart part (literal or cached data) back to ChartData.
+ *  `unsupportedLabel` is set (data is always null then) when the chart's real
+ *  type has no Élium equivalent — the caller must warn instead of importing it. */
+function parseChart(xml: string): { data: ChartData | null; unsupportedLabel?: string } {
+  const { kind, unsupportedLabel } = detectChartKind(xml);
+  if (unsupportedLabel) return { data: null, unsupportedLabel };
+  if (!kind) return { data: null };
   const ptValues = (blockXml: string): string[] =>
     [...blockXml.matchAll(/<c:pt\b[^>]*>\s*<c:v>([\s\S]*?)<\/c:v>/g)].map((m) => unescapeXml(m[1]!.trim()));
   const catBlock = /<c:cat>([\s\S]*?)<\/c:cat>/.exec(xml)?.[1] ?? "";
@@ -306,8 +393,8 @@ function parseChart(xml: string): ChartData | null {
   const titleRich = /<c:title>[\s\S]*?<a:t>([\s\S]*?)<\/a:t>/.exec(xml)?.[1];
   const serTx = /<c:tx>\s*<c:v>([\s\S]*?)<\/c:v>/.exec(xml)?.[1];
   const title = unescapeXml((titleRich ?? serTx ?? "").trim()) || undefined;
-  if (!labels.length && !values.length) return null;
-  return { kind, labels, values, ...(title ? { title } : {}) };
+  if (!labels.length && !values.length) return { data: null };
+  return { data: { kind, labels, values, ...(title ? { title } : {}) } };
 }
 
 function parseGraphicFrame(
@@ -316,6 +403,7 @@ function parseGraphicFrame(
   cy: number,
   rels: Map<string, string>,
   media: Record<string, Uint8Array>,
+  onWarning?: (label: string) => void,
 ): SlideElement | null {
   const g = firstXfrm(block, cx, cy);
   // Native chart: <a:graphicData uri=".../chart"><c:chart r:id="rIdN"/> → resolve
@@ -324,7 +412,12 @@ function parseGraphicFrame(
     const rId = attr(/<c:chart\b[^>]*\/?>/.exec(block)?.[0] ?? "", "r:id");
     const target = rId ? rels.get(rId) : undefined;
     const bytes = target ? media[resolveMedia(target)] : undefined;
-    const data = bytes ? parseChart(strFromU8(bytes)) : null;
+    if (!bytes) return null;
+    const { data, unsupportedLabel } = parseChart(strFromU8(bytes));
+    if (unsupportedLabel) {
+      onWarning?.(unsupportedLabel);
+      return null;
+    }
     return data ? el({ type: "chart", chart: data }, g) : null;
   }
   if (!/<a:tbl\b/.test(block)) return null; // SmartArt / OLE → skip (degrade)
@@ -353,6 +446,7 @@ function parseSpTree(
   cy: number,
   rels: Map<string, string>,
   media: Record<string, Uint8Array>,
+  onWarning?: (label: string) => void,
 ): SlideElement[] {
   const out: SlideElement[] = [];
   for (const { tag, block } of childBlocks(spTree)) {
@@ -362,7 +456,7 @@ function parseSpTree(
         if (e) out.push(e);
       } else if (tag === "p:cxnSp") out.push(parseCxn(block, cx, cy));
       else if (tag === "p:graphicFrame") {
-        const e = parseGraphicFrame(block, cx, cy, rels, media);
+        const e = parseGraphicFrame(block, cx, cy, rels, media, onWarning);
         if (e) out.push(e);
       } else if (tag === "p:sp") {
         const e = parseSp(block, cx, cy);
@@ -372,7 +466,7 @@ function parseSpTree(
         const inner = block
           .replace(/<p:nvGrpSpPr>[\s\S]*?<\/p:nvGrpSpPr>/, "")
           .replace(/<p:grpSpPr>[\s\S]*?<\/p:grpSpPr>/, "");
-        out.push(...parseSpTree(inner, cx, cy, rels, media));
+        out.push(...parseSpTree(inner, cx, cy, rels, media, onWarning));
       }
     } catch {
       /* skip a malformed shape rather than abort the whole slide */
@@ -414,8 +508,20 @@ function parseRels(xml: string | undefined): Map<string, string> {
   return map;
 }
 
-/** Parse a .pptx byte array into an Élium Deck (free-canvas slides). */
-export function importPptx(bytes: Uint8Array): Deck {
+/** Parse a .pptx byte array into an Élium Deck (free-canvas slides).
+ *  `onWarning` is called once per distinct unsupported chart type encountered
+ *  (aire/nuage de points/radar/boursier/surface/combiné — no Élium equivalent),
+ *  so the caller can surface an explicit warning instead of the chart being
+ *  silently mislabeled or dropped. */
+export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => void): Deck {
+  const seen = new Set<string>();
+  const warnOnce = onWarning
+    ? (label: string) => {
+        if (seen.has(label)) return;
+        seen.add(label);
+        onWarning(label);
+      }
+    : undefined;
   const zip = unzipSync(bytes);
   const text = (path: string): string | undefined => (zip[path] ? strFromU8(zip[path]!) : undefined);
 
@@ -439,7 +545,7 @@ export function importPptx(bytes: Uint8Array): Deck {
     const relsName = path.replace(/([^/]+)$/, "_rels/$1.rels");
     const rels = parseRels(text(relsName));
     const spTree = /<p:spTree\b[^>]*>([\s\S]*)<\/p:spTree>/.exec(xml)?.[1] ?? "";
-    const elements = parseSpTree(spTree, cx, cy, rels, zip);
+    const elements = parseSpTree(spTree, cx, cy, rels, zip, warnOnce);
     const bgColor = colorIn(/<p:bg>[\s\S]*?<\/p:bg>/.exec(xml)?.[0] ?? "");
     slides.push({
       id: newSlideId(),
@@ -458,6 +564,6 @@ export function importPptx(bytes: Uint8Array): Deck {
 }
 
 /** Convenience wrapper for a File from an <input type="file">. */
-export async function importPptxFile(file: File): Promise<Deck> {
-  return importPptx(new Uint8Array(await file.arrayBuffer()));
+export async function importPptxFile(file: File, onWarning?: (label: string) => void): Promise<Deck> {
+  return importPptx(new Uint8Array(await file.arrayBuffer()), onWarning);
 }

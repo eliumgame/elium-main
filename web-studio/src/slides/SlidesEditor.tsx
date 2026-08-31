@@ -71,6 +71,7 @@ import {
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { Modal, Button } from "../ui/components";
+import { useDialogs } from "../ui/dialogs";
 import {
   elementsOf,
   newElementId,
@@ -95,7 +96,7 @@ import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from ".
 import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import { importPptxFile } from "./pptx-import";
 import SlideCanvas, { themeDefaultBg } from "./canvas";
-import { CtxMenu, type MenuEntry } from "./ActionMenu";
+import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import type { DeckStore } from "./store";
@@ -163,6 +164,7 @@ export interface SlidesEditorChrome {
 }
 
 export default function SlidesEditor({ store, chrome }: { store: DeckStore; chrome: SlidesEditorChrome }) {
+  const dialogs = useDialogs();
   const { deck, active: activeIdx, canWrite } = store;
   const [presenting, setPresenting] = useState(false);
   const [presentIdx, setPresentIdx] = useState(0);
@@ -178,6 +180,14 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [tplMenu, setTplMenu] = useState(false);
   const [chartInsMenu, setChartInsMenu] = useState(false);
   const [chartMenu, setChartMenu] = useState(false);
+  // Trigger buttons for the toolbar popovers above — ToolbarPopover uses these
+  // to ignore clicks on the trigger itself and to restore focus on Échap.
+  const shapeMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const chartInsMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const colorMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const chartMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const animMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const tplMenuBtnRef = useRef<HTMLButtonElement>(null);
   const [ctxMenu, setCtxMenu] = useState<
     { kind: "element" | "canvas"; x: number; y: number } | { kind: "slide"; i: number; x: number; y: number } | null
   >(null);
@@ -269,8 +279,17 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     e.target.value = "";
     if (!file || !store.replaceDeck) return;
     try {
-      store.replaceDeck(await importPptxFile(file));
+      const unsupportedCharts: string[] = [];
+      store.replaceDeck(await importPptxFile(file, (label) => unsupportedCharts.push(label)));
       setSelId(null);
+      if (unsupportedCharts.length) {
+        void dialogs.alert({
+          title: "Graphiques non importés",
+          message:
+            `Ce PowerPoint contient des graphiques de type ${unsupportedCharts.map((l) => `« ${l} »`).join(", ")} ` +
+            "qu'Élium ne sait pas encore reproduire (bar/ligne/camembert uniquement). Ils n'ont pas été importés.",
+        });
+      }
     } catch {
       /* ignore an unreadable / invalid .pptx */
     }
@@ -403,10 +422,20 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     } as PresenterMsg);
 
   const openPresenter = () => {
+    const win = window.open(`${window.location.pathname}?presenter=1`, "elium-presenter", "width=1200,height=800");
+    if (!win) {
+      void dialogs.alert({
+        title: "Fenêtre orateur bloquée",
+        message:
+          "Le navigateur a bloqué l'ouverture de la fenêtre orateur (bloqueur de popups). " +
+          "Autorisez les popups pour ce site puis relancez le mode présentateur.",
+      });
+      return;
+    }
+    winRef.current = win;
     startedAtRef.current = Date.now();
     prevIdxRef.current = activeIdx;
     setMorphFrom(null);
-    winRef.current = window.open(`${window.location.pathname}?presenter=1`, "elium-presenter", "width=1200,height=800");
     setPresentIdx(activeIdx);
     setPresentStep(0);
     setPresenting(true);
@@ -752,18 +781,21 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <Type size={15} /> Texte
           </button>
           <div className="sv-menu">
-            <button className="eb eb--sm eb--ghost" onClick={() => setShapeMenu((v) => !v)}>
+            <button ref={shapeMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setShapeMenu((v) => !v)}>
               <Square size={15} /> Forme ▾
             </button>
             {shapeMenu && (
-              <div
+              <ToolbarPopover
                 className="sv-menu__pop sv-gallery-pop sv-gallery-pop--shapes"
-                onMouseLeave={() => setShapeMenu(false)}
+                ariaLabel="Formes"
+                onClose={() => setShapeMenu(false)}
+                triggerRef={shapeMenuBtnRef}
               >
                 {SHAPES.map((s) => (
                   <button
                     key={s.kind}
                     className="sv-gallery-item"
+                    role="menuitem"
                     title={s.label}
                     onClick={() => {
                       addEl(newShapeElement(s.kind));
@@ -774,7 +806,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     <span className="sv-gallery-label">{s.label}</span>
                   </button>
                 ))}
-              </div>
+              </ToolbarPopover>
             )}
           </div>
           <button className="eb eb--sm eb--ghost" onClick={() => imgRef.current?.click()}>
@@ -785,18 +817,25 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <TableIcon size={15} /> Tableau
           </button>
           <div className="sv-menu">
-            <button className="eb eb--sm eb--ghost" onClick={() => setChartInsMenu((v) => !v)}>
+            <button
+              ref={chartInsMenuBtnRef}
+              className="eb eb--sm eb--ghost"
+              onClick={() => setChartInsMenu((v) => !v)}
+            >
               <BarChart3 size={15} /> Graphique ▾
             </button>
             {chartInsMenu && (
-              <div
+              <ToolbarPopover
                 className="sv-menu__pop sv-gallery-pop sv-gallery-pop--charts"
-                onMouseLeave={() => setChartInsMenu(false)}
+                ariaLabel="Types de graphique"
+                onClose={() => setChartInsMenu(false)}
+                triggerRef={chartInsMenuBtnRef}
               >
                 {CHART_KINDS.map((c) => (
                   <button
                     key={c.kind}
                     className="sv-gallery-item"
+                    role="menuitem"
                     title={c.label}
                     onClick={() => {
                       addEl(newChartElement(c.kind));
@@ -807,7 +846,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                     <span className="sv-gallery-label">{c.label}</span>
                   </button>
                 ))}
-              </div>
+              </ToolbarPopover>
             )}
           </div>
           <span className="sv-sep" />
@@ -890,15 +929,27 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 <ListOrdered size={15} />
               </button>
               <div className="sv-menu">
-                <button className="icon-btn" title="Couleur du texte" onClick={() => setColorMenu((v) => !v)}>
+                <button
+                  ref={colorMenuBtnRef}
+                  className="icon-btn"
+                  title="Couleur du texte"
+                  onClick={() => setColorMenu((v) => !v)}
+                >
                   <Baseline size={15} />
                 </button>
                 {colorMenu && (
-                  <div className="sv-menu__pop sv-colors" onMouseLeave={() => setColorMenu(false)}>
+                  <ToolbarPopover
+                    className="sv-menu__pop sv-colors"
+                    ariaLabel="Couleur du texte"
+                    onClose={() => setColorMenu(false)}
+                    triggerRef={colorMenuBtnRef}
+                  >
                     {TEXT_COLORS.map((c) => (
                       <button
                         key={c}
                         className={`sv-swatch ${sel!.color === c ? "is-active" : ""}`}
+                        role="menuitem"
+                        title={c}
                         style={{ background: c }}
                         onClick={() => {
                           store.updateEl(sel!.id, { color: c });
@@ -906,7 +957,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         }}
                       />
                     ))}
-                  </div>
+                  </ToolbarPopover>
                 )}
               </div>
               <button
@@ -986,11 +1037,17 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           )}
           {isChart && sel!.chart && (
             <div className="sv-menu">
-              <button className="eb eb--sm eb--ghost" onClick={() => setChartMenu((v) => !v)}>
+              <button ref={chartMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setChartMenu((v) => !v)}>
                 <BarChart3 size={14} /> Données ▾
               </button>
               {chartMenu && (
-                <div className="sv-menu__pop sv-chart-pop" onMouseLeave={() => setChartMenu(false)}>
+                <ToolbarPopover
+                  className="sv-menu__pop sv-chart-pop"
+                  role="dialog"
+                  ariaLabel="Données du graphique"
+                  onClose={() => setChartMenu(false)}
+                  triggerRef={chartMenuBtnRef}
+                >
                   <label className="sv-anim-row">
                     <span>Type</span>
                     <select
@@ -1031,7 +1088,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   <button className="eb eb--sm eb--outline" onClick={addPoint}>
                     <PlusIcon size={13} /> Point
                   </button>
-                </div>
+                </ToolbarPopover>
               )}
             </div>
           )}
@@ -1074,6 +1131,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <span className="sv-sep" />
               <div className="sv-menu">
                 <button
+                  ref={animMenuBtnRef}
                   className={`icon-btn ${animOf(sel.id) ? "is-active" : ""}`}
                   title="Animation d'entrée"
                   onClick={() => setAnimMenu((v) => !v)}
@@ -1081,7 +1139,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   <Sparkles size={15} />
                 </button>
                 {animMenu && (
-                  <div className="sv-menu__pop sv-anim-pop" onMouseLeave={() => setAnimMenu(false)}>
+                  <ToolbarPopover
+                    className="sv-menu__pop sv-anim-pop"
+                    role="dialog"
+                    ariaLabel="Animation d'entrée"
+                    onClose={() => setAnimMenu(false)}
+                    triggerRef={animMenuBtnRef}
+                  >
                     {(() => {
                       const a = animOf(sel.id);
                       if (!a)
@@ -1173,7 +1237,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         </>
                       );
                     })()}
-                  </div>
+                  </ToolbarPopover>
                 )}
               </div>
               {canGroup && (
@@ -1264,15 +1328,21 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 <LayoutTemplate size={13} /> Vierge
               </button>
               <div className="sv-menu">
-                <button className="eb eb--sm eb--ghost" onClick={() => setTplMenu((v) => !v)}>
+                <button ref={tplMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setTplMenu((v) => !v)}>
                   <LayoutGrid size={13} /> Modèles ▾
                 </button>
                 {tplMenu && (
-                  <div className="sv-menu__pop sv-tpl-pop" onMouseLeave={() => setTplMenu(false)}>
+                  <ToolbarPopover
+                    className="sv-menu__pop sv-tpl-pop"
+                    ariaLabel="Modèles de diapositive"
+                    onClose={() => setTplMenu(false)}
+                    triggerRef={tplMenuBtnRef}
+                  >
                     {SLIDE_TEMPLATES.map((tpl) => (
                       <button
                         key={tpl.id}
                         className="sv-tpl-item"
+                        role="menuitem"
                         onClick={() => {
                           addTemplate(tpl);
                           setTplMenu(false);
@@ -1292,7 +1362,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         <span className="sv-tpl-item__label">{tpl.label}</span>
                       </button>
                     ))}
-                  </div>
+                  </ToolbarPopover>
                 )}
               </div>
               <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>

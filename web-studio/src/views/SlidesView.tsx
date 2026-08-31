@@ -13,18 +13,23 @@ import SlidesEditor from "../slides/SlidesEditor";
 import { useDialogs } from "../ui/dialogs";
 import { deckToPptx } from "../slides/pptx";
 import { downloadBlob } from "../export/exporters";
+import type { VaultSecret } from "../crypto/local-vault";
 
 export default function SlidesView({
   onHome,
   initial,
   onExportElium,
+  vaultSecret,
 }: {
   onHome: () => void;
   initial?: Deck;
   onExportElium: (data: Deck, title: string) => void;
+  /** App-wide local vault secret (see crypto/local-vault.ts). When set, the
+   *  IndexedDB autosave of this deck is encrypted at rest instead of plaintext. */
+  vaultSecret?: VaultSecret;
 }) {
   const dialogs = useDialogs();
-  const store = useLocalDeckStore(initial);
+  const store = useLocalDeckStore(initial, vaultSecret);
   const [exportMenu, setExportMenu] = useState(false);
 
   const saveElium = async () => {

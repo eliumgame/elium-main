@@ -1472,6 +1472,7 @@ export default function App() {
             onHome={() => setMode("home")}
             initial={appView?.kind === "slides" ? (appView.data as Deck) : undefined}
             onExportElium={(data, title) => exportAppElium("slides", data, title)}
+            vaultSecret={vaultSecret}
           />
         </Suspense>
       ) : mode === "pdf" ? (

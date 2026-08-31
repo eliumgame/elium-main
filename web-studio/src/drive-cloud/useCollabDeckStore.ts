@@ -3,8 +3,11 @@
  * editor. Backs the DeckStore contract with an end-to-end-encrypted Y.Doc (deck
  * Y.Map → slides Y.Array → per-element `elements` Y.Array) and live presence.
  * Multi-user, so `active` is per-user local state (each collaborator views their
- * own slide) and there is no undo history. Renders through the SAME <SlidesEditor>
- * as the local suite, so features stay in lockstep across both surfaces.
+ * own slide); undo/redo goes through a Y.UndoManager scoped to the deck Y.Map
+ * (same pattern as useCollabSheetStore/collab-sheet-model), so only local edits
+ * are ever undone — remote updates arrive under a different transaction origin
+ * and are never tracked. Renders through the SAME <SlidesEditor> as the local
+ * suite, so features stay in lockstep across both surfaces.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
@@ -62,6 +65,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const [transition, setTransition] = useState<SlideTransition>("fade");
   const [active, setActiveState] = useState(0);
   const [peers, setPeers] = useState<DeckPeer[]>([]);
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
 
   const me: CollabUser = useMemo(() => ({ name: user.name, color: colorForId(user.id) }), [user.id, user.name]);
   const [ydoc] = useState(() => new Y.Doc());
@@ -74,6 +78,11 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       }),
   );
   const deckMap = useMemo(() => ydoc.getMap("deck"), [ydoc]);
+  // L'UndoManager ne suit que les transactions d'origine nulle (nos éditions
+  // locales, via ydoc.transact(fn) sans origine explicite) ; les updates
+  // distants arrivent avec l'origine "remote" (EncryptedYjsProvider) et ne
+  // sont donc jamais annulés par erreur.
+  const [undoMgr] = useState(() => new Y.UndoManager(deckMap));
 
   const ySlides = (): Y.Array<YMap> => deckMap.get("slides") as Y.Array<YMap>;
   const slideAt = (i: number): YMap | undefined => ySlides()?.get(i);
@@ -140,6 +149,20 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     upd();
     return () => provider.awareness.off("change", upd);
   }, [provider]);
+
+  // Réactivité annuler/rétablir : suit la pile de l'UndoManager.
+  useEffect(() => {
+    const sync = () => setUndoState({ canUndo: undoMgr.canUndo(), canRedo: undoMgr.canRedo() });
+    undoMgr.on("stack-item-added", sync);
+    undoMgr.on("stack-item-popped", sync);
+    undoMgr.on("stack-cleared", sync);
+    sync();
+    return () => {
+      undoMgr.off("stack-item-added", sync);
+      undoMgr.off("stack-item-popped", sync);
+      undoMgr.off("stack-cleared", sync);
+    };
+  }, [undoMgr]);
 
   // clamp active if slides shrink
   const activeRef = useRef(active);
@@ -291,6 +314,10 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     removeEl,
     reorderEl,
     beginChange: () => {},
+    undo: () => undoMgr.undo(),
+    redo: () => undoMgr.redo(),
+    canUndo: undoState.canUndo,
+    canRedo: undoState.canRedo,
     presence: { me: { name: me.name, color: me.color }, peers },
     status: STATUS_MAP[status],
   };

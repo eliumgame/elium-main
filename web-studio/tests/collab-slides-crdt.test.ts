@@ -228,3 +228,60 @@ describe("collab slides CRDT (de)serialization", () => {
     }
   });
 });
+
+describe("collab deck undo/redo (Y.UndoManager scoped to the deck map)", () => {
+  it("undoes/redoes a local element edit", () => {
+    const slide: Slide = {
+      id: "s1",
+      title: "",
+      body: "",
+      bodyHtml: "",
+      layout: "blank",
+      elements: [{ id: "e1", type: "shape", x: 10, y: 10, w: 20, h: 20, shape: "rect" }],
+    };
+    const doc = new Y.Doc();
+    const m = seedDoc(doc, slide);
+    const deckMap = doc.getMap("deck");
+    const undoMgr = new Y.UndoManager(deckMap);
+
+    doc.transact(() => elementsY(m).toArray()[0]!.set("x", 99));
+    expect(yToSlide(m).elements![0]!.x).toBe(99);
+    expect(undoMgr.canUndo()).toBe(true);
+
+    undoMgr.undo();
+    expect(yToSlide(m).elements![0]!.x).toBe(10);
+    expect(undoMgr.canUndo()).toBe(false);
+    expect(undoMgr.canRedo()).toBe(true);
+
+    undoMgr.redo();
+    expect(yToSlide(m).elements![0]!.x).toBe(99);
+  });
+
+  it("never undoes an update applied under the 'remote' transaction origin", () => {
+    const slide: Slide = {
+      id: "s1",
+      title: "",
+      body: "",
+      bodyHtml: "",
+      layout: "blank",
+      elements: [{ id: "e1", type: "shape", x: 10, y: 10, w: 20, h: 20, shape: "rect" }],
+    };
+    const A = new Y.Doc();
+    const mA = seedDoc(A, slide);
+    const undoMgr = new Y.UndoManager(A.getMap("deck"));
+
+    // A peer applies a remote change the way EncryptedYjsProvider does
+    // (Y.applyUpdate(doc, update, "remote")): a second doc edits the element,
+    // and the resulting update is applied to A under the "remote" origin.
+    const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(A));
+    const mB = slideAt0(B);
+    B.transact(() => elementsY(mB).toArray()[0]!.set("x", 77));
+    Y.applyUpdate(A, Y.encodeStateAsUpdate(B), "remote");
+
+    expect(yToSlide(mA).elements![0]!.x).toBe(77);
+    // Nothing tracked (the only change on A came in under "remote"), so
+    // there is no local history to undo.
+    expect(undoMgr.canUndo()).toBe(false);
+  });
+});

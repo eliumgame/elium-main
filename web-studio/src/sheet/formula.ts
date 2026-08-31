@@ -10,6 +10,18 @@
  * Pipeline: tokenize → parse (builds an AST, no evaluation) → evaluate (walks
  * the AST). The parse/eval split lets IFERROR/IFNA run a sub-expression inside
  * a try/catch and swallow its error instead of failing the whole formula.
+ *
+ * Scope limitation — no dynamic arrays: every formula produces exactly one
+ * CellValue for its own cell (there is no "spilling" of a result across
+ * neighbouring cells). Excel's UNIQUE/SORT/FILTER are inherently
+ * multi-cell-output functions, so implementing them faithfully would need a
+ * spill engine (tracking which cells a formula owns, re-spilling on
+ * recalculation, #SPILL! collision errors) — out of scope here; deliberately
+ * deferred rather than added as a lookalike that returns only one value of
+ * the result set (which would be actively misleading). LAMBDA is deferred
+ * for the same reason of scope, plus it needs closures over named parameters
+ * in the formula language itself. XLOOKUP above is a single-result lookup so
+ * it fits the existing scalar model fine.
  */
 export type CellError = { error: string };
 export type CellValue = number | string | boolean | CellError;
@@ -589,9 +601,57 @@ function parseFormula(toks: Tok[]): Node {
 // `sheet` is the cross-sheet qualifier (null = the current/local sheet).
 type Resolve = (ref: string, sheet: string | null) => CellValue;
 
+const IS_FUNCS = new Set(["ISBLANK", "ISNUMBER", "ISTEXT", "ISERROR"]);
+
 /** Functions whose arguments must NOT be eagerly evaluated (they decide which
- * sub-expressions to run, and may swallow errors). */
+ * sub-expressions to run, and may swallow errors, or need the raw AST — a cell
+ * reference's own coordinates for OFFSET, a resolver call for INDIRECT). */
 function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | undefined {
+  if (IS_FUNCS.has(name)) {
+    // A compound argument (e.g. ISERROR(1/0)) may throw while evaluating —
+    // exactly what these functions exist to detect, so it must NOT tear down
+    // the whole cell (same rationale as IFERROR/IFNA below).
+    let v: CellValue;
+    try {
+      v = args[0] ? evaluate(args[0], resolve) : "";
+    } catch (e) {
+      v = { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
+    }
+    if (name === "ISERROR") return isError(v);
+    if (name === "ISBLANK") return v === "";
+    if (name === "ISNUMBER") return typeof v === "number";
+    return typeof v === "string"; // ISTEXT
+  }
+  if (name === "INDIRECT") {
+    const raw = args[0] ? evaluate(args[0], resolve) : "";
+    if (isError(raw)) return raw;
+    const text = String(raw).toUpperCase().trim();
+    const bang = text.lastIndexOf("!");
+    const sheet = bang >= 0 ? text.slice(0, bang).replace(/^'|'$/g, "") : null;
+    const addr = (bang >= 0 ? text.slice(bang + 1) : text).replace(/\$/g, "");
+    if (!REF_RE.test(addr)) return { error: "#REF" };
+    return resolve(addr, sheet);
+  }
+  if (name === "OFFSET") {
+    // Needs the BASE cell's own (col,row), so the first arg must be a bare ref
+    // node — a computed/range expression has no coordinates to offset from
+    // (documented simplification: no height/width resize, single cell only).
+    const base = args[0];
+    if (!base || base.k !== "ref") return { error: "#REF" };
+    const pos = parseRef(base.v);
+    if (!pos) return { error: "#REF" };
+    let dRows: number, dCols: number;
+    try {
+      dRows = args[1] ? Math.trunc(toNumber(evaluate(args[1], resolve))) : 0;
+      dCols = args[2] ? Math.trunc(toNumber(evaluate(args[2], resolve))) : 0;
+    } catch (e) {
+      return { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
+    }
+    const col = pos.col + dCols,
+      row = pos.row + dRows;
+    if (col < 0 || row < 0) return { error: "#REF" };
+    return resolve(indexToCol(col) + (row + 1), base.sheet ?? null);
+  }
   if (name !== "IFERROR" && name !== "IFNA") return undefined;
   // IFNA only intercepts #N/A; IFERROR intercepts any error.
   const wanted = name === "IFNA" ? "#N/A" : null;
@@ -837,6 +897,64 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       const m = Math.floor(ns.length / 2);
       return ns.length % 2 ? ns[m] : (ns[m - 1] + ns[m]) / 2;
     }
+    case "LARGE":
+    case "SMALL": {
+      const ns = nums(args.slice(0, 1)).sort((a, b) => (name === "LARGE" ? b - a : a - b));
+      const k = Math.trunc(n0(args, 1));
+      if (k < 1 || k > ns.length) throw new FormulaError("#NUM");
+      return ns[k - 1];
+    }
+    case "RANK": {
+      const num = n0(args, 0);
+      const asc = args[2] ? truthy(args[2][0]) : false;
+      const sorted = nums(args.slice(1, 2)).sort((a, b) => (asc ? a - b : b - a));
+      const idx = sorted.indexOf(num);
+      if (idx < 0) throw new FormulaError("#N/A");
+      return idx + 1;
+    }
+    case "STDEV":
+    case "VAR": {
+      const ns = nums(args);
+      if (ns.length < 2) throw new FormulaError("#DIV/0");
+      const mean = ns.reduce((a, b) => a + b, 0) / ns.length;
+      const variance = ns.reduce((a, b) => a + (b - mean) ** 2, 0) / (ns.length - 1);
+      return name === "VAR" ? variance : Math.sqrt(variance);
+    }
+    // --- finance ---
+    case "PMT": {
+      const rate = n0(args, 0),
+        nper = n0(args, 1),
+        pv = n0(args, 2);
+      const fv = args[3] ? n0(args, 3) : 0;
+      const type = args[4] ? n0(args, 4) : 0;
+      if (nper === 0) throw new FormulaError("#DIV/0");
+      if (rate === 0) return -(pv + fv) / nper;
+      const pow = Math.pow(1 + rate, nper);
+      return (-(pv * pow + fv) * rate) / ((1 + rate * type) * (pow - 1));
+    }
+    case "NPV": {
+      const rate = n0(args, 0);
+      return nums(args.slice(1)).reduce((acc, v, i) => acc + v / Math.pow(1 + rate, i + 1), 0);
+    }
+    case "IRR": {
+      const vals = nums(args.slice(0, 1));
+      if (vals.length < 2) throw new FormulaError("#NUM");
+      const npvAt = (r: number) => vals.reduce((acc, v, i) => acc + v / Math.pow(1 + r, i), 0);
+      const dNpvAt = (r: number) => vals.reduce((acc, v, i) => acc - (i * v) / Math.pow(1 + r, i + 1), 0);
+      let rate = args[1] ? n0(args, 1) : 0.1;
+      for (let iter = 0; iter < 50; iter++) {
+        const f = npvAt(rate);
+        const d = dNpvAt(rate);
+        if (!Number.isFinite(f) || !Number.isFinite(d) || Math.abs(d) < 1e-12) break;
+        const next = rate - f / d;
+        if (!Number.isFinite(next)) break;
+        const converged = Math.abs(next - rate) < 1e-9;
+        rate = next;
+        if (converged) break;
+      }
+      if (!Number.isFinite(rate) || Math.abs(npvAt(rate)) > 1e-4) throw new FormulaError("#NUM");
+      return rate;
+    }
     case "COUNTIF": {
       const crit = args[1]?.[0] ?? "";
       return (args[0] ?? []).filter((v) => matchCriterion(v, crit)).length;
@@ -952,6 +1070,51 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       const ms = Date.UTC(Math.trunc(n0(args, 0)), Math.trunc(n0(args, 1)) - 1, Math.trunc(n0(args, 2)));
       return Math.round((ms - DATE_EPOCH) / 86400000);
     }
+    case "DATEDIF": {
+      const start = serialDate(n0(args, 0));
+      const end = serialDate(n0(args, 1));
+      if (end.getTime() < start.getTime()) throw new FormulaError("#NUM");
+      const unit = s0(args, 2).toUpperCase();
+      const sy = start.getUTCFullYear(),
+        sm = start.getUTCMonth(),
+        sd = start.getUTCDate();
+      const ey = end.getUTCFullYear(),
+        em = end.getUTCMonth(),
+        ed = end.getUTCDate();
+      switch (unit) {
+        case "Y": {
+          let y = ey - sy;
+          if (em < sm || (em === sm && ed < sd)) y--;
+          return y;
+        }
+        case "M": {
+          let m = (ey - sy) * 12 + (em - sm);
+          if (ed < sd) m--;
+          return m;
+        }
+        case "D":
+          return Math.round((end.getTime() - start.getTime()) / 86400000);
+        case "MD": {
+          let d = ed - sd;
+          if (d < 0) d += new Date(Date.UTC(ey, em, 0)).getUTCDate(); // days in the month before `end`
+          return d;
+        }
+        case "YM": {
+          let m = em - sm;
+          if (ed < sd) m--;
+          if (m < 0) m += 12;
+          return m;
+        }
+        case "YD": {
+          // Nearest start-month/day anniversary at or before `end`, in years-ignored terms.
+          let alignedYear = ey;
+          if (Date.UTC(ey, sm, sd) > end.getTime()) alignedYear--;
+          return Math.round((end.getTime() - Date.UTC(alignedYear, sm, sd)) / 86400000);
+        }
+        default:
+          throw new FormulaError("#NUM");
+      }
+    }
     case "TEXT":
       return textFormat(args[0]?.[0], s0(args, 1));
     // --- recherche ---
@@ -1018,6 +1181,23 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
         c = (args[2] ? Math.trunc(n0(args, 2)) : 1) - 1;
       if (r < 0 || r >= shape.rows || c < 0 || c >= shape.cols) throw new FormulaError("#REF");
       return range[r * shape.cols + c] ?? "";
+    }
+    case "CHOOSE": {
+      const idx = Math.trunc(n0(args, 0));
+      const v = args[idx];
+      if (!v) throw new FormulaError("#VALUE");
+      return v[0] ?? "";
+    }
+    // XLOOKUP: exact match only (no wildcard/approximate/search-direction
+    // modes) — the common case, and the only one meaningful without a real
+    // dynamic-array engine (see the module-level note on UNIQUE/SORT/FILTER).
+    case "XLOOKUP": {
+      const key = args[0]?.[0] ?? "";
+      const lookup = args[1] ?? [];
+      const ret = args[2] ?? [];
+      for (let i = 0; i < lookup.length; i++) if (looseEq(lookup[i], key)) return ret[i] ?? "";
+      if (args[3]) return args[3][0] ?? "";
+      throw new FormulaError("#N/A");
     }
     // --- maths ---
     case "ABS":
@@ -1114,6 +1294,14 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       return s0(args).toLowerCase();
     case "TRIM":
       return s0(args).trim().replace(/\s+/g, " ");
+    case "TEXTJOIN": {
+      const delim = s0(args, 0);
+      const ignoreEmpty = args[1] ? truthy(args[1][0]) : true;
+      return flat(args.slice(2))
+        .map((v) => (isError(v) ? v.error : typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v)))
+        .filter((s) => !ignoreEmpty || s !== "")
+        .join(delim);
+    }
     // --- date ---
     case "TODAY":
       return todaySerial();
@@ -1166,10 +1354,19 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "SUMIFS", sig: "SUMIFS(somme; plage1; crit1; …)", desc: "Somme multi-critères", cat: "Statistiques" },
   { name: "COUNTIFS", sig: "COUNTIFS(plage1; crit1; …)", desc: "Compte multi-critères", cat: "Statistiques" },
   { name: "AVERAGEIF", sig: "AVERAGEIF(plage; critère; [moy])", desc: "Moyenne selon un critère", cat: "Statistiques" },
+  { name: "LARGE", sig: "LARGE(plage; k)", desc: "k-ième plus grande valeur", cat: "Statistiques" },
+  { name: "SMALL", sig: "SMALL(plage; k)", desc: "k-ième plus petite valeur", cat: "Statistiques" },
+  { name: "RANK", sig: "RANK(n; plage; [croissant])", desc: "Rang d'une valeur", cat: "Statistiques" },
+  { name: "STDEV", sig: "STDEV(plage)", desc: "Écart-type (échantillon)", cat: "Statistiques" },
+  { name: "VAR", sig: "VAR(plage)", desc: "Variance (échantillon)", cat: "Statistiques" },
   { name: "VLOOKUP", sig: "VLOOKUP(clé; table; index; [approx])", desc: "Recherche verticale", cat: "Recherche" },
   { name: "HLOOKUP", sig: "HLOOKUP(clé; table; index; [approx])", desc: "Recherche horizontale", cat: "Recherche" },
   { name: "INDEX", sig: "INDEX(plage; ligne; [colonne])", desc: "Valeur par position", cat: "Recherche" },
   { name: "MATCH", sig: "MATCH(clé; plage; [type])", desc: "Position d'une valeur", cat: "Recherche" },
+  { name: "CHOOSE", sig: "CHOOSE(index; val1; val2; …)", desc: "Valeur par index", cat: "Recherche" },
+  { name: "INDIRECT", sig: "INDIRECT(texte)", desc: "Référence à partir d'un texte", cat: "Recherche" },
+  { name: "OFFSET", sig: "OFFSET(réf; lignes; colonnes)", desc: "Décale une référence", cat: "Recherche" },
+  { name: "XLOOKUP", sig: "XLOOKUP(clé; plage_rech; plage_ret; [si_absent])", desc: "Recherche moderne (correspondance exacte)", cat: "Recherche" },
   { name: "IF", sig: "IF(test; si_vrai; si_faux)", desc: "Condition", cat: "Logique" },
   { name: "IFS", sig: "IFS(test1; val1; …)", desc: "Premier test vrai", cat: "Logique" },
   { name: "IFERROR", sig: "IFERROR(valeur; si_erreur)", desc: "Remplace une erreur par une valeur", cat: "Logique" },
@@ -1177,6 +1374,10 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "AND", sig: "AND(a; b; …)", desc: "ET logique", cat: "Logique" },
   { name: "OR", sig: "OR(a; b; …)", desc: "OU logique", cat: "Logique" },
   { name: "NOT", sig: "NOT(a)", desc: "Négation", cat: "Logique" },
+  { name: "ISBLANK", sig: "ISBLANK(valeur)", desc: "Vrai si la cellule est vide", cat: "Logique" },
+  { name: "ISNUMBER", sig: "ISNUMBER(valeur)", desc: "Vrai si c'est un nombre", cat: "Logique" },
+  { name: "ISTEXT", sig: "ISTEXT(valeur)", desc: "Vrai si c'est du texte", cat: "Logique" },
+  { name: "ISERROR", sig: "ISERROR(valeur)", desc: "Vrai si la valeur est une erreur", cat: "Logique" },
   { name: "CONCAT", sig: "CONCAT(a; b; …)", desc: "Concatène du texte", cat: "Texte" },
   { name: "LEN", sig: "LEN(texte)", desc: "Longueur", cat: "Texte" },
   { name: "LEFT", sig: "LEFT(texte; n)", desc: "n premiers caractères", cat: "Texte" },
@@ -1190,12 +1391,17 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "SEARCH", sig: "SEARCH(cherché; texte; [début])", desc: "Position (insensible à la casse)", cat: "Texte" },
   { name: "REPLACE", sig: "REPLACE(texte; début; n; nouveau)", desc: "Remplace par position", cat: "Texte" },
   { name: "TEXT", sig: "TEXT(valeur; format)", desc: "Formate un nombre/date", cat: "Texte" },
+  { name: "TEXTJOIN", sig: "TEXTJOIN(sép; ignorer_vides; texte1; …)", desc: "Joint du texte avec séparateur", cat: "Texte" },
   { name: "TODAY", sig: "TODAY()", desc: "Date du jour", cat: "Date" },
   { name: "NOW", sig: "NOW()", desc: "Date et heure", cat: "Date" },
   { name: "YEAR", sig: "YEAR(date)", desc: "Année", cat: "Date" },
   { name: "MONTH", sig: "MONTH(date)", desc: "Mois", cat: "Date" },
   { name: "DAY", sig: "DAY(date)", desc: "Jour", cat: "Date" },
   { name: "DATE", sig: "DATE(année; mois; jour)", desc: "Construit une date", cat: "Date" },
+  { name: "DATEDIF", sig: "DATEDIF(début; fin; unité)", desc: "Écart entre deux dates (Y/M/D/MD/YM/YD)", cat: "Date" },
+  { name: "PMT", sig: "PMT(taux; npm; va; [vc]; [type])", desc: "Mensualité d'un emprunt", cat: "Finance" },
+  { name: "NPV", sig: "NPV(taux; val1; val2; …)", desc: "Valeur actuelle nette", cat: "Finance" },
+  { name: "IRR", sig: "IRR(plage; [estimation])", desc: "Taux de rentabilité interne", cat: "Finance" },
 ];
 
 // --- Public API -----------------------------------------------------------

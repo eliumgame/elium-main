@@ -4,20 +4,50 @@ const PALETTE = ["#1d4ed8", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#dc2626
 const W = 280;
 const H = 170;
 const PAD = 28;
+const LEGEND_H = 18;
 
-/** Dependency-free SVG chart (bar / line / pie) for a spreadsheet range. */
-export default function SheetChart({ type, labels, values }: { type: ChartType; labels: string[]; values: number[] }) {
-  if (values.length === 0) return <div className="chart-empty">Plage vide</div>;
+export interface ChartSeriesData {
+  label: string;
+  values: number[];
+}
+
+/** Dependency-free SVG chart (bar / line / pie) for a spreadsheet range, one or more series. */
+export default function SheetChart({
+  type,
+  labels,
+  series,
+}: {
+  type: ChartType;
+  labels: string[];
+  series: ChartSeriesData[];
+}) {
+  const first = series[0]?.values ?? [];
+  if (first.length === 0) return <div className="chart-empty">Plage vide</div>;
+  const showLegend = series.length > 1;
+  const totalH = H + (showLegend ? LEGEND_H : 0);
+
+  const legend = showLegend ? (
+    <g transform={`translate(${PAD}, ${H + 2})`}>
+      {series.map((se, si) => (
+        <g key={si} transform={`translate(${(si % 3) * 92}, ${Math.floor(si / 3) * 12})`}>
+          <rect width="8" height="8" y="1" fill={PALETTE[si % PALETTE.length]} rx="1" />
+          <text x="12" y="9" className="chart-legend-label">
+            {se.label.length > 12 ? `${se.label.slice(0, 11)}…` : se.label}
+          </text>
+        </g>
+      ))}
+    </g>
+  ) : null;
 
   if (type === "pie") {
-    const total = values.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+    const total = first.reduce((a, b) => a + Math.max(0, b), 0) || 1;
     let acc = 0;
     const cx = W / 2,
       cy = H / 2,
       rad = Math.min(W, H) / 2 - 12;
     return (
       <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" role="img">
-        {values.map((v, i) => {
+        {first.map((v, i) => {
           const frac = Math.max(0, v) / total;
           const a0 = acc * 2 * Math.PI - Math.PI / 2;
           acc += frac;
@@ -40,53 +70,69 @@ export default function SheetChart({ type, labels, values }: { type: ChartType; 
     );
   }
 
-  const max = Math.max(0, ...values);
-  const min = Math.min(0, ...values);
+  const n = first.length;
+  const allValues = series.flatMap((se) => se.values);
+  const max = Math.max(0, ...allValues);
+  const min = Math.min(0, ...allValues);
   const span = max - min || 1;
   const plotW = W - PAD * 2,
     plotH = H - PAD * 2;
-  const x = (i: number) => PAD + (values.length === 1 ? plotW / 2 : (i / (values.length - 1)) * plotW);
+  const x = (i: number) => PAD + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) => PAD + plotH - ((v - min) / span) * plotH;
   const zeroY = y(0);
+  const slotW = plotW / n;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" role="img">
+    <svg viewBox={`0 0 ${W} ${totalH}`} className="chart-svg" role="img">
       <line x1={PAD} y1={zeroY} x2={W - PAD} y2={zeroY} className="chart-axis" />
-      {type === "bar" ? (
-        values.map((v, i) => {
-          const bw = (plotW / values.length) * 0.62;
-          const bx = PAD + (i + 0.5) * (plotW / values.length) - bw / 2;
-          const top = y(Math.max(v, 0));
-          const h = Math.abs(y(v) - zeroY);
-          return (
-            <rect
-              key={i}
-              x={bx.toFixed(1)}
-              y={top.toFixed(1)}
-              width={bw.toFixed(1)}
-              height={Math.max(1, h).toFixed(1)}
-              rx="2"
-              fill={PALETTE[i % PALETTE.length]}
+      {type === "bar"
+        ? series.map((se, si) => {
+            const groupW = slotW * 0.7;
+            const barW = (groupW / series.length) * 0.82;
+            return se.values.map((v, i) => {
+              const groupX = PAD + i * slotW + (slotW - groupW) / 2;
+              const bx = groupX + si * (groupW / series.length) + (groupW / series.length - barW) / 2;
+              const top = y(Math.max(v, 0));
+              const h = Math.abs(y(v) - zeroY);
+              return (
+                <rect
+                  key={`${si}-${i}`}
+                  x={bx.toFixed(1)}
+                  y={top.toFixed(1)}
+                  width={barW.toFixed(1)}
+                  height={Math.max(1, h).toFixed(1)}
+                  rx="2"
+                  fill={PALETTE[si % PALETTE.length]}
+                />
+              );
+            });
+          })
+        : series.map((se, si) => (
+            <polyline
+              key={si}
+              fill="none"
+              stroke={series.length > 1 ? PALETTE[si % PALETTE.length] : "var(--primary, #2563eb)"}
+              strokeWidth="2"
+              strokeLinejoin="round"
+              points={se.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}
             />
-          );
-        })
-      ) : (
-        <polyline
-          fill="none"
-          stroke="var(--primary, #2563eb)"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          points={values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}
-        />
-      )}
+          ))}
       {type === "line" &&
-        values.map((v, i) => (
-          <circle key={i} cx={x(i).toFixed(1)} cy={y(v).toFixed(1)} r="2.5" fill="var(--primary, #2563eb)" />
-        ))}
+        series.map((se, si) =>
+          se.values.map((v, i) => (
+            <circle
+              key={`${si}-${i}`}
+              cx={x(i).toFixed(1)}
+              cy={y(v).toFixed(1)}
+              r="2.5"
+              fill={series.length > 1 ? PALETTE[si % PALETTE.length] : "var(--primary, #2563eb)"}
+            />
+          )),
+        )}
       {labels.map((l, i) => (
         <text
           key={i}
-          x={(type === "bar" ? PAD + (i + 0.5) * (plotW / values.length) : x(i)).toFixed(1)}
+          x={(type === "bar" ? PAD + (i + 0.5) * slotW : x(i)).toFixed(1)}
           y={H - 8}
           textAnchor="middle"
           className="chart-label"
@@ -94,6 +140,7 @@ export default function SheetChart({ type, labels, values }: { type: ChartType; 
           {l.length > 6 ? l.slice(0, 6) : l}
         </text>
       ))}
+      {legend}
     </svg>
   );
 }

@@ -219,6 +219,10 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     const ys = sheetAt(s);
     if (ys) SM.setColWidth(ydoc, ys, col, w);
   };
+  const setRowHeight = (s: number, row: number, h: number) => {
+    const ys = sheetAt(s);
+    if (ys) SM.setRowHeight(ydoc, ys, row, h);
+  };
   const setFreeze = (s: number, rows: number, cols: number) => {
     const ys = sheetAt(s);
     if (ys) SM.setFreeze(ydoc, ys, rows, cols);
@@ -327,6 +331,7 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     fillRange,
     growSheet,
     setColWidth,
+    setRowHeight,
     setFreeze,
     setFilter,
     toggleMerge,

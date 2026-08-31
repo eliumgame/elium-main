@@ -61,6 +61,30 @@ describe("XLSX round trip — column widths & frozen panes", () => {
     expect(back.colWidths?.[2]).toBeLessThanOrEqual(90);
   });
 
+  it("rowHeights survive (within the 0.75pt/px rounding heuristic), incl. a row with no cells", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        { name: "F", rows: 5, cols: 5, cells: { A1: "x", A4: "y" }, rowHeights: { 0: 50, 3: 20 } },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!;
+    expect(back.rowHeights?.[0]).toBeGreaterThanOrEqual(45);
+    expect(back.rowHeights?.[0]).toBeLessThanOrEqual(55);
+    expect(back.rowHeights?.[3]).toBeGreaterThanOrEqual(15);
+    expect(back.rowHeights?.[3]).toBeLessThanOrEqual(25);
+  });
+
+  it("a custom row height with NO cell content still survives (its own <row> element)", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 5, cols: 5, cells: {}, rowHeights: { 2: 40 } }],
+    };
+    const back = roundTrip(wb).sheets[0]!;
+    expect(back.rowHeights?.[2]).toBeGreaterThanOrEqual(35);
+    expect(back.rowHeights?.[2]).toBeLessThanOrEqual(45);
+  });
+
   it("freeze (rows + cols) survives exactly", () => {
     const wb: Workbook = {
       active: 0,
@@ -146,6 +170,24 @@ describe("XLSX round trip — cell styles (incl. borders)", () => {
     expect(back.C1?.fmt).toBe("percent");
     expect(back.D1?.fmt).toBe("date");
     expect(back.E1?.fmt).toBe("datetime");
+  });
+
+  it("a custom format (fmt+customFmt) round-trips its exact raw code", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        {
+          name: "F",
+          rows: 2,
+          cols: 2,
+          cells: { A1: "90" },
+          styles: { A1: { fmt: "custom", customFmt: "mm:ss" } },
+        },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!.styles!.A1;
+    expect(back?.fmt).toBe("custom");
+    expect(back?.customFmt).toBe("mm:ss");
   });
 
   it("a cell with no style stays without a styles entry", () => {
@@ -241,6 +283,22 @@ describe("XLSX round trip — conditional formatting", () => {
     expect(strip(roundTrip(sheetWith(two)).sheets[0]!.condFormats![0]!)).toEqual(strip(two));
     expect(strip(roundTrip(sheetWith(three)).sheets[0]!.condFormats![0]!)).toEqual(strip(three));
   });
+
+  it("top10 (incl. bottom/percent) and duplicateValues survive", () => {
+    const rules: CondRule[] = [
+      // rank is always round-tripped explicitly (export writes the Excel-required
+      // rank="10" default when unset), so it's spelled out here too for the equality check.
+      { id: "t1", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 10, fill: "#ffcccc" },
+      { id: "t2", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 3, bottom: true, color: "#0000ff" },
+      { id: "t3", c0: 0, r0: 0, c1: 0, r1: 4, op: "top10", rank: 25, percent: true, bold: true },
+      { id: "d1", c0: 0, r0: 0, c1: 0, r1: 4, op: "duplicate", fill: "#eeeeee" },
+    ];
+    for (const rule of rules) {
+      const back = roundTrip(sheetWith(rule)).sheets[0]!.condFormats!;
+      expect(back).toHaveLength(1);
+      expect(strip(back[0]!)).toEqual(strip(rule));
+    }
+  });
 });
 
 describe("XLSX round trip — data validation", () => {
@@ -326,6 +384,49 @@ describe("XLSX round trip — charts", () => {
     expect(back.map((c) => c.type).sort()).toEqual(["bar", "pie"]);
   });
 
+  it("a multi-series bar chart (3+ columns) charts EVERY series, not just the first", () => {
+    const chart: ChartSpec = { id: "multi", type: "bar", c0: 0, r0: 1, c1: 3, r1: 4 };
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        {
+          name: "F",
+          rows: 6,
+          cols: 4,
+          cells: {
+            A1: "Produit",
+            B1: "T1",
+            C1: "T2",
+            D1: "T3",
+            A2: "Café",
+            B2: "3",
+            C2: "4",
+            D2: "5",
+            A3: "Thé",
+            B3: "2",
+            C3: "3",
+            D3: "1",
+          },
+          charts: [chart],
+        },
+      ],
+    };
+    const back = roundTrip(wb).sheets[0]!.charts!;
+    expect(back).toHaveLength(1);
+    // The bounding rectangle (all 3 series columns + the category column) is recovered.
+    expect(strip(back[0]!)).toEqual(strip(chart));
+  });
+
+  it("a multi-series line chart survives the same way", () => {
+    const chart: ChartSpec = { id: "multiline", type: "line", c0: 1, r0: 0, c1: 4, r1: 3, title: "Multi" };
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 6, cols: 6, cells: { B1: "x" }, charts: [chart] }],
+    };
+    const back = roundTrip(wb).sheets[0]!.charts!;
+    expect(strip(back[0]!)).toEqual(strip(chart));
+  });
+
   it("charts on different sheets don't collide (global chart-part numbering)", () => {
     const wb: Workbook = {
       active: 0,
@@ -373,6 +474,67 @@ describe("XLSX round trip — everything together, multi-sheet", () => {
     expect(s1.freeze).toEqual({ rows: 1, cols: 0 });
     expect(s1.colWidths?.[0]).toBeGreaterThanOrEqual(130);
     expect(s1.colWidths?.[0]).toBeLessThanOrEqual(150);
+  });
+});
+
+describe("XLSX round trip — named ranges", () => {
+  it("workbook-scoped defined names survive export → re-import", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "Ventes", rows: 10, cols: 6, cells: { B4: "42" } }],
+      names: [
+        { name: "TOTAL", ref: "Ventes!$B$4" },
+        { name: "PLAGE", ref: "Ventes!$A$1:$B$3" },
+      ],
+    };
+    const back = roundTrip(wb);
+    expect(back.names).toEqual(
+      expect.arrayContaining([
+        { name: "TOTAL", ref: "Ventes!$B$4" },
+        { name: "PLAGE", ref: "Ventes!$A$1:$B$3" },
+      ]),
+    );
+    expect(back.names).toHaveLength(2);
+  });
+
+  it("a workbook with no names round-trips without a `names` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).names).toBeUndefined();
+  });
+});
+
+describe("XLSX round trip — cell comments (notes)", () => {
+  it("survive export → re-import, on more than one sheet", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [
+        { name: "F1", rows: 5, cols: 5, cells: { A1: "x" }, notes: { A1: "Une note.", B2: "Une autre." } },
+        { name: "F2", rows: 5, cols: 5, cells: {}, notes: { C3: "Sur la 2e feuille." } },
+      ],
+    };
+    const back = roundTrip(wb);
+    expect(back.sheets[0]!.notes).toEqual({ A1: "Une note.", B2: "Une autre." });
+    expect(back.sheets[1]!.notes).toEqual({ C3: "Sur la 2e feuille." });
+  });
+
+  it("a sheet with no notes round-trips without a `notes` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).sheets[0]!.notes).toBeUndefined();
+  });
+});
+
+describe("XLSX round trip — AutoFilter (view filter)", () => {
+  it("the {col, query} view filter survives as a native <autoFilter>", () => {
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F", rows: 10, cols: 4, cells: { A1: "Café" }, filter: { col: 1, query: "abc" } }],
+    };
+    expect(roundTrip(wb).sheets[0]!.filter).toEqual({ col: 1, query: "abc" });
+  });
+
+  it("a sheet with no filter round-trips without a `filter` key", () => {
+    const wb: Workbook = { active: 0, sheets: [{ name: "F", rows: 5, cols: 5, cells: {} }] };
+    expect(roundTrip(wb).sheets[0]!.filter).toBeUndefined();
   });
 });
 

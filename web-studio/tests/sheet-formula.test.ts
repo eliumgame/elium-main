@@ -224,6 +224,120 @@ describe("formula engine — extended functions", () => {
     expect(c.valueOf("D2")).toBe(30);
     expect(c.valueOf("D3")).toBe(20);
   });
+
+  it("IS* type-check functions", () => {
+    const c = calc({
+      A1: "",
+      A2: "5",
+      A3: "hi",
+      A4: "=1/0",
+      B1: "=ISBLANK(A1)",
+      B2: "=ISBLANK(A2)",
+      B3: "=ISNUMBER(A2)",
+      B4: "=ISNUMBER(A3)",
+      B5: "=ISTEXT(A3)",
+      B6: "=ISTEXT(A2)",
+      B7: "=ISERROR(A4)",
+      B8: "=ISERROR(A2)",
+    });
+    expect(c.valueOf("B1")).toBe(true);
+    expect(c.valueOf("B2")).toBe(false);
+    expect(c.valueOf("B3")).toBe(true);
+    expect(c.valueOf("B4")).toBe(false);
+    expect(c.valueOf("B5")).toBe(true);
+    expect(c.valueOf("B6")).toBe(false);
+    expect(c.valueOf("B7")).toBe(true);
+    expect(c.valueOf("B8")).toBe(false);
+  });
+
+  it("CHOOSE / INDIRECT / OFFSET", () => {
+    const c = calc({
+      A1: "10",
+      A2: "20",
+      A3: "30",
+      B1: '=CHOOSE(2;"un";"deux";"trois")',
+      B2: '=INDIRECT("A2")',
+      B3: "=OFFSET(A1;1;0)", // A2 -> 20
+      B4: "=OFFSET(A1;2;0)", // A3 -> 30
+    });
+    expect(c.valueOf("B1")).toBe("deux");
+    expect(c.valueOf("B2")).toBe(20);
+    expect(c.valueOf("B3")).toBe(20);
+    expect(c.valueOf("B4")).toBe(30);
+  });
+
+  it("XLOOKUP — exact match with optional default", () => {
+    const c = calc({
+      A1: "Pomme",
+      A2: "Banane",
+      A3: "Cerise",
+      B1: "3",
+      B2: "5",
+      B3: "8",
+      D1: '=XLOOKUP("Banane";A1:A3;B1:B3)',
+      D2: '=XLOOKUP("Inconnu";A1:A3;B1:B3;"?")',
+    });
+    expect(c.valueOf("D1")).toBe(5);
+    expect(c.valueOf("D2")).toBe("?");
+  });
+
+  it("LARGE / SMALL / RANK / STDEV / VAR", () => {
+    const c = calc({
+      A1: "3",
+      A2: "1",
+      A3: "4",
+      A4: "1",
+      A5: "5",
+      B1: "=LARGE(A1:A5;2)",
+      B2: "=SMALL(A1:A5;2)",
+      B3: "=RANK(4;A1:A5)",
+      B4: "=STDEV(A1:A5)",
+      B5: "=VAR(A1:A5)",
+    });
+    expect(c.valueOf("B1")).toBe(4);
+    expect(c.valueOf("B2")).toBe(1);
+    expect(c.valueOf("B3")).toBe(2);
+    expect(c.valueOf("B4")).toBeCloseTo(1.7889, 3);
+    expect(c.valueOf("B5")).toBeCloseTo(3.2, 3);
+  });
+
+  it("TEXTJOIN ignores blanks by default", () => {
+    const c = calc({
+      A1: "a",
+      A2: "",
+      A3: "b",
+      B1: '=TEXTJOIN("-";TRUE;A1;A2;A3)',
+      B2: '=TEXTJOIN("-";FALSE;A1;A2;A3)',
+    });
+    expect(c.valueOf("B1")).toBe("a-b");
+    expect(c.valueOf("B2")).toBe("a--b");
+  });
+
+  it("DATEDIF across units", () => {
+    const c = calc({
+      B1: "=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);\"Y\")",
+      B2: "=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);\"M\")",
+      B3: "=DATEDIF(DATE(2026;1;1);DATE(2026;3;10);\"D\")",
+    });
+    expect(c.valueOf("B1")).toBe(6);
+    expect(c.valueOf("B2")).toBe(77);
+    expect(c.valueOf("B3")).toBe(68);
+  });
+
+  it("PMT / NPV / IRR", () => {
+    const c = calc({
+      B1: "=PMT(0.05;10;-1000)",
+      B2: "=NPV(0.1;100;100;100)",
+      C1: "-1000",
+      C2: "300",
+      C3: "400",
+      C4: "500",
+      B3: "=IRR(C1:C4)",
+    });
+    expect(c.valueOf("B1")).toBeCloseTo(129.5046, 3);
+    expect(c.valueOf("B2")).toBeCloseTo(248.6852, 3);
+    expect(c.valueOf("B3")).toBeCloseTo(0.089, 3);
+  });
 });
 
 describe("rewriteRefs — references track inserted/deleted rows·columns", () => {

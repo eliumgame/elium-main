@@ -2,13 +2,14 @@
  * XLSX (SpreadsheetML) importer — no new dependency. Unzips with fflate
  * (already used by the DOCX module) and parses the XML with the browser
  * DOMParser. Reads shared strings, cell values/formulas AND styles (numFmt,
- * font, fill, border), merged cells, column widths, frozen panes, conditional
- * formatting, data validation and native charts — the inverse of xlsx-export.ts,
+ * font, fill, border), merged cells, column widths, row heights, frozen panes,
+ * conditional formatting, data validation, AutoFilter, cell comments and
+ * native charts — the inverse of xlsx-export.ts,
  * so a workbook survives an export → re-import round trip, and reopening an
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
 import { unzipSync, strFromU8 } from "fflate";
-import { parseRef } from "./formula";
+import { parseRef, rewriteRefs, indexToCol } from "./formula";
 import {
   emptySheet,
   newId,
@@ -26,6 +27,7 @@ import {
   type ChartType,
   type BorderSide,
   type BorderStyle,
+  type NamedRange,
 } from "./model";
 
 function parseXml(bytes: Uint8Array | undefined): Document | null {
@@ -105,6 +107,107 @@ function argbToHex(rgb: string | null | undefined): string | undefined {
   return undefined;
 }
 
+// ── theme colours (xl/theme/theme1.xml) ─────────────────────────────────────
+//
+// A `<color theme="N" tint="…"/>` (used pervasively by Excel-authored files —
+// every default font/fill color is a theme reference, not a literal rgb) names
+// one of the 12 slots of the theme's `<a:clrScheme>` by INDEX. That index order
+// is NOT the document order of the scheme's children: Excel's UI (and every
+// other reader — LibreOffice, openpyxl, SheetJS) swaps the first two dk/lt
+// pairs, a well-known OOXML quirk. `tint` then lightens (>0) or darkens (<0)
+// the resolved colour by adjusting its HSL lightness (ECMA-376 §18.8.3 ApplyTint).
+
+/** `<a:srgbClr val="RRGGBB"/>` or `<a:sysClr val="windowText" lastClr="RRGGBB"/>` → lowercase hex (no '#'). */
+function themeSlotHex(el: Element | undefined): string | undefined {
+  if (!el) return undefined;
+  const srgb = el.getElementsByTagName("a:srgbClr")[0];
+  if (srgb) return srgb.getAttribute("val")?.toLowerCase();
+  const sys = el.getElementsByTagName("a:sysClr")[0];
+  if (sys) return (sys.getAttribute("lastClr") ?? sys.getAttribute("val"))?.toLowerCase();
+  return undefined;
+}
+
+/** Theme index → hex (no '#'), in the UI index order (lt1, dk1, lt2, dk2, accent1-6, hlink, folHlink). */
+function parseThemeColors(zip: Record<string, Uint8Array>): string[] {
+  const doc = parseXml(zip["xl/theme/theme1.xml"]);
+  const scheme = doc?.getElementsByTagName("a:clrScheme")[0];
+  const TAGS = [
+    "a:lt1",
+    "a:dk1",
+    "a:lt2",
+    "a:dk2",
+    "a:accent1",
+    "a:accent2",
+    "a:accent3",
+    "a:accent4",
+    "a:accent5",
+    "a:accent6",
+    "a:hlink",
+    "a:folHlink",
+  ];
+  return TAGS.map((tag) => themeSlotHex(scheme?.getElementsByTagName(tag)[0]) ?? "000000");
+}
+
+function hexToRgb01(hex: string): [number, number, number] {
+  const h = hex.replace(/^#/, "").padEnd(6, "0");
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hslToRgb([h, s, l]: [number, number, number]): [number, number, number] {
+  if (s === 0) return [l, l, l];
+  const hue2rgb = (p: number, q: number, t: number): number => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3)];
+}
+/** ECMA-376 §18.8.3 ApplyTint: shifts HSL lightness toward black (tint<0) or white (tint>0). */
+function applyTint(hex: string, tint: number): string {
+  if (!tint) return hex;
+  const [h, s, l] = rgbToHsl(hexToRgb01(hex));
+  const l2 = Math.min(1, Math.max(0, tint < 0 ? l * (1 + tint) : l * (1 - tint) + tint));
+  const [r, g, b] = hslToRgb([h, s, l2]);
+  const to255 = (x: number) =>
+    Math.round(Math.min(1, Math.max(0, x)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `${to255(r)}${to255(g)}${to255(b)}`;
+}
+
+/** Resolve a `<color .../>` element: literal `rgb`, or a theme+tint reference. Indexed (legacy) palette → undefined. */
+function colorOf(el: Element | null | undefined, theme: string[]): string | undefined {
+  if (!el) return undefined;
+  const rgb = el.getAttribute("rgb");
+  if (rgb) return argbToHex(rgb);
+  const themeAttr = el.getAttribute("theme");
+  if (themeAttr != null) {
+    const base = theme[Number(themeAttr)];
+    if (!base) return undefined;
+    const tintAttr = el.getAttribute("tint");
+    return `#${applyTint(base, tintAttr ? Number(tintAttr) : 0)}`;
+  }
+  return undefined;
+}
+
 // Excel/Sheets serial-date epoch (matches sheet/format.ts's rendering epoch and
 // xlsx-export.ts's writer, so a validation bound round-trips to the same date).
 const DATE_EPOCH = Date.UTC(1899, 11, 30);
@@ -147,6 +250,7 @@ interface ParsedStyles {
   borders: ParsedBorder[];
   numFmts: Map<number, string>;
   dxfs: ParsedDxf[];
+  theme: string[];
 }
 
 // The subset of ECMA-376 built-in numFmt codes (§18.8.30) common enough to
@@ -191,7 +295,13 @@ const OURS_NUMFMT: Record<string, NumFmt> = {
   "yyyy\\-mm\\-dd\\ hh:mm": "datetime",
 };
 
-/** Best-effort classification of an arbitrary Excel format code into our fixed NumFmt set. */
+/**
+ * Best-effort classification of an arbitrary Excel format code into our fixed
+ * NumFmt set. A code that fits none of our categories (e.g. "mm:ss", a
+ * non-EUR currency, an accounting format) classifies as "custom" — the caller
+ * then keeps the raw code (CellStyle.customFmt) instead of silently losing it
+ * to "general", even though on-screen rendering stays approximate.
+ */
 function classifyNumFmt(code: string): NumFmt {
   if (!code || code === "General" || code === "@") return "general";
   const ours = OURS_NUMFMT[code];
@@ -205,12 +315,14 @@ function classifyNumFmt(code: string): NumFmt {
   if (/[$€£¥]/.test(bare) || code.includes("[$")) return "currency";
   if (/0\.0/.test(bare)) return "number";
   if (/^[#0]+$/.test(bare.replace(/[,; ]/g, ""))) return "int";
-  return "general";
+  return "custom";
 }
-function numFmtIdToOurs(id: number, custom: Map<number, string>): NumFmt {
-  if (!id) return "general";
+function numFmtIdToOurs(id: number, custom: Map<number, string>): { fmt: NumFmt; code?: string } {
+  if (!id) return { fmt: "general" };
   const code = custom.get(id) ?? BUILTIN_NUMFMTS[id];
-  return code ? classifyNumFmt(code) : "general";
+  if (!code) return { fmt: "general" };
+  const fmt = classifyNumFmt(code);
+  return fmt === "custom" ? { fmt, code } : { fmt };
 }
 
 const BORDER_STYLE_MAP: Record<string, BorderStyle> = {
@@ -228,14 +340,14 @@ const BORDER_STYLE_MAP: Record<string, BorderStyle> = {
   mediumDashDotDot: "dashed",
   slantDashDot: "dashed",
 };
-function parseSide(el: Element | undefined): BorderSide | undefined {
+function parseSide(el: Element | undefined, theme: string[]): BorderSide | undefined {
   const style = el?.getAttribute("style");
   if (!el || !style || style === "none") return undefined;
-  const color = argbToHex(el.getElementsByTagName("color")[0]?.getAttribute("rgb"));
+  const color = colorOf(el.getElementsByTagName("color")[0], theme);
   return { style: BORDER_STYLE_MAP[style] ?? "thin", ...(color ? { color } : {}) };
 }
 
-function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
+function parseStylesXml(zip: Record<string, Uint8Array>, theme: string[]): ParsedStyles {
   const doc = parseXml(zip["xl/styles.xml"]);
 
   const numFmts = new Map<number, string>();
@@ -254,7 +366,7 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
     fonts.push({
       bold: !!f.getElementsByTagName("b")[0],
       italic: !!f.getElementsByTagName("i")[0],
-      color: argbToHex(f.getElementsByTagName("color")[0]?.getAttribute("rgb")),
+      color: colorOf(f.getElementsByTagName("color")[0], theme),
       name: f.getElementsByTagName("name")[0]?.getAttribute("val") ?? undefined,
       sz: sz ? Number(sz) : undefined,
     });
@@ -269,10 +381,9 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
       fills.push(undefined);
       continue;
     }
-    const rgb =
-      pf.getElementsByTagName("fgColor")[0]?.getAttribute("rgb") ??
-      pf.getElementsByTagName("bgColor")[0]?.getAttribute("rgb");
-    fills.push(argbToHex(rgb));
+    const resolved =
+      colorOf(pf.getElementsByTagName("fgColor")[0], theme) ?? colorOf(pf.getElementsByTagName("bgColor")[0], theme);
+    fills.push(resolved);
   }
 
   const borders: ParsedBorder[] = [];
@@ -280,10 +391,10 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
   for (let i = 0; i < borderEls.length; i++) {
     const b = borderEls[i];
     borders.push({
-      left: parseSide(b.getElementsByTagName("left")[0]),
-      right: parseSide(b.getElementsByTagName("right")[0]),
-      top: parseSide(b.getElementsByTagName("top")[0]),
-      bottom: parseSide(b.getElementsByTagName("bottom")[0]),
+      left: parseSide(b.getElementsByTagName("left")[0], theme),
+      right: parseSide(b.getElementsByTagName("right")[0], theme),
+      top: parseSide(b.getElementsByTagName("top")[0], theme),
+      bottom: parseSide(b.getElementsByTagName("bottom")[0], theme),
     });
   }
 
@@ -307,17 +418,17 @@ function parseStylesXml(zip: Record<string, Uint8Array>): ParsedStyles {
     const dxf = dxfEls[i];
     const fontEl = dxf.getElementsByTagName("font")[0];
     const fillEl = dxf.getElementsByTagName("fill")[0];
-    const fillRgb =
-      fillEl?.getElementsByTagName("bgColor")[0]?.getAttribute("rgb") ??
-      fillEl?.getElementsByTagName("fgColor")[0]?.getAttribute("rgb");
+    const fillColor =
+      colorOf(fillEl?.getElementsByTagName("bgColor")[0], theme) ??
+      colorOf(fillEl?.getElementsByTagName("fgColor")[0], theme);
     dxfs.push({
       bold: !!fontEl?.getElementsByTagName("b")[0],
-      color: argbToHex(fontEl?.getElementsByTagName("color")[0]?.getAttribute("rgb")),
-      fill: argbToHex(fillRgb),
+      color: colorOf(fontEl?.getElementsByTagName("color")[0], theme),
+      fill: fillColor,
     });
   }
 
-  return { xfs, fonts, fills, borders, numFmts, dxfs };
+  return { xfs, fonts, fills, borders, numFmts, dxfs, theme };
 }
 
 const DEFAULT_FONT_PT = 11; // matches xlsx-export.ts's own default (11pt when no fontSize style is set)
@@ -345,8 +456,9 @@ function xfToCellStyle(xfIndex: number, ps: ParsedStyles): CellStyle {
     };
   }
   if (xf.align) st.align = xf.align;
-  const fmt = numFmtIdToOurs(xf.numFmtId, ps.numFmts);
+  const { fmt, code } = numFmtIdToOurs(xf.numFmtId, ps.numFmts);
   if (fmt !== "general") st.fmt = fmt;
+  if (fmt === "custom" && code) st.customFmt = code;
   return st;
 }
 
@@ -382,6 +494,26 @@ function parseColWidths(doc: Document): Record<number, number> {
   return out;
 }
 
+/** Excel's row "points" height unit → px (inverse of xlsx-export.ts's `pxToPt`, same 0.75pt/px heuristic). */
+const ptToPx = (pt: number): number => Math.max(1, Math.round((pt * 4) / 3));
+/** `<row r="N" ht="…" customHeight="1">` → 0-based row index -> height px. Rows with no explicit `ht` (auto-height) are skipped. */
+function parseRowHeights(doc: Document): Record<number, number> {
+  const out: Record<number, number> = {};
+  const els = doc.getElementsByTagName("row");
+  for (let i = 0; i < els.length; i++) {
+    const row = els[i];
+    if (row.getAttribute("customHeight") !== "1") continue;
+    const htAttr = row.getAttribute("ht");
+    const rAttr = row.getAttribute("r");
+    if (!htAttr || !rAttr) continue;
+    const r = Number(rAttr);
+    const ht = Number(htAttr);
+    if (!Number.isFinite(r) || r < 1 || !Number.isFinite(ht)) continue;
+    out[r - 1] = ptToPx(ht);
+  }
+  return out;
+}
+
 function parseFreeze(doc: Document): { rows: number; cols: number } | undefined {
   const pane = doc.getElementsByTagName("pane")[0];
   const state = pane?.getAttribute("state");
@@ -389,6 +521,36 @@ function parseFreeze(doc: Document): { rows: number; cols: number } | undefined 
   const cols = Math.max(0, Math.round(Number(pane.getAttribute("xSplit") ?? "0")));
   const rows = Math.max(0, Math.round(Number(pane.getAttribute("ySplit") ?? "0")));
   return rows > 0 || cols > 0 ? { rows, cols } : undefined;
+}
+
+/**
+ * `<autoFilter ref="A1:D20"><filterColumn colId="N">…</filterColumn>…</autoFilter>`
+ * → our single {col, query} view filter (the inverse of xlsx-export.ts's
+ * `autoFilterXml`). `colId` is relative to the filtered range's first column,
+ * so it's resolved against `ref` rather than assumed to start at A. Only the
+ * FIRST filtered column is kept (our model has one), and only a criteria
+ * shape with a free-text equivalent: a wildcard/plain `<customFilter val>`
+ * (Excel's own "contains" text filter — our exporter always writes exactly
+ * this) or the first value of a checkbox `<filters><filter val>` list.
+ * Anything else (dates, top10, dynamic, multiple criteria) has no equivalent
+ * in our model and is skipped — degrade gracefully, same pattern as
+ * condFormats/validations above.
+ */
+function parseAutoFilter(doc: Document): SheetData["filter"] | undefined {
+  const af = doc.getElementsByTagName("autoFilter")[0];
+  const fc = af?.getElementsByTagName("filterColumn")[0];
+  if (!af || !fc) return undefined;
+  const rect = parseRangeRef(af.getAttribute("ref") ?? "");
+  const colId = Number(fc.getAttribute("colId") ?? "0");
+  const col = (rect?.c0 ?? 0) + (Number.isFinite(colId) ? colId : 0);
+
+  const customVal = fc.getElementsByTagName("customFilter")[0]?.getAttribute("val");
+  if (customVal != null) {
+    const query = customVal.replace(/^\*/, "").replace(/\*$/, "");
+    return query ? { col, query } : undefined;
+  }
+  const filterVal = fc.getElementsByTagName("filter")[0]?.getAttribute("val");
+  return filterVal ? { col, query: filterVal } : undefined;
 }
 
 // ── conditional formatting / data validation ────────────────────────────────
@@ -427,7 +589,7 @@ function parseCondFormats(doc: Document, ps: ParsedStyles): CondRule[] {
 
       if (type === "colorScale") {
         const colors = [...(el.getElementsByTagName("colorScale")[0]?.getElementsByTagName("color") ?? [])].map(
-          (c) => argbToHex(c.getAttribute("rgb")) ?? "#ffffff",
+          (c) => colorOf(c, ps.theme) ?? "#ffffff",
         );
         if (colors.length >= 2) {
           const scale =
@@ -457,9 +619,24 @@ function parseCondFormats(doc: Document, ps: ParsedStyles): CondRule[] {
         const rule: CondRule = { ...base, op: "notEmpty" };
         applyDxf(rule, dxf);
         out.push(rule);
+      } else if (type === "top10") {
+        const rankAttr = Number(el.getAttribute("rank") ?? "10");
+        const rule: CondRule = {
+          ...base,
+          op: "top10",
+          rank: Number.isFinite(rankAttr) && rankAttr > 0 ? rankAttr : 10,
+          ...(el.getAttribute("bottom") === "1" ? { bottom: true } : {}),
+          ...(el.getAttribute("percent") === "1" ? { percent: true } : {}),
+        };
+        applyDxf(rule, dxf);
+        out.push(rule);
+      } else if (type === "duplicateValues") {
+        const rule: CondRule = { ...base, op: "duplicate" };
+        applyDxf(rule, dxf);
+        out.push(rule);
       }
-      // Other rule types (expression, top10, duplicateValues, …) come from other
-      // tools and have no equivalent in our model — skipped, degrade gracefully.
+      // Other rule types (expression, uniqueValues, …) come from other tools
+      // and have no equivalent in our model — skipped, degrade gracefully.
     }
   }
   return out;
@@ -476,7 +653,35 @@ const DV_OP_REV: Record<string, ValidationOp> = {
   notEqual: "ne",
 };
 
-function parseValidations(doc: Document): DataValidation[] {
+/**
+ * Resolve a `formula1` that is a cell-range reference (not a quoted literal
+ * list) into its current cell values — e.g. `$A$1:$A$5` or `Sheet1!$A$1:$A$5`.
+ * Excel itself keeps the dropdown live against that range; we have no notion
+ * of a range-backed validation in the model, so this takes a one-time
+ * snapshot at import time (same simplification other xlsx round-trippers take
+ * for a "static" reading). A reference to a sheet OTHER than the one being
+ * parsed can't be resolved here (sheets are parsed one at a time) and is
+ * skipped — a known limitation, not a crash.
+ */
+function resolveListRange(ref: string, sheetName: string, cells: Record<string, string>): string[] {
+  const bang = ref.lastIndexOf("!");
+  if (bang >= 0) {
+    const sheetPart = ref.slice(0, bang).trim().replace(/^'|'$/g, "");
+    if (sheetPart !== sheetName) return [];
+  }
+  const rect = parseRangeRef(ref);
+  if (!rect) return [];
+  const out: string[] = [];
+  for (let r = rect.r0; r <= rect.r1; r++) {
+    for (let c = rect.c0; c <= rect.c1; c++) {
+      const v = cells[`${indexToCol(c)}${r + 1}`];
+      if (v !== undefined && v !== "") out.push(v);
+    }
+  }
+  return out;
+}
+
+function parseValidations(doc: Document, sheetName: string, cells: Record<string, string>): DataValidation[] {
   const out: DataValidation[] = [];
   const els = doc.getElementsByTagName("dataValidation");
   for (let i = 0; i < els.length; i++) {
@@ -490,12 +695,18 @@ function parseValidations(doc: Document): DataValidation[] {
     const base = { id: newId("dv"), ...range, allowBlank };
 
     if (type === "list") {
-      const raw = f1 !== undefined ? unquote(f1) : "";
-      const list = raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      out.push({ ...base, type: "list", list });
+      const raw = f1 ?? "";
+      // Per ECMA-376 §18.3.1.32: formula1 for a list is EITHER a quoted,
+      // comma-separated literal ("Oui,Non,Peut-être") OR an unquoted cell-range
+      // reference / defined name. Only the former was previously understood —
+      // a plain range reference silently produced a single bogus option.
+      const list = raw.startsWith('"')
+        ? unquote(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : resolveListRange(raw, sheetName, cells);
+      if (list.length) out.push({ ...base, type: "list", list });
       continue;
     }
     const vType: ValidationType | undefined =
@@ -521,10 +732,15 @@ function parseValidations(doc: Document): DataValidation[] {
 
 // ── native charts (DrawingML, via the sheet's drawing relationship) ────────
 
-function firstFormulaRef(doc: Document, tag: "cat" | "val"): string | undefined {
-  const el = doc.getElementsByTagName(`c:${tag}`)[0];
-  const f = el?.getElementsByTagName("c:f")[0];
-  return f?.textContent?.trim() || undefined;
+/** Every `<c:cat>`/`<c:val>` cell-range formula in the chart, in document order (one `<c:val>` per series). */
+function allFormulaRefs(doc: Document, tag: "cat" | "val"): string[] {
+  const els = doc.getElementsByTagName(`c:${tag}`);
+  const out: string[] = [];
+  for (let i = 0; i < els.length; i++) {
+    const ref = els[i].getElementsByTagName("c:f")[0]?.textContent?.trim();
+    if (ref) out.push(ref);
+  }
+  return out;
 }
 function chartTitle(doc: Document): string | undefined {
   const title = doc.getElementsByTagName("c:title")[0];
@@ -534,6 +750,12 @@ function chartTitle(doc: Document): string | undefined {
     for (let i = 0; i < runs.length; i++) s += runs[i].textContent ?? "";
     if (s.trim()) return s;
   }
+  // Fallback: our own exporter also stashes a single series' <c:tx><c:v> as its
+  // name when the chart has a title (belt-and-braces for readers that only look
+  // at the series name). Only trust that as the CHART's title when there is
+  // exactly one series — with several series, each has its own literal <c:tx>
+  // name (e.g. "Colonne C") and none of those is the chart's title.
+  if (doc.getElementsByTagName("c:ser").length !== 1) return undefined;
   const v = doc.getElementsByTagName("c:tx")[0]?.getElementsByTagName("c:v")[0]?.textContent;
   return v?.trim() ? v : undefined;
 }
@@ -543,22 +765,62 @@ function chartKind(doc: Document): ChartType {
   return "bar";
 }
 
-/** Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's `chartXml`). */
+/**
+ * Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's
+ * `chartXml`). Reads EVERY `<c:val>` (one per `<c:ser>`, i.e. every series, not
+ * just the first) and reconstructs the bounding rectangle assuming the shape our
+ * own exporter — and most real-world spreadsheet tools — produce: a category
+ * column immediately followed by one contiguous column per series.
+ */
 function parseChartSpec(doc: Document): ChartSpec | null {
-  const catRef = firstFormulaRef(doc, "cat");
-  const valRef = firstFormulaRef(doc, "val");
-  const cat = catRef ? parseRangeRef(catRef) : null;
-  const val = valRef ? parseRangeRef(valRef) : null;
-  let rect: { c0: number; r0: number; c1: number; r1: number };
-  if (val) {
-    rect = { c0: cat ? cat.c0 : val.c0, r0: val.r0, c1: val.c0, r1: val.r1 };
-  } else if (cat) {
-    rect = { c0: cat.c0, r0: cat.r0, c1: cat.c0, r1: cat.r1 };
-  } else {
-    return null; // pure literal chart (no cell refs) — can't recover a source range
-  }
+  const catRefs = allFormulaRefs(doc, "cat");
+  const valRefs = allFormulaRefs(doc, "val");
+  const cat = catRefs[0] ? parseRangeRef(catRefs[0]) : null;
+  const vals = valRefs.map(parseRangeRef).filter((v): v is NonNullable<typeof v> => v !== null);
+  if (!vals.length && !cat) return null; // pure literal chart (no cell refs) — can't recover a source range
+
+  const cols = [...(cat ? [cat.c0] : []), ...vals.map((v) => v.c0)];
+  const rowsOf = vals.length ? vals : cat ? [cat] : [];
+  const rect = {
+    c0: Math.min(...cols),
+    c1: Math.max(...cols),
+    r0: Math.min(...rowsOf.map((v) => v.r0)),
+    r1: Math.max(...rowsOf.map((v) => v.r1)),
+  };
   const title = chartTitle(doc);
   return { id: newId("chart"), type: chartKind(doc), ...rect, ...(title ? { title } : {}) };
+}
+
+/**
+ * Resolve a worksheet's `xl/commentsN.xml` cell comments ("notes") into a
+ * `{ref -> text}` map, via the worksheet's OWN `.rels` (Type ending in
+ * "/comments") — unlike charts, no in-body element points to this part (see
+ * the note on `commentsXml` in xlsx-export.ts), so we look at every
+ * relationship directly rather than reusing `relTargets` (which only keys by
+ * Id, not Type). Shapes/VBA/legacy VML indicator are out of scope.
+ */
+function parseSheetComments(zip: Record<string, Uint8Array>, sheetPath: string): Record<string, string> {
+  const relsDoc = parseXml(zip[relsPathOf(sheetPath)]);
+  if (!relsDoc) return {};
+  const rels = relsDoc.getElementsByTagName("Relationship");
+  let target: string | undefined;
+  for (let i = 0; i < rels.length; i++) {
+    if ((rels[i].getAttribute("Type") ?? "").endsWith("/comments")) {
+      target = rels[i].getAttribute("Target") ?? undefined;
+      break;
+    }
+  }
+  if (!target) return {};
+  const doc = parseXml(zip[resolvePath(sheetPath.replace(/\/[^/]+$/, ""), target)]);
+  if (!doc) return {};
+  const out: Record<string, string> = {};
+  const comments = doc.getElementsByTagName("comment");
+  for (let i = 0; i < comments.length; i++) {
+    const ref = comments[i].getAttribute("ref");
+    const text = textOf(comments[i]);
+    if (ref && text) out[ref.toUpperCase()] = text;
+  }
+  return out;
 }
 
 /** Resolve a worksheet's drawing → chart parts into ChartSpecs (empty when the sheet has no drawing). */
@@ -589,6 +851,36 @@ function parseSheetCharts(zip: Record<string, Uint8Array>, sheetPath: string, sh
 
 // ── worksheet ────────────────────────────────────────────────────────────
 
+/** A "master" shared formula (`<f t="shared" si="N">…</f>`): its body + the cell it lives on. */
+interface SharedFormulaEntry {
+  formula: string;
+  col: number;
+  row: number;
+}
+
+/**
+ * First pass over a worksheet's cells: index every shared-formula GROUP by its
+ * `si` id, keyed to the master cell (the one that actually carries the formula
+ * text — every other member of the group is `<f t="shared" si="N"/>` with no
+ * text at all, relying on this table). Excel always writes the master first,
+ * but nothing in the spec requires that, hence the separate pass instead of
+ * resolving followers inline as we walk the cells once.
+ */
+function collectSharedFormulas(cells: HTMLCollectionOf<Element>): Map<number, SharedFormulaEntry> {
+  const table = new Map<number, SharedFormulaEntry>();
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    const f = c.getElementsByTagName("f")[0];
+    if (!f || f.getAttribute("t") !== "shared" || !f.textContent) continue;
+    const si = Number(f.getAttribute("si"));
+    if (!Number.isFinite(si) || table.has(si)) continue; // first (master) wins
+    const ref = c.getAttribute("r");
+    const pos = ref ? parseRef(ref.toUpperCase()) : null;
+    if (pos) table.set(si, { formula: f.textContent, col: pos.col, row: pos.row });
+  }
+  return table;
+}
+
 function parseSheet(doc: Document | null, shared: string[], name: string, ps: ParsedStyles): SheetData {
   const sh = emptySheet(name);
   if (!doc) return sh;
@@ -596,6 +888,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   let maxRow = 19;
   const styles: Record<string, CellStyle> = {};
   const cells = doc.getElementsByTagName("c");
+  const sharedFormulas = collectSharedFormulas(cells);
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
     const ref = c.getAttribute("r");
@@ -615,6 +908,21 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
     if (f && f.textContent) {
       sh.cells[upref] = "=" + f.textContent;
       continue;
+    }
+    if (f && f.getAttribute("t") === "shared" && pos) {
+      // Follower of a "filled-down" formula: no formula text of its own —
+      // re-derive it from the master by shifting relative references by the
+      // (col,row) offset between this cell and the master (Excel fill semantics:
+      // relative refs shift, $-anchored ones stay put — respectAnchors=true).
+      const si = Number(f.getAttribute("si"));
+      const master = Number.isFinite(si) ? sharedFormulas.get(si) : undefined;
+      if (master) {
+        const dCol = pos.col - master.col;
+        const dRow = pos.row - master.row;
+        const shifted = rewriteRefs(master.formula, (col, row) => ({ col: col + dCol, row: row + dRow }), true);
+        sh.cells[upref] = "=" + shifted;
+        continue;
+      }
     }
     const t = c.getAttribute("t");
     if (t === "inlineStr") {
@@ -643,27 +951,51 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (merges.length) sh.merges = merges;
   const colWidths = parseColWidths(doc);
   if (Object.keys(colWidths).length) sh.colWidths = colWidths;
+  const rowHeights = parseRowHeights(doc);
+  if (Object.keys(rowHeights).length) sh.rowHeights = rowHeights;
   const freeze = parseFreeze(doc);
   if (freeze) sh.freeze = freeze;
   const condFormats = parseCondFormats(doc, ps);
   if (condFormats.length) sh.condFormats = condFormats;
-  const validations = parseValidations(doc);
+  const validations = parseValidations(doc, name, sh.cells);
   if (validations.length) sh.validations = validations;
+  const filter = parseAutoFilter(doc);
+  if (filter) sh.filter = filter;
 
   return sh;
+}
+
+/** <definedNames><definedName name="X">Sheet!$A$1</definedName>…</definedNames> — workbook-scoped named ranges. */
+function parseDefinedNames(wb: Document | null): NamedRange[] {
+  if (!wb) return [];
+  const out: NamedRange[] = [];
+  const els = wb.getElementsByTagName("definedName");
+  for (let i = 0; i < els.length; i++) {
+    const name = els[i].getAttribute("name");
+    const ref = els[i].textContent?.trim();
+    // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, …) — not user-facing.
+    if (name && ref && !name.startsWith("_xlnm")) out.push({ name, ref });
+  }
+  return out;
 }
 
 export function importXlsx(bytes: Uint8Array): Workbook {
   const zip = unzipSync(bytes);
   const shared = parseSharedStrings(zip);
-  const ps = parseStylesXml(zip);
+  const theme = parseThemeColors(zip);
+  const ps = parseStylesXml(zip, theme);
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
   const wb = parseXml(zip["xl/workbook.xml"]);
 
-  const withCharts = (path: string, sh: SheetData, doc: Document | null): SheetData => {
+  const withSheetExtras = (path: string, sh: SheetData, doc: Document | null): SheetData => {
     if (!doc) return sh;
     const charts = parseSheetCharts(zip, path, doc);
-    return charts.length ? { ...sh, charts } : sh;
+    const notes = parseSheetComments(zip, path);
+    return {
+      ...sh,
+      ...(charts.length ? { charts } : {}),
+      ...(Object.keys(notes).length ? { notes } : {}),
+    };
   };
 
   const sheets: SheetData[] = [];
@@ -675,7 +1007,7 @@ export function importXlsx(bytes: Uint8Array): Workbook {
       const target = rid ? rels[rid] : undefined;
       const path = target ? resolvePath("xl", target) : `xl/worksheets/sheet${i + 1}.xml`;
       const doc = parseXml(zip[path]);
-      sheets.push(withCharts(path, parseSheet(doc, shared, name, ps), doc));
+      sheets.push(withSheetExtras(path, parseSheet(doc, shared, name, ps), doc));
     }
   }
   // Fallback: no workbook.xml mapping — read sheet files directly.
@@ -685,9 +1017,10 @@ export function importXlsx(bytes: Uint8Array): Workbook {
       .sort();
     names.forEach((k, i) => {
       const doc = parseXml(zip[k]);
-      sheets.push(withCharts(k, parseSheet(doc, shared, `Feuille ${i + 1}`, ps), doc));
+      sheets.push(withSheetExtras(k, parseSheet(doc, shared, `Feuille ${i + 1}`, ps), doc));
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
-  return { sheets, active: 0 };
+  const names = parseDefinedNames(wb);
+  return { sheets, active: 0, ...(names.length ? { names } : {}) };
 }

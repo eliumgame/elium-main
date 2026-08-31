@@ -6,6 +6,7 @@ import {
   sheetSnapshot,
   workbookSnapshot,
   setColWidth,
+  setRowHeight,
   setFreeze,
   setFilter,
   growSheet,
@@ -74,11 +75,13 @@ describe("Tableur collaboratif — modèle plein (snapshot)", () => {
     const ys = sheets.get(0);
     ydoc.transact(() => setCellText(ys.get("cells") as YCells, "A1", "42"));
     setColWidth(ydoc, ys, 2, 160);
+    setRowHeight(ydoc, ys, 1, 60);
     setFreeze(ydoc, ys, 1, 1);
     setCondRule(ydoc, ys, cf("cf1"));
     const snap = sheetSnapshot(ys);
     expect(snap.cells).toEqual({ A1: "42" });
     expect(snap.colWidths).toEqual({ 2: 160 });
+    expect(snap.rowHeights).toEqual({ 1: 60 });
     expect(snap.freeze).toEqual({ rows: 1, cols: 1 });
     expect(snap.condFormats).toHaveLength(1);
   });
@@ -102,8 +105,10 @@ describe("Tableur collaboratif — modèle plein (snapshot)", () => {
     // …et le premier accès en écriture les crée à la volée, sans rien casser.
     ydoc.transact(() => ensureSheetStructures(ys));
     setColWidth(ydoc, ys, 0, 120);
+    setRowHeight(ydoc, ys, 0, 45);
     expect(sheetSnapshot(ys).cells).toEqual({ A1: "héritée" });
     expect(sheetSnapshot(ys).colWidths).toEqual({ 0: 120 });
+    expect(sheetSnapshot(ys).rowHeights).toEqual({ 0: 45 });
   });
 });
 
@@ -336,5 +341,15 @@ describe("Tableur collaboratif — opérations structurelles + import", () => {
     reconcileSheet(ydoc, ys, target);
     expect(cells.get("A1")).toBe(a1Before); // A1 : MÊME instance, non réécrite
     expect(sheetSnapshot(ys).cells).toEqual({ A1: "stable", A2: "neuf" });
+  });
+
+  it("les commentaires de cellule (notes) survivent un import dans le classeur collaboratif", () => {
+    const { ydoc, sheets, names } = makePeer();
+    const wb: Workbook = {
+      active: 0,
+      sheets: [{ name: "F1", rows: 5, cols: 5, cells: { A1: "x" }, notes: { A1: "Une note." } }],
+    };
+    loadWorkbookIntoDoc(ydoc, sheets, names, wb);
+    expect(workbookSnapshot(sheets, names, 0).sheets[0]!.notes).toEqual({ A1: "Une note." });
   });
 });

@@ -1,5 +1,9 @@
 /** Spreadsheet workbook model (in-memory; persisted locally via sheet-store). */
-export type NumFmt = "general" | "number" | "int" | "currency" | "percent" | "date" | "datetime";
+// "custom" preserves an Excel format code our fixed categories can't represent
+// (e.g. "mm:ss", a currency other than EUR, a custom accounting format): the
+// RAW code round-trips (see CellStyle.customFmt) even though on-screen
+// rendering falls back to a plain number (no code interpreter — see format.ts).
+export type NumFmt = "general" | "number" | "int" | "currency" | "percent" | "date" | "datetime" | "custom";
 
 /** One border edge: line style + colour. Mirrors OOXML's `<left>/<right>/<top>/<bottom>` border sides. */
 export type BorderStyle = "thin" | "medium" | "thick" | "dashed" | "dotted" | "double";
@@ -21,6 +25,7 @@ export interface CellStyle {
   color?: string; // text color (hex)
   fill?: string; // background color (hex)
   fmt?: NumFmt;
+  customFmt?: string; // raw Excel format code, only meaningful when fmt === "custom"
   fontFamily?: string; // font name (shared registry)
   fontSize?: number; // px
   border?: CellBorder;
@@ -39,7 +44,19 @@ export interface ChartSpec {
 }
 
 export type CondOp =
-  "gt" | "lt" | "ge" | "le" | "eq" | "ne" | "between" | "contains" | "empty" | "notEmpty" | "colorScale";
+  | "gt"
+  | "lt"
+  | "ge"
+  | "le"
+  | "eq"
+  | "ne"
+  | "between"
+  | "contains"
+  | "empty"
+  | "notEmpty"
+  | "colorScale"
+  | "top10" // top/bottom N (or N%) values in the range (Excel type="top10")
+  | "duplicate"; // values that occur more than once in the range (Excel type="duplicateValues")
 
 /** A conditional-formatting rule applied over a rectangular range. */
 export interface CondRule {
@@ -55,6 +72,9 @@ export interface CondRule {
   color?: string; // text colour applied on match
   bold?: boolean;
   scale?: { min: string; max: string; mid?: string }; // colour scale (op="colorScale")
+  rank?: number; // op="top10": N (default 10)
+  bottom?: boolean; // op="top10": bottom N instead of top N
+  percent?: boolean; // op="top10": N% of the range instead of a fixed count
 }
 
 /** Data-validation kinds and numeric/length/date comparison operators. */
@@ -96,6 +116,8 @@ export interface SheetData {
   merges?: MergeRect[]; // merged cell ranges (top-left cell spans; others are hidden)
   filter?: { col: number; query: string }; // view filter (hides non-matching rows)
   colWidths?: Record<number, number>; // column index -> width px (default DEFAULT_COL_W)
+  rowHeights?: Record<number, number>; // row index -> height px (default ROW_H)
+  notes?: Record<string, string>; // "A1" -> cell comment text (Excel's classic "notes", not threaded comments)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling
 }
 

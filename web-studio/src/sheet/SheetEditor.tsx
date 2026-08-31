@@ -223,15 +223,24 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     [sheet],
   );
 
-  // --- largeurs de colonnes & volets figés ---------------------------------
+  // --- largeurs de colonnes / hauteurs de ligne & volets figés --------------
   const resizeRef = useRef<{ col: number; startX: number; startW: number; w: number } | null>(null);
   const [resizePreview, setResizePreview] = useState<{ col: number; w: number } | null>(null);
+  const rowResizeRef = useRef<{ row: number; startY: number; startH: number; h: number } | null>(null);
+  const [rowResizePreview, setRowResizePreview] = useState<{ row: number; h: number } | null>(null);
   const colWidth = (c: number) => sheet?.colWidths?.[c] ?? DEFAULT_COL_W;
   const shownWidth = (c: number) => (resizePreview?.col === c ? resizePreview.w : colWidth(c));
+  const rowHeight = (r: number) => sheet?.rowHeights?.[r] ?? ROW_H;
+  const shownRowHeight = (r: number) => (rowResizePreview?.row === r ? rowResizePreview.h : rowHeight(r));
   const colLeft = (c: number) => {
     let x = ROWHEAD_W;
     for (let k = 0; k < c; k++) x += shownWidth(k);
     return x;
+  };
+  const rowTop = (r: number) => {
+    let y = HEADER_H;
+    for (let k = 0; k < r; k++) y += shownRowHeight(k);
+    return y;
   };
   const fz = sheet?.freeze;
 
@@ -243,7 +252,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     if (!fcol && !frow) return {};
     const s: React.CSSProperties = { position: "sticky" };
     if (fcol) s.left = colLeft(c);
-    if (frow) s.top = HEADER_H + r * ROW_H;
+    if (frow) s.top = rowTop(r);
     s.zIndex = headerRow ? 6 : fcol && frow ? 5 : fcol ? 4 : 3;
     const sh: string[] = [];
     if (fcol && c === fz.cols - 1) sh.push("2px 0 0 var(--border-strong)");
@@ -253,7 +262,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
   const rowheadStyle = (r: number): React.CSSProperties => {
     if (!fz || r >= fz.rows) return {};
-    const s: React.CSSProperties = { position: "sticky", top: HEADER_H + r * ROW_H, zIndex: 5 };
+    const s: React.CSSProperties = { position: "sticky", top: rowTop(r), zIndex: 5 };
     if (r === fz.rows - 1) s.boxShadow = "0 2px 0 var(--border-strong)";
     return s;
   };
@@ -278,6 +287,36 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       storeRef.current.setColWidth(activeIdxRef.current, rz.col, rz.w);
       resizeRef.current = null;
       setResizePreview(null);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, []);
+
+  const startRowResize = (r: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    rowResizeRef.current = { row: r, startY: e.clientY, startH: rowHeight(r), h: rowHeight(r) };
+    document.body.style.cursor = "row-resize";
+  };
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const rz = rowResizeRef.current;
+      if (!rz) return;
+      const h = Math.max(16, Math.round(rz.startH + (e.clientY - rz.startY)));
+      rz.h = h;
+      setRowResizePreview({ row: rz.row, h });
+    };
+    const up = () => {
+      const rz = rowResizeRef.current;
+      if (!rz) return;
+      storeRef.current.setRowHeight(activeIdxRef.current, rz.row, rz.h);
+      rowResizeRef.current = null;
+      setRowResizePreview(null);
       document.body.style.cursor = "";
     };
     window.addEventListener("mousemove", move);
@@ -603,23 +642,31 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   // --- graphiques -----------------------------------------------------------
-  const chartData = (spec: ChartSpec) => {
+  // A chart's source rectangle (c0,r0)-(c1,r1): a single column (c0===c1) is one
+  // unnamed series with no category axis; a wider rectangle treats column c0 as
+  // the shared category axis and EVERY remaining column (c0+1..c1) as its own
+  // series — so a 3+ column selection charts all of them, not just the first.
+  const chartData = (spec: ChartSpec): { labels: string[]; series: { label: string; values: number[] }[] } => {
     const oneCol = spec.c0 === spec.c1;
     const labels: string[] = [];
-    const values: number[] = [];
     for (let r = spec.r0; r <= spec.r1; r++) {
       if (oneCol) {
-        const v = calc.valueOf(cellRef(spec.c0, r));
         labels.push(String(r - spec.r0 + 1));
-        values.push(typeof v === "number" ? v : Number(v) || 0);
       } else {
         const lab = calc.valueOf(cellRef(spec.c0, r));
-        const val = calc.valueOf(cellRef(spec.c0 + 1, r));
         labels.push(typeof lab === "number" ? String(lab) : String(lab ?? ""));
-        values.push(typeof val === "number" ? val : Number(val) || 0);
       }
     }
-    return { labels, values };
+    const valCols = oneCol ? [spec.c0] : [];
+    if (!oneCol) for (let c = spec.c0 + 1; c <= spec.c1; c++) valCols.push(c);
+    const series = valCols.map((col) => ({
+      label: oneCol ? "Série 1" : `Colonne ${indexToCol(col)}`,
+      values: Array.from({ length: spec.r1 - spec.r0 + 1 }, (_, i) => {
+        const v = calc.valueOf(cellRef(col, spec.r0 + i));
+        return typeof v === "number" ? v : Number(v) || 0;
+      }),
+    }));
+    return { labels, series };
   };
   const addChart = () => store.setChart(active, { id: newId("chart"), type: "bar", c0, r0, c1, r1 });
   const setChartType = (id: string, type: ChartType) => {
@@ -1073,10 +1120,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             <tbody>
               {Array.from({ length: sheet.rows }, (_, r) => {
                 const hidden = !rowVisible(r);
+                const rh = shownRowHeight(r);
+                const heightStyle = rh === ROW_H ? undefined : rh;
                 return (
-                  <tr key={r} style={hidden ? { display: "none" } : undefined}>
+                  <tr
+                    key={r}
+                    style={{ ...(hidden ? { display: "none" } : {}), ...(heightStyle ? { height: heightStyle } : {}) }}
+                  >
                     <th className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`} style={rowheadStyle(r)}>
                       {r + 1}
+                      <span className="row-resize" onMouseDown={(e) => startRowResize(r, e)} title="Redimensionner" />
                     </th>
                     {Array.from({ length: sheet.cols }, (_, c) => {
                       const ref = cellRef(c, r);
@@ -1091,7 +1144,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           <td
                             key={c}
                             className="is-selected"
-                            style={stickyStyle(c, r)}
+                            style={{ ...stickyStyle(c, r), ...(heightStyle ? { height: heightStyle } : {}) }}
                             colSpan={span?.colSpan}
                             rowSpan={span?.rowSpan}
                           >
@@ -1143,6 +1196,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         borderRight: borderCss(st?.border?.right),
                         borderBottom: borderCss(st?.border?.bottom),
                         borderLeft: borderCss(st?.border?.left),
+                        height: heightStyle,
                         ...stickyStyle(c, r),
                       };
                       // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).
@@ -1194,7 +1248,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       {(sheet?.charts?.length ?? 0) > 0 && (
         <div className="sheet-charts">
           {sheet!.charts!.map((ch) => {
-            const { labels, values } = chartData(ch);
+            const { labels, series } = chartData(ch);
             return (
               <div key={ch.id} className="sheet-chart">
                 <div className="sheet-chart__head">
@@ -1221,7 +1275,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                     </button>
                   )}
                 </div>
-                <SheetChart type={ch.type} labels={labels} values={values} />
+                <SheetChart type={ch.type} labels={labels} series={series} />
               </div>
             );
           })}

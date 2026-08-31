@@ -69,6 +69,7 @@ export interface SheetStore {
 
   // --- géométrie & vue ---
   setColWidth(s: number, col: number, w: number): void;
+  setRowHeight(s: number, row: number, h: number): void;
   setFreeze(s: number, rows: number, cols: number): void;
   setFilter(s: number, col: number, query: string): void;
   toggleMerge(s: number, rect: Rect): void;

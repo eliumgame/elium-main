@@ -3985,6 +3985,20 @@
   text-align: center;
   min-width: 44px;
 }
+.sheet-grid .sheet-rowhead .row-resize {
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  width: 100%;
+  height: 7px;
+  z-index: 4;
+  cursor: row-resize;
+  touch-action: none;
+}
+.sheet-grid .sheet-rowhead .row-resize:hover {
+  background: var(--primary);
+  opacity: 0.35;
+}
 .sheet-grid thead th.is-hl,
 .sheet-grid .sheet-rowhead.is-hl {
   background: var(--primary-100);
@@ -4155,6 +4169,10 @@
 }
 .chart-label {
   font-size: 9px;
+  fill: var(--text-muted);
+}
+.chart-legend-label {
+  font-size: 8px;
   fill: var(--text-muted);
 }
 .chart-empty {

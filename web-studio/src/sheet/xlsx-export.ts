@@ -2,7 +2,7 @@
  * XLSX export — the inverse of xlsx-import.ts. Produces a valid SpreadsheetML
  * (OPC) package: a workbook, one worksheet per sheet, a styles part, and
  * (when present) merged cells, conditional formatting, data validation,
- * column widths, frozen panes and native charts.
+ * column widths, row heights, frozen panes and native charts.
  *
  * - numbers        → numeric cells (`<v>`)
  * - text           → inline strings (`t="inlineStr"`) so no shared-strings part
@@ -16,6 +16,11 @@
  * - condFormats    → native `cellIs` / `containsText` / `containsBlanks` /
  *                    `colorScale` rules, non-scale ones via a `<dxfs>` entry
  * - validations    → native `<dataValidation>` (list/decimal/textLength/date)
+ * - view filter    → native `<autoFilter>` (one wildcard `<customFilter>`,
+ *                    the closest native equivalent to our single free-text
+ *                    "contains" column filter)
+ * - notes          → native `xl/commentsN.xml` cell comments (no VML shape
+ *                    part — see commentsXml below)
  * - charts         → a `<c:chart>` DrawingML part per chart, anchored below the
  *                    grid, wired through a per-sheet drawing part + rels — the
  *                    same pattern `slides/pptx.ts` uses for PPTX charts, adapted
@@ -34,6 +39,7 @@ import type {
   ChartSpec,
   BorderSide,
   CellBorder,
+  NamedRange,
 } from "./model";
 
 const NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -92,7 +98,9 @@ function dateStrToSerial(s: string | undefined): number | null {
 }
 
 // Custom number-format codes (built-in id 0 = "General" needs no numFmt entry).
-const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
+// "custom" has no fixed code here — it writes back CellStyle.customFmt instead
+// (the raw code an import couldn't fit into any other category).
+const NUMFMT_CODE: Record<Exclude<NumFmt, "general" | "custom">, string> = {
   number: "0.00",
   int: "0",
   currency: "#,##0.00\\ €",
@@ -105,9 +113,9 @@ const NUMFMT_CODE: Record<Exclude<NumFmt, "general">, string> = {
 function createStyleTable() {
   const numFmts = new Map<string, number>(); // code → id (≥164)
   let nextFmtId = 164;
-  const fmtId = (fmt?: NumFmt): number => {
+  const fmtId = (fmt?: NumFmt, customFmt?: string): number => {
     if (!fmt || fmt === "general") return 0;
-    const code = NUMFMT_CODE[fmt];
+    const code = fmt === "custom" ? customFmt || "General" : NUMFMT_CODE[fmt];
     if (!numFmts.has(code)) numFmts.set(code, nextFmtId++);
     return numFmts.get(code)!;
   };
@@ -175,7 +183,7 @@ function createStyleTable() {
   const xfKey = new Map<string, number>();
   const xfIndexOf = (st?: CellStyle): number => {
     if (!st) return 0;
-    const nf = fmtId(st.fmt);
+    const nf = fmtId(st.fmt, st.customFmt);
     const fo = fontId(st);
     const fi = fillId(st);
     const bo = borderId(st.border);
@@ -249,6 +257,23 @@ function mergeCellsXml(merges: MergeRect[] | undefined): string {
   if (!merges || !merges.length) return "";
   const cells = merges.map((m) => `<mergeCell ref="${rangeRef(m.c0, m.r0, m.c1, m.r1)}"/>`).join("");
   return `<mergeCells count="${merges.length}">${cells}</mergeCells>`;
+}
+
+/**
+ * AutoFilter (§18.3.1.2): our model has a single filtered column with a
+ * free-text "contains" query (no bounded table range, no checkbox value
+ * list), so it maps to ONE `<filterColumn>` with a wildcard `<customFilter>`
+ * (`*query*`) over the sheet's whole used range starting at A1 — this is
+ * exactly what Excel itself writes for its own "Text Filters → Contains".
+ */
+function autoFilterXml(filter: SheetData["filter"], sheet: SheetData): string {
+  if (!filter || !filter.query) return "";
+  const ref = rangeRef(0, 0, Math.max(0, sheet.cols - 1), Math.max(0, sheet.rows - 1));
+  return (
+    `<autoFilter ref="${ref}">` +
+    `<filterColumn colId="${Math.max(0, filter.col)}"><customFilters><customFilter val="${xe(`*${filter.query}*`)}"/></customFilters></filterColumn>` +
+    `</autoFilter>`
+  );
 }
 
 /** Column widths: px → Excel's "characters" width unit (Calibri 11 heuristic, the widely-used 7px/char approximation). */
@@ -353,6 +378,16 @@ function condFormattingXml(rules: CondRule[] | undefined, styles: StyleTable): s
             `<conditionalFormatting sqref="${sqref}"><cfRule type="notContainsBlanks" priority="${priority}"${dxfAttr}>` +
             `<formula>LEN(TRIM(${anchor}))&gt;0</formula></cfRule></conditionalFormatting>`
           );
+        case "top10": {
+          const rank = Math.max(1, Math.round(rule.rank ?? 10));
+          const bottomAttr = rule.bottom ? ` bottom="1"` : "";
+          const percentAttr = rule.percent ? ` percent="1"` : "";
+          return (
+            `<conditionalFormatting sqref="${sqref}"><cfRule type="top10" rank="${rank}"${bottomAttr}${percentAttr} priority="${priority}"${dxfAttr}/></conditionalFormatting>`
+          );
+        }
+        case "duplicate":
+          return `<conditionalFormatting sqref="${sqref}"><cfRule type="duplicateValues" priority="${priority}"${dxfAttr}/></conditionalFormatting>`;
         default:
           return "";
       }
@@ -417,32 +452,63 @@ function dataValidationXml(rules: DataValidation[] | undefined): string {
 const absA1 = (c: number, r: number): string => `$${colLetters(c)}$${r + 1}`;
 const absRangeRef = (c: number, r0: number, r1: number): string => `${absA1(c, r0)}:${absA1(c, r1)}`;
 
+/**
+ * The value columns charted for a source rectangle: a single column (c0===c1)
+ * is one unnamed series with no category axis; a wider rectangle treats column
+ * c0 as the shared category axis and EVERY remaining column as its own series
+ * — one `<c:ser>` per column, not just the first (multi-series charts).
+ */
+function chartValueCols(chart: ChartSpec): number[] {
+  if (chart.c0 === chart.c1) return [chart.c0];
+  const cols: number[] = [];
+  for (let c = chart.c0 + 1; c <= chart.c1; c++) cols.push(c);
+  return cols;
+}
+
 function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
   const oneCol = chart.c0 === chart.c1;
-  const valCol = oneCol ? chart.c0 : chart.c0 + 1;
-  const valRef = `${sheetNameQuoted}!${absRangeRef(valCol, chart.r0, chart.r1)}`;
+  const valCols = chartValueCols(chart);
   const catRef = oneCol ? null : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
+  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
   const AX_CAT = 111111111,
     AX_VAL = 222222222;
-  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
-  const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-  const serHead = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
+
+  /** One `<c:ser>` per value column — series 0 is named after the chart title
+   * (kept exactly as before for the single-series case), later ones after
+   * their column letter, so the legend can tell them apart. */
+  const seriesXml = (lineMarkers: boolean): string =>
+    valCols
+      .map((col, i) => {
+        const valRef = `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`;
+        const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
+        const name = i === 0 ? chart.title : `Colonne ${colLetters(col)}`;
+        const head = `<c:idx val="${i}"/><c:order val="${i}"/>${name ? `<c:tx><c:v>${xe(name)}</c:v></c:tx>` : ""}`;
+        const marker = lineMarkers ? `<c:marker><c:symbol val="circle"/></c:marker>` : "";
+        const smooth = lineMarkers ? `<c:smooth val="0"/>` : "";
+        return `<c:ser>${head}${marker}${catXml}${valXml}${smooth}</c:ser>`;
+      })
+      .join("");
+
   const axes =
     `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
     `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
 
   let plot: string;
   if (chart.type === "pie") {
-    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${serHead}${catXml}${valXml}</c:ser></c:pieChart>`;
+    // Pie charts vary colour BY POINT, not by series, and Excel doesn't give
+    // multiple pie series a meaningful rendering — only the first value column
+    // is charted (unchanged single-series behaviour for this chart type).
+    const valRef = `${sheetNameQuoted}!${absRangeRef(valCols[0]!, chart.r0, chart.r1)}`;
+    const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
+    const head = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
+    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${head}${catXml}${valXml}</c:ser></c:pieChart>`;
   } else if (chart.type === "line") {
     plot =
-      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}<c:marker><c:symbol val="circle"/></c:marker>${catXml}${valXml}<c:smooth val="0"/></c:ser>` +
+      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${seriesXml(true)}` +
       `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
   } else {
     plot =
-      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` +
-      `<c:ser>${serHead}${catXml}${valXml}</c:ser>` +
+      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${seriesXml(false)}` +
       `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
   }
 
@@ -483,6 +549,9 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
   );
 }
 
+/** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
+const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
+
 function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
@@ -498,14 +567,23 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): st
     maxCol = Math.max(maxCol, pos.col);
     maxRow = Math.max(maxRow, pos.row);
   }
-  const rows = [...byRow.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([r, list]) => {
+  // A row present ONLY as a custom height (no cell content) still needs its own
+  // <row> element — else the height has nowhere to be written. `byRow` keys are
+  // already 1-based (straight from `parseKey`'s A1-style parsing); `rowHeights`
+  // keys are 0-based (row index, like `colWidths`), hence the +1/-1 below.
+  const rowKeys = new Set<number>(byRow.keys());
+  for (const k of Object.keys(sheet.rowHeights ?? {})) rowKeys.add(Number(k) + 1);
+  const rows = [...rowKeys]
+    .sort((a, b) => a - b)
+    .map((r) => {
+      const list = byRow.get(r) ?? [];
       const cells = list
         .sort((a, b) => a.col - b.col)
         .map((c) => cellXml(c.key, c.raw, c.s))
         .join("");
-      return `<row r="${r}">${cells}</row>`;
+      const customH = sheet.rowHeights?.[r - 1];
+      const htAttr = customH != null ? ` ht="${pxToPt(customH)}" customHeight="1"` : "";
+      return `<row r="${r}"${htAttr}>${cells}</row>`;
     })
     .join("");
   const dim = `A1:${colLetters(maxCol)}${maxRow}`;
@@ -516,6 +594,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): st
     sheetViewsXml(sheet.freeze) +
     colsXml(sheet.colWidths) +
     `<sheetData>${rows}</sheetData>` +
+    autoFilterXml(sheet.filter, sheet) +
     mergeCellsXml(sheet.merges) +
     condFormattingXml(sheet.condFormats, styles) +
     dataValidationXml(sheet.validations) +
@@ -541,6 +620,15 @@ function sanitizeNames(sheets: SheetData[]): string[] {
   });
 }
 
+/** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
+function definedNamesBlock(names: NamedRange[] | undefined): string {
+  if (!names || !names.length) return "";
+  const body = names
+    .map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`)
+    .join("");
+  return `<definedNames>${body}</definedNames>`;
+}
+
 const RELS = (rels: { id: string; type: string; target: string }[]) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL}s">` +
   rels.map((r) => `<Relationship Id="${r.id}" Type="${r.type}" Target="${r.target}"/>`).join("") +
@@ -549,7 +637,31 @@ const RELS = (rels: { id: string; type: string; target: string }[]) =>
 const T = {
   drawing: `${REL}/drawing`,
   chart: `${REL}/chart`,
+  comments: `${REL}/comments`,
 };
+
+/**
+ * xl/commentsN.xml (§18.7) — cell comments ("notes"), one `<comment>` per
+ * annotated cell. Discovered by Excel purely through the worksheet's own
+ * relationship (Type=".../comments"); unlike charts this needs no in-body
+ * `<legacyDrawing>` reference — that element only wires up the VML shape for
+ * the little red-corner indicator, which we don't draw, so it's omitted (the
+ * comment TEXT still round-trips through any conformant reader, ours included).
+ */
+function commentsXml(notes: Record<string, string> | undefined): string | null {
+  const entries = Object.entries(notes ?? {}).filter(([, text]) => text && text.trim() !== "");
+  if (!entries.length) return null;
+  const list = entries
+    .map(
+      ([ref, text]) =>
+        `<comment ref="${xe(ref)}" authorId="0"><text><t xml:space="preserve">${xe(text)}</t></text></comment>`,
+    )
+    .join("");
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<comments xmlns="${NS}"><authors><author></author></authors><commentList>${list}</commentList></comments>`
+  );
+}
 
 export function workbookToXlsx(wb: Workbook): Uint8Array {
   const styles = createStyleTable();
@@ -559,17 +671,18 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
 
   // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
   // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
+  const commentSheets: number[] = []; // sheet indices that got a comments part (for Content_Types)
   wb.sheets.forEach((sheet, i) => {
     const charts = sheet.charts ?? [];
+    const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
     const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
     files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0));
 
+    const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {
       const chartNames = charts.map(() => `chart${++chartCounter}.xml`);
-      files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(
-        RELS([{ id: "rId1", type: T.drawing, target: `../drawings/drawing${i + 1}.xml` }]),
-      );
+      sheetRels.push({ id: "rId1", type: T.drawing, target: `../drawings/drawing${i + 1}.xml` });
       files[`xl/drawings/drawing${i + 1}.xml`] = strToU8(sheetDrawingXml(chartRIds, sheet.rows + 2));
       files[`xl/drawings/_rels/drawing${i + 1}.xml.rels`] = strToU8(
         RELS(charts.map((_, ci) => ({ id: chartRIds[ci]!, type: T.chart, target: `../charts/${chartNames[ci]!}` }))),
@@ -578,6 +691,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
         files[`xl/charts/${chartNames[ci]!}`] = strToU8(chartXml(chart, sheetNameQ));
       });
     }
+    if (notesXml) {
+      files[`xl/comments${i + 1}.xml`] = strToU8(notesXml);
+      sheetRels.push({ id: `rId${sheetRels.length + 1}`, type: T.comments, target: `../comments${i + 1}.xml` });
+      commentSheets.push(i);
+    }
+    if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
   });
   files["xl/styles.xml"] = strToU8(styles.toXml());
 
@@ -585,10 +704,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
   const sheetTags = names
     .map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join("");
+  const definedNamesXml = definedNamesBlock(wb.names);
   files["xl/workbook.xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +
       `<sheets>${sheetTags}</sheets>` +
+      definedNamesXml +
       `<calcPr fullCalcOnLoad="1"/>` +
       `</workbook>`,
   );
@@ -620,6 +741,12 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
     (_, i) =>
       `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
   ).join("");
+  const commentsOverrides = commentSheets
+    .map(
+      (i) =>
+        `<Override PartName="/xl/comments${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>`,
+    )
+    .join("");
   const overrides =
     `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
     wb.sheets
@@ -630,7 +757,8 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
       .join("") +
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
     drawingOverrides +
-    chartOverrides;
+    chartOverrides +
+    commentsOverrides;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +
       `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +

@@ -16,6 +16,89 @@ import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFStream } from "
 import type { PDFDocument } from "pdf-lib";
 import { canvasToBlob } from "../core/render";
 
+/**
+ * Number of colour components a JPEG's SOFn marker declares (1 = grayscale,
+ * 3 = YCbCr/RGB, 4 = CMYK/YCCK), parsed straight from the marker segments —
+ * `null` if no SOF marker is found (malformed stream). Used as a fallback
+ * when the PDF's own `/ColorSpace` is absent or unrecognised: some DCTDecode
+ * streams rely entirely on the JPEG's own header for that.
+ */
+export function jpegComponentCount(bytes: Uint8Array): number | null {
+  const n = bytes.length;
+  let i = 2; // skip SOI (0xFFD8)
+  while (i + 4 <= n) {
+    if (bytes[i] !== 0xff) {
+      i++;
+      continue;
+    }
+    const marker = bytes[i + 1]!;
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      i += 2; // markers with no payload
+      continue;
+    }
+    if (marker === 0xd9) return null; // EOI reached, no SOF found
+    const len = ((bytes[i + 2] ?? 0) << 8) | (bytes[i + 3] ?? 0);
+    const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (isSof) {
+      // marker(2) length(2) precision(1) height(2) width(2) numComponents(1)
+      const compOffset = i + 2 + 2 + 1 + 2 + 2;
+      return compOffset < n ? (bytes[compOffset] ?? null) : null;
+    }
+    if (len < 2) return null; // malformed length, stop rather than loop forever
+    i += 2 + len;
+  }
+  return null;
+}
+
+/**
+ * Is this image's colour space plain RGB or Gray — safe to hand to the
+ * browser's generic JPEG decoder and re-encode as a JPEG? The browser decoder
+ * (and `canvasToBlob`'s re-encode) always assumes/produces sRGB: a DeviceCMYK,
+ * Separation/DeviceN, Lab, Indexed, or 4-component ICC image decoded that way
+ * comes out with silently wrong colours — invisible on screen right after
+ * export, but a real problem for a prepress/CMYK document. `true`/`false` is
+ * a confident answer from the PDF's own `/ColorSpace`; `null` means it could
+ * not be determined there and the caller should fall back to inspecting the
+ * JPEG bytes directly.
+ */
+function isSafeRgbOrGrayColorSpace(dict: PDFDict): boolean | null {
+  const cs = dict.lookup(PDFName.of("ColorSpace"));
+  if (cs instanceof PDFName) {
+    const name = cs.asString().replace(/^\//, "");
+    if (name === "DeviceRGB" || name === "DeviceGray" || name === "CalRGB" || name === "CalGray") return true;
+    if (name === "DeviceCMYK") return false;
+    return null; // e.g. a resource-dict name we can't resolve here
+  }
+  if (cs instanceof PDFArray && cs.size() > 0) {
+    const head = cs.lookup(0);
+    const kind = head instanceof PDFName ? head.asString().replace(/^\//, "") : "";
+    if (kind === "CalRGB" || kind === "CalGray") return true;
+    if (kind === "ICCBased") {
+      const stream = cs.lookup(1);
+      const n =
+        stream instanceof PDFStream ? numOf((stream as unknown as { dict: PDFDict }).dict, "N") : null;
+      if (n === 1 || n === 3) return true;
+      if (n === 4) return false;
+      return null;
+    }
+    if (kind === "Indexed" || kind === "Separation" || kind === "DeviceN" || kind === "Lab" || kind === "DeviceCMYK") {
+      return false;
+    }
+    return null;
+  }
+  return null; // no /ColorSpace at all — fall back to the JPEG's own header
+}
+
+/** Combines the PDF `/ColorSpace` (authoritative when present) with the
+ *  JPEG's own SOFn component count (fallback) — anything not confidently
+ *  RGB/Gray is left alone rather than risk silent colour corruption. */
+export function isJpegSafeToRecompress(dict: PDFDict, bytes: Uint8Array): boolean {
+  const fromColorSpace = isSafeRgbOrGrayColorSpace(dict);
+  if (fromColorSpace !== null) return fromColorSpace;
+  const components = jpegComponentCount(bytes);
+  return components === 1 || components === 3;
+}
+
 export interface OptimiseOptions {
   /** Target resolution for embedded pictures, in DPI relative to the page. */
   imageDpi: number;
@@ -119,7 +202,7 @@ export async function optimiseDocument(
     ) {
       const w = numOf(dict, "Width") ?? 0;
       const h = numOf(dict, "Height") ?? 0;
-      if (Math.max(w, h) > maxSide * 1.15) {
+      if (Math.max(w, h) > maxSide * 1.15 && isJpegSafeToRecompress(dict, obj.contents)) {
         const canvas = await jpegToCanvas(obj.contents, maxSide);
         if (canvas) {
           try {

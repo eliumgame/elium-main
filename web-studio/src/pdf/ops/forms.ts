@@ -7,8 +7,19 @@
  * overlay uses. Writing is done with pdf-lib.
  */
 
-import { PDFCheckBox, PDFDocument, PDFDropdown, PDFOptionList, PDFRadioGroup, PDFTextField } from "pdf-lib";
-import type { PDFFont, PDFPage } from "pdf-lib";
+import {
+  PDFArray,
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFName,
+  PDFNumber,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFString,
+  PDFTextField,
+} from "pdf-lib";
+import type { PDFFont, PDFForm, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
 
@@ -328,6 +339,10 @@ export function createFields(
           const option = (typeof f.defaultValue === "string" && f.defaultValue) || f.options?.[0]?.value || "Option1";
           if (f.required) group.enableRequired();
           group.addOptionToPage(option, page, at);
+          // Unlike checkbox/dropdown/listbox below, addOptionToPage() alone never
+          // marks the button selected — without this the requested default is
+          // silently ignored and the group opens with no value at all.
+          if (typeof f.defaultValue === "string" && f.defaultValue) group.select(option);
           break;
         }
         case "dropdown": {
@@ -352,11 +367,12 @@ export function createFields(
           break;
         }
         case "signature": {
-          // pdf-lib has no signature-field builder; a read-only text field with
-          // a visible border is the closest interoperable placeholder.
-          const field = form.createTextField(f.name);
-          field.addToPage(page, { ...at, font: ctx.font });
-          field.enableReadOnly();
+          // pdf-lib has no signature-field builder (createTextField() etc. don't
+          // cover /Sig), so the widget is built by hand at the same low level
+          // pades.ts uses for its own signing placeholder — a real /FT /Sig
+          // field pdf-lib's own parser recognises as a PDFSignature, not a text
+          // field standing in for one.
+          addSignatureField(ctx.doc, form, page, f, at);
           break;
         }
         default:
@@ -368,6 +384,46 @@ export function createFields(
     }
   }
   return made;
+}
+
+/**
+ * Build a bare (unsigned) `/FT /Sig` widget by hand — the field a "Prepare
+ * form" pass drops onto the page so it can be filled in and actually signed
+ * later (see `ops/pades.ts`, which fills in `/V` when that happens). Same
+ * shape as `addSignaturePlaceholder` there: a single dict that is both the
+ * field and its one widget annotation, registered directly through the
+ * low-level `PDFContext` and linked into both the page's `/Annots` and the
+ * `AcroForm`'s `/Fields` — pdf-lib has no high-level builder for this field
+ * type, but its own parser (`createPDFAcroField`) recognises `/FT /Sig` and
+ * hands back a real `PDFSignature`, not a stand-in.
+ */
+function addSignatureField(
+  doc: PDFDocument,
+  form: PDFForm,
+  page: PDFPage,
+  f: CreatedField,
+  at: { x: number; y: number; width: number; height: number },
+): void {
+  const context = doc.context;
+  const flags = (f.readOnly ? 1 : 0) | (f.required ? 2 : 0); // Ff: bit1 ReadOnly, bit2 Required
+  const widget = context.obj({
+    Type: PDFName.of("Annot"),
+    Subtype: PDFName.of("Widget"),
+    FT: PDFName.of("Sig"),
+    Rect: context.obj([at.x, at.y, at.x + at.width, at.y + at.height]),
+    T: PDFString.of(f.name),
+    F: PDFNumber.of(4), // Print
+    P: page.ref,
+    ...(flags ? { Ff: PDFNumber.of(flags) } : {}),
+    ...(f.tooltip ? { TU: PDFString.of(f.tooltip) } : {}),
+  });
+  const widgetRef = context.register(widget);
+
+  const annotsRaw = page.node.Annots();
+  if (annotsRaw instanceof PDFArray) annotsRaw.push(widgetRef);
+  else page.node.set(PDFName.of("Annots"), context.obj([widgetRef]));
+
+  form.acroForm.addField(widgetRef);
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,9 @@
  * Méthode « placeholder + splice » (celle de @signpdf, éprouvée) — PAS de
  * ré-écriture d'xref à la main :
  *   1. on ajoute au document un dictionnaire de signature avec un /ByteRange et
- *      un /Contents de taille FIXE réservée (via l'API bas-niveau pdf-lib) ;
+ *      un /Contents de taille réservée par un dry-run du CMS pour CE certificat
+ *      (voir `estimateReservedSigBytes`), pas une constante figée (via l'API
+ *      bas-niveau pdf-lib) ;
  *   2. on sérialise SANS object-streams pour que /Contents figure tel quel dans
  *      les octets ;
  *   3. on calcule le vrai /ByteRange, on hache les octets couverts (SHA-256), on
@@ -25,8 +27,18 @@ import { PDFDocument, PDFName, PDFNumber, PDFString, PDFHexString, PDFArray, PDF
 import forge from "node-forge";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-/** Octets réservés pour /Contents (le DER CMS y est injecté puis complété de 0). */
-const RESERVED_SIG_BYTES = 16384;
+/**
+ * Octets réservés pour /Contents (le DER CMS y est injecté puis complété de 0).
+ * Repli si l'estimation dry-run (voir `estimateReservedSigBytes`) échoue ou
+ * produit une valeur aberrante — une chaîne de certification très courte peut
+ * tenir dans beaucoup moins, une très longue en demander bien plus : la
+ * réservation réelle est calculée par signature, pas figée ici.
+ */
+const DEFAULT_RESERVED_SIG_BYTES = 16384;
+/** Marge multiplicative appliquée à la taille CMS estimée par dry-run. */
+const SIG_SIZE_MARGIN_FACTOR = 1.5;
+/** Marge additive (encodage ASN.1, alignement) appliquée en plus de la marge multiplicative. */
+const SIG_SIZE_MARGIN_BYTES = 2048;
 
 export interface PadesSignOptions {
   reason?: string;
@@ -166,7 +178,11 @@ function chainIsConsistent(certs: forge.pki.Certificate[], signer: forge.pki.Cer
 }
 
 /** Ajoute le dictionnaire de signature + le widget + l'AcroForm (placeholder). */
-async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptions): Promise<void> {
+async function addSignaturePlaceholder(
+  pdfDoc: PDFDocument,
+  opts: PadesSignOptions,
+  reservedSigBytes: number,
+): Promise<void> {
   const ctx = pdfDoc.context;
   const fieldName = opts.fieldName || "Signature1";
 
@@ -176,7 +192,7 @@ async function addSignaturePlaceholder(pdfDoc: PDFDocument, opts: PadesSignOptio
   byteRange.push(PDFName.of("**********"));
   byteRange.push(PDFName.of("**********"));
 
-  const contents = PDFHexString.of("0".repeat(RESERVED_SIG_BYTES * 2));
+  const contents = PDFHexString.of("0".repeat(reservedSigBytes * 2));
 
   const sigDict = ctx.obj({
     Type: PDFName.of("Sig"),
@@ -292,6 +308,28 @@ function buildCmsDer(content: Uint8Array, m: SignerMaterial): string {
 }
 
 /**
+ * Estime la taille (en octets) du CMS SignedData détaché que produira ce
+ * matériel de signature, par un dry-run réel de `buildCmsDer` sur un contenu
+ * factice — en mode détaché, le contenu signé n'est PAS réintégré dans le DER
+ * (seul son empreinte SHA-256, de longueur fixe, y figure), donc la taille ne
+ * dépend que de la clé et de la chaîne de certificats fournies, pas du
+ * document : un contenu factice donne la même taille qu'un vrai. Une marge
+ * multiplicative + additive absorbe les petites variations d'encodage ASN.1
+ * (longueurs codées sur un octet de plus, etc.). Toute erreur pendant
+ * l'estimation retombe sur le repli fixe `DEFAULT_RESERVED_SIG_BYTES` — mieux
+ * vaut une réservation généreuse que planter la signature.
+ */
+function estimateReservedSigBytes(material: SignerMaterial): number {
+  try {
+    const dryRun = buildCmsDer(new Uint8Array(32), material);
+    const estimated = Math.ceil(dryRun.length * SIG_SIZE_MARGIN_FACTOR) + SIG_SIZE_MARGIN_BYTES;
+    return Math.max(DEFAULT_RESERVED_SIG_BYTES, estimated);
+  } catch {
+    return DEFAULT_RESERVED_SIG_BYTES;
+  }
+}
+
+/**
  * Signe des octets PDF finaux avec un PKCS#12 et renvoie le PDF signé (PAdES-B).
  */
 export async function signPdfBytes(
@@ -301,8 +339,13 @@ export async function signPdfBytes(
   opts: PadesSignOptions = {},
 ): Promise<Uint8Array> {
   const material = loadPkcs12(p12Bytes, password);
+  const reservedSigBytes = estimateReservedSigBytes(material);
   const pdfDoc = await PDFDocument.load(finalPdfBytes, { updateMetadata: false });
-  await addSignaturePlaceholder(pdfDoc, { ...opts, signerName: opts.signerName || certCommonName(material.cert) });
+  await addSignaturePlaceholder(
+    pdfDoc,
+    { ...opts, signerName: opts.signerName || certCommonName(material.cert) },
+    reservedSigBytes,
+  );
   const withPlaceholder = await pdfDoc.save({ useObjectStreams: false, updateFieldAppearances: false });
 
   const buf = new Uint8Array(withPlaceholder); // copie mutable

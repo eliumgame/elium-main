@@ -2889,6 +2889,165 @@
   flex: none;
 }
 
+/* --- Bouton pleine largeur / plus grand — CTA d'une page autonome (lien de
+   signature, lien de partage) : même chrome que `.elx-mini`, juste plus haut
+   et étiré. */
+.elx-mini--block {
+  width: 100%;
+  height: 38px;
+  justify-content: center;
+  font-size: 13.5px;
+  border-radius: var(--x-radius-sm);
+}
+
+/* --- Pages autonomes accessibles SANS COMPTE (lien de signature, lien de
+   partage) : même carte que `.elx-panel__card`, centrée plein viewport. */
+.elx-standalone {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--el-surface-2);
+  padding: 24px;
+}
+.elx-standalone__card {
+  width: 100%;
+  max-width: 460px;
+  text-align: center;
+  padding: 32px 28px;
+  background: var(--x-panel);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  box-shadow: var(--el-elev-1, var(--x-shadow-pop));
+}
+.elx-standalone__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-weight: 800;
+  font-size: 18px;
+  /* `--el-primary-text` (pas `--x-accent`, réglé pour le chrome sombre de
+     l'espace de travail) : contraste AA garanti sur `--el-surface`/`-2`,
+     clair ET sombre — voir tokens.css. */
+  color: var(--el-primary-text);
+  margin-bottom: 18px;
+}
+.elx-standalone__card h1 {
+  font-size: 20px;
+  margin: 6px 0;
+  word-break: break-word;
+  color: var(--x-text);
+}
+.elx-standalone__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--x-radius);
+  color: #fff;
+  background: linear-gradient(135deg, var(--x-accent), #1d4ed8);
+  margin-bottom: 8px;
+}
+.elx-standalone__icon--err {
+  background: linear-gradient(135deg, var(--x-danger), #991b1b);
+}
+.elx-standalone__switch {
+  border: none;
+  background: none;
+  color: var(--x-mute);
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 18px;
+  padding: 0;
+}
+.elx-standalone__switch:hover {
+  color: var(--x-text);
+}
+.elx-standalone__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* --- Aperçu du document à signer (SignLinkView) --------------------------- */
+.elx-standalone__preview {
+  text-align: left;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--el-surface-2);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  padding: 12px 14px;
+  margin: 4px 0 14px;
+  color: var(--x-text);
+}
+
+/* --- Zone de placement de signature (SignPlacementPreview) — focusable au
+   clavier, voir l'alternative aux gestes souris/tactile dans le composant. */
+.elx-signplace:focus-visible {
+  outline: 2px solid var(--x-accent);
+  outline-offset: 2px;
+}
+
+/* --- Demande de signature (SignRequestDialog) : ligne indexée (partie en
+   édition, ou lien créé), et l'état d'avancement de chaque partie dans le
+   suivi. Même chrome que les dialogues Drive (`--x-*`, `.elx-input`). */
+.elx-signrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0;
+}
+.elx-signrow > .elx-input {
+  flex: 1;
+}
+.elx-signrow__n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--x-radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--el-surface-2);
+  border: 1px solid var(--x-line);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--x-mute);
+  font-variant-numeric: tabular-nums;
+}
+.elx-signrow__label {
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 90px;
+}
+.elx-signrow__out {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  gap: 6px;
+}
+.elx-signrow__out .elx-input {
+  flex: 1;
+}
+.elx-sign-ok {
+  color: var(--x-ok);
+  flex: none;
+}
+.elx-sign-wait {
+  color: var(--x-mute);
+  flex: none;
+}
+.elx-sign-no {
+  color: var(--x-danger);
+  flex: none;
+}
+
 /* --- Ruban : affordance de défilement -------------------------------------- */
 /* `overflow-x: auto` sans indicateur, c'est la moitié d'un onglet invisible sans
    que rien ne le signale. Le dégradé dit qu'il reste du contenu, le chevron

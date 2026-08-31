@@ -22,6 +22,7 @@ import { fromHex } from "../format/canonical";
 import { readEliumPackage, writeEliumPackage } from "../format/elium-package";
 import { alignCircuitWithRequest } from "../format/document";
 import type { EliumFile } from "../format/types";
+import { matchesQuery } from "./browser-model";
 
 export interface OpsCtx {
   api: DriveApi;
@@ -170,6 +171,53 @@ export async function listFolder(ctx: OpsCtx, parentId: string | null, trashed =
 export async function listTrash(ctx: OpsCtx): Promise<DriveEntry[]> {
   const { nodes } = await ctx.api.listTrash(ctx.orgId);
   return decryptEntries(ctx, nodes);
+}
+
+/** A search hit, with the ancestor chain (root → its immediate parent) needed
+ *  to navigate straight to it — the same `{id, name}[]` shape as the
+ *  browser's breadcrumb `path` state. */
+export interface SearchHit extends DriveEntry {
+  parentPath: { id: string; name: string }[];
+}
+
+/**
+ * Recursive, CLIENT-SIDE search across the whole org tree: names are
+ * end-to-end encrypted, so there is no server-side index to query — this
+ * walks every folder from the root (breadth-first), decrypting names as it
+ * goes, and returns the entries whose name matches `query`. Only the org's
+ * live (non-trashed) content is walked, same scope as the folder view.
+ *
+ * `maxFolders` bounds how many folders get listed so a huge/deep org can't
+ * hang the tab; a folder this caller can't decrypt/list (403, revoked ACL) is
+ * skipped rather than aborting the whole search.
+ */
+export async function searchDriveTree(
+  ctx: OpsCtx,
+  query: string,
+  opts: { maxFolders?: number; signal?: AbortSignal } = {},
+): Promise<SearchHit[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const maxFolders = opts.maxFolders ?? 500;
+  const hits: SearchHit[] = [];
+  const queue: { id: string | null; parentPath: { id: string; name: string }[] }[] = [{ id: null, parentPath: [] }];
+  let visited = 0;
+  while (queue.length && visited < maxFolders) {
+    if (opts.signal?.aborted) break;
+    const { id, parentPath } = queue.shift()!;
+    visited++;
+    let entries: DriveEntry[];
+    try {
+      entries = await listFolder(ctx, id);
+    } catch {
+      continue; // dossier inaccessible (droits, ACL révoquée) — on l'ignore
+    }
+    for (const e of entries) {
+      if (matchesQuery(e.name, q)) hits.push({ ...e, parentPath });
+      if (e.kind === "folder") queue.push({ id: e.id, parentPath: [...parentPath, { id: e.id, name: e.name }] });
+    }
+  }
+  return hits;
 }
 
 export async function createFolder(ctx: OpsCtx, parentId: string | null, name: string): Promise<NodeMeta> {

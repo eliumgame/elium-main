@@ -179,7 +179,14 @@ export default function GroupsPanel() {
       }))
     )
       return;
-    await d.api.removeGroupMember(orgId, selectedId, m.userId).catch(() => {});
+    try {
+      await d.api.removeGroupMember(orgId, selectedId, m.userId);
+    } catch (e) {
+      await dialogs.alert({
+        title: "Retrait impossible",
+        message: e instanceof Error ? e.message : "Erreur.",
+      });
+    }
     await openGroup(selectedId);
     await reloadGroups();
   };
@@ -194,7 +201,15 @@ export default function GroupsPanel() {
       }))
     )
       return;
-    await d.api.deleteGroup(orgId, g.id).catch(() => {});
+    try {
+      await d.api.deleteGroup(orgId, g.id);
+    } catch (e) {
+      await dialogs.alert({
+        title: "Suppression impossible",
+        message: e instanceof Error ? e.message : "Erreur.",
+      });
+      return;
+    }
     if (selectedId === g.id) {
       setSelectedId(null);
       setMembers([]);

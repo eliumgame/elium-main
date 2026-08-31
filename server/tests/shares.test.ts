@@ -475,7 +475,7 @@ describe("POST /api/nodes/:id/links", () => {
 });
 
 describe("GET /api/nodes/:id/links", () => {
-  it("lists active links only (server already filters revoked ones)", async () => {
+  it("lists active links only, annotated with can_sign + the signature party's label/status", async () => {
     mQuery.mockResolvedValueOnce([
       {
         id: LINK,
@@ -484,6 +484,20 @@ describe("GET /api/nodes/:id/links", () => {
         max_downloads: null,
         download_count: 3,
         created_at: "2026-08-01T00:00:00Z",
+        can_sign: false,
+        party_label: null,
+        party_status: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-0000000000e3",
+        has_password: false,
+        expires_at: null,
+        max_downloads: null,
+        download_count: 0,
+        created_at: "2026-08-02T00:00:00Z",
+        can_sign: true,
+        party_label: "Signataire 1",
+        party_status: "pending",
       },
     ] as never);
     const app = await makeApp();
@@ -497,6 +511,20 @@ describe("GET /api/nodes/:id/links", () => {
         maxDownloads: null,
         downloadCount: 3,
         createdAt: "2026-08-01T00:00:00Z",
+        canSign: false,
+        partyLabel: null,
+        partyStatus: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-0000000000e3",
+        hasPassword: false,
+        expiresAt: null,
+        maxDownloads: null,
+        downloadCount: 0,
+        createdAt: "2026-08-02T00:00:00Z",
+        canSign: true,
+        partyLabel: "Signataire 1",
+        partyStatus: "pending",
       },
     ]);
     await app.close();
@@ -512,13 +540,42 @@ describe("GET /api/nodes/:id/links", () => {
 });
 
 describe("DELETE /api/nodes/:id/links/:linkId", () => {
-  it("revokes the link", async () => {
-    mQueryOne.mockResolvedValueOnce({ id: LINK });
+  it("revokes a plain link (no signature party to cancel)", async () => {
+    mQueryOne.mockResolvedValueOnce({ can_sign: false });
+    mWithTx.mockImplementation(txDispatch([[/UPDATE share_links/, { rows: [{ id: LINK }] }]]) as never);
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/links/${LINK}` });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(mAudit).toHaveBeenCalledWith(ORG, USER, "node.link.revoke", "file", NODE, { linkId: LINK }, expect.any(String));
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "node.link.revoke",
+      "file",
+      NODE,
+      { linkId: LINK, cancelledSignParty: false },
+      expect.any(String),
+    );
+    await app.close();
+  });
+
+  it("revoking a signature link also cancels its still-pending party", async () => {
+    mQueryOne.mockResolvedValueOnce({ can_sign: true });
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(txDispatch([[/UPDATE share_links/, { rows: [{ id: LINK }] }]], sqls) as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/links/${LINK}` });
+    expect(res.statusCode).toBe(200);
+    expect(sqls.some((s) => /UPDATE signature_request_parties/.test(s) && /'cancelled'/.test(s))).toBe(true);
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "node.link.revoke",
+      "file",
+      NODE,
+      { linkId: LINK, cancelledSignParty: true },
+      expect.any(String),
+    );
     await app.close();
   });
 
@@ -530,8 +587,31 @@ describe("DELETE /api/nodes/:id/links/:linkId", () => {
     await app.close();
   });
 
-  it("403 when the caller lacks node.share.manage", async () => {
+  it("403 when the caller lacks node.share.manage on a plain link (no node.sign.request fallback)", async () => {
+    mQueryOne.mockResolvedValueOnce({ can_sign: false });
     mRequireNodePerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Permission requise."));
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/links/${LINK}` });
+    expect(res.statusCode).toBe(403);
+    expect(mRequireNodePerm).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it("a signature link can still be revoked via node.sign.request when node.share.manage is missing", async () => {
+    mQueryOne.mockResolvedValueOnce({ can_sign: true });
+    mRequireNodePerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Permission requise.")); // node.share.manage
+    mWithTx.mockImplementation(txDispatch([[/UPDATE share_links/, { rows: [{ id: LINK }] }]]) as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/links/${LINK}` });
+    expect(res.statusCode).toBe(200);
+    expect(mRequireNodePerm).toHaveBeenNthCalledWith(2, expect.anything(), NODE, "node.sign.request");
+    await app.close();
+  });
+
+  it("403 when a signature link's caller lacks both node.share.manage and node.sign.request", async () => {
+    mQueryOne.mockResolvedValueOnce({ can_sign: true });
+    mRequireNodePerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Permission requise.")); // node.share.manage
+    mRequireNodePerm.mockRejectedValueOnce(new ApiError(403, "forbidden", "Permission requise.")); // node.sign.request
     const app = await makeApp();
     const res = await app.inject({ method: "DELETE", url: `/api/nodes/${NODE}/links/${LINK}` });
     expect(res.statusCode).toBe(403);

@@ -7,8 +7,22 @@
  * la WS d'événements d'organisation (+ poll de secours espacé).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, PenLine, Copy, CheckCircle2, Clock, Plus, Trash2, ListOrdered, XCircle, Loader } from "lucide-react";
+import {
+  X,
+  PenLine,
+  Copy,
+  CheckCircle2,
+  Clock,
+  Plus,
+  Trash2,
+  ListOrdered,
+  XCircle,
+  Loader,
+  RotateCcw,
+  Ban,
+} from "lucide-react";
 import { useDrive } from "../session";
+import { useDialogs } from "../../ui/dialogs";
 import {
   createSignRequestForNode,
   loadEliumFile,
@@ -17,7 +31,7 @@ import {
   type OpsCtx,
   type SignPartyLink,
 } from "../ops";
-import type { SignRequestDto } from "../api";
+import type { SignRequestDto, SignParty } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 
 export default function SignRequestDialog({
@@ -30,6 +44,7 @@ export default function SignRequestDialog({
   onClose: () => void;
 }) {
   const d = useDrive();
+  const dialogs = useDialogs();
   const [parties, setParties] = useState<{ label: string }[]>([{ label: "" }]);
   const [ordered, setOrdered] = useState(false);
   const [expiry, setExpiry] = useState(""); // "" | "7" | "30" (jours)
@@ -38,6 +53,10 @@ export default function SignRequestDialog({
   const [links, setLinks] = useState<SignPartyLink[] | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [requests, setRequests] = useState<SignRequestDto[] | null>(null);
+  // Action en cours (Révoquer / Relancer) sur une partie précise du suivi —
+  // désactive ses boutons le temps de l'appel, affiche un message de résultat.
+  const [actingId, setActingId] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
   // Le document a-t-il DÉJÀ un circuit de signature (Parapheur) ? Si oui, ses
   // parties (source de vérité — voir alignCircuitWithRequest) préremplissent la
   // liste ci-dessous en lecture seule : la demande DOIT en dériver, pas exister
@@ -202,19 +221,78 @@ export default function SignRequestDialog({
     setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1800);
   };
 
+  // Révoque le lien d'UNE partie précise (pas toute la demande) — le serveur
+  // marque aussi la partie « cancelled » dans le même mouvement (voir
+  // DELETE /nodes/:id/links/:linkId côté serveur), donc plus besoin de relance.
+  const revokeParty = async (p: SignParty) => {
+    if (
+      !(await dialogs.confirm({
+        title: "Révoquer ce lien de signature",
+        message: `Révoquer le lien de « ${p.label || `signataire ${p.index + 1}`} » ? Il ne pourra plus signer avec ce lien.`,
+        danger: true,
+        confirmLabel: "Révoquer",
+      }))
+    )
+      return;
+    setActingId(p.id);
+    setActionMsg(null);
+    try {
+      await ctx.api.revokeLink(entry.id, p.linkId);
+      setActionMsg("Lien révoqué.");
+      await loadStatus();
+    } catch (e) {
+      await dialogs.alert({ title: "Révocation impossible", message: e instanceof Error ? e.message : "Erreur." });
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  // Relance un signataire qui ignore son lien. Le secret du lien ne quitte
+  // jamais le navigateur de l'émetteur : le serveur ne peut donc pas
+  // reconstituer l'URL lui-même — seule cette session, si elle a encore le
+  // lien fraîchement créé en mémoire (`links`), peut le recopier telle quelle ;
+  // sinon on ne peut que réactiver le lien côté serveur (repousse son
+  // expiration si besoin) et inviter à retransmettre le lien déjà envoyé.
+  const remindParty = async (r: SignRequestDto, p: SignParty) => {
+    setActingId(p.id);
+    setActionMsg(null);
+    try {
+      const res = await ctx.api.remindSignParty(entry.id, r.id, p.id);
+      const cached = links?.find((l) => l.partyId === p.id);
+      if (cached) {
+        void navigator.clipboard?.writeText(urlFor(cached));
+        setActionMsg(
+          res.reactivated
+            ? "Lien réactivé (expiration repoussée) et recopié dans le presse-papiers."
+            : "Lien recopié dans le presse-papiers — retransmettez-le au signataire.",
+        );
+      } else {
+        setActionMsg(
+          res.reactivated
+            ? "Lien réactivé (expiration repoussée). Retransmettez le lien déjà envoyé à ce signataire."
+            : "Rappel enregistré. Retransmettez le lien déjà envoyé à ce signataire.",
+        );
+      }
+    } catch (e) {
+      await dialogs.alert({ title: "Relance impossible", message: e instanceof Error ? e.message : "Erreur." });
+    } finally {
+      setActingId(null);
+    }
+  };
+
   return (
     <div
-      className="dc-modal-overlay"
+      className="dcx-modal-overlay elx"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="dc-modal" role="dialog" aria-modal="true">
-        <header className="dc-modal__head">
+      <div className="dcx-modal dcx-modal--wide" role="dialog" aria-modal="true">
+        <header className="dcx-modal__head">
           <h2>
             <PenLine size={18} /> Demander une signature — « {entry.name} »
           </h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+          <button className="elx-icon" onClick={onClose} aria-label="Fermer">
             <X size={18} />
           </button>
         </header>
@@ -225,13 +303,13 @@ export default function SignRequestDialog({
         </p>
 
         {!links && (
-          <div className="dc-share-link">
-            <h3 className="dc-share-list__title">
-              <PenLine size={15} /> Signataires
+          <div className="dcx-modal__section">
+            <h3 className="dcx-modal__section-title">
+              <PenLine size={11} /> Signataires
             </h3>
             {circuitLoading && (
               <p className="muted" style={{ fontSize: 12 }}>
-                <Loader size={12} className="dc-spin" /> Vérification du circuit existant du document…
+                <Loader size={12} className="elx-spin" /> Vérification du circuit existant du document…
               </p>
             )}
             {hasExistingCircuit && !circuitLoading && (
@@ -241,10 +319,10 @@ export default function SignRequestDialog({
               </p>
             )}
             {parties.map((p, i) => (
-              <div key={i} className="dc-sign-partyrow">
-                <span className="dc-sign-partyrow__n">{i + 1}</span>
+              <div key={i} className="elx-signrow">
+                <span className="elx-signrow__n">{i + 1}</span>
                 <input
-                  className="input"
+                  className="elx-input"
                   value={p.label}
                   onChange={(e) => setLabel(i, e.target.value)}
                   placeholder={`Libellé du signataire ${i + 1} (optionnel)`}
@@ -252,37 +330,41 @@ export default function SignRequestDialog({
                   disabled={circuitLoading}
                 />
                 {parties.length > 1 && !hasExistingCircuit && (
-                  <button className="icon-btn" title="Retirer" onClick={() => removeParty(i)} disabled={circuitLoading}>
+                  <button className="elx-icon" title="Retirer" onClick={() => removeParty(i)} disabled={circuitLoading}>
                     <Trash2 size={15} />
                   </button>
                 )}
               </div>
             ))}
-            <div className="dc-sign-controls">
+            <div className="dcx-fieldrow" style={{ marginTop: 8 }}>
               {!hasExistingCircuit && (
-                <button
-                  className="eb eb--sm eb--outline"
-                  onClick={addParty}
-                  disabled={parties.length >= 50 || circuitLoading}
-                >
+                <button className="elx-mini" onClick={addParty} disabled={parties.length >= 50 || circuitLoading}>
                   <Plus size={14} /> Ajouter un signataire
                 </button>
               )}
-              <label className="dc-sign-check" title="Chaque signataire ne peut signer qu'après le précédent">
+              <label
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}
+                title="Chaque signataire ne peut signer qu'après le précédent"
+              >
                 <input type="checkbox" checked={ordered} onChange={(e) => setOrdered(e.target.checked)} />
                 <ListOrdered size={14} /> Signer dans l'ordre
               </label>
-              <label className="dc-share-link__field">
+              <label className="dcx-field">
                 <span>Expiration</span>
-                <select className="tool-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
+                <select className="elx-select--surface" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
                   <option value="">Jamais</option>
                   <option value="7">7 jours</option>
                   <option value="30">30 jours</option>
                 </select>
               </label>
             </div>
-            {err && <p className="dc-error">{err}</p>}
-            <button className="eb eb--primary" disabled={busy || circuitLoading} onClick={() => void createLinks()}>
+            {err && <p className="elx-form__error">{err}</p>}
+            <button
+              className="elx-mini elx-mini--primary"
+              style={{ marginTop: 10 }}
+              disabled={busy || circuitLoading}
+              onClick={() => void createLinks()}
+            >
               <PenLine size={14} />{" "}
               {busy ? "Création…" : `Créer ${parties.length > 1 ? parties.length + " liens" : "le lien"}`}
             </button>
@@ -290,58 +372,89 @@ export default function SignRequestDialog({
         )}
 
         {links && (
-          <div className="dc-share-link">
-            <h3 className="dc-share-list__title">
-              <CheckCircle2 size={15} /> Liens à transmettre{ordered ? " (à envoyer dans l'ordre)" : ""}
+          <div className="dcx-modal__section">
+            <h3 className="dcx-modal__section-title">
+              <CheckCircle2 size={11} /> Liens à transmettre{ordered ? " (à envoyer dans l'ordre)" : ""}
             </h3>
             {links.map((l) => (
-              <div key={l.index} className="dc-sign-linkrow">
-                <span className="dc-sign-partyrow__n">{l.index + 1}</span>
-                <span className="dc-sign-linkrow__label">{l.label || `Signataire ${l.index + 1}`}</span>
-                <div className="dc-share-link__out">
-                  <input className="input" readOnly value={urlFor(l)} onFocus={(e) => e.currentTarget.select()} />
-                  <button className="icon-btn" title="Copier" onClick={() => copy(urlFor(l), l.index)}>
+              <div key={l.index} className="elx-signrow">
+                <span className="elx-signrow__n">{l.index + 1}</span>
+                <span className="elx-signrow__label">{l.label || `Signataire ${l.index + 1}`}</span>
+                <div className="elx-signrow__out">
+                  <input className="elx-input" readOnly value={urlFor(l)} onFocus={(e) => e.currentTarget.select()} />
+                  <button className="elx-icon" title="Copier" onClick={() => copy(urlFor(l), l.index)}>
                     {copiedIdx === l.index ? <CheckCircle2 size={15} /> : <Copy size={15} />}
                   </button>
                 </div>
               </div>
             ))}
-            <p className="muted dc-share-link__note">
+            <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
               Transmettez chaque lien au signataire concerné. Le serveur ne voit jamais le secret.
             </p>
-            {syncWarning && <p className="dc-error">{syncWarning}</p>}
+            {syncWarning && <p className="elx-form__error">{syncWarning}</p>}
           </div>
         )}
 
         {requests && requests.length > 0 && (
-          <div className="dc-sign-status">
-            <h3>Suivi</h3>
+          <div className="dcx-modal__section">
+            <h3 className="dcx-modal__section-title">Suivi</h3>
+            {actionMsg && (
+              <p className="muted" role="status" style={{ fontSize: 12 }}>
+                {actionMsg}
+              </p>
+            )}
             {requests.map((r) => (
-              <div key={r.id} className="dc-sign-req">
+              <div key={r.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
                 {r.ordered && (
                   <span className="muted" style={{ fontSize: 12 }}>
                     <ListOrdered size={12} /> Signature dans l'ordre
                   </span>
                 )}
                 {r.parties.map((p) => (
-                  <div key={p.id} className="dc-sign-party">
+                  <div key={p.id} className="elx-row">
                     {p.status === "signed" ? (
-                      <CheckCircle2 size={15} className="dc-sign-ok" />
+                      <CheckCircle2 size={15} className="elx-sign-ok" />
                     ) : p.status === "declined" ? (
-                      <XCircle size={15} className="dc-sign-no" />
+                      <XCircle size={15} className="elx-sign-no" />
+                    ) : p.status === "cancelled" ? (
+                      <Ban size={15} className="elx-sign-wait" />
                     ) : (
-                      <Clock size={15} className="dc-sign-wait" />
+                      <Clock size={15} className="elx-sign-wait" />
                     )}
-                    <span className="dc-sign-party__label">{p.label || `Signataire ${p.index + 1}`}</span>
-                    <span className="dc-sign-party__state">
+                    <span className="elx-row__label">{p.label || `Signataire ${p.index + 1}`}</span>
+                    <span className="elx-row__meta">
                       {p.status === "signed" ? (
                         <>signé{p.signerFpr ? ` · ${fingerprintWords(p.signerFpr)}` : ""}</>
                       ) : p.status === "declined" ? (
                         "refusé"
+                      ) : p.status === "cancelled" ? (
+                        "révoqué"
                       ) : (
                         "en attente"
                       )}
                     </span>
+                    {p.status === "pending" && (
+                      <>
+                        <button
+                          className="elx-icon"
+                          title="Relancer (réactive le lien s'il a expiré)"
+                          aria-label={`Relancer ${p.label || `signataire ${p.index + 1}`}`}
+                          disabled={actingId === p.id}
+                          onClick={() => void remindParty(r, p)}
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                        <button
+                          className="elx-icon elx-icon--danger"
+                          title="Révoquer ce lien"
+                          aria-label={`Révoquer le lien de ${p.label || `signataire ${p.index + 1}`}`}
+                          disabled={actingId === p.id}
+                          onClick={() => void revokeParty(p)}
+                        >
+                          <Ban size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

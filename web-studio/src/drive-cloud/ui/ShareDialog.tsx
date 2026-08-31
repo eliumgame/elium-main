@@ -5,7 +5,7 @@
  * the crypto is in ops.ts.
  */
 import { useCallback, useEffect, useState } from "react";
-import { X, Share2, Link2, Trash2, Copy, UserPlus, Users2 } from "lucide-react";
+import { X, Share2, Link2, Trash2, Copy, UserPlus, Users2, PenLine } from "lucide-react";
 import { useDrive } from "../session";
 import { shareWithUser, shareWithGroup, createShareLink, type DriveEntry, type OpsCtx } from "../ops";
 import { revokeShareWithRotation } from "../rotate";
@@ -33,6 +33,10 @@ interface LinkRow {
   maxDownloads: number | null;
   downloadCount: number;
   createdAt: string;
+  /** Minted by "Demander une signature" (SignRequestDialog) rather than here. */
+  canSign: boolean;
+  partyLabel: string | null;
+  partyStatus: string | null;
 }
 
 export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entry: DriveEntry; onClose: () => void }) {
@@ -378,6 +382,12 @@ export default function ShareDialog({ ctx, entry, onClose }: { ctx: OpsCtx; entr
               links.map((l) => (
                 <div key={l.id} className="elx-row">
                   <span className="elx-row__label">Créé le {new Date(l.createdAt).toLocaleDateString("fr-FR")}</span>
+                  {l.canSign && (
+                    <span className="elx-chip" title="Créé par « Demander une signature »">
+                      <PenLine size={11} /> Signature — {l.partyLabel || "signataire"}
+                      {l.partyStatus === "signed" ? " (signé)" : l.partyStatus === "declined" ? " (refusé)" : ""}
+                    </span>
+                  )}
                   {l.expiresAt && (
                     <span className="elx-chip">Expire le {new Date(l.expiresAt).toLocaleDateString("fr-FR")}</span>
                   )}

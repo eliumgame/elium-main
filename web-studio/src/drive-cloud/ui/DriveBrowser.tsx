@@ -52,8 +52,10 @@ import {
   downloadFile,
   nodeKeyFrom,
   triggerDownload,
+  searchDriveTree,
   type DriveEntry,
   type OpsCtx,
+  type SearchHit,
 } from "../ops";
 import {
   EMPTY_FILTER,
@@ -164,6 +166,14 @@ export default function DriveBrowser() {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [usage, setUsage] = useState<{ usedBytes: number; quotaBytes: number | null } | null>(null);
+  // Recherche récursive (tout le Drive, pas que le dossier courant) — voir
+  // `searchDriveTree` (ops.ts) : parcours + déchiffrement client, sans index
+  // serveur (les noms sont chiffrés de bout en bout). Explicite (bouton),
+  // pas déclenchée à chaque frappe : c'est un aller-retour potentiellement
+  // coûteux (un dossier par requête) sur un gros Drive.
+  const [treeHits, setTreeHits] = useState<SearchHit[] | null>(null);
+  const [treeSearching, setTreeSearching] = useState(false);
+  const [treeErr, setTreeErr] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const draggingIds = useRef<string[]>([]);
@@ -187,9 +197,45 @@ export default function DriveBrowser() {
   useEffect(() => {
     setPath([]);
     setSelection([]);
+    setTreeHits(null);
   }, [d.currentOrg?.id]);
 
+  const runTreeSearch = async () => {
+    if (!ctx) return;
+    const q = filter.query.trim();
+    if (!q) return;
+    setTreeSearching(true);
+    setTreeErr(null);
+    try {
+      setTreeHits(await searchDriveTree(ctx, q));
+    } catch (e) {
+      setTreeErr(e instanceof Error ? e.message : "Recherche impossible.");
+      setTreeHits(null);
+    } finally {
+      setTreeSearching(false);
+    }
+  };
+
+  // Un résultat de recherche pointe potentiellement vers un tout autre
+  // dossier : y naviguer et sélectionner l'élément trouvé, puis fermer les
+  // résultats (la liste de dossier redevient la vue normale).
+  const openHit = (h: SearchHit) => {
+    setPath(h.kind === "folder" ? [...h.parentPath, { id: h.id, name: h.name }] : h.parentPath);
+    setSelection([h.id]);
+    setTreeHits(null);
+    setFilter((f) => ({ ...f, query: "" }));
+  };
+
   const currentId = path.length ? path[path.length - 1]!.id : null;
+
+  // Une recherche dans tout le Drive est un instantané explicite : dès que la
+  // requête change (nouvelle frappe), les résultats affichés deviennent
+  // périmés — on les efface plutôt que de laisser une liste qui ne correspond
+  // plus à ce qui est tapé.
+  useEffect(() => {
+    setTreeHits(null);
+    setTreeErr(null);
+  }, [filter.query]);
 
   const reload = useCallback(async () => {
     if (!ctx) return;
@@ -749,6 +795,11 @@ export default function DriveBrowser() {
             </button>
           )}
         </label>
+        {filter.query.trim().length >= 2 && (
+          <button className="elx-mini" disabled={treeSearching} onClick={() => void runTreeSearch()}>
+            <Search size={13} /> {treeSearching ? "Recherche…" : "Dans tout le Drive"}
+          </button>
+        )}
 
         <div className="elx-chips">
           {FILTER_LABELS.map((f) => (
@@ -829,7 +880,38 @@ export default function DriveBrowser() {
       )}
 
       {err && <p className="dc-error">{err}</p>}
+      {treeErr && <p className="dc-error">{treeErr}</p>}
 
+      {treeHits !== null ? (
+        <div className="dcx-body">
+          <div className="elx-tree" style={{ flex: 1, maxHeight: "none" }}>
+            <div
+              className="dcx-modal__section-title"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px 0" }}
+            >
+              <span>
+                Résultats dans tout le Drive ({treeHits.length})
+              </span>
+              <button className="elx-icon" title="Fermer les résultats" onClick={() => setTreeHits(null)}>
+                <X size={13} />
+              </button>
+            </div>
+            {treeHits.length === 0 ? (
+              <p className="elx-empty">Aucun résultat pour « {filter.query.trim()} ».</p>
+            ) : (
+              treeHits.map((h) => (
+                <button key={h.id} className="elx-tree__node" onClick={() => openHit(h)}>
+                  {iconFor(h, 16)}
+                  <span className="elx-tree__name">{h.name}</span>
+                  <span className="elx-tree__path">
+                    {h.parentPath.length ? h.parentPath.map((p) => p.name).join(" / ") : "Racine"}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="dcx-body">
         <div
           className="dcx-listing"
@@ -1020,6 +1102,7 @@ export default function DriveBrowser() {
           </aside>
         )}
       </div>
+      )}
 
       {/* --- status bar --------------------------------------------------- */}
       <div className="elx-status dcx-status">

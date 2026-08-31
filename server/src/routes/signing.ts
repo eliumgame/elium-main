@@ -43,6 +43,7 @@ interface PartyRow {
   signer_fpr: string | null;
   signed_at: string | null;
   submission_version_id: string | null;
+  link_id: string;
   request_id: string;
   request_status: string;
   ordered: boolean;
@@ -76,9 +77,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       const b = createSchema.parse(req.body);
       const user = requireUser(req);
 
-      // Créer un lien de signature = créer un lien externe (capacité réutilisée ;
-      // une permission dédiée node.sign.request pourra suivre).
-      const access = await requireNodePerm(req, id, "node.share.link");
+      const access = await requireNodePerm(req, id, "node.sign.request");
       if (access.kind !== "file") throw badRequest("Seuls les fichiers peuvent être envoyés en signature.");
 
       const role = await queryOne<{ id: string }>(
@@ -150,7 +149,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       `SELECT sr.id AS request_id, sr.status AS request_status, sr.ordered, sr.deadline,
               sr.created_at, sr.completed_at,
               p.id AS party_id, p.party_index, p.label, p.status AS party_status,
-              p.signer_fpr, p.signed_at, p.submission_version_id
+              p.signer_fpr, p.signed_at, p.submission_version_id, p.link_id
          FROM signature_requests sr
          JOIN signature_request_parties p ON p.request_id = sr.id
         WHERE sr.node_id = $1
@@ -184,10 +183,76 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
         signerFpr: r.signer_fpr ?? null,
         signedAt: r.signed_at ?? null,
         submissionVersionId: r.submission_version_id ?? null,
+        linkId: r.link_id,
       });
     }
     return { requests: [...byRequest.values()] };
   });
+
+  // =====================================================================
+  //  Authentifié — relancer un signataire qui ignore son lien
+  // =====================================================================
+  // Le secret de déchiffrement (fragment `#k=`) ne quitte jamais le navigateur
+  // de l'émetteur : le serveur ne peut donc pas reconstituer l'URL complète du
+  // lien pour la renvoyer lui-même. « Relancer » réactive donc le lien
+  // CÔTÉ SERVEUR (repousse son expiration si elle est dépassée — le token/le
+  // secret restent identiques, rien n'est régénéré) et journalise un événement
+  // d'audit dédié ; l'émetteur retransmet ensuite hors bande le MÊME lien qu'il
+  // a déjà copié (SignRequestDialog re-propose ce lien s'il l'a encore en
+  // mémoire de session).
+  app.post(
+    "/nodes/:id/sign-requests/:requestId/parties/:partyId/remind",
+    { preHandler: authenticate, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { id, requestId, partyId } = z
+        .object({ id: z.string().uuid(), requestId: z.string().uuid(), partyId: z.string().uuid() })
+        .parse(req.params);
+      const user = requireUser(req);
+
+      const access = await requireNodePerm(req, id, "node.sign.request");
+
+      const row = await queryOne<{
+        party_status: string;
+        link_id: string;
+        link_revoked_at: string | null;
+        link_expires_at: string | null;
+      }>(
+        `SELECT p.status AS party_status, sl.id AS link_id, sl.revoked_at AS link_revoked_at,
+                sl.expires_at AS link_expires_at
+           FROM signature_request_parties p
+           JOIN signature_requests sr ON sr.id = p.request_id
+           JOIN share_links sl ON sl.id = p.link_id
+          WHERE p.id = $1 AND p.request_id = $2 AND sr.node_id = $3`,
+        [partyId, requestId, id],
+      );
+      if (!row) throw notFound("Partie introuvable.");
+      if (row.party_status !== "pending") throw conflict("Cette partie n'est plus en attente de signature.");
+      if (row.link_revoked_at) throw conflict("Le lien de cette partie a été révoqué ; recréez une demande.");
+
+      const wasExpired = !!row.link_expires_at && new Date(row.link_expires_at).getTime() < Date.now();
+      let expiresAt = row.link_expires_at;
+      if (wasExpired) {
+        const bumped = await queryOne<{ expires_at: string }>(
+          `UPDATE share_links SET expires_at = now() + interval '7 days'
+             WHERE id = $1 AND revoked_at IS NULL
+             RETURNING expires_at`,
+          [row.link_id],
+        );
+        expiresAt = bumped?.expires_at ?? expiresAt;
+      }
+
+      await audit(
+        access.orgId,
+        user.id,
+        "node.sign.remind",
+        "file",
+        id,
+        { requestId, partyId, reactivated: wasExpired },
+        req.ip,
+      );
+      return { ok: true, reactivated: wasExpired, expiresAt: expiresAt ?? null };
+    },
+  );
 
   // =====================================================================
   //  PUBLIC — écriture-retour anonyme de l'artefact signé (scellé par token)
@@ -274,7 +339,7 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       const key = store.newKey();
       let size: number;
       try {
-        size = await store.putStream(key, body, config.maxBlobBytes);
+        size = await store.putStream(key, body, config.maxSignArtifactBytes);
       } catch (err) {
         await store.delete(key).catch(() => {});
         if (err instanceof Error && err.message === "payload_too_large") throw tooLarge();

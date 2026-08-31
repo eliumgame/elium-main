@@ -109,6 +109,12 @@ export const config = {
 
   maxBlobBytes: num("MAX_BLOB_BYTES", 2 * 1024 * 1024 * 1024),
   maxJsonBytes: num("MAX_JSON_BYTES", 1024 * 1024),
+  // Écriture-retour de signature (POST /links/:token/sign) : route PUBLIQUE,
+  // non authentifiée, scellée par un simple token — un plafond dédié, bien en
+  // deçà du blob générique (2 Go), limite l'exposition (stockage/CPU de
+  // rechiffrement) qu'un token de signature qui fuiterait pourrait consommer.
+  // Un document signé (.elium ou PDF/PAdES) tient très large sous 50 Mo.
+  maxSignArtifactBytes: num("MAX_SIGN_ARTIFACT_BYTES", 50 * 1024 * 1024),
 
   // Bornes du relais collaboratif (anti-DoS). Un update chiffré est plafonné en
   // octets (le ciphertext hex fait 2× cette taille sur le fil) ; le débit de

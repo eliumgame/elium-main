@@ -53,7 +53,12 @@ export default function ParapheurPanel({ studio }: { studio: Studio }) {
       .then((w) => {
         if (w?.parties?.length) studio.setParapheur({ parties: w.parties });
       })
-      .catch(() => {});
+      .catch((e) => {
+        void alert({
+          title: "Migration du circuit impossible",
+          message: e instanceof Error ? e.message : "Erreur.",
+        });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey]);
 

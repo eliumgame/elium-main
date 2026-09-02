@@ -68,6 +68,53 @@ describe("XLSX import — shared formulas (t=\"shared\")", () => {
     const wb = importXlsx(buildXlsx({ sheet1 }));
     expect(wb.sheets[0]!.cells.A1).toBe("=1+1");
   });
+
+  // Régression critique : Excel autorise de tirer une formule vers le HAUT ou vers
+  // la GAUCHE ("Remplissage > Haut"/"Remplissage > Gauche"), pas seulement vers le
+  // bas/la droite. La cellule "maître" (celle qui porte le texte de la formule dans
+  // le XML) peut alors être PLUS ÉLOIGNÉE de la référence que ses suiveurs, ce qui
+  // rend le décalage col/row négatif. Avant le correctif, ce décalage négatif était
+  // silencieusement encodé comme une référence syntaxiquement valide mais fausse
+  // (ex. "=A-3*2" au lieu d'une ligne 1 tirée vers le haut) : une corruption
+  // silencieuse des données, sans #REF! ni erreur visible.
+  it("a shared-formula group filled UPWARD (master below its followers) turns the out-of-range ref into #REF!, not a bogus negative one", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData>
+      <row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" si="0"/><v>0</v></c></row>
+      <row r="2"><c r="A2"><v>2</v></c><c r="B2"><f t="shared" si="0"/><v>0</v></c></row>
+      <row r="3"><c r="A3"><v>3</v></c><c r="B3"><f t="shared" si="0"/><v>0</v></c></row>
+      <row r="4"><c r="A4"><v>4</v></c><c r="B4"><f t="shared" si="0"/><v>0</v></c></row>
+      <row r="5"><c r="A5"><v>5</v></c><c r="B5"><f t="shared" ref="B1:B5" si="0">A1*2</f><v>10</v></c></row>
+    </sheetData></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    const sh = wb.sheets[0]!;
+    expect(sh.cells.B5).toBe("=A1*2"); // le maître : inchangé
+    // Chaque suiveur référence une ligne au-dessus de la ligne 1 : #REF!, jamais
+    // "=A-3*2" / "=A-2*2" / … (des formules syntaxiquement plausibles mais fausses).
+    expect(sh.cells.B1).toBe("=#REF!*2");
+    expect(sh.cells.B2).toBe("=#REF!*2");
+    expect(sh.cells.B3).toBe("=#REF!*2");
+    expect(sh.cells.B4).toBe("=#REF!*2");
+  });
+
+  it("a shared-formula group filled LEFTWARD (master to the right of its followers) turns the out-of-range ref into #REF!", () => {
+    const sheet1 = `<worksheet xmlns="${NS}"><sheetData>
+      <row r="1">
+        <c r="A1"><f t="shared" si="1"/><v>0</v></c>
+        <c r="B1"><f t="shared" si="1"/><v>0</v></c>
+        <c r="C1"><f t="shared" si="1"/><v>0</v></c>
+        <c r="D1"><f t="shared" ref="A1:D1" si="1">A2*2</f><v>10</v></c>
+      </row>
+      <row r="2"><c r="A2"><v>5</v></c></row>
+    </sheetData></worksheet>`;
+    const wb = importXlsx(buildXlsx({ sheet1 }));
+    const sh = wb.sheets[0]!;
+    expect(sh.cells.D1).toBe("=A2*2"); // le maître : inchangé
+    // Chaque suiveur référence une colonne avant la colonne A : #REF!, pas une
+    // colonne négative encodée en chaîne vide (indexToCol(-1) === "").
+    expect(sh.cells.A1).toBe("=#REF!*2");
+    expect(sh.cells.B1).toBe("=#REF!*2");
+    expect(sh.cells.C1).toBe("=#REF!*2");
+  });
 });
 
 describe("XLSX import — theme colours (color theme=\"N\" tint=\"…\")", () => {

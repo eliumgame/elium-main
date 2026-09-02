@@ -52,12 +52,24 @@ function reindexRefMap<T>(
   return out;
 }
 
-/** Applique un plan de relocalisation `fn` (et le décalage de taille) à la feuille. */
+/**
+ * Applique un plan de relocalisation `fn` (et le décalage de taille) à la
+ * feuille. `colFn`/`rowFn` sont les projections À UN SEUL AXE utilisées pour
+ * réindexer `colWidths`/`rowHeights` : contrairement à `fn` (qui décrit le
+ * déplacement 2D des cellules), elles ne doivent JAMAIS invoquer le garde de
+ * suppression de l'AUTRE axe. (Bug historique : réutiliser `fn` avec une
+ * coordonnée factice `0` pour l'axe non concerné faisait que le garde de
+ * `deleteRow`/`deleteCol` — `r === at` / `c === at` — matchait à tort sur
+ * TOUTES les entrées dès que `at === 0`, effaçant colWidths/rowHeights en
+ * entier à la suppression de la toute première ligne/colonne.)
+ */
 function structural(
   sheet: SheetData,
   fn: (c: number, r: number) => Pos | null,
   dCols: number,
   dRows: number,
+  colFn: (c: number) => number | null,
+  rowFn: (r: number) => number | null,
 ): SheetData {
   const refMap: RefMap = (col, row) => {
     const np = fn(col, row);
@@ -69,16 +81,16 @@ function structural(
   if (sheet.colWidths) {
     colWidths = {};
     for (const [k, w] of Object.entries(sheet.colWidths)) {
-      const np = fn(Number(k), 0);
-      if (np) colWidths[np.c] = w;
+      const nc = colFn(Number(k));
+      if (nc !== null) colWidths[nc] = w;
     }
   }
   let rowHeights: Record<number, number> | undefined;
   if (sheet.rowHeights) {
     rowHeights = {};
     for (const [k, h] of Object.entries(sheet.rowHeights)) {
-      const np = fn(0, Number(k));
-      if (np) rowHeights[np.r] = h;
+      const nr = rowFn(Number(k));
+      if (nr !== null) rowHeights[nr] = h;
     }
   }
 
@@ -101,17 +113,51 @@ function structural(
   return next;
 }
 
+const identity = (i: number): number => i;
+const shiftInsert =
+  (at: number) =>
+  (i: number): number =>
+    i >= at ? i + 1 : i;
+const shiftDelete =
+  (at: number) =>
+  (i: number): number | null =>
+    i === at ? null : i > at ? i - 1 : i;
+
 export function insertRow(sheet: SheetData, at: number): SheetData {
-  return structural(sheet, (c, r) => ({ c, r: r >= at ? r + 1 : r }), 0, 1);
+  const rowFn = shiftInsert(at);
+  return structural(sheet, (c, r) => ({ c, r: rowFn(r) }), 0, 1, identity, rowFn);
 }
 export function deleteRow(sheet: SheetData, at: number): SheetData {
-  return structural(sheet, (c, r) => (r === at ? null : { c, r: r > at ? r - 1 : r }), 0, -1);
+  const rowFn = shiftDelete(at);
+  return structural(
+    sheet,
+    (c, r) => {
+      const nr = rowFn(r);
+      return nr === null ? null : { c, r: nr };
+    },
+    0,
+    -1,
+    identity,
+    rowFn,
+  );
 }
 export function insertCol(sheet: SheetData, at: number): SheetData {
-  return structural(sheet, (c, r) => ({ c: c >= at ? c + 1 : c, r }), 1, 0);
+  const colFn = shiftInsert(at);
+  return structural(sheet, (c, r) => ({ c: colFn(c), r }), 1, 0, colFn, identity);
 }
 export function deleteCol(sheet: SheetData, at: number): SheetData {
-  return structural(sheet, (c, r) => (c === at ? null : { c: c > at ? c - 1 : c, r }), -1, 0);
+  const colFn = shiftDelete(at);
+  return structural(
+    sheet,
+    (c, r) => {
+      const nc = colFn(c);
+      return nc === null ? null : { c: nc, r };
+    },
+    -1,
+    0,
+    colFn,
+    identity,
+  );
 }
 
 /**

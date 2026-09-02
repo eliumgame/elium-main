@@ -390,3 +390,32 @@ describe("rewriteRefs — references track inserted/deleted rows·columns", () =
     expect(rewriteRefs("=ROUND(A1;2)", insertRow(0))).toBe("=ROUND(A2;2)");
   });
 });
+
+describe("rewriteRefs — recopie/tirage (respectAnchors=true) : un décalage hors feuille devient #REF!", () => {
+  // Bug critique : un tirage vers le HAUT ou vers la GAUCHE (fréquent dans Excel,
+  // "Remplissage > Haut"/"Remplissage > Gauche") peut décaler une référence relative
+  // à une colonne/ligne négative. Avant le correctif, indexToCol(-1) renvoyait ""
+  // silencieusement et la ligne négative était émise telle quelle : "=A1*2" tiré de
+  // 4 lignes vers le haut devenait "=A-3*2" — une formule syntaxiquement plausible
+  // mais sémantiquement fausse, sans aucune erreur visible. Le comportement attendu
+  // (et déjà utilisé ailleurs dans le moteur, ex. OFFSET) est #REF!.
+  it("un tirage vers le HAUT qui pousse une référence relative au-dessus de la ligne 1 devient #REF!", () => {
+    // Reproduit le scénario signalé : formule maître "=A1*2" tirée 4 lignes vers le haut.
+    const rewritten = rewriteRefs("=A1*2", (col, row) => ({ col, row: row - 4 }), true);
+    expect(rewritten).toBe("=#REF!*2"); // et surtout pas "=A-3*2"
+    const c = createCalc((ref) => (ref === "B1" ? rewritten : undefined));
+    expect(c.valueOf("B1")).toEqual({ error: "#REF" });
+  });
+
+  it("un tirage vers la GAUCHE qui pousse une référence relative avant la colonne A devient #REF!", () => {
+    const rewritten = rewriteRefs("=A1*2", (col, row) => ({ col: col - 3, row }), true);
+    expect(rewritten).toBe("=#REF!*2");
+    const c = createCalc((ref) => (ref === "A1" ? rewritten : undefined));
+    expect(c.valueOf("A1")).toEqual({ error: "#REF" });
+  });
+
+  it("une référence $-ancrée reste valide (l'ancre n'est jamais décalée, donc jamais hors limites)", () => {
+    const rewritten = rewriteRefs("=$A$1*2", (col, row) => ({ col: col - 3, row: row - 3 }), true);
+    expect(rewritten).toBe("=$A$1*2");
+  });
+});

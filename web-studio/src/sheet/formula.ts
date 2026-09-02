@@ -108,6 +108,14 @@ export function rewriteRefs(formula: string, map: RefMap, respectAnchors = false
     // (respectAnchors) keeps $-anchored components fixed, shifts the rest.
     const col = respectAnchors && m[1] === "$" ? p.col : np.col;
     const row = respectAnchors && m[3] === "$" ? p.row : np.row;
+    // A fill/copy that shifts a reference past the sheet's top-left edge (e.g.
+    // filling a formula referencing row 1 upward, or column A leftward) has no
+    // valid target cell. Without this guard, indexToCol(-1) silently returns
+    // "" and a negative row is emitted as a literal negative number, producing
+    // a syntactically-plausible but semantically wrong formula (e.g. "=A-3*2")
+    // instead of a visible error — mirror what OFFSET already does for the
+    // same out-of-bounds case and surface Excel's own #REF! here too.
+    if (col < 0 || row < 0) return "#REF!";
     return `${m[1]}${indexToCol(col)}${m[3]}${row + 1}`;
   };
   // Consume the bare address word starting at `i`; returns [text, nextIndex].

@@ -56,6 +56,23 @@ describe("Opérations structurelles pures (partagées local/collab)", () => {
     expect(s.cells.B1).toBe("20"); // C1 remonte en B1
     expect(s.colWidths).toEqual({}); // la largeur de B est retirée
   });
+
+  // Régression : la réindexation de colWidths/rowHeights appelait la fonction de
+  // décision de fn avec une coordonnée FACTICE (0) sur l'axe non concerné. Le garde
+  // interne de deleteRow/deleteCol ("cette entrée doit-elle disparaître ?") matchait
+  // alors à tort CETTE coordonnée factice dès que `at === 0`, effaçant colWidths (ou
+  // rowHeights) EN ENTIER à la suppression de la toute première ligne/colonne — une
+  // opération banale — au lieu de ne toucher qu'une largeur/hauteur réellement liée
+  // à l'axe supprimé.
+  it("supprime la ligne 0 : colWidths (axe colonne, non concerné) reste intact", () => {
+    const s = deleteRow(base(), 0);
+    expect(s.colWidths).toEqual({ 1: 150 });
+  });
+
+  it("supprime la colonne 0 : rowHeights (axe ligne, non concerné) reste intact", () => {
+    const s = deleteCol(base(), 0);
+    expect(s.rowHeights).toEqual({ 1: 60 });
+  });
 });
 
 describe("Tri (pur, avec saut d'en-tête et filtre)", () => {
@@ -93,5 +110,17 @@ describe("Poignée de recopie (pure)", () => {
     const s = fillRange(sheet, { c0: 2, c1: 2, r0: 0, r1: 0 }, { c: 2, r: 2 });
     expect(s.cells.C2).toBe("=A2+B2");
     expect(s.cells.C3).toBe("=A3+B3");
+  });
+
+  // Régression : un tirage vers le HAUT (poignée de recopie glissée au-dessus de la
+  // source) qui pousse une référence relative au-delà de la ligne 1 doit produire
+  // #REF!, pas une référence syntaxiquement plausible mais fausse (ex. "=A-3*2").
+  it("un tirage vers le HAUT dont la référence sort de la feuille devient #REF!", () => {
+    const sheet: SheetData = { name: "F1", rows: 5, cols: 3, cells: { A1: "10", C5: "=A1*2" } };
+    const s = fillRange(sheet, { c0: 2, c1: 2, r0: 4, r1: 4 }, { c: 2, r: 0 });
+    expect(s.cells.C4).toBe("=#REF!*2");
+    expect(s.cells.C3).toBe("=#REF!*2");
+    expect(s.cells.C2).toBe("=#REF!*2");
+    expect(s.cells.C1).toBe("=#REF!*2");
   });
 });

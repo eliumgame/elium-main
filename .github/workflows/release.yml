@@ -18,7 +18,11 @@ name: Elium — Publication auto (push master)
 # Tout le reste du job (checkout, build, signature, publication) s'exécute alors
 # sur le SHA EXACT (`head_sha`) qui a été testé par CI — jamais un autre commit.
 # `workflow_dispatch` reste un contournement MANUEL volontaire (republication
-# d'urgence) qui ne repasse pas par ce contrôle CI.
+# d'urgence) qui ne repasse pas par ce contrôle CI — mais le gate exige quand
+# même que ce déclenchement manuel vise `master` (`github.ref ==
+# refs/heads/master`) : un lancement accidentel depuis l'UI Actions sur une
+# branche de feature ou un vieux commit est refusé, pas publié sans aucune
+# vérification.
 #
 # Pré-requis (une seule fois) :
 #   - Repo PUBLIC (sinon les utilisateurs ne peuvent pas télécharger les assets).
@@ -45,9 +49,16 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "Déclenchement manuel (workflow_dispatch) — contrôle CI volontairement contourné."
+            if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+              echo "ok=true" >> "$GITHUB_OUTPUT"
+              echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+              echo "Déclenchement manuel (workflow_dispatch) sur master — contrôle CI volontairement contourné."
+            else
+              echo "ok=false" >> "$GITHUB_OUTPUT"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "::warning title=Publication ignorée::Déclenchement manuel (workflow_dispatch) effectué depuis '${{ github.ref_name }}', pas 'master' — le contournement d'urgence n'est autorisé que depuis master, publication refusée."
+              echo "### ⛔ Publication ignorée — workflow_dispatch doit être lancé depuis master (branche/ref sélectionnée : ${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
+            fi
           elif [ "${{ github.event_name }}" = "workflow_run" ] \
             && [ "${{ github.event.workflow_run.conclusion }}" = "success" ] \
             && [ "${{ github.event.workflow_run.head_branch }}" = "master" ] \

@@ -9,9 +9,15 @@
  * their own (unlike Documents' EliumProfile), so the vault is the only secret
  * available; without it, behaviour is unchanged and the deck is stored verbatim.
  * This is an autosave/recovery cache, not the document of record (that's the
- * exported .elium file), so a vault password change or reset simply starts the
- * next session from a blank deck instead of the stale autosave — the same
- * "best-effort" contract every other autosave cache here already has.
+ * exported .elium file) — but unlike format/drafts-store.ts and
+ * format/versions-store.ts (which throw when a protected snapshot can't be
+ * decrypted), an earlier version of this file returned `undefined` in that
+ * case, indistinguishable from "no autosave at all". The caller then treated
+ * that as license to start from a blank deck, and the 400ms debounced
+ * autosave silently overwrote the still-encrypted blob with that blank deck —
+ * a permanent, silent data loss the moment the app vault is disabled/reset or
+ * unlocked with the wrong password. Fixed to follow the SAME convention as
+ * those two files: throw an explicit error instead (see resolveDeckRecord).
  */
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 import type { Deck } from "./model";
@@ -53,21 +59,35 @@ function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequ
   );
 }
 
-/** Loads the autosaved deck. Returns `undefined` when there is none, when a
- *  vault-protected record can't be decrypted with `secret` (wrong/missing
- *  vault password) — best-effort, never throws — or on a legacy pre-vault
- *  record (kept plaintext rather than discarded, still readable as-is). */
-export async function loadDeck(secret?: VaultSecret): Promise<Deck | undefined> {
-  const rec = await run<DeckRecord | { id: string; deck: Deck } | undefined>("readonly", (s) => s.get(CURRENT));
+/**
+ * Resolve a stored deck record to its content, decrypting when vault-protected.
+ * Pure (no IndexedDB access), so the resolution rule is unit-testable on its
+ * own — same split as resolveDraft (format/drafts-store.ts) and versionDoc
+ * (format/versions-store.ts).
+ *
+ * Throws when the record is vault-protected and can't be decrypted with
+ * `secret` (missing or wrong vault password) — same convention as those two
+ * files: a disabled/reset/wrong vault must surface as an explicit error, never
+ * as a silent "no deck" a caller could mistake for "nothing to restore" and
+ * overwrite the encrypted autosave with a blank one.
+ */
+export async function resolveDeckRecord(
+  rec: DeckRecord | { id: string; deck: Deck } | undefined,
+  secret?: VaultSecret,
+): Promise<Deck | undefined> {
   if (!rec) return undefined;
   if (!("vaultProtected" in rec)) return rec.deck; // legacy record, predates the vault
   if (!rec.vaultProtected) return rec.deck;
-  if (!hasVaultSecret(secret)) return undefined;
-  try {
-    return await decryptAtRest<Deck>(rec.enc!, secret!);
-  } catch {
-    return undefined; // wrong/missing vault password — never crash the editor
-  }
+  if (!hasVaultSecret(secret)) throw new Error("Cette présentation est chiffrée — mot de passe requis.");
+  return decryptAtRest<Deck>(rec.enc!, secret!);
+}
+
+/** Loads the autosaved deck. Returns `undefined` when there is none, or on a
+ *  legacy pre-vault record (kept plaintext rather than discarded, still
+ *  readable as-is). See {@link resolveDeckRecord} for the vault-protected case. */
+export async function loadDeck(secret?: VaultSecret): Promise<Deck | undefined> {
+  const rec = await run<DeckRecord | { id: string; deck: Deck } | undefined>("readonly", (s) => s.get(CURRENT));
+  return resolveDeckRecord(rec, secret);
 }
 
 export async function saveDeck(deck: Deck, secret?: VaultSecret): Promise<void> {

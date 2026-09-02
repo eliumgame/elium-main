@@ -112,14 +112,20 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
 
   test("PDF — écran d'ouverture", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "PDF" }).click();
+    // Nom exact via une regex ancrée : le bouton "Détecteur" mentionne aussi
+    // ".pdf" dans sa description, donc un match par sous-chaîne insensible à
+    // la casse ("PDF") matcherait les deux boutons (strict mode violation).
+    await page.getByRole("button", { name: /^PDF/ }).click();
     await expect(page.getByRole("heading", { name: "Ouvrir un PDF" })).toBeVisible();
     await expectNoSeriousViolations(page, "PDF (écran d'ouverture)");
   });
 
   test("PDF — espace de travail chargé", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "PDF" }).click();
+    // Nom exact via une regex ancrée : le bouton "Détecteur" mentionne aussi
+    // ".pdf" dans sa description, donc un match par sous-chaîne insensible à
+    // la casse ("PDF") matcherait les deux boutons (strict mode violation).
+    await page.getByRole("button", { name: /^PDF/ }).click();
     await page.setInputFiles('input[type="file"][accept*="pdf"]', path.join(__dirname, "fixtures", "minimal.pdf"));
     await expect(page.locator(".pdfx-canvas")).toBeVisible();
     await expectNoSeriousViolations(page, "PDF (espace de travail chargé)");

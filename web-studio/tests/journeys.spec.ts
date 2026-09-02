@@ -185,7 +185,10 @@ test.describe("Parcours utilisateur — gestes réels", () => {
   test("PDF — ouverture sans erreur", async ({ page }) => {
     const health = trackPageHealth(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "PDF" }).click();
+    // Nom exact via une regex ancrée : le bouton "Détecteur" mentionne aussi
+    // ".pdf" dans sa description (match par sous-chaîne insensible à la
+    // casse sinon => strict mode violation, cf. tests/a11y.spec.ts).
+    await page.getByRole("button", { name: /^PDF/ }).click();
     await page.setInputFiles('input[type="file"][accept*="pdf"]', path.join(__dirname, "fixtures", "minimal.pdf"));
     await expect(page.locator(".pdfx-canvas")).toBeVisible();
     await expect(page.getByRole("tab", { name: "Organiser" })).toBeVisible();

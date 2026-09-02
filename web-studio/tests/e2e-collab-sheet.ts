@@ -284,10 +284,19 @@ async function main(): Promise<void> {
     );
 
     // --- Présence : Bob voit Alice dans l'awareness diffusée par le relais ----
-    const seenByB = [...provB.awareness.getStates().values()]
-      .map((s) => (s as { user?: { name?: string } }).user?.name)
-      .filter(Boolean);
-    ok("présence réseau : Bob voit Alice", seenByB.includes("Alice"), seenByB.join(","));
+    // Sondé comme les convergences ci-dessus (waitFor), pas une lecture unique
+    // immédiate : l'awareness voyage aussi sur le VRAI relais réseau, avec la
+    // même latence que les mises à jour Yjs — une lecture synchrone sans marge
+    // est flaky par construction (déjà observé et diagnostiqué sur le même
+    // motif dans tests/e2e-multiuser.ts, corrigé par le même principe).
+    let seenByB: (string | undefined)[] = [];
+    const presenceSeen = await waitFor(() => {
+      seenByB = [...provB.awareness.getStates().values()]
+        .map((s) => (s as { user?: { name?: string } }).user?.name)
+        .filter(Boolean);
+      return seenByB.includes("Alice");
+    });
+    ok("présence réseau : Bob voit Alice", presenceSeen, seenByB.join(","));
 
     // --- Convergence finale : les deux classeurs sont byte-identiques ---------
     const finalA = SM.workbookSnapshot(ySheetsA, ydocA.getMap<string>("names"), 0);

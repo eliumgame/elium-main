@@ -347,6 +347,37 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
       }
 
       await withTx(async (c) => {
+        // Revérification SOUS VERROU : tout ce qui précède (le SELECT initial du
+        // lien, la décision de signer, et surtout `store.putStream()` qui peut
+        // prendre un temps arbitraire pour un gros fichier) s'est déroulé HORS
+        // transaction. Un admin a pu révoquer le lien pendant l'upload (route
+        // DELETE /nodes/:id/links/:linkId, qui fait
+        // `UPDATE share_links SET revoked_at = now() WHERE ... AND revoked_at IS NULL`
+        // puis `UPDATE signature_request_parties SET status = 'cancelled' WHERE
+        // link_id = $1 AND status = 'pending'`), ou une deuxième requête pour la
+        // MÊME partie a pu se glisser en concurrence. `FOR UPDATE` verrouille à
+        // la fois la ligne partie et la ligne lien : une révocation concurrente
+        // (qui verrouille implicitement la même ligne share_links via son UPDATE)
+        // est donc soit déjà committée et visible ici (revoked_at IS NOT NULL →
+        // on refuse), soit bloquée jusqu'à la fin de CETTE transaction (elle ne
+        // pourra annuler la partie qu'on vient de faire passer à 'signed' — un
+        // ordre de commit qui est exactement la sémantique attendue). Ceci
+        // couvre aussi la double-soumission concurrente de la même partie : la
+        // seconde requête bloque sur ce verrou puis voit status <> 'pending'.
+        const { rows: pr } = await c.query<{ party_status: string; link_revoked_at: string | null }>(
+          `SELECT p.status AS party_status, sl.revoked_at AS link_revoked_at
+             FROM signature_request_parties p
+             JOIN share_links sl ON sl.id = p.link_id
+            WHERE p.id = $1
+            FOR UPDATE`,
+          [link.party_id],
+        );
+        if (!pr[0]) throw notFound("Partie introuvable.");
+        if (pr[0].link_revoked_at) throw conflict("Ce lien a été révoqué entre-temps ; signature refusée.");
+        if (pr[0].party_status !== "pending") {
+          throw conflict("Cette partie a déjà signé ou n'est plus en attente de signature.");
+        }
+
         const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [nodeId]);
         if (!cur[0]) throw notFound();
 
@@ -386,12 +417,19 @@ export default async function signingRoutes(app: FastifyInstance): Promise<void>
           [nodeId, key, hex(nonceHex), size, versionId],
         );
 
-        await c.query(
+        // `AND status = 'pending'` est une ceinture-et-bretelles : le `FOR UPDATE`
+        // ci-dessus garantit déjà qu'aucune autre transaction n'a pu modifier ce
+        // statut entre la vérification et cette écriture, mais reclauser ici
+        // évite qu'un futur chemin de code oublie le verrou et écrase
+        // silencieusement un statut déjà final.
+        const { rows: updated } = await c.query(
           `UPDATE signature_request_parties
               SET status = 'signed', signer_fpr = $2, submission_version_id = $3, signed_at = now()
-            WHERE id = $1`,
+            WHERE id = $1 AND status = 'pending'
+            RETURNING id`,
           [link.party_id, signerFpr, versionId],
         );
+        if (!updated[0]) throw conflict("Cette partie a déjà signé ou n'est plus en attente de signature.");
 
         // Demande complète quand plus aucune partie n'est en attente.
         await c.query(

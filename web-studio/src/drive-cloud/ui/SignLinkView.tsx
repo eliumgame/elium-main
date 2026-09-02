@@ -219,7 +219,14 @@ export default function SignLinkView({
             updatedAt: at,
           });
         }
-        const signedBytes = await writeEliumPackage(nf, { sealPrivateKeyHex: id.privateKeyHex! });
+        // `pwd` holds the .elium's OWN password (distinct from the link secret) —
+        // it was captured in the "password" phase above, when this document
+        // needed it to be opened, and stays in state across the phase change.
+        // writeEliumPackage() requires it under the exact same condition
+        // (encrypted profile, no keyfile) that readEliumPackage() did when
+        // opening it — omitting it here made signing a password-protected
+        // document via a link fail every time with EliumPasswordRequired.
+        const signedBytes = await writeEliumPackage(nf, { sealPrivateKeyHex: id.privateKeyHex!, password: pwd });
         const fpr = await fingerprintOf(id.publicKeyHex);
         await submitSignedElium(api, token, doc.nodeKey, signedBytes, fpr);
         setState({ phase: "done", title: doc.title, words: fingerprintWords(fpr) });

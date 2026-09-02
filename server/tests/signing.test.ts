@@ -221,10 +221,13 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     mWithTx.mockImplementation(
       txDispatch(
         [
+          // Revérification sous verrou (TOCTOU) : toujours en attente, lien pas révoqué.
+          [/AS party_status/, { rows: [{ party_status: "pending", link_revoked_at: null }] }],
           [/SELECT key_epoch FROM nodes/, { rows: [{ key_epoch: 1 }] }],
           [/storage_quota_bytes/, { rows: [{ quota: null, used: 0 }] }],
           [/MAX\(version_no\)/, { rows: [{ next: 1 }] }],
           [/INSERT INTO node_versions/, { rows: [{ id: VER }] }],
+          [/UPDATE signature_request_parties[\s\S]*status = 'signed'/, { rows: [{ id: PARTY }] }],
         ],
         sqls,
       ) as never,
@@ -243,11 +246,76 @@ describe("POST /api/links/:token/sign (écriture-retour anonyme)", () => {
     expect(store.putStream).toHaveBeenCalledTimes(1);
     // la node_version est créée SANS created_by (signataire anonyme)
     expect(sqls.some((s) => /INSERT INTO node_versions/.test(s) && /NULL/.test(s))).toBe(true);
-    // la partie est marquée signée + la complétion de la demande est recalculée
-    expect(sqls.some((s) => /UPDATE signature_request_parties[\s\S]*status = 'signed'/.test(s))).toBe(true);
+    // la partie est marquée signée (reclausée AND status = 'pending', ceinture-et-bretelles
+    // du verrou pris juste avant) + la complétion de la demande est recalculée
+    expect(
+      sqls.some(
+        (s) => /UPDATE signature_request_parties[\s\S]*status = 'signed'/.test(s) && /WHERE id = \$1 AND status = 'pending'/.test(s),
+      ),
+    ).toBe(true);
     expect(sqls.some((s) => /UPDATE signature_requests[\s\S]*completed/.test(s))).toBe(true);
     expect(mNotify).toHaveBeenCalledWith(ORG);
     expect(mAudit).toHaveBeenCalledWith(ORG, null, "node.sign.submit", "file", NODE, { signerFpr: "abcdef0123456789" }, expect.any(String));
+    await app.close();
+  });
+
+  it("TOCTOU : révocation du lien PENDANT l'upload → la transaction finale refuse (409), rien n'est écrasé", async () => {
+    // Le contrôle initial (hors transaction, avant l'upload potentiellement long)
+    // voit encore le lien valide et la partie 'pending' — exactement le scénario
+    // où un admin révoque PENDANT que store.putStream() est en vol.
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch(
+        [
+          // La revérification SOUS VERROU, elle, voit la révocation committée entre-temps.
+          [/AS party_status/, { rows: [{ party_status: "pending", link_revoked_at: "2026-01-01T00:00:00Z" }] }],
+        ],
+        sqls,
+      ) as never,
+    );
+
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/links/tok123/sign`,
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      payload: Buffer.from("ciphertext-signé"),
+    });
+
+    expect(res.statusCode).toBe(409);
+    // L'upload a bien eu lieu (il précède la transaction) mais le blob orphelin est nettoyé...
+    expect(store.putStream).toHaveBeenCalledTimes(1);
+    expect(store.del).toHaveBeenCalledWith("blob-key");
+    // ...et surtout : jamais d'écriture de node_version ni de passage à 'signed'.
+    expect(sqls.some((s) => /INSERT INTO node_versions/.test(s))).toBe(false);
+    expect(sqls.some((s) => /status = 'signed'/.test(s))).toBe(false);
+    await app.close();
+  });
+
+  it("TOCTOU : double soumission concurrente de la même partie → la seconde échoue (409)", async () => {
+    // Le contrôle initial de la seconde requête passe encore (course avant que
+    // la première n'ait committé), mais son verrou attend la première : à son
+    // tour, elle voit la partie déjà 'signed'.
+    mQueryOne.mockResolvedValueOnce(signLink());
+    const sqls: string[] = [];
+    mWithTx.mockImplementation(
+      txDispatch(
+        [[/AS party_status/, { rows: [{ party_status: "signed", link_revoked_at: null }] }]],
+        sqls,
+      ) as never,
+    );
+
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/links/tok123/sign`,
+      headers: { "content-type": "application/octet-stream", "x-content-nonce": NONCE },
+      payload: Buffer.from("ciphertext-signé"),
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(sqls.some((s) => /INSERT INTO node_versions/.test(s))).toBe(false);
     await app.close();
   });
 

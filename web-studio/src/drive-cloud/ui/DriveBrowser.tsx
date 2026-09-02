@@ -889,9 +889,7 @@ export default function DriveBrowser() {
               className="dcx-modal__section-title"
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px 0" }}
             >
-              <span>
-                Résultats dans tout le Drive ({treeHits.length})
-              </span>
+              <span>Résultats dans tout le Drive ({treeHits.length})</span>
               <button className="elx-icon" title="Fermer les résultats" onClick={() => setTreeHits(null)}>
                 <X size={13} />
               </button>
@@ -912,196 +910,196 @@ export default function DriveBrowser() {
           </div>
         </div>
       ) : (
-      <div className="dcx-body">
-        <div
-          className="dcx-listing"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelection([]);
-          }}
-        >
-          {loading ? (
-            <div className="elx-empty">
-              <Loader2 size={22} className="elx-spin" />
-              <br />
-              Chargement…
-            </div>
-          ) : !shown.length ? (
-            <div className="elx-empty">
-              <Folder size={30} />
-              <p>
-                {entries.length
-                  ? "Aucun élément ne correspond à votre recherche."
-                  : currentId
-                    ? "Ce dossier est vide."
-                    : "Aucun fichier."}
-              </p>
-              {!entries.length && (
-                <p>
-                  {canCreateHere
-                    ? "Créez un dossier, ou déposez des fichiers ici."
-                    : "Demandez à un administrateur de partager un espace avec vous."}
-                </p>
-              )}
-            </div>
-          ) : view === "list" ? (
-            <table className="dcx-table">
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th className="dcx-col-size">Taille</th>
-                  <th className="dcx-col-date">Modifié</th>
-                  <th className="dcx-col-actions">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((e) => (
-                  <tr
-                    key={e.id}
-                    className={`dcx-row ${selection.includes(e.id) ? "is-selected" : ""} ${dropTarget === e.id ? "is-drop" : ""}`}
-                    {...rowProps(e)}
-                  >
-                    <td className="dcx-row__name">
-                      {iconFor(e)}
-                      <span>{e.name}</span>
-                    </td>
-                    <td className="dcx-row__muted">{e.kind === "folder" ? "—" : humanSize(e.sizeBytes)}</td>
-                    <td className="dcx-row__muted" title={new Date(e.modifiedAt).toLocaleString("fr-FR")}>
-                      {humanDate(e.modifiedAt)}
-                    </td>
-                    <td className="dcx-row__actions" onClick={(ev) => ev.stopPropagation()}>
-                      {e.kind === "file" && !isCollab(e) && (
-                        <>
-                          <button className="elx-icon" title="Télécharger" onClick={() => void download(e)}>
-                            <Download size={15} />
-                          </button>
-                          <button
-                            className="elx-icon"
-                            title="Historique des versions"
-                            onClick={() => setVersionsTarget(e)}
-                          >
-                            <History size={15} />
-                          </button>
-                        </>
-                      )}
-                      <button className="elx-icon" title="Partager" onClick={() => setShareTarget(e)}>
-                        <Share2 size={15} />
-                      </button>
-                      {e.appKind === "elium" && (
-                        <button
-                          className="elx-icon"
-                          title="Demander une signature par lien"
-                          onClick={() => setSignTarget(e)}
-                        >
-                          <PenLine size={15} />
-                        </button>
-                      )}
-                      <button className="elx-icon" title="Renommer (F2)" onClick={() => void rename(e)}>
-                        <Pencil size={15} />
-                      </button>
-                      <button className="elx-icon" title="Corbeille (Suppr)" onClick={() => void trashMany([e])}>
-                        <Trash2 size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="dcx-grid">
-              {shown.map((e) => (
-                <div
-                  key={e.id}
-                  className={`dcx-tile ${selection.includes(e.id) ? "is-selected" : ""} ${dropTarget === e.id ? "is-drop" : ""}`}
-                  {...rowProps(e)}
-                >
-                  <span className="dcx-tile__icon">{iconFor(e, 30)}</span>
-                  <span className="dcx-tile__name" title={e.name}>
-                    {e.name}
-                  </span>
-                  <span className="dcx-tile__meta">
-                    {e.kind === "folder" ? "Dossier" : humanSize(e.sizeBytes)} · {humanDate(e.modifiedAt)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {details && (
-          <aside className="dcx-details">
-            <div className="elx-panel">
-              <div className="elx-panel__head">
-                <span className="elx-panel__title">Détails</span>
-                <button className="elx-icon" onClick={() => setDetails(false)} title="Fermer">
-                  <X size={14} />
-                </button>
+        <div className="dcx-body">
+          <div
+            className="dcx-listing"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelection([]);
+            }}
+          >
+            {loading ? (
+              <div className="elx-empty">
+                <Loader2 size={22} className="elx-spin" />
+                <br />
+                Chargement…
               </div>
-              <div className="elx-panel__body">
-                {!only ? (
-                  <p className="elx-empty">
-                    {selected.length > 1
-                      ? `${selected.length} éléments sélectionnés.\n${selectionSummary(selected)}`
-                      : "Sélectionnez un élément pour voir ses informations."}
+            ) : !shown.length ? (
+              <div className="elx-empty">
+                <Folder size={30} />
+                <p>
+                  {entries.length
+                    ? "Aucun élément ne correspond à votre recherche."
+                    : currentId
+                      ? "Ce dossier est vide."
+                      : "Aucun fichier."}
+                </p>
+                {!entries.length && (
+                  <p>
+                    {canCreateHere
+                      ? "Créez un dossier, ou déposez des fichiers ici."
+                      : "Demandez à un administrateur de partager un espace avec vous."}
                   </p>
-                ) : (
-                  <>
-                    <div className="dcx-details__hero">
-                      {iconFor(only, 34)}
-                      <b>{only.name}</b>
-                    </div>
-                    <dl className="elx-facts">
-                      <div>
-                        <dt>Type</dt>
-                        <dd>{only.kind === "folder" ? "Dossier" : (only.appKind ?? "Fichier")}</dd>
-                      </div>
-                      <div>
-                        <dt>Taille</dt>
-                        <dd>{only.kind === "folder" ? "—" : humanSize(only.sizeBytes)}</dd>
-                      </div>
-                      <div>
-                        <dt>Modifié</dt>
-                        <dd>{new Date(only.modifiedAt).toLocaleString("fr-FR")}</dd>
-                      </div>
-                      <div>
-                        <dt>Créé</dt>
-                        <dd>{new Date(only.createdAt).toLocaleString("fr-FR")}</dd>
-                      </div>
-                      <div>
-                        <dt>Chiffrement</dt>
-                        <dd>bout en bout</dd>
-                      </div>
-                      {only.keyEpoch !== undefined && (
-                        <div>
-                          <dt>Génération de clé</dt>
-                          <dd>{only.keyEpoch}</dd>
-                        </div>
-                      )}
-                    </dl>
-                    <div className="dcx-details__actions">
-                      <button className="elx-mini" onClick={() => setShareTarget(only)}>
-                        <Share2 size={13} /> Partager
-                      </button>
-                      {only.appKind === "elium" && (
-                        <button className="elx-mini" onClick={() => setSignTarget(only)}>
-                          <PenLine size={13} /> Demander signature
-                        </button>
-                      )}
-                      {only.kind === "file" && !isCollab(only) && (
-                        <button className="elx-mini" onClick={() => setVersionsTarget(only)}>
-                          <History size={13} /> Versions
-                        </button>
-                      )}
-                      <button className="elx-mini" onClick={() => void rename(only)}>
-                        <Pencil size={13} /> Renommer
-                      </button>
-                    </div>
-                  </>
                 )}
               </div>
-            </div>
-          </aside>
-        )}
-      </div>
+            ) : view === "list" ? (
+              <table className="dcx-table">
+                <thead>
+                  <tr>
+                    <th>Nom</th>
+                    <th className="dcx-col-size">Taille</th>
+                    <th className="dcx-col-date">Modifié</th>
+                    <th className="dcx-col-actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((e) => (
+                    <tr
+                      key={e.id}
+                      className={`dcx-row ${selection.includes(e.id) ? "is-selected" : ""} ${dropTarget === e.id ? "is-drop" : ""}`}
+                      {...rowProps(e)}
+                    >
+                      <td className="dcx-row__name">
+                        {iconFor(e)}
+                        <span>{e.name}</span>
+                      </td>
+                      <td className="dcx-row__muted">{e.kind === "folder" ? "—" : humanSize(e.sizeBytes)}</td>
+                      <td className="dcx-row__muted" title={new Date(e.modifiedAt).toLocaleString("fr-FR")}>
+                        {humanDate(e.modifiedAt)}
+                      </td>
+                      <td className="dcx-row__actions" onClick={(ev) => ev.stopPropagation()}>
+                        {e.kind === "file" && !isCollab(e) && (
+                          <>
+                            <button className="elx-icon" title="Télécharger" onClick={() => void download(e)}>
+                              <Download size={15} />
+                            </button>
+                            <button
+                              className="elx-icon"
+                              title="Historique des versions"
+                              onClick={() => setVersionsTarget(e)}
+                            >
+                              <History size={15} />
+                            </button>
+                          </>
+                        )}
+                        <button className="elx-icon" title="Partager" onClick={() => setShareTarget(e)}>
+                          <Share2 size={15} />
+                        </button>
+                        {e.appKind === "elium" && (
+                          <button
+                            className="elx-icon"
+                            title="Demander une signature par lien"
+                            onClick={() => setSignTarget(e)}
+                          >
+                            <PenLine size={15} />
+                          </button>
+                        )}
+                        <button className="elx-icon" title="Renommer (F2)" onClick={() => void rename(e)}>
+                          <Pencil size={15} />
+                        </button>
+                        <button className="elx-icon" title="Corbeille (Suppr)" onClick={() => void trashMany([e])}>
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="dcx-grid">
+                {shown.map((e) => (
+                  <div
+                    key={e.id}
+                    className={`dcx-tile ${selection.includes(e.id) ? "is-selected" : ""} ${dropTarget === e.id ? "is-drop" : ""}`}
+                    {...rowProps(e)}
+                  >
+                    <span className="dcx-tile__icon">{iconFor(e, 30)}</span>
+                    <span className="dcx-tile__name" title={e.name}>
+                      {e.name}
+                    </span>
+                    <span className="dcx-tile__meta">
+                      {e.kind === "folder" ? "Dossier" : humanSize(e.sizeBytes)} · {humanDate(e.modifiedAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {details && (
+            <aside className="dcx-details">
+              <div className="elx-panel">
+                <div className="elx-panel__head">
+                  <span className="elx-panel__title">Détails</span>
+                  <button className="elx-icon" onClick={() => setDetails(false)} title="Fermer">
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="elx-panel__body">
+                  {!only ? (
+                    <p className="elx-empty">
+                      {selected.length > 1
+                        ? `${selected.length} éléments sélectionnés.\n${selectionSummary(selected)}`
+                        : "Sélectionnez un élément pour voir ses informations."}
+                    </p>
+                  ) : (
+                    <>
+                      <div className="dcx-details__hero">
+                        {iconFor(only, 34)}
+                        <b>{only.name}</b>
+                      </div>
+                      <dl className="elx-facts">
+                        <div>
+                          <dt>Type</dt>
+                          <dd>{only.kind === "folder" ? "Dossier" : (only.appKind ?? "Fichier")}</dd>
+                        </div>
+                        <div>
+                          <dt>Taille</dt>
+                          <dd>{only.kind === "folder" ? "—" : humanSize(only.sizeBytes)}</dd>
+                        </div>
+                        <div>
+                          <dt>Modifié</dt>
+                          <dd>{new Date(only.modifiedAt).toLocaleString("fr-FR")}</dd>
+                        </div>
+                        <div>
+                          <dt>Créé</dt>
+                          <dd>{new Date(only.createdAt).toLocaleString("fr-FR")}</dd>
+                        </div>
+                        <div>
+                          <dt>Chiffrement</dt>
+                          <dd>bout en bout</dd>
+                        </div>
+                        {only.keyEpoch !== undefined && (
+                          <div>
+                            <dt>Génération de clé</dt>
+                            <dd>{only.keyEpoch}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      <div className="dcx-details__actions">
+                        <button className="elx-mini" onClick={() => setShareTarget(only)}>
+                          <Share2 size={13} /> Partager
+                        </button>
+                        {only.appKind === "elium" && (
+                          <button className="elx-mini" onClick={() => setSignTarget(only)}>
+                            <PenLine size={13} /> Demander signature
+                          </button>
+                        )}
+                        {only.kind === "file" && !isCollab(only) && (
+                          <button className="elx-mini" onClick={() => setVersionsTarget(only)}>
+                            <History size={13} /> Versions
+                          </button>
+                        )}
+                        <button className="elx-mini" onClick={() => void rename(only)}>
+                          <Pencil size={13} /> Renommer
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
       )}
 
       {/* --- status bar --------------------------------------------------- */}

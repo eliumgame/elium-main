@@ -122,10 +122,7 @@ describe("analyzeTextSignals — clichés d'IA", () => {
   it("emits a lower-weight paragraph-level finding for a paragraph combining 2+ distinct stock phrases", () => {
     const paragraphs = [
       para(0, "Un paragraphe tout à fait ordinaire, sans aucune tournure remarquable."),
-      para(
-        1,
-        "Il est important de noter que ce sujet est complexe. Par ailleurs, plusieurs facteurs entrent en jeu.",
-      ),
+      para(1, "Il est important de noter que ce sujet est complexe. Par ailleurs, plusieurs facteurs entrent en jeu."),
       para(2, "Encore un paragraphe neutre, qui ne contient rien de particulier."),
     ];
     const hits = bySignal(paragraphs, "cliches_ia");
@@ -168,12 +165,25 @@ describe("analyzeTextSignals — clichés d'IA", () => {
 describe("analyzeTextSignals — amorces de phrase répétées", () => {
   it("does not flag varied sentence openers", () => {
     const openers = [
-      "Le rapport souligne", "Plusieurs experts estiment", "La direction a annoncé", "Un porte-parole précise",
-      "Les chiffres montrent", "Cette hypothèse reste", "L'équipe a constaté", "Rien ne permet",
-      "Les prochaines semaines", "Un second facteur", "Le comité recommande", "Cette approche suppose",
-      "Les résultats confirment", "Aucune décision n'a", "Le calendrier prévoit",
+      "Le rapport souligne",
+      "Plusieurs experts estiment",
+      "La direction a annoncé",
+      "Un porte-parole précise",
+      "Les chiffres montrent",
+      "Cette hypothèse reste",
+      "L'équipe a constaté",
+      "Rien ne permet",
+      "Les prochaines semaines",
+      "Un second facteur",
+      "Le comité recommande",
+      "Cette approche suppose",
+      "Les résultats confirment",
+      "Aucune décision n'a",
+      "Le calendrier prévoit",
     ];
-    const paragraphs = openers.map((o, i) => para(i, `${o} des éléments nouveaux sur ce dossier complexe et suivi de près.`));
+    const paragraphs = openers.map((o, i) =>
+      para(i, `${o} des éléments nouveaux sur ce dossier complexe et suivi de près.`),
+    );
     expect(bySignal(paragraphs, "amorces_repetees")).toHaveLength(0);
   });
 
@@ -222,8 +232,7 @@ describe("analyzeTextSignals — usage du tiret cadratin", () => {
 
   it("flags a document overusing the em dash relative to its word count", () => {
     // 200 words, 4 dashes => 20 per 1000 words, well above the 3/1000 threshold.
-    const text =
-      `${filler(50)} — un point — un autre point — encore un point — dernier point ${filler(150)}`;
+    const text = `${filler(50)} — un point — un autre point — encore un point — dernier point ${filler(150)}`;
     const paragraphs = [para(0, text)];
     const hits = bySignal(paragraphs, "tirets_cadratins_frequents");
     expect(hits).toHaveLength(1);

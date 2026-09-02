@@ -382,9 +382,7 @@ function condFormattingXml(rules: CondRule[] | undefined, styles: StyleTable): s
           const rank = Math.max(1, Math.round(rule.rank ?? 10));
           const bottomAttr = rule.bottom ? ` bottom="1"` : "";
           const percentAttr = rule.percent ? ` percent="1"` : "";
-          return (
-            `<conditionalFormatting sqref="${sqref}"><cfRule type="top10" rank="${rank}"${bottomAttr}${percentAttr} priority="${priority}"${dxfAttr}/></conditionalFormatting>`
-          );
+          return `<conditionalFormatting sqref="${sqref}"><cfRule type="top10" rank="${rank}"${bottomAttr}${percentAttr} priority="${priority}"${dxfAttr}/></conditionalFormatting>`;
         }
         case "duplicate":
           return `<conditionalFormatting sqref="${sqref}"><cfRule type="duplicateValues" priority="${priority}"${dxfAttr}/></conditionalFormatting>`;
@@ -623,9 +621,7 @@ function sanitizeNames(sheets: SheetData[]): string[] {
 /** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
 function definedNamesBlock(names: NamedRange[] | undefined): string {
   if (!names || !names.length) return "";
-  const body = names
-    .map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`)
-    .join("");
+  const body = names.map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("");
   return `<definedNames>${body}</definedNames>`;
 }
 

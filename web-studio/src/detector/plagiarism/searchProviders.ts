@@ -37,13 +37,11 @@ export function createSerperProvider(apiKey: string): SearchProvider {
 
       const data = await response.json();
       const organic = Array.isArray(data?.organic) ? data.organic : [];
-      return organic.map(
-        (item: Record<string, unknown>): SearchResult => ({
-          title: asString(item?.title),
-          url: asString(item?.link),
-          snippet: asString(item?.snippet),
-        }),
-      );
+      return organic.map((item: Record<string, unknown>): SearchResult => ({
+        title: asString(item?.title),
+        url: asString(item?.link),
+        snippet: asString(item?.snippet),
+      }));
     },
   };
 }
@@ -62,13 +60,11 @@ export function createBingProvider(apiKey: string): SearchProvider {
 
       const data = await response.json();
       const items = Array.isArray(data?.webPages?.value) ? data.webPages.value : [];
-      return items.map(
-        (item: Record<string, unknown>): SearchResult => ({
-          title: asString(item?.name),
-          url: asString(item?.url),
-          snippet: asString(item?.snippet),
-        }),
-      );
+      return items.map((item: Record<string, unknown>): SearchResult => ({
+        title: asString(item?.name),
+        url: asString(item?.url),
+        snippet: asString(item?.snippet),
+      }));
     },
   };
 }

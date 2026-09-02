@@ -24,7 +24,14 @@ import {
   sortedFindings,
 } from "../reportPresentation";
 import { flagsByParagraph, segmentParagraph, type PreviewFlag } from "../ui/previewFlags";
-import type { AnalysisReport, DocumentMetadata, DocumentModel, Finding, ParagraphModel, PlagiarismMatch } from "../types";
+import type {
+  AnalysisReport,
+  DocumentMetadata,
+  DocumentModel,
+  Finding,
+  ParagraphModel,
+  PlagiarismMatch,
+} from "../types";
 
 const FLAG_COLOR = "#dc2626";
 
@@ -105,7 +112,10 @@ function annotatedParagraphNode(p: ParagraphModel, flags: PreviewFlag[]): ProseM
   if (prefix && content.length > 0) content[0] = { ...content[0], text: prefix + content[0].text };
   else if (prefix) content.push({ type: "text", text: prefix.trimEnd() });
 
-  const node: ProseMirrorNode = { type: p.heading ? "heading" : "paragraph", content: content.length ? content : undefined };
+  const node: ProseMirrorNode = {
+    type: p.heading ? "heading" : "paragraph",
+    content: content.length ? content : undefined,
+  };
   if (p.heading) node.attrs = { level: Math.min(p.heading, 4) };
   return node;
 }
@@ -134,31 +144,31 @@ export function buildReportDoc(report: AnalysisReport, model: DocumentModel, fil
 
     content.push(heading(2, `${CATEGORY_TITLES.plagiat}`));
     if (allFailed) {
-      content.push(
-        {
-          type: "paragraph",
-          content: [
-            ...bold(
-              `[Vérification impossible] Les ${failedPassages} tentative(s) ont toutes échoué${lastError ? ` (${lastError})` : ""}. `,
-            )!,
-            {
-              type: "text",
-              text: "« Aucune correspondance » ci-dessous ne signifie pas que le document est propre : il n'a en réalité pas pu être vérifié.",
-            },
-          ],
-        },
-      );
+      content.push({
+        type: "paragraph",
+        content: [
+          ...bold(
+            `[Vérification impossible] Les ${failedPassages} tentative(s) ont toutes échoué${lastError ? ` (${lastError})` : ""}. `,
+          )!,
+          {
+            type: "text",
+            text: "« Aucune correspondance » ci-dessous ne signifie pas que le document est propre : il n'a en réalité pas pu être vérifié.",
+          },
+        ],
+      });
     } else if (somePassagesFailed) {
-      content.push(
-        {
-          type: "paragraph",
-          content: bold(
-            `[Vérification partielle] ${failedPassages} vérification(s) sur ${checkedPassages} ont échoué${lastError ? ` (${lastError})` : ""} et ne sont pas prises en compte ci-dessous.`,
-          ),
-        },
-      );
+      content.push({
+        type: "paragraph",
+        content: bold(
+          `[Vérification partielle] ${failedPassages} vérification(s) sur ${checkedPassages} ont échoué${lastError ? ` (${lastError})` : ""} et ne sont pas prises en compte ci-dessous.`,
+        ),
+      });
     }
-    content.push(paragraph(`${checkedPassages} passage(s) vérifié(s), ${plagiarismMatches.length} correspondance(s) trouvée(s) via ${provider}.`));
+    content.push(
+      paragraph(
+        `${checkedPassages} passage(s) vérifié(s), ${plagiarismMatches.length} correspondance(s) trouvée(s) via ${provider}.`,
+      ),
+    );
     if (plagiarismMatches.length === 0) {
       content.push(paragraph("Aucune correspondance trouvée sur le web.", { muted: true }));
     }

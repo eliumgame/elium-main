@@ -63,7 +63,12 @@ describe("analyzeFormattingSignals — police incohérente", () => {
     const paragraphs: ParagraphModel[] = [
       para(0, [run(NORMAL_SENTENCE, TIMES_12)]),
       para(1, [run(NORMAL_SENTENCE, TIMES_12)]),
-      para(2, [run("Ce paragraphe a une taille de police nettement différente du reste. ", { fontFamily: "Times New Roman", fontSize: 16 })]),
+      para(2, [
+        run("Ce paragraphe a une taille de police nettement différente du reste. ", {
+          fontFamily: "Times New Roman",
+          fontSize: 16,
+        }),
+      ]),
       para(3, [run(NORMAL_SENTENCE, TIMES_12)]),
     ];
     const findings = analyzeFormattingSignals(paragraphs);

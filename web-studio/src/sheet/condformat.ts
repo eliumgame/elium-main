@@ -131,10 +131,7 @@ export function describeRule(rule: CondRule): string {
 }
 
 /** Cells (as `"c,r"` keys) matching a "top10" rule: the top/bottom N (or N%) numeric values in its range. */
-function computeTop10Matches(
-  rule: CondRule,
-  getValue: (c: number, r: number) => CellValue,
-): Set<string> {
+function computeTop10Matches(rule: CondRule, getValue: (c: number, r: number) => CellValue): Set<string> {
   const cells: { key: string; n: number }[] = [];
   for (let r = rule.r0; r <= rule.r1; r++) {
     for (let c = rule.c0; c <= rule.c1; c++) {
@@ -155,10 +152,7 @@ function computeTop10Matches(
 }
 
 /** Cells (as `"c,r"` keys) matching a "duplicate" rule: displayed text occurring more than once in its range. */
-function computeDuplicateMatches(
-  rule: CondRule,
-  getText: (c: number, r: number) => string,
-): Set<string> {
+function computeDuplicateMatches(rule: CondRule, getText: (c: number, r: number) => string): Set<string> {
   const texts = new Map<string, string[]>(); // text -> keys
   for (let r = rule.r0; r <= rule.r1; r++) {
     for (let c = rule.c0; c <= rule.c1; c++) {

@@ -79,11 +79,7 @@ export default function SlidesView({
         onHome,
         headerActions: (
           <div className="sv-menu">
-            <button
-              ref={exportMenuBtnRef}
-              className="eb eb--sm eb--outline"
-              onClick={() => setExportMenu((v) => !v)}
-            >
+            <button ref={exportMenuBtnRef} className="eb eb--sm eb--outline" onClick={() => setExportMenu((v) => !v)}>
               <Download size={14} /> Exporter ▾
             </button>
             {exportMenu && (

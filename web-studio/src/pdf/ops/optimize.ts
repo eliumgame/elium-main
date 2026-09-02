@@ -75,8 +75,7 @@ function isSafeRgbOrGrayColorSpace(dict: PDFDict): boolean | null {
     if (kind === "CalRGB" || kind === "CalGray") return true;
     if (kind === "ICCBased") {
       const stream = cs.lookup(1);
-      const n =
-        stream instanceof PDFStream ? numOf((stream as unknown as { dict: PDFDict }).dict, "N") : null;
+      const n = stream instanceof PDFStream ? numOf((stream as unknown as { dict: PDFDict }).dict, "N") : null;
       if (n === 1 || n === 3) return true;
       if (n === 4) return false;
       return null;

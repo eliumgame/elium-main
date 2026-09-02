@@ -336,7 +336,10 @@ describe("documentModelFromPdf — images", () => {
   // Images puisse avertir de ce cas plutôt que de rester silencieux.
   it("compte les images non-JPEG (PNG) ignorées dans metadata.skippedNonJpegImages", async () => {
     const tinyPngBytes = Uint8Array.from(
-      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
     );
     const pdf = await PDFDocument.create();
     const jpeg = await pdf.embedJpg(jpegBytes());

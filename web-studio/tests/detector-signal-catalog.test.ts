@@ -46,7 +46,9 @@ describe("detector — catalogue de signaux synchronisé avec les moteurs", () =
     const uniform = Array.from({ length: 12 }, (_, i) => ({
       index: i,
       text: "Un paragraphe de taille identique aux autres pour tester la mise en forme correctement.",
-      runs: [{ text: "x".repeat(60), fontFamily: i === 6 ? "Calibri" : "Times New Roman", fontSize: i === 6 ? 16 : 12 }],
+      runs: [
+        { text: "x".repeat(60), fontFamily: i === 6 ? "Calibri" : "Times New Roman", fontSize: i === 6 ? 16 : 12 },
+      ],
     }));
     const formatFindings = analyzeFormattingSignals(uniform);
     for (const f of formatFindings) expect(catalogIds, `signal mise_en_forme inconnu: ${f.signal}`).toContain(f.signal);

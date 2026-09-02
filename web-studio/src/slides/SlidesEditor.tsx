@@ -817,11 +817,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <TableIcon size={15} /> Tableau
           </button>
           <div className="sv-menu">
-            <button
-              ref={chartInsMenuBtnRef}
-              className="eb eb--sm eb--ghost"
-              onClick={() => setChartInsMenu((v) => !v)}
-            >
+            <button ref={chartInsMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setChartInsMenu((v) => !v)}>
               <BarChart3 size={15} /> Graphique ▾
             </button>
             {chartInsMenu && (

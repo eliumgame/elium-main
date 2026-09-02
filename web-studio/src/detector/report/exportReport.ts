@@ -38,11 +38,7 @@ export async function exportReportAsDocx(
   );
 }
 
-export async function exportReportAsPdf(
-  report: AnalysisReport,
-  model: DocumentModel,
-  fileName: string,
-): Promise<void> {
+export async function exportReportAsPdf(report: AnalysisReport, model: DocumentModel, fileName: string): Promise<void> {
   const doc = buildReportDoc(report, model, fileName);
   const file = await createEliumFile({ title: reportTitle(fileName), profile: "standard", doc });
   exportPdf(file);

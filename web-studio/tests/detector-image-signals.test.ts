@@ -78,7 +78,18 @@ function buildJpeg(segments: { marker: number; data: Uint8Array }[]): Uint8Array
 
 function pngChunk(type: string, data: number[]): number[] {
   const len = data.length;
-  return [(len >>> 24) & 0xff, (len >>> 16) & 0xff, (len >>> 8) & 0xff, len & 0xff, ...ascii(type), ...data, 0, 0, 0, 0];
+  return [
+    (len >>> 24) & 0xff,
+    (len >>> 16) & 0xff,
+    (len >>> 8) & 0xff,
+    len & 0xff,
+    ...ascii(type),
+    ...data,
+    0,
+    0,
+    0,
+    0,
+  ];
 }
 
 function buildPng(extraChunks: number[][]): Uint8Array {
@@ -174,7 +185,9 @@ describe("Détecteur — signaux image", () => {
     // pour le JUMBF en APP11 JPEG (voir le test ci-dessus).
     const cabxData = [
       ...ascii("\x00\x00=3jumb\x00\x00\x00\x1ejumdc2pa"),
-      ...ascii('Google Generative AI".qdigitalSourceTypexFhttp://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia END'),
+      ...ascii(
+        'Google Generative AI".qdigitalSourceTypexFhttp://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia END',
+      ),
     ];
     const bytes = buildPng([pngChunk("caBX", cabxData)]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/png" })]);

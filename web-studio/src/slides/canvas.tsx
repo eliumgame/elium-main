@@ -228,7 +228,11 @@ function ElementView({
   if (el.type === "chart") {
     return el.chart ? (
       <div className="ce-chart">
-        <SheetChart type={el.chart.kind} labels={el.chart.labels} series={[{ label: "Série 1", values: el.chart.values }]} />
+        <SheetChart
+          type={el.chart.kind}
+          labels={el.chart.labels}
+          series={[{ label: "Série 1", values: el.chart.values }]}
+        />
       </div>
     ) : (
       <div className="ce-imgph">Graphique</div>

@@ -427,11 +427,18 @@ async function main(): Promise<void> {
     let canWriteB: boolean | null = null;
     let statusA: string | null = null;
     let statusB: string | null = null;
-    provA = new EncryptedYjsProvider(alice.api, doc.id, keyA!, ydocA, { name: "Alice", color: "#e11d48" }, {
-      onStatus: (s) => {
-        statusA = s;
+    provA = new EncryptedYjsProvider(
+      alice.api,
+      doc.id,
+      keyA!,
+      ydocA,
+      { name: "Alice", color: "#e11d48" },
+      {
+        onStatus: (s) => {
+          statusA = s;
+        },
       },
-    });
+    );
     provB = new EncryptedYjsProvider(
       bob.api,
       doc.id,
@@ -497,11 +504,18 @@ async function main(): Promise<void> {
     let canWriteRB: boolean | null = null;
     let statusRA: string | null = null;
     let statusRB: string | null = null;
-    provA = new EncryptedYjsProvider(alice.api, roDoc.id, roKeyA!, ydocRA, { name: "Alice", color: "#e11d48" }, {
-      onStatus: (s) => {
-        statusRA = s;
+    provA = new EncryptedYjsProvider(
+      alice.api,
+      roDoc.id,
+      roKeyA!,
+      ydocRA,
+      { name: "Alice", color: "#e11d48" },
+      {
+        onStatus: (s) => {
+          statusRA = s;
+        },
       },
-    });
+    );
     provB2 = new EncryptedYjsProvider(
       bob.api,
       roDoc.id,

@@ -36,7 +36,7 @@ function buildXlsx(parts: {
   return zipSync(files, { level: 0 });
 }
 
-describe("XLSX import — shared formulas (t=\"shared\")", () => {
+describe('XLSX import — shared formulas (t="shared")', () => {
   it("re-derives follower formulas from the master by shifting references", () => {
     const sheet1 = `<worksheet xmlns="${NS}"><sheetData>
       <row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2</f><v>2</v></c></row>
@@ -117,7 +117,7 @@ describe("XLSX import — shared formulas (t=\"shared\")", () => {
   });
 });
 
-describe("XLSX import — theme colours (color theme=\"N\" tint=\"…\")", () => {
+describe('XLSX import — theme colours (color theme="N" tint="…")', () => {
   const theme = `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office">
     <a:themeElements><a:clrScheme name="Office">
       <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>

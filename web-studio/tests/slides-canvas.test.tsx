@@ -35,7 +35,9 @@ describe("SlideCanvas (component) — per-type rendering", () => {
 
   it("renders an image element's src, or a placeholder without one", () => {
     const withSrc = [el({ id: "im", type: "image", src: "data:image/png;base64,AAA" })];
-    const { container, rerender } = render(<SlideCanvas slide={baseSlide} elements={withSrc} theme="light" scale={1} />);
+    const { container, rerender } = render(
+      <SlideCanvas slide={baseSlide} elements={withSrc} theme="light" scale={1} />,
+    );
     expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAA");
 
     const noSrc = [el({ id: "im2", type: "image" })];
@@ -68,7 +70,9 @@ describe("SlideCanvas (component) — per-type rendering", () => {
 
   it("renders a chart element via SheetChart, or a placeholder without chart data", () => {
     const withChart = [el({ id: "ch", type: "chart", chart: { kind: "bar", labels: ["X"], values: [3] } })];
-    const { container, rerender } = render(<SlideCanvas slide={baseSlide} elements={withChart} theme="light" scale={1} />);
+    const { container, rerender } = render(
+      <SlideCanvas slide={baseSlide} elements={withChart} theme="light" scale={1} />,
+    );
     expect(container.querySelector(".ce-chart")).toBeTruthy();
 
     const noChart = [el({ id: "ch2", type: "chart" })];
@@ -79,10 +83,7 @@ describe("SlideCanvas (component) — per-type rendering", () => {
 
 describe("SlideCanvas (component) — presenter reveal state", () => {
   it("marks a not-yet-revealed element hidden and an entering one animated", () => {
-    const els = [
-      el({ id: "a", type: "text", html: "<p>A</p>" }),
-      el({ id: "b", type: "text", html: "<p>B</p>" }),
-    ];
+    const els = [el({ id: "a", type: "text", html: "<p>A</p>" }), el({ id: "b", type: "text", html: "<p>B</p>" })];
     const reveal = {
       hidden: new Set(["b"]),
       entering: new Map([["a", { elementId: "a", effect: "fade" as const, order: 1, durationMs: 400 }]]),

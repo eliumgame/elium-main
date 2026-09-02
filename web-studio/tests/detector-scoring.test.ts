@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { computeReport, type FindingsByCategory, type ScoringDocumentModel } from "../src/detector/scoring";
-import type { DocumentMetadata, Finding, ParagraphModel, PlagiarismScanResult, SignalCategory, SignalSeverity } from "../src/detector/types";
+import type {
+  DocumentMetadata,
+  Finding,
+  ParagraphModel,
+  PlagiarismScanResult,
+  SignalCategory,
+  SignalSeverity,
+} from "../src/detector/types";
 import { REPORT_DISCLAIMER } from "../src/detector/types";
 
 const metadata: DocumentMetadata = { sourceFormat: "docx", title: "Rapport annuel", author: "M. Dupont" };
@@ -84,7 +91,8 @@ describe("computeReport — findings 'eleve' élèvent le score sans le saturer 
       label: "Longueur de phrase anormalement régulière",
       explanation: "Écart-type de la longueur des phrases de 1.8 mots (attendu : 6-10 mots pour un texte humain).",
       location: { paragraphIndex: 2, label: "Paragraphe 3" },
-      evidence: "Cette solution permet d'optimiser. Cette approche permet d'améliorer. Cette méthode permet de renforcer.",
+      evidence:
+        "Cette solution permet d'optimiser. Cette approche permet d'améliorer. Cette méthode permet de renforcer.",
     }),
     makeFinding({
       category: "texte",
@@ -161,8 +169,16 @@ describe("computeReport — toutes catégories combinées pèsent correctement",
     const highSeverity = (category: SignalCategory, signal: string): Finding =>
       makeFinding({ category, signal, severity: "eleve", weight: 1, location: { label: "Document" } });
     findings.texte = [highSeverity("texte", "s1"), highSeverity("texte", "s2"), highSeverity("texte", "s3")];
-    findings.mise_en_forme = [highSeverity("mise_en_forme", "s1"), highSeverity("mise_en_forme", "s2"), highSeverity("mise_en_forme", "s3")];
-    findings.metadonnees = [highSeverity("metadonnees", "s1"), highSeverity("metadonnees", "s2"), highSeverity("metadonnees", "s3")];
+    findings.mise_en_forme = [
+      highSeverity("mise_en_forme", "s1"),
+      highSeverity("mise_en_forme", "s2"),
+      highSeverity("mise_en_forme", "s3"),
+    ];
+    findings.metadonnees = [
+      highSeverity("metadonnees", "s1"),
+      highSeverity("metadonnees", "s2"),
+      highSeverity("metadonnees", "s3"),
+    ];
     findings.image = [highSeverity("image", "s1"), highSeverity("image", "s2"), highSeverity("image", "s3")];
 
     const model = baseModel(paragraphsOfWords(30, 200));

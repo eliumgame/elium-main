@@ -45,10 +45,7 @@ const hasJpegOrPngImage = (m: ModelSlice) => m.images.some((i) => i.mime === "im
 const hasC2paCapableImage = (m: ModelSlice) =>
   m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png" || i.mime === "image/webp");
 const hasImages = (m: ModelSlice) => m.images.length > 0;
-const hasMetadataField =
-  (field: keyof DocumentModel["metadata"]) =>
-  (m: ModelSlice) =>
-    m.metadata[field] != null;
+const hasMetadataField = (field: keyof DocumentModel["metadata"]) => (m: ModelSlice) => m.metadata[field] != null;
 const isPdf = (m: ModelSlice) => m.metadata.sourceFormat === "pdf";
 
 export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
@@ -153,7 +150,8 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     id: "creator_info",
     category: "metadonnees",
     label: "Application créatrice (informatif)",
-    description: "Nom de l'application ayant produit le fichier — affiché à titre indicatif, jamais un indice à charge.",
+    description:
+      "Nom de l'application ayant produit le fichier — affiché à titre indicatif, jamais un indice à charge.",
     affectsScore: false,
     appliesTo: hasMetadataField("creator"),
   },
@@ -211,7 +209,8 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     id: "image_png_generation_software",
     category: "image",
     label: "Métadonnées PNG « Software » d'un générateur IA connu",
-    description: "Champ PNG « Software » correspondant au nom d'un outil de génération d'image par IA connu — PNG uniquement.",
+    description:
+      "Champ PNG « Software » correspondant au nom d'un outil de génération d'image par IA connu — PNG uniquement.",
     affectsScore: true,
     appliesTo: hasImageOfType("image/png"),
   },

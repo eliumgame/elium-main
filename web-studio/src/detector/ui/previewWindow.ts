@@ -38,7 +38,12 @@ export function expandEnd(win: PreviewWindow, total: number, step = EXPAND_STEP)
 
 /** Étend la fenêtre pour couvrir `index` si elle ne le couvre pas déjà — utilisé
  *  quand l'utilisateur clique un finding hors de la fenêtre actuellement montée. */
-export function ensureCovers(win: PreviewWindow, total: number, index: number, size = MAX_INITIAL_WINDOW): PreviewWindow {
+export function ensureCovers(
+  win: PreviewWindow,
+  total: number,
+  index: number,
+  size = MAX_INITIAL_WINDOW,
+): PreviewWindow {
   if (index >= win.start && index < win.end) return win;
   return windowAround(total, index, Math.max(size, win.end - win.start));
 }

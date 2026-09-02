@@ -93,9 +93,7 @@ export function computeReport(
   }));
 
   const hasText = model.paragraphs.length > 0;
-  const weighted = hasText
-    ? categoryScores
-    : categoryScores.filter((c) => !TEXT_DEPENDENT_CATEGORIES.has(c.category));
+  const weighted = hasText ? categoryScores : categoryScores.filter((c) => !TEXT_DEPENDENT_CATEGORIES.has(c.category));
   const totalWeight = weighted.reduce((sum, c) => sum + CATEGORY_WEIGHT[c.category], 0);
   const overallScore =
     totalWeight > 0

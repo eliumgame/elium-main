@@ -295,9 +295,9 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
         <div className="det-header__titles">
           <h1 className="det-header__title">Détecteur</h1>
           <p className="det-header__subtitle">
-            Analyse un document (.elium, .docx, .pdf) ou une image seule (.png, .jpg, .webp) à la recherche de
-            signaux de rédaction ou de génération par IA, d'anomalies de mise en forme et de métadonnées — avec une
-            vérification optionnelle de plagiat sur le web.
+            Analyse un document (.elium, .docx, .pdf) ou une image seule (.png, .jpg, .webp) à la recherche de signaux
+            de rédaction ou de génération par IA, d'anomalies de mise en forme et de métadonnées — avec une vérification
+            optionnelle de plagiat sur le web.
           </p>
         </div>
       </header>
@@ -329,8 +329,8 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 </div>
                 <h2>Déposez un document ou une image à analyser</h2>
                 <p>
-                  Formats acceptés : .elium, .docx, .pdf, .png, .jpg, .webp. Le fichier reste sur votre appareil ;
-                  rien n'en sort sans votre accord explicite (voir la vérification de plagiat, plus loin).
+                  Formats acceptés : .elium, .docx, .pdf, .png, .jpg, .webp. Le fichier reste sur votre appareil ; rien
+                  n'en sort sans votre accord explicite (voir la vérification de plagiat, plus loin).
                 </p>
                 <div className="det-dropzone__actions">
                   <Button variant="primary" onClick={() => fileInputRef.current?.click()}>
@@ -394,11 +394,11 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 <span>Vérifier aussi le plagiat sur le web (optionnel)</span>
               </label>
               <p className="det-plagiarism-disclaimer">
-                Recherche web publique uniquement (Serper/Google ou Bing) — aucune base académique ni dépôt de
-                travaux universitaires n'est consulté. Échantillonnage partiel (60 passages au maximum) comparé à de
-                courts extraits (snippets) tronqués renvoyés par le moteur, jamais au texte intégral des pages
-                trouvées. Ceci ne remplace pas un outil de détection de plagiat académique dédié : une absence de
-                correspondance ne prouve pas l'absence de plagiat.
+                Recherche web publique uniquement (Serper/Google ou Bing) — aucune base académique ni dépôt de travaux
+                universitaires n'est consulté. Échantillonnage partiel (60 passages au maximum) comparé à de courts
+                extraits (snippets) tronqués renvoyés par le moteur, jamais au texte intégral des pages trouvées. Ceci
+                ne remplace pas un outil de détection de plagiat académique dédié : une absence de correspondance ne
+                prouve pas l'absence de plagiat.
               </p>
               {plagiarismEnabled && (
                 <div className="det-plagiarism-fields">
@@ -694,18 +694,23 @@ function SensitivitySettings({
       {open && (
         <div className="det-sensitivity__body">
           <p className="det-sensitivity__hint">
-            Désactivez un signal qui produit trop de faux positifs pour ce type de document (ex. un document
-            technique qui utilise légitimement beaucoup de listes). Un signal désactivé n'apparaît plus dans le
-            rapport et ne compte plus dans le score. Ce choix est mémorisé sur cet appareil. Les signaux grisés ne
-            peuvent structurellement pas s'appliquer au fichier chargé (ex. un signal PNG sur une image JPEG).
+            Désactivez un signal qui produit trop de faux positifs pour ce type de document (ex. un document technique
+            qui utilise légitimement beaucoup de listes). Un signal désactivé n'apparaît plus dans le rapport et ne
+            compte plus dans le score. Ce choix est mémorisé sur cet appareil. Les signaux grisés ne peuvent
+            structurellement pas s'appliquer au fichier chargé (ex. un signal PNG sur une image JPEG).
           </p>
           <Alert tone="warning" title="Seuils non calibrés sur corpus réel">
             Les seuils des signaux « texte » (régularité, clichés, amorces répétées, densité de listes…) sont des
             valeurs de bon sens, pas calibrées sur un corpus réel de textes humains variés. Un écrit administratif ou
-            technique français très structuré (clauses répétées, nombreuses listes à puces, formules d'ouverture
-            figées) risque particulièrement de déclencher de faux positifs sur ces signaux.
+            technique français très structuré (clauses répétées, nombreuses listes à puces, formules d'ouverture figées)
+            risque particulièrement de déclencher de faux positifs sur ces signaux.
           </Alert>
-          <Button variant="outline" size="sm" className="det-sensitivity__preset" onClick={onApplyAdministrativeStylePreset}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="det-sensitivity__preset"
+            onClick={onApplyAdministrativeStylePreset}
+          >
             Appliquer le préréglage « style administratif/technique »
           </Button>
           {(Object.keys(CATEGORY_TITLES) as SignalCategory[])
@@ -724,9 +729,7 @@ function SensitivitySettings({
                     )}
                   </h4>
                   {model && applicableCount === 0 ? (
-                    <p className="det-sensitivity__none">
-                      Aucun signal de cette catégorie ne s'applique à ce fichier.
-                    </p>
+                    <p className="det-sensitivity__none">Aucun signal de cette catégorie ne s'applique à ce fichier.</p>
                   ) : (
                     entries.map((entry: SignalCatalogEntry) => {
                       const applicable = isSignalApplicable(entry, model);
@@ -778,16 +781,16 @@ function PlagiarismPanel({
   return (
     <div className="det-category">
       <Alert tone="info">
-        Recherche web publique uniquement (aucune base académique ni dépôt de travaux universitaires) sur un
-        échantillon partiel de passages, comparés à de courts extraits (snippets) tronqués renvoyés par le moteur —
-        pas au texte intégral des pages trouvées. Ne remplace pas un outil de détection de plagiat académique dédié.
+        Recherche web publique uniquement (aucune base académique ni dépôt de travaux universitaires) sur un échantillon
+        partiel de passages, comparés à de courts extraits (snippets) tronqués renvoyés par le moteur — pas au texte
+        intégral des pages trouvées. Ne remplace pas un outil de détection de plagiat académique dédié.
       </Alert>
       {allFailed && (
         <Alert tone="danger" title="Vérification impossible">
           Les {result.failedPassages} tentative(s) de vérification ont toutes échoué
-          {result.lastError ? ` (${result.lastError})` : ""} — probablement une clé API invalide ou un quota
-          dépassé. « Aucune correspondance trouvée » ci-dessous ne veut pas dire que le document est propre : il
-          n'a en réalité pas pu être vérifié du tout.
+          {result.lastError ? ` (${result.lastError})` : ""} — probablement une clé API invalide ou un quota dépassé. «
+          Aucune correspondance trouvée » ci-dessous ne veut pas dire que le document est propre : il n'a en réalité pas
+          pu être vérifié du tout.
         </Alert>
       )}
       {somePassagesFailed && (
@@ -804,7 +807,9 @@ function PlagiarismPanel({
       {result.matches.length === 0 ? (
         <EmptyState
           title={
-            allFailed ? "Aucune correspondance — mais la vérification a échoué, voir ci-dessus." : "Aucune correspondance trouvée sur le web."
+            allFailed
+              ? "Aucune correspondance — mais la vérification a échoué, voir ci-dessus."
+              : "Aucune correspondance trouvée sur le web."
           }
         />
       ) : (

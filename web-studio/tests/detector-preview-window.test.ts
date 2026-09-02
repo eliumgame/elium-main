@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { windowAround, expandStart, expandEnd, ensureCovers, MAX_INITIAL_WINDOW } from "../src/detector/ui/previewWindow";
+import {
+  windowAround,
+  expandStart,
+  expandEnd,
+  ensureCovers,
+  MAX_INITIAL_WINDOW,
+} from "../src/detector/ui/previewWindow";
 
 describe("detector — fenêtrage de l'aperçu du document", () => {
   it("ne tronque pas un document plus petit que la fenêtre", () => {

@@ -240,7 +240,8 @@ describe("PPTX import — chart type detection", () => {
   const ser = (tag: string) =>
     `<${tag}><c:ser><c:cat><c:strLit><c:pt idx="0"><c:v>X</c:v></c:pt><c:pt idx="1"><c:v>Y</c:v></c:pt></c:strLit></c:cat>` +
     `<c:val><c:numLit><c:pt idx="0"><c:v>3</c:v></c:pt><c:pt idx="1"><c:v>7</c:v></c:pt></c:numLit></c:val></c:ser></${tag}>`;
-  const chartSpace = (plot: string) => `<c:chartSpace><c:chart><c:plotArea>${plot}</c:plotArea></c:chart></c:chartSpace>`;
+  const chartSpace = (plot: string) =>
+    `<c:chartSpace><c:chart><c:plotArea>${plot}</c:plotArea></c:chart></c:chartSpace>`;
 
   it("maps a doughnut chart onto the supported pie kind (real equivalent, not a mislabel)", () => {
     const bytes = withChartXml(chartSpace(ser("c:doughnutChart")));

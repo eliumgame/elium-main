@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { PDFCheckBox, PDFDocument, PDFDropdown, PDFName, PDFRadioGroup, PDFSignature, PDFTextField, StandardFonts } from "pdf-lib";
+import {
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFName,
+  PDFRadioGroup,
+  PDFSignature,
+  PDFTextField,
+  StandardFonts,
+} from "pdf-lib";
 import {
   createFields,
   fillForm,
@@ -25,7 +34,15 @@ describe("forms — readFields", () => {
   it("maps every widget kind, deriving top-left rects from the PDF's bottom-left ones", () => {
     const widgets: RawWidget[] = [
       { id: "w1", fieldType: "Tx", fieldName: "nom", rect: [50, 350, 150, 370], fieldValue: "Dupont" },
-      { id: "w2", fieldType: "Btn", checkBox: true, fieldName: "accepte", rect: [50, 300, 70, 320], exportValue: "Oui", fieldValue: "Oui" },
+      {
+        id: "w2",
+        fieldType: "Btn",
+        checkBox: true,
+        fieldName: "accepte",
+        rect: [50, 300, 70, 320],
+        exportValue: "Oui",
+        fieldValue: "Oui",
+      },
       {
         id: "w3",
         fieldType: "Btn",
@@ -126,7 +143,10 @@ describe("forms — missingRequired", () => {
   });
 
   it("never flags a read-only field or a button", () => {
-    const fields = [field({ name: "verrou", readOnly: true, value: "" }), field({ name: "ok", kind: "button", value: "" })];
+    const fields = [
+      field({ name: "verrou", readOnly: true, value: "" }),
+      field({ name: "ok", kind: "button", value: "" }),
+    ];
     expect(missingRequired(fields, {})).toHaveLength(0);
   });
 
@@ -199,9 +219,9 @@ describe("forms — suggestFields", () => {
   });
 
   it("ignores lines with neither a colon nor underscores", () => {
-    expect(suggestFields([{ text: "Ceci est une phrase.", rect: { x: 0, y: 0, w: 100, h: 14 }, fontSize: 11 }], 400)).toHaveLength(
-      0,
-    );
+    expect(
+      suggestFields([{ text: "Ceci est une phrase.", rect: { x: 0, y: 0, w: 100, h: 14 }, fontSize: 11 }], 400),
+    ).toHaveLength(0);
   });
 });
 
@@ -228,10 +248,14 @@ const fieldBase = (over: Partial<CreatedField>): CreatedField => ({
 describe("forms — createFields (checkbox / radio / dropdown / listbox / signature)", () => {
   it("creates a checkbox, pre-checked when the builder set a default", async () => {
     const { doc, font, page } = await docWithFont();
-    const made = createFields({ doc, font }, [fieldBase({ kind: "checkbox", name: "accepte", defaultValue: true })], () => ({
-      page,
-      height: 400,
-    }));
+    const made = createFields(
+      { doc, font },
+      [fieldBase({ kind: "checkbox", name: "accepte", defaultValue: true })],
+      () => ({
+        page,
+        height: 400,
+      }),
+    );
     expect(made).toBe(1);
     const field = doc.getForm().getField("accepte");
     expect(field).toBeInstanceOf(PDFCheckBox);
@@ -333,8 +357,20 @@ describe("forms — fillForm across every widget kind", () => {
         fieldBase({ id: "2", name: "accepte", kind: "checkbox", rect: { x: 40, y: 80, w: 16, h: 16 } }),
         // Each radio button is its own widget/CreatedField sharing the group
         // name — this is how the UI places them one at a time on the page.
-        fieldBase({ id: "3a", name: "civilite", kind: "radio", rect: { x: 40, y: 120, w: 16, h: 16 }, defaultValue: "M" }),
-        fieldBase({ id: "3b", name: "civilite", kind: "radio", rect: { x: 60, y: 120, w: 16, h: 16 }, defaultValue: "Mme" }),
+        fieldBase({
+          id: "3a",
+          name: "civilite",
+          kind: "radio",
+          rect: { x: 40, y: 120, w: 16, h: 16 },
+          defaultValue: "M",
+        }),
+        fieldBase({
+          id: "3b",
+          name: "civilite",
+          kind: "radio",
+          rect: { x: 60, y: 120, w: 16, h: 16 },
+          defaultValue: "Mme",
+        }),
         fieldBase({
           id: "4",
           name: "pays",

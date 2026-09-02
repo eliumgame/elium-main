@@ -240,9 +240,7 @@ async function fetchJwksUri(
     clearTimeout(timer);
   }
   if (res.status >= 300 && res.status < 400) {
-    throw new OidcError(
-      "JWKS: redirection refusée (SSRF) — configurez directement l'URL finale du jwks_uri.",
-    );
+    throw new OidcError("JWKS: redirection refusée (SSRF) — configurez directement l'URL finale du jwks_uri.");
   }
   if (!res.ok) throw new OidcError(`JWKS: réponse ${res.status}.`);
   let body: unknown;

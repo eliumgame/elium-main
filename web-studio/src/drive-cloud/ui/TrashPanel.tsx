@@ -126,37 +126,39 @@ export default function TrashPanel() {
             {entries.map((e) => {
               const purgeDays = daysUntilPurge(e.trashedAt);
               return (
-              <tr key={e.id} className="dcx-row" style={{ cursor: "default" }}>
-                <td className="dcx-row__name">
-                  {e.kind === "folder" ? <Folder size={18} className="dc-ic--folder" /> : <FileIcon size={18} />}
-                  <span>{e.name}</span>
-                </td>
-                <td className="dcx-row__muted">{e.trashedAt ? new Date(e.trashedAt).toLocaleString("fr-FR") : "—"}</td>
-                <td className="dcx-row__muted">
-                  {purgeDays === null ? (
-                    "—"
-                  ) : (
-                    <span
-                      style={purgeDays <= 3 ? { color: "var(--x-danger)", fontWeight: 600 } : undefined}
-                      title={`Suppression définitive et automatique ${TRASH_RETENTION_DAYS} jours après la mise à la corbeille`}
+                <tr key={e.id} className="dcx-row" style={{ cursor: "default" }}>
+                  <td className="dcx-row__name">
+                    {e.kind === "folder" ? <Folder size={18} className="dc-ic--folder" /> : <FileIcon size={18} />}
+                    <span>{e.name}</span>
+                  </td>
+                  <td className="dcx-row__muted">
+                    {e.trashedAt ? new Date(e.trashedAt).toLocaleString("fr-FR") : "—"}
+                  </td>
+                  <td className="dcx-row__muted">
+                    {purgeDays === null ? (
+                      "—"
+                    ) : (
+                      <span
+                        style={purgeDays <= 3 ? { color: "var(--x-danger)", fontWeight: 600 } : undefined}
+                        title={`Suppression définitive et automatique ${TRASH_RETENTION_DAYS} jours après la mise à la corbeille`}
+                      >
+                        {purgeDays === 0 ? "Aujourd'hui" : `Dans ${purgeDays} j`}
+                      </span>
+                    )}
+                  </td>
+                  <td className="dcx-row__actions">
+                    <button className="elx-icon" title="Restaurer" onClick={() => void restore(e)}>
+                      <RotateCcw size={15} />
+                    </button>
+                    <button
+                      className="elx-icon elx-icon--danger"
+                      title="Supprimer définitivement"
+                      onClick={() => void purge(e)}
                     >
-                      {purgeDays === 0 ? "Aujourd'hui" : `Dans ${purgeDays} j`}
-                    </span>
-                  )}
-                </td>
-                <td className="dcx-row__actions">
-                  <button className="elx-icon" title="Restaurer" onClick={() => void restore(e)}>
-                    <RotateCcw size={15} />
-                  </button>
-                  <button
-                    className="elx-icon elx-icon--danger"
-                    title="Supprimer définitivement"
-                    onClick={() => void purge(e)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </td>
-              </tr>
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
               );
             })}
           </tbody>

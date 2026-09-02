@@ -105,8 +105,7 @@ function runFormat(text: string, marks: NonNullable<ProseMirrorNode["marks"]>): 
 }
 
 function applyTextStyle(run: RunFormat, attrs: Record<string, unknown>): void {
-  const family =
-    typeof attrs.fontFamily === "string" ? attrs.fontFamily.split(",")[0].replace(/['"]/g, "").trim() : "";
+  const family = typeof attrs.fontFamily === "string" ? attrs.fontFamily.split(",")[0].replace(/['"]/g, "").trim() : "";
   if (family) run.fontFamily = family;
   // Stocké en px CSS (editor/typography.ts's FONT_SIZES) ; RunFormat veut des
   // pt, et la conversion px→pt maison du code est ×0.75 (format/docx.ts).
@@ -115,11 +114,7 @@ function applyTextStyle(run: RunFormat, attrs: Record<string, unknown>): void {
   if (typeof attrs.color === "string" && attrs.color) run.color = attrs.color;
 }
 
-function decodeImageNode(
-  node: ProseMirrorNode,
-  index: number,
-  paragraphIndex: number | undefined,
-): ImageModel | null {
+function decodeImageNode(node: ProseMirrorNode, index: number, paragraphIndex: number | undefined): ImageModel | null {
   const src = node.attrs?.src;
   if (typeof src !== "string") return null;
   const decoded = decodeDataUrl(src);

@@ -8,7 +8,9 @@ describe("detector — segmentation des paragraphes pour la surbrillance rouge",
 
   it("souligne exactement la citation littérale quand evidence est un extrait du texte", () => {
     const text = "Cette police Calibri 11pt détonne dans le document.";
-    const flags: PreviewFlag[] = [{ id: "1", paragraphIndex: 0, label: "Police incohérente", evidence: "Calibri 11pt" }];
+    const flags: PreviewFlag[] = [
+      { id: "1", paragraphIndex: 0, label: "Police incohérente", evidence: "Calibri 11pt" },
+    ];
     const segs = segmentParagraph(text, flags);
     expect(segs.map((s) => s.text).join("")).toBe(text);
     const flagged = segs.filter((s) => s.flagged);
@@ -19,7 +21,9 @@ describe("detector — segmentation des paragraphes pour la surbrillance rouge",
 
   it("souligne tout le paragraphe quand evidence n'est pas une citation littérale", () => {
     const text = "Un paragraphe avec plusieurs tics d'écriture.";
-    const flags: PreviewFlag[] = [{ id: "1", paragraphIndex: 0, label: "Clichés multiples", evidence: "« en conclusion, » (1 fois)" }];
+    const flags: PreviewFlag[] = [
+      { id: "1", paragraphIndex: 0, label: "Clichés multiples", evidence: "« en conclusion, » (1 fois)" },
+    ];
     const segs = segmentParagraph(text, flags);
     expect(segs).toEqual([{ text, flagged: true, labels: ["Clichés multiples"] }]);
   });

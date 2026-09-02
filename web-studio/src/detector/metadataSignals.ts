@@ -96,7 +96,9 @@ export function analyzeMetadataSignals(metadata: DocumentMetadata, paragraphs: P
     findings.push(informationalField("meta-creator", "creator_info", "Application créatrice", metadata.creator));
   }
   if (metadata.producer) {
-    findings.push(informationalField("meta-producer", "producer_info", "Application productrice (PDF)", metadata.producer));
+    findings.push(
+      informationalField("meta-producer", "producer_info", "Application productrice (PDF)", metadata.producer),
+    );
   }
   if (metadata.title) {
     findings.push(informationalField("meta-title", "title_info", "Titre du document", metadata.title));

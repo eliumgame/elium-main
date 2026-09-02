@@ -3,13 +3,7 @@ import { buildReportDoc } from "../src/detector/report/buildReportDoc";
 import { docToDocx } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
 import { REPORT_DISCLAIMER } from "../src/detector/types";
-import type {
-  AnalysisReport,
-  CategoryReport,
-  DocumentModel,
-  Finding,
-  ParagraphModel,
-} from "../src/detector/types";
+import type { AnalysisReport, CategoryReport, DocumentModel, Finding, ParagraphModel } from "../src/detector/types";
 import type { ProseMirrorNode } from "../src/format/types";
 
 function finding(overrides: Partial<Finding> & { category: Finding["category"] }): Finding {
@@ -37,12 +31,7 @@ function baseReport(overrides: Partial<AnalysisReport> = {}): AnalysisReport {
   return {
     overallScore: 42,
     confidence: "moyenne",
-    categories: [
-      category("texte", 0),
-      category("mise_en_forme", 0),
-      category("metadonnees", 0),
-      category("image", 0),
-    ],
+    categories: [category("texte", 0), category("mise_en_forme", 0), category("metadonnees", 0), category("image", 0)],
     documentMetadata: { sourceFormat: "docx", title: "Mon rapport" },
     generatedAt: "2026-01-01T10:00:00.000Z",
     disclaimer: REPORT_DISCLAIMER,
@@ -63,7 +52,11 @@ function flatten(node: ProseMirrorNode): ProseMirrorNode[] {
 
 describe("buildReportDoc — structure générale", () => {
   it("commence par un titre, l'horodatage, le score/confiance et le disclaimer", () => {
-    const doc = buildReportDoc(baseReport(), { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } }, "test.docx");
+    const doc = buildReportDoc(
+      baseReport(),
+      { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
+      "test.docx",
+    );
     const [title, generatedAt, scoreHeading, disclaimer] = doc.content!;
     expect(title.type).toBe("heading");
     expect(title.attrs?.level).toBe(1);
@@ -102,10 +95,19 @@ describe("buildReportDoc — structure générale", () => {
       explanation: "CV = 0.16, très en dessous du seuil attendu.",
       evidence: "citation exacte du texte",
     });
-    const report = baseReport({ categories: [category("texte", 60, [f]), category("mise_en_forme", 0), category("metadonnees", 0), category("image", 0)] });
+    const report = baseReport({
+      categories: [
+        category("texte", 60, [f]),
+        category("mise_en_forme", 0),
+        category("metadonnees", 0),
+        category("image", 0),
+      ],
+    });
     const doc = buildReportDoc(report, { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } }, "x.docx");
     const texts = flatten(doc).map(textNodesOf);
-    expect(texts.some((t) => t.includes("Élevé") && t.includes("Longueur de phrase") && t.includes("Paragraphe 3"))).toBe(true);
+    expect(
+      texts.some((t) => t.includes("Élevé") && t.includes("Longueur de phrase") && t.includes("Paragraphe 3")),
+    ).toBe(true);
     expect(texts.some((t) => t.includes("CV = 0.16"))).toBe(true);
     expect(texts.some((t) => t.includes("citation exacte du texte"))).toBe(true);
   });
@@ -122,7 +124,11 @@ describe("buildReportDoc — structure générale", () => {
   });
 
   it("inclut le plagiat seulement s'il a été exécuté, jamais mélangé au score global", () => {
-    const withoutPlagiat = buildReportDoc(baseReport(), { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } }, "x.docx");
+    const withoutPlagiat = buildReportDoc(
+      baseReport(),
+      { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
+      "x.docx",
+    );
     expect(flatten(withoutPlagiat).map(textNodesOf).join(" | ")).not.toContain("Plagiat");
 
     const withPlagiat = buildReportDoc(
@@ -131,7 +137,15 @@ describe("buildReportDoc — structure générale", () => {
           checkedPassages: 5,
           failedPassages: 0,
           provider: "Serper",
-          matches: [{ paragraphIndex: 0, passage: "extrait suspect", url: "https://exemple.test/a", sourceTitle: "Source A", similarity: 0.87 }],
+          matches: [
+            {
+              paragraphIndex: 0,
+              passage: "extrait suspect",
+              url: "https://exemple.test/a",
+              sourceTitle: "Source A",
+              similarity: 0.87,
+            },
+          ],
         },
       }),
       { paragraphs: [], images: [], metadata: { sourceFormat: "docx" } },
@@ -209,7 +223,14 @@ describe("buildReportDoc — reproduction annotée du document", () => {
       location: { paragraphIndex: 2, label: "Paragraphe 3" },
       evidence: "tournure clichée typique",
     });
-    const report = baseReport({ categories: [category("texte", 40, [f]), category("mise_en_forme", 0), category("metadonnees", 0), category("image", 0)] });
+    const report = baseReport({
+      categories: [
+        category("texte", 40, [f]),
+        category("mise_en_forme", 0),
+        category("metadonnees", 0),
+        category("image", 0),
+      ],
+    });
     const doc = buildReportDoc(report, { paragraphs, images: [], metadata: { sourceFormat: "docx" } }, "x.docx");
 
     const annotatedStart = doc.content!.findIndex((n) => textNodesOf(n) === "Document analysé (annoté)");
@@ -224,10 +245,7 @@ describe("buildReportDoc — reproduction annotée du document", () => {
     const flaggedTextNode = annotated[2].content!.find((n) => n.text === "tournure clichée typique");
     expect(flaggedTextNode).toBeDefined();
     expect(flaggedTextNode!.marks).toEqual(
-      expect.arrayContaining([
-        { type: "textStyle", attrs: { color: "#dc2626" } },
-        { type: "underline" },
-      ]),
+      expect.arrayContaining([{ type: "textStyle", attrs: { color: "#dc2626" } }, { type: "underline" }]),
     );
     const unflaggedTextNode = annotated[2].content!.find((n) => n.text?.includes("Un passage suspect"));
     expect(unflaggedTextNode!.marks ?? []).toEqual([]);
@@ -257,8 +275,19 @@ describe("buildReportDoc — round-trip réel vers .docx", () => {
       paragraph(0, "Un paragraphe tout à fait normal."),
       paragraph(1, "Un paragraphe avec un passage repéré ici.", {}),
     ];
-    const f = finding({ category: "texte", location: { paragraphIndex: 1, label: "Paragraphe 2" }, evidence: "passage repéré" });
-    const report = baseReport({ categories: [category("texte", 50, [f]), category("mise_en_forme", 0), category("metadonnees", 0), category("image", 0)] });
+    const f = finding({
+      category: "texte",
+      location: { paragraphIndex: 1, label: "Paragraphe 2" },
+      evidence: "passage repéré",
+    });
+    const report = baseReport({
+      categories: [
+        category("texte", 50, [f]),
+        category("mise_en_forme", 0),
+        category("metadonnees", 0),
+        category("image", 0),
+      ],
+    });
     const model: DocumentModel = { paragraphs, images: [], metadata: { sourceFormat: "docx", title: "Source" } };
 
     const doc = buildReportDoc(report, model, "source.docx");

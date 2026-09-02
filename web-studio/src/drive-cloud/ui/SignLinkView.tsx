@@ -7,7 +7,17 @@
  * certificat auto-signé). Le signataire peut aussi refuser.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Cloud, PenLine, ShieldCheck, AlertTriangle, Loader, CheckCircle2, FileText, XCircle, Lock } from "lucide-react";
+import {
+  Cloud,
+  PenLine,
+  ShieldCheck,
+  AlertTriangle,
+  Loader,
+  CheckCircle2,
+  FileText,
+  XCircle,
+  Lock,
+} from "lucide-react";
 import "../drive-cloud.css";
 import { DriveApi } from "../api";
 import { openSignLink, submitSignedElium } from "../ops";
@@ -116,7 +126,12 @@ export default function SignLinkView({
           if (e instanceof EliumPasswordRequired) {
             // Protection distincte du secret du lien : demande le mot de passe
             // du document lui-même avant de continuer (voir `submitPassword`).
-            setState({ phase: "password", bytes: opened.bytes, nodeKey: opened.nodeKey, name: opened.name || "Document" });
+            setState({
+              phase: "password",
+              bytes: opened.bytes,
+              nodeKey: opened.nodeKey,
+              name: opened.name || "Document",
+            });
             return;
           }
           throw new Error("Document illisible (format .elium ou PDF attendu).");
@@ -298,8 +313,8 @@ export default function SignLinkView({
             </div>
             <h1>Document protégé</h1>
             <p className="muted">
-              Ce document est protégé par un mot de passe (distinct du lien lui-même). Saisissez-le pour le déchiffrer
-              — il ne quitte jamais votre navigateur.
+              Ce document est protégé par un mot de passe (distinct du lien lui-même). Saisissez-le pour le déchiffrer —
+              il ne quitte jamais votre navigateur.
             </p>
             <form
               onSubmit={(e) => {
@@ -425,12 +440,7 @@ export default function SignLinkView({
                   </>
                 )}
               </button>
-              <button
-                type="button"
-                className="elx-mini elx-mini--block"
-                disabled={busy}
-                onClick={() => void decline()}
-              >
+              <button type="button" className="elx-mini elx-mini--block" disabled={busy} onClick={() => void decline()}>
                 <XCircle size={16} /> Refuser de signer
               </button>
             </form>

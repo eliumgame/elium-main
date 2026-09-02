@@ -11,9 +11,7 @@ import { applyImageEdits } from "../src/pdf/ops/textedit";
  */
 
 const PNG_1X1_RED = Uint8Array.from(
-  atob(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-  ),
+  atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
   (c) => c.charCodeAt(0),
 );
 
@@ -52,9 +50,14 @@ describe("textedit — image edits", () => {
     const page = doc.getPage(0);
     const replacement = await doc.embedPng(PNG_1X1_RED);
 
-    const changed = await applyImageEdits(doc, page, [{ occurrence: 1, action: "replace", src: "data:whatever" }], async () => ({
-      ref: replacement.ref,
-    }));
+    const changed = await applyImageEdits(
+      doc,
+      page,
+      [{ occurrence: 1, action: "replace", src: "data:whatever" }],
+      async () => ({
+        ref: replacement.ref,
+      }),
+    );
     expect(changed).toBe(1);
 
     const ops = parseContentStream(readPageContentBytes(page));

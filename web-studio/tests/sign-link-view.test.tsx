@@ -20,7 +20,13 @@ import userEvent from "@testing-library/user-event";
 import { createEliumFile } from "../src/format/document";
 import { writeEliumPackage, readEliumPackage, EliumPasswordRequired } from "../src/format/elium-package";
 import { generateRecipientKeypair } from "../src/crypto/recipients";
-import { generateNodeKey, wrapNodeKeyFor, encryptName, encryptContent, decryptContent } from "../src/drive-cloud/node-crypto";
+import {
+  generateNodeKey,
+  wrapNodeKeyFor,
+  encryptName,
+  encryptContent,
+  decryptContent,
+} from "../src/drive-cloud/node-crypto";
 import type { NodeMeta } from "../src/drive-cloud/types";
 
 const PASSWORD = "correct-horse-battery-staple";

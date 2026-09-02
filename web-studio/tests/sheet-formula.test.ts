@@ -315,9 +315,9 @@ describe("formula engine — extended functions", () => {
 
   it("DATEDIF across units", () => {
     const c = calc({
-      B1: "=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);\"Y\")",
-      B2: "=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);\"M\")",
-      B3: "=DATEDIF(DATE(2026;1;1);DATE(2026;3;10);\"D\")",
+      B1: '=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);"Y")',
+      B2: '=DATEDIF(DATE(2020;1;15);DATE(2026;6;20);"M")',
+      B3: '=DATEDIF(DATE(2026;1;1);DATE(2026;3;10);"D")',
     });
     expect(c.valueOf("B1")).toBe(6);
     expect(c.valueOf("B2")).toBe(77);

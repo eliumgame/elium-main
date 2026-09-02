@@ -115,7 +115,9 @@ describe("Détecteur — intégration loadFile + runAnalysis", () => {
 
     const controller = new AbortController();
     controller.abort();
-    await expect(runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z", signal: controller.signal })).rejects.toThrow();
+    await expect(
+      runAnalysis(model, { generatedAt: "2026-01-01T00:00:00.000Z", signal: controller.signal }),
+    ).rejects.toThrow();
   });
 });
 

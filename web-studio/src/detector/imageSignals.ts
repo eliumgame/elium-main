@@ -225,8 +225,7 @@ function readExif(app1Data: Uint8Array): ExifTags | undefined {
  * "Exif\0\0" prefix JPEG's APP1 uses, though some tools add it anyway; accept
  * either. */
 function readExifFromWebpChunk(chunkData: Uint8Array): ExifTags | undefined {
-  const hasPrefix =
-    chunkData.length >= EXIF_ID.length && EXIF_ID.every((b, i) => chunkData[i] === b);
+  const hasPrefix = chunkData.length >= EXIF_ID.length && EXIF_ID.every((b, i) => chunkData[i] === b);
   return parseTiffIfd0(hasPrefix ? chunkData.subarray(EXIF_ID.length) : chunkData);
 }
 
@@ -262,9 +261,7 @@ function parseTiffIfd0(tiff: Uint8Array): ExifTags | undefined {
       strBytes = tiff.subarray(dataOffset, dataOffset + count);
     }
     // ASCII EXIF strings are NUL-terminated; the trailing NUL counts toward `count`.
-    const str = bytesToLatin1(strBytes)
-      .replace(/\0+$/, "")
-      .trim();
+    const str = bytesToLatin1(strBytes).replace(/\0+$/, "").trim();
     if (str) tags[key] = str;
   }
   return Object.keys(tags).length ? tags : undefined;

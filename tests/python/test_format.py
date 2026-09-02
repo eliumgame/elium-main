@@ -172,6 +172,37 @@ def test_resource_tamper_detected():
     assert res_id not in result["resources"]
 
 
+def test_write_elium_rejects_malformed_parapheur():
+    """A corrupted parapheur/circuit.json entry (e.g. a string instead of a
+    dict, as could happen with a malformed .elium) must not crash write_elium
+    with an unhandled AttributeError from `parapheur.get(...)` inside
+    _collect_personal_data — it must raise a typed EliumPackageError."""
+    with pytest.raises(EliumPackageError, match="parapheur"):
+        write_elium(make_model(), profile="standard", title="T", parapheur="not-a-dict")
+
+
+def test_write_elium_rejects_malformed_parapheur_party():
+    """A parapheur whose "parties" list contains a non-dict entry must also
+    raise a typed EliumPackageError rather than an AttributeError."""
+    with pytest.raises(EliumPackageError, match="parapheur"):
+        write_elium(
+            make_model(), profile="standard", title="T",
+            parapheur={"parties": ["not-a-dict"]},
+        )
+
+
+def test_write_elium_rejects_resource_index_entry_without_id():
+    """A resource_index entry missing "id" must raise a typed
+    EliumPackageError, not a bare KeyError. This path is reachable via
+    doc-sign, which forwards an untrusted, re-read `resourceIndex` straight
+    into write_elium."""
+    with pytest.raises(EliumPackageError, match="identifiant"):
+        write_elium(
+            make_model(), profile="standard", title="T",
+            resource_index=[{"name": "sans id"}], resources={},
+        )
+
+
 def test_journal_chain_and_tamper():
     j = empty_journal()
     j = append_event(j, "document.created", data={"title": "x"})

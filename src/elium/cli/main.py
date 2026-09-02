@@ -139,6 +139,9 @@ def cmd_doc_open(args: argparse.Namespace) -> None:
     integ = result["integrity"]
     intact = "non vérifié" if integ["unchecked"] else ("intact" if integ["contentIntact"] else "ALTÉRÉ")
     print(f"Intégrité    : {intact}")
+    tampered = integ.get("resourcesTampered") or []
+    if tampered:
+        print(f"Ressources   : {len(tampered)} ALTÉRÉE(S) — voir « elium doc-verify » pour le détail")
     print(f"Signatures   : {len(result['signatures'])}")
     print(f"Suivi        : {jv['count']} évènement(s) · {'valide' if jv['valid'] else 'ALTÉRÉ'}")
     seal = result.get("seal", {})
@@ -167,6 +170,9 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
     integ = result["integrity"]
     intact = "non vérifiée" if integ["unchecked"] else ("INTACTE" if integ["contentIntact"] else "ALTÉRÉE")
     print("Intégrité du contenu :", intact)
+    tampered = integ.get("resourcesTampered") or []
+    if tampered:
+        print(f"Ressources embarquées : {len(tampered)} ALTÉRÉE(S) ({', '.join(tampered)})")
 
     jv = verify_journal(result["journal"])
     print("Journal de suivi     :", "VALIDE" if jv["valid"] else f"ALTÉRÉ (évènement {jv['brokenAt']})")
@@ -253,6 +259,25 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
         raise SystemExit(
             "doc-sign : la ré-écriture d'un document chiffré multi-destinataires n'est pas "
             "prise en charge par la CLI (utilisez le Studio). Aucune modification effectuée."
+        )
+
+    # `read_elium` exclut du dict `resources` toute ressource dont les octets ne
+    # correspondent plus à son id content-addressé (falsification/substitution),
+    # mais laisse intacte son entrée dans `resourceIndex` : c'est la PREUVE de la
+    # falsification. Réécrire ici avec `resources=result["resources"]` (filtré,
+    # donc SANS la ressource altérée) ferait disparaître silencieusement cette
+    # entrée de l'archive réécrite — la falsification deviendrait indétectable
+    # dès la prochaine lecture (resourcesTampered redeviendrait vide, l'index
+    # référencerait une ressource qui n'existe plus). On refuse plutôt que de
+    # risquer cette perte de preuve (même logique que le refus multi-
+    # destinataires ci-dessus).
+    tampered = result["integrity"].get("resourcesTampered") or []
+    if tampered:
+        raise SystemExit(
+            "doc-sign : ressource(s) embarquée(s) altérée(s) détectée(s) "
+            f"({', '.join(tampered)}) — la ré-écriture effacerait silencieusement la preuve "
+            "de falsification. Aucune modification effectuée. Utilisez « elium doc-verify » "
+            "pour examiner le document, ou restaurez-le depuis une sauvegarde saine."
         )
 
     seal_key = None

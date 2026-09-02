@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from unittest.mock import patch
+
+import pytest
 
 from elium.cli.main import main
 from elium.format.canonical import sha256_hex
 from elium.format.document import create_document_model, text_to_doc
 from elium.format.package import read_elium, write_elium
 from elium.format.proof import generate_identity
+
+
+def _substitute_resource(blob: bytes, res_id: str, new_bytes: bytes) -> bytes:
+    """Rebuild a .elium archive with `resources/{res_id}` swapped for bytes that
+    no longer hash to res_id — simulating post-write tampering/substitution."""
+    zin = zipfile.ZipFile(io.BytesIO(blob))
+    entries = {name: zin.read(name) for name in zin.namelist()}
+    entries[f"resources/{res_id}"] = new_bytes
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return out.getvalue()
 
 
 def run(*argv: str) -> None:
@@ -87,6 +104,77 @@ def test_doc_sign_preserves_embedded_resources(tmp_path):
     assert result["resourceIndex"] == resource_index
     assert result["resources"][res_id] == img_bytes
     assert result["integrity"]["resourcesTampered"] == []
+
+
+def test_doc_sign_refuses_when_resource_tampered(tmp_path):
+    """P0 regression: `read_elium` drops a hash-mismatched resource from
+    `resources` but leaves its entry in `resourceIndex` — the evidence that it
+    was tampered with. Because doc-sign forwards `result["resources"]`
+    (filtered) and `result["resourceIndex"]` (unfiltered) straight to
+    write_elium, re-signing used to rewrite the archive WITHOUT the tampered
+    resource's bytes while still referencing it, erasing the tampering
+    evidence on the very next read. doc-sign must now refuse instead."""
+    model = create_document_model(text_to_doc("Contrat avec tampon"))
+    img_bytes = b"original stamp bytes"
+    res_id = sha256_hex(img_bytes)
+    resource_index = [
+        {"id": res_id, "name": "tampon.png", "mime": "image/png", "size": len(img_bytes), "kind": "image"}
+    ]
+    blob = write_elium(
+        model, profile="signed", title="Avec tampon",
+        resource_index=resource_index, resources={res_id: img_bytes},
+    )
+    tampered_blob = _substitute_resource(blob, res_id, b"substituted stamp bytes")
+    doc = tmp_path / "tampered.elium"
+    doc.write_bytes(tampered_blob)
+
+    # Sanity: the tampering is indeed detected before any doc-sign attempt.
+    before = read_elium(doc.read_bytes())
+    assert before["integrity"]["resourcesTampered"] == [res_id]
+    assert res_id not in before["resources"]
+
+    ident = generate_identity()
+    key = tmp_path / "key.hex"
+    key.write_text(ident["privateKeyHex"], encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run("doc-sign", str(doc), "--key", str(key), "--name", "Alice")
+
+    # The file on disk must be untouched: no signature was added, and the
+    # tampering evidence is still fully intact and detectable.
+    after = read_elium(doc.read_bytes())
+    assert after["integrity"]["resourcesTampered"] == [res_id]
+    assert res_id not in after["resources"]
+    assert after["resourceIndex"] == resource_index
+    assert after["signatures"] == []
+
+
+def test_doc_verify_and_open_warn_on_tampered_resource(tmp_path, capsys):
+    """`resourcesTampered` must be surfaced in the plain console output of both
+    doc-verify and doc-open, not just incidentally inside the optional JSON
+    --report of doc-verify."""
+    model = create_document_model(text_to_doc("Contrat avec tampon"))
+    img_bytes = b"original stamp bytes 2"
+    res_id = sha256_hex(img_bytes)
+    resource_index = [
+        {"id": res_id, "name": "tampon2.png", "mime": "image/png", "size": len(img_bytes), "kind": "image"}
+    ]
+    blob = write_elium(
+        model, profile="standard", title="Avec tampon",
+        resource_index=resource_index, resources={res_id: img_bytes},
+    )
+    tampered_blob = _substitute_resource(blob, res_id, b"substituted bytes")
+    doc = tmp_path / "tampered2.elium"
+    doc.write_bytes(tampered_blob)
+
+    capsys.readouterr()
+    run("doc-verify", str(doc))
+    verify_out = capsys.readouterr().out
+    assert "ALTÉRÉE" in verify_out
+    assert res_id in verify_out
+
+    run("doc-open", str(doc))
+    open_out = capsys.readouterr().out
+    assert "ALTÉRÉE" in open_out
 
 
 def test_doc_verify_reports_valid_signature(tmp_path, capsys):

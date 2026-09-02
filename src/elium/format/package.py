@@ -93,7 +93,25 @@ def _collect_personal_data(signatures: list[dict], parapheur: dict | None = None
     # it travels in the clear (no encrypt_metadata), the RGPD notice must not
     # under-report it.
     if parapheur:
-        for party in parapheur.get("parties") or []:
+        # `parapheur` comes from parsed JSON (parapheur/circuit.json) that may be
+        # attacker/corruption-controlled by the time it reaches here (e.g. via
+        # doc-sign re-reading an untrusted archive) — a bare `.get()` on a
+        # non-dict value would raise an unhandled AttributeError. Guard like the
+        # resource-index entries are guarded in read_elium below.
+        if not isinstance(parapheur, dict):
+            raise EliumPackageError(
+                "Circuit de signature (parapheur) invalide : structure inattendue."
+            )
+        parties = parapheur.get("parties") or []
+        if not isinstance(parties, list):
+            raise EliumPackageError(
+                "Circuit de signature (parapheur) invalide : « parties » doit être une liste."
+            )
+        for party in parties:
+            if not isinstance(party, dict):
+                raise EliumPackageError(
+                    "Circuit de signature (parapheur) invalide : partie malformée."
+                )
             if party.get("name"):
                 found.add("nom de partie du circuit de signature")
             if party.get("role"):
@@ -289,9 +307,19 @@ def write_elium(
         zf.writestr(ENTRY_RESINDEX, json.dumps(resource_index, indent=2, ensure_ascii=False))
         zf.writestr(ENTRY_RGPD, json.dumps(manifest["rgpd"], indent=2, ensure_ascii=False))
         for res in resource_index:
-            data = resources.get(res["id"])
+            # Mirror the guard in read_elium's resource loop: `resource_index`
+            # can now carry an untrusted, re-read `resourceIndex` (doc-sign
+            # forwards it verbatim from a possibly-corrupted archive), so an
+            # entry that isn't a dict or lacks "id" must not raise a bare
+            # KeyError — surface a clean, typed error instead.
+            res_id = res.get("id") if isinstance(res, dict) else None
+            if not res_id:
+                raise EliumPackageError(
+                    "Index de ressources invalide : entrée sans identifiant (id) exploitable."
+                )
+            data = resources.get(res_id)
             if data is not None:
-                zf.writestr(f"resources/{res['id']}", data)
+                zf.writestr(f"resources/{res_id}", data)
 
     return buf.getvalue()
 

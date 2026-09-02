@@ -37,7 +37,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '24'
     - name: Set up Python (tests d'interop Python <-> Web)
       uses: actions/setup-python@v5
       with:
@@ -81,7 +81,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '24'
     - name: Install dependencies
       working-directory: ./server
       # `npm ci` (strict, comme partout ailleurs) : échoue si package-lock.json
@@ -125,7 +125,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '24'
     - name: Install server dependencies
       working-directory: ./server
       run: npm ci

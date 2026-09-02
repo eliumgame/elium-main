@@ -118,7 +118,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.has_key == 'true'
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Installer les dépendances Python
         if: steps.guard.outputs.has_key == 'true'

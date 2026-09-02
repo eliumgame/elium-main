@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { Fragment, Slice } from "@tiptap/pm/model";
+import { DOMParser as PMDOMParser, Fragment, Slice } from "@tiptap/pm/model";
 import { Insertion, Deletion, TrackChanges, isSuggesting } from "../src/editor/TrackChanges";
 
 /**
@@ -49,6 +49,19 @@ function pasteText(editor: Editor, text: string): boolean {
   const slice = new Slice(Fragment.from(editor.state.schema.text(text)), 0, 0);
   // jsdom has no ClipboardEvent constructor; the handler never reads the
   // event itself (only the slice), so a plain Event stands in for it.
+  const event = new Event("paste", { cancelable: true }) as ClipboardEvent;
+  return !!editor.view.someProp("handlePaste", (f) => f(editor.view, event, slice));
+}
+
+/** Like `pasteText`, but the slice is built by ProseMirror's OWN DOMParser
+ *  from raw HTML — the same path a real clipboard paste goes through BEFORE
+ *  `handlePaste` ever sees the slice. Needed to reproduce parseHTML rule
+ *  ambiguity (e.g. `<del>` matching both `strike` and `deletion`), which a
+ *  hand-built Slice (as in `pasteText`) bypasses entirely. */
+function pasteHtml(editor: Editor, html: string): boolean {
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  const slice = PMDOMParser.fromSchema(editor.state.schema).parseSlice(el, { preserveWhitespace: true });
   const event = new Event("paste", { cancelable: true }) as ClipboardEvent;
   return !!editor.view.someProp("handlePaste", (f) => f(editor.view, event, slice));
 }
@@ -223,6 +236,30 @@ describe("TrackChanges — collage suivi", () => {
   it("le collage désactivé (mode suggestion off) insère normalement, sans marque", () => {
     editor = makeEditor();
     expect(pasteText(editor, "X")).toBe(false); // handler décline : le collage natif prend le relais
+  });
+
+  it("coller un <del data-deletion> (ex: depuis un autre document Elium) garde la marque deletion, pas strike", () => {
+    // Non-régression : StarterKit's `strike` mark matches a bare `del` tag
+    // with the default parse priority (50). Without an explicit higher
+    // priority on Deletion's own `del[data-deletion]` rule, ProseMirror's
+    // DOMParser — which tries rules in priority order and stops at the
+    // first match — picks `strike` first (registered before Deletion in
+    // extensions.ts), so a deletion mark copied from elsewhere and pasted
+    // back in would silently turn into a permanent strikethrough instead of
+    // a reversible tracked deletion.
+    editor = makeSuggestingEditor();
+    editor.commands.setTextSelection(1);
+    expect(pasteHtml(editor, '<del data-deletion="true">texte</del>')).toBe(true);
+    expect(editor.getText()).toBe("texteBonjour le monde");
+    let sawDeletion = false;
+    let sawStrike = false;
+    editor.state.doc.descendants((node) => {
+      if (!node.isText || node.text !== "texte") return;
+      sawDeletion = node.marks.some((m) => m.type.name === "deletion");
+      sawStrike = node.marks.some((m) => m.type.name === "strike");
+    });
+    expect(sawDeletion).toBe(true);
+    expect(sawStrike).toBe(false);
   });
 });
 

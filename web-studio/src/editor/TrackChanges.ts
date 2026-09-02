@@ -141,7 +141,14 @@ export const Deletion = Mark.create({
     return { author: { default: "" }, ts: { default: "" }, id: { default: "" } };
   },
   parseHTML() {
-    return [{ tag: "del[data-deletion]" }];
+    // Explicit priority: StarterKit's `strike` mark (registered before this
+    // one — see extensions.ts) ALSO matches a bare `del` tag with the default
+    // priority (50). ProseMirror's DOMParser tries rules in priority order
+    // and stops at the first match, ignoring attribute specificity — so
+    // without a higher priority here, `<del data-deletion>` pasted from
+    // another Elium document (or the system clipboard) would be reparsed as
+    // a permanent `strike` instead of a reversible tracked deletion.
+    return [{ tag: "del[data-deletion]", priority: 100 }];
   },
   renderHTML({ HTMLAttributes }) {
     return ["del", mergeAttributes(HTMLAttributes, { "data-deletion": "true", class: "el-del" }), 0];

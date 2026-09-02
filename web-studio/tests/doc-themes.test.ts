@@ -41,7 +41,7 @@ describe("Thèmes — jeu prédéfini", () => {
 describe("Thèmes — overrides de style", () => {
   it("recolore les quatre titres et les styles d'accentuation, sans toucher au reste", () => {
     const theme = findTheme("emeraude")!;
-    const overrides = themeStyleOverrides(theme);
+    const overrides = themeStyleOverrides(undefined, theme);
     const ids = overrides.map((s) => s.id);
     for (const id of [
       "Titre1",
@@ -61,7 +61,7 @@ describe("Thèmes — overrides de style", () => {
 
   it("préserve les autres propriétés du style d'origine (basé sur le built-in)", () => {
     const theme = findTheme("elium")!;
-    const overrides = themeStyleOverrides(theme);
+    const overrides = themeStyleOverrides(undefined, theme);
     const titre1 = overrides.find((s) => s.id === "Titre1")!;
     const builtinTitre1 = findStyle(BUILTIN_STYLES, "Titre1")!;
     expect(titre1.para?.keepNext).toBe(builtinTitre1.para?.keepNext);
@@ -72,10 +72,33 @@ describe("Thèmes — overrides de style", () => {
   it("applique une police de titre quand le thème en définit une", () => {
     const theme = findTheme("ardoise")!;
     expect(theme.headingFont).toBeTruthy();
-    const overrides = themeStyleOverrides(theme);
+    const overrides = themeStyleOverrides(undefined, theme);
     for (const id of ["Titre1", "Titre2", "Titre3", "Titre4"]) {
       expect(overrides.find((s) => s.id === id)?.char?.fontFamily).toBe(theme.headingFont);
     }
+  });
+
+  it("fusionne dans le style COURANT du document : une personnalisation manuelle (taille, graisse) survit à l'application d'un thème", () => {
+    // Non-régression : appliquer un thème ne doit changer que la couleur (et,
+    // si le thème en définit une, la police de titre) — pas repartir de zéro
+    // depuis BUILTIN_STYLES et donc écraser silencieusement une taille ou une
+    // graisse personnalisée par l'utilisateur dans le gestionnaire de styles.
+    const custom: EliumDocStyle[] = [
+      { id: "Titre1", name: "Titre 1", kind: "paragraph", char: { bold: false, fontSize: 40 } },
+    ];
+    const theme = findTheme("emeraude")!; // pas de headingFont
+    const overrides = themeStyleOverrides(custom, theme);
+    const titre1 = overrides.find((s) => s.id === "Titre1")!;
+    expect(titre1.char?.bold).toBe(false); // personnalisation utilisateur conservée
+    expect(titre1.char?.fontSize).toBe(40); // personnalisation utilisateur conservée
+    expect(titre1.char?.color).toBe(theme.accent); // le thème a bien recoloré
+
+    // Et via applyDocTheme (le chemin réellement emprunté par l'UI) aussi.
+    const next = applyDocTheme(custom, theme);
+    const titre1Next = next.find((s) => s.id === "Titre1")!;
+    expect(titre1Next.char?.bold).toBe(false);
+    expect(titre1Next.char?.fontSize).toBe(40);
+    expect(titre1Next.char?.color).toBe(theme.accent);
   });
 });
 

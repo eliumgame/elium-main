@@ -12,7 +12,7 @@
  * changes — nothing needs to know a "theme" exists. `EliumDocumentModel.theme`
  * only remembers which one is active, for the dialog itself.
  */
-import { BUILTIN_STYLES, findStyle, type DocStyle } from "./styles";
+import { findStyle, mergeStyles, type DocStyle } from "./styles";
 import type { EliumDocStyle } from "../format/types";
 
 export interface DocTheme {
@@ -43,14 +43,21 @@ export function findTheme(id: string | null | undefined): DocTheme | null {
 }
 
 /**
- * The concrete style overrides a theme implies, based on each style's OWN
- * built-in definition (so a theme only ever changes colour/font, never any
- * other property of "Titre 2" or "Citation intense").
+ * The concrete style overrides a theme implies, based on each style's CURRENT
+ * definition in the document — built-in defaults, folded with whatever the
+ * user already redefined by hand via the Styles manager (`currentStyles`) —
+ * so a theme only ever changes colour/font (the properties it actually owns)
+ * and never clobbers an unrelated, manually-set property like font size,
+ * weight or spacing on "Titre 2" or "Citation intense".
  */
-export function themeStyleOverrides(theme: DocTheme): DocStyle[] {
+export function themeStyleOverrides(currentStyles: EliumDocStyle[] | undefined, theme: DocTheme): DocStyle[] {
+  // mergeStyles/DocStyle and EliumDocStyle are the same shape on the wire
+  // (EliumDocStyle just types char/para loosely for the file format) — see
+  // format/types.ts.
+  const effective = mergeStyles(currentStyles as DocStyle[] | undefined);
   const out: DocStyle[] = [];
   for (const id of HEADING_IDS) {
-    const base = findStyle(BUILTIN_STYLES, id);
+    const base = findStyle(effective, id);
     if (!base) continue;
     out.push({
       ...base,
@@ -58,7 +65,7 @@ export function themeStyleOverrides(theme: DocTheme): DocStyle[] {
     });
   }
   for (const id of ACCENT_IDS) {
-    const base = findStyle(BUILTIN_STYLES, id);
+    const base = findStyle(effective, id);
     if (!base) continue;
     out.push({ ...base, char: { ...base.char, color: theme.accent } });
   }
@@ -75,6 +82,6 @@ export function themeStyleOverrides(theme: DocTheme): DocStyle[] {
 export function applyDocTheme(currentStyles: EliumDocStyle[] | undefined, theme: DocTheme): EliumDocStyle[] {
   const out = new Map<string, EliumDocStyle>();
   for (const s of currentStyles ?? []) out.set(s.id, s);
-  for (const s of themeStyleOverrides(theme)) out.set(s.id, s as EliumDocStyle);
+  for (const s of themeStyleOverrides(currentStyles, theme)) out.set(s.id, s as EliumDocStyle);
   return [...out.values()];
 }

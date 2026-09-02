@@ -57,6 +57,21 @@ if !errorlevel! neq 0 (
 )
 
 :: -------------------------------------------------------
+:: Etape 1bis : version applicative (source unique = __init__.py,
+:: stampee par stamp_version.py) -> nom de fichier MSI dynamique.
+:: -------------------------------------------------------
+set "APPVER_FILE=%TEMP%\elium_appver_%RANDOM%.txt"
+"%VENV%\Scripts\python.exe" "%HERE%print_version.py" > "%APPVER_FILE%"
+set /p APPVER=<"%APPVER_FILE%"
+del "%APPVER_FILE%" >nul 2>&1
+if "!APPVER!"=="" (
+    echo [ERREUR] Impossible de lire la version applicative depuis src\elium\__init__.py.
+    if /i not "%~1"=="/nopause" pause
+    exit /b 1
+)
+echo     [OK] Version applicative : !APPVER!
+
+:: -------------------------------------------------------
 :: Etape 2 : compilation WiX (candle -> light)
 :: -------------------------------------------------------
 if not exist "%OUTPUT%" mkdir "%OUTPUT%"
@@ -74,7 +89,7 @@ echo [*] Edition de liens light (UI francaise)...
 "!WIX_BIN!\light.exe" -nologo -cultures:fr-FR ^
     -ext WixUIExtension -ext WixUtilExtension ^
     -b "%HERE%." ^
-    -out "%OUTPUT%\Elium-4.0.0-Setup.msi" "%HERE%build\elium.wixobj"
+    -out "%OUTPUT%\Elium-!APPVER!-Setup.msi" "%HERE%build\elium.wixobj"
 if !errorlevel! neq 0 (
     echo [ERREUR] light.exe a echoue.
     if /i not "%~1"=="/nopause" pause
@@ -85,7 +100,7 @@ echo.
 echo =======================================================
 echo    MSI GENERE AVEC SUCCES !
 echo =======================================================
-echo    %OUTPUT%\Elium-4.0.0-Setup.msi
+echo    %OUTPUT%\Elium-!APPVER!-Setup.msi
 echo.
 if /i not "%~1"=="/nopause" pause
 

@@ -414,7 +414,7 @@ def get_web_dir() -> Path:
     return web_dir
 
 
-def find_app_browser() -> str | None:
+def find_app_browser() -> "str | None":
     """Cherche un navigateur Chromium capable du mode --app (fenêtre dédiée)."""
     pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
     pf = os.environ.get("ProgramFiles", r"C:\Program Files")

@@ -46,56 +46,95 @@ let sub: Redis | null = null;
 let started = false;
 let logger: BackplaneLogger | null = null;
 
-// État santé : dernière transition seulement (pas de compteur par tentative).
-let healthy = true; // optimiste jusqu'à la première erreur observée
-let lastSuccessAt: number | null = null;
-let lastFailureAt: number | null = null;
-let lastError: string | null = null;
+/**
+ * État santé PAR CONNEXION (dernière transition seulement, pas de compteur par
+ * tentative). `pub` (publication de NOS events vers les autres instances) et
+ * `sub` (réception de LEURS events) sont deux connexions ioredis indépendantes
+ * qui peuvent tomber l'une sans l'autre — typiquement `sub` coupé pendant que
+ * `pub` reste up : cette instance publie encore avec succès mais ne reçoit
+ * plus RIEN des autres. Un booléen partagé masquerait alors ce cas (le succès
+ * de `pub` effacerait l'échec de `sub`) : on garde donc un état distinct pour
+ * chacun, et l'état global exposé par `getBackplaneHealth()` est le PIRE des
+ * deux (dégradé si l'un OU l'autre est en échec).
+ */
+interface ConnHealth {
+  healthy: boolean; // optimiste jusqu'à la première erreur observée
+  lastSuccessAt: number | null;
+  lastFailureAt: number | null;
+  lastError: string | null;
+}
+function freshConnHealth(): ConnHealth {
+  return { healthy: true, lastSuccessAt: null, lastFailureAt: null, lastError: null };
+}
+let pubHealth: ConnHealth = freshConnHealth();
+let subHealth: ConnHealth = freshConnHealth();
 
-function markFailure(err: unknown): void {
-  lastFailureAt = Date.now();
-  lastError = err instanceof Error ? err.message : String(err);
-  if (healthy) {
-    healthy = false;
+function markFailure(conn: ConnHealth, label: "pub" | "sub", err: unknown): void {
+  conn.lastFailureAt = Date.now();
+  conn.lastError = err instanceof Error ? err.message : String(err);
+  if (conn.healthy) {
+    conn.healthy = false;
     logger?.warn(
-      { err: lastError },
-      "backplane: Redis injoignable — bascule dégradée mono-instance (temps réel inter-instances suspendu)",
+      { err: conn.lastError, conn: label },
+      `backplane: Redis (${label}) injoignable — bascule dégradée (temps réel inter-instances suspendu côté ${label})`,
     );
   }
 }
 
-function markSuccess(): void {
-  lastSuccessAt = Date.now();
-  if (!healthy) {
-    healthy = true;
-    logger?.info({}, "backplane: Redis rétabli — relais multi-instance de nouveau actif");
+function markSuccess(conn: ConnHealth, label: "pub" | "sub"): void {
+  conn.lastSuccessAt = Date.now();
+  if (!conn.healthy) {
+    conn.healthy = true;
+    logger?.info({ conn: label }, `backplane: Redis (${label}) rétabli — relais multi-instance de nouveau actif`);
   }
 }
 
-/** État exposé par /api/health. */
+function latestTimestamp(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.max(a, b);
+}
+
+/**
+ * État exposé par /api/health. `status` reflète le pire des deux connexions :
+ * "ok" seulement si pub ET sub sont saines, "degraded" si l'une OU l'autre a
+ * échoué (voir le commentaire sur `ConnHealth` ci-dessus). Le détail par
+ * connexion reste disponible via `pub`/`sub` pour diagnostiquer LAQUELLE est
+ * en cause.
+ */
 export function getBackplaneHealth(): {
   status: BackplaneHealth;
   lastSuccessAt: number | null;
   lastFailureAt: number | null;
   lastError: string | null;
+  pub: Readonly<ConnHealth>;
+  sub: Readonly<ConnHealth>;
 } {
+  const bothHealthy = pubHealth.healthy && subHealth.healthy;
+  // En cas de panne, on remonte l'erreur de la (ou d'une des) connexion(s) en
+  // échec plutôt que la plus récente toutes connexions confondues — sinon un
+  // succès `pub` postérieur à l'échec `sub` masquerait le message d'erreur.
+  const lastError = !subHealth.healthy ? subHealth.lastError : !pubHealth.healthy ? pubHealth.lastError : null;
   return {
-    status: !config.redisUrl ? "disabled" : healthy ? "ok" : "degraded",
-    lastSuccessAt,
-    lastFailureAt,
+    status: !config.redisUrl ? "disabled" : bothHealthy ? "ok" : "degraded",
+    lastSuccessAt: latestTimestamp(pubHealth.lastSuccessAt, subHealth.lastSuccessAt),
+    lastFailureAt: latestTimestamp(pubHealth.lastFailureAt, subHealth.lastFailureAt),
     lastError,
+    pub: { ...pubHealth },
+    sub: { ...subHealth },
   };
 }
 
-function makeClient(): Redis {
+function makeClient(label: "pub" | "sub"): Redis {
+  const conn = label === "pub" ? pubHealth : subHealth;
   // maxRetriesPerRequest: null → ne rejette pas les commandes pendant une
   // coupure (ioredis rejoue à la reconnexion) ; on avale les erreurs.
   const c = new Redis(config.redisUrl, { maxRetriesPerRequest: null, lazyConnect: false });
   c.on("error", (err) => {
     /* transitoire : ne pas crasher le process — mais tracer la transition */
-    markFailure(err);
+    markFailure(conn, label, err);
   });
-  c.on("ready", () => markSuccess());
+  c.on("ready", () => markSuccess(conn, label));
   return c;
 }
 
@@ -104,10 +143,10 @@ export function initBackplane(handler: (m: RelayMsg) => void, log?: BackplaneLog
   logger = log ?? logger;
   if (started || !config.redisUrl) return;
   started = true;
-  pub = makeClient();
-  sub = makeClient();
+  pub = makeClient("pub");
+  sub = makeClient("sub");
   void sub.subscribe(CHANNEL).catch((err: unknown) => {
-    markFailure(err); // réabonnement auto d'ioredis à la reconnexion
+    markFailure(subHealth, "sub", err); // réabonnement auto d'ioredis à la reconnexion
   });
   sub.on("message", (_ch: string, raw: string) => {
     try {
@@ -125,9 +164,9 @@ export function publishRelay(msg: RelayMsg): void {
   if (!pub) return;
   void pub
     .publish(CHANNEL, JSON.stringify({ origin: ORIGIN, msg }))
-    .then(() => markSuccess())
+    .then(() => markSuccess(pubHealth, "pub"))
     .catch((err: unknown) => {
-      markFailure(err); // best-effort : le chemin local n'est jamais bloqué
+      markFailure(pubHealth, "pub", err); // best-effort : le chemin local n'est jamais bloqué
     });
 }
 
@@ -135,9 +174,22 @@ export function backplaneEnabled(): boolean {
   return !!config.redisUrl;
 }
 
-/** Client Redis dédié au rate-limit partagé (ou null en mono-instance). */
+/**
+ * Client Redis dédié au rate-limit partagé (ou null en mono-instance).
+ * Connexion INDÉPENDANTE de pub/sub (autre usage : compteur @fastify/rate-limit,
+ * pas le relais collab) — délibérément PAS branchée sur `markFailure`/
+ * `markSuccess` : ses pannes ne représentent pas une dégradation du relais
+ * temps réel et ne doivent donc pas polluer le `collab.redis` de /api/health.
+ * On garde quand même un listener "error" (sinon ioredis lève si AUCUN
+ * listener n'est attaché) ; ioredis rejoue ses commandes à la reconnexion.
+ */
 export function createRateLimitRedis(): Redis | null {
-  return config.redisUrl ? makeClient() : null;
+  if (!config.redisUrl) return null;
+  const c = new Redis(config.redisUrl, { maxRetriesPerRequest: null, lazyConnect: false });
+  c.on("error", () => {
+    /* transitoire : ne pas crasher le process — pas de suivi de santé ici */
+  });
+  return c;
 }
 
 /** Fermeture propre (arrêt du serveur). */
@@ -145,7 +197,6 @@ export async function closeBackplane(): Promise<void> {
   await Promise.allSettled([pub?.quit(), sub?.quit()]);
   pub = sub = null;
   started = false;
-  healthy = true;
-  lastSuccessAt = lastFailureAt = null;
-  lastError = null;
+  pubHealth = freshConnHealth();
+  subHealth = freshConnHealth();
 }

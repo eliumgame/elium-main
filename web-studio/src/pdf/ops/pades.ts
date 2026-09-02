@@ -23,7 +23,8 @@
  * document) : re-signer un PDF déjà signé via de vraies màj incrémentales est une
  * étape ultérieure.
  */
-import { PDFDocument, PDFName, PDFNumber, PDFString, PDFHexString, PDFArray, PDFDict } from "pdf-lib";
+import { PDFDocument, PDFName, PDFNumber, PDFString, PDFHexString, PDFArray, PDFDict, PDFRef } from "pdf-lib";
+import type { PDFPage } from "pdf-lib";
 import forge from "node-forge";
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -177,6 +178,49 @@ function chainIsConsistent(certs: forge.pki.Certificate[], signer: forge.pki.Cer
   }
 }
 
+interface ExistingSignatureWidget {
+  /** The widget's own dict — mutated in place (V/AP) rather than replaced. */
+  dict: PDFDict;
+  page: PDFPage;
+  /** Its own /Rect — the placement chosen when the field was prepared. */
+  rect: [number, number, number, number];
+}
+
+/**
+ * Look for a top-level `/FT /Sig` field already sitting in the AcroForm under
+ * `fieldName` — the bare, valueless widget "Prepare form"
+ * (`ops/forms.ts::addSignatureField`) drops onto the page, named by the user,
+ * well before anyone actually signs. Only scans the flat `/Fields` array
+ * (never `/Kids`): every widget this module or `ops/forms.ts` ever creates is
+ * a single merged field+widget dict registered directly at that level, so a
+ * hierarchical lookup is not needed for fields of our own making.
+ */
+function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): ExistingSignatureWidget | undefined {
+  const acroRaw = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
+  if (!(acroRaw instanceof PDFDict)) return undefined;
+  const fieldsRaw = acroRaw.lookup(PDFName.of("Fields"));
+  if (!(fieldsRaw instanceof PDFArray)) return undefined;
+
+  for (let i = 0; i < fieldsRaw.size(); i++) {
+    let dict: PDFDict;
+    try {
+      dict = fieldsRaw.lookup(i, PDFDict);
+    } catch {
+      continue;
+    }
+    if (dict.lookupMaybe(PDFName.of("FT"), PDFName) !== PDFName.of("Sig")) continue;
+    const t = dict.lookupMaybe(PDFName.of("T"), PDFString, PDFHexString);
+    if (!t || t.decodeText() !== fieldName) continue;
+    const rectArr = dict.lookupMaybe(PDFName.of("Rect"), PDFArray);
+    const pageRef = dict.get(PDFName.of("P"));
+    const page = pageRef instanceof PDFRef ? pdfDoc.getPages().find((p) => p.ref === pageRef) : undefined;
+    if (!rectArr || rectArr.size() !== 4 || !page) continue;
+    const r = rectArr.asRectangle();
+    return { dict, page, rect: [r.x, r.y, r.x + r.width, r.y + r.height] };
+  }
+  return undefined;
+}
+
 /** Ajoute le dictionnaire de signature + le widget + l'AcroForm (placeholder). */
 async function addSignaturePlaceholder(
   pdfDoc: PDFDocument,
@@ -208,15 +252,23 @@ async function addSignaturePlaceholder(
   if (opts.signerName) sigDict.set(PDFName.of("Name"), PDFString.of(opts.signerName));
   const sigRef = ctx.register(sigDict);
 
+  // Un champ /FT /Sig déjà préparé (« Préparer le formulaire », voir
+  // ops/forms.ts::addSignatureField) portant CE nom existe peut-être déjà —
+  // vide, sans /V, placé par l'utilisateur à un emplacement précis. Le
+  // réutiliser (sa page, son Rect) au lieu d'en fabriquer un second relie
+  // enfin la signature réellement apposée à l'emplacement préparé, plutôt que
+  // de créer un widget sans rapport pendant que le champ préparé reste vide.
+  const existing = findExistingSignatureWidget(pdfDoc, fieldName);
+
   // Signature VISIBLE (widget au rectangle placé, apparence = le dessin) ou
-  // INVISIBLE (champ Rect nul, comportement historique).
+  // INVISIBLE (champ Rect nul, comportement historique) — sauf si un widget
+  // préparé existe déjà, auquel cas SON Rect/page font foi.
   const v = opts.visible;
   const pageCount = pdfDoc.getPageCount();
-  const pageIndex = v ? Math.min(Math.max(0, v.page), pageCount - 1) : 0;
-  const page = pdfDoc.getPage(pageIndex);
-  // Page space (haut-gauche, y bas) → points PDF (bas-gauche) via la mediaBox.
-  let rect: [number, number, number, number] = [0, 0, 0, 0];
-  if (v) {
+  const page = existing ? existing.page : pdfDoc.getPage(v ? Math.min(Math.max(0, v.page), pageCount - 1) : 0);
+  let rect: [number, number, number, number] = existing ? existing.rect : [0, 0, 0, 0];
+  if (!existing && v) {
+    // Page space (haut-gauche, y bas) → points PDF (bas-gauche) via la mediaBox.
     const box = page.getMediaBox();
     const x1 = box.x + v.rect.x;
     const y1 = box.y + box.height - v.rect.y - v.rect.h;
@@ -238,6 +290,15 @@ async function addSignaturePlaceholder(
       Resources: ctx.obj({ XObject: ctx.obj({ Im0: img.ref }) }),
     });
     apRef = ctx.register(ctx.stream(`q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`, apDict as never));
+  }
+
+  if (existing) {
+    // In place: keeps the field's identity (and its one /Annots + /Fields
+    // entry) exactly as prepared — only its value (and, if a picture was
+    // drawn, its appearance) actually change.
+    existing.dict.set(PDFName.of("V"), sigRef);
+    if (apRef) existing.dict.set(PDFName.of("AP"), ctx.obj({ N: apRef }));
+    return;
   }
 
   const widget = ctx.obj({

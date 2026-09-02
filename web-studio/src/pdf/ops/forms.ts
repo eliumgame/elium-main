@@ -396,6 +396,18 @@ export function createFields(
  * `AcroForm`'s `/Fields` — pdf-lib has no high-level builder for this field
  * type, but its own parser (`createPDFAcroField`) recognises `/FT /Sig` and
  * hands back a real `PDFSignature`, not a stand-in.
+ *
+ * It is also given a minimal `/AP /N` (an empty appearance stream sized to
+ * the widget's own rect) up front. `PDFSignature.needsAppearancesUpdate()`
+ * always returns `false` (pdf-lib never auto-generates an appearance for a
+ * signature field), so without one, `PDFForm.flatten()`'s
+ * `findWidgetAppearanceRef()` finds nothing to extract a ref from and throws
+ * "Failed to extract appearance ref for: <name>" the moment this field is
+ * reached — which, because `flatten()` iterates every field before removing
+ * any of them, aborts flattening the ENTIRE form (see `flattenForm` below),
+ * not just this one field. A real signature drawn later
+ * (`ops/pades.ts::addSignaturePlaceholder`) overwrites this with its own
+ * appearance if it reuses this same widget.
  */
 function addSignatureField(
   doc: PDFDocument,
@@ -406,11 +418,25 @@ function addSignatureField(
 ): void {
   const context = doc.context;
   const flags = (f.readOnly ? 1 : 0) | (f.required ? 2 : 0); // Ff: bit1 ReadOnly, bit2 Required
+  const w = Math.max(1, at.width);
+  const h = Math.max(1, at.height);
+  const apDict = context.obj({
+    Type: PDFName.of("XObject"),
+    Subtype: PDFName.of("Form"),
+    FormType: PDFNumber.of(1),
+    BBox: context.obj([0, 0, w, h]),
+    Matrix: context.obj([1, 0, 0, 1, 0, 0]),
+    Resources: context.obj({}),
+  });
+  // Empty content stream: nothing to draw yet (the field has not been signed),
+  // but a valid, dereferenceable appearance stream all the same.
+  const apRef = context.register(context.stream("", apDict as never));
   const widget = context.obj({
     Type: PDFName.of("Annot"),
     Subtype: PDFName.of("Widget"),
     FT: PDFName.of("Sig"),
     Rect: context.obj([at.x, at.y, at.x + at.width, at.y + at.height]),
+    AP: context.obj({ N: apRef }),
     T: PDFString.of(f.name),
     F: PDFNumber.of(4), // Print
     P: page.ref,

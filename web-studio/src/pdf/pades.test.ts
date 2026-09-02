@@ -5,10 +5,11 @@
  * validité CMS, et qu'une altération invalide la signature.
  */
 import { describe, it, expect } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFSignature, StandardFonts } from "pdf-lib";
 import forge from "node-forge";
 import { signPdfBytes, verifyPdfSignatures } from "./ops/pades";
 import { generateSelfSignedP12 } from "./ops/self-cert";
+import { createFields } from "./ops/forms";
 
 const binToU8 = (s: string): Uint8Array => {
   const u = new Uint8Array(s.length);
@@ -225,5 +226,66 @@ describe("PAdES-B — dimensionnement dynamique du placeholder /Contents", () =>
     expect(res).toHaveLength(1);
     expect(res[0]!.digestMatches).toBe(true);
     expect(res[0]!.valid).toBe(true);
+  }, 30000);
+});
+
+/** A PDF whose only form field is a bare, never-signed /FT /Sig widget — what
+ *  "Prepare form" (ops/forms.ts::addSignatureField) leaves behind, named by
+ *  the user, before anyone actually signs. */
+async function makePdfWithPreparedSignatureField(
+  name: string,
+  rect: { x: number; y: number; w: number; h: number },
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([320, 200]);
+  createFields({ doc, font }, [{ id: "s1", pageId: "p1", name, kind: "signature", rect }], () => ({
+    page,
+    height: 200,
+  }));
+  return doc.save({ useObjectStreams: false });
+}
+
+describe("PAdES-B — réutilisation d'un champ /FT /Sig déjà préparé", () => {
+  it("relie la signature au widget préparé (même nom) au lieu d'en créer un second", async () => {
+    const pw = "prep";
+    const p12 = generateSelfSignedP12("Alice", pw);
+    // Emplacement choisi par l'utilisateur lors de la préparation du formulaire.
+    const preparedRect = { x: 40, y: 40, w: 150, h: 40 };
+    const pdf = await makePdfWithPreparedSignatureField("signature_1", preparedRect);
+
+    // Un seul champ, vide, avant signature.
+    const before = await PDFDocument.load(pdf);
+    expect(before.getForm().getFields()).toHaveLength(1);
+    expect(before.getForm().getField("signature_1")).toBeInstanceOf(PDFSignature);
+
+    const signed = await signPdfBytes(pdf, p12, pw, { fieldName: "signature_1", signerName: "Alice" });
+
+    const after = await PDFDocument.load(signed);
+    const fields = after.getForm().getFields();
+    // Toujours un seul champ : pas de second widget créé à côté du préparé.
+    expect(fields).toHaveLength(1);
+    expect(fields[0]!.getName()).toBe("signature_1");
+
+    // Le Rect reste celui choisi à la préparation, pas [0,0,0,0].
+    const sigField = after.getForm().getSignature("signature_1");
+    const rect = sigField.acroField.getWidgets()[0]!.getRectangle();
+    expect(Math.round(rect.width)).toBe(150);
+    expect(Math.round(rect.height)).toBe(40);
+
+    const res = verifyPdfSignatures(signed);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.valid).toBe(true);
+    expect(res[0]!.signerName).toBe("Alice");
+  }, 30000);
+
+  it("crée quand même un widget si aucun champ préparé ne porte ce nom", async () => {
+    const pw = "pw";
+    const p12 = generateSelfSignedP12("Bob", pw);
+    const pdf = await makePdf();
+    const signed = await signPdfBytes(pdf, p12, pw, { fieldName: "AutreNom" });
+    const after = await PDFDocument.load(signed);
+    expect(after.getForm().getFields()).toHaveLength(1);
+    expect(after.getForm().getField("AutreNom")).toBeInstanceOf(PDFSignature);
   }, 30000);
 });

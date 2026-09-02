@@ -398,4 +398,29 @@ describe("forms — flattenForm", () => {
     // so this exercises the try/catch guard rather than asserting a specific outcome.
     expect(typeof flattenForm(doc)).toBe("boolean");
   });
+
+  it("still flattens a text field when a prepared (never signed) signature field is also present", async () => {
+    // Regression: a bare /FT /Sig widget from "Prepare form" has no /AP until
+    // addSignatureField gives it one — without that, pdf-lib's flatten() threw
+    // while resolving THIS widget's appearance, and flattenForm()'s catch
+    // turned that into a blanket `false` for the WHOLE form, so even the
+    // unrelated text field never got flattened.
+    const { doc, font, page } = await docWithFont();
+    createFields(
+      { doc, font },
+      [
+        fieldBase({ id: "1", name: "nom" }),
+        fieldBase({ id: "2", name: "signature", kind: "signature", rect: { x: 40, y: 100, w: 150, h: 40 } }),
+      ],
+      () => ({ page, height: 400 }),
+    );
+    expect(doc.getForm().getField("signature")).toBeInstanceOf(PDFSignature);
+    fillForm(doc, { nom: "Dupont" });
+
+    expect(flattenForm(doc)).toBe(true);
+    // Both fields are gone from the AcroForm — flattening reached the text
+    // field this time, instead of bailing out on the whole form as soon as it
+    // hit the signature widget.
+    expect(doc.getForm().getFields()).toHaveLength(0);
+  });
 });

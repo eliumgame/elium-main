@@ -91,6 +91,37 @@ const isPasswordException = (e: unknown): boolean =>
 /** pdf.js `PasswordResponses.INCORRECT_PASSWORD` */
 const INCORRECT_PASSWORD = 2;
 
+/**
+ * A "Prepare form" pass (`ops/forms.ts::addSignatureField`) can drop a bare,
+ * never-signed `/FT /Sig` widget onto a page. pdf.js's own annotation layer
+ * cannot tell that apart from a real signature: `SignatureWidgetAnnotation`
+ * hard-codes `data.fieldValue` (and `getFieldObject().value`) to `null`
+ * regardless of whether the widget's `/V` is actually set, so neither
+ * `getAnnotations()` nor `getFieldObjects()` exposes the real value for this
+ * field type. A genuine signature (`ops/pades.ts::addSignaturePlaceholder`)
+ * always writes a signature dictionary containing `/ByteRange`, which a bare
+ * prepared widget never has — used below as the "is there really a `/V`"
+ * check. Scanned byte-wise (not via a full string conversion of the file) so
+ * opening a large PDF stays cheap.
+ */
+function hasSignatureDictionary(bytes: Uint8Array): boolean {
+  const marker = "/ByteRange";
+  const first = marker.charCodeAt(0);
+  const limit = bytes.length - marker.length;
+  for (let i = 0; i <= limit; i++) {
+    if (bytes[i] !== first) continue;
+    let matches = true;
+    for (let j = 1; j < marker.length; j++) {
+      if (bytes[i + j] !== marker.charCodeAt(j)) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
 /** Minimal shape of the pdf.js loading task we keep in order to tear it down. */
 interface LoadingTask {
   promise: Promise<PDFDocumentProxy>;
@@ -193,13 +224,19 @@ export class PdfEngine {
       /* not a form */
     }
     try {
-      // A signature shows up as a widget annotation with fieldType "Sig".
-      for (let i = 1; i <= Math.min(doc.numPages, 8) && !signed; i++) {
+      // A signature shows up as a widget annotation with fieldType "Sig" —
+      // but a field merely PREPARED for signing (never actually signed) looks
+      // identical through this API (see hasSignatureDictionary above), so
+      // also require a real signature dictionary in the raw bytes before
+      // reporting the document as signed.
+      let hasSigWidget = false;
+      for (let i = 1; i <= Math.min(doc.numPages, 8) && !hasSigWidget; i++) {
         const page = await doc.getPage(i);
         const anns = (await page.getAnnotations()) as { fieldType?: string }[];
-        signed = anns.some((a) => a.fieldType === "Sig");
+        hasSigWidget = anns.some((a) => a.fieldType === "Sig");
         page.cleanup();
       }
+      signed = hasSigWidget && hasSignatureDictionary(mine);
     } catch {
       /* best effort */
     }

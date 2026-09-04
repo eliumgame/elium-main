@@ -125,7 +125,10 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" pyinstaller
+          # Version epinglee (pas de drift silencieux) : certaines versions du
+          # bootloader PyInstaller ont ete associees a des pics de faux positifs
+          # antivirus (Windows Defender). Ne bumper qu'apres verification.
+          pip install -e ".[dev]" pyinstaller==6.21.0
 
       - name: Stamper la version + le code hash
         if: steps.guard.outputs.has_key == 'true'

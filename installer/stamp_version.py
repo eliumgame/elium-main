@@ -8,6 +8,7 @@ Emplacements APPLICATIFS mis à jour (source unique runtime = src/elium/__init__
   - web-studio/package.json      "version": "X.Y.Z"             (version complète)
   - installer/elium.wxs          <?define Version = "X.Y.Z" ?>  (cœur numérique, MSI)
   - installer/elium_setup.iss    #define AppVersion "X.Y.Z"     (cœur numérique, Inno)
+  - installer/version_info.txt   filevers/prodvers + FileVersion/ProductVersion (ressource EXE)
   - installer/updater.py         BUILD_CODE_HASH = "<sha256>"
 
 NE TOUCHE PAS la version du FORMAT .elium (src/elium/format/package.py,
@@ -97,6 +98,27 @@ def main() -> int:
     _sub_in_file(
         root / "installer" / "elium_setup.iss",
         r'(#define AppVersion ")[^"]*(")',
+        rf'\g<1>{core}\g<2>',
+    )
+    core_tuple = ", ".join(core.split(".")) + ", 0"
+    _sub_in_file(
+        root / "installer" / "version_info.txt",
+        r"filevers=\([^)]*\)",
+        f"filevers=({core_tuple})",
+    )
+    _sub_in_file(
+        root / "installer" / "version_info.txt",
+        r"prodvers=\([^)]*\)",
+        f"prodvers=({core_tuple})",
+    )
+    _sub_in_file(
+        root / "installer" / "version_info.txt",
+        r'(StringStruct\(u"FileVersion", u")[^"]*(")',
+        rf'\g<1>{core}\g<2>',
+    )
+    _sub_in_file(
+        root / "installer" / "version_info.txt",
+        r'(StringStruct\(u"ProductVersion", u")[^"]*(")',
         rf'\g<1>{core}\g<2>',
     )
 

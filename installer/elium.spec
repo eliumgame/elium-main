@@ -17,6 +17,7 @@ SRC = os.path.join(ROOT, "src")
 INSTALLER = os.path.join(ROOT, "installer")
 WEB = os.path.join(ROOT, "web-studio", "dist")
 ICON = os.path.join(ROOT, "brand", "elium.ico")
+VERSION_FILE = os.path.join(INSTALLER, "version_info.txt")
 
 if not os.path.isdir(WEB):
     raise SystemExit(f"web-studio/dist introuvable ({WEB}). Lancez d'abord `npm run build` dans web-studio/.")
@@ -62,4 +63,8 @@ exe = EXE(
     # redirige stdout/stderr vers nul quand ils valent None).
     console=False,
     icon=ICON if os.path.exists(ICON) else None,
+    # Ressource VERSIONINFO (CompanyName/FileDescription/ProductName...) : un exe
+    # sans cette ressource ressemble davantage a un dropper generique aux yeux
+    # des heuristiques ML de Windows Defender. Synchronisee par stamp_version.py.
+    version=VERSION_FILE if os.path.exists(VERSION_FILE) else None,
 )

@@ -56,7 +56,7 @@ set "VPY=%VENV%\Scripts\python.exe"
 
 echo [*] Installation des dependances (elium + PyInstaller)...
 "%VPY%" -m pip install --upgrade pip >nul 2>&1
-"%VPY%" -m pip install -e "%ROOT%" pyinstaller
+"%VPY%" -m pip install -e "%ROOT%" pyinstaller==6.21.0
 if !errorlevel! neq 0 (
     echo [ERREUR] Echec de l'installation des dependances Python.
     pause

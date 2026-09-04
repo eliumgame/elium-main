@@ -27,6 +27,12 @@ interface UpdStatus {
   progress?: number;
   notes?: string;
 }
+interface PortInfo {
+  current: number;
+  configured: number | null;
+  fallbackUsed: boolean;
+  ports: { port: number; free: boolean }[];
+}
 
 const TAGLINE =
   "Traitement 100 % local · aucune donnée envoyée en ligne sans action explicite · conforme RGPD par conception";
@@ -214,9 +220,130 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
                 </li>
               ))}
             </ul>
+            <PortSettings />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Réglage avancé, replié par défaut : le serveur local d'Elium écoute sur un
+ * port choisi automatiquement (3000-3100) — cette section permet de voir quels
+ * ports sont libres et d'en épingler un précis (utile derrière un pare-feu
+ * d'entreprise qui n'autorise qu'un port fixe, ou en cas de conflit récurrent
+ * avec un autre outil local). Le changement ne prend effet qu'au prochain
+ * démarrage (le serveur déjà lié ne peut pas migrer de port à chaud).
+ */
+function PortSettings() {
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState<PortInfo | null>(null);
+  const [saving, setSaving] = useState<number | "auto" | null>(null);
+  const [savedPort, setSavedPort] = useState<number | null | undefined>(undefined);
+  const [portErr, setPortErr] = useState<string | null>(null);
+
+  const load = () => {
+    fetch("/__ports__")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: PortInfo | null) => setInfo(j))
+      .catch(() => setInfo(null));
+  };
+
+  useEffect(() => {
+    if (open && !info) load();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const choose = async (port: number | null) => {
+    setPortErr(null);
+    setSaving(port ?? "auto");
+    try {
+      const r = await fetch("/__ports__/set", {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ port }),
+      });
+      const j = await r.json();
+      if (j?.ok) {
+        setSavedPort(j.port ?? null);
+        load();
+      } else {
+        setPortErr("Ce port est déjà utilisé par un autre programme — choisissez-en un autre.");
+      }
+    } catch {
+      setPortErr("Impossible d'enregistrer ce réglage pour le moment.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const restartNow = async () => {
+    await fetch("/__update__/restart", {
+      method: "POST",
+      headers: { "X-Elium-Token": eliumToken() },
+    }).catch(() => {});
+  };
+
+  return (
+    <details className="vm__adv" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="vm__adv-summary">Serveur local (avancé)</summary>
+      <div className="vm__adv-body">
+        {!info ? (
+          <p className="vm__empty">Recherche des ports disponibles…</p>
+        ) : (
+          <>
+            <p className="vm__lede vm__adv-lede">
+              Elium sert son interface sur <strong>127.0.0.1:{info.current}</strong> (jamais accessible depuis le
+              réseau). {info.fallbackUsed && "Le port que vous aviez choisi était occupé au démarrage : "}
+              {info.configured == null
+                ? "Choisi automatiquement à chaque lancement."
+                : info.fallbackUsed
+                  ? `un autre a été utilisé cette fois-ci (préférence ${info.configured} conservée).`
+                  : `Épinglé sur ${info.configured}.`}
+            </p>
+            <div className="vm__ports">
+              {info.ports.map(({ port, free }) => {
+                const isChosen = info.configured === port;
+                return (
+                  <button
+                    key={port}
+                    type="button"
+                    className={
+                      "vm__port" + (isChosen ? " is-chosen" : "") + (free ? "" : " is-busy")
+                    }
+                    disabled={!free || saving !== null || isChosen}
+                    title={free ? `Utiliser le port ${port}` : `${port} déjà utilisé par un autre programme`}
+                    onClick={() => void choose(port)}
+                  >
+                    {port}
+                    {isChosen && <span className="vm__port-tag">actuel</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="vm__adv-actions">
+              <button
+                type="button"
+                className="eb eb--ghost eb--sm"
+                disabled={info.configured == null || saving !== null}
+                onClick={() => void choose(null)}
+              >
+                Revenir à l'automatique
+              </button>
+            </div>
+            {portErr && <p className="vm__err">{portErr}</p>}
+            {savedPort !== undefined && (
+              <p className="vm__adv-notice">
+                Préférence enregistrée{savedPort ? ` (${savedPort})` : " (automatique)"} — effective au prochain
+                démarrage.{" "}
+                <button type="button" className="eb eb--primary eb--sm" onClick={() => void restartNow()}>
+                  Redémarrer maintenant
+                </button>
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </details>
   );
 }

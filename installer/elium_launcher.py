@@ -359,6 +359,34 @@ def _resolve_serving_dir(refresh: bool) -> Path:
 _browser_proc: "subprocess.Popen | None" = None
 _fallback_event: "threading.Event | None" = None
 _restart_requested = False
+_port_fallback_used = False
+
+
+# --------------------------------------------------------------------------- #
+# Limite de débit sur les routes d'état — défense en profondeur EN PLUS du
+# jeton anti-CSRF : même une origine légitime (donc déjà en possession du
+# jeton) ne doit pas pouvoir déclencher un redémarrage/rollback en boucle
+# (bug côté front, script compromis après coup, etc.). Fenêtre glissante
+# simple : c'est un process mono-utilisateur, pas la peine d'un vrai
+# algorithme de seau à jetons distribué.
+# --------------------------------------------------------------------------- #
+_RATE_LIMIT_WINDOW_S = 10.0
+_RATE_LIMIT_MAX_CALLS = 6
+_rate_limit_hits: "list[float]" = []
+_rate_limit_lock = threading.Lock()
+
+
+def _rate_limited() -> bool:
+    import time as _time
+
+    now = _time.monotonic()
+    with _rate_limit_lock:
+        while _rate_limit_hits and now - _rate_limit_hits[0] > _RATE_LIMIT_WINDOW_S:
+            _rate_limit_hits.pop(0)
+        if len(_rate_limit_hits) >= _RATE_LIMIT_MAX_CALLS:
+            return True
+        _rate_limit_hits.append(now)
+        return False
 
 
 def _request_restart() -> bool:
@@ -387,6 +415,88 @@ def find_free_port(start: int = 3000, end: int = 3100) -> int:
             except OSError:
                 continue
     raise RuntimeError(f"Aucun port libre trouvé entre {start} et {end}")
+
+
+def _is_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+# --------------------------------------------------------------------------- #
+# Port du serveur local : configurable (visible + sélectionnable dans l'appli).
+#
+# Par défaut, un port libre est choisi automatiquement dans PORT_RANGE (comme
+# avant). L'utilisateur peut épingler un port précis (ex. si un pare-feu
+# d'entreprise n'autorise qu'un port fixe, ou pour éviter un conflit récurrent
+# avec un autre outil local) — persisté dans un petit fichier de config, pris
+# en compte au PROCHAIN démarrage (le serveur HTTP déjà lié ne peut pas migrer
+# de port à chaud sans interrompre la session en cours).
+# --------------------------------------------------------------------------- #
+PORT_RANGE = (3000, 3100)
+
+
+def _config_path() -> Path:
+    base = Path(os.environ.get("LocalAppData") or Path.home()) / "Elium"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "launcher-config.json"
+
+
+def _load_launcher_config() -> dict:
+    try:
+        return json.loads(_config_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_launcher_config(cfg: dict) -> None:
+    try:
+        _config_path().write_text(json.dumps(cfg), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _configured_port() -> "int | None":
+    port = _load_launcher_config().get("port")
+    return port if isinstance(port, int) and 1024 <= port <= 65535 else None
+
+
+def resolve_port() -> tuple[int, bool]:
+    """Port à utiliser pour ce lancement + indicateur « repli utilisé » (le port
+    choisi par l'utilisateur était occupé, un autre a été pris à la place)."""
+    chosen = _configured_port()
+    if chosen is not None:
+        if _is_port_free(chosen):
+            return chosen, False
+        _log_launcher(f"port configuré {chosen} occupé — repli automatique")
+        return find_free_port(*PORT_RANGE), True
+    return find_free_port(*PORT_RANGE), False
+
+
+def scan_ports(count: int = 12) -> list[dict]:
+    """Renvoie la disponibilité des `count` premiers ports de PORT_RANGE, plus le
+    port actuellement configuré s'il est en dehors de cette fenêtre (pour ne
+    jamais le faire disparaître silencieusement de l'écran de sélection)."""
+    start, end = PORT_RANGE
+    ports = list(range(start, min(start + count, end)))
+    configured = _configured_port()
+    if configured is not None and configured not in ports:
+        ports.append(configured)
+    return [{"port": p, "free": _is_port_free(p)} for p in sorted(set(ports))]
+
+
+def _log_launcher(message: str) -> None:
+    """Best-effort : réutilise le même fichier/format que le journal de l'updater
+    quand disponible, pour n'avoir qu'UN SEUL journal à consulter (support)."""
+    if updater is not None:
+        try:
+            updater._log(message)  # noqa: SLF001 — même processus, même fichier de log
+            return
+        except Exception:
+            pass
 
 
 def get_web_dir() -> Path:
@@ -503,6 +613,16 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     pass
             self._serve_bytes(json.dumps({"releases": releases}).encode("utf-8"), "application/json; charset=utf-8")
             return
+        if clean == "/__ports__":
+            port = self.server.server_address[1]
+            info = {
+                "current": port,
+                "configured": _configured_port(),
+                "fallbackUsed": _port_fallback_used,
+                "ports": scan_ports(),
+            }
+            self._serve_bytes(json.dumps(info).encode("utf-8"), "application/json; charset=utf-8")
+            return
 
         # Résout le dossier web à servir. Sur une navigation (index / route SPA), on
         # (re)fixe le dossier courant — un simple reload applique ainsi une màj web
@@ -544,7 +664,13 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         ):
             self.send_error(403, "Requête non autorisée (jeton de session ou origine invalide)")
             return
+        if _rate_limited():
+            self.send_error(429, "Trop de requêtes — patientez quelques secondes")
+            return
         clean = self.path.split("?", 1)[0]
+        if clean == "/__ports__/set":
+            self._handle_set_port()
+            return
         if clean == "/__update__/start":
             status = {"state": "idle"}
             if updater is not None:
@@ -605,6 +731,45 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
+    def _handle_set_port(self) -> None:
+        """Épingle un port pour les PROCHAINS lancements (le serveur déjà lié sur
+        CE process ne peut pas migrer à chaud sans couper la session en cours)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            payload = json.loads(body or b"{}")
+        except Exception:
+            payload = {}
+        raw_port = payload.get("port")
+        # `None`/absent = « revenir à l'automatique » (efface la préférence).
+        if raw_port is None:
+            cfg = _load_launcher_config()
+            cfg.pop("port", None)
+            _save_launcher_config(cfg)
+            self._serve_bytes(json.dumps({"ok": True, "port": None}).encode("utf-8"),
+                              "application/json; charset=utf-8")
+            return
+        try:
+            wanted = int(raw_port)
+        except (TypeError, ValueError):
+            self.send_error(400, "Port invalide")
+            return
+        if not (1024 <= wanted <= 65535):
+            self.send_error(400, "Le port doit être compris entre 1024 et 65535")
+            return
+        if not _is_port_free(wanted):
+            self._serve_bytes(
+                json.dumps({"ok": False, "error": "port-busy"}).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+        cfg = _load_launcher_config()
+        cfg["port"] = wanted
+        _save_launcher_config(cfg)
+        _log_launcher(f"port préféré enregistré : {wanted} (effectif au prochain démarrage)")
+        self._serve_bytes(json.dumps({"ok": True, "port": wanted}).encode("utf-8"),
+                          "application/json; charset=utf-8")
+
     def _serve_update_status(self) -> None:
         status = {"state": "idle", "version": None}
         if updater is not None:
@@ -645,7 +810,8 @@ def main():
             pass
 
     web_dir = current_web_dir()
-    port = find_free_port()
+    global _port_fallback_used
+    port, _port_fallback_used = resolve_port()
     url = f"http://127.0.0.1:{port}/"
 
     # Fichier .elium passé en argument (double-clic dans l'Explorateur).
@@ -664,6 +830,7 @@ def main():
     if updater is not None:
         try:
             updater.start_background_check()
+            updater.start_periodic_check()
         except Exception:
             pass
 
@@ -706,10 +873,22 @@ def main():
 
 
 def _maybe_relaunch() -> None:
-    """Après fermeture de la fenêtre : relance le nouvel exe si un redémarrage a été demandé."""
-    if _restart_requested and updater is not None:
+    """Après fermeture de la fenêtre : si un redémarrage a été demandé, relance
+    soit le nouvel exe en attente (màj), soit — s'il n'y en a pas (ex. juste un
+    changement de port) — l'exe COURANT, pour que « Redémarrer » fonctionne dans
+    les deux cas avec un seul et même bouton côté interface."""
+    if not _restart_requested:
+        return
+    relaunched = False
+    if updater is not None:
         try:
-            updater.relaunch_pending_exe()
+            relaunched = updater.relaunch_pending_exe()
+        except Exception:
+            relaunched = False
+    if not relaunched and getattr(sys, "frozen", False):
+        try:
+            _log_launcher(f"relaunch: redémarrage simple de {Path(sys.executable).name}")
+            subprocess.Popen([sys.executable, *sys.argv[1:]])  # noqa: S603
         except Exception:
             pass
 

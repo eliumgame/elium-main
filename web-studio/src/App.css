@@ -1019,6 +1019,95 @@
 .vm__progress {
   padding: 14px 4px;
 }
+.vm__adv {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.vm__adv-summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vm__adv-summary::-webkit-details-marker {
+  display: none;
+}
+.vm__adv-summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.vm__adv[open] > .vm__adv-summary::before {
+  transform: rotate(90deg);
+}
+.vm__adv-summary:hover {
+  color: var(--text);
+}
+.vm__adv-body {
+  margin-top: 10px;
+}
+.vm__adv-lede {
+  margin: 0 0 10px;
+}
+.vm__ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vm__port {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.vm__port:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+.vm__port:disabled {
+  cursor: default;
+}
+.vm__port.is-busy {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.vm__port.is-chosen {
+  border-color: var(--primary);
+  background: var(--primary-50);
+  color: var(--primary);
+  font-weight: 700;
+}
+.vm__port-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.vm__adv-actions {
+  margin-top: 10px;
+}
+.vm__adv-notice {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 /* ======================================================================
    STUDIO LAYOUT

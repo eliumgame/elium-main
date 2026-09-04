@@ -44,6 +44,12 @@
     <Icon Id="elium.ico" SourceFile="..\brand\elium.ico" />
     <Property Id="ARPPRODUCTICON" Value="elium.ico" />
     <Property Id="ARPURLINFOABOUT" Value="$(var.AppUrl)" />
+    <!-- Fiche complète dans « Applications installées » (Windows 10/11) : ce que
+         beaucoup d'installeurs laissent vide, réduisant l'entrée à un nom nu. -->
+    <Property Id="ARPCOMMENTS"
+              Value="Suite bureautique locale-first : documents, tableur, présentations, PDF et signature électronique — chiffrés et scellés au format .elium. Aucune donnée envoyée en ligne sans action explicite." />
+    <Property Id="ARPHELPLINK" Value="$(var.AppUrl)#readme" />
+    <Property Id="ARPURLUPDATEINFO" Value="$(var.AppUrl)/releases" />
     <!-- ARPNOMODIFY est deja fourni par WixUI_InstallDir. -->
 
     <!-- Assistant graphique : Bienvenue -> Licence -> Dossier -> Installer -> Fin. -->
@@ -107,7 +113,7 @@
     </Directory>
 
     <Feature Id="Complete" Title="Elium" Level="1" AllowAdvertise="no" Display="expand"
-             Description="Application Elium complète.">
+             Description="Elium complet : Documents, Tableur, Présentations, PDF et Parapheur électronique dans une seule application autonome, avec les raccourcis Menu Démarrer/Bureau et l'association du format .elium.">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="BrandIcon" />
     </Feature>

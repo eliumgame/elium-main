@@ -308,9 +308,7 @@ function PortSettings() {
                   <button
                     key={port}
                     type="button"
-                    className={
-                      "vm__port" + (isChosen ? " is-chosen" : "") + (free ? "" : " is-busy")
-                    }
+                    className={"vm__port" + (isChosen ? " is-chosen" : "") + (free ? "" : " is-busy")}
                     disabled={!free || saving !== null || isChosen}
                     title={free ? `Utiliser le port ${port}` : `${port} déjà utilisé par un autre programme`}
                     onClick={() => void choose(port)}

@@ -305,6 +305,22 @@ def _resolve_latest_asset_urls() -> Optional[tuple[str, str]]:
     return manifest_url, sig_url
 
 
+# Nombre de tentatives + délai entre elles pour une vérification de manifeste.
+# Justification : même avec `_resolve_latest_asset_urls` (résolution atomique),
+# une fenêtre de quelques centaines de ms subsiste entre l'appel API et les DEUX
+# téléchargements qui suivent — un CDN dont tous les points de présence n'ont pas
+# encore convergé après une publication très récente peut encore, rarement,
+# livrer manifeste et signature legèrement désynchronisés. observé en usage réel
+# (update.log) : des rejets "SIGNATURE INVALIDE" groupés sur de courtes fenêtres
+# plutôt qu'isolés — cohérent avec une republication rapprochée (ex. plusieurs
+# versions coup sur coup), pas avec une vraie tentative de falsification. Un
+# nouvel essai quelques centaines de ms plus tard (nouvelle résolution + nouveau
+# téléchargement) suffit à converger, sans jamais assouplir la vérification
+# elle-même : chaque tentative est vérifiée avec la même rigueur.
+_MANIFEST_FETCH_ATTEMPTS = 3
+_MANIFEST_FETCH_BACKOFF_S = 0.7
+
+
 def fetch_manifest() -> Optional[dict[str, Any]]:
     """Télécharge latest.json + latest.json.sig, vérifie la signature, renvoie le dict.
 
@@ -314,32 +330,45 @@ def fetch_manifest() -> Optional[dict[str, Any]]:
     court-circuite cette résolution et télécharge directement l'URL donnée
     + `.sig`, comme avant — ce chemin n'a pas la course puisqu'il désigne déjà
     une paire de fichiers fixe.
+
+    Réessaie en interne (silencieusement, seul l'échec final est journalisé)
+    en cas d'échec réseau OU de signature invalide — voir `_MANIFEST_FETCH_ATTEMPTS`.
     """
     override = os.environ.get("ELIUM_UPDATE_MANIFEST_URL")
-    try:
-        if override:
-            manifest_url, sig_url = override, override + ".sig"
-        else:
-            resolved = _resolve_latest_asset_urls()
-            if not resolved:
-                return None
-            manifest_url, sig_url = resolved
-        raw = _http_get(manifest_url, _MAX_MANIFEST_BYTES)
-        sig_hex = _http_get(sig_url, _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
-    except Exception as exc:
-        _log(f"fetch_manifest: échec réseau ({exc})")
-        return None
+    last_error: Optional[str] = None
+    for attempt in range(1, _MANIFEST_FETCH_ATTEMPTS + 1):
+        try:
+            if override:
+                manifest_url, sig_url = override, override + ".sig"
+            else:
+                resolved = _resolve_latest_asset_urls()
+                if not resolved:
+                    return None  # déjà journalisé par _resolve_latest_asset_urls
+                manifest_url, sig_url = resolved
+            raw = _http_get(manifest_url, _MAX_MANIFEST_BYTES)
+            sig_hex = _http_get(sig_url, _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
+        except Exception as exc:
+            last_error = f"échec réseau ({exc})"
+            if attempt < _MANIFEST_FETCH_ATTEMPTS:
+                time.sleep(_MANIFEST_FETCH_BACKOFF_S * attempt)
+                continue
+            _log(f"fetch_manifest: {last_error}")
+            return None
 
-    if not _verify_signature(raw, sig_hex):
-        _log("fetch_manifest: SIGNATURE INVALIDE — manifeste rejeté")
-        return None
+        if not _verify_signature(raw, sig_hex):
+            last_error = "SIGNATURE INVALIDE — manifeste rejeté"
+            if attempt < _MANIFEST_FETCH_ATTEMPTS:
+                time.sleep(_MANIFEST_FETCH_BACKOFF_S * attempt)
+                continue
+            _log(f"fetch_manifest: {last_error} (après {attempt} tentatives)")
+            return None
 
-    try:
-        manifest = json.loads(raw)
-    except Exception as exc:
-        _log(f"fetch_manifest: JSON invalide ({exc})")
-        return None
-    return manifest
+        try:
+            return json.loads(raw)
+        except Exception as exc:
+            _log(f"fetch_manifest: JSON invalide ({exc})")
+            return None
+    return None  # inatteignable (la boucle renvoie ou journalise+renvoie à chaque tour)
 
 
 def check_for_update() -> Optional[dict[str, Any]]:
@@ -808,6 +837,40 @@ def start_background_check() -> None:
     except Exception:
         pass
     threading.Thread(target=check_only, daemon=True).start()
+
+
+# Avant ce correctif, la SEULE revérification passé le lancement était celle,
+# THROTTLÉE à 30s, déclenchée par une navigation dans l'app (`on_navigation`) —
+# une session ouverte plusieurs jours sans jamais recharger de page pouvait donc
+# ne JAMAIS revoir la vérification initiale si elle avait échoué (ou simplement
+# rater une publication récente pendant des jours). Un vrai minuteur périodique,
+# indépendant de l'usage de l'app, corrige les deux.
+_PERIODIC_CHECK_INTERVAL_S = 30 * 60  # 30 min : largement sous la limite API GitHub non authentifiée (60/h)
+_periodic_check_started = False
+
+
+def start_periodic_check(interval_s: float = _PERIODIC_CHECK_INTERVAL_S) -> None:
+    """Revérifie automatiquement toutes les `interval_s` secondes, tant que le
+    process tourne. Idempotent (un seul minuteur actif, même appelé plusieurs fois)."""
+    global _periodic_check_started
+    if _periodic_check_started:
+        return
+    _periodic_check_started = True
+
+    def _loop() -> None:
+        while True:
+            time.sleep(interval_s)
+            # N'écrase jamais un téléchargement en cours ni une màj déjà prête :
+            # check_only() lui-même ne fait que détecter, mais évite le bruit
+            # inutile si l'utilisateur est déjà en train d'appliquer une màj.
+            if _status.get("state") in ("downloading", "web-ready", "exe-ready"):
+                continue
+            try:
+                check_only()
+            except Exception:
+                pass
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 # --------------------------------------------------------------------------- #

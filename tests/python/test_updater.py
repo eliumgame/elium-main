@@ -300,17 +300,19 @@ def test_download_verified_does_not_retry_oversized_artifact(env, monkeypatch, t
     assert calls["n"] == 1
 
 
-def test_invalid_signature_never_triggers_retry(env, monkeypatch):
-    """Piège explicite de la consigne : un échec de vérification de signature
-    doit rester un rejet immédiat et définitif, jamais retenté — à l'opposé
-    d'un échec réseau transitoire. Preuve par comptage : lors d'une résolution
-    complète (fetch_manifest) avec une signature corrompue, chaque URL n'est
-    interrogée qu'UNE seule fois (aucune boucle de retry déclenchée)."""
+def test_persistently_invalid_signature_is_always_rejected(env, monkeypatch):
+    """Garantie de sécurité NON négociable : une signature qui reste invalide
+    sur TOUTES les tentatives (falsification réelle, pas une désynchronisation
+    CDN passagère) est rejetée — jamais acceptée, quel que soit le nombre de
+    tentatives. Preuve par comptage : exactement _MANIFEST_FETCH_ATTEMPTS
+    passages (chacun re-résolvant + re-vérifiant intégralement, jamais un
+    cache de la vérification précédente qui la contournerait)."""
     priv, pub_hex = _keypair()
     monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    monkeypatch.setattr(updater, "_MANIFEST_FETCH_BACKOFF_S", 0.0)  # test rapide
     release = env / "release"
     manifest_path = _publish(release, priv, "4.1.0")
-    (release / "latest.json.sig").write_text("00" * 64, encoding="utf-8")  # corrompue
+    (release / "latest.json.sig").write_text("00" * 64, encoding="utf-8")  # corrompue, toujours
     monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
 
     real_http_get = updater._http_get
@@ -323,8 +325,47 @@ def test_invalid_signature_never_triggers_retry(env, monkeypatch):
     monkeypatch.setattr(updater, "_http_get", counting)
 
     assert updater.fetch_manifest() is None
-    # latest.json + latest.json.sig : une requête chacun, jamais plus.
-    assert len(calls) == 2
+    # latest.json + latest.json.sig, répétés exactement _MANIFEST_FETCH_ATTEMPTS
+    # fois — jamais plus (pas de boucle infinie), jamais moins (retry effectif).
+    assert len(calls) == 2 * updater._MANIFEST_FETCH_ATTEMPTS
+
+
+def test_transient_signature_mismatch_self_heals_on_retry(env, monkeypatch):
+    """Nouveau comportement : le schéma réellement observé en usage (update.log)
+    n'est pas une falsification mais une désynchronisation passagère — la
+    signature correcte finit par être lue dans les tentatives suivantes (ex.
+    convergence CDN après une publication très récente). `fetch_manifest`
+    doit alors réussir DANS le budget de tentatives, sans jamais avoir accepté
+    la version corrompue au passage (elle a bien été rejetée une première
+    fois, pas ignorée)."""
+    priv, pub_hex = _keypair()
+    monkeypatch.setattr(updater, "UPDATE_PUBLIC_KEY_HEX", pub_hex)
+    monkeypatch.setattr(updater, "_MANIFEST_FETCH_BACKOFF_S", 0.0)  # test rapide
+    release = env / "release"
+    manifest_path = _publish(release, priv, "4.1.0")
+    good_sig = (release / "latest.json.sig").read_text(encoding="utf-8")
+    (release / "latest.json.sig").write_text("00" * 64, encoding="utf-8")  # corrompue au 1er coup
+    monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
+
+    real_http_get = updater._http_get
+    sig_reads = 0
+
+    def flaky(url, max_bytes):
+        nonlocal sig_reads
+        if url.endswith(".sig"):
+            sig_reads += 1
+            if sig_reads == 1:
+                return real_http_get(url, max_bytes)  # la corrompue
+            # "convergence" : la signature correcte est servie à partir d'ici.
+            (release / "latest.json.sig").write_text(good_sig, encoding="utf-8")
+        return real_http_get(url, max_bytes)
+
+    monkeypatch.setattr(updater, "_http_get", flaky)
+
+    manifest = updater.fetch_manifest()
+    assert manifest is not None
+    assert manifest["version"] == "4.1.0"
+    assert sig_reads == 2  # rejetée une fois, acceptée à la 2e — pas la 1re, pas 3+
 
 
 # --------------------------------------------------------------------------- #

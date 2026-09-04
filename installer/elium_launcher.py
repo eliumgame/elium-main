@@ -233,6 +233,25 @@ UPDATE_JS = """
     return fetch(path, { method: 'POST', headers: { 'X-Elium-Token': token } })
       .then(function (r) { return r.json(); }).catch(function () {});
   }
+  // Après un redémarrage exe : l'ancien process meurt puis le nouveau reprend le
+  // même port en general en moins d'une seconde, mais SANS ce sondage la page
+  // reste affichee telle quelle (React ne re-fetch jamais /__version__ tout seul)
+  // -> l'utilisateur voit un panneau "installee : ancienne version" alors que le
+  // nouvel exe tourne deja. On sonde jusqu'a ce qu'il reponde, puis on recharge.
+  function waitForServerThenReload() {
+    var attempts = 0;
+    function tryOnce() {
+      attempts += 1;
+      fetch('/__version__', { cache: 'no-store' })
+        .then(function (r) { if (r.ok) location.reload(); else scheduleRetry(); })
+        .catch(scheduleRetry);
+    }
+    function scheduleRetry() {
+      if (attempts < 40) setTimeout(tryOnce, 500);
+      else location.reload(); // dernier recours : au moins tenter un rechargement
+    }
+    setTimeout(tryOnce, 400); // laisse l'ancien serveur liberer le port
+  }
   function set(icon, t, s) { badge.textContent = icon; title.textContent = t; sub.textContent = s; }
   function syncNotes() {
     more.classList.toggle('open', expanded);
@@ -304,7 +323,10 @@ UPDATE_JS = """
       card.classList.add('ready'); badge.style.display = '';
       set('\\u2705', 'Mise a jour prete !', 'Redemarrez Elium pour terminer');
       btn.textContent = 'Redemarrer Elium'; btn.disabled = false; showBtn = true;
-      btn.onclick = function () { btn.disabled = true; set('\\u2705', 'Redemarrage...', ''); post('/__update__/restart'); };
+      btn.onclick = function () {
+        btn.disabled = true; set('\\u2705', 'Redemarrage...', '');
+        post('/__update__/restart').then(waitForServerThenReload);
+      };
     } else if (s === 'error') {
       card.classList.add('err'); badge.style.display = '';
       set('\\u26A0\\uFE0F', 'Echec de la mise a jour', 'Verifiez votre connexion, puis reessayez');

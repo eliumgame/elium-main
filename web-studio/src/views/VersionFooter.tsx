@@ -49,6 +49,30 @@ function eliumToken(): string {
   return meta?.getAttribute("content") ?? "";
 }
 
+/**
+ * Après un redémarrage exe, l'ancien process meurt puis le nouveau reprend le
+ * même port (généralement en moins d'une seconde) — mais React ne re-fetch
+ * jamais /__version__ tout seul, donc sans ce sondage la page affichée reste
+ * figée sur l'ancienne version alors que le nouvel exe tourne déjà (bug vu en
+ * usage réel : le panneau affichait « installée : v4.4.14 » alors que la
+ * mise à jour vers 4.5.0 avait déjà réussi). On sonde jusqu'à ce que le
+ * nouveau serveur réponde, puis on recharge.
+ */
+function waitForServerThenReload(): void {
+  let attempts = 0;
+  const tryOnce = () => {
+    attempts += 1;
+    fetch("/__version__", { cache: "no-store" })
+      .then((r) => (r.ok ? window.location.reload() : scheduleRetry()))
+      .catch(scheduleRetry);
+  };
+  const scheduleRetry = () => {
+    if (attempts < 40) setTimeout(tryOnce, 500);
+    else window.location.reload();
+  };
+  setTimeout(tryOnce, 400);
+}
+
 export default function VersionFooter() {
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -146,10 +170,17 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
       method: "POST",
       headers: { "X-Elium-Token": eliumToken() },
     }).catch(() => {});
+    waitForServerThenReload();
   };
 
   const ready = status?.state === "web-ready" || status?.state === "exe-ready";
   const downloading = busy && status?.state === "downloading";
+  // `installed` (props) vient du /__version__ chargé une seule fois par VersionFooter
+  // au montage de la page : si une mise à jour exe a réussi entre-temps sans
+  // rechargement de page, il peut être périmé. La liste des versions vient d'un
+  // fetch frais à chaque ouverture du panneau — on la préfère quand elle est là,
+  // pour ne jamais afficher un texte contredisant le badge « installée » ci-dessous.
+  const displayedInstalled = releases?.find((r) => r.installed)?.version ?? installed;
 
   return (
     <div className="vm__overlay" role="dialog" aria-modal="true" onClick={onClose}>
@@ -161,7 +192,7 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
           </button>
         </div>
         <p className="vm__lede">
-          Version installée : <strong>v{installed ?? "?"}</strong>. Vous pouvez revenir à une version publiée
+          Version installée : <strong>v{displayedInstalled ?? "?"}</strong>. Vous pouvez revenir à une version publiée
           antérieure, ou annuler la dernière mise à jour pour revenir à la version d'origine.
         </p>
 

@@ -5,7 +5,7 @@
  * validité CMS, et qu'une altération invalide la signature.
  */
 import { describe, it, expect } from "vitest";
-import { PDFDocument, PDFSignature, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, PDFSignature, StandardFonts } from "pdf-lib";
 import forge from "node-forge";
 import { signPdfBytes, verifyPdfSignatures } from "./ops/pades";
 import { generateSelfSignedP12 } from "./ops/self-cert";
@@ -287,5 +287,153 @@ describe("PAdES-B — réutilisation d'un champ /FT /Sig déjà préparé", () =
     const after = await PDFDocument.load(signed);
     expect(after.getForm().getFields()).toHaveLength(1);
     expect(after.getForm().getField("AutreNom")).toBeInstanceOf(PDFSignature);
+  }, 30000);
+});
+
+/** Comme `makePdfWithPreparedSignatureField`, mais avec plusieurs champs
+ *  préparés d'un coup, tous sur la même page — pour les scénarios de
+ *  désambiguïsation. */
+async function makePdfWithPreparedSignatureFields(
+  fields: { name: string; rect: { x: number; y: number; w: number; h: number } }[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([320, 200]);
+  createFields(
+    { doc, font },
+    fields.map((f, i) => ({ id: `s${i}`, pageId: "p1", name: f.name, kind: "signature" as const, rect: f.rect })),
+    () => ({ page, height: 200 }),
+  );
+  return doc.save({ useObjectStreams: false });
+}
+
+describe("PAdES-B — résolution automatique du champ préparé (fieldName non fourni)", () => {
+  // `PdfWorkspace.tsx` (onP12Pick / signSelfSigned) n'a JAMAIS passé `fieldName`
+  // à `signPdfBytes` — seulement `visible` (+ reason/signerName). Avant le
+  // correctif, `addSignaturePlaceholder` retombait donc toujours sur le nom
+  // figé "Signature1", qui ne correspond quasi jamais au nom choisi par
+  // l'utilisateur lors de la préparation du champ ("signature_1" ici) :
+  // `findExistingSignatureWidget` ne le trouvait pas et un SECOND widget
+  // "Signature1" était créé à côté du champ préparé, qui restait vide.
+  it("relie la signature au champ préparé SANS fieldName explicite (reproduit l'appel réel de PdfWorkspace.tsx)", async () => {
+    const pw = "auto1";
+    const p12 = generateSelfSignedP12("Alice", pw);
+    const preparedRect = { x: 40, y: 40, w: 150, h: 40 };
+    const pdf = await makePdfWithPreparedSignatureFields([{ name: "signature_1", rect: preparedRect }]);
+
+    // Mêmes options que les deux call sites de PdfWorkspace.tsx : reason +
+    // visible (signature dessinée au même endroit que le champ préparé),
+    // JAMAIS fieldName.
+    const signed = await signPdfBytes(pdf, p12, pw, {
+      reason: "Signé avec Elium",
+      signerName: "Alice",
+      visible: { page: 0, rect: preparedRect, imagePng: TINY_PNG },
+    });
+
+    const after = await PDFDocument.load(signed);
+    const fields = after.getForm().getFields();
+    // Un seul champ : pas de "Signature1" créé à côté du champ préparé resté vide.
+    expect(fields).toHaveLength(1);
+    expect(fields[0]!.getName()).toBe("signature_1");
+
+    const res = verifyPdfSignatures(signed);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.valid).toBe(true);
+  }, 30000);
+
+  it("avec plusieurs champs préparés sur la même page, choisit celui dont le rect est le plus proche de la signature visible", async () => {
+    const pw = "auto2";
+    const p12 = generateSelfSignedP12("Bob", pw);
+    const near = { x: 40, y: 40, w: 100, h: 30 };
+    const far = { x: 200, y: 140, w: 100, h: 30 };
+    const pdf = await makePdfWithPreparedSignatureFields([
+      { name: "signature_far", rect: far },
+      { name: "signature_near", rect: near },
+    ]);
+
+    // Signature visible placée à quelques points de "signature_near", loin de "signature_far".
+    const signed = await signPdfBytes(pdf, p12, pw, {
+      visible: { page: 0, rect: { x: 45, y: 42, w: 100, h: 30 }, imagePng: TINY_PNG },
+    });
+
+    const after = await PDFDocument.load(signed);
+    // Toujours 2 champs : aucun 3e widget créé pour porter la signature.
+    expect(after.getForm().getFields()).toHaveLength(2);
+
+    const nearField = after.getForm().getSignature("signature_near");
+    const farField = after.getForm().getSignature("signature_far");
+    // Le champ le plus proche porte la valeur de signature (/V) ...
+    expect(nearField.acroField.dict.get(PDFName.of("V"))).toBeDefined();
+    // ... l'autre reste vide, tel que préparé.
+    expect(farField.acroField.dict.get(PDFName.of("V"))).toBeUndefined();
+
+    const res = verifyPdfSignatures(signed);
+    expect(res).toHaveLength(1);
+    expect(res[0]!.valid).toBe(true);
+  }, 30000);
+
+  it("avec plusieurs champs préparés et aucune signature visible pour désambiguïser, ne devine pas : retombe sur le nom par défaut", async () => {
+    const pw = "auto3";
+    const p12 = generateSelfSignedP12("Carol", pw);
+    const pdf = await makePdfWithPreparedSignatureFields([
+      { name: "signature_a", rect: { x: 10, y: 10, w: 80, h: 20 } },
+      { name: "signature_b", rect: { x: 200, y: 100, w: 80, h: 20 } },
+    ]);
+
+    // Aucun `visible` : rien pour choisir entre les deux champs préparés.
+    const signed = await signPdfBytes(pdf, p12, pw, {});
+
+    const after = await PDFDocument.load(signed);
+    const fields = after.getForm().getFields();
+    // Un 3e widget ("Signature1", le repli par défaut) porte la signature —
+    // plutôt que de deviner lequel des deux champs préparés utiliser.
+    expect(fields).toHaveLength(3);
+    expect(fields.some((f) => f.getName() === "Signature1")).toBe(true);
+    expect(after.getForm().getSignature("signature_a").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
+    expect(after.getForm().getSignature("signature_b").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
+  }, 30000);
+
+  it("un unique champ préparé sur une AUTRE page que la signature visible n'est pas récupéré aveuglément", async () => {
+    // Trouvé par revue adversariale de la 1ère version de ce correctif : le cas
+    // "un seul champ préparé" sautait la vérification de page que le cas
+    // "plusieurs champs" applique pourtant — un champ résiduel d'une session
+    // antérieure, sur une autre page que celle où l'utilisateur signe
+    // réellement aujourd'hui, absorbait silencieusement la signature au
+    // mauvais endroit (signature cryptographiquement valide, mais placée là où
+    // l'utilisateur ne l'a jamais mise). Reproduit ci-dessous, doit désormais
+    // retomber sur le nom par défaut plutôt que d'utiliser ce champ éloigné.
+    const pw = "auto4";
+    const p12 = generateSelfSignedP12("Dave", pw);
+
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([320, 200]); // page 0 : où la signature visible est réellement placée
+    const page1 = doc.addPage([320, 200]);
+    const preparedRect = { x: 40, y: 40, w: 150, h: 40 };
+    createFields(
+      { doc, font },
+      [{ id: "s0", pageId: "p2", name: "signature_page2", kind: "signature", rect: preparedRect }],
+      (id) => (id === "p2" ? { page: page1, height: 200 } : null),
+    );
+    const pdf = await doc.save({ useObjectStreams: false });
+
+    // Signature visible dessinée sur la PREMIÈRE page (index 0), pas celle du
+    // champ préparé (page index 1).
+    const signed = await signPdfBytes(pdf, p12, pw, {
+      visible: { page: 0, rect: { x: 45, y: 42, w: 100, h: 30 }, imagePng: TINY_PNG },
+    });
+
+    const after = await PDFDocument.load(signed);
+    const fields = after.getForm().getFields();
+    // Un 2e widget ("Signature1", le repli par défaut) porte la signature, sur
+    // la page 0 où l'utilisateur a réellement signé — le champ préparé de la
+    // page 1 reste vide, tel quel, plutôt que d'être réutilisé à tort.
+    expect(fields).toHaveLength(2);
+    expect(fields.some((f) => f.getName() === "Signature1")).toBe(true);
+    expect(after.getForm().getSignature("signature_page2").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
+
+    const sigField = after.getForm().getSignature("Signature1");
+    const sigPageRef = sigField.acroField.dict.get(PDFName.of("P"));
+    expect(after.getPages().findIndex((p) => p.ref === sigPageRef)).toBe(0);
   }, 30000);
 });

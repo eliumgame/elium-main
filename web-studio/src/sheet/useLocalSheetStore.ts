@@ -213,7 +213,13 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
       return { ...w, sheets };
     });
   const removeSheet = (i: number) => set((w) => removeSheetPure(w, i) ?? w);
-  const replaceWorkbook = (next: Workbook) => set(() => next);
+  // Whole-document replacement (file import): must clear undo history like
+  // `reset()` on load, not push the prior state via `set()` — otherwise a
+  // single Ctrl+Z right after importing reverts straight back to whatever
+  // was present before (often the blank placeholder of a just-created
+  // sheet), discarding the import. Mirrors replaceDeck() in
+  // useLocalDeckStore.ts, which already uses `reset()` for the same reason.
+  const replaceWorkbook = (next: Workbook) => reset(next);
   const addSheetFromData = (data: SheetData): number => {
     const index = wbRef.current.sheets.length;
     set((w) => ({ ...w, sheets: [...w.sheets, data], active: w.sheets.length }));

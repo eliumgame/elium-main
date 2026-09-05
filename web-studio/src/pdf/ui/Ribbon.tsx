@@ -124,9 +124,22 @@ export const RIBBON_TABS: { id: RibbonTab; label: string }[] = [
   { id: "view", label: "Affichage" },
 ];
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({
+  title,
+  children,
+  optional,
+}: {
+  title: string;
+  children: React.ReactNode;
+  /** Groupe secondaire : masqué en premier quand le ruban manque de place
+   * sur petit écran (`@container editor (max-width: 700px)` dans
+   * workspace.css) plutôt que de laisser le ruban défiler sur plusieurs
+   * écrans de large. Réservé aux fonctionnalités avancées/peu fréquentes —
+   * jamais aux groupes de base utilisés en continu. */
+  optional?: boolean;
+}) {
   return (
-    <div className="pdfx-group">
+    <div className={`pdfx-group${optional ? " pdfx-group--optional" : ""}`}>
       <div className="pdfx-group__items">{children}</div>
       <div className="pdfx-group__title">{title}</div>
     </div>
@@ -360,7 +373,7 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Cloud size={17} />} onClick={T("cloud")} active={p.tool === "cloud"} title="Nuage" />
               <Cmd icon={<Eraser size={17} />} onClick={T("eraser")} active={p.tool === "eraser"} title="Gomme" />
             </Group>
-            <Group title="Révision">
+            <Group title="Révision" optional>
               <Cmd
                 icon={<FileDown size={17} />}
                 onClick={C("exportComments")}
@@ -413,7 +426,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Créer un lien"
               />
             </Group>
-            <Group title="Marques">
+            <Group title="Marques" optional>
               <Cmd icon={<Droplet size={17} />} onClick={C("watermark")} label="Filigrane" />
               <Cmd icon={<PanelTop size={17} />} onClick={C("headerFooter")} label="En-tête / pied" />
               <Cmd icon={<Hash size={17} />} onClick={C("bates")} label="Numérotation" />
@@ -455,13 +468,13 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<FileText size={17} />} onClick={C("insertFile")} label="Depuis un PDF" />
               <Cmd icon={<FileImage size={17} />} onClick={C("insertImage")} label="Depuis une image" />
             </Group>
-            <Group title="Géométrie">
+            <Group title="Géométrie" optional>
               <Cmd icon={<Crop size={17} />} onClick={C("crop")} label="Recadrer" />
               <Cmd icon={<Move size={17} />} onClick={C("resize")} label="Redimensionner" />
               <Cmd icon={<ArrowRight size={17} />} onClick={C("reverse")} label="Inverser l'ordre" />
               <Cmd icon={<Hash size={17} />} onClick={C("pageLabels")} label="Étiquettes" />
             </Group>
-            <Group title="Extraction">
+            <Group title="Extraction" optional>
               <Cmd icon={<Scissors size={17} />} onClick={C("extract")} label="Extraire" />
               <Cmd icon={<Combine size={17} />} onClick={C("merge")} label="Fusionner" />
               <Cmd icon={<FileOutput size={17} />} onClick={C("split")} label="Diviser" />
@@ -516,7 +529,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Détecter automatiquement les champs"
               />
             </Group>
-            <Group title="Données">
+            <Group title="Données" optional>
               <Cmd icon={<FileDown size={17} />} onClick={C("exportFormData")} label="Exporter" />
               <Cmd icon={<FileOutput size={17} />} onClick={C("importFormData")} label="Importer" />
               <Cmd icon={<FileSpreadsheet size={17} />} onClick={C("exportFormCsv")} label="CSV" />
@@ -557,7 +570,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Vérifier les signatures électroniques du document"
               />
             </Group>
-            <Group title="Caviardage">
+            <Group title="Caviardage" optional>
               <Cmd
                 big
                 icon={<BoxSelect size={19} />}
@@ -580,7 +593,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Supprimer définitivement le contenu marqué"
               />
             </Group>
-            <Group title="Nettoyage">
+            <Group title="Nettoyage" optional>
               <Cmd
                 icon={<Eraser size={17} />}
                 onClick={C("sanitise")}
@@ -611,7 +624,7 @@ export default function Ribbon(p: RibbonProps) {
               />
               <Cmd icon={<FileOutput size={17} />} onClick={C("exportHtml")} label="HTML" />
             </Group>
-            <Group title="Reconnaissance">
+            <Group title="Reconnaissance" optional>
               <Cmd
                 big
                 icon={<ScanText size={19} />}
@@ -620,7 +633,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Rendre un document scanné cherchable"
               />
             </Group>
-            <Group title="Comparer et alléger">
+            <Group title="Comparer et alléger" optional>
               <Cmd icon={<GitCompareArrows size={17} />} onClick={C("compare")} label="Comparer" />
               <Cmd icon={<FileDown size={17} />} onClick={C("optimise")} label="Optimiser" />
             </Group>
@@ -641,7 +654,7 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Grid2x2 size={17} />} onClick={C("viewFacing")} label="Double page" />
               <Cmd icon={<RotateCw size={17} />} onClick={C("rotateView")} label="Pivoter la vue" />
             </Group>
-            <Group title="Confort">
+            <Group title="Confort" optional>
               <Cmd
                 icon={<Sun size={17} />}
                 onClick={C("theme")}
@@ -652,7 +665,7 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Layers size={17} />} onClick={C("panelLayers")} label="Calques" />
               <Cmd icon={<Volume2 size={17} />} onClick={C("readAloud")} label="Lire à voix haute" />
             </Group>
-            <Group title="Mesures">
+            <Group title="Mesures" optional>
               <Cmd icon={<Ruler size={17} />} onClick={T("distance")} active={p.tool === "distance"} label="Distance" />
               <Cmd
                 icon={<Spline size={17} />}

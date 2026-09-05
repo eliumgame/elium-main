@@ -9,6 +9,23 @@
 
 /* Le langage partagé est chargé globalement depuis main.tsx. */
 
+/* --- conteneur : ruban qui se replie sur SA place, pas sur la fenêtre ----- */
+/* `.pdfx` (racine posée par PdfWorkspace.tsx) doit nommer un conteneur
+   "editor" pour que les règles `@container editor (...)` de workspace.css
+   (masquer les titres de groupe à 900px, les groupes secondaires à 700px,
+   compacter en hauteur à 520px) s'activent ici aussi — seul `.editor-shell`
+   (Documents) le déclarait jusqu'ici, donc le ruban PDF ne se compactait
+   jamais sur petit écran/fenêtre basse, restait figé à défiler
+   horizontalement même une fois des groupes marqués `pdfx-group--optional`.
+   Même nom de conteneur que `.editor-shell`/`.sheet-app`, mais déclaré ici
+   (et non dans workspace.css) car `.pdfx` y sert aussi de sélecteur combiné
+   avec `:root` et `.elx` pour la palette de jetons — un conteneur nommé sur
+   `:root` risquerait de fausser les `@container` d'autres surfaces. */
+.pdfx {
+  container-type: size;
+  container-name: editor;
+}
+
 /* --- vignettes ----------------------------------------------------------- */
 
 .pdfx-thumbs {

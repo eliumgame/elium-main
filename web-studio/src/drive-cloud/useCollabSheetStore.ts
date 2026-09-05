@@ -17,7 +17,15 @@ import { sortRange as sortRangePure, fillRange as fillRangePure, type Rect } fro
 import { renameSheetRefs } from "../sheet/formula";
 import { colorForId } from "./presence-colors";
 import type { DriveApi } from "./api";
-import type { CellStyle, CondRule, DataValidation, ChartSpec, SheetData, Workbook } from "../sheet/model";
+import {
+  computeViewportSheetSize,
+  type CellStyle,
+  type CondRule,
+  type DataValidation,
+  type ChartSpec,
+  type SheetData,
+  type Workbook,
+} from "../sheet/model";
 import type { SheetStore, SheetStatus, SheetPeer } from "../sheet/store";
 
 const STATUS_MAP: Record<CollabStatus, SheetStatus> = {
@@ -81,7 +89,15 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     yNames.observe(obs);
     provider.connect().then(() => {
       if (!alive) return;
-      if (ySheets.length === 0) ydoc.transact(() => ySheets.push([SM.newYSheet("Feuille 1")]));
+      // Dimensionne la toute première feuille d'un classeur Drive neuf à l'écran
+      // (voir computeViewportSheetSize) : sans ça, ce chemin retombait sur les
+      // 8×20 par défaut de newYSheet, rouvrant côté collaboratif le même bug
+      // que celui déjà corrigé pour le Tableur local (feuille neuve visiblement
+      // trop petite sur un grand écran).
+      if (ySheets.length === 0) {
+        const { cols, rows } = computeViewportSheetSize();
+        ydoc.transact(() => ySheets.push([SM.newYSheet("Feuille 1", rows, cols)]));
+      }
       // Passe d'ouverture (droit d'écriture requis) : convertit les cellules
       // héritées en Y.Text ET crée les sous-structures manquantes sur les
       // documents antérieurs au modèle plein. Idempotent.
@@ -267,7 +283,13 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
   // ── Feuilles ──────────────────────────────────────────────────────────────
   const setActive = (i: number) => setActiveState(i);
   const addSheet = (name?: string) => {
-    ydoc.transact(() => ySheets.push([SM.newYSheet((name ?? "").trim() || `Feuille ${ySheets.length + 1}`)]));
+    // Même raisonnement que la toute première feuille (voir plus haut) : une
+    // feuille ajoutée via le « + » d'onglet doit aussi remplir l'écran, pas
+    // rester à 8×20 par défaut.
+    const { cols, rows } = computeViewportSheetSize();
+    ydoc.transact(() =>
+      ySheets.push([SM.newYSheet((name ?? "").trim() || `Feuille ${ySheets.length + 1}`, rows, cols)]),
+    );
     setActiveState(ySheets.length - 1);
   };
   const renameSheet = (i: number, name: string) => {

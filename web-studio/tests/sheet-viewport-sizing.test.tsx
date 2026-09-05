@@ -4,7 +4,10 @@
  * IndexedDB) doit être dimensionné à la taille de l'écran plutôt qu'au défaut
  * fixe historique (8 colonnes × 20 lignes) : sur un grand écran, ce défaut
  * fixe laissait un vide sans rapport avec l'espace disponible sous la grille
- * (voir computeInitialWorkbook dans useLocalSheetStore.ts).
+ * (voir computeViewportSheetSize dans src/sheet/model.ts, consommée par
+ * useLocalSheetStore.ts::computeInitialWorkbook ET, pour le Tableur
+ * collaboratif Drive, par useCollabSheetStore.ts — le même bug existait des
+ * deux côtés, retrouvé en revérifiant après le correctif local).
  *
  * growSheet() est testé séparément : il manquait entièrement du store local
  * (présent seulement côté Tableur collaboratif, useCollabSheetStore.ts), ce
@@ -22,7 +25,9 @@ vi.mock("../src/sheet/sheet-store", () => ({
 }));
 
 import { useLocalSheetStore } from "../src/sheet/useLocalSheetStore";
-import { emptyWorkbook } from "../src/sheet/model";
+import { emptyWorkbook, computeViewportSheetSize } from "../src/sheet/model";
+import * as Y from "yjs";
+import * as SM from "../src/drive-cloud/collab-sheet-model";
 
 function setViewport(width: number, height: number): void {
   Object.defineProperty(window, "innerWidth", { value: width, writable: true, configurable: true });
@@ -97,6 +102,52 @@ describe("useLocalSheetStore — dimensionnement initial à l'écran", () => {
     await waitFor(() => expect(result.current.wb.sheets[0]!.cells.A1).toBe("vraies données"));
     // La taille réelle du classeur sauvegardé prime toujours sur l'écran courant.
     expect(result.current.wb.sheets[0]!.cols).toBe(3);
+  });
+});
+
+describe("computeViewportSheetSize (src/sheet/model.ts) — contrat partagé local/collaboratif", () => {
+  it("calcule directement les mêmes valeurs que celles vérifiées via le store local", () => {
+    setViewport(2000, 1200);
+    expect(computeViewportSheetSize()).toEqual({ cols: 20, rows: 33 });
+    setViewport(5000, 4000);
+    expect(computeViewportSheetSize()).toEqual({ cols: 40, rows: 100 });
+    setViewport(800, 600);
+    expect(computeViewportSheetSize()).toEqual({ cols: 8, rows: 20 });
+  });
+
+  it("composée avec SM.newYSheet (comme le fait useCollabSheetStore), dimensionne la feuille Drive à l'écran", () => {
+    // Reproduit exactement le câblage de useCollabSheetStore.ts (première
+    // feuille d'un classeur Drive neuf ET ajout d'une feuille via le « + »
+    // d'onglet) sans monter le hook React (voir la convention documentée dans
+    // collab-sheet-replace-workbook-undo.test.ts : pas besoin de faker
+    // EncryptedYjsProvider pour cette seule composition).
+    setViewport(2000, 1200);
+    const ydoc = new Y.Doc();
+    const ySheets = ydoc.getArray<SM.YSheet>("sheets") as SM.YSheets;
+    const yNames = ydoc.getMap<string>("names");
+
+    const { cols, rows } = computeViewportSheetSize();
+    ydoc.transact(() => ySheets.push([SM.newYSheet("Feuille 1", rows, cols)]));
+
+    const sheet = SM.workbookSnapshot(ySheets, yNames, 0).sheets[0]!;
+    expect(sheet.cols).toBe(20);
+    expect(sheet.rows).toBe(33);
+  });
+});
+
+describe("useLocalSheetStore — addSheet dimensionne aussi la nouvelle feuille à l'écran", () => {
+  it("une feuille ajoutée via le « + » d'onglet remplit l'écran, pas 8×20 par défaut", () => {
+    setViewport(2000, 1200);
+    const placeholder = emptyWorkbook();
+    const { result } = renderHook(() => useLocalSheetStore(placeholder));
+
+    act(() => {
+      result.current.addSheet();
+    });
+
+    const added = result.current.wb.sheets[1]!;
+    expect(added.cols).toBe(20);
+    expect(added.rows).toBe(33);
   });
 });
 

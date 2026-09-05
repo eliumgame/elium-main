@@ -147,6 +147,45 @@ export function emptySheet(name: string): SheetData {
   return { name, rows: 20, cols: 8, cells: {} };
 }
 
+// Géométrie de rendu de la grille (SheetEditor.tsx) : vit ici, pas dans ce
+// composant, pour être réutilisable sans dépendance à React depuis un simple
+// calcul de taille par défaut (voir `computeViewportSheetSize` ci-dessous),
+// consommé aussi bien par le Tableur local que par le Tableur collaboratif
+// (useCollabSheetStore.ts). Les valeurs doivent rester synchronisées avec le
+// CSS (`.sheet-grid thead th`, `.sheet-grid td`, etc. dans App.css).
+export const ROWHEAD_W = 44; // largeur de la colonne des numéros de ligne (px)
+export const HEADER_H = 28; // hauteur de la ligne d'en-tête des colonnes (doit correspondre au CSS)
+export const ROW_H = 28; // hauteur d'une ligne de données (doit correspondre au CSS)
+export const DEFAULT_COL_W = 96; // largeur de colonne par défaut (px)
+
+// Marge estimée pour le chrome au-dessus/à côté de la grille (barre de titre,
+// ruban, barre de formule, onglets de feuilles) — approximative par nature
+// (mesurée via `window`, pas via le DOM réel rendu, pour rester appelable
+// avant le premier rendu), mais l'objectif n'est que d'éviter une feuille
+// neuve visiblement trop petite pour l'écran, pas un calcul au pixel près.
+const CHROME_H = 232;
+const CHROME_W = 24;
+
+/**
+ * Dimensionne une feuille NEUVE (rien d'ouvert, rien de sauvegardé) à la
+ * taille de l'écran plutôt qu'au nombre de lignes/colonnes fixe de
+ * `emptySheet`/`emptyWorkbook` — sans ça, une feuille neuve sur un grand
+ * écran n'affiche qu'un petit coin de grille dans un vide sans rapport avec
+ * l'espace disponible (bug réel constaté sur le Tableur local ET, avant ce
+ * correctif, sur le Tableur collaboratif Drive — `useCollabSheetStore.ts`
+ * créait sa toute première feuille via `SM.newYSheet("Feuille 1")`, qui
+ * retombait sur les mêmes 8×20 par défaut). Bornes : jamais plus petit que
+ * l'ancien défaut fixe (petits écrans/environnements sans `window`, ex.
+ * tests), jamais démesuré (grands écrans) pour ne pas rendre des milliers de
+ * cellules DOM inutiles.
+ */
+export function computeViewportSheetSize(): { cols: number; rows: number } {
+  if (typeof window === "undefined") return { cols: 8, rows: 20 };
+  const cols = Math.min(40, Math.max(8, Math.floor((window.innerWidth - ROWHEAD_W - CHROME_W) / DEFAULT_COL_W)));
+  const rows = Math.min(100, Math.max(20, Math.floor((window.innerHeight - HEADER_H - CHROME_H) / ROW_H)));
+  return { cols, rows };
+}
+
 /**
  * Remove the sheet at `index` from the workbook. Sheets have no stable id in
  * this model (they're addressed by index, like renameSheet/switchSheet in

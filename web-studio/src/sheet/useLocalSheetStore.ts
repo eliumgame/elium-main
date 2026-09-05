@@ -13,6 +13,7 @@ import { useUndoable } from "../ui/useUndoable";
 import {
   emptyWorkbook,
   emptySheet,
+  computeViewportSheetSize,
   removeSheet as removeSheetPure,
   type Workbook,
   type SheetData,
@@ -34,32 +35,20 @@ import { toggleMerge as toggleMergePure } from "./merges";
 import { renameSheetRefs, indexToCol } from "./formula";
 import { loadWorkbook, saveWorkbook } from "./sheet-store";
 import type { SheetStore } from "./store";
-import { ROWHEAD_W, HEADER_H, ROW_H, DEFAULT_COL_W } from "./SheetEditor";
 
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
-
-// Marge estimée pour le chrome au-dessus/à côté de la grille (barre de titre,
-// ruban, barre de formule, onglets de feuilles) — approximative par nature
-// (measure via `window`, pas via le DOM réel rendu, pour rester appelable
-// avant le premier rendu), mais l'objectif n'est que d'éviter un classeur
-// neuf visiblement trop petit pour l'écran, pas un calcul au pixel près.
-const CHROME_H = 232;
-const CHROME_W = 24;
 
 /**
  * Dimensionne le classeur PAR DÉFAUT (aucun fichier ouvert, aucune
  * sauvegarde locale trouvée) à la taille de l'écran plutôt qu'à un nombre de
  * lignes/colonnes fixe — sans ça, une feuille neuve sur un grand écran
  * n'affiche que 8 colonnes × 20 lignes dans un vide sans rapport avec
- * l'espace disponible. Bornes : jamais plus petit que l'ancien défaut fixe
- * (petits écrans/environnements sans `window`, ex. tests), jamais démesuré
- * (grands écrans) pour ne pas rendre des milliers de cellules DOM inutiles.
+ * l'espace disponible. Voir `computeViewportSheetSize` (./model) pour les
+ * bornes et le détail du calcul, partagé avec le Tableur collaboratif.
  */
 function computeInitialWorkbook(): Workbook {
   const wb = emptyWorkbook();
-  if (typeof window === "undefined") return wb;
-  const cols = Math.min(40, Math.max(8, Math.floor((window.innerWidth - ROWHEAD_W - CHROME_W) / DEFAULT_COL_W)));
-  const rows = Math.min(100, Math.max(20, Math.floor((window.innerHeight - HEADER_H - CHROME_H) / ROW_H)));
+  const { cols, rows } = computeViewportSheetSize();
   if (cols === 8 && rows === 20) return wb; // déjà le défaut, rien à ajuster
   return { ...wb, sheets: [{ ...wb.sheets[0]!, cols, rows }] };
 }
@@ -231,12 +220,17 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
 
   // --- feuilles ---
   const setActive = (i: number) => set((w) => ({ ...w, active: i }));
-  const addSheet = (name?: string) =>
+  const addSheet = (name?: string) => {
+    // Même raisonnement que le classeur initial (computeInitialWorkbook
+    // ci-dessus) : une feuille ajoutée via le « + » d'onglet doit aussi
+    // remplir l'écran, pas rester à 8×20 par défaut.
+    const { cols, rows } = computeViewportSheetSize();
     set((w) => ({
       ...w,
-      sheets: [...w.sheets, emptySheet((name ?? "").trim() || `Feuille ${w.sheets.length + 1}`)],
+      sheets: [...w.sheets, { ...emptySheet((name ?? "").trim() || `Feuille ${w.sheets.length + 1}`), cols, rows }],
       active: w.sheets.length,
     }));
+  };
   const renameSheet = (i: number, name: string) =>
     set((w) => {
       const cur = w.sheets[i]!.name;

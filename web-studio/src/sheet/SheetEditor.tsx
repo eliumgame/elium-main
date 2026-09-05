@@ -69,6 +69,10 @@ import {
   type ChartType,
   type CondRule,
   type DataValidation,
+  ROWHEAD_W,
+  HEADER_H,
+  ROW_H,
+  DEFAULT_COL_W,
 } from "./model";
 import type { Rect } from "./structural";
 import type { SheetStore, SheetEditorChrome } from "./store";
@@ -95,13 +99,9 @@ const BORDER_LINE: Record<BorderSide["style"], string> = {
 const borderCss = (s?: BorderSide): string | undefined =>
   s ? `${BORDER_WIDTH[s.style]}px ${BORDER_LINE[s.style]} ${s.color ?? "#0f172a"}` : undefined;
 
-// Exportées : `useLocalSheetStore` s'en sert pour dimensionner une feuille
-// neuve à la taille de l'écran (voir `computeInitialWorkbook`) sans dupliquer
-// ces constantes de géométrie.
-export const ROWHEAD_W = 44; // largeur de la colonne des numéros de ligne (px)
-export const HEADER_H = 28; // hauteur de la ligne d'en-tête des colonnes (doit correspondre au CSS)
-export const ROW_H = 28; // hauteur d'une ligne de données (doit correspondre au CSS)
-export const DEFAULT_COL_W = 96; // largeur de colonne par défaut (px)
+// ROWHEAD_W/HEADER_H/ROW_H/DEFAULT_COL_W viennent désormais de ./model (pas
+// définies ici) : `computeViewportSheetSize` s'en sert aussi, pour dimensionner
+// une feuille neuve à la taille de l'écran, sans dépendre de ce composant React.
 
 // Le ruban partage le langage visuel de Documents/PDF (`.elx-*`, voir
 // src/ui/workspace.css) : chrome sombre et dense au-dessus de la feuille

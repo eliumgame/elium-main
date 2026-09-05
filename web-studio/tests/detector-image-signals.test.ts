@@ -339,18 +339,15 @@ function buildWebp(chunks: number[][]): Uint8Array {
   return new Uint8Array([...ascii("RIFF"), ...le32(4 + payload.length), ...ascii("WEBP"), ...payload]);
 }
 
-describe("Détecteur — signaux image (WebP, parsing basique)", () => {
-  it("détecte une balise EXIF d'un générateur connu dans le chunk RIFF EXIF, et avertit d'une vérification limitée", () => {
+describe("Détecteur — signaux image (WebP)", () => {
+  it("détecte une balise EXIF d'un générateur connu dans le chunk RIFF EXIF ; sans déclaration C2PA, le rappel de couverture s'ajoute (WebP est désormais checkable comme JPEG/PNG)", () => {
     const exifData = Array.from(buildTiffAscii([{ tag: TAG_SOFTWARE, value: "Midjourney 6.1" }]));
     const bytes = buildWebp([webpChunk("EXIF", exifData)]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
 
     const signals = findings.map((f) => f.signal).sort();
-    expect(signals).toEqual(["image_exif_generator_tag", "image_webp_limited_check"]);
+    expect(signals).toEqual(["image_c2pa_verification_status", "image_exif_generator_tag"]);
     expect(findings.find((f) => f.signal === "image_exif_generator_tag")!.evidence).toBe("Midjourney 6.1");
-    const limited = findings.find((f) => f.signal === "image_webp_limited_check")!;
-    expect(limited.severity).toBe("info");
-    expect(limited.weight).toBe(0);
   });
 
   it("détecte une déclaration C2PA dans le chunk RIFF XMP d'un WebP", () => {
@@ -359,17 +356,52 @@ describe("Détecteur — signaux image (WebP, parsing basique)", () => {
     const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
 
     expect(findings.some((f) => f.signal === "image_c2pa_ai_source")).toBe(true);
-    // WebP est structurellement exclu du décompte "checkable" JPEG/PNG (voir
-    // isC2paCheckable) : pas de finding de couverture C2PA ajouté pour ce format,
-    // même seul dans le document — il aurait l'air "vérifié" à tort sinon.
+    // Déclaré => WebP compte comme "checkable" ET "déclaré" (voir isC2paCheckable),
+    // donc pas de finding de couverture C2PA en plus — même logique que JPEG/PNG.
     expect(findings.some((f) => f.signal === "image_c2pa_verification_status")).toBe(false);
   });
 
-  it("un WebP sans chunk EXIF ni XMP ne produit que l'avertissement de vérification limitée", () => {
+  // Non-régression : avant ce correctif, aucun équivalent structuré de JUMBF/caBX
+  // n'était recherché pour WebP — ce test échouait (0 finding image_c2pa_ai_source)
+  // car seul le XMP RIFF était lu. La spec C2PA standardise pourtant, pour les
+  // conteneurs RIFF, un chunk top-level nommé `C2PA` portant le même manifeste
+  // JUMBF que JUMBF/APP11 (JPEG) ou `caBX` (PNG) — confirmé dans l'implémentation
+  // de référence du consortium (c2pa-rs, asset_handlers::riff_io::C2PA_CHUNK_ID).
+  it("détecte un C2PA embarqué dans le chunk RIFF « C2PA » d'un WebP (mécanisme standardisé par la spec, absent du XMP)", () => {
+    // Même motif que le test caBX PNG ci-dessus : un manifeste JUMBF/CBOR binaire
+    // dans lequel la valeur digitalSourceType reste lisible en clair au milieu
+    // d'octets non-imprimables.
+    const c2paData = [
+      ...ascii("\x00\x00=3jumb\x00\x00\x00\x1ejumdc2pa"),
+      ...ascii(
+        'Some AI Generator".qdigitalSourceTypexFhttp://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia END',
+      ),
+    ];
+    const bytes = buildWebp([webpChunk("C2PA", c2paData)]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
+
+    expect(findings).toHaveLength(1);
+    const f = findings[0]!;
+    expect(f.signal).toBe("image_c2pa_ai_source");
+    // Citation nettoyée du bruit binaire CBOR/JUMBF qui la précède, comme pour caBX.
+    expect(f.evidence).toBe("http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia");
+    expect(f.explanation).toContain("C2PA");
+    expect(f.explanation).toMatch(/non authentifiée/);
+  });
+
+  it("ignore un chunk RIFF « C2PA » sans digitalSourceType IA (ex. juste une signature C2PA générique)", () => {
+    const bytes = buildWebp([webpChunk("C2PA", ascii("jumb jumd c2pa some_other_unrelated_manifest_content"))]);
+    const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
+    expect(findings.some((f) => f.signal === "image_c2pa_ai_source")).toBe(false);
+    // Chunk présent mais non déclarant => toujours "checkable", toujours "non déclaré".
+    expect(findings.some((f) => f.signal === "image_c2pa_verification_status")).toBe(true);
+  });
+
+  it("un WebP sans aucun chunk (EXIF/XMP/C2PA) ne produit que le rappel de couverture C2PA", () => {
     const bytes = buildWebp([]);
     const findings = analyzeImageSignals([image(bytes, { mime: "image/webp" })]);
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.signal).toBe("image_webp_limited_check");
+    expect(findings[0]!.signal).toBe("image_c2pa_verification_status");
   });
 });
 

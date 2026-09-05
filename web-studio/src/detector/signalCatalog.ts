@@ -35,13 +35,12 @@ type ModelSlice = Pick<DocumentModel, "paragraphs" | "images" | "metadata">;
 const hasText = (m: ModelSlice) => m.paragraphs.length > 0;
 const hasImageOfType = (mime: string) => (m: ModelSlice) => m.images.some((i) => i.mime === mime);
 const hasImageOfAnyType = (mimes: string[]) => (m: ModelSlice) => m.images.some((i) => mimes.includes(i.mime));
-/** JPEG/PNG uniquement : les deux seuls formats où une déclaration C2PA est
- *  cherchée dans un chunk structuré (JUMBF/APP11, `caBX`) — sert à la
- *  distinction "chunk absent" (vérification impossible) vs "propre", voir
- *  `image_c2pa_verification_status` dans imageSignals.ts. */
-const hasJpegOrPngImage = (m: ModelSlice) => m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png");
-/** Le signal `image_c2pa_ai_source` lui-même peut se déclencher sur JPEG, PNG
- *  ET WebP (XMP basique) — voir imageSignals.ts. */
+/** JPEG, PNG et WebP : les trois formats où une déclaration C2PA est cherchée
+ *  dans un chunk structuré (JUMBF/APP11 JPEG, `caBX` PNG, chunk RIFF `C2PA`
+ *  WebP) — sert à la distinction "chunk absent" (vérification impossible) vs
+ *  "propre", voir `image_c2pa_verification_status` dans imageSignals.ts. Le
+ *  signal `image_c2pa_ai_source` lui-même partage exactement cette même
+ *  applicabilité. */
 const hasC2paCapableImage = (m: ModelSlice) =>
   m.images.some((i) => i.mime === "image/jpeg" || i.mime === "image/png" || i.mime === "image/webp");
 const hasImages = (m: ModelSlice) => m.images.length > 0;
@@ -184,7 +183,7 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     category: "image",
     label: "Provenance C2PA/IPTC déclarée IA (non authentifiée)",
     description:
-      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant un contenu généré/composé par IA. ATTENTION : simple recherche de sous-chaîne dans les octets bruts, ni parsing JUMBF/CBOR structuré ni vérification cryptographique de signature/certificat — une provenance déclarée, pas authentifiée, facilement falsifiable ou supprimable. Cherché en JPEG (XMP/JUMBF), PNG (chunk caBX) et WebP (XMP basique).",
+      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant un contenu généré/composé par IA. ATTENTION : simple recherche de sous-chaîne dans les octets bruts, ni parsing JUMBF/CBOR structuré ni vérification cryptographique de signature/certificat — une provenance déclarée, pas authentifiée, facilement falsifiable ou supprimable. Cherché en JPEG (XMP/JUMBF), PNG (chunk caBX) et WebP (XMP ou chunk RIFF C2PA).",
     affectsScore: true,
     appliesTo: hasC2paCapableImage,
   },
@@ -228,18 +227,9 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     category: "image",
     label: "Vérification C2PA : absence de déclaration ≠ preuve d'authenticité",
     description:
-      "Rappel informatif : sur les images JPEG/PNG sans déclaration C2PA détectée, l'absence de signal ne prouve rien — c'est une vérification non concluante, pas une vérification réussie (même logique que « failedPassages » côté plagiat).",
+      "Rappel informatif : sur les images JPEG/PNG/WebP sans déclaration C2PA détectée, l'absence de signal ne prouve rien — c'est une vérification non concluante, pas une vérification réussie (même logique que « failedPassages » côté plagiat).",
     affectsScore: false,
-    appliesTo: hasJpegOrPngImage,
-  },
-  {
-    id: "image_webp_limited_check",
-    category: "image",
-    label: "Vérification limitée pour le format WebP (informatif)",
-    description:
-      "Le WebP ne reçoit qu'un parsing basique des chunks RIFF EXIF/XMP, sans équivalent structuré au JUMBF (JPEG) ou au chunk caBX (PNG) — rappelé sur chaque image WebP analysée.",
-    affectsScore: false,
-    appliesTo: hasImageOfType("image/webp"),
+    appliesTo: hasC2paCapableImage,
   },
   {
     id: "image_pdf_non_jpeg_skipped",

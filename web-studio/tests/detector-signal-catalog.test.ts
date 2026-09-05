@@ -102,12 +102,11 @@ describe("detector — catalogue de signaux synchronisé avec les moteurs", () =
       "image_png_generation_software",
       "image_no_exif_generator_resolution",
       "image_c2pa_verification_status",
-      "image_webp_limited_check",
       "image_pdf_non_jpeg_skipped",
     ]) {
       expect(ids, `${expected} absent du catalogue`).toContain(expected);
     }
-    expect(SIGNAL_CATALOG.length).toBe(24);
+    expect(SIGNAL_CATALOG.length).toBe(23);
   });
 });
 

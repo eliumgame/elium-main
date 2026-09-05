@@ -295,8 +295,17 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     ydoc.transact(() => ySheets.delete(i, 1));
     setActiveState((a) => Math.max(0, Math.min(a > i ? a - 1 : a, ySheets.length - 1)));
   };
+  // Whole-document replacement (file import): must clear undo history, not
+  // leave it undoable back to whatever existed before — often the blank
+  // placeholder of a just-created sheet. loadWorkbookIntoDoc runs its writes
+  // in a null-origin ydoc.transact(), the same origin the UndoManager tracks
+  // by default for our own local edits, so without this clear() a single
+  // Ctrl+Z right after importing reverted straight back to that placeholder,
+  // discarding the import. Mirrors the reset()-based fix for the same bug in
+  // useLocalSheetStore.ts's replaceWorkbook.
   const replaceWorkbook = (next: Workbook) => {
     SM.loadWorkbookIntoDoc(ydoc, ySheets, yNames, next);
+    undoMgr.clear();
     setActiveState(0);
   };
   const addSheetFromData = (data: SheetData): number => SM.addSheetFromData(ydoc, ySheets, data);

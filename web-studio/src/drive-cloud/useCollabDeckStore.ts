@@ -215,6 +215,14 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       if (patch.transition !== undefined) deckMap.set("transition", patch.transition);
     });
   };
+  // Whole-document replacement (file import): must clear undo history, not
+  // leave it undoable back to whatever existed before — often the blank
+  // placeholder slide of a just-created deck. This writes through a
+  // null-origin ydoc.transact(), the same origin the UndoManager tracks by
+  // default for our own local edits, so without the clear() below a single
+  // Ctrl+Z right after importing reverted straight back to that placeholder,
+  // discarding the import. Same bug and fix as replaceWorkbook in
+  // useCollabSheetStore.ts / useLocalSheetStore.ts.
   const replaceDeck = (d: Deck) => {
     if (!writable) return;
     ydoc.transact(() => {
@@ -236,6 +244,7 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       deckMap.set("theme", d.theme ?? "light");
       deckMap.set("transition", d.transition ?? "fade");
     });
+    undoMgr.clear();
     setActiveState(0);
   };
   const patchSlide = (patch: Partial<Slide>) => {

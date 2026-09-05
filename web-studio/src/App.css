@@ -3961,6 +3961,15 @@
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  /* Sans ceci, les règles `@container editor (...)` de workspace.css (masquer
+     les titres de groupe à 900px, les groupes secondaires à 700px, compacter
+     en hauteur à 520px) ne s'appliquaient qu'à Documents (`.editor-shell`,
+     seul autre élément nommé "editor") : le ruban du Tableur ne se compactait
+     jamais sur petit écran, restait figé à défiler horizontalement même une
+     fois les groupes marqués `elx-group--optional`. Même nom de conteneur que
+     `.editor-shell` -> les règles déjà écrites s'appliquent sans duplication. */
+  container-type: size;
+  container-name: editor;
 }
 .sheet-bar {
   display: flex;

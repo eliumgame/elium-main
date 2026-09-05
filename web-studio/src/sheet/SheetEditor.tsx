@@ -108,9 +108,25 @@ const borderCss = (s?: BorderSide): string | undefined =>
 // claire. `Group`/`Cmd` reprennent les mêmes petits composants locaux que
 // editor/Toolbar.tsx et pdf/ui/Ribbon.tsx — pas de composant partagé, chaque
 // module cadre ses propres commandes.
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({
+  title,
+  optional,
+  children,
+}: {
+  title: string;
+  /**
+   * Groupes avancés/peu fréquents (mise en forme conditionnelle, validation,
+   * plages nommées, tableau croisé, agrandir la grille) : masqués en premier
+   * sur petit écran (`@container editor (max-width: 700px)` dans
+   * workspace.css) plutôt que de laisser le ruban défiler sur trois écrans de
+   * large — cette classe existait déjà dans le CSS partagé mais n'était encore
+   * câblée nulle part.
+   */
+  optional?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="elx-group">
+    <div className={`elx-group${optional ? " elx-group--optional" : ""}`}>
       <div className="elx-group__items">{children}</div>
       <div className="elx-group__title">{title}</div>
     </div>
@@ -995,7 +1011,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
               </div>
             </Group>
 
-            <Group title="Règles avancées">
+            <Group title="Règles avancées" optional>
               <Cmd
                 icon={<Palette size={15} />}
                 title="Mise en forme conditionnelle"
@@ -1032,7 +1048,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             </Group>
 
             {store.growSheet && (
-              <Group title="Agrandir">
+              <Group title="Agrandir" optional>
                 <Cmd
                   icon={<Plus size={13} />}
                   label="Lignes"

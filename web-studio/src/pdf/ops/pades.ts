@@ -186,21 +186,29 @@ interface ExistingSignatureWidget {
   rect: [number, number, number, number];
 }
 
-/**
- * Look for a top-level `/FT /Sig` field already sitting in the AcroForm under
- * `fieldName` — the bare, valueless widget "Prepare form"
- * (`ops/forms.ts::addSignatureField`) drops onto the page, named by the user,
- * well before anyone actually signs. Only scans the flat `/Fields` array
- * (never `/Kids`): every widget this module or `ops/forms.ts` ever creates is
- * a single merged field+widget dict registered directly at that level, so a
- * hierarchical lookup is not needed for fields of our own making.
- */
-function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): ExistingSignatureWidget | undefined {
-  const acroRaw = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
-  if (!(acroRaw instanceof PDFDict)) return undefined;
-  const fieldsRaw = acroRaw.lookup(PDFName.of("Fields"));
-  if (!(fieldsRaw instanceof PDFArray)) return undefined;
+interface SignatureWidgetInfo extends ExistingSignatureWidget {
+  name: string;
+  /** 0-based index into `pdfDoc.getPages()` — cheaper to compare than the page object itself. */
+  pageIndex: number;
+}
 
+/**
+ * Enumerate every top-level `/FT /Sig` field already sitting in the AcroForm —
+ * the bare, valueless widgets "Prepare form" (`ops/forms.ts::addSignatureField`)
+ * drops onto the page, named by the user, well before anyone actually signs.
+ * Only scans the flat `/Fields` array (never `/Kids`): every widget this
+ * module or `ops/forms.ts` ever creates is a single merged field+widget dict
+ * registered directly at that level, so a hierarchical lookup is not needed
+ * for fields of our own making.
+ */
+function listSignatureWidgets(pdfDoc: PDFDocument): SignatureWidgetInfo[] {
+  const acroRaw = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
+  if (!(acroRaw instanceof PDFDict)) return [];
+  const fieldsRaw = acroRaw.lookup(PDFName.of("Fields"));
+  if (!(fieldsRaw instanceof PDFArray)) return [];
+
+  const pages = pdfDoc.getPages();
+  const out: SignatureWidgetInfo[] = [];
   for (let i = 0; i < fieldsRaw.size(); i++) {
     let dict: PDFDict;
     try {
@@ -210,15 +218,76 @@ function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): Ex
     }
     if (dict.lookupMaybe(PDFName.of("FT"), PDFName) !== PDFName.of("Sig")) continue;
     const t = dict.lookupMaybe(PDFName.of("T"), PDFString, PDFHexString);
-    if (!t || t.decodeText() !== fieldName) continue;
     const rectArr = dict.lookupMaybe(PDFName.of("Rect"), PDFArray);
     const pageRef = dict.get(PDFName.of("P"));
-    const page = pageRef instanceof PDFRef ? pdfDoc.getPages().find((p) => p.ref === pageRef) : undefined;
-    if (!rectArr || rectArr.size() !== 4 || !page) continue;
+    const pageIndex = pageRef instanceof PDFRef ? pages.findIndex((p) => p.ref === pageRef) : -1;
+    if (!t || !rectArr || rectArr.size() !== 4 || pageIndex < 0) continue;
     const r = rectArr.asRectangle();
-    return { dict, page, rect: [r.x, r.y, r.x + r.width, r.y + r.height] };
+    out.push({
+      dict,
+      page: pages[pageIndex]!,
+      pageIndex,
+      name: t.decodeText(),
+      rect: [r.x, r.y, r.x + r.width, r.y + r.height],
+    });
   }
-  return undefined;
+  return out;
+}
+
+/** Look for a prepared `/FT /Sig` field by its exact name (see `listSignatureWidgets`). */
+function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): ExistingSignatureWidget | undefined {
+  return listSignatureWidgets(pdfDoc).find((w) => w.name === fieldName);
+}
+
+/**
+ * When the caller does not pin an exact `fieldName` (both call sites in
+ * `PdfWorkspace.tsx` never do — see the commit that introduced this function),
+ * decide which already-prepared `/FT /Sig` field the signature-in-progress
+ * should actually land on, instead of blindly defaulting to "Signature1" and
+ * leaving a same-named prepared field untouched next to a brand-new one:
+ *  - no prepared field at all -> undefined (caller keeps the "Signature1" default).
+ *  - exactly one -> that one, unambiguous regardless of where it sits.
+ *  - several -> the one on the SAME page as the visible signature stamp
+ *    (`visibleSigTarget()` in the UI) whose /Rect centre is nearest to it.
+ *    A genuine tie (two equally-close candidates, or no visible stamp to
+ *    compare against at all) is NOT guessed at: undefined is returned and the
+ *    caller falls back to the default name rather than stapling the signature
+ *    to an arbitrarily-picked field on a multi-signer document.
+ */
+function pickPreparedFieldName(pdfDoc: PDFDocument, visible: PadesSignOptions["visible"]): string | undefined {
+  const widgets = listSignatureWidgets(pdfDoc);
+  if (widgets.length === 0) return undefined;
+  if (widgets.length === 1) return widgets[0]!.name;
+  if (!visible) return undefined; // several candidates, nothing to disambiguate against
+
+  const pageIndex = Math.min(Math.max(0, visible.page), pdfDoc.getPageCount() - 1);
+  const samePage = widgets.filter((w) => w.pageIndex === pageIndex);
+  if (samePage.length === 0) return undefined;
+  if (samePage.length === 1) return samePage[0]!.name;
+
+  // Page-space (top-left origin, y down) -> PDF point space (bottom-left
+  // origin), same conversion `addSignaturePlaceholder` applies to `visible.rect`.
+  const box = pdfDoc.getPage(pageIndex).getMediaBox();
+  const tx1 = box.x + visible.rect.x;
+  const ty1 = box.y + box.height - visible.rect.y - visible.rect.h;
+  const targetCx = tx1 + visible.rect.w / 2;
+  const targetCy = ty1 + visible.rect.h / 2;
+
+  let best: { name: string; dist: number } | undefined;
+  let tie = false;
+  const EPS = 1e-6;
+  for (const w of samePage) {
+    const cx = (w.rect[0] + w.rect[2]) / 2;
+    const cy = (w.rect[1] + w.rect[3]) / 2;
+    const dist = Math.hypot(cx - targetCx, cy - targetCy);
+    if (!best || dist < best.dist - EPS) {
+      best = { name: w.name, dist };
+      tie = false;
+    } else if (Math.abs(dist - best.dist) <= EPS) {
+      tie = true;
+    }
+  }
+  return tie ? undefined : best?.name;
 }
 
 /** Ajoute le dictionnaire de signature + le widget + l'AcroForm (placeholder). */
@@ -228,7 +297,7 @@ async function addSignaturePlaceholder(
   reservedSigBytes: number,
 ): Promise<void> {
   const ctx = pdfDoc.context;
-  const fieldName = opts.fieldName || "Signature1";
+  const fieldName = opts.fieldName || pickPreparedFieldName(pdfDoc, opts.visible) || "Signature1";
 
   const byteRange = PDFArray.withContext(ctx);
   byteRange.push(PDFNumber.of(0));

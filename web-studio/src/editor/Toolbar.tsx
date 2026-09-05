@@ -364,9 +364,25 @@ function useRibbonScroll() {
   return { ref, edges, nudge, sync };
 }
 
-function Group({ title, dense, children }: { title: string; dense?: boolean; children: React.ReactNode }) {
+/**
+ * `optional` marque un groupe secondaire (fonctionnalité avancée ou peu
+ * fréquente) : il ajoute `elx-group--optional`, que workspace.css masque en
+ * premier quand le ruban manque de place (@container editor (max-width: 700px)),
+ * plutôt que de laisser le ruban défiler sur plusieurs écrans de large.
+ */
+function Group({
+  title,
+  dense,
+  optional,
+  children,
+}: {
+  title: string;
+  dense?: boolean;
+  optional?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`elx-group${dense ? " elx-group--dense" : ""}`}>
+    <div className={`elx-group${dense ? " elx-group--dense" : ""}${optional ? " elx-group--optional" : ""}`}>
       <div className="elx-group__items">{children}</div>
       <div className="elx-group__title">{title}</div>
     </div>
@@ -1108,7 +1124,7 @@ export default function Toolbar({
                     <FunctionSquare size={17} />
                   </Cmd>
                 </Group>
-                <Group title="Ornements">
+                <Group title="Ornements" optional>
                   <Dropdown
                     big
                     label="Lettrine"
@@ -1194,7 +1210,7 @@ export default function Toolbar({
                   </Dropdown>
                 </Group>
                 {!collab && (
-                  <Group title="Signature">
+                  <Group title="Signature" optional>
                     <Cmd big label="Signer" title="Ajouter une signature" onClick={onAddSignature}>
                       <PenLine size={19} />
                     </Cmd>
@@ -1225,7 +1241,7 @@ export default function Toolbar({
                   </Cmd>
                 </Group>
 
-                <Group title="Renvois">
+                <Group title="Renvois" optional>
                   <Cmd
                     big
                     label="Renvoi"
@@ -1321,7 +1337,7 @@ export default function Toolbar({
                   </Dropdown>
                 </Group>
 
-                <Group title="Index">
+                <Group title="Index" optional>
                   <Cmd big label="Marquer" title="Marquer une entrée d'index" onClick={() => onOpenIndexEntry?.()}>
                     <ScanSearch size={19} />
                   </Cmd>
@@ -1375,7 +1391,7 @@ export default function Toolbar({
                   </Cmd>
                 </Group>
 
-                <Group title="Colonnes">
+                <Group title="Colonnes" optional>
                   <Dropdown big label="Colonnes" title="Disposer le texte en colonnes" icon={<Columns size={19} />}>
                     {(close) => (
                       <>
@@ -1489,7 +1505,7 @@ export default function Toolbar({
                   </Dropdown>
                 </Group>
 
-                <Group title="Titres">
+                <Group title="Titres" optional>
                   <Cmd
                     big
                     label="Numéroter"
@@ -1549,7 +1565,7 @@ export default function Toolbar({
                   </Cmd>
                 </Group>
                 {!collab && (
-                  <Group title="Comparer">
+                  <Group title="Comparer" optional>
                     <Cmd
                       big
                       label="Comparer"
@@ -1571,7 +1587,7 @@ export default function Toolbar({
                     <SpellCheck size={19} />
                   </Cmd>
                 </Group>
-                <Group title="Analyse">
+                <Group title="Analyse" optional>
                   <Cmd big label="Statistiques" title="Mots, lisibilité, structure" onClick={() => onOpenStats?.()}>
                     <BarChart3 size={19} />
                   </Cmd>
@@ -1631,7 +1647,7 @@ export default function Toolbar({
                     <Settings2 size={17} />
                   </Cmd>
                 </Group>
-                <Group title="Document">
+                <Group title="Document" optional>
                   <Cmd title="Table des matières" onClick={() => editor.chain().focus().insertTableOfContents().run()}>
                     <ListTree size={17} />
                   </Cmd>

@@ -246,7 +246,15 @@ function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): Ex
  * should actually land on, instead of blindly defaulting to "Signature1" and
  * leaving a same-named prepared field untouched next to a brand-new one:
  *  - no prepared field at all -> undefined (caller keeps the "Signature1" default).
- *  - exactly one -> that one, unambiguous regardless of where it sits.
+ *  - exactly one AND no visible stamp to compare against -> that one, nothing
+ *    else to go on.
+ *  - exactly one AND a visible stamp exists -> that one ONLY if it sits on the
+ *    same page as the stamp. A lone field on a DIFFERENT page is a real risk,
+ *    not a free pass (an adversarial review of this function's first version
+ *    reproduced exactly this: a prepared field left over on another page from
+ *    an earlier session silently absorbed a signature the user believed they
+ *    were placing elsewhere) — treat it exactly like the "several candidates,
+ *    none on this page" case below and fall back to the default name instead.
  *  - several -> the one on the SAME page as the visible signature stamp
  *    (`visibleSigTarget()` in the UI) whose /Rect centre is nearest to it.
  *    A genuine tie (two equally-close candidates, or no visible stamp to
@@ -257,7 +265,7 @@ function findExistingSignatureWidget(pdfDoc: PDFDocument, fieldName: string): Ex
 function pickPreparedFieldName(pdfDoc: PDFDocument, visible: PadesSignOptions["visible"]): string | undefined {
   const widgets = listSignatureWidgets(pdfDoc);
   if (widgets.length === 0) return undefined;
-  if (widgets.length === 1) return widgets[0]!.name;
+  if (widgets.length === 1 && !visible) return widgets[0]!.name;
   if (!visible) return undefined; // several candidates, nothing to disambiguate against
 
   const pageIndex = Math.min(Math.max(0, visible.page), pdfDoc.getPageCount() - 1);

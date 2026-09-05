@@ -392,4 +392,48 @@ describe("PAdES-B — résolution automatique du champ préparé (fieldName non 
     expect(after.getForm().getSignature("signature_a").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
     expect(after.getForm().getSignature("signature_b").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
   }, 30000);
+
+  it("un unique champ préparé sur une AUTRE page que la signature visible n'est pas récupéré aveuglément", async () => {
+    // Trouvé par revue adversariale de la 1ère version de ce correctif : le cas
+    // "un seul champ préparé" sautait la vérification de page que le cas
+    // "plusieurs champs" applique pourtant — un champ résiduel d'une session
+    // antérieure, sur une autre page que celle où l'utilisateur signe
+    // réellement aujourd'hui, absorbait silencieusement la signature au
+    // mauvais endroit (signature cryptographiquement valide, mais placée là où
+    // l'utilisateur ne l'a jamais mise). Reproduit ci-dessous, doit désormais
+    // retomber sur le nom par défaut plutôt que d'utiliser ce champ éloigné.
+    const pw = "auto4";
+    const p12 = generateSelfSignedP12("Dave", pw);
+
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([320, 200]); // page 0 : où la signature visible est réellement placée
+    const page1 = doc.addPage([320, 200]);
+    const preparedRect = { x: 40, y: 40, w: 150, h: 40 };
+    createFields(
+      { doc, font },
+      [{ id: "s0", pageId: "p2", name: "signature_page2", kind: "signature", rect: preparedRect }],
+      (id) => (id === "p2" ? { page: page1, height: 200 } : null),
+    );
+    const pdf = await doc.save({ useObjectStreams: false });
+
+    // Signature visible dessinée sur la PREMIÈRE page (index 0), pas celle du
+    // champ préparé (page index 1).
+    const signed = await signPdfBytes(pdf, p12, pw, {
+      visible: { page: 0, rect: { x: 45, y: 42, w: 100, h: 30 }, imagePng: TINY_PNG },
+    });
+
+    const after = await PDFDocument.load(signed);
+    const fields = after.getForm().getFields();
+    // Un 2e widget ("Signature1", le repli par défaut) porte la signature, sur
+    // la page 0 où l'utilisateur a réellement signé — le champ préparé de la
+    // page 1 reste vide, tel quel, plutôt que d'être réutilisé à tort.
+    expect(fields).toHaveLength(2);
+    expect(fields.some((f) => f.getName() === "Signature1")).toBe(true);
+    expect(after.getForm().getSignature("signature_page2").acroField.dict.get(PDFName.of("V"))).toBeUndefined();
+
+    const sigField = after.getForm().getSignature("Signature1");
+    const sigPageRef = sigField.acroField.dict.get(PDFName.of("P"));
+    expect(after.getPages().findIndex((p) => p.ref === sigPageRef)).toBe(0);
+  }, 30000);
 });

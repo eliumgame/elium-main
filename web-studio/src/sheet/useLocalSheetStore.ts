@@ -34,8 +34,35 @@ import { toggleMerge as toggleMergePure } from "./merges";
 import { renameSheetRefs, indexToCol } from "./formula";
 import { loadWorkbook, saveWorkbook } from "./sheet-store";
 import type { SheetStore } from "./store";
+import { ROWHEAD_W, HEADER_H, ROW_H, DEFAULT_COL_W } from "./SheetEditor";
 
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
+
+// Marge estimée pour le chrome au-dessus/à côté de la grille (barre de titre,
+// ruban, barre de formule, onglets de feuilles) — approximative par nature
+// (measure via `window`, pas via le DOM réel rendu, pour rester appelable
+// avant le premier rendu), mais l'objectif n'est que d'éviter un classeur
+// neuf visiblement trop petit pour l'écran, pas un calcul au pixel près.
+const CHROME_H = 232;
+const CHROME_W = 24;
+
+/**
+ * Dimensionne le classeur PAR DÉFAUT (aucun fichier ouvert, aucune
+ * sauvegarde locale trouvée) à la taille de l'écran plutôt qu'à un nombre de
+ * lignes/colonnes fixe — sans ça, une feuille neuve sur un grand écran
+ * n'affiche que 8 colonnes × 20 lignes dans un vide sans rapport avec
+ * l'espace disponible. Bornes : jamais plus petit que l'ancien défaut fixe
+ * (petits écrans/environnements sans `window`, ex. tests), jamais démesuré
+ * (grands écrans) pour ne pas rendre des milliers de cellules DOM inutiles.
+ */
+function computeInitialWorkbook(): Workbook {
+  const wb = emptyWorkbook();
+  if (typeof window === "undefined") return wb;
+  const cols = Math.min(40, Math.max(8, Math.floor((window.innerWidth - ROWHEAD_W - CHROME_W) / DEFAULT_COL_W)));
+  const rows = Math.min(100, Math.max(20, Math.floor((window.innerHeight - HEADER_H - CHROME_H) / ROW_H)));
+  if (cols === 8 && rows === 20) return wb; // déjà le défaut, rien à ajuster
+  return { ...wb, sheets: [{ ...wb.sheets[0]!, cols, rows }] };
+}
 
 export interface LocalSheetStore extends SheetStore {
   /** Référence vive du classeur (pour les handlers d'export qui lisent la dernière valeur). */
@@ -55,10 +82,15 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   } = useUndoable<Workbook>(initial ?? emptyWorkbook());
 
   // Charge le classeur persisté au montage (sauf ouverture explicite d'un .elium).
+  // Rien trouvé -> classeur neuf, mais dimensionné à l'écran (voir
+  // `computeInitialWorkbook`) plutôt qu'au défaut fixe 8×20 : un `reset()`,
+  // comme le chargement d'une sauvegarde réelle, pour ne jamais rendre ce
+  // premier dimensionnement annulable via Ctrl+Z (ce ne serait pas une
+  // édition de l'utilisateur, seulement l'état initial de la page).
   useEffect(() => {
     if (initial) return;
     loadWorkbook()
-      .then((w) => w && reset(w))
+      .then((w) => reset(w ?? computeInitialWorkbook()))
       .catch(() => {});
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -130,6 +162,11 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   const deleteRow = (s: number, at: number) => patchSheet(s, (sh) => deleteRowPure(sh, at));
   const insertCol = (s: number, at: number) => patchSheet(s, (sh) => insertColPure(sh, at));
   const deleteCol = (s: number, at: number) => patchSheet(s, (sh) => deleteColPure(sh, at));
+  // Manquait ici alors qu'il existe déjà côté Tableur collaboratif
+  // (useCollabSheetStore.ts) : le bouton « Agrandir » du ruban (SheetEditor.tsx)
+  // ne s'affichait donc jamais dans le Tableur local, faute de cette méthode.
+  const growSheet = (s: number, key: "rows" | "cols", by: number) =>
+    patchSheet(s, (sh) => ({ ...sh, [key]: Math.max(1, sh[key] + by) }));
   const sortRange = (s: number, key: number, region: Rect, dir: 1 | -1, displayOf: (c: number, r: number) => string) =>
     patchSheet(s, (sh) => sortRangePure(sh, key, region, dir, displayOf));
   const fillRange = (s: number, src: Rect, to: { c: number; r: number }) =>
@@ -245,6 +282,7 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     deleteRow,
     insertCol,
     deleteCol,
+    growSheet,
     sortRange,
     fillRange,
     setColWidth,

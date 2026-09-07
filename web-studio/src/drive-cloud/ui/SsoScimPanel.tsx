@@ -172,7 +172,7 @@ export default function SsoScimPanel() {
   };
 
   return (
-    <div className="dc-sso">
+    <div className="elx-panel">
       {err && (
         <div className="dc-error" role="alert">
           {err}
@@ -180,8 +180,8 @@ export default function SsoScimPanel() {
       )}
       {msg && <div className="dc-sso__ok">{msg}</div>}
 
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <ShieldCheck size={18} /> Authentification unique (SSO — OIDC)
           {configured && <span className="badge badge--success">Actif</span>}
         </h2>
@@ -189,31 +189,31 @@ export default function SsoScimPanel() {
           Fédère l'<strong>identité</strong> via votre fournisseur (Okta, Entra ID, Google…). Le SSO ne touche jamais
           aux clés de chiffrement : le Drive reste zéro-connaissance.
         </p>
-        <form className="dc-sso__form" onSubmit={saveSso}>
-          <label className="field">
-            <span className="field__label">Issuer (URL de l'émetteur)</span>
+        <form className="elx-form" onSubmit={saveSso}>
+          <label className="dcx-field">
+            <span>Issuer (URL de l'émetteur)</span>
             <input
-              className="input"
+              className="elx-input"
               value={issuer}
               onChange={(e) => setIssuer(e.target.value)}
               placeholder="https://exemple.okta.com"
               required
             />
           </label>
-          <label className="field">
-            <span className="field__label">Client ID</span>
+          <label className="dcx-field">
+            <span>Client ID</span>
             <input
-              className="input"
+              className="elx-input"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               placeholder="0oa…"
               required
             />
           </label>
-          <label className="field">
-            <span className="field__label">URL du jwks_uri (recommandé)</span>
+          <label className="dcx-field">
+            <span>URL du jwks_uri (recommandé)</span>
             <input
-              className="input"
+              className="elx-input"
               value={jwksUri}
               onChange={(e) => setJwksUri(e.target.value)}
               placeholder="https://exemple.okta.com/oauth2/v1/keys"
@@ -223,31 +223,32 @@ export default function SsoScimPanel() {
             Les clés de signature sont récupérées dynamiquement et mises en cache ; la rotation de clés du fournisseur
             est prise en compte automatiquement. À défaut, collez un JWKS statique ci-dessous.
           </p>
-          <label className="field">
-            <span className="field__label">JWKS statique (optionnel — repli)</span>
+          <label className="dcx-field">
+            <span>JWKS statique (optionnel — repli)</span>
             <textarea
-              className="input"
+              className="elx-input"
               value={jwks}
               onChange={(e) => setJwks(e.target.value)}
               rows={4}
               placeholder='{ "keys": [ … ] }'
+              style={{ height: "auto", fontFamily: "ui-monospace, monospace", fontSize: 12, resize: "vertical" }}
             />
           </label>
-          <label className="field">
-            <span className="field__label">Domaines autorisés (optionnel)</span>
+          <label className="dcx-field">
+            <span>Domaines autorisés (optionnel)</span>
             <input
-              className="input"
+              className="elx-input"
               value={domains}
               onChange={(e) => setDomains(e.target.value)}
               placeholder="exemple.fr, filiale.fr"
             />
           </label>
-          <div className="dc-sso__actions">
-            <button type="submit" className="eb eb--primary eb--sm" disabled={busy}>
+          <div className="dcx-inline" style={{ marginBottom: 0 }}>
+            <button type="submit" className="elx-mini elx-mini--primary" disabled={busy}>
               Enregistrer le SSO
             </button>
             {configured && (
-              <button type="button" className="eb eb--outline eb--sm" disabled={busy} onClick={disableSso}>
+              <button type="button" className="elx-mini" disabled={busy} onClick={disableSso}>
                 <Trash2 size={14} /> Désactiver
               </button>
             )}
@@ -255,48 +256,50 @@ export default function SsoScimPanel() {
         </form>
       </section>
 
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <KeyRound size={18} /> Provisioning SCIM
         </h2>
         <p className="muted">
           Générez un jeton pour que votre fournisseur d'identité crée et désactive automatiquement les comptes
           (provisioning / déprovisioning). Le jeton n'est affiché qu'une fois.
         </p>
-        <label className="field">
-          <span className="field__label">Endpoint SCIM 2.0</span>
-          <span className="dc-sso__copyrow">
-            <code className="dc-sso__code">{scimUrl}</code>
-            <button type="button" className="icon-btn" title="Copier l'URL" onClick={() => copy(scimUrl, "url")}>
-              {copied === "url" ? <Check size={14} /> : <Copy size={14} />}
-            </button>
-          </span>
-        </label>
-        {scimToken && (
-          <label className="field">
-            <span className="field__label">Jeton SCIM (bearer) — copiez-le maintenant</span>
-            <span className="dc-sso__copyrow">
-              <code className="dc-sso__code dc-sso__code--secret">{scimToken}</code>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Copier le jeton"
-                onClick={() => copy(scimToken, "scim")}
-              >
-                {copied === "scim" ? <Check size={14} /> : <Copy size={14} />}
+        <div className="elx-form">
+          <label className="dcx-field">
+            <span>Endpoint SCIM 2.0</span>
+            <div className="dcx-inline" style={{ marginBottom: 0 }}>
+              <code className="elx-code">{scimUrl}</code>
+              <button type="button" className="elx-icon" title="Copier l'URL" onClick={() => copy(scimUrl, "url")}>
+                {copied === "url" ? <Check size={14} /> : <Copy size={14} />}
               </button>
-            </span>
+            </div>
           </label>
-        )}
-        <div className="dc-sso__actions">
-          <button type="button" className="eb eb--primary eb--sm" disabled={busy} onClick={genScim}>
-            <RefreshCw size={14} /> {scimToken ? "Régénérer un jeton" : "Générer un jeton SCIM"}
-          </button>
+          {scimToken && (
+            <label className="dcx-field">
+              <span>Jeton SCIM (bearer) — copiez-le maintenant</span>
+              <div className="dcx-inline" style={{ marginBottom: 0 }}>
+                <code className="elx-code elx-code--secret">{scimToken}</code>
+                <button
+                  type="button"
+                  className="elx-icon"
+                  title="Copier le jeton"
+                  onClick={() => copy(scimToken, "scim")}
+                >
+                  {copied === "scim" ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+            </label>
+          )}
+          <div className="dcx-inline" style={{ marginBottom: 0 }}>
+            <button type="button" className="elx-mini elx-mini--primary" disabled={busy} onClick={genScim}>
+              <RefreshCw size={14} /> {scimToken ? "Régénérer un jeton" : "Générer un jeton SCIM"}
+            </button>
+          </div>
         </div>
       </section>
 
-      <section className="dc-sso__card">
-        <h2 className="dc-sso__title">
+      <section className="elx-panel__card">
+        <h2 className="elx-panel__title">
           <KeyRound size={18} /> Rôles de provisioning SCIM
         </h2>
         <p className="muted">
@@ -304,59 +307,67 @@ export default function SsoScimPanel() {
           /Groups) et les rôles Elium. Un membre d'un groupe mappé reçoit le rôle mappé le plus privilégié. Les groupes
           SCIM sont des métadonnées de provisioning, pas des équipes chiffrées.
         </p>
-        <label className="field">
-          <span className="field__label">Rôle par défaut</span>
-          <select className="input" value={defaultRoleKey} onChange={(e) => setDefaultRoleKey(e.target.value)}>
-            {roleOptions.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.name}
-              </option>
+        <div className="elx-form">
+          <label className="dcx-field">
+            <span>Rôle par défaut</span>
+            <select
+              className="elx-select--surface"
+              value={defaultRoleKey}
+              onChange={(e) => setDefaultRoleKey(e.target.value)}
+            >
+              {roleOptions.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="dcx-field">
+            <span>Correspondance groupe → rôle</span>
+            {groupMap.map((row, i) => (
+              <div key={i} className="dcx-inline" style={{ marginBottom: 6 }}>
+                <input
+                  className="elx-input"
+                  placeholder="Nom du groupe (annuaire)"
+                  value={row.group}
+                  onChange={(e) => setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, group: e.target.value } : x)))}
+                />
+                <select
+                  className="elx-select--surface"
+                  value={row.roleKey}
+                  onChange={(e) =>
+                    setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, roleKey: e.target.value } : x)))
+                  }
+                >
+                  {roleOptions.map((r) => (
+                    <option key={r.key} value={r.key}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="elx-icon"
+                  title="Retirer"
+                  onClick={() => setGroupMap((m) => m.filter((_, j) => j !== i))}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))}
-          </select>
-        </label>
-        <div className="field">
-          <span className="field__label">Correspondance groupe → rôle</span>
-          {groupMap.map((row, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-              <input
-                className="input"
-                placeholder="Nom du groupe (annuaire)"
-                value={row.group}
-                onChange={(e) => setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, group: e.target.value } : x)))}
-              />
-              <select
-                className="input"
-                value={row.roleKey}
-                onChange={(e) => setGroupMap((m) => m.map((x, j) => (j === i ? { ...x, roleKey: e.target.value } : x)))}
-              >
-                {roleOptions.map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Retirer"
-                onClick={() => setGroupMap((m) => m.filter((_, j) => j !== i))}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className="eb eb--outline eb--sm"
-            onClick={() => setGroupMap((m) => [...m, { group: "", roleKey: defaultRoleKey }])}
-          >
-            + Ajouter une correspondance
-          </button>
-        </div>
-        <div className="dc-sso__actions">
-          <button type="button" className="eb eb--primary eb--sm" disabled={busy} onClick={saveScimConfig}>
-            Enregistrer les rôles
-          </button>
+            <button
+              type="button"
+              className="elx-mini"
+              onClick={() => setGroupMap((m) => [...m, { group: "", roleKey: defaultRoleKey }])}
+            >
+              + Ajouter une correspondance
+            </button>
+          </div>
+          <div className="dcx-inline" style={{ marginBottom: 0 }}>
+            <button type="button" className="elx-mini elx-mini--primary" disabled={busy} onClick={saveScimConfig}>
+              Enregistrer les rôles
+            </button>
+          </div>
         </div>
       </section>
     </div>

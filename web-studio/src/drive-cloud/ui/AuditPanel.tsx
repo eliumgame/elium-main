@@ -47,7 +47,7 @@ export default function AuditPanel() {
 
   if (denied)
     return (
-      <div className="dc-empty-list">
+      <div className="elx-empty">
         <ScrollText size={30} />
         <p>Vous n'avez pas la permission de consulter le journal d'audit.</p>
       </div>
@@ -58,20 +58,20 @@ export default function AuditPanel() {
       <div className="dc-toolbar">
         <span className="muted">Journal d'activité de l'organisation</span>
         <div className="dc-toolbar__spacer" />
-        <button className="icon-btn" title="Actualiser" onClick={() => void load()}>
+        <button className="elx-icon" title="Actualiser" onClick={() => void load()}>
           <RefreshCw size={15} />
         </button>
       </div>
       {entries.length === 0 ? (
-        <div className="dc-empty-list">
+        <div className="elx-empty">
           <ScrollText size={34} />
           <p>Aucune activité enregistrée.</p>
         </div>
       ) : (
-        <table className="dc-table">
+        <table className="dcx-table">
           <thead>
             <tr>
-              <th>Date</th>
+              <th className="dcx-col-date">Date</th>
               <th>Acteur</th>
               <th>Action</th>
               <th>Ressource</th>
@@ -79,13 +79,13 @@ export default function AuditPanel() {
           </thead>
           <tbody>
             {entries.map((e) => (
-              <tr key={e.id} className="dc-row">
-                <td className="dc-row__muted">{new Date(e.createdAt).toLocaleString("fr-FR")}</td>
+              <tr key={e.id} className="dcx-row" style={{ cursor: "default" }}>
+                <td className="dcx-row__muted">{new Date(e.createdAt).toLocaleString("fr-FR")}</td>
                 <td>{e.actorDisplayName || e.actorEmail || "—"}</td>
                 <td>
                   <code className="dc-perm__key">{e.action}</code>
                 </td>
-                <td className="dc-row__muted">{e.resourceType || "—"}</td>
+                <td className="dcx-row__muted">{e.resourceType || "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -93,7 +93,7 @@ export default function AuditPanel() {
       )}
       {nextBeforeId && (
         <div style={{ textAlign: "center", marginTop: 12 }}>
-          <button className="eb eb--sm eb--outline" disabled={loading} onClick={() => void load(nextBeforeId)}>
+          <button className="elx-mini" disabled={loading} onClick={() => void load(nextBeforeId)}>
             Charger plus
           </button>
         </div>

@@ -99,7 +99,7 @@ export default function MembersPanel() {
 
   if (denied) {
     return (
-      <div className="dc-empty-list">
+      <div className="elx-empty">
         <Users size={30} />
         <p>Vous n'avez pas la permission de voir les membres de cette organisation.</p>
       </div>
@@ -112,14 +112,15 @@ export default function MembersPanel() {
         <form className="dc-invite" onSubmit={invite}>
           <Mail size={16} className="dc-invite__ic" />
           <input
-            className="input"
+            className="elx-input"
+            style={{ flex: 1 }}
             type="email"
             placeholder="E-mail à inviter"
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             required
           />
-          <select className="tool-select" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
+          <select className="elx-select--surface" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
             {d.roles
               .filter((r) => r.key !== "guest")
               .map((r) => (
@@ -128,16 +129,22 @@ export default function MembersPanel() {
                 </option>
               ))}
           </select>
-          <button className="eb eb--sm eb--primary" disabled={busy || !inviteEmail.trim()}>
+          <button className="elx-mini elx-mini--primary" disabled={busy || !inviteEmail.trim()}>
             <UserPlus size={14} /> Inviter
           </button>
         </form>
       )}
       {inviteLink && (
-        <div className="dc-share-link__out">
-          <input className="input" readOnly value={inviteLink} onFocus={(e) => e.currentTarget.select()} />
+        <div className="dcx-inline" style={{ marginTop: 8, marginBottom: 0 }}>
+          <input
+            className="elx-input"
+            style={{ flex: 1, fontFamily: "var(--el-mono, monospace)", fontSize: 12 }}
+            readOnly
+            value={inviteLink}
+            onFocus={(e) => e.currentTarget.select()}
+          />
           <button
-            className="icon-btn"
+            className="elx-icon"
             title="Copier le lien d'invitation"
             onClick={() => void navigator.clipboard?.writeText(inviteLink)}
           >
@@ -145,31 +152,35 @@ export default function MembersPanel() {
           </button>
         </div>
       )}
-      {err && <p className="dc-error">{err}</p>}
+      {err && <p className="elx-form__error">{err}</p>}
 
-      <table className="dc-table">
+      <table className="dcx-table">
         <thead>
           <tr>
             <th>Membre</th>
             <th>Rôle</th>
             <th>Statut</th>
-            <th className="dc-table__actions">Actions</th>
+            <th className="dcx-col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
           {members.map((m) => (
-            <tr key={m.userId} className="dc-row">
-              <td className="dc-row__name">
+            <tr key={m.userId} className="dcx-row" style={{ cursor: "default" }}>
+              <td className="dcx-row__name">
                 <span className="dc-avatar">{(m.displayName || m.email).slice(0, 1).toUpperCase()}</span>
                 <span>
                   <b>{m.displayName || "—"}</b>
                   <br />
-                  <span className="dc-row__muted">{m.email}</span>
+                  <span className="dcx-row__muted">{m.email}</span>
                 </span>
               </td>
               <td>
                 {canManage && d.currentOrg?.roleKey !== "manager" ? (
-                  <select className="tool-select" value={m.roleId} onChange={(e) => void changeRole(m, e.target.value)}>
+                  <select
+                    className="elx-select--surface"
+                    value={m.roleId}
+                    onChange={(e) => void changeRole(m, e.target.value)}
+                  >
                     {d.roles.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.name}
@@ -204,9 +215,9 @@ export default function MembersPanel() {
                   return <span className={`badge badge--${tone} dc-member-status`}>{label}</span>;
                 })()}
               </td>
-              <td className="dc-row__actions">
+              <td className="dcx-row__actions">
                 {canManage && (
-                  <button className="icon-btn icon-btn--danger" title="Retirer" onClick={() => void remove(m)}>
+                  <button className="elx-icon elx-icon--danger" title="Retirer" onClick={() => void remove(m)}>
                     <Trash2 size={15} />
                   </button>
                 )}

@@ -70,7 +70,7 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
           </select>
           {needs >= 1 && !isScale && (
             <input
-              className="elx-input cf-val"
+              className="elx-input elx-input--narrow"
               value={v1}
               onChange={(e) => setV1(e.target.value)}
               placeholder={op === "contains" ? "texte" : "valeur"}
@@ -78,9 +78,9 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
           )}
           {needs >= 2 && !isScale && (
             <>
-              <span className="cf-and">et</span>
+              <span className="elx-and">et</span>
               <input
-                className="elx-input cf-val"
+                className="elx-input elx-input--narrow"
                 value={v2}
                 onChange={(e) => setV2(e.target.value)}
                 placeholder="valeur"
@@ -90,14 +90,14 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
         </div>
 
         {isScale ? (
-          <div className="cf-scale-row">
+          <div className="dcx-inline" style={{ marginTop: 12, marginBottom: 0 }}>
             <label className="dcx-field" title="Couleur minimale">
               <span>Min</span>
               <span className="elx-colorbtn">
                 <input type="color" value={scaleMin} onChange={(e) => setScaleMin(e.target.value)} />
               </span>
             </label>
-            <label className="checkbox-row cf-mid-toggle">
+            <label className="checkbox-row" style={{ marginTop: 0 }}>
               <input type="checkbox" checked={useMid} onChange={(e) => setUseMid(e.target.checked)} />
               <span>Milieu</span>
             </label>
@@ -115,14 +115,17 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
               </span>
             </label>
             <span
-              className="cf-scale-preview"
               style={{
+                width: 120,
+                height: 22,
+                borderRadius: "var(--r-sm)",
+                border: "1px solid var(--border)",
                 background: `linear-gradient(90deg, ${scaleMin}, ${useMid ? scaleMid + "," : ""} ${scaleMax})`,
               }}
             />
           </div>
         ) : (
-          <div className="cf-style-row">
+          <div className="dcx-inline" style={{ marginTop: 12, marginBottom: 0 }}>
             <label className="dcx-field" title="Remplissage">
               <span>Remplissage</span>
               <span className="elx-colorbtn">
@@ -139,7 +142,17 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
               <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
               <span>Gras</span>
             </label>
-            <span className="cf-preview" style={{ background: fill, color, fontWeight: bold ? 700 : 400 }}>
+            <span
+              style={{
+                padding: "4px 12px",
+                borderRadius: "var(--r-sm)",
+                border: "1px solid var(--border)",
+                fontSize: 13,
+                background: fill,
+                color,
+                fontWeight: bold ? 700 : 400,
+              }}
+            >
               Aa 123
             </span>
           </div>
@@ -157,7 +170,7 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
         {rules.length === 0 ? (
           <p className="elx-empty">Aucune règle. Sélectionnez une plage et ajoutez-en une.</p>
         ) : (
-          <ul className="cf-rule-list">
+          <ul className="elx-rulelist">
             {rules.map((r) => {
               const span = `${indexToCol(r.c0)}${r.r0 + 1}:${indexToCol(r.c1)}${r.r1 + 1}`;
               const swatch =
@@ -165,9 +178,9 @@ export default function CondFormatModal({ rangeLabel, rules, onAdd, onRemove, on
                   ? `linear-gradient(90deg, ${r.scale?.min}, ${r.scale?.mid ? r.scale.mid + "," : ""} ${r.scale?.max})`
                   : (r.fill ?? "transparent");
               return (
-                <li key={r.id} className="cf-rule">
-                  <span className="cf-swatch" style={{ background: swatch, color: r.color }} />
-                  <span className="cf-rule__desc">
+                <li key={r.id} className="elx-rule">
+                  <span className="elx-rule__swatch" style={{ background: swatch, color: r.color }} />
+                  <span className="elx-rule__desc">
                     <strong>{span}</strong> — {describeRule(r)}
                   </span>
                   <button

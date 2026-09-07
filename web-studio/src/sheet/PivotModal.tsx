@@ -52,9 +52,9 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
             champs).
           </p>
         ) : (
-          <div className="pivot-form">
-            <label className="pivot-row">
-              <span className="pivot-row__lbl">Lignes</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <label className="dcx-field">
+              <span>Lignes</span>
               <select
                 className="elx-select--surface"
                 value={rowField}
@@ -67,8 +67,8 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
                 ))}
               </select>
             </label>
-            <label className="pivot-row">
-              <span className="pivot-row__lbl">Colonnes</span>
+            <label className="dcx-field">
+              <span>Colonnes</span>
               <select
                 className="elx-select--surface"
                 value={colField === null ? "" : colField}
@@ -82,8 +82,8 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
                 ))}
               </select>
             </label>
-            <label className="pivot-row">
-              <span className="pivot-row__lbl">Valeurs</span>
+            <label className="dcx-field">
+              <span>Valeurs</span>
               <select
                 className="elx-select--surface"
                 value={valueField}
@@ -96,8 +96,8 @@ export default function PivotModal({ headers, rangeLabel, onCreate, onClose }: P
                 ))}
               </select>
             </label>
-            <label className="pivot-row">
-              <span className="pivot-row__lbl">Agréger par</span>
+            <label className="dcx-field">
+              <span>Agréger par</span>
               <select className="elx-select--surface" value={agg} onChange={(e) => setAgg(e.target.value as PivotAgg)}>
                 {PIVOT_AGGS.map((a) => (
                   <option key={a.value} value={a.value}>

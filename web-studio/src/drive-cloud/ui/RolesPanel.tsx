@@ -169,12 +169,12 @@ export default function RolesPanel() {
   };
 
   return (
-    <div className="dc-roles">
-      <aside className="dc-roles__list">
-        <div className="dc-roles__list-head">
+    <div className="dcx-roles">
+      <aside className="dcx-roles__list">
+        <div className="dcx-roles__list-head">
           <span>Rôles</span>
           {canManage && (
-            <button className="icon-btn" title="Nouveau rôle" onClick={() => void create()}>
+            <button className="elx-icon" title="Nouveau rôle" onClick={() => void create()}>
               <Plus size={16} />
             </button>
           )}
@@ -182,44 +182,44 @@ export default function RolesPanel() {
         {d.roles.map((r) => (
           <button
             key={r.id}
-            className={`dc-role-item ${r.id === selectedId ? "is-active" : ""}`}
+            className={`dcx-role-item ${r.id === selectedId ? "is-active" : ""}`}
             onClick={() => setSelectedId(r.id)}
           >
-            <span className="dc-role-dot" style={{ background: r.color }} />
-            <span className="dc-role-item__name">{r.name}</span>
-            {r.isSystem && <Lock size={12} className="dc-role-item__sys" />}
+            <span className="dcx-role-dot" style={{ background: r.color }} />
+            <span className="dcx-role-item__name">{r.name}</span>
+            {r.isSystem && <Lock size={12} className="dcx-role-item__sys" />}
           </button>
         ))}
       </aside>
 
-      <section className="dc-roles__editor">
+      <section className="dcx-roles__editor">
         {!draft || !selected ? (
-          <div className="dc-empty-list">
+          <div className="elx-empty">
             <ShieldHalf size={30} />
             <p>Sélectionnez un rôle.</p>
           </div>
         ) : (
           <>
-            <div className="dc-roles__editor-head">
-              <div className="dc-role-meta">
+            <div className="dcx-roles__editor-head">
+              <div className="dcx-role-meta">
                 <input
-                  className="input dc-role-name"
+                  className="elx-input dcx-role-name"
                   value={draft.name}
                   disabled={!editable}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 />
                 <input
-                  className="input"
+                  className="elx-input"
                   placeholder="Description"
                   value={draft.description}
                   disabled={!editable}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                 />
-                <div className="dc-role-colors">
+                <div className="dcx-role-colors">
                   {COLORS.map((c) => (
                     <button
                       key={c}
-                      className={`dc-role-swatch ${draft.color === c ? "is-active" : ""}`}
+                      className={`dcx-role-swatch ${draft.color === c ? "is-active" : ""}`}
                       style={{ background: c }}
                       disabled={!editable}
                       onClick={() => setDraft({ ...draft, color: c })}
@@ -228,19 +228,19 @@ export default function RolesPanel() {
                   ))}
                 </div>
               </div>
-              <div className="dc-roles__editor-actions">
+              <div className="dcx-roles__editor-actions">
                 {selected.isSystem && (
-                  <span className="badge badge--info dc-role-defaultbadge">
+                  <span className="badge badge--info dcx-role-defaultbadge">
                     <Lock size={12} /> Rôle par défaut
                   </span>
                 )}
                 {canManage && (
                   <>
-                    <button className="eb eb--sm eb--primary" onClick={() => void save()} disabled={busy}>
+                    <button className="elx-mini elx-mini--primary" onClick={() => void save()} disabled={busy}>
                       <Save size={14} /> Enregistrer
                     </button>
                     <button
-                      className="eb eb--sm eb--danger"
+                      className="elx-mini elx-mini--danger"
                       onClick={() => void remove()}
                       disabled={busy || !deletable}
                       title={deletable ? undefined : "Le rôle propriétaire ne peut pas être supprimé"}
@@ -250,25 +250,25 @@ export default function RolesPanel() {
                   </>
                 )}
                 {canManage && (
-                  <button className="eb eb--sm eb--outline" onClick={() => void clone()} disabled={busy}>
+                  <button className="elx-mini" onClick={() => void clone()} disabled={busy}>
                     <Copy size={14} /> Cloner
                   </button>
                 )}
               </div>
             </div>
-            {err && <p className="dc-error">{err}</p>}
-            <div className="dc-perm-count">
+            {err && <p className="elx-form__error">{err}</p>}
+            <div className="dcx-perm-count">
               {draft.perms.size} permission(s) sur {catalog.length}
             </div>
 
-            <div className="dc-perm-grid">
+            <div className="dcx-perm-grid">
               {Object.entries(grouped).map(([domain, perms]) => (
-                <fieldset key={domain} className="dc-perm-group">
+                <fieldset key={domain} className="dcx-perm-group">
                   <legend>{DOMAIN_LABEL[domain] ?? domain}</legend>
                   {perms.map((p) => (
                     <label
                       key={p.key}
-                      className={`dc-perm ${draft.perms.has(p.key) ? "is-on" : ""} ${editable ? "" : "is-locked"}`}
+                      className={`dcx-perm ${draft.perms.has(p.key) ? "is-on" : ""} ${editable ? "" : "is-locked"}`}
                     >
                       <input
                         type="checkbox"
@@ -276,8 +276,8 @@ export default function RolesPanel() {
                         disabled={!editable}
                         onChange={() => toggle(p.key)}
                       />
-                      <span className="dc-perm__label">{p.label}</span>
-                      <code className="dc-perm__key">{p.key}</code>
+                      <span className="dcx-perm__label">{p.label}</span>
+                      <code className="dcx-perm__key">{p.key}</code>
                     </label>
                   ))}
                 </fieldset>

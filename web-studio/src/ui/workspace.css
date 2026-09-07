@@ -2672,6 +2672,295 @@
   }
 }
 
+/* --- Drive : rôles & équipes (RolesPanel, GroupsPanel) --------------------
+   Panneau maître/détail partagé par les deux (liste à gauche, éditeur à
+   droite) : mêmes classes `.dcx-role*`/`.dcx-perm*` des deux côtés pour que
+   les deux restent cohérents. Même chrome que le reste du module (`--x-*`,
+   `.elx-*`) — remplace l'ancien `.dc-roles` (tokens `--surface`/`--text`/…). */
+.dcx-roles {
+  display: flex;
+  gap: 18px;
+  min-height: 62vh;
+}
+.dcx-roles__list {
+  width: 240px;
+  flex: none;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  background: var(--x-panel);
+  overflow: hidden;
+  height: fit-content;
+  box-shadow: var(--el-elev-1);
+}
+.dcx-roles__list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--x-line);
+  font-weight: 800;
+  color: var(--x-soft);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dcx-role-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--x-text);
+  font-size: 14px;
+  border-left: 3px solid transparent;
+}
+.dcx-role-item:hover {
+  background: var(--el-surface-3);
+}
+.dcx-role-item.is-active {
+  background: var(--el-primary-50);
+  color: var(--el-primary);
+  font-weight: 700;
+  border-left-color: var(--el-primary);
+}
+.dcx-role-item__name {
+  flex: 1;
+}
+.dcx-role-item__sys {
+  color: var(--x-mute);
+}
+.dcx-role-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dcx-roles__editor {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  background: var(--x-panel);
+  padding: 20px;
+  box-shadow: var(--el-elev-1);
+}
+.dcx-roles__editor-head {
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.dcx-role-meta {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dcx-role-name {
+  font-weight: 800;
+  font-size: 17px;
+}
+.dcx-role-colors {
+  display: flex;
+  gap: 7px;
+  margin-top: 2px;
+}
+.dcx-role-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.dcx-role-swatch.is-active {
+  border-color: var(--x-text);
+}
+.dcx-role-swatch:disabled {
+  cursor: default;
+}
+.dcx-roles__editor-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dcx-perm-count {
+  color: var(--x-soft);
+  font-size: 13px;
+  margin: 16px 0 10px;
+  font-weight: 600;
+}
+.dcx-perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.dcx-perm-group {
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius);
+  padding: 10px 14px 12px;
+  background: var(--x-panel-2);
+}
+.dcx-perm-group legend {
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--el-primary);
+  padding: 0 6px;
+}
+.dcx-perm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: var(--x-radius-sm);
+  cursor: pointer;
+}
+.dcx-perm:hover {
+  background: var(--el-surface-3);
+}
+.dcx-perm.is-locked {
+  cursor: default;
+  opacity: 0.7;
+}
+/* Case à cocher façon interrupteur. */
+.dcx-perm input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--el-border-strong);
+  cursor: pointer;
+  flex: none;
+  transition: background 0.15s;
+}
+.dcx-perm input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.dcx-perm input:checked {
+  background: var(--el-primary);
+}
+.dcx-perm input:checked::after {
+  transform: translateX(14px);
+}
+.dcx-perm input:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.dcx-perm__label {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--x-text);
+}
+.dcx-perm__key {
+  font-size: 10.5px;
+  color: var(--x-mute);
+  font-family: var(--el-mono, monospace);
+}
+.dcx-perm.is-on .dcx-perm__label {
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .dcx-roles {
+    flex-direction: column;
+  }
+  .dcx-roles__list {
+    width: auto;
+  }
+}
+
+/* --- Drive : équipes (GroupsPanel) — formulaire de création et liste des
+   membres d'une équipe. Partage `.dcx-roles*`/`.dcx-role-*` ci-dessus pour la
+   disposition maître/détail. */
+.dcx-team-create {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 460px;
+}
+.dcx-team-create h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+.dcx-chip-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel);
+}
+.dcx-chip-input input {
+  flex: 1;
+  min-width: 160px;
+  border: none;
+  outline: none;
+  background: none;
+  font: inherit;
+  color: var(--x-text);
+  padding: 4px;
+}
+.dcx-emailchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--el-primary-50);
+  color: var(--el-primary);
+  border-radius: 999px;
+  padding: 3px 6px 3px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.dcx-emailchip button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}
+.dcx-team-members {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+.dcx-team-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--x-line);
+}
+.dcx-team-row__name {
+  font-weight: 600;
+}
+
 /* --- Drive : dialogues (Partage, Corbeille, Versions, Recouvrement, …) ----
    Même chrome que le reste du module (`--x-radius`, `.elx-*`) — remplace
    l'ancien `.dc-modal` (rayon 18px figé, boutons `.eb`/`.icon-btn` génériques). */

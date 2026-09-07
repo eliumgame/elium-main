@@ -1842,13 +1842,11 @@
   }
 }
 
-/* --- Security panel (2FA / TOTP) ----------------------------------------- */
-.dc-security {
-  max-width: 640px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* --- Security panel (2FA / TOTP) -----------------------------------------
+   Le conteneur pleine page utilise désormais `.elx-panel` (voir workspace.css) —
+   même chrome que RecoveryPanel/DriveBrowser. Les boîtes bespoke ci-dessous
+   (enrôlement, codes de secours, passkeys, déverrouillage) restent propres à
+   ce panneau : pas d'équivalent générique sans changer leur rendu. */
 .dc-security__status {
   display: flex;
   align-items: center;
@@ -1893,7 +1891,7 @@
   align-items: center;
   flex-wrap: wrap;
 }
-.dc-security__confirm .input {
+.dc-security__confirm .elx-input {
   max-width: 160px;
   letter-spacing: 3px;
   text-align: center;
@@ -1949,7 +1947,7 @@
   gap: 8px;
   align-items: center;
 }
-.dc-security__disable-row .input {
+.dc-security__disable-row .elx-input {
   max-width: 260px;
 }
 

@@ -2781,10 +2781,11 @@
   min-width: 160px;
 }
 
-/* --- Drive : panneaux admin pleine page (Recouvrement, Membres, …) --------
-   Même chrome que les dialogues (`--x-radius`, `.elx-*`) — remplace l'ancien
-   `.dc-sso`/`.dc-sso__card` (tokens legacy `--surface`/`--border`, encore
-   utilisés par les panneaux non migrés). */
+/* --- Drive : panneaux admin pleine page (Recouvrement, SSO/SCIM, …) -------
+   Même chrome que les dialogues (`--x-radius`, `.elx-*`) — remplace les
+   anciennes classes par panneau (ex. `.dc-sso`/`.dc-sso__card`, tokens legacy
+   `--surface`/`--border`, encore utilisés par les panneaux non migrés comme
+   SecurityPanel/GroupsPanel/AuthPanel). */
 .elx-panel {
   display: flex;
   flex-direction: column;
@@ -2806,6 +2807,24 @@
   font-weight: 700;
   margin: 0 0 4px;
   color: var(--x-text);
+}
+
+/* Boîte de code copiable (endpoint, jeton…), typiquement suivie d'un
+   `.elx-icon` « Copier » dans un `.dcx-inline` (ex. SsoScimPanel). */
+.elx-code {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--el-surface-2);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  padding: 6px 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--x-text);
+}
+.elx-code--secret {
+  letter-spacing: 0.5px;
 }
 
 /* Bandeau d'alerte avec icône (ex. clé de recouvrement, zone de danger). */

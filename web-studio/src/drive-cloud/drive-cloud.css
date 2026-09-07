@@ -2098,63 +2098,9 @@
   font-family: ui-monospace, monospace;
 }
 
-/* SSO & SCIM admin panel */
-.dc-sso {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 680px;
-}
-.dc-sso__card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--el-radius-lg);
-  padding: 18px 20px;
-  box-shadow: var(--el-elev-1);
-}
-.dc-sso__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
-  margin: 0 0 4px;
-}
-.dc-sso__form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-.dc-sso__form textarea.input {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  resize: vertical;
-}
-.dc-sso__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-.dc-sso__copyrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.dc-sso__code {
-  flex: 1;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.dc-sso__code--secret {
-  letter-spacing: 0.5px;
-}
+/* SSO & SCIM admin panel — migré vers `.elx-panel*`/`.elx-form`/`.elx-code`
+   (voir ui/workspace.css). `.dc-sso__ok` reste ici : message de succès
+   générique encore utilisé par plusieurs panneaux (SsoScimPanel, RecoveryPanel). */
 .dc-sso__ok {
   color: var(--success);
   font-size: 13px;

@@ -4291,43 +4291,22 @@
   color: var(--text);
 }
 
-/* Mise en forme conditionnelle (modale) */
-.cf-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+/* Mise en forme conditionnelle (modale) — noms partagés `.elx-*` : voir
+   `ui/workspace.css` pour la convention. `.cf-val`/`.cf-and`/`.cf-rule-list`/
+   `.cf-rule`/`.cf-rule__desc` restent déclarés en double (ancien nom conservé)
+   tant que ValidationModal.tsx et NamedRangesModal.tsx (mêmes listes de
+   règles) ne sont pas eux-mêmes migrés — même déclaration, donc aucun
+   changement visuel pour l'un ou l'autre nom. */
+.elx-input--narrow,
 .cf-val {
   max-width: 130px;
 }
+.elx-and,
 .cf-and {
   color: var(--text-muted);
   font-size: 13px;
 }
-.cf-style-row,
-.cf-scale-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-.cf-mid-toggle {
-  margin-top: 0;
-}
-.cf-preview {
-  padding: 4px 12px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border);
-  font-size: 13px;
-}
-.cf-scale-preview {
-  width: 120px;
-  height: 22px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border);
-}
+.elx-rulelist,
 .cf-rule-list {
   list-style: none;
   margin: 8px 0 0;
@@ -4336,6 +4315,7 @@
   flex-direction: column;
   gap: 6px;
 }
+.elx-rule,
 .cf-rule {
   display: flex;
   align-items: center;
@@ -4345,13 +4325,16 @@
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
 }
-.cf-swatch {
+/* Aperçu couleur/dégradé d'une règle dans la liste — propre à
+   CondFormatModal (pas de second nom à porter). */
+.elx-rule__swatch {
   width: 26px;
   height: 18px;
   flex-shrink: 0;
   border-radius: 4px;
   border: 1px solid var(--border-strong);
 }
+.elx-rule__desc,
 .cf-rule__desc {
   flex: 1;
   font-size: 13px;

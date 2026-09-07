@@ -9,14 +9,20 @@
 import { describe, it, expect } from "vitest";
 import { createEliumFile, addSignature, markPartySigned } from "../src/format/document";
 import { writeEliumPackage, readEliumPackage, type WriteOptions } from "../src/format/elium-package";
-import { generateIdentity } from "../src/sign/keys";
+import { generateIdentity, fingerprintOf } from "../src/sign/keys";
 import { createProof, verifyProof } from "../src/sign/proof";
 import { generateRecipientKeypair } from "../src/crypto/recipients";
 import { generateNodeKey, wrapNodeKeyFor, encryptContent, decryptContent } from "../src/drive-cloud/node-crypto";
-import { loadEliumFile, syncCircuitForSignRequest, type DriveEntry, type OpsCtx } from "../src/drive-cloud/ops";
+import {
+  loadEliumFile,
+  syncCircuitForSignRequest,
+  reconcileCircuitForSignRequest,
+  type DriveEntry,
+  type OpsCtx,
+} from "../src/drive-cloud/ops";
 import { randomId } from "../src/format/canonical";
 import type { EliumFile, EliumSignature } from "../src/format/types";
-import type { DriveApi } from "../src/drive-cloud/api";
+import type { DriveApi, SignRequestDto } from "../src/drive-cloud/api";
 
 interface FakeBlob {
   ciphertext: Uint8Array;
@@ -25,8 +31,11 @@ interface FakeBlob {
 
 /** Just enough of `DriveApi` for ops.ts's content read/write path — an
  *  in-memory node-id -> encrypted-blob store standing in for the server,
- *  which only ever needs to move ciphertext around. */
-function fakeDriveApi(store: Map<string, FakeBlob>): DriveApi {
+ *  which only ever needs to move ciphertext around. `extra` overrides/adds
+ *  methods (e.g. `getSignRequests` for reconciliation tests, or a flaky
+ *  `getContent` for retry tests) without disturbing the base implementation
+ *  every other test in this file already relies on. */
+function fakeDriveApi(store: Map<string, FakeBlob>, extra: Partial<DriveApi> = {}): DriveApi {
   return {
     async getContent(id: string) {
       const rec = store.get(id);
@@ -37,6 +46,10 @@ function fakeDriveApi(store: Map<string, FakeBlob>): DriveApi {
       store.set(id, { ciphertext, nonceHex });
       return { node: {} };
     },
+    async getSignRequests() {
+      return { requests: [] };
+    },
+    ...extra,
   } as unknown as DriveApi;
 }
 
@@ -65,7 +78,12 @@ function makeEntry(over: Partial<DriveEntry> & { id: string }): DriveEntry {
 /** A ctx + entry pair backed by a real (in-memory) node key, wrapped exactly
  *  as the Drive layer would — so `nodeKeyFrom`/`loadEliumFile` exercise the
  *  real unwrap path, not a shortcut. */
-async function makeCtxAndEntry(): Promise<{
+async function makeCtxAndEntry(
+  // A function (not a plain object) so overrides can close over the SAME
+  // in-memory `store` this helper creates — e.g. a flaky `getContent` that
+  // still needs to read whatever `putContent` really wrote.
+  apiExtra: (store: Map<string, FakeBlob>) => Partial<DriveApi> = () => ({}),
+): Promise<{
   ctx: OpsCtx;
   entry: DriveEntry;
   nodeKey: Uint8Array;
@@ -76,7 +94,7 @@ async function makeCtxAndEntry(): Promise<{
   const myWrappedKey = await wrapNodeKeyFor(nodeKey, recipient.publicHex);
   const store = new Map<string, FakeBlob>();
   const ctx: OpsCtx = {
-    api: fakeDriveApi(store),
+    api: fakeDriveApi(store, apiExtra(store)),
     keys: { recipient, identity: { privateKeyHex: "", publicKeyHex: "", fingerprint: "" } },
     userId: "u1",
     orgId: "o1",
@@ -306,5 +324,199 @@ describe("bout en bout : signature par lien réconciliée dans le circuit local"
     const matchingSig = final!.file.signatures.find((s) => s.id === p1.signatureId)!;
     const verdict = await verifyProof(matchingSig, final!.file.document);
     expect(verdict).toBe("valid");
+  });
+});
+
+/**
+ * Le bug concret visé par le durcissement du pont : si l'alignement initial
+ * du circuit (syncCircuitForSignRequest, à la création de la demande) échoue
+ * — best effort, réseau par ex. — les liens de signature restent malgré tout
+ * fonctionnels (ils ne dépendent QUE du token serveur, pas du circuit
+ * embarqué). Un signataire peut donc signer via son lien AVANT qu'une
+ * resynchronisation n'ait jamais réussi. Sans réconciliation, une
+ * (re)construction tardive du circuit (`alignCircuitWithRequest` sans
+ * connaître le statut serveur) fabrique alors un « pending » pour une partie
+ * qui a DÉJÀ signé — elle reste ainsi bloquée « en attente » dans le panneau
+ * Parapheur pour toujours, même si la signature cloud a réellement abouti.
+ */
+describe("réconciliation : un signataire déjà signé côté serveur n'est jamais laissé « pending »", () => {
+  it("syncCircuitForSignRequest reprend le statut « signed » connu du serveur au lieu de fabriquer un « pending »", async () => {
+    const { ctx, entry, nodeKey, store } = await makeCtxAndEntry();
+
+    // Alice a déjà signé via son lien : une VRAIE signature Ed25519 est
+    // embarquée dans le document, mais SANS passer par markPartySigned (le
+    // circuit n'a jamais contenu "p1" — c'est exactement ce qui se produit
+    // quand l'alignement initial a échoué avant que quiconque ne clique sur
+    // le lien).
+    const file = await createEliumFile({ title: "Contrat", profile: "standard" });
+    const id = await generateIdentity();
+    const sigId = randomId("sig");
+    const signer = { name: "Alice" };
+    const placement: EliumSignature["placement"] = {
+      page: 1,
+      xPct: 0.34,
+      yPct: 0.78,
+      wPct: 0.3,
+      hPct: 0.12,
+      rotation: 0,
+      z: 0,
+      anchorType: "page",
+    };
+    const visual = { text: "Alice" };
+    const proof = await createProof({
+      signatureId: sigId,
+      model: file.document,
+      signer,
+      privateKeyHex: id.privateKeyHex!,
+      placement,
+      visual,
+    });
+    const sig: EliumSignature = {
+      id: sigId,
+      kind: "typed",
+      visual,
+      placement,
+      signer,
+      proof,
+      level: "advanced",
+      createdAt: "2026-02-01T10:00:00.000Z",
+    };
+    const fileWithSig = await addSignature(file, sig);
+    expect(fileWithSig.parapheur).toBeUndefined(); // pas de circuit du tout, comme après un échec d'alignement
+    await seed(nodeKey, store, entry.id, fileWithSig);
+
+    // Ce que le serveur (source de vérité pour le "Suivi") sait déjà : p1 a
+    // signé (même empreinte que la preuve embarquée), p2 est toujours en
+    // attente.
+    const signerFpr = await fingerprintOf(id.publicKeyHex);
+    const requestsDto: SignRequestDto[] = [
+      {
+        id: "req-1",
+        status: "pending",
+        ordered: false,
+        deadline: null,
+        createdAt: "2026-02-01T09:00:00.000Z",
+        completedAt: null,
+        parties: [
+          {
+            id: "p1",
+            index: 0,
+            label: "Alice",
+            status: "signed",
+            signerFpr,
+            signedAt: "2026-02-01T10:00:00.000Z",
+            submissionVersionId: "v2",
+            linkId: "l1",
+          },
+          {
+            id: "p2",
+            index: 1,
+            label: "Bob",
+            status: "pending",
+            signerFpr: null,
+            signedAt: null,
+            submissionVersionId: null,
+            linkId: "l2",
+          },
+        ],
+      },
+    ];
+    ctx.api = fakeDriveApi(store, { getSignRequests: async () => ({ requests: requestsDto }) });
+
+    // Resynchronisation tardive (ex. relance manuelle depuis le bandeau
+    // persistant, ou nouvelle tentative automatique) : reconstruit le
+    // circuit à partir de zéro puisqu'il n'existait pas encore.
+    const loaded = await loadEliumFile(ctx, entry);
+    await syncCircuitForSignRequest(ctx, entry, loaded!, [
+      { partyId: "p1", label: "Alice" },
+      { partyId: "p2", label: "Bob" },
+    ]);
+
+    const after = await loadEliumFile(ctx, entry);
+    const parties = after!.file.parapheur!.parties;
+    const p1 = parties.find((p) => p.id === "p1")!;
+    const p2 = parties.find((p) => p.id === "p2")!;
+
+    // AVANT le correctif : p1.status === "pending" ici (alignCircuitWithRequest
+    // ignorait tout statut serveur et repartait toujours de "pending" quand le
+    // circuit n'existait pas encore) — alors que la signature cloud a
+    // RÉELLEMENT abouti. C'est le bug utilisateur concret visé par la tâche.
+    expect(p1.status).toBe("signed");
+    expect(p1.signatureId).toBe(sigId);
+    expect(p1.publicKeyHex).toBe(id.publicKeyHex);
+    // p2 n'a pas signé : reste "pending", sans être affecté par la réconciliation.
+    expect(p2.status).toBe("pending");
+
+    // La signature retrouvée est réellement vérifiable, pas un simple drapeau
+    // recopié depuis le serveur.
+    const matchingSig = after!.file.signatures.find((s) => s.id === p1.signatureId)!;
+    expect(await verifyProof(matchingSig, after!.file.document)).toBe("valid");
+  });
+
+  it("un échec de lecture du tableau de suivi (réseau) retombe sur le comportement précédent, sans casser l'alignement", async () => {
+    const { ctx, entry, nodeKey, store } = await makeCtxAndEntry(() => ({
+      getSignRequests: async () => {
+        throw new Error("panne réseau simulée");
+      },
+    }));
+    const file = await createEliumFile({ title: "Contrat", profile: "standard" });
+    await seed(nodeKey, store, entry.id, file);
+
+    const loaded = await loadEliumFile(ctx, entry);
+    await expect(
+      syncCircuitForSignRequest(ctx, entry, loaded!, [{ partyId: "p1", label: "Alice" }]),
+    ).resolves.toBeUndefined();
+
+    const after = await loadEliumFile(ctx, entry);
+    expect(after!.file.parapheur?.parties).toEqual([{ id: "p1", name: "Alice", role: "", status: "pending" }]);
+  });
+});
+
+/**
+ * `reconcileCircuitForSignRequest` (le point d'entrée fiable côté émetteur,
+ * appelé par SignRequestDialog) : investigation de ce qui pouvait échouer
+ * dans l'ancien code — un accroc réseau transitoire pendant la lecture
+ * (`loadEliumFile` avale l'erreur et renvoie juste `null`) faisait échouer le
+ * bridge une seule fois, sans la moindre nouvelle tentative, ET sans le
+ * moindre avertissement si l'échec se produisait à CE point précis (voir
+ * l'ancien SignRequestDialog.createLinks : `if (fresh) await sync(...)` ne
+ * déclenchait le message d'erreur que si `sync` lui-même levait — jamais si
+ * `loadEliumFile` renvoyait silencieusement `null`).
+ */
+describe("reconcileCircuitForSignRequest (émetteur, avec tentatives)", () => {
+  it("un accroc réseau transitoire (getContent échoue une fois) est absorbé par une nouvelle tentative", async () => {
+    let getContentCalls = 0;
+    const { ctx, entry, nodeKey, store } = await makeCtxAndEntry((store) => ({
+      getContent: async (id: string) => {
+        getContentCalls++;
+        if (getContentCalls === 1) throw new Error("panne réseau simulée (1 seule fois)");
+        const rec = store.get(id)!;
+        return { bytes: rec.ciphertext, nonceHex: rec.nonceHex };
+      },
+    }));
+    const file = await createEliumFile({ title: "Contrat", profile: "standard" });
+    await seed(nodeKey, store, entry.id, file);
+
+    await reconcileCircuitForSignRequest(ctx, entry, [{ partyId: "p1", label: "Alice" }], {
+      attempts: 3,
+      delayMs: 0, // pas d'attente réelle dans le test
+    });
+
+    expect(getContentCalls).toBeGreaterThanOrEqual(2); // a bien retenté après l'échec
+
+    const after = await loadEliumFile(ctx, entry);
+    expect(after!.file.parapheur?.parties).toEqual([{ id: "p1", name: "Alice", role: "", status: "pending" }]);
+  });
+
+  it("un échec PERSISTANT n'est jamais avalé silencieusement : la fonction rejette après épuisement des tentatives", async () => {
+    const { ctx, entry } = await makeCtxAndEntry(() => ({
+      getContent: async () => {
+        throw new Error("hors ligne (simulé, en permanence)");
+      },
+    }));
+
+    await expect(
+      reconcileCircuitForSignRequest(ctx, entry, [{ partyId: "p1", label: "Alice" }], { attempts: 2, delayMs: 0 }),
+    ).rejects.toThrow();
   });
 });

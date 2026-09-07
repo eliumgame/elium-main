@@ -1625,6 +1625,35 @@
   font-size: 12px;
 }
 
+/* Persistent "circuit not synced yet" banner (SignRequestDialog) — deliberately
+ * NOT dismissable like a toast: it stays until `circuit-sync.ts`'s marker is
+ * cleared by a successful retry, so the failure can't be missed once and then
+ * forgotten (see the bridge-hardening work in `drive-cloud/ops.ts`). */
+.elx-sync-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  margin: 10px 0;
+  border: 1px solid var(--el-warning);
+  background: var(--el-warning-bg);
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--el-text);
+}
+.elx-sync-banner svg {
+  color: var(--el-warning);
+  flex: none;
+  margin-top: 1px;
+}
+.elx-sync-banner__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .pdfx-form__row,
 .elx-form__row {
   display: flex;

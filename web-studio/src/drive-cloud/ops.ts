@@ -4,7 +4,7 @@
  * content is encrypted before upload and decrypted after download; sharing
  * re-wraps the node key to a recipient's public key.
  */
-import type { DriveApi } from "./api";
+import type { DriveApi, SignParty } from "./api";
 import type { AccountKeys } from "./account";
 import type { NodeMeta, PublicUser, KeyShareInput, PrincipalType } from "./types";
 import {
@@ -20,7 +20,7 @@ import {
 import { generateRecipientKeypair } from "../crypto/recipients";
 import { fromHex } from "../format/canonical";
 import { readEliumPackage, writeEliumPackage } from "../format/elium-package";
-import { alignCircuitWithRequest } from "../format/document";
+import { alignCircuitWithRequest, type KnownPartyProgress } from "../format/document";
 import type { EliumFile } from "../format/types";
 import { matchesQuery } from "./browser-model";
 
@@ -489,6 +489,33 @@ export async function loadEliumFile(
 }
 
 /**
+ * Best-effort read of what the server's `signature_request_parties` already
+ * knows for these party ids (status/signerFpr/signedAt — see
+ * `KnownPartyProgress`). Failure here (network, permissions) must NOT break
+ * the alignment itself: it just falls back to the pre-existing behaviour
+ * (build/keep a "pending" entry) rather than reconciling — same as if the
+ * caller never had this information.
+ */
+async function knownProgressFor(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  partyIds: string[],
+): Promise<(KnownPartyProgress | undefined)[]> {
+  try {
+    const { requests } = await ctx.api.getSignRequests(entry.id);
+    const byId = new Map<string, SignParty>();
+    for (const r of requests) for (const p of r.parties) byId.set(p.id, p);
+    return partyIds.map((id) => {
+      const p = byId.get(id);
+      if (!p) return undefined;
+      return { status: p.status, signerFpr: p.signerFpr, signedAt: p.signedAt };
+    });
+  } catch {
+    return partyIds.map(() => undefined);
+  }
+}
+
+/**
  * Embed/align the document's parapheur circuit with a just-created sign
  * request's parties (see `alignCircuitWithRequest`), then re-upload it
  * re-encrypted under the same node key. Best effort BY DESIGN — the sign
@@ -496,6 +523,14 @@ export async function loadEliumFile(
  * callers should surface a soft warning on failure rather than undo the
  * request. `loaded` should be read as fresh as practical (right before this
  * call) since it's about to overwrite the node's content wholesale.
+ *
+ * Also reconciles against the server's CURRENT party statuses (best effort —
+ * see `knownProgressFor`): this call can happen well after request creation
+ * (a retried sync following an earlier failure, see
+ * `reconcileCircuitForSignRequest`), by which point a remote signer may
+ * already have used their link. Without this, (re)building the circuit would
+ * blindly stamp that party "pending" again, permanently hiding an already
+ * -successful cloud signature from the embedded circuit.
  */
 export async function syncCircuitForSignRequest(
   ctx: OpsCtx,
@@ -503,14 +538,69 @@ export async function syncCircuitForSignRequest(
   loaded: { file: EliumFile; nodeKey: Uint8Array },
   parties: { partyId: string; label?: string }[],
 ): Promise<void> {
+  const requestPartyIds = parties.map((p) => p.partyId);
+  const known = await knownProgressFor(ctx, entry, requestPartyIds);
   const nf = alignCircuitWithRequest(
     loaded.file,
-    parties.map((p) => p.partyId),
+    requestPartyIds,
     parties.map((p) => p.label),
+    known,
   );
   const bytes = await writeEliumPackage(nf, { carryForwardSeal: loaded.file.manifest.seal });
   const enc = await encryptContent(loaded.nodeKey, bytes);
   await ctx.api.putContent(entry.id, enc.ciphertext, enc.nonceHex);
+}
+
+/** Bounded retry for transient failures (network blips) — a handful of
+ *  attempts with a short delay, never an unbounded/silent retry loop. Once
+ *  attempts are exhausted the last error is rethrown so the caller is FORCED
+ *  to treat this as a real, actionable failure (see
+ *  `reconcileCircuitForSignRequest` and `circuit-sync.ts`) instead of quietly
+ *  treating "didn't work" the same as "nothing to do". */
+async function withRetries<T>(fn: () => Promise<T>, attempts: number, delayMs: number): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Reliable entry point for the create-time circuit bridge: (re)loads the
+ * CURRENT document and aligns/reconciles its embedded circuit with the sign
+ * request's parties (see `syncCircuitForSignRequest`), retrying a bounded
+ * number of times on transient failure instead of giving up on the first
+ * network hiccup. Unlike the raw `syncCircuitForSignRequest`, this ALWAYS
+ * throws on final failure — callers must not swallow that into silence (see
+ * `SignRequestDialog.tsx`, which persists a visible "not yet synced" marker
+ * via `circuit-sync.ts` until a retry succeeds).
+ */
+export async function reconcileCircuitForSignRequest(
+  ctx: OpsCtx,
+  entry: DriveEntry,
+  parties: { partyId: string; label?: string }[],
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<void> {
+  const attempts = opts.attempts ?? 3;
+  const delayMs = opts.delayMs ?? 400;
+  await withRetries(
+    async () => {
+      const loaded = await loadEliumFile(ctx, entry);
+      if (!loaded) {
+        throw new Error(
+          "Document illisible pour synchroniser le circuit (mot de passe requis, ou contenu indisponible).",
+        );
+      }
+      await syncCircuitForSignRequest(ctx, entry, loaded, parties);
+    },
+    attempts,
+    delayMs,
+  );
 }
 
 /**

@@ -185,6 +185,27 @@ export function markPartySigned(file: EliumFile, partyId: string, patch: Partial
 }
 
 /**
+ * What the CLOUD side (server `signature_request_parties`, the actual source
+ * of truth for a link's progress) already knows about one party, at the
+ * moment `alignCircuitWithRequest` runs. Lets a (re)alignment that happens
+ * AFTER a remote signer already used their link — a delayed retry following
+ * an earlier failed sync, see `drive-cloud/ops.ts#reconcileCircuitForSignRequest`
+ * — seed that party as "signed" instead of fabricating a "pending" entry for
+ * someone who already signed. Without this, a party could stay "pending" in
+ * the embedded circuit FOREVER even though the cloud signature genuinely
+ * succeeded (the concrete bug `parapheur-bridge.test.ts` reproduces).
+ */
+export interface KnownPartyProgress {
+  status: "pending" | "signed" | "declined" | "cancelled";
+  /** Ed25519 key fingerprint the server recorded for the signer — the exact
+   *  same value as `EliumSignature.proof.fingerprint` — used to find the real
+   *  embedded signature to wire up (signatureId/publicKeyHex/signedAt),
+   *  exactly as `markPartySigned` would have. */
+  signerFpr?: string | null;
+  signedAt?: string | null;
+}
+
+/**
  * Align the document's embedded circuit with the parties of a cloud sign
  * request about to exist server-side, so the two never describe a different
  * signer list. When the circuit already has the same number of parties, its
@@ -194,22 +215,46 @@ export function markPartySigned(file: EliumFile, partyId: string, patch: Partial
  * (no circuit yet, or the party count changed) a fresh "pending" circuit is
  * built from `labels`, in the SAME order as `requestPartyIds` — never a
  * disconnected, ad-hoc list.
+ *
+ * `known` (optional, same order as `requestPartyIds`) reconciles any party the
+ * cloud side already reports as "signed" — see `KnownPartyProgress` — so a
+ * late/retried alignment never regresses an already-completed signature back
+ * to "pending".
  */
 export function alignCircuitWithRequest(
   file: EliumFile,
   requestPartyIds: string[],
   labels: (string | undefined)[],
+  known?: (KnownPartyProgress | undefined)[],
 ): EliumFile {
+  const reconcile = (p: ParapheurParty, i: number): ParapheurParty => {
+    const k = known?.[i];
+    if (!k || k.status !== "signed" || p.status === "signed") return p;
+    const match = k.signerFpr ? file.signatures.find((s) => s.proof?.fingerprint === k.signerFpr) : undefined;
+    const at = k.signedAt ?? match?.proof?.signedAt ?? p.signedAt;
+    return {
+      ...p,
+      status: "signed",
+      signatureId: match?.id ?? p.signatureId,
+      publicKeyHex: match?.proof?.publicKeyHex ?? p.publicKeyHex,
+      ...(at ? { signedAt: at, updatedAt: at } : {}),
+    };
+  };
   const existing = file.parapheur?.parties;
   const parties: ParapheurParty[] =
     existing && existing.length === requestPartyIds.length
-      ? existing.map((p, i) => ({ ...p, id: requestPartyIds[i]! }))
-      : requestPartyIds.map((id, i) => ({
-          id,
-          name: labels[i]?.trim() || `Signataire ${i + 1}`,
-          role: "",
-          status: "pending",
-        }));
+      ? existing.map((p, i) => reconcile({ ...p, id: requestPartyIds[i]! }, i))
+      : requestPartyIds.map((id, i) =>
+          reconcile(
+            {
+              id,
+              name: labels[i]?.trim() || `Signataire ${i + 1}`,
+              role: "",
+              status: "pending",
+            },
+            i,
+          ),
+        );
   return { ...file, parapheur: { ...(file.parapheur ?? {}), parties, requestedAt: nowIso() } };
 }
 

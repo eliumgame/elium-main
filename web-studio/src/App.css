@@ -4357,26 +4357,6 @@
   font-size: 13px;
   color: var(--text-soft);
 }
-.pivot-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 4px;
-}
-.pivot-row {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  align-items: center;
-  gap: 12px;
-}
-.pivot-row__lbl {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-soft);
-}
-.pivot-row .elx-select--surface {
-  width: 100%;
-}
 .sheet-tabs {
   display: flex;
   align-items: center;

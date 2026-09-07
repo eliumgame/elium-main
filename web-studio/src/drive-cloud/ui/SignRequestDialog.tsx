@@ -20,17 +20,19 @@ import {
   Loader,
   RotateCcw,
   Ban,
+  AlertTriangle,
 } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
 import {
   createSignRequestForNode,
   loadEliumFile,
-  syncCircuitForSignRequest,
+  reconcileCircuitForSignRequest,
   type DriveEntry,
   type OpsCtx,
   type SignPartyLink,
 } from "../ops";
+import { getPendingCircuitSync, setPendingCircuitSync, clearPendingCircuitSync } from "../circuit-sync";
 import type { SignRequestDto, SignParty } from "../api";
 import { fingerprintWords } from "../../sign/safety-words";
 
@@ -66,6 +68,31 @@ export default function SignRequestDialog({
   const [circuitLoading, setCircuitLoading] = useState(true);
   const [hasExistingCircuit, setHasExistingCircuit] = useState(false);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  // Circuit non synchronisé d'une PRÉCÉDENTE tentative (potentiellement d'une
+  // session passée — voir circuit-sync.ts) : contrairement à `syncWarning`
+  // (efface au ferme-et-rouvre de la boîte de dialogue), ce marqueur survit et
+  // reste affiché tant qu'une resynchronisation n'a pas réellement réussi.
+  const [pendingSync, setPendingSyncState] = useState(() => getPendingCircuitSync(entry.id));
+  const [retrying, setRetrying] = useState(false);
+
+  const retrySync = useCallback(
+    async (parties: { partyId: string; label?: string }[]) => {
+      setRetrying(true);
+      try {
+        await reconcileCircuitForSignRequest(ctx, entry, parties);
+        clearPendingCircuitSync(entry.id);
+        setPendingSyncState(null);
+        setSyncWarning(null);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "erreur inconnue";
+        setPendingCircuitSync(entry.id, parties, message);
+        setPendingSyncState(getPendingCircuitSync(entry.id));
+      } finally {
+        setRetrying(false);
+      }
+    },
+    [ctx, entry],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +107,12 @@ export default function SignRequestDialog({
       }
       setCircuitLoading(false);
     })();
+    // Une synchronisation laissée en échec par une session précédente : on
+    // retente automatiquement à l'ouverture (best effort, silencieux si ça
+    // réussit) plutôt que d'attendre que l'utilisateur remarque le bandeau et
+    // clique lui-même — mais le bandeau, lui, reste visible tant que ça échoue.
+    const pending = getPendingCircuitSync(entry.id);
+    if (pending) void retrySync(pending.parties);
     return () => {
       cancelled = true;
     };
@@ -196,16 +229,26 @@ export default function SignRequestDialog({
       // Bridge vers le circuit local (Parapheur) : le document EST la source de
       // vérité, donc on le relit à cet instant précis (pas le snapshot chargé à
       // l'ouverture de la boîte de dialogue, potentiellement périmé) avant de le
-      // réécrire — best effort : la demande existe déjà côté serveur, un échec
-      // ici ne doit pas donner l'impression que la demande entière a échoué.
+      // réécrire. `reconcileCircuitForSignRequest` retente quelques fois un
+      // éventuel accroc réseau ; la demande existe déjà côté serveur, donc un
+      // échec ici ne doit jamais donner l'impression que la demande entière a
+      // échoué — mais il ne doit plus non plus rester complètement silencieux :
+      // on persiste un marqueur visible (circuit-sync.ts) tant que ça n'a pas
+      // fini par réussir, au lieu d'un simple avertissement qui disparaît avec
+      // la boîte de dialogue.
       try {
-        const fresh = await loadEliumFile(ctx, entry);
-        if (fresh) await syncCircuitForSignRequest(ctx, entry, fresh, created);
+        await reconcileCircuitForSignRequest(ctx, entry, created);
+        clearPendingCircuitSync(entry.id);
+        setPendingSyncState(null);
       } catch (e) {
+        const message = e instanceof Error ? e.message : "erreur inconnue";
+        setPendingCircuitSync(entry.id, created, message);
+        setPendingSyncState(getPendingCircuitSync(entry.id));
         setSyncWarning(
           "Le circuit du document (Parapheur) n'a pas pu être synchronisé : " +
-            (e instanceof Error ? e.message : "erreur inconnue") +
-            ". Les liens de signature fonctionnent malgré tout ; le suivi ci-dessous reste fiable.",
+            message +
+            ". Les liens de signature fonctionnent malgré tout ; le suivi ci-dessous reste fiable. Nouvelle tentative " +
+            "automatique à la prochaine ouverture de cette boîte de dialogue, ou via le bandeau ci-dessous.",
         );
       }
     } catch (e) {
@@ -301,6 +344,31 @@ export default function SignRequestDialog({
           Chaque signataire reçoit un lien : il signe en ligne <strong>sans compte</strong>, et le document signé
           revient automatiquement ici. Le secret de déchiffrement reste dans le fragment <code>#</code> du lien.
         </p>
+
+        {pendingSync && (
+          <div className="elx-sync-banner" role="status">
+            <AlertTriangle size={16} />
+            <div className="elx-sync-banner__body">
+              <strong>Circuit du document non synchronisé</strong>
+              <span>
+                Le circuit de signature (Parapheur) embarqué dans « {entry.name} » n'a pas encore pu être aligné sur
+                cette demande ({pendingSync.attempts} tentative{pendingSync.attempts > 1 ? "s" : ""} échouée
+                {pendingSync.attempts > 1 ? "s" : ""} — dernière erreur : {pendingSync.lastError}). Les liens de
+                signature fonctionnent malgré tout et le suivi ci-dessous reste fiable, mais tant que ceci n'est pas
+                résolu, un signataire déjà passé par son lien pourrait apparaître « en attente » dans le panneau
+                Parapheur du document.
+              </span>
+              <button
+                className="elx-mini"
+                disabled={retrying}
+                onClick={() => void retrySync(pendingSync.parties)}
+                style={{ alignSelf: "flex-start" }}
+              >
+                <RotateCcw size={13} /> {retrying ? "Nouvelle tentative…" : "Réessayer maintenant"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {!links && (
           <div className="dcx-modal__section">

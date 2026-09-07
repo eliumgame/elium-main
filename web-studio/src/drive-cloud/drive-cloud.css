@@ -842,21 +842,6 @@
   align-items: center;
   gap: 6px;
 }
-.dc-share-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 4px;
-  border-top: 1px solid var(--border);
-}
-.dc-share-row__name {
-  font-weight: 600;
-}
-.dc-share-row__type {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-left: auto;
-}
 .dc-share-link {
   border-top: 1px solid var(--border);
   padding-top: 14px;
@@ -904,215 +889,14 @@
 .dc-share-link__list {
   margin-top: 16px;
 }
-.dc-share-link__list .dc-share-row__name {
-  margin-right: auto;
-}
 
-/* ==========================================================================
-   ROLES & PERMISSIONS
-   ========================================================================== */
-.dc-roles {
-  display: flex;
-  gap: 18px;
-  min-height: 62vh;
-}
-.dc-roles__list {
-  width: 240px;
-  flex: none;
-  border: 1px solid var(--border);
-  border-radius: var(--el-radius-lg);
-  background: var(--surface);
-  overflow: hidden;
-  height: fit-content;
-  box-shadow: var(--el-elev-1);
-}
-.dc-roles__list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 800;
-  color: var(--text-soft);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.dc-role-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  padding: 11px 14px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: var(--text);
-  font-size: 14px;
-  border-left: 3px solid transparent;
-}
-.dc-role-item:hover {
-  background: var(--surface-3);
-}
-.dc-role-item.is-active {
-  background: var(--primary-50, #eff6ff);
-  color: var(--primary);
-  font-weight: 700;
-  border-left-color: var(--primary);
-}
-.dc-role-item__name {
-  flex: 1;
-}
-.dc-role-item__sys {
-  color: var(--text-muted);
-}
-.dc-role-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.dc-roles__editor {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--el-radius-lg);
-  background: var(--surface);
-  padding: 20px;
-  box-shadow: var(--el-elev-1);
-}
-.dc-roles__editor-head {
-  display: flex;
-  gap: 18px;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-.dc-role-meta {
-  flex: 1;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.dc-role-name {
-  font-weight: 800;
-  font-size: 17px;
-}
-.dc-role-colors {
-  display: flex;
-  gap: 7px;
-  margin-top: 2px;
-}
-.dc-role-swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-}
-.dc-role-swatch.is-active {
-  border-color: var(--text);
-}
-.dc-role-swatch:disabled {
-  cursor: default;
-}
-.dc-roles__editor-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.dc-perm-count {
-  color: var(--text-soft);
-  font-size: 13px;
-  margin: 16px 0 10px;
-  font-weight: 600;
-}
-
-.dc-perm-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
-}
-.dc-perm-group {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 14px 12px;
-  background: var(--surface-2);
-}
-.dc-perm-group legend {
-  font-weight: 800;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--primary);
-  padding: 0 6px;
-}
-.dc-perm {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 6px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.dc-perm:hover {
-  background: var(--surface-3);
-}
-.dc-perm.is-locked {
-  cursor: default;
-  opacity: 0.7;
-}
-/* Switch-style checkbox */
-.dc-perm input {
-  appearance: none;
-  -webkit-appearance: none;
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--border-strong);
-  cursor: pointer;
-  flex: none;
-  transition: background 0.15s;
-}
-.dc-perm input::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-.dc-perm input:checked {
-  background: var(--primary);
-}
-.dc-perm input:checked::after {
-  transform: translateX(14px);
-}
-.dc-perm input:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.dc-perm__label {
-  flex: 1;
-  font-size: 13.5px;
-  color: var(--text);
-}
+/* Rôles & permissions et Équipes ont migré vers `.dcx-roles`/`.dcx-perm-*`
+   (voir src/ui/workspace.css) — seule cette règle reste ici, encore utilisée
+   par AuditPanel (non migré) pour l'affichage d'une clé de permission. */
 .dc-perm__key {
   font-size: 10.5px;
   color: var(--text-muted);
   font-family: var(--el-mono, monospace);
-}
-.dc-perm.is-on .dc-perm__label {
-  font-weight: 600;
 }
 
 /* ==========================================================================
@@ -1726,80 +1510,6 @@
 }
 
 /* ==========================================================================
-   TEAMS / GROUPS
-   ========================================================================== */
-.dc-team-create {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 460px;
-}
-.dc-team-create h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 4px;
-  font-size: 17px;
-}
-.dc-chip-input {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm, 8px);
-  background: var(--surface);
-}
-.dc-chip-input input {
-  flex: 1;
-  min-width: 160px;
-  border: none;
-  outline: none;
-  background: none;
-  font: inherit;
-  color: var(--text);
-  padding: 4px;
-}
-.dc-emailchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--primary-50, #eff6ff);
-  color: var(--primary);
-  border-radius: 999px;
-  padding: 3px 6px 3px 10px;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.dc-emailchip button {
-  border: none;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  padding: 0;
-}
-.dc-team-members {
-  display: flex;
-  flex-direction: column;
-  margin-top: 6px;
-}
-.dc-team-members .dc-share-row__name {
-  flex: 1;
-}
-.dc-share-team {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-}
-.dc-share-team select:first-of-type {
-  flex: 1;
-}
-
-/* ==========================================================================
    RESPONSIVE
    ========================================================================== */
 @media (max-width: 860px) {
@@ -1833,12 +1543,6 @@
   .dc-sidebar__foot {
     flex-direction: row;
     width: 100%;
-  }
-  .dc-roles {
-    flex-direction: column;
-  }
-  .dc-roles__list {
-    width: auto;
   }
 }
 

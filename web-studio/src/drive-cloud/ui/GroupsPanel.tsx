@@ -220,13 +220,13 @@ export default function GroupsPanel() {
   const selected = groups.find((g) => g.id === selectedId) ?? null;
 
   return (
-    <div className="dc-roles">
-      <aside className="dc-roles__list">
-        <div className="dc-roles__list-head">
+    <div className="dcx-roles">
+      <aside className="dcx-roles__list">
+        <div className="dcx-roles__list-head">
           <span>Équipes</span>
           {canManage && (
             <button
-              className="icon-btn"
+              className="elx-icon"
               title="Nouvelle équipe"
               onClick={() => {
                 setCreating(true);
@@ -241,40 +241,40 @@ export default function GroupsPanel() {
         {groups.map((g) => (
           <button
             key={g.id}
-            className={`dc-role-item ${g.id === selectedId ? "is-active" : ""}`}
+            className={`dcx-role-item ${g.id === selectedId ? "is-active" : ""}`}
             onClick={() => void openGroup(g.id)}
           >
-            <span className="dc-role-dot" style={{ background: g.color }} />
-            <span className="dc-role-item__name">{g.name}</span>
+            <span className="dcx-role-dot" style={{ background: g.color }} />
+            <span className="dcx-role-item__name">{g.name}</span>
             <span className="badge badge--neutral">{g.memberCount}</span>
           </button>
         ))}
       </aside>
 
-      <section className="dc-roles__editor">
+      <section className="dcx-roles__editor">
         {creating ? (
-          <form className="dc-team-create" onSubmit={submitCreate}>
+          <form className="dcx-team-create" onSubmit={submitCreate}>
             <h3>
               <Users2 size={18} /> Nouvelle équipe
             </h3>
-            <label className="field">
-              <span className="field__label">Nom de l'équipe</span>
+            <label className="dcx-field">
+              <span>Nom de l'équipe</span>
               <input
-                className="input"
+                className="elx-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Marketing"
                 required
               />
             </label>
-            <div className="field">
-              <span className="field__label">Couleur</span>
-              <div className="dc-role-colors">
+            <div className="dcx-field">
+              <span>Couleur</span>
+              <div className="dcx-role-colors">
                 {COLORS.map((c) => (
                   <button
                     type="button"
                     key={c}
-                    className={`dc-role-swatch ${color === c ? "is-active" : ""}`}
+                    className={`dcx-role-swatch ${color === c ? "is-active" : ""}`}
                     style={{ background: c }}
                     onClick={() => setColor(c)}
                     aria-label={c}
@@ -282,11 +282,11 @@ export default function GroupsPanel() {
                 ))}
               </div>
             </div>
-            <div className="field">
-              <span className="field__label">Membres (e-mails)</span>
-              <div className="dc-chip-input">
+            <div className="dcx-field">
+              <span>Membres (e-mails)</span>
+              <div className="dcx-chip-input">
                 {emails.map((e) => (
-                  <span key={e} className="dc-emailchip">
+                  <span key={e} className="dcx-emailchip">
                     {e}
                     <button type="button" onClick={() => setEmails(emails.filter((x) => x !== e))}>
                       <X size={12} />
@@ -307,51 +307,51 @@ export default function GroupsPanel() {
                 />
               </div>
             </div>
-            {err && <p className="dc-error">{err}</p>}
-            <div className="dc-roles__editor-actions">
-              <button className="eb eb--sm eb--primary" disabled={busy || !name.trim()}>
+            {err && <p className="elx-form__error">{err}</p>}
+            <div className="dcx-roles__editor-actions">
+              <button className="elx-mini elx-mini--primary" disabled={busy || !name.trim()}>
                 <Plus size={14} /> Créer l'équipe
               </button>
-              <button type="button" className="eb eb--sm eb--ghost" onClick={() => setCreating(false)}>
+              <button type="button" className="elx-mini" onClick={() => setCreating(false)}>
                 Annuler
               </button>
             </div>
           </form>
         ) : !selected ? (
-          <div className="dc-empty-list">
+          <div className="elx-empty">
             <Users2 size={30} />
             <p>Sélectionnez une équipe{canManage ? " ou créez-en une" : ""}.</p>
           </div>
         ) : (
           <>
-            <div className="dc-roles__editor-head">
-              <div className="dc-role-meta">
-                <h3 className="dc-role-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className="dc-role-dot" style={{ background: selected.color }} /> {selected.name}
+            <div className="dcx-roles__editor-head">
+              <div className="dcx-role-meta">
+                <h3 className="dcx-role-name" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="dcx-role-dot" style={{ background: selected.color }} /> {selected.name}
                 </h3>
                 <p className="muted">{members.length} membre(s) · partage possible avec toute l'équipe</p>
               </div>
-              <div className="dc-roles__editor-actions">
+              <div className="dcx-roles__editor-actions">
                 {canManage && (
-                  <button className="eb eb--sm eb--outline" onClick={() => void addMember()}>
+                  <button className="elx-mini" onClick={() => void addMember()}>
                     <UserPlus size={14} /> Ajouter
                   </button>
                 )}
                 {canManage && (
-                  <button className="eb eb--sm eb--danger" onClick={() => void deleteGroup(selected)}>
+                  <button className="elx-mini elx-mini--danger" onClick={() => void deleteGroup(selected)}>
                     <Trash2 size={14} /> Supprimer
                   </button>
                 )}
               </div>
             </div>
-            {err && <p className="dc-error">{err}</p>}
-            <div className="dc-team-members">
+            {err && <p className="elx-form__error">{err}</p>}
+            <div className="dcx-team-members">
               {members.map((m) => (
-                <div key={m.userId} className="dc-share-row">
+                <div key={m.userId} className="dcx-team-row">
                   <span className="dc-avatar" style={{ width: 30, height: 30, fontSize: 12 }}>
                     {(m.displayName || m.email).slice(0, 1).toUpperCase()}
                   </span>
-                  <span className="dc-share-row__name">
+                  <span className="dcx-team-row__name">
                     {m.displayName || m.email}
                     <br />
                     <span className="dc-row__muted">{m.email}</span>
@@ -362,7 +362,7 @@ export default function GroupsPanel() {
                     </span>
                   )}
                   {canManage && !m.isManager && (
-                    <button className="icon-btn icon-btn--danger" title="Retirer" onClick={() => void removeMember(m)}>
+                    <button className="elx-icon elx-icon--danger" title="Retirer" onClick={() => void removeMember(m)}>
                       <Trash2 size={14} />
                     </button>
                   )}

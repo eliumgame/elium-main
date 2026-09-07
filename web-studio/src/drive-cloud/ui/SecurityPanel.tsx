@@ -267,7 +267,7 @@ export default function SecurityPanel() {
   };
 
   return (
-    <div className="dc-security">
+    <div className="elx-panel">
       <div className="dc-security__status">
         {enabled ? (
           <span className="badge badge--success">
@@ -293,7 +293,7 @@ export default function SecurityPanel() {
 
       {/* --- Not enabled: enroll --- */}
       {!enabled && stage === "idle" && (
-        <button className="eb eb--primary" disabled={busy} onClick={() => void startEnroll()}>
+        <button className="elx-mini elx-mini--primary" disabled={busy} onClick={() => void startEnroll()}>
           <Smartphone size={16} /> Activer la 2FA
         </button>
       )}
@@ -310,19 +310,19 @@ export default function SecurityPanel() {
           {qr && <img className="dc-security__qr" src={qr} alt="QR code d'enrôlement 2FA" width={200} height={200} />}
           <form onSubmit={confirmEnroll} className="dc-security__confirm">
             <input
-              className="input"
+              className="elx-input"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               inputMode="numeric"
               placeholder="123456"
               autoFocus
             />
-            <button className="eb eb--primary" disabled={busy || code.trim().length < 6}>
+            <button className="elx-mini elx-mini--primary" disabled={busy || code.trim().length < 6}>
               <Check size={15} /> Confirmer
             </button>
             <button
               type="button"
-              className="eb eb--ghost"
+              className="elx-mini"
               onClick={() => {
                 setStage("idle");
                 setErr(null);
@@ -352,7 +352,7 @@ export default function SecurityPanel() {
             ))}
           </ul>
           <div className="dc-security__codes-actions">
-            <button className="eb eb--outline eb--sm" onClick={copyCodes}>
+            <button className="elx-mini" onClick={copyCodes}>
               {copied ? (
                 <>
                   <Check size={14} /> Copié
@@ -363,7 +363,7 @@ export default function SecurityPanel() {
                 </>
               )}
             </button>
-            <button className="eb eb--primary eb--sm" onClick={() => setStage("idle")}>
+            <button className="elx-mini elx-mini--primary" onClick={() => setStage("idle")}>
               J'ai sauvegardé mes codes
             </button>
           </div>
@@ -374,24 +374,24 @@ export default function SecurityPanel() {
       {enabled && stage === "idle" && (
         <div className="dc-security__manage">
           <form onSubmit={disable} className="dc-security__disable">
-            <label className="field">
-              <span className="field__label">Désactiver la 2FA (code de vérification requis)</span>
+            <label className="dcx-field">
+              <span>Désactiver la 2FA (code de vérification requis)</span>
               <div className="dc-security__disable-row">
                 <input
-                  className="input"
+                  className="elx-input"
                   value={disableCode}
                   onChange={(e) => setDisableCode(e.target.value)}
                   inputMode="numeric"
                   placeholder="123456 ou code de secours"
                 />
-                <button className="eb eb--danger eb--sm" disabled={busy || disableCode.trim().length < 4}>
+                <button className="elx-mini elx-mini--danger" disabled={busy || disableCode.trim().length < 4}>
                   Désactiver
                 </button>
               </div>
             </label>
           </form>
           <button
-            className="eb eb--ghost eb--sm"
+            className="elx-mini"
             disabled={busy}
             onClick={async () => {
               const c = window.prompt("Entrez un code de vérification pour régénérer vos codes de secours :");
@@ -420,7 +420,7 @@ export default function SecurityPanel() {
           <h3 className="dc-security__pk-title">
             <Fingerprint size={16} /> Clés de sécurité (passkeys)
           </h3>
-          <button className="eb eb--outline eb--sm" disabled={pkBusy} onClick={() => void addPasskey()}>
+          <button className="elx-mini" disabled={pkBusy} onClick={() => void addPasskey()}>
             <Plus size={14} /> Ajouter une clé
           </button>
         </div>
@@ -443,7 +443,7 @@ export default function SecurityPanel() {
                     : `ajoutée le ${new Date(p.createdAt).toLocaleDateString("fr")}`}
                 </span>
                 <button
-                  className="icon-btn icon-btn--danger"
+                  className="elx-icon elx-icon--danger"
                   title="Supprimer"
                   disabled={pkBusy}
                   onClick={() => void removePasskey(p.id)}
@@ -478,11 +478,11 @@ export default function SecurityPanel() {
           </div>
           <div className="dc-security__unlock-actions">
             {d.passkeyUnlockEnabled ? (
-              <button className="eb eb--ghost eb--sm" onClick={disableUnlock}>
+              <button className="elx-mini" onClick={disableUnlock}>
                 Désactiver
               </button>
             ) : (
-              <button className="eb eb--primary eb--sm" disabled={unlockBusy} onClick={() => void enableUnlock()}>
+              <button className="elx-mini elx-mini--primary" disabled={unlockBusy} onClick={() => void enableUnlock()}>
                 <Unlock size={14} /> {passkeys.length === 0 ? "Configurer" : "Activer"}
               </button>
             )}
@@ -501,7 +501,7 @@ export default function SecurityPanel() {
           RGPD). Les fichiers dont vous êtes propriétaire dans une organisation sont transférés à son propriétaire ; une
           organisation dont vous êtes le seul membre est supprimée. Cette action est irréversible.
         </p>
-        <button className="eb eb--danger eb--sm" disabled={delBusy} onClick={() => void deleteAccount()}>
+        <button className="elx-mini elx-mini--danger" disabled={delBusy} onClick={() => void deleteAccount()}>
           <Trash2 size={14} /> Supprimer mon compte
         </button>
       </div>

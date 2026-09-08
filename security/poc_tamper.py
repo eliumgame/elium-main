@@ -10,13 +10,19 @@ import re
 import zipfile
 from pathlib import Path
 
-from elium.format.package import write_elium, read_elium, ENTRY_MANIFEST, ENTRY_CONTENT_PLAIN, ENTRY_JOURNAL, ENTRY_SIGNATURES
-from elium.format.canonical import sha256_hex, canonical_json
-from elium.format.journal import empty_journal, append_event, verify_journal
-from elium.format.document import create_document_model, text_to_doc
-from elium.format.proof import generate_identity, create_proof, verify_proof
-from elium.core.container import EliumContainer
 from elium.core.exceptions import EliumError
+from elium.format.canonical import sha256_hex
+from elium.format.document import create_document_model, extract_text, text_to_doc
+from elium.format.journal import append_event, empty_journal, verify_journal
+from elium.format.package import (
+    ENTRY_CONTENT_PLAIN,
+    ENTRY_JOURNAL,
+    ENTRY_MANIFEST,
+    ENTRY_SIGNATURES,
+    read_elium,
+    write_elium,
+)
+from elium.format.proof import create_proof, generate_identity, verify_proof
 
 PWN = "\033[91m[PWNED]\033[0m  "
 BLK = "\033[92m[BLOCKED]\033[0m"
@@ -59,7 +65,6 @@ manifest["integrity"]["contentHash"] = sha256_hex(forged_content)   # recompute!
 forged = repack(blob, {ENTRY_CONTENT_PLAIN: forged_content, ENTRY_MANIFEST: json.dumps(manifest, indent=2, ensure_ascii=False).encode()})
 
 res = read_elium(forged)
-from elium.format.document import extract_text
 shown = extract_text(res["document"]["doc"]).strip()
 intact = res["integrity"]["contentIntact"]
 seal_verdict1 = res["seal"]["verdict"]
@@ -181,7 +186,7 @@ line("ATTACK 6 — Does the ENCRYPTION itself hold? (positive control)")
 try:
     read_elium(enc_blob, password="wrong password")
     print(PWN, "Decrypted with WRONG password!")
-    assert False, "SECURITY REGRESSION: wrong password decrypted the file"
+    raise AssertionError("SECURITY REGRESSION: wrong password decrypted the file")
 except EliumError as e:
     print(BLK, "Wrong password rejected:", type(e).__name__)
 # tamper one ciphertext byte
@@ -192,7 +197,7 @@ try:
     bad = repack(enc_blob, {"content/document.elium": bytes(ct)})
     read_elium(bad, password="correct horse battery staple")
     print(PWN, "Tampered ciphertext decrypted without error!")
-    assert False, "SECURITY REGRESSION: tampered ciphertext decrypted without error (AEAD/HMAC not enforced)"
+    raise AssertionError("SECURITY REGRESSION: tampered ciphertext decrypted without error (AEAD/HMAC not enforced)")
 except EliumError as e:
     print(BLK, "Ciphertext tamper rejected (AEAD/HMAC):", type(e).__name__)
 

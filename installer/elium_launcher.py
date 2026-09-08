@@ -104,8 +104,12 @@ UPDATE_CSS = """
   content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
   background: linear-gradient(90deg, var(--el-blue-400, #60a5fa), var(--el-blue-700, #1d4ed8));
 }
-#elium-upd.ready::before { background: linear-gradient(90deg, var(--el-green-400, #4ade80), var(--el-green-600, #16a34a)); }
-#elium-upd.err::before { background: linear-gradient(90deg, var(--el-amber-500, #f59e0b), var(--el-red-600, #dc2626)); }
+#elium-upd.ready::before {
+  background: linear-gradient(90deg, var(--el-green-400, #4ade80), var(--el-green-600, #16a34a));
+}
+#elium-upd.err::before {
+  background: linear-gradient(90deg, var(--el-amber-500, #f59e0b), var(--el-red-600, #dc2626));
+}
 .elium-upd-head { display: flex; align-items: center; gap: 12px; }
 .elium-upd-badge {
   width: 42px; height: 42px; flex: none; border-radius: 12px;
@@ -188,7 +192,10 @@ UPDATE_CSS = """
   animation: elium-upd-rot .7s linear infinite;
 }
 @keyframes elium-upd-rot { to { transform: rotate(360deg); } }
-@keyframes elium-upd-in { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes elium-upd-in {
+  from { opacity: 0; transform: translateY(16px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   #elium-upd.show { animation: none; }
   .elium-upd-bar, .elium-upd-bar.indet { animation: none; transition: none; }
@@ -357,8 +364,8 @@ def current_web_dir() -> Path:
             overlay = updater.active_web_dir()
             if overlay:
                 return Path(overlay)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_launcher(f"current_web_dir: overlay indisponible, repli sur le web embarqué ({e})")
     return get_web_dir()
 
 
@@ -420,8 +427,8 @@ def _request_restart() -> bool:
     if _browser_proc is not None:
         try:
             _browser_proc.terminate()  # débloque proc.wait() dans main()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_launcher(f"request_restart: échec terminate() du processus navigateur ({e})")
     elif _fallback_event is not None:
         _fallback_event.set()
     return True
@@ -470,15 +477,16 @@ def _config_path() -> Path:
 def _load_launcher_config() -> dict:
     try:
         return json.loads(_config_path().read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        _log_launcher(f"_load_launcher_config: config illisible/corrompue, repli sur {{}} ({e})")
         return {}
 
 
 def _save_launcher_config(cfg: dict) -> None:
     try:
         _config_path().write_text(json.dumps(cfg), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        _log_launcher(f"_save_launcher_config: échec d'écriture ({e})")
 
 
 def _configured_port() -> "int | None":
@@ -517,7 +525,7 @@ def _log_launcher(message: str) -> None:
         try:
             updater._log(message)  # noqa: SLF001 — même processus, même fichier de log
             return
-        except Exception:
+        except Exception:  # noqa: S110 — c'est LE puits de journalisation ; rien d'autre où logguer cet échec.
             pass
 
 
@@ -622,8 +630,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             if updater is not None:
                 try:
                     info = updater.version_info()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_launcher(f"GET /__version__: version_info() a échoué ({e})")
             self._serve_bytes(json.dumps(info).encode("utf-8"), "application/json; charset=utf-8")
             return
         if clean == "/__releases__":
@@ -631,8 +639,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             if updater is not None:
                 try:
                     releases = updater.list_releases()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_launcher(f"GET /__releases__: list_releases() a échoué ({e})")
             self._serve_bytes(json.dumps({"releases": releases}).encode("utf-8"), "application/json; charset=utf-8")
             return
         if clean == "/__ports__":
@@ -657,8 +665,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if is_navigation and updater is not None:
             try:
                 updater.on_navigation()
-            except Exception:
-                pass
+            except Exception as e:
+                _log_launcher(f"on_navigation() a échoué ({e})")
 
         # SPA fallback : sert index.html pour les routes non-fichier.
         path = self.translate_path(self.path)
@@ -698,8 +706,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             if updater is not None:
                 try:
                     status = updater.start_update()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_launcher(f"POST /__update__/start: start_update() a échoué ({e})")
             self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
             return
         if clean == "/__update__/restart":
@@ -711,8 +719,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             if updater is not None:
                 try:
                     status = updater.undo_last_update()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_launcher(f"POST /__rollback__/undo: undo_last_update() a échoué ({e})")
             self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
             return
         if clean == "/__rollback__":
@@ -722,8 +730,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             if updater is not None and version:
                 try:
                     status = updater.start_rollback(version)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_launcher(f"POST /__rollback__: start_rollback({version!r}) a échoué ({e})")
             self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
             return
         self.send_error(404, "Endpoint inconnu")
@@ -797,8 +805,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if updater is not None:
             try:
                 status = updater.get_status()
-            except Exception:
-                pass
+            except Exception as e:
+                _log_launcher(f"_serve_update_status: get_status() a échoué ({e})")
         self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
 
     def _serve_opened_file(self):
@@ -828,8 +836,8 @@ def main():
             updater.run_pending_handoff()
         except SystemExit:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            _log_launcher(f"main: run_pending_handoff() a échoué ({e})")
 
     web_dir = current_web_dir()
     global _port_fallback_used
@@ -853,8 +861,8 @@ def main():
         try:
             updater.start_background_check()
             updater.start_periodic_check()
-        except Exception:
-            pass
+        except Exception as e:
+            _log_launcher(f"main: démarrage des vérifications de mise à jour en échec ({e})")
 
     # ELIUM_NO_BROWSER=1 : mode serveur seul (tests, CI, usage avancé).
     headless = os.environ.get("ELIUM_NO_BROWSER") == "1"
@@ -911,8 +919,8 @@ def _maybe_relaunch() -> None:
         try:
             _log_launcher(f"relaunch: redémarrage simple de {Path(sys.executable).name}")
             subprocess.Popen([sys.executable, *sys.argv[1:]])  # noqa: S603
-        except Exception:
-            pass
+        except Exception as e:
+            _log_launcher(f"relaunch: échec du redémarrage simple ({e})")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ jobs:
     - name: Lint with ruff
       run: |
         pip install ruff
-        ruff check src/ tests/
+        ruff check src/ tests/ installer/ security/
     - name: Run Pytest with coverage
       run: |
         pytest tests/python -v --cov=elium --cov-report=term-missing

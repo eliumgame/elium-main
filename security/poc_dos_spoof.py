@@ -1,9 +1,14 @@
 """Elium v4 — adversarial harness, batch 2."""
-import io, json, sys, zipfile
-from elium.format.package import write_elium, read_elium, ENTRY_MANIFEST
+import io
+import json
+import sys
+import zipfile
+
+from elium.core.exceptions import EliumError
+from elium.format import package
 from elium.format.canonical import sha256_hex
 from elium.format.document import create_document_model, text_to_doc
-from elium.core.exceptions import EliumError
+from elium.format.package import ENTRY_MANIFEST, read_elium, write_elium
 
 # Run cleanly on a legacy Windows console (cp1252) that can't encode "→" etc.
 for _stream in (sys.stdout, sys.stderr):
@@ -12,10 +17,13 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-PWN="\033[91m[PWNED]\033[0m  "; BLK="\033[92m[BLOCKED]\033[0m"; INF="\033[96m[INFO]\033[0m   "
+PWN="\033[91m[PWNED]\033[0m  "
+BLK="\033[92m[BLOCKED]\033[0m"
+INF="\033[96m[INFO]\033[0m   "
 def line(t): print("\n"+"="*78+"\n"+t+"\n"+"="*78)
 def repack(blob, replace):
-    zin=zipfile.ZipFile(io.BytesIO(blob)); out=io.BytesIO()
+    zin=zipfile.ZipFile(io.BytesIO(blob))
+    out=io.BytesIO()
     with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as zo:
         for it in zin.infolist():
             data=replace.get(it.filename, zin.read(it.filename))
@@ -46,9 +54,7 @@ line("ATTACK 9 — Outer-ZIP decompression DoS (memory exhaustion)")
 # Now read_elium reads every entry through a hard byte cap (MAX_ENTRY_BYTES /
 # MAX_TOTAL_BYTES), bounding memory by the ACTUAL decompressed bytes — so even a
 # lying header (tiny declared size, huge inflate) cannot exhaust memory.
-from elium.format import package
-print(INF, "Enforced caps: per-entry=%d MiB, total=%d MiB"
-      % (package.MAX_ENTRY_BYTES // 1048576, package.MAX_TOTAL_BYTES // 1048576))
+print(INF, f"Enforced caps: per-entry={package.MAX_ENTRY_BYTES // 1048576} MiB, total={package.MAX_TOTAL_BYTES // 1048576} MiB")
 # Demonstrate the guard without allocating gigabytes: shrink the cap so the
 # normal content entry already exceeds it, and confirm the reader refuses it.
 saved_cap = package.MAX_ENTRY_BYTES
@@ -56,7 +62,7 @@ package.MAX_ENTRY_BYTES = 8
 try:
     read_elium(blob)
     print(PWN, "Oversized entry accepted — no memory cap enforced at read.")
-    assert False, "SECURITY REGRESSION: oversized entry accepted at read, no memory cap enforced"
+    raise AssertionError("SECURITY REGRESSION: oversized entry accepted at read, no memory cap enforced")
 except EliumError:
     print(BLK, "Oversized entry rejected at read (capped, declared-size not trusted).")
 finally:
@@ -73,31 +79,34 @@ cases={
 }
 for name,data in cases.items():
     try:
-        read_elium(data); print(INF,f"{name:18}-> opened (no error)")
+        read_elium(data)
+        print(INF,f"{name:18}-> opened (no error)")
     except EliumError as e:
         print(BLK,f"{name:18}-> clean EliumError: {type(e).__name__}")
     except Exception as e:
         print(PWN,f"{name:18}-> UNHANDLED {type(e).__name__}: {e}")
-        assert False, f"SECURITY REGRESSION: malformed input '{name}' caused an unhandled {type(e).__name__}: {e}"
+        raise AssertionError(f"SECURITY REGRESSION: malformed input '{name}' caused an unhandled {type(e).__name__}: {e}") from e
 
 # ---------------------------------------------------------------------------
 line("ATTACK 11 — Deeply-nested document → JSON/recursion DoS")
 depth=20000
 nested='{"type":"doc","content":['+'{"type":"blockquote","content":['*depth+'{"type":"paragraph"}'+']}'*depth+']}'
 docjson=('{"schema":"elium-doc/1","page":{},"doc":'+nested+'}').encode()
-man=json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST)); man["integrity"]["contentHash"]=sha256_hex(docjson)
+man=json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(ENTRY_MANIFEST))
+man["integrity"]["contentHash"]=sha256_hex(docjson)
 nblob=repack(blob,{"content/document.json":docjson, ENTRY_MANIFEST:json.dumps(man,ensure_ascii=False).encode()})
 try:
     res=read_elium(nblob)
     from elium.format.document import extract_text
     try:
-        extract_text(res["document"]["doc"]); print(INF,"parsed + extract_text survived depth=%d"%depth)
-    except RecursionError:
+        extract_text(res["document"]["doc"])
+        print(INF,f"parsed + extract_text survived depth={depth}")
+    except RecursionError as e:
         print(PWN,"extract_text() RecursionError on nested document (unhandled crash path).")
-        assert False, "SECURITY REGRESSION: extract_text() RecursionError on deeply-nested document (unhandled DoS)"
-except RecursionError:
+        raise AssertionError("SECURITY REGRESSION: extract_text() RecursionError on deeply-nested document (unhandled DoS)") from e
+except RecursionError as e:
     print(PWN,"json.loads RecursionError on deeply-nested document (unhandled).")
-    assert False, "SECURITY REGRESSION: json.loads RecursionError on deeply-nested document (unhandled DoS)"
+    raise AssertionError("SECURITY REGRESSION: json.loads RecursionError on deeply-nested document (unhandled DoS)") from e
 except EliumError as e:
     print(BLK,"rejected:",type(e).__name__)
 

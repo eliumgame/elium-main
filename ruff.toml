@@ -18,3 +18,8 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106"]
+# security/*.py sont des harnais d'attaque délibérément denses (lignes longues à
+# but de lisibilité "un scénario = une ligne") et manipulent des mots de passe
+# LITTÉRAUX de démonstration ("correct horse battery staple", etc.) pour tester
+# le modèle de menace — pas de vrais secrets, donc S106 ne s'applique pas ici.
+"security/*.py" = ["E501", "S106"]

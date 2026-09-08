@@ -36,10 +36,9 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import changelog
-
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -119,7 +118,7 @@ def _log(message: str) -> None:
         data_dir().mkdir(parents=True, exist_ok=True)
         with open(_log_file(), "a", encoding="utf-8") as fh:
             fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
-    except Exception:
+    except Exception:  # noqa: S110 — c'est LE puits de journalisation ; rien d'autre où logguer cet échec.
         pass
 
 
@@ -178,7 +177,7 @@ def effective_version() -> str:
 
 def _urlopen_read(url: str, max_bytes: int) -> bytes:
     """UNE tentative de GET (sans retry). Isolé pour être remplaçable en test."""
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310
     # nosec B310 : schéma https connu, URL construite à partir de constantes/manifeste vérifié.
     with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # noqa: S310
         return resp.read(max_bytes + 1)
@@ -261,7 +260,7 @@ def _sha256(path: Path) -> str:
 _GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{REPO}/releases/latest"
 
 
-def _resolve_latest_asset_urls() -> Optional[tuple[str, str]]:
+def _resolve_latest_asset_urls() -> tuple[str, str] | None:
     """URLs de `latest.json` et `latest.json.sig` pour LA MÊME release "latest".
 
     `releases/latest/download/<fichier>` (l'alias historique) redirige
@@ -321,7 +320,7 @@ _MANIFEST_FETCH_ATTEMPTS = 3
 _MANIFEST_FETCH_BACKOFF_S = 0.7
 
 
-def fetch_manifest() -> Optional[dict[str, Any]]:
+def fetch_manifest() -> dict[str, Any] | None:
     """Télécharge latest.json + latest.json.sig, vérifie la signature, renvoie le dict.
 
     Par défaut, résout la release latest UNE fois puis télécharge les deux
@@ -335,7 +334,7 @@ def fetch_manifest() -> Optional[dict[str, Any]]:
     en cas d'échec réseau OU de signature invalide — voir `_MANIFEST_FETCH_ATTEMPTS`.
     """
     override = os.environ.get("ELIUM_UPDATE_MANIFEST_URL")
-    last_error: Optional[str] = None
+    last_error: str | None = None
     for attempt in range(1, _MANIFEST_FETCH_ATTEMPTS + 1):
         try:
             if override:
@@ -371,7 +370,7 @@ def fetch_manifest() -> Optional[dict[str, Any]]:
     return None  # inatteignable (la boucle renvoie ou journalise+renvoie à chaque tour)
 
 
-def check_for_update() -> Optional[dict[str, Any]]:
+def check_for_update() -> dict[str, Any] | None:
     """Renvoie le manifeste (vérifié) si une version plus récente est disponible, sinon None."""
     manifest = fetch_manifest()
     if not manifest:
@@ -389,7 +388,7 @@ def check_for_update() -> Optional[dict[str, Any]]:
 def _download_verified(
     art: dict[str, Any],
     dest: Path,
-    on_progress: Optional[Callable[[int], None]] = None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> bool:
     """Télécharge art['url'] en flux vers dest (progression 0-100), vérifie sha256.
 
@@ -415,8 +414,7 @@ def _download_verified(
     for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
         digest = hashlib.sha256()
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-            # noqa: S310 — schéma https connu / manifeste vérifié en amont.
+            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310 — schéma https connu / manifeste vérifié en amont.
             with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp, open(tmp, "wb") as out:  # noqa: S310
                 received = 0
                 while True:
@@ -469,7 +467,7 @@ def _safe_unlink(path: Path) -> None:
 
 def apply_web_update(
     manifest: dict[str, Any],
-    on_progress: Optional[Callable[[int], None]] = None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> bool:
     """Télécharge et installe le paquet web dans %LOCALAPPDATA%\\Elium\\web\\<version>."""
     version = str(manifest["version"])
@@ -532,7 +530,7 @@ def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
     zf.extractall(dest)
 
 
-def _locate_web_root(staging: Path) -> Optional[Path]:
+def _locate_web_root(staging: Path) -> Path | None:
     """Trouve le dossier contenant index.html (à plat ou dans un unique sous-dossier)."""
     if (staging / "index.html").is_file():
         return staging
@@ -549,7 +547,7 @@ def _set_pointer(version: str) -> None:
     _pointer_file().write_text(version.strip(), encoding="utf-8")
 
 
-def _read_pointer() -> Optional[str]:
+def _read_pointer() -> str | None:
     try:
         return _pointer_file().read_text(encoding="utf-8").strip() or None
     except OSError:
@@ -565,7 +563,7 @@ def _prune_old_web(keep: set[str]) -> None:
         pass
 
 
-def active_web_dir() -> Optional[str]:
+def active_web_dir() -> str | None:
     """Dossier web de l'overlay s'il est strictement plus récent que la version embarquée."""
     version = _read_pointer()
     if not version:
@@ -580,7 +578,7 @@ def active_web_dir() -> Optional[str]:
 
 def apply_exe_update(
     manifest: dict[str, Any],
-    on_progress: Optional[Callable[[int], None]] = None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> bool:
     """Télécharge le nouveau lanceur complet dans bin\\ ; appliqué au prochain démarrage."""
     version = str(manifest["version"])
@@ -609,7 +607,7 @@ def apply_exe_update(
 # Handoff : relancer l'exe le plus récent au démarrage
 # --------------------------------------------------------------------------- #
 
-def _verified_pending_exe() -> Optional[Path]:
+def _verified_pending_exe() -> Path | None:
     """Chemin de l'exe en attente s'il est plus récent que nous ET valide (sha256), sinon None."""
     try:
         pending = json.loads(_pending_file().read_text(encoding="utf-8"))
@@ -683,7 +681,7 @@ _status: dict[str, Any] = {
     "state": "idle", "version": None, "kind": None, "progress": 0,
     "releases": [], "summary": "", "notes": "",
 }
-_pending_manifest: Optional[dict[str, Any]] = None
+_pending_manifest: dict[str, Any] | None = None
 _apply_lock = threading.Lock()
 _last_check_monotonic = 0.0  # throttle des re-vérifications (secondes monotoniques)
 
@@ -692,10 +690,10 @@ def get_status() -> dict[str, Any]:
     return dict(_status)
 
 
-def _publish(state: str, *, version: Optional[str] = None,
-             kind: Optional[str] = None, progress: int = 0,
-             releases: Optional[list] = None, summary: Optional[str] = None,
-             notes: Optional[str] = None) -> dict[str, Any]:
+def _publish(state: str, *, version: str | None = None,
+             kind: str | None = None, progress: int = 0,
+             releases: list | None = None, summary: str | None = None,
+             notes: str | None = None) -> dict[str, Any]:
     _status.update({"state": state, "version": version, "kind": kind, "progress": progress})
     # Les nouveautés PERSISTENT d'un état à l'autre : elles sont calculées une
     # fois à la détection, et la carte continue de les afficher pendant le
@@ -809,7 +807,7 @@ def _run_apply_locked(manifest: dict[str, Any]) -> None:
         _apply_lock.release()
 
 
-def check_and_apply(on_status: Optional[Callable[[dict[str, Any]], None]] = None) -> dict[str, Any]:
+def check_and_apply(on_status: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Compat/headless : vérifie ET applique immédiatement (utilisé par les tests)."""
     if os.environ.get("ELIUM_NO_UPDATE") == "1":
         return _publish("disabled")
@@ -824,8 +822,8 @@ def check_and_apply(on_status: Optional[Callable[[dict[str, Any]], None]] = None
     if status["state"] in ("web-ready", "exe-ready") and on_status:
         try:
             on_status(status)
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"check_and_apply: le callback on_status a échoué ({e})")
     return status
 
 
@@ -834,8 +832,8 @@ def start_background_check() -> None:
     global _last_check_monotonic
     try:
         _last_check_monotonic = time.monotonic()
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"start_background_check: time.monotonic() a échoué ({e})")
     threading.Thread(target=check_only, daemon=True).start()
 
 
@@ -867,8 +865,8 @@ def start_periodic_check(interval_s: float = _PERIODIC_CHECK_INTERVAL_S) -> None
                 continue
             try:
                 check_only()
-            except Exception:
-                pass
+            except Exception as e:
+                _log(f"start_periodic_check: check_only() a échoué ({e})")
 
     threading.Thread(target=_loop, daemon=True).start()
 
@@ -893,7 +891,7 @@ def version_info() -> dict[str, Any]:
     base = current_version()
     st = get_status()
     state = st.get("state")
-    latest: Optional[str] = None
+    latest: str | None = None
     up_to_date = True
     if state == "available" and st.get("version"):
         latest = str(st["version"])
@@ -911,7 +909,7 @@ def _manifest_url_for(version: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{v}/{_MANIFEST_NAME}"
 
 
-def fetch_manifest_for(version: str) -> Optional[dict[str, Any]]:
+def fetch_manifest_for(version: str) -> dict[str, Any] | None:
     """Comme fetch_manifest mais pour une version PRÉCISE (rollback). Signée par la même clé."""
     url = _manifest_url_for(version)
     try:
@@ -963,8 +961,8 @@ def list_releases() -> list[dict[str, Any]]:
         })
     try:
         out.sort(key=lambda x: _version_tuple(str(x["version"])), reverse=True)
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"list_releases: tri par version a échoué, ordre GitHub conservé ({e})")
     return out
 
 

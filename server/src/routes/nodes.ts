@@ -262,7 +262,16 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
           )
         ORDER BY n.kind DESC, n.created_at, n.id
         LIMIT $8`,
-      [user.id, q.orgId, q.parentId ?? null, groupIds, cursor?.k ?? null, cursor?.c ?? null, cursor?.i ?? null, q.limit],
+      [
+        user.id,
+        q.orgId,
+        q.parentId ?? null,
+        groupIds,
+        cursor?.k ?? null,
+        cursor?.c ?? null,
+        cursor?.i ?? null,
+        q.limit,
+      ],
     );
 
     const last = rows[rows.length - 1];

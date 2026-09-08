@@ -40,6 +40,32 @@ const createSchema = z.object({
 
 const hex = (v: string) => Buffer.from(v, "hex");
 
+// --- Keyset pagination cursor for GET / (folder listing) --------------------
+// The listing's ORDER BY is compound (kind DESC, created_at, id ASC as the
+// stable tiebreaker) rather than a single monotonic id like audit_log's, so
+// the cursor carries the last row's (kind, createdAt, id) tuple instead of a
+// bare id. Opaque to callers — just echo it back as `cursor` for the next page.
+interface ListCursor {
+  k: string;
+  c: string;
+  i: string;
+}
+function encodeListCursor(row: { kind: string; created_at: unknown; id: string }): string {
+  const c = row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at);
+  return Buffer.from(JSON.stringify({ k: row.kind, c, i: row.id }), "utf8").toString("base64url");
+}
+function decodeListCursor(s: string): ListCursor | null {
+  try {
+    const obj = JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
+    if (obj && typeof obj.k === "string" && typeof obj.c === "string" && typeof obj.i === "string") {
+      return obj as ListCursor;
+    }
+  } catch {
+    /* fall through to null */
+  }
+  return null;
+}
+
 /** The wrapped node key for this caller (direct user share or via a group). */
 async function myKeyShare(userId: string, orgId: string, nodeId: string) {
   const groups = await query<{ group_id: string }>(
@@ -169,12 +195,24 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // --- List children of a node (or org roots when parentId omitted) --------
+  // Cursor-paginated (keyset, see encodeListCursor above) in the style of
+  // GET /api/orgs/:orgId/audit: a bounded `limit` with a sane default/max, an
+  // optional cursor for the next page, and a next-cursor echoed back only when
+  // the page came back full. UNLIKE audit's route, this one predates
+  // pagination and existing clients (web-studio/src/drive-cloud/api.ts
+  // `listChildren`) call it with no `limit`/`cursor` and destructure only
+  // `{ nodes }`, always assuming the complete listing — so the default limit
+  // is deliberately generous (1000, well above any real folder today) and the
+  // response keeps its exact previous shape with `nextCursor` merely added
+  // alongside it, so old callers keep working unchanged.
   app.get("/", async (req) => {
     const q = z
       .object({
         orgId: z.string().uuid(),
         parentId: z.string().uuid().optional(),
         trashed: z.enum(["true", "false"]).default("false"),
+        limit: z.coerce.number().int().min(1).max(5000).default(1000),
+        cursor: z.string().optional(),
       })
       .parse(req.query);
     const user = requireUser(req);
@@ -189,6 +227,12 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       await requireMembership(req, q.orgId);
     }
 
+    let cursor: ListCursor | null = null;
+    if (q.cursor) {
+      cursor = decodeListCursor(q.cursor);
+      if (!cursor) throw badRequest("Curseur de pagination invalide.");
+    }
+
     // Children the caller can decrypt (has a node_keys row for user or group).
     const groups = await query<{ group_id: string }>(
       `SELECT gm.group_id FROM group_members gm JOIN groups g ON g.id = gm.group_id
@@ -197,7 +241,7 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     );
     const groupIds = groups.map((g) => g.group_id);
 
-    const rows = await query(
+    const rows = await query<Record<string, unknown> & { kind: string; created_at: unknown; id: string }>(
       `SELECT n.*, nk.wrapped_key AS my_wrapped_key
          FROM nodes n
          JOIN LATERAL (
@@ -210,12 +254,23 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         WHERE n.org_id = $2
           AND n.parent_id IS NOT DISTINCT FROM $3
           AND n.trashed_at ${trashedFilter}
-        ORDER BY n.kind DESC, n.created_at`,
-      [user.id, q.orgId, q.parentId ?? null, groupIds],
+          AND (
+            $5::text IS NULL
+            OR n.kind < $5::text
+            OR (n.kind = $5::text AND n.created_at > $6::timestamptz)
+            OR (n.kind = $5::text AND n.created_at = $6::timestamptz AND n.id > $7::uuid)
+          )
+        ORDER BY n.kind DESC, n.created_at, n.id
+        LIMIT $8`,
+      [user.id, q.orgId, q.parentId ?? null, groupIds, cursor?.k ?? null, cursor?.c ?? null, cursor?.i ?? null, q.limit],
     );
+
+    const last = rows[rows.length - 1];
+    const nextCursor = rows.length === q.limit && last ? encodeListCursor(last) : null;
 
     return {
       nodes: rows.map((r) => ({ ...nodeMetaDto(r), myWrappedKey: r.my_wrapped_key ?? null })),
+      nextCursor,
     };
   });
 
@@ -396,7 +451,17 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
     if (!b.keyShares.some((s) => s.principalType === "user" && s.principalId === access.ownerUserId)) {
       throw badRequest("Le propriétaire du nœud doit conserver une part de clé.");
     }
-    for (const s of b.keyShares) await validateRole(s.roleId, access.orgId);
+    // Batched equivalent of `for (const s of b.keyShares) await validateRole(...)`:
+    // one query for every distinct roleId instead of one query per key share.
+    // `validateRole` itself is left untouched (shared with orgs.ts/shares.ts).
+    const distinctRoleIds = [...new Set(b.keyShares.map((s) => s.roleId))];
+    const validRoles = await query<{ id: string }>(
+      `SELECT id FROM roles WHERE id = ANY($1::uuid[]) AND (org_id = $2 OR org_id IS NULL)`,
+      [distinctRoleIds, access.orgId],
+    );
+    if (validRoles.length !== distinctRoleIds.length) {
+      throw badRequest("Rôle invalide pour cette organisation.");
+    }
 
     const { node, revokedLinks } = await withTx(async (c) => {
       const { rows: cur } = await c.query(`SELECT key_epoch FROM nodes WHERE id = $1 FOR UPDATE`, [id]);
@@ -405,21 +470,23 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         throw conflict("La clé du nœud a déjà tourné (époque obsolète) — rechargez puis réessayez.");
       }
       await c.query(`DELETE FROM node_keys WHERE node_id = $1`, [id]);
-      for (const s of b.keyShares) {
-        await c.query(
-          `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [
-            id,
-            s.principalType,
-            s.principalId,
-            s.roleId,
-            JSON.stringify(s.wrappedKey),
-            user.id,
-            s.inheritedFrom ?? null,
-          ],
-        );
-      }
+      // Batched equivalent of a per-share INSERT loop: one multi-row INSERT via
+      // UNNEST instead of `keyShares.length` round trips. Same rows/values as
+      // the loop it replaces (schema requires keyShares.length >= 1, so the
+      // arrays below are never empty).
+      await c.query(
+        `INSERT INTO node_keys (node_id, principal_type, principal_id, role_id, wrapped_key, granted_by, inherited_from)
+         SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::uuid[], $4::uuid[], $5::jsonb[], $6::uuid[], $7::uuid[])`,
+        [
+          b.keyShares.map(() => id),
+          b.keyShares.map((s) => s.principalType),
+          b.keyShares.map((s) => s.principalId),
+          b.keyShares.map((s) => s.roleId),
+          b.keyShares.map((s) => JSON.stringify(s.wrappedKey)),
+          b.keyShares.map(() => user.id),
+          b.keyShares.map((s) => s.inheritedFrom ?? null),
+        ],
+      );
       const { rows: links } = await c.query(
         `UPDATE share_links SET revoked_at = now() WHERE node_id = $1 AND revoked_at IS NULL RETURNING id`,
         [id],

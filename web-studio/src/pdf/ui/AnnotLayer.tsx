@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Pt, Quad, Rect, Rotation, Size } from "../core/coords";
 import { clamp, psToView, quadFromRect, rectFromPoints, rectOfPoints, viewToPs } from "../core/coords";
 import type { Annot, AnnotKind, DraftStyle, Tool } from "../model/types";
@@ -90,7 +90,7 @@ const BOX_TOOLS: AnnotKind[] = [
 const LINE_TOOLS: AnnotKind[] = ["line", "arrow", "distance"];
 const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter"];
 
-export default function AnnotLayer(p: AnnotLayerProps) {
+function AnnotLayer(p: AnnotLayerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<DraftShape | null>(null);
   const [marquee, setMarquee] = useState<Rect | null>(null);
@@ -995,6 +995,26 @@ export default function AnnotLayer(p: AnnotLayerProps) {
     </div>
   );
 }
+
+// PdfWorkspace re-creates every callback prop (onCreate, onSelect, ...)
+// inline on each render, so a plain shallow-compare memo would never bail
+// out. Those callbacks are ignored here on purpose: none of them close over
+// a value that isn't *also* one of the other props below (e.g. `onSelect`
+// reads `selectedIds` from its closure, but `selectedIds` is itself compared
+// here), so a real change that matters still shows up as a prop diff and
+// still forces a fresh render — only the identity churn of the callbacks
+// themselves is ignored.
+function annotLayerPropsEqual(prev: AnnotLayerProps, next: AnnotLayerProps): boolean {
+  for (const key of Object.keys(next) as (keyof AnnotLayerProps)[]) {
+    const a = prev[key];
+    const b = next[key];
+    if (typeof a === "function" || typeof b === "function") continue;
+    if (!Object.is(a, b)) return false;
+  }
+  return true;
+}
+
+export default memo(AnnotLayer, annotLayerPropsEqual);
 
 // ---------------------------------------------------------------------------
 // helpers

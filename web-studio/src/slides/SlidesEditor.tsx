@@ -6,7 +6,7 @@
  * lives here; deck data + mutations live in the store. Shell-specific chrome
  * (page vs. modal, export buttons, connection status/peers) is injected via props.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Home,
   Plus,
@@ -99,7 +99,7 @@ import SlideCanvas, { themeDefaultBg } from "./canvas";
 import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
-import type { DeckStore } from "./store";
+import type { DeckPeer, DeckStore } from "./store";
 import "./slides.css";
 
 const THEMES: { value: SlideTheme; label: string }[] = [
@@ -133,6 +133,8 @@ const CHART_KINDS: { kind: ChartKind; icon: ReactNode; label: string }[] = [
   { kind: "pie", icon: <PieChart size={18} />, label: "Camembert" },
 ];
 const TEXT_COLORS = ["#0f172a", "#ffffff", "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#2563eb", "#7c3aed", "#db2777"];
+/** Shared empty-array sentinel for slides with no peer present, so the rail loop doesn't allocate a fresh [] per slide per render. */
+const EMPTY_PEERS: DeckPeer[] = [];
 
 /** Measures the stage's pixel height → scale factor for font sizing. */
 function useScale(): [React.RefObject<HTMLDivElement>, number] {
@@ -701,6 +703,17 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const isTable = sel?.type === "table";
   const isChart = sel?.type === "chart";
   const peers = store.presence?.peers;
+  // Grouped once per render instead of re-filtering `peers` inside the per-slide
+  // rail loop below (was O(slides × peers) per render).
+  const peersBySlide = useMemo(() => {
+    const map = new Map<number, DeckPeer[]>();
+    for (const p of peers ?? []) {
+      const bucket = map.get(p.slide);
+      if (bucket) bucket.push(p);
+      else map.set(p.slide, [p]);
+    }
+    return map;
+  }, [peers]);
 
   return (
     <div className={`slides-app ${chrome.variant === "modal" ? "slides-app--modal" : ""}`}>
@@ -1261,7 +1274,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         {/* Rail */}
         <aside className="slides-rail">
           {deck.slides.map((s, i) => {
-            const here = peers?.filter((p) => p.slide === i) ?? [];
+            const here = peersBySlide.get(i) ?? EMPTY_PEERS;
             return (
               <div
                 key={s.id}

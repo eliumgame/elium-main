@@ -75,7 +75,7 @@ import {
   DEFAULT_COL_W,
 } from "./model";
 import type { Rect } from "./structural";
-import type { SheetStore, SheetEditorChrome } from "./store";
+import type { SheetStore, SheetEditorChrome, SheetPeer } from "./store";
 
 type Pos = { c: number; r: number };
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
@@ -195,6 +195,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
   const sheet = wb.sheets[active];
   const peers = collaborative ? (store.presence?.peers ?? []) : [];
+  // Index des pairs par clé composite feuille:référence pour un lookup O(1) par
+  // cellule (au lieu d'un .find() linéaire répété pour chaque cellule rendue).
+  const peerByKey = useMemo(() => {
+    const map = new Map<string, SheetPeer>();
+    for (const p of peers) map.set(`${p.s}:${p.ref}`, p);
+    return map;
+  }, [peers]);
 
   // Moteur de formules (résolution des plages nommées + références croisées).
   const calc = useMemo(() => {
@@ -1191,7 +1198,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                       const val = sheet.cells[ref] != null ? calc.valueOf(ref) : "";
                       const numeric = typeof val === "number";
                       const invalid = validator(c, r);
-                      const peer = collaborative ? peers.find((p) => p.s === active && p.ref === ref) : undefined;
+                      const peer = collaborative ? peerByKey.get(`${active}:${ref}`) : undefined;
                       const cls = [
                         inSel(c, r) ? (isActive ? "is-selected" : "is-range") : "",
                         inFill(c, r) ? "is-fill" : "",

@@ -1,0 +1,21 @@
+-- Index dédié au motif de pagination réel du journal d'audit : (org_id, id).
+--
+-- L'index existant `idx_audit_org (org_id, created_at DESC)` (0001_baseline.sql)
+-- ne correspond ni à `GET /api/orgs/:orgId/audit` (routes/audit.ts, qui filtre
+-- sur `a.org_id = $1 AND a.id < $2` et trie `ORDER BY a.id DESC`), ni à la
+-- lecture paginée de `verifyAuditChain` (lib/audit-chain.ts, qui filtre sur
+-- `org_id IS NOT DISTINCT FROM $1 AND id > $2` et trie `ORDER BY id ASC`) : ces
+-- deux requêtes s'appuient sur `id`, pas sur `created_at`. Sans index sur
+-- (org_id, id), chaque page nécessite un scan (ou un tri en mémoire) de toutes
+-- les lignes de l'organisation.
+--
+-- `id` est un BIGSERIAL strictement croissant, donc un tri sur `id` équivaut à
+-- un tri chronologique — l'index sert les deux requêtes (DESC pour la lecture
+-- paginée récent → ancien, ASC pour la vérification de chaîne ancien → récent)
+-- sans avoir besoin d'un index séparé par direction.
+--
+-- CREATE INDEX IF NOT EXISTS (non-CONCURRENTLY) : le runner de migrations
+-- (server/src/db/migrate.ts, `withTx`) exécute chaque migration dans une
+-- transaction, incompatible avec CONCURRENTLY (qui doit s'exécuter hors
+-- transaction).
+CREATE INDEX IF NOT EXISTS idx_audit_org_id ON audit_log (org_id, id DESC);

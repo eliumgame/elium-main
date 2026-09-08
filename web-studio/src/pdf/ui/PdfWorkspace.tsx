@@ -19,7 +19,7 @@ import { downloadBlob } from "../../export/exporters";
 import { useDialogs } from "../../ui/dialogs";
 import { useUndoable } from "../../ui/useUndoable";
 import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts";
-import type { Quad, Rotation } from "../core/coords";
+import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
 import { RenderScheduler } from "../core/render";
@@ -61,8 +61,13 @@ import {
   PAGE_SIZES,
 } from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
-import { signPdfBytes, verifyPdfSignatures, type PadesSignOptions } from "../ops/pades";
-import { generateSelfSignedP12 } from "../ops/self-cert";
+// signPdfBytes/verifyPdfSignatures/generateSelfSignedP12 pull in node-forge, a
+// heavy dependency only actual signers need — they're loaded dynamically at
+// the point of use below (see onP12Pick/signSelfSigned/verifySignatures),
+// same pattern as drive-cloud/ui/SignLinkView.tsx. Only the type survives as
+// a static import: `import type` is erased at compile time, so it doesn't
+// pull pades.ts (or node-forge) into this bundle.
+import type { PadesSignOptions } from "../ops/pades";
 import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
 import { fromXfdf, toXfdf } from "../ops/xfdf";
 import {
@@ -143,6 +148,13 @@ interface Props {
 }
 
 let toastSeq = 1;
+
+// Shared empty array for the annots-by-page / edits-by-page lookups below —
+// a page with none must still get *a* stable reference, not a fresh `[]`
+// every render (that alone would defeat AnnotLayer/ContentEditLayer's memo).
+// `never[]` is assignable to both `Annot[]` and `ContentEdit[]` (and any
+// other array-typed prop) since arrays are covariant in TS.
+const EMPTY_ARRAY: never[] = [];
 
 export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi" }: Props) {
   const dialogs = useDialogs();
@@ -226,6 +238,38 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const pages = state.pages;
   const pageCount = pages.length;
+  // Read by `goTo` below via ref rather than closure so that callback keeps
+  // one stable identity across renders that only change the page count —
+  // it still always clamps against the *current* count, just without that
+  // forcing every PageView's memoized `onLinkActivate` to look "changed".
+  const pageCountRef = useRef(pageCount);
+  useEffect(() => {
+    pageCountRef.current = pageCount;
+  }, [pageCount]);
+
+  // Grouped once per render instead of `state.annots.filter(a => a.pageId
+  // === page.id)` / `state.contentEdits.filter(...)` re-scanning the full
+  // array for every visible page below — and, crucially, each page's list
+  // keeps the SAME array reference across renders where it didn't change,
+  // which is what lets AnnotLayer/ContentEditLayer's memo actually skip work.
+  const annotsByPage = useMemo(() => {
+    const map = new Map<string, Annot[]>();
+    for (const a of state.annots) {
+      const list = map.get(a.pageId);
+      if (list) list.push(a);
+      else map.set(a.pageId, [a]);
+    }
+    return map;
+  }, [state.annots]);
+  const contentEditsByPage = useMemo(() => {
+    const map = new Map<string, ContentEdit[]>();
+    for (const e of state.contentEdits) {
+      const list = map.get(e.pageId);
+      if (list) list.push(e);
+      else map.set(e.pageId, [e]);
+    }
+    return map;
+  }, [state.contentEdits]);
 
   // -------------------------------------------------------------------------
   // Toasts
@@ -397,6 +441,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     [engine, view.viewRotation],
   );
 
+  // `sizeOf` above returns a brand-new `{w,h}` object on every call, even for
+  // a page whose size hasn't changed — which would make the `size` prop fed
+  // to PageView/AnnotLayer/ContentEditLayer look "different" on every render
+  // no matter what, defeating their memo. Cache it per page.id and hand back
+  // the same object while w/h are unchanged.
+  const pageSizeCache = useRef(new Map<string, Size>());
+  const stableSizeOf = useCallback(
+    (page: Page): Size => {
+      const next = sizeOf(page);
+      const prev = pageSizeCache.current.get(page.id);
+      if (prev && prev.w === next.w && prev.h === next.h) return prev;
+      pageSizeCache.current.set(page.id, next);
+      return next;
+    },
+    [sizeOf],
+  );
+
   // -------------------------------------------------------------------------
   // Zoom & navigation
   // -------------------------------------------------------------------------
@@ -443,7 +504,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const goTo = useCallback(
     (page: number, y?: number) => {
-      const target = clamp(Math.round(page), 1, Math.max(1, pageCount));
+      const target = clamp(Math.round(page), 1, Math.max(1, pageCountRef.current));
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${target}"]`);
       if (el) {
         const top = el.offsetTop - 16 + (y ? y * view.scale : 0);
@@ -451,7 +512,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
       setView((v) => ({ ...v, current: target }));
     },
-    [pageCount, view.scale],
+    [view.scale],
   );
 
   const onScroll = useCallback(() => {
@@ -526,8 +587,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (next !== "select") setSelectedIds([]);
   };
 
+  // Read via ref (not the `sticky` closure directly) so `finishTool` keeps a
+  // stable identity across renders that only toggle `sticky` — it still
+  // always reads the *current* value, just without that alone forcing every
+  // AnnotLayer's memoized `onToolDone` to look "changed".
+  const stickyRef = useRef(sticky);
+  useEffect(() => {
+    stickyRef.current = sticky;
+  }, [sticky]);
   const finishTool = () => {
-    if (!sticky) setTool("textSelect");
+    if (!stickyRef.current) setTool("textSelect");
   };
 
   // --- text-anchored markup from the live selection -------------------------
@@ -588,7 +657,6 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     };
     window.addEventListener("mouseup", onUp);
     return () => window.removeEventListener("mouseup", onUp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool, applyMarkupFromSelection]);
 
   // -------------------------------------------------------------------------
@@ -753,9 +821,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return buildPdf(bytesRef.current!, st, { ...buildOptions, author, fileName });
   };
 
-  const finishSigned = (signed: Uint8Array, base: string, toastId: number): void => {
+  const finishSigned = async (signed: Uint8Array, base: string, toastId: number): Promise<void> => {
     downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
     dismissToast(toastId);
+    const { verifyPdfSignatures } = await import("../ops/pades");
     const v = verifyPdfSignatures(signed);
     const ok = v.length > 0 && v.every((x) => x.valid);
     const note = v[0]?.selfSigned
@@ -787,8 +856,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const target = visibleSigTarget();
       const { bytes } = await buildForSignature(target);
+      const { signPdfBytes } = await import("../ops/pades");
       const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: target?.visible });
-      finishSigned(signed, base, id);
+      await finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
       toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
@@ -831,15 +901,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       await new Promise((r) => setTimeout(r, 30));
       const cn = author?.trim() || "Signature Elium (auto-signée)";
       const pw = "elium-self";
+      const { generateSelfSignedP12 } = await import("../ops/self-cert");
       const p12 = generateSelfSignedP12(cn, pw);
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       const { bytes } = await buildForSignature(target);
+      const { signPdfBytes } = await import("../ops/pades");
       const signed = await signPdfBytes(bytes, p12, pw, {
         reason: "Signé avec Elium",
         signerName: cn,
         visible: target.visible,
       });
-      finishSigned(signed, base, id);
+      await finishSigned(signed, base, id);
     } catch (err) {
       dismissToast(id);
       toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
@@ -848,8 +920,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
-  const verifySignatures = () => {
+  const verifySignatures = async () => {
     if (!bytesRef.current) return;
+    const { verifyPdfSignatures } = await import("../ops/pades");
     const v = verifyPdfSignatures(bytesRef.current);
     if (v.length === 0) {
       toast("warning", "Aucune signature", "Ce PDF ne contient pas de signature électronique (PAdES).");
@@ -1007,7 +1080,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         void signSelfSigned();
         return;
       case "verifyPades":
-        verifySignatures();
+        void verifySignatures();
         return;
       case "split":
         setDialog("split");
@@ -2094,8 +2167,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           >
             <div className="pdfx-pages">
               {visiblePages.map((page, index) => {
-                const size = sizeOf(page);
+                const size = stableSizeOf(page);
                 const rotation = rotationOf(page);
+                const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
+                const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
                 const pageHits = page.from != null ? hitQuads.get(page.from) : undefined;
                 const activeHit = hits[searchState.index];
                 const hitList = pageHits?.map((quads, i) => ({
@@ -2139,7 +2214,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                         every mode, so a change is visible the instant it is made
                         and stays visible after leaving the editor. */}
                     <ContentEditPreview
-                      edits={state.contentEdits.filter((e) => e.pageId === page.id)}
+                      edits={pageEdits}
                       size={size}
                       rotation={rotation}
                       scale={view.scale}
@@ -2153,7 +2228,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                         size={size}
                         rotation={rotation}
                         scale={view.scale}
-                        edits={state.contentEdits.filter((e) => e.pageId === page.id)}
+                        edits={pageEdits}
                         onBeginChange={checkpoint}
                         onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
                       />
@@ -2182,7 +2257,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                         size={size}
                         rotation={rotation}
                         scale={view.scale}
-                        annots={state.annots.filter((a) => a.pageId === page.id)}
+                        annots={pageAnnots}
                         tool={tool}
                         style={style}
                         selectedIds={selectedIds}

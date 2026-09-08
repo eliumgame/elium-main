@@ -131,26 +131,94 @@ async function recomputeRoleForEmail(orgId: string, email: string, map: Record<s
   ]);
 }
 
-/** Resolve a SCIM member `value` (a user id or an invite id) to an email. */
-async function emailForScimValue(orgId: string, value: string): Promise<string | null> {
-  if (!UUID_RE.test(value)) return null;
-  const r = await queryOne<{ email: string }>(
-    `SELECT u.email FROM users u JOIN memberships m ON m.user_id = u.id WHERE u.id = $1 AND m.org_id = $2
-     UNION SELECT email FROM invites WHERE id = $1 AND org_id = $2
-     LIMIT 1`,
-    [value, orgId],
+/**
+ * Resolve many SCIM member `value`s (each a user id or an invite id) to
+ * emails in one round-trip. Returns a Map keyed by the lowercased UUID
+ * (Postgres always renders `uuid` columns in canonical lowercase, so look up
+ * with `value.toLowerCase()`); a `value` that isn't a UUID, or doesn't match
+ * a member/invite of this org, is simply absent from the map. On the
+ * (practically impossible) case of a user id and an invite id colliding, the
+ * real member wins over the pending invite.
+ */
+async function emailsForScimValues(orgId: string, values: string[]): Promise<Map<string, string>> {
+  const uuids = [...new Set(values.filter((v) => UUID_RE.test(v)).map((v) => v.toLowerCase()))];
+  if (uuids.length === 0) return new Map();
+  const rows = await query<{ val: string; email: string }>(
+    `SELECT DISTINCT ON (r.val) r.val, r.email
+       FROM (
+         SELECT u.id AS val, u.email AS email, 0 AS pri
+           FROM users u JOIN memberships m ON m.user_id = u.id
+          WHERE u.id = ANY($1::uuid[]) AND m.org_id = $2
+         UNION ALL
+         SELECT id AS val, email AS email, 1 AS pri
+           FROM invites WHERE id = ANY($1::uuid[]) AND org_id = $2
+       ) r
+      ORDER BY r.val, r.pri`,
+    [uuids, orgId],
   );
-  return r?.email ?? null;
+  return new Map(rows.map((r) => [r.val, r.email]));
 }
 
-/** Recompute every SCIM-group member's role for an org (after a config change). */
+/** Resolve a single SCIM member `value` (a user id or an invite id) to an email. */
+async function emailForScimValue(orgId: string, value: string): Promise<string | null> {
+  const resolved = await emailsForScimValues(orgId, [value]);
+  return resolved.get(value.toLowerCase()) ?? null;
+}
+
+/**
+ * Recompute every SCIM-group member's role for an org (after a config
+ * change). This runs over the org's whole SCIM roster, so — unlike the small
+ * per-op member sets elsewhere in this file — it's worth batching: one query
+ * resolves every member's mapped roles at once (same JOIN as
+ * `mappedRolesForEmail`, just not filtered to a single email), then at most
+ * two bulk UPDATEs apply the results, instead of `recomputeRoleForEmail`'s
+ * ~3 queries repeated per member. Same "never demote" rule as
+ * `recomputeRoleForEmail` (see comment above it): only emails that come back
+ * with ≥1 mapped role are touched.
+ */
 export async function resyncOrgGroupRoles(orgId: string): Promise<void> {
   const { groupRoleMap } = await resolveScimConfig(orgId);
-  const emails = await query<{ email: string }>(
-    `SELECT DISTINCT gm.email FROM scim_group_members gm JOIN scim_groups g ON g.id = gm.group_id WHERE g.org_id = $1`,
-    [orgId],
+  if (Object.keys(groupRoleMap).length === 0) return; // no mapping configured — nothing to recompute
+
+  const rows = await query<{ email: string; key: string; role_id: string; pc: number }>(
+    `SELECT gm.email AS email, r.key, r.id AS role_id, cardinality(r.permissions) AS pc
+       FROM scim_group_members gm
+       JOIN scim_groups g ON g.id = gm.group_id AND g.org_id = $1
+       JOIN roles r ON r.org_id = $1 AND r.key = ($2::jsonb ->> g.display_name)`,
+    [orgId, JSON.stringify(groupRoleMap)],
   );
-  for (const { email } of emails) await recomputeRoleForEmail(orgId, email, groupRoleMap);
+
+  // Group by email, then pick the most-privileged mapped role per email —
+  // same rule as recomputeRoleForEmail, computed for every member at once.
+  const mappedByEmail = new Map<string, { key: string; roleId: string; permCount: number }[]>();
+  for (const r of rows) {
+    const list = mappedByEmail.get(r.email) ?? [];
+    list.push({ key: r.key, roleId: r.role_id, permCount: Number(r.pc) });
+    mappedByEmail.set(r.email, list);
+  }
+  const emails: string[] = [];
+  const roleIds: string[] = [];
+  for (const [email, mapped] of mappedByEmail) {
+    const roleId = mostPrivilegedRole(mapped);
+    if (roleId) {
+      emails.push(email);
+      roleIds.push(roleId);
+    }
+  }
+  if (emails.length === 0) return; // no member has ≥1 mapped group — nothing to update (never demote)
+
+  await query(
+    `UPDATE memberships mem SET role_id = v.role_id
+       FROM users u, UNNEST($2::text[], $3::uuid[]) AS v(email, role_id)
+      WHERE u.id = mem.user_id AND mem.org_id = $1 AND u.email = v.email`,
+    [orgId, emails, roleIds],
+  );
+  await query(
+    `UPDATE invites SET role_id = v.role_id
+       FROM UNNEST($2::text[], $3::uuid[]) AS v(email, role_id)
+      WHERE invites.org_id = $1 AND invites.email = v.email AND invites.accepted_at IS NULL`,
+    [orgId, emails, roleIds],
+  );
 }
 
 interface GroupRow {
@@ -181,19 +249,39 @@ async function groupMembers(groupId: string): Promise<GroupMemberRow[]> {
   );
 }
 
-/** Insert the given SCIM members into a group; returns the emails touched. */
+/**
+ * Insert the given SCIM members into a group; returns the emails touched (in
+ * the same order as `members`, one entry per member that resolved to an
+ * email — duplicates included, exactly as the previous per-member loop did).
+ * Resolves all members in one query and writes them in one multi-row INSERT,
+ * instead of 2 queries per member.
+ */
 async function addGroupMembers(orgId: string, groupId: string, members: { value?: string }[]): Promise<string[]> {
+  const candidates = members.map((m) => m?.value).filter((v): v is string => !!v);
+  const emailByValue = await emailsForScimValues(orgId, candidates);
+
   const emails: string[] = [];
+  // Last member wins for a repeated resolved email — mirrors the previous
+  // per-member `INSERT ... ON CONFLICT DO UPDATE`, where a later member with
+  // the same email overwrote the earlier one's `member_value`. (A single
+  // multi-row INSERT can't target the same conflict key twice, so this also
+  // dedupes before the INSERT below.)
+  const memberValueByEmail = new Map<string, string>();
   for (const m of members) {
     if (!m?.value) continue;
-    const email = await emailForScimValue(orgId, m.value);
+    const email = emailByValue.get(m.value.toLowerCase());
     if (!email) continue; // unknown SCIM resource — ignore defensively
-    await query(
-      `INSERT INTO scim_group_members (group_id, email, member_value) VALUES ($1, $2, $3)
-         ON CONFLICT (group_id, email) DO UPDATE SET member_value = EXCLUDED.member_value`,
-      [groupId, email, m.value],
-    );
     emails.push(email);
+    memberValueByEmail.set(email, m.value);
+  }
+  if (memberValueByEmail.size > 0) {
+    const rows = [...memberValueByEmail.entries()];
+    await query(
+      `INSERT INTO scim_group_members (group_id, email, member_value)
+       SELECT $1::uuid, t.e, t.v FROM UNNEST($2::text[], $3::text[]) AS t(e, v)
+       ON CONFLICT (group_id, email) DO UPDATE SET member_value = EXCLUDED.member_value`,
+      [groupId, rows.map(([email]) => email), rows.map(([, value]) => value)],
+    );
   }
   return emails;
 }

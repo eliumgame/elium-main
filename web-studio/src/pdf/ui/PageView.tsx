@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { TextLayer } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { Quad, Rotation, Size } from "../core/coords";
@@ -59,7 +59,7 @@ interface LinkBox {
   dest?: unknown;
 }
 
-export default function PageView(p: PageViewProps) {
+function PageView(p: PageViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -269,3 +269,22 @@ export default function PageView(p: PageViewProps) {
     </div>
   );
 }
+
+// See annotLayerPropsEqual in AnnotLayer.tsx for the rationale on ignoring
+// callback props. Note this buys PageView itself little: `children` is the
+// annotation/content-edit layers built fresh by PdfWorkspace on every render,
+// so it (rightly) never compares equal and PageView keeps re-rendering — the
+// real win is downstream, where those children (AnnotLayer, ContentEditLayer)
+// are independently memoized and can still bail out even though their parent
+// re-rendered.
+function pageViewPropsEqual(prev: PageViewProps, next: PageViewProps): boolean {
+  for (const key of Object.keys(next) as (keyof PageViewProps)[]) {
+    const a = prev[key];
+    const b = next[key];
+    if (typeof a === "function" || typeof b === "function") continue;
+    if (!Object.is(a, b)) return false;
+  }
+  return true;
+}
+
+export default memo(PageView, pageViewPropsEqual);

@@ -215,6 +215,100 @@ async function decompressData(data: Uint8Array): Promise<Uint8Array> {
   return concat(...chunks);
 }
 
+// --- Argon2id Worker Offload ---
+//
+// deriveMasterKey's argon2id() call is CPU-bound WASM work (~1.3s at the
+// current write parameters) — `async` only means the *promise* doesn't block
+// synchronously, the computation itself still runs on whichever thread calls
+// it. Delegating it to a dedicated Worker keeps the main thread responsive.
+//
+// Lazily-created singleton, reused across derivations (avoids re-initializing
+// the WASM module on every unlock within a session). If it crashes, pending
+// requests are rejected and the singleton is torn down so the NEXT call gets
+// a fresh Worker instead of hanging forever waiting on a dead one.
+let argon2Worker: Worker | null = null;
+let argon2WorkerRequestId = 0;
+const argon2WorkerPending = new Map<number, { resolve: (hash: Uint8Array) => void; reject: (err: Error) => void }>();
+
+interface Argon2WorkerRequest {
+  id: number;
+  password: Uint8Array;
+  salt: Uint8Array;
+  iterations: number;
+  memorySize: number;
+  parallelism: number;
+  hashLength: number;
+}
+
+interface Argon2WorkerResponse {
+  id: number;
+  hash?: Uint8Array;
+  error?: string;
+}
+
+function resetArgon2Worker(reason: string): void {
+  const worker = argon2Worker;
+  argon2Worker = null;
+  worker?.terminate();
+  if (argon2WorkerPending.size === 0) return;
+  const err = new Error(reason);
+  for (const { reject } of argon2WorkerPending.values()) reject(err);
+  argon2WorkerPending.clear();
+}
+
+function getArgon2Worker(): Worker {
+  if (argon2Worker) return argon2Worker;
+  const worker = new Worker(new URL("./argon2-worker.ts", import.meta.url), { type: "module" });
+  worker.onmessage = (ev: MessageEvent<Argon2WorkerResponse>) => {
+    const { id, hash, error } = ev.data;
+    const pending = argon2WorkerPending.get(id);
+    if (!pending) return;
+    argon2WorkerPending.delete(id);
+    if (error) pending.reject(new Error(error));
+    else if (hash) pending.resolve(hash);
+    else pending.reject(new Error("Argon2 worker returned no result."));
+  };
+  worker.onerror = () => resetArgon2Worker("Argon2 worker crashed before responding.");
+  argon2Worker = worker;
+  return worker;
+}
+
+/** Runs the Argon2id derivation in the shared Worker. Rejects (never hangs)
+ *  if the Worker cannot be created or crashes — the caller falls back to the
+ *  direct main-thread computation in that case. */
+function deriveWithWorker(
+  password: Uint8Array,
+  salt: Uint8Array,
+  iterations: number,
+  memorySize: number,
+  parallelism: number,
+  hashLength: number,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = getArgon2Worker();
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    const id = ++argon2WorkerRequestId;
+    argon2WorkerPending.set(id, { resolve, reject });
+    try {
+      // No transfer list: `salt` in particular is read again by the caller
+      // right after this call resolves (encodeContainer writes it into the
+      // header) — transferring it would detach the buffer on the main
+      // thread. A structured-clone copy of a password/salt this size is
+      // negligible next to the ~1.3s Argon2 computation itself.
+      const request: Argon2WorkerRequest = { id, password, salt, iterations, memorySize, parallelism, hashLength };
+      worker.postMessage(request);
+    } catch (err) {
+      argon2WorkerPending.delete(id);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
 // --- Main Engine ---
 
 export class EliumCryptoEngine {
@@ -222,6 +316,14 @@ export class EliumCryptoEngine {
    * Derives a master key using Argon2id.
    * If a keyfile is provided, its SHA-256 hash is appended to the password
    * (matching the Python implementation: password + "|KF|" + sha256(keyfile)).
+   *
+   * The Argon2id computation runs in a dedicated Worker when one is
+   * available (real browser contexts); it falls back to the direct
+   * main-thread call otherwise — Node/jsdom test environments and SSR don't
+   * expose `Worker`, and a Worker that fails to start or crashes mid-flight
+   * also falls back rather than failing the unlock. Both paths call the
+   * exact same `argon2id` computation with the exact same inputs, so the
+   * returned key is byte-for-byte identical either way.
    */
   static async deriveMasterKey(
     password: string,
@@ -238,6 +340,15 @@ export class EliumCryptoEngine {
       const separator = te.encode("|KF|");
       // @ts-ignore
       pwdBytes = concat(pwdBytes, separator, kfHash);
+    }
+
+    if (typeof Worker !== "undefined") {
+      try {
+        return await deriveWithWorker(pwdBytes, salt, t, m, p, KEY_SIZE);
+      } catch {
+        // Worker unavailable/crashed: fall through to the direct call below.
+        resetArgon2Worker("Argon2 worker request failed.");
+      }
     }
 
     const hashHex = await argon2id({

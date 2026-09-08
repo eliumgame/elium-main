@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { Rotation, Size } from "../core/coords";
 import { psToView } from "../core/coords";
 import type { PdfEngine } from "../core/engine";
@@ -30,7 +30,7 @@ export interface ContentEditLayerProps {
   onBlocks?: (pageId: string, blocks: TextBlock[]) => void;
 }
 
-export default function ContentEditLayer(p: ContentEditLayerProps) {
+function ContentEditLayer(p: ContentEditLayerProps) {
   const [blocks, setBlocks] = useState<TextBlock[] | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -187,3 +187,19 @@ export default function ContentEditLayer(p: ContentEditLayerProps) {
     </div>
   );
 }
+
+// See annotLayerPropsEqual in AnnotLayer.tsx for why callback props (onCommit,
+// onBeginChange, onBlocks) are skipped here: PdfWorkspace recreates them
+// inline every render, but they don't close over anything that isn't also
+// one of the other (compared) props, so ignoring their identity is safe.
+function contentEditLayerPropsEqual(prev: ContentEditLayerProps, next: ContentEditLayerProps): boolean {
+  for (const key of Object.keys(next) as (keyof ContentEditLayerProps)[]) {
+    const a = prev[key];
+    const b = next[key];
+    if (typeof a === "function" || typeof b === "function") continue;
+    if (!Object.is(a, b)) return false;
+  }
+  return true;
+}
+
+export default memo(ContentEditLayer, contentEditLayerPropsEqual);

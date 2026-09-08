@@ -1,8 +1,55 @@
 # Approche A — Signature à distance par lien cloud (document d'architecture)
 
-> **Statut : PROPOSITION à valider avant tout code.** Rédigé 2026-08-11, ancré sur le
-> backend `server/` réel (Fastify/TS, zero-knowledge) et le client `web-studio/`.
-> À relire en premier dans une session « démarrage Approche A ».
+> **Statut : LIVRÉ (implémenté et durci en production)** — mis à jour 2026-09-08.
+> Ce document est conservé comme **référence de conception** (modèle de menace,
+> décisions d'architecture, points d'ancrage code) ; le comportement réel peut
+> avoir légèrement dérivé du plan ci-dessous depuis sa rédaction. Voir la section
+> « État réel » ci-dessous avant de supposer que le plan par tranches (§8) décrit
+> encore fidèlement ce qui a été construit.
+
+## État réel au 2026-09-08
+
+Ce document a été rédigé le 2026-08-11 comme **proposition** et n'a plus jamais
+été mis à jour depuis (`git log --oneline -- docs/design/approche-a-remote-signing.md`
+ne montre qu'un seul commit, celui de sa création). La fonctionnalité a pourtant
+été **implémentée et itérée** depuis. Constats faits en relisant le code réel
+(pas supposés) :
+
+- **Backend** — `server/src/routes/signing.ts` existe et expose les trois routes
+  prévues (`POST`/`GET /api/nodes/:id/sign-requests`, `POST /api/links/:token/sign`),
+  **plus** deux routes non prévues à l'origine : `POST /api/links/:token/decline`
+  (refus anonyme par le signataire) et `POST /api/nodes/:id/sign-requests/:requestId/parties/:partyId/remind`
+  (relance d'un signataire). Tests d'intégration : `server/tests/signing.test.ts`.
+- **Client** — `web-studio/src/drive-cloud/ui/SignLinkView.tsx` (vue destinataire)
+  et `SignRequestDialog.tsx` (côté émetteur) existent, ainsi qu'un `circuit-sync.ts`
+  dédié au pont entre le circuit de signature local (parapheur, `.elium`) et les
+  demandes de signature cloud — durci récemment par le commit
+  `3b86029 fix(parapheur): fiabilise le pont circuit local <-> demande de signature cloud`.
+- **Modèle retenu** : l'**Option Circuit** (§4.1, tables dédiées) a été choisie,
+  pas l'Option Lean — `signature_requests` et `signature_request_parties` existent
+  bien comme tables séparées, avec `share_links.can_sign`.
+- **Tranches (§8) — état par tranche, vérifié dans le code, pas supposé :**
+  - Tranche 0 (schéma & route mono-partie) : **faite**.
+  - Tranche 1 (client mono-partie, `.elium` sans compte) : **faite**.
+  - Tranche 2 (circuit multi-parties + ordre) : **faite** — `signing.ts` accepte
+    jusqu'à 50 parties et un flag `ordered` avec contrôle de séquence.
+  - Tranche 3 (PDF/PAdES par lien, refus/relance/deadline) : **faite pour PAdES,
+    refus, relance et deadline** (tout présent dans `signing.ts`/`SignLinkView.tsx`).
+    Le **push live WS/SSE** annoncé dans cette tranche n'est **pas confirmé** :
+    seul un réveil de room via `notifyOrg` (backplane collab existant) a été trouvé ;
+    pas de canal SSE/WS dédié au suivi de signature repéré. Le suivi émetteur reste
+    donc probablement en **poll** (v1 de §4.3), à vérifier si besoin exact.
+  - Tranche 4 (durcissement) : **partiellement confirmée** — cap dédié
+    (`config.maxSignArtifactBytes` / `MAX_SIGN_ARTIFACT_BYTES`), audit complet
+    (`node.sign.request`/`submit`/`decline`/`remind`), révocation et verrouillage
+    anti-concurrence (`FOR UPDATE` dans la transaction de signature) confirmés dans
+    le code. Tests de charge et documentation in-app **non vérifiés** dans cette
+    relecture.
+
+En résumé : le plan initial a été suivi et même dépassé par endroits (refus,
+relance — non prévus dans le plan par tranches original), avec une seule zone
+d'incertitude confirmée (push live temps réel). Ne pas relire ce document comme
+une spec à implémenter — c'est un historique de conception à côté du code réel.
 
 ## 1. Objectif
 

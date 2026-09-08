@@ -80,7 +80,7 @@ export const config = {
   version: env("ELIUM_VERSION", "dev"),
   port: num("PORT", 8787),
   host: env("HOST", "0.0.0.0"),
-  corsOrigins: env("CORS_ORIGINS", "http://localhost:3100,http://localhost:5173")
+  corsOrigins: env("CORS_ORIGINS", "http://localhost:3100,http://localhost:3000")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),

@@ -36,9 +36,10 @@ async function main(): Promise<void> {
   process.env.STORAGE_FS_ROOT = BLOB_DIR;
   process.env.PORT = String(API_PORT);
   process.env.HOST = "127.0.0.1";
-  // Autorise le front Vite (5173) et le preview (3100) à parler à l'API.
+  // Autorise le front Vite (port 3000, fixé dans vite.config.ts — pas le 5173
+  // générique de Vite) et le preview Playwright (3100) à parler à l'API.
   process.env.CORS_ORIGINS =
-    process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:3100,http://127.0.0.1:5173";
+    process.env.CORS_ORIGINS ?? "http://localhost:3000,http://localhost:3100,http://127.0.0.1:3000";
 
   console.log(`[dev-drive] PostgreSQL embarqué → ${PG_DIR} (port ${PG_PORT})`);
   const pg = new EmbeddedPostgres({

@@ -7,7 +7,6 @@ Emplacements APPLICATIFS mis à jour (source unique runtime = src/elium/__init__
   - src/elium/__init__.py        __version__ = "X.Y.Z"           (version complète)
   - web-studio/package.json      "version": "X.Y.Z"             (version complète)
   - installer/elium.wxs          <?define Version = "X.Y.Z" ?>  (cœur numérique, MSI)
-  - installer/elium_setup.iss    #define AppVersion "X.Y.Z"     (cœur numérique, Inno)
   - installer/version_info.txt   filevers/prodvers + FileVersion/ProductVersion (ressource EXE)
   - installer/updater.py         BUILD_CODE_HASH = "<sha256>"
 
@@ -93,11 +92,6 @@ def main() -> int:
     _sub_in_file(
         root / "installer" / "elium.wxs",
         r'(<\?define Version = ")[^"]*(" \?>)',
-        rf'\g<1>{core}\g<2>',
-    )
-    _sub_in_file(
-        root / "installer" / "elium_setup.iss",
-        r'(#define AppVersion ")[^"]*(")',
         rf'\g<1>{core}\g<2>',
     )
     core_tuple = ", ".join(core.split(".")) + ", 0"

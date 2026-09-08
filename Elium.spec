@@ -1,4 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+#
+# LEGACY — spec PyInstaller pour l'ancienne application desktop PySide6
+# (desktop/src/app.py), non maintenue et non testee. Aucun script du depot
+# n'appelle plus ce fichier (build_exe.bat delegue desormais au pipeline
+# officiel installer\build.bat). Conserve uniquement pour qui voudrait
+# reconstruire manuellement l'app legacy (`pyinstaller Elium.spec`).
+# Le spec du pipeline reellement livre est installer/elium.spec.
 
 
 a = Analysis(

@@ -42,7 +42,7 @@ if not exist .venv (
     call .venv\Scripts\activate.bat
     python -m pip install --upgrade pip >nul 2>&1
     echo [*] Installation des dependances Elium (Patientez)...
-    python -m pip install -e .[dev,desktop]
+    python -m pip install -e .[dev]
 ) else (
     call .venv\Scripts\activate.bat
 )
@@ -72,14 +72,8 @@ if exist web-studio (
     start http://localhost:3000
 )
 
-:: Lancer l'application Desktop Python
-if exist desktop\src\app.py (
-    start "" /B pythonw desktop\src\app.py
-)
-
 echo.
 echo [OK] Tout est lance !
 echo Web Studio : http://localhost:3000
-echo Application Desktop en cours d'execution...
-echo Appuyez sur une touche pour fermer cette fenetre (les applications continueront de tourner en arriere-plan).
+echo Appuyez sur une touche pour fermer cette fenetre (le Web Studio continuera de tourner en arriere-plan).
 pause >nul

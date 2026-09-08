@@ -93,48 +93,14 @@ if !errorlevel! neq 0 (
 )
 echo     [OK] %STAGING%\Elium.exe
 
-:: -------------------------------------------------------
-:: Etape 4 : installeur Inno Setup (optionnel)
-:: -------------------------------------------------------
-set "ISCC="
-if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if exist "C:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"
-if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LocalAppData%\Programs\Inno Setup 6\ISCC.exe"
-
-if "!ISCC!"=="" (
-    echo.
-    echo =======================================================
-    echo  APPLICATION AUTONOME PRETE
-    echo =======================================================
-    echo  Lancez :  %STAGING%\Elium.exe   ^(double-clic^)
-    echo.
-    echo  [INFO] Inno Setup n'est pas installe, donc l'INSTALLEUR
-    echo         .exe n'a pas ete genere. L'exe ci-dessus fonctionne
-    echo         deja tout seul (aucun Python/Node requis).
-    echo         Pour un installeur Windows complet (menu Demarrer,
-    echo         association .elium), installez Inno Setup 6 :
-    echo            https://jrsoftware.org/isdl.php
-    echo         puis relancez ce script.
-    echo.
-    pause
-    exit /b 0
-)
-
-echo     [OK] Inno Setup : !ISCC!
-echo [*] Compilation de l'installeur...
-if not exist "%OUTPUT%" mkdir "%OUTPUT%"
-"!ISCC!" "%~dp0elium_setup.iss"
-if !errorlevel! neq 0 (
-    echo [ERREUR] La compilation Inno Setup a echoue.
-    pause
-    exit /b 1
-)
-
 echo.
 echo =======================================================
 echo    BUILD TERMINE AVEC SUCCES !
 echo =======================================================
-echo    Installeur     : %OUTPUT%\Elium-4.0.0-Setup.exe
 echo    Exe autonome   : %STAGING%\Elium.exe
+echo.
+echo    Pour un installeur Windows complet (menu Demarrer,
+echo    association .elium), lancez ensuite installer\build_msi.bat
+echo    (necessite WiX Toolset - voir installer\README.md).
 echo.
 pause

@@ -25,14 +25,8 @@ if exist web-studio (
     echo [!] Dossier web-studio introuvable.
 )
 
-echo [*] Lancement de l'app Desktop (Backend)...
-if exist desktop\src\app.py (
-    start "Elium Desktop (PySide6)" cmd /k "python desktop\src\app.py"
-) else (
-    echo [!] Application desktop introuvable.
-)
-
 echo.
-echo [OK] Environnement de developpement lance dans des fenetres separees.
+echo [OK] Web Studio lance. Ouvrez http://localhost:3000 dans votre navigateur.
+echo (Pour le Drive Cloud collaboratif, voir le README : "Lancer la pile complete en local".)
 echo.
 pause

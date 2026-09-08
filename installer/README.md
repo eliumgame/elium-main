@@ -3,7 +3,7 @@
 Ce dossier contient toute la chaîne qui transforme le code source en distribuables
 Windows : l'exécutable autonome `Elium.exe` (PyInstaller), l'installeur `.msi`
 (WiX Toolset) et le manifeste de mise à jour signé consommé par l'auto-update.
-14 fichiers Python / `.bat` / WiX s'y enchaînent avec des dépendances implicites
+13 fichiers Python / `.bat` / WiX s'y enchaînent avec des dépendances implicites
 (ordre d'exécution, fichiers générés attendus par l'étape suivante) — ce README
 sert de carte pour ne pas s'y perdre.
 
@@ -18,7 +18,7 @@ le même :
 ```
 1. stamp_version.py     → bump la version dans TOUS les fichiers concernés
                            (src/elium/__init__.py, package.json/lock,
-                           elium.wxs, elium_setup.iss, version_info.txt)
+                           elium.wxs, version_info.txt)
                            + recalcule BUILD_CODE_HASH dans updater.py
 
 2. build.bat             → build web-studio (npm run build)
@@ -60,7 +60,7 @@ Notes importantes sur cet enchaînement :
 |---|---|
 | `stamp_version.py` | Bump la version applicative partout où elle doit apparaître (source unique : `src/elium/__init__.py`) et recalcule `BUILD_CODE_HASH` dans `updater.py`. Appelé par la CI juste avant le build, utilisable en local (`python installer/stamp_version.py 4.6.0`). |
 | `build_common.py` | Utilitaires partagés entre `stamp_version.py` et `gen_manifest.py` : `repo_root()` et surtout `compute_code_hash()`, l'empreinte sha256 déterministe des sources Python figées dans l'exe (sert à décider côté client si une mise à jour peut rester web-only ou exige un nouvel exe). |
-| `build.bat` | Script de build local tout-en-un : crée/vérifie le venv Python, installe les dépendances (+ PyInstaller épinglé), build le Web Studio (`npm run build`), lance PyInstaller sur `elium.spec` → `staging/Elium.exe`. Tente ensuite, **en option**, de compiler `elium_setup.iss` (Inno Setup) s'il est détecté sur le poste — voir la section dédiée ci-dessous, ce n'est pas le chemin d'installeur officiel. |
+| `build.bat` | Script de build local tout-en-un : crée/vérifie le venv Python, installe les dépendances (+ PyInstaller épinglé), build le Web Studio (`npm run build`), lance PyInstaller sur `elium.spec` → `staging/Elium.exe`. |
 | `elium.spec` | Spec PyInstaller (one-file). Point d'entrée : `elium_launcher.py`. Embarque `web-studio/dist` (Web Studio pré-buildé), les modules `elium.*` nécessaires (crypto, format, cli), `updater.py`, et la ressource `version_info.txt` (VERSIONINFO Windows, stampée par `stamp_version.py`). |
 | `elium_launcher.py` | **Point d'entrée réel de l'application installée.** Lance un serveur HTTP local qui sert le Web Studio pré-buildé, puis ouvre une fenêtre navigateur dédiée (mode `--app`). Voir « Architecture » ci-dessous — ce n'est **pas** la même chose que l'app PySide6 legacy de `desktop/src/app.py`. |
 | `build_msi.bat` | Script de build local du MSI via WiX Toolset (localise `candle.exe`/`light.exe`, appelle `make_msi_assets.py` et `print_version.py`, compile `elium.wxs`). Nécessite que `build.bat` ait déjà produit `staging/Elium.exe`. |
@@ -71,7 +71,6 @@ Notes importantes sur cet enchaînement :
 | `changelog.py` | Construit l'historique des nouveautés (à partir de `git log`) intégré au manifeste signé — filtre le bruit (`chore`, `ci`, `merge`, etc.) et humanise les messages de commit conventionnels pour la carte de mise à jour affichée dans l'app. |
 | `updater.py` | Module client d'auto-update, embarqué dans l'exe. Vérifie GitHub Releases, télécharge et vérifie (signature Ed25519 avec la clé publique embarquée, puis sha256 par artefact) avant d'appliquer une mise à jour (overlay web léger dans `%LOCALAPPDATA%`, ou nouvel exe complet via handoff). Tout échec de vérification jette l'artefact sans jamais crasher l'app. |
 | `verify_release.py` | Health-check post-publication, lancé uniquement par `.github/workflows/release.yml` juste après `gh release create`. Réutilise `updater.fetch_manifest_for()` pour retélécharger le manifeste + chaque artefact publié et revérifier signature/sha256/disponibilité, avec reprises pour absorber la propagation CDN. Ne modifie et ne supprime jamais rien. |
-| `elium_setup.iss` | Source Inno Setup d'un **second installeur, mort**. Voir la section dédiée ci-dessous. |
 
 ## Architecture : `elium_launcher.py` n'est pas l'app desktop legacy
 
@@ -86,26 +85,14 @@ elle n'est ni buildée, ni packagée, ni référencée par `elium.spec`,
 `build.bat` ou `elium.wxs`. Ne pas la confondre avec `elium_launcher.py` en
 lisant ce dossier.
 
-## Le chemin Inno Setup (`elium_setup.iss`) : alternatif et actuellement mort
+## Chemin Inno Setup supprimé
 
-`installer/elium_setup.iss` décrit un installeur Windows complet via
-[Inno Setup](https://jrsoftware.org/isinfo.php) — assistant, raccourcis,
-association `.elium`, désinstallation. Il fonctionne : `build.bat` le compile
-automatiquement (étape optionnelle, en toute fin de script) **si** `ISCC.exe`
-est détecté sur le poste, et `stamp_version.py` continue de le maintenir à jour
-(`#define AppVersion` bumpée à chaque release, au même titre que `elium.wxs`).
-
-Mais dans le pipeline qui produit réellement les releases publiées (CI,
-`.github/workflows/release.yml`), rien n'invoque `elium_setup.iss` : la CI ne
-build jamais l'installeur Inno et ne le publie jamais comme asset de release.
-Le seul installeur `.msi` officiellement distribué vient de `elium.wxs` / WiX
-Toolset (`build_msi.bat` en local, étapes WiX inline en CI).
-
-En pratique, `elium_setup.iss` est un chemin d'installeur alternatif hérité,
-maintenu à minima (version bumpée par automatisme) mais non exercé par rien de
-ce qui compte pour une release réelle. Un futur nettoyage pourrait le supprimer
-purement et simplement. **Ne pas s'en servir comme option d'installeur valide** —
-c'est `elium.wxs` / le MSI qui est le chemin à utiliser et à faire évoluer.
+Le fichier `installer/elium_setup.iss` (installeur Inno Setup alternatif,
+jamais utilisé par la CI) a été supprimé le 2026-09-08 : il était mort depuis
+le début et source de confusion sur le chemin d'installeur officiel. Le seul
+installeur distribué est le `.msi` produit à partir de `elium.wxs` / WiX
+Toolset (`build_msi.bat` en local, étapes WiX inline en CI) — voir la section
+suivante.
 
 ## Prérequis pour builder en local
 
@@ -127,8 +114,6 @@ c'est `elium.wxs` / le MSI qui est le chemin à utiliser et à faire évoluer.
   `cryptography`/`argon2-cffi`, plus `PySide6` pour l'extra `desktop`) : à
   installer manuellement dans le venv si l'étape échoue avec
   `ModuleNotFoundError: PIL` (`.venv\Scripts\pip install Pillow`).
-- Inno Setup 6 est optionnel et ne concerne que le chemin mort décrit
-  ci-dessus — inutile pour produire le MSI officiel.
 
 ## Tester une build MSI en local
 
@@ -153,3 +138,50 @@ c'est `elium.wxs` / le MSI qui est le chemin à utiliser et à faire évoluer.
    nécessite une clé privée Ed25519 (`--key`/`--key-file`/env
    `UPDATE_SIGNING_KEY`) — en local, sans cette clé, on peut s'arrêter après
    l'étape 2 (le MSI seul se teste indépendamment de l'auto-update).
+
+## Onboarding mainteneur : la clé de mise à jour Ed25519
+
+Étape **unique, à faire une seule fois par dépôt** (pas à chaque release, pas à
+chaque build) : générer la paire de clés Ed25519 qui signe le manifeste de
+mise à jour `latest.json`. Ne la relancer que si on décide délibérément de
+faire une rotation de clé — voir le risque plus bas.
+
+1. Lancer `python scripts/gen_update_keypair.py` depuis la racine du dépôt.
+   Le script écrit la clé privée dans `update-private-key.hex` (déjà couvert
+   par `.gitignore`) et affiche la clé publique correspondante à l'écran.
+   `--print` affiche les deux clés sans rien écrire sur disque, si on préfère
+   les copier directement depuis le terminal.
+2. Coller la clé **privée** (64 caractères hex) dans le secret GitHub Actions
+   `UPDATE_SIGNING_KEY` (Settings ▸ Secrets and variables ▸ Actions ▸ New
+   repository secret). C'est ce secret que `.github/workflows/release.yml`
+   lit (`secrets.UPDATE_SIGNING_KEY`) pour signer le manifeste au moment de
+   publier une release ; tant qu'il est absent, le workflow tourne au vert
+   mais ne publie pas de release signée.
+3. Coller la clé **publique** (64 caractères hex) dans les deux fichiers de
+   code qui l'embarquent en dur, à l'identique dans les deux :
+   - `installer/updater.py`, constante `UPDATE_PUBLIC_KEY_HEX` (updater
+     Windows/exe).
+   - `install.sh`, variable `UPDATE_PUBLIC_KEY_HEX` (updater Linux, vérifie
+     via `openssl` en reconstruisant une clé publique DER/SPKI à partir de ce
+     même hex).
+4. Supprimer le fichier local `update-private-key.hex` une fois le secret
+   GitHub renseigné — il ne doit jamais être commité.
+
+**Risque si on oublie l'un des deux endroits (ou si les deux ne sont pas
+identiques) :** la clé publique de `updater.py`/`install.sh` est celle qui est
+*embarquée dans le binaire déjà installé chez les utilisateurs* — elle ne se
+met pas à jour toute seule après coup, contrairement au secret GitHub qui
+prend effet immédiatement sur la prochaine release. Si on régénère la paire
+(rotation) et qu'on met à jour le secret `UPDATE_SIGNING_KEY` sans republier
+une build dont `updater.py`/`install.sh` embarquent la nouvelle clé
+publique : toutes les releases suivantes seront signées avec la nouvelle clé
+privée, mais les clients déjà installés vérifient toujours avec l'ancienne
+clé publique figée dans leur exe — `_verify_signature` échoue silencieusement
+pour chaque màj (« Le moindre échec => artefact jeté, l'app continue sur la
+version courante. Jamais de crash. ») : l'auto-update s'arrête net et sans
+message d'erreur visible, indéfiniment, jusqu'à ce que l'utilisateur
+réinstalle manuellement une build à jour. Si en plus on oublie de
+synchroniser `installer/updater.py` et `install.sh` *entre eux* (une seule
+des deux constantes mise à jour), c'est l'updater de la plate-forme oubliée
+(Windows ou Linux) qui se retrouve seul désynchronisé du secret CI, avec le
+même symptôme silencieux sur cette seule plate-forme.

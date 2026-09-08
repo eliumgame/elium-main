@@ -169,10 +169,10 @@ actuelle. Elle est :
   `elium.spec` (ce que `.github/workflows/release.yml` exécute) qui construit
   l'application effectivement livrée aux utilisateurs finaux à partir de
   `web-studio/` (build statique) et de `src/elium/` (cœur Python embarqué) —
-  ce pipeline exclut explicitement `desktop/`. À l'inverse, les scripts racine
-  `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` lancent aujourd'hui encore
-  cette ancienne app PySide6 ; ils seront réalignés sur le vrai flux de dev
-  dans un futur nettoyage (voir le plan de la vague 2).
+  ce pipeline exclut explicitement `desktop/`. Les scripts racine
+  `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` ont été réalignés sur ce
+  même flux (ils ne lancent/ne construisent plus l'ancienne app PySide6) ;
+  `build_exe.bat` délègue désormais à `installer/build.bat`.
 
 Conséquence pratique pour un contributeur : ne jamais se fier au code de
 `desktop/` pour comprendre le comportement de l'application distribuée, ni

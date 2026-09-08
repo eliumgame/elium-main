@@ -152,9 +152,6 @@ def _seed_stampable_repo(root: Path) -> None:
     (root / "installer" / "elium.wxs").write_text(
         '<?define Version = "0.0.0" ?>\n', encoding="utf-8"
     )
-    (root / "installer" / "elium_setup.iss").write_text(
-        '#define AppVersion "0.0.0"\n', encoding="utf-8"
-    )
     (root / "installer" / "updater.py").write_text(
         'BUILD_CODE_HASH = "__BUILD_CODE_HASH__"\n', encoding="utf-8"
     )
@@ -207,7 +204,6 @@ def test_stamp_version_normalizes_v_prefix_and_prerelease_core(tmp_path, monkeyp
 
     assert '__version__ = "4.1.0-rc1"' in (root / "src" / "elium" / "__init__.py").read_text("utf-8")
     assert '<?define Version = "4.1.0" ?>' in (root / "installer" / "elium.wxs").read_text("utf-8")
-    assert '#define AppVersion "4.1.0"' in (root / "installer" / "elium_setup.iss").read_text("utf-8")
 
 
 # --------------------------------------------------------------------------- #

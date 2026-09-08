@@ -1,6 +1,11 @@
 """
 Elium Desktop Application — Secure Dashboard (PySide6).
 
+LEGACY, non maintenue et non testee. Ce n'est PAS l'application distribuee
+aux utilisateurs finaux (celle-ci est installer/elium_launcher.py, packagee
+via installer/elium.spec — voir docs/architecture.md §4 pour le detail).
+Aucun script de dev/build du depot ne la lance plus par defaut.
+
 Main entry point for the desktop GUI application.
 Uses a modular structure with separated tab builders and action handlers.
 """

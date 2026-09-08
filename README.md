@@ -30,11 +30,10 @@ Le dépôt regroupe cinq sous-projets :
 - **`desktop/`** — ⚠️ **legacy, non maintenue et non testée**. Ancienne application
   PySide6. Le vrai pipeline de release (`installer/build.bat` + `elium.spec`,
   ce que `release.yml` exécute) construit l'app livrée depuis `web-studio/` +
-  `installer/` et exclut explicitement `desktop/`. À l'inverse, les scripts
-  racine `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` lancent aujourd'hui
-  encore cette ancienne app PySide6 — ils seront réalignés sur le vrai flux de
-  dev dans un futur nettoyage. Ne t'y fie pas pour comprendre l'application
-  distribuée aux utilisateurs finaux.
+  `installer/` et exclut explicitement `desktop/`. Les scripts racine
+  `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` ont été réalignés sur ce
+  vrai flux (ils ne lancent/ne construisent plus l'ancienne app PySide6). Ne
+  t'y fie pas pour comprendre l'application distribuée aux utilisateurs finaux.
 
 ## Installation
 
@@ -76,6 +75,16 @@ Ces trois commandes suffisent pour développer chaque partie séparément, mais 
 serveur a besoin d'une base Postgres (et, en collaboration multi-instance, de
 Redis) pour fonctionner réellement — voir la section suivante pour un
 environnement complet.
+
+> **Multiplateforme ou non ?** Les trois commandes ci-dessus (`web-studio/`,
+> `server/`, cœur Python) fonctionnent sans changement sur Linux, Mac et
+> Windows. En revanche, les scripts `.bat` (racine et `installer/`) ainsi que
+> le packaging final — exécutable PyInstaller et paquet MSI (WiX) — sont
+> Windows-only, puisque le produit distribué cible Windows. Un·e contributeur
+> Linux/Mac peut donc développer normalement les trois sous-projets, mais ne
+> peut pas construire ni tester l'installeur localement : voir
+> [installer/README.md](installer/README.md), ou passer par la CI
+> (`.github/workflows/release.yml`).
 
 ## Lancer la pile complète en local
 

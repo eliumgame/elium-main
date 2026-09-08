@@ -1,7 +1,8 @@
 /* Design tokens canoniques du workspace (charte graphique v1.1) — doivent
    précéder toute autre règle. Les variables --el-* y sont la source de vérité ;
-   l'ancien jeu --bg / --primary ci-dessous reste en place le temps de la
-   migration progressive des composants (cf. TODO § Design System). */
+   l'ancien jeu --bg / --primary ci-dessous reste en place en tant qu'alias
+   pendant la migration progressive des composants (voir le bloc juste
+   après pour l'état actuel de cet alias). */
 @import "./ui/tokens.css";
 
 /* Anciens noms de variables : désormais de simples ALIAS des tokens --el-*

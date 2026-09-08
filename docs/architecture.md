@@ -129,7 +129,7 @@ premier.
 
 ## 3. Schéma de données Drive Cloud
 
-Le Drive Cloud est stocké en Postgres par `server/`, en cinq migrations
+Le Drive Cloud est stocké en Postgres par `server/`, en six migrations
 (`server/src/db/migrations/`), toutes idempotentes (`CREATE ... IF NOT
 EXISTS` / `ADD COLUMN IF NOT EXISTS`) :
 
@@ -155,6 +155,10 @@ EXISTS` / `ADD COLUMN IF NOT EXISTS`) :
    permission `node.sign.request` aux rôles déjà clonés dans des
    organisations existantes (le seed des rôles globaux ne met à jour que le
    patron des nouvelles organisations, pas celles déjà créées).
+6. **`0006_audit_org_id_index.sql`** — index `idx_audit_org_id ON audit_log
+   (org_id, id DESC)`, aligné sur le motif réel de pagination/vérification
+   chaînée (filtre + tri sur `(org_id, id)`) — l'index précédent
+   (`org_id, created_at DESC`) ne le servait pas.
 
 ## 4. Statut de `desktop/` — legacy, une fois pour toutes
 

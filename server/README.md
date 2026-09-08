@@ -48,15 +48,15 @@ sont normalement injectées par docker-compose / le script d'installation.
 | `MAX_BLOB_BYTES` | Taille maximale d'un blob de contenu (upload de fichier chiffré). |
 | `MAX_JSON_BYTES` | Taille maximale d'un corps de requête JSON. |
 
-> **Note** : `src/config.ts` lit aussi d'autres variables qui ne figurent pas
-> encore dans `.env.example` — `REDIS_URL`, `WEBAUTHN_RP_ID`,
+> **Note** : `src/config.ts` lit aussi d'autres variables, documentées
+> directement en commentaire dans `.env.example` (avec leur valeur par
+> défaut) plutôt que dans le tableau ci-dessus — `REDIS_URL`, `WEBAUTHN_RP_ID`,
 > `WEBAUTHN_RP_NAME`, `MAX_SIGN_ARTIFACT_BYTES`, les plafonds
 > `MAX_COLLAB_MESSAGE_BYTES` / `MAX_COLLAB_MESSAGES_PER_SEC` /
 > `MAX_COLLAB_CONNECTIONS_PER_USER`, `NODE_ENV`, `RUN_MIGRATIONS`,
-> `TRUST_PROXY` et `ELIUM_VERSION`. Elles ont toutes une valeur par défaut
-> raisonnable en développement ; se référer directement à `src/config.ts`
-> pour leur rôle exact et leur valeur par défaut. `.env.example` sera complété
-> séparément.
+> `TRUST_PROXY` et `ELIUM_VERSION`. La plupart sont optionnelles avec une
+> valeur par défaut raisonnable en développement ; se référer à `.env.example`
+> pour savoir laquelle doit vraiment être définie en production.
 
 ## Migrations
 

@@ -1,4 +1,6 @@
 """Elium v4 — adversarial harness, batch 2."""
+from __future__ import annotations
+
 import io
 import json
 import sys

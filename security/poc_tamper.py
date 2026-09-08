@@ -4,6 +4,8 @@ Each test reports it from the ATTACKER's point of view:
   [PWNED]   = attack succeeded (security claim broken)
   [BLOCKED] = attack failed (defense held)
 """
+from __future__ import annotations
+
 import io
 import json
 import re

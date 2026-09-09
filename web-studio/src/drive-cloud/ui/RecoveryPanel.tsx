@@ -24,6 +24,7 @@ import {
   RotateCcw,
   RefreshCw,
   Search,
+  Clock,
 } from "lucide-react";
 import { useDrive } from "../session";
 import { useDialogs } from "../../ui/dialogs";
@@ -62,6 +63,13 @@ export default function RecoveryPanel() {
   const [busy, setBusy] = useState(false);
   const [rotProgress, setRotProgress] = useState<number | null>(null);
 
+  // Scheduled (opt-in) rotation config.
+  const [rotationDays, setRotationDays] = useState<number | null>(null);
+  const [rotationLastRotatedAt, setRotationLastRotatedAt] = useState<string | null>(null);
+  const [rotationDueSince, setRotationDueSince] = useState<string | null>(null);
+  const [rotationDaysInput, setRotationDaysInput] = useState("0");
+  const [savingConfig, setSavingConfig] = useState(false);
+
   // Restore-access state.
   const [nodes, setNodes] = useState<DecryptedNode[] | null>(null);
   const [loadingTree, setLoadingTree] = useState(false);
@@ -92,6 +100,18 @@ export default function RecoveryPanel() {
     } catch (e) {
       if (e instanceof ApiError && (e.status === 403 || e.status === 404)) setDenied(true);
       else setErr(e instanceof Error ? e.message : "Chargement impossible.");
+    }
+    // Séparé du chargement ci-dessus : gated par org.settings.view (pas
+    // recovery.perform) — un admin de recouvrement sans ce droit voit quand
+    // même le reste du panneau, cette section reste juste masquée pour lui.
+    try {
+      const cfg = await d.api.getRotationConfig(orgId);
+      setRotationDays(cfg.keyRotationDays);
+      setRotationLastRotatedAt(cfg.keyRotationLastRotatedAt);
+      setRotationDueSince(cfg.keyRotationDueSince);
+      setRotationDaysInput(String(cfg.keyRotationDays ?? 0));
+    } catch {
+      setRotationDays(null);
     }
   }, [d.api, orgId]);
 
@@ -165,6 +185,27 @@ export default function RecoveryPanel() {
     } finally {
       setBusy(false);
       setRotProgress(null);
+    }
+  };
+
+  const saveRotationConfig = async () => {
+    const days = Math.max(0, Math.min(3650, Math.trunc(Number(rotationDaysInput) || 0)));
+    setSavingConfig(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const res = await d.api.setRotationConfig(orgId, days);
+      setRotationDays(res.keyRotationDays);
+      setRotationDaysInput(String(res.keyRotationDays));
+      setMsg(
+        res.keyRotationDays > 0
+          ? `Rappel de rotation activé tous les ${res.keyRotationDays} jour(s).`
+          : "Rappel de rotation désactivé.",
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Enregistrement impossible.");
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -336,6 +377,54 @@ export default function RecoveryPanel() {
         <button className="elx-mini" disabled={busy || !ctx || admins.length === 0} onClick={() => void rotate()}>
           <RefreshCw size={14} /> Faire tourner la clé
         </button>
+
+        {rotationDays !== null && (
+          <div
+            className="dcx-modal__section"
+            style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 14 }}
+          >
+            {rotationDueSince && (
+              <div className="elx-notice elx-notice--warn" style={{ marginBottom: 10 }}>
+                <ShieldAlert size={18} />
+                <p>
+                  Rotation en retard depuis le {new Date(rotationDueSince).toLocaleDateString()} — la cadence demandée (
+                  {rotationDays} jour(s)) est dépassée. Faites tourner la clé ci-dessus dès que possible.
+                </p>
+              </div>
+            )}
+            <p className="muted">
+              Dernière rotation :{" "}
+              {rotationLastRotatedAt ? new Date(rotationLastRotatedAt).toLocaleDateString() : "jamais enregistrée"}. Un
+              rappel périodique (pas de rotation automatique — la cryptographie se fait dans votre navigateur) peut
+              signaler quand il est temps de la refaire.
+            </p>
+            <div className="dcx-inline">
+              <label className="dcx-field" style={{ flex: "none" }}>
+                <span>
+                  <Clock size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                  Rappel tous les
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={3650}
+                  className="input"
+                  style={{ width: 90 }}
+                  value={rotationDaysInput}
+                  onChange={(e) => setRotationDaysInput(e.target.value)}
+                />
+              </label>
+              <span className="muted">jour(s) (0 = désactivé)</span>
+              <button
+                className="elx-mini elx-mini--primary"
+                disabled={savingConfig || String(rotationDays) === rotationDaysInput}
+                onClick={() => void saveRotationConfig()}
+              >
+                <Check size={14} /> Enregistrer
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* --- Restore access ------------------------------------------------- */}

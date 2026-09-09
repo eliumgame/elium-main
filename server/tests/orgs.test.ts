@@ -989,6 +989,106 @@ describe("POST /api/orgs/:orgId/recovery/rotate-org", () => {
   });
 });
 
+describe("GET/PUT /api/orgs/:orgId/recovery/rotation-config", () => {
+  it("GET returns nulls when no rotation cadence has ever been configured", async () => {
+    mQueryOne.mockResolvedValueOnce({ settings: null } as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}/recovery/rotation-config` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ keyRotationDays: null, keyRotationLastRotatedAt: null, keyRotationDueSince: null });
+    expect(mRequireOrgPerm).toHaveBeenCalledWith(expect.anything(), ORG, "org.settings.view");
+    await app.close();
+  });
+
+  it("GET surfaces a configured cadence and due-since flag", async () => {
+    mQueryOne.mockResolvedValueOnce({
+      settings: { keyRotationDays: 90, keyRotationLastRotatedAt: "2026-01-01T00:00:00.000Z", keyRotationDueSince: "2026-04-01T00:00:00.000Z" },
+    } as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}/recovery/rotation-config` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      keyRotationDays: 90,
+      keyRotationLastRotatedAt: "2026-01-01T00:00:00.000Z",
+      keyRotationDueSince: "2026-04-01T00:00:00.000Z",
+    });
+    await app.close();
+  });
+
+  it("GET 404s when the org doesn't exist", async () => {
+    mQueryOne.mockResolvedValueOnce(null as never);
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: `/api/orgs/${ORG}/recovery/rotation-config` });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("PUT sets the cadence and requires org.settings.manage", async () => {
+    mQueryOne.mockResolvedValueOnce({ settings: { keyRotationDays: 30 } } as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/orgs/${ORG}/recovery/rotation-config`,
+      payload: { days: 30 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ keyRotationDays: 30 });
+    expect(mRequireOrgPerm).toHaveBeenCalledWith(expect.anything(), ORG, "org.settings.manage");
+    expect(mAudit).toHaveBeenCalledWith(
+      ORG,
+      USER,
+      "org.recovery.rotation-config.update",
+      "org",
+      ORG,
+      { days: 30 },
+      expect.any(String),
+    );
+    await app.close();
+  });
+
+  it("PUT 0 disables the cadence", async () => {
+    mQueryOne.mockResolvedValueOnce({ settings: { keyRotationDays: 0 } } as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/orgs/${ORG}/recovery/rotation-config`,
+      payload: { days: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ keyRotationDays: 0 });
+    await app.close();
+  });
+
+  it("PUT rejects an out-of-range value (zod bounds)", async () => {
+    const app = await makeApp();
+    const negative = await app.inject({
+      method: "PUT",
+      url: `/api/orgs/${ORG}/recovery/rotation-config`,
+      payload: { days: -1 },
+    });
+    expect(negative.statusCode).toBe(400);
+    const tooBig = await app.inject({
+      method: "PUT",
+      url: `/api/orgs/${ORG}/recovery/rotation-config`,
+      payload: { days: 3651 },
+    });
+    expect(tooBig.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("PUT 404s when the org doesn't exist", async () => {
+    mQueryOne.mockResolvedValueOnce(null as never);
+    const app = await makeApp();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/orgs/${ORG}/recovery/rotation-config`,
+      payload: { days: 30 },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
 describe("GET /api/orgs/:orgId/recovery/admins", () => {
   it("lists the admins who hold a wrapped org private key", async () => {
     mQuery.mockResolvedValueOnce([{ user_id: USER, email: "u@example.org", display_name: "U", created_at: "t" }] as never);

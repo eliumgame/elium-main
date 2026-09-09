@@ -452,6 +452,20 @@ export class DriveApi {
   ) {
     return this.json<{ ok: boolean; nodesRewrapped: number }>("POST", `/orgs/${orgId}/recovery/rotate-org`, { body });
   }
+  /** Scheduled (opt-in) rotation cadence: housekeeping flags the org once
+   *  `keyRotationDays` have elapsed since the last rotation. `days: 0` disables it. */
+  getRotationConfig(orgId: string) {
+    return this.json<{
+      keyRotationDays: number | null;
+      keyRotationLastRotatedAt: string | null;
+      keyRotationDueSince: string | null;
+    }>("GET", `/orgs/${orgId}/recovery/rotation-config`);
+  }
+  setRotationConfig(orgId: string, days: number) {
+    return this.json<{ keyRotationDays: number }>("PUT", `/orgs/${orgId}/recovery/rotation-config`, {
+      body: { days },
+    });
+  }
 
   // === Roles ===============================================================
   permissionCatalog() {

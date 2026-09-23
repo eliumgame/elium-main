@@ -1,9 +1,12 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import pdfjsAssets from "./scripts/pdfjs-assets-plugin";
 
 export default defineConfig({
-  plugins: [react()],
+  // pdfjsAssets : publie wasm/cmaps/polices standard/ICC de pdf.js sous dist/pdfjs/
+  // (servis depuis node_modules en dev) — voir scripts/pdfjs-assets-plugin.ts.
+  plugins: [react(), pdfjsAssets()],
   server: {
     port: 3000,
     // Dev uniquement (ignoré par `vite build`) : proxifie l'API Drive + le relais
@@ -33,6 +36,10 @@ export default defineConfig({
           // bundle then static-imports (and eagerly loads) all of tiptap.
           if (/[\\/]node_modules[\\/](react-dom|react|scheduler)[\\/]/.test(id)) return "vendor-react";
           if (id.includes("pdf-lib") || id.includes("@pdf-lib") || id.includes("fontkit")) return "vendor-pdf-lib";
+          // Les composants de visionneuse (pdf_viewer.mjs : PDFPageView, calques texte/
+          // annotations) ont leur propre chunk : ils ne servent qu'au module PDF,
+          // alors que le cœur pdf.js sert aussi au Détecteur et à l'aperçu de signature.
+          if (id.includes("pdfjs-dist") && /[\\/]web[\\/]pdf_viewer/.test(id)) return "vendor-pdfviewer";
           if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
           if (id.includes("@tiptap") || id.includes("prosemirror")) return "vendor-tiptap";
           if (id.includes("yjs") || id.includes("y-protocols") || id.includes("lib0")) return "vendor-yjs";

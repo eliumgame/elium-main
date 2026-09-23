@@ -115,8 +115,9 @@ export async function recognise(engine: PdfEngine, options: Partial<OcrOptions> 
     for (let i = 0; i < indices.length; i++) {
       if (opts.signal?.aborted) break;
       const index = indices[i];
-      const info = engine.pages[index];
-      if (!info) continue;
+      if (index < 0 || index >= engine.pageCount) continue;
+      // Real geometry (the engine may still hold an estimate for this page).
+      const info = await engine.pageInfo(index);
 
       if (opts.skipPagesWithText) {
         const tc = await engine.text(index);

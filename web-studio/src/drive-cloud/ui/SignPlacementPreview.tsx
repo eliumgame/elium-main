@@ -9,7 +9,8 @@
  * pas de la géométrie de tout le document ni des champs de formulaire que
  * `PdfEngine.open` (pdf/core/engine.ts) calcule pour l'espace de travail local —
  * l'ouvrir ici serait disproportionné pour un simple aperçu de placement. On
- * appelle donc pdfjs-dist directement (comme `PdfEngine.open` le fait), mais on
+ * ouvre donc le document directement avec la configuration pdf.js partagée
+ * (`openPdfDocument`, pdf/core/assets.ts — comme `PdfEngine.open`), mais on
  * réutilise le primitif de rendu partagé `renderToCanvas` de `pdf/core/render.ts`
  * pour rasteriser la page — pas de logique de rendu réinventée. Tout est chargé
  * dynamiquement pour ne pas alourdir ce chunk public tant qu'aucun PDF n'est
@@ -18,7 +19,7 @@
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { Loader } from "lucide-react";
-import type { PDFDocumentLoadingTask } from "pdfjs-dist";
+import type { LoadingTask } from "../../pdf/core/assets";
 import type { Pt, Rect, Size } from "../../pdf/core/coords";
 import { rectFromPoints } from "../../pdf/core/coords";
 
@@ -95,16 +96,16 @@ export function SignPlacementPreview({
     // `destroy()` (abort + free the worker) lives on the LOADING TASK, not on
     // the resolved PDFDocumentProxy — kept in the effect's closure so the
     // cleanup below can call it even if unmount races the load.
-    let task: PDFDocumentLoadingTask | undefined;
+    let task: LoadingTask | undefined;
     (async () => {
       try {
-        const [pdfjs, { renderToCanvas }, workerUrlMod] = await Promise.all([
-          import("pdfjs-dist"),
+        // Même configuration pdf.js que le module PDF (worker partagé, wasm/CMaps/
+        // polices standard locales — voir pdf/core/assets.ts).
+        const [{ openPdfDocument }, { renderToCanvas }] = await Promise.all([
+          import("../../pdf/core/assets"),
           import("../../pdf/core/render"),
-          import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
         ]);
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrlMod.default;
-        task = pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: true });
+        task = openPdfDocument(bytes);
         const doc = await task.promise;
         if (cancelled) return;
         const page = await doc.getPage(1);

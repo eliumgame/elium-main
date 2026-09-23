@@ -40,6 +40,8 @@ async function pdfWithPreparedSignatureField(): Promise<Uint8Array> {
 describe("PdfEngine.info.signed", () => {
   it("is false for a plain PDF with no form fields at all", async () => {
     const engine = await PdfEngine.open(await plainPdf());
+    // Form/signature facts are computed in the background (instant open).
+    await engine.infoReady;
     expect(engine.info.signed).toBe(false);
     expect(engine.info.hasAcroForm).toBe(false);
     engine.destroy();
@@ -53,6 +55,7 @@ describe("PdfEngine.info.signed", () => {
     // (confirmResign) warning for a document nobody ever signed.
     const bytes = await pdfWithPreparedSignatureField();
     const engine = await PdfEngine.open(bytes);
+    await engine.infoReady;
     expect(engine.info.hasAcroForm).toBe(true);
     expect(engine.info.signed).toBe(false);
     engine.destroy();
@@ -64,6 +67,7 @@ describe("PdfEngine.info.signed", () => {
     const signed = await signPdfBytes(bytes, p12, "pw", { fieldName: "signature_1" });
 
     const engine = await PdfEngine.open(signed);
+    await engine.infoReady;
     expect(engine.info.signed).toBe(true);
     engine.destroy();
   }, 30000);

@@ -6,15 +6,23 @@
  * the UI never juggles proxies or forgets to destroy a loading task. The engine
  * is deliberately dumb about editing: it describes the file as it is on disk;
  * the editable overlay lives in `model/`.
+ *
+ * OPENING IS INSTANT: `open` only waits for the document itself, page 1 and the
+ * metadata dictionary. Every other page's geometry starts as an *estimate*
+ * (page 1's size) and is replaced by the real one either on demand — the first
+ * time anything asks for that page (`page()`, `text()`, `annotations()`,
+ * `pageInfo()`), which is what the viewer does for every page it shows — or by
+ * a low-priority background pass. Listeners registered with `subscribe` are told
+ * which pages changed, so the layout can correct itself while keeping the page
+ * being read anchored. The form / signature facts (`info.hasAcroForm`,
+ * `info.signed`) are likewise computed in the background; `infoReady` resolves
+ * once they are final.
  */
 
-import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { openPdfDocument, type LoadingTask } from "./assets";
 import type { Rotation } from "./coords";
 import { normRotation } from "./coords";
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 /** Geometry of one source page, in unrotated page space. */
 export interface PageInfo {
@@ -27,6 +35,11 @@ export interface PageInfo {
   oy: number;
   /** The page's own /Rotate. */
   rotate: Rotation;
+  /**
+   * True while this is only a guess (copied from page 1) because the page has
+   * not been loaded yet. `pageInfo(index)` always resolves to the real values.
+   */
+  estimated?: boolean;
 }
 
 export interface Attachment {
@@ -61,11 +74,11 @@ export interface DocInfo {
   language?: string;
   /** True when the file was opened with a password. */
   encrypted: boolean;
-  /** True when the file carries at least one AcroForm field. */
+  /** True when the file carries at least one AcroForm field (final once `infoReady` resolves). */
   hasAcroForm: boolean;
   /** True when the file carries an XFA form (we can view but not edit those). */
   isXfa: boolean;
-  /** True when the file already carries a digital signature. */
+  /** True when the file already carries a digital signature (final once `infoReady` resolves). */
   signed: boolean;
   pageCount: number;
   byteLength: number;
@@ -76,6 +89,13 @@ export interface LayerInfo {
   name: string;
   visible: boolean;
 }
+
+/** What `subscribe` listeners are told. */
+export type EngineEvent =
+  /** Real geometry replaced the estimate for these (0-based) pages. */
+  | { type: "geometry"; indices: number[] }
+  /** `info.hasAcroForm` / `info.signed` are now final. */
+  | { type: "info"; info: DocInfo };
 
 /** Thrown when the file needs a password we do not have (or the wrong one). */
 export class PdfPasswordRequired extends Error {
@@ -90,6 +110,15 @@ const isPasswordException = (e: unknown): boolean =>
 
 /** pdf.js `PasswordResponses.INCORRECT_PASSWORD` */
 const INCORRECT_PASSWORD = 2;
+
+/** Pages whose geometry the background pass asks for per round trip. */
+const GEOMETRY_BATCH = 16;
+/** Delay before the background work starts, so it never competes with the first paint. */
+const BACKGROUND_DELAY_MS = 120;
+/** How many leading pages are scanned for a signature widget. */
+const SIGNATURE_SCAN_PAGES = 8;
+/** Concurrent `getTextContent` calls while extracting the whole document's text. */
+const TEXT_CONCURRENCY = 4;
 
 /**
  * A "Prepare form" pass (`ops/forms.ts::addSignatureField`) can drop a bare,
@@ -122,11 +151,27 @@ function hasSignatureDictionary(bytes: Uint8Array): boolean {
   return false;
 }
 
-/** Minimal shape of the pdf.js loading task we keep in order to tear it down. */
-interface LoadingTask {
-  promise: Promise<PDFDocumentProxy>;
-  destroy: () => Promise<void>;
+function geometryOf(page: PDFPageProxy, index: number): PageInfo {
+  const vp = page.getViewport({ scale: 1, rotation: 0 });
+  const view = page.view as number[];
+  return {
+    index,
+    w: vp.width,
+    h: vp.height,
+    ox: view?.[0] ?? 0,
+    oy: view?.[1] ?? 0,
+    rotate: normRotation(page.rotate ?? 0),
+  };
 }
+
+const sameGeometry = (a: PageInfo, b: PageInfo): boolean =>
+  Math.abs(a.w - b.w) < 1e-6 &&
+  Math.abs(a.h - b.h) < 1e-6 &&
+  a.ox === b.ox &&
+  a.oy === b.oy &&
+  a.rotate === b.rotate;
+
+const yieldToMain = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 export class PdfEngine {
   private doc: PDFDocumentProxy;
@@ -135,12 +180,24 @@ export class PdfEngine {
   private textCache = new Map<number, Promise<TextContentLike>>();
   private annotCache = new Map<number, Promise<unknown[]>>();
   private destroyed = false;
+  private listeners = new Set<(e: EngineEvent) => void>();
+  private pendingGeometry = new Set<number>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+  private resolveInfo!: (info: DocInfo) => void;
+  private resolveGeometry!: () => void;
+  private _geometryVersion = 0;
 
+  /** One entry per source page; an estimated entry is replaced (never mutated) once the page is known. */
   readonly pages: PageInfo[];
   readonly info: DocInfo;
   readonly bytes: Uint8Array;
   /** The password the document was opened with, if any (needed to re-save). */
   readonly password: string | null;
+  /** Resolves once `info.hasAcroForm` and `info.signed` are final. */
+  readonly infoReady: Promise<DocInfo>;
+  /** Resolves once every page's real geometry is known. */
+  readonly geometryReady: Promise<void>;
 
   private constructor(
     doc: PDFDocumentProxy,
@@ -156,6 +213,8 @@ export class PdfEngine {
     this.info = info;
     this.bytes = bytes;
     this.password = password;
+    this.infoReady = new Promise((resolve) => (this.resolveInfo = resolve));
+    this.geometryReady = new Promise((resolve) => (this.resolveGeometry = resolve));
   }
 
   get pageCount(): number {
@@ -166,21 +225,20 @@ export class PdfEngine {
     return this.doc;
   }
 
+  /** Bumped every time some page's geometry changes — handy as a memo key. */
+  get geometryVersion(): number {
+    return this._geometryVersion;
+  }
+
   /**
    * Open a PDF. Throws `PdfPasswordRequired` when a password is needed, so the
    * caller can prompt and retry rather than showing a generic failure.
    */
   static async open(bytes: Uint8Array, password?: string): Promise<PdfEngine> {
-    // pdf.js takes ownership of (and detaches) the buffer it is handed, so give
-    // it a private copy and keep ours intact for pdf-lib.
+    // pdf.js takes ownership of (and detaches) the buffer it is handed
+    // (`openPdfDocument` passes it a copy); keep ours intact for pdf-lib.
     const mine = bytes.slice();
-    const task = pdfjs.getDocument({
-      data: bytes.slice(),
-      password: password || undefined,
-      // Local-first: never reach out for standard fonts or CMaps.
-      useSystemFonts: true,
-      disableAutoFetch: false,
-    }) as unknown as LoadingTask;
+    const task = openPdfDocument(bytes, password);
     let doc: PDFDocumentProxy;
     try {
       doc = await task.promise;
@@ -192,55 +250,20 @@ export class PdfEngine {
       throw e;
     }
 
-    const pages: PageInfo[] = [];
-    for (let i = 0; i < doc.numPages; i++) {
-      const page = await doc.getPage(i + 1);
-      const vp = page.getViewport({ scale: 1, rotation: 0 });
-      const view = page.view as number[];
-      pages.push({
-        index: i,
-        w: vp.width,
-        h: vp.height,
-        ox: view?.[0] ?? 0,
-        oy: view?.[1] ?? 0,
-        rotate: normRotation(page.rotate ?? 0),
-      });
-      page.cleanup();
-    }
+    const [first, meta] = await Promise.all([
+      doc.getPage(1),
+      doc.getMetadata().catch(() => null),
+    ]);
+    const firstInfo = geometryOf(first, 0);
+    const pages: PageInfo[] = new Array(doc.numPages);
+    pages[0] = firstInfo;
+    for (let i = 1; i < doc.numPages; i++) pages[i] = { ...firstInfo, index: i, estimated: true };
 
-    const meta = await doc.getMetadata().catch(() => null);
     const raw = (meta?.info ?? {}) as Record<string, unknown>;
     const str = (k: string): string | undefined => {
       const v = raw[k];
       return typeof v === "string" && v.trim() ? v : undefined;
     };
-
-    let hasAcroForm = false;
-    let signed = false;
-    try {
-      const fields = await doc.getFieldObjects();
-      hasAcroForm = !!fields && Object.keys(fields).length > 0;
-    } catch {
-      /* not a form */
-    }
-    try {
-      // A signature shows up as a widget annotation with fieldType "Sig" —
-      // but a field merely PREPARED for signing (never actually signed) looks
-      // identical through this API (see hasSignatureDictionary above), so
-      // also require a real signature dictionary in the raw bytes before
-      // reporting the document as signed.
-      let hasSigWidget = false;
-      for (let i = 1; i <= Math.min(doc.numPages, 8) && !hasSigWidget; i++) {
-        const page = await doc.getPage(i);
-        const anns = (await page.getAnnotations()) as { fieldType?: string }[];
-        hasSigWidget = anns.some((a) => a.fieldType === "Sig");
-        page.cleanup();
-      }
-      signed = hasSigWidget && hasSignatureDictionary(mine);
-    } catch {
-      /* best effort */
-    }
-
     const info: DocInfo = {
       title: str("Title"),
       author: str("Author"),
@@ -253,26 +276,137 @@ export class PdfEngine {
       pdfVersion: str("PDFFormatVersion"),
       language: str("Language"),
       encrypted: !!password,
-      hasAcroForm,
+      hasAcroForm: false,
       isXfa: !!(raw.IsXFAPresent as boolean),
-      signed,
+      signed: false,
       pageCount: doc.numPages,
       byteLength: mine.length,
     };
 
-    return new PdfEngine(doc, task, pages, info, mine, password ?? null);
+    const engine = new PdfEngine(doc, task, pages, info, mine, password ?? null);
+    engine.pageCache.set(0, Promise.resolve(first));
+    engine.startBackground();
+    return engine;
+  }
+
+  // -- change notifications ---------------------------------------------------
+
+  /** Be told about geometry / info updates. Returns the unsubscribe function. */
+  subscribe(listener: (e: EngineEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(e: EngineEvent): void {
+    for (const l of [...this.listeners]) {
+      try {
+        l(e);
+      } catch {
+        /* a faulty listener must not break the others */
+      }
+    }
+  }
+
+  private recordGeometry(index: number, page: PDFPageProxy): void {
+    if (this.destroyed) return;
+    const prev = this.pages[index];
+    if (prev && !prev.estimated) return;
+    const next = geometryOf(page, index);
+    this.pages[index] = next;
+    if (prev && sameGeometry(prev, next)) return;
+    this._geometryVersion++;
+    this.pendingGeometry.add(index);
+    // Coalesce: a background batch resolves many pages in a row.
+    this.flushTimer ??= setTimeout(() => {
+      this.flushTimer = null;
+      const indices = [...this.pendingGeometry].sort((a, b) => a - b);
+      this.pendingGeometry.clear();
+      if (indices.length && !this.destroyed) this.emit({ type: "geometry", indices });
+    }, 0);
+  }
+
+  // -- background work --------------------------------------------------------
+
+  private startBackground(): void {
+    this.backgroundTimer = setTimeout(() => {
+      this.backgroundTimer = null;
+      void this.computeDetails();
+      void this.computeGeometry();
+    }, BACKGROUND_DELAY_MS);
+  }
+
+  /** Real geometry for every page, a few round trips at a time. */
+  private async computeGeometry(): Promise<void> {
+    const n = this.pageCount;
+    for (let start = 0; start < n && !this.destroyed; start += GEOMETRY_BATCH) {
+      const batch: Promise<unknown>[] = [];
+      for (let i = start; i < Math.min(n, start + GEOMETRY_BATCH); i++) {
+        if (this.pages[i]?.estimated) batch.push(this.page(i).catch(() => null));
+      }
+      if (batch.length) {
+        await Promise.all(batch);
+        // Let rendering and user input through between batches.
+        await yieldToMain();
+      }
+    }
+    this.resolveGeometry();
+  }
+
+  /** `hasAcroForm` / `signed`, which need extra worker round trips. */
+  private async computeDetails(): Promise<void> {
+    let hasAcroForm = false;
+    let signed = false;
+    try {
+      const fields = await this.doc.getFieldObjects();
+      hasAcroForm = !!fields && Object.keys(fields).length > 0;
+    } catch {
+      /* not a form */
+    }
+    try {
+      // A signature shows up as a widget annotation with fieldType "Sig" —
+      // but a field merely PREPARED for signing (never actually signed) looks
+      // identical through this API (see hasSignatureDictionary above), so
+      // also require a real signature dictionary in the raw bytes before
+      // reporting the document as signed.
+      let hasSigWidget = false;
+      for (let i = 0; i < Math.min(this.pageCount, SIGNATURE_SCAN_PAGES) && !hasSigWidget; i++) {
+        if (this.destroyed) return;
+        const anns = (await this.annotations(i)) as { fieldType?: string }[];
+        hasSigWidget = anns.some((a) => a.fieldType === "Sig");
+      }
+      signed = hasSigWidget && hasSignatureDictionary(this.bytes);
+    } catch {
+      /* best effort */
+    }
+    if (this.destroyed) return;
+    this.info.hasAcroForm = hasAcroForm;
+    this.info.signed = signed;
+    this.resolveInfo(this.info);
+    this.emit({ type: "info", info: this.info });
   }
 
   // -- pages ---------------------------------------------------------------
 
-  /** Cached page proxy (0-based). */
+  /** Cached page proxy (0-based). Loading a page also settles its geometry. */
   page(index: number): Promise<PDFPageProxy> {
     let p = this.pageCache.get(index);
     if (!p) {
       p = this.doc.getPage(index + 1);
+      p.then(
+        (page) => this.recordGeometry(index, page),
+        () => {},
+      );
       this.pageCache.set(index, p);
     }
     return p;
+  }
+
+  /** The real geometry of a page (loads it if it is still an estimate). */
+  async pageInfo(index: number): Promise<PageInfo> {
+    const cur = this.pages[index];
+    if (cur && !cur.estimated) return cur;
+    await this.page(index);
+    return this.pages[index];
   }
 
   /** Cached text content (0-based). */
@@ -301,12 +435,18 @@ export class PdfEngine {
 
   /** Plain text of every page, in order. Used by search, export and compare. */
   async allText(onProgress?: (done: number, total: number) => void): Promise<string[]> {
-    const out: string[] = [];
-    for (let i = 0; i < this.pageCount; i++) {
-      const tc = await this.text(i);
-      out.push(joinItems(tc.items));
-      onProgress?.(i + 1, this.pageCount);
-    }
+    const out: string[] = new Array(this.pageCount);
+    let next = 0;
+    let done = 0;
+    const work = async () => {
+      while (next < this.pageCount) {
+        const i = next++;
+        const tc = await this.text(i);
+        out[i] = joinItems(tc.items);
+        onProgress?.(++done, this.pageCount);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TEXT_CONCURRENCY, this.pageCount) }, work));
     return out;
   }
 
@@ -348,13 +488,15 @@ export class PdfEngine {
           : typeof ref === "number"
             ? ref
             : null;
-      if (index == null) return { page: null };
-      const info = this.pages[index];
-      // [ref, /XYZ, left, top, zoom] — `top` is in PDF space, flip it.
+      if (index == null || index < 0 || index >= this.pageCount) return { page: null };
+      const info = await this.pageInfo(index);
+      // [ref, /XYZ, left, top, zoom] — `top` is in PDF space, flip it (against
+      // the crop box, whose origin may not be 0).
       const mode = explicit[1] as { name?: string } | undefined;
       let y: number | undefined;
-      if (mode?.name === "XYZ" && typeof explicit[3] === "number" && info) y = info.h - explicit[3];
-      else if (mode?.name === "FitH" && typeof explicit[2] === "number" && info) y = info.h - explicit[2];
+      if (mode?.name === "XYZ" && typeof explicit[3] === "number") y = info.h - (explicit[3] - info.oy);
+      else if (mode?.name === "FitH" && typeof explicit[2] === "number") y = info.h - (explicit[2] - info.oy);
+      if (y != null) y = Math.max(0, Math.min(info.h, y));
       return { page: index + 1, y };
     } catch {
       return { page: null };
@@ -433,10 +575,17 @@ export class PdfEngine {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.backgroundTimer) clearTimeout(this.backgroundTimer);
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.listeners.clear();
     this.pageCache.clear();
     this.textCache.clear();
     this.annotCache.clear();
-    // Destroying the loading task tears down the worker *and* the document.
+    // Never leave an awaiting caller hanging on a destroyed document.
+    this.resolveInfo(this.info);
+    this.resolveGeometry();
+    // Destroying the loading task tears down the document (and the worker,
+    // unless it is the app-wide shared one).
     void this.task.destroy().catch(() => {});
   }
 }

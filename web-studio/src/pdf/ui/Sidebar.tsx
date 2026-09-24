@@ -109,6 +109,8 @@ const THUMB_GAP = 10;
 const THUMB_MAX_W = 154;
 /** Extra list height kept mounted above and below the visible part. */
 const THUMB_OVERSCAN = 700;
+/** The pane follows the current page when the page view is idle, or after this long at most. */
+const FOLLOW_MAX_WAIT_MS = 300;
 
 function Thumbnails(p: SidebarProps) {
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -152,6 +154,7 @@ function Thumbnails(p: SidebarProps) {
   });
   const range = win.band(stack);
   const mid = range ? (range.first + range.last) / 2 : 0;
+  const hasItems = !!range;
 
   // Measure the real item chrome and picture width from a mounted thumbnail
   // (CSS decides them; the windowing maths only needs them to be right).
@@ -164,18 +167,40 @@ function Thumbnails(p: SidebarProps) {
     if (next.imgW > 0 && (Math.abs(next.imgW - metrics.imgW) > 0.5 || Math.abs(next.chrome - metrics.chrome) > 0.5)) {
       setMetrics(next);
     }
-  }, [metrics.imgW, metrics.chrome, win.width, range?.first]);
+    // Once items exist and whenever the pane's width changes — not on every
+    // band change: reading `offsetHeight` forces a layout.
+  }, [metrics.imgW, metrics.chrome, win.width, hasItems]);
 
-  // Keep the current page's thumbnail in view, like Acrobat's pane.
+  // Keep the current page's thumbnail in view, like Acrobat's pane — once the
+  // page view has drawn what it shows (or `FOLLOW_MAX_WAIT_MS` later at most,
+  // so a long scroll is still followed): scrolling the pane mounts a row of
+  // thumbnails, work that must not delay the pages the reader is waiting for.
+  const followStack = useRef(stack);
+  followStack.current = stack;
+  const followTarget = useRef(current);
+  const followPending = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const el = bodyRef.current;
-    const i = current - 1;
-    if (!el || i < 0 || i >= stack.tops.length) return;
-    const to = scrollIntoRow(stack, i, el.scrollTop, el.clientHeight);
-    if (to != null) el.scrollTop = to;
+    followTarget.current = current;
+    if (followPending.current) return;
+    followPending.current = thumbnailsFor(engine).whenIdle(() => {
+      followPending.current = null;
+      const el = bodyRef.current;
+      const st = followStack.current;
+      const i = followTarget.current - 1;
+      if (!el || i < 0 || i >= st.tops.length) return;
+      const to = scrollIntoRow(st, i, el.scrollTop, el.clientHeight);
+      if (to != null) el.scrollTop = to;
+    }, FOLLOW_MAX_WAIT_MS);
     // Only when the current page changes (or the panel reopens), not on every scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
+  useEffect(
+    () => () => {
+      followPending.current?.();
+      followPending.current = null;
+    },
+    [],
+  );
 
   const onPick = useCallback((id: string, e: React.MouseEvent, index: number) => {
     const q = live.current;

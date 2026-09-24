@@ -94,7 +94,10 @@ export class ThumbnailService {
   private wakeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Renders paused at a chunk boundary while held. */
   private parked: (() => void)[] = [];
+  /** `whenIdle` callbacks waiting for the hold to lift. */
+  private idleWaiters = new Set<() => void>();
   private source: RasterSource | null = null;
+  private pumpQueued = false;
 
   constructor(
     private readonly engine: PdfEngine,
@@ -132,7 +135,7 @@ export class ThumbnailService {
       job.req = { ...job.req, priority: req.priority };
     }
     job.listeners.add(onReady);
-    this.pump();
+    this.schedulePump();
     const j = job;
     return () => {
       j.listeners.delete(onReady);
@@ -170,6 +173,37 @@ export class ThumbnailService {
   /** Is thumbnail work held back right now? */
   get held(): boolean {
     return this.mainBusy || now() < this.quietUntil;
+  }
+
+  /**
+   * Run `fn` once the page view is idle and nothing scrolls (what thumbnails
+   * wait for), or after `maxWait` ms at the latest — for work that should not
+   * compete with the pages being drawn (the pane following the current page).
+   * Returns the cancel function.
+   */
+  whenIdle(fn: () => void, maxWait: number): () => void {
+    let done = false;
+    const fire = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      this.idleWaiters.delete(fire);
+      fn();
+    };
+    const timer = setTimeout(fire, maxWait);
+    // Decided after the current task's microtasks: the page view learns what it
+    // has to draw in one (a jump's target is picked right after the jump), and
+    // React may run this from an effect flushed before it.
+    queueMicrotask(() => {
+      if (done) return;
+      if (this.held && !this.destroyed) this.idleWaiters.add(fire);
+      else fire();
+    });
+    return () => {
+      done = true;
+      clearTimeout(timer);
+      this.idleWaiters.delete(fire);
+    };
   }
 
   /** Register the page view's rasters as a source (see `RasterSource`). Returns the detach function. */
@@ -215,6 +249,7 @@ export class ThumbnailService {
 
   private wake(): void {
     if (this.destroyed || this.held) return;
+    for (const fire of [...this.idleWaiters]) fire();
     const parked = this.parked;
     this.parked = [];
     for (const cont of parked) cont();
@@ -225,6 +260,20 @@ export class ThumbnailService {
     for (const bmp of this.cache.values()) bmp.close();
     this.cache.clear();
     this.pixels = 0;
+  }
+
+  /**
+   * Requests come from React effects, which may run before the page view has
+   * learnt (in a microtask) what it has to draw — right after a jump, say:
+   * decide once those have run, and serve a whole batch of requests at once.
+   */
+  private schedulePump(): void {
+    if (this.pumpQueued) return;
+    this.pumpQueued = true;
+    queueMicrotask(() => {
+      this.pumpQueued = false;
+      this.pump();
+    });
   }
 
   private pump(): void {
@@ -351,6 +400,7 @@ export class ThumbnailService {
       job.task?.cancel();
     }
     this.parked = [];
+    this.idleWaiters.clear();
     this.pending.clear();
     this.source = null;
     this.clearCache();

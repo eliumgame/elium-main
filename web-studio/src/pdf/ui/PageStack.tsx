@@ -502,6 +502,10 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
         if (!el || !L.count) return;
         const i = clamp(Math.round(index), 0, L.count - 1);
         const topPt = opts?.top ?? 0;
+        // Ask the worker for the target page now: the round trip overlaps the
+        // render that mounts its slot (its page view waits for it).
+        const from = live.current.pages[i]?.from;
+        if (from != null) void live.current.engine.page(from).catch(() => {});
         if (!isPlaced(L, i)) {
           // Paged mode: the workspace switches the shown page; scroll once it is laid out.
           pendingScroll.current = { index: i, top: topPt };

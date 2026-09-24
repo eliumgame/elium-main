@@ -95,6 +95,8 @@ interface Entry {
   host: HTMLElement | null;
   rotation: number;
   creating: boolean;
+  /** Its page could not be loaded: nothing will ever be drawn here. */
+  failed: boolean;
   /** Releases the engine-level hold on the page's rendering resources. */
   release: (() => void) | null;
   /** The raster being drawn hides imported markup (so it is not the file's own look). */
@@ -102,6 +104,25 @@ interface Entry {
 }
 
 const RENDER_TEXT_LAYER = 1; // TextLayerMode.ENABLE
+
+/**
+ * Stand-in for pdf.js' `TextAccessibilityManager`. The real one sorts every
+ * text layer's spans by their on-screen position (`getBoundingClientRect`,
+ * n log n times — a forced layout for each page drawn) so as to thread the
+ * HTML annotations (comment popups, form widgets) into the reading order for
+ * screen readers. Elium hides those (its own layers show comments and fields)
+ * and the spans keep their DOM order, so the sort is pure cost.
+ */
+const NO_TEXT_A11Y = {
+  setTextMapping() {},
+  enable() {},
+  disable() {},
+  addPointerInTextLayer() {},
+  removePointerInTextLayer() {},
+  moveElementInDOM() {
+    return null;
+  },
+};
 
 export class PageViewController {
   private readonly engine: PdfEngine;
@@ -215,6 +236,7 @@ export class PageViewController {
         host,
         rotation: spec.rotation,
         creating: false,
+        failed: false,
         release: null,
         masked: false,
       };
@@ -295,6 +317,8 @@ export class PageViewController {
       if (this.mask.enabled) await ids;
     } catch {
       entry.creating = false;
+      entry.failed = true;
+      this.queue.schedule();
       return;
     }
     entry.creating = false;
@@ -331,6 +355,8 @@ export class PageViewController {
       l10n: NO_L10N,
     } as never) as unknown as PageViewLike;
     view.rotation = userRotation;
+    // `draw()` keeps a manager already there (`||=`).
+    (view as unknown as { _accessibilityManager: unknown })._accessibilityManager = NO_TEXT_A11Y;
     view.setPdfPage(page);
     view.div.removeAttribute("role");
     view.div.removeAttribute("data-l10n-id");
@@ -412,9 +438,18 @@ export class PageViewController {
       this.scaleTimer !== null,
     );
     // Thumbnails only get the main thread once nothing is left to draw here
-    // (pdf.js' single rendering queue: pages first, thumbnails after).
-    this.thumbs.setMainBusy(next !== null);
+    // (pdf.js' single rendering queue: pages first, thumbnails after) — a
+    // visible page whose view is still being created (its page loading from
+    // the worker, right after a jump) counts as work to come.
+    this.thumbs.setMainBusy(next !== null || this.visible.some((v) => this.awaitsView(v.key)));
     return next;
+  }
+
+  /** A visible slot that will get a page view but has none yet. */
+  private awaitsView(key: string): boolean {
+    const entry = this.entries.get(key);
+    if (!entry) return true;
+    return !entry.view && !entry.failed;
   }
 
   /** A finished raster of source page `from` at total rotation `rotation`, as the file shows it. */

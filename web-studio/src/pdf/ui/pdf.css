@@ -601,6 +601,20 @@
 .pdfx-stack.no-text .textLayer {
   display: none;
 }
+/* pdf.js dimensionne les calques texte et liens dans l'orientation NON pivotée
+   de la page (`setLayerDimensions`) et compte sur ces règles de pdf_viewer.css
+   pour les tourner comme le canevas. Sans elles, sur une page tournée (/Rotate
+   du fichier, page ou vue pivotée), la sélection, le surlignage et les zones de
+   lien tombent à côté du texte. */
+.pdfx-stack :is(.textLayer, .annotationLayer)[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.pdfx-stack :is(.textLayer, .annotationLayer)[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.pdfx-stack :is(.textLayer, .annotationLayer)[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
 .pdfx-stack .textLayer :is(span, br) {
   color: transparent;
   position: absolute;

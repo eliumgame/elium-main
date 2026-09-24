@@ -39,9 +39,23 @@ export const DEFAULT_VIEW: ViewState = {
   fullscreen: false,
 };
 
+/**
+ * Zoom as the user reads it is Acrobat's and Firefox's: 100 % is the page at
+ * its real size on a 96 dpi screen (one point = 96/72 CSS px) — an A4 page is
+ * 794 px wide at 100 %. Internally a scale is in CSS px per point (what every
+ * layer's coordinates use); this is the factor between the two
+ * (pdf.js `PixelsPerInch.PDF_TO_CSS_UNITS`).
+ */
+export const ZOOM_UNIT = 96 / 72;
+/** Displayed zoom levels: 1 = 100 % = real size. */
 export const ZOOM_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8] as const;
+/** Internal scale of a displayed zoom level. */
+export const presetScale = (zoom: number): number => zoom * ZOOM_UNIT;
+/** Displayed percentage of an internal scale. */
+export const zoomPercent = (scale: number): number => Math.round((scale / ZOOM_UNIT) * 100);
 export const MIN_SCALE = 0.08;
-export const MAX_SCALE = 10;
+/** 1000 %, pdf.js' maximum (the detail canvas keeps it sharp). */
+export const MAX_SCALE = 10 * ZOOM_UNIT;
 
 export const READING_THEMES: { id: ReadingTheme; label: string; filter: string; canvas: string }[] = [
   { id: "paper", label: "Papier", filter: "none", canvas: "#ffffff" },

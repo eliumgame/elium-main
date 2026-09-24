@@ -90,6 +90,7 @@ import Organize from "./Organize";
 import PageStack, { type HitMark, type OverlayGeometry, type PageStackHandle } from "./PageStack";
 import Ribbon from "./Ribbon";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
+import { CurrentPage, useCurrentPage } from "./currentPage";
 import {
   CompareDialog,
   CropDialog,
@@ -116,6 +117,9 @@ import {
   READING_THEMES,
   TOOL_TAB,
   ZOOM_PRESETS,
+  ZOOM_UNIT,
+  presetScale,
+  zoomPercent,
   type RibbonTab,
   type SidePanel,
   type Toast,
@@ -189,6 +193,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   // --- view -----------------------------------------------------------------
   const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
+  /** The page being read — outside React state, see `currentPage.ts`. */
+  const [currentStore] = useState(() => new CurrentPage(1));
   const [mode, setMode] = useState<Mode>("view");
   const [tab, setTab] = useState<RibbonTab>("home");
   const [panel, setPanel] = useState<SidePanel | null>("thumbnails");
@@ -295,8 +301,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Loading
   // -------------------------------------------------------------------------
-  /** Identifies the document being opened: background work for an older one is dropped. */
+  /** Bumped by every open request: only the latest one may replace the document. */
   const openGeneration = useRef(0);
+  /** The generation of the document on screen: background work for an older one is dropped. */
+  const shownGeneration = useRef(0);
   /** Remounts the page surface (fresh scroll position, fresh page views) for each document. */
   const [docKey, setDocKey] = useState(0);
 
@@ -317,14 +325,14 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const raws = new Map<number, RawAnnotation[]>();
       let cursor = 0;
       const worker = async () => {
-        while (cursor < froms.length && gen === openGeneration.current) {
+        while (cursor < froms.length && gen === shownGeneration.current) {
           const from = froms[cursor++];
           const raw = (await next.annotations(from)) as RawAnnotation[];
           if (hasImportableAnnots(raw)) raws.set(from, raw);
         }
       };
       await Promise.all(Array.from({ length: Math.min(4, froms.length) }, worker));
-      if (gen !== openGeneration.current || !raws.size) return;
+      if (gen !== shownGeneration.current || !raws.size) return;
 
       // A Stamp's own picture never comes back from pdf.js's getAnnotations()
       // (only a `hasAppearance` boolean) — resolving it needs a separate walk
@@ -336,7 +344,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
           )
         : null;
-      if (gen !== openGeneration.current) return;
+      if (gen !== shownGeneration.current) return;
 
       const byFrom = new Map<number, Annot[]>();
       for (const page of sourcePages) {
@@ -353,7 +361,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const origin = { x: info.ox, y: info.oy };
         byFrom.set(page.from, importPageAnnots(withImages, page.id, info.h, author, origin).annots);
       }
-      if (gen !== openGeneration.current || !byFrom.size) return;
+      if (gen !== shownGeneration.current || !byFrom.size) return;
       const originals = new Map(sourcePages.map((q) => [q.id, q.from]));
       let count = 0;
       for (const list of byFrom.values()) count += list.length;
@@ -379,6 +387,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const openBytes = useCallback(
     async (raw: Uint8Array, name: string, password?: string, restore?: PdfState) => {
+      // Taken BEFORE the (slow) open: when a second file is picked while the
+      // first one is still opening, only the last choice may be shown, whichever
+      // finishes first. The engine being replaced is destroyed by the `engine`
+      // effect below once the new one is committed.
+      const gen = ++openGeneration.current;
       setLoading(true);
       setLoadError("");
       try {
@@ -386,8 +399,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         // else (page sizes, bookmarks, existing markup, attachments, layers,
         // form/signature facts) is filled in the background.
         const next = await PdfEngine.open(raw, password);
-        engine?.destroy();
-        const gen = ++openGeneration.current;
+        if (gen !== openGeneration.current) {
+          next.destroy();
+          return;
+        }
+        shownGeneration.current = gen;
         // The engine keeps its own private copy of the file; share it rather
         // than holding a second one (a 5 MB file used to cost 10 MB of heap).
         // Nothing mutates or transfers these bytes: every pdf.js consumer is
@@ -425,36 +441,38 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setLayers([]);
         setHiddenLayers(new Set());
         setOcConfig(undefined);
-        setView((v) => ({ ...v, current: 1 }));
+        currentStore.set(1);
         setMode("view");
 
         void next
           .outline()
           .then((outline) => {
-            if (gen !== openGeneration.current || !outline.length) return;
+            if (gen !== shownGeneration.current || !outline.length) return;
             const bookmarks: Bookmark[] = outlineToBookmarks(outline);
             amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
           })
           .catch(() => {});
-        void next.attachments().then((a) => gen === openGeneration.current && setAttachments(a));
-        void next.layers().then((l) => gen === openGeneration.current && setLayers(l));
+        void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
+        void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
         if (!restore) {
           // Let the first page paint before competing for the pdf.js worker.
           setTimeout(() => {
-            if (gen === openGeneration.current) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
+            if (gen === shownGeneration.current) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
           }, 250);
         }
       } catch (e) {
+        // A newer file was picked meanwhile: this one's failure is moot.
+        if (gen !== openGeneration.current) return;
         if (e instanceof PdfPasswordRequired) {
           setPendingPassword({ bytes: raw, name, wrong: e.wrong });
         } else {
           setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
         }
       } finally {
-        setLoading(false);
+        if (gen === openGeneration.current) setLoading(false);
       }
     },
-    [engine, reset, amend, importExistingMarkup],
+    [reset, amend, importExistingMarkup, currentStore],
   );
 
   const openFile = useCallback(
@@ -570,7 +588,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   /** Bumped by an explicit fit request, so asking again for the same fit re-fits the page now current. */
   const [fitNonce, setFitNonce] = useState(0);
   useEffect(() => {
-    fitPageId.current = pages[view.current - 1]?.id ?? null;
+    fitPageId.current = pages[currentStore.get() - 1]?.id ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.zoomMode, view.mode, viewport, fitNonce]);
   /** « Largeur » / « Page entière » / « Zone de texte »: fit the page now current. */
@@ -598,7 +616,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     setView((v) => ({ ...v, scale: clamp(next, MIN_SCALE, MAX_SCALE), zoomMode: mode }));
 
   const zoomStep = (dir: 1 | -1) => {
-    const presets = ZOOM_PRESETS as readonly number[];
+    const presets = ZOOM_PRESETS.map(presetScale);
     const i = presets.findIndex((z) => (dir > 0 ? z > view.scale + 0.001 : z >= view.scale - 0.001));
     const next =
       dir > 0 ? presets[i < 0 ? presets.length - 1 : i] : presets[Math.max(0, (i < 0 ? presets.length : i) - 1)];
@@ -606,15 +624,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   /** Show 1-based page `page`, `y` points below its top edge. */
-  const goTo = useCallback((page: number, y?: number) => {
-    const target = clamp(Math.round(page), 1, Math.max(1, pageCountRef.current));
-    stackRef.current?.scrollToPage(target - 1, { top: y ? Math.max(0, y) : 0 });
-    setView((v) => (v.current === target ? v : { ...v, current: target }));
-  }, []);
+  const goTo = useCallback(
+    (page: number, y?: number) => {
+      const target = clamp(Math.round(page), 1, Math.max(1, pageCountRef.current));
+      stackRef.current?.scrollToPage(target - 1, { top: y ? Math.max(0, y) : 0 });
+      currentStore.set(target);
+    },
+    [currentStore],
+  );
 
-  const onCurrentChange = useCallback((current: number) => {
-    setView((v) => (v.current === current ? v : { ...v, current }));
-  }, []);
+  const onCurrentChange = useCallback((current: number) => currentStore.set(current), [currentStore]);
   // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.
   const onScaleChange = useCallback((scale: number) => {
     setView((v) => ({ ...v, scale: clamp(scale, MIN_SCALE, MAX_SCALE), zoomMode: "custom" }));
@@ -1109,7 +1128,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Commands
   // -------------------------------------------------------------------------
-  const currentPage = () => pages[view.current - 1];
+  const currentPage = () => pages[currentStore.get() - 1];
   const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
   const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
@@ -1567,7 +1586,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   const addBookmark = (parentId: string | null) => {
-    const node: Bookmark = { id: newId("bm"), title: `Page ${view.current}`, page: view.current, children: [] };
+    const at = currentStore.get();
+    const node: Bookmark = { id: newId("bm"), title: `Page ${at}`, page: at, children: [] };
     setState((s) => ({ ...s, bookmarks: D.insertBookmark(s.bookmarks ?? [], parentId, node) }));
     setPanel("bookmarks");
   };
@@ -1768,9 +1788,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           zoomStep(-1);
           return;
         }
+        // Acrobat's: Ctrl+0 page entière, Ctrl+1 taille réelle (100 %), Ctrl+2 largeur.
         if (k === "0") {
           e.preventDefault();
           requestFit("fitPage");
+          return;
+        }
+        if (k === "1" && !e.shiftKey) {
+          e.preventDefault();
+          setScale(ZOOM_UNIT);
+          return;
+        }
+        if (k === "2" && !e.shiftKey) {
+          e.preventDefault();
+          requestFit("fitWidth");
           return;
         }
         if (e.shiftKey && k === "h") {
@@ -1799,11 +1830,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           return;
         case "PageDown":
           e.preventDefault();
-          goTo(view.current + 1);
+          goTo(currentStore.get() + 1);
           return;
         case "PageUp":
           e.preventDefault();
-          goTo(view.current - 1);
+          goTo(currentStore.get() - 1);
           return;
         case "Home":
           e.preventDefault();
@@ -1850,7 +1881,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.annots, selectedIds, view.current, pageCount, searchState.open, mode, hits.length, searchState.index]);
+  }, [state.annots, selectedIds, pageCount, searchState.open, mode, hits.length, searchState.index]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -2121,36 +2152,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           )}
         </div>
 
-        <div className="pdfx-pagenav">
-          <button
-            className="pdfx-topbtn"
-            onClick={() => goTo(view.current - 1)}
-            disabled={view.current <= 1}
-            title="Page précédente"
-            aria-label="Page précédente"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <input
-            className="pdfx-pagenav__input"
-            value={view.current}
-            onChange={(e) => {
-              const n = Number(e.target.value.replace(/\D/g, ""));
-              if (n) goTo(n);
-            }}
-            aria-label="Numéro de page"
-          />
-          <span className="pdfx-pagenav__total">/ {pageCount}</span>
-          <button
-            className="pdfx-topbtn"
-            onClick={() => goTo(view.current + 1)}
-            disabled={view.current >= pageCount}
-            title="Page suivante"
-            aria-label="Page suivante"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
+        <PageNav store={currentStore} pageCount={pageCount} goTo={goTo} />
 
         <div className="pdfx-zoombar">
           <button className="pdfx-topbtn" onClick={() => zoomStep(-1)} title="Zoom arrière" aria-label="Zoom arrière">
@@ -2163,10 +2165,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onChange={(e) => {
               const v = e.target.value;
               if (v === "fitWidth" || v === "fitPage" || v === "fitVisible") requestFit(v);
-              else setScale(Number(v));
+              else setScale(presetScale(Number(v)));
             }}
           >
-            <option value="custom">{Math.round(view.scale * 100)} %</option>
+            <option value="custom">{zoomPercent(view.scale)} %</option>
             <option value="fitWidth">Largeur</option>
             <option value="fitPage">Page entière</option>
             <option value="fitVisible">Zone de texte</option>
@@ -2237,7 +2239,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               panel={panel}
               engine={engine}
               pages={pages}
-              current={view.current}
+              currentPage={currentStore}
               selectedPages={selectedPages}
               annots={state.annots}
               bookmarks={state.bookmarks ?? []}
@@ -2349,7 +2351,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             mode={view.mode}
             cover={view.spreadCover}
             theme={view.theme}
-            current={view.current}
+            currentPage={currentStore}
             showTextLayer={mode === "view" && tool !== "hand"}
             maskImported={state.importedAnnots}
             optionalContent={ocConfig}
@@ -2421,7 +2423,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         <span className="pdfx-status__spacer" />
         <span>{themeDef.label}</span>
         <span>·</span>
-        <span>{Math.round(view.scale * 100)} %</span>
+        <span>{zoomPercent(view.scale)} %</span>
         {busy && (
           <>
             <span>·</span>
@@ -2875,4 +2877,44 @@ function outlineToBookmarks(
     color: n.color,
     children: outlineToBookmarks((n.children ?? []) as never),
   }));
+}
+
+/**
+ * Previous / page number / next. Subscribes to the current page itself, so
+ * scrolling re-renders this box — not the workspace around it.
+ */
+function PageNav({ store, pageCount, goTo }: { store: CurrentPage; pageCount: number; goTo: (page: number) => void }) {
+  const current = useCurrentPage(store);
+  return (
+    <div className="pdfx-pagenav">
+      <button
+        className="pdfx-topbtn"
+        onClick={() => goTo(current - 1)}
+        disabled={current <= 1}
+        title="Page précédente"
+        aria-label="Page précédente"
+      >
+        <ChevronLeft size={16} />
+      </button>
+      <input
+        className="pdfx-pagenav__input"
+        value={current}
+        onChange={(e) => {
+          const n = Number(e.target.value.replace(/\D/g, ""));
+          if (n) goTo(n);
+        }}
+        aria-label="Numéro de page"
+      />
+      <span className="pdfx-pagenav__total">/ {pageCount}</span>
+      <button
+        className="pdfx-topbtn"
+        onClick={() => goTo(current + 1)}
+        disabled={current >= pageCount}
+        title="Page suivante"
+        aria-label="Page suivante"
+      >
+        <ChevronRight size={16} />
+      </button>
+    </div>
+  );
 }

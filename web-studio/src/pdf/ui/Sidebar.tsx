@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   ChevronDown,
@@ -23,9 +23,11 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import type { PdfEngine, Attachment, LayerInfo } from "../core/engine";
-import { thumbAspect } from "../core/thumbs";
-import { rowRange, scrollIntoRow, stackRows } from "../core/viewer/virtual";
+import { thumbAspect, thumbnailsFor } from "../core/thumbs";
+import { scrollIntoRow, stackRows } from "../core/viewer/virtual";
 import ThumbCanvas from "./ThumbCanvas";
+import { useCurrentPage, type CurrentPage } from "./currentPage";
+import { useListWindow } from "./useListWindow";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
 import { flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
 import type { SearchHit } from "../core/search";
@@ -37,7 +39,8 @@ export interface SidebarProps {
   panel: SidePanel;
   engine: PdfEngine;
   pages: Page[];
-  current: number;
+  /** The page being read (the thumbnail pane highlights and follows it). */
+  currentPage: CurrentPage;
   selectedPages: string[];
   annots: Annot[];
   bookmarks: Mark[];
@@ -110,45 +113,44 @@ const THUMB_OVERSCAN = 700;
 function Thumbnails(p: SidebarProps) {
   const [dragOver, setDragOver] = useState<number | null>(null);
   const dragging = useRef<string[]>([]);
+  const current = useCurrentPage(p.currentPage);
+  // Latest props for the handlers shared by every (memoised) item.
+  const live = useRef(p);
+  live.current = p;
+
+  /** Measured once mounted: picture width, and item height minus picture height. */
+  const [metrics, setMetrics] = useState({ imgW: 132, chrome: 39 });
+  const imgW = Math.max(40, Math.min(THUMB_MAX_W, metrics.imgW));
+  // Page sizes start as estimates: the engine's geometry version keys the memo.
+  const geometry = p.engine.geometryVersion;
+  const items = useMemo(
+    () =>
+      p.pages.map((page) => {
+        const { aspect, rotation } = thumbAspect(p.engine, page);
+        return { rotation, imgH: Math.round(imgW * aspect) };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.pages, p.engine, imgW, geometry],
+  );
+  const stack = useMemo(
+    () =>
+      stackRows(
+        items.map((it) => it.imgH + metrics.chrome),
+        THUMB_GAP,
+      ),
+    [items, metrics.chrome],
+  );
 
   // --- windowing: only the thumbnails near the visible part are mounted -----
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ top: 0, height: 600, width: 180 });
-  /** Measured once mounted: picture width, and item height minus picture height. */
-  const [metrics, setMetrics] = useState({ imgW: 132, chrome: 39 });
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const measure = () =>
-      setView((v) => {
-        const next = { top: el.scrollTop, height: el.clientHeight, width: el.clientWidth };
-        return v.top === next.top && v.height === next.height && v.width === next.width ? v : next;
-      });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    let frame = 0;
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), measure()));
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      ro.disconnect();
-      el.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(frame);
-    };
-  }, []);
-
-  const imgW = Math.max(40, Math.min(THUMB_MAX_W, metrics.imgW));
-  const items = p.pages.map((page) => {
-    const { aspect, rotation } = thumbAspect(p.engine, page);
-    return { rotation, imgH: Math.round(imgW * aspect) };
+  const engine = p.engine;
+  const win = useListWindow(bodyRef, {
+    overscan: THUMB_OVERSCAN,
+    initial: { width: 180, height: 600 },
+    // Thumbnails wait for the list to stop moving.
+    onScroll: () => thumbnailsFor(engine).noteScroll(),
   });
-  const stack = stackRows(
-    items.map((it) => it.imgH + metrics.chrome),
-    THUMB_GAP,
-  );
-  const range = rowRange(stack, view.top, view.top + view.height, THUMB_OVERSCAN);
+  const range = win.band(stack);
   const mid = range ? (range.first + range.last) / 2 : 0;
 
   // Measure the real item chrome and picture width from a mounted thumbnail
@@ -162,35 +164,50 @@ function Thumbnails(p: SidebarProps) {
     if (next.imgW > 0 && (Math.abs(next.imgW - metrics.imgW) > 0.5 || Math.abs(next.chrome - metrics.chrome) > 0.5)) {
       setMetrics(next);
     }
-  }, [metrics.imgW, metrics.chrome, view.width, range?.first]);
+  }, [metrics.imgW, metrics.chrome, win.width, range?.first]);
 
   // Keep the current page's thumbnail in view, like Acrobat's pane.
   useEffect(() => {
     const el = bodyRef.current;
-    const i = p.current - 1;
+    const i = current - 1;
     if (!el || i < 0 || i >= stack.tops.length) return;
     const to = scrollIntoRow(stack, i, el.scrollTop, el.clientHeight);
     if (to != null) el.scrollTop = to;
     // Only when the current page changes (or the panel reopens), not on every scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.current]);
+  }, [current]);
 
-  const toggle = (id: string, e: React.MouseEvent, index: number) => {
-    if (e.shiftKey && p.selectedPages.length) {
-      const last = p.pages.findIndex((q) => q.id === p.selectedPages[p.selectedPages.length - 1]);
+  const onPick = useCallback((id: string, e: React.MouseEvent, index: number) => {
+    const q = live.current;
+    if (e.shiftKey && q.selectedPages.length) {
+      const last = q.pages.findIndex((x) => x.id === q.selectedPages[q.selectedPages.length - 1]);
       const [from, to] = last < index ? [last, index] : [index, last];
-      p.onSelectPages(p.pages.slice(from, to + 1).map((q) => q.id));
+      q.onSelectPages(q.pages.slice(from, to + 1).map((x) => x.id));
       return;
     }
     if (e.ctrlKey || e.metaKey) {
-      p.onSelectPages(
-        p.selectedPages.includes(id) ? p.selectedPages.filter((q) => q !== id) : [...p.selectedPages, id],
+      q.onSelectPages(
+        q.selectedPages.includes(id) ? q.selectedPages.filter((x) => x !== id) : [...q.selectedPages, id],
       );
       return;
     }
-    p.onSelectPages([id]);
-    p.onGoTo(index + 1);
-  };
+    q.onSelectPages([id]);
+    q.onGoTo(index + 1);
+  }, []);
+  const onAction = useCallback(
+    (action: "rotate" | "delete" | "duplicate", id: string) => live.current.onPageAction(action, [id]),
+    [],
+  );
+  const onDragStart = useCallback((id: string, selected: boolean) => {
+    dragging.current = selected ? live.current.selectedPages : [id];
+  }, []);
+  const onDrop = useCallback((index: number) => {
+    setDragOver(null);
+    if (dragging.current.length) live.current.onReorderPages(dragging.current, index);
+    dragging.current = [];
+  }, []);
+
+  const selected = useMemo(() => new Set(p.selectedPages), [p.selectedPages]);
 
   return (
     <div className="pdfx-panel">
@@ -205,74 +222,25 @@ function Thumbnails(p: SidebarProps) {
         {range &&
           p.pages.slice(range.first, range.last + 1).map((page, k) => {
             const i = range.first + k;
-            const selected = p.selectedPages.includes(page.id);
             return (
-              <div
+              <ThumbItem
                 key={page.id}
-                className={`pdfx-thumb ${p.current === i + 1 ? "is-current" : ""} ${selected ? "is-selected" : ""} ${dragOver === i ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
-                draggable
-                onDragStart={() => {
-                  dragging.current = selected ? p.selectedPages : [page.id];
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(i);
-                }}
-                onDragLeave={() => setDragOver((v) => (v === i ? null : v))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(null);
-                  if (dragging.current.length) p.onReorderPages(dragging.current, i);
-                  dragging.current = [];
-                }}
-                onClick={(e) => toggle(page.id, e, i)}
-              >
-                <div className="pdfx-thumb__img">
-                  <ThumbCanvas
-                    engine={p.engine}
-                    page={page}
-                    rotation={items[i].rotation}
-                    width={imgW}
-                    height={items[i].imgH}
-                    priority={Math.abs(i - mid)}
-                  />
-                </div>
-                <div className="pdfx-thumb__bar">
-                  <span className="pdfx-thumb__num">{page.label || i + 1}</span>
-                  <span className="pdfx-thumb__ops">
-                    <button
-                      type="button"
-                      title="Pivoter 90°"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        p.onPageAction("rotate", [page.id]);
-                      }}
-                    >
-                      <RotateCw size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Dupliquer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        p.onPageAction("duplicate", [page.id]);
-                      }}
-                    >
-                      <Copy size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Supprimer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        p.onPageAction("delete", [page.id]);
-                      }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </span>
-                </div>
-              </div>
+                engine={p.engine}
+                page={page}
+                index={i}
+                rotation={items[i].rotation}
+                width={imgW}
+                height={items[i].imgH}
+                priority={Math.abs(i - mid)}
+                current={current === i + 1}
+                selected={selected.has(page.id)}
+                dropTarget={dragOver === i}
+                onPick={onPick}
+                onAction={onAction}
+                onDragStart={onDragStart}
+                onDragOverItem={setDragOver}
+                onDrop={onDrop}
+              />
             );
           })}
         {range && range.last < p.pages.length - 1 && (
@@ -292,6 +260,102 @@ function Thumbnails(p: SidebarProps) {
     </div>
   );
 }
+
+interface ThumbItemProps {
+  engine: PdfEngine;
+  page: Page;
+  index: number;
+  rotation: number;
+  width: number;
+  height: number;
+  /** Read when the thumbnail is requested (on mount) only — ignored by the memo. */
+  priority: number;
+  current: boolean;
+  selected: boolean;
+  dropTarget: boolean;
+  onPick: (id: string, e: React.MouseEvent, index: number) => void;
+  onAction: (action: "rotate" | "delete" | "duplicate", id: string) => void;
+  onDragStart: (id: string, selected: boolean) => void;
+  onDragOverItem: (updater: (v: number | null) => number | null) => void;
+  onDrop: (index: number) => void;
+}
+
+/** Equal props, `priority` aside (it only matters when the thumbnail is requested). */
+function sameItem<T extends { priority: number }>(a: T, b: T): boolean {
+  for (const k of Object.keys(a) as (keyof T)[]) if (k !== "priority" && a[k] !== b[k]) return false;
+  return true;
+}
+
+/**
+ * One thumbnail of the pane. Memoised: moving the current page re-renders the
+ * two items whose highlight changes, not every mounted one.
+ */
+const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
+  const { page, index: i } = t;
+  return (
+    <div
+      className={`pdfx-thumb ${t.current ? "is-current" : ""} ${t.selected ? "is-selected" : ""} ${t.dropTarget ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
+      draggable
+      onDragStart={() => t.onDragStart(page.id, t.selected)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        t.onDragOverItem(() => i);
+      }}
+      onDragLeave={() => t.onDragOverItem((v) => (v === i ? null : v))}
+      onDrop={(e) => {
+        e.preventDefault();
+        t.onDrop(i);
+      }}
+      onClick={(e) => t.onPick(page.id, e, i)}
+    >
+      <div className="pdfx-thumb__img">
+        <ThumbCanvas
+          engine={t.engine}
+          page={page}
+          rotation={t.rotation}
+          width={t.width}
+          height={t.height}
+          priority={t.priority}
+        />
+      </div>
+      <div className="pdfx-thumb__bar">
+        <span className="pdfx-thumb__num">{page.label || i + 1}</span>
+        <span className="pdfx-thumb__ops">
+          <button
+            type="button"
+            title="Pivoter 90°"
+            onClick={(e) => {
+              e.stopPropagation();
+              t.onAction("rotate", page.id);
+            }}
+          >
+            <RotateCw size={12} />
+          </button>
+          <button
+            type="button"
+            title="Dupliquer"
+            onClick={(e) => {
+              e.stopPropagation();
+              t.onAction("duplicate", page.id);
+            }}
+          >
+            <Copy size={12} />
+          </button>
+          <button
+            type="button"
+            title="Supprimer"
+            onClick={(e) => {
+              e.stopPropagation();
+              t.onAction("delete", page.id);
+            }}
+          >
+            <Trash2 size={12} />
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}, sameItem);
 
 // ---------------------------------------------------------------------------
 // Bookmarks

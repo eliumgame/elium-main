@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Copy,
@@ -19,10 +19,11 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { PdfEngine } from "../core/engine";
-import { gridColumns, gridRowHeights, rowRange, stackRows } from "../core/viewer/virtual";
-import { thumbAspect } from "../core/thumbs";
+import { gridColumns, gridRowHeights, stackRows } from "../core/viewer/virtual";
+import { thumbAspect, thumbnailsFor } from "../core/thumbs";
 import type { Page } from "../model/types";
 import ThumbCanvas from "./ThumbCanvas";
+import { useListWindow } from "./useListWindow";
 
 /**
  * The page organiser: a full-surface grid of every page with drag-and-drop
@@ -62,88 +63,161 @@ const CELL_EXTRA_W = 16;
 const ADD_H = 190;
 const GRID_OVERSCAN = 800;
 
-function PageCard({
-  engine,
-  page,
-  index,
-  size,
-  height,
-  rotation,
-  priority,
-}: {
+interface CellProps {
   engine: PdfEngine;
   page: Page;
   index: number;
   size: number;
   height: number;
   rotation: number;
+  /** Read when the thumbnail is requested (on mount) only — ignored by the memo. */
   priority: number;
-}) {
-  return (
-    <div className="pdfx-org__thumb" style={{ width: size }}>
-      {page.from == null && !page.image ? (
-        <div className="pdfx-org__blank" style={{ height }}>
-          Page blanche
-        </div>
-      ) : (
-        <ThumbCanvas
-          className="pdfx-org__canvas"
-          engine={engine}
-          page={page}
-          rotation={rotation}
-          width={size}
-          height={height}
-          priority={priority}
-        />
-      )}
-      <span className="pdfx-org__num">{page.label || index + 1}</span>
-    </div>
-  );
+  selected: boolean;
+  drop: boolean;
+  actions: CellActions;
 }
+
+/** Stable handlers shared by every cell (they read the organiser's latest props). */
+interface CellActions {
+  click: (e: React.MouseEvent, page: Page, index: number) => void;
+  dragStart: (page: Page, selected: boolean) => void;
+  dragOver: (index: number) => void;
+  dragLeave: (index: number) => void;
+  drop: (index: number) => void;
+  rotate: (id: string) => void;
+  duplicate: (id: string) => void;
+  insertAfter: (id: string) => void;
+  remove: (id: string) => void;
+}
+
+/**
+ * One page of the grid. Memoised (priority aside): scrolling re-renders only
+ * the cells that mount, a selection only the cells whose state changes.
+ */
+const OrgCell = memo(
+  function OrgCell({ engine, page, index: i, size, height, rotation, priority, selected, drop, actions }: CellProps) {
+    return (
+      <div
+        className={`pdfx-org__cell ${selected ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${drop ? "is-drop" : ""}`}
+        draggable
+        onDragStart={() => actions.dragStart(page, selected)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          actions.dragOver(i);
+        }}
+        onDragLeave={() => actions.dragLeave(i)}
+        onDrop={(e) => {
+          e.preventDefault();
+          actions.drop(i);
+        }}
+        onClick={(e) => actions.click(e, page, i)}
+      >
+        <div className="pdfx-org__thumb" style={{ width: size }}>
+          {page.from == null && !page.image ? (
+            <div className="pdfx-org__blank" style={{ height }}>
+              Page blanche
+            </div>
+          ) : (
+            <ThumbCanvas
+              className="pdfx-org__canvas"
+              engine={engine}
+              page={page}
+              rotation={rotation}
+              width={size}
+              height={height}
+              priority={priority}
+            />
+          )}
+          <span className="pdfx-org__num">{page.label || i + 1}</span>
+        </div>
+        <div className="pdfx-org__cellops">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.rotate(page.id);
+            }}
+            title="Pivoter"
+          >
+            <RotateCw size={13} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.duplicate(page.id);
+            }}
+            title="Dupliquer"
+          >
+            <Copy size={13} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.insertAfter(page.id);
+            }}
+            title="Insérer après"
+          >
+            <FilePlus2 size={13} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.remove(page.id);
+            }}
+            title="Supprimer"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+        {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
+      </div>
+    );
+  },
+  (a, b) => {
+    for (const k of Object.keys(a) as (keyof CellProps)[]) if (k !== "priority" && a[k] !== b[k]) return false;
+    return true;
+  },
+);
 
 export default function Organize(p: OrganizeProps) {
   const [size, setSize] = useState(190);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dragIds = useRef<string[]>([]);
   const lastClicked = useRef<number>(-1);
+  const live = useRef(p);
+  live.current = p;
 
   // --- windowing: only the rows of cells near the visible part are mounted ---
   const gridRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ top: 0, height: 800, width: 1000 });
+  const engine = p.engine;
+  const win = useListWindow(gridRef, {
+    overscan: GRID_OVERSCAN,
+    offset: GRID_PAD,
+    initial: { width: 1000, height: 800 },
+    // Thumbnails wait for the grid to stop moving.
+    onScroll: () => thumbnailsFor(engine).noteScroll(),
+  });
   /** Cell height minus picture height, measured from a mounted cell. */
   const [chrome, setChrome] = useState(40);
-  useLayoutEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
-    const measure = () =>
-      setView((v) => {
-        const next = { top: el.scrollTop, height: el.clientHeight, width: el.clientWidth };
-        return v.top === next.top && v.height === next.height && v.width === next.width ? v : next;
-      });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    let frame = 0;
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), measure()));
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      ro.disconnect();
-      el.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(frame);
-    };
-  }, []);
 
   const cellW = size + CELL_EXTRA_W;
-  const columns = gridColumns(view.width - 2 * GRID_PAD, cellW, GRID_GAP);
-  const cells = p.pages.map((page) => {
-    const { aspect, rotation } = thumbAspect(p.engine, page);
-    return { rotation, h: Math.round(size * aspect) };
-  });
+  const columns = gridColumns(win.width - 2 * GRID_PAD, cellW, GRID_GAP);
+  // Page sizes start as estimates: the engine's geometry version keys the memo.
+  const geometry = p.engine.geometryVersion;
+  const cells = useMemo(
+    () =>
+      p.pages.map((page) => {
+        const { aspect, rotation } = thumbAspect(p.engine, page);
+        return { rotation, h: Math.round(size * aspect) };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.pages, p.engine, size, geometry],
+  );
   // The "Ajouter" button is the grid's last cell.
-  const stack = stackRows(gridRowHeights([...cells.map((c) => c.h + chrome), ADD_H], columns), GRID_GAP);
-  const rows = rowRange(stack, view.top - GRID_PAD, view.top - GRID_PAD + view.height, GRID_OVERSCAN);
+  const stack = useMemo(
+    () => stackRows(gridRowHeights([...cells.map((c) => c.h + chrome), ADD_H], columns), GRID_GAP),
+    [cells, chrome, columns],
+  );
+  const rows = win.band(stack);
   const firstCell = rows ? rows.first * columns : 0;
   const endCell = rows ? Math.min(p.pages.length, (rows.last + 1) * columns) : 0;
   const showAdd = !!rows && rows.last === stack.tops.length - 1;
@@ -161,19 +235,40 @@ export default function Organize(p: OrganizeProps) {
   const has = p.selected.length > 0;
   const targets = has ? p.selected : p.pages.map((q) => q.id);
 
-  const click = (e: React.MouseEvent, page: Page, index: number) => {
+  const click = useCallback((e: React.MouseEvent, page: Page, index: number) => {
+    const q = live.current;
     if (e.shiftKey && lastClicked.current >= 0) {
       const [from, to] = lastClicked.current < index ? [lastClicked.current, index] : [index, lastClicked.current];
-      p.onSelect(p.pages.slice(from, to + 1).map((q) => q.id));
+      q.onSelect(q.pages.slice(from, to + 1).map((x) => x.id));
       return;
     }
     lastClicked.current = index;
     if (e.ctrlKey || e.metaKey) {
-      p.onSelect(selectedSet.has(page.id) ? p.selected.filter((q) => q !== page.id) : [...p.selected, page.id]);
+      q.onSelect(q.selected.includes(page.id) ? q.selected.filter((x) => x !== page.id) : [...q.selected, page.id]);
       return;
     }
-    p.onSelect([page.id]);
-  };
+    q.onSelect([page.id]);
+  }, []);
+  const actions = useMemo<CellActions>(
+    () => ({
+      click,
+      dragStart: (page, selected) => {
+        dragIds.current = selected ? live.current.selected : [page.id];
+      },
+      dragOver: (i) => setDropAt(i),
+      dragLeave: (i) => setDropAt((v) => (v === i ? null : v)),
+      drop: (i) => {
+        setDropAt(null);
+        if (dragIds.current.length) live.current.onReorder(dragIds.current, i);
+        dragIds.current = [];
+      },
+      rotate: (id) => live.current.onRotate([id], 90),
+      duplicate: (id) => live.current.onDuplicate([id]),
+      insertAfter: (id) => live.current.onInsertBlank(id),
+      remove: (id) => live.current.onDelete([id]),
+    }),
+    [click],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -301,75 +396,19 @@ export default function Organize(p: OrganizeProps) {
         {p.pages.slice(firstCell, endCell).map((page, k) => {
           const i = firstCell + k;
           return (
-            <div
+            <OrgCell
               key={page.id}
-              className={`pdfx-org__cell ${selectedSet.has(page.id) ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${dropAt === i ? "is-drop" : ""}`}
-              draggable
-              onDragStart={() => {
-                dragIds.current = selectedSet.has(page.id) ? p.selected : [page.id];
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDropAt(i);
-              }}
-              onDragLeave={() => setDropAt((v) => (v === i ? null : v))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDropAt(null);
-                if (dragIds.current.length) p.onReorder(dragIds.current, i);
-                dragIds.current = [];
-              }}
-              onClick={(e) => click(e, page, i)}
-            >
-              <PageCard
-                engine={p.engine}
-                page={page}
-                index={i}
-                size={size}
-                height={cells[i].h}
-                rotation={cells[i].rotation}
-                priority={Math.abs(i - midCell)}
-              />
-              <div className="pdfx-org__cellops">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onRotate([page.id], 90);
-                  }}
-                  title="Pivoter"
-                >
-                  <RotateCw size={13} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onDuplicate([page.id]);
-                  }}
-                  title="Dupliquer"
-                >
-                  <Copy size={13} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onInsertBlank(page.id);
-                  }}
-                  title="Insérer après"
-                >
-                  <FilePlus2 size={13} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    p.onDelete([page.id]);
-                  }}
-                  title="Supprimer"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-              {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
-            </div>
+              engine={p.engine}
+              page={page}
+              index={i}
+              size={size}
+              height={cells[i].h}
+              rotation={cells[i].rotation}
+              priority={Math.abs(i - midCell)}
+              selected={selectedSet.has(page.id)}
+              drop={dropAt === i}
+              actions={actions}
+            />
           );
         })}
         {showAdd ? (

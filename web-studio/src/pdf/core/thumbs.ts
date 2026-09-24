@@ -13,6 +13,16 @@
  * Requests are prioritised (lower first — the caller passes the distance to
  * what is on screen) and cancellable: scrolling a long list only ever renders
  * what is (still) in view.
+ *
+ * Thumbnails never compete with the page view — what pdf.js' own viewer does
+ * with its single `PDFRenderingQueue`, where a thumbnail is only drawn once no
+ * page is left to draw:
+ *  - while the page view has something to draw (a visible page, its detail
+ *    tile, the next page) or something is being scrolled, no thumbnail starts,
+ *    and one already drawing pauses at its next chunk (`onContinue`);
+ *  - the thumbnail of a page the page view has drawn is copied from that
+ *    raster (one GPU downscale) instead of being drawn again — pdf.js'
+ *    `PDFThumbnailView.setImage`.
  */
 
 import type { PDFPageProxy } from "pdfjs-dist";
@@ -32,21 +42,41 @@ export interface ThumbRequest {
 
 type Listener = (bitmap: ImageBitmap) => void;
 
+interface RenderTaskLike {
+  cancel: () => void;
+  promise: Promise<void>;
+  onContinue?: ((cont: () => void) => void) | null;
+}
+
 interface Job {
   key: string;
   req: ThumbRequest;
   listeners: Set<Listener>;
-  task: { cancel: () => void; promise: Promise<void> } | null;
+  task: RenderTaskLike | null;
   cancelled: boolean;
 }
+
+/**
+ * Where a thumbnail can be copied from instead of drawn: the finished raster
+ * of a page view showing source page `from` at total rotation `rotation`
+ * exactly as the file shows it (no Elium mask, no hidden layer), or null.
+ */
+export type RasterSource = (from: number, rotation: number) => HTMLCanvasElement | null;
 
 /** Cached thumbnails, in device pixels (≈ 60 A4 thumbnails of 264 px wide). */
 const DEFAULT_PIXEL_BUDGET = 6_000_000;
 /** Renders in flight — thumbnails must never starve the main page rasters. */
 const CONCURRENCY = 1;
+/** After the last scroll (page view, thumbnail list, organiser), thumbnails wait this long. */
+export const SCROLL_QUIET_MS = 150;
 
 export const thumbKey = (r: Pick<ThumbRequest, "from" | "rotation" | "width">, salt = ""): string =>
   `${r.from}:${r.rotation}:${Math.round(r.width)}${salt ? `:${salt}` : ""}`;
+
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/** A raster big enough to be downscaled into this thumbnail (never upscale). */
+const bigEnough = (raster: { width: number }, req: ThumbRequest) => raster.width >= req.width * 0.9;
 
 export class ThumbnailService {
   private cache = new Map<string, ImageBitmap>();
@@ -57,6 +87,14 @@ export class ThumbnailService {
   private destroyed = false;
   /** Bumped when the document's appearance changes (imported markup masked…). */
   private salt = "";
+  /** The page view has pages left to draw. */
+  private mainBusy = false;
+  /** No thumbnail work before this time: a scroll is under way. */
+  private quietUntil = 0;
+  private wakeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Renders paused at a chunk boundary while held. */
+  private parked: (() => void)[] = [];
+  private source: RasterSource | null = null;
 
   constructor(
     private readonly engine: PdfEngine,
@@ -113,6 +151,76 @@ export class ThumbnailService {
     this.clearCache();
   }
 
+  // -- coordination with the page view ----------------------------------------
+
+  /** The page view has (or no longer has) pages to draw: thumbnails wait for it. */
+  setMainBusy(busy: boolean): void {
+    if (busy === this.mainBusy) return;
+    this.mainBusy = busy;
+    if (!busy) this.wake();
+  }
+
+  /** Something scrolled: thumbnails wait until it has been quiet for `SCROLL_QUIET_MS`. */
+  noteScroll(): void {
+    if (this.destroyed) return;
+    this.quietUntil = now() + SCROLL_QUIET_MS;
+    this.armWake();
+  }
+
+  /** Is thumbnail work held back right now? */
+  get held(): boolean {
+    return this.mainBusy || now() < this.quietUntil;
+  }
+
+  /** Register the page view's rasters as a source (see `RasterSource`). Returns the detach function. */
+  attachSource(source: RasterSource): () => void {
+    this.source = source;
+    return () => {
+      if (this.source === source) this.source = null;
+    };
+  }
+
+  /**
+   * The page view just finished drawing source page `from` at `rotation`:
+   * the thumbnails waiting for that page are copied from its raster, now.
+   */
+  offer(from: number, rotation: number, raster: HTMLCanvasElement): void {
+    if (this.destroyed) return;
+    const jobs = [...this.pending.values(), ...this.running].filter(
+      (j) => !j.cancelled && j.req.from === from && j.req.rotation === rotation && bigEnough(raster, j.req),
+    );
+    for (const job of jobs) {
+      if (this.pending.get(job.key) === job) this.pending.delete(job.key);
+      else {
+        // Drawing it ourselves is now pointless; its listeners are served here.
+        job.cancelled = true;
+        job.task?.cancel();
+      }
+      void this.derive(raster, job.req).then(
+        (bmp) => this.deliver(job, bmp),
+        () => {},
+      );
+    }
+  }
+
+  private armWake(): void {
+    if (this.wakeTimer || this.destroyed) return;
+    const wait = Math.max(0, this.quietUntil - now());
+    this.wakeTimer = setTimeout(() => {
+      this.wakeTimer = null;
+      if (now() < this.quietUntil) this.armWake();
+      else this.wake();
+    }, wait + 1);
+  }
+
+  private wake(): void {
+    if (this.destroyed || this.held) return;
+    const parked = this.parked;
+    this.parked = [];
+    for (const cont of parked) cont();
+    this.pump();
+  }
+
   private clearCache(): void {
     for (const bmp of this.cache.values()) bmp.close();
     this.cache.clear();
@@ -120,7 +228,13 @@ export class ThumbnailService {
   }
 
   private pump(): void {
-    while (!this.destroyed && this.running.size < CONCURRENCY && this.pending.size) {
+    if (this.destroyed || !this.pending.size) return;
+    if (this.held) {
+      // `setMainBusy(false)` or the end of the scroll wakes us.
+      if (!this.mainBusy) this.armWake();
+      return;
+    }
+    while (this.running.size < CONCURRENCY && this.pending.size) {
       let best: Job | null = null;
       for (const job of this.pending.values()) if (!best || job.req.priority < best.req.priority) best = job;
       if (!best) return;
@@ -130,27 +244,54 @@ export class ThumbnailService {
     }
   }
 
+  private deliver(job: Job, bitmap: ImageBitmap): void {
+    if (this.destroyed) {
+      bitmap.close();
+      return;
+    }
+    this.store(job.key, bitmap);
+    for (const l of job.listeners) l(bitmap);
+  }
+
   private async run(job: Job): Promise<void> {
+    let drew = false;
     try {
+      // Already drawn by the page view: copy it rather than draw it again.
+      const raster = this.source?.(job.req.from, job.req.rotation);
+      if (raster && bigEnough(raster, job.req)) {
+        const bitmap = await this.derive(raster, job.req);
+        if (job.cancelled || this.destroyed) bitmap.close();
+        else this.deliver(job, bitmap);
+        return;
+      }
       const page = await this.engine.page(job.req.from);
       if (job.cancelled || this.destroyed) return;
+      drew = true;
       const bitmap = await this.render(page, job);
       if (!bitmap) return;
       if (job.cancelled || this.destroyed) {
         bitmap.close();
         return;
       }
-      this.store(job.key, bitmap);
-      for (const l of job.listeners) l(bitmap);
+      this.deliver(job, bitmap);
     } catch {
       /* cancelled, or a page that cannot be drawn: it keeps its placeholder */
     } finally {
       this.running.delete(job);
       // The bitmap is all a thumbnail needs: let pdf.js drop the page's
-      // operator list and decoded images, unless the main view shows it.
-      this.engine.releasePageResources(job.req.from);
+      // operator list and decoded images — unless the page view retains the
+      // page (`retainPage`: every page mounted there, pre-rendered ones too).
+      if (drew) this.engine.releasePageResources(job.req.from);
       this.pump();
     }
+  }
+
+  /** A thumbnail-sized copy of a finished page raster: a GPU downscale, no pdf.js work. */
+  private derive(raster: HTMLCanvasElement, req: ThumbRequest): Promise<ImageBitmap> {
+    const width = Math.max(1, Math.round(req.width));
+    const height = Math.max(1, Math.round((raster.height * width) / Math.max(1, raster.width)));
+    // The pixels are snapshotted synchronously: the raster may be reset right after.
+    return createImageBitmap(raster, { resizeWidth: width, resizeHeight: height, resizeQuality: "high" });
   }
 
   private async render(page: PDFPageProxy, job: Job): Promise<ImageBitmap | null> {
@@ -171,8 +312,14 @@ export class ThumbnailService {
     // main view applies (pdf.js reads it synchronously when the render starts).
     const start = () => page.render({ canvas, canvasContext: ctx, viewport, intent: "display" });
     const mask = ImportedAnnotationMask.peek(this.engine);
-    const task = mask ? mask.unmasked(start) : start();
-    job.task = task as unknown as Job["task"];
+    const task = (mask ? mask.unmasked(start) : start()) as unknown as RenderTaskLike;
+    // Cooperative: pdf.js asks before each chunk of drawing (≈ 15 ms); while
+    // the page view needs the main thread, or a scroll runs, the rest waits.
+    task.onContinue = (cont) => {
+      if (this.held && !this.destroyed) this.parked.push(cont);
+      else cont();
+    };
+    job.task = task;
     await task.promise;
     job.task = null;
     return createImageBitmap(canvas);
@@ -197,11 +344,15 @@ export class ThumbnailService {
 
   destroy(): void {
     this.destroyed = true;
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.wakeTimer = null;
     for (const job of this.running) {
       job.cancelled = true;
       job.task?.cancel();
     }
+    this.parked = [];
     this.pending.clear();
+    this.source = null;
     this.clearCache();
     if (this.scratch) this.scratch.width = this.scratch.height = 0;
     this.scratch = null;
@@ -239,10 +390,11 @@ export function thumbnailsFor(engine: PdfEngine): ThumbnailService {
   return s;
 }
 
-/** The document is closing: free its cached thumbnails now rather than at the next GC. */
+/** The document is closing: free its cached thumbnails (and page pictures) now rather than at the next GC. */
 export function releaseThumbnails(engine: PdfEngine): void {
   services.get(engine)?.destroy();
   services.delete(engine);
+  releasePictures();
 }
 
 // ---------------------------------------------------------------------------
@@ -271,19 +423,50 @@ export async function bitmapFromDataUrl(url: string): Promise<ImageBitmap> {
   return createImageBitmap(new Blob([bytes as BlobPart], { type }));
 }
 
+/**
+ * Decoded pictures of inserted pages, most recently used last. A bitmap is at
+ * full resolution (a 12 Mpx photo ≈ 48 MB), so the memo is small and every
+ * bitmap leaving it is `close()`d rather than left to the GC.
+ */
 const pictures = new Map<string, Promise<ImageBitmap>>();
+const MAX_PICTURES = 12;
+
+const closeLater = (p: Promise<ImageBitmap>) =>
+  void p.then(
+    (bmp) => bmp.close(),
+    () => {},
+  );
 
 /** `bitmapFromDataUrl`, memoised (a page picture is drawn by the page, its thumbnail and the organiser). */
 export function pictureBitmap(url: string): Promise<ImageBitmap> {
   let p = pictures.get(url);
-  if (!p) {
-    p = bitmapFromDataUrl(url);
-    p.catch(() => pictures.delete(url));
+  if (p) {
+    // LRU touch.
+    pictures.delete(url);
     pictures.set(url, p);
-    // Pictures are few (pages inserted by hand); keep the memo bounded anyway.
-    if (pictures.size > 64) pictures.delete(pictures.keys().next().value as string);
+    return p;
+  }
+  p = bitmapFromDataUrl(url);
+  const mine = p;
+  p.catch(() => {
+    if (pictures.get(url) === mine) pictures.delete(url);
+  });
+  pictures.set(url, p);
+  while (pictures.size > MAX_PICTURES) {
+    const [oldest, old] = pictures.entries().next().value as [string, Promise<ImageBitmap>];
+    pictures.delete(oldest);
+    // Callers draw a picture as soon as its promise settles, and their
+    // reactions were registered before this one: closing now cannot pull a
+    // bitmap from under a pending draw (and `drawContained` survives it).
+    closeLater(old);
   }
   return p;
+}
+
+/** Free every decoded picture (the document closed; a later draw decodes again). */
+export function releasePictures(): void {
+  for (const p of pictures.values()) closeLater(p);
+  pictures.clear();
 }
 
 /**
@@ -293,11 +476,17 @@ export function pictureBitmap(url: string): Promise<ImageBitmap> {
 export function drawContained(canvas: HTMLCanvasElement, bitmap: ImageBitmap, background = "#ffffff"): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  // A closed bitmap (evicted from a cache) has no size: keep what is shown.
+  if (!bitmap.width || !bitmap.height) return;
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const k = Math.min(canvas.width / bitmap.width, canvas.height / bitmap.height);
   const w = bitmap.width * k;
   const h = bitmap.height * k;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(bitmap, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+  try {
+    ctx.drawImage(bitmap, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+  } catch {
+    /* closed meanwhile: the next request draws a fresh one */
+  }
 }

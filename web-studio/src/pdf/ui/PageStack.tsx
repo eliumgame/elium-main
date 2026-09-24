@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -12,7 +13,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, psToView, rectToView } from "../core/coords";
 import type { PdfEngine } from "../core/engine";
-import { drawContained, pictureBitmap } from "../core/thumbs";
+import { drawContained, pictureBitmap, thumbnailsFor } from "../core/thumbs";
 import { PageViewController, type VisibleSlot } from "../core/viewer/controller";
 import { loadViewerLib, type ViewerLib } from "../core/viewer/lib";
 import {
@@ -29,6 +30,7 @@ import {
   type PageBox,
 } from "../core/viewer/layout";
 import type { Page } from "../model/types";
+import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { MAX_SCALE, MIN_SCALE, READING_THEMES, type ReadingTheme, type ViewMode } from "./state";
 
 /**
@@ -86,8 +88,8 @@ export interface PageStackProps {
   mode: ViewMode;
   cover: boolean;
   theme: ReadingTheme;
-  /** 1-based page the workspace considers current. */
-  current: number;
+  /** The 1-based page being read (reported back through `onCurrentChange`). */
+  currentPage: CurrentPage;
   showTextLayer: boolean;
   /** Imported markup is drawn by Elium: pdf.js must not paint it. */
   maskImported: boolean;
@@ -182,7 +184,7 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
         },
         resolveDest: (dest) => engine.resolveDest(dest),
         openExternal: (url) => live.current.onLinkActivate?.({ url }),
-        currentSourcePage: () => (live.current.pages[live.current.current - 1]?.from ?? 0) + 1,
+        currentSourcePage: () => (live.current.pages[live.current.currentPage.get() - 1]?.from ?? 0) + 1,
         sourcePageCount: () => engine.pageCount,
       },
       onTextLayer: (key, layer) =>
@@ -243,7 +245,8 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   }, []);
 
   // --- layout ----------------------------------------------------------------
-  const { pages, sizeOf, rotationOf, mode, cover, current } = p;
+  const { pages, sizeOf, rotationOf, mode, cover } = p;
+  const current = useCurrentPage(p.currentPage);
   const boxes = useMemo<PageBox[]>(
     () =>
       pages.map((page) => {
@@ -286,7 +289,7 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   const prevLayout = useRef<Layout | null>(null);
   const prevPages = useRef<Page[]>(p.pages);
   const gesture = useRef(false);
-  const reportedCurrent = useRef(p.current);
+  const reportedCurrent = useRef(p.currentPage.get());
   const frame = useRef(0);
 
   const sync = useCallback(() => {
@@ -345,16 +348,17 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     // Current page: the most visible one — but keep the current one while it
     // is still entirely on screen (no flicker between two small pages).
     if (vis.length) {
-      const cur = live.current.current - 1;
+      const now = live.current.currentPage.get();
+      const cur = now - 1;
       const stillFull = vis.some((v) => v.index === cur && v.percent >= 100);
       let best = vis[0];
       for (const v of vis)
         if (v.area > best.area + 0.5 || (Math.abs(v.area - best.area) <= 0.5 && v.index < best.index)) best = v;
       const next = stillFull ? cur : best.index;
-      if (next + 1 !== reportedCurrent.current && next + 1 !== live.current.current) {
+      if (next + 1 !== reportedCurrent.current && next + 1 !== now) {
         reportedCurrent.current = next + 1;
         live.current.onCurrentChange?.(next + 1);
-      } else if (next + 1 === live.current.current) {
+      } else if (next + 1 === now) {
         reportedCurrent.current = next + 1;
       }
     }
@@ -363,6 +367,8 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   const onScroll = useCallback(() => {
     const el = scrollerRef.current;
     if (el && el.scrollTop !== lastScroll.current.top) scrollDown.current = el.scrollTop > lastScroll.current.top;
+    // Thumbnails wait for the scroll to settle (the pages it reveals come first).
+    thumbnailsFor(live.current.engine).noteScroll();
     if (frame.current) return;
     frame.current = requestAnimationFrame(() => {
       frame.current = 0;
@@ -519,6 +525,29 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   );
 
   // --- render ----------------------------------------------------------------
+  // Elium's layers of a page are rebuilt only when the workspace hands a new
+  // `renderOverlay` (its state changed) or the page's geometry changed — not
+  // when this stack alone re-renders (scrolling mounts a page, the current page
+  // moves): together with the memoised slots, only the slots that changed
+  // render again.
+  const overlays = useRef(new Map<string, OverlayMemo>());
+  const nextOverlays = new Map<string, OverlayMemo>();
+  const overlayOf = (page: Page, index: number, geom: OverlayGeometry): ReactNode => {
+    const fn = p.renderOverlay;
+    if (!fn) return undefined;
+    const prev = overlays.current.get(page.id);
+    const hit =
+      prev &&
+      prev.fn === fn &&
+      prev.page === page &&
+      prev.index === index &&
+      prev.size === geom.size &&
+      prev.rotation === geom.rotation &&
+      prev.scale === geom.scale;
+    const memo = hit ? prev : { fn, page, index, ...geom, node: fn(page, index, geom) };
+    nextOverlays.set(page.id, memo);
+    return memo.node;
+  };
   const placements: Placement[] = [];
   if (range) {
     for (let i = range.first; i <= range.last; i++) {
@@ -550,6 +579,25 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     }
   }
 
+  const slots = placements.map((pl) => (
+    <PageSlot
+      key={pl.page.id}
+      controller={controller}
+      placement={pl}
+      scale={layout.scale}
+      active={current === pl.index + 1}
+      ready={readyKeys.current.has(pl.page.id)}
+      hits={p.hitsOf?.(pl.page)}
+      slotEls={slotEls.current}
+      overlay={overlayOf(pl.page, pl.index, {
+        size: pl.size,
+        rotation: pl.rotation,
+        scale: layout.scale,
+      })}
+    />
+  ));
+  overlays.current = nextOverlays;
+
   const themeDef = READING_THEMES.find((t) => t.id === p.theme) ?? READING_THEMES[0];
   const stackStyle = {
     width: layout.contentWidth,
@@ -570,27 +618,18 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       tabIndex={0}
     >
       <div className={`pdfx-stack ${p.showTextLayer ? "" : "no-text"}`} style={stackStyle}>
-        {placements.map((pl) => (
-          <PageSlot
-            key={pl.page.id}
-            controller={controller}
-            placement={pl}
-            scale={layout.scale}
-            active={p.current === pl.index + 1}
-            ready={readyKeys.current.has(pl.page.id)}
-            hits={p.hitsOf?.(pl.page)}
-            slotEls={slotEls.current}
-            overlay={p.renderOverlay?.(pl.page, pl.index, {
-              size: pl.size,
-              rotation: pl.rotation,
-              scale: layout.scale,
-            })}
-          />
-        ))}
+        {slots}
       </div>
     </div>
   );
 });
+
+interface OverlayMemo extends OverlayGeometry {
+  fn: NonNullable<PageStackProps["renderOverlay"]>;
+  page: Page;
+  index: number;
+  node: ReactNode;
+}
 
 export default PageStack;
 
@@ -630,7 +669,40 @@ interface PageSlotProps {
   overlay?: ReactNode;
 }
 
-function PageSlot({ controller, placement: pl, scale, active, ready, hits, slotEls, overlay }: PageSlotProps) {
+/** Same placement, field by field (a placement object is rebuilt on every render of the stack). */
+function samePlacement(a: Placement, b: Placement): boolean {
+  return (
+    a.index === b.index &&
+    a.page === b.page &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.w === b.w &&
+    a.h === b.h &&
+    a.offX === b.offX &&
+    a.offY === b.offY &&
+    a.fullW === b.fullW &&
+    a.fullH === b.fullH &&
+    a.size === b.size &&
+    a.rotation === b.rotation &&
+    a.sourceSize?.w === b.sourceSize?.w &&
+    a.sourceSize?.h === b.sourceSize?.h
+  );
+}
+
+const PageSlot = memo(
+  PageSlotView,
+  (a, b) =>
+    a.controller === b.controller &&
+    a.scale === b.scale &&
+    a.active === b.active &&
+    a.ready === b.ready &&
+    a.hits === b.hits &&
+    a.slotEls === b.slotEls &&
+    a.overlay === b.overlay &&
+    samePlacement(a.placement, b.placement),
+);
+
+function PageSlotView({ controller, placement: pl, scale, active, ready, hits, slotEls, overlay }: PageSlotProps) {
   const slotRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const { page } = pl;

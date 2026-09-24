@@ -25,6 +25,7 @@ import { AnnotationMode } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { PdfEngine } from "../engine";
 import { pdfjsAssetBase } from "../assets";
+import { thumbnailsFor, type ThumbnailService } from "../thumbs";
 import { ImportedAnnotationMask } from "./annotmask";
 import { EliumLinkService, type LinkHandlers } from "./links";
 import { NO_L10N, PDF_TO_CSS_UNITS, canvasBudget, type ViewerLib } from "./lib";
@@ -38,6 +39,8 @@ export interface PageViewLike extends QueueView {
   rotation: number;
   pdfPage: PDFPageProxy | null;
   textLayer: { div: HTMLDivElement } | null;
+  /** pdf.js: the finished raster when it shows the page as the file does (no postponed zoom, initial layers). */
+  readonly thumbnailCanvas: HTMLCanvasElement | null;
   detailView: (QueueView & { update(args: { underlyingViewUpdated?: boolean }): void }) | null;
   setPdfPage(page: PDFPageProxy): void;
   update(args: {
@@ -94,6 +97,8 @@ interface Entry {
   creating: boolean;
   /** Releases the engine-level hold on the page's rendering resources. */
   release: (() => void) | null;
+  /** The raster being drawn hides imported markup (so it is not the file's own look). */
+  masked: boolean;
 }
 
 const RENDER_TEXT_LAYER = 1; // TextLayerMode.ENABLE
@@ -111,6 +116,8 @@ export class PageViewController {
   private readonly linkService: EliumLinkService;
   private readonly layerProperties: Record<string, unknown>;
   private readonly imageResourcesPath: string;
+  private readonly thumbs: ThumbnailService;
+  private readonly detachRasters: () => void;
   readonly mask: ImportedAnnotationMask;
 
   private scale = 1;
@@ -146,13 +153,20 @@ export class PageViewController {
     };
     const base = pdfjsAssetBase();
     this.imageResourcesPath = base ? `${base}images/` : "";
+    // Thumbnails wait while pages are left to draw here, and are copied from
+    // the rasters drawn here rather than drawn a second time.
+    this.thumbs = thumbnailsFor(opts.engine);
+    this.detachRasters = this.thumbs.attachSource((from, rotation) => this.rasterOf(from, rotation));
 
     const on = (name: string, fn: (evt: { source: unknown }) => void) =>
       this.eventBus.on(name, fn as never, { signal: this.abort.signal } as never);
     // A view starts drawing → it now holds a canvas: track it in the LRU.
     on("pagerender", ({ source }) => {
       const entry = this.byView.get(source as PageViewLike);
-      if (entry) this.buffer.push(entry);
+      if (!entry) return;
+      this.buffer.push(entry);
+      // pdf.js has just read the mask (synchronously, as the render started).
+      entry.masked = this.mask.affects(entry.from);
     });
     on("pagerendered", (evt) => {
       const e = evt as { source: unknown; cssTransform?: boolean; isDetailView?: boolean };
@@ -164,6 +178,8 @@ export class PageViewController {
       const visible = this.visible.find((v) => v.key === entry.key);
       if (visible && entry.view) entry.view.updateVisibleArea(visible.visibleArea);
       this.opts.onPageRendered?.(entry.key);
+      const raster = entry.masked ? null : entry.view?.thumbnailCanvas;
+      if (raster?.width) this.thumbs.offer(entry.from, entry.rotation, raster);
     });
     const offIds = this.mask.onPageIds((from) => {
       if (!this.mask.enabled) return;
@@ -200,6 +216,7 @@ export class PageViewController {
         rotation: spec.rotation,
         creating: false,
         release: null,
+        masked: false,
       };
       this.entries.set(key, entry);
     }
@@ -388,12 +405,28 @@ export class PageViewController {
       }
       return out;
     };
-    return chooseNext(
+    const next = chooseNext(
       views(this.visible.map((v) => v.key)),
       views(this.ahead),
       // During a zoom gesture only the base rasters are refreshed.
       this.scaleTimer !== null,
     );
+    // Thumbnails only get the main thread once nothing is left to draw here
+    // (pdf.js' single rendering queue: pages first, thumbnails after).
+    this.thumbs.setMainBusy(next !== null);
+    return next;
+  }
+
+  /** A finished raster of source page `from` at total rotation `rotation`, as the file shows it. */
+  private rasterOf(from: number, rotation: number): HTMLCanvasElement | null {
+    for (const entry of this.entries.values()) {
+      const view = entry.view;
+      if (entry.from !== from || entry.rotation !== rotation || entry.masked || !view) continue;
+      if (view.renderingState !== RenderingState.FINISHED) continue;
+      const raster = view.thumbnailCanvas;
+      if (raster?.width) return raster;
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -495,6 +528,8 @@ export class PageViewController {
     this.destroyed = true;
     if (this.scaleTimer) clearTimeout(this.scaleTimer);
     this.queue.stop();
+    this.detachRasters();
+    this.thumbs.setMainBusy(false);
     for (const entry of [...this.entries.values()]) this.drop(entry);
     this.buffer.clear();
     this.abort.abort();

@@ -93,6 +93,16 @@ describe("forms — readFields", () => {
     expect(fields[0].rect).toEqual({ x: 10, y: 30, w: 50, h: 20 });
   });
 
+  it("treats pdf.js' maxLen 0 as 'no limit' (else the fill input refuses every keystroke)", () => {
+    const widgets: RawWidget[] = [
+      { id: "a", fieldType: "Tx", fieldName: "libre", rect: [0, 0, 10, 10], maxLen: 0 },
+      { id: "b", fieldType: "Tx", fieldName: "cp", rect: [0, 20, 10, 30], maxLen: 5 },
+    ];
+    const [libre, cp] = readFields(widgets, 100);
+    expect(libre.maxLen).toBeNull();
+    expect(cp.maxLen).toBe(5);
+  });
+
   it("skips widgets with no recognisable field type or no name/rect", () => {
     const widgets: RawWidget[] = [
       { id: "a", fieldType: "Unknown", fieldName: "x", rect: [0, 0, 10, 10] },

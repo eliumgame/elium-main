@@ -124,7 +124,9 @@ export function readFields(
       required: !!a.required,
       multiLine: !!a.multiLine,
       password: !!a.password,
-      maxLen: a.maxLen ?? null,
+      // pdf.js reports `maxLen: 0` for a field WITHOUT /MaxLen; passed on as
+      // `maxLength={0}`, the fill layer's <input> then refused every keystroke.
+      maxLen: typeof a.maxLen === "number" && a.maxLen > 0 ? a.maxLen : null,
       exportValue,
       options: (a.options ?? []).map((o) => ({
         value: o.exportValue ?? o.displayValue ?? "",

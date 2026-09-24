@@ -160,7 +160,10 @@ export class ThumbnailService {
     const canvas = (this.scratch ??= document.createElement("canvas"));
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
-    const ctx = canvas.getContext("2d", { alpha: false });
+    // NOT `alpha: false`: on an opaque canvas Chromium draws text with LCD
+    // (sub-pixel) anti-aliasing, whose colour fringes turn into red/blue
+    // specks at thumbnail size. The white fill below keeps it opaque anyway.
+    const ctx = canvas.getContext("2d", { willReadFrequently: false });
     if (!ctx) return null;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);

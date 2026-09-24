@@ -620,6 +620,15 @@ export function hasImportableAnnots(raw: readonly RawAnnotation[]): boolean {
 const IMPORTED_SUBTYPES = new Set([...Object.keys(KIND), "Popup"]);
 
 /**
+ * True for an annotation subtype the model takes over once imported — the set
+ * the export strips (`stripImportedAnnots`) and the viewer stops pdf.js from
+ * painting (`core/viewer/annotmask.ts`), so both always agree.
+ */
+export function isImportedSubtype(subtype: string | undefined): boolean {
+  return !!subtype && IMPORTED_SUBTYPES.has(subtype);
+}
+
+/**
  * Drop the markup the model now owns from a page's `/Annots`, leaving form
  * widgets and links alone. Called at export time when `importedAnnots` is set,
  * so an imported-then-edited comment appears once in the output.

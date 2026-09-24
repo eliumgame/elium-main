@@ -505,18 +505,35 @@
     var(--x-shadow-page),
     0 0 0 2px var(--x-accent-line);
 }
-/* Squelette tant que la page n'a pas été peinte une première fois. */
-.pdfx-slot:not(.is-ready) {
-  background: linear-gradient(100deg, #f6f7f9 30%, #eef0f4 45%, #f6f7f9 60%);
-  background-size: 300% 100%;
-  animation: pdfx-shimmer 1.4s ease-in-out infinite;
+/* Squelette tant que la page n'a pas été peinte une première fois : un fond
+   fixe, puis — seulement si la page tarde — une pulsation d'opacité sur un
+   pseudo-élément. L'ancien reflet animait `background-position`, ce qui
+   repeignait chaque page en attente à chaque image, sur le fil principal, en
+   concurrence avec le rendu des pages (défilement, saut). Une animation
+   d'opacité est jouée par le compositeur ; le délai l'évite tout à fait pour
+   les pages rendues en moins de 350 ms. */
+.pdfx-slot:not(.is-ready)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* Teinte neutre translucide : lisible sur tous les thèmes de lecture. */
+  background: rgba(120, 130, 150, 0.1);
+  pointer-events: none;
+  animation: pdfx-pulse 1.4s ease-in-out 350ms infinite;
 }
-@keyframes pdfx-shimmer {
-  0% {
-    background-position: 130% 0;
-  }
+@keyframes pdfx-pulse {
+  0%,
   100% {
-    background-position: -30% 0;
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pdfx-slot:not(.is-ready)::before {
+    animation: none;
   }
 }
 

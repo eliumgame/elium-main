@@ -307,6 +307,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const shownGeneration = useRef(0);
   /** Remounts the page surface (fresh scroll position, fresh page views) for each document. */
   const [docKey, setDocKey] = useState(0);
+  /**
+   * False once the workspace is unmounted: a document still opening then is
+   * destroyed as soon as it arrives instead of leaking its worker-side copy.
+   * (A flag set in the effect itself, not a generation bump in the cleanup:
+   * StrictMode's rehearsal unmount would void the restore open started on mount.)
+   */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   /**
    * Markup the file already carries becomes editable Elium markup, so a review
@@ -399,7 +412,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         // else (page sizes, bookmarks, existing markup, attachments, layers,
         // form/signature facts) is filled in the background.
         const next = await PdfEngine.open(raw, password);
-        if (gen !== openGeneration.current) {
+        if (gen !== openGeneration.current || !mounted.current) {
           next.destroy();
           return;
         }

@@ -29,6 +29,9 @@ interface ModifiedIds {
 
 const EMPTY: ModifiedIds = Object.freeze({ ids: new Set<string>(), hash: "" }) as ModifiedIds;
 
+/** One mask per document: it is installed on the document's (single) annotation storage. */
+const masks = new WeakMap<PdfEngine, ImportedAnnotationMask>();
+
 export class ImportedAnnotationMask {
   private ids = new Set<string>();
   private perPage = new Map<number, string[]>();
@@ -37,9 +40,39 @@ export class ImportedAnnotationMask {
   private storage: object | null = null;
   private current: ModifiedIds = EMPTY;
   private _enabled = false;
+  private bypass = 0;
 
-  constructor(private readonly engine: PdfEngine) {
+  /** The document's mask, created on first use. */
+  static for(engine: PdfEngine): ImportedAnnotationMask {
+    let m = masks.get(engine);
+    if (!m) {
+      m = new ImportedAnnotationMask(engine);
+      masks.set(engine, m);
+    }
+    return m;
+  }
+
+  /** The document's mask if one exists (never creates it). */
+  static peek(engine: PdfEngine): ImportedAnnotationMask | null {
+    return masks.get(engine) ?? null;
+  }
+
+  private constructor(private readonly engine: PdfEngine) {
     this.install();
+  }
+
+  /**
+   * Run `fn` with the mask lifted — for renders that must show the file as it
+   * is (page thumbnails). pdf.js reads `modifiedIds` synchronously when a
+   * render starts, so wrapping the `page.render(...)` call is enough.
+   */
+  unmasked<T>(fn: () => T): T {
+    this.bypass++;
+    try {
+      return fn();
+    } finally {
+      this.bypass--;
+    }
   }
 
   get enabled(): boolean {
@@ -106,11 +139,12 @@ export class ImportedAnnotationMask {
     // of pdf.js' operator-list cache key, so a change re-renders correctly).
     Object.defineProperty(storage, "modifiedIds", {
       configurable: true,
-      get: () => this.current,
+      get: () => (this.bypass ? EMPTY : this.current),
     });
   }
 
   destroy(): void {
+    if (masks.get(this.engine) === this) masks.delete(this.engine);
     if (this.storage) {
       try {
         delete (this.storage as { modifiedIds?: unknown }).modifiedIds;

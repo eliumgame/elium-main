@@ -24,6 +24,11 @@
 .pdfx {
   container-type: size;
   container-name: editor;
+  /* Colonne explicite, bornée à la largeur de la fenêtre : la piste implicite
+     (`auto`) de la grille déclarée dans workspace.css grandissait avec la
+     largeur minimale de son contenu — une page plus large que l'écran élargissait
+     tout le module, et le zoom « Largeur » s'emballait jusqu'à 1000 %. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* --- vignettes ----------------------------------------------------------- */
@@ -426,6 +431,13 @@
 
 /* ==========================================================================
    Canevas et pages
+   --------------------------------------------------------------------------
+   Pile virtualisée (ui/PageStack.tsx) : seules les pages proches de la zone
+   visible existent dans le DOM, en position absolue. Chaque page accueille une
+   vue de page pdf.js (`.page` : canevas, canevas de détail, calque texte,
+   calque de liens) dont les règles essentielles sont reprises ci-dessous,
+   limitées à `.pdfx-stack` — la feuille complète de pdf.js (6 000 lignes,
+   éditeur, dialogues, règles globales) n'est pas chargée.
    ========================================================================== */
 
 .pdfx-canvas {
@@ -433,8 +445,17 @@
   min-width: 0;
   overflow: auto;
   background: var(--x-desk);
-  scroll-behavior: smooth;
+  /* Pas de défilement doux global : l'ancrage du zoom et les sauts lointains
+     fixent scrollTop directement ; le défilement doux est demandé au cas par
+     cas (scrollTo({ behavior })). */
+  scroll-behavior: auto;
+  overflow-anchor: none;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  /* Taille indépendante du contenu : sans cela, une page plus large que la
+     fenêtre élargissait le canevas, donc le zoom « Largeur », donc la page…
+     (boucle qui menait à 1000 % sur mixed-geometry.pdf). */
+  contain: strict;
+  position: relative;
 }
 .pdfx-canvas.is-hand {
   cursor: grab;
@@ -458,52 +479,31 @@
   background-clip: content-box;
 }
 
-.pdfx-pages {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 22px 24px 60px;
-  min-width: min-content;
-}
-.pdfx-canvas--facing .pdfx-pages,
-.pdfx-canvas--facingContinuous .pdfx-pages {
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 14px 10px;
+.pdfx-stack {
+  position: relative;
+  --scale-factor: 1;
+  --pdfx-page-bg: #fff;
+  --pdfx-page-filter: none;
 }
 
 .pdfx-page {
-  position: relative;
   flex: none;
-  background: #fff;
+  background: var(--pdfx-page-bg, #fff);
   border-radius: 3px;
   box-shadow: var(--x-shadow-page);
   transition: box-shadow var(--el-motion-base) var(--el-ease-standard);
+}
+.pdfx-stack > .pdfx-slot {
+  position: absolute;
+  contain: layout style;
 }
 .pdfx-page.is-active {
   box-shadow:
     var(--x-shadow-page),
     0 0 0 2px var(--x-accent-line);
 }
-.pdfx-page__canvas {
-  display: block;
-  border-radius: 3px;
-}
-.pdfx-page__image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.pdfx-page__skeleton {
-  position: absolute;
-  inset: 0;
-  border-radius: 3px;
+/* Squelette tant que la page n'a pas été peinte une première fois. */
+.pdfx-slot:not(.is-ready) {
   background: linear-gradient(100deg, #f6f7f9 30%, #eef0f4 45%, #f6f7f9 60%);
   background-size: 300% 100%;
   animation: pdfx-shimmer 1.4s ease-in-out infinite;
@@ -517,6 +517,178 @@
   }
 }
 
+/* Découpe (recadrage Elium) : la page pdf.js est décalée dans son slot. */
+.pdfx-slot__clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.pdfx-slot__pdf {
+  position: absolute;
+}
+.pdfx-page__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: var(--pdfx-page-filter);
+}
+
+/* --- vue de page pdf.js (reprise ciblée de pdf_viewer.css) --------------- */
+
+.pdfx-stack .page {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  direction: ltr;
+  position: relative;
+  overflow: visible;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.pdfx-stack .canvasWrapper {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  filter: var(--pdfx-page-filter);
+}
+.pdfx-stack .canvasWrapper canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  contain: content;
+}
+.pdfx-stack .canvasWrapper canvas .structTree {
+  contain: strict;
+}
+.pdfx-stack .canvasWrapper canvas.detailView {
+  image-rendering: pixelated;
+}
+
+/* --- calque texte (sélection) -------------------------------------------- */
+
+.pdfx-stack .textLayer {
+  color-scheme: only light;
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdfx-stack.no-text .textLayer {
+  display: none;
+}
+.pdfx-stack .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.pdfx-stack .textLayer > :not(.markedContent),
+.pdfx-stack .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdfx-stack .textLayer .markedContent {
+  display: contents;
+}
+.pdfx-stack .textLayer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+.pdfx-stack .textLayer ::selection {
+  background: rgba(79, 140, 255, 0.35);
+  color: transparent;
+}
+.pdfx-stack .textLayer br::selection {
+  background: transparent;
+}
+.pdfx-stack .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.pdfx-stack .textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/* --- calque de liens (annotations HTML de pdf.js : liens seulement) ------ */
+
+.pdfx-stack .annotationLayer {
+  color-scheme: only light;
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  z-index: 4;
+}
+.pdfx-stack .annotationLayer section {
+  position: absolute;
+  text-align: initial;
+  pointer-events: auto;
+  box-sizing: border-box;
+  transform-origin: 0 0;
+  user-select: none;
+}
+/* Commentaires, champs, popups : Elium les affiche lui-même (calques
+   d'annotation et de formulaire). */
+.pdfx-stack .annotationLayer section:not(.linkAnnotation) {
+  display: none;
+}
+.pdfx-stack .textLayer.selecting ~ .annotationLayer section {
+  pointer-events: none;
+}
+.pdfx-stack .annotationLayer .linkAnnotation > a {
+  position: absolute;
+  font-size: 1em;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  transition: background var(--el-motion-fast);
+}
+.pdfx-stack .annotationLayer .linkAnnotation > a:hover {
+  background: rgba(79, 140, 255, 0.18);
+  box-shadow: inset 0 0 0 1px var(--x-accent-line);
+}
+.pdfx-stack .annotationLayer .linkAnnotation > a:focus-visible {
+  outline: 2px solid var(--x-accent);
+  outline-offset: 1px;
+}
+
+/* --- page, étiquette, résultats de recherche ----------------------------- */
+
 .pdfx-page__label {
   position: absolute;
   bottom: 6px;
@@ -529,6 +701,7 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
   opacity: 0;
+  z-index: 8;
   transition: opacity var(--el-motion-base) var(--el-ease-standard);
 }
 .pdfx-page:hover .pdfx-page__label,
@@ -536,36 +709,8 @@
   opacity: 1;
 }
 
-/* --- calque texte -------------------------------------------------------- */
-
-.pdfx-textlayer {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  line-height: 1;
-  text-align: initial;
-  text-size-adjust: none;
-  forced-color-adjust: none;
-  transform-origin: 0 0;
-  z-index: 2;
-}
-.pdfx-textlayer :is(span, br) {
-  position: absolute;
-  color: transparent;
-  white-space: pre;
-  cursor: text;
-  transform-origin: 0 0;
-}
-.pdfx-textlayer ::selection {
-  background: rgba(79, 140, 255, 0.35);
-}
-.pdfx-textlayer br {
-  user-select: none;
-}
-
 .pdfx-hits {
   position: absolute;
-  inset: 0;
   z-index: 3;
   pointer-events: none;
 }
@@ -574,24 +719,6 @@
 }
 .pdfx-hit.is-active {
   fill: rgba(249, 115, 22, 0.62);
-}
-
-.pdfx-linklayer {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-}
-.pdfx-link {
-  position: absolute;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  cursor: pointer;
-  transition: background var(--el-motion-fast);
-}
-.pdfx-link:hover {
-  background: rgba(79, 140, 255, 0.18);
-  box-shadow: inset 0 0 0 1px var(--x-accent-line);
 }
 
 /* ==========================================================================

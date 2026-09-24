@@ -22,7 +22,8 @@ import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts"
 import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
-import { RenderScheduler } from "../core/render";
+import { loadViewerLib } from "../core/viewer/lib";
+import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
 import { DEFAULT_SEARCH_OPTIONS, search as runSearch, type SearchHit } from "../core/search";
 import * as D from "../model/doc";
@@ -84,7 +85,7 @@ import ContentEditPreview from "./ContentEditPreview";
 import FormLayer from "./FormLayer";
 import Inspector from "./Inspector";
 import Organize from "./Organize";
-import PageView from "./PageView";
+import PageStack, { type HitMark, type OverlayGeometry, type PageStackHandle } from "./PageStack";
 import Ribbon from "./Ribbon";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
 import {
@@ -181,6 +182,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     canUndo,
     canRedo,
     reset,
+    amend,
   } = useUndoable<PdfState>(emptyState());
 
   // --- view -----------------------------------------------------------------
@@ -225,9 +227,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [hasForm, setHasForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scheduler = useMemo(() => new RenderScheduler(), []);
-  const textLayers = useRef(new Map<number, HTMLDivElement>());
+  const stackRef = useRef<PageStackHandle>(null);
+  /** Size of the page viewport (reported by PageStack) — what the fit zooms fit into. */
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  /** Bumped when the engine learns a page's real geometry (sizes start as estimates). */
+  const [geometryVersion, setGeometryVersion] = useState(0);
+  /** Bumped when the engine's background facts (form, signature) are final. */
+  const [, setInfoVersion] = useState(0);
+  /** Live text layers by page id, with the slot they sit in (the page's view origin). */
+  const textLayers = useRef(new Map<string, { layer: HTMLElement; host: HTMLElement }>());
   const openInput = useRef<HTMLInputElement>(null);
   const mergeInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -285,67 +293,106 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Loading
   // -------------------------------------------------------------------------
+  /** Identifies the document being opened: background work for an older one is dropped. */
+  const openGeneration = useRef(0);
+  /** Remounts the page surface (fresh scroll position, fresh page views) for each document. */
+  const [docKey, setDocKey] = useState(0);
+
+  /**
+   * Markup the file already carries becomes editable Elium markup, so a review
+   * started in Acrobat continues here instead of being read-only. This used to
+   * walk every page (getPage + getAnnotations, one round trip each, in
+   * sequence) BEFORE the document appeared — seconds on a long file. It now
+   * runs after the first paint, a few pages at a time, and lands in one atomic
+   * step: `importedAnnots` flips to true only once every page is imported, so
+   * until then pdf.js keeps painting the originals and an export writes them
+   * back untouched. The result is folded into the whole undo history
+   * (`amend`): it is part of the document, not an edit to undo.
+   */
+  const importExistingMarkup = useCallback(
+    async (next: PdfEngine, sourcePages: readonly Page[], gen: number) => {
+      const froms = [...new Set(sourcePages.map((q) => q.from).filter((f): f is number => f != null))];
+      const raws = new Map<number, RawAnnotation[]>();
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < froms.length && gen === openGeneration.current) {
+          const from = froms[cursor++];
+          const raw = (await next.annotations(from)) as RawAnnotation[];
+          if (hasImportableAnnots(raw)) raws.set(from, raw);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, froms.length) }, worker));
+      if (gen !== openGeneration.current || !raws.size) return;
+
+      // A Stamp's own picture never comes back from pdf.js's getAnnotations()
+      // (only a `hasAppearance` boolean) — resolving it needs a separate walk
+      // of the source bytes with pdf-lib, keyed by annotation. That walk parses
+      // the whole document, so it only runs when some stamp has a picture.
+      const needsPictures = [...raws.values()].some((raw) => raw.some((a) => a.subtype === "Stamp" && a.hasAppearance));
+      const appearances = needsPictures
+        ? await resolveStampAppearanceImages(next.bytes, next.password).catch(
+            () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
+          )
+        : null;
+      if (gen !== openGeneration.current) return;
+
+      const byFrom = new Map<number, Annot[]>();
+      for (const page of sourcePages) {
+        if (page.from == null || byFrom.has(page.from)) continue;
+        const raw = raws.get(page.from);
+        if (!raw) continue;
+        const pageAppearances = appearances?.get(page.from);
+        const withImages = pageAppearances?.size
+          ? raw.map((a) => (a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a))
+          : raw;
+        const info = await next.pageInfo(page.from);
+        const origin = { x: info.ox, y: info.oy };
+        byFrom.set(page.from, importPageAnnots(withImages, page.id, info.h, author, origin).annots);
+      }
+      if (gen !== openGeneration.current || !byFrom.size) return;
+      const originals = new Map(sourcePages.map((q) => [q.id, q.from]));
+      let count = 0;
+      for (const list of byFrom.values()) count += list.length;
+
+      amend((s) => {
+        if (s.importedAnnots) return s;
+        const added: Annot[] = [];
+        for (const page of s.pages) {
+          const list = page.from != null ? byFrom.get(page.from) : undefined;
+          if (!list) continue;
+          // The page the import was computed for keeps those annotations; a
+          // copy of it made in the meantime gets copies.
+          if (originals.get(page.id) === page.from && list[0]?.pageId === page.id) added.push(...list);
+          else added.push(...list.map((a) => ({ ...D.cloneAnnot(a), pageId: page.id })));
+        }
+        return { ...s, annots: [...added, ...s.annots], importedAnnots: true };
+      });
+      setPanel((p) => (p === "thumbnails" ? "comments" : p));
+      toast("info", `${count} annotation(s) importée(s)`, "Le balisage déjà présent est modifiable et répondable.");
+    },
+    [amend, author, toast],
+  );
+
   const openBytes = useCallback(
     async (raw: Uint8Array, name: string, password?: string, restore?: PdfState) => {
       setLoading(true);
       setLoadError("");
       try {
+        // Only the document, page 1 and the metadata are awaited: everything
+        // else (page sizes, bookmarks, existing markup, attachments, layers,
+        // form/signature facts) is filled in the background.
         const next = await PdfEngine.open(raw, password);
         engine?.destroy();
-        scheduler.cancelAll();
+        const gen = ++openGeneration.current;
         bytesRef.current = raw.slice();
         passwordRef.current = password ?? null;
-        setEngine(next);
-        setFileName(name);
-        setPendingPassword(null);
-        setHasForm(next.info.hasAcroForm);
-        pageTextsRef.current = null;
-        setHits([]);
-        setHitQuads(new Map());
-        setSelectedIds([]);
-        setSelectedPages([]);
-
-        const outline = await next.outline();
-        const bookmarks: Bookmark[] | null = outline.length ? outlineToBookmarks(outline) : null;
-
-        // Markup the file already carries becomes editable Elium markup, so a
-        // review started in Acrobat continues here instead of being read-only.
-        const imported: Annot[] = [];
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
-        if (!restore) {
-          // A Stamp's own picture never comes back from pdf.js's getAnnotations()
-          // (only a `hasAppearance` boolean) — resolving it needs a separate walk
-          // of the source bytes with pdf-lib, keyed by annotation. That walk parses
-          // the whole document, so it only runs once, lazily, the first time a page
-          // actually turns up a stamp with a picture to resolve.
-          let appearances: Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>> | null = null;
-          for (const page of sourcePages) {
-            if (page.from == null) continue;
-            const raw = (await next.annotations(page.from)) as RawAnnotation[];
-            if (!hasImportableAnnots(raw)) continue;
-            if (!appearances && raw.some((a) => a.subtype === "Stamp" && a.hasAppearance)) {
-              appearances = await resolveStampAppearanceImages(next.bytes, next.password).catch(
-                () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
-              );
-            }
-            const pageAppearances = appearances?.get(page.from);
-            const withImages = pageAppearances?.size
-              ? raw.map((a) =>
-                  a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a,
-                )
-              : raw;
-            const info = next.pages[page.from];
-            const origin = { x: info?.ox ?? 0, y: info?.oy ?? 0 };
-            imported.push(...importPageAnnots(withImages, page.id, info?.h ?? 842, author, origin).annots);
-          }
-        }
-
-        const base = restore ?? {
+        const base: PdfState = restore ?? {
           ...emptyState(),
           pages: sourcePages,
-          annots: imported,
-          importedAnnots: imported.length > 0,
-          bookmarks,
+          annots: [],
+          importedAnnots: false,
+          bookmarks: null,
           metadata: {
             title: next.info.title,
             author: next.info.author,
@@ -354,19 +401,41 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             language: next.info.language,
           },
         };
-        reset(restore ? { ...base, bookmarks: base.bookmarks ?? bookmarks } : base);
-        if (imported.length) {
-          setPanel("comments");
-          toast(
-            "info",
-            `${imported.length} annotation(s) importée(s)`,
-            "Le balisage déjà présent est modifiable et répondable.",
-          );
-        }
-        setAttachments(await next.attachments());
-        setLayers(await next.layers());
+        reset(base);
+        setDocKey(gen);
+        setEngine(next);
+        setFileName(name);
+        setPendingPassword(null);
+        setHasForm(next.info.hasAcroForm);
+        pageTextsRef.current = null;
+        textLayers.current.clear();
+        setHits([]);
+        setHitQuads(new Map());
+        setSelectedIds([]);
+        setSelectedPages([]);
+        setAttachments([]);
+        setLayers([]);
+        setHiddenLayers(new Set());
+        setOcConfig(undefined);
         setView((v) => ({ ...v, current: 1 }));
         setMode("view");
+
+        void next
+          .outline()
+          .then((outline) => {
+            if (gen !== openGeneration.current || !outline.length) return;
+            const bookmarks: Bookmark[] = outlineToBookmarks(outline);
+            amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
+          })
+          .catch(() => {});
+        void next.attachments().then((a) => gen === openGeneration.current && setAttachments(a));
+        void next.layers().then((l) => gen === openGeneration.current && setLayers(l));
+        if (!restore) {
+          // Let the first page paint before competing for the pdf.js worker.
+          setTimeout(() => {
+            if (gen === openGeneration.current) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
+          }, 250);
+        }
       } catch (e) {
         if (e instanceof PdfPasswordRequired) {
           setPendingPassword({ bytes: raw, name, wrong: e.wrong });
@@ -377,7 +446,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setLoading(false);
       }
     },
-    [engine, reset, scheduler, author, toast],
+    [engine, reset, amend, importExistingMarkup],
   );
 
   const openFile = useCallback(
@@ -410,12 +479,26 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   useEffect(
     () => () => {
       engine?.destroy();
-      scheduler.cancelAll();
     },
-    [engine, scheduler],
+    [engine],
   );
+  // Page sizes start as estimates and the form/signature facts are computed in
+  // the background: re-render when the engine learns them.
+  useEffect(() => {
+    if (!engine) return;
+    setHasForm(engine.info.hasAcroForm);
+    return engine.subscribe((e) => {
+      if (e.type === "geometry") setGeometryVersion((v) => v + 1);
+      else {
+        setHasForm(e.info.hasAcroForm);
+        setInfoVersion((v) => v + 1);
+      }
+    });
+  }, [engine]);
   useEffect(() => {
     void hasLocalModels().then(setLocalModels);
+    // Fetch the viewer components while the user picks a file.
+    void loadViewerLib().catch(() => {});
   }, []);
 
   // -------------------------------------------------------------------------
@@ -430,7 +513,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       if (!crop) return { w: info.w, h: info.h };
       return { w: Math.max(1, info.w - crop.left - crop.right), h: Math.max(1, info.h - crop.top - crop.bottom) };
     },
-    [engine],
+    // `engine.pages` entries are replaced as real sizes replace the estimates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [engine, geometryVersion],
   );
 
   const rotationOf = useCallback(
@@ -438,7 +523,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       const own = page.from != null ? (engine?.pages[page.from]?.rotate ?? 0) : 0;
       return normRotation(own + (page.rotate ?? 0) + view.viewRotation);
     },
-    [engine, view.viewRotation],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [engine, view.viewRotation, geometryVersion],
   );
 
   // `sizeOf` above returns a brand-new `{w,h}` object on every call, even for
@@ -461,34 +547,28 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Zoom & navigation
   // -------------------------------------------------------------------------
+  // The page a fit zoom fits is the current one WHEN the fit is asked for (or
+  // the window resized) — not re-evaluated on every scroll, or the zoom would
+  // jump each time a page of another size scrolls by. The scale depends only
+  // on that page and on the viewport, never on the laid-out content (the old
+  // "Largeur → 1000 %" runaway: the viewport grew with its own content).
+  const fitPageRef = useRef(0);
+  useEffect(() => {
+    fitPageRef.current = Math.max(0, view.current - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.zoomMode, view.mode, viewport]);
   const applyFit = useCallback(() => {
-    const el = scrollRef.current;
-    const page = pages[view.current - 1];
-    if (!el || !page) return;
+    if (view.zoomMode === "custom" || viewport.width <= 0 || viewport.height <= 0) return;
+    const page = pages[fitPageRef.current] ?? pages[0];
+    if (!page) return;
     const size = sizeOf(page);
-    const rot = rotationOf(page);
-    const w = rot % 180 === 0 ? size.w : size.h;
-    const h = rot % 180 === 0 ? size.h : size.w;
-    const availW = el.clientWidth - 64;
-    const availH = el.clientHeight - 56;
-    let next = view.scale;
-    if (view.zoomMode === "fitWidth") next = availW / (view.mode.startsWith("facing") ? w * 2 + 16 : w);
-    else if (view.zoomMode === "fitPage") next = Math.min(availW / w, availH / h);
-    else if (view.zoomMode === "fitVisible") next = availW / (w * 0.86);
-    else return;
-    const clamped = clamp(next, MIN_SCALE, MAX_SCALE);
-    if (Math.abs(clamped - view.scale) > 0.002) setView((v) => ({ ...v, scale: clamped }));
-  }, [pages, sizeOf, rotationOf, view]);
-
+    const box = rotationOf(page) % 180 === 0 ? size : { w: size.h, h: size.w };
+    const twoUp = view.mode === "facing" || view.mode === "facingContinuous";
+    const next = clamp(fitScale(view.zoomMode, box, viewport, { twoUp }), MIN_SCALE, MAX_SCALE);
+    setView((v) => (v.zoomMode === "custom" || Math.abs(v.scale - next) <= 0.002 ? v : { ...v, scale: next }));
+  }, [view.zoomMode, view.mode, viewport, pages, sizeOf, rotationOf]);
   useEffect(() => {
     applyFit();
-  }, [applyFit]);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => applyFit());
-    ro.observe(el);
-    return () => ro.disconnect();
   }, [applyFit]);
 
   const setScale = (next: number, mode: ViewState["zoomMode"] = "custom") =>
@@ -502,59 +582,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     setScale(next ?? view.scale * (dir > 0 ? 1.2 : 0.8));
   };
 
-  const goTo = useCallback(
-    (page: number, y?: number) => {
-      const target = clamp(Math.round(page), 1, Math.max(1, pageCountRef.current));
-      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${target}"]`);
-      if (el) {
-        const top = el.offsetTop - 16 + (y ? y * view.scale : 0);
-        scrollRef.current?.scrollTo({ top, behavior: "smooth" });
-      }
-      setView((v) => ({ ...v, current: target }));
-    },
-    [view.scale],
-  );
-
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const mid = el.scrollTop + el.clientHeight * 0.38;
-    let best = 1;
-    let bestD = Infinity;
-    el.querySelectorAll<HTMLElement>("[data-page]").forEach((node) => {
-      const d = Math.abs(node.offsetTop + node.offsetHeight / 2 - mid);
-      if (d < bestD) {
-        bestD = d;
-        best = Number(node.dataset.page);
-      }
-    });
-    setView((v) => (v.current === best ? v : { ...v, current: best }));
+  /** Show 1-based page `page`, `y` points below its top edge. */
+  const goTo = useCallback((page: number, y?: number) => {
+    const target = clamp(Math.round(page), 1, Math.max(1, pageCountRef.current));
+    stackRef.current?.scrollToPage(target - 1, { top: y ? Math.max(0, y) : 0 });
+    setView((v) => (v.current === target ? v : { ...v, current: target }));
   }, []);
 
-  // Ctrl+wheel zooms about the pointer, like every real reader.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
-      const before = view.scale;
-      const factor = Math.exp(-e.deltaY * 0.0016);
-      const next = clamp(before * factor, MIN_SCALE, MAX_SCALE);
-      if (Math.abs(next - before) < 0.0005) return;
-      const rect = el.getBoundingClientRect();
-      const px = e.clientX - rect.left + el.scrollLeft;
-      const py = e.clientY - rect.top + el.scrollTop;
-      const ratio = next / before;
-      setView((v) => ({ ...v, scale: next, zoomMode: "custom" }));
-      requestAnimationFrame(() => {
-        el.scrollLeft = px * ratio - (e.clientX - rect.left);
-        el.scrollTop = py * ratio - (e.clientY - rect.top);
-      });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [view.scale]);
+  const onCurrentChange = useCallback((current: number) => {
+    setView((v) => (v.current === current ? v : { ...v, current }));
+  }, []);
+  // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.
+  const onScaleChange = useCallback((scale: number) => {
+    setView((v) => ({ ...v, scale: clamp(scale, MIN_SCALE, MAX_SCALE), zoomMode: "custom" }));
+  }, []);
 
   // -------------------------------------------------------------------------
   // Annotations
@@ -606,11 +647,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       if (!sel || sel.isCollapsed) return false;
       const now = new Date().toISOString();
       const made: Annot[] = [];
-      for (const [index, layer] of textLayers.current) {
-        const page = pages[index];
-        if (!page) continue;
-        const host = layer.parentElement;
-        if (!host) continue;
+      const byId = new Map(pages.map((q) => [q.id, q]));
+      for (const [pageId, { layer, host }] of textLayers.current) {
+        const page = byId.get(pageId);
+        if (!page || !layer.isConnected) continue;
+        // `host` is the page slot: its top-left is the page's view origin
+        // (after an Elium crop), which is what the quads are relative to.
         const quads = quadsFromSelection(sel, host, layer, view.scale, sizeOf(page), rotationOf(page));
         if (!quads.length) continue;
         const text = selectionTextIn(sel, layer);
@@ -739,10 +781,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (!hits.length) return;
     const next = (searchState.index + delta + hits.length) % hits.length;
     setSearchState((s) => ({ ...s, index: next }));
-    const hit = hits[next];
-    const target = pages.findIndex((pg) => pg.from === hit.page);
-    goTo((target < 0 ? hit.page : target) + 1);
+    goToHit(next);
   };
+
+  /** Scroll hit `i` into view: its page, and the line itself when its quads are known. */
+  const goToHit = (i: number) => {
+    const hit = hits[i];
+    if (!hit) return;
+    const target = pages.findIndex((pg) => pg.from === hit.page);
+    const k = hits.filter((h) => h.page === hit.page).indexOf(hit);
+    const quads = hitQuads.get(hit.page)?.[k];
+    const page = target >= 0 ? pages[target] : undefined;
+    // Quads are in source page space; only an unrotated, uncropped page maps them 1:1.
+    const y =
+      quads?.length && page && !page.crop && rotationOf(page) === 0 ? Math.max(0, rectOfQuads(quads).y - 60) : undefined;
+    goTo((target < 0 ? hit.page : target) + 1, y);
+  };
+
+  // Search results, per source page, in the shape PageStack draws.
+  const hitMarks = useMemo(() => {
+    const out = new Map<number, HitMark[]>();
+    const active = hits[searchState.index];
+    for (const [from, list] of hitQuads) {
+      const onPage = hits.filter((h) => h.page === from);
+      out.set(
+        from,
+        list.map((quads, i) => ({ quads, active: !!active && onPage[i] === active })),
+      );
+    }
+    return out;
+  }, [hitQuads, hits, searchState.index]);
+  const hitsOf = useCallback((page: Page) => (page.from != null ? hitMarks.get(page.from) : undefined), [hitMarks]);
 
   // -------------------------------------------------------------------------
   // Persistence & export
@@ -843,7 +912,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !bytesRef.current) return;
-    if (engine?.info.signed && !(await confirmResign())) return;
+    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
     const pw = await dialogs.prompt({
       title: "Signer avec un certificat (PAdES)",
       label: `Mot de passe du certificat « ${file.name} »`,
@@ -893,7 +962,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       );
       return;
     }
-    if (engine?.info.signed && !(await confirmResign())) return;
+    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
     setBusy(true);
     const id = toast("progress", "Génération du certificat et signature…");
     try {
@@ -1838,7 +1907,91 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }
 
   const themeDef = READING_THEMES.find((t) => t.id === view.theme) ?? READING_THEMES[0];
-  const visiblePages = pages;
+
+  // Elium's layers for one page, rendered by PageStack inside the page slot
+  // (same stacking and coordinates as the old PageView children). `scale` is
+  // PageStack's — during a Ctrl+wheel gesture it leads `view.scale`.
+  const renderOverlay = (page: Page, _index: number, { size, rotation, scale }: OverlayGeometry) => {
+    const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
+    const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
+    return (
+      <>
+        {/* Edited paragraphs are painted over the original raster in every
+            mode, so a change is visible the instant it is made and stays
+            visible after leaving the editor. */}
+        <ContentEditPreview edits={pageEdits} size={size} rotation={rotation} scale={scale} maskColor={themeDef.canvas} />
+        {mode === "editText" && (
+          <ContentEditLayer
+            engine={engine}
+            from={page.from}
+            pageId={page.id}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            edits={pageEdits}
+            onBeginChange={checkpoint}
+            onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
+          />
+        )}
+        {(mode === "form" || mode === "fields") && (
+          <FormLayer
+            engine={engine}
+            from={page.from}
+            pageId={page.id}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            values={state.formValues}
+            created={state.createdFields}
+            highlight
+            onBeginChange={checkpoint}
+            onChange={(name, value: FormValue) => setQuiet((s) => D.setFormValue(s, name, value))}
+            onFields={() => {
+              /* fields are read live */
+            }}
+          />
+        )}
+        {mode === "view" && (
+          <AnnotLayer
+            pageId={page.id}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            annots={pageAnnots}
+            tool={tool}
+            style={style}
+            selectedIds={selectedIds}
+            editingId={editingId}
+            author={author}
+            snap={view.showGrid}
+            onCreate={(a) => {
+              addAnnot(a);
+              if (a.kind === "redact") setTab("protect");
+            }}
+            onUpdate={patchAnnot}
+            onSelect={(ids, additive) => setSelectedIds(additive ? [...new Set([...selectedIds, ...ids])] : ids)}
+            onEdit={setEditingId}
+            onDelete={deleteAnnots}
+            onToolDone={finishTool}
+            onBeginGesture={checkpoint}
+            onContextMenu={(a) => setSelectedIds([a.id])}
+            onRequestImage={(at) => {
+              pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
+              imageInput.current?.click();
+            }}
+            onRequestNoteText={async (a) => {
+              const text = await dialogs.prompt({
+                title: "Note",
+                label: "Commentaire",
+                defaultValue: a.contents ?? "",
+              });
+              if (text !== null) patchAnnot(a.id, { contents: text }, false);
+            }}
+          />
+        )}
+      </>
+    );
+  };
 
   return (
     <div className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""}`}>
@@ -2111,9 +2264,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               }
               onSearchSelect={(index) => {
                 setSearchState((s) => ({ ...s, index }));
-                const hit = hits[index];
-                const target = pages.findIndex((q) => q.from === hit.page);
-                goTo((target < 0 ? hit.page : target) + 1);
+                goToHit(index);
               }}
               onLayerToggle={async (id) => {
                 const next = new Set(hiddenLayers);
@@ -2156,146 +2307,40 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onClose={() => setMode("view")}
           />
         ) : (
-          <div
-            className={`pdfx-canvas pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
-            ref={scrollRef}
-            onScroll={onScroll}
-            role="main"
-            aria-label="Pages du document"
-            tabIndex={0}
+          <PageStack
+            ref={stackRef}
+            key={docKey}
+            engine={engine}
+            pages={pages}
+            sizeOf={stableSizeOf}
+            rotationOf={rotationOf}
+            scale={view.scale}
+            mode={view.mode}
+            cover={view.spreadCover}
+            theme={view.theme}
+            current={view.current}
+            showTextLayer={mode === "view" && tool !== "hand"}
+            maskImported={state.importedAnnots}
+            optionalContent={ocConfig}
+            hitsOf={hitsOf}
+            className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
             style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
-          >
-            <div className="pdfx-pages">
-              {visiblePages.map((page, index) => {
-                const size = stableSizeOf(page);
-                const rotation = rotationOf(page);
-                const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
-                const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
-                const pageHits = page.from != null ? hitQuads.get(page.from) : undefined;
-                const activeHit = hits[searchState.index];
-                const hitList = pageHits?.map((quads, i) => ({
-                  quads,
-                  active:
-                    !!activeHit &&
-                    activeHit.page === page.from &&
-                    hits.filter((h) => h.page === page.from).indexOf(activeHit) === i,
-                }));
-                return (
-                  <PageView
-                    key={page.id}
-                    engine={engine}
-                    scheduler={scheduler}
-                    index={index}
-                    from={page.from}
-                    size={size}
-                    rotation={rotation}
-                    scale={view.scale}
-                    theme={view.theme}
-                    label={page.label || String(index + 1)}
-                    active={view.current === index + 1}
-                    hits={hitList}
-                    optionalContent={ocConfig}
-                    image={page.image}
-                    showTextLayer={mode === "view" && tool !== "hand"}
-                    annotationMode={state.importedAnnots ? 0 : 1}
-                    onTextLayer={(el) => {
-                      if (el) textLayers.current.set(index, el);
-                      else textLayers.current.delete(index);
-                    }}
-                    onLinkActivate={(target) => {
-                      if (target.page) goTo(target.page);
-                      else if (target.url)
-                        void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
-                          if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
-                        });
-                    }}
-                  >
-                    {/* Edited paragraphs are painted over the original raster in
-                        every mode, so a change is visible the instant it is made
-                        and stays visible after leaving the editor. */}
-                    <ContentEditPreview
-                      edits={pageEdits}
-                      size={size}
-                      rotation={rotation}
-                      scale={view.scale}
-                      maskColor={themeDef.canvas}
-                    />
-                    {mode === "editText" && (
-                      <ContentEditLayer
-                        engine={engine}
-                        from={page.from}
-                        pageId={page.id}
-                        size={size}
-                        rotation={rotation}
-                        scale={view.scale}
-                        edits={pageEdits}
-                        onBeginChange={checkpoint}
-                        onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
-                      />
-                    )}
-                    {(mode === "form" || mode === "fields") && (
-                      <FormLayer
-                        engine={engine}
-                        from={page.from}
-                        pageId={page.id}
-                        size={size}
-                        rotation={rotation}
-                        scale={view.scale}
-                        values={state.formValues}
-                        created={state.createdFields}
-                        highlight
-                        onBeginChange={checkpoint}
-                        onChange={(name, value: FormValue) => setQuiet((s) => D.setFormValue(s, name, value))}
-                        onFields={() => {
-                          /* fields are read live */
-                        }}
-                      />
-                    )}
-                    {mode === "view" && (
-                      <AnnotLayer
-                        pageId={page.id}
-                        size={size}
-                        rotation={rotation}
-                        scale={view.scale}
-                        annots={pageAnnots}
-                        tool={tool}
-                        style={style}
-                        selectedIds={selectedIds}
-                        editingId={editingId}
-                        author={author}
-                        snap={view.showGrid}
-                        onCreate={(a) => {
-                          addAnnot(a);
-                          if (a.kind === "redact") setTab("protect");
-                        }}
-                        onUpdate={patchAnnot}
-                        onSelect={(ids, additive) =>
-                          setSelectedIds(additive ? [...new Set([...selectedIds, ...ids])] : ids)
-                        }
-                        onEdit={setEditingId}
-                        onDelete={deleteAnnots}
-                        onToolDone={finishTool}
-                        onBeginGesture={checkpoint}
-                        onContextMenu={(a) => setSelectedIds([a.id])}
-                        onRequestImage={(at) => {
-                          pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
-                          imageInput.current?.click();
-                        }}
-                        onRequestNoteText={async (a) => {
-                          const text = await dialogs.prompt({
-                            title: "Note",
-                            label: "Commentaire",
-                            defaultValue: a.contents ?? "",
-                          });
-                          if (text !== null) patchAnnot(a.id, { contents: text }, false);
-                        }}
-                      />
-                    )}
-                  </PageView>
-                );
-              })}
-            </div>
-          </div>
+            renderOverlay={renderOverlay}
+            onCurrentChange={onCurrentChange}
+            onScaleChange={onScaleChange}
+            onViewportResize={setViewport}
+            onTextLayer={(pageId, layer, host) => {
+              if (layer && host) textLayers.current.set(pageId, { layer, host });
+              else textLayers.current.delete(pageId);
+            }}
+            onLinkActivate={(target) => {
+              if (target.page) goTo(target.page, target.y);
+              else if (target.url)
+                void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
+                  if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
+                });
+            }}
+          />
         )}
 
         {inspector && selection.length > 0 && mode === "view" && (

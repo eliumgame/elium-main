@@ -101,6 +101,7 @@ export interface PageStackProps {
   onCurrentChange?: (current: number) => void;
   /** Ctrl+wheel zoom settled on a new scale. */
   onScaleChange?: (scale: number) => void;
+  /** The box a fit zoom fits into: the viewport, independent of the scrollbars being shown. */
   onViewportResize?: (size: { width: number; height: number }) => void;
   /** A page's text layer (the selection surface) and the slot it lives in (the page's view origin). */
   onTextLayer?: (pageId: string, layer: HTMLElement | null, host: HTMLElement | null) => void;
@@ -144,6 +145,7 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   const [lib, setLib] = useState<ViewerLib | null>(null);
   const [controller, setController] = useState<PageViewController | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const fitBox = useRef({ width: 0, height: 0 });
   const [range, setRange] = useState<{ first: number; last: number } | null>(null);
   const [gestureScale, setGestureScale] = useState<number | null>(null);
   const scale = gestureScale ?? p.scale;
@@ -210,15 +212,24 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     const measure = () => {
       const next = { width: el.clientWidth, height: el.clientHeight };
       setViewport((v) => (v.width === next.width && v.height === next.height ? v : next));
+      // What a fit zoom fits into must NOT depend on whether a scrollbar is
+      // showing, or fitting could flip-flop (a wider page brings the
+      // horizontal scrollbar, the height shrinks, the zoom drops, the
+      // scrollbar goes, the zoom grows…). The vertical gutter is always
+      // reserved (`scrollbar-gutter: stable`); the horizontal one is assumed
+      // present, with the same thickness.
+      const gutter = Math.max(0, el.offsetWidth - el.clientWidth);
+      const fit = { width: el.clientWidth, height: Math.max(0, el.offsetHeight - gutter) };
+      if (fit.width !== fitBox.current.width || fit.height !== fitBox.current.height) {
+        fitBox.current = fit;
+        if (fit.width > 0) live.current.onViewportResize?.(fit);
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => {
-    if (viewport.width > 0) live.current.onViewportResize?.(viewport);
-  }, [viewport]);
 
   // --- layout ----------------------------------------------------------------
   const { pages, sizeOf, rotationOf, mode, cover, current } = p;
@@ -259,6 +270,8 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   const scrollDown = useRef(true);
   const zoomAnchor = useRef<Anchor | null>(null);
   const pendingScroll = useRef<{ index: number; top: number } | null>(null);
+  /** The page (id) a smooth `scrollToPage` is heading to, until the scroll ends. */
+  const smoothTarget = useRef<{ id: string; top: number } | null>(null);
   const prevLayout = useRef<Layout | null>(null);
   const prevPages = useRef<Page[]>(p.pages);
   const gesture = useRef(false);
@@ -346,6 +359,20 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     });
   }, [sync]);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  // A smooth scroll is over (or was interrupted by the user): forget its target.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const end = () => (smoothTarget.current = null);
+    el.addEventListener("scrollend", end);
+    el.addEventListener("wheel", end, { passive: true });
+    el.addEventListener("pointerdown", end);
+    return () => {
+      el.removeEventListener("scrollend", end);
+      el.removeEventListener("wheel", end);
+      el.removeEventListener("pointerdown", end);
+    };
+  }, []);
 
   // Apply a new layout: zoom the views, keep the reading position, re-derive
   // what is mounted/visible — all before the browser paints.
@@ -360,9 +387,16 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     if (el && prev && prev !== layout) {
       const vp = { width: el.clientWidth, height: el.clientHeight };
       const pending = pendingScroll.current;
+      const smooth = smoothTarget.current;
+      const smoothIndex = smooth ? p.pages.findIndex((q) => q.id === smooth.id) : -1;
       if (pending && isPlaced(layout, pending.index)) {
         pendingScroll.current = null;
         el.scrollTop = pending.top === -1 ? layout.contentHeight : scrollTopForPage(layout, pending.index, pending.top);
+      } else if (smooth && isPlaced(layout, smoothIndex)) {
+        // A smooth scroll to a page was under way: anchoring on its
+        // mid-flight position would strand the reader half-way. Aim again,
+        // in the new layout, at the page it was going to.
+        el.scrollTo({ top: scrollTopForPage(layout, smoothIndex, smooth.top), behavior: "smooth" });
       } else if (layout.paged && prev.paged && prev.shownRow !== layout.shownRow) {
         el.scrollTop = 0;
       } else {
@@ -458,12 +492,19 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
         }
         const top = scrollTopForPage(L, i, topPt);
         const far = Math.abs(top - el.scrollTop) > 2.5 * el.clientHeight;
-        el.scrollTo({ top, behavior: opts?.behavior ?? (far ? "auto" : "smooth") });
+        const behavior = opts?.behavior ?? (far ? "auto" : "smooth");
+        const id = live.current.pages[i]?.id;
+        smoothTarget.current =
+          behavior === "smooth" && id && Math.abs(top - el.scrollTop) > 0.5 ? { id, top: topPt } : null;
+        el.scrollTo({ top, behavior });
+        // An instant jump: mount and prioritise the target now rather than on
+        // the next scroll frame.
+        if (behavior !== "smooth") sync();
       },
       element: () => scrollerRef.current,
       mountedRange: () => range,
     }),
-    [range],
+    [range, sync],
   );
 
   // --- render ----------------------------------------------------------------

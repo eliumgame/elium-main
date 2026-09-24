@@ -449,6 +449,10 @@
      cas (scrollTo({ behavior })). */
   scroll-behavior: auto;
   overflow-anchor: none;
+  /* Gouttière verticale toujours réservée : la largeur utile ne change pas
+     quand la barre de défilement apparaît (pas de saut du centrage, zoom
+     « Largeur » stable). */
+  scrollbar-gutter: stable;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
   /* Taille indépendante du contenu : sans cela, une page plus large que la
      fenêtre élargissait le canevas, donc le zoom « Largeur », donc la page…

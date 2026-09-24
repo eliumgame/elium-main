@@ -41,6 +41,7 @@ export class ImportedAnnotationMask {
   private current: ModifiedIds = EMPTY;
   private _enabled = false;
   private bypass = 0;
+  private listeners = new Set<(from: number) => void>();
 
   /** The document's mask, created on first use. */
   static for(engine: PdfEngine): ImportedAnnotationMask {
@@ -87,6 +88,16 @@ export class ImportedAnnotationMask {
     return [...this.perPage].filter(([, ids]) => ids.length).map(([from]) => from);
   }
 
+  /**
+   * Be told when a page's importable ids become known (`ensure` resolved with
+   * some). A view drawn before that — possible when the mask was off at the
+   * time — must be redrawn if the mask is on by then. Returns the unsubscribe.
+   */
+  onPageIds(listener: (from: number) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   /** Does masking change how this source page renders? */
   affects(from: number): boolean {
     return this._enabled && !!this.perPage.get(from)?.length;
@@ -112,6 +123,7 @@ export class ImportedAnnotationMask {
             for (const id of ids) this.ids.add(id);
             this.version++;
             this.refresh();
+            for (const l of [...this.listeners]) l(from);
           }
           return ids.length > 0;
         })
@@ -152,6 +164,7 @@ export class ImportedAnnotationMask {
       }
     }
     this.storage = null;
+    this.listeners.clear();
     this.perPage.clear();
     this.ids.clear();
   }

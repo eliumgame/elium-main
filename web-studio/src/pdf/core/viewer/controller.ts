@@ -38,7 +38,7 @@ export interface PageViewLike extends QueueView {
   rotation: number;
   pdfPage: PDFPageProxy | null;
   textLayer: { div: HTMLDivElement } | null;
-  detailView: QueueView | null;
+  detailView: (QueueView & { update(args: { underlyingViewUpdated?: boolean }): void }) | null;
   setPdfPage(page: PDFPageProxy): void;
   update(args: {
     scale?: number;
@@ -47,7 +47,14 @@ export interface PageViewLike extends QueueView {
     drawingDelay?: number;
   }): void;
   updateVisibleArea(area: { minX: number; minY: number; maxX: number; maxY: number } | null): void;
-  reset(): void;
+  reset(opts?: {
+    keepAnnotationLayer?: boolean;
+    keepAnnotationEditorLayer?: boolean;
+    keepXfaLayer?: boolean;
+    keepTextLayer?: boolean;
+    keepCanvasWrapper?: boolean;
+    preserveDetailViewState?: boolean;
+  }): void;
   cancelRendering(): void;
   destroy(): void;
 }
@@ -156,6 +163,12 @@ export class PageViewController {
       if (visible && entry.view) entry.view.updateVisibleArea(visible.visibleArea);
       this.opts.onPageRendered?.(entry.key);
     });
+    const offIds = this.mask.onPageIds((from) => {
+      if (!this.mask.enabled) return;
+      for (const entry of this.entries.values()) if (entry.from === from && entry.view) this.redraw(entry.view);
+      this.queue.schedule();
+    });
+    this.abort.signal.addEventListener("abort", offIds);
     on("textlayerrendered", ({ source }) => {
       const entry = this.byView.get(source as PageViewLike);
       const div = entry?.view?.textLayer?.div;
@@ -254,8 +267,13 @@ export class PageViewController {
     let page: PDFPageProxy;
     try {
       page = await this.engine.page(entry.from);
-      // Imported markup is painted by Elium: know the ids before the first frame.
-      await this.mask.ensure(entry.from);
+      // Imported markup is painted by Elium: while the mask is on, know the
+      // page's ids before its first frame (one worker round trip). While it is
+      // off (nothing imported, or the import still running) the ids are only
+      // gathered in the background — `onPageIds` redraws the page should the
+      // mask be switched on before they arrive.
+      const ids = this.mask.ensure(entry.from);
+      if (this.mask.enabled) await ids;
     } catch {
       entry.creating = false;
       return;
@@ -416,7 +434,9 @@ export class PageViewController {
       ? Promise.resolve(config)
       : (this.engine.raw.getOptionalContentConfig() as Promise<unknown>);
     for (const entry of this.entries.values()) {
-      entry.view?.update({ optionalContentConfigPromise: this.optionalContent });
+      if (!entry.view) continue;
+      entry.view.update({ optionalContentConfigPromise: this.optionalContent });
+      this.redraw(entry.view);
     }
     this.queue.schedule();
   }
@@ -426,15 +446,35 @@ export class PageViewController {
     const changed = new Set(this.mask.setEnabled(on));
     if (!changed.size) return;
     for (const entry of this.entries.values()) {
-      if (entry.view && changed.has(entry.from)) entry.view.update({});
+      if (entry.view && changed.has(entry.from)) this.redraw(entry.view);
     }
     this.queue.schedule();
   }
 
   /** Re-render every view (e.g. after the document's appearance changed). */
   refreshAll(): void {
-    for (const entry of this.entries.values()) entry.view?.update({});
+    for (const entry of this.entries.values()) if (entry.view) this.redraw(entry.view);
     this.queue.schedule();
+  }
+
+  /**
+   * Redraw a view whose CONTENT changed (layers, masked markup) at the same
+   * size. `PDFPageView.update()` alone is not enough: past the canvas budget
+   * (a detail/tile canvas on top of a low-resolution base) it only re-applies
+   * the CSS transform and refreshes the tile, leaving stale content in the
+   * base raster. This is the reset `update()` does in its normal path: the
+   * current raster stays on screen until the new one replaces it.
+   */
+  private redraw(view: PageViewLike): void {
+    view.reset({
+      keepAnnotationLayer: true,
+      keepAnnotationEditorLayer: true,
+      keepXfaLayer: true,
+      keepTextLayer: true,
+      keepCanvasWrapper: true,
+      preserveDetailViewState: true,
+    });
+    view.detailView?.update({ underlyingViewUpdated: true });
   }
 
   /** The pdf.js page div of a slot (tests / diagnostics). */

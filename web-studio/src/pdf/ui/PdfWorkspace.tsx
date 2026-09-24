@@ -22,6 +22,7 @@ import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts"
 import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
+import { warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
@@ -387,7 +388,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const next = await PdfEngine.open(raw, password);
         engine?.destroy();
         const gen = ++openGeneration.current;
-        bytesRef.current = raw.slice();
+        // The engine keeps its own private copy of the file; share it rather
+        // than holding a second one (a 5 MB file used to cost 10 MB of heap).
+        // Nothing mutates or transfers these bytes: every pdf.js consumer is
+        // handed a copy (`core/assets.ts::documentParams`).
+        bytesRef.current = next.bytes;
         passwordRef.current = password ?? null;
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
         const base: PdfState = restore ?? {
@@ -502,8 +507,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }, [engine]);
   useEffect(() => {
     void hasLocalModels().then(setLocalModels);
-    // Fetch the viewer components while the user picks a file.
+    // Fetch the viewer components and start the pdf.js worker (fetch + compile
+    // ≈ 1 MB) while the user picks a file.
     void loadViewerLib().catch(() => {});
+    warmUpPdfWorker();
   }, []);
 
   // -------------------------------------------------------------------------
@@ -557,21 +564,32 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // jump each time a page of another size scrolls by. The scale depends only
   // on that page and on the viewport, never on the laid-out content (the old
   // "Largeur → 1000 %" runaway: the viewport grew with its own content).
-  const fitPageRef = useRef(0);
+  // Tracked by page id: inserting, deleting or moving other pages keeps
+  // fitting the same page (the zoom does not jump).
+  const fitPageId = useRef<string | null>(null);
+  /** Bumped by an explicit fit request, so asking again for the same fit re-fits the page now current. */
+  const [fitNonce, setFitNonce] = useState(0);
   useEffect(() => {
-    fitPageRef.current = Math.max(0, view.current - 1);
+    fitPageId.current = pages[view.current - 1]?.id ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.zoomMode, view.mode, viewport]);
+  }, [view.zoomMode, view.mode, viewport, fitNonce]);
+  /** « Largeur » / « Page entière » / « Zone de texte »: fit the page now current. */
+  const requestFit = (zoomMode: Exclude<ViewState["zoomMode"], "custom">) => {
+    setView((v) => ({ ...v, zoomMode }));
+    setFitNonce((n) => n + 1);
+  };
   const applyFit = useCallback(() => {
     if (view.zoomMode === "custom" || viewport.width <= 0 || viewport.height <= 0) return;
-    const page = pages[fitPageRef.current] ?? pages[0];
+    const page = pages.find((q) => q.id === fitPageId.current) ?? pages[0];
     if (!page) return;
     const size = sizeOf(page);
     const box = rotationOf(page) % 180 === 0 ? size : { w: size.h, h: size.w };
     const twoUp = view.mode === "facing" || view.mode === "facingContinuous";
     const next = clamp(fitScale(view.zoomMode, box, viewport, { twoUp }), MIN_SCALE, MAX_SCALE);
     setView((v) => (v.zoomMode === "custom" || Math.abs(v.scale - next) <= 0.002 ? v : { ...v, scale: next }));
-  }, [view.zoomMode, view.mode, viewport, pages, sizeOf, rotationOf]);
+    // `fitNonce`: an explicit request re-fits even when the mode is unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.zoomMode, view.mode, viewport, pages, sizeOf, rotationOf, fitNonce]);
   useEffect(() => {
     applyFit();
   }, [applyFit]);
@@ -1207,10 +1225,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         zoomStep(-1);
         return;
       case "fitWidth":
-        setView((v) => ({ ...v, zoomMode: "fitWidth" }));
+        requestFit("fitWidth");
         return;
       case "fitPage":
-        setView((v) => ({ ...v, zoomMode: "fitPage" }));
+        requestFit("fitPage");
         return;
       case "viewSingle":
         setView((v) => ({ ...v, mode: "single" }));
@@ -1752,7 +1770,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
         if (k === "0") {
           e.preventDefault();
-          setView((v) => ({ ...v, zoomMode: "fitPage" }));
+          requestFit("fitPage");
           return;
         }
         if (e.shiftKey && k === "h") {
@@ -2144,7 +2162,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             value={view.zoomMode === "custom" ? "custom" : view.zoomMode}
             onChange={(e) => {
               const v = e.target.value;
-              if (v === "fitWidth" || v === "fitPage" || v === "fitVisible") setView((s) => ({ ...s, zoomMode: v }));
+              if (v === "fitWidth" || v === "fitPage" || v === "fitVisible") requestFit(v);
               else setScale(Number(v));
             }}
           >

@@ -22,6 +22,7 @@ import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts"
 import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
+import { releaseThumbnails } from "../core/thumbs";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
@@ -478,7 +479,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   useEffect(
     () => () => {
-      engine?.destroy();
+      if (!engine) return;
+      releaseThumbnails(engine);
+      engine.destroy();
     },
     [engine],
   );

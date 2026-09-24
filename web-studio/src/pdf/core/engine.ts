@@ -179,6 +179,8 @@ export class PdfEngine {
   private pageCache = new Map<number, Promise<PDFPageProxy>>();
   private textCache = new Map<number, Promise<TextContentLike>>();
   private annotCache = new Map<number, Promise<unknown[]>>();
+  /** Page index → number of viewers currently showing it (see `retainPage`). */
+  private pageUsers = new Map<number, number>();
   private destroyed = false;
   private listeners = new Set<(e: EngineEvent) => void>();
   private pendingGeometry = new Set<number>();
@@ -401,6 +403,39 @@ export class PdfEngine {
     return p;
   }
 
+  /**
+   * A viewer is showing page `index` (0-based): its rendering resources must
+   * stay loaded. Returns the release function (safe to call twice).
+   */
+  retainPage(index: number): () => void {
+    this.pageUsers.set(index, (this.pageUsers.get(index) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.pageUsers.get(index) ?? 1) - 1;
+      if (n > 0) this.pageUsers.set(index, n);
+      else this.pageUsers.delete(index);
+    };
+  }
+
+  /**
+   * Free what pdf.js keeps for a page after drawing it — operator lists,
+   * decoded images (≈ 15 MB for one 200 dpi scanned A4) — unless a viewer
+   * still retains the page. pdf.js defers the clean-up itself while a render
+   * of that page is in flight. The page proxy (and so its geometry and text)
+   * stays cached; a later render simply asks the worker again.
+   */
+  releasePageResources(index: number): void {
+    if (this.destroyed || this.pageUsers.get(index)) return;
+    void this.pageCache.get(index)?.then(
+      (page) => {
+        if (!this.destroyed && !this.pageUsers.get(index)) page.cleanup();
+      },
+      () => {},
+    );
+  }
+
   /** The real geometry of a page (loads it if it is still an estimate). */
   async pageInfo(index: number): Promise<PageInfo> {
     const cur = this.pages[index];
@@ -578,6 +613,7 @@ export class PdfEngine {
     if (this.backgroundTimer) clearTimeout(this.backgroundTimer);
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.listeners.clear();
+    this.pageUsers.clear();
     this.pageCache.clear();
     this.textCache.clear();
     this.annotCache.clear();

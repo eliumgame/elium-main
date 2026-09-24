@@ -86,7 +86,7 @@ export class ThumbnailService {
       onReady(hit);
       return () => {};
     }
-    let job = this.pending.get(key) ?? [...this.running].find((j) => j.key === key);
+    let job = this.pending.get(key) ?? [...this.running].find((j) => j.key === key && !j.cancelled);
     if (!job) {
       job = { key, req, listeners: new Set(), task: null, cancelled: false };
       this.pending.set(key, job);
@@ -142,12 +142,13 @@ export class ThumbnailService {
       }
       this.store(job.key, bitmap);
       for (const l of job.listeners) l(bitmap);
-    } catch (e) {
-      if ((e as { name?: string } | null)?.name !== "RenderingCancelledException") {
-        /* a page that cannot be drawn simply keeps its placeholder */
-      }
+    } catch {
+      /* cancelled, or a page that cannot be drawn: it keeps its placeholder */
     } finally {
       this.running.delete(job);
+      // The bitmap is all a thumbnail needs: let pdf.js drop the page's
+      // operator list and decoded images, unless the main view shows it.
+      this.engine.releasePageResources(job.req.from);
       this.pump();
     }
   }
@@ -202,6 +203,43 @@ export class ThumbnailService {
     if (this.scratch) this.scratch.width = this.scratch.height = 0;
     this.scratch = null;
   }
+}
+
+/**
+ * Height / width of a page as its thumbnail shows it, and the rotation to bake
+ * in (the page's own /Rotate + the user's; an Elium crop is not applied — a
+ * thumbnail shows the whole page, as before). Clamped so an absurd page box
+ * cannot produce a 10 000 px tall list item.
+ */
+export function thumbAspect(
+  engine: PdfEngine,
+  page: { from: number | null; rotate?: number; size?: { w: number; h: number } },
+): { aspect: number; rotation: number } {
+  const info = page.from != null ? engine.pages[page.from] : undefined;
+  const own = info?.rotate ?? 0;
+  const rotation = (((own + (page.rotate ?? 0)) % 360) + 360) % 360;
+  const w = info?.w ?? page.size?.w ?? 595;
+  const h = info?.h ?? page.size?.h ?? 842;
+  const aspect = rotation % 180 === 0 ? h / Math.max(1, w) : w / Math.max(1, h);
+  return { aspect: Number.isFinite(aspect) && aspect > 0 ? Math.min(8, Math.max(0.125, aspect)) : 1.414, rotation };
+}
+
+/** One thumbnail service per open document, shared by the side panel and the organiser. */
+const services = new WeakMap<PdfEngine, ThumbnailService>();
+
+export function thumbnailsFor(engine: PdfEngine): ThumbnailService {
+  let s = services.get(engine);
+  if (!s) {
+    s = new ThumbnailService(engine);
+    services.set(engine, s);
+  }
+  return s;
+}
+
+/** The document is closing: free its cached thumbnails now rather than at the next GC. */
+export function releaseThumbnails(engine: PdfEngine): void {
+  services.get(engine)?.destroy();
+  services.delete(engine);
 }
 
 // ---------------------------------------------------------------------------

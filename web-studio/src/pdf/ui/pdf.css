@@ -87,15 +87,14 @@
   background: #fff;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
-.pdfx-thumb__img img {
-  display: block;
-  width: 100%;
-  height: auto;
+/* Liste virtualisée : des cales remplacent les vignettes hors écran. */
+.pdfx-thumbs > .pdfx-thumb,
+.pdfx-thumbs__spacer {
+  flex: none;
 }
-.pdfx-thumb__blank {
+.pdfx-thumbs__spacer {
   width: 100%;
-  aspect-ratio: 1 / 1.414;
-  background: #fff;
+  pointer-events: none;
 }
 
 .pdfx-thumb__bar {
@@ -1161,14 +1160,23 @@
   border-left: 1px solid var(--x-chrome-line);
 }
 
+/* Grille virtualisée (Organize.tsx) : colonnes de largeur fixe calculées par
+   le composant (grid-template-columns), seules les rangées proches de la zone
+   visible sont montées, des cales pleine largeur tiennent la place des autres. */
 .pdfx-org__grid {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  display: grid;
+  align-content: start;
+  align-items: start;
+  justify-content: start;
   gap: 18px;
   padding: 22px;
+}
+.pdfx-org__spacer {
+  grid-column: 1 / -1;
+  pointer-events: none;
 }
 
 .pdfx-org__cell {
@@ -1203,10 +1211,7 @@
 .pdfx-org__thumb {
   position: relative;
 }
-.pdfx-org__thumb img {
-  display: block;
-  width: 100%;
-  height: auto;
+.pdfx-org__canvas {
   background: #fff;
   border-radius: 3px;
   box-shadow: var(--x-shadow-page);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Copy,
@@ -19,8 +19,10 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { PdfEngine } from "../core/engine";
-import { renderToCanvas } from "../core/render";
+import { gridColumns, gridRowHeights, rowRange, stackRows } from "../core/viewer/virtual";
+import { thumbAspect } from "../core/thumbs";
 import type { Page } from "../model/types";
+import ThumbCanvas from "./ThumbCanvas";
 
 /**
  * The page organiser: a full-surface grid of every page with drag-and-drop
@@ -51,43 +53,48 @@ export interface OrganizeProps {
 }
 
 const SIZES = [120, 150, 190, 240, 300];
+/** `.pdfx-org__grid { gap; padding }`. */
+const GRID_GAP = 18;
+const GRID_PAD = 22;
+/** `.pdfx-org__cell { padding: 6px; border: 2px }` around the picture. */
+const CELL_EXTRA_W = 16;
+/** `.pdfx-org__add { min-height }`. */
+const ADD_H = 190;
+const GRID_OVERSCAN = 800;
 
-function PageCard({ engine, page, index, size }: { engine: PdfEngine; page: Page; index: number; size: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || page.from == null) return;
-    let done = false;
-    const io = new IntersectionObserver(
-      async ([entry]) => {
-        if (!entry.isIntersecting || done) return;
-        done = true;
-        io.disconnect();
-        try {
-          const proxy = await engine.page(page.from!);
-          const canvas = await renderToCanvas(proxy, { scale: 3, maxWidth: size * 2 });
-          setSrc(canvas.toDataURL("image/png"));
-        } catch {
-          /* leave blank */
-        }
-      },
-      { rootMargin: "600px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [engine, page.from, size]);
-
-  const rot = page.rotate ?? 0;
+function PageCard({
+  engine,
+  page,
+  index,
+  size,
+  height,
+  rotation,
+  priority,
+}: {
+  engine: PdfEngine;
+  page: Page;
+  index: number;
+  size: number;
+  height: number;
+  rotation: number;
+  priority: number;
+}) {
   return (
-    <div ref={ref} className="pdfx-org__thumb" style={{ width: size }}>
-      {src ? (
-        <img src={src} alt="" draggable={false} style={{ transform: rot ? `rotate(${rot}deg)` : undefined }} />
-      ) : (
-        <div className="pdfx-org__blank" style={{ height: size * 1.41 }}>
-          {page.from == null ? "Page blanche" : ""}
+    <div className="pdfx-org__thumb" style={{ width: size }}>
+      {page.from == null && !page.image ? (
+        <div className="pdfx-org__blank" style={{ height }}>
+          Page blanche
         </div>
+      ) : (
+        <ThumbCanvas
+          className="pdfx-org__canvas"
+          engine={engine}
+          page={page}
+          rotation={rotation}
+          width={size}
+          height={height}
+          priority={priority}
+        />
       )}
       <span className="pdfx-org__num">{page.label || index + 1}</span>
     </div>
@@ -99,6 +106,56 @@ export default function Organize(p: OrganizeProps) {
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dragIds = useRef<string[]>([]);
   const lastClicked = useRef<number>(-1);
+
+  // --- windowing: only the rows of cells near the visible part are mounted ---
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 800, width: 1000 });
+  /** Cell height minus picture height, measured from a mounted cell. */
+  const [chrome, setChrome] = useState(40);
+  useLayoutEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () =>
+      setView((v) => {
+        const next = { top: el.scrollTop, height: el.clientHeight, width: el.clientWidth };
+        return v.top === next.top && v.height === next.height && v.width === next.width ? v : next;
+      });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    let frame = 0;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), measure()));
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  const cellW = size + CELL_EXTRA_W;
+  const columns = gridColumns(view.width - 2 * GRID_PAD, cellW, GRID_GAP);
+  const cells = p.pages.map((page) => {
+    const { aspect, rotation } = thumbAspect(p.engine, page);
+    return { rotation, h: Math.round(size * aspect) };
+  });
+  // The "Ajouter" button is the grid's last cell.
+  const stack = stackRows(gridRowHeights([...cells.map((c) => c.h + chrome), ADD_H], columns), GRID_GAP);
+  const rows = rowRange(stack, view.top - GRID_PAD, view.top - GRID_PAD + view.height, GRID_OVERSCAN);
+  const firstCell = rows ? rows.first * columns : 0;
+  const endCell = rows ? Math.min(p.pages.length, (rows.last + 1) * columns) : 0;
+  const showAdd = !!rows && rows.last === stack.tops.length - 1;
+  const midCell = (firstCell + endCell) / 2;
+
+  useLayoutEffect(() => {
+    const cell = gridRef.current?.querySelector<HTMLElement>(".pdfx-org__cell");
+    const pic = cell?.querySelector<HTMLElement>(".pdfx-org__canvas, .pdfx-org__blank");
+    if (!cell || !pic) return;
+    const next = cell.offsetHeight - pic.offsetHeight;
+    if (next > 0 && Math.abs(next - chrome) > 0.5) setChrome(next);
+  });
 
   const selectedSet = useMemo(() => new Set(p.selected), [p.selected]);
   const has = p.selected.length > 0;
@@ -229,14 +286,21 @@ export default function Organize(p: OrganizeProps) {
       </div>
 
       <div
+        ref={gridRef}
         className="pdfx-org__grid"
         role="region"
         aria-label="Pages du document"
+        style={{ gridTemplateColumns: `repeat(${columns}, ${cellW}px)` }}
         onClick={(e) => {
           if (e.target === e.currentTarget) p.onSelect([]);
         }}
       >
-        {p.pages.map((page, i) => (
+        {rows && rows.first > 0 && (
+          <div className="pdfx-org__spacer" style={{ height: Math.max(0, stack.tops[rows.first] - GRID_GAP) }} />
+        )}
+        {p.pages.slice(firstCell, endCell).map((page, k) => {
+          const i = firstCell + k;
+          return (
           <div
             key={page.id}
             className={`pdfx-org__cell ${selectedSet.has(page.id) ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${dropAt === i ? "is-drop" : ""}`}
@@ -257,7 +321,15 @@ export default function Organize(p: OrganizeProps) {
             }}
             onClick={(e) => click(e, page, i)}
           >
-            <PageCard engine={p.engine} page={page} index={i} size={size} />
+            <PageCard
+              engine={p.engine}
+              page={page}
+              index={i}
+              size={size}
+              height={cells[i].h}
+              rotation={cells[i].rotation}
+              priority={Math.abs(i - midCell)}
+            />
             <div className="pdfx-org__cellops">
               <button
                 onClick={(e) => {
@@ -298,11 +370,23 @@ export default function Organize(p: OrganizeProps) {
             </div>
             {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
           </div>
-        ))}
-        <button className="pdfx-org__add" onClick={() => p.onInsertBlank(null)} title="Ajouter une page à la fin">
-          <FilePlus2 size={22} />
-          <span>Ajouter</span>
-        </button>
+          );
+        })}
+        {showAdd ? (
+          <button className="pdfx-org__add" onClick={() => p.onInsertBlank(null)} title="Ajouter une page à la fin">
+            <FilePlus2 size={22} />
+            <span>Ajouter</span>
+          </button>
+        ) : (
+          rows && (
+            <div
+              className="pdfx-org__spacer"
+              style={{
+                height: Math.max(0, stack.total - (stack.tops[rows.last] + stack.heights[rows.last]) - GRID_GAP),
+              }}
+            />
+          )
+        )}
       </div>
 
       <div className="pdfx-org__foot" role="region" aria-label="Astuce">

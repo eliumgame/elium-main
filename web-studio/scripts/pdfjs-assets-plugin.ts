@@ -28,8 +28,18 @@ import type { Plugin } from "vite";
 /** Folder (relative to the app base) the assets are published under. Keep in sync with core/assets.ts. */
 export const PDFJS_ASSET_DIR = "pdfjs";
 
-/** `node_modules/pdfjs-dist` sub-folders copied verbatim. */
-const DIRS = ["wasm", "cmaps", "standard_fonts", "iccs"] as const;
+/**
+ * `node_modules/pdfjs-dist` sub-folders copied (source → published name, with
+ * an optional file filter). `web/images/annotation-*.svg` are the icons pdf.js'
+ * annotation layer uses for note (Text) annotations.
+ */
+const DIRS: { src: string; dest: string; filter?: RegExp }[] = [
+  { src: "wasm", dest: "wasm" },
+  { src: "cmaps", dest: "cmaps" },
+  { src: "standard_fonts", dest: "standard_fonts" },
+  { src: "iccs", dest: "iccs" },
+  { src: "web/images", dest: "images", filter: /^annotation-.*\.svg$/ },
+];
 /** Single files copied to the root of `pdfjs/` (source path relative to pdfjs-dist). */
 const FILES: Record<string, string> = { "pdf.sandbox.min.mjs": "build/pdf.sandbox.min.mjs" };
 
@@ -51,12 +61,13 @@ function pdfjsRoot(): string {
 /** Every published file: `[publishedPath (relative to pdfjs/), absoluteSource]`. */
 function listAssets(root: string): [string, string][] {
   const out: [string, string][] = [];
-  for (const dir of DIRS) {
-    const abs = join(root, dir);
+  for (const { src, dest, filter } of DIRS) {
+    const abs = join(root, src);
     if (!existsSync(abs)) throw new Error(`pdfjs-assets: dossier introuvable ${abs}`);
     for (const name of readdirSync(abs)) {
+      if (filter && !filter.test(name)) continue;
       const file = join(abs, name);
-      if (statSync(file).isFile()) out.push([`${dir}/${name}`, file]);
+      if (statSync(file).isFile()) out.push([`${dest}/${name}`, file]);
     }
   }
   for (const [name, rel] of Object.entries(FILES)) {

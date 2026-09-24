@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   ChevronDown,
@@ -23,7 +23,9 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import type { PdfEngine, Attachment, LayerInfo } from "../core/engine";
-import { renderToCanvas } from "../core/render";
+import { thumbAspect } from "../core/thumbs";
+import { rowRange, scrollIntoRow, stackRows } from "../core/viewer/virtual";
+import ThumbCanvas from "./ThumbCanvas";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
 import { flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
 import type { SearchHit } from "../core/search";
@@ -98,43 +100,80 @@ export default function Sidebar(p: SidebarProps) {
 // Thumbnails
 // ---------------------------------------------------------------------------
 
-function Thumb({ engine, from, width }: { engine: PdfEngine; from: number | null; width: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || from == null) return;
-    let done = false;
-    const io = new IntersectionObserver(
-      async ([entry]) => {
-        if (!entry.isIntersecting || done) return;
-        done = true;
-        io.disconnect();
-        try {
-          const page = await engine.page(from);
-          const canvas = await renderToCanvas(page, { scale: 4, maxWidth: width * 2 });
-          setSrc(canvas.toDataURL("image/png"));
-        } catch {
-          /* a page that will not render simply stays blank */
-        }
-      },
-      { rootMargin: "400px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [engine, from, width]);
-
-  return (
-    <div ref={ref} className="pdfx-thumb__img">
-      {src ? <img src={src} alt="" draggable={false} /> : <div className="pdfx-thumb__blank" />}
-    </div>
-  );
-}
+/** Gap between two thumbnails (`.pdfx-thumbs { gap }`). */
+const THUMB_GAP = 10;
+/** Widest thumbnail picture (`.pdfx-thumb { max-width: 168px }` minus its padding and borders). */
+const THUMB_MAX_W = 154;
+/** Extra list height kept mounted above and below the visible part. */
+const THUMB_OVERSCAN = 700;
 
 function Thumbnails(p: SidebarProps) {
   const [dragOver, setDragOver] = useState<number | null>(null);
   const dragging = useRef<string[]>([]);
+
+  // --- windowing: only the thumbnails near the visible part are mounted -----
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 600, width: 180 });
+  /** Measured once mounted: picture width, and item height minus picture height. */
+  const [metrics, setMetrics] = useState({ imgW: 132, chrome: 39 });
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () =>
+      setView((v) => {
+        const next = { top: el.scrollTop, height: el.clientHeight, width: el.clientWidth };
+        return v.top === next.top && v.height === next.height && v.width === next.width ? v : next;
+      });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    let frame = 0;
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), measure()));
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  const imgW = Math.max(40, Math.min(THUMB_MAX_W, metrics.imgW));
+  const items = p.pages.map((page) => {
+    const { aspect, rotation } = thumbAspect(p.engine, page);
+    return { rotation, imgH: Math.round(imgW * aspect) };
+  });
+  const stack = stackRows(
+    items.map((it) => it.imgH + metrics.chrome),
+    THUMB_GAP,
+  );
+  const range = rowRange(stack, view.top, view.top + view.height, THUMB_OVERSCAN);
+  const mid = range ? (range.first + range.last) / 2 : 0;
+
+  // Measure the real item chrome and picture width from a mounted thumbnail
+  // (CSS decides them; the windowing maths only needs them to be right).
+  useLayoutEffect(() => {
+    const el = bodyRef.current?.querySelector<HTMLElement>(".pdfx-thumb");
+    const img = el?.querySelector<HTMLElement>(".pdfx-thumb__img");
+    const canvas = img?.querySelector("canvas");
+    if (!el || !img || !canvas) return;
+    const next = { imgW: img.clientWidth, chrome: el.offsetHeight - canvas.offsetHeight };
+    if (next.imgW > 0 && (Math.abs(next.imgW - metrics.imgW) > 0.5 || Math.abs(next.chrome - metrics.chrome) > 0.5)) {
+      setMetrics(next);
+    }
+  });
+
+  // Keep the current page's thumbnail in view, like Acrobat's pane.
+  useEffect(() => {
+    const el = bodyRef.current;
+    const i = p.current - 1;
+    if (!el || i < 0 || i >= stack.tops.length) return;
+    const to = scrollIntoRow(stack, i, el.scrollTop, el.clientHeight);
+    if (to != null) el.scrollTop = to;
+    // Only when the current page changes (or the panel reopens), not on every scroll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.current]);
 
   const toggle = (id: string, e: React.MouseEvent, index: number) => {
     if (e.shiftKey && p.selectedPages.length) {
@@ -159,10 +198,15 @@ function Thumbnails(p: SidebarProps) {
         <span className="pdfx-panel__title">Vignettes</span>
         <span className="pdfx-panel__count">{p.pages.length}</span>
       </div>
-      <div className="pdfx-panel__body pdfx-thumbs">
-        {p.pages.map((page, i) => {
-          const selected = p.selectedPages.includes(page.id);
-          return (
+      <div className="pdfx-panel__body pdfx-thumbs" ref={bodyRef}>
+        {range && range.first > 0 && (
+          <div className="pdfx-thumbs__spacer" style={{ height: Math.max(0, stack.tops[range.first] - THUMB_GAP) }} />
+        )}
+        {range &&
+          p.pages.slice(range.first, range.last + 1).map((page, k) => {
+            const i = range.first + k;
+            const selected = p.selectedPages.includes(page.id);
+            return (
             <div
               key={page.id}
               className={`pdfx-thumb ${p.current === i + 1 ? "is-current" : ""} ${selected ? "is-selected" : ""} ${dragOver === i ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
@@ -183,7 +227,16 @@ function Thumbnails(p: SidebarProps) {
               }}
               onClick={(e) => toggle(page.id, e, i)}
             >
-              <Thumb engine={p.engine} from={page.from} width={132} />
+              <div className="pdfx-thumb__img">
+                <ThumbCanvas
+                  engine={p.engine}
+                  page={page}
+                  rotation={items[i].rotation}
+                  width={imgW}
+                  height={items[i].imgH}
+                  priority={Math.abs(i - mid)}
+                />
+              </div>
               <div className="pdfx-thumb__bar">
                 <span className="pdfx-thumb__num">{page.label || i + 1}</span>
                 <span className="pdfx-thumb__ops">
@@ -222,6 +275,12 @@ function Thumbnails(p: SidebarProps) {
             </div>
           );
         })}
+        {range && range.last < p.pages.length - 1 && (
+          <div
+            className="pdfx-thumbs__spacer"
+            style={{ height: Math.max(0, stack.total - (stack.tops[range.last] + stack.heights[range.last]) - THUMB_GAP) }}
+          />
+        )}
       </div>
       <div className="pdfx-panel__foot">
         <button className="pdfx-mini" onClick={() => p.onPageAction("insert", p.selectedPages)}>

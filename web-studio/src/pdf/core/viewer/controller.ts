@@ -83,6 +83,8 @@ interface Entry {
   host: HTMLElement | null;
   rotation: number;
   creating: boolean;
+  /** Releases the engine-level hold on the page's rendering resources. */
+  release: (() => void) | null;
 }
 
 const RENDER_TEXT_LAYER = 1; // TextLayerMode.ENABLE
@@ -174,7 +176,16 @@ export class PageViewController {
       entry = undefined;
     }
     if (!entry) {
-      entry = { key, from, id: this.nextId++, view: null, host, rotation: spec.rotation, creating: false };
+      entry = {
+        key,
+        from,
+        id: this.nextId++,
+        view: null,
+        host,
+        rotation: spec.rotation,
+        creating: false,
+        release: null,
+      };
       this.entries.set(key, entry);
     }
     entry.host = host;
@@ -287,6 +298,7 @@ export class PageViewController {
     view.div.removeAttribute("role");
     view.div.removeAttribute("data-l10n-id");
     entry.view = view;
+    entry.release = this.engine.retainPage(entry.from);
     this.byView.set(view, entry);
     entry.host.append(view.div);
     this.queue.schedule();
@@ -297,8 +309,13 @@ export class PageViewController {
     if (entry.view) {
       this.byView.delete(entry.view);
       entry.view.div.remove();
-      entry.view.destroy();
+      // Not `view.destroy()`: it would `cleanup()` the shared page proxy even
+      // while another slot (a duplicated page) or a thumbnail still uses it.
+      entry.view.reset();
       entry.view = null;
+      entry.release?.();
+      entry.release = null;
+      this.engine.releasePageResources(entry.from);
     }
     this.buffer.delete(entry);
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);

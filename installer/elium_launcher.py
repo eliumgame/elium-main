@@ -579,6 +579,46 @@ def app_profile_dir() -> Path:
     return base
 
 
+# Politique de sécurité du contenu servie avec CHAQUE réponse. Principe : tout
+# vient de l'origine locale ('self') ; les seules exceptions sont des schémas
+# de données produits par l'application elle-même (data:, blob:), jamais une
+# origine réseau, et le script reste strict (ni 'unsafe-inline' ni
+# 'unsafe-eval' : aucune exécution de chaîne, aucun <script> inline).
+CSP_DIRECTIVES: "tuple[str, ...]" = (
+    "default-src 'self'",
+    # 'wasm-unsafe-eval' autorise WebAssembly (Argon2id via hash-wasm, utilisé
+    # par TOUT le chiffrement/identité ; décodeurs JPEG 2000 / JBIG2 / couleurs
+    # ICC de pdf.js) SANS ouvrir l'eval() de chaînes. Sans lui, une WebView
+    # Chromium récente bloque WebAssembly.compile() sous default-src 'self'.
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    # data: → images de signature / tampons / pages-images insérées gardées en
+    # data: URL dans le document (aperçus des dialogues <img src="data:…">) ;
+    # blob: → aperçus d'images choisies par l'utilisateur (createObjectURL).
+    "img-src 'self' data: blob:",
+    # blob: → workers créés à partir d'un Blob (moteur OCR Tesseract) ; le
+    # worker pdf.js, lui, est servi depuis 'self'.
+    "worker-src 'self' blob:",
+    # data:/blob: → lecture par fetch()/XHR de données déjà en mémoire (image
+    # de signature en data: URL, fichier déposé mis en blob:, modèles OCR
+    # chargés par le worker Tesseract). Aucune origine réseau n'est ajoutée :
+    # pas de fuite possible vers l'extérieur.
+    "connect-src 'self' data: blob:",
+    # data:/blob: → médias produits localement (pièce jointe audio/vidéo d'un
+    # PDF lue sans l'écrire sur disque). Là encore, aucune origine réseau.
+    "media-src 'self' data: blob:",
+    # blob: → impression : le PDF construit est chargé dans une <iframe> blob:
+    # invisible puis imprimé (PdfWorkspace « Imprimer »).
+    "frame-src 'self' blob:",
+    # Aucun plugin (<object>/<embed>) ; <base> ne peut pas détourner les URL
+    # relatives vers une autre origine.
+    "object-src 'none'",
+    "base-uri 'self'",
+)
+CONTENT_SECURITY_POLICY = "; ".join(CSP_DIRECTIVES)
+
+
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Serveur HTTP silencieux pour le Web Studio (+ fichier ouvert via Explorer)."""
 
@@ -596,18 +636,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         # Headers de sécurité
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header(
-            "Content-Security-Policy",
-            "default-src 'self'; "
-            # 'wasm-unsafe-eval' autorise WebAssembly (Argon2id via hash-wasm,
-            # utilisé par TOUT le chiffrement/identité) SANS ouvrir l'eval() de
-            # chaînes. Sans lui, une WebView Chromium récente bloque
-            # WebAssembly.compile() sous default-src 'self' → « génération
-            # d'identité / ouverture de document chiffré » cassées.
-            "script-src 'self' 'wasm-unsafe-eval'; "
-            "style-src 'self' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com",
-        )
+        # Détail et justification de chaque directive : CSP_DIRECTIVES ci-dessus.
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 

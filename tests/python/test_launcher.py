@@ -308,3 +308,66 @@ def test_rate_limit_window_expires(monkeypatch):
     assert elium_launcher._rate_limited() is True
     _time.sleep(0.08)
     assert elium_launcher._rate_limited() is False
+
+
+# --------------------------------------------------------------------------- #
+# Content-Security-Policy servie par le lanceur (cible réelle de l'appli)
+# --------------------------------------------------------------------------- #
+
+def _csp_directives() -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for part in elium_launcher.CONTENT_SECURITY_POLICY.split(";"):
+        tokens = part.split()
+        if tokens:
+            assert tokens[0] not in out, f"directive dupliquée : {tokens[0]}"
+            out[tokens[0]] = tokens[1:]
+    return out
+
+
+def test_csp_script_stays_strict():
+    """Ni 'unsafe-inline' ni 'unsafe-eval' dans script-src : seul WebAssembly
+    (Argon2id, décodeurs pdf.js) est autorisé à compiler du code."""
+    d = _csp_directives()
+    assert d["default-src"] == ["'self'"]
+    assert d["script-src"] == ["'self'", "'wasm-unsafe-eval'"]
+    assert "'unsafe-inline'" not in elium_launcher.CONTENT_SECURITY_POLICY
+    assert "'unsafe-eval'" not in elium_launcher.CONTENT_SECURITY_POLICY
+
+
+def test_csp_allows_local_data_schemes_only():
+    """Miniatures / signatures (data:), impression (iframe blob:), OCR (worker
+    blob:) — mais AUCUNE origine réseau supplémentaire."""
+    d = _csp_directives()
+    assert d["img-src"] == ["'self'", "data:", "blob:"]
+    assert d["worker-src"] == ["'self'", "blob:"]
+    assert d["connect-src"] == ["'self'", "data:", "blob:"]
+    assert d["media-src"] == ["'self'", "data:", "blob:"]
+    assert d["frame-src"] == ["'self'", "blob:"]
+    assert d["object-src"] == ["'none'"]
+    assert d["base-uri"] == ["'self'"]
+    for name in ("img-src", "worker-src", "connect-src", "media-src", "frame-src"):
+        assert not any(t.startswith("http") or t == "*" for t in d[name]), name
+
+
+def test_csp_style_and_font_sources_unchanged():
+    d = _csp_directives()
+    assert d["style-src"] == ["'self'", "https://fonts.googleapis.com"]
+    assert d["font-src"] == ["'self'", "https://fonts.gstatic.com"]
+
+
+def test_every_response_carries_the_csp(monkeypatch):
+    import http.server as _hs
+
+    sent: list[tuple[str, str]] = []
+
+    class _Probe(elium_launcher.QuietHandler):
+        def __init__(self):  # pas de socket : on n'appelle que end_headers()
+            pass
+
+        def send_header(self, key, value):
+            sent.append((key, value))
+
+    # SimpleHTTPRequestHandler.end_headers() écrit le tampon de sortie : neutralisé.
+    monkeypatch.setattr(_hs.SimpleHTTPRequestHandler, "end_headers", lambda self: None)
+    _Probe().end_headers()
+    assert ("Content-Security-Policy", elium_launcher.CONTENT_SECURITY_POLICY) in sent

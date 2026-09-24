@@ -26,7 +26,15 @@ export interface ThumbCanvasProps {
   className?: string;
 }
 
-export default function ThumbCanvas({ engine, page, rotation, width, height, priority = 0, className }: ThumbCanvasProps) {
+export default function ThumbCanvas({
+  engine,
+  page,
+  rotation,
+  width,
+  height,
+  priority = 0,
+  className,
+}: ThumbCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
   const pw = Math.max(1, Math.round(width * dpr));

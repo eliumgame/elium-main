@@ -165,11 +165,7 @@ function geometryOf(page: PDFPageProxy, index: number): PageInfo {
 }
 
 const sameGeometry = (a: PageInfo, b: PageInfo): boolean =>
-  Math.abs(a.w - b.w) < 1e-6 &&
-  Math.abs(a.h - b.h) < 1e-6 &&
-  a.ox === b.ox &&
-  a.oy === b.oy &&
-  a.rotate === b.rotate;
+  Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6 && a.ox === b.ox && a.oy === b.oy && a.rotate === b.rotate;
 
 const yieldToMain = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -252,10 +248,7 @@ export class PdfEngine {
       throw e;
     }
 
-    const [first, meta] = await Promise.all([
-      doc.getPage(1),
-      doc.getMetadata().catch(() => null),
-    ]);
+    const [first, meta] = await Promise.all([doc.getPage(1), doc.getMetadata().catch(() => null)]);
     const firstInfo = geometryOf(first, 0);
     const pages: PageInfo[] = new Array(doc.numPages);
     pages[0] = firstInfo;

@@ -162,7 +162,7 @@ function Thumbnails(p: SidebarProps) {
     if (next.imgW > 0 && (Math.abs(next.imgW - metrics.imgW) > 0.5 || Math.abs(next.chrome - metrics.chrome) > 0.5)) {
       setMetrics(next);
     }
-  });
+  }, [metrics.imgW, metrics.chrome, view.width, range?.first]);
 
   // Keep the current page's thumbnail in view, like Acrobat's pane.
   useEffect(() => {
@@ -207,78 +207,80 @@ function Thumbnails(p: SidebarProps) {
             const i = range.first + k;
             const selected = p.selectedPages.includes(page.id);
             return (
-            <div
-              key={page.id}
-              className={`pdfx-thumb ${p.current === i + 1 ? "is-current" : ""} ${selected ? "is-selected" : ""} ${dragOver === i ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
-              draggable
-              onDragStart={() => {
-                dragging.current = selected ? p.selectedPages : [page.id];
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(i);
-              }}
-              onDragLeave={() => setDragOver((v) => (v === i ? null : v))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(null);
-                if (dragging.current.length) p.onReorderPages(dragging.current, i);
-                dragging.current = [];
-              }}
-              onClick={(e) => toggle(page.id, e, i)}
-            >
-              <div className="pdfx-thumb__img">
-                <ThumbCanvas
-                  engine={p.engine}
-                  page={page}
-                  rotation={items[i].rotation}
-                  width={imgW}
-                  height={items[i].imgH}
-                  priority={Math.abs(i - mid)}
-                />
+              <div
+                key={page.id}
+                className={`pdfx-thumb ${p.current === i + 1 ? "is-current" : ""} ${selected ? "is-selected" : ""} ${dragOver === i ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
+                draggable
+                onDragStart={() => {
+                  dragging.current = selected ? p.selectedPages : [page.id];
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(i);
+                }}
+                onDragLeave={() => setDragOver((v) => (v === i ? null : v))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(null);
+                  if (dragging.current.length) p.onReorderPages(dragging.current, i);
+                  dragging.current = [];
+                }}
+                onClick={(e) => toggle(page.id, e, i)}
+              >
+                <div className="pdfx-thumb__img">
+                  <ThumbCanvas
+                    engine={p.engine}
+                    page={page}
+                    rotation={items[i].rotation}
+                    width={imgW}
+                    height={items[i].imgH}
+                    priority={Math.abs(i - mid)}
+                  />
+                </div>
+                <div className="pdfx-thumb__bar">
+                  <span className="pdfx-thumb__num">{page.label || i + 1}</span>
+                  <span className="pdfx-thumb__ops">
+                    <button
+                      type="button"
+                      title="Pivoter 90°"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onPageAction("rotate", [page.id]);
+                      }}
+                    >
+                      <RotateCw size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Dupliquer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onPageAction("duplicate", [page.id]);
+                      }}
+                    >
+                      <Copy size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Supprimer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onPageAction("delete", [page.id]);
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </span>
+                </div>
               </div>
-              <div className="pdfx-thumb__bar">
-                <span className="pdfx-thumb__num">{page.label || i + 1}</span>
-                <span className="pdfx-thumb__ops">
-                  <button
-                    type="button"
-                    title="Pivoter 90°"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      p.onPageAction("rotate", [page.id]);
-                    }}
-                  >
-                    <RotateCw size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Dupliquer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      p.onPageAction("duplicate", [page.id]);
-                    }}
-                  >
-                    <Copy size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Supprimer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      p.onPageAction("delete", [page.id]);
-                    }}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </span>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
         {range && range.last < p.pages.length - 1 && (
           <div
             className="pdfx-thumbs__spacer"
-            style={{ height: Math.max(0, stack.total - (stack.tops[range.last] + stack.heights[range.last]) - THUMB_GAP) }}
+            style={{
+              height: Math.max(0, stack.total - (stack.tops[range.last] + stack.heights[range.last]) - THUMB_GAP),
+            }}
           />
         )}
       </div>

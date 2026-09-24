@@ -81,7 +81,13 @@ export function gridRowHeights(cellHeights: readonly number[], columns: number):
  * The scroll offset that brings row `index` fully into a viewport showing
  * `[scrollTop, scrollTop + height]`, or null when it already is.
  */
-export function scrollIntoRow(stack: RowStack, index: number, scrollTop: number, height: number, margin = 8): number | null {
+export function scrollIntoRow(
+  stack: RowStack,
+  index: number,
+  scrollTop: number,
+  height: number,
+  margin = 8,
+): number | null {
   if (index < 0 || index >= stack.tops.length) return null;
   const top = stack.tops[index];
   const bottom = top + stack.heights[index];

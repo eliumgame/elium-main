@@ -308,7 +308,8 @@ export function mostVisiblePage(layout: Layout, vp: Viewport): number {
     return range ? range.first : 0;
   }
   let best = vis[0];
-  for (const v of vis) if (v.area > best.area + 0.5 || (Math.abs(v.area - best.area) <= 0.5 && v.index < best.index)) best = v;
+  for (const v of vis)
+    if (v.area > best.area + 0.5 || (Math.abs(v.area - best.area) <= 0.5 && v.index < best.index)) best = v;
   return best.index;
 }
 

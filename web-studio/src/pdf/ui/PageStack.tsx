@@ -1,4 +1,13 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { Quad, Rotation, Size } from "../core/coords";
 import { clamp, psToView, rectToView } from "../core/coords";
@@ -173,7 +182,8 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
         currentSourcePage: () => (live.current.pages[live.current.current - 1]?.from ?? 0) + 1,
         sourcePageCount: () => engine.pageCount,
       },
-      onTextLayer: (key, layer) => live.current.onTextLayer?.(key, layer, layer ? (slotEls.current.get(key) ?? null) : null),
+      onTextLayer: (key, layer) =>
+        live.current.onTextLayer?.(key, layer, layer ? (slotEls.current.get(key) ?? null) : null),
       onPageRendered: (key) => slotEls.current.get(key)?.classList.add("is-ready"),
     });
     c.setScale(live.current.scale);
@@ -211,34 +221,36 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   }, [viewport]);
 
   // --- layout ----------------------------------------------------------------
+  const { pages, sizeOf, rotationOf, mode, cover, current } = p;
   const boxes = useMemo<PageBox[]>(
     () =>
-      p.pages.map((page) => {
-        const s = p.sizeOf(page);
-        return p.rotationOf(page) % 180 === 0 ? { w: s.w, h: s.h } : { w: s.h, h: s.w };
+      pages.map((page) => {
+        const s = sizeOf(page);
+        return rotationOf(page) % 180 === 0 ? { w: s.w, h: s.h } : { w: s.h, h: s.w };
       }),
-    [p.pages, p.sizeOf, p.rotationOf],
+    [pages, sizeOf, rotationOf],
   );
 
-  const paged = isPagedMode(p.mode);
+  const paged = isPagedMode(mode);
+  const pageCount = pages.length;
   const shownRow = useMemo(() => {
     if (!paged) return undefined;
-    const rows = buildRows(p.pages.length, p.mode, p.cover);
-    const target = clamp(p.current - 1, 0, Math.max(0, p.pages.length - 1));
+    const rows = buildRows(pageCount, mode, cover);
+    const target = clamp(current - 1, 0, Math.max(0, pageCount - 1));
     const r = rows.findIndex(([s, e]) => target >= s && target < e);
     return r < 0 ? 0 : r;
-  }, [paged, p.pages.length, p.mode, p.cover, p.current]);
+  }, [paged, pageCount, mode, cover, current]);
 
   const layout = useMemo(
     () =>
       computeLayout(boxes, {
-        mode: p.mode,
-        cover: p.cover,
+        mode,
+        cover,
         scale,
         viewportWidth: viewport.width,
         row: shownRow,
       }),
-    [boxes, p.mode, p.cover, scale, viewport.width, shownRow],
+    [boxes, mode, cover, scale, viewport.width, shownRow],
   );
   const layoutRef = useRef(layout);
 
@@ -312,7 +324,8 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       const cur = live.current.current - 1;
       const stillFull = vis.some((v) => v.index === cur && v.percent >= 100);
       let best = vis[0];
-      for (const v of vis) if (v.area > best.area + 0.5 || (Math.abs(v.area - best.area) <= 0.5 && v.index < best.index)) best = v;
+      for (const v of vis)
+        if (v.area > best.area + 0.5 || (Math.abs(v.area - best.area) <= 0.5 && v.index < best.index)) best = v;
       const next = stillFull ? cur : best.index;
       if (next + 1 !== reportedCurrent.current && next + 1 !== live.current.current) {
         reportedCurrent.current = next + 1;
@@ -514,7 +527,11 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
             active={p.current === pl.index + 1}
             hits={p.hitsOf?.(pl.page)}
             slotEls={slotEls.current}
-            overlay={p.renderOverlay?.(pl.page, pl.index, { size: pl.size, rotation: pl.rotation, scale: layout.scale })}
+            overlay={p.renderOverlay?.(pl.page, pl.index, {
+              size: pl.size,
+              rotation: pl.rotation,
+              scale: layout.scale,
+            })}
           />
         ))}
       </div>

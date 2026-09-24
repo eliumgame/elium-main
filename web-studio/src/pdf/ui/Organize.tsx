@@ -155,7 +155,7 @@ export default function Organize(p: OrganizeProps) {
     if (!cell || !pic) return;
     const next = cell.offsetHeight - pic.offsetHeight;
     if (next > 0 && Math.abs(next - chrome) > 0.5) setChrome(next);
-  });
+  }, [chrome, size, firstCell, endCell]);
 
   const selectedSet = useMemo(() => new Set(p.selected), [p.selected]);
   const has = p.selected.length > 0;
@@ -301,75 +301,75 @@ export default function Organize(p: OrganizeProps) {
         {p.pages.slice(firstCell, endCell).map((page, k) => {
           const i = firstCell + k;
           return (
-          <div
-            key={page.id}
-            className={`pdfx-org__cell ${selectedSet.has(page.id) ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${dropAt === i ? "is-drop" : ""}`}
-            draggable
-            onDragStart={() => {
-              dragIds.current = selectedSet.has(page.id) ? p.selected : [page.id];
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDropAt(i);
-            }}
-            onDragLeave={() => setDropAt((v) => (v === i ? null : v))}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDropAt(null);
-              if (dragIds.current.length) p.onReorder(dragIds.current, i);
-              dragIds.current = [];
-            }}
-            onClick={(e) => click(e, page, i)}
-          >
-            <PageCard
-              engine={p.engine}
-              page={page}
-              index={i}
-              size={size}
-              height={cells[i].h}
-              rotation={cells[i].rotation}
-              priority={Math.abs(i - midCell)}
-            />
-            <div className="pdfx-org__cellops">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  p.onRotate([page.id], 90);
-                }}
-                title="Pivoter"
-              >
-                <RotateCw size={13} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  p.onDuplicate([page.id]);
-                }}
-                title="Dupliquer"
-              >
-                <Copy size={13} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  p.onInsertBlank(page.id);
-                }}
-                title="Insérer après"
-              >
-                <FilePlus2 size={13} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  p.onDelete([page.id]);
-                }}
-                title="Supprimer"
-              >
-                <Trash2 size={13} />
-              </button>
+            <div
+              key={page.id}
+              className={`pdfx-org__cell ${selectedSet.has(page.id) ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${dropAt === i ? "is-drop" : ""}`}
+              draggable
+              onDragStart={() => {
+                dragIds.current = selectedSet.has(page.id) ? p.selected : [page.id];
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDropAt(i);
+              }}
+              onDragLeave={() => setDropAt((v) => (v === i ? null : v))}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDropAt(null);
+                if (dragIds.current.length) p.onReorder(dragIds.current, i);
+                dragIds.current = [];
+              }}
+              onClick={(e) => click(e, page, i)}
+            >
+              <PageCard
+                engine={p.engine}
+                page={page}
+                index={i}
+                size={size}
+                height={cells[i].h}
+                rotation={cells[i].rotation}
+                priority={Math.abs(i - midCell)}
+              />
+              <div className="pdfx-org__cellops">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onRotate([page.id], 90);
+                  }}
+                  title="Pivoter"
+                >
+                  <RotateCw size={13} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onDuplicate([page.id]);
+                  }}
+                  title="Dupliquer"
+                >
+                  <Copy size={13} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onInsertBlank(page.id);
+                  }}
+                  title="Insérer après"
+                >
+                  <FilePlus2 size={13} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onDelete([page.id]);
+                  }}
+                  title="Supprimer"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+              {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
             </div>
-            {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
-          </div>
           );
         })}
         {showAdd ? (

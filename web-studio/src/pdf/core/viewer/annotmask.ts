@@ -126,8 +126,7 @@ export class ImportedAnnotationMask {
   }
 
   private refresh(): void {
-    this.current =
-      this._enabled && this.ids.size ? { ids: this.ids, hash: `elium-imported-${this.version}` } : EMPTY;
+    this.current = this._enabled && this.ids.size ? { ids: this.ids, hash: `elium-imported-${this.version}` } : EMPTY;
   }
 
   private install(): void {

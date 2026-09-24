@@ -344,7 +344,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (!raw) continue;
         const pageAppearances = appearances?.get(page.from);
         const withImages = pageAppearances?.size
-          ? raw.map((a) => (a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a))
+          ? raw.map((a) =>
+              a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a,
+            )
           : raw;
         const info = await next.pageInfo(page.from);
         const origin = { x: info.ox, y: info.oy };
@@ -797,7 +799,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const page = target >= 0 ? pages[target] : undefined;
     // Quads are in source page space; only an unrotated, uncropped page maps them 1:1.
     const y =
-      quads?.length && page && !page.crop && rotationOf(page) === 0 ? Math.max(0, rectOfQuads(quads).y - 60) : undefined;
+      quads?.length && page && !page.crop && rotationOf(page) === 0
+        ? Math.max(0, rectOfQuads(quads).y - 60)
+        : undefined;
     goTo((target < 0 ? hit.page : target) + 1, y);
   };
 
@@ -1922,7 +1926,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         {/* Edited paragraphs are painted over the original raster in every
             mode, so a change is visible the instant it is made and stays
             visible after leaving the editor. */}
-        <ContentEditPreview edits={pageEdits} size={size} rotation={rotation} scale={scale} maskColor={themeDef.canvas} />
+        <ContentEditPreview
+          edits={pageEdits}
+          size={size}
+          rotation={rotation}
+          scale={scale}
+          maskColor={themeDef.canvas}
+        />
         {mode === "editText" && (
           <ContentEditLayer
             engine={engine}

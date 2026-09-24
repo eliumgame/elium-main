@@ -1,7 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import pdfjsAssets from "./scripts/pdfjs-assets-plugin";
+import pdfjsAssets from "./scripts/pdfjs-assets-plugin.ts";
 
 export default defineConfig({
   // pdfjsAssets : publie wasm/cmaps/polices standard/ICC de pdf.js sous dist/pdfjs/

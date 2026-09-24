@@ -173,6 +173,40 @@ describe("ThumbnailService — waits for the page view", () => {
     expect(got).not.toHaveBeenCalled();
   });
 
+  it("asks function priorities again at each pick: what is visible now is drawn first", async () => {
+    const { engine, tasks } = fakeEngine();
+    const s = new ThumbnailService(engine);
+    s.setMainBusy(true);
+    // Requested in list order while a scroll runs; by the time the view is
+    // idle the list has moved and page 7 is the one on screen.
+    const where = new Map([
+      [5, 3],
+      [6, 2],
+      [7, 1],
+    ]);
+    for (const from of [5, 6, 7]) {
+      s.request({ from, rotation: 0, width: 120, priority: () => where.get(from)! }, () => {});
+    }
+    await flush();
+    s.setMainBusy(false);
+    await flush();
+    expect(engine.page).toHaveBeenLastCalledWith(7);
+    // Page 6 scrolls out of view while page 7 draws: page 5 comes next.
+    where.set(6, 50);
+    tasks[0].step();
+    tasks[0].step();
+    await flush();
+    expect(engine.page).toHaveBeenLastCalledWith(5);
+    // A second requester of the same page with a more urgent priority wins.
+    const job = s.request({ from: 9, rotation: 0, width: 120, priority: 100 }, () => {});
+    s.request({ from: 9, rotation: 0, width: 120, priority: () => 0 }, () => {});
+    tasks[1].step();
+    tasks[1].step();
+    await flush();
+    expect(engine.page).toHaveBeenLastCalledWith(9);
+    job();
+  });
+
   it("whenIdle runs once the hold lifts, or after maxWait at the latest", async () => {
     const { engine } = fakeEngine();
     const s = new ThumbnailService(engine);

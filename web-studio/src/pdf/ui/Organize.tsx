@@ -70,8 +70,6 @@ interface CellProps {
   size: number;
   height: number;
   rotation: number;
-  /** Read when the thumbnail is requested (on mount) only — ignored by the memo. */
-  priority: number;
   selected: boolean;
   drop: boolean;
   actions: CellActions;
@@ -91,92 +89,95 @@ interface CellActions {
 }
 
 /**
- * One page of the grid. Memoised (priority aside): scrolling re-renders only
- * the cells that mount, a selection only the cells whose state changes.
+ * One page of the grid. Memoised: scrolling re-renders only the cells that
+ * mount, a selection only the cells whose state changes.
  */
-const OrgCell = memo(
-  function OrgCell({ engine, page, index: i, size, height, rotation, priority, selected, drop, actions }: CellProps) {
-    return (
-      <div
-        className={`pdfx-org__cell ${selected ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${drop ? "is-drop" : ""}`}
-        draggable
-        onDragStart={() => actions.dragStart(page, selected)}
-        onDragOver={(e) => {
-          e.preventDefault();
-          actions.dragOver(i);
-        }}
-        onDragLeave={() => actions.dragLeave(i)}
-        onDrop={(e) => {
-          e.preventDefault();
-          actions.drop(i);
-        }}
-        onClick={(e) => actions.click(e, page, i)}
-      >
-        <div className="pdfx-org__thumb" style={{ width: size }}>
-          {page.from == null && !page.image ? (
-            <div className="pdfx-org__blank" style={{ height }}>
-              Page blanche
-            </div>
-          ) : (
-            <ThumbCanvas
-              className="pdfx-org__canvas"
-              engine={engine}
-              page={page}
-              rotation={rotation}
-              width={size}
-              height={height}
-              priority={priority}
-            />
-          )}
-          <span className="pdfx-org__num">{page.label || i + 1}</span>
-        </div>
-        <div className="pdfx-org__cellops">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.rotate(page.id);
-            }}
-            title="Pivoter"
-          >
-            <RotateCw size={13} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.duplicate(page.id);
-            }}
-            title="Dupliquer"
-          >
-            <Copy size={13} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.insertAfter(page.id);
-            }}
-            title="Insérer après"
-          >
-            <FilePlus2 size={13} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.remove(page.id);
-            }}
-            title="Supprimer"
-          >
-            <Trash2 size={13} />
-          </button>
-        </div>
-        {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
+const OrgCell = memo(function OrgCell({
+  engine,
+  page,
+  index: i,
+  size,
+  height,
+  rotation,
+  selected,
+  drop,
+  actions,
+}: CellProps) {
+  return (
+    <div
+      className={`pdfx-org__cell ${selected ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${drop ? "is-drop" : ""}`}
+      draggable
+      onDragStart={() => actions.dragStart(page, selected)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        actions.dragOver(i);
+      }}
+      onDragLeave={() => actions.dragLeave(i)}
+      onDrop={(e) => {
+        e.preventDefault();
+        actions.drop(i);
+      }}
+      onClick={(e) => actions.click(e, page, i)}
+    >
+      <div className="pdfx-org__thumb" style={{ width: size }}>
+        {page.from == null && !page.image ? (
+          <div className="pdfx-org__blank" style={{ height }}>
+            Page blanche
+          </div>
+        ) : (
+          <ThumbCanvas
+            className="pdfx-org__canvas"
+            engine={engine}
+            page={page}
+            rotation={rotation}
+            width={size}
+            height={height}
+          />
+        )}
+        <span className="pdfx-org__num">{page.label || i + 1}</span>
       </div>
-    );
-  },
-  (a, b) => {
-    for (const k of Object.keys(a) as (keyof CellProps)[]) if (k !== "priority" && a[k] !== b[k]) return false;
-    return true;
-  },
-);
+      <div className="pdfx-org__cellops">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.rotate(page.id);
+          }}
+          title="Pivoter"
+        >
+          <RotateCw size={13} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.duplicate(page.id);
+          }}
+          title="Dupliquer"
+        >
+          <Copy size={13} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.insertAfter(page.id);
+          }}
+          title="Insérer après"
+        >
+          <FilePlus2 size={13} />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.remove(page.id);
+          }}
+          title="Supprimer"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+      {page.skipped && <span className="pdfx-org__skipbadge">Exclue</span>}
+    </div>
+  );
+});
 
 export default function Organize(p: OrganizeProps) {
   const [size, setSize] = useState(190);
@@ -221,7 +222,6 @@ export default function Organize(p: OrganizeProps) {
   const firstCell = rows ? rows.first * columns : 0;
   const endCell = rows ? Math.min(p.pages.length, (rows.last + 1) * columns) : 0;
   const showAdd = !!rows && rows.last === stack.tops.length - 1;
-  const midCell = (firstCell + endCell) / 2;
 
   useLayoutEffect(() => {
     const cell = gridRef.current?.querySelector<HTMLElement>(".pdfx-org__cell");
@@ -404,7 +404,6 @@ export default function Organize(p: OrganizeProps) {
               size={size}
               height={cells[i].h}
               rotation={cells[i].rotation}
-              priority={Math.abs(i - midCell)}
               selected={selectedSet.has(page.id)}
               drop={dropAt === i}
               actions={actions}

@@ -10,8 +10,33 @@ import type { Page } from "../model/types";
  * already rendered (by the side panel or the organiser) shows instantly.
  *
  * The request is made when the canvas mounts and cancelled when it unmounts —
- * the virtualised lists only mount what is on (or near) the screen.
+ * the virtualised lists only mount what is on (or near) the screen. Its
+ * priority is where the canvas is NOW relative to the visible part of its
+ * list (asked each time the service picks the next thumbnail): after a scroll
+ * the thumbnails on screen are drawn first, then the nearest ones — not the
+ * ones that happened to be requested first.
  */
+
+/** Nearest scrolled ancestor: the list the thumbnail lives in. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const overflow = getComputedStyle(p).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return p;
+  }
+  return null;
+}
+
+/**
+ * On screen: in [0, 1), top to bottom. Off screen: 1 + its distance to the
+ * visible part, in px. Detached: last.
+ */
+function screenPriority(canvas: HTMLCanvasElement, root: HTMLElement | null): number {
+  if (!canvas.isConnected) return Number.MAX_VALUE;
+  const r = canvas.getBoundingClientRect();
+  const v = root ? root.getBoundingClientRect() : { top: 0, bottom: globalThis.innerHeight || 0 };
+  if (r.bottom > v.top && r.top < v.bottom) return (0.999 * Math.max(0, r.top - v.top)) / Math.max(1, v.bottom - v.top);
+  return 1 + (r.bottom <= v.top ? v.top - r.bottom : r.top - v.bottom);
+}
 
 export interface ThumbCanvasProps {
   engine: PdfEngine;
@@ -21,28 +46,14 @@ export interface ThumbCanvasProps {
   /** CSS size of the thumbnail. */
   width: number;
   height: number;
-  /** Lower renders first (e.g. distance to the middle of the visible list). */
-  priority?: number;
   className?: string;
 }
 
-export default function ThumbCanvas({
-  engine,
-  page,
-  rotation,
-  width,
-  height,
-  priority = 0,
-  className,
-}: ThumbCanvasProps) {
+export default function ThumbCanvas({ engine, page, rotation, width, height, className }: ThumbCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
   const pw = Math.max(1, Math.round(width * dpr));
   const ph = Math.max(1, Math.round(height * dpr));
-  // Only read when a request is made: re-prioritising a thumbnail already in
-  // flight is not worth cancelling its render.
-  const priorityRef = useRef(priority);
-  priorityRef.current = priority;
 
   const from = page.from;
   const image = page.image;
@@ -76,7 +87,9 @@ export default function ThumbCanvas({
       };
     }
     blank();
-    const cancel = service.request({ ...req, priority: priorityRef.current }, draw);
+    let root: HTMLElement | null | undefined;
+    const priority = () => screenPriority(canvas, (root ??= scrollParent(canvas)));
+    const cancel = service.request({ ...req, priority }, draw);
     return () => {
       alive = false;
       cancel();

@@ -153,7 +153,6 @@ function Thumbnails(p: SidebarProps) {
     onScroll: () => thumbnailsFor(engine).noteScroll(),
   });
   const range = win.band(stack);
-  const mid = range ? (range.first + range.last) / 2 : 0;
   const hasItems = !!range;
 
   // Measure the real item chrome and picture width from a mounted thumbnail
@@ -256,7 +255,6 @@ function Thumbnails(p: SidebarProps) {
                 rotation={items[i].rotation}
                 width={imgW}
                 height={items[i].imgH}
-                priority={Math.abs(i - mid)}
                 current={current === i + 1}
                 selected={selected.has(page.id)}
                 dropTarget={dragOver === i}
@@ -293,8 +291,6 @@ interface ThumbItemProps {
   rotation: number;
   width: number;
   height: number;
-  /** Read when the thumbnail is requested (on mount) only — ignored by the memo. */
-  priority: number;
   current: boolean;
   selected: boolean;
   dropTarget: boolean;
@@ -303,12 +299,6 @@ interface ThumbItemProps {
   onDragStart: (id: string, selected: boolean) => void;
   onDragOverItem: (updater: (v: number | null) => number | null) => void;
   onDrop: (index: number) => void;
-}
-
-/** Equal props, `priority` aside (it only matters when the thumbnail is requested). */
-function sameItem<T extends { priority: number }>(a: T, b: T): boolean {
-  for (const k of Object.keys(a) as (keyof T)[]) if (k !== "priority" && a[k] !== b[k]) return false;
-  return true;
 }
 
 /**
@@ -334,14 +324,7 @@ const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
       onClick={(e) => t.onPick(page.id, e, i)}
     >
       <div className="pdfx-thumb__img">
-        <ThumbCanvas
-          engine={t.engine}
-          page={page}
-          rotation={t.rotation}
-          width={t.width}
-          height={t.height}
-          priority={t.priority}
-        />
+        <ThumbCanvas engine={t.engine} page={page} rotation={t.rotation} width={t.width} height={t.height} />
       </div>
       <div className="pdfx-thumb__bar">
         <span className="pdfx-thumb__num">{page.label || i + 1}</span>
@@ -380,7 +363,7 @@ const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
       </div>
     </div>
   );
-}, sameItem);
+});
 
 // ---------------------------------------------------------------------------
 // Bookmarks

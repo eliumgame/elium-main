@@ -10,9 +10,11 @@
  * pixel budget), and drawn straight into the visible `<canvas>` — no URL of
  * any kind, so no CSP involvement at all.
  *
- * Requests are prioritised (lower first — the caller passes the distance to
- * what is on screen) and cancellable: scrolling a long list only ever renders
- * what is (still) in view.
+ * Requests are prioritised (lower first) and cancellable: scrolling a long
+ * list only ever renders what is (still) in view. A priority may be a
+ * function, asked again each time the next thumbnail is chosen: a list that
+ * scrolled since its thumbnails were requested then draws what is visible NOW
+ * first, not what happened to be requested first.
  *
  * Thumbnails never compete with the page view — what pdf.js' own viewer does
  * with its single `PDFRenderingQueue`, where a thumbnail is only drawn once no
@@ -29,6 +31,9 @@ import type { PDFPageProxy } from "pdfjs-dist";
 import type { PdfEngine } from "./engine";
 import { ImportedAnnotationMask } from "./viewer/annotmask";
 
+/** Lower renders first; a function is evaluated each time the next thumbnail is picked. */
+export type ThumbPriority = number | (() => number);
+
 export interface ThumbRequest {
   /** Source page (0-based). */
   from: number;
@@ -37,10 +42,12 @@ export interface ThumbRequest {
   /** Target width in device pixels. */
   width: number;
   /** Lower renders first. */
-  priority: number;
+  priority: ThumbPriority;
 }
 
 type Listener = (bitmap: ImageBitmap) => void;
+
+type JobRequest = Omit<ThumbRequest, "priority">;
 
 interface RenderTaskLike {
   cancel: () => void;
@@ -50,10 +57,23 @@ interface RenderTaskLike {
 
 interface Job {
   key: string;
-  req: ThumbRequest;
-  listeners: Set<Listener>;
+  req: JobRequest;
+  /** Each requester, with its priority (the job's is the most urgent of them). */
+  listeners: Map<Listener, ThumbPriority>;
   task: RenderTaskLike | null;
   cancelled: boolean;
+}
+
+const priorityValue = (p: ThumbPriority): number => {
+  const v = typeof p === "function" ? p() : p;
+  return Number.isFinite(v) ? v : Number.MAX_VALUE;
+};
+
+/** The most urgent priority among a job's requesters. */
+function jobPriority(job: Job): number {
+  let best = Number.MAX_VALUE;
+  for (const p of job.listeners.values()) best = Math.min(best, priorityValue(p));
+  return best;
 }
 
 /**
@@ -76,7 +96,7 @@ export const thumbKey = (r: Pick<ThumbRequest, "from" | "rotation" | "width">, s
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /** A raster big enough to be downscaled into this thumbnail (never upscale). */
-const bigEnough = (raster: { width: number }, req: ThumbRequest) => raster.width >= req.width * 0.9;
+const bigEnough = (raster: { width: number }, req: JobRequest) => raster.width >= req.width * 0.9;
 
 export class ThumbnailService {
   private cache = new Map<string, ImageBitmap>();
@@ -129,12 +149,16 @@ export class ThumbnailService {
     }
     let job = this.pending.get(key) ?? [...this.running].find((j) => j.key === key && !j.cancelled);
     if (!job) {
-      job = { key, req, listeners: new Set(), task: null, cancelled: false };
+      job = {
+        key,
+        req: { from: req.from, rotation: req.rotation, width: req.width },
+        listeners: new Map(),
+        task: null,
+        cancelled: false,
+      };
       this.pending.set(key, job);
-    } else if (req.priority < job.req.priority) {
-      job.req = { ...job.req, priority: req.priority };
     }
-    job.listeners.add(onReady);
+    job.listeners.set(onReady, req.priority);
     this.schedulePump();
     const j = job;
     return () => {
@@ -285,7 +309,14 @@ export class ThumbnailService {
     }
     while (this.running.size < CONCURRENCY && this.pending.size) {
       let best: Job | null = null;
-      for (const job of this.pending.values()) if (!best || job.req.priority < best.req.priority) best = job;
+      let bestPriority = Number.MAX_VALUE;
+      for (const job of this.pending.values()) {
+        const p = jobPriority(job);
+        if (!best || p < bestPriority) {
+          best = job;
+          bestPriority = p;
+        }
+      }
       if (!best) return;
       this.pending.delete(best.key);
       this.running.add(best);
@@ -299,7 +330,7 @@ export class ThumbnailService {
       return;
     }
     this.store(job.key, bitmap);
-    for (const l of job.listeners) l(bitmap);
+    for (const l of job.listeners.keys()) l(bitmap);
   }
 
   private async run(job: Job): Promise<void> {
@@ -336,7 +367,7 @@ export class ThumbnailService {
   }
 
   /** A thumbnail-sized copy of a finished page raster: a GPU downscale, no pdf.js work. */
-  private derive(raster: HTMLCanvasElement, req: ThumbRequest): Promise<ImageBitmap> {
+  private derive(raster: HTMLCanvasElement, req: JobRequest): Promise<ImageBitmap> {
     const width = Math.max(1, Math.round(req.width));
     const height = Math.max(1, Math.round((raster.height * width) / Math.max(1, raster.width)));
     // The pixels are snapshotted synchronously: the raster may be reset right after.

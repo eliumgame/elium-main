@@ -79,6 +79,8 @@ export interface ControllerOptions {
   onTextLayer?: (key: string, layer: HTMLDivElement | null) => void;
   /** A page finished a full (not CSS-only, not detail) render. */
   onPageRendered?: (key: string) => void;
+  /** A page's raster was freed (LRU eviction while its slot is still mounted). */
+  onPageCleared?: (key: string) => void;
 }
 
 interface Entry {
@@ -334,6 +336,7 @@ export class PageViewController {
       entry.release?.();
       entry.release = null;
       this.engine.releasePageResources(entry.from);
+      this.opts.onPageCleared?.(entry.key);
     }
     this.buffer.delete(entry);
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
@@ -348,6 +351,7 @@ export class PageViewController {
     }
     entry.view.reset();
     this.opts.onTextLayer?.(entry.key, null);
+    this.opts.onPageCleared?.(entry.key);
   }
 
   // -------------------------------------------------------------------------

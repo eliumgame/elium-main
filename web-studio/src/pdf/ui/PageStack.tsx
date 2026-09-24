@@ -167,6 +167,7 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
   }, []);
 
   const slotEls = useRef(new Map<string, HTMLDivElement>());
+  const readyKeys = useRef(new Set<string>());
 
   useEffect(() => {
     if (!lib) return;
@@ -186,7 +187,17 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       },
       onTextLayer: (key, layer) =>
         live.current.onTextLayer?.(key, layer, layer ? (slotEls.current.get(key) ?? null) : null),
-      onPageRendered: (key) => slotEls.current.get(key)?.classList.add("is-ready"),
+      // `is-ready` (hides the loading shimmer) is toggled on the slot directly
+      // — no React render per finished page — and remembered, so that a later
+      // render of the slot keeps it.
+      onPageRendered: (key) => {
+        readyKeys.current.add(key);
+        slotEls.current.get(key)?.classList.add("is-ready");
+      },
+      onPageCleared: (key) => {
+        readyKeys.current.delete(key);
+        slotEls.current.get(key)?.classList.remove("is-ready");
+      },
     });
     c.setScale(live.current.scale);
     c.setMaskEnabled(live.current.maskImported);
@@ -566,6 +577,7 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
             placement={pl}
             scale={layout.scale}
             active={p.current === pl.index + 1}
+            ready={readyKeys.current.has(pl.page.id)}
             hits={p.hitsOf?.(pl.page)}
             slotEls={slotEls.current}
             overlay={p.renderOverlay?.(pl.page, pl.index, {
@@ -611,12 +623,14 @@ interface PageSlotProps {
   placement: Placement;
   scale: number;
   active: boolean;
+  /** Its page view has finished a raster (see `readyKeys`). */
+  ready: boolean;
   hits?: HitMark[];
   slotEls: Map<string, HTMLDivElement>;
   overlay?: ReactNode;
 }
 
-function PageSlot({ controller, placement: pl, scale, active, hits, slotEls, overlay }: PageSlotProps) {
+function PageSlot({ controller, placement: pl, scale, active, ready, hits, slotEls, overlay }: PageSlotProps) {
   const slotRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const { page } = pl;
@@ -651,7 +665,7 @@ function PageSlot({ controller, placement: pl, scale, active, hits, slotEls, ove
   return (
     <div
       ref={slotRef}
-      className={`pdfx-page pdfx-slot ${active ? "is-active" : ""} ${inserted ? "is-ready" : ""}`}
+      className={`pdfx-page pdfx-slot ${active ? "is-active" : ""} ${inserted || ready ? "is-ready" : ""}`}
       data-page={pl.index + 1}
       style={{ left: pl.x, top: pl.y, width: pl.w, height: pl.h }}
     >

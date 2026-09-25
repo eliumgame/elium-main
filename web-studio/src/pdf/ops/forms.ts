@@ -7,20 +7,11 @@
  * overlay uses. Writing is done with pdf-lib.
  */
 
-import {
-  PDFArray,
-  PDFCheckBox,
-  PDFDocument,
-  PDFDropdown,
-  PDFName,
-  PDFNumber,
-  PDFOptionList,
-  PDFRadioGroup,
-  PDFString,
-  PDFTextField,
-} from "pdf-lib";
+import { PDFArray, PDFDocument, PDFName, PDFNumber, PDFRadioGroup, PDFString } from "pdf-lib";
 import type { PDFFont, PDFForm, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
+import { FieldFontBook, completeFieldAppearances, flattenFields, writeFieldValues } from "./formpdf";
+import type { FlattenReport } from "./formpdf";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
 
 /** Subset of a pdf.js widget annotation we consume (`getAnnotations()` is untyped). */
@@ -164,66 +155,30 @@ export function missingRequired(fields: readonly FieldBox[], values: Record<stri
 
 export interface FillReport {
   filled: number;
+  /** Fields whose value changed in the file. */
+  changed: number;
   skipped: string[];
 }
 
-/** Write collected values into an already-loaded document. */
-export function fillForm(doc: PDFDocument, values: Record<string, FormValue>, font?: PDFFont): FillReport {
-  const report: FillReport = { filled: 0, skipped: [] };
-  let form;
-  try {
-    form = doc.getForm();
-  } catch {
-    return report;
-  }
-  for (const field of form.getFields()) {
-    const name = field.getName();
-    if (!(name in values)) continue;
-    const val = values[name];
-    try {
-      if (field instanceof PDFTextField) {
-        field.setText(typeof val === "boolean" ? (val ? "Oui" : "") : String(val ?? ""));
-      } else if (field instanceof PDFCheckBox) {
-        if (val === true || (typeof val === "string" && val && val !== "Off")) field.check();
-        else field.uncheck();
-      } else if (field instanceof PDFRadioGroup) {
-        if (typeof val === "string" && val) {
-          const opts = field.getOptions();
-          // pdf.js reports the appearance-state name, which may be a numeric
-          // index rather than pdf-lib's option name — map it back.
-          if (opts.includes(val)) field.select(val);
-          else if (/^\d+$/.test(val) && opts[Number(val)] != null) field.select(opts[Number(val)]);
-          else {
-            report.skipped.push(name);
-            continue;
-          }
-        } else field.clear();
-      } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
-        if (typeof val === "string" && val) field.select(val);
-        else field.clear();
-      } else {
-        continue;
-      }
-      report.filled++;
-    } catch {
-      report.skipped.push(name);
-    }
-  }
-  try {
-    if (font) form.updateFieldAppearances(font);
-    else form.updateFieldAppearances();
-  } catch {
-    /* appearances are best-effort */
-  }
-  return report;
+/**
+ * Write collected values into an already-loaded document (the field objects
+ * only — `completeFieldAppearances` then draws what changed, see `formpdf.ts`).
+ */
+export function fillForm(doc: PDFDocument, values: Record<string, FormValue>): FillReport {
+  const r = writeFieldValues(doc, values);
+  return { filled: r.filled, changed: r.changed.length, skipped: r.skipped };
 }
 
-export function flattenForm(doc: PDFDocument): boolean {
+/**
+ * Bake the form into the pages (appearances completed first, so a value no
+ * appearance showed yet is drawn too). Null when the document has no form.
+ */
+export async function flattenForm(doc: PDFDocument): Promise<FlattenReport | null> {
   try {
-    doc.getForm().flatten();
-    return true;
+    await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
+    return flattenFields(doc);
   } catch {
-    return false;
+    return null;
   }
 }
 

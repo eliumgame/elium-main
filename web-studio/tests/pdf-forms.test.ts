@@ -1,14 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  PDFCheckBox,
-  PDFDocument,
-  PDFDropdown,
-  PDFName,
-  PDFRadioGroup,
-  PDFSignature,
-  PDFTextField,
-  StandardFonts,
-} from "pdf-lib";
+import { PDFCheckBox, PDFDocument, PDFDropdown, PDFName, PDFRadioGroup, PDFSignature, StandardFonts } from "pdf-lib";
 import {
   createFields,
   fillForm,
@@ -425,7 +416,7 @@ describe("forms — fillForm across every widget kind", () => {
   it("returns an empty report instead of throwing when the document has no AcroForm", async () => {
     const { doc } = await docWithFont();
     const report = fillForm(doc, { nom: "x" });
-    expect(report).toEqual({ filled: 0, skipped: [] });
+    expect(report).toEqual({ filled: 0, changed: 0, skipped: [] });
   });
 });
 
@@ -434,15 +425,15 @@ describe("forms — flattenForm", () => {
     const { doc, font, page } = await docWithFont();
     createFields({ doc, font }, [fieldBase({ id: "1", name: "nom" })], () => ({ page, height: 400 }));
     fillForm(doc, { nom: "Dupont" });
-    expect(flattenForm(doc)).toBe(true);
+    const r = await flattenForm(doc);
+    expect(r?.drawn).toBe(1);
     expect(doc.getForm().getFields()).toHaveLength(0);
   });
 
-  it("returns false instead of throwing when there is nothing to flatten", async () => {
+  it("does not throw when there is nothing to flatten", async () => {
     const { doc } = await docWithFont();
-    // No AcroForm at all yet — flatten() on a freshly created empty form is a no-op success in pdf-lib,
-    // so this exercises the try/catch guard rather than asserting a specific outcome.
-    expect(typeof flattenForm(doc)).toBe("boolean");
+    const r = await flattenForm(doc);
+    expect(r === null || r.fields === 0).toBe(true);
   });
 
   it("still flattens a text field when a prepared (never signed) signature field is also present", async () => {
@@ -463,7 +454,9 @@ describe("forms — flattenForm", () => {
     expect(doc.getForm().getField("signature")).toBeInstanceOf(PDFSignature);
     fillForm(doc, { nom: "Dupont" });
 
-    expect(flattenForm(doc)).toBe(true);
+    const r = await flattenForm(doc);
+    // The text field is drawn (the prepared signature field's empty box too).
+    expect(r?.drawn).toBe(2);
     // Both fields are gone from the AcroForm — flattening reached the text
     // field this time, instead of bailing out on the whole form as soon as it
     // hit the signature widget.

@@ -30,7 +30,8 @@ import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } 
 import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
 import { FontBook } from "./fonts";
-import { createFields, fillForm, flattenForm } from "./forms";
+import { FieldFontBook, completeFieldAppearances, flattenFields } from "./formpdf";
+import { createFields, fillForm } from "./forms";
 import { ImageBank } from "./images";
 import {
   fingerprint,
@@ -332,7 +333,7 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
   if (input.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
   const full = input.mode === "full" || reasons.length > 0;
 
-  await applyState(doc, state, opts, report);
+  await applyState(doc, state, opts, report, !!input.base);
   if (input.transform) await input.transform(doc, report);
 
   step("Écriture du fichier", 0.92);
@@ -439,7 +440,13 @@ export async function buildPdf(
 // Applying the model
 // ---------------------------------------------------------------------------
 
-async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions, report: BuildReport): Promise<void> {
+async function applyState(
+  doc: PDFDocument,
+  state: PdfState,
+  opts: BuildOptions,
+  report: BuildReport,
+  formBase: boolean,
+): Promise<void> {
   const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
 
   // --- 1. page order -------------------------------------------------------
@@ -653,15 +660,40 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     }
   }
   const valueCount = Object.keys(state.formValues).length;
+  let valuesChanged = 0;
   if (valueCount) {
-    const { font } = await fonts.standard();
-    report.fieldsFilled = fillForm(doc, state.formValues, font).filled;
-    if (report.fieldsFilled < valueCount) {
-      report.lost.push(`${valueCount - report.fieldsFilled} valeur(s) de champ n'ont pas pu être enregistrées.`);
+    const r = fillForm(doc, state.formValues);
+    report.fieldsFilled = r.filled;
+    valuesChanged = r.changed;
+    if (r.skipped.length) {
+      report.lost.push(
+        `Valeur non enregistrée pour ${r.skipped.length} champ(s) : ${r.skipped.slice(0, 5).join(", ")}.`,
+      );
+    }
+    const unknown = valueCount - r.filled - r.skipped.length;
+    if (unknown > 0)
+      report.lost.push(`${unknown} valeur(s) de champ n'ont pas pu être enregistrées (champ absent du fichier).`);
+  }
+  // Appearances: every field this save touched (or pdf.js' own update, when
+  // building on it) is drawn now, in a font that shows its value — the file
+  // never relies on the next viewer (/NeedAppearances), as with Acrobat.
+  if (valuesChanged || report.fieldsCreated || opts.flattenForms || formBase) {
+    try {
+      const ap = await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
+      for (const u of ap.uncovered) {
+        report.warnings.push(
+          `Champ « ${u.field} » : caractère(s) « ${u.chars} » absent(s) des polices disponibles — son affichage est laissé au lecteur PDF.`,
+        );
+      }
+    } catch {
+      report.warnings.push("Apparence des champs non régénérée : le lecteur PDF les redessinera.");
     }
   }
   if (opts.flattenForms) {
-    if (!flattenForm(doc)) report.lost.push("Aplatissement du formulaire impossible.");
+    const fr = flattenFields(doc);
+    if (fr.notDrawn.length) {
+      report.lost.push(`Aplatissement : valeur non dessinée pour ${fr.notDrawn.slice(0, 5).join(", ")}.`);
+    }
   }
 
   // --- 6. page marks --------------------------------------------------------

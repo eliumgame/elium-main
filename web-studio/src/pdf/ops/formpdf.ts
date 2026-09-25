@@ -53,8 +53,16 @@ import {
   rgb,
   rotateInPlace,
 } from "pdf-lib";
-import type { Color, PDFDocument, PDFField, PDFFont, PDFForm, PDFOperator, PDFPage, PDFWidgetAnnotation } from "pdf-lib";
-import { pdfjsAssetUrls } from "../core/assets";
+import type {
+  Color,
+  PDFDocument,
+  PDFField,
+  PDFFont,
+  PDFForm,
+  PDFOperator,
+  PDFPage,
+  PDFWidgetAnnotation,
+} from "pdf-lib";
 import { customFontNames, getCustomFont } from "../../ui/fonts";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +92,8 @@ export function liberationBytes(style: FontStyle): Promise<Uint8Array | null> {
   let p = fontBytes.get(file);
   if (!p) {
     p = (async () => {
-      const urls = pdfjsAssetUrls();
+      // Loaded on demand: keeps pdf.js out of what imports this module (forms.ts, tests).
+      const urls = typeof document !== "undefined" ? (await import("../core/assets")).pdfjsAssetUrls() : null;
       if (urls) {
         const res = await fetch(`${urls.standardFontDataUrl}${file}`);
         if (!res.ok) return null;
@@ -95,7 +104,10 @@ export function liberationBytes(style: FontStyle): Promise<Uint8Array | null> {
       if (!proc) return null;
       const fsName = "node:fs/promises";
       const fs = (await import(/* @vite-ignore */ fsName)) as { readFile(p: string): Promise<Uint8Array> };
-      for (const dir of ["node_modules/pdfjs-dist/standard_fonts/", "web-studio/node_modules/pdfjs-dist/standard_fonts/"]) {
+      for (const dir of [
+        "node_modules/pdfjs-dist/standard_fonts/",
+        "web-studio/node_modules/pdfjs-dist/standard_fonts/",
+      ]) {
         try {
           return new Uint8Array(await fs.readFile(`${proc.cwd()}/${dir}${file}`));
         } catch {
@@ -199,7 +211,10 @@ export class FieldFontBook {
       const cov = bytes ? coverageOf(bytes) : null;
       if (!bytes || !cov || uncovered(text, cov)) continue;
       this.registerFontkit();
-      return { font: await this.embed(`custom-${name}`, () => this.doc.embedFont(bytes, { subset: true })), missing: "" };
+      return {
+        font: await this.embed(`custom-${name}`, () => this.doc.embedFont(bytes, { subset: true })),
+        missing: "",
+      };
     }
     return { font: null, missing };
   }
@@ -226,7 +241,7 @@ export function defaultAppearanceOf(widget: PDFWidgetAnnotation, field: PDFField
   for (let depth = 0; dict && depth < 32; depth++) {
     const da = decodeText(dict.lookup(PDFName.of("DA")));
     if (da) return da;
-    const parent = dict.lookup(PDFName.of("Parent"));
+    const parent: unknown = dict.lookup(PDFName.of("Parent"));
     dict = parent instanceof PDFDict ? parent : undefined;
   }
   return decodeText(form.acroForm.dict.lookup(PDFName.of("DA"))) ?? "/Helv 0 Tf 0 g";
@@ -376,14 +391,27 @@ export interface AppearanceReport {
   clearedNeedAppearances: boolean;
 }
 
+/** /Q of a field (inherited, then the AcroForm's), 0 = left. */
+function quaddingOf(field: PDFField): number {
+  let dict: PDFDict | undefined = field.acroField.dict;
+  for (let depth = 0; dict && depth < 32; depth++) {
+    const q = dict.lookup(PDFName.of("Q"));
+    if (q instanceof PDFNumber) return q.asNumber();
+    const parent: unknown = dict.lookup(PDFName.of("Parent"));
+    dict = parent instanceof PDFDict ? parent : undefined;
+  }
+  const q = field.doc.getForm().acroForm.dict.lookup(PDFName.of("Q"));
+  return q instanceof PDFNumber ? q.asNumber() : 0;
+}
+
 function textOf(field: PDFField): { text: string; spec: Omit<DrawSpec, "text"> } | null {
   if (field instanceof PDFTextField) {
     return {
-      text: field.getText() ?? "",
+      text: maskedText(field, field.getText() ?? ""),
       spec: {
         multiline: field.isMultiline(),
         comb: field.isCombed() ? (field.getMaxLength() ?? 0) : 0,
-        alignment: ALIGN[field.acroField.getQuadding() ?? 0] ?? TextAlignment.Left,
+        alignment: ALIGN[quaddingOf(field)] ?? TextAlignment.Left,
       },
     };
   }
@@ -394,7 +422,7 @@ function textOf(field: PDFField): { text: string; spec: Omit<DrawSpec, "text"> }
     const opt = field.acroField.getOptions().find((o) => o.value.decodeText() === v);
     return {
       text: opt?.display?.decodeText() ?? v,
-      spec: { multiline: false, comb: 0, alignment: ALIGN[field.acroField.getQuadding() ?? 0] ?? TextAlignment.Left },
+      spec: { multiline: false, comb: 0, alignment: ALIGN[quaddingOf(field)] ?? TextAlignment.Left },
     };
   }
   return null;
@@ -404,7 +432,11 @@ function textOf(field: PDFField): { text: string; spec: Omit<DrawSpec, "text"> }
  * Give every text / list field that lacks an appearance one drawn with a
  * font that covers its value (see the file header).
  */
-export async function completeFieldAppearances(doc: PDFDocument, fonts: FieldFontBook): Promise<AppearanceReport> {
+export async function completeFieldAppearances(
+  doc: PDFDocument,
+  fonts: FieldFontBook,
+  opts: { refreshStale?: boolean } = {},
+): Promise<AppearanceReport> {
   const report: AppearanceReport = { generated: [], uncovered: [], clearedNeedAppearances: false };
   let form: PDFForm;
   try {
@@ -419,6 +451,10 @@ export async function completeFieldAppearances(doc: PDFDocument, fonts: FieldFon
     return report;
   }
   let stillLacking = false;
+  // /NeedAppearances asks the viewer to redraw every field: the file's own
+  // appearances cannot be trusted, so clearing the flag means redrawing them.
+  const na = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
+  const stale = !!opts.refreshStale && !!na && na.toString() === "true";
   for (const field of fields) {
     let widgets: PDFWidgetAnnotation[];
     try {
@@ -426,7 +462,9 @@ export async function completeFieldAppearances(doc: PDFDocument, fonts: FieldFon
     } catch {
       continue;
     }
-    const lacking = widgets.filter((w) => !hasNormalAppearance(w));
+    const redraw =
+      stale && (field instanceof PDFTextField || field instanceof PDFDropdown || field instanceof PDFOptionList);
+    const lacking = redraw ? widgets : widgets.filter((w) => !hasNormalAppearance(w));
     if (!lacking.length) continue;
     const name = field.getName();
     try {
@@ -471,7 +509,6 @@ export async function completeFieldAppearances(doc: PDFDocument, fonts: FieldFon
       stillLacking = true;
     }
   }
-  const na = form.acroForm.dict.lookup(PDFName.of("NeedAppearances"));
   if (na && na.toString() === "true" && !stillLacking) {
     form.acroForm.dict.delete(PDFName.of("NeedAppearances"));
     report.clearedNeedAppearances = true;
@@ -504,6 +541,187 @@ async function drawField(
     const ref = doc.context.register(stream);
     widget.setNormalAppearance(ref);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Values
+// ---------------------------------------------------------------------------
+
+export interface ValueReport {
+  /** Fields whose value was applied (changed or already equal). */
+  filled: number;
+  /** Fields whose value changed in the file. */
+  changed: string[];
+  /** Fields whose value could not be applied. */
+  skipped: string[];
+}
+
+/** The on-states a box widget declares in its /AP /N (its export values). */
+function onStates(widget: PDFWidgetAnnotation): string[] {
+  const n = widget.getAppearances()?.normal;
+  if (!(n instanceof PDFDict)) return [];
+  return n
+    .keys()
+    .map((k) => k.decodeText())
+    .filter((k) => k !== "Off");
+}
+
+function valueText(v: unknown): string | undefined {
+  if (v instanceof PDFName) return v.decodeText();
+  return decodeText(v);
+}
+
+/** The field's current /V as text(s) (inherited from its parents when needed). */
+function currentValue(field: PDFField): string | string[] | undefined {
+  const v = field.acroField.V();
+  if (v instanceof PDFArray) {
+    const out: string[] = [];
+    for (let i = 0; i < v.size(); i++) {
+      const t = valueText(v.lookup(i));
+      if (t !== undefined) out.push(t);
+    }
+    return out;
+  }
+  return valueText(v);
+}
+
+/** An inheritable array of texts (/Opt) of a field. */
+function inheritedTexts(field: PDFField, key: string): string[] {
+  let dict: PDFDict | undefined = field.acroField.dict;
+  for (let depth = 0; dict && depth < 32; depth++) {
+    const v = dict.lookup(PDFName.of(key));
+    if (v instanceof PDFArray) {
+      const out: string[] = [];
+      for (let i = 0; i < v.size(); i++) {
+        const item = v.lookup(i);
+        out.push((item instanceof PDFArray ? valueText(item.lookup(0)) : valueText(item)) ?? "");
+      }
+      return out;
+    }
+    const parent: unknown = dict.lookup(PDFName.of("Parent"));
+    dict = parent instanceof PDFDict ? parent : undefined;
+  }
+  return [];
+}
+
+function sameValue(a: string | string[] | undefined, b: string | string[]): boolean {
+  if (Array.isArray(b)) {
+    const aa = a === undefined ? [] : Array.isArray(a) ? a : [a];
+    return aa.length === b.length && [...aa].sort().every((x, i) => x === [...b].sort()[i]);
+  }
+  if (Array.isArray(a)) return a.length === 1 && a[0] === b;
+  return (a ?? "") === b;
+}
+
+/** Drop a widget's appearances: the next `completeFieldAppearances` draws the new value. */
+function dropAppearance(widget: PDFWidgetAnnotation): void {
+  widget.dict.delete(PDFName.of("AP"));
+}
+
+const pdfText = (s: string) => PDFHexString.fromText(s);
+
+/**
+ * Write the model's values (export values, see `core/forms/values.ts`) into
+ * the fields' own objects: /V, the widgets' /AS for boxes, /I for list boxes.
+ * Only fields whose value differs are touched (an incremental save then
+ * carries them alone); a text / list field that changes loses its stale
+ * appearance (and rich-text /RV) so `completeFieldAppearances` redraws it,
+ * while box widgets keep the file's own on/off drawings.
+ *
+ * Deliberately NOT pdf-lib's setters: `PDFDropdown.select()` compares with the
+ * option LABELS and turns the field editable for an export value (« CH » for
+ * « Suisse »); `PDFCheckBox.check()` takes the first widget's on-state even when
+ * boxes sharing a name have distinct export values.
+ */
+export function writeFieldValues(doc: PDFDocument, values: Record<string, string | boolean | string[]>): ValueReport {
+  const report: ValueReport = { filled: 0, changed: [], skipped: [] };
+  let fields: PDFField[];
+  try {
+    fields = doc.getForm().getFields();
+  } catch {
+    return report;
+  }
+  for (const field of fields) {
+    const name = field.getName();
+    if (!(name in values)) continue;
+    const raw = values[name];
+    try {
+      const widgets = field.acroField.getWidgets();
+      const dict = field.acroField.dict;
+      const before = currentValue(field);
+      if (field instanceof PDFCheckBox || field instanceof PDFRadioGroup) {
+        const states = widgets.map(onStates);
+        const all = states.flat();
+        let target: string;
+        if (raw === true) target = all[0] ?? "Yes";
+        else if (raw === false || raw === "" || raw === "Off" || raw == null) target = "Off";
+        else {
+          target = Array.isArray(raw) ? (raw[0] ?? "Off") : raw;
+          if (target !== "Off" && !all.includes(target)) {
+            // /Opt (§12.7.4.2.3): the i-th entry is the export value of the
+            // i-th widget, whose on-state may be named "0", "1"…
+            const opt = inheritedTexts(field, "Opt");
+            const i = opt.indexOf(target);
+            if (i >= 0 && states[i]?.[0]) target = states[i][0];
+            // pdf.js may report a radio's index instead of the state name.
+            else if (/^\d+$/.test(target) && all[Number(target)] != null) target = all[Number(target)];
+          }
+        }
+        if (target !== "Off" && !all.includes(target)) {
+          report.skipped.push(name);
+          continue;
+        }
+        const asBefore = widgets.map((w) => w.getAppearanceState()?.decodeText() ?? "Off");
+        const asAfter = states.map((s) => (target !== "Off" && s.includes(target) ? target : "Off"));
+        const changed = (before ?? "Off") !== target || asBefore.some((s, i) => s !== asAfter[i]);
+        if (changed) {
+          dict.set(PDFName.of("V"), PDFName.of(target));
+          widgets.forEach((w, i) => w.setAppearanceState(PDFName.of(asAfter[i])));
+          report.changed.push(name);
+        }
+      } else if (field instanceof PDFTextField) {
+        const text =
+          typeof raw === "boolean" ? (raw ? "Oui" : "") : Array.isArray(raw) ? raw.join("\n") : String(raw ?? "");
+        if (!sameValue(before, text)) {
+          if (text) dict.set(PDFName.of("V"), pdfText(text));
+          else dict.delete(PDFName.of("V"));
+          dict.delete(PDFName.of("RV"));
+          widgets.forEach(dropAppearance);
+          report.changed.push(name);
+        }
+      } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+        const multi = field instanceof PDFOptionList && Array.isArray(raw);
+        const want: string[] = Array.isArray(raw) ? raw.filter(Boolean) : typeof raw === "string" && raw ? [raw] : [];
+        const next = multi ? want : (want[0] ?? "");
+        if (!sameValue(before, next)) {
+          if (!want.length) dict.delete(PDFName.of("V"));
+          else if (multi && want.length > 1) dict.set(PDFName.of("V"), doc.context.obj(want.map(pdfText)));
+          else dict.set(PDFName.of("V"), pdfText(want[0]));
+          // /I (selected option indices) must follow /V or viewers show the old selection.
+          const opts = field.acroField.getOptions().map((o) => o.value.decodeText());
+          const idx = want
+            .map((w) => opts.indexOf(w))
+            .filter((i) => i >= 0)
+            .sort((a, b) => a - b);
+          if (field instanceof PDFOptionList && idx.length) dict.set(PDFName.of("I"), doc.context.obj(idx));
+          else dict.delete(PDFName.of("I"));
+          widgets.forEach(dropAppearance);
+          report.changed.push(name);
+        }
+      } else {
+        continue;
+      }
+      report.filled++;
+    } catch {
+      report.skipped.push(name);
+    }
+  }
+  return report;
+}
+
+/** Password fields show bullets in their appearance, never the value. */
+export function maskedText(field: PDFTextField, text: string): string {
+  return field.acroField.hasFlag(1 << 13) ? "•".repeat([...text].length) : text;
 }
 
 // ---------------------------------------------------------------------------
@@ -655,7 +873,12 @@ export function flattenFields(doc: PDFDocument): FlattenReport {
       if (!dict.get(PDFName.of("Type"))) dict.set(PDFName.of("Type"), PDFName.of("XObject"));
       const rect = numbers(widget.dict.lookup(PDFName.of("Rect")), 4);
       if (!rect) continue;
-      const bbox = numbers(dict.lookup(PDFName.of("BBox")), 4) ?? [0, 0, Math.abs(rect[2] - rect[0]), Math.abs(rect[3] - rect[1])];
+      const bbox = numbers(dict.lookup(PDFName.of("BBox")), 4) ?? [
+        0,
+        0,
+        Math.abs(rect[2] - rect[0]),
+        Math.abs(rect[3] - rect[1]),
+      ];
       const matrix = (numbers(dict.lookup(PDFName.of("Matrix")), 6) as Matrix | null) ?? [1, 0, 0, 1, 0, 0];
       if (Math.abs(bbox[2] - bbox[0]) < 1e-9 || Math.abs(bbox[3] - bbox[1]) < 1e-9) continue;
       const m = appearanceMatrix(bbox, matrix, rect);

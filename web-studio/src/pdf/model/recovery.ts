@@ -331,6 +331,7 @@ export function hasEdits(state: PdfState): boolean {
     state.watermark.enabled ||
     state.header.enabled ||
     state.footer.enabled ||
-    state.bates.enabled
+    state.bates.enabled ||
+    !!state.stripMarks
   );
 }

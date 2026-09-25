@@ -29,7 +29,7 @@ import type { Annot, Bookmark, Page, PageLabelDef, PdfState } from "../model/typ
 import { remapBookmarkPages } from "../model/doc";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
-import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
+import { decoratePage, planMarks, stripPageMarks } from "./decorate";
 import { FontBook } from "./fonts";
 import { FieldFontBook, completeFieldAppearances, flattenFields } from "./formpdf";
 import { applyFieldEdits } from "./formedit";
@@ -831,16 +831,11 @@ async function applyState(
       total: targets.length,
     },
   };
+  const plan = planMarks(state, targets.length);
   for (let i = 0; i < targets.length; i++) {
     const { page } = targets[i];
-    const frame = pageFrame(page);
-    const bates = state.bates.enabled ? batesLabel(state.bates, i) : undefined;
-    await applyWatermark(page, frame, state.watermark, decorateCtx, i, targets.length);
-    await applyBand(page, frame, state.header, true, decorateCtx, i, targets.length, bates);
-    await applyBand(page, frame, state.footer, false, decorateCtx, i, targets.length, bates);
-    if (state.bates.enabled && !state.footer.enabled && !state.header.enabled && bates) {
-      await applyBatesStamp(page, frame, state.bates, bates, decorateCtx);
-    }
+    if (state.stripMarks) stripPageMarks(doc, page);
+    await decoratePage(page, pageFrame(page), i, state, plan, decorateCtx);
   }
 
   // --- 7. outline, labels, metadata ----------------------------------------

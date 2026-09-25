@@ -762,7 +762,8 @@ export default function PdfWorkspace({
         setHiddenLayers(new Set());
         setOcConfig(undefined);
         currentStore.set(1);
-        setMode("view");
+        // A recomposition (pages inserted, replaced…) from the organiser stays in it.
+        setMode((m) => (derived && m === "organise" ? m : "view"));
 
         void next
           .outline()
@@ -1505,7 +1506,7 @@ export default function PdfWorkspace({
     if (st.contentEdits.length) out.push("texte modifié");
     if (st.imageEdits.length) out.push("images modifiées");
     if (st.pages.some((p, i) => p.from !== i || p.rotate || p.crop || p.skipped || p.label)) out.push("pages");
-    if (st.watermark.enabled || st.header.enabled || st.footer.enabled || st.bates.enabled) {
+    if (st.watermark.enabled || st.header.enabled || st.footer.enabled || st.bates.enabled || st.stripMarks) {
       out.push("filigrane / en-têtes");
     }
     if (st.createdFields.length) out.push("champs ajoutés");
@@ -4280,6 +4281,19 @@ export default function PdfWorkspace({
             onInsertBlank={(afterId) => insertBlankAfter(afterId)}
             onInsertFile={() => mergeInput.current?.click()}
             onInsertImage={() => imageInput.current?.click()}
+            onDropFiles={(files, at) => {
+              const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+              const images = files.filter((f) => f.type.startsWith("image/"));
+              if (pdfs.length && images.length) {
+                toast("warning", "Insertion", "Déposez les PDF et les images en deux fois.");
+              } else if (pdfs.length) {
+                void insertPdfFiles(pdfs, at);
+              } else if (images.length) {
+                void insertImageFiles(images, at);
+              } else {
+                toast("warning", "Insertion", "Seuls des PDF et des images peuvent être insérés comme pages.");
+              }
+            }}
             onCrop={() => setDialog("crop")}
             onLabels={() => setDialog("labels")}
             onReverse={() => setState((s) => D.reversePages(s))}
@@ -4529,8 +4543,9 @@ export default function PdfWorkspace({
       {dialog === "watermark" && (
         <WatermarkDialog
           value={state.watermark}
+          stripMarks={!!state.stripMarks}
           onClose={() => setDialog(null)}
-          onChange={(v) => setState((s) => ({ ...s, watermark: v }))}
+          onChange={(v, stripMarks) => setState((s) => ({ ...s, watermark: v, stripMarks }))}
         />
       )}
       {dialog === "headerFooter" && (
@@ -4538,6 +4553,7 @@ export default function PdfWorkspace({
           header={state.header}
           footer={state.footer}
           bates={state.bates}
+          stripMarks={!!state.stripMarks}
           onClose={() => setDialog(null)}
           onChange={(v) => setState((s) => ({ ...s, ...v }))}
         />

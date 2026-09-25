@@ -203,4 +203,66 @@ test.describe("PDF — organiser", () => {
     expect(Math.abs(box.height - 100)).toBeLessThan(6);
     expect(problems).toEqual([]);
   });
+
+  test("vue Organiser : glisser après la dernière page, lasso, flèches, fichier déposé", async ({ page }) => {
+    const problems = health(page);
+    await open(
+      page,
+      await pdf(
+        [
+          [300, 300],
+          [400, 400],
+          [500, 500],
+          [600, 600],
+        ],
+        "Page",
+      ),
+    );
+    await page.getByRole("tab", { name: "Organiser" }).click();
+    await page.getByRole("button", { name: "Organiser", exact: true }).click();
+    const cells = page.locator(".pdfx-org__cell");
+    await expect(cells).toHaveCount(4);
+
+    // Page 1 dropped on the right half of page 4: after it (it used to land before).
+    const last = await cells.nth(3).boundingBox();
+    await cells.nth(0).dragTo(cells.nth(3), { targetPosition: { x: last!.width * 0.85, y: last!.height / 2 } });
+    await expect(cells.nth(3).locator(".pdfx-org__num")).toHaveText("4");
+
+    // Rubber band from the grid's corner over the first two pages.
+    const grid = page.locator(".pdfx-org__grid");
+    const g = (await grid.boundingBox())!;
+    const second = (await cells.nth(1).boundingBox())!;
+    await page.mouse.move(g.x + 4, g.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(second.x + 20, second.y + 20, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.locator(".pdfx-org__count")).toHaveText("2 sélectionnées");
+
+    // Keyboard: Home selects the first page, Alt+→ moves it one place on.
+    await page.keyboard.press("Home");
+    await expect(page.locator(".pdfx-org__count")).toHaveText("1 sélectionnée");
+    await page.keyboard.press("Alt+ArrowRight");
+
+    // A PDF dropped from the desktop on the left half of page 1: inserted before it.
+    const dt = await page.evaluateHandle(
+      async (b64) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const t = new DataTransfer();
+        t.items.add(new File([bytes], "ajout.pdf", { type: "application/pdf" }));
+        return t;
+      },
+      (await pdf([[200, 200]], "Ajout")).toString("base64"),
+    );
+    const first = (await cells.nth(0).boundingBox())!;
+    const at = { clientX: first.x + 5, clientY: first.y + first.height / 2 };
+    await cells.nth(0).dispatchEvent("dragover", { dataTransfer: dt, ...at });
+    await cells.nth(0).dispatchEvent("drop", { dataTransfer: dt, ...at });
+    await expect(page.getByText("1 page(s) insérée(s)")).toBeVisible();
+    await expect(cells).toHaveCount(5);
+
+    const doc = await save(page);
+    // [1,2,3,4] → drag 1 after 4: [2,3,4,1] → Alt+→ on 2: [3,2,4,1] → drop before: [+,3,2,4,1].
+    expect(doc.getPages().map((p) => Math.round(p.getWidth()))).toEqual([200, 500, 400, 600, 300]);
+    expect(problems).toEqual([]);
+  });
 });

@@ -454,7 +454,8 @@ export interface DocMetadata {
 /** Watermark / background applied at export time. */
 export interface Watermark {
   enabled: boolean;
-  mode: "text" | "image";
+  /** `color`: Acrobat's background — the whole page tinted, under the content. */
+  mode: "text" | "image" | "color";
   text: string;
   src?: string;
   fontSize: number;
@@ -498,6 +499,8 @@ export interface HeaderFooter {
   marginPt: number;
   /** 1-based page range spec, empty = all pages. */
   pages: string;
+  /** The number `{page}` shows on the first page of the document (default 1). */
+  startPage?: number;
 }
 
 export const emptyBand = (): HeaderFooter => ({
@@ -518,6 +521,8 @@ export interface Bates {
   suffix: string;
   start: number;
   digits: number;
+  /** 1-based page range spec, empty = all pages; numbers run over these pages only. */
+  pages?: string;
 }
 
 export const DEFAULT_BATES: Bates = { enabled: false, prefix: "", suffix: "", start: 1, digits: 6 };
@@ -550,6 +555,12 @@ export interface PdfState {
   header: HeaderFooter;
   footer: HeaderFooter;
   bates: Bates;
+  /**
+   * Remove the page marks the file already carries (watermarks, backgrounds,
+   * headers/footers added by Elium or Acrobat) before painting the new ones —
+   * Acrobat's « Supprimer ». Optional: older sessions have none.
+   */
+  stripMarks?: boolean;
   /** Measurement scale used by new measurement annotations. */
   measureScale: MeasureScale;
   /**

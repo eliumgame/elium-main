@@ -1454,9 +1454,30 @@
   border-color: var(--x-accent);
   background: rgba(79, 140, 255, 0.14);
 }
-.pdfx-org__cell.is-drop {
-  border-color: var(--x-ok);
-  border-style: dashed;
+/* Where the dragged pages land: a bar in the gap before or after the page. */
+.pdfx-org__cell.is-drop-before::before,
+.pdfx-org__cell.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--x-ok);
+  pointer-events: none;
+}
+.pdfx-org__cell.is-drop-before::before {
+  left: -13px;
+}
+.pdfx-org__cell.is-drop-after::after {
+  right: -13px;
+}
+.pdfx-org__band {
+  position: fixed;
+  z-index: 50;
+  border: 1px solid var(--x-accent);
+  background: rgba(79, 140, 255, 0.14);
+  pointer-events: none;
 }
 .pdfx-org__cell.is-skipped {
   opacity: 0.45;

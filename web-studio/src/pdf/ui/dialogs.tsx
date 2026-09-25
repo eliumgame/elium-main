@@ -370,16 +370,33 @@ export function PasswordPrompt({
 // Watermark
 // ---------------------------------------------------------------------------
 
+/** « Supprimer les marques existantes » — shared by the watermark and header dialogs. */
+function StripMarksCheck({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label
+      className="pdfx-check"
+      title="Filigranes, arrière-plans, en-têtes et pieds de page ajoutés auparavant par Elium ou Acrobat"
+    >
+      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      Supprimer d'abord les marques déjà présentes dans le fichier
+    </label>
+  );
+}
+
 export function WatermarkDialog({
   value,
+  stripMarks,
   onChange,
   onClose,
 }: {
   value: Watermark;
-  onChange: (v: Watermark) => void;
+  stripMarks: boolean;
+  onChange: (v: Watermark, stripMarks: boolean) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Watermark>(value);
+  const [strip, setStrip] = useState(stripMarks);
+  const color = draft.mode === "color";
   const set = (patch: Partial<Watermark>) => setDraft((v) => ({ ...v, ...patch }));
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -393,7 +410,7 @@ export function WatermarkDialog({
           <button
             className="eb eb--outline eb--sm"
             onClick={() => {
-              onChange({ ...draft, enabled: false });
+              onChange({ ...draft, enabled: false }, strip);
               onClose();
             }}
           >
@@ -402,7 +419,7 @@ export function WatermarkDialog({
           <button
             className="eb eb--primary eb--sm"
             onClick={() => {
-              onChange({ ...draft, enabled: true });
+              onChange({ ...draft, enabled: true }, strip);
               onClose();
             }}
           >
@@ -420,9 +437,16 @@ export function WatermarkDialog({
             <button className={draft.mode === "image" ? "is-on" : ""} onClick={() => set({ mode: "image" })}>
               Image
             </button>
+            <button
+              className={color ? "is-on" : ""}
+              onClick={() => set({ mode: "color" })}
+              title="Arrière-plan : toute la page teintée, sous le contenu"
+            >
+              Couleur de fond
+            </button>
           </div>
 
-          {draft.mode === "text" ? (
+          {color ? null : draft.mode === "text" ? (
             <label className="pdfx-form__row">
               <span>Texte</span>
               <input value={draft.text} onChange={(e) => set({ text: e.target.value })} autoFocus />
@@ -473,46 +497,53 @@ export function WatermarkDialog({
               <b>{Math.round(draft.opacity * 100)} %</b>
             </span>
           </label>
-          <label className="pdfx-form__row">
-            <span>Rotation</span>
-            <span className="pdfx-insp-inline">
-              <input
-                type="range"
-                min={-90}
-                max={90}
-                step={1}
-                value={draft.angle}
-                onChange={(e) => set({ angle: Number(e.target.value) })}
-              />
-              <b>{draft.angle}°</b>
-            </span>
-          </label>
-          <label className="pdfx-form__row">
-            <span>Échelle</span>
-            <span className="pdfx-insp-inline">
-              <input
-                type="range"
-                min={0.2}
-                max={3}
-                step={0.05}
-                value={draft.scale}
-                onChange={(e) => set({ scale: Number(e.target.value) })}
-              />
-              <b>{draft.scale.toFixed(2)}×</b>
-            </span>
-          </label>
-          <label className="pdfx-form__row">
-            <span>Position</span>
-            <select value={draft.position} onChange={(e) => set({ position: e.target.value as Watermark["position"] })}>
-              <option value="center">Centre</option>
-              <option value="top">Haut</option>
-              <option value="bottom">Bas</option>
-              <option value="topLeft">Haut gauche</option>
-              <option value="topRight">Haut droite</option>
-              <option value="bottomLeft">Bas gauche</option>
-              <option value="bottomRight">Bas droite</option>
-            </select>
-          </label>
+          {!color && (
+            <>
+              <label className="pdfx-form__row">
+                <span>Rotation</span>
+                <span className="pdfx-insp-inline">
+                  <input
+                    type="range"
+                    min={-90}
+                    max={90}
+                    step={1}
+                    value={draft.angle}
+                    onChange={(e) => set({ angle: Number(e.target.value) })}
+                  />
+                  <b>{draft.angle}°</b>
+                </span>
+              </label>
+              <label className="pdfx-form__row">
+                <span>Échelle</span>
+                <span className="pdfx-insp-inline">
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={3}
+                    step={0.05}
+                    value={draft.scale}
+                    onChange={(e) => set({ scale: Number(e.target.value) })}
+                  />
+                  <b>{draft.scale.toFixed(2)}×</b>
+                </span>
+              </label>
+              <label className="pdfx-form__row">
+                <span>Position</span>
+                <select
+                  value={draft.position}
+                  onChange={(e) => set({ position: e.target.value as Watermark["position"] })}
+                >
+                  <option value="center">Centre</option>
+                  <option value="top">Haut</option>
+                  <option value="bottom">Bas</option>
+                  <option value="topLeft">Haut gauche</option>
+                  <option value="topRight">Haut droite</option>
+                  <option value="bottomLeft">Bas gauche</option>
+                  <option value="bottomRight">Bas droite</option>
+                </select>
+              </label>
+            </>
+          )}
           <label className="pdfx-form__row">
             <span>Pages</span>
             <input
@@ -521,34 +552,46 @@ export function WatermarkDialog({
               onChange={(e) => set({ pages: e.target.value })}
             />
           </label>
-          <label className="pdfx-check">
-            <input type="checkbox" checked={draft.behind} onChange={(e) => set({ behind: e.target.checked })} />
-            Derrière le contenu de la page
-          </label>
+          {!color && (
+            <label className="pdfx-check">
+              <input type="checkbox" checked={draft.behind} onChange={(e) => set({ behind: e.target.checked })} />
+              Derrière le contenu de la page
+            </label>
+          )}
+          <StripMarksCheck value={strip} onChange={setStrip} />
         </div>
 
         <div className="pdfx-preview">
-          <div className="pdfx-preview__page">
+          <div
+            className="pdfx-preview__page"
+            style={
+              color
+                ? { background: `color-mix(in srgb, ${draft.color} ${Math.round(draft.opacity * 100)}%, white)` }
+                : undefined
+            }
+          >
             <div className="pdfx-preview__lines">
               {Array.from({ length: 14 }, (_, i) => (
                 <span key={i} style={{ width: `${55 + ((i * 37) % 40)}%` }} />
               ))}
             </div>
-            <div
-              className="pdfx-preview__wm"
-              style={{
-                transform: `translate(-50%,-50%) rotate(${-draft.angle}deg) scale(${draft.scale})`,
-                opacity: draft.opacity,
-                color: draft.color,
-                ...previewAnchor(draft.position),
-              }}
-            >
-              {draft.mode === "image" && draft.src ? (
-                <img src={draft.src} alt="" />
-              ) : (
-                <b>{draft.text || "FILIGRANE"}</b>
-              )}
-            </div>
+            {!color && (
+              <div
+                className="pdfx-preview__wm"
+                style={{
+                  transform: `translate(-50%,-50%) rotate(${-draft.angle}deg) scale(${draft.scale})`,
+                  opacity: draft.opacity,
+                  color: draft.color,
+                  ...previewAnchor(draft.position),
+                }}
+              >
+                {draft.mode === "image" && draft.src ? (
+                  <img src={draft.src} alt="" />
+                ) : (
+                  <b>{draft.text || "FILIGRANE"}</b>
+                )}
+              </div>
+            )}
           </div>
           <span className="pdfx-preview__caption">Aperçu</span>
         </div>
@@ -581,15 +624,18 @@ export function HeaderFooterDialog({
   header,
   footer,
   bates,
+  stripMarks,
   onChange,
   onClose,
 }: {
   header: HeaderFooter;
   footer: HeaderFooter;
   bates: Bates;
-  onChange: (v: { header: HeaderFooter; footer: HeaderFooter; bates: Bates }) => void;
+  stripMarks: boolean;
+  onChange: (v: { header: HeaderFooter; footer: HeaderFooter; bates: Bates; stripMarks: boolean }) => void;
   onClose: () => void;
 }) {
+  const [strip, setStrip] = useState(stripMarks);
   const [h, setH] = useState(header);
   const [f, setF] = useState(footer);
   const [b, setB] = useState(bates);
@@ -611,7 +657,7 @@ export function HeaderFooterDialog({
           <button
             className="eb eb--primary eb--sm"
             onClick={() => {
-              onChange({ header: h, footer: f, bates: b });
+              onChange({ header: h, footer: f, bates: b, stripMarks: strip });
               onClose();
             }}
           >
@@ -663,6 +709,14 @@ export function HeaderFooterDialog({
               max={12}
               value={b.digits}
               onChange={(e) => setB({ ...b, digits: Number(e.target.value) })}
+            />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Pages</span>
+            <input
+              value={b.pages ?? ""}
+              placeholder="toutes, ou 2-, ou 1-3, 7"
+              onChange={(e) => setB({ ...b, pages: e.target.value })}
             />
           </label>
           <p className="pdfx-form__note">
@@ -741,8 +795,17 @@ export function HeaderFooterDialog({
               onChange={(e) => setBand({ pages: e.target.value })}
             />
           </label>
+          <label className="pdfx-form__row" title="Le numéro que {page} affiche sur la première page du document">
+            <span>Premier n° de page</span>
+            <input
+              type="number"
+              value={band.startPage ?? 1}
+              onChange={(e) => setBand({ startPage: Number(e.target.value) || 1 })}
+            />
+          </label>
         </div>
       )}
+      <StripMarksCheck value={strip} onChange={setStrip} />
     </Modal>
   );
 }

@@ -47,6 +47,8 @@ export interface OrganizeProps {
   onInsertBlank: (afterId: string | null) => void;
   onInsertFile: () => void;
   onInsertImage: () => void;
+  /** Files dragged in from the desktop or the Drive, dropped at page position `at`. */
+  onDropFiles?: (files: File[], at: number) => void;
   onCrop: () => void;
   onLabels: () => void;
   onReverse: () => void;
@@ -71,17 +73,30 @@ interface CellProps {
   height: number;
   rotation: number;
   selected: boolean;
-  drop: boolean;
+  /** The drop marker: before or after this page. */
+  drop: "before" | "after" | null;
   actions: CellActions;
 }
+
+/** Where a drag would land: before or after page `cell`. */
+interface DropMark {
+  cell: number;
+  side: "before" | "after";
+}
+
+/** The drag payload of pages moved inside the organiser (Firefox starts no drag without data). */
+const PAGE_DRAG = "application/x-elium-pages";
+
+const draggingFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
 
 /** Stable handlers shared by every cell (they read the organiser's latest props). */
 interface CellActions {
   click: (e: React.MouseEvent, page: Page, index: number) => void;
-  dragStart: (page: Page, selected: boolean) => void;
-  dragOver: (index: number) => void;
+  dragStart: (e: React.DragEvent, page: Page, selected: boolean) => void;
+  dragOver: (e: React.DragEvent, index: number) => void;
   dragLeave: (index: number) => void;
-  drop: (index: number) => void;
+  drop: (e: React.DragEvent, index: number) => void;
+  dragEnd: () => void;
   rotate: (id: string) => void;
   duplicate: (id: string) => void;
   insertAfter: (id: string) => void;
@@ -105,18 +120,15 @@ const OrgCell = memo(function OrgCell({
 }: CellProps) {
   return (
     <div
-      className={`pdfx-org__cell ${selected ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${drop ? "is-drop" : ""}`}
+      className={`pdfx-org__cell ${selected ? "is-selected" : ""} ${page.skipped ? "is-skipped" : ""} ${drop ? `is-drop-${drop}` : ""}`}
+      data-page-id={page.id}
+      data-index={i}
       draggable
-      onDragStart={() => actions.dragStart(page, selected)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        actions.dragOver(i);
-      }}
+      onDragStart={(e) => actions.dragStart(e, page, selected)}
+      onDragOver={(e) => actions.dragOver(e, i)}
       onDragLeave={() => actions.dragLeave(i)}
-      onDrop={(e) => {
-        e.preventDefault();
-        actions.drop(i);
-      }}
+      onDrop={(e) => actions.drop(e, i)}
+      onDragEnd={actions.dragEnd}
       onClick={(e) => actions.click(e, page, i)}
     >
       <div className="pdfx-org__thumb" style={{ width: size }}>
@@ -181,9 +193,13 @@ const OrgCell = memo(function OrgCell({
 
 export default function Organize(p: OrganizeProps) {
   const [size, setSize] = useState(190);
-  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<DropMark | null>(null);
+  /** The rubber band, in client coordinates, while one is drawn. */
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const dragIds = useRef<string[]>([]);
   const lastClicked = useRef<number>(-1);
+  /** The fixed end of a Shift+arrow range. */
+  const anchorRef = useRef<number>(-1);
   const live = useRef(p);
   live.current = p;
 
@@ -252,15 +268,31 @@ export default function Organize(p: OrganizeProps) {
   const actions = useMemo<CellActions>(
     () => ({
       click,
-      dragStart: (page, selected) => {
-        dragIds.current = selected ? live.current.selected : [page.id];
+      dragStart: (e, page, selected) => {
+        // The selection, in document order, when the dragged page is part of it.
+        const q = live.current;
+        const chosen = new Set(q.selected);
+        dragIds.current = selected ? q.pages.filter((x) => chosen.has(x.id)).map((x) => x.id) : [page.id];
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData(PAGE_DRAG, dragIds.current.join(","));
       },
-      dragOver: (i) => setDropAt(i),
-      dragLeave: (i) => setDropAt((v) => (v === i ? null : v)),
-      drop: (i) => {
-        setDropAt(null);
-        if (dragIds.current.length) live.current.onReorder(dragIds.current, i);
+      dragOver: (e, i) => {
+        if (!dragIds.current.length && !(draggingFiles(e) && live.current.onDropFiles)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = dragIds.current.length ? "move" : "copy";
+        const r = e.currentTarget.getBoundingClientRect();
+        const side = e.clientX > r.left + r.width / 2 ? "after" : "before";
+        setDropAt((v) => (v?.cell === i && v.side === side ? v : { cell: i, side }));
+      },
+      dragLeave: (i) => setDropAt((v) => (v?.cell === i ? null : v)),
+      drop: (e, i) => {
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        dropInto(e, e.clientX > r.left + r.width / 2 ? i + 1 : i);
+      },
+      dragEnd: () => {
         dragIds.current = [];
+        setDropAt(null);
       },
       rotate: (id) => live.current.onRotate([id], 90),
       duplicate: (id) => live.current.onDuplicate([id]),
@@ -269,6 +301,64 @@ export default function Organize(p: OrganizeProps) {
     }),
     [click],
   );
+
+  /** Finish a drag at gap `at` (0 = before the first page, n = after the last). */
+  function dropInto(e: React.DragEvent, at: number) {
+    setDropAt(null);
+    const q = live.current;
+    if (dragIds.current.length) q.onReorder(dragIds.current, at);
+    else if (e.dataTransfer.files.length && q.onDropFiles) q.onDropFiles(Array.from(e.dataTransfer.files), at);
+    dragIds.current = [];
+  }
+
+  // --- rubber band: drawn from the grid's background, selects the pages it touches ---
+  const bandStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const grid = e.currentTarget;
+    const t = e.target as HTMLElement;
+    if (e.button !== 0 || (t !== grid && !t.classList.contains("pdfx-org__spacer"))) return;
+    // The scrollbar is not background.
+    if (e.clientX > grid.getBoundingClientRect().left + grid.clientWidth) return;
+    e.preventDefault();
+    grid.setPointerCapture(e.pointerId);
+    const base = e.ctrlKey || e.metaKey || e.shiftKey ? live.current.selected : [];
+    const start = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
+    let moved = false;
+    const pick = (b: typeof start) => {
+      const left = Math.min(b.x0, b.x1);
+      const right = Math.max(b.x0, b.x1);
+      const top = Math.min(b.y0, b.y1);
+      const bottom = Math.max(b.y0, b.y1);
+      const hit = new Set(base);
+      grid.querySelectorAll<HTMLElement>(".pdfx-org__cell").forEach((cell) => {
+        const r = cell.getBoundingClientRect();
+        if (r.right >= left && r.left <= right && r.bottom >= top && r.top <= bottom) hit.add(cell.dataset.pageId!);
+      });
+      const q = live.current;
+      q.onSelect(q.pages.filter((x) => hit.has(x.id)).map((x) => x.id));
+    };
+    const move = (ev: PointerEvent) => {
+      const b = { ...start, x1: ev.clientX, y1: ev.clientY };
+      if (!moved && Math.hypot(b.x1 - b.x0, b.y1 - b.y0) < 4) return;
+      moved = true;
+      setBand(b);
+      pick(b);
+      // Near an edge, the grid scrolls on so the band can reach pages out of view.
+      const r = grid.getBoundingClientRect();
+      if (ev.clientY < r.top + 30) grid.scrollTop -= 18;
+      else if (ev.clientY > r.bottom - 30) grid.scrollTop += 18;
+    };
+    const up = () => {
+      grid.removeEventListener("pointermove", move);
+      grid.removeEventListener("pointerup", up);
+      grid.removeEventListener("pointercancel", up);
+      setBand(null);
+      // A plain click on the background clears the selection.
+      if (!moved && !base.length) live.current.onSelect([]);
+    };
+    grid.addEventListener("pointermove", move);
+    grid.addEventListener("pointerup", up);
+    grid.addEventListener("pointercancel", up);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -296,10 +386,55 @@ export default function Organize(p: OrganizeProps) {
         e.preventDefault();
         p.onDelete(p.selected);
       }
+      const step =
+        e.key === "ArrowLeft"
+          ? -1
+          : e.key === "ArrowRight"
+            ? 1
+            : e.key === "ArrowUp"
+              ? -columns
+              : e.key === "ArrowDown"
+                ? columns
+                : e.key === "Home"
+                  ? -Infinity
+                  : e.key === "End"
+                    ? Infinity
+                    : 0;
+      if (!step || !p.pages.length) return;
+      e.preventDefault();
+      const n = p.pages.length;
+      const chosen = new Set(p.selected);
+      const at = p.pages.map((x, i) => (chosen.has(x.id) ? i : -1)).filter((i) => i >= 0);
+      if (e.altKey && at.length) {
+        // Alt + arrow: the selected pages move (Acrobat drags; the keyboard needs a way too).
+        const first = at[0];
+        const last = at[at.length - 1];
+        const to = step < 0 ? Math.max(0, first + Math.max(step, -n)) : Math.min(n, last + 1 + Math.min(step, n));
+        p.onReorder(
+          at.map((i) => p.pages[i].id),
+          to,
+        );
+        return;
+      }
+      const from = lastClicked.current >= 0 && lastClicked.current < n ? lastClicked.current : (at[0] ?? -1);
+      const next = from < 0 ? 0 : Math.max(0, Math.min(n - 1, from + (Number.isFinite(step) ? step : step * n)));
+      if (e.shiftKey && from >= 0) {
+        const anchor = anchorRef.current >= 0 ? anchorRef.current : from;
+        const [a, b] = anchor < next ? [anchor, next] : [next, anchor];
+        anchorRef.current = anchor;
+        p.onSelect(p.pages.slice(a, b + 1).map((x) => x.id));
+      } else {
+        anchorRef.current = -1;
+        p.onSelect([p.pages[next].id]);
+      }
+      lastClicked.current = next;
+      gridRef.current
+        ?.querySelector<HTMLElement>(`.pdfx-org__cell[data-index="${next}"]`)
+        ?.scrollIntoView({ block: "nearest" });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [p]);
+  }, [p, columns]);
 
   return (
     <div className="pdfx-org">
@@ -398,8 +533,19 @@ export default function Organize(p: OrganizeProps) {
         role="region"
         aria-label="Pages du document"
         style={{ gridTemplateColumns: `repeat(${columns}, ${cellW}px)` }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) p.onSelect([]);
+        onPointerDown={bandStart}
+        onDragOver={(e) => {
+          // Over the background or the « Ajouter » cell: after the last page.
+          if (e.defaultPrevented) return;
+          if (!dragIds.current.length && !(draggingFiles(e) && p.onDropFiles)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = dragIds.current.length ? "move" : "copy";
+          if (p.pages.length) setDropAt({ cell: p.pages.length - 1, side: "after" });
+        }}
+        onDrop={(e) => {
+          if (e.defaultPrevented) return;
+          e.preventDefault();
+          dropInto(e, p.pages.length);
         }}
       >
         {rows && rows.first > 0 && (
@@ -417,7 +563,7 @@ export default function Organize(p: OrganizeProps) {
               height={cells[i].h}
               rotation={cells[i].rotation}
               selected={selectedSet.has(page.id)}
-              drop={dropAt === i}
+              drop={dropAt?.cell === i ? dropAt.side : null}
               actions={actions}
             />
           );
@@ -440,9 +586,21 @@ export default function Organize(p: OrganizeProps) {
       </div>
 
       <div className="pdfx-org__foot" role="region" aria-label="Astuce">
-        <Move size={13} /> Glissez pour réorganiser · Maj-clic pour une plage · Ctrl-clic pour ajouter à la sélection ·
-        Suppr pour retirer
+        <Move size={13} /> Glissez pour réorganiser, ou déposez des PDF et des images · Maj-clic pour une plage ·
+        Ctrl-clic pour ajouter à la sélection · Flèches pour se déplacer, Alt + flèches pour déplacer les pages · Suppr
+        pour retirer
       </div>
+      {band && (
+        <div
+          className="pdfx-org__band"
+          style={{
+            left: Math.min(band.x0, band.x1),
+            top: Math.min(band.y0, band.y1),
+            width: Math.abs(band.x1 - band.x0),
+            height: Math.abs(band.y1 - band.y0),
+          }}
+        />
+      )}
     </div>
   );
 }

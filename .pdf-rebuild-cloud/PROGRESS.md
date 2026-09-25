@@ -690,3 +690,42 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 - Plusieurs parties : une seule archive .zip (les navigateurs bloquaient les
   téléchargements en rafale).
 - Tests : 2. Suite complète 1978/1978 ; specs PDF 50/50.
+
+### Session cloud 1 : T5, point 12 (marques de page, vue Organiser)
+- Marques de page (`ops/decorate.ts`, réécrit) :
+  - en-têtes, pieds de page, filigranes et numéros Bates sont placés selon la page vue :
+    sur une page tournée (/Rotate), l'en-tête longe le bord du haut, à l'endroit ;
+  - le contenu d'origine est fermé dans q…Q : une transformation qu'il laisse en place
+    ne déplace plus les marques ;
+  - les plages de pages sont calculées une fois par enregistrement ;
+  - le numéro Bates apparaît dès qu'aucune bande ne contient `{bates}`, même si un
+    en-tête est actif ; il a sa propre plage de pages, et la numérotation ne court que
+    sur ces pages ;
+  - nouveaux réglages : « Premier n° de page » pour `{page}`, et « Couleur de fond »
+    (l'arrière-plan d'Acrobat, sous le contenu) ;
+  - chaque marque est un artefact balisé (`/Artifact … /EliumMark`) : lecteurs d'écran
+    et extraction de texte l'ignorent ;
+  - « Supprimer d'abord les marques déjà présentes » retire les marques d'Elium et
+    celles d'Acrobat (XObject `/ADBE_CompoundType /Private /Watermark|Header|Footer|
+    Background`). Les en-têtes courants d'un traitement de texte restent.
+- Vue Organiser :
+  - dépôt avant ou après une page selon la moitié survolée, avec une barre dans
+    l'intervalle ; dépôt possible après la dernière page ;
+  - `dataTransfer.setData` au début du glisser : Firefox ne démarrait pas sans ;
+  - des PDF ou des images déposés depuis l'explorateur ou le Drive sont insérés à
+    l'endroit visé ;
+  - sélection au lasso depuis le fond de la grille (défilement près des bords) ;
+  - clavier : flèches, Début et Fin pour se déplacer ; Maj étend la plage ; Alt +
+    flèches déplace les pages sélectionnées ;
+  - une insertion ou un remplacement lancé depuis la vue Organiser y reste (elle se
+    refermait).
+- Tests : 8 unitaires (`pdf-page-marks.test.ts`), 2 navigateur (`pdf-marks.spec.ts`,
+  vue Organiser). Suite complète 1986/1986 ; specs PDF 54/54 (Drive + bureau).
+- À valider dans Acrobat :
+  - en-tête sur une page tournée de 90° ;
+  - fond de couleur ;
+  - « Supprimer » d'Acrobat sur un fichier marqué par Elium (Acrobat ne reconnaît sans
+    doute pas nos marques comme les siennes : à vérifier) ;
+  - suppression par Elium de marques posées par Acrobat.
+- Reste pour T5 : dialogue « Combiner » (liste de fichiers et ordre), insertion depuis
+  le presse-papiers.

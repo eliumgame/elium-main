@@ -78,19 +78,23 @@ import {
 } from "../core/destination";
 import {
   buildPdfDraft,
+  buildPdfSource,
   deletePdfDraft,
   findPdfDraft,
   listPdfDrafts,
+  loadPdfDraftSource,
   putPdfDraft,
+  putPdfSource,
   resolvePdfDraft,
-  resolvePdfDraftSource,
   sourceKey,
+  type DerivedSession,
   type PdfDraftEntry,
 } from "../model/recovery";
+import { sameValue } from "../model/same";
 import type { VaultSecret } from "../../crypto/local-vault";
 import {
+  appendPdfPages,
   extractPages,
-  mergeDocuments,
   parsePageRange,
   pdfFromImages,
   splitDocument,
@@ -185,7 +189,8 @@ type Mode = "view" | "organise" | "editText" | "form" | "fields";
 interface Props {
   onHome: () => void;
   initial?: PdfFile | unknown;
-  onExportElium?: (data: PdfFile, title: string) => void;
+  /** Resolves true once the .elium is written (false: cancelled or failed). */
+  onExportElium?: (data: PdfFile, title: string) => Promise<boolean>;
   author?: string;
   /** Secret of the unlocked local vault: recovery drafts are encrypted with it. */
   vaultSecret?: VaultSecret;
@@ -199,6 +204,33 @@ let toastSeq = 1;
 // `never[]` is assignable to both `Annot[]` and `ContentEdit[]` (and any
 // other array-typed prop) since arrays are covariant in TS.
 const EMPTY_ARRAY: never[] = [];
+
+/** How a document being opened relates to the session (see `openBytes`). */
+interface OpenExtra {
+  /** Recovery of a session whose destination file (`disk`) no longer holds the source as such. */
+  recovered?: { disk: Uint8Array; derived?: DerivedSession };
+  /** The session continues on the file its save just rewrote entirely (redaction, protection, pages removed…). */
+  rebased?: { disk: DiskState; dest: SaveDestination };
+  /**
+   * The same session continuing on a recomposed source (pages inserted from
+   * another PDF, OCR text layer): destination, protection and unsaved state
+   * carry over. `disk`: what the destination holds now, when it was not
+   * described yet; `signedKept`: the recomposed source still starts with the
+   * signed revision (incremental recomposition).
+   */
+  derived?: { session: DerivedSession; disk?: DiskState | null; diskKey?: string | null; signedKept: boolean };
+  /** A new document that exists nowhere yet (built from pictures…). */
+  unsaved?: boolean;
+}
+
+/** Outline nodes get fresh ids each time they are read from the file. */
+const IGNORE_IDS: ReadonlySet<string> = new Set(["id"]);
+
+function startsWithBytes(whole: Uint8Array, prefix: Uint8Array): boolean {
+  if (whole.length < prefix.length) return false;
+  for (let i = 0; i < prefix.length; i++) if (whole[i] !== prefix[i]) return false;
+  return true;
+}
 
 export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi", vaultSecret }: Props) {
   const dialogs = useDialogs();
@@ -242,8 +274,26 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const markClean = useRef(false);
   const [everSaved, setEverSaved] = useState(false);
   const sourceKeyRef = useRef<string | null>(null);
-  /** SHA-256 of the file as last saved in place (recovery finds the session by it once the original is overwritten). */
+  /**
+   * SHA-256 of the destination file when it no longer holds the source as
+   * such — saved into, or the session was recomposed (recovery finds the
+   * session by it).
+   */
   const diskKeyRef = useRef<string | null>(null);
+  /** The source is the destination file, or its first bytes (saves only appended). False once recomposed. */
+  const sourceOnDiskRef = useRef(true);
+  /** The session continues on a recomposed source (pages inserted, OCR) not yet saved into its file. */
+  const derivedRef = useRef<DerivedSession | null>(null);
+  /** Source key whose bytes the recovery store holds (recomposed sessions only). */
+  const sourceStoredRef = useRef<string | null>(null);
+  /** Whether the source / the destination file carry an intact digital signature (a full rewrite destroys it). */
+  const sourceSignedRef = useRef(false);
+  const diskSignedRef = useRef(false);
+  const [docSigned, setDocSigned] = useState<boolean | null>(null);
+  /** Stamp of the state last written to an .elium: safe there, though the PDF file may lack it. */
+  const [eliumVersion, setEliumVersion] = useState<number | null>(null);
+  /** Restored session (draft, .elium): the file's own annotations as imported, to recognise the untouched ones. */
+  const snapshotRef = useRef<Map<string, Annot> | null>(null);
   const saving = useRef(false);
   const redactConfirmed = useRef(false);
   const [drafts, setDrafts] = useState<PdfDraftEntry[]>([]);
@@ -263,7 +313,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     amend,
     version,
   } = useUndoable<PdfState>(emptyState());
-  const dirty = version !== savedVersion || securityDirty;
+  /** The PDF file (destination) lacks the current state. */
+  const pdfDirty = version !== savedVersion || securityDirty;
+  /** Work that closing would lose: neither in the PDF file nor in an .elium. */
+  const dirty = securityDirty || (version !== savedVersion && version !== eliumVersion);
   // The first render after an open/restore carries the fresh state's stamp.
   useEffect(() => {
     if (!markClean.current) return;
@@ -412,8 +465,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
    * back untouched. The result is folded into the whole undo history
    * (`amend`): it is part of the document, not an edit to undo.
    */
-  const importExistingMarkup = useCallback(
-    async (next: PdfEngine, sourcePages: readonly Page[], gen: number) => {
+  const collectMarkup = useCallback(
+    async (next: PdfEngine, sourcePages: readonly Page[], gen: number): Promise<Map<number, Annot[]> | null> => {
       const froms = [...new Set(sourcePages.map((q) => q.from).filter((f): f is number => f != null))];
       const raws = new Map<number, RawAnnotation[]>();
       let cursor = 0;
@@ -425,7 +478,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
       };
       await Promise.all(Array.from({ length: Math.min(4, froms.length) }, worker));
-      if (gen !== shownGeneration.current || !raws.size) return;
+      if (gen !== shownGeneration.current || !raws.size) return null;
 
       // A Stamp's own picture never comes back from pdf.js's getAnnotations()
       // (only a `hasAppearance` boolean) — resolving it needs a separate walk
@@ -437,7 +490,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
           )
         : null;
-      if (gen !== shownGeneration.current) return;
+      if (gen !== shownGeneration.current) return null;
 
       const byFrom = new Map<number, Annot[]>();
       for (const page of sourcePages) {
@@ -454,7 +507,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const origin = { x: info.ox, y: info.oy };
         byFrom.set(page.from, importPageAnnots(withImages, page.id, info.h, author, origin).annots);
       }
-      if (gen !== shownGeneration.current || !byFrom.size) return;
+      return gen === shownGeneration.current && byFrom.size ? byFrom : null;
+    },
+    [author],
+  );
+
+  const importExistingMarkup = useCallback(
+    async (next: PdfEngine, sourcePages: readonly Page[], gen: number) => {
+      const byFrom = await collectMarkup(next, sourcePages, gen);
+      if (!byFrom || gen !== shownGeneration.current) return;
       const originals = new Map(sourcePages.map((q) => [q.id, q.from]));
       let count = 0;
       for (const list of byFrom.values()) {
@@ -479,7 +540,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       setPanel((p) => (p === "thumbnails" ? "comments" : p));
       toast("info", `${count} annotation(s) importée(s)`, "Le balisage déjà présent est modifiable et répondable.");
     },
-    [amend, author, toast],
+    [amend, collectMarkup, toast],
+  );
+
+  /**
+   * A restored session (draft, .elium) holds its own copies of the file's
+   * annotations: remember them as the file has them, so the untouched ones are
+   * recognised (structurally) and left in the file instead of rewritten.
+   */
+  const snapshotMarkup = useCallback(
+    async (next: PdfEngine, pages: readonly Page[], gen: number) => {
+      const byFrom = await collectMarkup(next, pages, gen);
+      if (gen !== shownGeneration.current) return;
+      const map = new Map<string, Annot>();
+      for (const list of byFrom?.values() ?? []) for (const a of list) map.set(a.id, a);
+      snapshotRef.current = map;
+    },
+    [collectMarkup],
   );
 
   const openBytes = useCallback(
@@ -489,9 +566,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       password?: string,
       restore?: PdfState,
       handle?: FsFileHandle | null,
-      /** Recovery of a session that had already saved into `handle`: that file is the destination as it is. */
-      recovered?: { disk: Uint8Array },
+      extra: OpenExtra = {},
     ) => {
+      const { recovered, rebased, derived, unsaved } = extra;
       // Taken BEFORE the (slow) open: when a second file is picked while the
       // first one is still opening, only the last choice may be shown, whichever
       // finishes first. The engine being replaced is destroyed by the `engine`
@@ -509,28 +586,60 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           return;
         }
         shownGeneration.current = gen;
+        const previousSourceKey = sourceKeyRef.current;
         // The engine keeps its own private copy of the file; share it rather
         // than holding a second one (a 5 MB file used to cost 10 MB of heap).
         // Nothing mutates or transfers these bytes: every pdf.js consumer is
         // handed a copy (`core/assets.ts::documentParams`).
         bytesRef.current = next.bytes;
         passwordRef.current = password ?? null;
-        // A new document: its own destination, nothing saved yet.
-        diskRef.current = null;
-        destRef.current = handle ? fileDestination(handle) : null;
-        openHandleRef.current = handle ?? null;
-        pristineAnnotsRef.current = new Set();
-        pristineBookmarksRef.current = null;
-        securityRef.current = null;
-        setSecurityDirty(false);
-        setEverSaved(false);
+        if (derived) {
+          // The same session on a recomposed source: its file, its protection
+          // change and its saves so far carry over; the destination still
+          // lacks the recomposition (`derived.disk`: what it holds now).
+          diskRef.current = derived.disk ?? diskRef.current;
+          if (!diskKeyRef.current && derived.diskKey) diskKeyRef.current = derived.diskKey;
+          sourceOnDiskRef.current = false;
+          derivedRef.current = {
+            changes: [...(derivedRef.current?.changes ?? []), ...derived.session.changes],
+            forceFull: [...new Set([...(derivedRef.current?.forceFull ?? []), ...derived.session.forceFull])],
+          };
+          sourceSignedRef.current = derived.signedKept && sourceSignedRef.current;
+          // Its drafts are filed under the new source: the old one goes.
+          if (previousSourceKey) void deletePdfDraft(previousSourceKey).catch(() => {});
+        } else {
+          // A new document: its own destination, nothing saved yet — or the
+          // file just rewritten by a save, which the session now continues on.
+          diskRef.current = rebased?.disk ?? null;
+          destRef.current = rebased?.dest ?? (handle ? fileDestination(handle) : null);
+          openHandleRef.current = handle ?? null;
+          securityRef.current = null;
+          setSecurityDirty(false);
+          setEverSaved(!!rebased);
+          setEliumVersion(null);
+          diskKeyRef.current = null;
+          sourceOnDiskRef.current = true;
+          derivedRef.current = recovered?.derived ?? null;
+          sourceSignedRef.current = false;
+          diskSignedRef.current = false;
+        }
+        sourceStoredRef.current = null;
+        if (!(derived && restore)) {
+          pristineAnnotsRef.current = new Set();
+          pristineBookmarksRef.current = null;
+        }
+        snapshotRef.current = null;
         redactConfirmed.current = false;
         sourceKeyRef.current = null;
-        diskKeyRef.current = null;
-        // Freshly opened — or restored from an .elium, which holds the session:
-        // nothing is unsaved yet. A recovered session is unsaved work.
-        markClean.current = !recovered;
+        setDocSigned(rebased ? false : derived ? sourceSignedRef.current : null);
+        // Freshly opened, rebased on the file just saved, or restored from an
+        // .elium (which holds the session): nothing is unsaved yet. A recovered
+        // or recomposed session, or a new document, is unsaved work.
+        const clean = !recovered && !derived && !unsaved;
+        markClean.current = clean;
+        if (!clean) setSavedVersion(-1);
         if (recovered) {
+          sourceOnDiskRef.current = startsWithBytes(recovered.disk, next.bytes);
           void readDiskState(recovered.disk, password)
             .then((d) => {
               if (gen === shownGeneration.current) diskRef.current = d;
@@ -538,6 +647,14 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             .catch(() => {});
           void sourceKey(recovered.disk).then((k) => {
             if (gen === shownGeneration.current) diskKeyRef.current = k;
+          });
+        }
+        if (!rebased && !derived) {
+          // Signature facts are computed in the background (see PdfEngine.infoReady).
+          void next.infoReady.then((info) => {
+            if (gen !== shownGeneration.current) return;
+            sourceSignedRef.current = info.signed;
+            diskSignedRef.current = info.signed;
           });
         }
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
@@ -579,25 +696,25 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           .then((outline) => {
             if (gen !== shownGeneration.current || !outline.length) return;
             const bookmarks: Bookmark[] = outlineToBookmarks(outline);
-            pristineBookmarksRef.current = bookmarks;
+            if (!(derived && restore)) pristineBookmarksRef.current = bookmarks;
             amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
           })
           .catch(() => {});
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
-        if (!restore) {
-          // Let the first page paint before competing for the pdf.js worker.
-          setTimeout(() => {
-            if (gen === shownGeneration.current) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
-          }, 250);
-        }
+        // Let the first page paint before competing for the pdf.js worker.
+        setTimeout(() => {
+          if (gen !== shownGeneration.current) return;
+          if (!restore) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
+          else if (!derived) void snapshotMarkup(next, sourcePages, gen).catch(() => {});
+        }, 250);
         // Unsaved edits of this very file from an earlier session (crash,
         // closed window) are offered back.
         void sourceKey(next.bytes)
           .then(async (key) => {
             if (gen !== shownGeneration.current) return;
             sourceKeyRef.current = key;
-            if (restore) return;
+            if (restore || rebased || derived) return;
             const draft = await findPdfDraft(key).catch(() => undefined);
             if (!draft || gen !== shownGeneration.current) return;
             const when = new Date(draft.updatedAt).toLocaleString("fr-FR");
@@ -613,15 +730,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               return;
             }
             try {
-              const recovered = await resolvePdfDraft(draft, vaultSecret);
+              const recoveredState = await resolvePdfDraft(draft, vaultSecret);
               if (draft.id === key) {
-                reset(recovered);
+                reset(recoveredState);
+                markClean.current = false;
+                setSavedVersion(-1);
+                void snapshotMarkup(next, recoveredState.pages, gen).catch(() => {});
               } else {
-                // This file was saved into by the session: rebuild it on the
-                // source it started from, with this file as its destination.
-                const source = await resolvePdfDraftSource(draft, vaultSecret);
+                // This file was saved into by the session (or the session was
+                // recomposed): rebuild it on the source it applies to, with
+                // this file as its destination.
+                const source = await loadPdfDraftSource(draft, next.bytes, vaultSecret);
                 if (!source) throw new Error("Le fichier d'origine de ces modifications n'a pas été conservé.");
-                await openBytes(source, name, password, recovered, handle, { disk: next.bytes });
+                await openBytes(source, name, password, recoveredState, handle, {
+                  recovered: { disk: next.bytes, derived: draft.derived },
+                });
               }
               toast("success", "Modifications restaurées", "Enregistrez (Ctrl+S) pour les écrire dans le fichier.");
             } catch (err) {
@@ -641,7 +764,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (gen === openGeneration.current) setLoading(false);
       }
     },
-    [reset, amend, importExistingMarkup, currentStore, dialogs, toast, vaultSecret, setSecurityDirty],
+    [reset, amend, importExistingMarkup, snapshotMarkup, currentStore, dialogs, toast, vaultSecret, setSecurityDirty],
   );
 
   const openFile = useCallback(
@@ -723,24 +846,38 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }, [dirty]);
 
   // Snapshot the editing state while it is unsaved (debounced). A protected
-  // PDF's edits are only stored encrypted (vault unlocked), never in clear.
+  // PDF's edits are only stored encrypted (vault unlocked), never in clear —
+  // "protected" meaning the source, the file saved into, or a protection
+  // about to be applied. The PDF itself is not copied (see model/recovery.ts):
+  // only a recomposed source, which exists nowhere else, is kept — once.
   useEffect(() => {
     if (!engine || !dirty) return;
     const timer = setTimeout(() => {
       const key = sourceKeyRef.current;
-      if (!key) return;
+      const source = bytesRef.current;
+      if (!key || !source) return;
+      const sourceProtected = engine.info.encrypted || !!diskRef.current?.crypt || !!securityRef.current;
       void buildPdfDraft({
         id: key,
         name: fileName || "document.pdf",
-        size: engine.bytes.length,
+        size: source.length,
         state,
-        sourceProtected: engine.info.encrypted,
+        sourceProtected,
         secret: vaultSecret,
         handle: destRef.current?.handle ?? openHandleRef.current ?? undefined,
         diskKey: diskKeyRef.current ?? undefined,
-        source: diskKeyRef.current ? (bytesRef.current ?? undefined) : undefined,
+        derived: derivedRef.current ?? undefined,
       })
-        .then((draft) => (draft ? putPdfDraft(draft) : undefined))
+        .then(async (draft) => {
+          if (!draft) return;
+          if (!sourceOnDiskRef.current && sourceStoredRef.current !== key) {
+            const rec = await buildPdfSource({ id: key, bytes: source, sourceProtected, secret: vaultSecret });
+            if (!rec) return;
+            await putPdfSource(rec);
+            sourceStoredRef.current = key;
+          }
+          await putPdfDraft(draft);
+        })
         .catch(() => {});
     }, 1500);
     return () => clearTimeout(timer);
@@ -1122,7 +1259,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // Saving
   // -------------------------------------------------------------------------
   /** Options of a plain « Enregistrer »: the document itself, markup kept editable. */
-  const saveOptions = (): Partial<BuildOptions> => ({
+  const saveOptions = (st: PdfState = state): Partial<BuildOptions> => ({
     interactiveAnnots: true,
     flattenForms: false,
     applyRedactions: true,
@@ -1131,11 +1268,31 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     author,
     fileName,
     password: passwordRef.current ?? "",
-    pristineAnnots: pristineAnnotsRef.current,
-    pristineBookmarks: pristineBookmarksRef.current,
+    ...pristineOptions(st),
   });
 
-  /** A complete derived copy (print, extraction, merge, split, signing): no protection, pdf-lib readable. */
+  /**
+   * The file's own annotations and outline the state still holds unchanged —
+   * left in the file as they are. Recognised by identity in the session that
+   * imported them, structurally in a restored one (draft, .elium).
+   */
+  const pristineOptions = (st: PdfState): Pick<BuildOptions, "pristineAnnots" | "pristineBookmarks"> => {
+    const snapshot = snapshotRef.current;
+    const identity = pristineAnnotsRef.current;
+    const kept = new Set<Annot>();
+    for (const a of st.annots) {
+      if (identity.has(a)) kept.add(a);
+      else if (snapshot) {
+        const original = snapshot.get(a.id);
+        if (original && sameValue(a, original)) kept.add(a);
+      }
+    }
+    const fileOutline = pristineBookmarksRef.current;
+    const sameOutline = !!st.bookmarks && !!fileOutline && sameValue(st.bookmarks, fileOutline, IGNORE_IDS);
+    return { pristineAnnots: kept, pristineBookmarks: sameOutline ? st.bookmarks : fileOutline };
+  };
+
+  /** A complete derived copy (print, extraction, split, signing): no protection, pdf-lib readable. */
   const buildDerived = (st: PdfState = state, extra: Partial<BuildOptions> = {}) =>
     buildPdf(bytesRef.current!, st, {
       ...buildOptions,
@@ -1143,14 +1300,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       fileName,
       password: passwordRef.current ?? "",
       encryption: "remove",
-      pristineAnnots: pristineAnnotsRef.current,
-      pristineBookmarks: pristineBookmarksRef.current,
+      ...pristineOptions(st),
       ...extra,
     });
 
   /** Edits that Acrobat reports as changes to a signed document's content. */
   const contentChanges = (st: PdfState): string[] => {
-    const out: string[] = [];
+    const out: string[] = [...(derivedRef.current?.changes ?? [])];
     if (st.contentEdits.length) out.push("texte modifié");
     if (st.imageEdits.length) out.push("images modifiées");
     if (st.pages.some((p, i) => p.from !== i || p.rotate || p.crop || p.skipped || p.label)) out.push("pages");
@@ -1163,17 +1319,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   /** Comments added, edited or deleted relative to the file. */
   const annotationChanges = (st: PdfState): boolean => {
-    const pristine = pristineAnnotsRef.current;
-    let kept = 0;
-    for (const a of st.annots) {
-      if (!pristine.has(a)) return true;
-      kept++;
-    }
-    return kept !== pristine.size;
+    const kept = pristineOptions(st).pristineAnnots!.size;
+    const originals = snapshotRef.current?.size ?? pristineAnnotsRef.current.size;
+    return kept !== st.annots.length || kept !== originals;
   };
 
-  /** Warn before a save that would break a digital signature. False = the user cancelled. */
-  const confirmSignedSave = async (st: PdfState, reasons: string[]): Promise<boolean> => {
+  /**
+   * Warn before a save that would break a digital signature (or a
+   * certification). `base`: the file the save builds on. False = cancelled.
+   */
+  const confirmSignedSave = async (st: PdfState, reasons: string[], base: Uint8Array): Promise<boolean> => {
     if (reasons.length) {
       return dialogs.confirm({
         title: "Document signé électroniquement",
@@ -1187,7 +1342,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const changes = contentChanges(st);
     // A certifying signature (DocMDP) narrows what may change after it.
     const { certificationLevel } = await import("../ops/incremental");
-    const level = bytesRef.current ? certificationLevel(bytesRef.current) : null;
+    const level = certificationLevel(base);
     const comments = annotationChanges(st);
     if (level === 1 || (level === 2 && comments)) {
       return dialogs.confirm({
@@ -1213,7 +1368,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   /** Tell the user exactly what was written — never a plain success when an edit was lost. */
-  const reportSave = async (r: BuildReport, dest: SaveDestination, signedOutput: Uint8Array | null) => {
+  const reportSave = async (
+    r: BuildReport,
+    dest: SaveDestination,
+    signedOutput: Uint8Array | null,
+    notes: string[] = [],
+  ) => {
     const size = (n: number) =>
       n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(1)} Ko` : `${(n / 1048576).toFixed(2)} Mo`;
     const facts: string[] = [];
@@ -1231,6 +1391,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (r.redactedGlyphs || r.redactedImages) {
       facts.push(`${r.redactedGlyphs} caractère(s) et ${r.redactedImages} image(s) caviardés`);
     }
+    facts.push(...notes);
     if (signedOutput) {
       try {
         const { verifyPdfSignatures } = await import("../ops/pades");
@@ -1238,6 +1399,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (v.length && v.every((x) => x.digestMatches)) {
           facts.push("signature électronique préservée (version signée intacte)");
         } else {
+          facts.push("signature électronique supprimée");
           toast(
             "warning",
             "Signature électronique",
@@ -1285,10 +1447,14 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
     const st = state;
     const ver = version;
+    const source = bytesRef.current;
     const disk = how.copy || how.fresh || !dest.persistent ? null : diskRef.current;
     // A protection change is relative to the source: re-applied whenever we start from it.
     const security = disk ? (securityDirtyRef.current ? securityRef.current : null) : securityRef.current;
-    const opts: Partial<BuildOptions> = { ...saveOptions(), ...options };
+    // A recomposed session saved into the file that still has the pages it
+    // removed before recomposing: that file must be rewritten.
+    const forceFull = disk && derivedRef.current?.forceFull.length ? derivedRef.current.forceFull : undefined;
+    const opts: Partial<BuildOptions> = { ...saveOptions(st), ...options };
     const marks = st.annots.filter((a) => a.kind === "redact").length;
     if (marks && opts.applyRedactions && !redactConfirmed.current) {
       const ok = await dialogs.confirm({
@@ -1299,8 +1465,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       if (!ok) return false;
       redactConfirmed.current = true;
     }
-    const info = await engine.infoReady;
-    if (info.signed) {
+    await engine.infoReady;
+    // Signed as the file this save builds on is — not as the source once was
+    // (a full rewrite already removed the signature from the file saved into).
+    const signed = disk ? diskSignedRef.current : sourceSignedRef.current;
+    if (signed) {
       const reasons = fullRewriteReasons(
         st,
         {
@@ -1312,8 +1481,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         engine.pageCount,
         security,
       );
+      for (const r of forceFull ?? []) if (!reasons.includes(r)) reasons.push(r);
       if (how.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
-      if (!(await confirmSignedSave(st, reasons))) return false;
+      if (!(await confirmSignedSave(st, reasons, disk?.bytes ?? source))) return false;
     }
 
     saving.current = true;
@@ -1321,7 +1491,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const id = toast("progress", "Enregistrement…");
     try {
       const res = await savePdf({
-        source: bytesRef.current,
+        source,
         disk,
         state: st,
         options: {
@@ -1330,17 +1500,32 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setToasts((v) => v.map((t) => (t.id === id ? { ...t, text: label, ratio } : t))),
         },
         security,
+        forceFullReasons: forceFull,
         mode: how.mode ?? "auto",
       });
       await dest.write(res.bytes);
+      const notes: string[] = [];
+      // The session goes on from the file just written when that file
+      // replaced everything (no earlier revision kept): the original — e.g.
+      // what a redaction removed — is no longer held anywhere, and the next
+      // saves append to this file again instead of rewriting it each time.
+      const rebase = !how.copy && dest.persistent && res.report.mode === "full";
       if (!how.copy) {
         if (dest.persistent) {
           destRef.current = dest;
           diskRef.current = res.disk;
           diskKeyRef.current = null;
-          void sourceKey(res.bytes).then((k) => {
-            if (diskRef.current === res.disk) diskKeyRef.current = k;
-          });
+          if (!disk) sourceOnDiskRef.current = true; // written as source + update
+          if (res.report.mode === "full") diskSignedRef.current = false;
+          else if (!disk) diskSignedRef.current = sourceSignedRef.current;
+          derivedRef.current = null;
+          // Recovery finds the session by the file saved into (its source is
+          // its first bytes, or kept apart for a recomposed session).
+          if (!rebase) {
+            void sourceKey(res.bytes).then((k) => {
+              if (diskRef.current === res.disk) diskKeyRef.current = k;
+            });
+          }
           if (dest.name !== fileName) setFileName(dest.name);
         } else {
           diskRef.current = null;
@@ -1350,9 +1535,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setEverSaved(true);
         const key = sourceKeyRef.current;
         if (key) void deletePdfDraft(key).catch(() => {});
+        sourceStoredRef.current = null;
       }
       dismissToast(id);
-      await reportSave(res.report, dest, info.signed ? res.bytes : null);
+      if (rebase) {
+        notes.push("l'historique d'annulation repart du fichier enregistré");
+        const pw =
+          security === "remove"
+            ? undefined
+            : security
+              ? security.protect.userPassword || security.protect.ownerPassword || undefined
+              : (passwordRef.current ?? undefined);
+        await openBytes(res.bytes, dest.name, pw, undefined, dest.handle ?? openHandleRef.current, {
+          rebased: { disk: res.disk, dest },
+        });
+      }
+      await reportSave(res.report, dest, signed ? res.bytes : null, notes);
       return true;
     } catch (e) {
       dismissToast(id);
@@ -1372,7 +1570,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const saveNow = async (force = false) => {
     if (!bytesRef.current || !engine) return;
     const current = destRef.current;
-    if (current && !dirty && !force) {
+    if (current && !pdfDirty && !force) {
       toast("info", "Aucune modification à enregistrer.", `« ${current.name} » est à jour.`);
       return;
     }
@@ -1420,6 +1618,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     });
     if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
     return ok;
+  };
+
+  /** Where the source bytes of a recomposed document (inserted pages, OCR) go: see `openBytes` « derived ». */
+  const adoptDerived = async (bytes: Uint8Array, session: DerivedSession, signedKept: boolean, keep?: PdfState) => {
+    // The destination still holds the previous source (never saved into):
+    // describe it now — it is what the next save appends to.
+    let disk: DiskState | null = null;
+    if (!diskRef.current && destRef.current?.persistent && bytesRef.current) {
+      disk = await readDiskState(bytesRef.current, passwordRef.current);
+    }
+    const diskKey = diskKeyRef.current ?? sourceKeyRef.current;
+    await openBytes(bytes, fileName, passwordRef.current ?? undefined, keep, openHandleRef.current, {
+      derived: { session, disk, diskKey, signedKept },
+    });
   };
 
   const goHome = async () => {
@@ -1598,14 +1810,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const saveElium = async () => {
     if (!bytesRef.current || !onExportElium) return;
-    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    const base = fileName.replace(/.pdf$/i, "") || "document";
     const title = await dialogs.prompt({
       title: "Enregistrer en .elium",
       label: "Nom du document",
       defaultValue: base,
     });
     if (title === null) return;
-    onExportElium(
+    const ver = version;
+    const ok = await onExportElium(
       serialize(fileName || "document.pdf", bytesRef.current, state, {
         fonts: collectFonts(),
         signatures: signatures.map((s) => s.src),
@@ -1613,10 +1826,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }),
       title.trim() || base,
     );
-    // The whole session (source + edits) is now kept in the .elium: nothing is lost.
-    setSavedVersion(version);
+    // Cancelled (password dialog closed) or failed: nothing was saved.
+    if (!ok) return;
+    // The whole session (source + edits) is now kept in the .elium — but the
+    // PDF file itself is not updated: Ctrl+S still writes it.
+    setEliumVersion(ver);
     if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
-    toast("success", "Document enregistré", "Scellé, chiffrable et re-modifiable.");
+    sourceStoredRef.current = null;
+    toast(
+      "success",
+      "Session enregistrée en .elium",
+      pdfDirty && destRef.current
+        ? `Scellée et re-modifiable. « ${destRef.current.name} » n'a pas ces modifications : Ctrl+S pour l'enregistrer.`
+        : "Scellée, chiffrable et re-modifiable.",
+    );
   };
 
   const printDocument = async () => {
@@ -2135,28 +2358,89 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // File pickers
   // -------------------------------------------------------------------------
+  /**
+   * « Insérer depuis un PDF » / « Fusionner »: the other files' pages are
+   * appended to THIS document — the same file, saved like any other edit: an
+   * incremental update of it (a signed revision stays intact), encrypted with
+   * its key, into the file it was opened from. The session goes on with the
+   * recomposed document (the current edits folded in), marked unsaved.
+   */
   const onMergePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!files.length || !bytesRef.current) return;
+    if (!files.length || !bytesRef.current || !engine) return;
+    await engine.infoReady;
+    const signed = sourceSignedRef.current || (!!diskRef.current && diskSignedRef.current);
+    if (signed) {
+      const ok = await dialogs.confirm({
+        title: "Document signé électroniquement",
+        message:
+          "Insérer des pages modifie le contenu signé. La version signée restera intacte dans le fichier " +
+          "(enregistrement incrémental), mais Acrobat signalera que le document a été modifié après signature.",
+        confirmLabel: "Insérer quand même",
+        cancelLabel: "Annuler",
+      });
+      if (!ok) return;
+    }
     setBusy(true);
-    const id = toast("progress", "Fusion en cours…");
+    const id = toast("progress", "Insertion des pages…");
     try {
-      const current = await buildDerived();
-      const sources = [
-        { name: fileName || "document.pdf", bytes: current.bytes },
-        ...(await Promise.all(
-          files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
-        )),
-      ];
-      const merged = await mergeDocuments(sources);
+      const inputs = await Promise.all(
+        files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+      );
+      let outcome: Awaited<ReturnType<typeof appendPdfPages>> = { inserted: 0, failed: [] };
+      const res = await savePdf({
+        source: bytesRef.current,
+        state,
+        // Redaction marks stay marks (/Redact): applying them is a save's job, confirmed.
+        options: { ...saveOptions(state), applyRedactions: false },
+        security: null,
+        transform: async (doc) => {
+          outcome = await appendPdfPages(doc, inputs, (name, wrong) =>
+            dialogs.prompt({
+              title: "PDF protégé",
+              label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+            }),
+          );
+        },
+      });
       dismissToast(id);
-      if (merged.failed.length) toast("warning", `Ignoré : ${merged.failed.join(", ")}`);
-      await openBytes(merged.bytes, fileName || "fusion.pdf");
-      toast("success", "Documents fusionnés", `${merged.counts.reduce((a, b) => a + b, 0)} pages au total.`);
-    } catch {
+      const failed = outcome.failed.map((f) => `${f.name} (${f.reason})`);
+      if (!outcome.inserted) {
+        toast("warning", "Aucune page insérée", failed.join(", ") || undefined);
+        return;
+      }
+      if (res.report.lost.length) {
+        toast(
+          "warning",
+          "Insertion : certaines modifications n'ont pas pu être reportées",
+          res.report.lost.join(" · "),
+        );
+      }
+      const names = inputs.filter((f) => !outcome.failed.some((x) => x.name === f.name)).map((f) => f.name);
+      await adoptDerived(
+        res.bytes,
+        {
+          changes: [`${outcome.inserted} page(s) insérée(s) (${names.join(", ")})`],
+          forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+        },
+        res.report.mode === "incremental",
+      );
+      toast(
+        "success",
+        `${outcome.inserted} page(s) insérée(s)`,
+        [
+          destRef.current
+            ? `Enregistrez (Ctrl+S) pour les écrire dans « ${destRef.current.name} ».`
+            : "Enregistrez (Ctrl+S).",
+          failed.length ? `Ignoré : ${failed.join(", ")}` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+    } catch (err) {
       dismissToast(id);
-      toast("danger", "Fusion impossible.");
+      toast("danger", "Insertion impossible.", err instanceof Error ? err.message : undefined);
     } finally {
       setBusy(false);
     }
@@ -2210,7 +2494,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         sources.map((src) => ({ src })),
         { pageSize: "fit" },
       );
-      await openBytes(bytes, files[0].name.replace(/\.[^.]+$/, ".pdf"));
+      // A new document, saved nowhere yet.
+      await openBytes(bytes, files[0].name.replace(/\.[^.]+$/, ".pdf"), undefined, undefined, null, {
+        unsaved: true,
+      });
       return;
     }
     setState((s) =>
@@ -2675,13 +2962,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           <span className="pdfx-savestate pdfx-savestate--dirty" title="Modifications non enregistrées (Ctrl+S)">
             ● Modifié
           </span>
+        ) : pdfDirty ? (
+          <span
+            className="pdfx-savestate"
+            title="La session est enregistrée dans un .elium ; le fichier PDF lui-même n'a pas ces modifications (Ctrl+S)"
+          >
+            Enregistré en .elium
+          </span>
         ) : everSaved ? (
           <span className="pdfx-savestate" title="Toutes les modifications sont enregistrées">
             Enregistré
           </span>
         ) : null}
         {engine.info.encrypted && <span className="pdfx-badge pdfx-badge--lock">protégé</span>}
-        {engine.info.signed && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
+        {(docSigned ?? engine.info.signed) && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
         {engine.info.isXfa && <span className="pdfx-badge pdfx-badge--warn">XFA — lecture seule</span>}
 
         <span className="pdfx-topbar__spacer" />
@@ -3229,21 +3523,34 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 return;
               }
 
-              const { PDFDocument } = await import("pdf-lib");
               const { FontBook } = await import("../ops/fonts");
-              const doc = await PDFDocument.load(bytesRef.current, {
-                ignoreEncryption: true,
-                throwOnInvalidObject: false,
-                updateMetadata: false,
+              if (!engine) return;
+              // The text layer goes into the document itself — an update of
+              // the source, encrypted with its key, its signed revision left
+              // intact — and the session goes on with it, edits kept.
+              const res = await savePdf({
+                source: bytesRef.current,
+                state: { ...emptyState(), pages: D.pagesFromSource(engine.pageCount) },
+                options: { password: passwordRef.current ?? "", author, fileName },
+                security: null,
+                transform: async (doc) => {
+                  const book = new FontBook(doc);
+                  const docPages = doc.getPages();
+                  for (const r of results) {
+                    const target = docPages[r.page];
+                    if (target && r.words.length) await writeOcrLayer(doc, target, r.words, book);
+                  }
+                },
               });
-              const book = new FontBook(doc);
-              const docPages = doc.getPages();
-              for (const r of results) {
-                const target = docPages[r.page];
-                if (target && r.words.length) await writeOcrLayer(doc, target, r.words, book);
-              }
-              const out = await doc.save();
-              await openBytes(out, fileName, undefined, state);
+              await adoptDerived(
+                res.bytes,
+                {
+                  changes: ["texte reconnu (OCR) ajouté"],
+                  forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+                },
+                res.report.mode === "incremental",
+                state,
+              );
               setOcrRunning(false);
               setDialog(null);
               toast(

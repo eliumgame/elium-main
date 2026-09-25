@@ -668,9 +668,13 @@ export default function App() {
     [askSecret, loadFile, openLegacy],
   );
 
-  /** Save a spreadsheet/presentation as an encrypted+sealed .elium and mirror it to the Drive. */
+  /**
+   * Save a spreadsheet/presentation/PDF session as an encrypted+sealed .elium
+   * and mirror it to the Drive. Resolves true once the file is written, false
+   * when cancelled or failed (the PDF workspace only then marks its session saved).
+   */
   const exportAppElium = useCallback(
-    async (kind: "sheet" | "slides" | "pdf", data: unknown, title: string) => {
+    async (kind: "sheet" | "slides" | "pdf", data: unknown, title: string): Promise<boolean> => {
       try {
         const label = kind === "sheet" ? "Classeur" : kind === "slides" ? "Présentation" : "Document PDF";
         const wantEnc = await dialogs.confirm({
@@ -683,7 +687,7 @@ export default function App() {
         const secret = wantEnc
           ? await askSecret("Protéger le fichier (mot de passe et/ou fichier-clé)", "set", true)
           : null;
-        if (wantEnc && !secret) return; // cancelled the password dialog
+        if (wantEnc && !secret) return false; // cancelled the password dialog
         const nodeType = kind === "sheet" ? "eliumSheet" : kind === "slides" ? "eliumSlides" : "eliumPdf";
         const doc: ProseMirrorNode = {
           type: "doc",
@@ -713,8 +717,10 @@ export default function App() {
           /* drive best-effort */
         }
         setToast(`${label} enregistré (.elium${secret ? ", chiffré" : ""}${sealKey ? ", scellé" : ""})`);
+        return true;
       } catch (e) {
         setError(msg(e));
+        return false;
       }
     },
     [identity, ensurePrivateKey, askSecret, dialogs, vaultSecret],

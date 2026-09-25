@@ -93,4 +93,38 @@ test.describe("PDF — marques de page", () => {
     expect(await marks(await save(again))).toEqual([["Header"], ["Header"]]);
     expect([...problems, ...problems2]).toEqual([]);
   });
+
+  test("une insertion ne fige pas les marques et garde les pages exclues", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await pdf());
+    await page.getByRole("tab", { name: "Modifier" }).click();
+    await page.getByRole("button", { name: "En-tête / pied" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("checkbox", { name: /Activer l'en-tête/ }).check();
+    await dialog.getByRole("textbox", { name: "Centre" }).fill("{page}/{pages}");
+    await dialog.getByRole("button", { name: "Appliquer" }).click();
+
+    // Page 2 excluded, then a page inserted at the end (a recomposition).
+    await page.getByRole("tab", { name: "Organiser" }).click();
+    await page.getByRole("button", { name: "Organiser", exact: true }).click();
+    await page.locator(".pdfx-org__cell").nth(1).click();
+    await page.getByRole("button", { name: /^Exclure/ }).click();
+    await page.getByRole("button", { name: "Insérer un PDF" }).click();
+    const extra = await PDFDocument.create();
+    extra.addPage([400, 400]);
+    await page.setInputFiles('input[type="file"][accept="application/pdf,.pdf"][multiple]', {
+      name: "ajout.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from(await extra.save()),
+    });
+    const insert = page.getByRole("dialog");
+    await insert.getByRole("button", { name: "Insérer" }).click();
+    await expect(page.getByText("1 page(s) insérée(s)")).toBeVisible();
+    await expect(page.locator(".pdfx-org__cell")).toHaveCount(3);
+    await expect(page.locator(".pdfx-org__cell").nth(1).locator(".pdfx-org__skipbadge")).toBeVisible();
+
+    // One header per page, painted once, at save: none baked by the insertion.
+    expect(await marks(await save(page))).toEqual([["Header"], ["Header"], ["Header"]]);
+    expect(problems).toEqual([]);
+  });
 });

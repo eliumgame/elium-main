@@ -343,19 +343,27 @@ export function stripPageMarks(doc: PDFDocument, page: PDFPage): number {
   const ops = parseContentStream(bytes);
 
   const drop = new Set<number>();
-  const open: { at: number; elium: boolean }[] = [];
+  const open: { at: number; elium: boolean; artifact: boolean }[] = [];
   let removed = 0;
   for (let i = 0; i < ops.length; i++) {
     const { op, args } = ops[i];
     if (op === "BDC" || op === "BMC") {
       const props = op === "BDC" ? args[1] : undefined;
-      open.push({ at: i, elium: props?.t === "dict" && props.v.has("EliumMark") });
+      const tag = args[0];
+      open.push({
+        at: i,
+        elium: props?.t === "dict" && props.v.has("EliumMark"),
+        artifact: tag?.t === "name" && tag.v === "Artifact",
+      });
     } else if (op === "EMC") {
       const seq = open.pop();
       if (!seq) continue;
+      // Acrobat's: an /Artifact sequence around one of its mark XObjects (an
+      // outer /Span or /P holding one stays: only the inner one goes).
       let acrobat = false;
-      if (!seq.elium) {
+      if (!seq.elium && seq.artifact) {
         for (let j = seq.at + 1; j < i && !acrobat; j++) {
+          if (drop.has(j)) continue;
           const a = ops[j].args[0];
           acrobat = ops[j].op === "Do" && a?.t === "name" && isAcrobatMark(page, a.v);
         }

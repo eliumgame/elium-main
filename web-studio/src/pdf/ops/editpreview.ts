@@ -19,6 +19,7 @@ import { pageFrame } from "./annots-pdf";
 import { FontBook } from "./fonts";
 import { ImageBank } from "./images";
 import { openCrypt } from "./security";
+import { copyPagesMapped } from "./organize";
 import { applyImageEdits, applyTextEdits, pagePlacements } from "./textedit";
 
 const sources = new WeakMap<Uint8Array, Promise<PDFDocument>>();
@@ -61,7 +62,7 @@ export async function rewrittenPage(
 ): Promise<PreviewResult> {
   const src = await sourceDoc(source, password);
   const out = await PDFDocument.create({ updateMetadata: false });
-  const [page] = await out.copyPages(src, [pageIndex]);
+  const [page] = copyPagesMapped(out, src, [pageIndex]);
   out.addPage(page);
   // Same order as the save: text first, then pictures.
   const r = edits.length

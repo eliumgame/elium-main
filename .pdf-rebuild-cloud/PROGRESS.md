@@ -817,3 +817,40 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   signets sont rattachés aux éléments du nouveau fichier.
 - Couvre aussi le défaut n° 4 de la relecture T5.
 - Tests : `pdf-bookmarks.test.ts` (4).
+
+### Session cloud 1 : relecture adversariale de T5, 10 défauts corrigés
+1. Fuite de contenu. Extraire, diviser, insérer ou combiner une sélection entraînait
+   des pages non choisies : leur contenu entier venait par un champ partagé ou par un
+   lien. Corrigé par `copyPagesMapped` :
+   - un seul copieur, informé à l'avance de la copie de chaque page ;
+   - les pages non copiées deviennent `null` ;
+   - les widgets restés hors des pages copiées sont retirés de leurs champs.
+   La duplication de page à l'enregistrement et l'aperçu d'édition l'utilisent aussi.
+2. Liens entre pages : supprimés des parties extraites, ou pointant vers une copie
+   orpheline après insertion. Ils sont désormais gardés et justes. Les liens vers une
+   page absente sont retirés partout.
+3. Caviardage et modifications de texte ou d'images décalés sur une page rognée : le
+   rognage et la rotation sont maintenant appliqués avant eux. C'était une régression
+   de T5.
+4. Signets web transformés en « aller à la page » : corrigé par T6 (points 1 à 5).
+5. « Combiner » avec le document ouvert : la plage est lue dans la numérotation
+   affichée (pages exclues comprises), puis convertie vers la copie.
+6. Supprimer les marques ne retire plus que la séquence /Artifact : une séquence /Span
+   qui en contient une n'efface plus toute la page.
+7. Découpage par taille : chaque objet est compté une fois par partie (une image
+   partagée par toutes les pages ne pèse plus 20 fois).
+8. Insérer garde les étiquettes des pages existantes ; les pages insérées prolongent la
+   numérotation qui les précède. « Remplacer » garde les étiquettes par position.
+9. Page retirée : l'arbre de structure retire ses MCID, MCR et OBJR, puis les éléments
+   vidés (avant, ils se rattachaient à la page d'un ancêtre).
+10. Une recomposition (insertion, remplacement, redimensionnement) n'incruste plus les
+    marques non enregistrées. Le document rouvert garde les pages exclues, les réglages
+    de marques et les métadonnées.
+- Aussi : une page prise deux fois (plage « 1,1 ») a ses propres annotations.
+- Tests : `pdf-organize-review.test.ts` (9), 1 navigateur (`pdf-marks.spec.ts`). Suite
+  complète 2002/2002 ; specs PDF 62/62.
+- Non confirmés, laissés en suivi :
+  - le lasso qui dépasse l'écran ;
+  - les champs déplacés dans « Préparer » puis rognés ;
+  - les signets des pages remplacées ;
+  - les annotations partagées lors de la duplication interne.

@@ -263,6 +263,8 @@ interface OpenExtra {
   derived?: { session: DerivedSession; disk?: DiskState | null; diskKey?: string | null; signedKept: boolean };
   /** A new document that exists nowhere yet (built from pictures…). */
   unsaved?: boolean;
+  /** What the fresh state of a recomposed document takes over from the session (excluded pages, page marks). */
+  carry?: (fresh: PdfState) => PdfState;
 }
 
 /** Outline nodes get fresh ids each time they are read from the file. */
@@ -645,7 +647,7 @@ export default function PdfWorkspace({
       handle?: FsFileHandle | null,
       extra: OpenExtra = {},
     ) => {
-      const { recovered, rebased, derived, unsaved } = extra;
+      const { recovered, rebased, derived, unsaved, carry } = extra;
       // Taken BEFORE the (slow) open: when a second file is picked while the
       // first one is still opening, only the last choice may be shown, whichever
       // finishes first. The engine being replaced is destroyed by the `engine`
@@ -750,7 +752,7 @@ export default function PdfWorkspace({
             language: next.info.language,
           },
         };
-        reset(base);
+        reset(restore || !carry ? base : carry(base));
         setDocKey(gen);
         setEngine(next);
         setFileName(name);
@@ -1947,7 +1949,13 @@ export default function PdfWorkspace({
   };
 
   /** Where the source bytes of a recomposed document (inserted pages, OCR) go: see `openBytes` « derived ». */
-  const adoptDerived = async (bytes: Uint8Array, session: DerivedSession, signedKept: boolean, keep?: PdfState) => {
+  const adoptDerived = async (
+    bytes: Uint8Array,
+    session: DerivedSession,
+    signedKept: boolean,
+    keep?: PdfState,
+    carry?: (fresh: PdfState) => PdfState,
+  ) => {
     // The destination still holds the previous source (never saved into):
     // describe it now — it is what the next save appends to.
     let disk: DiskState | null = null;
@@ -1957,8 +1965,40 @@ export default function PdfWorkspace({
     const diskKey = diskKeyRef.current ?? sourceKeyRef.current;
     await openBytes(bytes, fileName, passwordRef.current ?? undefined, keep, openHandleRef.current, {
       derived: { session, disk, diskKey, signedKept },
+      carry,
     });
   };
+
+  /**
+   * A recomposition (pages inserted, replaced, resized) is built with every
+   * page (the excluded ones too) and WITHOUT the page marks: those are painted
+   * at save time, over the final pages and their final count. The reopened
+   * document takes over the excluded pages (`shift`: where the page at an old
+   * position now is) and the marks settings.
+   */
+  const forRecompose = (st: PdfState): PdfState => ({
+    ...st,
+    watermark: { ...st.watermark, enabled: false },
+    header: { ...st.header, enabled: false },
+    footer: { ...st.footer, enabled: false },
+    bates: { ...st.bates, enabled: false },
+    stripMarks: false,
+  });
+  const carryOver =
+    (st: PdfState, shift: (index: number) => number = (i) => i) =>
+    (fresh: PdfState): PdfState => {
+      const skipped = new Set(st.pages.flatMap((p, i) => (p.skipped ? [shift(i)] : [])));
+      return {
+        ...fresh,
+        pages: skipped.size ? fresh.pages.map((p, i) => (skipped.has(i) ? { ...p, skipped: true } : p)) : fresh.pages,
+        watermark: st.watermark,
+        header: st.header,
+        footer: st.footer,
+        bates: st.bates,
+        stripMarks: st.stripMarks,
+        metadata: st.metadata,
+      };
+    };
 
   /**
    * « Combiner des fichiers »: the listed files (the open document with its
@@ -1971,12 +2011,26 @@ export default function PdfWorkspace({
     const id = toast("progress", "Combinaison des fichiers…");
     try {
       const { mergeDocuments, parsePageRange } = await import("../ops/organize");
+      // The open document is combined as copied: without its excluded pages.
+      // Its range is typed in the numbers the viewer shows (excluded pages
+      // included): converted to positions in that copy.
+      const outputOf = (model: number[]) => {
+        const out: number[] = [];
+        for (const i of model) {
+          if (!pages[i] || pages[i].skipped) continue;
+          out.push(pages.slice(0, i).filter((p) => !p.skipped).length);
+        }
+        return out;
+      };
       const sources = await Promise.all(
-        items.map(async (it) => ({
-          name: it.id === "current" ? fileName : it.name,
-          bytes: it.bytes ?? (await buildDerived()).bytes,
-          pages: it.range.trim() && it.count ? parsePageRange(it.range, it.count) : undefined,
-        })),
+        items.map(async (it) => {
+          const range = it.range.trim() && it.count ? parsePageRange(it.range, it.count) : undefined;
+          return {
+            name: it.id === "current" ? fileName : it.name,
+            bytes: it.bytes ?? (await buildDerived()).bytes,
+            pages: it.id === "current" && range ? outputOf(range) : range,
+          };
+        }),
       );
       const res = await mergeDocuments(sources, {
         outline: opts.outline,
@@ -2295,7 +2349,7 @@ export default function PdfWorkspace({
     try {
       const res = await savePdf({
         source: bytesRef.current,
-        state,
+        state: forRecompose(state),
         options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
         security: null,
         transform: async (doc) => {
@@ -2310,6 +2364,8 @@ export default function PdfWorkspace({
         res.bytes,
         { changes: [label], forceFull: res.report.mode === "full" ? res.report.fullReasons : [] },
         res.report.mode === "incremental",
+        undefined,
+        carryOver(state),
       );
       toast("success", label, "Enregistrez (Ctrl+S) pour l'écrire dans le fichier.");
     } catch (err) {
@@ -3449,7 +3505,7 @@ export default function PdfWorkspace({
       let outcome: Awaited<ReturnType<typeof appendPdfPages>> = { inserted: 0, failed: [] };
       const res = await savePdf({
         source: bytesRef.current,
-        state,
+        state: forRecompose(state),
         // Redaction marks stay marks (/Redact): applying them is a save's job,
         // confirmed. Excluded pages are part of the document: kept.
         options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
@@ -3488,6 +3544,9 @@ export default function PdfWorkspace({
           forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
         },
         res.report.mode === "incremental",
+        undefined,
+        // Pages from the insertion point on moved down by the pages inserted.
+        carryOver(state, (k) => (index !== undefined && k >= index ? k + outcome.inserted : k)),
       );
       toast(
         "success",
@@ -5104,8 +5163,11 @@ export default function PdfWorkspace({
             setReplaceSource(null);
             const n = to - from + 1;
             void recompose(`${n} page(s) remplacée(s) par celles de « ${src.name} »`, async (doc) => {
-              const { appendPdfPages, purgeRemovedPages } = await import("../ops/organize");
+              const { appendPdfPages, purgeRemovedPages, readPageLabelDefs, writePageLabels } =
+                await import("../ops/organize");
               const before = doc.getPages();
+              // As many pages in, at the same place: the labels stay by position.
+              const labels = readPageLabelDefs(doc);
               // The new pages first, then the old ones out (what pointed at them is cleaned).
               await appendPdfPages(
                 doc,
@@ -5125,6 +5187,7 @@ export default function PdfWorkspace({
               }
               const kept = new Set(doc.getPages().map((p) => `${p.ref.objectNumber} ${p.ref.generationNumber}`));
               purgeRemovedPages(doc, before, kept);
+              if (labels) writePageLabels(doc, labels);
             });
           }}
         />

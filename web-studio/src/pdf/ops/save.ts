@@ -4,8 +4,8 @@
  *
  * Order matters, and it is the order Acrobat uses:
  *
- *   decrypt → reorganise pages → rewrite content (text, images, redaction)
- *   → crop/rotate → markup → form fields → page marks → outline & metadata
+ *   decrypt → reorganise pages → crop/rotate → rewrite content (text,
+ *   images, redaction) → markup → form fields → page marks → outline & metadata
  *   → sanitise → write (incremental update, or full rewrite + optimise/protect)
  *
  * Content rewriting happens *before* markup so a redaction can delete the very
@@ -47,6 +47,7 @@ import {
 } from "./incremental";
 import {
   PAGE_SIZES,
+  copyPagesMapped,
   cropPage,
   purgeRemovedPages,
   readPageLabelDefs,
@@ -500,7 +501,7 @@ async function applyState(
       seen.add(model.from);
       targets.push({ page: src, model });
     } else {
-      const [copy] = await doc.copyPages(doc, [model.from]);
+      const [copy] = copyPagesMapped(doc, doc, [model.from], true);
       targets.push({ page: copy, model });
       copies.push({ original: src, copy });
     }
@@ -552,6 +553,13 @@ async function applyState(
   }
 
   // --- 2. rewrite the page's own content ------------------------------------
+  // --- crop and rotate: first, since the model's coordinates (text and image
+  // edits, redactions, markup) are those of the page as cropped in Elium.
+  for (const { page, model } of targets) {
+    if (model.crop) cropPage(page, model.crop);
+    if (model.rotate) rotatePage(page, model.rotate);
+  }
+
   step("Application des modifications de contenu", 0.2);
   for (const [index, { page, model }] of targets.entries()) {
     const frame = pageFrame(page);
@@ -612,12 +620,6 @@ async function applyState(
     report.warnings.push(
       `${report.textBlocksSubstituted} paragraphe(s) réécrit(s) avec une police de substitution (police d'origine non réutilisable).`,
     );
-  }
-
-  // --- 3. crop and rotate ---------------------------------------------------
-  for (const { page, model } of targets) {
-    if (model.crop) cropPage(page, model.crop);
-    if (model.rotate) rotatePage(page, model.rotate);
   }
 
   // The markup the model imported from the source is about to be written back

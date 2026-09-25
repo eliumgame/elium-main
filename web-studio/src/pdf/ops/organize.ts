@@ -11,12 +11,13 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFNull,
   PDFObjectCopier,
+  PDFPage,
   PDFRef,
   PDFString,
   degrees,
 } from "pdf-lib";
-import type { PDFPage } from "pdf-lib";
 import type { BookmarkAction, DestFit, Page, PageLabelDef } from "../model/types";
 import { round } from "../core/coords";
 import { WrongPassword, openCrypt } from "./security";
@@ -163,6 +164,9 @@ export async function appendPdfPages(
   let inserted = 0;
   let pos = at === undefined ? doc.getPageCount() : Math.max(0, Math.min(doc.getPageCount(), at));
   const failed: { name: string; reason: string }[] = [];
+  // Page labels are by position: read now, rewritten once the pages are in.
+  const labels = readPageLabelDefs(doc);
+  const before = new Set(doc.getPages().map((p) => refKey(p.ref)));
   for (const file of files) {
     let src: PDFDocument;
     try {
@@ -203,8 +207,9 @@ export async function appendPdfPages(
       failed.push({ name: file.name, reason: "aucune page" });
       continue;
     }
-    const copied = await doc.copyPages(src, indices);
+    const copied = copyPagesMapped(doc, src, indices);
     for (const page of copied) doc.insertPage(pos++, page);
+    dropDeadLinks(doc, copied);
     inserted += copied.length;
     // Its form joins this one (same name: the same field, as in Acrobat) and
     // its bookmarks come under one named after the file.
@@ -217,6 +222,21 @@ export async function appendPdfPages(
       if (opts.outline !== false) adoptOutline(doc, src, indices, copied, file.name.replace(/\.pdf$/i, ""));
     } catch {
       /* no bookmarks from that file */
+    }
+  }
+  if (labels && inserted) {
+    // The document's pages keep their labels; inserted ones go on from the page before them.
+    let k = 0;
+    let prev: PageLabelDef | undefined;
+    const defs = doc.getPages().map((p, i) => {
+      if (before.has(refKey(p.ref))) return (prev = labels[k++]);
+      prev = prev ? { ...prev, num: prev.num + 1 } : { style: "decimal", prefix: "", num: i + 1 };
+      return prev;
+    });
+    try {
+      writePageLabels(doc, defs);
+    } catch {
+      /* labels left as they were */
     }
   }
   return { inserted, failed };
@@ -343,22 +363,28 @@ export async function splitDocument(
       }
     }
   } else {
-    // maxSize: each page weighed once (alone, less an empty document's
-    // weight), then parts filled up to the budget — not a rebuild per page.
+    // maxSize: what each page needs (the objects it reaches: content,
+    // fonts, images…), each object counted once per part — a picture shared
+    // by every page weighs once, not once per page.
     const empty = (await (await PDFDocument.create()).save()).length;
-    const weights: number[] = [];
-    for (let i = 0; i < total; i++) weights.push(Math.max(1, (await buildSubset(src, [i])).length - empty));
+    const needs = pageObjects(src);
     let current: number[] = [];
+    let inPart = new Set<string>();
     let size = empty;
     let index = 1;
     for (let i = 0; i < total; i++) {
-      if (current.length && size + weights[i] > mode.bytes) {
+      const extra = [...needs[i]].reduce((n, [key, bytes]) => n + (inPart.has(key) ? 0 : bytes), 0);
+      if (current.length && size + extra > mode.bytes) {
         groups.push({ name: `${baseName}-${index++}`, pages: current });
         current = [];
+        inPart = new Set();
         size = empty;
       }
+      for (const [key, bytes] of needs[i]) {
+        if (!inPart.has(key)) size += bytes;
+        inPart.add(key);
+      }
       current.push(i);
-      size += weights[i];
     }
     if (current.length) groups.push({ name: `${baseName}-${index}`, pages: current });
   }
@@ -371,13 +397,195 @@ export async function splitDocument(
 }
 
 /**
+ * For each page, the indirect objects it reaches (not its /Parent, not other
+ * pages) with their written size: what a part holding the page must carry.
+ */
+function pageObjects(doc: PDFDocument): Map<string, number>[] {
+  const ctx = doc.context;
+  const pageKeys = new Set(doc.getPages().map((p) => refKey(p.ref)));
+  const sizeOf = (o: unknown): number => {
+    const sized = o as { sizeInBytes?: () => number };
+    try {
+      return typeof sized?.sizeInBytes === "function" ? sized.sizeInBytes() + 20 : 20;
+    } catch {
+      return 20;
+    }
+  };
+  return doc.getPages().map((page) => {
+    const out = new Map<string, number>();
+    const visit = (v: unknown, depth: number) => {
+      if (depth > 200) return;
+      if (v instanceof PDFRef) {
+        const key = refKey(v);
+        if (out.has(key) || pageKeys.has(key)) return;
+        const obj = ctx.lookup(v);
+        out.set(key, sizeOf(obj));
+        visit(obj, depth + 1);
+      } else if (v instanceof PDFArray) {
+        for (const item of v.asArray()) visit(item, depth + 1);
+      } else if (v instanceof PDFDict) {
+        for (const [k, item] of v.entries())
+          if (k.asString() !== "/Parent" && k.asString() !== "/P") visit(item, depth + 1);
+      } else if (v && typeof v === "object" && "dict" in v && (v as { dict: unknown }).dict instanceof PDFDict) {
+        visit((v as { dict: PDFDict }).dict, depth + 1);
+      }
+    };
+    out.set(refKey(page.ref), sizeOf(page.node));
+    visit(page.node, 0);
+    return out;
+  });
+}
+
+/**
+ * Copy pages `indices` of `src` into `dst` (pdf-lib's `copyPages`, done so
+ * that nothing else of `src` comes along):
+ * - one copier for all of them, told beforehand which copy each copied page
+ *   is: a link, a widget's /P or a bookmark to a copied page lands on its
+ *   copy (pdf-lib copied the page a second time, outside the page tree);
+ * - the pages NOT copied are `null` to it: a field with a widget on another
+ *   page, or a link to it, no longer drags that whole page (content, and its
+ *   /Parent — the page tree) into the output;
+ * - widgets left on no copied page are taken out of their fields;
+ * - a page copied twice gets its own annotations (one annotation, one page).
+ */
+export function copyPagesMapped(
+  dst: PDFDocument,
+  src: PDFDocument,
+  indices: readonly number[],
+  /** Copying within one document: the other pages are themselves (links to them stay). */
+  sameDoc = false,
+): PDFPage[] {
+  const copier = PDFObjectCopier.for(src.context, dst.context);
+  const traversed = (copier as unknown as { traversedObjects: Map<unknown, unknown> }).traversedObjects;
+  const srcPages = src.getPages();
+  const first = new Map<number, PDFRef>();
+  const refs = indices.map((i) => {
+    const ref = dst.context.nextRef();
+    if (!first.has(i)) first.set(i, ref);
+    return ref;
+  });
+  srcPages.forEach((p, i) => traversed.set(p.ref, first.get(i) ?? (sameDoc ? p.ref : PDFNull)));
+  const out: PDFPage[] = [];
+  const seen = new Set<number>();
+  indices.forEach((i, k) => {
+    const node = copier.copy(srcPages[i].node) as PDFDict;
+    dst.context.assign(refs[k], node);
+    const page = PDFPage.of(node as never, refs[k], dst);
+    if (seen.has(i)) ownAnnotations(dst, page);
+    seen.add(i);
+    out.push(page);
+  });
+  pruneOrphanWidgets(dst, out);
+  return out;
+}
+
+/** A repeated page's annotations, cloned: each now on this page only (widgets join their field). */
+function ownAnnotations(doc: PDFDocument, page: PDFPage): void {
+  const shared = page.node.Annots();
+  if (!(shared instanceof PDFArray)) return;
+  const ctx = doc.context;
+  // The /Annots array itself may be shared (an indirect object): this page gets its own.
+  const annots = shared.clone(ctx);
+  page.node.set(PDFName.of("Annots"), annots);
+  const map = new Map<string, PDFRef>();
+  const clones: [PDFDict, PDFRef][] = [];
+  for (let i = 0; i < annots.size(); i++) {
+    const ref = annots.get(i);
+    const dict = annots.lookup(i);
+    if (!(ref instanceof PDFRef) || !(dict instanceof PDFDict)) continue;
+    const copy = dict.clone(ctx);
+    const next = ctx.register(copy);
+    map.set(refKey(ref), next);
+    clones.push([copy, next]);
+    annots.set(i, next);
+    copy.set(PDFName.of("P"), page.ref);
+  }
+  for (const [copy, self] of clones) {
+    for (const key of ["Popup", "Parent", "IRT"]) {
+      const v = copy.get(PDFName.of(key));
+      const to = v instanceof PDFRef ? map.get(refKey(v)) : undefined;
+      if (to) copy.set(PDFName.of(key), to);
+    }
+    // A widget of a field: one more widget of it.
+    const parent = copy.get(PDFName.of("Parent"));
+    const field = parent instanceof PDFRef && !map.has(refKey(parent)) ? ctx.lookup(parent) : undefined;
+    if (copy.lookup(PDFName.of("Subtype"))?.toString() === "/Widget" && field instanceof PDFDict) {
+      const kids = field.lookup(PDFName.of("Kids"));
+      if (kids instanceof PDFArray) kids.push(self);
+    }
+  }
+}
+
+/** Widgets (under fields reached from `pages`) that sit on none of `pages`: out of their fields. */
+function pruneOrphanWidgets(doc: PDFDocument, pages: readonly PDFPage[]): void {
+  const ctx = doc.context;
+  const onPages = new Set<string>();
+  const roots = new Map<string, PDFDict>();
+  for (const page of pages) {
+    const annots = page.node.Annots();
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = 0; i < annots.size(); i++) {
+      const ref = annots.get(i);
+      if (ref instanceof PDFRef) onPages.add(refKey(ref));
+      let dict = annots.lookup(i);
+      for (let guard = 0; dict instanceof PDFDict && guard < 32; guard++) {
+        const parent = dict.get(PDFName.of("Parent"));
+        const pd = parent instanceof PDFRef ? ctx.lookup(parent) : undefined;
+        if (!(parent instanceof PDFRef) || !(pd instanceof PDFDict)) break;
+        if (dict.lookup(PDFName.of("Subtype"))?.toString() === "/Popup") break;
+        roots.set(refKey(parent), pd);
+        dict = pd;
+      }
+    }
+  }
+  const isWidget = (d: PDFDict) => d.lookup(PDFName.of("Subtype"))?.toString() === "/Widget";
+  // Children first, so an emptied branch is seen empty by its parent.
+  const prune = (field: PDFDict, depth: number): number => {
+    const kids = field.lookup(PDFName.of("Kids"));
+    if (!(kids instanceof PDFArray) || depth > 32) return 1;
+    for (let i = kids.size() - 1; i >= 0; i--) {
+      const ref = kids.get(i);
+      const kid = kids.lookup(i);
+      if (!(kid instanceof PDFDict)) {
+        kids.remove(i);
+        continue;
+      }
+      const keep = isWidget(kid) ? ref instanceof PDFRef && onPages.has(refKey(ref)) : prune(kid, depth + 1) > 0;
+      if (!keep) kids.remove(i);
+    }
+    return kids.size();
+  };
+  for (const field of roots.values()) {
+    if (field.get(PDFName.of("Parent"))) continue; // pruned from its root
+    prune(field, 0);
+  }
+}
+
+/** Links on `pages` whose destination page is not in `doc` (null, or outside the page tree): removed. */
+function dropDeadLinks(doc: PDFDocument, pages: readonly PDFPage[]): void {
+  const inDoc = new Set(doc.getPages().map((p) => refKey(p.ref)));
+  for (const p of pages) {
+    const annots = p.node.Annots();
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const a = annots.lookup(i);
+      if (!(a instanceof PDFDict) || a.lookup(PDFName.of("Subtype"))?.toString() !== "/Link") continue;
+      const act = a.lookup(PDFName.of("A"));
+      const dest = a.get(PDFName.of("Dest")) ?? (act instanceof PDFDict ? act.get(PDFName.of("D")) : undefined);
+      const arr = dest instanceof PDFRef ? doc.context.lookup(dest) : dest;
+      if (arr instanceof PDFArray && !inDoc.has(refKey(arr.get(0)))) annots.remove(i);
+    }
+  }
+}
+
+/**
  * A document of `pages` of `src` that stands on its own: the pages with their
  * metadata, labels, fields and the bookmarks that fall in them — not links to
  * pages left out (nor the content of those pages, which a link would drag in).
  */
 export async function buildSubset(src: PDFDocument, pages: readonly number[]): Promise<Uint8Array> {
   const out = await PDFDocument.create({ updateMetadata: false });
-  const copied = await out.copyPages(src, [...pages]);
+  const copied = copyPagesMapped(out, src, pages);
   for (const p of copied) out.addPage(p);
   const infoDict = src.context.lookup(src.context.trailerInfo.Info);
   const info = (k: "Title" | "Author" | "Subject" | "Keywords" | "Creator" | "Producer") => {
@@ -421,19 +629,7 @@ export async function buildSubset(src: PDFDocument, pages: readonly number[]): P
     /* no bookmarks */
   }
   // Links to pages that are not in this part lead nowhere: they go.
-  const inPart = new Set(out.getPages().map((p) => refKey(p.ref)));
-  for (const p of out.getPages()) {
-    const annots = p.node.Annots();
-    if (!(annots instanceof PDFArray)) continue;
-    for (let i = annots.size() - 1; i >= 0; i--) {
-      const a = annots.lookup(i);
-      if (!(a instanceof PDFDict) || a.lookup(PDFName.of("Subtype"))?.toString() !== "/Link") continue;
-      const act = a.lookup(PDFName.of("A"));
-      const dest = a.get(PDFName.of("Dest")) ?? (act instanceof PDFDict ? act.get(PDFName.of("D")) : undefined);
-      const arr = dest instanceof PDFRef ? out.context.lookup(dest) : dest;
-      if (arr instanceof PDFArray && !inPart.has(refKey(arr.get(0)))) annots.remove(i);
-    }
-  }
+  dropDeadLinks(out, out.getPages());
   await out.flush();
   const { pruneUnreachable } = await import("./incremental");
   pruneUnreachable(out);
@@ -1037,21 +1233,45 @@ export function purgeRemovedPages(doc: PDFDocument, order: readonly PDFPage[], k
     else doc.catalog.delete(PDFName.of("OpenAction"));
   }
 
-  // 6. Structure tree: its elements let go of the removed pages.
+  // 6. Structure tree: what it says of the removed pages goes — the marked
+  // content (MCIDs, MCRs) and objects (OBJRs) there, and the elements left
+  // empty by it. Only dropping /Pg would hand an element's MCIDs to the page
+  // an ancestor names.
   const struct = doc.catalog.lookup(PDFName.of("StructTreeRoot"));
   if (struct instanceof PDFDict) {
     const seen = new Set<unknown>();
-    const visit = (node: unknown, depth: number) => {
-      const n = node instanceof PDFRef ? ctx.lookup(node) : node;
-      if (!(n instanceof PDFDict) || seen.has(n) || depth > 256) return;
-      seen.add(n);
-      if (removed.has(refKey(n.get(PDFName.of("Pg"))))) n.delete(PDFName.of("Pg"));
-      const k = n.get(PDFName.of("K"));
-      const kids = k instanceof PDFRef ? ctx.lookup(k) : k;
-      if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) visit(kids.get(i), depth + 1);
-      else if (kids instanceof PDFDict) visit(kids, depth + 1);
+    /** Visits an element; true when it held something and holds nothing any more. */
+    const visit = (node: PDFDict, inherited: string, depth: number): boolean => {
+      if (seen.has(node) || depth > 256) return false;
+      seen.add(node);
+      const ownPg = node.get(PDFName.of("Pg"));
+      const pg = ownPg ? refKey(ownPg) : inherited;
+      const k = node.get(PDFName.of("K"));
+      const resolved = k instanceof PDFRef ? ctx.lookup(k) : k;
+      const gone = (kid: unknown): boolean => {
+        const d = kid instanceof PDFRef ? ctx.lookup(kid) : kid;
+        if (d instanceof PDFNumber) return removed.has(pg);
+        if (!(d instanceof PDFDict)) return false;
+        const type = d.lookup(PDFName.of("Type"))?.toString();
+        if (type === "/MCR" || type === "/OBJR") {
+          const where = d.get(PDFName.of("Pg"));
+          return removed.has(where ? refKey(where) : pg);
+        }
+        return visit(d, pg, depth + 1);
+      };
+      let emptied = false;
+      if (resolved instanceof PDFArray) {
+        const had = resolved.size();
+        for (let i = resolved.size() - 1; i >= 0; i--) if (gone(resolved.get(i))) resolved.remove(i);
+        emptied = had > 0 && resolved.size() === 0;
+      } else if (resolved !== undefined && gone(k)) {
+        node.delete(PDFName.of("K"));
+        emptied = true;
+      }
+      if (ownPg && removed.has(refKey(ownPg))) node.delete(PDFName.of("Pg"));
+      return emptied && node.lookup(PDFName.of("Type"))?.toString() !== "/StructTreeRoot";
     };
-    visit(struct, 0);
+    visit(struct, "", 0);
   }
 }
 

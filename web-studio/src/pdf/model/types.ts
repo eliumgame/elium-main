@@ -220,23 +220,90 @@ export type FieldKind = "text" | "checkbox" | "radio" | "dropdown" | "listbox" |
  */
 export type FormValue = string | boolean | string[];
 
-/** A form field the user created in Elium (existing PDF fields are read live). */
-export interface CreatedField {
+/**
+ * How a text field shows and accepts its value — Acrobat's « Format » tab,
+ * written as its own AF* functions (AFNumber_Format…), which every PDF viewer
+ * with form JavaScript knows.
+ */
+export type FieldFormat =
+  | { kind: "none" }
+  | {
+      kind: "number";
+      decimals: number;
+      /** 0 « 1,234.56 » · 1 « 1234.56 » · 2 « 1.234,56 » · 3 « 1234,56 » · 4 « 1'234.56 » */
+      sepStyle: 0 | 1 | 2 | 3 | 4;
+      /** 0 « -1 » · 1 red · 2 « (1) » · 3 « (1) » red */
+      negStyle: 0 | 1 | 2 | 3;
+      currency: string;
+      currencyPrepend: boolean;
+    }
+  | { kind: "percent"; decimals: number; sepStyle: 0 | 1 | 2 | 3 | 4 }
+  /** `pattern`: « dd/mm/yyyy », « d mmmm yyyy »… (Acrobat's date masks). */
+  | { kind: "date"; pattern: string }
+  /** 0 « HH:MM » · 1 « h:MM tt » · 2 « HH:MM:ss » · 3 « h:MM:ss tt » */
+  | { kind: "time"; style: 0 | 1 | 2 | 3 }
+  | { kind: "custom"; keystroke?: string; format?: string };
+
+/** Acrobat's « Calcul » tab. */
+export type FieldCalculation =
+  { kind: "simple"; op: "SUM" | "PRD" | "AVG" | "MIN" | "MAX"; fields: string[] } | { kind: "custom"; script: string };
+
+/** Properties shared by fields created in Elium and fields of the file being edited. */
+export interface FieldProps {
+  /** Tooltip (/TU), also what screen readers announce. */
+  tooltip?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  /** Not shown on screen nor printed (widget flag Hidden). */
+  hidden?: boolean;
+  /** Shown on screen, not printed. */
+  noPrint?: boolean;
+  multiLine?: boolean;
+  password?: boolean;
+  maxLen?: number | null;
+  /** Characters spread over `maxLen` boxes. */
+  comb?: boolean;
+  /** 0 = automatic size. */
+  fontSize?: number;
+  align?: "left" | "center" | "right";
+  /** List items: export value and label. */
+  options?: { value: string; label: string }[];
+  /** A dropdown that also accepts typed text. */
+  editable?: boolean;
+  multiSelect?: boolean;
+  /** Export value (on-state) of a checkbox / radio widget. */
+  exportValue?: string;
+  /** What « Réinitialiser » restores (/DV). */
+  defaultValue?: FormValue;
+  format?: FieldFormat;
+  /** Range check (AFRange_Validate); null removes it. */
+  validate?: { min?: number; max?: number } | null;
+  calculate?: FieldCalculation | null;
+}
+
+/** A form field the user created in Elium. */
+export interface CreatedField extends FieldProps {
   id: string;
   pageId: string;
   name: string;
   kind: FieldKind;
   rect: Rect;
-  required?: boolean;
-  readOnly?: boolean;
-  multiLine?: boolean;
-  maxLen?: number | null;
-  options?: { value: string; label: string }[];
-  defaultValue?: FormValue;
-  fontSize?: number;
-  tooltip?: string;
   /** Tab order within the page; lower comes first. */
   tabIndex?: number;
+}
+
+/**
+ * A change made in « Préparer un formulaire » to a field the FILE already has
+ * (addressed by its fully qualified name, its widgets by pdf.js id « 12R »).
+ */
+export interface FieldEdit {
+  name: string;
+  deleted?: boolean;
+  /** New fully qualified name. */
+  rename?: string;
+  /** New position of widgets: top-left, unrotated page space (like annotations). */
+  rects?: Record<string, Rect>;
+  props?: FieldProps;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +471,8 @@ export interface PdfState {
   formValues: Record<string, FormValue>;
   /** Fields the user added with the form builder. */
   createdFields: CreatedField[];
+  /** Changes to the file's own fields (« Préparer un formulaire »). */
+  fieldEdits: FieldEdit[];
   /** null = use the PDF's own outline; an array = user-edited bookmarks. */
   bookmarks: Bookmark[] | null;
   metadata: DocMetadata;
@@ -429,6 +498,7 @@ export function emptyState(): PdfState {
     imageEdits: [],
     formValues: {},
     createdFields: [],
+    fieldEdits: [],
     bookmarks: null,
     metadata: {},
     watermark: { ...DEFAULT_WATERMARK },

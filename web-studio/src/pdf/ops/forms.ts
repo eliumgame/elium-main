@@ -8,9 +8,10 @@
  */
 
 import { PDFArray, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRadioGroup, PDFString } from "pdf-lib";
-import type { PDFFont, PDFForm, PDFPage } from "pdf-lib";
+import type { PDFField, PDFFont, PDFForm, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import { FieldFontBook, completeFieldAppearances, flattenFields, writeFieldValues } from "./formpdf";
+import { setFieldProps } from "./formedit";
 import type { FlattenReport } from "./formpdf";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
 
@@ -271,61 +272,57 @@ export function createFields(
       width: Math.max(6, f.rect.w),
       height: Math.max(6, f.rect.h),
     };
-    // NOTE: anything that touches a field's default appearance — the font
-    // size, and any value whose look has to be rendered — only works *after*
-    // `addToPage`, which is what creates the `/DA` entry in the first place.
+    // `addToPage` creates the widget and its /DA; every property (flags,
+    // /Opt with labels, /Q, /TU, /DV, scripts…) is then set by the same code
+    // that edits the file's own fields, and the default value is written like
+    // any filled-in value (its appearance is drawn later, in a font that
+    // shows it — see formpdf.ts).
+    const { kind: _kind, id: _id, pageId: _pageId, name: _name, rect: _rect, tabIndex: _tab, ...props } = f;
+    void [_kind, _id, _pageId, _name, _rect, _tab];
     try {
+      let created: PDFField | null = null;
       switch (f.kind) {
         case "text": {
           const field = form.createTextField(f.name);
-          if (f.multiLine) field.enableMultiline();
-          if (f.maxLen) field.setMaxLength(f.maxLen);
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.setText(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, ...props });
           break;
         }
         case "checkbox": {
           const field = form.createCheckBox(f.name);
-          if (f.required) field.enableRequired();
           field.addToPage(page, at);
-          if (f.defaultValue === true) field.check();
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, props);
           break;
         }
         case "radio": {
           const existing = form.getFieldMaybe(f.name);
           const group = existing instanceof PDFRadioGroup ? existing : form.createRadioGroup(f.name);
-          const option = (typeof f.defaultValue === "string" && f.defaultValue) || f.options?.[0]?.value || "Option1";
-          if (f.required) group.enableRequired();
+          const option =
+            f.exportValue ||
+            (typeof f.defaultValue === "string" && f.defaultValue) ||
+            f.options?.[0]?.value ||
+            "Option1";
           group.addOptionToPage(option, page, at);
-          // Unlike checkbox/dropdown/listbox below, addOptionToPage() alone never
-          // marks the button selected — without this the requested default is
-          // silently ignored and the group opens with no value at all.
-          if (typeof f.defaultValue === "string" && f.defaultValue) group.select(option);
+          created = group;
+          const { exportValue: _e, defaultValue: _d, ...groupProps } = props;
+          void [_e, _d];
+          setFieldProps(ctx.doc, form, group, groupProps);
           break;
         }
         case "dropdown": {
           const field = form.createDropdown(f.name);
-          field.addOptions((f.options ?? []).map((o) => o.value));
-          field.enableEditing();
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.select(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, options: f.options ?? [], ...props });
           break;
         }
         case "listbox": {
           const field = form.createOptionList(f.name);
-          field.addOptions((f.options ?? []).map((o) => o.value));
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.select(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, options: f.options ?? [], ...props });
           break;
         }
         case "signature": {
@@ -339,6 +336,9 @@ export function createFields(
         }
         default:
           continue;
+      }
+      if (created && f.defaultValue !== undefined && f.defaultValue !== "") {
+        writeFieldValues(ctx.doc, { [f.name]: f.defaultValue });
       }
       made++;
     } catch {

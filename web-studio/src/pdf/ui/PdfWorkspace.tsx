@@ -1373,6 +1373,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       out.push("filigrane / en-têtes");
     }
     if (st.createdFields.length) out.push("champs ajoutés");
+    if (st.fieldEdits.length) out.push("champs du formulaire modifiés");
     return out;
   };
 

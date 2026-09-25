@@ -31,6 +31,7 @@ import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
 import { FontBook } from "./fonts";
 import { FieldFontBook, completeFieldAppearances, flattenFields } from "./formpdf";
+import { applyFieldEdits } from "./formedit";
 import { createFields, fillForm } from "./forms";
 import { ImageBank } from "./images";
 import {
@@ -677,7 +678,11 @@ async function applyState(
   // Appearances: every field this save touched (or pdf.js' own update, when
   // building on it) is drawn now, in a font that shows its value — the file
   // never relies on the next viewer (/NeedAppearances), as with Acrobat.
-  if (valuesChanged || report.fieldsCreated || opts.flattenForms || formBase) {
+  if (state.fieldEdits.length) {
+    const r = applyFieldEdits(doc, state.fieldEdits);
+    for (const problem of r.problems) report.lost.push(`Préparation du formulaire : ${problem}.`);
+  }
+  if (valuesChanged || report.fieldsCreated || state.fieldEdits.length || opts.flattenForms || formBase) {
     try {
       const ap = await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
       for (const u of ap.uncovered) {

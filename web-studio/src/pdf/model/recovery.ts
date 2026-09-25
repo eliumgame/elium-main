@@ -326,6 +326,7 @@ export function hasEdits(state: PdfState): boolean {
     state.imageEdits.length > 0 ||
     Object.keys(state.formValues).length > 0 ||
     state.createdFields.length > 0 ||
+    (state.fieldEdits?.length ?? 0) > 0 ||
     state.pages.some((p, i) => p.from !== i || p.rotate || p.crop || p.skipped || p.label) ||
     state.watermark.enabled ||
     state.header.enabled ||

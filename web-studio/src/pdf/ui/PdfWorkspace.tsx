@@ -628,7 +628,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           pristineAnnotsRef.current = new Set();
           pristineBookmarksRef.current = null;
         }
-        snapshotRef.current = null;
+        // (A recomposition that keeps the state — OCR — keeps what recognises its untouched markup.)
+        if (!(derived && restore)) snapshotRef.current = null;
         redactConfirmed.current = false;
         sourceKeyRef.current = null;
         setDocSigned(rebased ? false : derived ? sourceSignedRef.current : null);

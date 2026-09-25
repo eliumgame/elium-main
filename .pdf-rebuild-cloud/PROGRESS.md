@@ -391,3 +391,16 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
   ReadOnly…), /Open de la fenêtre, /RC (texte riche, tant que le texte n'a pas changé),
   l'icône de la note (/Name : Key, Help…), et pour un caviardage, /OverlayText et /IC.
 - Tests : 2 de plus dans pdf-annot-ownership. Suite complète 1926/1926 ; specs PDF 30/30.
+
+### Session cloud 1 : T4, point 10
+
+- Les formes et les légendes ne grandissent plus à chaque aller-retour :
+  - /RD écrit pour les carrés, cercles, zones de texte et légendes (la boîte de la forme
+    dans le /Rect élargi pour le trait) et relu à l'import ;
+  - plus d'élargissement pour ce qui n'a pas de trait (tampons, images, notes, liens,
+    texte sans bordure).
+- Aussi corrigé : pdf.js ne transmet jamais /IT. Une légende revenait en simple zone de
+  texte sans sa ligne, et les mesures distance, aire et périmètre revenaient en simples
+  formes. /IT, /CL et /LE sont lus par pdf-lib.
+- Test : trois enregistrements puis réouvertures, boîtes et ligne de légende identiques.
+  Suite complète 1927/1927 ; specs PDF 30/30.

@@ -305,6 +305,14 @@ export interface AnnotExtras {
   overlayText?: string;
   /** Redact `/IC` (the fill of the applied box), 0–1 RGB. */
   interior?: number[];
+  /** `/RD`: the shape's box inside the /Rect (left, top, right, bottom). */
+  rd?: number[];
+  /** `/IT` (FreeTextCallout, LineDimension…): pdf.js never passes it on. */
+  it?: string;
+  /** A callout's `/CL` line (PDF user space, tip first). */
+  cl?: number[];
+  /** `/LE` of a callout (one name). */
+  le?: string;
 }
 
 /**
@@ -395,6 +403,18 @@ export async function resolveAnnotExtras(
         if (open instanceof pdfLib.PDFBool) extras.open = open.asBoolean();
         const overlay = text(annotDict.lookup(PDFName.of("OverlayText")));
         if (overlay) extras.overlayText = overlay;
+        const it = text(annotDict.lookup(PDFName.of("IT")));
+        if (it) extras.it = it;
+        const cl = annotDict.lookup(PDFName.of("CL"));
+        if (cl instanceof PDFArray && cl.size() >= 4) {
+          extras.cl = cl.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
+        }
+        const le = annotDict.lookup(PDFName.of("LE"));
+        if (le instanceof PDFName) extras.le = le.decodeText();
+        const rd = annotDict.lookup(PDFName.of("RD"));
+        if (rd instanceof PDFArray && rd.size() === 4) {
+          extras.rd = rd.asArray().map((v) => (v instanceof PDFNumber ? Math.max(0, v.asNumber()) : 0));
+        }
         const ic = annotDict.lookup(PDFName.of("IC"));
         if (ic instanceof PDFArray && ic.size() === 3) {
           extras.interior = ic.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
@@ -434,6 +454,7 @@ export function withExtras(
       appearanceImage: a.appearanceImage ?? x.appearanceImage,
       name: a.name ?? x.name,
       subject: a.subject || x.subject,
+      it: a.it ?? x.it,
       extras: x,
     };
   });
@@ -512,6 +533,20 @@ interface Frame {
 const flip =
   (f: Frame) =>
   (x: number, y: number): Pt => ({ x: x - f.x, y: f.y + f.h - y });
+
+/** The /Rect less its /RD (PDF [x0 y0 x1 y1]); the /Rect itself when that makes no sense. */
+function insetRect(raw: number[] | undefined, rd: number[] | undefined): number[] | undefined {
+  if (!raw || raw.length < 4 || !rd) return raw;
+  const [x0, y0, x1, y1] = [
+    Math.min(raw[0], raw[2]),
+    Math.min(raw[1], raw[3]),
+    Math.max(raw[0], raw[2]),
+    Math.max(raw[1], raw[3]),
+  ];
+  const [l, t, r, b] = rd;
+  if (l + r >= x1 - x0 || t + b >= y1 - y0) return raw;
+  return [x0 + l, y0 + b, x1 - r, y1 - t];
+}
 
 function rectFrom(raw: number[] | undefined, frame: Frame): Rect {
   if (!raw || raw.length < 4) return { x: 0, y: 0, w: 0, h: 0 };
@@ -611,7 +646,7 @@ export function importPageAnnots(
       id: a.id || newId("an"),
       pageId,
       kind,
-      rect: rectFrom(a.rect, frame),
+      rect: rectFrom(insetRect(a.rect, a.extras?.rd), frame),
       color: hex(a.color, kind === "highlight" ? "#ffd400" : "#e11d48"),
       fill: a.interiorColor ? hex(a.interiorColor, "#ffffff") : null,
       opacity: typeof a.opacity === "number" ? a.opacity : 1,
@@ -680,8 +715,12 @@ export function importPageAnnots(
         annot.color = hex(a.defaultAppearanceData?.fontColor, "#0f172a");
         annot.textBg = a.color ? hex(a.color, "#ffffff") : null;
         annot.strokeWidth = a.borderStyle?.width ?? 0;
-        if (a.it === "FreeTextCallout") annot.kind = "callout";
-        else if (a.it === "FreeTextTypeWriter") annot.kind = "typewriter";
+        if (a.it === "FreeTextCallout") {
+          annot.kind = "callout";
+          if (a.extras?.cl) annot.callout = pointsFrom(a.extras.cl, frame);
+          const end = a.extras?.le ? LINE_ENDING[a.extras.le] : undefined;
+          if (end) annot.lineEnd = end;
+        } else if (a.it === "FreeTextTypeWriter") annot.kind = "typewriter";
         break;
       }
       case "note":

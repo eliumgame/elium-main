@@ -414,3 +414,72 @@ describe("an edited import keeps what the model does not edit", () => {
     expect(changed.lookup(PDFName.of("RC"))).toBeUndefined();
   });
 });
+
+describe("no growth on round trips", () => {
+  it("keeps the box of shapes, callouts and stamps through three save/reopen cycles", async () => {
+    const blank = await PDFDocument.create();
+    blank.addPage([600, 800]);
+    let bytes = await blank.save();
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const pageId = base.pages[0].id;
+    const now = new Date().toISOString();
+    const mk = (id: string, kind: Annot["kind"], rect: Annot["rect"], extra: Partial<Annot> = {}): Annot =>
+      ({
+        id,
+        pageId,
+        kind,
+        rect,
+        color: "#cc0000",
+        opacity: 1,
+        strokeWidth: 4,
+        author: "Moi",
+        createdAt: now,
+        modifiedAt: now,
+        replies: [],
+        ...extra,
+      }) as Annot;
+    let annots: Annot[] = [
+      mk("sq", "square", { x: 50, y: 50, w: 100, h: 60 }),
+      mk("ci", "circle", { x: 200, y: 50, w: 80, h: 80 }),
+      mk(
+        "co",
+        "callout",
+        { x: 300, y: 300, w: 150, h: 40 },
+        {
+          text: "Note",
+          fontSize: 12,
+          textBg: "#ffffff",
+          strokeWidth: 1,
+          callout: [
+            { x: 200, y: 420 },
+            { x: 250, y: 380 },
+            { x: 300, y: 340 },
+          ],
+        },
+      ),
+      mk(
+        "st",
+        "stamp",
+        { x: 50, y: 500, w: 160, h: 44 },
+        { stampLabel: "Approuvé", stampName: "Approved", strokeWidth: 0 },
+      ),
+    ];
+    const boxes = (list: Annot[]) =>
+      Object.fromEntries(list.map((a) => [a.kind, Object.values(a.rect).map((v) => Math.round(v * 10) / 10)]));
+    const first = boxes(annots);
+    let state: PdfState = { ...base, annots };
+    for (let i = 0; i < 3; i++) {
+      bytes = (await buildPdf(bytes, state)).bytes;
+      state = await imported(bytes);
+      annots = state.annots;
+    }
+    expect(boxes(annots)).toEqual(first);
+    // The callout keeps its line (and stays a callout).
+    const co = annots.find((a) => a.kind === "callout")!;
+    expect(co.callout?.map((p) => [Math.round(p.x), Math.round(p.y)])).toEqual([
+      [200, 420],
+      [250, 380],
+      [300, 340],
+    ]);
+  });
+});

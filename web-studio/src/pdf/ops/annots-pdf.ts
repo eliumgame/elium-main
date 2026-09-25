@@ -826,6 +826,16 @@ async function writeOne(
   await paintAnnot(painter, a, ctx);
   if (!painter.isEmpty) {
     const bbox = frame.rectArray(inflateForStroke(rect, a));
+    // The shape's own box inside the (stroke-inflated) /Rect: without it a
+    // reader — or this import — takes the /Rect for the shape, and it grows
+    // on every round trip. ISO 32000 /RD: left, top, right, bottom.
+    if (RD_KINDS.has(a.kind)) {
+      const inner = frame.rectArray(rect);
+      const rd = [inner[0] - bbox[0], bbox[3] - inner[3], bbox[2] - inner[2], inner[1] - bbox[1]].map((v) =>
+        round(Math.max(0, v), 3),
+      );
+      if (rd.some((v) => v > 0)) entries.RD = rd;
+    }
     const apDict: Record<string, unknown> = {
       Type: "XObject",
       Subtype: "Form",
@@ -917,7 +927,15 @@ export function writeRedactMarks(
 }
 
 /** Widen the box so strokes, arrow heads and cloud bumps are not clipped. */
+/** Subtypes whose /RD tells the shape's box inside the /Rect (ISO 32000-2 12.5.6). */
+const RD_KINDS = new Set<Annot["kind"]>(["square", "circle", "freetext", "typewriter", "callout", "whiteout"]);
+
+/** Kinds drawn exactly inside their rect: nothing to leave room for. */
+const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link"]);
+
 function inflateForStroke(rect: Rect, a: Annot): Rect {
+  const textOnly = (a.kind === "freetext" || a.kind === "typewriter") && !(a.strokeWidth > 0);
+  if (UNSTROKED.has(a.kind) || textOnly) return rect;
   let pad = (a.strokeWidth || 0) / 2 + 1;
   if (a.lineEnd !== "none" || a.lineStart !== "none") pad += Math.max(4, (a.strokeWidth || 1) * 3.2);
   if (a.borderStyle === "cloudy" || a.kind === "cloud") pad += Math.max(4, (a.strokeWidth || 1) * 3) * 2;

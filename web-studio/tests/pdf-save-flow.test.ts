@@ -5,7 +5,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { fullRewriteReasons } from "../src/pdf/ops/save";
-import { buildPdfDraft, resolvePdfDraft, resolvePdfDraftSource, hasEdits, sourceKey } from "../src/pdf/model/recovery";
+import {
+  buildPdfDraft,
+  buildPdfSource,
+  resolvePdfDraft,
+  resolvePdfDraftSource,
+  hasEdits,
+  sourceFromPrefix,
+  sourceKey,
+} from "../src/pdf/model/recovery";
 import { downloadDestination, pdfName } from "../src/pdf/core/destination";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, type Annot, type PdfState } from "../src/pdf/model/types";
@@ -102,44 +110,72 @@ describe("destinations", () => {
   });
 });
 
-describe("recovery drafts after an in-place save", () => {
+describe("recovery drafts after an in-place save / a recomposed session", () => {
   const state = { ...base(), annots: [annot("note", "p")] };
-  const source = new Uint8Array([37, 80, 68, 70, 1, 2, 3]);
+  const enc = new TextEncoder();
+  const source = enc.encode("%PDF-1.7 original");
 
-  it("keeps the source bytes (clear) so the saved file can be rebuilt", async () => {
+  it("never copies the source into a draft: after incremental saves it is the saved file's prefix", async () => {
+    const id = await sourceKey(source);
     const d = await buildPdfDraft({
-      id: "src",
+      id,
       name: "a.pdf",
-      size: 7,
+      size: source.length,
       state,
       sourceProtected: false,
       diskKey: "disk",
-      source,
     });
     expect(d?.diskKey).toBe("disk");
-    expect(await resolvePdfDraftSource(d!)).toEqual(source);
+    expect(JSON.stringify(Object.keys(d!))).not.toMatch(/source/);
+    const saved = new Uint8Array([...source, ...enc.encode(" 1 0 obj ... %%EOF")]);
+    expect(await sourceFromPrefix(d!, saved)).toEqual(source);
+    expect(await resolvePdfDraftSource(d!, { disk: saved })).toEqual(source);
+    // A file that does not start with the source (rewritten since) gives nothing.
+    const other = new Uint8Array([...enc.encode("%PDF-1.7 autre chose"), ...enc.encode("xxxxxxxxxxxx")]);
+    expect(await resolvePdfDraftSource(d!, { disk: other })).toBeNull();
   });
 
-  it("encrypts the kept source with the vault secret", async () => {
-    const secret = { password: "coffre" };
+  it("a recomposed session's source is kept once, apart: in clear only when nothing is protected", async () => {
+    const rec = await buildPdfSource({ id: "src", bytes: source, sourceProtected: false });
+    expect(rec?.bytes).toEqual(source);
     const d = await buildPdfDraft({
       id: "src",
       name: "a.pdf",
-      size: 7,
+      size: source.length,
       state,
       sourceProtected: false,
-      secret,
       diskKey: "disk",
-      source,
+      derived: { changes: ["pages insérées"], forceFull: [] },
     });
-    expect(d?.source).toBeUndefined();
-    expect(typeof d?.sourceEnc).toBe("string");
-    expect(await resolvePdfDraftSource(d!, secret)).toEqual(source);
+    expect(d?.derived?.changes).toEqual(["pages insérées"]);
+    expect(await resolvePdfDraftSource(d!, { stored: rec })).toEqual(source);
+    expect(await buildPdfSource({ id: "src", bytes: source, sourceProtected: true })).toBeNull();
   });
 
-  it("keeps no source before the first in-place save", async () => {
-    const d = await buildPdfDraft({ id: "src", name: "a.pdf", size: 7, state, sourceProtected: false, source });
-    expect(d?.source).toBeUndefined();
-    expect(await resolvePdfDraftSource(d!)).toBeNull();
+  it("encrypts the kept source (binary envelope, no base64) with the vault secret, and needs it back", async () => {
+    const secret = { password: "coffre" };
+    const rec = await buildPdfSource({ id: "src", bytes: source, sourceProtected: true, secret });
+    expect(rec?.bytes).toBeUndefined();
+    expect(rec?.sealed?.ct).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(rec!.sealed!.ct).toString("latin1")).not.toContain("original");
+    const d = (await buildPdfDraft({ id: "src", name: "a.pdf", size: 7, state, sourceProtected: true, secret }))!;
+    expect(d.sealed).toBeDefined();
+    expect(await resolvePdfDraftSource(d, { stored: rec, secret })).toEqual(source);
+    await expect(resolvePdfDraftSource(d, { stored: rec })).rejects.toThrow(/coffre/);
+    await expect(resolvePdfDraftSource(d, { stored: rec, secret: { password: "faux" } })).rejects.toThrow();
+  });
+
+  it("derives the vault key once per session (drafts every few seconds stay cheap)", async () => {
+    const secret = { password: "coffre" };
+    await buildPdfDraft({ id: "k", name: "a.pdf", size: 1, state, sourceProtected: true, secret });
+    const t0 = performance.now();
+    for (let i = 0; i < 5; i++)
+      await buildPdfDraft({ id: "k", name: "a.pdf", size: 1, state, sourceProtected: true, secret });
+    expect((performance.now() - t0) / 5).toBeLessThan(40);
+  });
+
+  it("still reads a legacy (v1) draft that carried its source", async () => {
+    const d = { id: "src", name: "a.pdf", updatedAt: "", size: 7, protected: false, state, source };
+    expect(await resolvePdfDraftSource(d)).toEqual(source);
   });
 });

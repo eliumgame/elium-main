@@ -140,3 +140,69 @@ export async function encryptBytesAtRest(bytes: Uint8Array, secret: VaultSecret)
 export async function decryptBytesAtRest(b64: string, secret: VaultSecret): Promise<Uint8Array> {
   return fromB64(await decryptAtRest<string>(b64, secret));
 }
+
+/**
+ * Binary at-rest envelope, stored as is in IndexedDB (structured clone): no
+ * base64, no JSON — a 60 MB scan costs one AES-GCM pass, not three copies.
+ */
+export interface SealedBytes {
+  v: 3;
+  salt: Uint8Array;
+  iv: Uint8Array;
+  ct: Uint8Array;
+}
+
+/**
+ * One Argon2id derivation per secret and salt for the whole session: a cache
+ * written every few seconds (recovery drafts) must not pay ~20 MB of Argon2id
+ * each time. The key is non-extractable; the secret it comes from is already
+ * held in memory by whoever passes it.
+ */
+const sessionKeys = new WeakMap<VaultSecret, { salt: Uint8Array; keys: Map<string, Promise<CryptoKey>> }>();
+
+function sessionEntry(secret: VaultSecret) {
+  let entry = sessionKeys.get(secret);
+  if (!entry) {
+    entry = { salt: crypto.getRandomValues(new Uint8Array(16)), keys: new Map() };
+    sessionKeys.set(secret, entry);
+  }
+  return entry;
+}
+
+function sessionKey(secret: VaultSecret, salt: Uint8Array): Promise<CryptoKey> {
+  const entry = sessionEntry(secret);
+  const id = Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("");
+  let key = entry.keys.get(id);
+  if (!key) {
+    key = secretString(secret).then((s) => deriveKeyArgon2(s, salt));
+    entry.keys.set(id, key);
+    key.catch(() => entry.keys.delete(id));
+  }
+  return key;
+}
+
+/** Encrypt raw bytes into a {@link SealedBytes} envelope (AES-256-GCM, Argon2id key derived once per session). */
+export async function sealBytesAtRest(bytes: Uint8Array, secret: VaultSecret): Promise<SealedBytes> {
+  const salt = sessionEntry(secret).salt;
+  const key = await sessionKey(secret, salt);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: iv as unknown as BufferSource },
+      key,
+      bytes as unknown as BufferSource,
+    ),
+  );
+  return { v: 3, salt, iv, ct };
+}
+
+/** Decrypt a {@link SealedBytes} envelope. Throws on a wrong secret. */
+export async function openSealedBytes(sealed: SealedBytes, secret: VaultSecret): Promise<Uint8Array> {
+  const key = await sessionKey(secret, sealed.salt);
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: sealed.iv as unknown as BufferSource },
+    key,
+    sealed.ct as unknown as BufferSource,
+  );
+  return new Uint8Array(pt);
+}

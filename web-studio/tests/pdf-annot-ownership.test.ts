@@ -345,3 +345,72 @@ describe("locked comments", () => {
     expect(s.annots[0].color).toBe("#00ff00");
   });
 });
+
+describe("an edited import keeps what the model does not edit", () => {
+  async function withNote(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([600, 800]);
+    const ctx = doc.context;
+    const note = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Text",
+        Rect: [100, 700, 120, 720],
+        Name: PDFName.of("Key"),
+        NM: PDFString.of("acrobat-uuid-1"),
+        F: 4 | 8 | 16,
+        T: PDFString.of("Relecteur"),
+        Contents: PDFString.of("Texte riche"),
+        RC: PDFString.of('<body xmlns="http://www.w3.org/1999/xhtml"><p><b>Texte</b> riche</p></body>'),
+        C: [1, 0.8, 0],
+      } as never),
+    );
+    const popup = ctx.register(
+      ctx.obj({ Type: "Annot", Subtype: "Popup", Rect: [130, 600, 330, 700], Parent: note, Open: true } as never),
+    );
+    (ctx.lookup(note) as PDFDict).set(PDFName.of("Popup"), popup);
+    const redact = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Redact",
+        Rect: [100, 500, 300, 520],
+        QuadPoints: [100, 520, 300, 520, 100, 500, 300, 500],
+        OverlayText: PDFString.of("CAVIARDÉ"),
+        IC: [0.2, 0.2, 0.2],
+      } as never),
+    );
+    page.node.set(PDFName.of("Annots"), ctx.obj([note, popup, redact]));
+    return doc.save({ useObjectStreams: false });
+  }
+
+  it("imports the icon, the overlay text and the file's own fields", async () => {
+    const state = await imported(await withNote());
+    const note = state.annots.find((a) => a.kind === "note")!;
+    expect(note.icon).toBe("Key");
+    expect(note.pdf).toMatchObject({ nm: "acrobat-uuid-1", flags: 28, open: true });
+    expect(note.pdf?.rc).toContain("<b>Texte</b>");
+    const redact = state.annots.find((a) => a.kind === "redact")!;
+    expect(redact).toMatchObject({ redactText: "CAVIARDÉ", redactFill: "#333333" });
+  });
+
+  it("writes them back on a rewrite; the rich text goes once the text changes", async () => {
+    const src = await withNote();
+    let state = await imported(src);
+    const note = state.annots.find((a) => a.kind === "note")!;
+    state = D.updateAnnot(state, note.id, { color: "#00aa00" });
+    const read = async (s: PdfState) => {
+      const doc = await PDFDocument.load((await buildPdf(src, s, { applyRedactions: false })).bytes);
+      return (doc.getPage(0).node.Annots() as PDFArray)
+        .asArray()
+        .map((r) => doc.context.lookup(r, PDFDict))
+        .find((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "Text")!;
+    };
+    const d = await read(state);
+    expect(d.lookup(PDFName.of("NM"), PDFString).decodeText()).toBe("acrobat-uuid-1");
+    expect(d.lookup(PDFName.of("Name"), PDFName).decodeText()).toBe("Key");
+    expect(d.lookup(PDFName.of("F"))?.toString()).toBe("28");
+    expect(d.lookup(PDFName.of("RC"))).toBeDefined();
+    const changed = await read(D.updateAnnot(state, note.id, { contents: "Autre texte" }));
+    expect(changed.lookup(PDFName.of("RC"))).toBeUndefined();
+  });
+});

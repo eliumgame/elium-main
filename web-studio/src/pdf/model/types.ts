@@ -170,6 +170,17 @@ export interface Annot {
   redactText?: string;
   redactFill?: string;
   measure?: MeasureScale;
+  /** Note icon (PDF `/Name`: Comment, Key, Note, Help, NewParagraph, Paragraph, Insert). */
+  icon?: string;
+
+  /**
+   * What the file said about an imported annotation that the model does not
+   * edit, written back when it is rewritten: its `/NM`, the `/F` bits other
+   * than Hidden / Locked (NoPrint, NoZoom, NoRotate, ReadOnly…), a pop-up's
+   * `/Open`, and the rich text `/RC` — kept only while the text is the one it
+   * was written for.
+   */
+  pdf?: { nm?: string; flags?: number; open?: boolean; rc?: string; rcFor?: string };
 
   // --- review metadata (Acrobat comment pane) -----------------------------
   author: string;

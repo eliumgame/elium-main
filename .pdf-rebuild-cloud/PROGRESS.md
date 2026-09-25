@@ -382,3 +382,12 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - À vérifier dans Acrobat : un tampon dynamique et un tampon standard d'Elium (libellé,
   2e ligne) ; une zone de texte transparente et une sur fond jaune ; le statut
   « Accepté » visible dans le panneau Commentaires d'Acrobat.
+
+### Session cloud 1 : T4, point 5
+
+- Une annotation importée puis modifiée garde ce que le modèle ne modifie pas (lu par
+  pdf-lib, `resolveAnnotExtras`, maintenant dès qu'il y a des annotations à importer) :
+  /NM, les bits /F autres que Masqué/Verrouillé (NePasImprimer, NoZoom, NoRotate,
+  ReadOnly…), /Open de la fenêtre, /RC (texte riche, tant que le texte n'a pas changé),
+  l'icône de la note (/Name : Key, Help…), et pour un caviardage, /OverlayText et /IC.
+- Tests : 2 de plus dans pdf-annot-ownership. Suite complète 1926/1926 ; specs PDF 30/30.

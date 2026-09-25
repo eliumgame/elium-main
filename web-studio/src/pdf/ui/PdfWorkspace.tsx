@@ -539,10 +539,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       if (gen !== shownGeneration.current || !raws.size) return null;
 
       // What pdf.js' getAnnotations() leaves out (a Stamp's picture and
-      // /Name, …) needs a separate walk of the source bytes with pdf-lib. That
-      // walk parses the whole document, so it only runs when a stamp needs it.
-      const needsExtras = [...raws.values()].some((raw) => raw.some((a) => a.subtype === "Stamp"));
-      const extras = needsExtras
+      // /Name, /NM, /RC, redaction overlay…) needs a separate walk of the
+      // source bytes with pdf-lib — only when there is something to import.
+      const extras = raws.size
         ? await resolveAnnotExtras(next.bytes, next.password).catch(() => new Map<number, Map<string, AnnotExtras>>())
         : null;
       if (gen !== shownGeneration.current) return null;

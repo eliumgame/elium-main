@@ -687,10 +687,14 @@ async function writeOne(
     T: textString(a.author || opts.defaultAuthor),
     M: PDFString.of(pdfDate(a.modifiedAt)),
     CreationDate: PDFString.of(pdfDate(a.createdAt)),
-    NM: PDFString.of(a.id),
-    // Print + (locked when asked). Bit 3 = Print, bit 8 = Locked.
-    F: 4 | (a.locked ? 128 : 0) | (a.hidden ? 2 : 0),
+    // An imported annotation keeps its own unique name (not pdf.js' « 12R »).
+    NM: PDFString.of(a.pdf?.nm ?? a.id),
+    // Print + (locked when asked). Bit 3 = Print, bit 8 = Locked. An imported
+    // one keeps its other bits (NoPrint, NoZoom, NoRotate, ReadOnly…).
+    F: (a.pdf?.flags !== undefined ? a.pdf.flags & ~(2 | 128) : 4) | (a.locked ? 128 : 0) | (a.hidden ? 2 : 0),
   };
+  // Rich text from the file, while the text is still the one it renders.
+  if (a.pdf?.rc && a.pdf.rcFor === (a.text ?? a.contents ?? "")) entries.RC = textString(a.pdf.rc);
 
   const comment = a.contents ?? (a.kind === "note" ? a.text : undefined);
   if (comment) entries.Contents = textString(comment);
@@ -705,8 +709,8 @@ async function writeOne(
   }
 
   if (a.kind === "note") {
-    entries.Name = PDFName.of("Comment");
-    entries.Open = false;
+    entries.Name = PDFName.of(a.icon ?? "Comment");
+    entries.Open = a.pdf?.open ?? false;
   }
 
   if (a.kind === "ink" && a.paths?.length) {

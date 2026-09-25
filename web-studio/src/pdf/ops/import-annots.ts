@@ -41,6 +41,8 @@ export interface RawAnnotation {
   name?: string;
   inReplyTo?: string;
   replyType?: string;
+  /** What pdf-lib read from the file on top (`resolveAnnotExtras`). */
+  extras?: AnnotExtras;
   /** A `/Text` state reply: `/StateModel` (Review, Marked) and `/State`. */
   state?: string | null;
   stateModel?: string | null;
@@ -297,6 +299,12 @@ export interface AnnotExtras {
   /** `/Name` (stamps, attachments) and `/Subj`: pdf.js drops them for stamps. */
   name?: string;
   subject?: string;
+  nm?: string;
+  rc?: string;
+  open?: boolean;
+  overlayText?: string;
+  /** Redact `/IC` (the fill of the applied box), 0–1 RGB. */
+  interior?: number[];
 }
 
 /**
@@ -375,6 +383,22 @@ export async function resolveAnnotExtras(
         const subject = text(annotDict.lookup(PDFName.of("Subj")));
         if (name) extras.name = name;
         if (subject) extras.subject = subject;
+        const nm = text(annotDict.lookup(PDFName.of("NM")));
+        if (nm) extras.nm = nm;
+        const rc = annotDict.lookup(PDFName.of("RC"));
+        const rcText =
+          rc instanceof PDFRawStream ? new TextDecoder().decode(pdfLib.decodePDFRawStream(rc).decode()) : text(rc);
+        if (rcText) extras.rc = rcText;
+        // A pop-up's /Open, on its parent.
+        const popup = annotDict.lookup(PDFName.of("Popup"));
+        const open = (popup instanceof PDFDict ? popup : annotDict).lookup(PDFName.of("Open"));
+        if (open instanceof pdfLib.PDFBool) extras.open = open.asBoolean();
+        const overlay = text(annotDict.lookup(PDFName.of("OverlayText")));
+        if (overlay) extras.overlayText = overlay;
+        const ic = annotDict.lookup(PDFName.of("IC"));
+        if (ic instanceof PDFArray && ic.size() === 3) {
+          extras.interior = ic.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
+        }
         if (pdfName(annotDict, "Subtype", PDFName) === "Stamp") {
           try {
             const img = stampImage(annotDict);
@@ -410,6 +434,7 @@ export function withExtras(
       appearanceImage: a.appearanceImage ?? x.appearanceImage,
       name: a.name ?? x.name,
       subject: a.subject || x.subject,
+      extras: x,
     };
   });
 }
@@ -661,6 +686,7 @@ export function importPageAnnots(
       }
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
+        if (a.name && NOTE_ICONS.has(a.name)) annot.icon = a.name;
         break;
       case "redact":
         // pdf.js hands /Redact over as a base annotation (no /IC, no overlay
@@ -669,6 +695,14 @@ export function importPageAnnots(
         annot.fill = "#000000";
         annot.strokeWidth = 0;
         annot.opacity = 1;
+        if (a.extras?.overlayText) annot.redactText = a.extras.overlayText;
+        if (a.extras?.interior) {
+          const c = a.extras.interior;
+          annot.redactFill = hex(
+            c.map((v) => Math.round(v * 255)),
+            "#000000",
+          );
+        }
         break;
       case "stamp": {
         // pdf.js paints the appearance stream itself — but only as long as
@@ -695,6 +729,18 @@ export function importPageAnnots(
         break;
     }
 
+    // What the model does not edit but the file said: written back on rewrite.
+    const flags = a.annotationFlags;
+    const keep: NonNullable<Annot["pdf"]> = {};
+    if (a.extras?.nm) keep.nm = a.extras.nm;
+    if (typeof flags === "number") keep.flags = flags;
+    if (typeof a.extras?.open === "boolean") keep.open = a.extras.open;
+    if (a.extras?.rc) {
+      keep.rc = a.extras.rc;
+      keep.rcFor = annot.text ?? annot.contents ?? "";
+    }
+    if (Object.keys(keep).length) annot.pdf = keep;
+
     annots.push(annot);
   }
 
@@ -713,6 +759,9 @@ export function importPageAnnots(
 
   return { annots, skipped };
 }
+
+/** Sticky-note icons of ISO 32000 (`/Name` of a Text annotation). */
+export const NOTE_ICONS = new Set(["Comment", "Key", "Note", "Help", "NewParagraph", "Paragraph", "Insert"]);
 
 const REVIEW_STATE: Record<string, ReviewStatus> = {
   None: "none",

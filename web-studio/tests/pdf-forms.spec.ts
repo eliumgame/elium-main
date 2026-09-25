@@ -217,3 +217,18 @@ test.describe("PDF — préparer un formulaire", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("PDF — formulaires : champs obligatoires", () => {
+  test("le bandeau compte les champs obligatoires vides et mène au suivant", async ({ page }) => {
+    const problems = trackHealth(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    const next = page.getByRole("button", { name: /1 champ\(s\) obligatoire\(s\) à remplir/ });
+    await expect(next).toBeVisible();
+    await next.click();
+    await expect(field(page, "nom")).toBeFocused();
+    await field(page, "nom").fill("Dupont");
+    await field(page, "qte").click();
+    await expect(next).toHaveCount(0);
+    expect(problems).toEqual([]);
+  });
+});

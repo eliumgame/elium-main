@@ -26,7 +26,7 @@ import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from 
 import { warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
 import { FormSession } from "../core/forms/session";
-import { sameFormValue } from "../core/forms/values";
+import { isEmptyValue, sameFormValue } from "../core/forms/values";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
@@ -2612,6 +2612,53 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
+  // Required fields still empty (Acrobat's « champs obligatoires »), in page order.
+  const [requiredLeft, setRequiredLeft] = useState<{ name: string; widget: string; page: number }[]>([]);
+  useEffect(() => {
+    if (!formSession) {
+      setRequiredLeft([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      await formSession.ready;
+      const details = await formSession.details();
+      const values = formSession.values();
+      const out: { name: string; widget: string; page: number }[] = [];
+      for (const f of formSession.fields.values()) {
+        const d = details.get(f.name);
+        if (!d?.required || d.readOnly || d.hidden) continue;
+        if (!isEmptyValue(f, values[f.name] ?? f.fileValue)) continue;
+        const w = f.widgets.find((x) => x.page >= 0);
+        if (w) out.push({ name: f.name, widget: w.id, page: w.page });
+      }
+      out.sort((a, b) => a.page - b.page);
+      if (!cancelled) setRequiredLeft(out);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [formSession, state.formValues]);
+
+  /** Show and focus the next required field still empty. */
+  const goNextRequired = () => {
+    const next = requiredLeft[0];
+    if (!next) return;
+    const index = pages.findIndex((pg) => pg.from === next.page);
+    if (index < 0) return;
+    goTo(index + 1);
+    // The page mounts, then its form layer: wait for the control.
+    let tries = 0;
+    const focus = () => {
+      const el = document.querySelector<HTMLElement>(`.pdfx-stack [data-element-id="${CSS.escape(next.widget)}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.focus();
+      } else if (tries++ < 40) setTimeout(focus, 50);
+    };
+    focus();
+  };
+
   useEffect(() => {
     const was = previousMode.current;
     previousMode.current = mode;
@@ -3653,6 +3700,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                       ? "Formulaire XFA dynamique : il ne peut pas être rempli ici (Adobe Acrobat ou Reader requis)."
                       : "Ce document contient des champs de formulaire remplissables."}
                 </span>
+                {requiredLeft.length > 0 && (
+                  <button
+                    className="pdfx-formbar__btn pdfx-formbar__btn--req"
+                    onClick={goNextRequired}
+                    title="Aller au prochain champ obligatoire vide"
+                  >
+                    {requiredLeft.length} champ(s) obligatoire(s) à remplir — Suivant
+                  </button>
+                )}
                 <label className="pdfx-formbar__toggle">
                   <input
                     type="checkbox"

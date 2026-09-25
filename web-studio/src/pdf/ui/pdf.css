@@ -1993,3 +1993,9 @@
 .pdfx-stack.is-annot-select .annotationLayer section.linkAnnotation {
   pointer-events: none;
 }
+
+.pdfx-formbar__btn--req {
+  border-color: #dc2626;
+  color: #b91c1c;
+  font-weight: 600;
+}

@@ -543,3 +543,28 @@ T4 : tous les points de l'audit sont traités. Limites connues : la gomme efface
 l'annotation entière (pas un morceau de trait) ; pas de tampons dynamiques
 personnalisables (champs de formulaire dans le tampon) ; les enregistrements audio
 d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créés.
+
+## T5 : organisation des pages
+
+### Audit (session cloud 1), par ordre d'impact
+1. Étiquettes de page écrites fausses pour tous les styles (« 11 », « iv1 ») ; les
+   étiquettes du fichier ne sont jamais lues ni retirées.
+2. Le clavier global de l'organiseur supprime des pages sur Retour arrière tapé dans un
+   dialogue.
+3. Les pages supprimées restent dans le fichier (références des widgets, liens, signets,
+   destinations nommées) : fuite de contenu et champs orphelins.
+4. Les pages « exclues » sont supprimées pour de bon et forcent une réécriture complète.
+5. L'extraction prend les mauvaises pages quand des pages sont exclues.
+6. Signets jamais recalés après un réordonnancement, une suppression ou une insertion.
+7. « Avant la page 1 » insère à la fin.
+8. Insertion de PDF ou d'images seulement à la fin ; un PDF inséré perd ses champs et
+   ses signets ; images forcées en A4 portrait ; pas de presse-papiers.
+9. Bouton « Redimensionner » inerte ; pas de remplacement, de déplacement vers N, ni de
+   rotation paire/impaire/180°.
+10. Rognage en espace non tourné ; décalage possible des annotations ; pas de rognage
+    automatique des marges.
+11. Découpage : téléchargements multiples sans zip, découpage par taille en O(n²) ;
+    fichiers dérivés sans AcroForm, signets ni métadonnées.
+12. Glisser-déposer : pas de dépôt en fin, pas de côté d'insertion, pas de setData
+    (Firefox) ; pas de sélection au lasso ; en-têtes/pieds ignorent la rotation et ne
+    s'enlèvent pas ; Bates disparaît si l'en-tête n'a pas {bates}.

@@ -133,6 +133,62 @@ export const NOTE_ICONS: Record<string, NoteShape[]> = {
   ],
 };
 
-export function noteIcon(name: string | undefined): NoteShape[] {
+/** Icons of a file attachment (ISO 32000 /Name of a FileAttachment). */
+export const ATTACHMENT_ICONS: Record<string, NoteShape[]> = {
+  PushPin: [
+    { t: "circle", cx: 0.62, cy: 0.3, r: 0.26, fill: true },
+    {
+      t: "poly",
+      pts: [
+        [0.44, 0.48],
+        [0.08, 0.94],
+      ],
+      close: false,
+      fill: false,
+    },
+  ],
+  Paperclip: [
+    {
+      t: "poly",
+      pts: [
+        [0.62, 0.3],
+        [0.62, 0.82],
+        [0.5, 0.94],
+        [0.38, 0.82],
+        [0.38, 0.14],
+        [0.5, 0.04],
+        [0.72, 0.04],
+        [0.84, 0.14],
+        [0.84, 0.86],
+      ],
+      close: false,
+      fill: false,
+    },
+  ],
+  Graph: [
+    { t: "rrect", x: 0.04, y: 0.04, w: 0.92, h: 0.92, r: 0.06, fill: true },
+    { t: "rrect", x: 0.18, y: 0.56, w: 0.14, h: 0.3, r: 0, fill: false },
+    { t: "rrect", x: 0.43, y: 0.36, w: 0.14, h: 0.5, r: 0, fill: false },
+    { t: "rrect", x: 0.68, y: 0.18, w: 0.14, h: 0.68, r: 0, fill: false },
+  ],
+  Tag: [
+    {
+      t: "poly",
+      pts: [
+        [0.06, 0.3],
+        [0.62, 0.3],
+        [0.94, 0.5],
+        [0.62, 0.7],
+        [0.06, 0.7],
+      ],
+      close: true,
+      fill: true,
+    },
+    { t: "circle", cx: 0.66, cy: 0.5, r: 0.06, fill: false },
+  ],
+};
+
+export function noteIcon(name: string | undefined, attachment = false): NoteShape[] {
+  if (attachment) return ATTACHMENT_ICONS[name ?? "PushPin"] ?? ATTACHMENT_ICONS.PushPin;
   return NOTE_ICONS[name ?? "Comment"] ?? NOTE_ICONS.Comment;
 }

@@ -22,6 +22,7 @@ const XFDF_KIND: Partial<Record<AnnotKind, string>> = {
   strikeout: "strikeout",
   squiggly: "squiggly",
   caret: "caret",
+  attachment: "fileattachment",
   note: "text",
   freetext: "freetext",
   typewriter: "freetext",
@@ -49,6 +50,7 @@ const KIND_FROM_XFDF: Record<string, AnnotKind> = {
   strikeout: "strikeout",
   squiggly: "squiggly",
   caret: "caret",
+  fileattachment: "attachment",
   text: "note",
   freetext: "freetext",
   ink: "ink",
@@ -266,6 +268,10 @@ export function toXfdf(
       if (a.rotation) attrs.push(`rotation="${round(a.rotation, 2)}"`);
     }
     if (a.kind === "redact" && a.redactText) attrs.push(`overlay-text="${esc(a.redactText)}"`);
+    if (a.kind === "attachment") {
+      attrs.push(`icon="${esc(a.icon ?? "PushPin")}"`);
+      if (a.file) attrs.push(`file="${esc(a.file.name)}"`);
+    }
     if (textKind) {
       const size = round(a.fontSize ?? 12, 2);
       const col = rgbOf(a.color);
@@ -290,6 +296,18 @@ export function toXfdf(
     }
     const contents = a.contents ?? (textKind || a.kind === "note" ? a.text : undefined);
     if (contents) inner.push(`<contents>${esc(contents)}</contents>`);
+    if (a.kind === "attachment" && a.file) {
+      // The file itself, hex-encoded as Acrobat writes it.
+      const b64 = a.file.data.split(",")[1] ?? "";
+      let hex = "";
+      try {
+        const bin = atob(b64);
+        for (let i = 0; i < bin.length; i++) hex += bin.charCodeAt(i).toString(16).padStart(2, "0");
+      } catch {
+        hex = "";
+      }
+      inner.push(`<data MIMEType="${esc(a.file.mime)}" length="${hex.length / 2}" encoding="hex">${hex}</data>`);
+    }
     if (a.pdf?.rc && a.pdf.rcFor === (a.text ?? a.contents ?? ""))
       inner.push(`<contents-richtext>${a.pdf.rc}</contents-richtext>`);
 
@@ -576,6 +594,25 @@ export function fromXfdf(
         for (let i = 0; i + 1 < cl.length; i += 2) pts.push({ x: X(cl[i]), y: Y(cl[i + 1]) });
         if (pts.length >= 2) annot.callout = pts;
         annot.lineEnd = head === "none" ? "arrow" : head;
+      }
+    } else if (kind === "attachment") {
+      annot.rect = { ...annot.rect, w: 20, h: 20 };
+      annot.icon = el.getAttribute("icon") ?? "PushPin";
+      const data = Array.from(el.children).find((c) => c.localName === "data");
+      const name = el.getAttribute("file") ?? "fichier";
+      if (data) {
+        const mime = data.getAttribute("MIMEType") ?? data.getAttribute("mimetype") ?? "application/octet-stream";
+        const raw = (data.textContent ?? "").replace(/\s+/g, "");
+        const encoding = (data.getAttribute("encoding") ?? "hex").toLowerCase();
+        let b64 = "";
+        if (encoding === "hex") {
+          let bin = "";
+          for (let i = 0; i + 1 < raw.length; i += 2) bin += String.fromCharCode(parseInt(raw.slice(i, i + 2), 16));
+          b64 = btoa(bin);
+        } else if (encoding === "base64") {
+          b64 = raw;
+        }
+        if (b64 || !raw) annot.file = { name, mime, data: `data:${mime};base64,${b64}` };
       }
     } else if (kind === "note") {
       annot.text = contents;

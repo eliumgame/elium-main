@@ -31,6 +31,8 @@ export type AnnotKind =
   | "caret"
   // notes & text
   | "note"
+  // a file carried by the page (Acrobat's « Joindre un fichier »)
+  | "attachment"
   | "freetext"
   | "callout"
   | "typewriter"
@@ -79,6 +81,15 @@ export function isPolyKind(k: AnnotKind): boolean {
 
 /** Review state of a comment, mirroring Acrobat's review workflow. */
 export type ReviewStatus = "none" | "accepted" | "rejected" | "cancelled" | "completed";
+
+/** A file carried by an annotation. */
+export interface AnnotFile {
+  name: string;
+  mime: string;
+  /** The bytes, as a base64 data URL. */
+  data: string;
+  description?: string;
+}
 
 /** A reply in a comment thread (Acrobat `/IRT` + `/RT /R`). */
 export interface Reply {
@@ -172,8 +183,13 @@ export interface Annot {
   redactText?: string;
   redactFill?: string;
   measure?: MeasureScale;
-  /** Note icon (PDF `/Name`: Comment, Key, Note, Help, NewParagraph, Paragraph, Insert). */
+  /**
+   * Note icon (PDF `/Name`: Comment, Key, Note, Help, NewParagraph, Paragraph,
+   * Insert), or an attachment's (PushPin, Paperclip, Graph, Tag).
+   */
   icon?: string;
+  /** The file an « attachment » carries (embedded in the PDF at save). */
+  file?: AnnotFile;
 
   /**
    * What the file said about an imported annotation that the model does not
@@ -607,6 +623,8 @@ export interface DraftStyle {
   /** A picture stamp instead (data URL), and its height / width. */
   stampSrc?: string | null;
   stampRatio?: number;
+  /** The file the « Joindre un fichier » tool places next. */
+  attachFile?: AnnotFile | null;
 }
 
 export const DEFAULT_STYLE: DraftStyle = {

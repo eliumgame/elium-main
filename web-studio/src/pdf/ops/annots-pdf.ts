@@ -86,6 +86,7 @@ export const UPRIGHT_KINDS = new Set<Annot["kind"]>([
   "typewriter",
   "callout",
   "note",
+  "attachment",
   "stamp",
   "image",
   "signature",
@@ -359,7 +360,8 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       }
       break;
     }
-    case "note": {
+    case "note":
+    case "attachment": {
       await upright(p, a, ctx, paintNoteIcon);
       break;
     }
@@ -480,7 +482,7 @@ async function paintNoteIcon(p: Painter, a: Annot, ctx: PaintContext): Promise<v
   p.save();
   p.alpha({ fillAlpha: a.opacity ?? 1, strokeAlpha: 1 });
   p.lineWidth(0.7).strokeColor(ink);
-  for (const sh of noteIcon(a.icon)) {
+  for (const sh of noteIcon(a.icon, a.kind === "attachment")) {
     if (sh.t === "rrect") {
       p.fillColor(c).roundRect(r.x + sh.x * s, r.y + (1 - sh.y - sh.h) * s, sh.w * s, sh.h * s, sh.r * s);
       if (sh.fill) p.fillStroke();
@@ -631,6 +633,7 @@ const SUBTYPE: Partial<Record<Annot["kind"], string>> = {
   squiggly: "Squiggly",
   caret: "Caret",
   note: "Text",
+  attachment: "FileAttachment",
   freetext: "FreeText",
   typewriter: "FreeText",
   callout: "FreeText",
@@ -697,6 +700,20 @@ interface WriteOptions {
  * Write annotations as real `/Annot` dictionaries with generated appearances.
  * Returns the ones that had to be flattened instead (whiteout, redaction).
  */
+/** The bytes of a base64 data URL (null when it is not one). */
+function dataUrlBytes(url: string): Uint8Array | null {
+  const m = /^data:[^,]*;base64,(.*)$/s.exec(url);
+  if (!m) return null;
+  try {
+    const bin = atob(m[1]);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** The object of an annotation kept from the file (its model id is pdf.js' « 12R »). */
 function refOfPdfjsId(id: string): PDFRef | null {
   const m = /^(\d+)R(\d*)$/.exec(id);
@@ -855,6 +872,28 @@ async function writeOne(
   if (a.kind === "note") {
     entries.Name = PDFName.of(a.icon ?? "Comment");
     entries.Open = a.pdf?.open ?? false;
+  }
+
+  if (a.kind === "attachment" && a.file) {
+    // The file itself, embedded: /FS → /EF → an EmbeddedFile stream.
+    const bytes = dataUrlBytes(a.file.data);
+    if (bytes) {
+      const stream = doc.context.flateStream(bytes, {
+        Type: "EmbeddedFile",
+        Subtype: PDFName.of(a.file.mime || "application/octet-stream"),
+        Params: { Size: bytes.length, ModDate: PDFString.of(pdfDate(a.modifiedAt)) },
+      } as never);
+      const efRef = doc.context.register(stream);
+      entries.FS = {
+        Type: "Filespec",
+        F: textString(a.file.name),
+        UF: textString(a.file.name),
+        ...(a.file.description ? { Desc: textString(a.file.description) } : {}),
+        EF: { F: efRef, UF: efRef },
+      };
+    }
+    entries.Name = PDFName.of(a.icon ?? "PushPin");
+    if (!entries.Contents) entries.Contents = textString(a.file.description || a.file.name);
   }
 
   if (a.kind === "ink" && a.paths?.length) {
@@ -1079,7 +1118,7 @@ export function writeRedactMarks(
 const RD_KINDS = new Set<Annot["kind"]>(["square", "circle", "freetext", "typewriter", "callout", "whiteout"]);
 
 /** Kinds drawn exactly inside their rect: nothing to leave room for. */
-const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link", "caret"]);
+const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link", "caret", "attachment"]);
 
 /** Kinds drawn with line endings. */
 const ENDED_KINDS = new Set<Annot["kind"]>(["line", "arrow", "polyline", "distance", "perimeter", "callout"]);

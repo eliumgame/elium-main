@@ -508,3 +508,18 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - À vérifier dans Acrobat : un « Remplacer le texte » fait dans Elium doit apparaître
   dans Acrobat comme le sien (un seul commentaire, texte de remplacement au survol du
   barré), et l'inverse.
+
+### Session cloud 1 : T4, point 12 (4e partie) : pièces jointes
+
+- « Joindre un fichier » (ruban Commenter, Notes) : on choisit le fichier (50 Mo au plus),
+  puis on clique sur la page. Le fichier est intégré au PDF (/FS → /EF, flux
+  EmbeddedFile avec type MIME, taille et date), avec les icônes de la norme (Punaise,
+  Trombone, Graphique, Étiquette) dessinées pareil à l'écran et dans le fichier.
+  Double-clic pour enregistrer le fichier.
+- Relu à l'ouverture (fichier, nom, description, icône : pdf.js 6 ne donne plus le
+  contenu, pdf-lib le lit) et en XFDF (`<fileattachment>` avec `<data encoding="hex">`,
+  comme Acrobat).
+- Tests : 1 unitaire (octets identiques, pdf.js la reconnaît), 1 XFDF, 1 navigateur.
+  Suite complète 1952/1952 ; specs PDF 42/42.
+- À vérifier dans Acrobat : une pièce jointe posée dans Elium s'ouvre dans Acrobat
+  (panneau Pièces jointes et double-clic sur l'icône).

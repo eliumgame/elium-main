@@ -2212,6 +2212,34 @@ export default function PdfWorkspace({
         input.click();
         return;
       }
+      case "attachFile": {
+        // Acrobat's « Joindre un fichier »: pick it, then click where its icon goes.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.style.display = "none";
+        input.dataset.testid = "attach-file-input";
+        document.body.appendChild(input);
+        input.addEventListener("cancel", () => input.remove());
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          if (f.size > 50 * 1024 * 1024) {
+            toast("warning", "Fichier trop volumineux", "Une pièce jointe est limitée à 50 Mo.");
+            return;
+          }
+          const r = new FileReader();
+          r.onload = () => {
+            const file = { name: f.name, mime: f.type || "application/octet-stream", data: String(r.result) };
+            setStyle((st) => ({ ...st, attachFile: file }));
+            pickTool("attachment");
+            toast("info", "Cliquez sur la page à l'endroit de la pièce jointe.");
+          };
+          r.readAsDataURL(f);
+        });
+        input.click();
+        return;
+      }
       case "insertText": {
         // Acrobat's « Insérer du texte au curseur »: click in the text, then this.
         const at = caretPoint();

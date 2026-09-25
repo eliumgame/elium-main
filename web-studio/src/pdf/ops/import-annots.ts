@@ -309,6 +309,8 @@ export interface AnnotExtras {
   rd?: number[];
   /** `/IT` (FreeTextCallout, LineDimension…): pdf.js never passes it on. */
   it?: string;
+  /** A file attachment's file (/FS → /EF), as a data URL, with its name and type. */
+  file?: { name: string; mime: string; data: string; description?: string };
   /** A callout's `/CL` line (PDF user space, tip first). */
   cl?: number[];
   /** `/LE` of a callout (one name). */
@@ -411,6 +413,30 @@ export async function resolveAnnotExtras(
         }
         const le = annotDict.lookup(PDFName.of("LE"));
         if (le instanceof PDFName) extras.le = le.decodeText();
+        const fs = annotDict.lookup(PDFName.of("FS"));
+        if (fs instanceof PDFDict) {
+          try {
+            const ef = fs.lookup(PDFName.of("EF"));
+            const stream = ef instanceof PDFDict ? (ef.lookup(PDFName.of("UF")) ?? ef.lookup(PDFName.of("F"))) : null;
+            if (stream instanceof PDFRawStream) {
+              const bytes = pdfLib.decodePDFRawStream(stream).decode();
+              const mime = text(stream.dict.lookup(PDFName.of("Subtype"))) || "application/octet-stream";
+              let bin = "";
+              for (let k = 0; k < bytes.length; k += 0x8000)
+                bin += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+              const name = text(fs.lookup(PDFName.of("UF"))) || text(fs.lookup(PDFName.of("F"))) || "fichier";
+              const description = text(fs.lookup(PDFName.of("Desc")));
+              extras.file = {
+                name: name.split(/[\\/]/).pop() || name,
+                mime,
+                data: `data:${mime};base64,${btoa(bin)}`,
+                ...(description ? { description } : {}),
+              };
+            }
+          } catch {
+            /* an unreadable file: the attachment keeps what pdf.js gave */
+          }
+        }
         const rd = annotDict.lookup(PDFName.of("RD"));
         if (rd instanceof PDFArray && rd.size() === 4) {
           extras.rd = rd.asArray().map((v) => (v instanceof PDFNumber ? Math.max(0, v.asNumber()) : 0));
@@ -462,6 +488,7 @@ export function withExtras(
 
 const KIND: Record<string, AnnotKind> = {
   Caret: "caret",
+  FileAttachment: "attachment",
   Highlight: "highlight",
   Underline: "underline",
   StrikeOut: "strikeout",
@@ -736,6 +763,14 @@ export function importPageAnnots(
         } else if (a.it === "FreeTextTypeWriter") annot.kind = "typewriter";
         break;
       }
+      case "attachment":
+        annot.rect = { ...annot.rect, w: 20, h: 20 };
+        if (a.extras?.file) annot.file = a.extras.file;
+        {
+          const icon = a.extras?.name ?? a.name;
+          if (icon) annot.icon = icon;
+        }
+        break;
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
         {

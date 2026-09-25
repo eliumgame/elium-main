@@ -158,6 +158,7 @@ export const KIND_LABEL: Record<AnnotKind, string> = {
   squiggly: "Soulignement ondulé",
   caret: "Insertion de texte",
   note: "Note",
+  attachment: "Pièce jointe",
   freetext: "Zone de texte",
   callout: "Légende",
   typewriter: "Machine à écrire",

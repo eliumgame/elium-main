@@ -48,6 +48,7 @@ import {
   MousePointer2,
   Move,
   PaintBucket,
+  Paperclip,
   PanelTop,
   PencilLine,
   PenSquare,
@@ -456,6 +457,12 @@ export default function Ribbon(p: RibbonProps) {
                 onClick={T("note")}
                 active={p.tool === "note"}
                 title="Note autocollante"
+              />
+              <Cmd
+                icon={<Paperclip size={17} />}
+                onClick={C("attachFile")}
+                active={p.tool === "attachment"}
+                title="Joindre un fichier"
               />
               <Cmd
                 icon={<Type size={17} />}

@@ -31,10 +31,10 @@ function StampImg({ src, fit, label, tone }: { src: string; fit: "fill" | "conta
 }
 
 /** A sticky note's icon, drawn from the same shapes as its appearance in the file. */
-function NoteIconSvg({ name, color }: { name?: string; color: string }) {
+function NoteIconSvg({ name, color, attachment = false }: { name?: string; color: string; attachment?: boolean }) {
   return (
     <svg className="pdfx-note__icon" viewBox="-0.05 -0.05 1.1 1.1" aria-hidden>
-      {noteIcon(name).map((sh, i) => {
+      {noteIcon(name, attachment).map((sh, i) => {
         const common = { stroke: "#262626", strokeWidth: 0.035, strokeLinejoin: "round" as const };
         if (sh.t === "rrect")
           return (
@@ -272,6 +272,21 @@ function AnnotLayer(p: AnnotLayerProps) {
 
     if (kind === "image") {
       p.onRequestImage(start);
+      p.onToolDone();
+      return;
+    }
+
+    if (kind === "attachment") {
+      if (!p.style.attachFile) {
+        p.onToolDone();
+        return;
+      }
+      const annot = baseAnnot("attachment", { x: start.x, y: start.y, w: NOTE_SIZE, h: NOTE_SIZE });
+      annot.file = p.style.attachFile;
+      annot.icon = "PushPin";
+      annot.color = "#2563eb";
+      annot.contents = p.style.attachFile.name;
+      p.onCreate(annot);
       p.onToolDone();
       return;
     }
@@ -882,7 +897,9 @@ function AnnotLayer(p: AnnotLayerProps) {
   /** Text boxes, notes, stamps and images live in HTML so they can be edited. */
   const renderHtml = (a: Annot) => {
     const selected = p.selectedIds.includes(a.id);
-    const r = viewRect(a.kind === "note" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect);
+    const r = viewRect(
+      a.kind === "note" || a.kind === "attachment" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect,
+    );
     const base: React.CSSProperties = {
       position: "absolute",
       left: r.x,
@@ -907,6 +924,31 @@ function AnnotLayer(p: AnnotLayerProps) {
         {children}
       </div>
     );
+
+    if (a.kind === "attachment") {
+      const file = a.file;
+      return wrapper(
+        <button
+          type="button"
+          className="pdfx-note pdfx-note--attachment"
+          title={file ? `${file.name} — double-cliquez pour l'enregistrer` : "Pièce jointe"}
+          aria-label={file ? `Pièce jointe : ${file.name}` : "Pièce jointe"}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (!file) return;
+            const link = document.createElement("a");
+            link.href = file.data;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }}
+        >
+          <NoteIconSvg name={a.icon ?? "PushPin"} color={a.color} attachment />
+        </button>,
+        "pdfx-html--note",
+      );
+    }
 
     if (a.kind === "note") {
       return wrapper(
@@ -1100,6 +1142,7 @@ export default memo(AnnotLayer, annotLayerPropsEqual);
 function isHtmlKind(k: AnnotKind): boolean {
   return (
     k === "note" ||
+    k === "attachment" ||
     k === "freetext" ||
     k === "typewriter" ||
     k === "callout" ||

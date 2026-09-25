@@ -277,4 +277,26 @@ test.describe("PDF — commentaires", () => {
     expect(qp[0] - sr[0]).toBeLessThan(3);
     expect(problems).toEqual([]);
   });
+
+  test("joindre un fichier", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Joindre un fichier" }).click();
+    await (await chooser).setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Bonjour Łódź") });
+    const c = (await page.locator(".pdfx-canvas").first().boundingBox())!;
+    await page.mouse.click(c.x + 250, c.y + 250);
+    await expect(page.getByRole("button", { name: "Pièce jointe : notes.txt" })).toBeVisible();
+    const doc = await save(page);
+    const att = annotDicts(doc).find(
+      (d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "FileAttachment",
+    )!;
+    const fs = att.lookup(PDFName.of("FS"), PDFDict);
+    const ef = fs.lookup(PDFName.of("EF"), PDFDict);
+    const { decodePDFRawStream } = await import("pdf-lib");
+    const stream = ef.lookup(PDFName.of("F")) as Parameters<typeof decodePDFRawStream>[0];
+    expect(Buffer.from(decodePDFRawStream(stream).decode()).toString("utf8")).toBe("Bonjour Łódź");
+    expect(problems).toEqual([]);
+  });
 });

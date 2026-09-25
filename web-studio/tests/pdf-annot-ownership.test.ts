@@ -147,7 +147,7 @@ describe("ownership of a file's annotations", () => {
       { key: "12 0", subtype: "Text", irt: "11 0" },
     ]);
     // The group members of a comment the model owns (« Remplacer le texte »)
-    // are their own annotations; an attachment, its pop-up and replies are not.
+    // are their own annotations; a reply loop leading to nothing is not owned.
     expect([...owned]).toEqual([
       ["1 0", "1 0"],
       ["3 0", "1 0"],
@@ -155,13 +155,16 @@ describe("ownership of a file's annotations", () => {
       ["5 0", "5 0"],
       ["6 0", "6 0"],
       ["7 0", "7 0"],
+      ["8 0", "8 0"],
+      ["10 0", "8 0"],
       ["2 0", "1 0"],
+      ["9 0", "8 0"],
     ]);
   });
 
   it("imports a reply to a reply into the comment's thread", async () => {
     const state = await imported(await acrobatLike());
-    expect(state.annots.map((a) => a.kind).sort()).toEqual(["caret", "highlight", "strikeout"]);
+    expect(state.annots.map((a) => a.kind).sort()).toEqual(["attachment", "caret", "highlight", "strikeout"]);
     const caret = state.annots.find((a) => a.kind === "caret")!;
     const strike = state.annots.find((a) => a.kind === "strikeout")!;
     expect(caret.group).toBe(strike.id);
@@ -704,5 +707,46 @@ describe("text edits in the file", () => {
     // One comment in the pane, deleted as one.
     expect(D.commentable(back.annots).map((a) => a.kind)).toEqual(["caret"]);
     expect(D.removeAnnots(back, [c2.id]).annots).toEqual([]);
+  });
+});
+
+describe("file attachments", () => {
+  it("embed the file and read it back, byte for byte", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const content = "colonne1;colonne2\nÉté;42\n";
+    const data = `data:text/csv;base64,${Buffer.from(content, "utf8").toString("base64")}`;
+    const now = new Date().toISOString();
+    const att = {
+      id: "f",
+      pageId: base.pages[0].id,
+      kind: "attachment",
+      rect: { x: 50, y: 50, w: 20, h: 20 },
+      color: "#2563eb",
+      opacity: 1,
+      strokeWidth: 0,
+      icon: "Paperclip",
+      file: { name: "données.csv", mime: "text/csv", data, description: "Tableau" },
+      author: "Moi",
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    } as Annot;
+    const out = (await buildPdf(await src.save(), { ...base, annots: [att] })).bytes;
+    // pdf.js sees a real attachment.
+    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const raw = (await (await (await task.promise).getPage(1)).getAnnotations()) as {
+      subtype: string;
+      file?: { filename: string };
+    }[];
+    await task.destroy();
+    expect(raw.find((r) => r.subtype === "FileAttachment")?.file?.filename).toBe("données.csv");
+    const back = (await imported(out)).annots[0];
+    expect(back).toMatchObject({ kind: "attachment", icon: "Paperclip" });
+    expect(back.file?.name).toBe("données.csv");
+    expect(back.file?.mime).toBe("text/csv");
+    expect(back.file?.description).toBe("Tableau");
+    expect(Buffer.from(back.file!.data.split(",")[1], "base64").toString("utf8")).toBe(content);
   });
 });

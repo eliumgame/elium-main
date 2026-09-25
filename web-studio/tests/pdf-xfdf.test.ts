@@ -232,3 +232,14 @@ describe("XFDF text edits (Acrobat's « Remplacer le texte »)", () => {
     expect(merged.find((a) => a.kind === "strikeout")?.group).toBe("L1");
   });
 });
+
+describe("XFDF file attachments", () => {
+  it("round-trip the file, hex-encoded", () => {
+    const data = `data:text/plain;base64,${btoa("Bonjour")}`;
+    const [back] = roundTrip([
+      base({ kind: "attachment", icon: "Tag", file: { name: "a.txt", mime: "text/plain", data } }),
+    ]);
+    expect(back).toMatchObject({ kind: "attachment", icon: "Tag" });
+    expect(back.file).toMatchObject({ name: "a.txt", mime: "text/plain", data });
+  });
+});

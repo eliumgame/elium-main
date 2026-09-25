@@ -429,13 +429,37 @@ export interface Bookmark {
   page: number;
   /** Vertical target within the page, page-space points from the top. */
   y?: number;
+  /** Horizontal target, page-space points from the left. */
+  x?: number;
+  /** How the page is shown (ISO 32000 destination types); /XYZ when absent. */
+  fit?: DestFit;
+  /** /XYZ magnification (1 = 100 %); absent: unchanged. */
+  zoom?: number;
   bold?: boolean;
   italic?: boolean;
   color?: string;
   children: Bookmark[];
-  /** Collapsed in the sidebar. */
+  /** Collapsed in the sidebar (and /Count negative in the file). */
   closed?: boolean;
+  /** Not a page: what the item does instead (then `page` means nothing). */
+  action?: BookmarkAction;
+  /**
+   * Where the item sits in the file's own outline ("0.2.1"): saved, it reuses
+   * that item, so what Elium does not model (actions, structure links, the
+   * exact destination) is kept.
+   */
+  src?: string;
+  /** The target was set in Elium: the file's destination or action is replaced. */
+  retargeted?: boolean;
 }
+
+export type DestFit = "XYZ" | "Fit" | "FitH" | "FitV" | "FitB" | "FitBH" | "FitBV" | "FitR";
+
+export type BookmarkAction =
+  | { kind: "uri"; url: string }
+  | { kind: "named"; name: string }
+  /** Another file, a script, a form action…: kept as is, not run. */
+  | { kind: "other"; label: string };
 
 // ---------------------------------------------------------------------------
 // Document-level settings

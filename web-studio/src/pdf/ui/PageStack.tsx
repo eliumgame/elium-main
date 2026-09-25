@@ -75,6 +75,8 @@ export interface PageStackHandle {
   element(): HTMLDivElement | null;
   /** Inclusive range of the pages currently mounted. */
   mountedRange(): { first: number; last: number } | null;
+  /** The page at the top-left of the view, and the point there (view-oriented points from its top-left). */
+  viewAnchor(): { index: number; px: number; py: number } | null;
 }
 
 export interface PageStackProps {
@@ -526,6 +528,13 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       },
       element: () => scrollerRef.current,
       mountedRange: () => range,
+      viewAnchor() {
+        const el = scrollerRef.current;
+        const L = layoutRef.current;
+        if (!el || !L.count) return null;
+        const a = captureAnchor(L, { top: el.scrollTop, left: el.scrollLeft }, 0, 16);
+        return { index: a.index, px: Math.max(0, a.px), py: Math.max(0, a.py) };
+      },
     }),
     [range, sync],
   );

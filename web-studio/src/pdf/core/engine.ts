@@ -23,6 +23,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { openPdfDocument, type LoadingTask } from "./assets";
 import type { Rotation } from "./coords";
 import { normRotation } from "./coords";
+import type { DestFit } from "../model/types";
 
 /** Geometry of one source page, in unrotated page space. */
 export interface PageInfo {
@@ -57,7 +58,19 @@ export interface OutlineNode {
   page: number | null;
   /** Vertical offset from the top of the page in points, when the dest carries one. */
   y?: number;
+  /** Horizontal offset from the left of the page, when the dest carries one. */
+  x?: number;
+  fit?: DestFit;
+  zoom?: number;
   url?: string;
+  /** A named action (NextPage…). */
+  action?: string;
+  /** Neither a page nor a URL nor a named action: another file, a script… */
+  other?: string;
+  /** Collapsed in the file (/Count negative). */
+  closed?: boolean;
+  /** Position in the file's outline ("0.2.1"). */
+  path: string;
   children: OutlineNode[];
 }
 
@@ -508,10 +521,23 @@ export class PdfEngine {
   async outline(): Promise<OutlineNode[]> {
     const raw = await this.doc.getOutline().catch(() => null);
     if (!raw) return [];
-    const walk = async (items: RawOutlineItem[]): Promise<OutlineNode[]> => {
+    const walk = async (items: RawOutlineItem[], prefix: string): Promise<OutlineNode[]> => {
       const out: OutlineNode[] = [];
-      for (const it of items) {
-        const resolved = await this.resolveDest(it.dest);
+      for (const [i, it] of items.entries()) {
+        const path = prefix ? `${prefix}.${i}` : String(i);
+        const resolved = it.dest ? await this.resolveDest(it.dest) : { page: null };
+        const url = it.url ?? undefined;
+        const action = typeof it.action === "string" ? it.action : undefined;
+        const other =
+          resolved.page == null && !url && !action
+            ? it.unsafeUrl
+              ? "Lien vers un autre fichier"
+              : it.attachment
+                ? "Pièce jointe"
+                : it.setOCGState
+                  ? "Calques"
+                  : "Action non prise en charge"
+            : undefined;
         out.push({
           title: (it.title ?? "").trim() || "(sans titre)",
           bold: !!it.bold,
@@ -519,17 +545,26 @@ export class PdfEngine {
           color: colorArrayToHex(it.color),
           page: resolved.page,
           y: resolved.y,
-          url: it.url ?? undefined,
-          children: it.items?.length ? await walk(it.items) : [],
+          x: resolved.x,
+          fit: resolved.fit,
+          zoom: resolved.zoom,
+          url,
+          action,
+          other,
+          closed: typeof it.count === "number" && it.count < 0 ? true : undefined,
+          path,
+          children: it.items?.length ? await walk(it.items, path) : [],
         });
       }
       return out;
     };
-    return walk(raw as RawOutlineItem[]);
+    return walk(raw as RawOutlineItem[], "");
   }
 
   /** Resolve a pdf.js destination (named or explicit) to a 1-based page + offset. */
-  async resolveDest(dest: unknown): Promise<{ page: number | null; y?: number }> {
+  async resolveDest(
+    dest: unknown,
+  ): Promise<{ page: number | null; y?: number; x?: number; fit?: DestFit; zoom?: number }> {
     try {
       const explicit = typeof dest === "string" ? await this.doc.getDestination(dest) : dest;
       if (!Array.isArray(explicit) || !explicit.length) return { page: null };
@@ -545,11 +580,26 @@ export class PdfEngine {
       // [ref, /XYZ, left, top, zoom] — `top` is in PDF space, flip it (against
       // the crop box, whose origin may not be 0).
       const mode = explicit[1] as { name?: string } | undefined;
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+      const fit = (DEST_FITS as readonly string[]).includes(mode?.name ?? "") ? (mode!.name as DestFit) : undefined;
       let y: number | undefined;
-      if (mode?.name === "XYZ" && typeof explicit[3] === "number") y = info.h - (explicit[3] - info.oy);
-      else if (mode?.name === "FitH" && typeof explicit[2] === "number") y = info.h - (explicit[2] - info.oy);
+      let x: number | undefined;
+      let zoom: number | undefined;
+      const top = (v: unknown) => (num(v) != null ? info.h - (num(v)! - info.oy) : undefined);
+      const left = (v: unknown) => (num(v) != null ? num(v)! - info.ox : undefined);
+      if (fit === "XYZ") {
+        x = left(explicit[2]);
+        y = top(explicit[3]);
+        zoom = num(explicit[4]) || undefined;
+      } else if (fit === "FitH" || fit === "FitBH") y = top(explicit[2]);
+      else if (fit === "FitV" || fit === "FitBV") x = left(explicit[2]);
+      else if (fit === "FitR") {
+        x = left(explicit[2]);
+        y = top(explicit[5]);
+      }
       if (y != null) y = Math.max(0, Math.min(info.h, y));
-      return { page: index + 1, y };
+      if (x != null) x = Math.max(0, Math.min(info.w, x));
+      return { page: index + 1, y, x, fit, zoom };
     } catch {
       return { page: null };
     }
@@ -677,8 +727,15 @@ interface RawOutlineItem {
   color?: Uint8ClampedArray | number[];
   dest?: unknown;
   url?: string | null;
+  unsafeUrl?: string;
+  action?: string | null;
+  attachment?: unknown;
+  setOCGState?: unknown;
+  count?: number;
   items?: RawOutlineItem[];
 }
+
+const DEST_FITS = ["XYZ", "Fit", "FitH", "FitV", "FitB", "FitBH", "FitBV", "FitR"] as const;
 
 interface RawAttachment {
   filename?: string;

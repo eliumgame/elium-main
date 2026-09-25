@@ -2,6 +2,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {
   Bookmark,
   ChevronDown,
+  Crosshair,
+  ExternalLink,
   ChevronRight,
   Copy,
   Download,
@@ -75,6 +77,8 @@ export interface SidebarProps {
   onBookmarkRename: (id: string, title: string) => void;
   onBookmarkDelete: (id: string) => void;
   onBookmarkToggle: (id: string) => void;
+  /** Point the bookmark at the current view. */
+  onBookmarkRetarget: (id: string) => void;
   onSearchSelect: (index: number) => void;
   onLayerToggle: (id: string) => void;
   onAttachmentOpen: (a: Attachment) => void;
@@ -438,15 +442,36 @@ function Bookmarks(p: SidebarProps) {
                   setDraft(node.title);
                   setEditing(node.id);
                 }}
-                title={`Page ${node.page}`}
+                title={
+                  node.action
+                    ? node.action.kind === "uri"
+                      ? node.action.url
+                      : node.action.kind === "named"
+                        ? `Action : ${node.action.name}`
+                        : node.action.label
+                    : `Page ${node.page}`
+                }
               >
                 {node.title}
               </button>
             )}
-            <span className="pdfx-mark__page">{node.page}</span>
+            <span className="pdfx-mark__page">
+              {node.action ? (
+                node.action.kind === "uri" ? (
+                  <ExternalLink size={11} aria-label="Lien" />
+                ) : (
+                  "·"
+                )
+              ) : (
+                node.page
+              )}
+            </span>
             <span className="pdfx-mark__ops">
               <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
                 <Plus size={12} />
+              </button>
+              <button title="Définir la destination sur la vue courante" onClick={() => p.onBookmarkRetarget(node.id)}>
+                <Crosshair size={12} />
               </button>
               <button
                 title="Renommer"

@@ -17,7 +17,8 @@ import {
   degrees,
 } from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
-import type { Page, PageLabelDef } from "../model/types";
+import type { BookmarkAction, DestFit, Page, PageLabelDef } from "../model/types";
+import { round } from "../core/coords";
 import { WrongPassword, openCrypt } from "./security";
 
 // ---------------------------------------------------------------------------
@@ -570,82 +571,163 @@ export interface OutlineEntry {
   title: string;
   /** 0-based page index in the output document. */
   page: number;
-  /** Points from the top of the page. */
+  /** Points from the top of the page (crop box). */
   y?: number;
+  /** Points from the left of the page (crop box). */
+  x?: number;
+  fit?: DestFit;
+  zoom?: number;
   bold?: boolean;
   italic?: boolean;
   color?: { r: number; g: number; b: number };
   children: OutlineEntry[];
   closed?: boolean;
+  /** Not a page (then `page` is ignored). */
+  action?: BookmarkAction;
+  /** The document's own item at this position of its outline ("0.2.1"), reused. */
+  src?: string;
+  /** Target set in Elium: the reused item's destination or action is replaced. */
+  retargeted?: boolean;
+}
+
+/** The items of `doc`'s outline by position ("0", "0.1"…), as pdf.js numbers them. */
+function outlineItems(doc: PDFDocument): Map<string, { ref: PDFRef; dict: PDFDict }> {
+  const out = new Map<string, { ref: PDFRef; dict: PDFDict }>();
+  const root = doc.catalog.lookup(PDFName.of("Outlines"));
+  if (!(root instanceof PDFDict)) return out;
+  const seen = new Set<string>();
+  const walk = (first: unknown, prefix: string, depth: number) => {
+    let ref = first;
+    let i = 0;
+    while (ref instanceof PDFRef && !seen.has(refKey(ref)) && depth < 64 && seen.size < 100000) {
+      seen.add(refKey(ref));
+      const dict = doc.context.lookup(ref);
+      if (!(dict instanceof PDFDict)) break;
+      const path = prefix ? `${prefix}.${i}` : String(i);
+      out.set(path, { ref, dict });
+      walk(dict.get(PDFName.of("First")), path, depth + 1);
+      ref = dict.get(PDFName.of("Next"));
+      i++;
+    }
+  };
+  walk(root.get(PDFName.of("First")), "", 0);
+  return out;
+}
+
+const isBlack = (c: { r: number; g: number; b: number } | undefined) => !c || (!c.r && !c.g && !c.b);
+
+/** A destination array to `page` of `doc`, the entry's view (model space → PDF space). */
+function destArray(doc: PDFDocument, entry: OutlineEntry): unknown[] | undefined {
+  const pages = doc.getPages();
+  const target = pages[Math.max(0, Math.min(pages.length - 1, entry.page))];
+  if (!target) return undefined;
+  const box = target.getCropBox();
+  const top = entry.y != null ? round(box.y + box.height - entry.y) : null;
+  const left = entry.x != null ? round(box.x + entry.x) : null;
+  const name = PDFName.of;
+  switch (entry.fit) {
+    case "Fit":
+    case "FitB":
+      return [target.ref, name(entry.fit)];
+    case "FitH":
+    case "FitBH":
+      return [target.ref, name(entry.fit), top];
+    case "FitV":
+    case "FitBV":
+      return [target.ref, name(entry.fit), left];
+    default:
+      return [target.ref, name("XYZ"), left, top ?? round(box.y + box.height), entry.zoom ?? null];
+  }
 }
 
 /**
  * Write a bookmark tree into the document catalogue. pdf-lib has no outline
- * API, so the `/Outlines` dictionary is assembled by hand — which is also what
- * lets us keep bold/italic/colour and collapsed state.
+ * API, so the `/Outlines` dictionary is assembled by hand.
+ *
+ * An entry that came from the document (`src`) reuses its item: only what the
+ * model changed is written (links in the tree, open/closed count, title,
+ * style), so its destination or action (URI, named, another file, a script,
+ * its structure element…) stays exactly as the file had it — unless the
+ * target was set in Elium (`retargeted`). The document's /PageMode is left
+ * alone (it is the Initial View's).
  */
 export function writeOutline(doc: PDFDocument, entries: readonly OutlineEntry[]): void {
   const ctx = doc.context;
-  const pages = doc.getPages();
+  const existing = outlineItems(doc);
   if (!entries.length) {
     doc.catalog.delete(PDFName.of("Outlines"));
     return;
   }
+  const oldRoot = doc.catalog.get(PDFName.of("Outlines"));
+  const rootRef = oldRoot instanceof PDFRef && ctx.lookup(oldRoot) instanceof PDFDict ? oldRoot : ctx.nextRef();
+  const used = new Set<string>();
+  const STRUCTURE = ["Parent", "Prev", "Next", "First", "Last", "Count"].map((k) => PDFName.of(k));
 
-  const rootRef = ctx.nextRef();
-
-  interface Built {
-    ref: ReturnType<typeof ctx.nextRef>;
-    visible: number;
-  }
-
-  const build = (
-    list: readonly OutlineEntry[],
-    parentRef: ReturnType<typeof ctx.nextRef>,
-  ): { first: Built | null; last: Built | null; count: number } => {
-    const refs = list.map(() => ctx.nextRef());
+  const build = (list: readonly OutlineEntry[], parentRef: PDFRef): { refs: PDFRef[]; count: number } => {
+    const items = list.map((entry) => {
+      const orig = entry.src ? existing.get(entry.src) : undefined;
+      if (orig && !used.has(refKey(orig.ref))) {
+        used.add(refKey(orig.ref));
+        return { entry, ref: orig.ref, dict: orig.dict, reused: true };
+      }
+      const dict = ctx.obj({}) as PDFDict;
+      return { entry, ref: ctx.register(dict), dict, reused: false };
+    });
     let openCount = 0;
-    list.forEach((entry, i) => {
-      const kids = build(entry.children, refs[i]);
-      const target = pages[Math.max(0, Math.min(pages.length - 1, entry.page))];
-      const dict: Record<string, unknown> = {
-        Title: hexTitle(entry.title),
-        Parent: parentRef,
-      };
-      if (target) {
-        const top = entry.y != null ? target.getCropBox().height - entry.y : target.getCropBox().height;
-        dict.Dest = [target.ref, PDFName.of("XYZ"), null, Math.round(top), null];
+    items.forEach(({ entry, ref, dict, reused }, i) => {
+      for (const k of STRUCTURE) dict.delete(k);
+      const kids = build(entry.children, ref);
+      dict.set(PDFName.of("Parent"), parentRef);
+      if (i > 0) dict.set(PDFName.of("Prev"), items[i - 1].ref);
+      if (i < items.length - 1) dict.set(PDFName.of("Next"), items[i + 1].ref);
+      if (kids.refs.length) {
+        dict.set(PDFName.of("First"), kids.refs[0]);
+        dict.set(PDFName.of("Last"), kids.refs[kids.refs.length - 1]);
+        dict.set(PDFName.of("Count"), ctx.obj(entry.closed ? -kids.count : kids.count));
       }
-      if (i > 0) dict.Prev = refs[i - 1];
-      if (i < refs.length - 1) dict.Next = refs[i + 1];
-      if (kids.first) {
-        dict.First = kids.first.ref;
-        dict.Last = kids.last!.ref;
-        dict.Count = entry.closed ? -kids.count : kids.count;
+      // The title as the file wrote it, while unchanged.
+      const t = dict.lookup(PDFName.of("Title"));
+      const had = t instanceof PDFString || t instanceof PDFHexString ? t.decodeText().trim() || "(sans titre)" : null;
+      if (had !== entry.title) dict.set(PDFName.of("Title"), hexTitle(entry.title));
+      // Where it goes.
+      if (!reused || entry.retargeted) {
+        dict.delete(PDFName.of("Dest"));
+        dict.delete(PDFName.of("A"));
+        dict.delete(PDFName.of("SE"));
+        const a = entry.action;
+        if (a?.kind === "uri") dict.set(PDFName.of("A"), ctx.obj({ S: "URI", URI: PDFString.of(a.url) } as never));
+        else if (a?.kind === "named") dict.set(PDFName.of("A"), ctx.obj({ S: "Named", N: a.name } as never));
+        else if (!a) {
+          const dest = destArray(doc, entry);
+          if (dest) dict.set(PDFName.of("Dest"), ctx.obj(dest as never));
+        }
       }
-      if (entry.bold || entry.italic) dict.F = (entry.italic ? 1 : 0) | (entry.bold ? 2 : 0);
-      if (entry.color) dict.C = [entry.color.r, entry.color.g, entry.color.b];
-      ctx.assign(refs[i], ctx.obj(dict as never));
+      // Style: written when set, removed when cleared (a black /C is the default).
+      const f = (entry.italic ? 1 : 0) | (entry.bold ? 2 : 0);
+      if (f) dict.set(PDFName.of("F"), ctx.obj(f));
+      else dict.delete(PDFName.of("F"));
+      if (!isBlack(entry.color)) {
+        const c = entry.color!;
+        dict.set(PDFName.of("C"), ctx.obj([c.r, c.g, c.b].map((v) => round(v, 4))));
+      } else {
+        const c = dict.lookup(PDFName.of("C"));
+        const black = c instanceof PDFArray && c.asArray().every((v) => v instanceof PDFNumber && v.asNumber() === 0);
+        if (!black) dict.delete(PDFName.of("C"));
+      }
+      if (!reused) ctx.assign(ref, dict);
       openCount += 1 + (entry.closed ? 0 : kids.count);
     });
-    return {
-      first: refs.length ? { ref: refs[0], visible: 0 } : null,
-      last: refs.length ? { ref: refs[refs.length - 1], visible: 0 } : null,
-      count: openCount,
-    };
+    return { refs: items.map((it) => it.ref), count: openCount };
   };
 
   const top = build(entries, rootRef);
-  ctx.assign(
-    rootRef,
-    ctx.obj({
-      Type: "Outlines",
-      ...(top.first ? { First: top.first.ref, Last: top.last!.ref } : {}),
-      Count: top.count,
-    } as never),
-  );
+  const root = (ctx.lookup(rootRef) as PDFDict | undefined) ?? (ctx.obj({}) as PDFDict);
+  root.set(PDFName.of("Type"), PDFName.of("Outlines"));
+  root.set(PDFName.of("First"), top.refs[0]);
+  root.set(PDFName.of("Last"), top.refs[top.refs.length - 1]);
+  root.set(PDFName.of("Count"), ctx.obj(top.count));
+  if (!ctx.lookup(rootRef)) ctx.assign(rootRef, root);
   doc.catalog.set(PDFName.of("Outlines"), rootRef);
-  doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
 }
 
 function hexTitle(title: string) {

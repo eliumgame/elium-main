@@ -8,6 +8,7 @@
 
 import type { Rect, Rotation } from "../core/coords";
 import { normRotation, rectOfPoints, rectOfQuads } from "../core/coords";
+import type { OutlineNode } from "../core/engine";
 import type {
   Annot,
   AnnotKind,
@@ -728,4 +729,43 @@ export function upsertFieldEdit(state: PdfState, name: string, patch: Omit<Parti
     props: patch.props ? { ...(prev?.props ?? {}), ...patch.props } : prev?.props,
   };
   return { ...state, fieldEdits: prev ? edits.map((e) => (e === prev ? next : e)) : [...edits, next] };
+}
+
+/** The file's outline (as the engine reads it) as the model's bookmarks. */
+export function outlineToBookmarks(nodes: readonly OutlineNode[]): Bookmark[] {
+  return nodes.map((n) => {
+    const action: Bookmark["action"] =
+      n.page != null
+        ? undefined
+        : n.url
+          ? { kind: "uri", url: n.url }
+          : n.action
+            ? { kind: "named", name: n.action }
+            : { kind: "other", label: n.other ?? "Action non prise en charge" };
+    return {
+      id: newId("bm"),
+      title: n.title,
+      page: n.page ?? 1,
+      y: n.y,
+      x: n.x,
+      fit: n.fit,
+      zoom: n.zoom,
+      bold: n.bold,
+      italic: n.italic,
+      color: n.color,
+      closed: n.closed,
+      action,
+      src: n.path,
+      children: outlineToBookmarks(n.children),
+    };
+  });
+}
+
+/** The same tree, each item now the file's item at its own position (after a recomposition wrote it). */
+export function rebaseBookmarks(tree: readonly Bookmark[], prefix = ""): Bookmark[] {
+  return tree.map((b, i) => {
+    const path = prefix ? `${prefix}.${i}` : String(i);
+    const { retargeted: _gone, ...rest } = b;
+    return { ...rest, src: path, children: rebaseBookmarks(b.children, path) };
+  });
 }

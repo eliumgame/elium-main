@@ -756,3 +756,64 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   - un fichier combiné contenant deux fois le même formulaire : un seul champ par
     nom, valeur partagée ;
   - les signets par fichier.
+
+## T6 : navigation
+
+### Audit (session cloud 1), par ordre d'impact
+1. Replier un signet réécrit tout le sommaire : actions URI, nommées, GoToR et JS, /SE,
+   zoom, position, /Fit* et état ouvert/fermé sont perdus ; /C [0 0 0] est ajouté partout.
+2. Écrire les signets force /PageMode /UseOutlines.
+3. Destinations de signets et de liens décalées quand l'origine du CropBox n'est pas
+   0 ; la rotation est ignorée.
+4. Un signet sans page (URI, nommé…) mène à la page 1.
+5. L'état replié des signets (/Count négatif) est ignoré à la lecture.
+6. Calques : un calque masqué par défaut ne peut jamais être affiché, et le panneau le
+   coche. Manquent aussi l'imbrication, /Locked, /RBGroups, l'impression, « visibilité
+   par défaut » et l'aplatissement.
+7. Liens créés avec l'outil :
+   - numéro de page figé : faux après réorganisation ;
+   - enregistrés sans bordure, /H, /C ni zoom ;
+   - créés sans action.
+8. Recherche :
+   - les options ne relancent pas la recherche ;
+   - pas d'options mot entier ni accents ;
+   - la recherche part de la page 1 ;
+   - numéros de page faux après réorganisation ;
+   - accents décomposés non trouvés ;
+   - mots coupés en fin de ligne non trouvés.
+9. Recherche lente sur 1000 pages (≈ 530 ms par frappe, sans temporisation) ; ni les
+   commentaires ni les signets ne sont cherchés.
+10. Pas d'historique vue précédente / suivante (Alt+← / Alt+→) ; les actions GoBack et
+    GoForward sont inertes ; NextPage et PrevPage sont faux après réorganisation.
+11. Case de numéro de page : les étiquettes ne sont pas acceptées, saut à chaque frappe,
+    pas de validation par Entrée.
+12. Édition des signets : ni glisser, ni imbrication, ni vue courante (zoom et
+    position), ni texte sélectionné, ni style ou couleur, ni « tout déplier » ; « depuis
+    les titres » remplace le sommaire au lieu de s'y ajouter.
+13. Liens du fichier non modifiables (non importés) ; pas de destination nommée, de
+    fichier ni de zoom ; pas de « Créer des liens à partir des URL ».
+14. Vue initiale ignorée et non modifiable (/PageLayout, /PageMode, /OpenAction,
+    /ViewerPreferences).
+15. Pièces jointes : liste seule (pas d'ajout, de suppression ni de description ; noms en
+    double confondus ; pièces jointes des commentaires absentes). Pas de panneau
+    Destinations.
+
+### Session cloud 1 : T6, points 1 à 5 (signets fidèles)
+- Chaque signet garde sa position dans le sommaire du fichier. À l'enregistrement, il
+  réutilise son élément d'origine : seul ce qui a été modifié est réécrit (titre,
+  repli, style, place dans l'arbre).
+- Sont conservés : actions (URI, nommées, GoToR, JavaScript), /SE, destination exacte
+  (/XYZ gauche, haut, zoom ; /Fit*), et /C seulement s'il existe.
+- /PageMode n'est plus forcé à /UseOutlines.
+- Lecture : zoom, gauche, type d'ajustement, état replié (/Count négatif), action.
+  Un signet sans page ne mène plus à la page 1 : un lien web s'ouvre après
+  confirmation, une action nommée s'exécute sur l'ordre actuel des pages, les autres
+  sont signalées.
+- Destinations écrites et lues par rapport à l'origine du CropBox ; sur une page
+  tournée, le point visé est converti selon la rotation affichée.
+- Nouveau signet : la vue courante (page, point en haut à gauche, zoom), titré avec le
+  texte sélectionné s'il y en a. Bouton « Définir la destination sur la vue courante ».
+- Après une recomposition qui garde l'état (préparation de formulaire, OCR), les
+  signets sont rattachés aux éléments du nouveau fichier.
+- Couvre aussi le défaut n° 4 de la relecture T5.
+- Tests : `pdf-bookmarks.test.ts` (4).

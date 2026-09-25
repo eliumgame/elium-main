@@ -45,6 +45,7 @@ import type {
   Page,
   PdfState,
   Tool,
+  DestFit,
 } from "../model/types";
 import { EMPTY_FILTER, type CommentFilter, type CommentSort } from "../model/doc";
 import { DEFAULT_STYLE, emptyState, isTextMarkup, newId, styleForKind, toolIsAnnot } from "../model/types";
@@ -197,6 +198,7 @@ import {
   type SidePanel,
   type Toast,
   type ViewState,
+  type ZoomMode,
 } from "./state";
 import { CombineDialog, type CombineItem } from "./CombineDialog";
 import "./pdf.css";
@@ -772,9 +774,17 @@ export default function PdfWorkspace({
           .outline()
           .then((outline) => {
             if (gen !== shownGeneration.current || !outline.length) return;
-            const bookmarks: Bookmark[] = outlineToBookmarks(outline);
+            const bookmarks: Bookmark[] = D.outlineToBookmarks(outline);
             if (!(derived && restore)) pristineBookmarksRef.current = bookmarks;
-            amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
+            // A recomposed file holds the bookmarks as the session had them:
+            // each one is now the file's item at its position.
+            amend((s) =>
+              s.bookmarks == null
+                ? { ...s, bookmarks }
+                : derived && restore
+                  ? { ...s, bookmarks: D.rebaseBookmarks(s.bookmarks) }
+                  : s,
+            );
           })
           .catch(() => {});
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
@@ -1125,6 +1135,60 @@ export default function PdfWorkspace({
     },
     [currentStore],
   );
+
+  /**
+   * Show a destination (a bookmark's, a link's): its page, the point it names
+   * (page space, turned as the page is shown) at the top, and its zoom or fit.
+   */
+  const followDest = (d: { page: number; x?: number; y?: number; fit?: DestFit; zoom?: number }) => {
+    const target = clamp(Math.round(d.page), 1, Math.max(1, pageCountRef.current));
+    const page = pages[target - 1];
+    let top = d.y;
+    if (page && (d.x != null || d.y != null)) {
+      const { w, h } = sizeOf(page);
+      const x = d.x ?? 0;
+      const y = d.y ?? 0;
+      // The page-space point, seen on the page as turned on screen.
+      const r = rotationOf(page);
+      top = r === 90 ? x : r === 180 ? h - y : r === 270 ? w - x : y;
+      if (d.y == null && (r === 0 || r === 180)) top = undefined;
+    }
+    const zoomMode: ZoomMode | null =
+      d.fit === "Fit" || d.fit === "FitB" ? "fitPage" : d.fit === "FitH" || d.fit === "FitBH" ? "fitWidth" : null;
+    // A destination's zoom is Acrobat's (1 = 100 %).
+    const scale = (d.fit === "XYZ" || !d.fit) && d.zoom ? presetScale(d.zoom) : undefined;
+    const rezoom = zoomMode ? zoomMode !== view.zoomMode : !!scale && Math.abs(scale - view.scale) > 1e-3;
+    if (zoomMode && rezoom) setView((v) => ({ ...v, zoomMode }));
+    else if (scale && rezoom) setView((v) => ({ ...v, scale: clamp(scale, MIN_SCALE, MAX_SCALE), zoomMode: "custom" }));
+    const go = () => goTo(target, top);
+    // A new zoom lays the pages out again first.
+    if (rezoom) requestAnimationFrame(() => requestAnimationFrame(go));
+    else go();
+  };
+
+  /** A named action (bookmark or link): pages counted as the document now is. */
+  const runNamedAction = (name: string) => {
+    const cur = currentStore.get();
+    const n = pageCountRef.current;
+    if (name === "NextPage") goTo(Math.min(n, cur + 1));
+    else if (name === "PrevPage") goTo(Math.max(1, cur - 1));
+    else if (name === "FirstPage") goTo(1);
+    else if (name === "LastPage") goTo(n);
+    else toast("info", "Action du fichier", `« ${name} » n'est pas exécutée par Elium.`);
+  };
+
+  const openExternal = (url: string) =>
+    void dialogs.confirm({ title: "Ouvrir un lien externe", message: url }).then((ok) => {
+      if (ok) window.open(url, "_blank", "noopener,noreferrer");
+    });
+
+  const followBookmark = (b: Bookmark) => {
+    const a = b.action;
+    if (!a) followDest(b);
+    else if (a.kind === "uri") openExternal(a.url);
+    else if (a.kind === "named") runNamedAction(a.name);
+    else toast("info", a.label, "Cette action est conservée dans le fichier, mais Elium ne l'exécute pas.");
+  };
 
   const onCurrentChange = useCallback((current: number) => currentStore.set(current), [currentStore]);
   // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.
@@ -3310,9 +3374,33 @@ export default function PdfWorkspace({
     }
   };
 
+  /** The current view as a destination (Acrobat's new bookmark): page, point at the top left, zoom. */
+  const currentDest = (): Pick<Bookmark, "page" | "x" | "y" | "fit" | "zoom"> => {
+    const a = stackRef.current?.viewAnchor();
+    const index = a ? a.index : currentStore.get() - 1;
+    const page = pages[index];
+    const dest: Pick<Bookmark, "page" | "x" | "y" | "fit" | "zoom"> = {
+      page: index + 1,
+      fit: "XYZ",
+      zoom: view.zoomMode === "custom" ? Math.round((view.scale / ZOOM_UNIT) * 1000) / 1000 : undefined,
+    };
+    if (a && page) {
+      // View-oriented point → page space (the page as turned on screen).
+      const { w, h } = sizeOf(page);
+      const r = rotationOf(page);
+      const [x, y] =
+        r === 90 ? [a.py, h - a.px] : r === 180 ? [w - a.px, h - a.py] : r === 270 ? [w - a.py, a.px] : [a.px, a.py];
+      dest.x = Math.round(Math.max(0, Math.min(w, x)));
+      dest.y = Math.round(Math.max(0, Math.min(h, y)));
+    }
+    return dest;
+  };
+
   const addBookmark = (parentId: string | null) => {
-    const at = currentStore.get();
-    const node: Bookmark = { id: newId("bm"), title: `Page ${at}`, page: at, children: [] };
+    const dest = currentDest();
+    // Acrobat titles it with the selected text, when there is some.
+    const picked = window.getSelection()?.toString().replace(/\s+/g, " ").trim().slice(0, 120);
+    const node: Bookmark = { id: newId("bm"), title: picked || `Page ${dest.page}`, ...dest, children: [] };
     setState((s) => ({ ...s, bookmarks: D.insertBookmark(s.bookmarks ?? [], parentId, node) }));
     setPanel("bookmarks");
   };
@@ -4336,7 +4424,7 @@ export default function PdfWorkspace({
               onReplyDelete={(annotId, replyId) => setState((s) => D.removeReply(s, annotId, replyId))}
               onFilterChange={setFilter}
               onSortChange={setSort}
-              onBookmarkGoTo={(b) => goTo(b.page, b.y)}
+              onBookmarkGoTo={followBookmark}
               onBookmarkAdd={addBookmark}
               onBookmarkRename={(id, title) =>
                 setState((s) => ({
@@ -4345,6 +4433,16 @@ export default function PdfWorkspace({
                 }))
               }
               onBookmarkDelete={(id) => setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))}
+              onBookmarkRetarget={(id) => {
+                const dest = currentDest();
+                setState((s) => ({
+                  ...s,
+                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
+                    b.id === id ? { ...b, ...dest, action: undefined, retargeted: true } : b,
+                  ),
+                }));
+                toast("success", "Destination du signet", `Page ${dest.page}, vue courante.`);
+              }}
               onBookmarkToggle={(id) =>
                 setQuiet((s) => ({
                   ...s,
@@ -4477,11 +4575,8 @@ export default function PdfWorkspace({
                 else textLayers.current.delete(pageId);
               }}
               onLinkActivate={(target) => {
-                if (target.page) goTo(target.page, target.y);
-                else if (target.url)
-                  void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
-                    if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
-                  });
+                if (target.page) followDest({ page: target.page, y: target.y });
+                else if (target.url) openExternal(target.url);
               }}
             />
           </div>
@@ -5151,29 +5246,6 @@ export default function PdfWorkspace({
 }
 
 // ---------------------------------------------------------------------------
-
-function outlineToBookmarks(
-  nodes: {
-    title: string;
-    page: number | null;
-    y?: number;
-    bold: boolean;
-    italic: boolean;
-    color?: string;
-    children: unknown[];
-  }[],
-): Bookmark[] {
-  return nodes.map((n) => ({
-    id: newId("bm"),
-    title: n.title,
-    page: n.page ?? 1,
-    y: n.y,
-    bold: n.bold,
-    italic: n.italic,
-    color: n.color,
-    children: outlineToBookmarks((n.children ?? []) as never),
-  }));
-}
 
 /**
  * Previous / page number / next. Subscribes to the current page itself, so

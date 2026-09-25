@@ -1023,19 +1023,7 @@ function toHex(bytes: Uint8Array): string {
   return s;
 }
 
-function toOutlineEntries(
-  nodes: readonly {
-    title: string;
-    page: number;
-    y?: number;
-    bold?: boolean;
-    italic?: boolean;
-    color?: string;
-    closed?: boolean;
-    children: readonly unknown[];
-  }[],
-  pageCount: number,
-): OutlineEntry[] {
+function toOutlineEntries(nodes: readonly Bookmark[], pageCount: number): OutlineEntry[] {
   const hex = (c?: string) => {
     if (!c) return undefined;
     const h = c.replace("#", "");
@@ -1047,11 +1035,17 @@ function toOutlineEntries(
     title: n.title,
     page: Math.max(0, Math.min(pageCount - 1, (n.page || 1) - 1)),
     y: n.y,
+    x: n.x,
+    fit: n.fit,
+    zoom: n.zoom,
     bold: n.bold,
     italic: n.italic,
     color: hex(n.color),
     closed: n.closed,
-    children: toOutlineEntries(n.children as never, pageCount),
+    action: n.action,
+    src: n.src,
+    retargeted: n.retargeted,
+    children: toOutlineEntries(n.children, pageCount),
   }));
 }
 

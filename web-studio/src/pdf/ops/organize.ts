@@ -4,7 +4,7 @@
  * hard to get subtly wrong.
  */
 
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString, degrees } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString, degrees } from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
 import type { Page, PageLabelDef } from "../model/types";
 import { WrongPassword, openCrypt } from "./security";
@@ -591,3 +591,230 @@ export function writePageLabels(doc: PDFDocument, defs: readonly (PageLabelDef |
 }
 
 export { PDFName, PDFNumber };
+
+// ---------------------------------------------------------------------------
+// Pages removed or duplicated: the objects that pointed at them
+// ---------------------------------------------------------------------------
+
+const refKey = (r: unknown): string => (r instanceof PDFRef ? `${r.objectNumber} ${r.generationNumber}` : "");
+
+/** Keys that belong to the field, not to its widget (ISO 32000 12.7.4, 12.7.5). */
+const FIELD_KEYS = ["FT", "T", "TU", "TM", "Ff", "V", "DV", "Q", "DS", "RV", "Opt", "TI", "I", "MaxLen", "Lock", "SV"];
+
+/**
+ * A duplicated page's widgets join their original fields — Acrobat's
+ * behaviour: the copy is another view of the same field (same name, same
+ * value), not an orphan widget outside the form. A field whose single widget
+ * was merged into it is split into a field and its two widgets.
+ */
+export function shareCopiedFields(doc: PDFDocument, pairs: readonly { original: PDFPage; copy: PDFPage }[]): void {
+  const acro = doc.catalog.lookup(PDFName.of("AcroForm"));
+  if (!(acro instanceof PDFDict) || !pairs.length) return;
+  const fields = acro.lookup(PDFName.of("Fields"));
+  if (!(fields instanceof PDFArray)) return;
+  const ctx = doc.context;
+  for (const { original, copy } of pairs) {
+    const origAnnots = original.node.Annots();
+    const copyAnnots = copy.node.Annots();
+    if (!(origAnnots instanceof PDFArray) || !(copyAnnots instanceof PDFArray)) continue;
+    // Copies come in the same order as their originals.
+    for (let i = 0; i < Math.min(origAnnots.size(), copyAnnots.size()); i++) {
+      const oRef = origAnnots.get(i);
+      const cRef = copyAnnots.get(i);
+      const o = origAnnots.lookup(i);
+      const c = copyAnnots.lookup(i);
+      if (!(oRef instanceof PDFRef) || !(cRef instanceof PDFRef) || !(o instanceof PDFDict) || !(c instanceof PDFDict))
+        continue;
+      if (o.lookup(PDFName.of("Subtype"))?.toString() !== "/Widget") continue;
+      c.set(PDFName.of("P"), copy.ref);
+      const parentRef = o.get(PDFName.of("Parent"));
+      if (parentRef instanceof PDFRef) {
+        const parent = ctx.lookup(parentRef);
+        if (!(parent instanceof PDFDict)) continue;
+        c.set(PDFName.of("Parent"), parentRef);
+        const kids = parent.lookup(PDFName.of("Kids"));
+        if (kids instanceof PDFArray) kids.push(cRef);
+        else parent.set(PDFName.of("Kids"), ctx.obj([oRef, cRef]));
+        continue;
+      }
+      if (!o.get(PDFName.of("T"))) continue;
+      // Merged field + widget: split it (a field with two widgets).
+      const field = ctx.obj({}) as PDFDict;
+      for (const k of FIELD_KEYS) {
+        const v = o.get(PDFName.of(k));
+        if (v !== undefined) {
+          field.set(PDFName.of(k), v);
+          o.delete(PDFName.of(k));
+          c.delete(PDFName.of(k));
+        }
+      }
+      const da = o.get(PDFName.of("DA"));
+      if (da) field.set(PDFName.of("DA"), da);
+      const fieldRef = ctx.register(field);
+      field.set(PDFName.of("Kids"), ctx.obj([oRef, cRef]));
+      o.set(PDFName.of("Parent"), fieldRef);
+      c.set(PDFName.of("Parent"), fieldRef);
+      const at = fields.indexOf(oRef);
+      if (at !== undefined && at >= 0) fields.set(at, fieldRef);
+      else fields.push(fieldRef);
+    }
+  }
+}
+
+/**
+ * Pages taken out of the document must not stay in it through what pointed
+ * at them (their content would still be in the file, and the form would keep
+ * fields nobody can see): their widgets leave the form, bookmarks to them go
+ * to the next page kept, named destinations and links to them are removed,
+ * the opening action falls back to the first page, the structure tree lets go
+ * of them.
+ *
+ * `order` is the source's pages in their original order, `kept` the refs
+ * ("num gen") of those still in the document.
+ */
+export function purgeRemovedPages(doc: PDFDocument, order: readonly PDFPage[], kept: ReadonlySet<string>): void {
+  const removed = new Set(order.map((p) => refKey(p.ref)).filter((k) => !kept.has(k)));
+  if (!removed.size) return;
+  const ctx = doc.context;
+  const first = doc.getPages()[0]?.ref;
+  const nextKept = (k: string): PDFRef | undefined => {
+    const i = order.findIndex((p) => refKey(p.ref) === k);
+    for (let j = i + 1; j < order.length; j++) if (kept.has(refKey(order[j].ref))) return order[j].ref;
+    for (let j = i - 1; j >= 0; j--) if (kept.has(refKey(order[j].ref))) return order[j].ref;
+    return first;
+  };
+  // A destination: [page …] (direct, or through a GoTo action).
+  const destPage = (d: unknown): string => {
+    const arr = d instanceof PDFRef ? ctx.lookup(d) : d;
+    return arr instanceof PDFArray ? refKey(arr.get(0)) : "";
+  };
+  const goesToRemoved = (dict: PDFDict): { key: "Dest" | "A"; page: string } | null => {
+    const dest = dict.get(PDFName.of("Dest"));
+    if (dest && removed.has(destPage(dest))) return { key: "Dest", page: destPage(dest) };
+    const a = dict.lookup(PDFName.of("A"));
+    if (a instanceof PDFDict && a.lookup(PDFName.of("S"))?.toString() === "/GoTo") {
+      const d = a.get(PDFName.of("D"));
+      if (d && removed.has(destPage(d))) return { key: "A", page: destPage(d) };
+    }
+    return null;
+  };
+
+  // 1. The form: widgets of removed pages leave it; fields left without widgets go.
+  const acro = doc.catalog.lookup(PDFName.of("AcroForm"));
+  const fields = acro instanceof PDFDict ? acro.lookup(PDFName.of("Fields")) : undefined;
+  if (fields instanceof PDFArray) {
+    const onKept = new Set<string>();
+    for (const p of doc.getPages()) {
+      const annots = p.node.Annots();
+      if (annots instanceof PDFArray) for (let i = 0; i < annots.size(); i++) onKept.add(refKey(annots.get(i)));
+    }
+    const isWidget = (d: PDFDict) =>
+      !!d.get(PDFName.of("Rect")) || d.lookup(PDFName.of("Subtype"))?.toString() === "/Widget";
+    // Returns whether the node still has a widget on a kept page.
+    const prune = (ref: unknown, depth: number): boolean => {
+      const node = ref instanceof PDFRef ? ctx.lookup(ref) : ref;
+      if (!(node instanceof PDFDict) || depth > 32) return true;
+      const kids = node.lookup(PDFName.of("Kids"));
+      if (kids instanceof PDFArray) {
+        for (let i = kids.size() - 1; i >= 0; i--) if (!prune(kids.get(i), depth + 1)) kids.remove(i);
+        if (kids.size() > 0) return true;
+        // No child left: gone, unless it is itself a widget on a kept page.
+        return isWidget(node) && onKept.has(refKey(ref));
+      }
+      // A terminal: its widget(s) is itself.
+      return !isWidget(node) || onKept.has(refKey(ref));
+    };
+    for (let i = fields.size() - 1; i >= 0; i--) if (!prune(fields.get(i), 0)) fields.remove(i);
+  }
+
+  // 2. Bookmarks: to the next page kept (the item stays).
+  const outlines = doc.catalog.lookup(PDFName.of("Outlines"));
+  const walk = (item: unknown, depth: number) => {
+    let cur = item instanceof PDFRef ? ctx.lookup(item) : item;
+    let guard = 0;
+    while (cur instanceof PDFDict && guard++ < 100000 && depth < 64) {
+      const hit = goesToRemoved(cur);
+      if (hit) {
+        const to = nextKept(hit.page);
+        const dest = to ? ctx.obj([to, PDFName.of("Fit")]) : undefined;
+        cur.delete(PDFName.of("A"));
+        if (dest) cur.set(PDFName.of("Dest"), dest);
+        else cur.delete(PDFName.of("Dest"));
+      }
+      const firstKid = cur.get(PDFName.of("First"));
+      if (firstKid) walk(firstKid, depth + 1);
+      const next = cur.get(PDFName.of("Next"));
+      cur = next instanceof PDFRef ? ctx.lookup(next) : undefined;
+    }
+  };
+  if (outlines instanceof PDFDict) walk(outlines.get(PDFName.of("First")), 0);
+
+  // 3. Named destinations to removed pages.
+  const dests = doc.catalog.lookup(PDFName.of("Dests"));
+  if (dests instanceof PDFDict) {
+    for (const [k, v] of dests.entries()) {
+      const d = v instanceof PDFRef ? ctx.lookup(v) : v;
+      const arr = d instanceof PDFDict ? d.get(PDFName.of("D")) : d;
+      if (removed.has(destPage(arr))) dests.delete(k);
+    }
+  }
+  const names = doc.catalog.lookup(PDFName.of("Names"));
+  const destTree = names instanceof PDFDict ? names.lookup(PDFName.of("Dests")) : undefined;
+  const pruneTree = (node: unknown, depth: number) => {
+    const n = node instanceof PDFRef ? ctx.lookup(node) : node;
+    if (!(n instanceof PDFDict) || depth > 32) return;
+    const list = n.lookup(PDFName.of("Names"));
+    if (list instanceof PDFArray) {
+      for (let i = list.size() - 2; i >= 0; i -= 2) {
+        const v = list.lookup(i + 1);
+        const arr = v instanceof PDFDict ? v.get(PDFName.of("D")) : v;
+        if (removed.has(destPage(arr))) {
+          list.remove(i + 1);
+          list.remove(i);
+        }
+      }
+    }
+    const kids = n.lookup(PDFName.of("Kids"));
+    if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) pruneTree(kids.get(i), depth + 1);
+  };
+  if (destTree) pruneTree(destTree, 0);
+
+  // 4. Links on the pages kept that lead to removed pages.
+  for (const p of doc.getPages()) {
+    const annots = p.node.Annots();
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const a = annots.lookup(i);
+      if (a instanceof PDFDict && a.lookup(PDFName.of("Subtype"))?.toString() === "/Link" && goesToRemoved(a)) {
+        annots.remove(i);
+      }
+    }
+  }
+
+  // 5. Opening action.
+  const open = doc.catalog.get(PDFName.of("OpenAction"));
+  const openDest = open instanceof PDFArray || open instanceof PDFRef ? destPage(open) : "";
+  const openDict = open instanceof PDFRef ? ctx.lookup(open) : open;
+  const openGoTo = openDict instanceof PDFDict ? goesToRemoved(openDict) : null;
+  if ((openDest && removed.has(openDest)) || openGoTo) {
+    if (first) doc.catalog.set(PDFName.of("OpenAction"), ctx.obj([first, PDFName.of("Fit")]));
+    else doc.catalog.delete(PDFName.of("OpenAction"));
+  }
+
+  // 6. Structure tree: its elements let go of the removed pages.
+  const struct = doc.catalog.lookup(PDFName.of("StructTreeRoot"));
+  if (struct instanceof PDFDict) {
+    const seen = new Set<unknown>();
+    const visit = (node: unknown, depth: number) => {
+      const n = node instanceof PDFRef ? ctx.lookup(node) : node;
+      if (!(n instanceof PDFDict) || seen.has(n) || depth > 256) return;
+      seen.add(n);
+      if (removed.has(refKey(n.get(PDFName.of("Pg"))))) n.delete(PDFName.of("Pg"));
+      const k = n.get(PDFName.of("K"));
+      const kids = k instanceof PDFRef ? ctx.lookup(k) : k;
+      if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) visit(kids.get(i), depth + 1);
+      else if (kids instanceof PDFDict) visit(kids, depth + 1);
+    };
+    visit(struct, 0);
+  }
+}

@@ -617,3 +617,19 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   (actions comprises) au lieu d'être réécrits.
 - Duplication : les modifications d'images sont copiées, les liens de groupe suivent les
   copies, et une copie ne reprend pas le /NM de l'original.
+
+### Session cloud 1 : T5, point 3 (pages retirées et dupliquées)
+- Une page retirée ne reste plus dans le fichier par ce qui pointait vers elle
+  (`purgeRemovedPages`) :
+  - ses widgets sortent du formulaire, et les champs sans widget disparaissent ;
+  - les signets vers elle vont à la page suivante conservée ;
+  - ses destinations nommées (/Dests et arbre /Names) et les liens vers elle sont
+    retirés ;
+  - l'action d'ouverture revient à la page 1 ;
+  - l'arbre de structure lâche ses /Pg.
+  Son contenu ne subsiste plus dans le fichier (test).
+- Page dupliquée : ses widgets rejoignent les champs d'origine, même nom et même valeur,
+  comme Acrobat (`shareCopiedFields`). Un champ fusionné avec son widget est scindé en
+  champ plus deux widgets. Avant : widget orphelin, hors formulaire.
+- Tests : pdf-page-refs (2, qui échouent sans le correctif). Suite complète 1972/1972 ;
+  specs PDF 42/42.

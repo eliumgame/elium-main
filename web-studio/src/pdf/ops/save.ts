@@ -45,7 +45,16 @@ import {
   type Fingerprints,
   type XrefTail,
 } from "./incremental";
-import { PAGE_SIZES, cropPage, readPageLabelDefs, rotatePage, writeOutline, writePageLabels } from "./organize";
+import {
+  PAGE_SIZES,
+  cropPage,
+  purgeRemovedPages,
+  readPageLabelDefs,
+  rotatePage,
+  shareCopiedFields,
+  writeOutline,
+  writePageLabels,
+} from "./organize";
 import type { OutlineEntry } from "./organize";
 import { applyRedactions, sanitiseDocument } from "./redact";
 import { createCrypt, openCrypt, writeEncrypted } from "./security";
@@ -472,6 +481,7 @@ async function applyState(
   }
   const targets: { page: PDFPage; model: Page }[] = [];
   const seen = new Set<number>();
+  const copies: { original: PDFPage; copy: PDFPage }[] = [];
 
   for (const model of wanted) {
     if (model.from == null) {
@@ -492,6 +502,7 @@ async function applyState(
     } else {
       const [copy] = await doc.copyPages(doc, [model.from]);
       targets.push({ page: copy, model });
+      copies.push({ original: src, copy });
     }
   }
 
@@ -508,6 +519,14 @@ async function applyState(
     );
   }
   report.pages = doc.getPageCount();
+  // A duplicated page's fields are the same fields; removed pages leave nothing pointing at them.
+  try {
+    shareCopiedFields(doc, copies);
+    const kept = new Set(targets.map((t) => `${t.page.ref.objectNumber} ${t.page.ref.generationNumber}`));
+    purgeRemovedPages(doc, source, kept);
+  } catch {
+    report.warnings.push("Les liens vers les pages retirées n'ont pas tous pu être nettoyés.");
+  }
 
   const fonts = new FontBook(doc);
   const images = new ImageBank(doc);

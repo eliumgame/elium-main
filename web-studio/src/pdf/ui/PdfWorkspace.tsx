@@ -130,7 +130,9 @@ import { fromXfdf, toXfdf } from "../ops/xfdf";
 import {
   hasImportableAnnots,
   importPageAnnots,
-  resolveStampAppearanceImages,
+  resolveAnnotExtras,
+  withExtras,
+  type AnnotExtras,
   type RawAnnotation,
 } from "../ops/import-annots";
 import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
@@ -139,6 +141,7 @@ import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
 import ImageEditLayer from "./ImageEditLayer";
+import { rememberCustomStamp } from "../model/stamps";
 import { PDFDocument } from "pdf-lib";
 import { formOf } from "../ops/pdfform";
 import { PreparePage } from "./PrepareLayer";
@@ -535,15 +538,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       await Promise.all(Array.from({ length: Math.min(4, froms.length) }, worker));
       if (gen !== shownGeneration.current || !raws.size) return null;
 
-      // A Stamp's own picture never comes back from pdf.js's getAnnotations()
-      // (only a `hasAppearance` boolean) — resolving it needs a separate walk
-      // of the source bytes with pdf-lib, keyed by annotation. That walk parses
-      // the whole document, so it only runs when some stamp has a picture.
-      const needsPictures = [...raws.values()].some((raw) => raw.some((a) => a.subtype === "Stamp" && a.hasAppearance));
-      const appearances = needsPictures
-        ? await resolveStampAppearanceImages(next.bytes, next.password).catch(
-            () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
-          )
+      // What pdf.js' getAnnotations() leaves out (a Stamp's picture and
+      // /Name, …) needs a separate walk of the source bytes with pdf-lib. That
+      // walk parses the whole document, so it only runs when a stamp needs it.
+      const needsExtras = [...raws.values()].some((raw) => raw.some((a) => a.subtype === "Stamp"));
+      const extras = needsExtras
+        ? await resolveAnnotExtras(next.bytes, next.password).catch(() => new Map<number, Map<string, AnnotExtras>>())
         : null;
       if (gen !== shownGeneration.current) return null;
 
@@ -552,12 +552,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (page.from == null || byFrom.has(page.from)) continue;
         const raw = raws.get(page.from);
         if (!raw) continue;
-        const pageAppearances = appearances?.get(page.from);
-        const withImages = pageAppearances?.size
-          ? raw.map((a) =>
-              a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a,
-            )
-          : raw;
+        const withImages = withExtras(raw, extras?.get(page.from));
         const info = await next.pageInfo(page.from);
         const origin = { x: info.ox, y: info.oy };
         byFrom.set(page.from, importPageAnnots(withImages, page.id, info.h, author, origin).annots);
@@ -2025,6 +2020,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setAddingImage(null);
         setTab("edit");
         return;
+      case "stampCustom": {
+        // A picture stamp: remembered in this browser, placed with the Tampon tool.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif";
+        input.style.display = "none";
+        document.body.appendChild(input);
+        input.addEventListener("cancel", () => input.remove());
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => {
+            const src = String(r.result);
+            const img = new Image();
+            img.onload = () => {
+              const ratio = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
+              rememberCustomStamp({ id: newId("st"), label: f.name.replace(/\.[^.]+$/, ""), src, ratio });
+              setStyle((st) => ({ ...st, stampSrc: src, stampRatio: ratio }));
+              pickTool("stamp");
+              toast("info", "Cliquez sur la page pour poser le tampon.");
+            };
+            img.onerror = () => toast("danger", "Image illisible.");
+            img.src = src;
+          };
+          r.readAsDataURL(f);
+        });
+        input.click();
+        return;
+      }
       case "addImage": {
         // An <input> in the document: some browsers ignore a detached one.
         const input = document.createElement("input");
@@ -3670,7 +3696,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         onTool={pickTool}
         onStyle={(patch) => {
           setStyle((s) => ({ ...s, ...patch }));
-          if (selectedIds.length) patchSelection(patch as Partial<Annot>);
+          // The stamp choice is the tool's, not a property of the selected comments.
+          const { stamp: _s, stampSrc: _src, stampRatio: _r, ...rest } = patch;
+          if (selectedIds.length && Object.keys(rest).length) patchSelection(rest as Partial<Annot>);
         }}
         onCommand={(id) => void command(id)}
         onStickyTool={setSticky}
@@ -3894,6 +3922,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             pageCount={pageCount}
             measureScale={state.measureScale}
             onPatch={patchSelection}
+            onStatus={(status) =>
+              setState((s) => D.setStatus(s, selectedIds, status, author, new Date().toISOString()))
+            }
             onDelete={() => deleteAnnots(selectedIds)}
             onDuplicate={() => {
               const copies = selection.map((a) => ({

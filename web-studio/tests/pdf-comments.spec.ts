@@ -1,0 +1,95 @@
+import { test, expect, type Page } from "@playwright/test";
+import { PDFArray, PDFDict, PDFDocument, PDFName } from "pdf-lib";
+
+/**
+ * Commenting in a real browser (projects « drive » and « desktop »): the
+ * stamp library (a dynamic stamp placed and saved with Acrobat's /Name) and
+ * the « Surface » measure drawn point by point.
+ */
+
+async function blankPdf(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  doc.addPage([595, 842]);
+  return Buffer.from(await doc.save());
+}
+
+async function open(page: Page, bytes: Buffer) {
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    delete w.showSaveFilePicker;
+    delete w.showOpenFilePicker;
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^PDF/ }).click();
+  await page.setInputFiles('input[type="file"][accept*="pdf"]', {
+    name: "vierge.pdf",
+    mimeType: "application/pdf",
+    buffer: bytes,
+  });
+  await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
+}
+
+async function save(page: Page): Promise<PDFDocument> {
+  const dl = page.waitForEvent("download");
+  await page.keyboard.press("Control+s");
+  const bytes = Buffer.concat(await (await (await dl).createReadStream()).toArray());
+  return PDFDocument.load(bytes);
+}
+
+function annotDicts(doc: PDFDocument): PDFDict[] {
+  const arr = doc.getPage(0).node.Annots();
+  return arr instanceof PDFArray ? arr.asArray().map((r) => doc.context.lookup(r, PDFDict)) : [];
+}
+
+function health(page: Page) {
+  const problems: string[] = [];
+  page.on("pageerror", (e) => problems.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error" && !m.text().includes("ERR_CERT_AUTHORITY_INVALID")) problems.push(m.text());
+  });
+  return problems;
+}
+
+test.describe("PDF — commentaires", () => {
+  test("bibliothèque de tampons : un tampon dynamique", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    await page.getByRole("button", { name: "Tampon" }).click();
+    const menu = page.getByRole("menu", { name: "Tampons" });
+    await expect(menu).toBeVisible();
+    await menu.getByRole("menuitem", { name: /Reçu/ }).click();
+    await expect(menu).toBeHidden();
+    const canvas = (await page.locator(".pdfx-canvas").first().boundingBox())!;
+    await page.mouse.click(canvas.x + 120, canvas.y + 150);
+    const stamp = page.locator(".pdfx-stamp.has-sub").first();
+    await expect(stamp).toContainText("Reçu");
+    await expect(stamp).toContainText(/le \d\d\/\d\d\/\d{4}/);
+    const doc = await save(page);
+    const stamps = annotDicts(doc).filter((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "Stamp");
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0].lookup(PDFName.of("Name"), PDFName).decodeText()).toBe("#DReceived");
+    expect(problems).toEqual([]);
+  });
+
+  test("mesure de surface dessinée point par point", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Affichage" }).click();
+    await page.getByRole("button", { name: "Surface" }).click();
+    const c = (await page.locator(".pdfx-canvas").first().boundingBox())!;
+    const pts = [
+      [100, 100],
+      [300, 100],
+      [300, 250],
+    ];
+    for (const [x, y] of pts) await page.mouse.click(c.x + x, c.y + y);
+    await page.mouse.dblclick(c.x + 100, c.y + 250);
+    const doc = await save(page);
+    const polys = annotDicts(doc).filter((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "Polygon");
+    expect(polys).toHaveLength(1);
+    expect(polys[0].lookup(PDFName.of("IT"), PDFName).decodeText()).toBe("PolygonDimension");
+    expect(polys[0].lookup(PDFName.of("Vertices"), PDFArray).size()).toBeGreaterThanOrEqual(8);
+    expect(problems).toEqual([]);
+  });
+});

@@ -6,7 +6,13 @@ import { describe, it, expect } from "vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFString } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import { buildPdf } from "../src/pdf/ops/save";
-import { importPageAnnots, ownedAnnotations, type RawAnnotation } from "../src/pdf/ops/import-annots";
+import {
+  importPageAnnots,
+  ownedAnnotations,
+  resolveAnnotExtras,
+  withExtras,
+  type RawAnnotation,
+} from "../src/pdf/ops/import-annots";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, type Annot, type PdfState } from "../src/pdf/model/types";
 
@@ -98,7 +104,9 @@ async function imported(bytes: Uint8Array): Promise<PdfState> {
   const raw = (await (await js.getPage(1)).getAnnotations()) as RawAnnotation[];
   await task.destroy();
   const state: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
-  const { annots } = importPageAnnots(raw, state.pages[0].id, 800, "Moi");
+  // As the workspace does: pdf.js' data completed from the file (stamp /Name…).
+  const extras = (await resolveAnnotExtras(bytes)).get(0);
+  const { annots } = importPageAnnots(withExtras(raw, extras), state.pages[0].id, 800, "Moi");
   return { ...state, annots, importedAnnots: true };
 }
 
@@ -198,5 +206,142 @@ describe("ownership of a file's annotations", () => {
     const inv = await inventory((await buildPdf(src, state, { pristineAnnots: pristine })).bytes);
     expect(inv.filter((x) => x === "Text IRT→Highlight")).toHaveLength(2);
     expect(inv.join()).not.toContain("MISSING");
+  });
+});
+
+describe("FreeText colours, as Acrobat reads them", () => {
+  it("round-trips text colour, box colour and the typewriter kind", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const bytes = await src.save();
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const pageId = base.pages[0].id;
+    const now = new Date().toISOString();
+    const mk = (id: string, kind: Annot["kind"], textBg: string | null, y: number): Annot =>
+      ({
+        id,
+        pageId,
+        kind,
+        rect: { x: 50, y, w: 200, h: 40 },
+        color: "#cc0000",
+        opacity: 1,
+        strokeWidth: 0,
+        text: "Bonjour",
+        fontSize: 14,
+        textBg,
+        author: "Moi",
+        createdAt: now,
+        modifiedAt: now,
+        replies: [],
+      }) as Annot;
+    const state = {
+      ...base,
+      annots: [
+        mk("a1", "freetext", null, 100),
+        mk("a2", "freetext", "#ffff00", 200),
+        mk("a3", "typewriter", null, 300),
+      ],
+    };
+    const out = (await buildPdf(bytes, state)).bytes;
+    const doc = await PDFDocument.load(out);
+    const dicts = (doc.getPage(0).node.Annots() as PDFArray).asArray().map((r) => doc.context.lookup(r, PDFDict));
+    expect(dicts[0].get(PDFName.of("C"))).toBeUndefined();
+    expect(dicts[1].lookup(PDFName.of("C"), PDFArray).asArray().map(String)).toEqual(["1", "1", "0"]);
+    const back = await imported(out);
+    const got = back.annots.map((a) => [a.kind, a.color, a.textBg]);
+    expect(got).toEqual([
+      ["freetext", "#cc0000", null],
+      ["freetext", "#cc0000", "#ffff00"],
+      ["typewriter", "#cc0000", null],
+    ]);
+  });
+});
+
+describe("review status, as Acrobat keeps it", () => {
+  it("is written as a /State reply and read back", async () => {
+    const src = await acrobatLike();
+    let state = await imported(src);
+    const hl = state.annots.find((a) => a.kind === "highlight")!;
+    state = D.setStatus(state, [hl.id], "accepted", "Chef", "2026-02-01T10:00:00.000Z");
+    const out = (await buildPdf(src, state)).bytes;
+    const doc = await PDFDocument.load(out);
+    const dicts = (doc.getPage(0).node.Annots() as PDFArray).asArray().map((r) => doc.context.lookup(r, PDFDict));
+    const states = dicts.filter((d) => d.get(PDFName.of("State")));
+    expect(states).toHaveLength(1);
+    expect(states[0].lookup(PDFName.of("State"), PDFString).decodeText()).toBe("Accepted");
+    expect(states[0].lookup(PDFName.of("StateModel"), PDFString).decodeText()).toBe("Review");
+    // Not on the parent any more.
+    expect(dicts.filter((d) => d.get(PDFName.of("StateModel")))).toHaveLength(1);
+    const back = (await imported(out)).annots.find((a) => a.kind === "highlight")!;
+    expect(back.status).toBe("accepted");
+    expect(back.replies?.at(-1)).toMatchObject({ author: "Chef", status: "accepted" });
+  });
+});
+
+describe("stamp library", () => {
+  it("writes Acrobat's /Name and reads the stamp back as its entry, dynamic line painted", async () => {
+    const { stampById, stampFields, stampByName } = await import("../src/pdf/model/stamps");
+    expect(stampByName("Approved")?.id).toBe("approved");
+    expect(stampByName("SBApproved")?.id).toBe("approved");
+    expect(stampByName("#DReceived")?.id).toBe("dynReceived");
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const now = new Date("2026-03-04T09:05:00");
+    const fields = stampFields(stampById("dynReceived"), "Marie", now);
+    expect(fields.stampSub).toBe("par Marie, le 04/03/2026 09:05");
+    const stamp = {
+      id: "s1",
+      pageId: base.pages[0].id,
+      kind: "stamp",
+      rect: { x: 50, y: 50, w: 200, h: 58 },
+      color: "#000000",
+      opacity: 1,
+      strokeWidth: 0,
+      author: "Marie",
+      createdAt: now.toISOString(),
+      modifiedAt: now.toISOString(),
+      replies: [],
+      ...fields,
+    } as Annot;
+    const out = (await buildPdf(await src.save(), { ...base, annots: [stamp] })).bytes;
+    const doc = await PDFDocument.load(out);
+    const d = doc.context.lookup((doc.getPage(0).node.Annots() as PDFArray).get(0), PDFDict);
+    expect(d.lookup(PDFName.of("Name"), PDFName).decodeText()).toBe("#DReceived");
+    // The appearance holds both lines.
+    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const js = await task.promise;
+    const ops = await (await js.getPage(1)).getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.ENABLE });
+    const glyphs = ops.argsArray
+      .filter((_, i) => ops.fnArray[i] === pdfjsLib.OPS.showText)
+      .map((a) => (a[0] as { unicode?: string }[]).map((g) => g.unicode ?? "").join(""))
+      .join("|");
+    await task.destroy();
+    expect(glyphs).toContain("REÇU");
+    expect(glyphs).toContain("par Marie");
+    const back = (await imported(out)).annots[0];
+    expect(back).toMatchObject({ kind: "stamp", stampLabel: "Reçu", stampTone: "blue", stampName: "#DReceived" });
+  });
+});
+
+describe("locked comments", () => {
+  it("take no change but their unlocking", () => {
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const a = {
+      id: "x",
+      pageId: base.pages[0].id,
+      kind: "square",
+      rect: { x: 0, y: 0, w: 10, h: 10 },
+      locked: true,
+    } as Annot;
+    let s = { ...base, annots: [a] };
+    s = D.updateAnnots(s, ["x"], { color: "#00ff00" });
+    expect(s.annots[0].color).toBeUndefined();
+    s = D.updateAnnot(s, "x", { color: "#00ff00" });
+    expect(s.annots[0].color).toBeUndefined();
+    s = D.updateAnnots(s, ["x"], { locked: false });
+    expect(s.annots[0].locked).toBe(false);
+    s = D.updateAnnot(s, "x", { color: "#00ff00" });
+    expect(s.annots[0].color).toBe("#00ff00");
   });
 });

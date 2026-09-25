@@ -11,6 +11,7 @@ import { zlibSync } from "fflate";
 import type { Pt, Quad, Rect } from "../core/coords";
 import { rectOfPoints, rectOfQuads } from "../core/coords";
 import { concat, parseContentStream } from "../core/contentstream";
+import { stampByName } from "../model/stamps";
 import type { Annot, AnnotKind, BorderStyle, LineEnding, Reply, ReviewStatus } from "../model/types";
 import { newId } from "../model/types";
 import { bytesToBase64 } from "../model/persist";
@@ -40,6 +41,9 @@ export interface RawAnnotation {
   name?: string;
   inReplyTo?: string;
   replyType?: string;
+  /** A `/Text` state reply: `/StateModel` (Review, Marked) and `/State`. */
+  state?: string | null;
+  stateModel?: string | null;
   fieldType?: string;
   it?: string;
   defaultAppearanceData?: { fontSize?: number; fontColor?: Uint8ClampedArray | number[] };
@@ -278,10 +282,43 @@ export async function resolveStampAppearanceImages(
   sourceBytes: Uint8Array,
   password?: string | null,
 ): Promise<Map<number, Map<string, AppearanceImage>>> {
-  const byPage = new Map<number, Map<string, AppearanceImage>>();
+  const out = new Map<number, Map<string, AppearanceImage>>();
+  for (const [page, extras] of await resolveAnnotExtras(sourceBytes, password)) {
+    const images = new Map<string, AppearanceImage>();
+    for (const [id, x] of extras) if (x.appearanceImage) images.set(id, x.appearanceImage);
+    if (images.size) out.set(page, images);
+  }
+  return out;
+}
+
+/** What pdf.js' `getAnnotations()` leaves out, read from the file itself. */
+export interface AnnotExtras {
+  appearanceImage?: AppearanceImage;
+  /** `/Name` (stamps, attachments) and `/Subj`: pdf.js drops them for stamps. */
+  name?: string;
+  subject?: string;
+}
+
+/**
+ * The extras of every annotation, per 0-based page, keyed like pdf.js' ids
+ * ("12R", "12R3"). One parse of the document with pdf-lib (see above for the
+ * stamp pictures). Best effort: a failure leaves annotations out of the map.
+ */
+export async function resolveAnnotExtras(
+  sourceBytes: Uint8Array,
+  password?: string | null,
+): Promise<Map<number, Map<string, AnnotExtras>>> {
+  const byPage = new Map<number, Map<string, AnnotExtras>>();
   try {
     const pdfLib = await import("pdf-lib");
-    const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef } = pdfLib;
+    const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString, PDFHexString } =
+      pdfLib;
+    const text = (v: unknown): string | undefined =>
+      v instanceof PDFName
+        ? v.decodeText()
+        : v instanceof PDFString || v instanceof PDFHexString
+          ? v.decodeText()
+          : undefined;
 
     let bytes = sourceBytes;
     if (password) {
@@ -294,56 +331,87 @@ export async function resolveStampAppearanceImages(
       updateMetadata: false,
     });
 
+    const stampImage = (annotDict: import("pdf-lib").PDFDict): AppearanceImage | null => {
+      const ap = annotDict.lookup(PDFName.of("AP"));
+      if (!(ap instanceof PDFDict)) return null;
+      let n = ap.lookup(PDFName.of("N"));
+      if (n instanceof PDFDict) {
+        // A dictionary of named appearance states — pick the active one.
+        const as = annotDict.lookup(PDFName.of("AS"));
+        n = as instanceof PDFName ? n.lookup(as) : undefined;
+      }
+      if (!(n instanceof PDFRawStream)) return null;
+      const subtype = pdfName(n.dict, "Subtype", PDFName);
+      const imgStream = subtype === "Image" ? n : subtype === "Form" ? findPaintedImage(n, pdfLib, 0) : null;
+      if (!imgStream) return null;
+      const width = pdfNumber(imgStream.dict, "Width", PDFName, PDFNumber);
+      const height = pdfNumber(imgStream.dict, "Height", PDFName, PDFNumber);
+      if (!width || !height) return null;
+      const resolved = readImageBytes(imgStream, pdfLib);
+      if (!resolved) return null;
+      return {
+        bytes: resolved.bytes,
+        filter: resolved.filter,
+        width,
+        height,
+        colorSpace: pdfName(imgStream.dict, "ColorSpace", PDFName) ?? null,
+        bitsPerComponent: pdfNumber(imgStream.dict, "BitsPerComponent", PDFName, PDFNumber) ?? null,
+      };
+    };
+
     const pages = doc.getPages();
     for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       const annotsArr = pages[pageIndex].node.Annots();
       if (!(annotsArr instanceof PDFArray)) continue;
-      let pageMap: Map<string, AppearanceImage> | null = null;
+      let pageMap: Map<string, AnnotExtras> | null = null;
 
       for (let i = 0; i < annotsArr.size(); i++) {
         const ref = annotsArr.get(i);
         if (!(ref instanceof PDFRef)) continue;
         const annotDict = annotsArr.lookup(i);
         if (!(annotDict instanceof PDFDict)) continue;
-        if (pdfName(annotDict, "Subtype", PDFName) !== "Stamp") continue;
-
-        const ap = annotDict.lookup(PDFName.of("AP"));
-        if (!(ap instanceof PDFDict)) continue;
-        let n = ap.lookup(PDFName.of("N"));
-        if (n instanceof PDFDict) {
-          // A dictionary of named appearance states — pick the active one.
-          const as = annotDict.lookup(PDFName.of("AS"));
-          n = as instanceof PDFName ? n.lookup(as) : undefined;
+        const extras: AnnotExtras = {};
+        const name = text(annotDict.lookup(PDFName.of("Name")));
+        const subject = text(annotDict.lookup(PDFName.of("Subj")));
+        if (name) extras.name = name;
+        if (subject) extras.subject = subject;
+        if (pdfName(annotDict, "Subtype", PDFName) === "Stamp") {
+          try {
+            const img = stampImage(annotDict);
+            if (img) extras.appearanceImage = img;
+          } catch {
+            /* this stamp keeps the labelled-box fallback */
+          }
         }
-        if (!(n instanceof PDFRawStream)) continue;
-
-        const subtype = pdfName(n.dict, "Subtype", PDFName);
-        const imgStream = subtype === "Image" ? n : subtype === "Form" ? findPaintedImage(n, pdfLib, 0) : null;
-        if (!imgStream) continue;
-
-        const width = pdfNumber(imgStream.dict, "Width", PDFName, PDFNumber);
-        const height = pdfNumber(imgStream.dict, "Height", PDFName, PDFNumber);
-        if (!width || !height) continue;
-        const resolved = readImageBytes(imgStream, pdfLib);
-        if (!resolved) continue;
-
+        if (!Object.keys(extras).length) continue;
         const key = ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
-        (pageMap ??= new Map()).set(key, {
-          bytes: resolved.bytes,
-          filter: resolved.filter,
-          width,
-          height,
-          colorSpace: pdfName(imgStream.dict, "ColorSpace", PDFName) ?? null,
-          bitsPerComponent: pdfNumber(imgStream.dict, "BitsPerComponent", PDFName, PDFNumber) ?? null,
-        });
+        (pageMap ??= new Map()).set(key, extras);
       }
 
       if (pageMap) byPage.set(pageIndex, pageMap);
     }
   } catch {
-    /* best effort — every page's stamps keep the labelled-box fallback */
+    /* best effort — annotations keep what pdf.js gave */
   }
   return byPage;
+}
+
+/** `raw` with the extras of the same annotations (pdf.js' own values win). */
+export function withExtras(
+  raw: readonly RawAnnotation[],
+  extras: Map<string, AnnotExtras> | undefined,
+): RawAnnotation[] {
+  if (!extras?.size) return raw.slice();
+  return raw.map((a) => {
+    const x = a.id ? extras.get(a.id) : undefined;
+    if (!x) return a;
+    return {
+      ...a,
+      appearanceImage: a.appearanceImage ?? x.appearanceImage,
+      name: a.name ?? x.name,
+      subject: a.subject || x.subject,
+    };
+  });
 }
 
 const KIND: Record<string, AnnotKind> = {
@@ -503,7 +571,13 @@ export function importPageAnnots(
     if (a.inReplyTo) {
       replies.push({
         parent: pdfjsId.get(root) ?? a.inReplyTo,
-        reply: { id: a.id || newId("rp"), author, text: contents, createdAt: created },
+        reply: {
+          id: a.id || newId("rp"),
+          author,
+          text: contents,
+          createdAt: created,
+          ...(a.stateModel === "Review" && a.state ? { status: REVIEW_STATE[a.state] ?? "none" } : {}),
+        },
       });
       continue;
     }
@@ -582,6 +656,7 @@ export function importPageAnnots(
         annot.textBg = a.color ? hex(a.color, "#ffffff") : null;
         annot.strokeWidth = a.borderStyle?.width ?? 0;
         if (a.it === "FreeTextCallout") annot.kind = "callout";
+        else if (a.it === "FreeTextTypeWriter") annot.kind = "typewriter";
         break;
       }
       case "note":
@@ -603,7 +678,13 @@ export function importPageAnnots(
         // and once by Elium). From that point on the picture has to live in
         // the model, or it simply never appears again. `stampLabel` stays as
         // a fallback (and for genuinely text-only stamps).
-        annot.stampLabel = a.name || a.subject || "TAMPON";
+        // A library stamp (Acrobat's or Elium's) comes back as that entry.
+        const def = stampByName(a.name);
+        annot.stampLabel = def?.label || a.subject || a.name || "TAMPON";
+        if (def) {
+          annot.stampTone = def.tone;
+          annot.stampName = a.name;
+        }
         if (a.appearanceImage) {
           const src = stampImageDataUrl(a.appearanceImage);
           if (src) annot.src = src;
@@ -622,9 +703,24 @@ export function importPageAnnots(
     if (target) target.replies = [...(target.replies ?? []), reply];
     else skipped++;
   }
+  // The comment's status is its latest review action.
+  for (const a of annots) {
+    if (!a.replies?.length) continue;
+    a.replies.sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+    const last = [...a.replies].reverse().find((r) => r.status);
+    if (last?.status) a.status = last.status;
+  }
 
   return { annots, skipped };
 }
+
+const REVIEW_STATE: Record<string, ReviewStatus> = {
+  None: "none",
+  Accepted: "accepted",
+  Rejected: "rejected",
+  Cancelled: "cancelled",
+  Completed: "completed",
+};
 
 /** One annotation of a page, as `ownedAnnotations` needs it (keys: "num gen"). */
 export interface AnnotLink {

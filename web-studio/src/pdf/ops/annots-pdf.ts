@@ -22,6 +22,7 @@ import type { Annot, MeasureScale } from "../model/types";
 import { isTextMarkup } from "../model/types";
 import type { FontBook } from "./fonts";
 import { sanitiseForFont } from "./fonts";
+import { pdfFamilyOf } from "../../ui/fonts";
 import type { ImageBank } from "./images";
 import { FormResources, PageResources, Painter, hexToRgb, measure, rgbToPdfArray, wrapText } from "./painter";
 
@@ -479,12 +480,23 @@ async function paintGeneratedStamp(
     .strokeColor(fg)
     .lineWidth(Math.max(1.2, r.h * 0.05));
   p.roundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, Math.min(6, r.h / 4)).stroke();
-  let size = r.h * 0.5;
+  // A dynamic stamp: the label in the top 60 %, who / when below.
+  const sub = a.stampSub ? a.stampSub : "";
+  const labelBox = sub ? { y: r.y + r.h * 0.4, h: r.h * 0.6 } : { y: r.y, h: r.h };
+  let size = labelBox.h * 0.5;
   if (label) {
     const maxW = r.w * 0.86;
     while (size > 4 && measure(font, label, size) > maxW) size -= 0.5;
     const w = measure(font, label, size);
-    p.fillColor(fg).text(font, size, { x: r.x + (r.w - w) / 2, y: r.y + (r.h - size * 0.72) / 2 }, label);
+    p.fillColor(fg).text(font, size, { x: r.x + (r.w - w) / 2, y: labelBox.y + (labelBox.h - size * 0.72) / 2 }, label);
+  }
+  if (sub) {
+    const small = await ctx.fonts.forText("Helvetica", false, false, sub);
+    const line = sanitiseForFont(sub, small.unicode);
+    let s2 = r.h * 0.2;
+    while (s2 > 3 && measure(small.font, line, s2) > r.w * 0.9) s2 -= 0.25;
+    const w = measure(small.font, line, s2);
+    p.fillColor(fg).text(small.font, s2, { x: r.x + (r.w - w) / 2, y: r.y + r.h * 0.4 - s2 * 1.05 }, line);
   }
 }
 
@@ -585,6 +597,15 @@ interface WriteOptions {
  * Write annotations as real `/Annot` dictionaries with generated appearances.
  * Returns the ones that had to be flattened instead (whiteout, redaction).
  */
+/** Review states as Acrobat names them (`/StateModel (Review)`). */
+const PDF_STATE: Record<NonNullable<Annot["status"]>, string> = {
+  none: "None",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  completed: "Completed",
+};
+
 export async function writeAnnots(
   page: PDFPage,
   annots: readonly Annot[],
@@ -634,6 +655,8 @@ export async function writeAnnots(
           Contents: textString(reply.text),
           CreationDate: PDFString.of(pdfDate(reply.createdAt)),
           M: PDFString.of(pdfDate(reply.createdAt)),
+          // A review action is Acrobat's state reply: « Accepted set by … ».
+          ...(reply.status ? { StateModel: PDFString.of("Review"), State: PDFString.of(PDF_STATE[reply.status]) } : {}),
         });
         pushAnnot(page, ctx.doc.context.register(dict));
       } catch {
@@ -672,7 +695,6 @@ async function writeOne(
   const comment = a.contents ?? (a.kind === "note" ? a.text : undefined);
   if (comment) entries.Contents = textString(comment);
   if (a.subject) entries.Subj = textString(a.subject);
-  if (a.status && a.status !== "none") entries.StateModel = textString("Review");
 
   // --- per-kind entries -----------------------------------------------------
   if (isTextMarkup(a.kind) && a.quads?.length) {
@@ -747,11 +769,24 @@ async function writeOne(
   }
 
   if (a.kind === "freetext" || a.kind === "typewriter" || a.kind === "callout") {
-    const { font } = await ctx.fonts.forText(a.fontFamily, !!a.bold, !!a.italic, a.text ?? "");
+    // FreeText: /C is the BOX's colour (none: transparent), the text's is in
+    // /DA — as Acrobat reads them. /DA names a font every reader knows (there
+    // is no /DR behind an annotation); the painted /AP has the real face.
+    if (a.textBg) entries.C = rgbToPdfArray(hexToRgb(a.textBg));
+    else delete entries.C;
     const c = hexToRgb(a.color);
-    entries.DA = PDFString.of(
-      `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)} rg /${font.name} ${round(a.fontSize ?? 12, 2)} Tf`,
+    const size = round(a.fontSize ?? 12, 2);
+    const fam = pdfFamilyOf(a.fontFamily);
+    const daFont = fam === "times" ? "TiRo" : fam === "courier" ? "Cour" : "Helv";
+    const col = `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)}`;
+    // The callout line and the border are drawn in the same colour as the text.
+    entries.DA = PDFString.of(`${col} rg ${col} RG /${daFont} ${size} Tf`);
+    const css = fam === "times" ? "Times New Roman" : fam === "courier" ? "Courier New" : "Helvetica";
+    entries.DS = textString(
+      `font: ${a.italic ? "italic " : ""}${a.bold ? "bold " : ""}${size}pt ${css}; ` +
+        `text-align:${a.align === "center" ? "center" : a.align === "right" ? "right" : "left"}; color:${a.color}`,
     );
+    if (a.kind === "typewriter") entries.IT = PDFName.of("FreeTextTypeWriter");
     entries.Q = a.align === "center" ? 1 : a.align === "right" ? 2 : 0;
     entries.Contents = textString(a.text ?? a.contents ?? "");
     if (a.kind === "callout" && a.callout?.length) {
@@ -765,7 +800,7 @@ async function writeOne(
   }
 
   if (a.kind === "stamp" || a.kind === "image" || a.kind === "signature") {
-    entries.Name = PDFName.of("Draft");
+    entries.Name = PDFName.of(a.kind === "stamp" && a.stampName ? a.stampName : "Draft");
     if (a.stampLabel) entries.Subj = textString(a.stampLabel);
   }
 

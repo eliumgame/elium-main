@@ -356,3 +356,29 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - À vérifier dans Acrobat sur le poste : ouvrir un PDF avec « Remplacer le texte », une
   pièce jointe et un fil de réponses, enregistrer dans Elium sans rien modifier, puis
   en modifiant le barré : tout doit rester visible et lié dans Acrobat.
+
+### Session cloud 1 : T4, points 3, 4, 6, 7 et 8
+
+- FreeText (point 3) : /C = couleur du CADRE (absent si transparent), couleur du texte
+  dans /DA avec une police que tout lecteur connaît (/Helv, /TiRo, /Cour), /DS ajouté ;
+  machine à écrire écrite et relue avec /IT FreeTextTypeWriter.
+- Statut de révision (point 4) : écrit comme Acrobat, en réponse d'état
+  (/IRT, /StateModel (Review), /State (Accepted…)), relu à l'import (le statut du
+  commentaire est sa dernière action). L'inspecteur passe maintenant par la même action
+  que le panneau (la réponse est ajoutée au fil).
+- Verrou (point 6) : un commentaire verrouillé ne prend plus aucune modification sauf
+  son déverrouillage, qui marche enfin (y compris pour un commentaire importé).
+- Surface (point 7) : dessinée point par point comme un polygone (l'annotation était
+  vide).
+- Tampons (point 8) : bibliothèque (model/stamps.ts, menu du bouton Tampon) :
+  - les 14 tampons standard d'Acrobat, avec leur /Name ;
+  - 5 tampons dynamiques (auteur, date et heure figés à la pose, comme Acrobat) ;
+  - tampons personnalisés à partir d'une image, mémorisés dans ce navigateur
+    (localStorage, 12 au plus, oubli possible).
+  Un tampon relu d'un fichier (d'Acrobat ou d'Elium) retrouve son entrée. /Name et /Subj
+  sont lus par pdf-lib (`resolveAnnotExtras`) : pdf.js ne les donne pas pour les tampons.
+- Tests : pdf-annot-ownership (10), pdf-comments.spec.ts (2, Drive + bureau). Suite
+  complète 1924/1924 ; specs PDF navigateur 30/30.
+- À vérifier dans Acrobat : un tampon dynamique et un tampon standard d'Elium (libellé,
+  2e ligne) ; une zone de texte transparente et une sur fond jaune ; le statut
+  « Accepté » visible dans le panneau Commentaires d'Acrobat.

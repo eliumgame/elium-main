@@ -254,11 +254,22 @@ export function addAnnot(state: PdfState, a: Annot): PdfState {
   return { ...state, annots: [...state.annots, syncRect(a)] };
 }
 
+/**
+ * A locked comment (Acrobat's « Verrouillé ») takes no change but its own
+ * unlocking — which must stay possible, or an imported locked comment could
+ * never be edited again.
+ */
+function lockAllows(a: Annot, patch: Partial<Annot>): boolean {
+  return !a.locked || Object.keys(patch).every((k) => k === "locked" || k === "modifiedAt");
+}
+
 export function updateAnnot(state: PdfState, id: string, patch: Partial<Annot>): PdfState {
   return {
     ...state,
     annots: state.annots.map((a) =>
-      a.id === id ? syncRect({ ...a, ...patch, modifiedAt: patch.modifiedAt ?? a.modifiedAt }) : a,
+      a.id === id && lockAllows(a, patch)
+        ? syncRect({ ...a, ...patch, modifiedAt: patch.modifiedAt ?? a.modifiedAt })
+        : a,
     ),
   };
 }
@@ -268,7 +279,7 @@ export function updateAnnots(state: PdfState, ids: readonly string[], patch: Par
   const set = new Set(ids);
   return {
     ...state,
-    annots: state.annots.map((a) => (set.has(a.id) && !a.locked ? syncRect({ ...a, ...patch }) : a)),
+    annots: state.annots.map((a) => (set.has(a.id) && lockAllows(a, patch) ? syncRect({ ...a, ...patch }) : a)),
   };
 }
 

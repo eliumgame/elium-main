@@ -226,7 +226,7 @@ describe("Importing a PDF's existing markup", () => {
       );
       const stamp = annots[0];
       expect(stamp.kind).toBe("stamp");
-      expect(stamp.stampLabel).toBe("Approved"); // metadata is kept too, not replaced
+      expect(stamp.stampLabel).toBe("Approuvé"); // metadata is kept too (as its library entry), not replaced
       expect(stamp.src).toMatch(/^data:image\/jpeg;base64,/);
       const decoded = Uint8Array.from(Buffer.from(stamp.src!.split(",")[1], "base64"));
       expect(decoded).toEqual(jpegBytes);
@@ -333,7 +333,7 @@ describe("Importing a PDF's existing markup", () => {
         PAGE_H,
         "Moi",
       );
-      expect(annots[0].stampLabel).toBe("Confidential");
+      expect(annots[0].stampLabel).toBe("Confidentiel");
       expect(annots[0].src).toBeUndefined();
     });
 

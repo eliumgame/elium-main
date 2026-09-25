@@ -2217,3 +2217,98 @@
 .pdfx-imagebar button:hover {
   background: rgba(127, 127, 127, 0.18);
 }
+
+/* Library stamps: a dynamic one has who / when under its label. */
+.pdfx-stamp.has-sub {
+  flex-direction: column;
+  gap: 0.1em;
+}
+.pdfx-stamp__sub {
+  font-size: 0.42em;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Stamp library (ribbon « Tampon »). */
+.pdfx-stampmenu {
+  position: relative;
+  display: inline-flex;
+}
+.pdfx-stampmenu__panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--x-chrome, #fff);
+  color: var(--x-chrome-soft, #334155);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.pdfx-stampmenu__title {
+  margin: 6px 2px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.pdfx-stampmenu__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+.pdfx-stampmenu__item {
+  height: 44px;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.pdfx-stampmenu__item:hover,
+.pdfx-stampmenu__item.is-active {
+  border-color: var(--x-accent, #3b82f6);
+}
+.pdfx-stampmenu__item .pdfx-stamp {
+  font-size: 11px;
+}
+.pdfx-stampmenu__item img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.pdfx-stampmenu__custom {
+  position: relative;
+  display: grid;
+}
+.pdfx-stampmenu__forget {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+.pdfx-stampmenu__create {
+  margin-top: 10px;
+  width: 100%;
+  padding: 6px;
+  border: 1px dashed currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}

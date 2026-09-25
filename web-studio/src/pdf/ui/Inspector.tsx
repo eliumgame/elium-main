@@ -31,6 +31,8 @@ export interface InspectorProps {
   pageCount: number;
   measureScale: MeasureScale;
   onPatch: (patch: Partial<Annot>) => void;
+  /** A review action: sets the status AND records it in the thread (as the comments pane does). */
+  onStatus: (status: ReviewStatus) => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onOrder: (where: "front" | "back" | "forward" | "backward") => void;
@@ -393,7 +395,7 @@ export default function Inspector(p: InspectorProps) {
             <span>Statut</span>
             <select
               value={shared(sel, (a) => a.status ?? "none") ?? "none"}
-              onChange={(e) => p.onPatch({ status: e.target.value as ReviewStatus })}
+              onChange={(e) => p.onStatus(e.target.value as ReviewStatus)}
             >
               {STATUS.map((s) => (
                 <option key={s.id} value={s.id}>

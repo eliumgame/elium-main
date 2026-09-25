@@ -5,6 +5,7 @@ import type { Annot, AnnotKind, DraftStyle, Tool } from "../model/types";
 import { isPolyKind, isTextMarkup, newId } from "../model/types";
 import { fontCss } from "../../ui/fonts";
 import { NOTE_SIZE } from "../ops/annots-pdf";
+import { stampById, stampFields } from "../model/stamps";
 
 /** Image d'un tampon/image/signature avec repli LIBELLÉ : si la source est
  *  absente ou ne se charge pas (data URL cassée), on affiche une étiquette
@@ -85,10 +86,18 @@ const BOX_TOOLS: AnnotKind[] = [
   "image",
   "signature",
   "link",
-  "area",
 ];
 const LINE_TOOLS: AnnotKind[] = ["line", "arrow", "distance"];
-const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter"];
+// « Aire » is drawn point by point like a polygon (it used to be a box, left empty).
+const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter", "area"];
+
+/** A click with the Tampon tool: the stamp's natural size (points). */
+function stampSize(style: DraftStyle): { w: number; h: number } {
+  if (style.stampSrc) return { w: 160, h: 160 * (style.stampRatio || 0.5) };
+  const def = stampById(style.stamp);
+  const w = Math.max(120, Math.min(260, def.label.length * 13 + 44));
+  return { w, h: def.dynamic ? 58 : 44 };
+}
 
 function AnnotLayer(p: AnnotLayerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -321,8 +330,13 @@ function AnnotLayer(p: AnnotLayerProps) {
             w: kind === "callout" ? 190 : 200,
             h: isText ? Math.max(24, p.style.fontSize * 2) : 70,
           };
+          if (kind === "stamp") rect = { ...rect, ...stampSize(p.style) };
         }
         const annot = baseAnnot(kind, rect);
+        if (kind === "stamp") {
+          if (p.style.stampSrc) annot.src = p.style.stampSrc;
+          else Object.assign(annot, stampFields(stampById(p.style.stamp), p.author, new Date()));
+        }
         if (kind === "callout") {
           annot.callout = [
             { x: Math.max(0, rect.x - 70), y: rect.y + rect.h + 40 },
@@ -868,8 +882,9 @@ function AnnotLayer(p: AnnotLayerProps) {
         a.src ? (
           <StampImg src={a.src} fit={fit} label={label} tone={tone} />
         ) : (
-          <div className="pdfx-stamp" data-tone={tone}>
-            {label}
+          <div className={`pdfx-stamp ${a.stampSub ? "has-sub" : ""}`} data-tone={tone}>
+            <span className="pdfx-stamp__label">{label}</span>
+            {a.stampSub && <span className="pdfx-stamp__sub">{a.stampSub}</span>}
           </div>
         ),
       );

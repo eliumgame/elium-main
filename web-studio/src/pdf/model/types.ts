@@ -159,6 +159,10 @@ export interface Annot {
   /** Standard stamp label ("APPROVED", …) when the stamp is generated, not an image. */
   stampLabel?: string;
   stampTone?: "green" | "red" | "blue" | "orange" | "neutral";
+  /** PDF `/Name` of a library stamp (« Approved », « #DReceived »…). */
+  stampName?: string;
+  /** Second line of a dynamic stamp (who and when, frozen at placement). */
+  stampSub?: string;
 
   // --- special ------------------------------------------------------------
   action?: LinkAction;
@@ -578,6 +582,11 @@ export interface DraftStyle {
   lineStart: LineEnding;
   lineEnd: LineEnding;
   textBg: string | null;
+  /** Library stamp the Tampon tool places (`model/stamps.ts` id). */
+  stamp?: string;
+  /** A picture stamp instead (data URL), and its height / width. */
+  stampSrc?: string | null;
+  stampRatio?: number;
 }
 
 export const DEFAULT_STYLE: DraftStyle = {

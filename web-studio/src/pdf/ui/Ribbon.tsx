@@ -1,4 +1,12 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  DYNAMIC_STAMPS,
+  STANDARD_STAMPS,
+  forgetCustomStamp,
+  loadCustomStamps,
+  type CustomStamp,
+  type StampDef,
+} from "../model/stamps";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -181,6 +189,101 @@ function Cmd({
   );
 }
 
+/**
+ * The Tampon button and its library: Acrobat's standard and dynamic stamps,
+ * the user's picture stamps, and « Créer à partir d'une image… ».
+ */
+function StampMenu(p: {
+  style: DraftStyle;
+  active: boolean;
+  onPick: (patch: Partial<DraftStyle>) => void;
+  onCustom: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState<CustomStamp[]>([]);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    setCustom(loadCustomStamps());
+    const off = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("pointerdown", off, true);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("pointerdown", off, true);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const pick = (patch: Partial<DraftStyle>) => {
+    setOpen(false);
+    p.onPick(patch);
+  };
+  const item = (s: StampDef) => (
+    <button
+      key={s.id}
+      type="button"
+      role="menuitem"
+      className={`pdfx-stampmenu__item ${!p.style.stampSrc && p.style.stamp === s.id ? "is-active" : ""}`}
+      onClick={() => pick({ stamp: s.id, stampSrc: null })}
+    >
+      <span className="pdfx-stamp" data-tone={s.tone}>
+        <span className="pdfx-stamp__label">{s.label}</span>
+        {s.dynamic && <span className="pdfx-stamp__sub">par vous, date et heure</span>}
+      </span>
+    </button>
+  );
+  return (
+    <div className="pdfx-stampmenu" ref={box}>
+      <Cmd icon={<Stamp size={17} />} onClick={() => setOpen((v) => !v)} active={p.active || open} title="Tampon" />
+      {open && (
+        <div className="pdfx-stampmenu__panel" role="menu" aria-label="Tampons">
+          <div className="pdfx-stampmenu__title">Standard</div>
+          <div className="pdfx-stampmenu__grid">{STANDARD_STAMPS.map(item)}</div>
+          <div className="pdfx-stampmenu__title">Dynamiques</div>
+          <div className="pdfx-stampmenu__grid">{DYNAMIC_STAMPS.map(item)}</div>
+          <div className="pdfx-stampmenu__title">Personnalisés</div>
+          <div className="pdfx-stampmenu__grid">
+            {custom.map((c) => (
+              <span key={c.id} className="pdfx-stampmenu__custom">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`pdfx-stampmenu__item ${p.style.stampSrc === c.src ? "is-active" : ""}`}
+                  title={c.label}
+                  onClick={() => pick({ stampSrc: c.src, stampRatio: c.ratio })}
+                >
+                  <img src={c.src} alt={c.label} />
+                </button>
+                <button
+                  type="button"
+                  className="pdfx-stampmenu__forget"
+                  aria-label={`Oublier ${c.label}`}
+                  onClick={() => setCustom(forgetCustomStamp(c.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            className="pdfx-stampmenu__create"
+            onClick={() => {
+              setOpen(false);
+              p.onCustom();
+            }}
+          >
+            Créer à partir d'une image…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Swatches({
   colours,
   value,
@@ -353,7 +456,15 @@ export default function Ribbon(p: RibbonProps) {
                 title="Zone de texte"
               />
               <Cmd icon={<Spline size={17} />} onClick={T("callout")} active={p.tool === "callout"} title="Légende" />
-              <Cmd icon={<Stamp size={17} />} onClick={C("stamp")} active={p.tool === "stamp"} title="Tampon" />
+              <StampMenu
+                style={p.style}
+                active={p.tool === "stamp"}
+                onPick={(patch) => {
+                  p.onStyle(patch);
+                  p.onTool("stamp");
+                }}
+                onCustom={C("stampCustom")}
+              />
             </Group>
             <Group title="Dessin">
               <Cmd icon={<PencilLine size={17} />} onClick={T("ink")} active={p.tool === "ink"} title="Dessin libre" />

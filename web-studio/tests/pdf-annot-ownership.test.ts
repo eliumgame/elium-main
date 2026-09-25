@@ -564,3 +564,78 @@ describe("text boxes and stamps on a turned page", () => {
     expect(Math.round(r[3] - r[1])).toBe(200);
   });
 });
+
+describe("comments pane: checkmark, filters, replies, note icons", () => {
+  const note = (over: Partial<Annot> = {}): Annot =>
+    ({
+      id: "n1",
+      pageId: "",
+      kind: "note",
+      rect: { x: 100, y: 100, w: 20, h: 20 },
+      color: "#ffd400",
+      opacity: 1,
+      strokeWidth: 0,
+      text: "À voir",
+      author: "Alice",
+      createdAt: "2026-03-01T08:00:00.000Z",
+      modifiedAt: "2026-03-01T08:00:00.000Z",
+      replies: [],
+      ...over,
+    }) as Annot;
+
+  it("keeps Acrobat's checkmark through a save, apart from the thread", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    let s: PdfState = { ...base, annots: [note({ pageId: base.pages[0].id })] };
+    s = D.addReply(s, "n1", { author: "Bob", text: "Oui", createdAt: "2026-03-02T08:00:00.000Z" });
+    s = D.setChecked(s, ["n1"], true);
+    const out = (await buildPdf(await src.save(), s)).bytes;
+    const back = (await imported(out)).annots[0];
+    expect(back.checked).toBe(true);
+    expect(back.replies?.map((r) => r.text)).toEqual(["Oui"]);
+  });
+
+  it("filters by page and by checkmark, and edits a reply", () => {
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(2) };
+    const [p1, p2] = base.pages.map((p) => p.id);
+    let s: PdfState = {
+      ...base,
+      annots: [
+        note({ id: "a", pageId: p1 }),
+        note({ id: "b", pageId: p2, checked: true }),
+        note({ id: "w", pageId: p1, kind: "whiteout" }),
+      ],
+    };
+    const order = new Map([
+      [p1, 1],
+      [p2, 2],
+    ]);
+    const ids = (f: Partial<D.CommentFilter>) =>
+      D.filterComments(s.annots, { ...D.EMPTY_FILTER, ...f }, order, "page").map((a) => a.id);
+    expect(ids({})).toEqual(["a", "b"]);
+    expect(ids({ pages: [2] })).toEqual(["b"]);
+    expect(ids({ checked: "checked" })).toEqual(["b"]);
+    expect(ids({ checked: "unchecked" })).toEqual(["a"]);
+    s = D.addReply(s, "a", { author: "Bob", text: "v1", createdAt: "2026-03-02T08:00:00.000Z" });
+    const rid = s.annots[0].replies![0].id;
+    s = D.updateReply(s, "a", rid, "v2", "2026-03-03T08:00:00.000Z");
+    expect(s.annots[0].replies![0].text).toBe("v2");
+    s = D.removeReply(s, "a", rid);
+    expect(s.annots[0].replies).toEqual([]);
+  });
+
+  it("paints the chosen note icon in the file (the ? of Help), and keeps its /Name", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const s: PdfState = { ...base, annots: [note({ pageId: base.pages[0].id, icon: "Help" })] };
+    const flat = (await buildPdf(await src.save(), s, { interactiveAnnots: false })).bytes;
+    const task = pdfjsLib.getDocument({ data: flat.slice(), isEvalSupported: false });
+    const tc = await (await (await task.promise).getPage(1)).getTextContent();
+    expect((tc.items as { str: string }[]).map((i) => i.str).join("")).toContain("?");
+    await task.destroy();
+    const back = (await imported((await buildPdf(await src.save(), s)).bytes)).annots[0];
+    expect(back.icon).toBe("Help");
+  });
+});

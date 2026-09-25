@@ -187,3 +187,11 @@ describe("importing the same comments again", () => {
     expect(merged[0]).toMatchObject({ id: "12R", color: "#112233" });
   });
 });
+
+describe("XFDF checkmark", () => {
+  it("round-trips Acrobat's Marked state", () => {
+    const [back] = roundTrip([base({ checked: true })]);
+    expect(back.checked).toBe(true);
+    expect(back.replies).toEqual([]);
+  });
+});

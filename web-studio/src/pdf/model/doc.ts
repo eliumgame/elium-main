@@ -352,6 +352,23 @@ export function annotsOnPage(state: PdfState, pageId: string): Annot[] {
 
 // --- comment threads --------------------------------------------------------
 
+/** Acrobat's checkmark on comments (a private mark of the reviewer: not a review status). */
+export function setChecked(state: PdfState, ids: readonly string[], checked: boolean): PdfState {
+  const set = new Set(ids);
+  return { ...state, annots: state.annots.map((a) => (set.has(a.id) ? { ...a, checked } : a)) };
+}
+
+export function updateReply(state: PdfState, annotId: string, replyId: string, text: string, when: string): PdfState {
+  return {
+    ...state,
+    annots: state.annots.map((a) =>
+      a.id === annotId
+        ? { ...a, replies: (a.replies ?? []).map((r) => (r.id === replyId ? { ...r, text } : r)), modifiedAt: when }
+        : a,
+    ),
+  };
+}
+
 export function addReply(state: PdfState, annotId: string, reply: Omit<Reply, "id">): PdfState {
   return {
     ...state,
@@ -410,15 +427,26 @@ export interface CommentFilter {
   kinds: AnnotKind[] | null;
   statuses: ReviewStatus[] | null;
   query: string;
+  /** 1-based page numbers. */
+  pages?: number[] | null;
+  /** Acrobat's checkmark: only the checked, or only the unchecked. */
+  checked?: "checked" | "unchecked" | null;
 }
 
-export const EMPTY_FILTER: CommentFilter = { authors: null, kinds: null, statuses: null, query: "" };
+export const EMPTY_FILTER: CommentFilter = {
+  authors: null,
+  kinds: null,
+  statuses: null,
+  query: "",
+  pages: null,
+  checked: null,
+};
 
 export type CommentSort = "page" | "author" | "date" | "kind" | "status";
 
-/** Annotations that carry a comment — the ones Acrobat lists in its pane. */
+/** Annotations that carry a comment — the ones Acrobat lists in its pane (not links, not white-out). */
 export function commentable(annots: readonly Annot[]): Annot[] {
-  return annots.filter((a) => a.kind !== "link");
+  return annots.filter((a) => a.kind !== "link" && a.kind !== "whiteout");
 }
 
 export function filterComments(
@@ -432,6 +460,9 @@ export function filterComments(
     if (filter.authors && !filter.authors.includes(a.author)) return false;
     if (filter.kinds && !filter.kinds.includes(a.kind)) return false;
     if (filter.statuses && !filter.statuses.includes(a.status ?? "none")) return false;
+    if (filter.pages && !filter.pages.includes(pageOrder.get(a.pageId) ?? -1)) return false;
+    if (filter.checked === "checked" && !a.checked) return false;
+    if (filter.checked === "unchecked" && a.checked) return false;
     if (q) {
       const hay = `${a.contents ?? ""} ${a.text ?? ""} ${a.subject ?? ""} ${a.author} ${(a.replies ?? []).map((r) => r.text).join(" ")}`;
       if (!hay.toLowerCase().includes(q)) return false;

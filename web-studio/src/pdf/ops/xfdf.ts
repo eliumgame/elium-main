@@ -288,6 +288,13 @@ export function toXfdf(
 
     body.push(`<${tag} ${attrs.join(" ")}>${inner.join("")}</${tag}>`);
 
+    if (a.checked) {
+      body.push(
+        `<text page="${page}" rect="${toPdfRect({ ...a.rect, w: 20, h: 20 }, f)}" inreplyto="${esc(name)}" ` +
+          `replyType="reply" title="${esc(a.author)}" name="${esc(`${name}-marked`)}" date="${xfdfDate(a.modifiedAt)}" ` +
+          `flags="hidden,print" state="Marked" statemodel="Marked"><contents>Marked</contents></text>`,
+      );
+    }
     for (const reply of a.replies ?? []) {
       const state = reply.status ? ` state="${STATE_NAME[reply.status]}" statemodel="Review"` : "";
       body.push(
@@ -398,6 +405,7 @@ export function fromXfdf(
   if (doc.querySelector("parsererror")) return [];
   const out: Annot[] = [];
   const replies: { parent: string; reply: Reply; stateModel: string | null }[] = [];
+  const marks: { parent: string; checked: boolean; when: string }[] = [];
   const annotsEl = doc.getElementsByTagName("annots")[0];
   const scope = annotsEl ?? doc.documentElement;
   const nodes = Array.from(scope.children).filter((el) => KIND_FROM_XFDF[el.localName]);
@@ -419,6 +427,11 @@ export function fromXfdf(
       const model = el.getAttribute("statemodel");
       // A « group » member (Acrobat's replace-text) is not a reply.
       if ((el.getAttribute("replyType") ?? el.getAttribute("replytype") ?? "reply").toLowerCase() === "group") continue;
+      // The checkmark: a state of the comment, not a line of its thread.
+      if ((model ?? "").toLowerCase() === "marked") {
+        marks.push({ parent: inReplyTo, checked: (state ?? "").toLowerCase() === "marked", when: created });
+        continue;
+      }
       replies.push({
         parent: inReplyTo,
         stateModel: model,
@@ -605,6 +618,11 @@ export function fromXfdf(
   for (const { parent, reply } of replies) {
     const target = rootOf(parent);
     if (target) target.replies = [...(target.replies ?? []), reply];
+  }
+  marks.sort((x, y) => x.when.localeCompare(y.when));
+  for (const m of marks) {
+    const target = rootOf(m.parent);
+    if (target) target.checked = m.checked;
   }
   for (const a of out) {
     if (!a.replies?.length) continue;

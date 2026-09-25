@@ -29,7 +29,7 @@ import ThumbCanvas from "./ThumbCanvas";
 import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { useListWindow } from "./useListWindow";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
-import { flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
+import { commentable, filterComments, flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
 import type { SearchHit } from "../core/search";
 import { KIND_LABEL, shortDate, type SidePanel } from "./state";
 
@@ -64,6 +64,10 @@ export interface SidebarProps {
   onAnnotReply: (id: string, text: string) => void;
   onAnnotDelete: (ids: string[]) => void;
   onAnnotEditContents: (id: string, text: string) => void;
+  /** Acrobat's checkmark. */
+  onAnnotCheck: (ids: string[], checked: boolean) => void;
+  onReplyEdit: (annotId: string, replyId: string, text: string) => void;
+  onReplyDelete: (annotId: string, replyId: string) => void;
   onFilterChange: (f: CommentFilter) => void;
   onSortChange: (s: CommentSort) => void;
   onBookmarkGoTo: (b: Mark) => void;
@@ -486,35 +490,13 @@ function Comments(p: SidebarProps) {
   const pageOrder = useMemo(() => new Map(p.pages.map((page, i) => [page.id, i + 1])), [p.pages]);
   const authors = useMemo(() => [...new Set(p.annots.map((a) => a.author))].sort(), [p.annots]);
 
-  const list = useMemo(() => {
-    const q = p.filter.query.trim().toLowerCase();
-    const out = p.annots.filter((a) => {
-      if (a.kind === "link") return false;
-      if (p.filter.authors && !p.filter.authors.includes(a.author)) return false;
-      if (p.filter.statuses && !p.filter.statuses.includes(a.status ?? "none")) return false;
-      if (q) {
-        const hay = `${a.contents ?? ""} ${a.text ?? ""} ${a.author} ${(a.replies ?? []).map((r) => r.text).join(" ")}`;
-        if (!hay.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-    const page = (a: Annot) => pageOrder.get(a.pageId) ?? 1e9;
-    out.sort((a, b) => {
-      switch (p.sort) {
-        case "author":
-          return a.author.localeCompare(b.author) || page(a) - page(b);
-        case "date":
-          return b.createdAt.localeCompare(a.createdAt);
-        case "kind":
-          return a.kind.localeCompare(b.kind) || page(a) - page(b);
-        case "status":
-          return (a.status ?? "none").localeCompare(b.status ?? "none") || page(a) - page(b);
-        default:
-          return page(a) - page(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
-      }
-    });
-    return out;
-  }, [p.annots, p.filter, p.sort, pageOrder]);
+  const list = useMemo(
+    () => filterComments(p.annots, p.filter, pageOrder, p.sort),
+    [p.annots, p.filter, p.sort, pageOrder],
+  );
+  const kinds = useMemo(() => [...new Set(commentable(p.annots).map((a) => a.kind))], [p.annots]);
+  const [editingReply, setEditingReply] = useState<string | null>(null);
+  const [replyEdit, setReplyEdit] = useState("");
 
   return (
     <div className="pdfx-panel">
@@ -565,6 +547,53 @@ function Comments(p: SidebarProps) {
             </select>
           </div>
           <div className="pdfx-filter__row">
+            <span>Type</span>
+            <select
+              value={p.filter.kinds?.[0] ?? ""}
+              onChange={(e) =>
+                p.onFilterChange({ ...p.filter, kinds: e.target.value ? [e.target.value as Annot["kind"]] : null })
+              }
+            >
+              <option value="">Tous</option>
+              {kinds.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="pdfx-filter__row">
+            <span>Page</span>
+            <input
+              className="pdfx-input pdfx-input--mini"
+              type="number"
+              min={1}
+              max={p.pages.length}
+              placeholder="Toutes"
+              value={p.filter.pages?.[0] ?? ""}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                p.onFilterChange({ ...p.filter, pages: e.target.value && n >= 1 ? [n] : null });
+              }}
+            />
+          </div>
+          <div className="pdfx-filter__row">
+            <span>Coche</span>
+            <select
+              value={p.filter.checked ?? ""}
+              onChange={(e) =>
+                p.onFilterChange({
+                  ...p.filter,
+                  checked: (e.target.value || null) as CommentFilter["checked"],
+                })
+              }
+            >
+              <option value="">Tous</option>
+              <option value="checked">Cochés</option>
+              <option value="unchecked">Non cochés</option>
+            </select>
+          </div>
+          <div className="pdfx-filter__row">
             <span>Statut</span>
             <select
               value={p.filter.statuses?.[0] ?? ""}
@@ -596,6 +625,15 @@ function Comments(p: SidebarProps) {
           return (
             <article key={a.id} className="pdfx-comment" onClick={() => p.onSelectAnnot(a.id)}>
               <header className="pdfx-comment__head">
+                <input
+                  type="checkbox"
+                  className="pdfx-comment__check"
+                  checked={!!a.checked}
+                  title="Coche (marque personnelle, comme dans Acrobat)"
+                  aria-label={`Cocher le commentaire de ${a.author}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => p.onAnnotCheck([a.id], e.target.checked)}
+                />
                 <span className="pdfx-comment__swatch" style={{ background: a.color }} />
                 <span className="pdfx-comment__author">{a.author}</span>
                 <span className="pdfx-comment__meta">
@@ -632,10 +670,46 @@ function Comments(p: SidebarProps) {
               {(a.replies ?? [])
                 .filter((r) => r.text)
                 .map((r) => (
-                  <div key={r.id} className="pdfx-reply">
+                  <div key={r.id} className="pdfx-reply" onClick={(e) => e.stopPropagation()}>
                     <span className="pdfx-reply__author">{r.author}</span>
                     <time>{shortDate(r.createdAt)}</time>
-                    <p>{r.text}</p>
+                    {!r.status && (
+                      <button
+                        type="button"
+                        className="pdfx-reply__del"
+                        aria-label="Supprimer la réponse"
+                        title="Supprimer la réponse"
+                        onClick={() => p.onReplyDelete(a.id, r.id)}
+                      >
+                        ×
+                      </button>
+                    )}
+                    {editingReply === r.id ? (
+                      <textarea
+                        className="pdfx-comment__edit"
+                        autoFocus
+                        value={replyEdit}
+                        onChange={(e) => setReplyEdit(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setEditingReply(null);
+                        }}
+                        onBlur={() => {
+                          if (replyEdit.trim() && replyEdit !== r.text) p.onReplyEdit(a.id, r.id, replyEdit.trim());
+                          setEditingReply(null);
+                        }}
+                      />
+                    ) : (
+                      <p
+                        title={r.status ? undefined : "Double-cliquez pour modifier"}
+                        onDoubleClick={() => {
+                          if (r.status) return;
+                          setReplyEdit(r.text);
+                          setEditingReply(r.id);
+                        }}
+                      >
+                        {r.text}
+                      </p>
+                    )}
                   </div>
                 ))}
 

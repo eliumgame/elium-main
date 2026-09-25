@@ -22,6 +22,7 @@ import type { Annot, MeasureScale } from "../model/types";
 import { isTextMarkup } from "../model/types";
 import type { FontBook } from "./fonts";
 import { sanitiseForFont } from "./fonts";
+import { noteIcon } from "../model/noteicons";
 import { pdfFamilyOf } from "../../ui/fonts";
 import type { ImageBank } from "./images";
 import { FormResources, PageResources, Painter, hexToRgb, measure, rgbToPdfArray, wrapText } from "./painter";
@@ -457,24 +458,37 @@ async function paintCaption(p: Painter, ctx: PaintContext, a: Annot, label: stri
 async function paintNoteIcon(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
   const r = ctx.frame.rectToPdf({ ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE });
   const c = hexToRgb(a.color, { r: 0.98, g: 0.75, b: 0.14 });
+  const ink = { r: 0.15, g: 0.15, b: 0.15 };
   const s = Math.min(r.w, r.h);
+  // The shared unit-square drawing (model/noteicons.ts), y turned up.
+  const at = (u: number, v: number): Pt => ({ x: r.x + u * s, y: r.y + (1 - v) * s });
   p.save();
   p.alpha({ fillAlpha: a.opacity ?? 1, strokeAlpha: 1 });
-  p.fillColor(c).strokeColor({ r: 0.15, g: 0.15, b: 0.15 }).lineWidth(0.7);
-  p.roundRect(r.x, r.y + s * 0.18, s, s * 0.72, s * 0.16).fillStroke();
-  // The tail
-  p.fillColor(c).strokeColor({ r: 0.15, g: 0.15, b: 0.15 });
-  p.moveTo({ x: r.x + s * 0.24, y: r.y + s * 0.2 })
-    .lineTo({ x: r.x + s * 0.2, y: r.y })
-    .lineTo({ x: r.x + s * 0.46, y: r.y + s * 0.2 })
-    .closePath()
-    .fillStroke();
-  p.strokeColor({ r: 0.15, g: 0.15, b: 0.15 }).lineWidth(0.6);
-  for (let i = 0; i < 3; i++) {
-    const y = r.y + s * (0.72 - i * 0.16);
-    p.moveTo({ x: r.x + s * 0.16, y })
-      .lineTo({ x: r.x + s * (i === 2 ? 0.62 : 0.84), y })
-      .stroke();
+  p.lineWidth(0.7).strokeColor(ink);
+  for (const sh of noteIcon(a.icon)) {
+    if (sh.t === "rrect") {
+      p.fillColor(c).roundRect(r.x + sh.x * s, r.y + (1 - sh.y - sh.h) * s, sh.w * s, sh.h * s, sh.r * s);
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else if (sh.t === "circle") {
+      p.fillColor(c).ellipse(r.x + sh.cx * s, r.y + (1 - sh.cy) * s, sh.r * s, sh.r * s);
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else if (sh.t === "poly") {
+      p.fillColor(c).polyline(
+        sh.pts.map(([u, v]) => at(u, v)),
+        sh.close,
+      );
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else {
+      const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, sh.text);
+      const text = sanitiseForFont(sh.text, unicode);
+      const size = sh.size * s;
+      const w = measure(font, text, size);
+      const o = at(sh.x, sh.y);
+      p.fillColor(ink).text(font, size, { x: o.x - w / 2, y: o.y }, text);
+    }
   }
   p.restore();
 }
@@ -710,7 +724,29 @@ export async function writeAnnots(
   // conversation, not just the first comment.
   for (const a of annots) {
     const parent = byId.get(a.id);
-    if (!parent || !a.replies?.length) continue;
+    if (!parent) continue;
+    if (a.checked) {
+      // Acrobat's checkmark: a hidden state reply of the Marked model.
+      try {
+        const mark = ctx.doc.context.obj({
+          Type: "Annot",
+          Subtype: "Text",
+          Rect: ctx.frame.rectArray({ x: a.rect.x, y: a.rect.y, w: NOTE_SIZE, h: NOTE_SIZE }),
+          F: 2 | 4,
+          IRT: parent,
+          RT: PDFName.of("R"),
+          T: textString(a.author || opts.defaultAuthor),
+          Contents: textString("Marked set by " + (a.author || opts.defaultAuthor)),
+          StateModel: PDFString.of("Marked"),
+          State: PDFString.of("Marked"),
+          M: PDFString.of(pdfDate(a.modifiedAt)),
+        });
+        pushAnnot(page, ctx.doc.context.register(mark));
+      } catch {
+        /* the tick is not worth failing the save */
+      }
+    }
+    if (!a.replies?.length) continue;
     for (const reply of a.replies) {
       if (!reply.text) continue;
       try {

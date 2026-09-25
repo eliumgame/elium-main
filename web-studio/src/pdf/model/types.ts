@@ -190,6 +190,8 @@ export interface Annot {
   createdAt: string;
   modifiedAt: string;
   status?: ReviewStatus;
+  /** Acrobat's checkmark (`/StateModel (Marked)`): the reviewer's own tick, not a status. */
+  checked?: boolean;
   replies?: Reply[];
   /** Locked annotations cannot be moved or edited, only read. */
   locked?: boolean;

@@ -5,6 +5,7 @@ import type { Annot, AnnotKind, DraftStyle, Tool } from "../model/types";
 import { isPolyKind, isTextMarkup, newId } from "../model/types";
 import { fontCss } from "../../ui/fonts";
 import { NOTE_SIZE } from "../ops/annots-pdf";
+import { noteIcon } from "../model/noteicons";
 import { stampById, stampFields } from "../model/stamps";
 
 /** Image d'un tampon/image/signature avec repli LIBELLÉ : si la source est
@@ -26,6 +27,50 @@ function StampImg({ src, fit, label, tone }: { src: string; fit: "fill" | "conta
       onError={() => setBroken(true)}
       style={{ width: "100%", height: "100%", objectFit: fit }}
     />
+  );
+}
+
+/** A sticky note's icon, drawn from the same shapes as its appearance in the file. */
+function NoteIconSvg({ name, color }: { name?: string; color: string }) {
+  return (
+    <svg className="pdfx-note__icon" viewBox="-0.05 -0.05 1.1 1.1" aria-hidden>
+      {noteIcon(name).map((sh, i) => {
+        const common = { stroke: "#262626", strokeWidth: 0.035, strokeLinejoin: "round" as const };
+        if (sh.t === "rrect")
+          return (
+            <rect
+              key={i}
+              x={sh.x}
+              y={sh.y}
+              width={sh.w}
+              height={sh.h}
+              rx={sh.r}
+              fill={sh.fill ? color : "none"}
+              {...common}
+            />
+          );
+        if (sh.t === "circle")
+          return <circle key={i} cx={sh.cx} cy={sh.cy} r={sh.r} fill={sh.fill ? color : "none"} {...common} />;
+        if (sh.t === "poly") {
+          const d = `M${sh.pts.map(([u, v]) => `${u} ${v}`).join("L")}${sh.close ? "Z" : ""}`;
+          return <path key={i} d={d} fill={sh.fill ? color : "none"} {...common} />;
+        }
+        return (
+          <text
+            key={i}
+            x={sh.x}
+            y={sh.y}
+            fontSize={sh.size}
+            textAnchor="middle"
+            fontWeight={700}
+            fill="#262626"
+            fontFamily="Helvetica, Arial, sans-serif"
+          >
+            {sh.text}
+          </text>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -851,14 +896,14 @@ function AnnotLayer(p: AnnotLayerProps) {
         <button
           type="button"
           className="pdfx-note"
-          style={{ background: a.color }}
+          data-icon={a.icon ?? "Comment"}
           title={a.contents || "Note"}
           onClick={(e) => {
             e.stopPropagation();
             p.onRequestNoteText(a);
           }}
         >
-          <span className="pdfx-note__tail" style={{ borderTopColor: a.color }} />
+          <NoteIconSvg name={a.icon} color={a.color} />
           {(a.replies?.length ?? 0) > 0 && <span className="pdfx-note__count">{a.replies!.length}</span>}
         </button>,
         "pdfx-html--note",

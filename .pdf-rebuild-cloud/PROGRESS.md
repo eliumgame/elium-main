@@ -466,3 +466,17 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - Suite complète 1943/1943 ; specs PDF 34/34 ; stress 40/40 à 4 workers.
 - À vérifier dans Acrobat : exporter en FDF depuis Elium puis « Importer les
   commentaires » dans Acrobat, et un FDF de commentaires d'Acrobat importé dans Elium.
+
+### Session cloud 1 : T4, point 12 (1re partie)
+
+- Panneau Commentaires :
+  - coche d'Acrobat par commentaire, écrite en réponse d'état /StateModel (Marked),
+    relue du PDF et du XFDF, hors du fil ;
+  - filtres par type, par page et par coche, en plus d'auteur, statut et recherche. Le
+    panneau utilise `filterComments` au lieu d'une copie ; les zones blanchies n'y
+    figurent plus ;
+  - réponse modifiable (double-clic) et supprimable (×).
+- Icône des notes : les 7 icônes de la norme (Commentaire, Note, Aide, Insertion, Clé,
+  Nouveau paragraphe, Paragraphe), au choix dans l'inspecteur, dessinées pareil à l'écran
+  et dans le fichier (model/noteicons.ts), /Name écrit et relu.
+- Tests : 3 unitaires, 1 XFDF, 1 navigateur. Suite complète 1947/1947 ; specs PDF 36/36.

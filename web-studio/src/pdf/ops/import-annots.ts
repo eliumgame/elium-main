@@ -606,6 +606,7 @@ export function importPageAnnots(
   const replies: { parent: string; reply: Reply }[] = [];
   let skipped = 0;
   const owned = ownedAnnotations(linksOfRaw(raw));
+  const marks: { parent: string; checked: boolean; when: string }[] = [];
   const pdfjsId = new Map(raw.filter((a) => a.id).map((a) => [keyOfPdfjsId(a.id), a.id!]));
 
   for (const a of raw) {
@@ -628,6 +629,11 @@ export function importPageAnnots(
 
     // A reply carries `/IRT`; attach it to its parent instead of showing a
     // second icon on the page.
+    if (a.inReplyTo && a.stateModel === "Marked") {
+      // Acrobat's checkmark: a state of the comment, not a line of its thread.
+      marks.push({ parent: pdfjsId.get(root) ?? a.inReplyTo, checked: a.state === "Marked", when: modified });
+      continue;
+    }
     if (a.inReplyTo) {
       replies.push({
         parent: pdfjsId.get(root) ?? a.inReplyTo,
@@ -791,6 +797,12 @@ export function importPageAnnots(
     const target = annots.find((a) => a.id === parent);
     if (target) target.replies = [...(target.replies ?? []), reply];
     else skipped++;
+  }
+  // The latest checkmark state wins.
+  marks.sort((x, y) => x.when.localeCompare(y.when));
+  for (const m of marks) {
+    const target = annots.find((a) => a.id === m.parent);
+    if (target) target.checked = m.checked;
   }
   // The comment's status is its latest review action.
   for (const a of annots) {

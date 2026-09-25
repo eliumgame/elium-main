@@ -3846,6 +3846,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               }
               onAnnotDelete={deleteAnnots}
               onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
+              onAnnotCheck={(ids, checked) => setState((s) => D.setChecked(s, ids, checked))}
+              onReplyEdit={(annotId, replyId, text) =>
+                setState((s) => D.updateReply(s, annotId, replyId, text, new Date().toISOString()))
+              }
+              onReplyDelete={(annotId, replyId) => setState((s) => D.removeReply(s, annotId, replyId))}
               onFilterChange={setFilter}
               onSortChange={setSort}
               onBookmarkGoTo={(b) => goTo(b.page, b.y)}

@@ -26,6 +26,17 @@ import { KIND_LABEL, shortDate } from "./state";
  * showing "—" where the values differ.
  */
 
+/** Sticky-note icons (ISO 32000 /Name), as Acrobat offers them. */
+const NOTE_ICON_CHOICES = [
+  { id: "Comment", label: "Commentaire" },
+  { id: "Note", label: "Note" },
+  { id: "Help", label: "Aide" },
+  { id: "Insert", label: "Insertion" },
+  { id: "Key", label: "Clé" },
+  { id: "NewParagraph", label: "Nouveau paragraphe" },
+  { id: "Paragraph", label: "Paragraphe" },
+];
+
 export interface InspectorProps {
   selection: Annot[];
   pageCount: number;
@@ -289,6 +300,22 @@ export default function Inspector(p: InspectorProps) {
                 />
               </label>
             )}
+          </section>
+        )}
+
+        {one?.kind === "note" && (
+          <section className="pdfx-insp-group">
+            <h4>Note</h4>
+            <label className="pdfx-insp-row pdfx-insp-row--wide">
+              <span>Icône</span>
+              <select value={one.icon ?? "Comment"} onChange={(e) => p.onPatch({ icon: e.target.value })}>
+                {NOTE_ICON_CHOICES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </section>
         )}
 

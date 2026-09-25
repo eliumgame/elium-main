@@ -577,6 +577,8 @@ interface WriteOptions {
   defaultAuthor: string;
   /** 1-based page numbers of the output, for resolving internal links. */
   pageRefs: PDFRef[];
+  /** Filled with the object written for each annotation, by `Annot.id`. */
+  written?: Map<string, PDFRef>;
 }
 
 /**
@@ -604,8 +606,10 @@ export async function writeAnnots(
     }
     try {
       const ref = await writeOne(page, a, ctx, opts, subtype);
-      if (ref) byId.set(a.id, ref);
-      else flattenLater.push(a);
+      if (ref) {
+        byId.set(a.id, ref);
+        opts.written?.set(a.id, ref);
+      } else flattenLater.push(a);
     } catch {
       flattenLater.push(a);
     }

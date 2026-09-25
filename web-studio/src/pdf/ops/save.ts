@@ -595,6 +595,13 @@ async function applyState(
       ? state.annots.filter((a) => opts.pristineAnnots!.has(a) && !(a.kind === "redact" && opts.applyRedactions))
       : [],
   );
+  // Annotations Elium leaves alone that hang on a comment it rewrites (a Caret
+  // grouped with a strike-out, a reply to it from another app, their pop-ups).
+  const dependents = new Map<
+    string,
+    { dict: import("pdf-lib").PDFDict; field: "IRT" | "Parent"; ref: PDFRef; page: PDFPage }[]
+  >();
+  const written = new Map<string, PDFRef>();
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
     for (const [index, { page, model }] of targets.entries()) {
@@ -605,7 +612,12 @@ async function applyState(
         if (m) keep.add(`${m[1]} ${m[2] || "0"}`);
       }
       try {
-        await stripImportedAnnots(page, keep);
+        const r = await stripImportedAnnots(page, keep);
+        for (const [k, list] of r.dependents)
+          dependents.set(
+            k,
+            list.map((d) => ({ ...d, page })),
+          );
         report.annotsKept += keep.size;
       } catch {
         report.lost.push(`page ${index + 1} : les annotations d'origine n'ont pas pu être remplacées.`);
@@ -631,7 +643,7 @@ async function applyState(
     if (!mine.length) continue;
     let toFlatten: Annot[];
     if (opts.interactiveAnnots) {
-      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs });
+      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs, written });
       report.annotsWritten += mine.length - toFlatten.length;
     } else {
       toFlatten = mine.slice();
@@ -646,6 +658,32 @@ async function applyState(
     report.annotsFlattened +=
       state.annots.filter((a) => a.kind === "redact").length -
       state.annots.filter((a) => a.kind === "redact" && mustFlatten(a.kind)).length;
+  }
+
+  if (dependents.size) {
+    const { keyOfPdfjsId } = await import("./import-annots");
+    const rewritten = new Map<string, PDFRef>();
+    for (const [id, ref] of written) rewritten.set(keyOfPdfjsId(id), ref);
+    for (const [key, list] of dependents) {
+      const to = rewritten.get(key);
+      for (const d of list) {
+        if (to) {
+          d.dict.set(PDFName.of(d.field), to);
+          continue;
+        }
+        // Its comment was deleted (or flattened): it goes with it, as in Acrobat.
+        const annots = d.page.node.Annots();
+        const at = annots?.indexOf(d.ref) ?? -1;
+        if (annots && at >= 0) annots.remove(at);
+        doc.context.delete(d.ref);
+        const popup = d.dict.get(PDFName.of("Popup"));
+        if (popup instanceof PDFRef) {
+          const pi = annots?.indexOf(popup) ?? -1;
+          if (annots && pi >= 0) annots.remove(pi);
+          doc.context.delete(popup);
+        }
+      }
+    }
   }
 
   // --- 5. forms -------------------------------------------------------------

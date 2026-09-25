@@ -335,3 +335,24 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 12. Manquants : Caret et modifications de texte, pièce jointe, icônes de note, réglage de
     l'auteur, styles par outil mémorisés, filtres type/page/coche, synthèse PDF et
     impression avec commentaires, modifier ou supprimer une réponse.
+
+### Session cloud 1 : T4, points 1 et 2 corrigés
+
+- Une seule règle décide ce que le modèle reprend d'un fichier (`ownedAnnotations`,
+  import-annots.ts), partagée par l'import, l'enregistrement et le masque du lecteur :
+  - un commentaire d'un type modélisé qui ne répond à rien ;
+  - une réponse /Text (/RT /R) dont le fil remonte à un tel commentaire (les réponses aux
+    réponses rejoignent le fil au lieu d'être perdues) ;
+  - la fenêtre contextuelle de tout ce qui est repris.
+  Tout le reste reste dans le fichier tel quel et est dessiné par pdf.js : Caret, pièce
+  jointe, membres de groupe /RT /Group (« Remplacer le texte » d'Acrobat), réponses à ce
+  qui n'est pas repris, et leurs fenêtres contextuelles.
+- Un enregistrement sans modification ne supprime plus rien.
+- Ce qui dépend d'un commentaire réécrit (le Caret groupé avec un barré) est rattaché au
+  nouvel objet ; si le commentaire est supprimé, le Caret part avec lui, comme dans
+  Acrobat.
+- Tests : pdf-annot-ownership (6, qui échouent sans le correctif). Suite complète
+  1920/1920 ; specs PDF navigateur 26/26.
+- À vérifier dans Acrobat sur le poste : ouvrir un PDF avec « Remplacer le texte », une
+  pièce jointe et un fil de réponses, enregistrer dans Elium sans rien modifier, puis
+  en modifiant le barré : tout doit rester visible et lié dans Acrobat.

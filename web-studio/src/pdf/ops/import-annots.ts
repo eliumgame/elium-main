@@ -477,6 +477,8 @@ export function importPageAnnots(
   const annots: Annot[] = [];
   const replies: { parent: string; reply: Reply }[] = [];
   let skipped = 0;
+  const owned = ownedAnnotations(linksOfRaw(raw));
+  const pdfjsId = new Map(raw.filter((a) => a.id).map((a) => [keyOfPdfjsId(a.id), a.id!]));
 
   for (const a of raw) {
     const subtype = a.subtype ?? "";
@@ -484,7 +486,9 @@ export function importPageAnnots(
     // the little windows attached to a parent comment.
     if (subtype === "Widget" || subtype === "Popup" || subtype === "Link") continue;
     const kind = KIND[subtype];
-    if (!kind) {
+    const root = a.id ? owned.get(keyOfPdfjsId(a.id)) : undefined;
+    // Not the model's (see `ownedAnnotations`): stays in the file, drawn by pdf.js.
+    if (!kind || !root) {
       skipped++;
       continue;
     }
@@ -498,7 +502,7 @@ export function importPageAnnots(
     // second icon on the page.
     if (a.inReplyTo) {
       replies.push({
-        parent: a.inReplyTo,
+        parent: pdfjsId.get(root) ?? a.inReplyTo,
         reply: { id: a.id || newId("rp"), author, text: contents, createdAt: created },
       });
       continue;
@@ -622,21 +626,73 @@ export function importPageAnnots(
   return { annots, skipped };
 }
 
+/** One annotation of a page, as `ownedAnnotations` needs it (keys: "num gen"). */
+export interface AnnotLink {
+  key: string;
+  subtype: string;
+  /** `/IRT`, `/RT` ("R" when absent), `/Parent` (pop-ups). */
+  irt?: string | null;
+  rt?: string | null;
+  parent?: string | null;
+}
+
+/** pdf.js' annotation id ("12R", "12R3") as a "num gen" key. */
+export function keyOfPdfjsId(id: string | null | undefined): string {
+  const m = /^(\d+)R(\d*)$/.exec(id ?? "");
+  // Anything else (synthetic ids) is its own key.
+  return m ? `${m[1]} ${m[2] || "0"}` : (id ?? "");
+}
+
+/**
+ * What Elium's model takes over from a page's annotations — the one rule the
+ * import, the save and the viewer share:
+ * - a modelled subtype that is not in reply to anything (a comment);
+ * - a `/Text` reply (`/RT /R`) whose thread leads back to such a comment
+ *   (replies to replies are folded into the thread);
+ * - the pop-up of anything owned.
+ * Everything else — Caret, FileAttachment, a `/RT /Group` member (Acrobat's
+ * « Remplacer le texte »), a reply to something not owned, their pop-ups — is
+ * left in the file as it is and painted by pdf.js.
+ *
+ * Returns each owned key with the comment it belongs to (itself for a root).
+ */
+export function ownedAnnotations(links: readonly AnnotLink[]): Map<string, string> {
+  const byKey = new Map(links.map((l) => [l.key, l]));
+  const owned = new Map<string, string>();
+  const rootOf = (l: AnnotLink, seen: Set<string>): string | null => {
+    if (seen.has(l.key)) return null;
+    seen.add(l.key);
+    if (!l.irt) return KIND[l.subtype] ? l.key : null;
+    if (l.subtype !== "Text" || (l.rt && l.rt !== "R")) return null;
+    const parent = byKey.get(l.irt);
+    return parent ? rootOf(parent, seen) : null;
+  };
+  for (const l of links) {
+    if (l.subtype === "Popup" || l.subtype === "Widget" || l.subtype === "Link") continue;
+    const root = rootOf(l, new Set());
+    if (root) owned.set(l.key, root);
+  }
+  for (const l of links) {
+    if (l.subtype === "Popup" && l.parent && owned.has(l.parent)) owned.set(l.key, owned.get(l.parent)!);
+  }
+  return owned;
+}
+
+/** The ownership links of pdf.js' `getAnnotations()` data. */
+export function linksOfRaw(raw: readonly RawAnnotation[]): AnnotLink[] {
+  return raw
+    .filter((a) => a.id)
+    .map((a) => ({
+      key: keyOfPdfjsId(a.id),
+      subtype: a.subtype ?? "",
+      irt: a.inReplyTo ? keyOfPdfjsId(a.inReplyTo) : null,
+      rt: a.replyType ?? null,
+    }));
+}
+
 /** True when a page carries markup worth importing (cheap pre-check). */
 export function hasImportableAnnots(raw: readonly RawAnnotation[]): boolean {
   return raw.some((a) => a.subtype && KIND[a.subtype]);
-}
-
-/** Subtypes that were imported into the model and must not be written twice. */
-const IMPORTED_SUBTYPES = new Set([...Object.keys(KIND), "Popup"]);
-
-/**
- * True for an annotation subtype the model takes over once imported — the set
- * the export strips (`stripImportedAnnots`) and the viewer stops pdf.js from
- * painting (`core/viewer/annotmask.ts`), so both always agree.
- */
-export function isImportedSubtype(subtype: string | undefined): boolean {
-  return !!subtype && IMPORTED_SUBTYPES.has(subtype);
 }
 
 /**
@@ -651,44 +707,72 @@ export function isImportedSubtype(subtype: string | undefined): boolean {
 export async function stripImportedAnnots(
   page: import("pdf-lib").PDFPage,
   keep: ReadonlySet<string> = new Set(),
-): Promise<number> {
+): Promise<StripResult> {
   const { PDFArray, PDFDict, PDFName, PDFRef } = await import("pdf-lib");
+  const result: StripResult = { removed: 0, dependents: new Map() };
   const annots = page.node.Annots();
-  if (!(annots instanceof PDFArray)) return 0;
+  if (!(annots instanceof PDFArray)) return result;
   const key = (r: unknown) => (r instanceof PDFRef ? `${r.objectNumber} ${r.generationNumber}` : "");
+  const nameOf = (v: unknown) => (v instanceof PDFName ? v.asString().replace(/^\//, "") : null);
 
-  // Replies (and replies to replies) of a kept annotation are kept with it,
-  // then the pop-ups of everything kept.
-  const kept = new Set(keep);
-  if (kept.size) {
-    for (let grew = true; grew;) {
-      grew = false;
-      for (let i = 0; i < annots.size(); i++) {
-        const dict = annots.lookup(i);
-        const k = key(annots.get(i));
-        if (!(dict instanceof PDFDict) || !k || kept.has(k)) continue;
-        const irt = key(dict.get(PDFName.of("IRT")));
-        const parent = key(dict.get(PDFName.of("Parent")));
-        if ((irt && kept.has(irt)) || (parent && kept.has(parent))) {
-          kept.add(k);
-          grew = true;
-        }
-      }
-    }
-  }
-
-  let removed = 0;
-  for (let i = annots.size() - 1; i >= 0; i--) {
+  const entries: { ref: unknown; dict: import("pdf-lib").PDFDict; link: AnnotLink }[] = [];
+  for (let i = 0; i < annots.size(); i++) {
     const ref = annots.get(i);
     const dict = annots.lookup(i);
-    if (!(dict instanceof PDFDict)) continue;
-    const sub = dict.lookup(PDFName.of("Subtype"));
-    const name = sub instanceof PDFName ? sub.asString().replace(/^\//, "") : "";
-    if (!IMPORTED_SUBTYPES.has(name)) continue;
-    if (kept.has(key(ref))) continue;
+    const k = key(ref);
+    if (!(dict instanceof PDFDict) || !k) continue;
+    entries.push({
+      ref,
+      dict,
+      link: {
+        key: k,
+        subtype: nameOf(dict.lookup(PDFName.of("Subtype"))) ?? "",
+        irt: key(dict.get(PDFName.of("IRT"))) || null,
+        rt: nameOf(dict.lookup(PDFName.of("RT"))),
+        parent: key(dict.get(PDFName.of("Parent"))) || null,
+      },
+    });
+  }
+  const owned = ownedAnnotations(entries.map((e) => e.link));
+  // A kept comment keeps its whole thread and pop-ups.
+  const kept = (k: string) => keep.has(owned.get(k) ?? k);
+  const doomed = new Set(entries.filter((e) => owned.has(e.link.key) && !kept(e.link.key)).map((e) => e.link.key));
+
+  for (let i = annots.size() - 1; i >= 0; i--) {
+    const ref = annots.get(i);
+    const k = key(ref);
+    if (!doomed.has(k)) continue;
     annots.remove(i);
     if (ref instanceof PDFRef) page.doc.context.delete(ref);
-    removed++;
+    result.removed++;
   }
-  return removed;
+  // What is not the model's but hangs on a removed comment: re-attached by the
+  // caller once the comment is rewritten (or removed with it).
+  for (const e of entries) {
+    if (owned.has(e.link.key)) continue;
+    for (const [field, target] of [
+      ["IRT", e.link.irt],
+      ["Parent", e.link.parent],
+    ] as const) {
+      if (!target || !doomed.has(target)) continue;
+      const root = owned.get(target) ?? target;
+      const list = result.dependents.get(root) ?? [];
+      list.push({ dict: e.dict, field, ref: e.ref as import("pdf-lib").PDFRef });
+      result.dependents.set(root, list);
+    }
+  }
+  return result;
+}
+
+export interface StripResult {
+  removed: number;
+  /**
+   * Annotations left in the file that point (`/IRT`, `/Parent`) at a removed
+   * comment, by that comment's key ("num gen"): point them at its rewrite, or
+   * drop them if it is gone.
+   */
+  dependents: Map<
+    string,
+    { dict: import("pdf-lib").PDFDict; field: "IRT" | "Parent"; ref: import("pdf-lib").PDFRef }[]
+  >;
 }

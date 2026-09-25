@@ -14,13 +14,13 @@
  * The ids are collected per page, from the same `getAnnotations` data the
  * import reads, BEFORE that page is first drawn (`ensure`), so an imported
  * comment is never painted even for a frame. The set only ever holds ids of
- * importable subtypes (`isImportedSubtype`, shared with the export's strip), so
+ * annotations the model owns (`ownedAnnotations`, shared with the import and the export's strip), so
  * for a document without markup it stays empty and pdf.js' render cache keys
  * are unaffected.
  */
 
 import type { PdfEngine } from "../engine";
-import { isImportedSubtype } from "../../ops/import-annots";
+import { keyOfPdfjsId, linksOfRaw, ownedAnnotations, type RawAnnotation } from "../../ops/import-annots";
 
 interface ModifiedIds {
   ids: Set<string>;
@@ -115,9 +115,11 @@ export class ImportedAnnotationMask {
       p = this.engine
         .annotations(from)
         .then((raw) => {
-          const ids = (raw as { id?: string; subtype?: string }[])
-            .filter((a) => a.id && isImportedSubtype(a.subtype))
-            .map((a) => a.id!);
+          // Exactly what the import takes over (`ownedAnnotations`): the rest
+          // (Caret, attachments, Acrobat's text-edit groups…) pdf.js keeps painting.
+          const list = raw as RawAnnotation[];
+          const owned = ownedAnnotations(linksOfRaw(list));
+          const ids = list.filter((a) => a.id && owned.has(keyOfPdfjsId(a.id))).map((a) => a.id!);
           this.perPage.set(from, ids);
           if (ids.length) {
             for (const id of ids) this.ids.add(id);

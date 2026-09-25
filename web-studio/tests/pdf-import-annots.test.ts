@@ -396,7 +396,7 @@ describe("Imported markup is written back exactly once", () => {
     const src = await sourceWithComment();
     const doc = await PDFDocument.load(src);
     expect(markupCount(doc)).toBe(1);
-    expect(await stripImportedAnnots(doc.getPage(0))).toBe(1);
+    expect((await stripImportedAnnots(doc.getPage(0))).removed).toBe(1);
     expect(markupCount(doc)).toBe(0);
   });
 

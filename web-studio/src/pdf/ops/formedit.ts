@@ -28,7 +28,8 @@ import {
 } from "pdf-lib";
 import type { PDFDocument, PDFField, PDFForm, PDFPage, PDFWidgetAnnotation } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { FieldEdit, FieldFormat, FieldProps, FormValue } from "../model/types";
+import type { FieldEdit, FieldProps, FormValue } from "../model/types";
+import { calculateScript, formatScripts, validateScript } from "../core/forms/afscripts";
 
 // Field flags (Ff), ISO 32000-1 tables 221, 228, 230.
 const FF = {
@@ -47,43 +48,10 @@ const AF = { hidden: 1 << 1, print: 1 << 2 };
 const text = (s: string) => (/^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s));
 
 // ---------------------------------------------------------------------------
-// Acrobat JavaScript
+// Acrobat JavaScript (built in core/forms/afscripts.ts)
 // ---------------------------------------------------------------------------
 
-const js = JSON.stringify;
-
-/** Keystroke and format scripts of a Format tab choice (null: remove them). */
-export function formatScripts(f: FieldFormat | undefined): { K: string; F: string } | null {
-  if (!f || f.kind === "none") return null;
-  switch (f.kind) {
-    case "number": {
-      const args = `${f.decimals}, ${f.sepStyle}, ${f.negStyle}, 0, ${js(f.currency)}, ${f.currencyPrepend}`;
-      return { K: `AFNumber_Keystroke(${args});`, F: `AFNumber_Format(${args});` };
-    }
-    case "percent":
-      return {
-        K: `AFPercent_Keystroke(${f.decimals}, ${f.sepStyle});`,
-        F: `AFPercent_Format(${f.decimals}, ${f.sepStyle});`,
-      };
-    case "date":
-      return { K: `AFDate_KeystrokeEx(${js(f.pattern)});`, F: `AFDate_FormatEx(${js(f.pattern)});` };
-    case "time":
-      return { K: `AFTime_Keystroke(${f.style});`, F: `AFTime_Format(${f.style});` };
-    case "custom":
-      return { K: f.keystroke ?? "", F: f.format ?? "" };
-  }
-}
-
-export function validateScript(v: FieldProps["validate"]): string | null {
-  if (!v || (v.min == null && v.max == null)) return null;
-  return `AFRange_Validate(${v.min != null}, ${v.min ?? 0}, ${v.max != null}, ${v.max ?? 0});`;
-}
-
-export function calculateScript(c: FieldProps["calculate"]): string | null {
-  if (!c) return null;
-  if (c.kind === "custom") return c.script;
-  return `AFSimple_Calculate(${js(c.op)}, new Array(${c.fields.map((n) => js(n)).join(", ")}));`;
-}
+export { calculateScript, formatScripts, validateScript };
 
 function setAction(doc: PDFDocument, dict: PDFDict, key: "K" | "F" | "V" | "C", code: string | null): void {
   let aa = dict.lookup(PDFName.of("AA"));
@@ -465,6 +433,24 @@ export function applyFieldEdits(doc: PDFDocument, edits: readonly FieldEdit[]): 
         deleteField(doc, form, field, pages);
         report.applied++;
         continue;
+      }
+      if (edit.removeWidgets?.length) {
+        const widgets = field.acroField.getWidgets();
+        const gone = widgets.filter((w) => {
+          const ref = pages.get(w.dict)?.ref;
+          return !!ref && edit.removeWidgets!.includes(pdfjsId(ref));
+        });
+        if (gone.length === widgets.length) {
+          deleteField(doc, form, field, pages);
+          report.applied++;
+          continue;
+        }
+        const kids = field.acroField.dict.lookup(PDFName.of("Kids"));
+        for (const w of gone) {
+          const hit = pages.get(w.dict);
+          if (hit) removeFrom(hit.page.node.Annots(), w.dict, doc);
+          if (kids instanceof PDFArray) removeFrom(kids, w.dict, doc);
+        }
       }
       if (edit.props) setFieldProps(doc, form, field, edit.props);
       if (edit.rects) {

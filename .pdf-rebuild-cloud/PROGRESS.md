@@ -125,10 +125,46 @@ Résultat : 8/8 en répétition.
 À valider dans Acrobat : importer dans Acrobat le .fdf et le .xfdf exportés par Elium, puis
 l'inverse (export Acrobat → import Elium).
 
-Reste T2 :
-- préparation de formulaire (créer, déplacer, redimensionner, propriétés, ordre de
-  tabulation, calculs) ;
+Reste T2 (mis à jour plus bas) :
 - alertes des scripts dans une boîte Elium plutôt que `window.alert` (reporté à T10) ;
 - XFA (message clair, remplissage AcroForm de secours) ;
 - champs obligatoires signalés avant « Envoyer » ou à l'enregistrement ;
 - relecture adversariale.
+
+### Session cloud 1, suite : « Préparer un formulaire »
+
+Constat : les outils de création du ruban (Texte, Case, Radio, Liste, Signature) ne faisaient
+RIEN, aucun calque ne gérait le tracé. Les champs du fichier n'étaient pas modifiables.
+
+Fait (étapes A à D) :
+- A. Modèle `FieldProps`, `FieldEdit` et `state.fieldEdits` ; ops/formedit.ts
+  (`setFieldProps`, `applyFieldEdits` : déplacement, suppression d'un champ ou d'un widget,
+  renommage dans l'arbre des noms, propriétés) ; core/forms/afscripts.ts (scripts AF* dans
+  les deux sens) ; createFields réécrit (libellés des listes, non modifiables par défaut,
+  /DV, défaut Unicode, /TU aussi sur les widgets pour pdf.js).
+- B. ui/PrepareLayer.tsx : tracer, ou cliquer pour la taille par défaut ; sélection avec Maj ;
+  déplacer ; 8 poignées ; flèches (Maj : 10 pt) ; Suppr ; Entrée ou double-clic pour les
+  propriétés. Tient compte de la rotation. Bouton « Préparer » dans le ruban ; un outil de
+  champ fait entrer dans le mode.
+- C. ui/FieldProperties.tsx : onglets Général, Aspect, Options, Format, Validation, Calcul.
+  Propriétés relues depuis pdf.js (`fieldFlags`, `annotationFlags`, actions) ; seules les
+  modifications sont écrites.
+- D. En sortant de « Préparer », les champs sont intégrés au document (recomposition comme
+  l'OCR, état de la session gardé) : pdf.js les remplit avec scripts et formats.
+- Défaut corrigé au passage : avec l'outil Sélection (V), les champs n'étaient plus
+  cliquables (le calque d'annotations passait au-dessus).
+- Ancien ui/FormLayer.tsx supprimé (calque de remplissage maison, remplacé par pdf.js en F1).
+- Tests : pdf-formedit (11), pdf-afscripts (6), parcours navigateur « préparer ».
+
+Limites connues, à reprendre :
+- Après la recomposition, l'historique d'annulation repart de zéro (comme l'OCR).
+- L'ordre de tabulation (/Tabs, ordre des /Annots) n'est pas encore réglable.
+- Pas encore de boutons d'action (envoyer, réinitialiser, imprimer), de copier-coller ni de
+  duplication de champs, de sélection au lasso ni de magnétisme.
+
+Reste T2 :
+- ordre de tabulation, boutons d'action, duplication et « placer plusieurs » (Acrobat) ;
+- alertes des scripts dans une boîte Elium (reporté à T10) ;
+- XFA : message clair et remplissage AcroForm de secours ;
+- champs obligatoires signalés avant l'enregistrement ;
+- relecture adversariale de T2.

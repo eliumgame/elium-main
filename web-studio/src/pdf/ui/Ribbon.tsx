@@ -104,6 +104,8 @@ export interface RibbonProps {
   canRedo: boolean;
   hasSelection: boolean;
   hasForm: boolean;
+  /** « Préparer un formulaire » is on. */
+  preparing?: boolean;
   busy: boolean;
   stickyTool: boolean;
   onTab: (tab: RibbonTab) => void;
@@ -503,6 +505,14 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<Lock size={17} />} onClick={C("formFlatten")} label="Aplatir" disabled={!p.hasForm} />
             </Group>
             <Group title="Créer des champs">
+              <Cmd
+                big
+                icon={<LayoutGrid size={19} />}
+                label="Préparer"
+                onClick={C("formPrepare")}
+                active={!!p.preparing}
+                title="Préparer un formulaire : créer, déplacer, redimensionner et configurer les champs"
+              />
               <Cmd icon={<Type size={17} />} onClick={T("field:text")} active={p.tool === "field:text"} label="Texte" />
               <Cmd
                 icon={<BoxSelect size={17} />}

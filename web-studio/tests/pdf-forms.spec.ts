@@ -149,3 +149,71 @@ test.describe("PDF — formulaires : échange de données", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("PDF — préparer un formulaire", () => {
+  test("tracer, configurer, déplacer, supprimer, puis remplir et enregistrer", async ({ page }) => {
+    const problems = trackHealth(page);
+    await noFilePickers(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+
+    // Draw a text field with the tool.
+    await page.getByRole("button", { name: "Texte", exact: true }).first().click();
+    const layer = page.locator(".pdfx-prep").first();
+    await expect(layer).toBeVisible();
+    const box = (await layer.boundingBox())!;
+    // Top right of the page: free, and on screen at any zoom.
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.02);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.06, { steps: 5 });
+    await page.mouse.up();
+    const created = page.locator('.pdfx-prep-box[data-key^="c:"]');
+    await expect(created).toHaveCount(1);
+    await expect(created).toContainText("Texte1");
+
+    // Its properties: a name and a number format.
+    await created.dblclick();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Nom").fill("montant");
+    await dialog.getByRole("tab", { name: "Format" }).click();
+    await dialog.getByLabel("Catégorie").selectOption("number");
+    await dialog.getByRole("button", { name: "Appliquer" }).click();
+    await expect(created).toContainText("montant");
+
+    // Move the file's « nom » 40 px right, delete « pays » with the keyboard.
+    const nom = page.locator(".pdfx-prep-box", { hasText: /^nom$/ });
+    const nb = (await nom.boundingBox())!;
+    await page.mouse.move(nb.x + nb.width / 2, nb.y + nb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(nb.x + nb.width / 2 + 40, nb.y + nb.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.locator(".pdfx-prep-box", { hasText: /^pays$/ }).click();
+    await page.keyboard.press("Delete");
+    await expect(page.locator(".pdfx-prep-box", { hasText: /^pays$/ })).toHaveCount(0);
+
+    // Back to filling: the prepared fields are real fields of the document now.
+    await page.keyboard.press("Escape");
+    await expect(field(page, "montant")).toBeVisible();
+    await expect(page.locator('.annotationLayer [name="pays"]')).toHaveCount(0);
+    // The format writes « 1.234,56 »: the decimal comma is typed as such.
+    const alerts: string[] = [];
+    page.on("dialog", (d) => {
+      alerts.push(d.message());
+      void d.dismiss();
+    });
+    await field(page, "montant").fill("1234,5");
+    await field(page, "nom").click();
+    await expect(field(page, "montant")).toHaveValue("1.234,50");
+    expect(alerts).toEqual([]);
+
+    const doc = await PDFDocument.load(await saveWithCtrlS(page));
+    const form = doc.getForm();
+    expect(form.getTextField("montant").getText()).toBe("1234.5");
+    expect(form.getFieldMaybe("pays")).toBeUndefined();
+    const rect = form.getTextField("nom").acroField.getWidgets()[0].getRectangle();
+    // 40 px on screen at the current zoom: moved right, same height.
+    expect(rect.x).toBeGreaterThan(125);
+    expect(Math.round(rect.y)).toBe(320);
+    expect(problems).toEqual([]);
+  });
+});

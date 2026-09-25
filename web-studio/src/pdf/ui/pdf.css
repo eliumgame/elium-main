@@ -1839,3 +1839,157 @@
   color: var(--x-chrome-mute);
   white-space: nowrap;
 }
+
+/* --- Préparer un formulaire ------------------------------------------------ */
+
+/* The fill layer gives way to the editing boxes (pdf.js paints no widget on
+   the canvas in ENABLE_FORMS mode: the boxes are the fields). */
+.pdfx-stack.is-preparing .annotationLayer {
+  visibility: hidden;
+}
+.pdfx-prep {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  outline: none;
+  touch-action: none;
+}
+.pdfx-prep.is-drawing {
+  cursor: crosshair;
+}
+.pdfx-prep-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.12);
+  cursor: move;
+  user-select: none;
+}
+.pdfx-prep-box.is-required {
+  border-color: #dc2626;
+}
+.pdfx-prep-box.is-selected {
+  border: 2px solid var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.22);
+}
+.pdfx-prep-name {
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  max-width: calc(100% - 4px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font:
+    600 10px/1.2 system-ui,
+    sans-serif;
+  color: #1e3a8a;
+  pointer-events: none;
+}
+.pdfx-prep-box--checkbox .pdfx-prep-name,
+.pdfx-prep-box--radio .pdfx-prep-name {
+  top: auto;
+  bottom: 100%;
+  left: 0;
+  max-width: none;
+}
+.pdfx-prep-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  background: #fff;
+  border: 1px solid var(--x-accent, #2563eb);
+  border-radius: 1px;
+}
+.pdfx-prep-handle--nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.pdfx-prep-handle--n {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.pdfx-prep-handle--ne {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.pdfx-prep-handle--e {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.pdfx-prep-handle--se {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.pdfx-prep-handle--s {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.pdfx-prep-handle--sw {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.pdfx-prep-handle--w {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+.pdfx-prep-draft {
+  position: absolute;
+  border: 1px dashed var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+
+/* Propriétés du champ */
+.pdfx-form__list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border, #d4d4d8);
+  border-radius: 6px;
+}
+.pdfx-form__list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+}
+.pdfx-form__list li label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pdfx-form__list li em {
+  color: var(--text-soft, #71717a);
+}
+.pdfx-form__row--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.pdfx-form__row--stack textarea {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* Outil Sélection : les champs de formulaire restent cliquables (au-dessus du
+   calque d'annotations, qui capte le pointeur pour la sélection), les liens
+   laissent passer le pointeur vers les annotations posées dessus. */
+.pdfx-stack.is-annot-select .annotationLayer {
+  z-index: 7;
+}
+.pdfx-stack.is-annot-select .annotationLayer section.linkAnnotation {
+  pointer-events: none;
+}

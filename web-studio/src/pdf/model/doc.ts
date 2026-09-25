@@ -14,6 +14,7 @@ import type {
   Bookmark,
   ContentEdit,
   CreatedField,
+  FieldEdit,
   FormValue,
   ImageEdit,
   Page,
@@ -496,9 +497,13 @@ export function removeField(state: PdfState, id: string): PdfState {
   return { ...state, createdFields: state.createdFields.filter((f) => f.id !== id) };
 }
 
-/** A field name that does not collide with an existing one. */
-export function uniqueFieldName(state: PdfState, base: string): string {
-  const taken = new Set(state.createdFields.map((f) => f.name));
+/**
+ * A field name that does not collide with an existing one — created fields,
+ * the file's fields (`fileNames`) and the names given by renames.
+ */
+export function uniqueFieldName(state: PdfState, base: string, fileNames: Iterable<string> = []): string {
+  const taken = new Set([...state.createdFields.map((f) => f.name), ...fileNames]);
+  for (const e of state.fieldEdits ?? []) if (e.rename) taken.add(e.rename);
   if (!taken.has(base)) return base;
   for (let i = 2; i < 500; i++) {
     const candidate = `${base}_${i}`;
@@ -546,4 +551,21 @@ export function remapBookmarkPages(tree: readonly Bookmark[], remap: (page: numb
     const p = remap(b.page);
     return { ...b, page: p ?? b.page, children: remapBookmarkPages(b.children, remap) };
   });
+}
+
+/**
+ * Merge a change into the « Préparer un formulaire » edit of a file field
+ * (widget positions and properties accumulate; `deleted` / `rename` replace).
+ */
+export function upsertFieldEdit(state: PdfState, name: string, patch: Omit<Partial<FieldEdit>, "name">): PdfState {
+  const edits = state.fieldEdits ?? [];
+  const prev = edits.find((e) => e.name === name);
+  const next: FieldEdit = {
+    ...(prev ?? { name }),
+    ...patch,
+    name,
+    rects: patch.rects ? { ...(prev?.rects ?? {}), ...patch.rects } : prev?.rects,
+    props: patch.props ? { ...(prev?.props ?? {}), ...patch.props } : prev?.props,
+  };
+  return { ...state, fieldEdits: prev ? edits.map((e) => (e === prev ? next : e)) : [...edits, next] };
 }

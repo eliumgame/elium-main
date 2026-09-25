@@ -299,6 +299,8 @@ export interface CreatedField extends FieldProps {
 export interface FieldEdit {
   name: string;
   deleted?: boolean;
+  /** Widgets removed (one button of a group…); all of them removes the field. */
+  removeWidgets?: string[];
   /** New fully qualified name. */
   rename?: string;
   /** New position of widgets: top-left, unrotated page space (like annotations). */

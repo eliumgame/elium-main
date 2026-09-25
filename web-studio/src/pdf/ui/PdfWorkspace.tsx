@@ -20,7 +20,7 @@ import { downloadBlob } from "../../export/exporters";
 import { useDialogs } from "../../ui/dialogs";
 import { useUndoable } from "../../ui/useUndoable";
 import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts";
-import type { Quad, Rotation, Size } from "../core/coords";
+import type { Quad, Rect, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
 import { warmUpPdfWorker } from "../core/assets";
@@ -37,7 +37,8 @@ import type {
   AnnotKind,
   Bookmark,
   ContentEdit,
-  FormValue,
+  FieldKind,
+  FieldProps,
   MeasureScale,
   Page,
   PdfState,
@@ -136,7 +137,8 @@ import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
-import FormLayer from "./FormLayer";
+import { PreparePage } from "./PrepareLayer";
+import FieldPropertiesDialog, { propsFromPdfjs, type PdfjsWidgetData } from "./FieldProperties";
 import Inspector from "./Inspector";
 import Organize from "./Organize";
 import PageStack, { type HitMark, type OverlayGeometry, type PageStackHandle } from "./PageStack";
@@ -344,6 +346,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   /** The page being read — outside React state, see `currentPage.ts`. */
   const [currentStore] = useState(() => new CurrentPage(1));
   const [mode, setMode] = useState<Mode>("view");
+  /** « Préparer un formulaire » : selected field boxes (« c:<id> » created, « w:<widget> » file). */
+  const [prepSelected, setPrepSelected] = useState<string[]>([]);
+  const previousMode = useRef<string | null>(null);
+  /** « Propriétés du champ » open on this field. */
+  const [prepProps, setPrepProps] = useState<{
+    key: string;
+    /** Original name of a file field (its edits are keyed by it). */
+    fieldName?: string;
+    kind: FieldKind;
+    name: string;
+    initial: FieldProps;
+  } | null>(null);
   const [tab, setTab] = useState<RibbonTab>("home");
   const [panel, setPanel] = useState<SidePanel | null>("thumbnails");
   const [tool, setTool] = useState<Tool>("textSelect");
@@ -1103,6 +1117,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const pickTool = (next: Tool) => {
     setTool(next);
     setEditingId(null);
+    // A field tool works in « Préparer un formulaire »; a markup tool leaves it.
+    if (next.startsWith("field:")) setMode("fields");
+    else if (toolIsAnnot(next) && mode === "fields") setMode("view");
     if (toolIsAnnot(next)) {
       setStyle((s) => styleForKind(s, next));
       const target = TOOL_TAB[next];
@@ -1987,6 +2004,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setMode(mode === "editText" ? "view" : "editText");
         setTab("edit");
         return;
+      case "formPrepare":
+        setMode(mode === "fields" ? "view" : "fields");
+        setPrepSelected([]);
+        if (mode !== "fields") setTool("select");
+        return;
       case "formMode":
         // Fields are fillable as soon as the file opens (pdf.js form layer):
         // this command only toggles their highlighting, like Acrobat.
@@ -2361,6 +2383,245 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       setBusy(false);
     }
   };
+
+  // --- « Préparer un formulaire » -------------------------------------------
+
+  const FIELD_BASE: Record<FieldKind, string> = {
+    text: "Texte",
+    checkbox: "Case",
+    radio: "Groupe",
+    dropdown: "Liste",
+    listbox: "ZoneListe",
+    signature: "Signature",
+    button: "Bouton",
+  };
+
+  /** « Texte1 », « Texte2 »… free among created fields, the file's and renames (as Acrobat numbers them). */
+  const nextFieldName = (st: PdfState, base: string): string => {
+    const taken = new Set<string>([...st.createdFields.map((f) => f.name), ...(formSession?.fields.keys() ?? [])]);
+    for (const e of st.fieldEdits) if (e.rename) taken.add(e.rename);
+    for (let n = 1; ; n++) if (!taken.has(`${base}${n}`)) return `${base}${n}`;
+  };
+
+  const createFieldAt = (pageId: string, kind: FieldKind, rect: Rect) => {
+    const id = newId("fd");
+    setState((s) => {
+      // A radio button drawn while another created radio is selected joins its group.
+      const sel = prepSelected.length === 1 && prepSelected[0].startsWith("c:") ? prepSelected[0].slice(2) : null;
+      const group = kind === "radio" ? s.createdFields.find((f) => f.id === sel && f.kind === "radio") : undefined;
+      let name: string;
+      let exportValue: string | undefined;
+      if (group) {
+        name = group.name;
+        const used = new Set(s.createdFields.filter((f) => f.name === name).map((f) => f.exportValue));
+        let n = 1;
+        while (used.has(`Choix${n}`)) n++;
+        exportValue = `Choix${n}`;
+      } else {
+        name = nextFieldName(s, FIELD_BASE[kind]);
+        exportValue = kind === "radio" ? "Choix1" : kind === "checkbox" ? "Oui" : undefined;
+      }
+      return D.addField(s, { id, pageId, name, kind, rect, ...(exportValue ? { exportValue } : {}) });
+    });
+    setPrepSelected([`c:${id}`]);
+    if (!stickyRef.current) setTool("select");
+  };
+
+  const movePrepFields = (changes: { key: string; rect: Rect; fieldName?: string }[]) => {
+    setQuiet((s) => {
+      let next = s;
+      for (const c of changes) {
+        if (c.key.startsWith("c:")) next = D.updateField(next, c.key.slice(2), { rect: c.rect });
+        else if (c.fieldName) next = D.upsertFieldEdit(next, c.fieldName, { rects: { [c.key.slice(2)]: c.rect } });
+      }
+      return next;
+    });
+  };
+
+  const deletePrepFields = (items: { key: string; fieldName?: string }[]) => {
+    setQuiet((s) => {
+      let next = s;
+      for (const it of items) {
+        if (it.key.startsWith("c:")) next = D.removeField(next, it.key.slice(2));
+        else if (it.fieldName) {
+          const prev = next.fieldEdits.find((e) => e.name === it.fieldName)?.removeWidgets ?? [];
+          next = D.upsertFieldEdit(next, it.fieldName, { removeWidgets: [...prev, it.key.slice(2)] });
+        }
+      }
+      return next;
+    });
+    setPrepSelected([]);
+  };
+
+  /** Every field name as « Préparer » shows it (renames applied, deleted ones left out). */
+  const allFieldNames = (st: PdfState): string[] => {
+    const out = new Set<string>();
+    for (const name of formSession?.fields.keys() ?? []) {
+      const e = st.fieldEdits.find((x) => x.name === name);
+      if (e?.deleted) continue;
+      out.add(e?.rename ?? name);
+    }
+    for (const f of st.createdFields) out.add(f.name);
+    return [...out];
+  };
+
+  const openFieldProps = async (key: string, fieldName?: string) => {
+    if (key.startsWith("c:")) {
+      const f = state.createdFields.find((x) => x.id === key.slice(2));
+      if (!f) return;
+      const { id: _i, pageId: _p, name, kind, rect: _r, tabIndex: _t, ...props } = f;
+      void [_i, _p, _r, _t];
+      setPrepProps({ key, kind, name, initial: props });
+      return;
+    }
+    if (!fieldName || !formSession || !engine) return;
+    const field = formSession.fields.get(fieldName);
+    const widgetId = key.slice(2);
+    const page = field?.widgets.find((w) => w.id === widgetId)?.page ?? field?.widgets[0]?.page ?? -1;
+    const [anns, objects] = await Promise.all([
+      page >= 0 ? engine.annotations(page).catch(() => []) : Promise.resolve([]),
+      (engine.raw.getFieldObjects() as Promise<Record<string, { actions?: Record<string, string[]> }[]> | null>).catch(
+        () => null,
+      ),
+    ]);
+    const a = (
+      anns as ({ id?: string } & PdfjsWidgetData & {
+          fieldType?: string;
+          checkBox?: boolean;
+          radioButton?: boolean;
+          combo?: boolean;
+          pushButton?: boolean;
+        })[]
+    ).find((x) => x.id === widgetId);
+    if (!a) return;
+    const kind: FieldKind =
+      a.fieldType === "Tx"
+        ? "text"
+        : a.fieldType === "Ch"
+          ? a.combo
+            ? "dropdown"
+            : "listbox"
+          : a.fieldType === "Sig"
+            ? "signature"
+            : a.pushButton
+              ? "button"
+              : a.radioButton
+                ? "radio"
+                : "checkbox";
+    const actions = objects?.[fieldName]?.find((o) => o.actions)?.actions ?? null;
+    const edit = state.fieldEdits.find((e) => e.name === fieldName);
+    setPrepProps({
+      key,
+      fieldName,
+      kind,
+      name: edit?.rename ?? fieldName,
+      initial: { ...propsFromPdfjs(a, actions), ...(edit?.props ?? {}) },
+    });
+  };
+
+  const applyFieldProps = (v: { name: string; props: FieldProps }) => {
+    const target = prepProps;
+    setPrepProps(null);
+    if (!target) return;
+    setState((s) => {
+      if (target.key.startsWith("c:")) {
+        const f = s.createdFields.find((x) => x.id === target.key.slice(2));
+        if (!f) return s;
+        let next = D.updateField(s, f.id, v.props);
+        if (v.name !== f.name) {
+          // The whole radio group follows, and so does what was filled in.
+          next = {
+            ...next,
+            createdFields: next.createdFields.map((x) => (x.name === f.name ? { ...x, name: v.name } : x)),
+          };
+          if (f.name in next.formValues) {
+            const { [f.name]: moved, ...rest } = next.formValues;
+            next = { ...next, formValues: { ...rest, [v.name]: moved } };
+          }
+        }
+        return next;
+      }
+      if (!target.fieldName) return s;
+      const rename = v.name !== target.fieldName ? v.name : undefined;
+      if (!Object.keys(v.props).length && rename === s.fieldEdits.find((e) => e.name === target.fieldName)?.rename) {
+        return s;
+      }
+      return D.upsertFieldEdit(s, target.fieldName, { props: v.props, rename });
+    });
+  };
+
+  /**
+   * Leaving « Préparer » : the fields prepared there go into the document
+   * itself (an update of the source, encrypted with its key, like OCR), so
+   * the form layer shows them as the real fields they now are — scripts,
+   * formats and calculations included. The session goes on, its other edits
+   * kept; fields on pages the source does not have (added in Elium, duplicates)
+   * stay in the model and are written by the next save.
+   */
+  const foldPreparedFields = async () => {
+    if (!engine || !bytesRef.current) return;
+    const st = state;
+    const idByFrom = new Map<number, string>();
+    for (const pg of st.pages) if (pg.from != null && !idByFrom.has(pg.from)) idByFrom.set(pg.from, pg.id);
+    const identity = D.pagesFromSource(engine.pageCount).map((pg, i) => ({ ...pg, id: idByFrom.get(i) ?? pg.id }));
+    const ids = new Set(identity.map((pg) => pg.id));
+    const folded = st.createdFields.filter((f) => ids.has(f.pageId));
+    if (!folded.length && !st.fieldEdits.length) return;
+    setBusy(true);
+    const id = toast("progress", "Mise à jour du formulaire…");
+    try {
+      const res = await savePdf({
+        source: bytesRef.current,
+        state: { ...emptyState(), pages: identity, createdFields: folded, fieldEdits: st.fieldEdits },
+        options: { password: passwordRef.current ?? "", author, fileName },
+        security: null,
+      });
+      dismissToast(id);
+      // What was filled in follows renamed fields; deleted fields take theirs along.
+      const formValues = { ...st.formValues };
+      for (const e of st.fieldEdits) {
+        if (!(e.name in formValues)) continue;
+        const v = formValues[e.name];
+        delete formValues[e.name];
+        if (!e.deleted && !(e.removeWidgets && !e.rename)) formValues[e.rename ?? e.name] = v;
+        else if (e.removeWidgets && !e.deleted) formValues[e.name] = v;
+      }
+      const keep: PdfState = {
+        ...st,
+        formValues,
+        createdFields: st.createdFields.filter((f) => !folded.includes(f)),
+        fieldEdits: [],
+      };
+      if (res.report.lost.length) {
+        toast("warning", "Préparation du formulaire", res.report.lost.join(" · "));
+      }
+      await adoptDerived(
+        res.bytes,
+        {
+          changes: ["formulaire préparé"],
+          forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+        },
+        res.report.mode === "incremental",
+        keep,
+      );
+    } catch (err) {
+      dismissToast(id);
+      toast("danger", "Mise à jour du formulaire impossible", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const was = previousMode.current;
+    previousMode.current = mode;
+    if (was === "fields" && mode !== "fields") {
+      setPrepSelected([]);
+      if (tool === "select" || tool.startsWith("field:")) setTool("textSelect");
+      void foldPreparedFields();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const detectFields = async () => {
     if (!engine) return;
@@ -3008,21 +3269,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           />
         )}
         {mode === "fields" && (
-          <FormLayer
+          <PreparePage
             engine={engine}
             from={page.from}
             pageId={page.id}
             size={size}
             rotation={rotation}
             scale={scale}
-            values={state.formValues}
+            tool={tool}
             created={state.createdFields}
-            highlight
+            edits={state.fieldEdits}
+            selected={prepSelected}
+            onSelect={(keys) => setPrepSelected(keys)}
+            onCreate={(kind, rect) => createFieldAt(page.id, kind, rect)}
+            onChangeRects={movePrepFields}
             onBeginChange={checkpoint}
-            onChange={(name, value: FormValue) => setQuiet((s) => D.setFormValue(s, name, value))}
-            onFields={() => {
-              /* fields are read live */
-            }}
+            onOpen={(key, fieldName) => void openFieldProps(key, fieldName)}
+            onDelete={deletePrepFields}
           />
         )}
         {mode === "view" && (
@@ -3223,6 +3486,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         canRedo={canRedo}
         hasSelection={selectedIds.length > 0}
         hasForm={hasForm || state.createdFields.length > 0}
+        preparing={mode === "fields"}
         busy={busy}
         stickyTool={sticky}
         onTab={setTab}
@@ -3415,7 +3679,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               maskImported={state.importedAnnots}
               optionalContent={ocConfig}
               hitsOf={hitsOf}
-              className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
+              className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""} ${mode === "fields" ? "is-preparing" : ""} ${mode === "view" && tool === "select" ? "is-annot-select" : ""}`}
               style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
               renderOverlay={renderOverlay}
               onCurrentChange={onCurrentChange}
@@ -3633,6 +3897,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               setBusy(false);
             }
           }}
+        />
+      )}
+      {prepProps && (
+        <FieldPropertiesDialog
+          kind={prepProps.kind}
+          name={prepProps.name}
+          initial={prepProps.initial}
+          otherFields={allFieldNames(state)}
+          takenNames={new Set(allFieldNames(state))}
+          onConfirm={applyFieldProps}
+          onClose={() => setPrepProps(null)}
         />
       )}
       {dialog === "ocr" && (

@@ -42,6 +42,8 @@ export interface InspectorProps {
   pageCount: number;
   measureScale: MeasureScale;
   onPatch: (patch: Partial<Annot>) => void;
+  /** Open the link's properties (Acrobat's « Propriétés du lien »). */
+  onEditLink?: (a: Annot) => void;
   /** « Utiliser comme propriétés par défaut »: the tool of this kind takes this look. */
   onMakeDefault?: (a: Annot) => void;
   /** A review action: sets the status AND records it in the thread (as the comments pane does). */
@@ -267,40 +269,21 @@ export default function Inspector(p: InspectorProps) {
         {one?.kind === "link" && (
           <section className="pdfx-insp-group">
             <h4>Lien</h4>
-            <label className="pdfx-insp-row">
-              <span>Type</span>
-              <select
-                value={one.action?.type ?? "url"}
-                onChange={(e) =>
-                  p.onPatch({
-                    action: e.target.value === "page" ? { type: "page", page: 1 } : { type: "url", url: "https://" },
-                  })
-                }
-              >
-                <option value="url">Adresse web</option>
-                <option value="page">Page du document</option>
-              </select>
-            </label>
-            {one.action?.type === "url" ? (
-              <label className="pdfx-insp-row pdfx-insp-row--wide">
-                <span>URL</span>
-                <input
-                  type="url"
-                  value={one.action.url}
-                  onChange={(e) => p.onPatch({ action: { type: "url", url: e.target.value } })}
-                />
-              </label>
-            ) : (
-              <label className="pdfx-insp-row">
-                <span>Page</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={p.pageCount}
-                  value={one.action?.type === "page" ? one.action.page : 1}
-                  onChange={(e) => p.onPatch({ action: { type: "page", page: Number(e.target.value) } })}
-                />
-              </label>
+            <p className="pdfx-insp-note">
+              {one.action?.type === "url"
+                ? one.action.url
+                : one.action?.type === "page"
+                  ? `Va à la page ${one.action.page}${one.action.fit === "XYZ" || one.action.zoom ? " (vue enregistrée)" : ""}`
+                  : one.action?.type === "named"
+                    ? `Commande : ${one.action.name}`
+                    : "Aucune destination."}
+              {" · "}
+              {one.linkStyle?.visible ? "rectangle visible" : "rectangle invisible"}
+            </p>
+            {p.onEditLink && (
+              <button className="pdfx-mini" onClick={() => p.onEditLink!(one)}>
+                Modifier le lien…
+              </button>
             )}
           </section>
         )}

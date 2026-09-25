@@ -38,6 +38,7 @@ import {
   Grid2x2,
   Hand,
   Hash,
+  Link2,
   Highlighter,
   Image as ImageIcon,
   Italic,
@@ -601,7 +602,12 @@ export default function Ribbon(p: RibbonProps) {
                 icon={<ArrowRight size={17} />}
                 onClick={T("link")}
                 active={p.tool === "link"}
-                title="Créer un lien"
+                title="Liens : tracer un lien, ou choisir un lien existant pour le modifier"
+              />
+              <Cmd
+                icon={<Link2 size={17} />}
+                onClick={C("linksFromUrls")}
+                title="Créer des liens à partir des adresses web du texte"
               />
             </Group>
             <Group title="Marques" optional>

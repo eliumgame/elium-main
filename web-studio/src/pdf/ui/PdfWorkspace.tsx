@@ -47,6 +47,7 @@ import type {
   PdfState,
   Tool,
   DestFit,
+  LinkAction,
 } from "../model/types";
 import { EMPTY_FILTER, type CommentFilter, type CommentSort } from "../model/doc";
 import { DEFAULT_STYLE, emptyState, isTextMarkup, newId, styleForKind, toolIsAnnot } from "../model/types";
@@ -164,6 +165,8 @@ import {
   ExportImagesDialog,
   HeaderFooterDialog,
   InsertPagesDialog,
+  LinkDialog,
+  DEFAULT_LINK_STYLE,
   MovePagesDialog,
   ReplacePagesDialog,
   ResizePagesDialog,
@@ -420,6 +423,8 @@ export default function PdfWorkspace({
   const [layers, setLayers] = useState<LayerInfo[]>([]);
   /** The user's layer switches, in the order made (radio groups depend on it). */
   const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  /** The link whose properties are being edited (just drawn: `creating`). */
+  const [linkEdit, setLinkEdit] = useState<{ id: string; creating: boolean } | null>(null);
   /** The file's page labels by source page (null: none). */
   const [fileLabels, setFileLabels] = useState<string[] | null>(null);
   const [ocConfig, setOcConfig] = useState<unknown>(undefined);
@@ -1228,6 +1233,93 @@ export default function PdfWorkspace({
       if (ok) window.open(url, "_blank", "noopener,noreferrer");
     });
 
+  /**
+   * Acrobat's « Créer des liens à partir des URL »: every web address written
+   * in the text (http(s)://…, www.…) becomes a link — a real one, saved in the
+   * file — unless a link is already there.
+   */
+  const linksFromUrls = async () => {
+    if (!engine) return;
+    const id = toast("progress", "Recherche des adresses web…");
+    try {
+      const texts = await ensureText();
+      const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'()]+[^\s<>"'().,;:!?]/gi;
+      const now = new Date().toISOString();
+      const made: Annot[] = [];
+      const done = new Set<number>();
+      for (const page of pages) {
+        if (page.from == null || done.has(page.from)) continue;
+        done.add(page.from);
+        const text = texts[page.from] ?? "";
+        const found = [...text.matchAll(URL_RE)];
+        if (!found.length) continue;
+        const pdfPage = await engine.page(page.from);
+        const vp = pdfPage.getViewport({ scale: 1, rotation: 0 });
+        const tc = await engine.text(page.from);
+        const runs = buildRuns(tc, vp.transform as unknown as number[]);
+        // What is already a link: the file's own, and Elium's.
+        const raw = (await engine.annotations(page.from)) as { subtype?: string; rect?: number[] }[];
+        const info = await engine.pageInfo(page.from);
+        const taken: { x: number; y: number; w: number; h: number }[] = [
+          ...raw
+            .filter((r) => r.subtype === "Link" && r.rect)
+            .map((r) => ({
+              x: r.rect![0] - info.ox,
+              y: info.h - (r.rect![3] - info.oy),
+              w: r.rect![2] - r.rect![0],
+              h: r.rect![3] - r.rect![1],
+            })),
+          ...state.annots.filter((a) => a.pageId === page.id && a.kind === "link").map((a) => a.rect),
+        ];
+        const dx = page.crop?.left ?? 0;
+        const dy = page.crop?.top ?? 0;
+        for (const m of found) {
+          const quads = quadsForCharRange(runs, tc.items, m.index!, m.index! + m[0].length);
+          if (!quads.length) continue;
+          const r = rectOfQuads(quads);
+          const cx = r.x + r.w / 2;
+          const cy = r.y + r.h / 2;
+          if (taken.some((t) => cx >= t.x && cx <= t.x + t.w && cy >= t.y && cy <= t.y + t.h)) continue;
+          const url = /^www\./i.test(m[0]) ? `https://${m[0]}` : m[0];
+          made.push({
+            id: newId("an"),
+            pageId: page.id,
+            kind: "link",
+            rect: { x: r.x - dx, y: r.y - dy, w: r.w, h: r.h },
+            color: "#1d4ed8",
+            fill: null,
+            opacity: 1,
+            strokeWidth: 0,
+            action: { type: "url", url },
+            linkStyle: { ...DEFAULT_LINK_STYLE },
+            author,
+            createdAt: now,
+            modifiedAt: now,
+            replies: [],
+          });
+        }
+      }
+      dismissToast(id);
+      if (!made.length) return toast("info", "Liens", "Aucune adresse web sans lien dans le texte.");
+      setState((s) => ({ ...s, annots: [...s.annots, ...made] }));
+      toast("success", `${made.length} lien(s) créé(s)`, "À partir des adresses web du texte.");
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Liens", e instanceof Error ? e.message : undefined);
+    }
+  };
+
+  /** A link drawn in Elium, clicked. */
+  const followLink = (a: Annot) => {
+    const act = a.action;
+    if (!act) return toast("info", "Lien sans destination", "Choisissez-la avec l'outil Lien, dans l'inspecteur.");
+    if (act.type === "url") return openExternal(act.url);
+    if (act.type === "named") return runNamedAction(act.name);
+    const at = act.pageId ? pages.findIndex((pg) => pg.id === act.pageId) : -1;
+    if (act.pageId && at < 0) return toast("warning", "Lien", "La page visée a été supprimée.");
+    followDest({ page: at >= 0 ? at + 1 : act.page, x: act.x, y: act.y, fit: act.fit, zoom: act.zoom });
+  };
+
   const followBookmark = (b: Bookmark) => {
     const a = b.action;
     if (!a) followDest(b);
@@ -1249,6 +1341,8 @@ export default function PdfWorkspace({
 
   const addAnnot = (a: Annot) => {
     setState((s) => D.addAnnot(s, a));
+    // A link just drawn: where it goes, and how it looks (Acrobat's « Créer un lien »).
+    if (a.kind === "link" && !a.action) setLinkEdit({ id: a.id, creating: true });
   };
   const patchAnnot = (id: string, patch: Partial<Annot>, live: boolean) => {
     const now = new Date().toISOString();
@@ -2775,6 +2869,9 @@ export default function PdfWorkspace({
         return;
       case "insertImage":
         imageInput.current?.click();
+        return;
+      case "linksFromUrls":
+        void linksFromUrls();
         return;
       case "merge":
         setDialog("combine");
@@ -4326,6 +4423,7 @@ export default function PdfWorkspace({
               pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
               imageInput.current?.click();
             }}
+            onFollowLink={(a) => followLink(a)}
             onRequestNoteText={async (a) => {
               const text = await dialogs.prompt({
                 title: "Note",
@@ -4794,6 +4892,7 @@ export default function PdfWorkspace({
             pageCount={pageCount}
             measureScale={state.measureScale}
             onPatch={patchSelection}
+            onEditLink={(a) => setLinkEdit({ id: a.id, creating: false })}
             onMakeDefault={(a) => {
               rememberToolStyle(a.kind, styleSubset(a as unknown as Partial<DraftStyle>));
               toast("success", "Propriétés par défaut", `Les prochains « ${KIND_LABEL[a.kind]} » auront cet aspect.`);
@@ -5339,6 +5438,40 @@ export default function PdfWorkspace({
           }}
         />
       )}
+      {linkEdit &&
+        (() => {
+          const link = state.annots.find((a) => a.id === linkEdit.id);
+          if (!link) return null;
+          const target = link.action?.type === "page" ? link.action.pageId : undefined;
+          const at = target ? pages.findIndex((pg) => pg.id === target) : -1;
+          const action = link.action?.type === "page" && at >= 0 ? { ...link.action, page: at + 1 } : link.action;
+          return (
+            <LinkDialog
+              value={{ action, linkStyle: link.linkStyle ?? DEFAULT_LINK_STYLE, color: link.color || "#1d4ed8" }}
+              creating={linkEdit.creating}
+              pageCount={pages.length}
+              pageLabel={(n) => pageLabels[n - 1] || String(n)}
+              currentView={() => {
+                const d = currentDest();
+                return { type: "page", page: d.page, x: d.x, y: d.y, fit: "XYZ", zoom: d.zoom };
+              }}
+              onClose={() => setLinkEdit(null)}
+              onConfirm={(v) => {
+                setLinkEdit(null);
+                const act: LinkAction | undefined =
+                  v.action?.type === "page" ? { ...v.action, pageId: pages[v.action.page - 1]?.id } : v.action;
+                setState((s) =>
+                  D.updateAnnot(s, link.id, {
+                    action: act,
+                    linkStyle: v.linkStyle,
+                    color: v.color,
+                    modifiedAt: new Date().toISOString(),
+                  }),
+                );
+              }}
+            />
+          );
+        })()}
       {dialog === "combine" && (
         <CombineDialog
           current={{ name: fileName, count: pages.length }}

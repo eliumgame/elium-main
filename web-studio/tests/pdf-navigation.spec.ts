@@ -112,4 +112,38 @@ test.describe("PDF — navigation", () => {
     await expect(box).toHaveValue("i");
     expect(problems).toEqual([]);
   });
+
+  test("liens : tracer, choisir la page, suivre au clic ; liens depuis les URL", async ({ page }) => {
+    const problems = health(page);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < 3; i++) doc.addPage([595, 842]).drawText(`Page ${i + 1}`, { x: 40, y: 780, size: 14, font });
+    doc.getPage(0).drawText("Voir https://example.org/doc pour la suite.", { x: 40, y: 600, size: 12, font });
+    await open(page, Buffer.from(await doc.save()));
+
+    await page.getByRole("tab", { name: "Modifier" }).click();
+    await page.getByTitle(/^Liens : tracer un lien/).click();
+    const canvas = page.locator(".pdfx-canvas").first();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + 60, box.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 220, box.y + 140, { steps: 5 });
+    await page.mouse.up();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Créer un lien");
+    await dialog.getByRole("spinbutton").fill("3");
+    await dialog.getByRole("button", { name: "Créer" }).click();
+    await expect(dialog).toHaveCount(0);
+
+    // Back to the selection tool: a click follows the link.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await page.mouse.click(box.x + 140, box.y + 120);
+    const pageBox = page.getByRole("textbox", { name: /Numéro ou étiquette de page/ });
+    await expect(pageBox).toHaveValue("3");
+
+    await page.getByTitle("Créer des liens à partir des adresses web du texte").click();
+    await expect(page.getByText("1 lien(s) créé(s)")).toBeVisible();
+    expect(problems).toEqual([]);
+  });
 });

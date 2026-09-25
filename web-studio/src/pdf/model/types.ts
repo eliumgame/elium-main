@@ -125,7 +125,25 @@ export interface MeasureScale {
 export const DEFAULT_MEASURE_SCALE: MeasureScale = { unitsPerPoint: 25.4 / 72 / 10, unit: "cm", precision: 2 };
 
 /** Where a link goes. */
-export type LinkAction = { type: "page"; page: number } | { type: "url"; url: string };
+export type LinkAction =
+  /**
+   * A view of a page of this document. `pageId` names the page (it follows it
+   * when pages move); `page` (1-based) is the fallback of older sessions.
+   */
+  | { type: "page"; page: number; pageId?: string; x?: number; y?: number; fit?: DestFit; zoom?: number }
+  | { type: "url"; url: string }
+  /** Acrobat's named actions: NextPage, PrevPage, FirstPage, LastPage, GoBack, GoForward. */
+  | { type: "named"; name: string };
+
+/** How a link shows (Acrobat's « Propriétés du lien »): border, its style and width, the click highlight. */
+export interface LinkStyle {
+  /** A visible rectangle (colour: the annotation's `color`); false: invisible. */
+  visible: boolean;
+  line: "solid" | "dashed" | "underline";
+  width: number;
+  /** /H: none, invert, outline, push. */
+  highlight: "N" | "I" | "O" | "P";
+}
 
 /**
  * A single annotation. Geometry is always in the page's *unrotated* top-left
@@ -184,6 +202,7 @@ export interface Annot {
 
   // --- special ------------------------------------------------------------
   action?: LinkAction;
+  linkStyle?: LinkStyle;
   /** Overlay text printed on top of a redaction box, e.g. "[CAVIARDÉ]". */
   redactText?: string;
   redactFill?: string;

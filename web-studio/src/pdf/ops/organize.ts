@@ -813,7 +813,7 @@ function outlineItems(doc: PDFDocument): Map<string, { ref: PDFRef; dict: PDFDic
 const isBlack = (c: { r: number; g: number; b: number } | undefined) => !c || (!c.r && !c.g && !c.b);
 
 /** A destination array to `page` of `doc`, the entry's view (model space → PDF space). */
-function destArray(doc: PDFDocument, entry: OutlineEntry): unknown[] | undefined {
+export function destArray(doc: PDFDocument, entry: OutlineEntry): unknown[] | undefined {
   const pages = doc.getPages();
   const target = pages[Math.max(0, Math.min(pages.length - 1, entry.page))];
   if (!target) return undefined;

@@ -680,6 +680,7 @@ async function applyState(
   // --- 4. markup ------------------------------------------------------------
   step("Écriture des annotations", 0.45);
   const pageRefs: PDFRef[] = doc.getPages().map((p) => p.ref);
+  const outputIndex = new Map(targets.map((t, i) => [t.model.id, i]));
   for (const { page, model } of targets) {
     const frame = pageFrame(page);
     const ctx: PaintContext = {
@@ -702,7 +703,13 @@ async function applyState(
     if (!mine.length) continue;
     let toFlatten: Annot[];
     if (opts.interactiveAnnots) {
-      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs, written, keptFiles });
+      toFlatten = await writeAnnots(page, mine, ctx, {
+        defaultAuthor: opts.author,
+        pageRefs,
+        written,
+        keptFiles,
+        pageIndexOf: (id) => outputIndex.get(id),
+      });
       report.annotsWritten += mine.length - toFlatten.length;
     } else {
       toFlatten = mine.slice();

@@ -106,6 +106,8 @@ export interface AnnotLayerProps {
   onContextMenu: (annot: Annot, at: { x: number; y: number }) => void;
   onRequestImage: (at: Pt) => void;
   onRequestNoteText: (annot: Annot) => void;
+  /** A click on a link (outside the Link tool, which edits them): follow it. */
+  onFollowLink?: (annot: Annot) => void;
 }
 
 interface DraftShape {
@@ -466,7 +468,21 @@ function AnnotLayer(p: AnnotLayerProps) {
       p.onDelete([annot.id]);
       return;
     }
-    if (p.tool !== "select" && p.tool !== "textSelect") return;
+    // A link is followed on a click, as in Acrobat; the Link tool selects and moves it.
+    if (annot.kind === "link" && p.tool !== "link") {
+      if (p.tool !== "select" && p.tool !== "textSelect" && p.tool !== "hand") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener("pointerup", up);
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) p.onFollowLink?.(annot);
+      };
+      window.addEventListener("pointerup", up);
+      return;
+    }
+    if (p.tool !== "select" && p.tool !== "textSelect" && !(p.tool === "link" && annot.kind === "link")) return;
     e.preventDefault();
     e.stopPropagation();
     const already = p.selectedIds.includes(annot.id);
@@ -785,15 +801,54 @@ function AnnotLayer(p: AnnotLayerProps) {
       }
       case "link": {
         const r = viewRect(a.rect);
+        // Edited with the Link tool (or selected): its frame. Otherwise as the file shows it.
+        const editing = p.tool === "link" || selected;
+        const st = a.linkStyle;
+        const w = Math.max(0.5, st?.width || 1) * p.scale;
         return (
-          <g key={a.id} {...common}>
+          <g
+            key={a.id}
+            {...common}
+            // The Link tool draws new links AND picks existing ones.
+            style={editing ? (p.tool === "link" ? { pointerEvents: "auto" } : undefined) : { cursor: "pointer" }}
+          >
+            <title>
+              {a.action?.type === "url"
+                ? a.action.url
+                : a.action?.type === "page"
+                  ? `Aller à la page ${a.action.page}`
+                  : a.action?.type === "named"
+                    ? a.action.name
+                    : "Lien sans destination"}
+            </title>
+            {st?.visible && st.line === "underline" ? (
+              <line
+                x1={r.x}
+                y1={r.y + r.h - w / 2}
+                x2={r.x + r.w}
+                y2={r.y + r.h - w / 2}
+                stroke={a.color}
+                strokeWidth={w}
+              />
+            ) : st?.visible ? (
+              <rect
+                x={r.x + w / 2}
+                y={r.y + w / 2}
+                width={Math.max(0, r.w - w)}
+                height={Math.max(0, r.h - w)}
+                fill="none"
+                stroke={a.color}
+                strokeWidth={w}
+                strokeDasharray={st.line === "dashed" ? `${3 * p.scale}` : undefined}
+              />
+            ) : null}
             <rect
               x={r.x}
               y={r.y}
               width={r.w}
               height={r.h}
-              fill="rgba(37,99,235,.08)"
-              stroke="#2563eb"
+              fill={editing ? "rgba(37,99,235,.08)" : "transparent"}
+              stroke={editing ? "#2563eb" : "none"}
               strokeWidth={1}
               strokeDasharray="4 3"
             />

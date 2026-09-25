@@ -894,3 +894,23 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   position horizontale).
 - Tests : 3 unitaires (recherche), `pdf-navigation.spec.ts` (3 × 2 projets). Suite
   2008/2008 ; specs PDF 68/68.
+
+### Session cloud 1 : T6, points 7 et 13 (liens)
+- Lien tracé : un dialogue « Créer un lien » s'ouvre aussitôt (apparence, action) ;
+  « Modifier le lien… » dans l'inspecteur le rouvre.
+- Destination liée à la page elle-même (elle suit la page déplacée), avec la vue :
+  page entière, ou la vue affichée (position et zoom). Les anciennes sessions (numéro
+  seul) fonctionnent toujours.
+- Actions : page du document, page web, commande nommée (page suivante et précédente,
+  première et dernière, vue précédente et suivante).
+- Apparence écrite comme Acrobat : rectangle invisible (/Border [0 0 0], sans /C) ou
+  visible (/BS : épaisseur, plein, tirets ou souligné ; /C ; apparence dessinée), et
+  /H au clic.
+- Écran : un lien se suit au clic avec les outils de sélection et la main ; l'outil
+  Lien le sélectionne, le déplace et le redimensionne, et trace les nouveaux.
+- « Créer des liens à partir des adresses web du texte » : http(s)://… et www.…
+  deviennent de vrais liens, sauf là où il y en a déjà un.
+- Reste : modifier ou supprimer les liens déjà présents dans le fichier (ils restent
+  affichés et suivis par pdf.js) ; lien vers un autre fichier (GoToR).
+- Tests : `pdf-links.test.ts` (3), 1 navigateur (× 2 projets). Suite 2011/2011 ;
+  specs PDF 70/70.

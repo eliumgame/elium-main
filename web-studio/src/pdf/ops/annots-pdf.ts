@@ -27,6 +27,7 @@ import { safeMime } from "./annotids";
 import { pdfFamilyOf } from "../../ui/fonts";
 import type { ImageBank } from "./images";
 import { FormResources, PageResources, Painter, hexToRgb, measure, rgbToPdfArray, wrapText } from "./painter";
+import { destArray } from "./organize";
 
 /** Maps this page's page-space coordinates into PDF user space. */
 export interface PageFrame {
@@ -414,7 +415,20 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       break;
     }
     case "link": {
-      // The clickable area is the annotation; nothing is painted by default.
+      // The clickable area is the annotation; its border only when it has one.
+      const st = a.linkStyle;
+      if (!st?.visible) break;
+      const r = ctx.frame.rectToPdf(a.rect);
+      const w = Math.max(0.5, st.width || 1);
+      p.strokeColor(hexToRgb(a.color, { r: 0, g: 0, b: 1 })).lineWidth(w);
+      if (st.line === "underline") {
+        p.moveTo({ x: r.x, y: r.y + w / 2 })
+          .lineTo({ x: r.x + r.w, y: r.y + w / 2 })
+          .stroke();
+      } else {
+        if (st.line === "dashed") p.dash([3]);
+        p.rect(r.x + w / 2, r.y + w / 2, r.w - w, r.h - w).stroke();
+      }
       break;
     }
   }
@@ -697,6 +711,8 @@ interface WriteOptions {
   written?: Map<string, PDFRef>;
   /** The /FS of attachments whose large file stayed in the source, by the source annotation's id. */
   keptFiles?: ReadonlyMap<string, unknown>;
+  /** A model page's 0-based position in the output (links to a page follow it). */
+  pageIndexOf?: (pageId: string) => number | undefined;
 }
 
 /**
@@ -1010,14 +1026,40 @@ async function writeOne(
   }
 
   if (a.kind === "link") {
-    delete entries.C;
     delete entries.CA;
-    entries.Border = [0, 0, 0];
-    if (a.action?.type === "url") {
-      entries.A = { Type: "Action", S: "URI", URI: PDFString.of(a.action.url) };
-    } else if (a.action?.type === "page") {
-      const target = opts.pageRefs[Math.max(0, Math.min(opts.pageRefs.length - 1, a.action.page - 1))];
-      if (target) entries.Dest = [target, PDFName.of("Fit")];
+    // Border as Acrobat writes it: /BS (width, style) and /C, or none at all.
+    const st = a.linkStyle;
+    if (st?.visible) {
+      entries.BS = {
+        Type: "Border",
+        W: Math.max(0.5, st.width || 1),
+        S: st.line === "dashed" ? "D" : st.line === "underline" ? "U" : "S",
+        ...(st.line === "dashed" ? { D: [3] } : {}),
+      };
+    } else {
+      delete entries.C;
+      entries.Border = [0, 0, 0];
+    }
+    if (st && st.highlight !== "I") entries.H = PDFName.of(st.highlight);
+    const act = a.action;
+    if (act?.type === "url") {
+      entries.A = { Type: "Action", S: "URI", URI: PDFString.of(act.url) };
+    } else if (act?.type === "named") {
+      entries.A = { Type: "Action", S: "Named", N: PDFName.of(act.name) };
+    } else if (act?.type === "page") {
+      // The page it names, wherever it now is; else the page number it was given.
+      const at = act.pageId ? opts.pageIndexOf?.(act.pageId) : undefined;
+      const index = at ?? act.page - 1;
+      const dest = destArray(ctx.doc, {
+        title: "",
+        children: [],
+        page: index,
+        x: act.x,
+        y: act.y,
+        fit: act.fit ?? (act.y != null || act.zoom ? "XYZ" : "Fit"),
+        zoom: act.zoom,
+      });
+      if (dest && index >= 0 && index < opts.pageRefs.length) entries.Dest = dest;
     }
   }
 

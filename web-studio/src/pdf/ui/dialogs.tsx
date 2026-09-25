@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Download, Eraser, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { Modal } from "../../ui/components";
-import type { Bates, DocMetadata, HeaderFooter, MeasureScale, Watermark } from "../model/types";
+import type { Bates, DocMetadata, HeaderFooter, LinkAction, LinkStyle, MeasureScale, Watermark } from "../model/types";
 import type { Permissions } from "../ops/security";
 import { ALL_PERMISSIONS } from "../ops/security";
 import type { DocInfo } from "../core/engine";
@@ -2260,6 +2260,190 @@ export function ReplacePagesDialog({
           </span>
         </label>
         {!ok && <p className="pdfx-form__hint">Le fichier n'a pas assez de pages pour cette plage.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Link properties (Acrobat's « Créer un lien » / « Propriétés du lien »)
+// ---------------------------------------------------------------------------
+
+export interface LinkDraft {
+  action?: LinkAction;
+  linkStyle: LinkStyle;
+  color: string;
+}
+
+export const DEFAULT_LINK_STYLE: LinkStyle = { visible: false, line: "solid", width: 1, highlight: "I" };
+
+const NAMED_ACTIONS: [string, string][] = [
+  ["NextPage", "Page suivante"],
+  ["PrevPage", "Page précédente"],
+  ["FirstPage", "Première page"],
+  ["LastPage", "Dernière page"],
+  ["GoBack", "Vue précédente"],
+  ["GoForward", "Vue suivante"],
+];
+
+export function LinkDialog({
+  value,
+  pageCount,
+  pageLabel,
+  currentView,
+  creating,
+  onConfirm,
+  onClose,
+}: {
+  value: LinkDraft;
+  pageCount: number;
+  /** A page's label as shown (1-based position). */
+  pageLabel: (page: number) => string;
+  /** The view on screen now, as a destination. */
+  currentView: () => Extract<LinkAction, { type: "page" }>;
+  creating: boolean;
+  onConfirm: (v: LinkDraft) => void;
+  onClose: () => void;
+}) {
+  const [style, setStyle] = useState<LinkStyle>(value.linkStyle);
+  const [color, setColor] = useState(value.color);
+  const [kind, setKind] = useState<LinkAction["type"]>(value.action?.type ?? "page");
+  const [page, setPage] = useState<Extract<LinkAction, { type: "page" }>>(
+    value.action?.type === "page" ? value.action : { type: "page", page: 1, fit: "Fit" },
+  );
+  const [url, setUrl] = useState(value.action?.type === "url" ? value.action.url : "https://");
+  const [named, setNamed] = useState(value.action?.type === "named" ? value.action.name : "NextPage");
+  const action: LinkAction | undefined =
+    kind === "url"
+      ? /^\s*$/.test(url) || url.trim() === "https://"
+        ? undefined
+        : { type: "url", url: url.trim() }
+      : kind === "named"
+        ? { type: "named", name: named }
+        : page;
+  return (
+    <Modal
+      title={creating ? "Créer un lien" : "Propriétés du lien"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            {creating ? "Plus tard" : "Annuler"}
+          </button>
+          <button
+            className="eb eb--primary eb--sm"
+            disabled={!action}
+            onClick={() => onConfirm({ action, linkStyle: style, color })}
+          >
+            {creating ? "Créer" : "Appliquer"}
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <h4 className="pdfx-form__title">Apparence</h4>
+        <label className="pdfx-form__row">
+          <span>Type</span>
+          <select
+            value={style.visible ? "visible" : "invisible"}
+            onChange={(e) => setStyle({ ...style, visible: e.target.value === "visible" })}
+          >
+            <option value="invisible">Rectangle invisible</option>
+            <option value="visible">Rectangle visible</option>
+          </select>
+        </label>
+        {style.visible && (
+          <div className="pdfx-triple">
+            <label>
+              <span>Style</span>
+              <select
+                value={style.line}
+                onChange={(e) => setStyle({ ...style, line: e.target.value as LinkStyle["line"] })}
+              >
+                <option value="solid">Plein</option>
+                <option value="dashed">Tirets</option>
+                <option value="underline">Souligné</option>
+              </select>
+            </label>
+            <label>
+              <span>Épaisseur</span>
+              <select value={style.width} onChange={(e) => setStyle({ ...style, width: Number(e.target.value) })}>
+                <option value={1}>Fine</option>
+                <option value={2}>Moyenne</option>
+                <option value={3}>Épaisse</option>
+              </select>
+            </label>
+            <label>
+              <span>Couleur</span>
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+            </label>
+          </div>
+        )}
+        <label className="pdfx-form__row">
+          <span>Au clic</span>
+          <select
+            value={style.highlight}
+            onChange={(e) => setStyle({ ...style, highlight: e.target.value as LinkStyle["highlight"] })}
+          >
+            <option value="I">Inverser</option>
+            <option value="O">Contour</option>
+            <option value="P">Incrustation</option>
+            <option value="N">Aucun effet</option>
+          </select>
+        </label>
+
+        <h4 className="pdfx-form__title">Action</h4>
+        <label className="pdfx-form__row">
+          <span>Le lien</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value as LinkAction["type"])}>
+            <option value="page">Va à une page de ce document</option>
+            <option value="url">Ouvre une page web</option>
+            <option value="named">Exécute une commande</option>
+          </select>
+        </label>
+        {kind === "page" && (
+          <>
+            <label className="pdfx-form__row">
+              <span>Page</span>
+              <input
+                type="number"
+                min={1}
+                max={pageCount}
+                value={page.page}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(pageCount, Number(e.target.value) || 1));
+                  setPage({ type: "page", page: n, fit: "Fit" });
+                }}
+              />
+            </label>
+            <p className="pdfx-form__note">
+              {page.fit === "XYZ" || page.zoom
+                ? `Page ${pageLabel(page.page)}, à la position et au zoom enregistrés.`
+                : `Page ${pageLabel(page.page)}, entière.`}{" "}
+              <button className="pdfx-mini" onClick={() => setPage(currentView())}>
+                Utiliser la vue affichée
+              </button>
+            </p>
+          </>
+        )}
+        {kind === "url" && (
+          <label className="pdfx-form__row">
+            <span>Adresse</span>
+            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} autoFocus />
+          </label>
+        )}
+        {kind === "named" && (
+          <label className="pdfx-form__row">
+            <span>Commande</span>
+            <select value={named} onChange={(e) => setNamed(e.target.value)}>
+              {NAMED_ACTIONS.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
     </Modal>
   );

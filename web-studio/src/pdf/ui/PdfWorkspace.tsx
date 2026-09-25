@@ -2239,6 +2239,33 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   saveNowRef.current = saveNow;
   const openDialogRef = useRef(openDialog);
   openDialogRef.current = openDialog;
+  // Ctrl+S / Ctrl+Maj+S, caught in the capture phase so it works everywhere —
+  // even inside a text box that stops key events — and never falls through to
+  // the browser's « save page ». A comment, text block or bookmark being edited
+  // commits on blur: blur first, then save the state that includes it.
+  useEffect(() => {
+    const onSaveKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (document.querySelector('[role="dialog"]')) return; // a dialog is open: finish it first
+      const active = document.activeElement as HTMLElement | null;
+      const editing =
+        !!active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable);
+      const run = () => {
+        if (e.shiftKey) {
+          setSaveAsPreset({});
+          setDialog("save");
+        } else void saveNowRef.current();
+      };
+      if (editing) {
+        active!.blur();
+        setTimeout(run, 0);
+      } else run();
+    };
+    window.addEventListener("keydown", onSaveKey, true);
+    return () => window.removeEventListener("keydown", onSaveKey, true);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -2255,14 +2282,6 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (k === "f") {
           e.preventDefault();
           setSearchState((s) => ({ ...s, open: true }));
-          return;
-        }
-        if (k === "s") {
-          e.preventDefault();
-          if (e.shiftKey) {
-            setSaveAsPreset({});
-            setDialog("save");
-          } else void saveNowRef.current();
           return;
         }
         if (k === "p") {

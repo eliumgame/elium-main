@@ -92,7 +92,10 @@ const pad32 = (pw: string) => {
 const cat = (...parts: Uint8Array[]) => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
-  for (const p of parts) (out.set(p, at), (at += p.length));
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
   return out;
 };
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -463,9 +466,8 @@ describe("savePdf — building on pdf.js saveDocument() (form values from the an
     await js.destroy();
 
     const state = stateFor(1);
-    let disk: DiskState | undefined;
     const r = await savePdf({ source: src, base, state: { ...state, annots: [note(state.pages[0].id, "Ajout")] } });
-    disk = r.disk;
+    const disk: DiskState = r.disk;
     expect(r.report.mode).toBe("incremental");
     expect(startsWith(r.bytes, src)).toBe(true);
     expect(revisionCount(r.bytes)).toBe(2); // ONE update on top of the original

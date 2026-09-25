@@ -47,6 +47,7 @@ import { applyRedactions, sanitiseDocument } from "./redact";
 import { createCrypt, openCrypt, writeEncrypted } from "./security";
 import type { PdfCrypt, ProtectOptions } from "./security";
 import { applyImageEdits, applyTextEdits } from "./textedit";
+import { syncXmp, type XmpChanges } from "./xmp";
 
 export interface BuildOptions {
   /** Keep markup as real, re-editable PDF annotations (Acrobat-compatible). */
@@ -788,12 +789,23 @@ function permuteLeaves(doc: PDFDocument, desired: PDFPage[]): boolean {
 function writeMetadata(doc: PDFDocument, state: PdfState): void {
   const meta = state.metadata;
   const same = (a: string | undefined, b: string | undefined) => (a ?? "") === (b ?? "");
-  if (meta.title !== undefined && !same(meta.title, doc.getTitle())) doc.setTitle(meta.title ?? "");
-  if (meta.author !== undefined && !same(meta.author, doc.getAuthor())) doc.setAuthor(meta.author ?? "");
-  if (meta.subject !== undefined && !same(meta.subject, doc.getSubject())) doc.setSubject(meta.subject ?? "");
+  const xmp: XmpChanges = {};
+  if (meta.title !== undefined && !same(meta.title, doc.getTitle())) {
+    doc.setTitle(meta.title ?? "");
+    xmp.title = meta.title ?? "";
+  }
+  if (meta.author !== undefined && !same(meta.author, doc.getAuthor())) {
+    doc.setAuthor(meta.author ?? "");
+    xmp.author = meta.author ?? "";
+  }
+  if (meta.subject !== undefined && !same(meta.subject, doc.getSubject())) {
+    doc.setSubject(meta.subject ?? "");
+    xmp.subject = meta.subject ?? "";
+  }
   // Kept verbatim (pdf-lib would join a split list with spaces).
   if (meta.keywords !== undefined && !same(meta.keywords, doc.getKeywords())) {
     doc.setKeywords(meta.keywords ? [meta.keywords] : []);
+    xmp.keywords = meta.keywords ?? "";
   }
   if (meta.language) {
     const lang = doc.catalog.lookup(PDFName.of("Lang"));
@@ -803,8 +815,11 @@ function writeMetadata(doc: PDFDocument, state: PdfState): void {
   // The authoring application stays the original one; Elium is the producer.
   if (meta.creator !== undefined && !same(meta.creator, doc.getCreator())) doc.setCreator(meta.creator ?? "");
   else if (!doc.getCreator()) doc.setCreator("Elium");
+  const now = new Date();
   doc.setProducer("Elium PDF");
-  doc.setModificationDate(new Date());
+  doc.setModificationDate(now);
+  // Acrobat reads the XMP packet first: keep it saying the same thing.
+  syncXmp(doc, { ...xmp, producer: "Elium PDF", modified: now });
 }
 
 function randomBytes(n: number): Uint8Array {

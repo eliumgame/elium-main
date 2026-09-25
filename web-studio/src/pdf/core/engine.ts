@@ -72,7 +72,11 @@ export interface DocInfo {
   modDate?: string;
   pdfVersion?: string;
   language?: string;
-  /** True when the file was opened with a password. */
+  /**
+   * True when the file is protected by the standard security handler —
+   * including "owner-only" files that open without a password but restrict
+   * printing/copying/editing.
+   */
   encrypted: boolean;
   /** True when the file carries at least one AcroForm field (final once `infoReady` resolves). */
   hasAcroForm: boolean;
@@ -270,7 +274,7 @@ export class PdfEngine {
       modDate: str("ModDate"),
       pdfVersion: str("PDFFormatVersion"),
       language: str("Language"),
-      encrypted: !!password,
+      encrypted: !!password || typeof raw.EncryptFilterName === "string",
       hasAcroForm: false,
       isXfa: !!(raw.IsXFAPresent as boolean),
       signed: false,

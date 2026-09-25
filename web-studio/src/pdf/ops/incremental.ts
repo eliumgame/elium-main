@@ -384,4 +384,3 @@ export function revisionCount(bytes: Uint8Array): number {
   while ((at = lastIndexOf(bytes, "%%EOF", at - 1)) >= 0) n++;
   return n;
 }
-

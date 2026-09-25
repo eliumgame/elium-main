@@ -108,7 +108,11 @@ async function legacyEncrypted(plain: Uint8Array, scheme: "rc4" | "aes128", user
   for (let i = 0; i < 50; i++) ok = md5(ok);
   const okey = ok.subarray(0, n);
   let o = rc4(okey, pad32(user));
-  for (let i = 1; i <= 19; i++) o = rc4(okey.map((b) => b ^ i), o);
+  for (let i = 1; i <= 19; i++)
+    o = rc4(
+      okey.map((b) => b ^ i),
+      o,
+    );
   // Algorithm 2: file key
   const id0 = new Uint8Array(16).map((_, i) => 0xa0 + i);
   const pb = new Uint8Array(4);
@@ -118,7 +122,11 @@ async function legacyEncrypted(plain: Uint8Array, scheme: "rc4" | "aes128", user
   key = key.subarray(0, n);
   // Algorithm 5: /U
   let u = rc4(key, md5(cat(PAD, id0)));
-  for (let i = 1; i <= 19; i++) u = rc4(key.map((b) => b ^ i), u);
+  for (let i = 1; i <= 19; i++)
+    u = rc4(
+      key.map((b) => b ^ i),
+      u,
+    );
   u = cat(u, new Uint8Array(16));
 
   const ctx = doc.context;
@@ -157,7 +165,9 @@ describe("readXrefTail", () => {
 
   it("refuses a file whose startxref points nowhere", async () => {
     const bytes = await makePdf();
-    const text = Buffer.from(bytes).toString("latin1").replace(/startxref\s+\d+/, "startxref\n12");
+    const text = Buffer.from(bytes)
+      .toString("latin1")
+      .replace(/startxref\s+\d+/, "startxref\n12");
     expect(readXrefTail(new Uint8Array(Buffer.from(text, "latin1")))).toBeNull();
     expect(readXrefTail(new TextEncoder().encode("not a pdf"))).toBeNull();
   });

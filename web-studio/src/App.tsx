@@ -1488,6 +1488,7 @@ export default function App() {
             onHome={() => setMode("home")}
             initial={appView?.kind === "pdf" ? (appView.data as PdfFile) : undefined}
             onExportElium={(data, title) => exportAppElium("pdf", data, title)}
+            vaultSecret={vaultSecret}
           />
         </Suspense>
       ) : mode === "drive-cloud" ? (

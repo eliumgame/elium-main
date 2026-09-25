@@ -650,7 +650,7 @@ export async function stripImportedAnnots(
   // then the pop-ups of everything kept.
   const kept = new Set(keep);
   if (kept.size) {
-    for (let grew = true; grew; ) {
+    for (let grew = true; grew;) {
       grew = false;
       for (let i = 0; i < annots.size(); i++) {
         const dict = annots.lookup(i);

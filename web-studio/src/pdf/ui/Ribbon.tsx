@@ -265,7 +265,13 @@ export default function Ribbon(p: RibbonProps) {
                 label="Enregistrer"
                 onClick={C("save")}
                 disabled={p.busy}
-                title="Exporter le PDF (Ctrl+S)"
+                title="Enregistrer dans le fichier (Ctrl+S)"
+              />
+              <Cmd
+                icon={<FileOutput size={17} />}
+                onClick={C("saveAs")}
+                disabled={p.busy}
+                title="Enregistrer sous… / une copie (Ctrl+Maj+S)"
               />
               <Cmd
                 big

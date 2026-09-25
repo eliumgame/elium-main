@@ -168,8 +168,7 @@ export async function pickSaveTarget(suggestedName: string): Promise<SaveDestina
  */
 export function droppedHandle(dt: DataTransfer | null): Promise<FsFileHandle | null> {
   const item = dt?.items?.[0] as
-    | (DataTransferItem & { getAsFileSystemHandle?: () => Promise<FsFileHandle | null> })
-    | undefined;
+    (DataTransferItem & { getAsFileSystemHandle?: () => Promise<FsFileHandle | null> }) | undefined;
   if (!item || item.kind !== "file" || typeof item.getAsFileSystemHandle !== "function") return Promise.resolve(null);
   return item
     .getAsFileSystemHandle()

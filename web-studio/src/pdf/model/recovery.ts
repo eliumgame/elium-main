@@ -81,7 +81,8 @@ export async function buildPdfDraft(input: {
 /** The state a draft holds, decrypting when needed. Throws when the secret is missing or wrong. */
 export async function resolvePdfDraft(d: PdfDraft, secret?: VaultSecret): Promise<PdfState> {
   if (d.enc != null) {
-    if (!hasVaultSecret(secret)) throw new Error("Brouillon chiffré : déverrouillez le coffre local pour le restaurer.");
+    if (!hasVaultSecret(secret))
+      throw new Error("Brouillon chiffré : déverrouillez le coffre local pour le restaurer.");
     return (await decryptAtRest<{ state: PdfState }>(d.enc, secret!)).state;
   }
   if (!d.state) throw new Error("Brouillon vide.");

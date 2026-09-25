@@ -22,38 +22,61 @@ import type { ComparisonReport } from "../ops/compare";
 /** Every modal the PDF workspace can open, kept together so they share styling. */
 
 // ---------------------------------------------------------------------------
-// Export / save options
+// « Enregistrer sous » / « Enregistrer une copie »
 // ---------------------------------------------------------------------------
+
+/** Options « Enregistrer sous… » can change; any of them makes the result a separate copy. */
+export type SaveAsOptions = Pick<
+  BuildOptions,
+  "interactiveAnnots" | "flattenForms" | "applyRedactions" | "sanitise" | "optimise"
+>;
+
+/** True when these options produce a transformed copy rather than the document itself. */
+export function isCopyOptions(o: SaveAsOptions): boolean {
+  return !o.interactiveAnnots || o.flattenForms || o.sanitise || o.optimise;
+}
 
 export function SaveDialog({
   fileName,
-  options,
+  options: initial,
   hasRedactions,
   hasForm,
-  onChange,
+  signed,
+  inPlace,
   onConfirm,
   onClose,
 }: {
   fileName: string;
-  options: BuildOptions;
+  options: SaveAsOptions;
   hasRedactions: boolean;
   hasForm: boolean;
-  onChange: (patch: Partial<BuildOptions>) => void;
-  onConfirm: (name: string) => void;
+  /** The document carries a digital signature. */
+  signed: boolean;
+  /** Files can be written in place (File System Access); false = the result is downloaded. */
+  inPlace: boolean;
+  onConfirm: (name: string, options: SaveAsOptions) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(fileName.replace(/\.pdf$/i, ""));
+  const [options, setOptions] = useState<SaveAsOptions>(initial);
+  const onChange = (patch: Partial<SaveAsOptions>) => setOptions((o) => ({ ...o, ...patch }));
+  const copy = isCopyOptions(options);
+  const full =
+    options.optimise || options.sanitise || options.flattenForms || (hasRedactions && options.applyRedactions);
   return (
     <Modal
-      title="Exporter le PDF"
+      title={copy ? "Enregistrer une copie" : "Enregistrer sous"}
       onClose={onClose}
       footer={
         <>
           <button className="eb eb--outline eb--sm" onClick={onClose}>
             Annuler
           </button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm(`${name.trim() || "document"}.pdf`)}>
-            <Download size={14} /> Exporter
+          <button
+            className="eb eb--primary eb--sm"
+            onClick={() => onConfirm(`${name.trim() || "document"}.pdf`, options)}
+          >
+            <Download size={14} /> {inPlace ? "Choisir l'emplacement…" : "Télécharger"}
           </button>
         </>
       }
@@ -117,7 +140,7 @@ export function SaveDialog({
               onChange={(e) => onChange({ applyRedactions: e.target.checked })}
             />
             <span>
-              Appliquer le caviardage<small>Le contenu marqué est supprimé définitivement du fichier exporté.</small>
+              Appliquer le caviardage<small>Le contenu marqué est supprimé définitivement du fichier produit.</small>
             </span>
           </label>
         )}
@@ -140,9 +163,23 @@ export function SaveDialog({
             onChange={(e) => onChange({ optimise: e.target.checked })}
           />
           <span>
-            Optimiser la taille<small>Rééchantillonne les images et recompresse les flux.</small>
+            Optimiser la taille
+            <small>Réécrit tout le fichier, rééchantillonne les images et recompresse les flux.</small>
           </span>
         </label>
+
+        <p className="pdfx-form__note">
+          {copy
+            ? "Ces options produisent une copie transformée : le document ouvert reste associé à son fichier actuel."
+            : "Le document ouvert sera ensuite associé au nouveau fichier : Ctrl+S y enregistrera."}{" "}
+          {full
+            ? "Le fichier sera entièrement réécrit (les révisions précédentes ne sont pas conservées)."
+            : "Enregistrement incrémental : le contenu d'origine est conservé tel quel, seules vos modifications sont ajoutées."}
+          {signed && full ? " La signature électronique du document ne survivra pas à la réécriture." : ""}
+          {!inPlace
+            ? " Votre navigateur ne permet pas d'écrire directement un fichier : le résultat sera téléchargé."
+            : ""}
+        </p>
       </div>
     </Modal>
   );

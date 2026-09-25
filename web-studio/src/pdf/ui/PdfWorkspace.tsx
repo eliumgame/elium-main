@@ -54,7 +54,39 @@ import {
   zipImages,
 } from "../ops/export";
 import { comparePages, type ComparisonReport } from "../ops/compare";
-import { DEFAULT_BUILD, buildPdf, type BuildOptions } from "../ops/save";
+import {
+  DEFAULT_BUILD,
+  buildPdf,
+  fullRewriteReasons,
+  savePdf,
+  type BuildOptions,
+  type BuildReport,
+  type DiskState,
+  type SecurityChange,
+} from "../ops/save";
+import {
+  canWriteFiles,
+  downloadDestination,
+  droppedHandle,
+  fileDestination,
+  pdfName,
+  pickPdfToOpen,
+  pickSaveTarget,
+  type FsFileHandle,
+  type SaveDestination,
+} from "../core/destination";
+import {
+  buildPdfDraft,
+  deletePdfDraft,
+  getPdfDraft,
+  listPdfDrafts,
+  putPdfDraft,
+  resolvePdfDraft,
+  sourceKey,
+  hasEdits,
+  type PdfDraftEntry,
+} from "../model/recovery";
+import type { VaultSecret } from "../../crypto/local-vault";
 import {
   extractPages,
   mergeDocuments,
@@ -105,6 +137,8 @@ import {
   ProtectDialog,
   RedactSearchDialog,
   SaveDialog,
+  isCopyOptions,
+  type SaveAsOptions,
   SignatureDialog,
   SplitDialog,
   WatermarkDialog,
@@ -152,6 +186,8 @@ interface Props {
   initial?: PdfFile | unknown;
   onExportElium?: (data: PdfFile, title: string) => void;
   author?: string;
+  /** Secret of the unlocked local vault: recovery drafts are encrypted with it. */
+  vaultSecret?: VaultSecret;
 }
 
 let toastSeq = 1;
@@ -163,7 +199,7 @@ let toastSeq = 1;
 // other array-typed prop) since arrays are covariant in TS.
 const EMPTY_ARRAY: never[] = [];
 
-export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi" }: Props) {
+export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi", vaultSecret }: Props) {
   const dialogs = useDialogs();
 
   // --- document -------------------------------------------------------------
@@ -174,9 +210,36 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [pendingPassword, setPendingPassword] = useState<{ bytes: Uint8Array; name: string; wrong: boolean } | null>(
-    null,
-  );
+  const [pendingPassword, setPendingPassword] = useState<{
+    bytes: Uint8Array;
+    name: string;
+    wrong: boolean;
+    handle?: FsFileHandle | null;
+  } | null>(null);
+
+  // --- saving ---------------------------------------------------------------
+  /** The destination file as it is now (what the next incremental save appends to). */
+  const diskRef = useRef<DiskState | null>(null);
+  /** Where « Enregistrer » writes: the opened file's handle, or the file chosen with « Enregistrer sous ». */
+  const destRef = useRef<SaveDestination | null>(null);
+  /** Handle of the file as opened (kept with recovery drafts, to reopen it). */
+  const openHandleRef = useRef<FsFileHandle | null>(null);
+  /** Imported annotations / bookmarks as read from the file: left untouched in it while unchanged. */
+  const pristineAnnotsRef = useRef<Set<Annot>>(new Set());
+  const pristineBookmarksRef = useRef<Bookmark[] | null>(null);
+  /** Protection change relative to the source file (applied by the next save). */
+  const securityRef = useRef<SecurityChange | null>(null);
+  const [securityDirty, setSecurityDirty] = useState(false);
+  /** Stamp of the state last saved (or opened): `version !== savedVersion` = modified. */
+  const [savedVersion, setSavedVersion] = useState(0);
+  const markClean = useRef(false);
+  const [everSaved, setEverSaved] = useState(false);
+  const sourceKeyRef = useRef<string | null>(null);
+  const saving = useRef(false);
+  const redactConfirmed = useRef(false);
+  const [drafts, setDrafts] = useState<PdfDraftEntry[]>([]);
+  /** Options pre-set when « Enregistrer sous » is opened by a command (optimise, sanitise…). */
+  const [saveAsPreset, setSaveAsPreset] = useState<Partial<SaveAsOptions>>({});
 
   const {
     value: state,
@@ -189,7 +252,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     canRedo,
     reset,
     amend,
+    version,
   } = useUndoable<PdfState>(emptyState());
+  const dirty = version !== savedVersion || securityDirty;
+  // The first render after an open/restore carries the fresh state's stamp.
+  useEffect(() => {
+    if (!markClean.current) return;
+    markClean.current = false;
+    setSavedVersion(version);
+  }, [version]);
 
   // --- view -----------------------------------------------------------------
   const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
@@ -223,7 +294,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [signatures, setSignatures] = useState<SavedSignature[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dialog, setDialog] = useState<DialogId>(null);
-  const [buildOptions, setBuildOptions] = useState<BuildOptions>({ ...DEFAULT_BUILD, author });
+  const [buildOptions] = useState<BuildOptions>({ ...DEFAULT_BUILD, author });
   const [compareReport, setCompareReport] = useState<ComparisonReport | null>(null);
   const [compareBusy, setCompareBusy] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
@@ -377,7 +448,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       if (gen !== shownGeneration.current || !byFrom.size) return;
       const originals = new Map(sourcePages.map((q) => [q.id, q.from]));
       let count = 0;
-      for (const list of byFrom.values()) count += list.length;
+      for (const list of byFrom.values()) {
+        count += list.length;
+        // Exactly as read from the file: saved back untouched while unchanged.
+        for (const a of list) pristineAnnotsRef.current.add(a);
+      }
 
       amend((s) => {
         if (s.importedAnnots) return s;
@@ -399,7 +474,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   );
 
   const openBytes = useCallback(
-    async (raw: Uint8Array, name: string, password?: string, restore?: PdfState) => {
+    async (raw: Uint8Array, name: string, password?: string, restore?: PdfState, handle?: FsFileHandle | null) => {
       // Taken BEFORE the (slow) open: when a second file is picked while the
       // first one is still opening, only the last choice may be shown, whichever
       // finishes first. The engine being replaced is destroyed by the `engine`
@@ -423,6 +498,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         // handed a copy (`core/assets.ts::documentParams`).
         bytesRef.current = next.bytes;
         passwordRef.current = password ?? null;
+        // A new document: its own destination, nothing saved yet.
+        diskRef.current = null;
+        destRef.current = handle ? fileDestination(handle) : null;
+        openHandleRef.current = handle ?? null;
+        pristineAnnotsRef.current = new Set();
+        pristineBookmarksRef.current = null;
+        securityRef.current = null;
+        setSecurityDirty(false);
+        setEverSaved(false);
+        redactConfirmed.current = false;
+        sourceKeyRef.current = null;
+        // A restored session with edits is unsaved work; a plain open is clean.
+        markClean.current = !restore || !hasEdits(restore);
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
         const base: PdfState = restore ?? {
           ...emptyState(),
@@ -462,6 +550,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           .then((outline) => {
             if (gen !== shownGeneration.current || !outline.length) return;
             const bookmarks: Bookmark[] = outlineToBookmarks(outline);
+            pristineBookmarksRef.current = bookmarks;
             amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
           })
           .catch(() => {});
@@ -473,11 +562,41 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             if (gen === shownGeneration.current) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
           }, 250);
         }
+        // Unsaved edits of this very file from an earlier session (crash,
+        // closed window) are offered back.
+        void sourceKey(next.bytes)
+          .then(async (key) => {
+            if (gen !== shownGeneration.current) return;
+            sourceKeyRef.current = key;
+            if (restore) return;
+            const draft = await getPdfDraft(key).catch(() => undefined);
+            if (!draft || gen !== shownGeneration.current) return;
+            const when = new Date(draft.updatedAt).toLocaleString("fr-FR");
+            const ok = await dialogs.confirm({
+              title: "Modifications non enregistrées",
+              message: `Des modifications de « ${draft.name} » faites le ${when} n'ont pas été enregistrées dans le fichier. Les restaurer ?`,
+              confirmLabel: "Restaurer",
+              cancelLabel: "Ignorer",
+            });
+            if (gen !== shownGeneration.current) return;
+            if (!ok) {
+              await deletePdfDraft(key).catch(() => {});
+              return;
+            }
+            try {
+              const recovered = await resolvePdfDraft(draft, vaultSecret);
+              reset(recovered);
+              toast("success", "Modifications restaurées", "Enregistrez (Ctrl+S) pour les écrire dans le fichier.");
+            } catch (err) {
+              toast("danger", "Restauration impossible", err instanceof Error ? err.message : undefined);
+            }
+          })
+          .catch(() => {});
       } catch (e) {
         // A newer file was picked meanwhile: this one's failure is moot.
         if (gen !== openGeneration.current) return;
         if (e instanceof PdfPasswordRequired) {
-          setPendingPassword({ bytes: raw, name, wrong: e.wrong });
+          setPendingPassword({ bytes: raw, name, wrong: e.wrong, handle });
         } else {
           setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
         }
@@ -485,12 +604,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (gen === openGeneration.current) setLoading(false);
       }
     },
-    [reset, amend, importExistingMarkup, currentStore],
+    [reset, amend, importExistingMarkup, currentStore, dialogs, toast, vaultSecret],
   );
 
   const openFile = useCallback(
-    async (file: File) => {
-      await openBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+    async (file: File, handle?: FsFileHandle | null) => {
+      await openBytes(new Uint8Array(await file.arrayBuffer()), file.name, undefined, undefined, handle);
     },
     [openBytes],
   );
@@ -543,6 +662,80 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     void loadViewerLib().catch(() => {});
     warmUpPdfWorker();
   }, []);
+
+  // -------------------------------------------------------------------------
+  // Unsaved changes: title, closing guard, recovery drafts
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!engine) return;
+    const previous = document.title;
+    document.title = `${dirty ? "● " : ""}${fileName || "PDF"} — Elium PDF`;
+    return () => {
+      document.title = previous;
+    };
+  }, [engine, dirty, fileName]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [dirty]);
+
+  // Snapshot the editing state while it is unsaved (debounced). A protected
+  // PDF's edits are only stored encrypted (vault unlocked), never in clear.
+  useEffect(() => {
+    if (!engine || !dirty) return;
+    const timer = setTimeout(() => {
+      const key = sourceKeyRef.current;
+      if (!key) return;
+      void buildPdfDraft({
+        id: key,
+        name: fileName || "document.pdf",
+        size: engine.bytes.length,
+        state,
+        sourceProtected: engine.info.encrypted,
+        secret: vaultSecret,
+        handle: openHandleRef.current ?? undefined,
+      })
+        .then((draft) => (draft ? putPdfDraft(draft) : undefined))
+        .catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [engine, dirty, state, fileName, vaultSecret]);
+
+  // Recoverable sessions, listed on the start screen.
+  useEffect(() => {
+    if (engine) return;
+    let alive = true;
+    void listPdfDrafts()
+      .then((list) => alive && setDrafts(list))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [engine]);
+
+  const reopenDraft = async (d: PdfDraftEntry) => {
+    const handle = d.handle;
+    if (!handle) return;
+    try {
+      const mode = { mode: "read" as const };
+      if (handle.queryPermission && (await handle.queryPermission(mode)) !== "granted") {
+        if (!handle.requestPermission || (await handle.requestPermission(mode)) !== "granted") return;
+      }
+      await openFile(await handle.getFile(), handle);
+    } catch {
+      toast(
+        "danger",
+        "Fichier introuvable",
+        `« ${d.name} » a été déplacé ou supprimé : rouvrez-le depuis son nouvel emplacement.`,
+      );
+    }
+  };
 
   // -------------------------------------------------------------------------
   // Geometry helpers
@@ -886,38 +1079,297 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return fonts;
   };
 
-  const exportPdf = async (name: string) => {
-    if (!bytesRef.current) return;
-    setBusy(true);
-    const id = toast("progress", "Export du PDF…");
-    try {
-      const { bytes, report } = await buildPdf(bytesRef.current, state, {
-        ...buildOptions,
-        author,
-        fileName: name,
-        onProgress: (label, ratio) => {
-          setToasts((v) => v.map((t) => (t.id === id ? { ...t, text: label, ratio } : t)));
-        },
+  // -------------------------------------------------------------------------
+  // Saving
+  // -------------------------------------------------------------------------
+  /** Options of a plain « Enregistrer »: the document itself, markup kept editable. */
+  const saveOptions = (): Partial<BuildOptions> => ({
+    interactiveAnnots: true,
+    flattenForms: false,
+    applyRedactions: true,
+    sanitise: false,
+    optimise: false,
+    author,
+    fileName,
+    password: passwordRef.current ?? "",
+    pristineAnnots: pristineAnnotsRef.current,
+    pristineBookmarks: pristineBookmarksRef.current,
+  });
+
+  /** A complete derived copy (print, extraction, merge, split, signing): no protection, pdf-lib readable. */
+  const buildDerived = (st: PdfState = state, extra: Partial<BuildOptions> = {}) =>
+    buildPdf(bytesRef.current!, st, {
+      ...buildOptions,
+      author,
+      fileName,
+      password: passwordRef.current ?? "",
+      encryption: "remove",
+      pristineAnnots: pristineAnnotsRef.current,
+      pristineBookmarks: pristineBookmarksRef.current,
+      ...extra,
+    });
+
+  /** Edits that Acrobat reports as changes to a signed document's content. */
+  const contentChanges = (st: PdfState): string[] => {
+    const out: string[] = [];
+    if (st.contentEdits.length) out.push("texte modifié");
+    if (st.imageEdits.length) out.push("images modifiées");
+    if (st.pages.some((p, i) => p.from !== i || p.rotate || p.crop || p.skipped || p.label)) out.push("pages");
+    if (st.watermark.enabled || st.header.enabled || st.footer.enabled || st.bates.enabled) {
+      out.push("filigrane / en-têtes");
+    }
+    if (st.createdFields.length) out.push("champs ajoutés");
+    return out;
+  };
+
+  /** Warn before a save that would break a digital signature. False = the user cancelled. */
+  const confirmSignedSave = async (st: PdfState, reasons: string[]): Promise<boolean> => {
+    if (reasons.length) {
+      return dialogs.confirm({
+        title: "Document signé électroniquement",
+        message:
+          `Ce document porte une signature électronique. Cet enregistrement doit réécrire tout le fichier (${reasons.join(" ; ")}) : ` +
+          "la signature sera supprimée et ne pourra plus être vérifiée.\n\nPour la conserver, annulez et renoncez à ces modifications (les commentaires et le remplissage de formulaire, eux, sont enregistrés sans toucher à la signature).",
+        confirmLabel: "Réécrire et perdre la signature",
+        cancelLabel: "Annuler",
       });
-      downloadBlob(name, "application/pdf", bytes);
+    }
+    const changes = contentChanges(st);
+    if (!changes.length) return true; // comments and form filling keep the signature valid
+    return dialogs.confirm({
+      title: "Document signé électroniquement",
+      message:
+        `Vous avez modifié le contenu signé (${changes.join(", ")}). La version signée restera intacte dans le fichier ` +
+        "(enregistrement incrémental), mais Acrobat signalera que le document a été modifié après signature : " +
+        "la signature apparaîtra comme invalide pour la version actuelle. Les commentaires et le remplissage de formulaire, eux, ne l'affectent pas.",
+      confirmLabel: "Enregistrer quand même",
+      cancelLabel: "Annuler",
+    });
+  };
+
+  /** Tell the user exactly what was written — never a plain success when an edit was lost. */
+  const reportSave = async (r: BuildReport, dest: SaveDestination, signedOutput: Uint8Array | null) => {
+    const size = (n: number) =>
+      n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(1)} Ko` : `${(n / 1048576).toFixed(2)} Mo`;
+    const facts: string[] = [];
+    facts.push(
+      r.mode === "incremental"
+        ? r.objectsWritten
+          ? `enregistrement incrémental : +${size(r.bytesAdded)}, contenu d'origine intact`
+          : "aucune modification à écrire"
+        : `fichier entièrement réécrit (${r.fullReasons.join(" ; ")}) : ${size(r.bytes)}`,
+    );
+    if (r.encryption === "kept") facts.push(`protection ${r.scheme} conservée`);
+    if (r.encryption === "added") facts.push(`protégé (${r.scheme})`);
+    if (r.encryption === "changed") facts.push(`nouveau mot de passe (${r.scheme})`);
+    if (r.encryption === "removed") facts.push("protection retirée");
+    if (r.redactedGlyphs || r.redactedImages) {
+      facts.push(`${r.redactedGlyphs} caractère(s) et ${r.redactedImages} image(s) caviardés`);
+    }
+    if (signedOutput) {
+      try {
+        const { verifyPdfSignatures } = await import("../ops/pades");
+        const v = verifyPdfSignatures(signedOutput);
+        if (v.length && v.every((x) => x.digestMatches)) {
+          facts.push("signature électronique préservée (version signée intacte)");
+        } else {
+          toast(
+            "warning",
+            "Signature électronique",
+            "La signature du document n'est plus vérifiable dans le fichier enregistré.",
+          );
+        }
+      } catch {
+        /* verification is informative */
+      }
+    }
+    const where = dest.kind === "download" ? `Téléchargé : ${dest.name}` : `Enregistré : ${dest.name}`;
+    if (r.lost.length) {
+      toast("warning", `${where} — ${r.lost.length} modification(s) NON enregistrée(s)`, facts.join(" · "));
+      await dialogs.alert({
+        title: "Certaines modifications n'ont pas été enregistrées",
+        message: `Le fichier a été écrit, mais ces modifications visibles à l'écran n'y figurent pas :\n\n• ${r.lost.join("\n• ")}`,
+      });
+    } else {
+      toast("success", where, `${r.durationMs} ms · ${facts.join(" · ")}`);
+    }
+    for (const w of r.warnings) toast("info", w);
+  };
+
+  /**
+   * Write the document to `dest`. `copy`: a transformed copy (the document
+   * stays attached to its current file); `fresh`: the destination does not
+   * hold the document yet (a new file, a download) — start from the source.
+   */
+  const runSave = async (
+    dest: SaveDestination,
+    options: Partial<BuildOptions>,
+    how: { copy: boolean; fresh: boolean; mode?: "auto" | "full" },
+  ): Promise<boolean> => {
+    if (!bytesRef.current || !engine || saving.current) return false;
+    // Write access first, while the user's gesture is still valid.
+    let allowed = false;
+    try {
+      allowed = await dest.prepare();
+    } catch {
+      allowed = false;
+    }
+    if (!allowed) {
+      toast("danger", "Enregistrement impossible", `L'accès en écriture à « ${dest.name} » a été refusé.`);
+      return false;
+    }
+    const st = state;
+    const ver = version;
+    const disk = how.copy || how.fresh || !dest.persistent ? null : diskRef.current;
+    // A protection change is relative to the source: re-applied whenever we start from it.
+    const security = disk ? (securityDirty ? securityRef.current : null) : securityRef.current;
+    const opts: Partial<BuildOptions> = { ...saveOptions(), ...options };
+    const marks = st.annots.filter((a) => a.kind === "redact").length;
+    if (marks && opts.applyRedactions && !redactConfirmed.current) {
+      const ok = await dialogs.confirm({
+        title: "Appliquer le caviardage",
+        message: `${marks} zone(s) marquée(s) seront définitivement supprimées du fichier enregistré (texte, images et annotations dessous), révisions précédentes comprises.`,
+        confirmLabel: "Caviarder et enregistrer",
+      });
+      if (!ok) return false;
+      redactConfirmed.current = true;
+    }
+    const info = await engine.infoReady;
+    if (info.signed) {
+      const reasons = fullRewriteReasons(
+        st,
+        {
+          applyRedactions: !!opts.applyRedactions,
+          optimise: !!opts.optimise,
+          sanitise: !!opts.sanitise,
+          flattenForms: !!opts.flattenForms,
+        },
+        engine.pageCount,
+        security,
+      );
+      if (how.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
+      if (!(await confirmSignedSave(st, reasons))) return false;
+    }
+
+    saving.current = true;
+    setBusy(true);
+    const id = toast("progress", "Enregistrement…");
+    try {
+      const res = await savePdf({
+        source: bytesRef.current,
+        disk,
+        state: st,
+        options: {
+          ...opts,
+          onProgress: (label, ratio) =>
+            setToasts((v) => v.map((t) => (t.id === id ? { ...t, text: label, ratio } : t))),
+        },
+        security,
+        mode: how.mode ?? "auto",
+      });
+      await dest.write(res.bytes);
+      if (!how.copy) {
+        if (dest.persistent) {
+          destRef.current = dest;
+          diskRef.current = res.disk;
+          if (dest.name !== fileName) setFileName(dest.name);
+        } else {
+          diskRef.current = null;
+        }
+        setSavedVersion(ver);
+        setSecurityDirty(false);
+        setEverSaved(true);
+        const key = sourceKeyRef.current;
+        if (key) void deletePdfDraft(key).catch(() => {});
+      }
       dismissToast(id);
-      const parts = [
-        `${report.pages} page${report.pages > 1 ? "s" : ""}`,
-        report.annotsWritten
-          ? `${report.annotsWritten} annotation${report.annotsWritten > 1 ? "s" : ""} modifiables`
-          : "",
-        report.annotsFlattened ? `${report.annotsFlattened} aplatie${report.annotsFlattened > 1 ? "s" : ""}` : "",
-        report.redactedGlyphs ? `${report.redactedGlyphs} caractères caviardés` : "",
-        report.textBlocksNative ? `${report.textBlocksNative} paragraphe(s) réécrits` : "",
-      ].filter(Boolean);
-      toast("success", "PDF exporté", parts.join(" · "));
-      for (const w of report.warnings) toast("warning", w);
+      await reportSave(res.report, dest, info.signed ? res.bytes : null);
+      return true;
     } catch (e) {
       dismissToast(id);
-      toast("danger", "Échec de l'export", e instanceof Error ? e.message : undefined);
+      toast(
+        "danger",
+        "Échec de l'enregistrement",
+        e instanceof Error ? e.message : "Le fichier n'a pas pu être écrit : rien n'a été modifié.",
+      );
+      return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
+  };
+
+  /** « Enregistrer » (Ctrl+S): back into the open file, or ask once where. */
+  const saveNow = async (force = false) => {
+    if (!bytesRef.current || !engine) return;
+    const current = destRef.current;
+    if (current && !dirty && !force) {
+      toast("info", "Aucune modification à enregistrer.", `« ${current.name} » est à jour.`);
+      return;
+    }
+    let dest = current;
+    if (!dest) {
+      if (canWriteFiles()) {
+        try {
+          dest = await pickSaveTarget(pdfName(fileName));
+        } catch {
+          dest = downloadDestination(pdfName(fileName));
+        }
+        if (!dest) return; // cancelled
+      } else {
+        dest = downloadDestination(pdfName(fileName));
+      }
+    }
+    await runSave(dest, {}, { copy: false, fresh: dest !== current });
+  };
+
+  /** « Enregistrer sous… » / « Enregistrer une copie » (from the dialog). */
+  const saveAs = async (name: string, o: SaveAsOptions) => {
+    const copy = isCopyOptions(o);
+    let dest: SaveDestination | null;
+    if (canWriteFiles()) {
+      try {
+        dest = await pickSaveTarget(pdfName(name));
+      } catch {
+        dest = downloadDestination(pdfName(name));
+      }
+      if (!dest) return;
+    } else {
+      dest = downloadDestination(pdfName(name));
+    }
+    await runSave(dest, o, { copy, fresh: true, mode: o.optimise ? "full" : "auto" });
+  };
+
+  /** Leaving the document with unsaved changes asks first. */
+  const confirmDiscard = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    const ok = await dialogs.confirm({
+      title: "Modifications non enregistrées",
+      message: `« ${fileName} » a des modifications qui ne sont pas enregistrées dans le fichier. Les abandonner ?`,
+      confirmLabel: "Abandonner les modifications",
+      cancelLabel: "Annuler",
+    });
+    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
+    return ok;
+  };
+
+  const goHome = async () => {
+    if (await confirmDiscard()) onHome();
+  };
+
+  /** Open a file: system picker (keeps a handle to save back) or the classic input. */
+  const openDialog = async () => {
+    if (!(await confirmDiscard())) return;
+    if (canWriteFiles()) {
+      try {
+        const picked = await pickPdfToOpen();
+        if (picked) await openFile(picked.file, picked.handle);
+        return;
+      } catch {
+        /* fall back to the classic input */
+      }
+    }
+    openInput.current?.click();
   };
 
   // --- Signature électronique PAdES (certificat X.509) ---------------------
@@ -944,7 +1396,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // marque devient ainsi la signature elle-même.
   const buildForSignature = (t: ReturnType<typeof visibleSigTarget>) => {
     const st = t && t.visible.imagePng ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
-    return buildPdf(bytesRef.current!, st, { ...buildOptions, author, fileName });
+    return buildDerived(st);
   };
 
   const finishSigned = async (signed: Uint8Array, base: string, toastId: number): Promise<void> => {
@@ -1100,13 +1552,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     setBusy(true);
     const id = toast("progress", "Préparation de l'impression…");
     try {
-      const { bytes } = await buildPdf(bytesRef.current, state, {
-        ...buildOptions,
-        interactiveAnnots: false,
-        flattenForms: true,
-        author,
-        fileName,
-      });
+      const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
       const frame = document.createElement("iframe");
       frame.style.position = "fixed";
@@ -1161,6 +1607,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         redo();
         return;
       case "save":
+        void saveNow();
+        return;
+      case "saveAs":
+        setSaveAsPreset({});
         setDialog("save");
         return;
       case "saveElium":
@@ -1374,7 +1824,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         toast("info", "Formulaire réinitialisé.");
         return;
       case "formFlatten":
-        setBuildOptions((o) => ({ ...o, flattenForms: true }));
+        setSaveAsPreset({ flattenForms: true });
         setDialog("save");
         return;
       case "detectFields":
@@ -1389,19 +1839,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
         const ok = await dialogs.confirm({
           title: "Appliquer le caviardage",
-          message: `${marks.length} zone(s) seront définitivement supprimées du fichier exporté : texte, images et annotations situés dessous. Cette action est irréversible dans le PDF produit.`,
+          message: `${marks.length} zone(s) seront définitivement supprimées du fichier à l'enregistrement : texte, images et annotations situés dessous. Le fichier est entièrement réécrit, sans révision antérieure qui garderait ce contenu.`,
+          confirmLabel: "Caviarder et enregistrer",
         });
         if (!ok) return;
-        setBuildOptions((o) => ({ ...o, applyRedactions: true }));
-        setDialog("save");
+        redactConfirmed.current = true;
+        void saveNow(true);
         return;
       }
       case "sanitise":
-        setBuildOptions((o) => ({ ...o, sanitise: true }));
+        setSaveAsPreset({ sanitise: true });
         setDialog("save");
         return;
       case "optimise":
-        setBuildOptions((o) => ({ ...o, optimise: true }));
+        setSaveAsPreset({ optimise: true });
         setDialog("save");
         return;
       case "inspect":
@@ -1433,7 +1884,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (!bytesRef.current || !indices.length) return;
     setBusy(true);
     try {
-      const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
+      const { bytes } = await buildDerived();
       const out = await extractPages(bytes, indices);
       downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-extrait.pdf`, "application/pdf", out);
       toast("success", `${indices.length} page(s) extraite(s).`);
@@ -1510,11 +1961,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (!pw) return;
     setBusy(true);
     try {
+      // Checks the password (throws WrongPassword); the protection itself is
+      // dropped by the save that follows — like Acrobat, a security change
+      // takes effect when the document is saved.
       const result = await removeProtection(bytesRef.current, pw);
-      bytesRef.current = result.bytes;
-      passwordRef.current = null;
-      await openBytes(result.bytes, fileName, undefined, state);
-      toast("success", "Protection retirée", `Chiffrement ${result.scheme} supprimé.`);
+      securityRef.current = "remove";
+      setSecurityDirty(true);
+      toast("info", "Protection retirée à l'enregistrement", `Chiffrement ${result.scheme}.`);
+      setBusy(false);
+      await saveNow(true);
     } catch (e) {
       toast(
         "danger",
@@ -1615,7 +2070,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     setBusy(true);
     const id = toast("progress", "Fusion en cours…");
     try {
-      const current = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
+      const current = await buildDerived();
       const sources = [
         { name: fileName || "document.pdf", bytes: current.bytes },
         ...(await Promise.all(
@@ -1763,7 +2218,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
         if (k === "s") {
           e.preventDefault();
-          setDialog("save");
+          if (e.shiftKey) {
+            setSaveAsPreset({});
+            setDialog("save");
+          } else void saveNow();
           return;
         }
         if (k === "p") {
@@ -1773,7 +2231,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
         if (k === "o") {
           e.preventDefault();
-          openInput.current?.click();
+          void openDialog();
           return;
         }
         if (!inField && k === "a") {
@@ -1903,7 +2361,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return (
       <div className="pdfx pdfx--empty">
         <header className="pdfx-topbar">
-          <button className="pdfx-topbtn" onClick={onHome}>
+          <button className="pdfx-topbtn" onClick={() => void goHome()}>
             <Home size={16} /> Accueil
           </button>
           <span className="pdfx-topbar__brand">
@@ -1921,8 +2379,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
+            const handle = droppedHandle(e.dataTransfer); // synchronous: the transfer empties after the event
             const f = e.dataTransfer.files?.[0];
-            if (f) void openFile(f);
+            if (f) void handle.then((h) => openFile(f, h));
           }}
         >
           <div className="pdfx-dropzone__card">
@@ -1937,13 +2396,46 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   "Déposez un fichier ici, ou choisissez-le. Vous pourrez le lire, l'annoter, en modifier le texte, le caviarder, le signer et le protéger."}
             </p>
             <div className="pdfx-dropzone__actions">
-              <button className="eb eb--primary" onClick={() => openInput.current?.click()} disabled={loading}>
+              <button className="eb eb--primary" onClick={() => void openDialog()} disabled={loading}>
                 {loading ? <Loader2 size={16} className="pdfx-spin" /> : <Upload size={16} />} Choisir un PDF
               </button>
               <button className="eb eb--outline" onClick={() => imageInput.current?.click()} disabled={loading}>
                 Créer depuis des images
               </button>
             </div>
+            {drafts.length > 0 && (
+              <div className="pdfx-recover" role="region" aria-label="Modifications récupérables">
+                <b>Modifications non enregistrées récupérables</b>
+                <ul>
+                  {drafts.slice(0, 5).map((d) => (
+                    <li key={d.id}>
+                      <span className="pdfx-recover__name" title={d.name}>
+                        {d.name}
+                      </span>
+                      <span className="pdfx-recover__when">{new Date(d.updatedAt).toLocaleString("fr-FR")}</span>
+                      {d.handle ? (
+                        <button className="eb eb--outline eb--sm" onClick={() => void reopenDraft(d)}>
+                          Rouvrir
+                        </button>
+                      ) : (
+                        <small>Rouvrez ce fichier pour les restaurer</small>
+                      )}
+                      <button
+                        className="eb eb--ghost eb--sm"
+                        title="Oublier ces modifications"
+                        aria-label={`Oublier les modifications de ${d.name}`}
+                        onClick={() => {
+                          void deletePdfDraft(d.id).catch(() => {});
+                          setDrafts((v) => v.filter((x) => x.id !== d.id));
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <ul className="pdfx-dropzone__hints">
               <li>Annotation complète, fils de commentaires et révision</li>
               <li>Édition réelle du texte et des images de la page</li>
@@ -1967,7 +2459,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           <PasswordPrompt
             wrong={pendingPassword.wrong}
             fileName={pendingPassword.name}
-            onConfirm={(pw) => void openBytes(pendingPassword.bytes, pendingPassword.name, pw)}
+            onConfirm={(pw) =>
+              void openBytes(pendingPassword.bytes, pendingPassword.name, pw, undefined, pendingPassword.handle)
+            }
             onClose={() => setPendingPassword(null)}
           />
         )}
@@ -2071,7 +2565,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   return (
     <div className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""}`}>
       <header className="pdfx-topbar">
-        <button className="pdfx-topbtn" onClick={onHome} title="Retour à l'accueil">
+        <button className="pdfx-topbtn" onClick={() => void goHome()} title="Retour à l'accueil">
           <Home size={16} />
         </button>
         <span className="pdfx-topbar__brand">
@@ -2080,6 +2574,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         <span className="pdfx-topbar__file" title={fileName}>
           {fileName}
         </span>
+        {dirty ? (
+          <span className="pdfx-savestate pdfx-savestate--dirty" title="Modifications non enregistrées (Ctrl+S)">
+            ● Modifié
+          </span>
+        ) : everSaved ? (
+          <span className="pdfx-savestate" title="Toutes les modifications sont enregistrées">
+            Enregistré
+          </span>
+        ) : null}
         {engine.info.encrypted && <span className="pdfx-badge pdfx-badge--lock">protégé</span>}
         {engine.info.signed && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
         {engine.info.isXfa && <span className="pdfx-badge pdfx-badge--warn">XFA — lecture seule</span>}
@@ -2488,13 +2991,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       {dialog === "save" && (
         <SaveDialog
           fileName={fileName}
-          options={buildOptions}
+          options={{
+            interactiveAnnots: true,
+            flattenForms: false,
+            applyRedactions: true,
+            sanitise: false,
+            optimise: false,
+            ...saveAsPreset,
+          }}
           hasRedactions={state.annots.some((a) => a.kind === "redact")}
           hasForm={hasForm || state.createdFields.length > 0}
-          onChange={(patch) => setBuildOptions((o) => ({ ...o, ...patch }))}
-          onConfirm={(name) => {
+          signed={!!engine?.info.signed}
+          inPlace={canWriteFiles()}
+          onConfirm={(name, o) => {
             setDialog(null);
-            void exportPdf(name);
+            void saveAs(name, o);
           }}
           onClose={() => setDialog(null)}
         />
@@ -2509,26 +3020,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             encryptMetadata: boolean;
           }) => {
             setDialog(null);
-            setBuildOptions((o) => ({ ...o, protect: v }));
-            if (!bytesRef.current) return;
-            setBusy(true);
-            const id = toast("progress", "Chiffrement du document…");
-            try {
-              const { bytes } = await buildPdf(bytesRef.current, state, {
-                ...buildOptions,
-                author,
-                fileName,
-                protect: v,
-              });
-              downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-protégé.pdf`, "application/pdf", bytes);
-              dismissToast(id);
-              toast("success", "Document protégé", "Chiffrement AES-256 (révision 6).");
-            } catch {
-              dismissToast(id);
-              toast("danger", "Chiffrement impossible.");
-            } finally {
-              setBusy(false);
-            }
+            securityRef.current = { protect: v };
+            setSecurityDirty(true);
+            await saveNow(true);
           }}
         />
       )}
@@ -2709,7 +3203,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             if (!bytesRef.current) return;
             setBusy(true);
             try {
-              const { bytes } = await buildPdf(bytesRef.current, state, { ...buildOptions, author, fileName });
+              const { bytes } = await buildDerived();
               const base = fileName.replace(/\.pdf$/i, "") || "document";
               const parts = await splitDocument(
                 bytes,
@@ -2859,7 +3353,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         <PasswordPrompt
           wrong={pendingPassword.wrong}
           fileName={pendingPassword.name}
-          onConfirm={(pw) => void openBytes(pendingPassword.bytes, pendingPassword.name, pw)}
+          onConfirm={(pw) =>
+            void openBytes(pendingPassword.bytes, pendingPassword.name, pw, undefined, pendingPassword.handle)
+          }
           onClose={() => setPendingPassword(null)}
         />
       )}

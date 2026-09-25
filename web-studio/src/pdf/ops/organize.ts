@@ -7,6 +7,7 @@
 import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString, degrees } from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
 import type { Page } from "../model/types";
+import { WrongPassword, openCrypt } from "./security";
 
 // ---------------------------------------------------------------------------
 // Page ranges
@@ -111,6 +112,68 @@ export interface MergeResult {
  * Concatenate documents. Bookmarks from each source are preserved as a
  * top-level entry per file so a merged dossier stays navigable.
  */
+/**
+ * Append the pages of other PDFs to `doc` — the working document of a save
+ * (`SaveInput.transform`). The document stays the same file: its objects keep
+ * their numbers and the page tree is only extended, so the insertion is saved
+ * like any other edit — incrementally, a signed revision left intact, new
+ * objects encrypted with the file's own key. A protected file to insert is
+ * decrypted first (owner-only protection opens freely; otherwise
+ * `askPassword` is asked).
+ */
+export async function appendPdfPages(
+  doc: PDFDocument,
+  files: readonly { name: string; bytes: Uint8Array }[],
+  askPassword?: (name: string, wrong: boolean) => Promise<string | null>,
+): Promise<{ inserted: number; failed: { name: string; reason: string }[] }> {
+  let inserted = 0;
+  const failed: { name: string; reason: string }[] = [];
+  for (const file of files) {
+    let src: PDFDocument;
+    try {
+      src = await PDFDocument.load(file.bytes, {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+        updateMetadata: false,
+      });
+    } catch {
+      failed.push({ name: file.name, reason: "fichier illisible" });
+      continue;
+    }
+    try {
+      let crypt = null;
+      let password = "";
+      for (let attempt = 0; ; attempt++) {
+        try {
+          crypt = openCrypt(src, password);
+          break;
+        } catch (e) {
+          if (!(e instanceof WrongPassword) || !askPassword) throw e;
+          const next = await askPassword(file.name, attempt > 0);
+          if (next == null) throw e;
+          password = next;
+        }
+      }
+      if (crypt) await crypt.decryptDocument(src);
+    } catch (e) {
+      failed.push({
+        name: file.name,
+        reason: e instanceof WrongPassword ? "protégé par mot de passe" : "chiffrement non pris en charge",
+      });
+      continue;
+    }
+    const indices = src.getPageIndices();
+    if (!indices.length) {
+      failed.push({ name: file.name, reason: "aucune page" });
+      continue;
+    }
+    const copied = await doc.copyPages(src, indices);
+    for (const page of copied) doc.addPage(page);
+    inserted += copied.length;
+  }
+  return { inserted, failed };
+}
+
 export async function mergeDocuments(
   sources: readonly MergeSource[],
   opts: { outline?: boolean } = {},

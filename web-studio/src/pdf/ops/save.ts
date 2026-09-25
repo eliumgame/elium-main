@@ -26,7 +26,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef,
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type { Annot, Bookmark, Page, PdfState } from "../model/types";
-import { pageFrame, flattenAnnots, mustFlatten, writeAnnots } from "./annots-pdf";
+import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
 import { FontBook } from "./fonts";
@@ -243,6 +243,19 @@ export interface SaveInput {
   mode?: "auto" | "incremental" | "full";
   /** Change of protection (forces a full rewrite). */
   security?: SecurityChange | null;
+  /**
+   * Why this save must rewrite the whole file although the state alone would
+   * not require it — e.g. the session was recomposed (pages inserted from
+   * another PDF) after pages had been deleted: `disk` still holds them.
+   */
+  forceFullReasons?: readonly string[];
+  /**
+   * Last step on the working document, after the model is applied and before
+   * it is written (pages in their final order): insert pages from another
+   * PDF, add an OCR text layer… Whatever it changes is saved like the rest —
+   * incrementally, encrypted with the file's key.
+   */
+  transform?: (doc: PDFDocument, report: BuildReport) => Promise<void>;
 }
 
 export interface SaveResult {
@@ -315,10 +328,12 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
   const reasons = fullRewriteReasons(state, opts, sourcePageCount, security);
   if (!disk.tail) reasons.push("structure du fichier d'origine irrégulière : fichier réparé");
   if (opts.encryption === "remove" && disk.crypt) reasons.push("copie sans protection");
+  for (const r of input.forceFullReasons ?? []) if (!reasons.includes(r)) reasons.push(r);
   if (input.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
   const full = input.mode === "full" || reasons.length > 0;
 
   await applyState(doc, state, opts, report);
+  if (input.transform) await input.transform(doc, report);
 
   step("Écriture du fichier", 0.92);
   await doc.flush();
@@ -560,7 +575,12 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
   // The markup the model imported from the source is about to be written back
   // from the model — remove the originals so nothing is duplicated. Imported
   // annotations the user did not touch stay as they are in the file.
-  const pristine = new Set(opts.pristineAnnots ? state.annots.filter((a) => opts.pristineAnnots!.has(a)) : []);
+  // (An imported `/Redact` mark being applied is not kept: it is performed.)
+  const pristine = new Set(
+    opts.pristineAnnots
+      ? state.annots.filter((a) => opts.pristineAnnots!.has(a) && !(a.kind === "redact" && opts.applyRedactions))
+      : [],
+  );
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
     for (const [index, { page, model }] of targets.entries()) {
@@ -588,6 +608,11 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     const mine = state.annots.filter(
       (a) => a.pageId === model.id && !pristine.has(a) && !(a.kind === "redact" && !opts.applyRedactions),
     );
+    if (!opts.applyRedactions) {
+      // Marks not applied stay marks — `/Redact` annotations, as Acrobat keeps them.
+      const pending = state.annots.filter((a) => a.pageId === model.id && a.kind === "redact" && !pristine.has(a));
+      if (pending.length) report.annotsWritten += writeRedactMarks(page, pending, ctx, opts.author);
+    }
 
     if (!mine.length) continue;
     let toFlatten: Annot[];

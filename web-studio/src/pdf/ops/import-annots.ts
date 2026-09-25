@@ -360,6 +360,9 @@ const KIND: Record<string, AnnotKind> = {
   Polygon: "polygon",
   PolyLine: "polyline",
   Stamp: "stamp",
+  // A redaction marked but not applied (Acrobat, or « Enregistrer sous » here
+  // with « Appliquer le caviardage » unticked): it stays a mark to apply.
+  Redact: "redact",
 };
 
 const LINE_ENDING: Record<string, LineEnding> = {
@@ -579,6 +582,14 @@ export function importPageAnnots(
       }
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
+        break;
+      case "redact":
+        // pdf.js hands /Redact over as a base annotation (no /IC, no overlay
+        // text): the mark is restored with the default black fill.
+        annot.color = "#000000";
+        annot.fill = "#000000";
+        annot.strokeWidth = 0;
+        annot.opacity = 1;
         break;
       case "stamp": {
         // pdf.js paints the appearance stream itself — but only as long as

@@ -15,7 +15,7 @@
  */
 
 import type { PDFDocument, PDFPage, PDFRef } from "pdf-lib";
-import { PDFHexString, PDFName, PDFString } from "pdf-lib";
+import { PDFArray, PDFHexString, PDFName, PDFString } from "pdf-lib";
 import type { Pt, Rect } from "../core/coords";
 import { quadToPdfQuadPoints, rectOfPoints, round } from "../core/coords";
 import type { Annot, MeasureScale } from "../model/types";
@@ -630,7 +630,7 @@ export async function writeAnnots(
           CreationDate: PDFString.of(pdfDate(reply.createdAt)),
           M: PDFString.of(pdfDate(reply.createdAt)),
         });
-        page.node.addAnnot(ctx.doc.context.register(dict));
+        pushAnnot(page, ctx.doc.context.register(dict));
       } catch {
         /* skip a malformed reply */
       }
@@ -797,8 +797,79 @@ async function writeOne(
   }
 
   const ref = doc.context.register(doc.context.obj(entries as never));
-  page.node.addAnnot(ref);
+  pushAnnot(page, ref);
   return ref;
+}
+
+const ANNOTS = PDFName.of("Annots");
+
+/**
+ * Append an annotation to the page's `/Annots` — and nothing else. pdf-lib's
+ * `PDFPageLeaf.addAnnot` goes through `normalize()`, which wraps `/Contents`
+ * in q/Q streams and rewrites `/Resources`: in an incremental update that is
+ * a change of the page CONTENT (a certification allowing only comments then
+ * reports a violation), where Acrobat leaves `/Contents` alone.
+ */
+export function pushAnnot(page: PDFPage, ref: PDFRef): void {
+  const node = page.node;
+  const current = node.lookup(ANNOTS);
+  if (current instanceof PDFArray) current.push(ref);
+  else node.set(ANNOTS, node.context.obj([ref]));
+}
+
+/** Outline colour of a pending redaction mark (as drawn on screen). */
+const REDACT_OUTLINE = [0.863, 0.149, 0.149];
+
+/**
+ * Redaction marks saved WITHOUT being applied (« Enregistrer sous » with
+ * « Appliquer le caviardage » unticked): real `/Redact` annotations, like
+ * Acrobat writes them, so the marks survive and can still be applied later —
+ * here (they are imported back as marks) or in Acrobat.
+ */
+export function writeRedactMarks(
+  page: PDFPage,
+  marks: readonly Annot[],
+  ctx: PaintContext,
+  defaultAuthor: string,
+): number {
+  const { doc, frame } = ctx;
+  let written = 0;
+  for (const a of marks) {
+    const r = frame.rectToPdf(a.rect);
+    const rect = frame.rectArray(a.rect);
+    const [x0, y0, x1, y1] = [r.x, r.y, r.x + r.w, r.y + r.h].map((v) => round(v, 3));
+    // What viewers show before the redaction is applied: the red outline.
+    const outline = `${round(x0 + 0.5, 3)} ${round(y0 + 0.5, 3)} ${round(x1 - x0 - 1, 3)} ${round(y1 - y0 - 1, 3)} re`;
+    const ap = doc.context.register(
+      doc.context.stream(`q ${REDACT_OUTLINE.join(" ")} RG 1 w ${outline} S Q`, {
+        Type: "XObject",
+        Subtype: "Form",
+        FormType: 1,
+        BBox: rect,
+        Matrix: [1, 0, 0, 1, 0, 0],
+        Resources: {},
+      } as never),
+    );
+    const entries: Record<string, unknown> = {
+      Type: "Annot",
+      Subtype: "Redact",
+      Rect: rect,
+      QuadPoints: [x0, y1, x1, y1, x0, y0, x1, y0],
+      C: REDACT_OUTLINE,
+      IC: rgbToPdfArray(hexToRgb(a.redactFill ?? "#000000")),
+      T: textString(a.author || defaultAuthor),
+      M: PDFString.of(pdfDate(a.modifiedAt)),
+      CreationDate: PDFString.of(pdfDate(a.createdAt)),
+      NM: PDFString.of(a.id),
+      F: 4,
+      AP: { N: ap },
+    };
+    if (a.redactText) entries.OverlayText = textString(a.redactText);
+    if (a.contents) entries.Contents = textString(a.contents);
+    pushAnnot(page, doc.context.register(doc.context.obj(entries as never)));
+    written++;
+  }
+  return written;
 }
 
 /** Widen the box so strokes, arrow heads and cloud bumps are not clipped. */

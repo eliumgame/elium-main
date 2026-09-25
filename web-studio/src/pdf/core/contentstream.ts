@@ -750,7 +750,18 @@ export interface Placement {
   ctm: Mat;
   /** Unit-square corners mapped through the CTM — the drawn quad. */
   corners: [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }, { x: number; y: number }];
+  /** Bounding box of the clip in force (user space), null when nothing is clipped. */
+  clip: ClipBox | null;
 }
+
+export interface ClipBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+const PATH_PAINT = new Set(["S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n"]);
 
 /**
  * Locate every image/form placement. Only the graphics-state stack is tracked,
@@ -760,31 +771,89 @@ export interface Placement {
 export function walkPlacements(ops: readonly Op[]): Placement[] {
   const out: Placement[] = [];
   let ctm: Mat = IDENTITY;
-  const stack: Mat[] = [];
+  let clip: ClipBox | null = null;
+  const stack: { ctm: Mat; clip: ClipBox | null }[] = [];
+  // The path being built (its box, user space) and whether it will clip.
+  let path: ClipBox | null = null;
+  let clipping = false;
   const num = (o: Operand | undefined): number => (o && o.t === "num" ? o.v : 0);
   const at = (m: Mat, x: number, y: number) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+  const extend = (x: number, y: number) => {
+    const q = at(ctm, x, y);
+    path = path
+      ? {
+          x0: Math.min(path.x0, q.x),
+          y0: Math.min(path.y0, q.y),
+          x1: Math.max(path.x1, q.x),
+          y1: Math.max(path.y1, q.y),
+        }
+      : { x0: q.x, y0: q.y, x1: q.x, y1: q.y };
+  };
 
   for (let i = 0; i < ops.length; i++) {
     const { op, args } = ops[i];
-    if (op === "q") {
-      stack.push(ctm);
-      continue;
-    }
-    if (op === "Q") {
-      ctm = stack.pop() ?? IDENTITY;
-      continue;
-    }
-    if (op === "cm") {
-      ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
-      continue;
-    }
-    if (op === "Do" || op === "BI") {
-      out.push({
-        opIndex: i,
-        name: op === "Do" && args[0]?.t === "name" ? args[0].v : null,
-        ctm,
-        corners: [at(ctm, 0, 0), at(ctm, 1, 0), at(ctm, 1, 1), at(ctm, 0, 1)],
-      });
+    switch (op) {
+      case "q":
+        stack.push({ ctm, clip });
+        continue;
+      case "Q": {
+        const top = stack.pop();
+        ctm = top?.ctm ?? IDENTITY;
+        clip = top?.clip ?? null;
+        continue;
+      }
+      case "cm":
+        ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
+        continue;
+      case "m":
+      case "l":
+        extend(num(args[0]), num(args[1]));
+        continue;
+      case "c":
+        for (let k = 0; k < 6; k += 2) extend(num(args[k]), num(args[k + 1]));
+        continue;
+      case "v":
+      case "y":
+        for (let k = 0; k < 4; k += 2) extend(num(args[k]), num(args[k + 1]));
+        continue;
+      case "re": {
+        const [x, y, w, h] = [num(args[0]), num(args[1]), num(args[2]), num(args[3])];
+        extend(x, y);
+        extend(x + w, y);
+        extend(x + w, y + h);
+        extend(x, y + h);
+        continue;
+      }
+      case "W":
+      case "W*":
+        clipping = true;
+        continue;
+      case "Do":
+      case "BI":
+        out.push({
+          opIndex: i,
+          name: op === "Do" && args[0]?.t === "name" ? args[0].v : null,
+          ctm,
+          corners: [at(ctm, 0, 0), at(ctm, 1, 0), at(ctm, 1, 1), at(ctm, 0, 1)],
+          clip,
+        });
+        continue;
+      default:
+        if (PATH_PAINT.has(op)) {
+          if (clipping && path) {
+            const p: ClipBox = path;
+            clip = clip
+              ? {
+                  x0: Math.max(clip.x0, p.x0),
+                  y0: Math.max(clip.y0, p.y0),
+                  x1: Math.min(clip.x1, p.x1),
+                  y1: Math.min(clip.y1, p.y1),
+                }
+              : p;
+          }
+          path = null;
+          clipping = false;
+        }
     }
   }
   return out;

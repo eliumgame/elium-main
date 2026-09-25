@@ -295,3 +295,74 @@ describe("« Rogner »", () => {
     expect(frameOf({ x: 60, y: 70, w: 200, h: 100 }, crop)).toEqual({ x: -40, y: -30, w: 400, h: 200 });
   });
 });
+
+describe("pictures already clipped by the file (Word, Acrobat)", () => {
+  /**
+   * Top-level `cm`, then a picture inside `q re W n … Q` whose clip keeps its
+   * left half, then a second picture after it that relies on the outer `cm`.
+   */
+  async function clipped(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 600]);
+    const lib = await import("pdf-lib");
+    const red = page.node.newXObject("Image", (await doc.embedPng(Buffer.from(RED.split(",")[1], "base64"))).ref);
+    const blue = page.node.newXObject("Image", (await doc.embedPng(Buffer.from(BLUE.split(",")[1], "base64"))).ref);
+    page.pushOperators(
+      lib.concatTransformationMatrix(1, 0, 0, 1, 10, 0),
+      lib.pushGraphicsState(),
+      lib.rectangle(40, 400, 50, 50),
+      lib.clip(),
+      lib.endPath(),
+      lib.concatTransformationMatrix(100, 0, 0, 50, 40, 400),
+      lib.drawObject(red),
+      lib.popGraphicsState(),
+      lib.concatTransformationMatrix(20, 0, 0, 20, 200, 100),
+      lib.drawObject(blue),
+    );
+    return doc.save({ useObjectStreams: false });
+  }
+
+  it("reads the file's clip as the picture's crop", async () => {
+    const imgs = await pageImages(await clipped(), null, 0);
+    expect(imgs[0]).toEqual({
+      occurrence: 0,
+      rect: { x: 50, y: 150, w: 100, h: 50 },
+      crop: { x: 0, y: 0, w: 0.5, h: 1 },
+    });
+    expect(imgs[1].crop).toBeUndefined();
+  });
+
+  it("moves it out of its old clip, keeps its crop, and leaves what follows in place", async () => {
+    const state = base();
+    const pageId = state.pages[0].id;
+    const { bytes, report } = await buildPdf(await clipped(), {
+      ...state,
+      imageEdits: [edit({ pageId, occurrence: 0, action: "move", rect: { x: 200, y: 400, w: 100, h: 50 } })],
+    });
+    expect(report.lost).toEqual([]);
+    const { walkPlacements } = await import("../src/pdf/core/contentstream");
+    const { readPageContent } = await import("../src/pdf/ops/content");
+    const { ops } = await readPageContent((await PDFDocument.load(bytes)).getPage(0));
+    const [moved, after] = walkPlacements(ops);
+    // Drawn at its new place, cut by a clip there (its left half), not by the old one.
+    expect(moved.corners[0]).toEqual({ x: 200, y: 150 });
+    expect(moved.clip).toEqual({ x0: 200, y0: 150, x1: 250, y1: 200 });
+    // The next picture still sees the outer `cm` (x + 10) and no clip.
+    expect(after.corners[0]).toEqual({ x: 210, y: 100 });
+    expect(after.clip).toBeNull();
+    expect(await pageImages(bytes, null, 0)).toEqual([
+      { occurrence: 0, rect: { x: 200, y: 400, w: 100, h: 50 }, crop: { x: 0, y: 0, w: 0.5, h: 1 } },
+      { occurrence: 1, rect: { x: 210, y: 480, w: 20, h: 20 } },
+    ]);
+  });
+
+  it("uncrops on request (an explicit full crop)", async () => {
+    const state = base();
+    const pageId = state.pages[0].id;
+    const { bytes } = await buildPdf(await clipped(), {
+      ...state,
+      imageEdits: [edit({ pageId, occurrence: 0, action: "move", crop: { x: 0, y: 0, w: 1, h: 1 } })],
+    });
+    expect((await pageImages(bytes, null, 0))[0].crop).toBeUndefined();
+  });
+});

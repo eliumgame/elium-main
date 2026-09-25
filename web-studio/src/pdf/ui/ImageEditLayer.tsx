@@ -54,6 +54,10 @@ type Drag = { id: string; kind: "move" | "nw" | "ne" | "sw" | "se"; start: Pt; b
 
 const MIN = 4;
 
+/** An explicit « not cropped » (an absent crop means: as in the file). */
+export const FULL_CROP: Rect = { x: 0, y: 0, w: 1, h: 1 };
+const isCut = (c?: Rect) => !!c && (c.x > 1e-3 || c.y > 1e-3 || c.w < 0.999 || c.h < 0.999);
+
 export const originalImageId = (pageId: string, occurrence: number) => `img:${pageId}:${occurrence}`;
 
 /** The frame a corner drag gives: the opposite corner stays, proportions kept unless `free`. */
@@ -152,7 +156,8 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
         id: e?.id ?? originalImageId(p.pageId, img.occurrence),
         occurrence: img.occurrence,
         rect: e?.rect ?? img.rect,
-        crop: e?.crop,
+        // No crop in the edit: the one of the file (its own clip), if any.
+        crop: e?.crop ?? img.crop,
         deleted: e?.action === "delete",
         edited: !!e,
         added: false,
@@ -275,7 +280,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
       setDrag(null);
       if (last.moved) {
         p.onBeginChange();
-        if (crop) commitRect(it, it.rect, cropOf(it.rect, last.rect) ?? undefined);
+        if (crop) commitRect(it, it.rect, cropOf(it.rect, last.rect) ?? FULL_CROP);
         else commitRect(it, frameOf(last.rect, it.crop));
       }
     };
@@ -435,12 +440,12 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
               >
                 {cropping ? "Terminer le rognage" : "Rogner"}
               </button>
-              {sel.crop && (
+              {isCut(sel.crop) && (
                 <button
                   type="button"
                   onClick={() => {
                     p.onBeginChange();
-                    commitRect(sel, sel.rect, undefined);
+                    commitRect(sel, sel.rect, FULL_CROP);
                   }}
                 >
                   Annuler le rognage

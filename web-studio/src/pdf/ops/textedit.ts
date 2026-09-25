@@ -12,7 +12,7 @@
  */
 
 import type { PDFDocument, PDFPage } from "pdf-lib";
-import type { Op, Operand } from "../core/contentstream";
+import type { Op, Operand, Placement } from "../core/contentstream";
 import { walkText } from "../core/contentstream";
 import type { FontMetrics } from "../core/fontmetrics";
 import { widthFnFor } from "../core/fontmetrics";
@@ -396,6 +396,8 @@ export interface PagePlacement {
   isImage: boolean;
   /** Corners in PDF user space (unit square under the CTM). */
   corners: { x: number; y: number }[];
+  /** Part of the picture the content's clip leaves visible (fractions, top-left), if cut. */
+  crop?: Rect;
 }
 
 /** Every named XObject drawn by the page's own content, in draw order. */
@@ -409,8 +411,98 @@ export async function pagePlacements(page: PDFPage): Promise<PagePlacement[]> {
     .map((p, occurrence) => {
       const x = xobjects instanceof PDFDict ? xobjects.lookup(PDFName.of(p.name!)) : undefined;
       const isImage = x instanceof PDFStream && x.dict.lookup(PDFName.of("Subtype"))?.toString() === "/Image";
-      return { occurrence, name: p.name!, isImage, corners: p.corners };
+      return { occurrence, name: p.name!, isImage, corners: p.corners, crop: clipCrop(p) };
     });
+}
+
+/** The bounding box of a placement, PDF user space. */
+function boundsOfPlacement(p: Placement): Rect {
+  const xs = p.corners.map((c) => c.x);
+  const ys = p.corners.map((c) => c.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/**
+ * What the clip in force leaves of a picture, as the editor's crop
+ * (fractions of the frame, top-left origin); undefined when nothing is cut.
+ */
+export function clipCrop(p: Placement): Rect | undefined {
+  if (!p.clip) return undefined;
+  const f = boundsOfPlacement(p);
+  if (f.w <= 0 || f.h <= 0) return undefined;
+  const x0 = Math.max(f.x, p.clip.x0);
+  const y0 = Math.max(f.y, p.clip.y0);
+  const x1 = Math.min(f.x + f.w, p.clip.x1);
+  const y1 = Math.min(f.y + f.h, p.clip.y1);
+  if (x1 <= x0 || y1 <= y0) return { x: 0, y: 0, w: 0, h: 0 };
+  const c = { x: (x0 - f.x) / f.w, y: (f.y + f.h - y1) / f.h, w: (x1 - x0) / f.w, h: (y1 - y0) / f.h };
+  const tol = 0.5 / Math.max(f.w, f.h);
+  return c.x < tol && c.y < tol && c.w > 1 - 2 * tol && c.h > 1 - 2 * tol ? undefined : c;
+}
+
+/** Operators that set lasting graphics or text state (replayed to rebuild a state). */
+const STATE_OPS = new Set([
+  "cm",
+  "w",
+  "J",
+  "j",
+  "M",
+  "d",
+  "ri",
+  "i",
+  "gs",
+  "CS",
+  "cs",
+  "SC",
+  "SCN",
+  "sc",
+  "scn",
+  "G",
+  "g",
+  "RG",
+  "rg",
+  "K",
+  "k",
+  "Tc",
+  "Tw",
+  "Tz",
+  "TL",
+  "Tf",
+  "Tr",
+  "Ts",
+]);
+const PATH_BUILD = new Set(["m", "l", "c", "v", "y", "h", "re"]);
+const PATH_END = new Set(["S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n"]);
+
+/**
+ * The graphics state in force just before op `at`, as the operators that
+ * rebuild it: one list per open `q` level, outermost (the top level) first.
+ * Clips come back as their path + `W n`; closed `q … Q` blocks are left out,
+ * their effect is gone.
+ */
+export function stateBefore(ops: readonly Op[], at: number): Op[][] {
+  const levels: Op[][] = [[]];
+  let path: Op[] = [];
+  let clip: Op | null = null;
+  for (let i = 0; i < at; i++) {
+    const o = ops[i];
+    if (o.op === "q") levels.push([]);
+    else if (o.op === "Q") {
+      if (levels.length > 1) levels.pop();
+    } else if (PATH_BUILD.has(o.op)) path.push(o);
+    else if (o.op === "W" || o.op === "W*") clip = o;
+    else if (PATH_END.has(o.op)) {
+      if (clip && path.length) levels[levels.length - 1].push(...path, clip, { op: "n", args: [] });
+      path = [];
+      clip = null;
+    } else if (STATE_OPS.has(o.op)) {
+      // Text state set inside BT … ET outlives the text object too.
+      levels[levels.length - 1].push(o);
+    }
+  }
+  return levels;
 }
 
 /** The affine map taking PDF rect `a` onto PDF rect `b` (a scale + a shift: orientation kept). */
@@ -450,6 +542,8 @@ export async function applyImageEdits(
   let changed = 0;
   const replacements = new Map<number, Op[]>();
   const appended: Op[] = [];
+  /** A replacement closed the top level too: the content is wrapped in `q … Q` for it. */
+  let wrapAll = false;
 
   for (const edit of edits) {
     if (edit.action === "add") {
@@ -483,26 +577,31 @@ export async function applyImageEdits(
       name = page.node.newXObject("Image", embedded.ref).asString().replace(/^\//, "");
     }
     const draw: Op = { op: "Do", args: [{ t: "name", v: name }] };
-    if (edit.rect || edit.crop) {
-      const xs = place.corners.map((c) => c.x);
-      const ys = place.corners.map((c) => c.y);
-      const from: Rect = {
-        x: Math.min(...xs),
-        y: Math.min(...ys),
-        w: Math.max(...xs) - Math.min(...xs),
-        h: Math.max(...ys) - Math.min(...ys),
-      };
-      // The CTM at the Do is in user space: M is prepended in the same space.
+    const crop = edit.crop ?? clipCrop(place);
+    if (edit.rect || crop) {
+      const from = boundsOfPlacement(place);
       const to = edit.rect ? frame.rectToPdf(edit.rect) : from;
       const m = rectToRect(from, to);
+      // The clip in force at the Do would still cut the picture where it WAS:
+      // close every open level, draw in the default state (same place in the
+      // drawing order), then rebuild the state the following operators expect.
+      const levels = stateBefore(ops, place.opIndex);
+      const top = levels[0].length > 0;
+      if (top) wrapAll = true;
+      const close = levels.length - 1 + (top ? 1 : 0);
+      const reopen: Op[] = [];
+      if (top) reopen.push({ op: "q", args: [] }, ...levels[0]);
+      for (const level of levels.slice(1)) reopen.push({ op: "q", args: [] }, ...level);
       replacements.set(place.opIndex, [
+        ...Array.from({ length: close }, () => ({ op: "Q", args: [] }) as Op),
         { op: "q", args: [] },
-        ...(await inverseCtm(place.ctm)),
-        ...clipTo(to, edit.crop),
+        ...clipTo(to, crop),
+        // The CTM is the identity here: M applies after the original matrix.
         { op: "cm", args: m.map(num) },
         { op: "cm", args: place.ctm.map(num) },
         draw,
         { op: "Q", args: [] },
+        ...reopen,
       ]);
     } else {
       replacements.set(place.opIndex, [draw]);
@@ -517,8 +616,9 @@ export async function applyImageEdits(
       if (rep) next.push(...rep);
       else next.push(ops[i]);
     }
+    const all = wrapAll ? isolated(next) : next;
     // Added pictures are placed in page space, whatever state the content leaves.
-    const body = appended.length && !leavesDefaultState(next) ? isolated(next) : next;
+    const body = appended.length && !leavesDefaultState(all) ? isolated(all) : all;
     writePageContent(doc, page, [...body, ...appended]);
   }
   return changed;
@@ -537,17 +637,4 @@ function clipTo(r: Rect, crop: Rect | undefined): Op[] {
     { op: "W", args: [] },
     { op: "n", args: [] },
   ];
-}
-
-/**
- * `cm` operators cancelling the CTM in force at a placement: moving an image
- * is expressed in user space, from the identity — whatever the page's content
- * had set before the `Do`.
- */
-async function inverseCtm(ctm: readonly number[]): Promise<Op[]> {
-  const [a, b, c, d, e, f] = ctm;
-  const det = a * d - b * c;
-  if (Math.abs(det) < 1e-12) return [];
-  const inv = [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
-  return [{ op: "cm", args: inv.map(num) }];
 }

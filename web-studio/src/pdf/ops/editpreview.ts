@@ -82,8 +82,10 @@ export async function rewrittenPage(
 export interface PageImage {
   /** Draw-order index among the page's XObject placements (`ImageEdit.occurrence`). */
   occurrence: number;
-  /** Bounding box, top-left unrotated page space. */
+  /** Bounding box of the whole picture, top-left unrotated page space. */
   rect: Rect;
+  /** The part the file's own clip leaves visible (fractions, top-left), when cut. */
+  crop?: Rect;
 }
 
 /**
@@ -111,7 +113,9 @@ export async function pageImages(
       h: Math.max(...ys) - Math.min(...ys),
     };
     if (rect.w < 2 || rect.h < 2) continue;
-    out.push({ occurrence: p.occurrence, rect });
+    // Clipped away entirely: nothing to show nor edit.
+    if (p.crop && (p.crop.w * rect.w < 2 || p.crop.h * rect.h < 2)) continue;
+    out.push(p.crop ? { occurrence: p.occurrence, rect, crop: p.crop } : { occurrence: p.occurrence, rect });
   }
   return out;
 }

@@ -286,12 +286,52 @@ Fait :
 - « Rogner » : les coins choisissent la partie visible (chemin de découpe `re W n` dans le
   fichier), « Annuler le rognage ». Tests unitaires (2) et navigateur (Drive + bureau).
 
+- Corrigé : une image que le fichier découpe déjà (Word et Acrobat découpent les images à
+  leur cadre) DISPARAISSAIT une fois déplacée : la découpe d'origine restait en vigueur à
+  l'endroit du `Do`. Maintenant, à l'endroit du `Do` :
+  - toute la pile d'état est refermée, l'image est dessinée dans l'état par défaut (même
+    place dans l'ordre de dessin), puis l'état attendu par la suite est reconstruit
+    (`stateBefore` : opérateurs d'état et découpes des niveaux encore ouverts) ;
+  - la découpe du fichier est lue (`walkPlacements` suit les découpes, `clipCrop`) et
+    devient le rognage de l'image dans l'éditeur ; « Annuler le rognage » la retire.
+  Tests : 3 de plus dans pdf-image-edit ; suite complète 1914/1914.
+
 Reste T3 :
-- Une image déjà découpée dans le fichier (par Acrobat ou Elium) est encadrée en entier à
-  la réouverture : la découpe existante n'est pas lue.
+- Découpe non rectangulaire (image dans un cercle) : ramenée à son rectangle englobant
+  si l'image est déplacée.
 - Images dans les XObjects de formulaire et images en ligne (BI).
 - Liste : un seul bloc ; tableau : un bloc par colonne.
 - Réutiliser le sous-ensemble de la police d'origine quand il couvre le nouveau texte
   (aujourd'hui : police d'origine si elle encode tout, sinon Liberation).
 - Pages Edge ou « Microsoft Print to PDF » : corpus du poste nécessaire.
 - L'historique d'annulation est remis à zéro en quittant « Préparer un formulaire » (T2).
+
+## T4 : commentaires
+
+### Audit (session cloud 1)
+
+Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
+1. Un enregistrement SANS modification supprime les Popups et les réponses des annotations
+   non modélisées (Caret, FileAttachment…) et laisse des /Popup orphelins
+   (import-annots.ts stripImportedAnnots).
+2. Membres de groupe /IRT /RT /Group (« Remplacer le texte ») et réponses aux réponses :
+   retirés du modèle puis du fichier.
+3. FreeText : la couleur du texte est écrite dans /C, que l'import (et Acrobat) lit comme
+   fond.
+4. Statut de révision non compatible Acrobat : pas de réponse d'état /State, /StateModel
+   seul sur le parent ; jamais importé.
+5. Une annotation importée puis modifiée perd /AP, /NM, /RC, /Popup, /Name, les bits /F,
+   /Measure et les données de caviardage.
+6. « Déverrouiller » ne peut jamais marcher (updateAnnots saute les verrouillées) ;
+   le verrou est contournable par updateAnnot.
+7. L'outil Aire produit une annotation vide (dans BOX_TOOLS).
+8. Le bouton Tampon ne fait rien ; pas de bibliothèque de tampons, ni de tampons
+   dynamiques ou personnalisés.
+9. Pages tournées : texte, notes et tampons diffèrent entre l'écran et le fichier ; les
+   tampons tournés sont coupés.
+10. /Rect gonflé sans /RD : les formes et les légendes grandissent à chaque aller-retour.
+11. XFDF : statut jamais relu, origine du CropBox ignorée, terminaisons de ligne fausses,
+    opacité 0 → 1, pas de fusion par nom ; commentaires FDF absents.
+12. Manquants : Caret et modifications de texte, pièce jointe, icônes de note, réglage de
+    l'auteur, styles par outil mémorisés, filtres type/page/coche, synthèse PDF et
+    impression avec commentaires, modifier ou supprimer une réponse.

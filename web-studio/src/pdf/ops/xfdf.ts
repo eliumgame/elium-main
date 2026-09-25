@@ -15,6 +15,7 @@ import type { Pt, Quad, Rect } from "../core/coords";
 import { stampByName } from "../model/stamps";
 import type { Annot, AnnotKind, LineEnding, Page, Reply, ReviewStatus } from "../model/types";
 import { isTextMarkup, newId } from "../model/types";
+import { embeddableRichText, isPdfjsId, safeMime, travelName } from "./annotids";
 
 const XFDF_KIND: Partial<Record<AnnotKind, string>> = {
   highlight: "highlight",
@@ -197,18 +198,40 @@ export function toXfdf(
 ): string {
   const indexOf = new Map(pages.map((p, i) => [p.id, i]));
   const body: string[] = [];
+  // Names fixed once for the whole file (group members point at their Caret's).
+  const names = new Map(annots.map((a) => [a.id, travelName(a)]));
 
   for (const a of annots) {
     const tag = XFDF_KIND[a.kind];
     const page = indexOf.get(a.pageId);
     if (!tag || page === undefined) continue;
     const f = frameOf(pageBoxes.get(a.pageId));
-    const name = a.pdf?.nm ?? a.id;
+    const name = names.get(a.id)!;
+    // A callout's rect holds its line too; `fringe` gives the text box inside it.
+    let outer: Rect = a.kind === "note" || a.kind === "attachment" ? { ...a.rect, w: 20, h: 20 } : a.rect;
+    let fringeOf = "";
+    if (a.kind === "callout" && a.callout?.length) {
+      const all = rectOfPoints([
+        ...a.callout,
+        { x: a.rect.x, y: a.rect.y },
+        { x: a.rect.x + a.rect.w, y: a.rect.y + a.rect.h },
+      ]);
+      outer = all;
+      fringeOf = [
+        a.rect.x - all.x,
+        a.rect.y - all.y,
+        all.x + all.w - a.rect.x - a.rect.w,
+        all.y + all.h - a.rect.y - a.rect.h,
+      ]
+        .map((v) => num(Math.max(0, v)))
+        .join(",");
+    }
     const textKind = isTextContentKind(a.kind);
 
     const attrs: string[] = [
       `page="${page}"`,
-      `rect="${toPdfRect(a.kind === "note" ? { ...a.rect, w: 20, h: 20 } : a.rect, f)}"`,
+      `rect="${toPdfRect(outer, f)}"`,
+      ...(fringeOf ? [`fringe="${fringeOf}"`] : []),
       `flags="${flagsOf(a)}"`,
       `date="${xfdfDate(a.modifiedAt)}"`,
       `creationdate="${xfdfDate(a.createdAt)}"`,
@@ -228,7 +251,11 @@ export function toXfdf(
     if (a.group) {
       // Acrobat's « Remplacer le texte »: the strike-out belongs to its Caret.
       const parent = annots.find((x) => x.id === a.group);
-      attrs.push(`inreplyto="${esc(parent?.pdf?.nm ?? a.group)}"`, 'replyType="group"', 'intent="StrikeOutTextEdit"');
+      attrs.push(
+        `inreplyto="${esc(parent ? names.get(parent.id)! : a.group)}"`,
+        'replyType="group"',
+        'intent="StrikeOutTextEdit"',
+      );
     }
     if (a.fill && !textKind && a.kind !== "redact") attrs.push(`interior-color="${hexColour(a.fill)}"`);
     attrs.push(`width="${round(a.strokeWidth ?? 0, 2)}"`);
@@ -308,8 +335,11 @@ export function toXfdf(
       }
       inner.push(`<data MIMEType="${esc(a.file.mime)}" length="${hex.length / 2}" encoding="hex">${hex}</data>`);
     }
-    if (a.pdf?.rc && a.pdf.rcFor === (a.text ?? a.contents ?? ""))
-      inner.push(`<contents-richtext>${a.pdf.rc}</contents-richtext>`);
+    if (a.pdf?.rc && a.pdf.rcFor === (a.text ?? a.contents ?? "")) {
+      // Parsed back, never pasted: a raw /RC (with its XML prolog, or crafted) broke the file.
+      const rc = embeddableRichText(a.pdf.rc);
+      if (rc) inner.push(`<contents-richtext>${rc}</contents-richtext>`);
+    }
 
     body.push(`<${tag} ${attrs.join(" ")}>${inner.join("")}</${tag}>`);
 
@@ -474,7 +504,22 @@ export function fromXfdf(
     }
 
     const kind = KIND_FROM_XFDF[el.localName];
-    const r = parseNums(el.getAttribute("rect"));
+    const r0 = parseNums(el.getAttribute("rect"));
+    // `fringe` (XFDF's /RD): the shape's own box inside the rect — left, top, right, bottom.
+    const fringe = parseNums(el.getAttribute("fringe"));
+    const r =
+      r0.length >= 4 && fringe.length === 4
+        ? (() => {
+            const [x0, y0, x1, y1] = [
+              Math.min(r0[0], r0[2]),
+              Math.min(r0[1], r0[3]),
+              Math.max(r0[0], r0[2]),
+              Math.max(r0[1], r0[3]),
+            ];
+            const [l, t, rr, b] = fringe.map((v) => Math.max(0, v));
+            return l + rr < x1 - x0 && t + b < y1 - y0 ? [x0 + l, y0 + b, x1 - rr, y1 - t] : r0;
+          })()
+        : r0;
     const rect: Rect =
       r.length >= 4
         ? {
@@ -488,7 +533,8 @@ export function fromXfdf(
     const intent = el.getAttribute("intent") ?? el.getAttribute("IT") ?? "";
 
     const annot: Annot = {
-      id: el.getAttribute("name") || newId("an"),
+      // A name that looks like an object of the open file (« 12R ») is kept as /NM only.
+      id: el.getAttribute("name") && !isPdfjsId(el.getAttribute("name")) ? el.getAttribute("name")! : newId("an"),
       pageId: page.id,
       kind,
       rect,
@@ -601,7 +647,7 @@ export function fromXfdf(
       const data = Array.from(el.children).find((c) => c.localName === "data");
       const name = el.getAttribute("file") ?? "fichier";
       if (data) {
-        const mime = data.getAttribute("MIMEType") ?? data.getAttribute("mimetype") ?? "application/octet-stream";
+        const mime = safeMime(data.getAttribute("MIMEType") ?? data.getAttribute("mimetype"));
         const raw = (data.textContent ?? "").replace(/\s+/g, "");
         const encoding = (data.getAttribute("encoding") ?? "hex").toLowerCase();
         let b64 = "";
@@ -694,7 +740,9 @@ export function mergeImported(current: readonly Annot[], imported: readonly Anno
   /** Imported id → the id it ends up with (a local one it replaced). */
   const renamed = new Map<string, string>();
   const out = current.map((a) => {
-    const hit = byId.get(a.id) ?? (a.pdf?.nm ? byNm.get(a.pdf.nm) : undefined) ?? byNm.get(a.id);
+    // A pdf.js id (« 12R ») names an object of this file only: never matched against a name.
+    const hit =
+      byId.get(a.id) ?? (a.pdf?.nm ? byNm.get(a.pdf.nm) : undefined) ?? (isPdfjsId(a.id) ? undefined : byNm.get(a.id));
     if (!hit || used.has(hit)) return a;
     used.add(hit);
     renamed.set(hit.id, a.id);

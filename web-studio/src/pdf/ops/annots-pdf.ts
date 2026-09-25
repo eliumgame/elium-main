@@ -23,6 +23,7 @@ import { isTextMarkup } from "../model/types";
 import type { FontBook } from "./fonts";
 import { sanitiseForFont } from "./fonts";
 import { noteIcon } from "../model/noteicons";
+import { safeMime } from "./annotids";
 import { pdfFamilyOf } from "../../ui/fonts";
 import type { ImageBank } from "./images";
 import { FormResources, PageResources, Painter, hexToRgb, measure, rgbToPdfArray, wrapText } from "./painter";
@@ -694,6 +695,8 @@ interface WriteOptions {
   pageRefs: PDFRef[];
   /** Filled with the object written for each annotation, by `Annot.id`. */
   written?: Map<string, PDFRef>;
+  /** The /FS of attachments whose large file stayed in the source, by the source annotation's id. */
+  keptFiles?: ReadonlyMap<string, unknown>;
 }
 
 /**
@@ -711,6 +714,34 @@ function dataUrlBytes(url: string): Uint8Array | null {
     return out;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Acrobat's « Remplacer le texte »: each strike-out becomes a member of its
+ * Caret's group (/IRT, /RT /Group, /IT /StrikeOutTextEdit). Run once every
+ * page is written — the Caret may be on another page. `written` holds the
+ * objects written by id; `kept` the ids of comments left as they are in the
+ * file (their object is their pdf.js id, « 12R »).
+ */
+export function linkGroups(
+  doc: PDFDocument,
+  annots: readonly Annot[],
+  written: ReadonlyMap<string, PDFRef>,
+  kept: ReadonlySet<string>,
+): void {
+  for (const a of annots) {
+    if (!a.group) continue;
+    const ref = written.get(a.id);
+    if (!ref) continue;
+    const parent = written.get(a.group) ?? (kept.has(a.group) ? refOfPdfjsId(a.group) : null);
+    const dict = doc.context.lookup(ref);
+    if (!(dict instanceof PDFDict)) continue;
+    if (!parent) continue;
+    dict.set(PDFName.of("IRT"), parent);
+    dict.set(PDFName.of("RT"), PDFName.of("Group"));
+    dict.set(PDFName.of("IT"), PDFName.of("StrikeOutTextEdit"));
+    dict.delete(PDFName.of("Contents"));
   }
 }
 
@@ -759,22 +790,6 @@ export async function writeAnnots(
     }
   }
 
-  // Acrobat's « Remplacer le texte »: the strike-out is a member of its Caret's
-  // group, whose text and thread it shows. The Caret was rewritten here or is
-  // kept as it was in the file (its id is then its object, « 12R »).
-  for (const a of annots) {
-    if (!a.group) continue;
-    const ref = byId.get(a.id);
-    const parent = byId.get(a.group) ?? refOfPdfjsId(a.group);
-    if (!ref || !parent) continue;
-    const dict = ctx.doc.context.lookup(ref);
-    if (!(dict instanceof PDFDict)) continue;
-    dict.set(PDFName.of("IRT"), parent);
-    dict.set(PDFName.of("RT"), PDFName.of("Group"));
-    dict.set(PDFName.of("IT"), PDFName.of("StrikeOutTextEdit"));
-    dict.delete(PDFName.of("Contents"));
-  }
-
   // Reply threads become real `/IRT` annotations so Acrobat shows the whole
   // conversation, not just the first comment.
   for (const a of annots) {
@@ -803,7 +818,8 @@ export async function writeAnnots(
     }
     if (!a.replies?.length) continue;
     for (const reply of a.replies) {
-      if (!reply.text) continue;
+      // A review action is kept even without text (other tools write none).
+      if (!reply.text && !reply.status) continue;
       try {
         const dict = ctx.doc.context.obj({
           Type: "Annot",
@@ -877,10 +893,12 @@ async function writeOne(
   if (a.kind === "attachment" && a.file) {
     // The file itself, embedded: /FS → /EF → an EmbeddedFile stream.
     const bytes = dataUrlBytes(a.file.data);
+    const kept = a.file.source ? opts.keptFiles?.get(a.file.source) : undefined;
+    if (!bytes && kept) entries.FS = kept;
     if (bytes) {
       const stream = doc.context.flateStream(bytes, {
         Type: "EmbeddedFile",
-        Subtype: PDFName.of(a.file.mime || "application/octet-stream"),
+        Subtype: PDFName.of(safeMime(a.file.mime)),
         Params: { Size: bytes.length, ModDate: PDFString.of(pdfDate(a.modifiedAt)) },
       } as never);
       const efRef = doc.context.register(stream);

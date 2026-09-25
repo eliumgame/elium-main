@@ -243,3 +243,48 @@ describe("XFDF file attachments", () => {
     expect(back.file).toMatchObject({ name: "a.txt", mime: "text/plain", data });
   });
 });
+
+describe("review fixes (XFDF)", () => {
+  it("embeds Acrobat's rich text without breaking the file, and never pastes it raw", () => {
+    const rc = '<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml"><p><b>Gras</b></p></body>';
+    const xml = toXfdf([base({ contents: "Gras", pdf: { rc, rcFor: "Gras" } })], pages, at(842), "x.pdf");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    expect(doc.querySelector("parsererror")).toBeNull();
+    const [back] = fromXfdf(xml, pages, at(842), "Moi");
+    expect(back.pdf?.rc).toContain("<b>Gras</b>");
+    const evil = '</contents-richtext></square><fileattachment page="0"/><square><contents-richtext>';
+    const x2 = toXfdf([base({ contents: "x", pdf: { rc: evil, rcFor: "x" } })], pages, at(842), "x.pdf");
+    expect(x2).not.toContain("fileattachment");
+    expect(new DOMParser().parseFromString(x2, "application/xml").querySelector("parsererror")).toBeNull();
+  });
+
+  it("never lets a pdf.js id (« 12R ») travel as a name, nor take one as an id", () => {
+    const xml = toXfdf([base({ id: "12R" })], pages, at(842), "x.pdf");
+    expect(xml).not.toContain('name="12R"');
+    const imported = fromXfdf(
+      `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots><square page="0" rect="0,0,10,10" name="12R"/></annots></xfdf>`,
+      pages,
+      at(842),
+      "Moi",
+    );
+    expect(imported[0].id).not.toBe("12R");
+    expect(mergeImported([base({ id: "12R", color: "#000000" })], imported)).toHaveLength(2);
+  });
+
+  it("reads `fringe` (the shape's box inside the rect)", () => {
+    const [a] = fromXfdf(
+      `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots><square page="0" rect="100,100,200,160" fringe="5,5,5,5" name="q"/></annots></xfdf>`,
+      pages,
+      at(842),
+      "Moi",
+    );
+    expect(a.rect).toEqual({ x: 105, y: 842 - 155, w: 90, h: 50 });
+  });
+
+  it("keeps an attachment's MIME type a MIME type", () => {
+    const xml = `<?xml version="1.0"?><xfdf xmlns="http://ns.adobe.com/xfdf/"><annots><fileattachment page="0" rect="0,0,20,20" file="a.txt" name="f"><data MIMEType="text/plain,evil" encoding="hex">41</data></fileattachment></annots></xfdf>`;
+    const [a] = fromXfdf(xml, pages, at(842), "Moi");
+    expect(a.file?.mime).toBe("application/octet-stream");
+    expect(a.file?.data.startsWith("data:application/octet-stream;base64,")).toBe(true);
+  });
+});

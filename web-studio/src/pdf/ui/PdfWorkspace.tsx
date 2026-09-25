@@ -1806,7 +1806,8 @@ export default function PdfWorkspace({
       try {
         if (!engine) throw new Error("no engine");
         const info = await engine.pageInfo(pg.from);
-        out.set(pg.id, { h, ox: info.ox, oy: info.oy });
+        // Page space starts at the box shown: the file's crop box, less an Elium crop.
+        out.set(pg.id, { h, ox: info.ox + (pg.crop?.left ?? 0), oy: info.oy + (pg.crop?.bottom ?? 0) });
       } catch {
         out.set(pg.id, h);
       }
@@ -1823,7 +1824,13 @@ export default function PdfWorkspace({
       if (pg.from != null && engine) {
         try {
           const info = await engine.pageInfo(pg.from);
-          box = { w, h, ox: info.ox, oy: info.oy, rotate: (((info.rotate + (pg.rotate ?? 0)) % 360) + 360) % 360 };
+          box = {
+            w,
+            h,
+            ox: info.ox + (pg.crop?.left ?? 0),
+            oy: info.oy + (pg.crop?.bottom ?? 0),
+            rotate: (((info.rotate + (pg.rotate ?? 0)) % 360) + 360) % 360,
+          };
         } catch {
           /* page 1's guess stays */
         }

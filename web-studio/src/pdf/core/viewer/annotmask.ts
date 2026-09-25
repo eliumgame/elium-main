@@ -116,7 +116,7 @@ export class ImportedAnnotationMask {
         .annotations(from)
         .then((raw) => {
           // Exactly what the import takes over (`ownedAnnotations`): the rest
-          // (Caret, attachments, Acrobat's text-edit groups…) pdf.js keeps painting.
+          // (subtypes not modelled: Sound, Movie, 3D…) pdf.js keeps painting.
           const list = raw as RawAnnotation[];
           const owned = ownedAnnotations(linksOfRaw(list));
           const ids = list.filter((a) => a.id && owned.has(keyOfPdfjsId(a.id))).map((a) => a.id!);

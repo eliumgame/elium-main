@@ -191,7 +191,8 @@ export async function buildCommentSummary(
     const status = STATUS[a.status ?? "none"];
     const meta = [a.author, when(a.createdAt), status, a.checked ? "coché" : ""].filter(Boolean).join(" · ");
     lines.push({ text: meta, size: 7.5, indent: 0, muted: true });
-    const body = a.contents || a.text || "";
+    // Acrobat breaks lines with \r: one convention, or the lines overprint.
+    const body = (a.contents || a.text || "").replace(/\r\n?/g, "\n");
     if (a.kind === "caret" && body)
       lines.push({ text: isReplace ? `Remplacer par : « ${body} »` : `Insérer : « ${body} »`, size: 8.5, indent: 0 });
     else if (a.kind === "attachment" && a.file) lines.push({ text: `Fichier : ${a.file.name}`, size: 8.5, indent: 0 });
@@ -199,7 +200,7 @@ export async function buildCommentSummary(
     for (const r of a.replies ?? []) {
       if (!r.text) continue;
       lines.push({ text: `${r.author} — ${when(r.createdAt)}`, size: 7, indent: 10, muted: true });
-      lines.push({ text: r.text, size: 8, indent: 10 });
+      lines.push({ text: r.text.replace(/\r\n?/g, "\n"), size: 8, indent: 10 });
     }
     return Object.assign(lines, { title: kind });
   }

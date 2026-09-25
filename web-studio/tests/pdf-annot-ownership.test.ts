@@ -750,3 +750,123 @@ describe("file attachments", () => {
     expect(Buffer.from(back.file!.data.split(",")[1], "base64").toString("utf8")).toBe(content);
   });
 });
+
+describe("review fixes (PDF)", () => {
+  it("gives every imported comment its own /NM (never « 12R »)", async () => {
+    const state = await imported(await acrobatLike());
+    for (const a of state.annots) {
+      expect(a.pdf?.nm).toBeTruthy();
+      expect(a.pdf?.nm).not.toMatch(/^\d+R\d*$/);
+    }
+  });
+
+  it("links a strike-out to its Caret on another page", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(2) };
+    const now = new Date().toISOString();
+    const common = {
+      opacity: 1,
+      strokeWidth: 1,
+      author: "M",
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+      color: "#1d4ed8",
+    };
+    const caret = {
+      ...common,
+      id: "c",
+      pageId: base.pages[1].id,
+      kind: "caret",
+      rect: { x: 50, y: 50, w: 8, h: 8 },
+      contents: "x",
+    } as Annot;
+    const strike = {
+      ...common,
+      id: "s",
+      pageId: base.pages[0].id,
+      kind: "strikeout",
+      group: "c",
+      rect: { x: 500, y: 700, w: 60, h: 14 },
+      quads: [
+        [
+          { x: 500, y: 700 },
+          { x: 560, y: 700 },
+          { x: 560, y: 714 },
+          { x: 500, y: 714 },
+        ],
+      ],
+    } as Annot;
+    const out = (await buildPdf(await src.save(), { ...base, annots: [strike, caret] })).bytes;
+    const doc = await PDFDocument.load(out);
+    const so = doc.context.lookup((doc.getPage(0).node.Annots() as PDFArray).get(0), PDFDict);
+    const caretRef = (doc.getPage(1).node.Annots() as PDFArray).get(0);
+    expect(so.get(PDFName.of("IRT"))?.toString()).toBe(caretRef.toString());
+  });
+
+  it("keeps a review status whose reply has no text", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const now = "2026-03-01T08:00:00.000Z";
+    const a = {
+      id: "q",
+      pageId: base.pages[0].id,
+      kind: "square",
+      rect: { x: 10, y: 10, w: 50, h: 50 },
+      color: "#ff0000",
+      opacity: 1,
+      strokeWidth: 1,
+      author: "M",
+      createdAt: now,
+      modifiedAt: now,
+      status: "rejected",
+      replies: [{ id: "r", author: "P", text: "", createdAt: now, status: "rejected" }],
+    } as Annot;
+    const back = (await imported((await buildPdf(await src.save(), { ...base, annots: [a] })).bytes)).annots[0];
+    expect(back.status).toBe("rejected");
+  });
+
+  it("keeps a large attachment's file through an edit, without copying it into the model", async () => {
+    const doc0 = await PDFDocument.create();
+    doc0.addPage([600, 800]);
+    const big = new Uint8Array(5 * 1024 * 1024);
+    for (let i = 0; i < big.length; i += 65536) crypto.getRandomValues(big.subarray(i, i + 65536));
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const now = new Date().toISOString();
+    const att = {
+      id: "f",
+      pageId: base.pages[0].id,
+      kind: "attachment",
+      rect: { x: 50, y: 50, w: 20, h: 20 },
+      color: "#2563eb",
+      opacity: 1,
+      strokeWidth: 0,
+      file: {
+        name: "gros.bin",
+        mime: "application/octet-stream",
+        data: `data:application/octet-stream;base64,${Buffer.from(big).toString("base64")}`,
+      },
+      author: "Moi",
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    } as Annot;
+    const src = (await buildPdf(await doc0.save(), { ...base, annots: [att] })).bytes;
+    let state = await imported(src);
+    const a = state.annots[0];
+    expect(a.file?.data).toBe("");
+    expect(a.file?.source).toBe(a.id);
+    state = D.updateAnnot(state, a.id, { color: "#00aa00" });
+    const out = (await buildPdf(src, state)).bytes;
+    const doc = await PDFDocument.load(out);
+    const d = doc.context.lookup((doc.getPage(0).node.Annots() as PDFArray).get(0), PDFDict);
+    expect(d.lookup(PDFName.of("C"))?.toString()).toContain("0.6667");
+    const { decodePDFRawStream } = await import("pdf-lib");
+    const ef = d.lookup(PDFName.of("FS"), PDFDict).lookup(PDFName.of("EF"), PDFDict);
+    const stream = ef.lookup(PDFName.of("F")) as Parameters<typeof decodePDFRawStream>[0];
+    expect(Buffer.from(decodePDFRawStream(stream).decode()).equals(Buffer.from(big))).toBe(true);
+  });
+});

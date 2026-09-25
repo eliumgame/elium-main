@@ -12,6 +12,7 @@ import type { Pt, Quad, Rect } from "../core/coords";
 import { rectOfPoints, rectOfQuads } from "../core/coords";
 import { concat, parseContentStream } from "../core/contentstream";
 import { stampByName } from "../model/stamps";
+import { newAnnotName, safeMime } from "./annotids";
 import type { Annot, AnnotKind, BorderStyle, LineEnding, Reply, ReviewStatus } from "../model/types";
 import { newId } from "../model/types";
 import { bytesToBase64 } from "../model/persist";
@@ -419,17 +420,25 @@ export async function resolveAnnotExtras(
             const ef = fs.lookup(PDFName.of("EF"));
             const stream = ef instanceof PDFDict ? (ef.lookup(PDFName.of("UF")) ?? ef.lookup(PDFName.of("F"))) : null;
             if (stream instanceof PDFRawStream) {
-              const bytes = pdfLib.decodePDFRawStream(stream).decode();
-              const mime = text(stream.dict.lookup(PDFName.of("Subtype"))) || "application/octet-stream";
-              let bin = "";
-              for (let k = 0; k < bytes.length; k += 0x8000)
-                bin += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+              const mime = safeMime(text(stream.dict.lookup(PDFName.of("Subtype"))));
               const name = text(fs.lookup(PDFName.of("UF"))) || text(fs.lookup(PDFName.of("F"))) || "fichier";
               const description = text(fs.lookup(PDFName.of("Desc")));
+              const key = ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
+              // A large file stays in the source PDF (the save reuses it): not
+              // decoded on the main thread, nor carried in the state and history.
+              let data = "";
+              if (stream.contents.length <= ATTACHMENT_INLINE_MAX) {
+                const bytes = pdfLib.decodePDFRawStream(stream).decode();
+                let bin = "";
+                for (let k = 0; k < bytes.length; k += 0x8000)
+                  bin += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+                data = `data:${mime};base64,${btoa(bin)}`;
+              }
               extras.file = {
                 name: name.split(/[\\/]/).pop() || name,
                 mime,
-                data: `data:${mime};base64,${btoa(bin)}`,
+                data,
+                ...(data ? {} : { source: key }),
                 ...(description ? { description } : {}),
               };
             }
@@ -485,6 +494,9 @@ export function withExtras(
     };
   });
 }
+
+/** Attachments up to this size (encoded) are copied into the model; larger ones stay in the source. */
+const ATTACHMENT_INLINE_MAX = 4 * 1024 * 1024;
 
 const KIND: Record<string, AnnotKind> = {
   Caret: "caret",
@@ -823,7 +835,8 @@ export function importPageAnnots(
     // What the model does not edit but the file said: written back on rewrite.
     const flags = a.annotationFlags;
     const keep: NonNullable<Annot["pdf"]> = {};
-    if (a.extras?.nm) keep.nm = a.extras.nm;
+    // Its own unique name: pdf.js' « 12R » must never travel as one (see annotids.ts).
+    keep.nm = a.extras?.nm ?? newAnnotName();
     if (typeof flags === "number") keep.flags = flags;
     if (typeof a.extras?.open === "boolean") keep.open = a.extras.open;
     if (a.extras?.rc) {
@@ -888,13 +901,16 @@ export function keyOfPdfjsId(id: string | null | undefined): string {
 /**
  * What Elium's model takes over from a page's annotations — the one rule the
  * import, the save and the viewer share:
- * - a modelled subtype that is not in reply to anything (a comment);
+ * - a modelled subtype (markup, notes, shapes, stamps, Caret, FileAttachment…)
+ *   that is not in reply to anything (a comment);
+ * - a modelled member (`/RT /Group`) of such a comment's group — the strike-out
+ *   of Acrobat's « Remplacer le texte » —, as its own annotation;
  * - a `/Text` reply (`/RT /R`) whose thread leads back to such a comment
  *   (replies to replies are folded into the thread);
  * - the pop-up of anything owned.
- * Everything else — Caret, FileAttachment, a `/RT /Group` member (Acrobat's
- * « Remplacer le texte »), a reply to something not owned, their pop-ups — is
- * left in the file as it is and painted by pdf.js.
+ * Everything else — subtypes not modelled (Sound, Movie, 3D…), a reply to
+ * something not owned, their pop-ups — is left in the file as it is and
+ * painted by pdf.js.
  *
  * Returns each owned key with the comment it belongs to (itself for a root).
  */

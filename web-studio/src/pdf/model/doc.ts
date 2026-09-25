@@ -284,7 +284,8 @@ export function updateAnnots(state: PdfState, ids: readonly string[], patch: Par
 }
 
 export function removeAnnots(state: PdfState, ids: readonly string[]): PdfState {
-  const set = new Set(state.annots.filter((a) => ids.includes(a.id) && !a.locked).map((a) => a.id));
+  const wanted = new Set(ids);
+  const set = new Set(state.annots.filter((a) => wanted.has(a.id) && !a.locked).map((a) => a.id));
   // A group goes as one (the strike-out of a « Remplacer le texte » with its Caret).
   return { ...state, annots: state.annots.filter((a) => !set.has(a.id) && !(a.group && set.has(a.group))) };
 }

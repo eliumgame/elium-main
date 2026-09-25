@@ -50,7 +50,8 @@ export async function toFdfComments(
 ): Promise<Uint8Array> {
   const lib = await import("pdf-lib");
   const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFString, PDFWriter } = lib;
-  const { pageFrame, writeAnnots } = await import("./annots-pdf");
+  const { linkGroups, pageFrame, writeAnnots, writeRedactMarks } = await import("./annots-pdf");
+  const written = new Map<string, import("pdf-lib").PDFRef>();
   const { FontBook } = await import("./fonts");
   const { ImageBank } = await import("./images");
 
@@ -60,16 +61,25 @@ export async function toFdfComments(
   const images = new ImageBank(doc);
   const pageRefs = doc.getPages().map((p) => p.ref);
   for (const [index, model] of pages.entries()) {
-    const mine = annots.filter((a) => a.pageId === model.id);
-    if (!mine.length) continue;
+    // Comments only: links (their targets are not in an FDF) and white-out are content.
+    const onPage = annots.filter((a) => a.pageId === model.id && a.kind !== "link" && a.kind !== "whiteout");
+    const marks = onPage.filter((a) => a.kind === "redact");
+    const mine = onPage.filter((a) => a.kind !== "redact");
+    if (!onPage.length) continue;
     const page = doc.getPage(index);
-    await writeAnnots(
-      page,
-      mine,
-      { doc, frame: pageFrame(page), fonts, images, measureScale: opts.measureScale, rotation: geo[index].rotate },
-      { defaultAuthor: opts.author, pageRefs },
-    );
+    const ctx = {
+      doc,
+      frame: pageFrame(page),
+      fonts,
+      images,
+      measureScale: opts.measureScale,
+      rotation: geo[index].rotate,
+    };
+    if (mine.length) await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs, written });
+    // Redaction marks stay marks (never applied in a comments file).
+    if (marks.length) writeRedactMarks(page, marks, ctx, opts.author);
   }
+  linkGroups(doc, annots, written, new Set());
   await doc.flush();
 
   // Every annotation object, with its page as a number (FDF has no page tree).
@@ -172,9 +182,12 @@ export async function fromFdfComments(
     });
     out.push(...annots);
   }
+  // Fresh ids — and the group links follow them (a strike-out to its Caret).
+  const fresh = new Map(out.map((a) => [a.id, newId("an")]));
   return out.map((a) => ({
     ...a,
-    id: newId("an"),
+    id: fresh.get(a.id)!,
+    ...(a.group ? { group: fresh.get(a.group) } : {}),
     replies: (a.replies ?? []).map((r) => ({ ...r, id: newId("rp") })),
   }));
 }

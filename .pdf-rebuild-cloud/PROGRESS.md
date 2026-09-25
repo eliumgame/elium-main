@@ -577,3 +577,24 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 - Les étiquettes du fichier sont lues (arbre de nombres, /Kids compris) et suivent leurs
   pages déplacées ou supprimées ; un fichier non touché garde les siennes.
 - Tests : pdf-page-labels (3, lus par pdf.js).
+
+### Session cloud 1 : relecture adversariale de T4, 11 défauts corrigés
+- HAUTE : l'export XFDF collait le /RC brut, avec son prologue XML ; le fichier était
+  invalide pour presque tous les commentaires Acrobat, et injectable. Le /RC est
+  maintenant relu comme XML, inséré seulement s'il est bien formé, prologue retiré.
+- HAUTE : un groupe (barré et Caret) importé par FDF perdait son lien ou s'accrochait au
+  mauvais commentaire. Les liens suivent désormais les nouveaux id.
+- HAUTE : l'id pdf.js « 12R » voyageait comme /NM ou nom XFDF, et une fusion remplaçait
+  un commentaire sans rapport d'un autre document. Chaque commentaire importé reçoit un
+  vrai /NM unique ; un id pdf.js n'est jamais exporté, jamais pris comme id à l'import,
+  jamais rapproché d'un nom (ops/annotids.ts).
+- Coordonnées XFDF/FDF décalées sur une page rognée dans Elium.
+- `fringe` (le /RD du XFDF) lu, et écrit pour les légendes.
+- Pièces jointes de plus de 4 Mo : ni décodées à l'ouverture ni copiées dans l'état ;
+  leur /FS d'origine est réutilisé à l'enregistrement.
+- Lien de groupe vers un Caret situé sur une autre page (`linkGroups`, une passe sur tout
+  le document).
+- Type MIME des pièces jointes validé ; synthèse : sauts de ligne \r d'Acrobat ; FDF sans
+  liens ni zones blanchies, avec les marques de caviardage ; réponse d'état sans texte
+  conservée ; commentaires de code à jour.
+- Tests : 10 de plus. Suite complète 1968/1968 ; specs PDF 42/42.

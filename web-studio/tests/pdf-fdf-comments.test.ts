@@ -106,3 +106,33 @@ describe("FDF comments", () => {
     );
   });
 });
+
+describe("review fixes (FDF)", () => {
+  it("keeps a text-edit group together through FDF", async () => {
+    const annots = [
+      mk({ id: "c", kind: "caret", rect: { x: 200, y: 100, w: 8, h: 8 }, contents: "neuf", color: "#1d4ed8" }),
+      mk({
+        id: "s",
+        kind: "strikeout",
+        group: "c",
+        rect: { x: 100, y: 96, w: 100, h: 14 },
+        quads: [
+          [
+            { x: 100, y: 96 },
+            { x: 200, y: 96 },
+            { x: 200, y: 110 },
+            { x: 100, y: 110 },
+          ],
+        ],
+      }),
+    ];
+    const fdf = await toFdfComments(annots, pages, boxes, "x.pdf", {
+      author: "Moi",
+      measureScale: DEFAULT_MEASURE_SCALE,
+    });
+    const back = await fromFdfComments(fdf, pages, boxes, "Moi", readAnnotations);
+    const caret = back.find((a) => a.kind === "caret")!;
+    const strike = back.find((a) => a.kind === "strikeout")!;
+    expect(strike.group).toBe(caret.id);
+  });
+});

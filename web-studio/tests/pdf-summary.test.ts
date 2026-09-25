@@ -123,3 +123,38 @@ describe("comment summary", () => {
     expect(pages[0]).toContain("aucun commentaire");
   });
 });
+
+describe("summary line breaks", () => {
+  it("breaks Acrobat's \\r lines instead of overprinting them", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([595, 842]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const s: PdfState = {
+      ...base,
+      annots: [
+        {
+          id: "n",
+          pageId: base.pages[0].id,
+          kind: "note",
+          rect: { x: 40, y: 40, w: 20, h: 20 },
+          color: "#ffd400",
+          opacity: 1,
+          strokeWidth: 0,
+          contents: "Première ligne\rDeuxième ligne",
+          author: "M",
+          createdAt: "2026-03-01T08:00:00.000Z",
+          modifiedAt: "2026-03-01T08:00:00.000Z",
+          replies: [],
+        } as Annot,
+      ],
+    };
+    const rendered = (await buildPdf(await src.save(), s, { interactiveAnnots: false })).bytes;
+    const summary = await buildCommentSummary(rendered, s, { title: "d", kindLabel: KIND_LABEL });
+    const task = pdfjsLib.getDocument({ data: summary.slice(), isEvalSupported: false });
+    const tc = await (await (await task.promise).getPage(1)).getTextContent();
+    const items = (tc.items as { str: string; transform: number[] }[]).filter((i) => /ligne/.test(i.str));
+    await task.destroy();
+    expect(items.map((i) => i.str)).toEqual(["Première ligne", "Deuxième ligne"]);
+    expect(items[0].transform[5]).toBeGreaterThan(items[1].transform[5] + 5);
+  });
+});

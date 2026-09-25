@@ -86,9 +86,14 @@ export type ReviewStatus = "none" | "accepted" | "rejected" | "cancelled" | "com
 export interface AnnotFile {
   name: string;
   mime: string;
-  /** The bytes, as a base64 data URL. */
+  /** The bytes, as a base64 data URL ("" for a large file left in the source PDF). */
   data: string;
   description?: string;
+  /**
+   * A large file is not copied into the model: it stays in the source PDF, in
+   * the annotation whose pdf.js id this is, and the save reuses it from there.
+   */
+  source?: string;
 }
 
 /** A reply in a comment thread (Acrobat `/IRT` + `/RT /R`). */

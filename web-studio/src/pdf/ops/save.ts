@@ -615,6 +615,16 @@ async function applyState(
     { dict: import("pdf-lib").PDFDict; field: "IRT" | "Parent"; ref: PDFRef; page: PDFPage }[]
   >();
   const written = new Map<string, PDFRef>();
+  // A large attachment file stays where it is in the source: keep its /FS
+  // before the original annotations are removed, for the rewrite to reuse.
+  const keptFiles = new Map<string, unknown>();
+  for (const a of state.annots) {
+    const src = a.kind === "attachment" && !a.file?.data ? a.file?.source : undefined;
+    const m = src ? /^(\d+)R(\d*)$/.exec(src) : null;
+    if (!m) continue;
+    const dict = doc.context.lookup(PDFRef.of(Number(m[1]), Number(m[2] || 0)));
+    if (dict instanceof PDFDict && dict.get(PDFName.of("FS"))) keptFiles.set(src!, dict.get(PDFName.of("FS")));
+  }
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
     for (const [index, { page, model }] of targets.entries()) {
@@ -663,7 +673,7 @@ async function applyState(
     if (!mine.length) continue;
     let toFlatten: Annot[];
     if (opts.interactiveAnnots) {
-      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs, written });
+      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs, written, keptFiles });
       report.annotsWritten += mine.length - toFlatten.length;
     } else {
       toFlatten = mine.slice();
@@ -680,6 +690,11 @@ async function applyState(
       state.annots.filter((a) => a.kind === "redact" && mustFlatten(a.kind)).length;
   }
 
+  // Text-edit groups, across pages (a Caret may sit on another page than its strike-out).
+  {
+    const { linkGroups } = await import("./annots-pdf");
+    linkGroups(doc, state.annots, written, new Set([...pristine].map((a) => a.id)));
+  }
   if (dependents.size) {
     const { keyOfPdfjsId } = await import("./import-annots");
     const rewritten = new Map<string, PDFRef>();

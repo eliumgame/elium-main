@@ -568,3 +568,12 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 12. Glisser-déposer : pas de dépôt en fin, pas de côté d'insertion, pas de setData
     (Firefox) ; pas de sélection au lasso ; en-têtes/pieds ignorent la rotation et ne
     s'enlèvent pas ; Bates disparaît si l'en-tête n'a pas {bates}.
+
+### Session cloud 1 : T5, point 1 (étiquettes de page)
+- Chaque page étiquetée porte sa définition (style, préfixe, numéro) ; à l'enregistrement,
+  les plages /PageLabels sont reconstruites pour l'ordre final (nouvelle plage à chaque
+  changement de style, de préfixe ou de numérotation). Avant : « iv » écrit en préfixe
+  suivi de « 1 » → « iv1 ».
+- Les étiquettes du fichier sont lues (arbre de nombres, /Kids compris) et suivent leurs
+  pages déplacées ou supprimées ; un fichier non touché garde les siennes.
+- Tests : pdf-page-labels (3, lus par pdf.js).

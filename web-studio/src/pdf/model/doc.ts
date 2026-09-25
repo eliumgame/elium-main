@@ -209,7 +209,7 @@ export function labelPages(
                   ? toAlpha(num, true)
                   : "";
       const label = `${prefix}${body}`;
-      return { ...p, label: label || undefined };
+      return { ...p, label: label || undefined, labelDef: { style, prefix, num } };
     }),
   };
 }

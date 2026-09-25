@@ -4,9 +4,9 @@
  * hard to get subtly wrong.
  */
 
-import { PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString, degrees } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString, degrees } from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
-import type { Page } from "../model/types";
+import type { Page, PageLabelDef } from "../model/types";
 import { WrongPassword, openCrypt } from "./security";
 
 // ---------------------------------------------------------------------------
@@ -498,28 +498,95 @@ function hexTitle(title: string) {
   return /^[\x20-\x7e]*$/.test(title) ? PDFString.of(title) : PDFHexString.fromText(title);
 }
 
-/** Write page labels (`/PageLabels`) so readers show "iv" instead of "4". */
-export function writePageLabels(doc: PDFDocument, labels: readonly (string | undefined)[]): void {
-  const ctx = doc.context;
-  const nums: unknown[] = [];
-  let last: string | null = null;
-  labels.forEach((label, i) => {
-    const prefix = label ?? "";
-    if (prefix === last) return;
-    last = prefix;
-    nums.push(
-      i,
-      ctx.obj(
-        prefix
-          ? ({ P: hexTitle(prefix), S: PDFName.of("D"), St: 1 } as never)
-          : ({ S: PDFName.of("D"), St: i + 1 } as never),
-      ),
-    );
+const LABEL_STYLE: Record<PageLabelDef["style"], string | null> = {
+  decimal: "D",
+  roman: "r",
+  ROMAN: "R",
+  alpha: "a",
+  ALPHA: "A",
+  none: null,
+};
+const STYLE_OF: Record<string, PageLabelDef["style"]> = {
+  D: "decimal",
+  r: "roman",
+  R: "ROMAN",
+  a: "alpha",
+  A: "ALPHA",
+};
+
+/**
+ * The label of every page of `doc` from its /PageLabels number tree (null
+ * when it has none): each range's style, prefix and start, spread on its pages.
+ */
+export function readPageLabelDefs(doc: PDFDocument): (PageLabelDef | undefined)[] | null {
+  const root = doc.catalog.lookup(PDFName.of("PageLabels"));
+  if (!(root instanceof PDFDict)) return null;
+  const ranges: { at: number; dict: PDFDict }[] = [];
+  const walk = (node: PDFDict, depth: number) => {
+    if (depth > 32) return;
+    const nums = node.lookup(PDFName.of("Nums"));
+    if (nums instanceof PDFArray) {
+      for (let i = 0; i + 1 < nums.size(); i += 2) {
+        const at = nums.lookup(i);
+        const dict = nums.lookup(i + 1);
+        if (at instanceof PDFNumber && dict instanceof PDFDict) ranges.push({ at: at.asNumber(), dict });
+      }
+    }
+    const kids = node.lookup(PDFName.of("Kids"));
+    if (kids instanceof PDFArray) {
+      for (let i = 0; i < kids.size(); i++) {
+        const k = kids.lookup(i);
+        if (k instanceof PDFDict) walk(k, depth + 1);
+      }
+    }
+  };
+  walk(root, 0);
+  if (!ranges.length) return null;
+  ranges.sort((x, y) => x.at - y.at);
+  const count = doc.getPageCount();
+  const out: (PageLabelDef | undefined)[] = new Array(count).fill(undefined);
+  ranges.forEach((r, k) => {
+    const end = k + 1 < ranges.length ? ranges[k + 1].at : count;
+    const s = r.dict.lookup(PDFName.of("S"));
+    const style = s instanceof PDFName ? (STYLE_OF[s.decodeText()] ?? "none") : "none";
+    const p = r.dict.lookup(PDFName.of("P"));
+    const prefix = p instanceof PDFString || p instanceof PDFHexString ? p.decodeText() : "";
+    const st = r.dict.lookup(PDFName.of("St"));
+    const start = st instanceof PDFNumber ? st.asNumber() : 1;
+    for (let i = Math.max(0, r.at); i < Math.min(count, end); i++) out[i] = { style, prefix, num: start + (i - r.at) };
   });
-  if (!nums.length) {
+  return out;
+}
+
+/**
+ * Write /PageLabels for pages labelled `defs` (in output order): a range
+ * starts wherever style or prefix changes or the numbering does not follow.
+ * An unlabelled page among labelled ones reads as its position.
+ */
+export function writePageLabels(doc: PDFDocument, defs: readonly (PageLabelDef | undefined)[]): void {
+  const ctx = doc.context;
+  if (!defs.some(Boolean)) {
     doc.catalog.delete(PDFName.of("PageLabels"));
     return;
   }
+  const nums: unknown[] = [];
+  let prev: PageLabelDef | null = null;
+  defs.forEach((raw, i) => {
+    const def: PageLabelDef = raw ?? { style: "decimal", prefix: "", num: i + 1 };
+    const follows =
+      prev &&
+      prev.style === def.style &&
+      prev.prefix === def.prefix &&
+      (def.style === "none" || def.num === prev.num + 1);
+    prev = def;
+    if (follows) return;
+    const entry: Record<string, unknown> = {};
+    const s = LABEL_STYLE[def.style];
+    if (s) entry.S = PDFName.of(s);
+    if (def.prefix) entry.P = hexTitle(def.prefix);
+    if (s && def.num !== 1) entry.St = Math.max(1, Math.round(def.num));
+    nums.push(i, ctx.obj(entry as never));
+  });
   doc.catalog.set(PDFName.of("PageLabels"), ctx.obj({ Nums: nums } as never));
 }
 

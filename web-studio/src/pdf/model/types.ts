@@ -229,6 +229,14 @@ export interface Annot {
  * A page in the output order. `from` indexes the *source* document; null means
  * a page this session inserted (blank or built from an image).
  */
+/** One page's label, the way ISO 32000 /PageLabels describe it (12.4.2). */
+export interface PageLabelDef {
+  style: "decimal" | "roman" | "ROMAN" | "alpha" | "ALPHA" | "none";
+  prefix: string;
+  /** This page's number in its range (the range's /St plus its offset). */
+  num: number;
+}
+
 export interface Page {
   id: string;
   from: number | null;
@@ -242,6 +250,8 @@ export interface Page {
   image?: string;
   /** Custom page label shown instead of the ordinal ("i", "A-1", …). */
   label?: string;
+  /** What `label` is made of, as a PDF page-label range writes it (style, prefix, number). */
+  labelDef?: PageLabelDef;
   /** Excluded from export without losing its annotations. */
   skipped?: boolean;
 }

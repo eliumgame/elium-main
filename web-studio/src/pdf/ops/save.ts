@@ -25,7 +25,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { Annot, Bookmark, Page, PdfState } from "../model/types";
+import type { Annot, Bookmark, Page, PageLabelDef, PdfState } from "../model/types";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
@@ -44,7 +44,7 @@ import {
   type Fingerprints,
   type XrefTail,
 } from "./incremental";
-import { PAGE_SIZES, cropPage, rotatePage, writeOutline, writePageLabels } from "./organize";
+import { PAGE_SIZES, cropPage, readPageLabelDefs, rotatePage, writeOutline, writePageLabels } from "./organize";
 import type { OutlineEntry } from "./organize";
 import { applyRedactions, sanitiseDocument } from "./redact";
 import { createCrypt, openCrypt, writeEncrypted } from "./security";
@@ -455,6 +455,13 @@ async function applyState(
   step("Organisation des pages", 0.08);
   const wanted = state.pages.filter((p) => !p.skipped);
   const source = doc.getPages();
+  // The file's own labels, by source page, before the pages move.
+  let fileLabels: (PageLabelDef | undefined)[] | null = null;
+  try {
+    fileLabels = readPageLabelDefs(doc);
+  } catch {
+    fileLabels = null;
+  }
   const targets: { page: PDFPage; model: Page }[] = [];
   const seen = new Set<number>();
 
@@ -806,11 +813,17 @@ async function applyState(
       report.lost.push("Les signets n'ont pas pu être écrits.");
     }
   }
-  if (state.pages.some((p) => p.label)) {
+  // Labels follow their pages (the file's, or those set in Elium), then are
+  // written back as ranges for the output order.
+  const untouched =
+    !state.pages.some((p) => p.labelDef) &&
+    targets.length === (fileLabels?.length ?? -1) &&
+    targets.every((t, i) => t.model.from === i);
+  if (!untouched && (fileLabels || state.pages.some((p) => p.labelDef))) {
     try {
       writePageLabels(
         doc,
-        targets.map((t) => t.model.label),
+        targets.map((t) => t.model.labelDef ?? (t.model.from != null ? fileLabels?.[t.model.from] : undefined)),
       );
     } catch {
       report.lost.push("Les numéros de page personnalisés n'ont pas pu être écrits.");

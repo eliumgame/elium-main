@@ -161,6 +161,11 @@ import {
   ExportImagesDialog,
   HeaderFooterDialog,
   InsertPagesDialog,
+  MovePagesDialog,
+  ReplacePagesDialog,
+  ResizePagesDialog,
+  RotatePagesDialog,
+  type PageScope,
   MeasureScaleDialog,
   OcrDialog,
   PageLabelsDialog,
@@ -196,6 +201,10 @@ import "./pdf.css";
 
 type DialogId =
   | null
+  | "rotatePages"
+  | "movePages"
+  | "resizePages"
+  | "replacePages"
   | "save"
   | "protect"
   | "watermark"
@@ -2147,6 +2156,54 @@ export default function PdfWorkspace({
   const currentPage = () => pages[currentStore.get() - 1];
   const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
+  /** The pages a page command's scope designates (selection, all, even, odd, a range). */
+  const scopeIds = (scope: PageScope, range: string): string[] => {
+    if (scope === "selection") return targetPages();
+    const spec = scope === "all" ? "" : scope === "even" ? "paires" : scope === "odd" ? "impaires" : range;
+    return parsePageRange(spec, pages.length).map((i) => pages[i].id);
+  };
+
+  /**
+   * A change made to the file itself (resized pages, replaced pages): the
+   * document is rebuilt with the current edits folded in, `transform` applied
+   * — its pages in the model's order, excluded ones included — and the
+   * session goes on with it, like an insertion.
+   */
+  const recompose = async (label: string, transform: (doc: PDFDocument) => Promise<void> | void) => {
+    if (!bytesRef.current || !engine) return;
+    setBusy(true);
+    const id = toast("progress", `${label}…`);
+    try {
+      const res = await savePdf({
+        source: bytesRef.current,
+        state,
+        options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
+        security: null,
+        transform: async (doc) => {
+          await transform(doc);
+        },
+      });
+      dismissToast(id);
+      if (res.report.lost.length) {
+        toast("warning", `${label} : certaines modifications n'ont pas pu être reportées`, res.report.lost.join(" · "));
+      }
+      await adoptDerived(
+        res.bytes,
+        { changes: [label], forceFull: res.report.mode === "full" ? res.report.fullReasons : [] },
+        res.report.mode === "incremental",
+      );
+      toast("success", label, "Enregistrez (Ctrl+S) pour l'écrire dans le fichier.");
+    } catch (err) {
+      dismissToast(id);
+      toast("danger", `${label} impossible`, err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const replaceInput = useRef<HTMLInputElement>(null);
+  /** Files picked for « Remplacer », with their page count. */
+  const [replaceSource, setReplaceSource] = useState<{ name: string; bytes: Uint8Array; count: number } | null>(null);
+
   /**
    * Where pages land in a built copy: excluded pages are not in it, so the
    * index is among the others (an excluded page itself is not there at all).
@@ -2469,6 +2526,18 @@ export default function PdfWorkspace({
         return;
       }
 
+      case "rotateDialog":
+        setDialog("rotatePages");
+        return;
+      case "movePages":
+        setDialog("movePages");
+        return;
+      case "resize":
+        setDialog("resizePages");
+        return;
+      case "replacePages":
+        replaceInput.current?.click();
+        return;
       case "rotateLeft":
         setState((s) => D.rotatePages(s, targetPages(), -90));
         return;
@@ -4348,6 +4417,26 @@ export default function PdfWorkspace({
         }}
       />
       <input ref={mergeInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
+      <input
+        ref={replaceInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        data-testid="replace-input"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          try {
+            const d = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+            setReplaceSource({ name: f.name, bytes, count: d.getPageCount() });
+            setDialog("replacePages");
+          } catch {
+            toast("danger", "Fichier illisible", f.name);
+          }
+        }}
+      />
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
       <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml,.txt" hidden onChange={onDataPick} />
       <input ref={compareInput} type="file" accept="application/pdf,.pdf" hidden onChange={onComparePick} />
@@ -4662,6 +4751,88 @@ export default function PdfWorkspace({
             setDialog(null);
           }}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "rotatePages" && (
+        <RotatePagesDialog
+          hasSelection={selectedPages.length > 0}
+          onClose={() => setDialog(null)}
+          onConfirm={({ delta, scope, range }) => {
+            setDialog(null);
+            const ids = scopeIds(scope, range);
+            if (ids.length) setState((s) => D.rotatePages(s, ids, delta));
+          }}
+        />
+      )}
+      {dialog === "movePages" && (
+        <MovePagesDialog
+          count={targetPages().length}
+          pageCount={pageCount}
+          onClose={() => setDialog(null)}
+          onConfirm={({ where, at }) => {
+            setDialog(null);
+            const to = where === "start" ? 0 : where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            setState((s) => D.reorderPages(s, targetPages(), to));
+          }}
+        />
+      )}
+      {dialog === "resizePages" && (
+        <ResizePagesDialog
+          hasSelection={selectedPages.length > 0}
+          onClose={() => setDialog(null)}
+          onConfirm={({ size, landscape, fit, scope, range }) => {
+            setDialog(null);
+            const ids = new Set(scopeIds(scope, range));
+            // The rebuilt document has the model's pages, excluded ones included.
+            const indices = pages.map((q, i) => (ids.has(q.id) ? i : -1)).filter((i) => i >= 0);
+            const [a, b] = PAGE_SIZES[size] ?? PAGE_SIZES.A4;
+            const [w, h] = landscape ? [Math.max(a, b), Math.min(a, b)] : [Math.min(a, b), Math.max(a, b)];
+            void recompose(`${indices.length} page(s) redimensionnée(s) (${size})`, async (doc) => {
+              const { resizePage } = await import("../ops/organize");
+              for (const i of indices) if (i < doc.getPageCount()) resizePage(doc.getPage(i), w, h, fit);
+            });
+          }}
+        />
+      )}
+      {dialog === "replacePages" && replaceSource && (
+        <ReplacePagesDialog
+          fileName={replaceSource.name}
+          pageCount={pageCount}
+          sourceCount={replaceSource.count}
+          initialAt={currentStore.get()}
+          onClose={() => {
+            setReplaceSource(null);
+            setDialog(null);
+          }}
+          onConfirm={({ from, to, srcFrom }) => {
+            setDialog(null);
+            const src = replaceSource;
+            setReplaceSource(null);
+            const n = to - from + 1;
+            void recompose(`${n} page(s) remplacée(s) par celles de « ${src.name} »`, async (doc) => {
+              const { appendPdfPages, purgeRemovedPages } = await import("../ops/organize");
+              const before = doc.getPages();
+              // The new pages first, then the old ones out (what pointed at them is cleaned).
+              await appendPdfPages(
+                doc,
+                [{ name: src.name, bytes: src.bytes }],
+                (name, wrong) =>
+                  dialogs.prompt({
+                    title: "PDF protégé",
+                    label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+                  }),
+                from - 1,
+                { pages: Array.from({ length: n }, (_, k) => srcFrom - 1 + k) },
+              );
+              const doomed = before.slice(from - 1, to);
+              for (const p of doomed) {
+                const i = doc.getPages().indexOf(p);
+                if (i >= 0) doc.removePage(i);
+              }
+              const kept = new Set(doc.getPages().map((p) => `${p.ref.objectNumber} ${p.ref.generationNumber}`));
+              purgeRemovedPages(doc, before, kept);
+            });
+          }}
         />
       )}
       {dialog === "insert" && (

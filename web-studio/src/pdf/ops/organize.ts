@@ -138,6 +138,8 @@ export async function appendPdfPages(
   askPassword?: (name: string, wrong: boolean) => Promise<string | null>,
   /** Where the pages go (0: before the first page); the end when absent. */
   at?: number,
+  /** Only these pages of each file (0-based), and whether its bookmarks come along (yes). */
+  opts: { pages?: readonly number[]; outline?: boolean } = {},
 ): Promise<{ inserted: number; failed: { name: string; reason: string }[] }> {
   let inserted = 0;
   let pos = at === undefined ? doc.getPageCount() : Math.max(0, Math.min(doc.getPageCount(), at));
@@ -176,7 +178,8 @@ export async function appendPdfPages(
       });
       continue;
     }
-    const indices = src.getPageIndices();
+    const all = src.getPageIndices();
+    const indices = opts.pages ? opts.pages.filter((i) => i >= 0 && i < all.length) : all;
     if (!indices.length) {
       failed.push({ name: file.name, reason: "aucune page" });
       continue;
@@ -192,7 +195,7 @@ export async function appendPdfPages(
       /* the pages are in; their fields just stay inert */
     }
     try {
-      adoptOutline(doc, src, copied, file.name.replace(/\.pdf$/i, ""));
+      if (opts.outline !== false && !opts.pages) adoptOutline(doc, src, copied, file.name.replace(/\.pdf$/i, ""));
     } catch {
       /* no bookmarks from that file */
     }
@@ -427,6 +430,37 @@ export function scalePage(page: PDFPage, factor: number): void {
   page.setMediaBox(media.x * factor, media.y * factor, media.width * factor, media.height * factor);
   const crop = page.getCropBox();
   page.setCropBox(crop.x * factor, crop.y * factor, crop.width * factor, crop.height * factor);
+}
+
+/**
+ * « Redimensionner » : the page becomes `w` × `h` points as it is seen (its
+ * /Rotate taken into account). With `fit`, its content (and annotations) is
+ * scaled to fit and centred; without, only the paper changes around the
+ * content, centred (margins added, or cut).
+ */
+export function resizePage(page: PDFPage, w: number, h: number, fit: boolean): void {
+  const turned = page.getRotation().angle % 180 !== 0;
+  const W = turned ? h : w;
+  const H = turned ? w : h;
+  const crop = page.getCropBox();
+  let { x, y, width, height } = crop;
+  if (fit && width > 0 && height > 0) {
+    const f = Math.min(W / width, H / height);
+    if (Math.abs(f - 1) > 1e-6) {
+      page.scaleContent(f, f);
+      page.scaleAnnotations(f, f);
+      x *= f;
+      y *= f;
+      width *= f;
+      height *= f;
+    }
+  }
+  const ox = x - (W - width) / 2;
+  const oy = y - (H - height) / 2;
+  page.setMediaBox(ox, oy, W, H);
+  page.setCropBox(ox, oy, W, H);
+  // Other boxes would still describe the old sheet.
+  for (const k of ["TrimBox", "BleedBox", "ArtBox"]) page.node.delete(PDFName.of(k));
 }
 
 /** Rotate a page by a further multiple of 90°. */

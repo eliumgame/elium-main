@@ -48,6 +48,8 @@ import {
   MousePointer2,
   Move,
   PaintBucket,
+  MoveHorizontal,
+  RefreshCcw,
   Paperclip,
   PanelTop,
   PencilLine,
@@ -630,6 +632,12 @@ export default function Ribbon(p: RibbonProps) {
               />
               <Cmd icon={<RotateCcw size={17} />} onClick={C("rotateLeft")} title="Pivoter à gauche" />
               <Cmd icon={<RotateCw size={17} />} onClick={C("rotateRight")} title="Pivoter à droite" />
+              <Cmd
+                icon={<RefreshCcw size={17} />}
+                onClick={C("rotateDialog")}
+                title="Faire pivoter… (180°, paires, impaires, plage)"
+              />
+              <Cmd icon={<MoveHorizontal size={17} />} onClick={C("movePages")} title="Déplacer vers la page…" />
               <Cmd icon={<Copy size={17} />} onClick={C("duplicatePage")} title="Dupliquer" />
               <Cmd icon={<Trash2 size={17} />} onClick={C("deletePage")} danger title="Supprimer" />
             </Group>
@@ -637,6 +645,12 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<FilePlus2 size={17} />} onClick={C("insertBlank")} label="Page blanche" />
               <Cmd icon={<FileText size={17} />} onClick={C("insertFile")} label="Depuis un PDF" />
               <Cmd icon={<FileImage size={17} />} onClick={C("insertImage")} label="Depuis une image" />
+              <Cmd
+                icon={<Replace size={17} />}
+                onClick={C("replacePages")}
+                label="Remplacer"
+                title="Remplacer des pages par celles d'un autre PDF"
+              />
             </Group>
             <Group title="Géométrie" optional>
               <Cmd icon={<Crop size={17} />} onClick={C("crop")} label="Recadrer" />

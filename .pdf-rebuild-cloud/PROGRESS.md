@@ -650,3 +650,17 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   46/46.
 - Reste point 8 : coller depuis le presse-papiers ; autres formats (Office, HTML, TIFF
   multipage).
+
+### Session cloud 1 : T5, point 9
+- « Faire pivoter… » : 90° à droite, 90° à gauche ou 180°, sur la sélection, toutes les
+  pages, les paires, les impaires ou une plage (« 1-3, 7, 10- »).
+- « Déplacer vers la page… » : avant ou après la page N, au début, à la fin.
+- « Redimensionner » (le bouton était inerte) : format et orientation, contenu mis à
+  l'échelle et centré, ou taille gardée (marges ajoutées ou coupées), sur une portée de
+  pages. La rotation propre de la page est prise en compte, les annotations suivent. Le
+  document est reconstruit puis rouvert (`recompose`), comme une insertion.
+- « Remplacer » : les pages N à M par autant de pages d'un autre PDF (mot de passe
+  demandé s'il le faut). Les champs de ces pages sont repris, et ce qui pointait vers les
+  pages remplacées est nettoyé.
+- Tests : 1 unitaire (`resizePage`), 1 navigateur enchaînant les quatre (Drive +
+  bureau). Suite complète 1974/1974 ; specs PDF 48/48.

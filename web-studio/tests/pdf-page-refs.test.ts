@@ -148,3 +148,24 @@ describe("inserting a PDF", () => {
     await task.destroy();
   });
 });
+
+describe("resizePage", () => {
+  it("fits the content to the new paper, centred, or only changes the paper", async () => {
+    const { resizePage } = await import("../src/pdf/ops/organize");
+    const doc = await PDFDocument.create();
+    const a = doc.addPage([600, 800]);
+    resizePage(a, 300, 300, true);
+    expect(a.getCropBox()).toMatchObject({ width: 300, height: 300 });
+    // Scale 0.375: content 225 × 300, centred horizontally.
+    expect(a.getCropBox().x).toBeCloseTo(-37.5, 3);
+    const b = doc.addPage([600, 800]);
+    resizePage(b, 800, 1000, false);
+    expect(b.getCropBox()).toMatchObject({ x: -100, y: -100, width: 800, height: 1000 });
+    // On a page turned 90°, the size asked is the size seen.
+    const c = doc.addPage([600, 800]);
+    const { degrees } = await import("pdf-lib");
+    c.setRotation(degrees(90));
+    resizePage(c, 842, 595, true);
+    expect(c.getCropBox()).toMatchObject({ width: 595, height: 842 });
+  });
+});

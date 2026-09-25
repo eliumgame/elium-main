@@ -1905,3 +1905,267 @@ export function RedactSearchDialog({
     </Modal>
   );
 }
+
+/** Which pages a page command applies to (Acrobat's page-range choices). */
+export type PageScope = "selection" | "all" | "even" | "odd" | "range";
+
+function ScopeRows({
+  scope,
+  setScope,
+  range,
+  setRange,
+  hasSelection,
+}: {
+  scope: PageScope;
+  setScope: (s: PageScope) => void;
+  range: string;
+  setRange: (s: string) => void;
+  hasSelection: boolean;
+}) {
+  return (
+    <>
+      <label className="pdfx-form__row">
+        <span>Pages</span>
+        <select value={scope} onChange={(e) => setScope(e.target.value as PageScope)}>
+          {hasSelection && <option value="selection">Sélection</option>}
+          <option value="all">Toutes</option>
+          <option value="even">Paires</option>
+          <option value="odd">Impaires</option>
+          <option value="range">Plage…</option>
+        </select>
+      </label>
+      {scope === "range" && (
+        <label className="pdfx-form__row">
+          <span>Plage</span>
+          <input value={range} placeholder="1-3, 7, 10-" onChange={(e) => setRange(e.target.value)} />
+        </label>
+      )}
+    </>
+  );
+}
+
+export function RotatePagesDialog({
+  hasSelection,
+  onConfirm,
+  onClose,
+}: {
+  hasSelection: boolean;
+  onConfirm: (v: { delta: 90 | -90 | 180; scope: PageScope; range: string }) => void;
+  onClose: () => void;
+}) {
+  const [delta, setDelta] = useState<90 | -90 | 180>(90);
+  const [scope, setScope] = useState<PageScope>(hasSelection ? "selection" : "all");
+  const [range, setRange] = useState("");
+  return (
+    <Modal
+      title="Faire pivoter des pages"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ delta, scope, range })}>
+            Faire pivoter
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <label className="pdfx-form__row">
+          <span>Sens</span>
+          <select value={delta} onChange={(e) => setDelta(Number(e.target.value) as 90 | -90 | 180)}>
+            <option value={90}>90° à droite</option>
+            <option value={-90}>90° à gauche</option>
+            <option value={180}>180°</option>
+          </select>
+        </label>
+        <ScopeRows scope={scope} setScope={setScope} range={range} setRange={setRange} hasSelection={hasSelection} />
+      </div>
+    </Modal>
+  );
+}
+
+export function MovePagesDialog({
+  count,
+  pageCount,
+  onConfirm,
+  onClose,
+}: {
+  count: number;
+  pageCount: number;
+  onConfirm: (v: { where: "before" | "after" | "start" | "end"; at: number }) => void;
+  onClose: () => void;
+}) {
+  const [where, setWhere] = useState<"before" | "after" | "start" | "end">("after");
+  const [at, setAt] = useState(1);
+  return (
+    <Modal
+      title={`Déplacer ${count} page(s)`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ where, at })}>
+            Déplacer
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <label className="pdfx-form__row">
+          <span>Vers</span>
+          <select value={where} onChange={(e) => setWhere(e.target.value as typeof where)}>
+            <option value="before">Avant la page</option>
+            <option value="after">Après la page</option>
+            <option value="start">Au début</option>
+            <option value="end">À la fin</option>
+          </select>
+        </label>
+        {(where === "before" || where === "after") && (
+          <label className="pdfx-form__row">
+            <span>Page</span>
+            <input type="number" min={1} max={pageCount} value={at} onChange={(e) => setAt(Number(e.target.value))} />
+          </label>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+export function ResizePagesDialog({
+  hasSelection,
+  onConfirm,
+  onClose,
+}: {
+  hasSelection: boolean;
+  onConfirm: (v: { size: string; landscape: boolean; fit: boolean; scope: PageScope; range: string }) => void;
+  onClose: () => void;
+}) {
+  const [size, setSize] = useState("A4");
+  const [landscape, setLandscape] = useState(false);
+  const [fit, setFit] = useState(true);
+  const [scope, setScope] = useState<PageScope>(hasSelection ? "selection" : "all");
+  const [range, setRange] = useState("");
+  return (
+    <Modal
+      title="Redimensionner des pages"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ size, landscape, fit, scope, range })}>
+            Redimensionner
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <label className="pdfx-form__row">
+          <span>Format</span>
+          <select value={size} onChange={(e) => setSize(e.target.value)}>
+            {Object.keys(PAGE_SIZES).map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="pdfx-form__row">
+          <span>Orientation</span>
+          <select value={landscape ? "l" : "p"} onChange={(e) => setLandscape(e.target.value === "l")}>
+            <option value="p">Portrait</option>
+            <option value="l">Paysage</option>
+          </select>
+        </label>
+        <label className="pdfx-form__row">
+          <span>Contenu</span>
+          <select value={fit ? "fit" : "keep"} onChange={(e) => setFit(e.target.value === "fit")}>
+            <option value="fit">Mettre à l'échelle du format</option>
+            <option value="keep">Garder sa taille (marges ajoutées ou coupées)</option>
+          </select>
+        </label>
+        <ScopeRows scope={scope} setScope={setScope} range={range} setRange={setRange} hasSelection={hasSelection} />
+      </div>
+    </Modal>
+  );
+}
+
+export function ReplacePagesDialog({
+  fileName,
+  pageCount,
+  sourceCount,
+  initialAt,
+  onConfirm,
+  onClose,
+}: {
+  fileName: string;
+  pageCount: number;
+  sourceCount: number;
+  initialAt: number;
+  onConfirm: (v: { from: number; to: number; srcFrom: number }) => void;
+  onClose: () => void;
+}) {
+  const [from, setFrom] = useState(Math.max(1, Math.min(pageCount, initialAt)));
+  const [to, setTo] = useState(Math.max(1, Math.min(pageCount, initialAt)));
+  const [srcFrom, setSrcFrom] = useState(1);
+  const n = Math.max(0, to - from + 1);
+  const ok = n > 0 && srcFrom >= 1 && srcFrom + n - 1 <= sourceCount;
+  return (
+    <Modal
+      title="Remplacer des pages"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" disabled={!ok} onClick={() => onConfirm({ from, to, srcFrom })}>
+            Remplacer
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <label className="pdfx-form__row">
+          <span>Pages du document</span>
+          <span className="pdfx-insp-inline">
+            <input
+              type="number"
+              min={1}
+              max={pageCount}
+              value={from}
+              onChange={(e) => setFrom(Number(e.target.value))}
+            />
+            à
+            <input
+              type="number"
+              min={from}
+              max={pageCount}
+              value={to}
+              onChange={(e) => setTo(Number(e.target.value))}
+            />
+          </span>
+        </label>
+        <label className="pdfx-form__row">
+          <span>Par les pages de « {fileName} »</span>
+          <span className="pdfx-insp-inline">
+            <input
+              type="number"
+              min={1}
+              max={sourceCount}
+              value={srcFrom}
+              onChange={(e) => setSrcFrom(Number(e.target.value))}
+            />
+            à {srcFrom + n - 1} (sur {sourceCount})
+          </span>
+        </label>
+        {!ok && <p className="pdfx-form__hint">Le fichier n'a pas assez de pages pour cette plage.</p>}
+      </div>
+    </Modal>
+  );
+}

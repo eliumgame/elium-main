@@ -854,3 +854,18 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   - les champs déplacés dans « Préparer » puis rognés ;
   - les signets des pages remplacées ;
   - les annotations partagées lors de la duplication interne.
+
+### Session cloud 1 : T6, point 6 (calques)
+- Les bascules de l'utilisateur sont des surcharges dans les deux sens, appliquées dans
+  l'ordre des clics : un calque masqué par défaut peut enfin être affiché, et le
+  panneau montre la visibilité réelle calculée par pdf.js.
+- Hiérarchie de /Order lue dans le fichier (pdf.js perd les enfants d'un calque),
+  titres de groupe, calques verrouillés (/Locked : case désactivée), groupes exclusifs
+  (/RBGroups : boutons radio ; en allumer un éteint les autres).
+- « Enregistrer la visibilité actuelle comme état par défaut » : /OCProperties /D
+  /BaseState ON, /ON, /OFF à l'enregistrement.
+- Limites restantes : aplatir les calques ; état d'impression distinct (/Usage /Print)
+  non géré à l'impression ; les miniatures ignorent les calques.
+- Tests : `pdf-layers.test.ts` (3). Suite 2005/2005 ; specs PDF 61/62 : le test
+  « saisie pendant le chargement des scripts » est instable sous charge en bureau
+  (12/12 isolément), à surveiller.

@@ -2452,3 +2452,11 @@
     width: 100%;
   }
 }
+
+/* Layers: a label of the file's /Order (no layer of its own). */
+.pdfx-row--heading {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  cursor: default;
+}

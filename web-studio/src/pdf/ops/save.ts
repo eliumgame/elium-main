@@ -878,6 +878,14 @@ async function applyState(
     }
   }
 
+  if (state.ocDefaults) {
+    try {
+      writeLayerDefaults(doc, state.ocDefaults);
+    } catch {
+      report.lost.push("La visibilité par défaut des calques n'a pas pu être écrite.");
+    }
+  }
+
   try {
     writeMetadata(doc, state);
   } catch {
@@ -1076,3 +1084,32 @@ export async function buildFlattened(
 }
 
 export { PDFName };
+
+/**
+ * Layer visibility as the file's default (Acrobat's « Enregistrer la
+ * visibilité actuelle des calques »): the default configuration's /ON and
+ * /OFF lists, /BaseState ON. `vis` is keyed by pdf.js group id ("12R",
+ * "12R3" with a generation).
+ */
+function writeLayerDefaults(doc: PDFDocument, vis: Record<string, boolean>): void {
+  const props = doc.catalog.lookup(PDFName.of("OCProperties"));
+  if (!(props instanceof PDFDict)) return;
+  let d = props.lookup(PDFName.of("D"));
+  if (!(d instanceof PDFDict)) {
+    d = doc.context.obj({});
+    props.set(PDFName.of("D"), d as PDFDict);
+  }
+  const dict = d as PDFDict;
+  const on: PDFRef[] = [];
+  const off: PDFRef[] = [];
+  for (const [id, visible] of Object.entries(vis)) {
+    const m = /^(\d+)R(\d*)$/.exec(id);
+    if (!m) continue;
+    const ref = PDFRef.of(Number(m[1]), m[2] ? Number(m[2]) : 0);
+    if (!(doc.context.lookup(ref) instanceof PDFDict)) continue;
+    (visible ? on : off).push(ref);
+  }
+  dict.set(PDFName.of("BaseState"), PDFName.of("ON"));
+  dict.set(PDFName.of("ON"), doc.context.obj(on));
+  dict.set(PDFName.of("OFF"), doc.context.obj(off));
+}

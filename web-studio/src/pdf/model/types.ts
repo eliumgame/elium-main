@@ -585,6 +585,11 @@ export interface PdfState {
    * Acrobat's « Supprimer ». Optional: older sessions have none.
    */
   stripMarks?: boolean;
+  /**
+   * Layer visibility to save as the file's default (/OCProperties /D /ON
+   * /OFF), by pdf.js group id ("12R"); absent: the file's own.
+   */
+  ocDefaults?: Record<string, boolean>;
   /** Measurement scale used by new measurement annotations. */
   measureScale: MeasureScale;
   /**

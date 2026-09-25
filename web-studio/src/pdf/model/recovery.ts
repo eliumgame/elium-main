@@ -332,6 +332,7 @@ export function hasEdits(state: PdfState): boolean {
     state.header.enabled ||
     state.footer.enabled ||
     state.bates.enabled ||
-    !!state.stripMarks
+    !!state.stripMarks ||
+    !!state.ocDefaults
   );
 }

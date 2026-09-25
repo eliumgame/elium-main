@@ -24,6 +24,7 @@ import { openPdfDocument, type LoadingTask } from "./assets";
 import type { Rotation } from "./coords";
 import { normRotation } from "./coords";
 import type { DestFit } from "../model/types";
+import type { PDFArray as PDFArrayT, PDFRef as PDFRefT } from "pdf-lib";
 
 /** Geometry of one source page, in unrotated page space. */
 export interface PageInfo {
@@ -102,9 +103,18 @@ export interface DocInfo {
 }
 
 export interface LayerInfo {
+  /** pdf.js' group id ("12R"); for a heading row of /Order, a made-up key. */
   id: string;
   name: string;
   visible: boolean;
+  /** Nesting level in the file's /Order. */
+  depth: number;
+  /** A label of /Order (no layer of its own): shown as a heading. */
+  heading?: boolean;
+  /** /Locked in the default configuration: the user may not switch it. */
+  locked?: boolean;
+  /** Member of a radio-button group (/RBGroups): turning it on turns the others off. */
+  radio?: boolean;
 }
 
 /** What `subscribe` listeners are told. */
@@ -626,50 +636,103 @@ export class PdfEngine {
    * catalogue's display order — nested groups are listed with their parent's
    * name prefixed rather than as a tree, which matches how the panel reads.
    */
-  async layers(): Promise<LayerInfo[]> {
+  /**
+   * The file's layers as its /Order lists them (nested, headings included),
+   * each with its visibility once `vis` (the user's switches, in the order
+   * made) is applied — radio groups included.
+   */
+  async layers(vis: ReadonlyMap<string, boolean> = new Map()): Promise<LayerInfo[]> {
     try {
-      const cfg = await this.doc.getOptionalContentConfig();
+      const cfg = await this.optionalContentConfig(vis);
       if (!cfg) return [];
-      const out: LayerInfo[] = [];
-      const seen = new Set<string>();
-      const walk = (order: unknown[], prefix: string) => {
-        for (const entry of order ?? []) {
-          if (typeof entry === "string") {
-            if (seen.has(entry)) continue;
-            seen.add(entry);
-            const g = cfg.getGroup(entry) as { name?: string } | null;
-            out.push({
-              id: entry,
-              name: prefix + (g?.name || entry),
-              visible: cfg.isVisible(entry) !== false,
-            });
-          } else if (Array.isArray(entry)) {
-            walk(entry, prefix);
-          } else if (entry && typeof entry === "object") {
-            const grouped = entry as { name?: string; order?: unknown[] };
-            walk(grouped.order ?? [], grouped.name ? `${grouped.name} › ` : prefix);
-          }
-        }
-      };
-      walk((cfg.getOrder() as unknown[]) ?? [], "");
-      return out;
+      const { rows, locked } = await this.layerTree();
+      return rows.map((r) => {
+        if (r.heading) return { ...r, visible: true };
+        const g = cfg.getGroup(r.id) as { visible?: boolean; rbGroups?: unknown[] } | null;
+        return {
+          ...r,
+          visible: g?.visible !== false,
+          locked: locked.has(r.id) || undefined,
+          radio: (g?.rbGroups?.length ?? 0) > 0 || undefined,
+        };
+      });
     } catch {
       return [];
     }
   }
 
-  /** Build an optional-content config with `hidden` layers switched off. */
-  async optionalContentConfig(hidden: ReadonlySet<string>) {
+  /** An optional-content config with the user's switches applied, in the order they were made. */
+  async optionalContentConfig(vis: ReadonlyMap<string, boolean>) {
     const cfg = await this.doc.getOptionalContentConfig();
     if (!cfg) return null;
-    for (const id of hidden) {
+    for (const [id, visible] of vis) {
       try {
-        cfg.setVisibility(id, false);
+        cfg.setVisibility(id, visible, true);
       } catch {
         /* unknown group */
       }
     }
     return cfg;
+  }
+
+  private layerTreeCache: Promise<{ rows: LayerInfo[]; locked: Set<string> }> | null = null;
+  /**
+   * The layer tree of /OCProperties /D /Order, read from the file itself:
+   * pdf.js drops the children of a layer ([parent [kids]]) and does not
+   * report /Locked. Read once. Groups missing from /Order are not listed (as
+   * ISO 32000 says, and as Acrobat does).
+   */
+  layerTree(): Promise<{ rows: LayerInfo[]; locked: Set<string> }> {
+    this.layerTreeCache ??= (async () => {
+      const { PDFDocument, PDFArray, PDFDict, PDFName, PDFRef, PDFString, PDFHexString } = await import("pdf-lib");
+      const doc = await PDFDocument.load(this.bytes, { ignoreEncryption: true, updateMetadata: false });
+      const idOf = (r: PDFRefT) =>
+        r.generationNumber ? `${r.objectNumber}R${r.generationNumber}` : `${r.objectNumber}R`;
+      const text = (v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : undefined);
+      const props = doc.catalog.lookup(PDFName.of("OCProperties"));
+      const d = props instanceof PDFDict ? props.lookup(PDFName.of("D")) : undefined;
+      const locked = new Set<string>();
+      const lockedList = d instanceof PDFDict ? d.lookup(PDFName.of("Locked")) : undefined;
+      if (lockedList instanceof PDFArray)
+        for (const r of lockedList.asArray()) if (r instanceof PDFRef) locked.add(idOf(r));
+      const rows: LayerInfo[] = [];
+      const seen = new Set<string>();
+      let headings = 0;
+      const walk = (arr: PDFArrayT, depth: number) => {
+        if (depth > 16) return;
+        const items = arr.asArray();
+        items.forEach((item: unknown, i: number) => {
+          if (item instanceof PDFRef) {
+            const id = idOf(item);
+            const ocg = doc.context.lookup(item);
+            if (seen.has(id) || !(ocg instanceof PDFDict)) return;
+            seen.add(id);
+            rows.push({ id, name: text(ocg.lookup(PDFName.of("Name"))) || id, visible: true, depth });
+            return;
+          }
+          const nested = item instanceof PDFRef ? doc.context.lookup(item) : item;
+          if (!(nested instanceof PDFArray) || !nested.size()) return;
+          const label = text(nested.lookup(0));
+          if (label !== undefined) {
+            // [label kids…]: a heading, its kids one level down.
+            rows.push({ id: `heading:${headings++}`, name: label, visible: true, depth, heading: true });
+            const kids = PDFArray.withContext(doc.context);
+            nested
+              .asArray()
+              .slice(1)
+              .forEach((k) => kids.push(k));
+            walk(kids, depth + 1);
+          } else {
+            // [kids…] after a layer: that layer's children.
+            walk(nested, i > 0 && items[i - 1] instanceof PDFRef ? depth + 1 : depth);
+          }
+        });
+      };
+      const order = d instanceof PDFDict ? d.lookup(PDFName.of("Order")) : undefined;
+      if (order instanceof PDFArray) walk(order, 0);
+      return { rows, locked };
+    })().catch(() => ({ rows: [], locked: new Set<string>() }));
+    return this.layerTreeCache;
   }
 
   // -- lifecycle -----------------------------------------------------------

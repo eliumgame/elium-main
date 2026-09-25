@@ -10,6 +10,8 @@ import {
   FileText,
   Filter,
   Layers,
+  Lock,
+  Save,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -49,7 +51,6 @@ export interface SidebarProps {
   fields: CreatedField[];
   attachments: Attachment[];
   layers: LayerInfo[];
-  hiddenLayers: Set<string>;
   searchHits: SearchHit[];
   searchIndex: number;
   searchQuery: string;
@@ -81,6 +82,8 @@ export interface SidebarProps {
   onBookmarkRetarget: (id: string) => void;
   onSearchSelect: (index: number) => void;
   onLayerToggle: (id: string) => void;
+  /** The current visibility becomes the file's default (/OCProperties /D). */
+  onLayersSaveDefault: () => void;
   onAttachmentOpen: (a: Attachment) => void;
   onFieldSelect: (id: string) => void;
   onFieldDelete: (id: string) => void;
@@ -894,17 +897,46 @@ function LayersPane(p: SidebarProps) {
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Calques</span>
-        <span className="pdfx-panel__count">{p.layers.length}</span>
+        <span className="pdfx-panel__count">{p.layers.filter((l) => !l.heading).length}</span>
+        {p.layers.length > 0 && (
+          <button
+            className="pdfx-icon"
+            title="Enregistrer la visibilité actuelle comme état par défaut du fichier"
+            onClick={p.onLayersSaveDefault}
+          >
+            <Save size={14} />
+          </button>
+        )}
       </div>
       <div className="pdfx-panel__body">
         {!p.layers.length && <p className="pdfx-empty">Ce document ne contient pas de calques.</p>}
-        {p.layers.map((l) => (
-          <label key={l.id} className="pdfx-row pdfx-row--check">
-            <input type="checkbox" checked={!p.hiddenLayers.has(l.id)} onChange={() => p.onLayerToggle(l.id)} />
-            <Layers size={14} />
-            <span className="pdfx-row__label">{l.name}</span>
-          </label>
-        ))}
+        {p.layers.map((l) =>
+          l.heading ? (
+            <div key={l.id} className="pdfx-row pdfx-row--heading" style={{ paddingLeft: 8 + l.depth * 14 }}>
+              <span className="pdfx-row__label">{l.name}</span>
+            </div>
+          ) : (
+            <label
+              key={l.id}
+              className="pdfx-row pdfx-row--check"
+              style={{ paddingLeft: 8 + l.depth * 14 }}
+              title={
+                l.locked ? "Calque verrouillé par le document" : l.radio ? "Calque exclusif de son groupe" : undefined
+              }
+            >
+              <input
+                type={l.radio ? "radio" : "checkbox"}
+                checked={l.visible}
+                disabled={l.locked}
+                onChange={() => p.onLayerToggle(l.id)}
+                onClick={() => l.radio && l.visible && p.onLayerToggle(l.id)}
+              />
+              <Layers size={14} />
+              <span className="pdfx-row__label">{l.name}</span>
+              {l.locked && <Lock size={12} aria-label="Verrouillé" />}
+            </label>
+          ),
+        )}
       </div>
     </div>
   );

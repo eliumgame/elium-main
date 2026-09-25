@@ -417,7 +417,8 @@ export default function PdfWorkspace({
   // --- ancillary ------------------------------------------------------------
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [layers, setLayers] = useState<LayerInfo[]>([]);
-  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  /** The user's layer switches, in the order made (radio groups depend on it). */
+  const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
   const [ocConfig, setOcConfig] = useState<unknown>(undefined);
   const [filter, setFilter] = useState<CommentFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<CommentSort>("page");
@@ -766,7 +767,7 @@ export default function PdfWorkspace({
         setSelectedPages([]);
         setAttachments([]);
         setLayers([]);
-        setHiddenLayers(new Set());
+        setLayerVis(new Map());
         setOcConfig(undefined);
         currentStore.set(1);
         // A recomposition (pages inserted, replaced…) from the organiser stays in it.
@@ -4444,7 +4445,6 @@ export default function PdfWorkspace({
               fields={state.createdFields}
               attachments={attachments}
               layers={layers}
-              hiddenLayers={hiddenLayers}
               searchHits={hits}
               searchIndex={searchState.index}
               searchQuery={searchState.query}
@@ -4513,11 +4513,25 @@ export default function PdfWorkspace({
                 goToHit(index);
               }}
               onLayerToggle={async (id) => {
-                const next = new Set(hiddenLayers);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                setHiddenLayers(next);
+                const layer = layers.find((l) => l.id === id);
+                if (!layer || layer.locked || layer.heading) return;
+                const next = new Map(layerVis);
+                next.delete(id);
+                next.set(id, !layer.visible);
+                setLayerVis(next);
                 setOcConfig(await engine.optionalContentConfig(next));
+                setLayers(await engine.layers(next));
+              }}
+              onLayersSaveDefault={() => {
+                setState((s) => ({
+                  ...s,
+                  ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])),
+                }));
+                toast(
+                  "success",
+                  "Calques",
+                  "Visibilité actuelle enregistrée comme état par défaut (à l'enregistrement du fichier).",
+                );
               }}
               onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
               onFieldSelect={(id) => {

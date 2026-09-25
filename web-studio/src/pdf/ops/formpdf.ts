@@ -64,6 +64,7 @@ import type {
   PDFWidgetAnnotation,
 } from "pdf-lib";
 import { customFontNames, getCustomFont } from "../../ui/fonts";
+import { formOf } from "./pdfform";
 
 // ---------------------------------------------------------------------------
 // Fonts
@@ -400,7 +401,7 @@ function quaddingOf(field: PDFField): number {
     const parent: unknown = dict.lookup(PDFName.of("Parent"));
     dict = parent instanceof PDFDict ? parent : undefined;
   }
-  const q = field.doc.getForm().acroForm.dict.lookup(PDFName.of("Q"));
+  const q = formOf(field.doc).acroForm.dict.lookup(PDFName.of("Q"));
   return q instanceof PDFNumber ? q.asNumber() : 0;
 }
 
@@ -440,7 +441,7 @@ export async function completeFieldAppearances(
   const report: AppearanceReport = { generated: [], uncovered: [], clearedNeedAppearances: false };
   let form: PDFForm;
   try {
-    form = doc.getForm();
+    form = formOf(doc);
   } catch {
     return report;
   }
@@ -637,7 +638,7 @@ export function writeFieldValues(doc: PDFDocument, values: Record<string, string
   const report: ValueReport = { filled: 0, changed: [], skipped: [] };
   let fields: PDFField[];
   try {
-    fields = doc.getForm().getFields();
+    fields = formOf(doc).getFields();
   } catch {
     return report;
   }
@@ -824,7 +825,7 @@ export function flattenFields(doc: PDFDocument): FlattenReport {
   let form: PDFForm;
   let fields: PDFField[];
   try {
-    form = doc.getForm();
+    form = formOf(doc);
     fields = form.getFields();
   } catch {
     return report;
@@ -899,10 +900,13 @@ export function flattenFields(doc: PDFDocument): FlattenReport {
     page.node.addContentStream(context.register(context.stream(`${ops.join("\n")}\n`)));
   }
 
-  // The form itself goes: no field survives a flattening.
+  // The form itself goes: no field survives a flattening. (A dynamic XFA form
+  // has no AcroForm field to draw: its XFA is all there is, left alone.)
+  if (!report.fields) return report;
   form.acroForm.dict.set(PDFName.of("Fields"), context.obj([]));
   form.acroForm.dict.delete(PDFName.of("NeedAppearances"));
   form.acroForm.dict.delete(PDFName.of("CO"));
   form.acroForm.dict.delete(PDFName.of("XFA"));
+  doc.catalog.delete(PDFName.of("NeedsRendering"));
   return report;
 }

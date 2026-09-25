@@ -2342,7 +2342,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const protection = await inspectProtection(bytesRef.current);
     const lines = [
       `Pages : ${engine.pageCount}`,
-      `Formulaire : ${engine.info.isXfa ? "XFA" : engine.info.hasAcroForm ? "AcroForm" : "aucun"}`,
+      `Formulaire : ${engine.info.isXfa ? `XFA ${xfaKind === "hybrid" ? "hybride" : "dynamique"}` : engine.info.hasAcroForm ? "AcroForm" : "aucun"}`,
       `Signature : ${engine.info.signed ? "présente" : "aucune"}`,
       `Pièces jointes : ${attachments.length}`,
       `Calques : ${layers.length}`,
@@ -3236,6 +3236,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }
 
   const themeDef = READING_THEMES.find((t) => t.id === view.theme) ?? READING_THEMES[0];
+  /** XFA in the file: hybrid (AcroForm fields too, fillable) or dynamic (XFA only). */
+  const xfaKind: "none" | "hybrid" | "dynamic" = !engine.info.isXfa
+    ? "none"
+    : hasForm && (formSession?.hasFields ?? true)
+      ? "hybrid"
+      : "dynamic";
 
   // Elium's layers for one page, rendered by PageStack inside the page slot
   // (same stacking and coordinates as the old PageView children). `scale` is
@@ -3360,7 +3366,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         ) : null}
         {engine.info.encrypted && <span className="pdfx-badge pdfx-badge--lock">protégé</span>}
         {(docSigned ?? engine.info.signed) && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
-        {engine.info.isXfa && <span className="pdfx-badge pdfx-badge--warn">XFA — lecture seule</span>}
+        {engine.info.isXfa && (
+          <span className="pdfx-badge pdfx-badge--warn">
+            {xfaKind === "hybrid" ? "XFA hybride" : "XFA dynamique — lecture seule"}
+          </span>
+        )}
 
         <span className="pdfx-topbar__spacer" />
 
@@ -3637,9 +3647,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               <div className="pdfx-formbar" role="status">
                 <PenSquare size={15} aria-hidden />
                 <span className="pdfx-formbar__text">
-                  {engine.info.isXfa
-                    ? "Ce document contient un formulaire XFA : seuls ses champs AcroForm peuvent être remplis."
-                    : "Ce document contient des champs de formulaire remplissables."}
+                  {xfaKind === "hybrid"
+                    ? "Formulaire XFA hybride : il se remplit par ses champs AcroForm ; à l'enregistrement, la partie XFA est retirée pour qu'Acrobat affiche vos valeurs."
+                    : xfaKind === "dynamic"
+                      ? "Formulaire XFA dynamique : il ne peut pas être rempli ici (Adobe Acrobat ou Reader requis)."
+                      : "Ce document contient des champs de formulaire remplissables."}
                 </span>
                 <label className="pdfx-formbar__toggle">
                   <input
@@ -3853,6 +3865,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       {dialog === "properties" && (
         <PropertiesDialog
           info={engine.info}
+          xfa={xfaKind}
           metadata={state.metadata}
           sizeBytes={bytesRef.current?.length ?? 0}
           onClose={() => setDialog(null)}

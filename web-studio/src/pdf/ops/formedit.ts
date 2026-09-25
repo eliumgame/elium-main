@@ -30,6 +30,7 @@ import type { PDFDocument, PDFField, PDFForm, PDFPage, PDFWidgetAnnotation } fro
 import type { Rect } from "../core/coords";
 import type { FieldEdit, FieldProps, FormValue } from "../model/types";
 import { calculateScript, formatScripts, validateScript } from "../core/forms/afscripts";
+import { formOf } from "./pdfform";
 
 // Field flags (Ff), ISO 32000-1 tables 221, 228, 230.
 const FF = {
@@ -416,7 +417,7 @@ export function applyFieldEdits(doc: PDFDocument, edits: readonly FieldEdit[]): 
   if (!edits.length) return report;
   let form: PDFForm;
   try {
-    form = doc.getForm();
+    form = formOf(doc);
   } catch {
     report.problems.push("formulaire illisible");
     return report;

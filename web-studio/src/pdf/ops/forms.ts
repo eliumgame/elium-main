@@ -14,6 +14,7 @@ import { FieldFontBook, completeFieldAppearances, flattenFields, writeFieldValue
 import { setFieldProps } from "./formedit";
 import type { FlattenReport } from "./formpdf";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
+import { formOf } from "./pdfform";
 
 /** Subset of a pdf.js widget annotation we consume (`getAnnotations()` is untyped). */
 export interface RawWidget {
@@ -257,7 +258,7 @@ export function createFields(
   pageOf: (pageId: string) => { page: PDFPage; height: number } | null,
 ): number {
   if (!fields.length) return 0;
-  const form = ctx.doc.getForm();
+  const form = formOf(ctx.doc);
   let made = 0;
   const ordered = [...fields].sort((a, b) => (a.tabIndex ?? 0) - (b.tabIndex ?? 0));
 

@@ -32,6 +32,7 @@ import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decora
 import { FontBook } from "./fonts";
 import { FieldFontBook, completeFieldAppearances, flattenFields } from "./formpdf";
 import { applyFieldEdits } from "./formedit";
+import { dropHybridXfa } from "./xfa";
 import { createFields, fillForm } from "./forms";
 import { ImageBank } from "./images";
 import {
@@ -678,6 +679,12 @@ async function applyState(
   // Appearances: every field this save touched (or pdf.js' own update, when
   // building on it) is drawn now, in a font that shows its value — the file
   // never relies on the next viewer (/NeedAppearances), as with Acrobat.
+  // A hybrid XFA form filled through its AcroForm: Acrobat would show the stale XFA data.
+  if ((valuesChanged || report.fieldsCreated || state.fieldEdits.length) && dropHybridXfa(doc)) {
+    report.warnings.push(
+      "Formulaire XFA hybride : la partie XFA a été retirée pour qu'Acrobat affiche les valeurs saisies (mise en page inchangée).",
+    );
+  }
   if (state.fieldEdits.length) {
     const r = applyFieldEdits(doc, state.fieldEdits);
     for (const problem of r.problems) report.lost.push(`Préparation du formulaire : ${problem}.`);

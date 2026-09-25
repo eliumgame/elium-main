@@ -168,3 +168,18 @@ Reste T2 :
 - XFA : message clair et remplissage AcroForm de secours ;
 - champs obligatoires signalés avant l'enregistrement ;
 - relecture adversariale de T2.
+
+### Session cloud 1, suite : XFA
+
+- P0 corrigé : `PDFDocument.getForm()` de pdf-lib SUPPRIME le XFA à chaque appel. Tout
+  enregistrement touchant un champ détruisait un formulaire XFA dynamique, qui devenait
+  illisible dans Acrobat. ops/pdfform.ts `formOf()` accède au formulaire sans cet effet ;
+  tous les appels de ops/ l'utilisent.
+- ops/xfa.ts : XFA hybride (champs AcroForm présents) rempli → partie XFA retirée pour
+  qu'Acrobat affiche les valeurs, avec un avertissement dans le rapport. XFA dynamique :
+  jamais touché, y compris à l'aplatissement.
+- Interface : badge et bandeau distinguent hybride (remplissable) et dynamique (lecture
+  seule, Acrobat requis).
+- Tests : pdf-xfa (3).
+- Pour plus tard : remplir un XFA dynamique demanderait le calque XFA de pdf.js
+  (`enableXfa`) et `saveDocument` pour les datasets.

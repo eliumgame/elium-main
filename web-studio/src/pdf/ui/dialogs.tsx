@@ -753,12 +753,15 @@ export function HeaderFooterDialog({
 
 export function PropertiesDialog({
   info,
+  xfa = "none",
   metadata,
   sizeBytes,
   onChange,
   onClose,
 }: {
   info: DocInfo;
+  /** Kind of XFA form, when there is one. */
+  xfa?: "none" | "hybrid" | "dynamic";
   metadata: DocMetadata;
   sizeBytes: number;
   onChange: (v: DocMetadata) => void;
@@ -836,7 +839,15 @@ export function PropertiesDialog({
           </div>
           <div>
             <dt>Formulaire</dt>
-            <dd>{info.isXfa ? "XFA (lecture seule)" : info.hasAcroForm ? "AcroForm" : "Aucun"}</dd>
+            <dd>
+              {info.isXfa
+                ? xfa === "hybrid"
+                  ? "XFA hybride (rempli par ses champs AcroForm)"
+                  : "XFA dynamique (lecture seule)"
+                : info.hasAcroForm
+                  ? "AcroForm"
+                  : "Aucun"}
+            </dd>
           </div>
           <div>
             <dt>Signature</dt>

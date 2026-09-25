@@ -598,3 +598,12 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   liens ni zones blanchies, avec les marques de caviardage ; réponse d'état sans texte
   conservée ; commentaires de code à jour.
 - Tests : 10 de plus. Suite complète 1968/1968 ; specs PDF 42/42.
+
+### Session cloud 1 : T5, points 2, 4, 5 et 7
+- Le clavier de l'organiseur ignore ce qui est tapé dans un champ ou un dialogue
+  (Retour arrière dans le dialogue de rognage supprimait les pages sélectionnées).
+- Pages exclues : « Enregistrer » les garde dans le document ; seules les copies,
+  impressions et extractions les laissent de côté (elles étaient supprimées pour de bon,
+  contrairement à l'infobulle).
+- Extraction : les indices tiennent compte des pages exclues (mauvaises pages extraites).
+- « Avant la page 1 » insère bien en tête (et non à la fin).

@@ -1628,7 +1628,8 @@ export default function PdfWorkspace({
     // A recomposed session saved into the file that still has the pages it
     // removed before recomposing: that file must be rewritten.
     const forceFull = disk && derivedRef.current?.forceFull.length ? derivedRef.current.forceFull : undefined;
-    const opts: Partial<BuildOptions> = { ...saveOptions(st), ...options };
+    // Saving the document itself keeps its excluded pages (only copies leave them out).
+    const opts: Partial<BuildOptions> = { ...saveOptions(st), keepSkipped: !how.copy, ...options };
     const marks = st.annots.filter((a) => a.kind === "redact").length;
     if (marks && opts.applyRedactions && !redactConfirmed.current) {
       const ok = await dialogs.confirm({
@@ -1651,6 +1652,7 @@ export default function PdfWorkspace({
           optimise: !!opts.optimise,
           sanitise: !!opts.sanitise,
           flattenForms: !!opts.flattenForms,
+          keepSkipped: !!opts.keepSkipped,
         },
         engine.pageCount,
         security,
@@ -2132,12 +2134,25 @@ export default function PdfWorkspace({
   const currentPage = () => pages[currentStore.get() - 1];
   const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
-  const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
+  /**
+   * Where pages land in a built copy: excluded pages are not in it, so the
+   * index is among the others (an excluded page itself is not there at all).
+   */
+  const outputIndices = (ids: readonly string[]): number[] => {
+    const live = pages.filter((q) => !q.skipped);
+    return ids.map((id) => live.findIndex((q) => q.id === id)).filter((i) => i >= 0);
+  };
+
+  /** Blank pages at position `index` (0: before the first page). */
+  const insertBlankAt = (index: number, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
     setState((s) => {
-      const at = afterId ? s.pages.findIndex((q) => q.id === afterId) + 1 : s.pages.length;
       const made = Array.from({ length: count }, () => D.makePage(null, { size: { w: size[0], h: size[1] } }));
-      return D.insertPages(s, at, made);
+      return D.insertPages(s, Math.max(0, Math.min(s.pages.length, index)), made);
     });
+  };
+  const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
+    const at = afterId ? pages.findIndex((q) => q.id === afterId) + 1 : pages.length;
+    insertBlankAt(at, count, size);
   };
 
   const command = async (id: string) => {
@@ -2458,8 +2473,7 @@ export default function PdfWorkspace({
         return;
       case "extract": {
         const ids = targetPages();
-        const indices = ids.map((pid) => pages.findIndex((q) => q.id === pid)).filter((i) => i >= 0);
-        await extractSelection(indices);
+        await extractSelection(outputIndices(ids));
         return;
       }
 
@@ -4093,9 +4107,7 @@ export default function PdfWorkspace({
             onDelete={(ids) => setState((s) => D.deletePages(s, ids))}
             onDuplicate={(ids) => setState((s) => D.duplicatePages(s, ids))}
             onSkip={(ids, skipped) => setState((s) => D.setPageSkipped(s, ids, skipped))}
-            onExtract={(ids) =>
-              void extractSelection(ids.map((id) => pages.findIndex((q) => q.id === id)).filter((i) => i >= 0))
-            }
+            onExtract={(ids) => void extractSelection(outputIndices(ids))}
             onInsertBlank={(afterId) => insertBlankAfter(afterId)}
             onInsertFile={() => mergeInput.current?.click()}
             onInsertImage={() => imageInput.current?.click()}
@@ -4606,8 +4618,9 @@ export default function PdfWorkspace({
               size === "same"
                 ? ([sizeOf(currentPage() ?? pages[0]).w, sizeOf(currentPage() ?? pages[0]).h] as [number, number])
                 : (PAGE_SIZES[size] ?? PAGE_SIZES.A4);
-            const anchor = where === "end" ? null : (pages[where === "before" ? at - 2 : at - 1]?.id ?? null);
-            insertBlankAfter(anchor, count, dims);
+            // Before page 1 is position 0 (it used to fall to the end).
+            const index = where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            insertBlankAt(index, count, dims);
             setDialog(null);
           }}
         />

@@ -272,6 +272,18 @@ export default function Organize(p: OrganizeProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Keys typed in a field or a dialog (crop, labels…) are theirs, not the organiser's.
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable ||
+          t.closest('[role="dialog"], dialog, .modal-overlay'))
+      ) {
+        return;
+      }
       if (e.key === "Escape") {
         p.onClose();
         return;
@@ -351,7 +363,7 @@ export default function Organize(p: OrganizeProps) {
           <button
             className="pdfx-cmd"
             onClick={() => p.onSkip(targets, !p.pages.find((q) => targets.includes(q.id))?.skipped)}
-            title="Exclure de l'export sans supprimer"
+            title="Exclure des copies, impressions et extractions (la page reste dans le document)"
           >
             {p.pages.find((q) => targets.includes(q.id))?.skipped ? <Eye size={16} /> : <EyeOff size={16} />}
           </button>

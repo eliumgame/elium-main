@@ -59,6 +59,11 @@ export interface BuildOptions {
   flattenForms: boolean;
   /** Perform pending redactions destructively. */
   applyRedactions: boolean;
+  /**
+   * Keep the pages excluded (« Exclure ») — the document itself is being saved:
+   * exclusion leaves them out of copies, prints and extractions only.
+   */
+  keepSkipped?: boolean;
   /** Strip metadata, JavaScript, attachments and automatic actions. */
   sanitise: boolean;
   /** Recompress and downsample to reduce the file size. */
@@ -271,7 +276,7 @@ export interface SaveResult {
 /** Why the state cannot be written as an incremental update (empty = it can). */
 export function fullRewriteReasons(
   state: PdfState,
-  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms">,
+  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms" | "keepSkipped">,
   sourcePageCount: number,
   security?: SecurityChange | null,
 ): string[] {
@@ -281,7 +286,9 @@ export function fullRewriteReasons(
   if (opts.applyRedactions && state.annots.some((a) => a.kind === "redact")) {
     reasons.push("caviardage : le contenu masqué est retiré définitivement, révisions précédentes comprises");
   }
-  const used = new Set(state.pages.filter((p) => !p.skipped && p.from != null).map((p) => p.from));
+  const used = new Set(
+    state.pages.filter((p) => (opts.keepSkipped || !p.skipped) && p.from != null).map((p) => p.from),
+  );
   let removed = 0;
   for (let i = 0; i < sourcePageCount; i++) if (!used.has(i)) removed++;
   if (removed) reasons.push(`${removed} page(s) supprimée(s) : retirées définitivement du fichier`);
@@ -453,7 +460,7 @@ async function applyState(
 
   // --- 1. page order -------------------------------------------------------
   step("Organisation des pages", 0.08);
-  const wanted = state.pages.filter((p) => !p.skipped);
+  const wanted = state.pages.filter((p) => opts.keepSkipped || !p.skipped);
   const source = doc.getPages();
   // The file's own labels, by source page, before the pages move.
   let fileLabels: (PageLabelDef | undefined)[] | null = null;

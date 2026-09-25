@@ -74,3 +74,15 @@ describe("page labels", () => {
     expect(doc.catalog.get(PDFName.of("PageLabels"))).toBeUndefined();
   });
 });
+
+describe("excluded pages", () => {
+  it("stay in the saved document, and are left out of copies", async () => {
+    let s: PdfState = { ...emptyState(), pages: D.pagesFromSource(3) };
+    s = D.setPageSkipped(s, [s.pages[1].id], true);
+    const src = await blank(3);
+    const kept = await PDFDocument.load((await buildPdf(src, s, { keepSkipped: true })).bytes);
+    expect(kept.getPageCount()).toBe(3);
+    const copy = await PDFDocument.load((await buildPdf(src, s)).bytes);
+    expect(copy.getPageCount()).toBe(2);
+  });
+});

@@ -255,10 +255,7 @@ export async function extractPages(bytes: Uint8Array, indices: readonly number[]
   const total = src.getPageCount();
   const valid = indices.filter((i) => Number.isInteger(i) && i >= 0 && i < total);
   if (!valid.length) throw new Error("Aucune page valide à extraire.");
-  const out = await PDFDocument.create();
-  const copied = await out.copyPages(src, [...valid]);
-  for (const p of copied) out.addPage(p);
-  return out.save();
+  return buildSubset(src, valid);
 }
 
 export type SplitMode =
@@ -312,21 +309,31 @@ export async function splitDocument(
         const from = starts[i].page - 1;
         const to = i + 1 < starts.length ? starts[i + 1].page - 1 : total;
         const pages = Array.from({ length: Math.max(0, to - from) }, (_, k) => from + k);
-        if (pages.length) groups.push({ name: `${baseName}-${safeName(starts[i].title)}`, pages });
+        if (!pages.length) continue;
+        // Two sections with the same title must not overwrite each other.
+        let name = `${baseName}-${safeName(starts[i].title)}`;
+        for (let k = 2; groups.some((g) => g.name === name); k++)
+          name = `${baseName}-${safeName(starts[i].title)} (${k})`;
+        groups.push({ name, pages });
       }
     }
   } else {
-    // maxSize: grow a part until adding the next page would exceed the budget.
+    // maxSize: each page weighed once (alone, less an empty document's
+    // weight), then parts filled up to the budget — not a rebuild per page.
+    const empty = (await (await PDFDocument.create()).save()).length;
+    const weights: number[] = [];
+    for (let i = 0; i < total; i++) weights.push(Math.max(1, (await buildSubset(src, [i])).length - empty));
     let current: number[] = [];
+    let size = empty;
     let index = 1;
     for (let i = 0; i < total; i++) {
-      current.push(i);
-      const probe = await buildSubset(src, current);
-      if (probe.length > mode.bytes && current.length > 1) {
-        current.pop();
-        groups.push({ name: `${baseName}-${index++}`, pages: [...current] });
-        current = [i];
+      if (current.length && size + weights[i] > mode.bytes) {
+        groups.push({ name: `${baseName}-${index++}`, pages: current });
+        current = [];
+        size = empty;
       }
+      current.push(i);
+      size += weights[i];
     }
     if (current.length) groups.push({ name: `${baseName}-${index}`, pages: current });
   }
@@ -338,10 +345,73 @@ export async function splitDocument(
   return parts;
 }
 
-async function buildSubset(src: PDFDocument, pages: readonly number[]): Promise<Uint8Array> {
-  const out = await PDFDocument.create();
+/**
+ * A document of `pages` of `src` that stands on its own: the pages with their
+ * metadata, labels, fields and the bookmarks that fall in them — not links to
+ * pages left out (nor the content of those pages, which a link would drag in).
+ */
+export async function buildSubset(src: PDFDocument, pages: readonly number[]): Promise<Uint8Array> {
+  const out = await PDFDocument.create({ updateMetadata: false });
   const copied = await out.copyPages(src, [...pages]);
   for (const p of copied) out.addPage(p);
+  const infoDict = src.context.lookup(src.context.trailerInfo.Info);
+  const info = (k: "Title" | "Author" | "Subject" | "Keywords" | "Creator" | "Producer") => {
+    const v = infoDict instanceof PDFDict ? infoDict.lookup(PDFName.of(k)) : undefined;
+    return v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : undefined;
+  };
+  const title = info("Title");
+  if (title) out.setTitle(title);
+  const author = info("Author");
+  if (author) out.setAuthor(author);
+  const subject = info("Subject");
+  if (subject) out.setSubject(subject);
+  const creator = info("Creator");
+  if (creator) out.setCreator(creator);
+  out.setProducer(info("Producer") ?? "Elium");
+  try {
+    const defs = readPageLabelDefs(src);
+    if (defs)
+      writePageLabels(
+        out,
+        pages.map((i) => defs[i]),
+      );
+  } catch {
+    /* numbered from 1 */
+  }
+  try {
+    adoptCopiedFields(out, src, copied);
+  } catch {
+    /* the pages without a working form */
+  }
+  try {
+    const at = new Map(pages.map((p, k) => [p, copied[k]?.ref]));
+    // Bookmarks into the part (a parent outside it stays for its children, without target).
+    const keep = (nodes: OutlineNode[]): OutlineNode[] =>
+      nodes.flatMap((n) => {
+        const kids = keep(n.kids);
+        return n.page || kids.length ? [{ ...n, kids }] : [];
+      });
+    appendOutlineNodes(out, keep(readOutlineNodes(src, (i) => at.get(i))));
+  } catch {
+    /* no bookmarks */
+  }
+  // Links to pages that are not in this part lead nowhere: they go.
+  const inPart = new Set(out.getPages().map((p) => refKey(p.ref)));
+  for (const p of out.getPages()) {
+    const annots = p.node.Annots();
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const a = annots.lookup(i);
+      if (!(a instanceof PDFDict) || a.lookup(PDFName.of("Subtype"))?.toString() !== "/Link") continue;
+      const act = a.lookup(PDFName.of("A"));
+      const dest = a.get(PDFName.of("Dest")) ?? (act instanceof PDFDict ? act.get(PDFName.of("D")) : undefined);
+      const arr = dest instanceof PDFRef ? out.context.lookup(dest) : dest;
+      if (arr instanceof PDFArray && !inPart.has(refKey(arr.get(0)))) annots.remove(i);
+    }
+  }
+  await out.flush();
+  const { pruneUnreachable } = await import("./incremental");
+  pruneUnreachable(out);
   return out.save();
 }
 
@@ -955,37 +1025,36 @@ function adoptCopiedFields(doc: PDFDocument, src: PDFDocument, copied: readonly 
  * `src`'s bookmarks, pointing at their copies in `doc`, under one bookmark
  * named `title` (to the first inserted page) at the end of `doc`'s outline.
  */
-function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPage[], title: string): void {
-  if (!copied.length) return;
-  const ctx = doc.context;
+interface OutlineNode {
+  title: string;
+  page?: PDFRef;
+  kids: OutlineNode[];
+}
+
+/** `src`'s bookmarks, their targets mapped by `target` (a page of `src` → its copy, or none). */
+function readOutlineNodes(src: PDFDocument, target: (srcPageIndex: number) => PDFRef | undefined): OutlineNode[] {
   const srcPages = src.getPages().map((p) => refKey(p.ref));
-  // Source page index of the copies (copyPages keeps the order asked, all pages here).
-  const target = (d: unknown): PDFRef | undefined => {
+  const resolve = (d: unknown): PDFRef | undefined => {
     let dest = d instanceof PDFRef ? src.context.lookup(d) : d;
     if (dest instanceof PDFString || dest instanceof PDFHexString || dest instanceof PDFName) {
-      dest = namedDest(src, dest instanceof PDFName ? dest.decodeText() : dest.decodeText());
+      dest = namedDest(src, dest.decodeText());
     }
     if (dest instanceof PDFDict) dest = dest.lookup(PDFName.of("D"));
     if (!(dest instanceof PDFArray)) return undefined;
     const i = srcPages.indexOf(refKey(dest.get(0)));
-    return i >= 0 ? copied[i]?.ref : undefined;
+    return i >= 0 ? target(i) : undefined;
   };
-  interface Node {
-    title: string;
-    page?: PDFRef;
-    kids: Node[];
-  }
-  const read = (first: unknown, depth: number): Node[] => {
-    const out: Node[] = [];
+  const read = (first: unknown, depth: number): OutlineNode[] => {
+    const out: OutlineNode[] = [];
     let cur = first instanceof PDFRef ? src.context.lookup(first) : first;
     let guard = 0;
     while (cur instanceof PDFDict && guard++ < 100000 && depth < 64) {
       const t = cur.lookup(PDFName.of("Title"));
       const a = cur.lookup(PDFName.of("A"));
       const page =
-        target(cur.get(PDFName.of("Dest"))) ??
+        resolve(cur.get(PDFName.of("Dest"))) ??
         (a instanceof PDFDict && a.lookup(PDFName.of("S"))?.toString() === "/GoTo"
-          ? target(a.get(PDFName.of("D")))
+          ? resolve(a.get(PDFName.of("D")))
           : undefined);
       out.push({
         title: t instanceof PDFString || t instanceof PDFHexString ? t.decodeText() : "",
@@ -997,9 +1066,14 @@ function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPa
     }
     return out;
   };
-  const srcOutline = src.catalog.lookup(PDFName.of("Outlines"));
-  const kids = srcOutline instanceof PDFDict ? read(srcOutline.get(PDFName.of("First")), 0) : [];
+  const root = src.catalog.lookup(PDFName.of("Outlines"));
+  return root instanceof PDFDict ? read(root.get(PDFName.of("First")), 0) : [];
+}
 
+/** Append `nodes` at the end of `doc`'s outline (created if needed). */
+function appendOutlineNodes(doc: PDFDocument, nodes: readonly OutlineNode[]): void {
+  if (!nodes.length) return;
+  const ctx = doc.context;
   let root = doc.catalog.lookup(PDFName.of("Outlines"));
   let rootRef = doc.catalog.get(PDFName.of("Outlines"));
   if (!(root instanceof PDFDict) || !(rootRef instanceof PDFRef)) {
@@ -1007,30 +1081,27 @@ function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPa
     rootRef = ctx.register(root as PDFDict);
     doc.catalog.set(PDFName.of("Outlines"), rootRef);
   }
-  // Write `nodes` as the children of `parentRef`; returns [first, last, count].
-  const write = (nodes: Node[], parentRef: PDFRef): [PDFRef | null, PDFRef | null, number] => {
-    const refs = nodes.map(() => ctx.nextRef());
-    let count = 0;
-    nodes.forEach((n, i) => {
+  // Write `list` as the children of `parentRef`; returns [first, last, count].
+  const write = (list: readonly OutlineNode[], parentRef: PDFRef): [PDFRef | null, PDFRef | null, number] => {
+    const refs = list.map(() => ctx.nextRef());
+    list.forEach((n, i) => {
       const [f, l, c] = write(n.kids, refs[i]);
       const dict: Record<string, unknown> = { Title: hexTitle(n.title), Parent: parentRef };
       if (n.page) dict.Dest = [n.page, PDFName.of("XYZ"), null, null, null];
       if (i > 0) dict.Prev = refs[i - 1];
-      if (i < nodes.length - 1) dict.Next = refs[i + 1];
+      if (i < list.length - 1) dict.Next = refs[i + 1];
       if (f && l) {
         dict.First = f;
         dict.Last = l;
         dict.Count = -c; // closed
       }
       ctx.assign(refs[i], ctx.obj(dict as never));
-      count += 1;
     });
-    return [refs[0] ?? null, refs[refs.length - 1] ?? null, count];
+    return [refs[0] ?? null, refs[refs.length - 1] ?? null, list.length];
   };
-  const top: Node = { title, page: copied[0].ref, kids };
-  const [first] = write([top], rootRef as PDFRef);
-  if (!first) return;
   const r = root as PDFDict;
+  const [first, lastNew, count] = write(nodes, rootRef as PDFRef);
+  if (!first || !lastNew) return;
   const last = r.get(PDFName.of("Last"));
   if (last instanceof PDFRef) {
     const lastDict = ctx.lookup(last);
@@ -1039,9 +1110,19 @@ function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPa
   } else {
     r.set(PDFName.of("First"), first);
   }
-  r.set(PDFName.of("Last"), first);
-  const count = r.lookup(PDFName.of("Count"));
-  r.set(PDFName.of("Count"), PDFNumber.of((count instanceof PDFNumber ? Math.abs(count.asNumber()) : 0) + 1));
+  r.set(PDFName.of("Last"), lastNew);
+  const had = r.lookup(PDFName.of("Count"));
+  r.set(PDFName.of("Count"), PDFNumber.of((had instanceof PDFNumber ? Math.abs(had.asNumber()) : 0) + count));
+}
+
+/**
+ * `src`'s bookmarks, pointing at their copies in `doc`, under one bookmark
+ * named `title` (to the first inserted page) at the end of `doc`'s outline.
+ */
+function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPage[], title: string): void {
+  if (!copied.length) return;
+  const kids = readOutlineNodes(src, (i) => copied[i]?.ref);
+  appendOutlineNodes(doc, [{ title, page: copied[0].ref, kids }]);
 }
 
 /** A named destination of `doc` (catalog /Dests or the /Names tree). */

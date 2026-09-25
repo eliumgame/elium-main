@@ -4742,9 +4742,22 @@ export default function PdfWorkspace({
                       ? { kind: "maxSize", bytes: v.maxMb * 1024 * 1024 }
                       : { kind: "bookmarks", level: 1 },
                 base,
-                (state.bookmarks ?? []).map((b) => ({ title: b.title, page: b.page })),
+                // Section starts in the copy's numbering (excluded pages are not in it).
+                (state.bookmarks ?? []).flatMap((b) => {
+                  const pg = pages[b.page - 1];
+                  const at = pg ? outputIndices([pg.id])[0] : undefined;
+                  return at === undefined ? [] : [{ title: b.title, page: at + 1 }];
+                }),
               );
-              for (const part of parts) downloadBlob(part.name, "application/pdf", part.bytes);
+              if (parts.length === 1) {
+                downloadBlob(parts[0].name, "application/pdf", parts[0].bytes);
+              } else {
+                // One archive: browsers block a burst of downloads.
+                const { zipSync } = await import("fflate");
+                const files: Record<string, Uint8Array> = {};
+                for (const part of parts) files[part.name] = part.bytes;
+                downloadBlob(`${base}-parties.zip`, "application/zip", zipSync(files, { level: 0 }));
+              }
               toast("success", `${parts.length} fichier(s) produit(s).`);
             } catch {
               toast("danger", "Division impossible.");

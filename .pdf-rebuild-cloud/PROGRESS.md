@@ -674,3 +674,19 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 - « Détecter les marges blanches » (la page rendue, bords du contenu, 2 pt gardés), et
   « Retirer les marges blanches de chaque page », chacune les siennes.
 - Tests : 2 unitaires, 1 navigateur. Suite complète OK ; specs PDF OK.
+
+### Session cloud 1 : T5, point 11 (extraction, découpage)
+- Les fichiers extraits ou découpés sont complets (`buildSubset`) :
+  - métadonnées, étiquettes de page de leurs pages, champs de formulaire ;
+  - les signets qui tombent dans la partie (un parent hors partie reste pour ses
+    enfants) ;
+  - les liens vers des pages hors partie sont retirés, puis les objets devenus
+    inaccessibles aussi : le contenu d'une page voisine n'était plus entraîné par un
+    lien.
+- Découpage par taille : chaque page est pesée une fois, puis les parties sont remplies
+  (avant : une reconstruction par page, O(n²)).
+- Découpage par signets : numéros convertis vers la copie (pages exclues), et deux
+  sections de même titre ne s'écrasent plus.
+- Plusieurs parties : une seule archive .zip (les navigateurs bloquaient les
+  téléchargements en rafale).
+- Tests : 2. Suite complète 1978/1978 ; specs PDF 50/50.

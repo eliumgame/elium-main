@@ -207,3 +207,50 @@ describe("cropping", () => {
     expect(D.visualToSourceInsets(seen, 90).left).toBe(1);
   });
 });
+
+describe("extracted and split parts stand on their own", () => {
+  it("keep fields, labels, the bookmarks in them and the metadata — not what links drag in", async () => {
+    const { extractPages, writePageLabels } = await import("../src/pdf/ops/organize");
+    const doc = await PDFDocument.load(await source());
+    doc.setTitle("Rapport complet");
+    writePageLabels(doc, [
+      { style: "roman", prefix: "", num: 1 },
+      { style: "roman", prefix: "", num: 2 },
+      { style: "decimal", prefix: "", num: 1 },
+      { style: "decimal", prefix: "", num: 2 },
+    ]);
+    const out = await extractPages(await doc.save(), [0, 1]);
+    const part = await PDFDocument.load(out);
+    expect(part.getTitle()).toBe("Rapport complet");
+    expect(
+      part
+        .getForm()
+        .getFields()
+        .map((f) => f.getName())
+        .sort(),
+    ).toEqual(["champ1", "champ2"]);
+    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const js = await task.promise;
+    expect(await js.getPageLabels()).toEqual(["i", "ii"]);
+    // The bookmark to page 3 is not in pages 1-2; the link to page 3 went, and so did page 3's content.
+    expect(await js.getOutline()).toBeNull();
+    await task.destroy();
+    expect(new TextDecoder("latin1").decode(out)).not.toContain("page 3)");
+  });
+
+  it("splits by size without rebuilding for every page", async () => {
+    const { splitDocument } = await import("../src/pdf/ops/organize");
+    const big = await PDFDocument.create();
+    const font = await big.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < 12; i++) {
+      const p = big.addPage([600, 800]);
+      for (let k = 0; k < 60; k++)
+        p.drawText(`Ligne ${k} de la page ${i} ${"x".repeat(40)}`, { x: 20, y: 780 - k * 12, size: 8, font });
+    }
+    const bytes = await big.save({ useObjectStreams: false });
+    const parts = await splitDocument(bytes, { kind: "maxSize", bytes: Math.ceil(bytes.length / 3) }, "doc");
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.flatMap((p) => p.pages)).toEqual(Array.from({ length: 12 }, (_, i) => i));
+    for (const p of parts) expect(p.bytes.length).toBeLessThanOrEqual(Math.ceil(bytes.length / 3) * 1.25);
+  });
+});

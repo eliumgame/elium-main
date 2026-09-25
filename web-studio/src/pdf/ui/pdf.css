@@ -1999,3 +1999,17 @@
   color: #b91c1c;
   font-weight: 600;
 }
+
+/* Rewritten page (the file's own rendering of the edits): over the canvas,
+   under the text, form and comment layers; same reading-theme filter. */
+.pdfx-editpreview--raster {
+  z-index: 1;
+}
+.pdfx-editpreview__raster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: var(--pdfx-page-filter);
+  user-select: none;
+}

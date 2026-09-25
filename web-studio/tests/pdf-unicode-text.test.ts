@@ -3,7 +3,7 @@ import "./pdfjs-node-shim";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import { buildPdf } from "../src/pdf/ops/save";
 import { sanitiseForFont } from "../src/pdf/ops/fonts";
@@ -98,6 +98,38 @@ describe("Unicode text written into pages", () => {
     } as Annot;
     const { bytes } = await buildPdf(await source(), { ...state, annots: [note] }, { interactiveAnnots: false });
     expect((await text(bytes)).replace(/\s+/g, " ")).toContain(SAMPLE);
+  });
+});
+
+describe("Unicode text keeps its family", () => {
+  it("a Times paragraph is rewritten in Liberation Serif, a Courier one in Liberation Mono", async () => {
+    for (const [family, expected] of [
+      ["Times New Roman", "LiberationSerif"],
+      ["Courier New", "LiberationMono"],
+    ] as const) {
+      let state = base();
+      state = D.upsertContentEdit(state, {
+        id: "e1",
+        pageId: state.pages[0].id,
+        blockKey: "B0",
+        original: "Texte d'origine",
+        text: "Łódź",
+        rect: { x: 58, y: 66, w: 400, h: 26 },
+        fontSize: 18,
+        leading: 22,
+        align: "left",
+        fontFamily: family,
+      });
+      const { bytes } = await buildPdf(await source(), state);
+      const doc = await PDFDocument.load(bytes);
+      const baseFonts = doc.context
+        .enumerateIndirectObjects()
+        .map(([, o]) => (o instanceof PDFDict ? o.lookup(PDFName.of("BaseFont")) : undefined))
+        .filter(Boolean)
+        .map(String);
+      expect(baseFonts.join(" ")).toContain(expected);
+      expect(await text(bytes)).toContain("Łódź");
+    }
   });
 });
 

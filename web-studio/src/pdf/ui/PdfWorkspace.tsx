@@ -3353,6 +3353,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           rotation={rotation}
           scale={scale}
           maskColor={themeDef.canvas}
+          source={bytesRef.current ? { bytes: bytesRef.current, password: passwordRef.current } : null}
+          from={page.from}
         />
         {mode === "editText" && (
           <ContentEditLayer

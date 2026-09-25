@@ -213,3 +213,41 @@ Suite : T3, édition de texte et d'images.
 - Diagnostic à faire sur des PDF Chrome/Edge : détection des blocs, reflux, alignement,
   aperçu à l'écran différent du fichier (coupures de ligne).
 - Polices Serif et Mono.
+
+## T3 : édition de texte et d'images
+
+### Session cloud 1, tranche 1
+
+Diagnostic fait sur un corpus Chromium généré (titres, paragraphes, deux colonnes,
+tableau, liste, centré/droite ; Arial et Times). Script :
+scratchpad/t3/make.mjs, non versionné ; à régénérer au besoin avec page.pdf().
+
+Corrigé :
+- Deux colonnes fusionnées ligne à ligne, et tableau en un seul bloc :
+  - `groupLines` coupe une ligne de base aux écarts de plus d'environ 1 em (y compris les
+    espaces synthétiques larges de pdf.js entre les cellules) ;
+  - `groupBlocks` est sensible aux colonnes (une ligne rejoint le bloc ouvert au-dessus
+    d'elle qui la recouvre) et sépare le bloc quand l'interligne s'ouvre ou quand une ligne
+    en gras suit du texte normal.
+- Texte justifié : il était détecté « gauche ».
+- Gras et italique n'étaient JAMAIS détectés : pdf.js ne donne qu'un identifiant de
+  police (« g_d0_f2 »). `PdfEngine.fonts()` et `pageFontFacts` lisent les vraies polices.
+  Aussi utilisé pour l'export Word.
+- Famille de la police de substitution déduite du vrai nom (`familyOf`), et Liberation
+  Serif et Mono embarquées (src/pdf/assets/fonts, SIL OFL) : un paragraphe en Times reste
+  en police à empattements.
+- Aperçu : c'est maintenant le RENDU RÉEL de la page réécrite par le code de
+  l'enregistrement (ops/editpreview.ts), et non plus du HTML approximatif. L'écran montre
+  les mêmes coupures de ligne et les mêmes polices que le fichier.
+- Tests : pdf-text-blocks (6), pdf-unicode-text (5).
+
+Reste T3 :
+- Liste : un seul bloc (comme Acrobat, à affiner).
+- Tableau : un bloc par colonne.
+- Mise en forme dans l'éditeur (gras, italique, taille, couleur, alignement), police
+  d'origine réutilisée quand elle couvre le texte, sinon sous-ensemble.
+- Déplacer ou redimensionner un bloc de texte ; ajouter du texte.
+- Images : ajouter, déplacer, redimensionner, remplacer, rogner, supprimer (vérifier
+  l'existant).
+- Pages Edge ou « Microsoft Print to PDF » (texte minuscule ou en miroir d'après le
+  diagnostic) : pas reproduit avec Chromium, corpus du poste nécessaire.

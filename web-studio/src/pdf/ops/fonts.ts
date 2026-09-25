@@ -13,7 +13,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { StandardFonts } from "pdf-lib";
 import type { PDFDocument, PDFFont } from "pdf-lib";
 import { DEFAULT_FONT, customFontNames, getCustomFont, isCustomFont, pdfFamilyOf } from "../../ui/fonts";
-import { coverageOf, isWinAnsi, liberationBytes, uncovered, type FontStyle } from "./unicodefonts";
+import { coverageOf, isWinAnsi, liberationBytes, uncovered, type FontStyle, type UnicodeFamily } from "./unicodefonts";
 
 const STANDARD = {
   helvetica: {
@@ -98,12 +98,17 @@ export class FontBook {
       return { ...base, missing: "" };
     }
     const style: FontStyle = bold && italic ? "bi" : bold ? "b" : italic ? "i" : "r";
-    const lib = (await liberationBytes(style)) ?? (await liberationBytes("r"));
+    // The Liberation face metric-compatible with the family (Times → Serif, Courier → Mono).
+    const uni: UnicodeFamily = { helvetica: "sans", times: "serif", courier: "mono" }[
+      pdfFamilyOf(family || DEFAULT_FONT)
+    ] as UnicodeFamily;
+    const lib =
+      (await liberationBytes(style, uni)) ?? (await liberationBytes("r", uni)) ?? (await liberationBytes(style));
     let missing = text;
     if (lib) {
       const cov = coverageOf(lib);
       missing = cov ? uncovered(text, cov) : text;
-      if (!missing) return { ...(await this.embedBytes(`lib-${style}`, lib)), missing: "" };
+      if (!missing) return { ...(await this.embedBytes(`lib-${uni}-${style}`, lib)), missing: "" };
     }
     for (const name of customFontNames()) {
       const bytes = getCustomFont(name);

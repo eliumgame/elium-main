@@ -178,6 +178,7 @@ export class PdfEngine {
   private task: LoadingTask;
   private pageCache = new Map<number, Promise<PDFPageProxy>>();
   private textCache = new Map<number, Promise<TextContentLike>>();
+  private readonly fontCache = new Map<number, Promise<Map<string, FontFacts>>>();
   private annotCache = new Map<number, Promise<unknown[]>>();
   /** Page index → number of viewers currently showing it (see `retainPage`). */
   private pageUsers = new Map<number, number>();
@@ -453,6 +454,25 @@ export class PdfEngine {
     return t;
   }
 
+  /**
+   * The real fonts of a page's text (0-based), by pdf.js' font id — what
+   * `getTextContent` does not tell: its `fontName` is an internal id
+   * (« g_d0_f2 »), so bold / italic had to be guessed and never were. The
+   * page's operator list is loaded once for it (fonts reach the main thread
+   * with it).
+   */
+  fonts(index: number): Promise<Map<string, FontFacts>> {
+    let f = this.fontCache.get(index);
+    if (!f) {
+      f = (async () => {
+        const { pageFontFacts } = await import("./text");
+        return pageFontFacts(await this.page(index), await this.text(index));
+      })().catch(() => new Map<string, FontFacts>());
+      this.fontCache.set(index, f);
+    }
+    return f;
+  }
+
   /** Cached raw annotations (0-based) — widgets, links, existing markup. */
   annotations(index: number): Promise<unknown[]> {
     let a = this.annotCache.get(index);
@@ -635,6 +655,14 @@ export interface TextItemLike {
   transform?: number[];
   fontName?: string;
   hasEOL?: boolean;
+}
+
+/** A text font as the page uses it (see `PdfEngine.fonts`). */
+export interface FontFacts {
+  /** Its BaseFont (« ABCDEF+Arial-BoldMT »). */
+  name: string;
+  bold: boolean;
+  italic: boolean;
 }
 
 export interface TextContentLike {

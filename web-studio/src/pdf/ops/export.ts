@@ -85,8 +85,9 @@ export async function extractLayout(
   for (let i = 0; i < engine.pageCount; i++) {
     const page = await engine.page(i);
     const vp = page.getViewport({ scale: 1, rotation: 0 });
-    const tc = await engine.text(i);
-    const runs = buildRuns(tc, vp.transform as unknown as number[]);
+    const [tc, fonts] = await Promise.all([engine.text(i), engine.fonts(i)]);
+    // Real fonts: bold / italic survive into the Word export.
+    const runs = buildRuns(tc, vp.transform as unknown as number[], fonts);
     const lines = groupLines(runs, tc.items);
     out.push({ page: i, lines, blocks: groupBlocks(lines) });
     onProgress?.(i + 1, engine.pageCount);

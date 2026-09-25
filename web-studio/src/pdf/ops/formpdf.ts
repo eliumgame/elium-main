@@ -109,7 +109,9 @@ export class FieldFontBook {
       const std = STANDARD_FAMILIES[family][style];
       return { font: await this.embed(`std-${family}-${style}`, () => this.doc.embedFont(std)), missing: "" };
     }
-    const lib = (await liberationBytes(style)) ?? (await liberationBytes("r"));
+    const uni = ({ helvetica: "sans", times: "serif", courier: "mono" } as const)[family];
+    const lib =
+      (await liberationBytes(style, uni)) ?? (await liberationBytes("r", uni)) ?? (await liberationBytes(style));
     let missing = text;
     if (lib) {
       const cov = coverageOf(lib);
@@ -117,7 +119,7 @@ export class FieldFontBook {
       if (!missing) {
         this.registerFontkit();
         return {
-          font: await this.embed(`lib-${style}`, () => this.doc.embedFont(lib, { subset: true })),
+          font: await this.embed(`lib-${uni}-${style}`, () => this.doc.embedFont(lib, { subset: true })),
           missing: "",
         };
       }

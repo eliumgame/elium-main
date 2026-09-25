@@ -12,7 +12,7 @@
 import { pdfjs } from "./pdfjs";
 import type { Matrix, Pt, Quad, Rect, Rotation, Size } from "./coords";
 import { quadFromRect, rectFromView, rectOfPoints } from "./coords";
-import type { TextContentLike, TextItemLike } from "./engine";
+import type { FontFacts, TextContentLike, TextItemLike } from "./engine";
 
 /** One text-showing operation, placed in page space. */
 export interface TextRun {
@@ -88,7 +88,12 @@ const norm = (p: Pt): Pt => {
  * must pass the viewport transform of `getViewport({ scale: 1, rotation: 0 })`
  * so PDF space (y up) is flipped into page space (y down) exactly once.
  */
-export function buildRuns(tc: TextContentLike, viewportTransform: number[]): TextRun[] {
+export function buildRuns(
+  tc: TextContentLike,
+  viewportTransform: number[],
+  /** The page's real fonts (`PdfEngine.fonts`): without them bold / italic are guessed from ids. */
+  fonts?: ReadonlyMap<string, FontFacts>,
+): TextRun[] {
   const out: TextRun[] = [];
   const items = tc.items ?? [];
   for (let i = 0; i < items.length; i++) {
@@ -108,7 +113,8 @@ export function buildRuns(tc: TextContentLike, viewportTransform: number[]): Tex
     const br: Pt = { x: bl.x + dir.x * width, y: bl.y + dir.y * width };
     const quad: Quad = [tl, tr, br, bl];
     const style = it.fontName ? tc.styles?.[it.fontName] : undefined;
-    const fontName = it.fontName ?? "";
+    const facts = it.fontName ? fonts?.get(it.fontName) : undefined;
+    const fontName = facts?.name || it.fontName || "";
     out.push({
       index: i,
       str: it.str,
@@ -119,15 +125,43 @@ export function buildRuns(tc: TextContentLike, viewportTransform: number[]): Tex
       dir,
       up,
       fontName: it.fontName,
-      fontFamily: style?.fontFamily,
-      bold: /bold|black|heavy|semibold/i.test(fontName),
-      italic: /italic|oblique/i.test(fontName),
+      fontFamily: familyOf(facts?.name, style?.fontFamily),
+      bold: facts ? facts.bold : /bold|black|heavy|semibold/i.test(fontName),
+      italic: facts ? facts.italic : /italic|oblique/i.test(fontName),
       quad,
       rect: rectOfPoints(quad),
       hasEOL: !!it.hasEOL,
     });
   }
   return out;
+}
+
+/**
+ * The Elium family closest to a PDF font (its BaseFont, subset prefix
+ * stripped), else to pdf.js' generic fallback: what a rewritten paragraph is
+ * set in when its own font cannot be reused, and what the editor shows.
+ */
+export function familyOf(baseFont: string | undefined, fallback: string | undefined): string {
+  const name = (baseFont ?? "").replace(/^[A-Z]{6}\+/, "");
+  if (/courier|mono|consol|menlo|fixed|typewriter/i.test(name)) return "Courier New";
+  if (/georgia/i.test(name)) return "Georgia";
+  if (/garamond/i.test(name)) return "Garamond";
+  if (/cambria/i.test(name)) return "Cambria";
+  if (
+    /times|tinos|liberationserif|serif|roman|minion|palatino|book ?antiqua|century/i.test(name) &&
+    !/sans/i.test(name)
+  ) {
+    return "Times New Roman";
+  }
+  if (/calibri|carlito/i.test(name)) return "Calibri";
+  if (/verdana/i.test(name)) return "Verdana";
+  if (/tahoma/i.test(name)) return "Tahoma";
+  if (/arial|helvetica|arimo|liberationsans|sans/i.test(name)) return "Arial";
+  if (!name) {
+    if (/mono/i.test(fallback ?? "")) return "Courier New";
+    if (/serif/i.test(fallback ?? "") && !/sans/i.test(fallback ?? "")) return "Times New Roman";
+  }
+  return "Arial";
 }
 
 /**
@@ -147,39 +181,72 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
   });
 
   const lines: TextLine[] = [];
-  let group: TextRun[] = [];
 
-  const flush = () => {
+  const emit = (group: TextRun[]) => {
+    // Leading / trailing blanks belong to no one.
+    while (group.length && !group[0].str.trim()) group.shift();
+    while (group.length && !group[group.length - 1].str.trim()) group.pop();
     if (!group.length) return;
-    group.sort((a, b) => a.origin.x - b.origin.x);
     const text = group.map((r) => r.str).join("");
-    if (text.trim()) {
-      const pts = group.flatMap((r) => r.quad);
-      const rect = rectOfPoints(pts);
-      const first = group[0];
-      const fontSize = median(group.map((r) => r.fontSize));
-      const starts = group.map((r) => offsets?.get(r.index) ?? -1).filter((n) => n >= 0);
-      const last = group[group.length - 1];
-      const lastStart = offsets?.get(last.index) ?? -1;
-      lines.push({
-        key: `L${lines.length}`,
-        runs: group,
-        text,
-        rect,
-        quad: quadFromRect(rect),
-        origin: first.origin,
-        fontSize,
-        angle: first.angle,
-        fontFamily: first.fontFamily,
-        bold: group.every((r) => r.bold),
-        italic: group.every((r) => r.italic),
-        charStart: starts.length ? Math.min(...starts) : -1,
-        charEnd: lastStart >= 0 ? lastStart + last.str.length : -1,
-      });
-    }
-    group = [];
+    if (!text.trim()) return;
+    const visible = group.filter((r) => r.str.trim());
+    const pts = group.flatMap((r) => r.quad);
+    const rect = rectOfPoints(pts);
+    const first = group[0];
+    const fontSize = median(visible.map((r) => r.fontSize));
+    const starts = group.map((r) => offsets?.get(r.index) ?? -1).filter((n) => n >= 0);
+    const last = group[group.length - 1];
+    const lastStart = offsets?.get(last.index) ?? -1;
+    lines.push({
+      key: `L${lines.length}`,
+      runs: group,
+      text,
+      rect,
+      quad: quadFromRect(rect),
+      origin: first.origin,
+      fontSize,
+      angle: first.angle,
+      fontFamily: visible[0].fontFamily,
+      bold: visible.every((r) => r.bold),
+      italic: visible.every((r) => r.italic),
+      charStart: starts.length ? Math.min(...starts) : -1,
+      charEnd: lastStart >= 0 ? lastStart + last.str.length : -1,
+    });
   };
 
+  /**
+   * One baseline → one or more lines: runs further apart than about an em —
+   * a column gutter, a table cell (pdf.js fills those gaps with a wide
+   * synthetic space) — are separate lines. Word spaces, even justified ones,
+   * stay well under that.
+   */
+  const flush = (group: TextRun[]) => {
+    if (!group.length) return;
+    group.sort((a, b) => along(a, a.origin) - along(a, b.origin));
+    let seg: TextRun[] = [];
+    let end = -Infinity;
+    for (const r of group) {
+      const em = Math.max(r.fontSize, 1);
+      const start = along(group[0], r.origin);
+      const blank = !r.str.trim();
+      if (blank && r.width > em * GAP_EM) {
+        // A synthetic gap filler: a separator, not text.
+        emit(seg);
+        seg = [];
+        end = -Infinity;
+        continue;
+      }
+      if (seg.length && start - end > em * GAP_EM) {
+        emit(seg);
+        seg = [];
+      }
+      seg.push(r);
+      end = Math.max(end, start + r.width);
+    }
+    emit(seg);
+  };
+
+  let group: TextRun[] = [];
   for (const r of sorted) {
     if (!group.length) {
       group = [r];
@@ -190,75 +257,110 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
     const tol = Math.max(2.2, ref.fontSize * 0.55);
     if (sameAngle && Math.abs(r.origin.y - ref.origin.y) <= tol) group.push(r);
     else {
-      flush();
+      flush(group);
       group = [r];
     }
   }
-  flush();
+  flush(group);
   return lines;
 }
 
+/** Gap (in em) beyond which two runs on one baseline are separate lines. */
+const GAP_EM = 1.0;
+
+/** Position of `p` along the writing direction of `ref`. */
+function along(ref: TextRun, p: Pt): number {
+  return p.x * ref.dir.x + p.y * ref.dir.y;
+}
+
 /**
- * Group lines into paragraph-like blocks: consecutive lines with a consistent
- * leading, comparable font size and overlapping horizontal extent. This is what
- * the real text editor edits — editing a whole paragraph is what lets text
- * reflow instead of being clipped at the old line's width.
+ * Group lines into paragraph-like blocks — what the real text editor edits
+ * (editing a whole paragraph is what lets text reflow). Column-aware: a line
+ * joins the open block directly above it that it overlaps horizontally, not
+ * merely the previous line in top-to-bottom order, so two columns or table
+ * columns never interleave. A block ends where the line spacing opens up
+ * (paragraph spacing), the size changes, or a bold line follows regular text
+ * (a heading followed by its paragraph, or the reverse).
  */
 export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
-  const blocks: TextBlock[] = [];
-  let cur: TextLine[] = [];
+  interface Open {
+    lines: TextLine[];
+    leading: number | null;
+  }
+  const done: Open[] = [];
+  let open: Open[] = [];
 
-  const flush = () => {
-    if (!cur.length) return;
-    const rect = cur.reduce<Rect | null>((acc, l) => {
-      if (!acc) return { ...l.rect };
-      const x = Math.min(acc.x, l.rect.x);
-      const y = Math.min(acc.y, l.rect.y);
-      return {
-        x,
-        y,
-        w: Math.max(acc.x + acc.w, l.rect.x + l.rect.w) - x,
-        h: Math.max(acc.y + acc.h, l.rect.y + l.rect.h) - y,
-      };
-    }, null)!;
-    const gaps: number[] = [];
-    for (let i = 1; i < cur.length; i++) gaps.push(cur[i].origin.y - cur[i - 1].origin.y);
-    const fontSize = median(cur.map((l) => l.fontSize));
-    blocks.push({
-      key: `B${blocks.length}`,
-      lines: cur.slice(),
-      rect,
-      text: cur.map((l) => l.text).join("\n"),
-      fontSize,
-      leading: gaps.length ? median(gaps) : fontSize * 1.2,
-      align: guessAlign(cur, rect),
-      fontFamily: cur[0].fontFamily,
-      bold: cur.every((l) => l.bold),
-      italic: cur.every((l) => l.italic),
-    });
-    cur = [];
-  };
-
-  for (const l of lines) {
-    if (!cur.length) {
-      cur = [l];
-      continue;
+  const ordered = lines.slice().sort((a, b) => a.origin.y - b.origin.y || a.origin.x - b.origin.x);
+  for (const l of ordered) {
+    let best: Open | null = null;
+    let bestOverlap = 0;
+    const still: Open[] = [];
+    for (const b of open) {
+      const prev = b.lines[b.lines.length - 1];
+      const gap = l.origin.y - prev.origin.y;
+      // Too far below: this block is finished.
+      if (gap > prev.fontSize * 3) {
+        done.push(b);
+        continue;
+      }
+      still.push(b);
+      const sizeOk = Math.abs(l.fontSize - prev.fontSize) <= Math.max(0.6, prev.fontSize * 0.22);
+      const firstGapOk = gap > 0 && gap <= prev.fontSize * 2.1;
+      const leadingOk = b.leading === null || gap <= b.leading * 1.3 + 0.5;
+      const overlap = Math.min(l.rect.x + l.rect.w, prev.rect.x + prev.rect.w) - Math.max(l.rect.x, prev.rect.x);
+      const overlapOk = overlap > Math.min(l.rect.w, prev.rect.w) * 0.35;
+      const angleOk = Math.abs(normalizeAngle(l.angle - prev.angle)) < 0.05;
+      const styleOk = l.bold === b.lines.every((x) => x.bold) || b.lines.length === 0;
+      if (sizeOk && firstGapOk && leadingOk && overlapOk && angleOk && styleOk && overlap > bestOverlap) {
+        best = b;
+        bestOverlap = overlap;
+      }
     }
-    const prev = cur[cur.length - 1];
-    const gap = l.origin.y - prev.origin.y;
-    const sizeOk = Math.abs(l.fontSize - prev.fontSize) <= Math.max(0.6, prev.fontSize * 0.22);
-    const gapOk = gap > 0 && gap <= prev.fontSize * 2.1;
-    const overlap = Math.min(l.rect.x + l.rect.w, prev.rect.x + prev.rect.w) - Math.max(l.rect.x, prev.rect.x);
-    const overlapOk = overlap > Math.min(l.rect.w, prev.rect.w) * 0.35;
-    const angleOk = Math.abs(normalizeAngle(l.angle - prev.angle)) < 0.05;
-    if (sizeOk && gapOk && overlapOk && angleOk) cur.push(l);
-    else {
-      flush();
-      cur = [l];
+    open = still;
+    if (best) {
+      const prev = best.lines[best.lines.length - 1];
+      const gap = l.origin.y - prev.origin.y;
+      best.leading = best.leading === null ? gap : best.leading;
+      best.lines.push(l);
+    } else {
+      open.push({ lines: [l], leading: null });
     }
   }
-  flush();
-  return blocks;
+  done.push(...open);
+
+  // Reading order: top to bottom, then left to right (the left column first
+  // when two blocks start on the same baseline).
+  done.sort((a, b) => a.lines[0].origin.y - b.lines[0].origin.y || a.lines[0].origin.x - b.lines[0].origin.x);
+  return done.map((b, i) => blockOf(b.lines, `B${i}`));
+}
+
+function blockOf(cur: readonly TextLine[], key: string): TextBlock {
+  const rect = cur.reduce<Rect | null>((acc, l) => {
+    if (!acc) return { ...l.rect };
+    const x = Math.min(acc.x, l.rect.x);
+    const y = Math.min(acc.y, l.rect.y);
+    return {
+      x,
+      y,
+      w: Math.max(acc.x + acc.w, l.rect.x + l.rect.w) - x,
+      h: Math.max(acc.y + acc.h, l.rect.y + l.rect.h) - y,
+    };
+  }, null)!;
+  const gaps: number[] = [];
+  for (let i = 1; i < cur.length; i++) gaps.push(cur[i].origin.y - cur[i - 1].origin.y);
+  const fontSize = median(cur.map((l) => l.fontSize));
+  return {
+    key,
+    lines: cur.slice(),
+    rect,
+    text: cur.map((l) => l.text).join("\n"),
+    fontSize,
+    leading: gaps.length ? median(gaps) : fontSize * 1.2,
+    align: guessAlign(cur, rect),
+    fontFamily: cur[0].fontFamily,
+    bold: cur.every((l) => l.bold),
+    italic: cur.every((l) => l.italic),
+  };
 }
 
 function guessAlign(lines: readonly TextLine[], rect: Rect): TextBlock["align"] {
@@ -266,13 +368,19 @@ function guessAlign(lines: readonly TextLine[], rect: Rect): TextBlock["align"] 
   const lefts = lines.map((l) => l.rect.x);
   const rights = lines.map((l) => l.rect.x + l.rect.w);
   const spread = (a: number[]) => Math.max(...a) - Math.min(...a);
-  const leftTight = spread(lefts) < 2.5;
-  const rightTight = spread(rights) < 2.5;
-  if (leftTight && rightTight) return "justify";
+  const tol = Math.max(2.5, median(lines.map((l) => l.fontSize)) * 0.3);
+  const leftTight = spread(lefts) < tol;
+  const rightTight = spread(rights) < tol;
+  // Justified: every line but the last (which ends where it ends) fills the width.
+  const body = rights.slice(0, -1);
+  if (leftTight && body.length >= 2 && spread(body) < tol && rights[rights.length - 1] <= Math.max(...body) + tol) {
+    return "justify";
+  }
+  if (leftTight && rightTight) return lines.length > 2 ? "justify" : "left";
   if (rightTight && !leftTight) return "right";
   if (!leftTight && !rightTight) {
     const centers = lines.map((l) => l.rect.x + l.rect.w / 2);
-    if (spread(centers) < 3 && Math.abs(median(centers) - (rect.x + rect.w / 2)) < 3) return "center";
+    if (spread(centers) < tol && Math.abs(median(centers) - (rect.x + rect.w / 2)) < tol) return "center";
   }
   return "left";
 }
@@ -460,6 +568,32 @@ export function selectionTextIn(selection: Selection | null, textLayer: HTMLElem
       continue;
     }
     out += clipped.toString();
+  }
+  return out;
+}
+
+/**
+ * The real fonts of a page's text, by pdf.js font id (see `PdfEngine.fonts`):
+ * the operator list is loaded so the fonts reach the main thread.
+ */
+export async function pageFontFacts(
+  page: { getOperatorList(o?: object): Promise<unknown>; commonObjs: unknown },
+  tc: TextContentLike,
+): Promise<Map<string, FontFacts>> {
+  await page.getOperatorList({ annotationMode: pdfjs.AnnotationMode.DISABLE });
+  const objs = page.commonObjs as { has(id: string): boolean; get(id: string): unknown };
+  const out = new Map<string, FontFacts>();
+  for (const it of (tc.items ?? []) as { fontName?: string }[]) {
+    const id = it.fontName;
+    if (!id || out.has(id) || !objs.has(id)) continue;
+    const font = objs.get(id) as { name?: string; bold?: boolean; italic?: boolean; black?: boolean } | null;
+    if (!font) continue;
+    const name = font.name ?? "";
+    out.set(id, {
+      name,
+      bold: !!font.bold || !!font.black || /bold|black|heavy|semibold|demi/i.test(name),
+      italic: !!font.italic || /italic|oblique/i.test(name),
+    });
   }
   return out;
 }

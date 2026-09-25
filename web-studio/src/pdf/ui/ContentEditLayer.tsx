@@ -44,9 +44,9 @@ function ContentEditLayer(p: ContentEditLayerProps) {
     (async () => {
       const page = await p.engine.page(p.from!);
       const vp = page.getViewport({ scale: 1, rotation: 0 });
-      const tc = await p.engine.text(p.from!);
+      const [tc, fonts] = await Promise.all([p.engine.text(p.from!), p.engine.fonts(p.from!)]);
       if (cancelled) return;
-      const runs = buildRuns(tc, vp.transform as unknown as number[]);
+      const runs = buildRuns(tc, vp.transform as unknown as number[], fonts);
       const lines = groupLines(runs, tc.items);
       const grouped = groupBlocks(lines);
       setBlocks(grouped);

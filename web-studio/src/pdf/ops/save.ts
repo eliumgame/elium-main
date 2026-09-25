@@ -530,6 +530,11 @@ async function applyState(
         report.textBlocksNative += r.native;
         report.textBlocksSubstituted += r.substituted;
         report.textBlocksSkipped += r.skipped;
+        if (r.missing.length) {
+          report.lost.push(
+            `${where} : caractère(s) « ${[...new Set(r.missing.join(""))].join("")} » absent(s) des polices disponibles, non écrit(s).`,
+          );
+        }
         if (r.skipped) {
           report.lost.push(
             `${where} : ${r.skipped} paragraphe(s) modifié(s) à l'écran n'ont pas pu être réécrits dans le fichier (texte introuvable dans le flux de la page).`,

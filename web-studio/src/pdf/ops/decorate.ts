@@ -109,7 +109,7 @@ export async function applyWatermark(
       p.image(img, X + at.x, Y + at.y, iw, ih);
     }
   } else if (wm.text) {
-    const { font, unicode } = await ctx.fonts.get(wm.fontFamily, true, false);
+    const { font, unicode } = await ctx.fonts.forText(wm.fontFamily, true, false, wm.text);
     const text = sanitiseForFont(wm.text, unicode);
     let size = (wm.fontSize || 56) * (wm.scale || 1);
     // Shrink so a long watermark still fits across the diagonal.
@@ -177,7 +177,7 @@ export async function applyBand(
   ];
   if (cells.every(([t]) => !t.trim())) return;
 
-  const { font, unicode } = await ctx.fonts.get(band.fontFamily, false, false);
+  const { font, unicode } = await ctx.fonts.forText(band.fontFamily, false, false, cells.map(([t]) => t).join(""));
   const res = new PageResources(page);
   const p = new Painter(res);
   const { x: X, y: Y, width: W, height: H } = frame.box;
@@ -210,7 +210,7 @@ export async function applyBatesStamp(
   ctx: DecorateContext,
 ): Promise<void> {
   if (!bates.enabled) return;
-  const { font, unicode } = await ctx.fonts.get(undefined, true, false);
+  const { font, unicode } = await ctx.fonts.forText(undefined, true, false, label);
   const res = new PageResources(page);
   const p = new Painter(res);
   const size = 9;

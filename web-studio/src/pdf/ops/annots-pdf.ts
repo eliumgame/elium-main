@@ -165,7 +165,7 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
         .rect(r.x, r.y, r.w, r.h)
         .fill();
       if (a.redactText) {
-        const { font, unicode } = await ctx.fonts.standard(true);
+        const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, a.redactText);
         const label = sanitiseForFont(a.redactText, unicode);
         const size = Math.min(10, Math.max(5, r.h * 0.55));
         const w = measure(font, label, size);
@@ -368,7 +368,7 @@ function centroid(pts: readonly Pt[]): Pt {
 
 /** A measurement caption on a pill background, centred on `at`. */
 async function paintCaption(p: Painter, ctx: PaintContext, a: Annot, label: string, at: Pt): Promise<void> {
-  const { font, unicode } = await ctx.fonts.standard(true);
+  const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, label);
   const size = a.fontSize || 10;
   const text = sanitiseForFont(label, unicode);
   const w = measure(font, text, size);
@@ -414,7 +414,7 @@ export const NOTE_SIZE = 20;
 async function paintTextBox(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
   const r = ctx.frame.rectToPdf(a.rect);
   const size = a.fontSize || 12;
-  const { font, unicode } = await ctx.fonts.get(a.fontFamily, a.bold, a.italic);
+  const { font, unicode } = await ctx.fonts.forText(a.fontFamily, !!a.bold, !!a.italic, a.text ?? "");
   const pad = 3;
   const alpha = a.opacity ?? 1;
 
@@ -469,8 +469,9 @@ async function paintGeneratedStamp(
   r: { x: number; y: number; w: number; h: number },
 ): Promise<void> {
   const tone = STAMP_TONES[a.stampTone ?? "red"] ?? STAMP_TONES.red;
-  const { font, unicode } = await ctx.fonts.standard(true);
-  const label = sanitiseForFont(a.stampLabel ?? "", unicode).toUpperCase();
+  const upper = (a.stampLabel ?? "").toUpperCase();
+  const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, upper);
+  const label = sanitiseForFont(upper, unicode);
   const fg = hexToRgb(tone.fg);
   p.alpha({ fillAlpha: (a.opacity ?? 1) * 0.14 }).fillColor(hexToRgb(tone.bg));
   p.roundRect(r.x, r.y, r.w, r.h, Math.min(6, r.h / 4)).fill();
@@ -742,7 +743,7 @@ async function writeOne(
   }
 
   if (a.kind === "freetext" || a.kind === "typewriter" || a.kind === "callout") {
-    const { font } = await ctx.fonts.get(a.fontFamily, a.bold, a.italic);
+    const { font } = await ctx.fonts.forText(a.fontFamily, !!a.bold, !!a.italic, a.text ?? "");
     const c = hexToRgb(a.color);
     entries.DA = PDFString.of(
       `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)} rg /${font.name} ${round(a.fontSize ?? 12, 2)} Tf`,

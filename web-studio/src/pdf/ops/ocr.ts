@@ -193,7 +193,9 @@ export async function writeOcrLayer(
   fonts: FontBook,
 ): Promise<number> {
   if (!words.length) return 0;
-  const { font } = await fonts.standard();
+  // Invisible text, but it is what search and copy read: every recognised
+  // character must be encodable (Polish, Greek, Cyrillic… OCR languages).
+  const { font, unicode } = await fonts.forText("Helvetica", false, false, words.map((w) => w.text).join(" "));
   const box = page.getCropBox();
   const res = new PageResources(page);
   const painter = new Painter(res);
@@ -202,7 +204,7 @@ export async function writeOcrLayer(
   painter.save().raw("BT").raw("3 Tr");
   let written = 0;
   for (const w of words) {
-    const text = sanitiseForFont(w.text, false).trim();
+    const text = sanitiseForFont(w.text, unicode).trim();
     if (!text) continue;
     const size = Math.max(2, w.rect.h * 0.92);
     let natural = 0;

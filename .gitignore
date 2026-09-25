@@ -66,3 +66,7 @@ latest.json.sig
 # Misc
 .elium-main/
 .ruff_cache/
+
+# Tests jetables (relectures, diagnostics) — jamais versionnés
+web-studio/tests/zz-*
+web-studio/tests/pdf-zz-*

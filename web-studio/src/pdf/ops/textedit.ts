@@ -35,6 +35,8 @@ export interface TextEditReport {
   substituted: number;
   /** Blocks whose original text could no longer be located (page changed). */
   skipped: number;
+  /** Characters no available font could show (dropped from the file). */
+  missing: string[];
 }
 
 function overlapRatio(a: Rect, b: Rect): number {
@@ -124,7 +126,7 @@ export async function applyTextEdits(
   frame: PageFrame,
   fontBook: FontBook,
 ): Promise<TextEditReport> {
-  const report: TextEditReport = { native: 0, substituted: 0, skipped: 0 };
+  const report: TextEditReport = { native: 0, substituted: 0, skipped: 0, missing: [] };
   if (!edits.length) return report;
 
   const { ops, fonts } = await readPageContent(page);
@@ -306,7 +308,13 @@ export async function applyTextEdits(
     const res = new PageResources(page);
     const painter = new Painter(res);
     for (const f of fallbacks) {
-      const { font, unicode } = await fontBook.get(f.edit.fontFamily, f.edit.bold, f.edit.italic);
+      const { font, unicode, missing } = await fontBook.forText(
+        f.edit.fontFamily,
+        !!f.edit.bold,
+        !!f.edit.italic,
+        f.edit.text,
+      );
+      if (missing) report.missing.push(missing);
       const body = sanitiseForFont(f.edit.text, unicode);
       const lines = wrapText(font, body, f.size, f.box.w);
       const leading = f.edit.leading > 0 ? f.edit.leading : f.size * 1.2;

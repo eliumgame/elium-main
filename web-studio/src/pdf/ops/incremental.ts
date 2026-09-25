@@ -384,3 +384,23 @@ export function revisionCount(bytes: Uint8Array): number {
   while ((at = lastIndexOf(bytes, "%%EOF", at - 1)) >= 0) n++;
   return n;
 }
+
+/**
+ * Certification (DocMDP) level of a signed file: 1 = no change allowed,
+ * 2 = form filling and signing only, 3 = also comments; null = not certified
+ * (ordinary approval signatures allow any incremental update).
+ */
+export function certificationLevel(bytes: Uint8Array): 1 | 2 | 3 | null {
+  const text = latin1(bytes, 0, bytes.length);
+  const re = /\/TransformMethod\s*\/DocMDP/g;
+  let m: RegExpExecArray | null;
+  let level: 1 | 2 | 3 | null = null;
+  while ((m = re.exec(text))) {
+    const around = text.slice(Math.max(0, m.index - 600), m.index + 600);
+    const params = /\/TransformParams\s*<<([\s\S]*?)>>/.exec(around);
+    const p = params ? /\/P\s+([123])\b/.exec(params[1]) : null;
+    const found = (p ? parseInt(p[1], 10) : 2) as 1 | 2 | 3; // ISO 32000: /P defaults to 2
+    level = level === null ? found : (Math.min(level, found) as 1 | 2 | 3);
+  }
+  return level;
+}

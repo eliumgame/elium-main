@@ -477,3 +477,63 @@ describe("savePdf — building on pdf.js saveDocument() (form values from the an
     expect(disk.fingerprints.size).toBeGreaterThan(0);
   }, 30_000);
 });
+
+describe("certificationLevel (DocMDP)", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  it("reads the /P of a certifying signature, defaulting to 2", async () => {
+    const { certificationLevel } = await import("../src/pdf/ops/incremental");
+    expect(certificationLevel(await makePdf())).toBeNull();
+    const ref = (p: string) =>
+      `/Reference [<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams ${p} /V /1.2 >> >>]`;
+    expect(certificationLevel(enc(`%PDF-1.7 ${ref("/P 1")}`))).toBe(1);
+    expect(certificationLevel(enc(`%PDF-1.7 ${ref("/P 3")}`))).toBe(3);
+    expect(certificationLevel(enc(`%PDF-1.7 ${ref("")}`))).toBe(2);
+  });
+});
+
+describe("savePdf — structure", () => {
+  it("falls back to a full rewrite (and repairs) when the file's tail is unusable", async () => {
+    const src = await makePdf({ pages: 2 });
+    const broken = new Uint8Array(
+      Buffer.from(
+        Buffer.from(src)
+          .toString("latin1")
+          .replace(/startxref\s+\d+/, "startxref\n999999999"),
+        "latin1",
+      ),
+    );
+    const state = stateFor(2);
+    const r = await savePdf({ source: broken, state: { ...state, annots: [note(state.pages[0].id, "Réparé")] } });
+    expect(r.report.mode).toBe("full");
+    expect(r.report.fullReasons.join(" ")).toMatch(/irrégulière/);
+    const js = await openJs(r.bytes);
+    expect(js.numPages).toBe(2);
+    expect(await annotationTexts(js, 1)).toContain("Text:Réparé");
+    await js.destroy();
+  });
+
+  it("inserts, duplicates and reorders pages incrementally, in the right order", async () => {
+    const src = await makePdf({ pages: 4, text: "P" });
+    const s = stateFor(4);
+    const blank = D.makePage(null, { size: { w: 300, h: 200 } });
+    const order = [s.pages[3], s.pages[0], blank, s.pages[2], s.pages[1]];
+    const r = await savePdf({ source: src, state: { ...s, pages: order } });
+    expect(r.report.mode).toBe("incremental");
+    const js = await openJs(r.bytes);
+    const texts = [];
+    for (let i = 1; i <= js.numPages; i++) texts.push(await pageText(js, i));
+    expect(texts).toEqual(["P 4", "P 1", "", "P 3", "P 2"]);
+    await js.destroy();
+  });
+
+  it("a pure reorder writes only the page tree node", async () => {
+    const src = await makePdf({ pages: 4, text: "Q" });
+    const s = stateFor(4);
+    const r = await savePdf({ source: src, state: { ...s, pages: [s.pages[1], s.pages[0], s.pages[2], s.pages[3]] } });
+    expect(r.report.objectsWritten).toBeLessThanOrEqual(2); // /Pages (+ Info)
+    const js = await openJs(r.bytes);
+    expect(await pageText(js, 1)).toBe("Q 2");
+    expect(await pageText(js, 2)).toBe("Q 1");
+    await js.destroy();
+  });
+});

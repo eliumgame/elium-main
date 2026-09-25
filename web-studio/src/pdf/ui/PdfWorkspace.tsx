@@ -1128,6 +1128,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return out;
   };
 
+  /** Comments added, edited or deleted relative to the file. */
+  const annotationChanges = (st: PdfState): boolean => {
+    const pristine = pristineAnnotsRef.current;
+    let kept = 0;
+    for (const a of st.annots) {
+      if (!pristine.has(a)) return true;
+      kept++;
+    }
+    return kept !== pristine.size;
+  };
+
   /** Warn before a save that would break a digital signature. False = the user cancelled. */
   const confirmSignedSave = async (st: PdfState, reasons: string[]): Promise<boolean> => {
     if (reasons.length) {
@@ -1141,7 +1152,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       });
     }
     const changes = contentChanges(st);
-    if (!changes.length) return true; // comments and form filling keep the signature valid
+    // A certifying signature (DocMDP) narrows what may change after it.
+    const { certificationLevel } = await import("../ops/incremental");
+    const level = bytesRef.current ? certificationLevel(bytesRef.current) : null;
+    const comments = annotationChanges(st);
+    if (level === 1 || (level === 2 && comments)) {
+      return dialogs.confirm({
+        title: "Document certifié",
+        message:
+          level === 1
+            ? "Ce document est certifié sans aucune modification autorisée : tout enregistrement de modifications sera signalé par Acrobat comme une violation de la certification."
+            : "Ce document est certifié pour le seul remplissage de formulaire et la signature : les commentaires ajoutés ou modifiés seront signalés par Acrobat comme une violation de la certification.",
+        confirmLabel: "Enregistrer quand même",
+        cancelLabel: "Annuler",
+      });
+    }
+    if (!changes.length) return true; // comments and form filling keep an approval signature valid
     return dialogs.confirm({
       title: "Document signé électroniquement",
       message:

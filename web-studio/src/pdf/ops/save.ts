@@ -22,8 +22,8 @@
  * sanitising, or when the file's own structure is too broken to append to.
  */
 
-import { PDFDocument, PDFHexString, PDFName, PDFRef, PDFString } from "pdf-lib";
-import type { PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
+import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type { Annot, Bookmark, Page, PdfState } from "../model/types";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots } from "./annots-pdf";
@@ -317,7 +317,7 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
   if (input.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
   const full = input.mode === "full" || reasons.length > 0;
 
-  await applyState(doc, state, opts, report, sourcePageCount);
+  await applyState(doc, state, opts, report);
 
   step("Écriture du fichier", 0.92);
   await doc.flush();
@@ -423,13 +423,7 @@ export async function buildPdf(
 // Applying the model
 // ---------------------------------------------------------------------------
 
-async function applyState(
-  doc: PDFDocument,
-  state: PdfState,
-  opts: BuildOptions,
-  report: BuildReport,
-  sourcePageCount: number,
-): Promise<void> {
+async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions, report: BuildReport): Promise<void> {
   const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
 
   // --- 1. page order -------------------------------------------------------
@@ -442,7 +436,8 @@ async function applyState(
   for (const model of wanted) {
     if (model.from == null) {
       const size = model.size ?? { w: PAGE_SIZES.A4[0], h: PAGE_SIZES.A4[1] };
-      const created = doc.addPage([size.w, size.h]);
+      const created = PDFPage.create(doc); // placed in the page tree below
+      created.setSize(size.w, size.h);
       targets.push({ page: created, model });
       continue;
     }
@@ -456,21 +451,21 @@ async function applyState(
       targets.push({ page: src, model });
     } else {
       const [copy] = await doc.copyPages(doc, [model.from]);
-      doc.addPage(copy);
       targets.push({ page: copy, model });
     }
   }
 
-  // Leave the page tree alone when nothing moved: rebuilding it would rewrite
-  // every page dictionary (their /Parent) for nothing.
-  const identity =
-    targets.length === sourcePageCount && targets.every((t, i) => t.model.from === i && t.page === source[i]);
   if (!targets.length) {
-    doc.addPage(PAGE_SIZES.A4);
+    const blank = PDFPage.create(doc);
+    blank.setSize(PAGE_SIZES.A4[0], PAGE_SIZES.A4[1]);
+    applyPageOrder(doc, [blank], source);
     report.warnings.push("Aucune page à exporter : une page blanche a été produite.");
-  } else if (!identity) {
-    for (let i = doc.getPageCount() - 1; i >= 0; i--) doc.removePage(i);
-    for (const t of targets) doc.addPage(t.page);
+  } else {
+    applyPageOrder(
+      doc,
+      targets.map((t) => t.page),
+      source,
+    );
   }
   report.pages = doc.getPageCount();
 
@@ -701,6 +696,92 @@ async function applyState(
     const { removed } = sanitiseDocument(doc);
     if (removed.length) report.warnings.push(`Assaini : ${removed.join(", ")}.`);
   }
+}
+
+const PAGES = PDFName.of("Pages");
+const KIDS = PDFName.of("Kids");
+const TYPE = PDFName.of("Type");
+const PARENT = PDFName.of("Parent");
+const INHERITED = ["Resources", "MediaBox", "CropBox", "Rotate"].map((k) => PDFName.of(k));
+
+function invalidatePages(doc: PDFDocument): void {
+  // pdf-lib's removePage() does not drop its cached page list (insertPage does).
+  (doc as unknown as { pageCache: { invalidate(): void } }).pageCache.invalidate();
+}
+
+/**
+ * Put the page tree in the `desired` order touching as few objects as
+ * possible — an incremental save then carries only what really moved:
+ *  - same relative order (pages inserted and/or removed): pdf-lib's own
+ *    insert/remove, which only update the tree nodes on the path;
+ *  - a pure permutation: the tree keeps its shape, its leaf slots are
+ *    reassigned (a page that changes parent gets its inherited attributes
+ *    written on itself first);
+ *  - anything else: the tree is rebuilt.
+ */
+function applyPageOrder(doc: PDFDocument, desired: PDFPage[], existing: PDFPage[]): void {
+  const inTree = new Set(existing);
+  const wanted = new Set(desired);
+  const keptExisting = existing.filter((p) => wanted.has(p));
+  const keptDesired = desired.filter((p) => inTree.has(p));
+  if (keptExisting.length === keptDesired.length && keptExisting.every((p, i) => p === keptDesired[i])) {
+    for (let i = existing.length - 1; i >= 0; i--) if (!wanted.has(existing[i])) doc.removePage(i);
+    invalidatePages(doc);
+    desired.forEach((p, i) => {
+      if (!inTree.has(p)) doc.insertPage(i, p);
+    });
+    return;
+  }
+  if (desired.length === existing.length && keptDesired.length === desired.length && permuteLeaves(doc, desired)) {
+    invalidatePages(doc);
+    return;
+  }
+  for (let i = doc.getPageCount() - 1; i >= 0; i--) doc.removePage(i);
+  invalidatePages(doc);
+  for (const p of desired) doc.addPage(p);
+}
+
+/** Reassign the leaf slots of the page tree to `desired` (same pages, new order). False = tree not walkable. */
+function permuteLeaves(doc: PDFDocument, desired: PDFPage[]): boolean {
+  const ctx = doc.context;
+  const slots: { kids: PDFArray; idx: number; parent: PDFRef }[] = [];
+  const seen = new Set<string>();
+  const walk = (ref: PDFRef, depth: number): boolean => {
+    if (depth > 64 || seen.has(String(ref))) return false;
+    seen.add(String(ref));
+    const node = ctx.lookup(ref);
+    if (!(node instanceof PDFDict)) return false;
+    const kids = node.lookup(KIDS);
+    if (!(kids instanceof PDFArray)) return false;
+    for (let i = 0; i < kids.size(); i++) {
+      const kidRef = kids.get(i);
+      if (!(kidRef instanceof PDFRef)) return false;
+      const kid = ctx.lookup(kidRef);
+      if (kid instanceof PDFDict && kid.lookup(TYPE) === PAGES) {
+        if (!walk(kidRef, depth + 1)) return false;
+      } else slots.push({ kids, idx: i, parent: ref });
+    }
+    return true;
+  };
+  const root = doc.catalog.get(PAGES);
+  if (!(root instanceof PDFRef) || !walk(root, 0) || slots.length !== desired.length) return false;
+  desired.forEach((page, i) => {
+    const slot = slots[i];
+    const leaf = page.node;
+    const parent = leaf.get(PARENT);
+    if (!(parent instanceof PDFRef) || parent !== slot.parent) {
+      for (const name of INHERITED) {
+        if (leaf.has(name)) continue;
+        const value = (
+          leaf as unknown as { getInheritableAttribute(n: PDFName): PDFObject | undefined }
+        ).getInheritableAttribute(name);
+        if (value !== undefined) leaf.set(name, value);
+      }
+      leaf.set(PARENT, slot.parent);
+    }
+    if (slot.kids.get(slot.idx) !== page.ref) slot.kids.set(slot.idx, page.ref);
+  });
+  return true;
 }
 
 /** Info dictionary: only what the user changed, plus the producer and modification date. */

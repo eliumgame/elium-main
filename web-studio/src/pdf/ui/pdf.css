@@ -2013,3 +2013,71 @@
   filter: var(--pdfx-page-filter);
   user-select: none;
 }
+
+/* « Modifier le texte » : barre de mise en forme, poignées. */
+.pdfx-editlayer.is-adding {
+  cursor: text;
+}
+.pdfx-editblock__bar {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--x-chrome);
+  color: var(--x-chrome-text);
+  box-shadow: var(--x-shadow-pop);
+  z-index: 4;
+  white-space: nowrap;
+}
+.pdfx-editblock__bar button,
+.pdfx-editblock__bar select,
+.pdfx-editblock__bar input {
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+}
+.pdfx-editblock__bar button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.pdfx-editblock__bar button:hover,
+.pdfx-editblock__bar button.is-on {
+  background: var(--x-chrome-3);
+}
+.pdfx-editblock__bar select {
+  max-width: 130px;
+  background: var(--x-chrome-3);
+}
+.pdfx-editblock__bar input[type="number"] {
+  width: 48px;
+  background: var(--x-chrome-3);
+  padding: 0 4px;
+}
+.pdfx-editblock__bar input[type="color"] {
+  width: 26px;
+  padding: 0;
+}
+.pdfx-editblock__grip {
+  cursor: move !important;
+}
+.pdfx-editblock__width {
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  width: 8px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 3px;
+  background: var(--x-accent);
+  cursor: ew-resize;
+}

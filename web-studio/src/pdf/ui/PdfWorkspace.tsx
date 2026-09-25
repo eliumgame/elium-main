@@ -351,6 +351,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   /** « Préparer un formulaire » : selected field boxes (« c:<id> » created, « w:<widget> » file). */
   const [prepSelected, setPrepSelected] = useState<string[]>([]);
   const previousMode = useRef<string | null>(null);
+  /** « Ajouter du texte » armed: the next click on a page in « Modifier le texte » places text. */
+  const [addingText, setAddingText] = useState(false);
   /** « Propriétés du champ » open on this field. */
   const [prepProps, setPrepProps] = useState<{
     key: string;
@@ -2006,7 +2008,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       case "editMode":
         setMode(mode === "editText" ? "view" : "editText");
+        setAddingText(false);
         setTab("edit");
+        return;
+      case "addText":
+        setMode("editText");
+        setAddingText(true);
+        toast("info", "Cliquez sur la page à l'endroit où ajouter le texte.");
         return;
       case "formPrepare":
         setMode(mode === "fields" ? "view" : "fields");
@@ -3365,6 +3373,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             rotation={rotation}
             scale={scale}
             edits={pageEdits}
+            adding={addingText}
+            onAdded={() => setAddingText(false)}
             onBeginChange={checkpoint}
             onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
           />

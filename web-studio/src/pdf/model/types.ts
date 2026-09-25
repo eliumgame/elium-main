@@ -339,6 +339,12 @@ export interface ContentEdit {
   bold?: boolean;
   italic?: boolean;
   deleted?: boolean;
+  /** Where the text now goes when the block was moved or resized (default: `rect`). */
+  placement?: Rect;
+  /** Family / weight / slant changed by the user: the original font is not reused. */
+  restyled?: boolean;
+  /** Text added in Elium: nothing on the page to remove. */
+  isNew?: boolean;
 }
 
 /** An edit to one of the page's existing images. */

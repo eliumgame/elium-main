@@ -142,10 +142,19 @@ export async function applyTextEdits(
   const fallbacks: { edit: ContentEdit; box: Rect; size: number; color: string }[] = [];
 
   for (const edit of edits) {
-    const target = frame.rectToPdf(edit.rect);
+    // Added text: nothing to remove, set in the chosen face where it was placed.
+    if (edit.isNew) {
+      if (edit.deleted || !edit.text.trim()) continue;
+      const at = frame.rectToPdf(edit.placement ?? edit.rect);
+      fallbacks.push({ edit, box: at, size: edit.fontSize > 0 ? edit.fontSize : 12, color: edit.color ?? "#000000" });
+      continue;
+    }
+    const original = frame.rectToPdf(edit.rect);
+    // The new text goes where the block now is (moved / resized), the old glyphs from where it was.
+    const target = edit.placement ? frame.rectToPdf(edit.placement) : original;
     const box: Rect = { x: target.x, y: target.y, w: target.w, h: target.h };
     // A little slack: glyph boxes use nominal ascent/descent, not real metrics.
-    const hit: Rect = { x: box.x - 1.5, y: box.y - 1.5, w: box.w + 3, h: box.h + 3 };
+    const hit: Rect = { x: original.x - 1.5, y: original.y - 1.5, w: original.w + 3, h: original.h + 3 };
 
     const members = shows.filter((s) => {
       const b = boundsOf([
@@ -247,7 +256,8 @@ export async function applyTextEdits(
     const colour = edit.color ?? rgbHex(first.state.fill);
     const leading = edit.leading > 0 ? edit.leading : size * 1.2;
 
-    const lines = font && !rotated ? wrapNative(font, edit.text, size, box.w) : null;
+    // A restyled block is set in the face the user chose, never in the original one.
+    const lines = font && !rotated && !edit.restyled ? wrapNative(font, edit.text, size, box.w) : null;
     if (font && lines && !rotated) {
       const startY = target.y + target.h - size * 0.84;
       const ops2: Op[] = [

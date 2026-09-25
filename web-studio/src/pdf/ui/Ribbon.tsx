@@ -414,6 +414,13 @@ export default function Ribbon(p: RibbonProps) {
                 onClick={C("editMode")}
                 title="Réécrire le texte du PDF"
               />
+              <Cmd
+                big
+                icon={<TextCursorInput size={19} />}
+                label="Ajouter du texte"
+                onClick={C("addText")}
+                title="Ajouter du texte dans la page (contenu du PDF, pas un commentaire)"
+              />
               <Cmd big icon={<ImageIcon size={19} />} label="Image" onClick={T("image")} active={p.tool === "image"} />
               <Cmd
                 icon={<Type size={17} />}

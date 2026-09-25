@@ -625,6 +625,21 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     # (nom de fichier, contenu) du .elium passé en argument, servi sur /__open__.
     opened_file: "tuple[str, bytes] | None" = None
 
+    # Types fixés ici, pas laissés à `mimetypes` : sous Windows il lit le
+    # registre, où un logiciel tiers peut avoir déclaré « .js » en text/plain.
+    # Avec « nosniff », le navigateur refuserait alors tous les scripts et
+    # modules (application, worker pdf.js, bac à sable des formulaires).
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        ".js": "text/javascript",
+        ".mjs": "text/javascript",
+        ".wasm": "application/wasm",
+        ".css": "text/css",
+        ".json": "application/json",
+        ".webmanifest": "application/manifest+json",
+        ".svg": "image/svg+xml",
+    }
+
     def __init__(self, *args, directory=None, **kwargs):
         super().__init__(*args, directory=directory, **kwargs)
 

@@ -9,7 +9,7 @@
  * the page-space geometry the model stores.
  */
 
-import * as pdfjs from "pdfjs-dist";
+import { pdfjs } from "./pdfjs";
 import type { Matrix, Pt, Quad, Rect, Rotation, Size } from "./coords";
 import { quadFromRect, rectFromView, rectOfPoints } from "./coords";
 import type { TextContentLike, TextItemLike } from "./engine";

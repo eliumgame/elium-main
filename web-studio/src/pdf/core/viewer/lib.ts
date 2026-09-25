@@ -9,8 +9,8 @@
  * a static import would leave the order to the bundler's chunking.
  */
 
-import * as pdfjs from "pdfjs-dist";
-import "../assets"; // worker URL, shared options
+import { importViewerModule, pdfjs } from "../pdfjs";
+import "../assets"; // shared options
 
 type ViewerModule = typeof import("pdfjs-dist/web/pdf_viewer.mjs");
 
@@ -26,7 +26,7 @@ export function loadViewerLib(): Promise<ViewerLib> {
   if (!loading) {
     const g = globalThis as { pdfjsLib?: unknown };
     g.pdfjsLib ??= pdfjs;
-    loading = import("pdfjs-dist/web/pdf_viewer.mjs").then((m) => ({
+    loading = importViewerModule().then((m) => ({
       PDFPageView: m.PDFPageView,
       EventBus: m.EventBus,
       RenderingStates: m.RenderingStates as unknown as ViewerLib["RenderingStates"],

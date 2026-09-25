@@ -14,6 +14,14 @@ pour que les sessions cloud suivent le même plan et testent sur le même corpus
 - Node 26 obligatoire (`.node-version`). Avec Node 22, pdf.js 6.2 échoue : `Promise.try`,
   `Uint8Array.prototype.toHex`. On le télécharge depuis nodejs.org/dist/latest-v26.x.
 - `npm ci` dans web-studio, puis `npx vitest run tests/pdf- src/pdf`.
+- Tests d'interopérabilité Python : `pip install -e ".[dev]"` dans un venv (le paquet
+  `cryptography` du système plante).
+- Navigateur : `PW_CHROMIUM=/opt/pw-browsers/chromium`. `npx vite build`, puis
+  `npx playwright test -c playwright.pdf.config.ts` lance deux projets :
+  - « drive » : serveur Vite, sans CSP ;
+  - « desktop » : dist/ servi par tests/support/desktop-server.py, avec la CSP lue dans la
+    source de installer/elium_launcher.py.
+- Seule erreur attendue dans les parcours Playwright : Google Fonts, bloqué par le proxy.
 
 ## T2 : formulaires
 
@@ -58,3 +66,36 @@ l'enregistrement), préparation de formulaire complète (créer, déplacer, prop
 tabulation), import/export FDF/XFDF/CSV (vérifier ops/xfdf.ts et forms.ts toFdf/fromFdf),
 champs obligatoires avant enregistrement, XFA (détection et message), puis relecture
 adversariale.
+
+### Session cloud 1, suite : premiers tests dans un vrai navigateur
+
+P0 trouvé : **aucun PDF ne s'ouvrait dans Chromium 141** (« illisible ou endommagé »).
+pdf.js 6.2 moderne appelle `Map.prototype.getOrInsertComputed` et `Math.sumPrecise`, absents
+de Chromium. `Math.sumPrecise` sert aussi à dériver la clé AES-256 R6, donc tout PDF protégé
+récent, et à reconstruire les polices Type1/CFF. Sur l'Edge du poste, `getOrInsertComputed`
+existe sans doute (l'ouverture a été validée en F1), mais pas `sumPrecise`.
+**À vérifier sur le poste** : ouvrir un PDF AES-256 avec la version actuelle de master.
+
+Corrigé :
+- `src/pdf/core/pdfjs.ts` est le seul point d'entrée de pdf.js. Il détecte les fonctions
+  appelées sans garde et choisit le build moderne ou legacy, avec le worker, la visionneuse
+  et le bac à sable assortis (`pdfjs/legacy/pdf.sandbox.min.mjs`). Sur Chromium et Edge, c'est
+  en pratique le legacy (Mozilla), jusqu'à ce qu'ils aient `Math.sumPrecise`.
+- vite.config : modern et legacy dans des chunks séparés, et les modules `?url` hors de ces
+  chunks. Sinon les deux builds s'exécutaient au chargement, les polyfills faussaient la
+  détection et le worker moderne partait. Gain : un seul build téléchargé, 433 ou 489 Ko au
+  lieu de 923 Ko.
+- Champs de formulaire impossibles à cliquer après une saisie sans `keyup` (collage par menu,
+  saisie automatique, méthode de saisie) : la règle `.textLayer.selecting ~ .annotationLayer
+  section { pointer-events: none }` ne vise plus que les liens (pdf.css).
+- Lanceur : types MIME de .js, .mjs et .wasm fixés dans QuietHandler, sans passer par le
+  registre Windows. Test : tests/python/test_launcher.py.
+- La cause d'un échec d'ouverture est écrite dans la console (`[pdf] ouverture impossible`).
+
+Tests navigateur : tests/pdf-forms.spec.ts, dans les deux projets. Le formulaire de commande
+(tests/fixtures/pdf-form-fixtures.ts) vérifie :
+- AFSimple_Calculate, AFNumber_Format et AFNumber_Keystroke dans le bac à sable QuickJS sous
+  la CSP du bureau ;
+- une valeur Unicode, puis Ctrl+S en téléchargement ;
+- le fichier relu avec pdf-lib : valeurs, code d'export CH, pas de /NeedAppearances.
+Résultat : 8/8 en répétition.

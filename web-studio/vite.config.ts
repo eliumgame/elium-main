@@ -39,8 +39,17 @@ export default defineConfig({
           // Les composants de visionneuse (pdf_viewer.mjs : PDFPageView, calques texte/
           // annotations) ont leur propre chunk : ils ne servent qu'au module PDF,
           // alors que le cœur pdf.js sert aussi au Détecteur et à l'aperçu de signature.
-          if (id.includes("pdfjs-dist") && /[\\/]web[\\/]pdf_viewer/.test(id)) return "vendor-pdfviewer";
-          if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          // Moderne et legacy dans des chunks DISTINCTS : un chunk s'exécute en
+          // entier à son chargement, et les polyfills du build legacy fausseraient
+          // la détection de src/pdf/core/pdfjs.ts (→ worker moderne sur un
+          // navigateur qui n'en a pas les fonctions : aucun PDF ne s'ouvre).
+          // (Les modules `…worker.min.mjs?url` ne sont qu'une URL : ils restent avec
+          // leur importeur, sinon leur import statique chargerait les deux builds.)
+          if (id.includes("pdfjs-dist") && !id.includes("?")) {
+            const legacy = /[\\/]legacy[\\/]/.test(id);
+            if (/[\\/]web[\\/]pdf_viewer/.test(id)) return legacy ? "vendor-pdfviewer-legacy" : "vendor-pdfviewer";
+            return legacy ? "vendor-pdfjs-legacy" : "vendor-pdfjs";
+          }
           if (id.includes("@tiptap") || id.includes("prosemirror")) return "vendor-tiptap";
           if (id.includes("yjs") || id.includes("y-protocols") || id.includes("lib0")) return "vendor-yjs";
           if (id.includes("lowlight") || id.includes("highlight.js") || id.includes("refractor"))

@@ -757,10 +757,17 @@
 }
 /* Commentaires et popups : Elium les affiche lui-même (calque d'annotation).
    Liens et champs de formulaire restent ceux de pdf.js. */
-.pdfx-stack .annotationLayer section:not(.linkAnnotation, .textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
+.pdfx-stack
+  .annotationLayer
+  section:not(.linkAnnotation, .textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
   display: none;
 }
-.pdfx-stack .textLayer.selecting ~ .annotationLayer section {
+/* Pendant une sélection de texte, les liens laissent passer le glisser (comme
+   pdf.js). PAS les champs de formulaire : dans Chromium, le focus d'un champ
+   active « selecting » via selectionchange, et seul un keyup/pointerup le
+   retire — après un collage par menu, une saisie automatique ou une méthode de
+   saisie, tous les champs restaient impossibles à cliquer. */
+.pdfx-stack .textLayer.selecting ~ .annotationLayer section.linkAnnotation {
   pointer-events: none;
 }
 .pdfx-stack .annotationLayer .linkAnnotation > a {
@@ -1094,7 +1101,13 @@
 .pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a:focus-visible {
   outline: 2px solid var(--pdfx-field-focus);
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input) {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ) {
   background-color: var(--pdfx-field-bg);
   background-image: none;
   border: 2px solid transparent;
@@ -1115,19 +1128,43 @@
 .pdfx-stack .annotationLayer .choiceWidgetAnnotation select option {
   padding: 0;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):required {
   outline: 1.5px solid var(--pdfx-field-required);
   outline-offset: -1px;
 }
-.pdfx-stack.no-field-highlight .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
+.pdfx-stack.no-field-highlight
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):required {
   outline: none;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input)[disabled] {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  )[disabled] {
   background: none;
   border-color: transparent;
   cursor: not-allowed;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):not([disabled]):hover {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):not([disabled]):hover {
   border-color: var(--pdfx-field-hover);
   border-radius: 2px;
 }
@@ -1150,12 +1187,24 @@
 }
 /* Case / bouton radio : les deux apparences du fichier (cochée, non cochée)
    sont dessinées par pdf.js ; on montre celle qui correspond à l'état. */
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="checked"]:has(~ input:not(:checked)),
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="unchecked"]:has(~ input:checked) {
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton)
+  [data-canvas-name="checked"]:has(~ input:not(:checked)),
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton)
+  [data-canvas-name="unchecked"]:has(~ input:checked) {
   display: none;
 }
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="checked"]) input:checked,
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="unchecked"]) input:not(:checked) {
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="checked"])
+  input:checked,
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="unchecked"])
+  input:not(:checked) {
   background-image: none;
 }
 /* Sans apparence dans le fichier : une coche dessinée en CSS. */
@@ -1197,7 +1246,10 @@
 }
 /* Préparation de formulaire : les champs deviennent des cadres éditables
    (calque Elium) — les contrôles de remplissage s'effacent. */
-.pdfx--mode-fields .pdfx-stack .annotationLayer section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
+.pdfx--mode-fields
+  .pdfx-stack
+  .annotationLayer
+  section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
   visibility: hidden;
 }
 

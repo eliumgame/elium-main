@@ -15,11 +15,9 @@
  * with a relative `base`, should the app ever be served from a sub-path).
  */
 
-import * as pdfjs from "pdfjs-dist";
+import type * as PdfjsTypes from "pdfjs-dist";
 import type { DocumentInitParameters } from "pdfjs-dist/types/src/display/api";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+import { pdfjs, sandboxBundleName } from "./pdfjs"; // also sets the worker URL of the build in use
 
 /** Folder the Vite plugin publishes the assets under. Keep in sync with scripts/pdfjs-assets-plugin.ts. */
 export const PDFJS_ASSET_DIR = "pdfjs";
@@ -62,7 +60,7 @@ export function pdfjsAssetUrls(): PdfjsAssetUrls | null {
     cMapUrl: `${base}cmaps/`,
     standardFontDataUrl: `${base}standard_fonts/`,
     iccUrl: `${base}iccs/`,
-    sandboxBundleSrc: `${base}pdf.sandbox.min.mjs`,
+    sandboxBundleSrc: `${base}${sandboxBundleName}`,
   };
 }
 
@@ -96,11 +94,11 @@ export function documentParams(data: Uint8Array, password?: string): DocumentIni
 
 /** Minimal shape of the pdf.js loading task callers keep in order to tear it down. */
 export interface LoadingTask {
-  promise: Promise<pdfjs.PDFDocumentProxy>;
+  promise: Promise<PdfjsTypes.PDFDocumentProxy>;
   destroy: () => Promise<void>;
 }
 
-let worker: pdfjs.PDFWorker | null = null;
+let worker: PdfjsTypes.PDFWorker | null = null;
 
 /**
  * One pdf.js worker for the whole app, created on first use (or ahead of time
@@ -111,7 +109,7 @@ let worker: pdfjs.PDFWorker | null = null;
  * leaves a shared worker alive. Under Node pdf.js runs a "fake" in-thread
  * worker anyway, so nothing is shared there.
  */
-export function sharedPdfWorker(): pdfjs.PDFWorker | undefined {
+export function sharedPdfWorker(): PdfjsTypes.PDFWorker | undefined {
   if (runningInNode() || typeof Worker === "undefined") return undefined;
   if (!worker || worker.destroyed) worker = new pdfjs.PDFWorker();
   return worker;

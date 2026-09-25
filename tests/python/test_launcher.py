@@ -371,3 +371,12 @@ def test_every_response_carries_the_csp(monkeypatch):
     monkeypatch.setattr(_hs.SimpleHTTPRequestHandler, "end_headers", lambda self: None)
     _Probe().end_headers()
     assert ("Content-Security-Policy", elium_launcher.CONTENT_SECURITY_POLICY) in sent
+
+
+def test_script_and_wasm_types_do_not_depend_on_the_windows_registry():
+    # « nosniff » + un .js déclaré text/plain dans le registre = plus aucun
+    # script chargé : les types des scripts, modules et wasm sont fixés.
+    types = elium_launcher.QuietHandler.extensions_map
+    assert types[".js"] == "text/javascript"
+    assert types[".mjs"] == "text/javascript"
+    assert types[".wasm"] == "application/wasm"

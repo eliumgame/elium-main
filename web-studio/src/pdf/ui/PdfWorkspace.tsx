@@ -771,6 +771,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (e instanceof PdfPasswordRequired) {
           setPendingPassword({ bytes: raw, name, wrong: e.wrong, handle });
         } else {
+          // The message stays generic for the user; the cause goes to the console for diagnosis.
+          console.warn("[pdf] ouverture impossible :", e);
           setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
         }
       } finally {
@@ -3333,41 +3335,41 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 </button>
               </div>
             )}
-          <PageStack
-            ref={stackRef}
-            key={docKey}
-            engine={engine}
-            pages={pages}
-            sizeOf={stableSizeOf}
-            rotationOf={rotationOf}
-            scale={view.scale}
-            mode={view.mode}
-            cover={view.spreadCover}
-            theme={view.theme}
-            currentPage={currentStore}
-            showTextLayer={mode === "view" && tool !== "hand"}
-            fieldHighlight={fieldHighlight}
-            maskImported={state.importedAnnots}
-            optionalContent={ocConfig}
-            hitsOf={hitsOf}
-            className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
-            style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
-            renderOverlay={renderOverlay}
-            onCurrentChange={onCurrentChange}
-            onScaleChange={onScaleChange}
-            onViewportResize={setViewport}
-            onTextLayer={(pageId, layer, host) => {
-              if (layer && host) textLayers.current.set(pageId, { layer, host });
-              else textLayers.current.delete(pageId);
-            }}
-            onLinkActivate={(target) => {
-              if (target.page) goTo(target.page, target.y);
-              else if (target.url)
-                void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
-                  if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
-                });
-            }}
-          />
+            <PageStack
+              ref={stackRef}
+              key={docKey}
+              engine={engine}
+              pages={pages}
+              sizeOf={stableSizeOf}
+              rotationOf={rotationOf}
+              scale={view.scale}
+              mode={view.mode}
+              cover={view.spreadCover}
+              theme={view.theme}
+              currentPage={currentStore}
+              showTextLayer={mode === "view" && tool !== "hand"}
+              fieldHighlight={fieldHighlight}
+              maskImported={state.importedAnnots}
+              optionalContent={ocConfig}
+              hitsOf={hitsOf}
+              className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
+              style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
+              renderOverlay={renderOverlay}
+              onCurrentChange={onCurrentChange}
+              onScaleChange={onScaleChange}
+              onViewportResize={setViewport}
+              onTextLayer={(pageId, layer, host) => {
+                if (layer && host) textLayers.current.set(pageId, { layer, host });
+                else textLayers.current.delete(pageId);
+              }}
+              onLinkActivate={(target) => {
+                if (target.page) goTo(target.page, target.y);
+                else if (target.url)
+                  void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
+                    if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
+                  });
+              }}
+            />
           </div>
         )}
 

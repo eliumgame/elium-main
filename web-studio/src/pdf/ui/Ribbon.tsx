@@ -536,7 +536,12 @@ export default function Ribbon(p: RibbonProps) {
                 icon={<FileText size={17} />}
                 onClick={C("commentsReport")}
                 label="Synthèse"
-                title="Récapitulatif des commentaires"
+                title="Résumer les commentaires (PDF : pages et commentaires reliés)"
+              />
+              <Cmd
+                icon={<Printer size={17} />}
+                onClick={C("printSummary")}
+                title="Imprimer la synthèse des commentaires"
               />
             </Group>
           </>

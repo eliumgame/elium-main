@@ -523,3 +523,23 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
   Suite complète 1952/1952 ; specs PDF 42/42.
 - À vérifier dans Acrobat : une pièce jointe posée dans Elium s'ouvre dans Acrobat
   (panneau Pièces jointes et double-clic sur l'icône).
+
+### Session cloud 1 : T4, point 12 (fin) : synthèse des commentaires
+
+- « Synthèse » produit maintenant un PDF, comme « Résumer les commentaires » d'Acrobat
+  (disposition « Document et commentaires avec lignes de connexion ») :
+  - chaque page commentée réduite à gauche, avec un repère numéroté par commentaire ;
+  - à droite, la liste : type, auteur, date, statut, coche, texte, réponses ;
+    « Remplacement de texte » et « Insérer » pour les modifications de texte, le nom du
+    fichier pour une pièce jointe ;
+  - des lignes relient chaque repère à son entrée ;
+  - feuilles « (suite) » si la liste déborde, polices Unicode.
+  « Imprimer la synthèse » l'imprime ; l'impression normale imprime déjà le document avec
+  ses commentaires.
+- Tests : pdf-summary (3). Suite complète 1955/1955 ; specs PDF 42/42 ; budget du bundle
+  respecté.
+
+T4 : tous les points de l'audit sont traités. Limites connues : la gomme efface
+l'annotation entière (pas un morceau de trait) ; pas de tampons dynamiques
+personnalisables (champs de formulaire dans le tampon) ; les enregistrements audio
+d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créés.

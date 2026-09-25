@@ -2069,12 +2069,25 @@ export default function PdfWorkspace({
     );
   };
 
-  const printDocument = async () => {
+  /** The comment summary (Acrobat's « Résumer les commentaires »), as a PDF. */
+  const commentSummary = async (): Promise<Uint8Array> => {
+    const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
+    const { buildCommentSummary } = await import("../ops/summary");
+    return buildCommentSummary(bytes, state, {
+      title: fileName.replace(/\.pdf$/i, "") || "Document",
+      kindLabel: KIND_LABEL,
+    });
+  };
+
+  const printDocument = async (which: "document" | "summary" = "document") => {
     if (!bytesRef.current) return;
     setBusy(true);
     const id = toast("progress", "Préparation de l'impression…");
     try {
-      const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
+      const bytes =
+        which === "summary"
+          ? await commentSummary()
+          : (await buildDerived(state, { interactiveAnnots: false, flattenForms: true })).bytes;
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
       const frame = document.createElement("iframe");
       frame.style.position = "fixed";
@@ -2480,13 +2493,20 @@ export default function PdfWorkspace({
         return;
       }
       case "commentsReport": {
-        const rows = state.annots.map((a, i) => {
-          const page = pages.findIndex((q) => q.id === a.pageId) + 1;
-          return `${i + 1}. [p.${page}] ${a.author} — ${a.contents || a.text || "(sans texte)"}`;
-        });
-        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-synthese.txt`, "text/plain;charset=utf-8", rows.join("\n"));
+        const id = toast("progress", "Synthèse des commentaires…");
+        try {
+          const pdf = await commentSummary();
+          downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-synthese.pdf`, "application/pdf", pdf);
+          dismissToast(id);
+        } catch (e) {
+          dismissToast(id);
+          toast("danger", "Synthèse impossible", e instanceof Error ? e.message : undefined);
+        }
         return;
       }
+      case "printSummary":
+        void printDocument("summary");
+        return;
 
       case "exportFormData":
       case "exportFormXfdf":

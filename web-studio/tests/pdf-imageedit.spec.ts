@@ -175,4 +175,38 @@ test.describe("PDF — modifier les images", () => {
     expect(Math.round(added.h)).toBe(120);
     expect(problems).toEqual([]);
   });
+
+  test("rogner une image", async ({ page, context }) => {
+    const problems = health(page);
+    const bytes = await chromePdf(await context.newPage());
+    const before = (await pageImages(new Uint8Array(bytes), null, 0))[0].rect;
+    await open(page, bytes);
+    await page.getByRole("button", { name: "Modifier le texte" }).first().click();
+    const box = page.getByRole("button", { name: "Image de la page" });
+    await box.click();
+    await page.getByRole("button", { name: "Rogner", exact: true }).click();
+    const b = (await box.boundingBox())!;
+    const se = page.locator('[data-handle="se"]');
+    const h = (await se.boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
+    await page.mouse.up();
+    // The frame now shows the top-left quarter; the picture itself did not move.
+    await expect.poll(async () => Math.round(((await box.boundingBox())!.width / b.width) * 100)).toBe(50);
+    await expect(page.getByRole("button", { name: "Annuler le rognage" })).toBeVisible();
+    const out = await save(page);
+    const after = (await pageImages(out, null, 0))[0].rect;
+    expect(Math.round(after.x)).toBe(Math.round(before.x));
+    expect(Math.round(after.w)).toBe(Math.round(before.w));
+    const doc = await PDFDocument.load(out);
+    const c = doc.getPage(0).node.Contents();
+    const raw = c instanceof PDFArray ? c.lookup(0) : c;
+    const text = new TextDecoder("latin1").decode(decodePDFRawStream(raw as PDFRawStream).decode());
+    const m = /([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re\s+W\s+n/.exec(text);
+    expect(m).not.toBeNull();
+    expect(Math.round(Number(m![3]))).toBe(Math.round(before.w / 2));
+    expect(Math.round(Number(m![4]))).toBe(Math.round(before.h / 2));
+    expect(problems).toEqual([]);
+  });
 });

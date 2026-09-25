@@ -59,7 +59,8 @@ function useRewrittenRaster(p: ContentEditPreviewProps): string | null {
         e.italic,
         e.restyled,
       ]),
-    ) + JSON.stringify((p.imageEdits ?? []).map((e) => [e.id, e.action, e.rect, e.src?.length, e.src?.slice(-48)]));
+    ) +
+    JSON.stringify((p.imageEdits ?? []).map((e) => [e.id, e.action, e.rect, e.crop, e.src?.length, e.src?.slice(-48)]));
   const any = p.edits.length > 0 || (p.imageEdits?.length ?? 0) > 0;
   const latest = useRef(0);
   useEffect(() => {

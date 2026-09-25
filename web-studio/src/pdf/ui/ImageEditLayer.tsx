@@ -38,8 +38,10 @@ export interface ImageEditLayerProps {
 interface Item {
   id: string;
   occurrence: number;
-  /** Where it is drawn now (edits applied). */
+  /** The picture's whole frame, where it is drawn now (edits applied). */
   rect: Rect;
+  /** Part of the frame left visible (fractions, top-left), when cropped. */
+  crop?: Rect;
   deleted: boolean;
   /** Has an edit that « Rétablir » would undo (originals only). */
   edited: boolean;
@@ -47,6 +49,7 @@ interface Item {
   src?: string;
 }
 
+/** A drag works on the VISIBLE box (the cropped part of the frame). */
 type Drag = { id: string; kind: "move" | "nw" | "ne" | "sw" | "se"; start: Pt; base: Rect; rect: Rect; moved: boolean };
 
 const MIN = 4;
@@ -67,6 +70,35 @@ export function resizeFrom(base: Rect, corner: "nw" | "ne" | "sw" | "se", at: Pt
   const x = corner === "nw" || corner === "sw" ? fx - w : fx;
   const y = corner === "nw" || corner === "ne" ? fy - h : fy;
   return { x, y, w, h };
+}
+
+/** The visible part of `frame` under `crop` (fractions of the frame, top-left). */
+export function croppedBox(frame: Rect, crop?: Rect): Rect {
+  if (!crop) return frame;
+  return { x: frame.x + crop.x * frame.w, y: frame.y + crop.y * frame.h, w: crop.w * frame.w, h: crop.h * frame.h };
+}
+
+/** The frame whose `crop` part is `visible` (a resize scales the whole picture). */
+export function frameOf(visible: Rect, crop?: Rect): Rect {
+  if (!crop || crop.w <= 0 || crop.h <= 0) return visible;
+  const w = visible.w / crop.w;
+  const h = visible.h / crop.h;
+  return { x: visible.x - crop.x * w, y: visible.y - crop.y * h, w, h };
+}
+
+/** The crop that shows `visible` of `frame`, kept inside it; null when nothing is cut off. */
+export function cropOf(frame: Rect, visible: Rect): Rect | null {
+  const x0 = Math.max(frame.x, visible.x);
+  const y0 = Math.max(frame.y, visible.y);
+  const x1 = Math.min(frame.x + frame.w, visible.x + visible.w);
+  const y1 = Math.min(frame.y + frame.h, visible.y + visible.h);
+  const c = {
+    x: (x0 - frame.x) / frame.w,
+    y: (y0 - frame.y) / frame.h,
+    w: Math.max(0.01, (x1 - x0) / frame.w),
+    h: Math.max(0.01, (y1 - y0) / frame.h),
+  };
+  return c.x < 1e-3 && c.y < 1e-3 && c.w > 0.999 && c.h > 0.999 ? null : c;
 }
 
 function readFile(f: File): Promise<string> {
@@ -91,6 +123,9 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
   const [images, setImages] = useState<PageImage[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  /** « Rogner »: the corners of the selected picture cut it instead of scaling it. */
+  const [cropping, setCropping] = useState(false);
+  useEffect(() => setCropping(false), [selected]);
   const layer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
 
@@ -117,6 +152,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
         id: e?.id ?? originalImageId(p.pageId, img.occurrence),
         occurrence: img.occurrence,
         rect: e?.rect ?? img.rect,
+        crop: e?.crop,
         deleted: e?.action === "delete",
         edited: !!e,
         added: false,
@@ -125,7 +161,16 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     });
     for (const e of p.edits) {
       if (e.occurrence >= 0 || e.action !== "add" || !e.rect) continue;
-      out.push({ id: e.id, occurrence: -1, rect: e.rect, deleted: false, edited: true, added: true, src: e.src });
+      out.push({
+        id: e.id,
+        occurrence: -1,
+        rect: e.rect,
+        crop: e.crop,
+        deleted: false,
+        edited: true,
+        added: true,
+        src: e.src,
+      });
     }
     return out;
   }, [images, p.edits, p.pageId]);
@@ -133,10 +178,10 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
   const current = (id: string) => p.edits.find((e) => e.id === id);
   const originalOf = (it: Item) => images.find((i) => i.occurrence === it.occurrence);
 
-  const commitRect = (it: Item, rect: Rect) => {
+  const commitRect = (it: Item, rect: Rect, crop: Rect | undefined = it.crop) => {
     if (it.added) {
       const e = current(it.id);
-      if (e) p.onChange({ ...e, rect });
+      if (e) p.onChange({ ...e, rect, crop });
       return;
     }
     const e = current(it.id);
@@ -148,6 +193,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
       action: e?.action === "replace" ? "replace" : "move",
       src: e?.action === "replace" ? e.src : undefined,
       rect,
+      crop,
     });
   };
 
@@ -172,9 +218,17 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     p.onBeginChange();
     if (it.added) {
       const e = current(it.id);
-      if (e) p.onChange({ ...e, src, rect });
+      if (e) p.onChange({ ...e, src, rect, crop: undefined });
     } else {
-      p.onChange({ id: it.id, pageId: p.pageId, occurrence: it.occurrence, action: "replace", src, rect });
+      p.onChange({
+        id: it.id,
+        pageId: p.pageId,
+        occurrence: it.occurrence,
+        action: "replace",
+        src,
+        rect,
+        crop: undefined,
+      });
     }
   };
 
@@ -198,7 +252,9 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     // A deleted picture can only be selected (to restore it).
     if (it.deleted) return;
     e.preventDefault();
-    const d: Drag = { id: it.id, kind, start: local(e), base: it.rect, rect: it.rect, moved: false };
+    const visible = croppedBox(it.rect, it.crop);
+    const crop = cropping && kind !== "move";
+    const d: Drag = { id: it.id, kind, start: local(e), base: visible, rect: visible, moved: false };
     setDrag(d);
     let last = d;
     const onMove = (ev: PointerEvent) => {
@@ -206,7 +262,9 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
       const rect =
         kind === "move"
           ? clamp({ ...d.base, x: d.base.x + at.x - d.start.x, y: d.base.y + at.y - d.start.y })
-          : resizeFrom(d.base, kind, at, ev.shiftKey);
+          : crop
+            ? croppedBox(it.rect, cropOf(it.rect, resizeFrom(d.base, kind, at, true)) ?? undefined)
+            : resizeFrom(d.base, kind, at, ev.shiftKey);
       const moved = last.moved || Math.hypot(at.x - d.start.x, at.y - d.start.y) * p.scale > 2;
       last = { ...d, rect, moved };
       setDrag(last);
@@ -217,7 +275,8 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
       setDrag(null);
       if (last.moved) {
         p.onBeginChange();
-        commitRect(it, last.rect);
+        if (crop) commitRect(it, it.rect, cropOf(it.rect, last.rect) ?? undefined);
+        else commitRect(it, frameOf(last.rect, it.crop));
       }
     };
     window.addEventListener("pointermove", onMove);
@@ -303,8 +362,16 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     >
       {items.map((it) => {
         const dragging = drag?.id === it.id ? drag : null;
-        const rect = dragging?.rect ?? it.rect;
+        const rect = dragging?.rect ?? croppedBox(it.rect, it.crop);
         const box = toView(rect);
+        // The whole picture inside the visible box (a cropped one overflows it, hidden).
+        const shownFrame = dragging && !(cropping && dragging.kind !== "move") ? frameOf(rect, it.crop) : it.rect;
+        const inner = {
+          left: `${((shownFrame.x - rect.x) / rect.w) * 100}%`,
+          top: `${((shownFrame.y - rect.y) / rect.h) * 100}%`,
+          width: `${(shownFrame.w / rect.w) * 100}%`,
+          height: `${(shownFrame.h / rect.h) * 100}%`,
+        };
         const isSel = it.id === selected;
         // What to draw ourselves: a dragged picture (the rebuilt page still shows it
         // at its old place), or an added one on a page with nothing to rebuild.
@@ -313,7 +380,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
         return (
           <div
             key={it.id}
-            className={`pdfx-imagebox ${isSel ? "is-selected" : ""} ${it.deleted ? "is-deleted" : ""} ${dragging?.moved ? "is-dragging" : ""}`}
+            className={`pdfx-imagebox ${isSel ? "is-selected" : ""} ${isSel && cropping ? "is-cropping" : ""} ${it.deleted ? "is-deleted" : ""} ${dragging?.moved ? "is-dragging" : ""}`}
             style={box}
             tabIndex={0}
             role="button"
@@ -324,7 +391,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
             onKeyDown={(e) => onKey(e, it)}
           >
             {draw && (it.src || it.added) && (
-              <img className="pdfx-imagebox__img" src={it.src} alt="" draggable={false} />
+              <img className="pdfx-imagebox__img" src={it.src} alt="" draggable={false} style={inner} />
             )}
             {draw && !it.src && original && <span className="pdfx-imagebox__ghost" />}
             {isSel && !it.deleted && (
@@ -342,10 +409,17 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
           </div>
         );
       })}
+      {sel && cropping && !sel.deleted && (
+        // The whole picture, while its visible part is being chosen.
+        <div className="pdfx-imagebox__frame" style={toView(sel.rect)} aria-hidden />
+      )}
       {sel && !drag && (
         <div
           className="pdfx-imagebar"
-          style={{ left: toView(sel.rect).left, top: Math.max(0, toView(sel.rect).top - 34) }}
+          style={{
+            left: toView(croppedBox(sel.rect, sel.crop)).left,
+            top: Math.max(0, toView(croppedBox(sel.rect, sel.crop)).top - 34),
+          }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           {!sel.deleted && (
@@ -353,6 +427,25 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
               <button type="button" onClick={() => picker.current?.click()}>
                 Remplacer…
               </button>
+              <button
+                type="button"
+                aria-pressed={cropping}
+                title="Faire glisser les coins pour choisir la partie visible"
+                onClick={() => setCropping((v) => !v)}
+              >
+                {cropping ? "Terminer le rognage" : "Rogner"}
+              </button>
+              {sel.crop && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    p.onBeginChange();
+                    commitRect(sel, sel.rect, undefined);
+                  }}
+                >
+                  Annuler le rognage
+                </button>
+              )}
               <button type="button" onClick={() => remove(sel)}>
                 Supprimer
               </button>

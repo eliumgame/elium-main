@@ -283,8 +283,13 @@ Fait :
   position identique à l'écran d'Elium ;
 - l'image remplacée garde la transparence d'un PNG.
 
+- « Rogner » : les coins choisissent la partie visible (chemin de découpe `re W n` dans le
+  fichier), « Annuler le rognage ». Tests unitaires (2) et navigateur (Drive + bureau).
+
 Reste T3 :
-- Rogner une image ; images dans les XObjects de formulaire et images en ligne (BI).
+- Une image déjà découpée dans le fichier (par Acrobat ou Elium) est encadrée en entier à
+  la réouverture : la découpe existante n'est pas lue.
+- Images dans les XObjects de formulaire et images en ligne (BI).
 - Liste : un seul bloc ; tableau : un bloc par colonne.
 - Réutiliser le sous-ensemble de la police d'origine quand il couvre le nouveau texte
   (aujourd'hui : police d'origine si elle encode tout, sinon Liberation).

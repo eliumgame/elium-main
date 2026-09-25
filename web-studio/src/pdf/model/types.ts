@@ -359,6 +359,8 @@ export interface ImageEdit {
   src?: string;
   /** New frame, top-left unrotated page space (moved / resized, or where an added image goes). */
   rect?: Rect;
+  /** Part of the frame left visible, as fractions of it (top-left origin): « Rogner ». */
+  crop?: Rect;
 }
 
 // ---------------------------------------------------------------------------

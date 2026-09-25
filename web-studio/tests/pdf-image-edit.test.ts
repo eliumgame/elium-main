@@ -256,3 +256,42 @@ describe("content left in a transformed state (Chromium)", () => {
     ).toBe(false);
   });
 });
+
+describe("« Rogner »", () => {
+  it("clips the picture to its visible part, in the file", async () => {
+    const state = base();
+    const pageId = state.pages[0].id;
+    const { bytes, report } = await buildPdf(await source(), {
+      ...state,
+      imageEdits: [
+        // Keep the right half, bottom 60 %, of the 100×50 picture at (50, 150).
+        edit({ pageId, occurrence: 0, action: "move", crop: { x: 0.5, y: 0.4, w: 0.5, h: 0.6 } }),
+      ],
+    });
+    expect(report.lost).toEqual([]);
+    const doc = await PDFDocument.load(bytes);
+    const { readPageContent } = await import("../src/pdf/ops/content");
+    const { ops } = await readPageContent(doc.getPage(0));
+    const re = ops.find((o) => o.op === "re")!;
+    // PDF space: x 100..150, y from 600-150-50 = 400 up to 400 + 30.
+    expect(re.args.map((a) => (a.t === "num" ? a.v : NaN))).toEqual([100, 400, 50, 30]);
+    const at = ops.indexOf(re);
+    expect(ops.slice(at + 1, at + 3).map((o) => o.op)).toEqual(["W", "n"]);
+    // Frame unchanged: the picture is only cut, not moved.
+    expect((await placed(bytes))[0]).toEqual({ isImage: true, x: 50, y: 400, w: 100, h: 50 });
+  });
+
+  it("maps visible box, frame and crop onto each other", async () => {
+    const { croppedBox, frameOf, cropOf } = await import("../src/pdf/ui/ImageEditLayer");
+    const frame = { x: 10, y: 20, w: 200, h: 100 };
+    const crop = { x: 0.25, y: 0.5, w: 0.5, h: 0.5 };
+    const vis = croppedBox(frame, crop);
+    expect(vis).toEqual({ x: 60, y: 70, w: 100, h: 50 });
+    expect(frameOf(vis, crop)).toEqual(frame);
+    expect(cropOf(frame, vis)).toEqual(crop);
+    // Dragged beyond the picture: kept inside it; nothing cut off: no crop.
+    expect(cropOf(frame, { x: 0, y: 0, w: 500, h: 500 })).toBeNull();
+    // A scaled visible box scales the whole frame with it.
+    expect(frameOf({ x: 60, y: 70, w: 200, h: 100 }, crop)).toEqual({ x: -40, y: -30, w: 400, h: 200 });
+  });
+});

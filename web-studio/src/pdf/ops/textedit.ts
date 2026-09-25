@@ -432,7 +432,13 @@ const num = (v: number): Operand => ({ t: "num", v: round(v, 5) });
 export async function applyImageEdits(
   doc: PDFDocument,
   page: PDFPage,
-  edits: readonly { occurrence: number; action: "delete" | "replace" | "move" | "add"; src?: string; rect?: Rect }[],
+  edits: readonly {
+    occurrence: number;
+    action: "delete" | "replace" | "move" | "add";
+    src?: string;
+    rect?: Rect;
+    crop?: Rect;
+  }[],
   embed: (src: string) => Promise<{ ref: import("pdf-lib").PDFRef } | null>,
 ): Promise<number> {
   if (!edits.length) return 0;
@@ -454,6 +460,7 @@ export async function applyImageEdits(
       const r = frame.rectToPdf(edit.rect);
       appended.push(
         { op: "q", args: [] },
+        ...clipTo(r, edit.crop),
         { op: "cm", args: [r.w, 0, 0, r.h, r.x, r.y].map(num) },
         { op: "Do", args: [{ t: "name", v: name }] },
         { op: "Q", args: [] },
@@ -476,7 +483,7 @@ export async function applyImageEdits(
       name = page.node.newXObject("Image", embedded.ref).asString().replace(/^\//, "");
     }
     const draw: Op = { op: "Do", args: [{ t: "name", v: name }] };
-    if (edit.rect) {
+    if (edit.rect || edit.crop) {
       const xs = place.corners.map((c) => c.x);
       const ys = place.corners.map((c) => c.y);
       const from: Rect = {
@@ -486,10 +493,12 @@ export async function applyImageEdits(
         h: Math.max(...ys) - Math.min(...ys),
       };
       // The CTM at the Do is in user space: M is prepended in the same space.
-      const m = rectToRect(from, frame.rectToPdf(edit.rect));
+      const to = edit.rect ? frame.rectToPdf(edit.rect) : from;
+      const m = rectToRect(from, to);
       replacements.set(place.opIndex, [
         { op: "q", args: [] },
         ...(await inverseCtm(place.ctm)),
+        ...clipTo(to, edit.crop),
         { op: "cm", args: m.map(num) },
         { op: "cm", args: place.ctm.map(num) },
         draw,
@@ -513,6 +522,21 @@ export async function applyImageEdits(
     writePageContent(doc, page, [...body, ...appended]);
   }
   return changed;
+}
+
+/**
+ * A clip to the visible part of a picture drawn in PDF rect `r`: `crop` is in
+ * fractions of the frame, top-left origin (the editor's), PDF's y goes up.
+ */
+function clipTo(r: Rect, crop: Rect | undefined): Op[] {
+  if (!crop) return [];
+  const x = r.x + crop.x * r.w;
+  const y = r.y + r.h - (crop.y + crop.h) * r.h;
+  return [
+    { op: "re", args: [x, y, crop.w * r.w, crop.h * r.h].map(num) },
+    { op: "W", args: [] },
+    { op: "n", args: [] },
+  ];
 }
 
 /**

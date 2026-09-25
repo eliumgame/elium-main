@@ -389,10 +389,18 @@ export class FormSession {
           if (!f || !this.storage) return;
           const entry: Record<string, unknown> = {};
           if ("value" in detail) {
-            entry.value =
-              f.type === "checkbox" || f.type === "radiobutton"
-                ? detail.value !== "Off" && detail.value !== false && detail.value != null
-                : detail.value;
+            const v = detail.value;
+            if (f.type === "checkbox" || f.type === "radiobutton") {
+              // Each widget is on only for ITS export value (the sandbox sends the
+              // group's value to every sibling: « on » for all was saved as the first).
+              const own = f.widgets.find((w) => w.id === id)?.exportValue ?? null;
+              entry.value = typeof v === "boolean" ? v : v != null && v !== "Off" && own !== null && String(v) === own;
+            } else if (f.type === "combobox" || (f.type === "listbox" && !f.multiSelect)) {
+              // Arrays, as pdf.js' choice widget matches them (see storageEntries).
+              entry.value = v == null || v === "" ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
+            } else {
+              entry.value = v;
+            }
           }
           if ("formattedValue" in detail) entry.formattedValue = detail.formattedValue;
           if (Object.keys(entry).length) this.storage.setValue(id, entry);

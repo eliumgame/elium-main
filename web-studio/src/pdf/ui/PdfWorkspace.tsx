@@ -137,6 +137,8 @@ import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
+import { PDFDocument } from "pdf-lib";
+import { formOf } from "../ops/pdfform";
 import { PreparePage } from "./PrepareLayer";
 import FieldPropertiesDialog, { propsFromPdfjs, type PdfjsWidgetData } from "./FieldProperties";
 import Inspector from "./Inspector";
@@ -1118,8 +1120,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     setTool(next);
     setEditingId(null);
     // A field tool works in « Préparer un formulaire »; a markup tool leaves it.
-    if (next.startsWith("field:")) setMode("fields");
-    else if (toolIsAnnot(next) && mode === "fields") setMode("view");
+    if (next.startsWith("field:")) {
+      setMode("fields");
+      setSelectedIds([]);
+    } else if (toolIsAnnot(next) && mode === "fields") setMode("view");
     if (toolIsAnnot(next)) {
       setStyle((s) => styleForKind(s, next));
       const target = TOOL_TAB[next];
@@ -2007,6 +2011,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "formPrepare":
         setMode(mode === "fields" ? "view" : "fields");
         setPrepSelected([]);
+        setSelectedIds([]);
         if (mode !== "fields") setTool("select");
         return;
       case "formMode":
@@ -2573,7 +2578,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
    * kept; fields on pages the source does not have (added in Elium, duplicates)
    * stay in the model and are written by the next save.
    */
-  const foldPreparedFields = async () => {
+  const foldPreparedFields = async (then: Mode) => {
     if (!engine || !bytesRef.current) return;
     const st = state;
     const idByFrom = new Map<number, string>();
@@ -2592,8 +2597,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         security: null,
       });
       dismissToast(id);
-      // What was filled in follows renamed fields; deleted fields take theirs along.
+      // What was filled in follows renamed fields and new export values;
+      // deleted fields take theirs along.
       const formValues = { ...st.formValues };
+      for (const e of st.fieldEdits) {
+        if (!e.exportValues || !(e.name in formValues)) continue;
+        const f = formSession?.fields.get(e.name);
+        for (const [widgetId, next] of Object.entries(e.exportValues)) {
+          const old = f?.widgets.find((w) => w.id === widgetId)?.exportValue;
+          if (old && formValues[e.name] === old) formValues[e.name] = next;
+        }
+      }
       for (const e of st.fieldEdits) {
         if (!(e.name in formValues)) continue;
         const v = formValues[e.name];
@@ -2601,10 +2615,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (!e.deleted && !(e.removeWidgets && !e.rename)) formValues[e.rename ?? e.name] = v;
         else if (e.removeWidgets && !e.deleted) formValues[e.name] = v;
       }
+      // A created field the file could not take (a name clash…) stays in the model, not lost.
+      const made = await PDFDocument.load(res.bytes, { ignoreEncryption: true, updateMetadata: false })
+        .then(
+          (d) =>
+            new Set(
+              formOf(d)
+                .getFields()
+                .map((f) => f.getName()),
+            ),
+        )
+        .catch(() => null);
       const keep: PdfState = {
         ...st,
         formValues,
-        createdFields: st.createdFields.filter((f) => !folded.includes(f)),
+        createdFields: st.createdFields.filter((f) => !folded.includes(f) || (made && !made.has(f.name))),
         fieldEdits: [],
       };
       if (res.report.lost.length) {
@@ -2619,6 +2644,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         res.report.mode === "incremental",
         keep,
       );
+      // Reopening shows the document in « view »: go on in the mode the user asked for.
+      if (then !== "view") setMode(then);
     } catch (err) {
       dismissToast(id);
       toast("danger", "Mise à jour du formulaire impossible", err instanceof Error ? err.message : undefined);
@@ -2680,7 +2707,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (was === "fields" && mode !== "fields") {
       setPrepSelected([]);
       if (tool === "select" || tool.startsWith("field:")) setTool("textSelect");
-      void foldPreparedFields();
+      void foldPreparedFields(mode as Mode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
@@ -3036,6 +3063,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A dialog owns the keyboard (a tool letter would leave the mode behind it).
+      if (document.querySelector('[role="dialog"]')) return;
       const target = e.target as HTMLElement | null;
       const inField =
         !!target &&
@@ -3062,7 +3091,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           void openDialogRef.current();
           return;
         }
-        if (!inField && k === "a") {
+        if (!inField && k === "a" && mode !== "fields") {
           e.preventDefault();
           setSelectedIds(state.annots.filter((a) => a.pageId === currentPage()?.id).map((a) => a.id));
           return;
@@ -3112,6 +3141,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
 
       if (inField) return;
+      // « Préparer » handles its own keys (PrepareLayer): only Escape leaves the mode here.
+      if (mode === "fields" && e.key !== "Escape") return;
 
       switch (e.key) {
         case "Escape":
@@ -3308,7 +3339,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // Elium's layers for one page, rendered by PageStack inside the page slot
   // (same stacking and coordinates as the old PageView children). `scale` is
   // PageStack's — during a Ctrl+wheel gesture it leads `view.scale`.
-  const renderOverlay = (page: Page, _index: number, { size, rotation, scale }: OverlayGeometry) => {
+  const renderOverlay = (page: Page, index: number, { size, rotation, scale }: OverlayGeometry) => {
     const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
     const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
     return (
@@ -3339,7 +3370,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         {mode === "fields" && (
           <PreparePage
             engine={engine}
-            from={page.from}
+            // A duplicated page shows its original's fields only on the first copy
+            // (the same widgets: editing them twice would move both).
+            from={page.from != null && pages.findIndex((q) => q.from === page.from) === index ? page.from : null}
             pageId={page.id}
             size={size}
             rotation={rotation}
@@ -3989,7 +4022,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           name={prepProps.name}
           initial={prepProps.initial}
           otherFields={allFieldNames(state)}
-          takenNames={new Set(allFieldNames(state))}
+          takenNames={
+            new Set([...allFieldNames(state), ...state.fieldEdits.filter((e) => e.rename).map((e) => e.name)])
+          }
           onConfirm={applyFieldProps}
           onClose={() => setPrepProps(null)}
         />

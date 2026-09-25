@@ -183,3 +183,33 @@ Reste T2 :
 - Tests : pdf-xfa (3).
 - Pour plus tard : remplir un XFA dynamique demanderait le calque XFA de pdf.js
   (`enableXfa`) et `saveDocument` pour les datasets.
+
+### Session cloud 1, suite : relecture adversariale T2 et premier correctif T3
+
+Relecture en deux passes par des agents indépendants, chaque défaut reproduit :
+- écriture des formulaires : 17 défauts, dont 2 P0 (renommage vers une autre branche qui
+  perdait type et valeur ; collisions dans l'arbre des noms). Tous corrigés, tests :
+  tests/pdf-form-review.test.ts ;
+- interface : 10 défauts, dont 1 P0 (Suppr en mode Préparer supprimait aussi les
+  annotations sélectionnées avant). Corrigés 1, 3 à 10, tests navigateur « préparer :
+  relecture ». Le 2 n'est corrigé qu'en partie : le mode demandé est rétabli, mais
+  l'historique d'annulation repart toujours de zéro après intégration des champs.
+
+Aussi corrigé (T3, premier point du diagnostic) : le texte écrit dans les pages
+(paragraphe modifié, commentaire texte libre, filigrane, en-tête et pied, calque OCR)
+perdait tout ce qui sort de WinAnsi (« Łódź » devenait « ód »), et sanitiseForFont
+remplaçait à tort les tirets et guillemets typographiques. `FontBook.forText` choisit une
+police Unicode (Liberation Sans) si nécessaire ; tests/pdf-unicode-text.test.ts.
+
+Limites connues, à reprendre :
+- historique d'annulation perdu à la sortie de « Préparer » ;
+- polices Unicode de secours : Sans seulement (Liberation Serif et Mono à embarquer) ;
+- en mode Préparer, l'export des données utilise encore les anciens noms des champs
+  renommés ;
+- un champ placé d'un clic sur une page pivotée a la bonne taille à l'écran, mais son
+  texte n'est pas redressé (/MK /R à écrire).
+
+Suite : T3, édition de texte et d'images.
+- Diagnostic à faire sur des PDF Chrome/Edge : détection des blocs, reflux, alignement,
+  aperçu à l'écran différent du fichier (coupures de ligne).
+- Polices Serif et Mono.

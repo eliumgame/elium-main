@@ -232,3 +232,60 @@ test.describe("PDF — formulaires : champs obligatoires", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("PDF — préparer : relecture", () => {
+  test("Suppr en mode Préparer ne supprime que le champ, pas l'annotation sélectionnée avant", async ({ page }) => {
+    const problems = trackHealth(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    // A rectangle, left selected.
+    await page.keyboard.press("r");
+    const stackBox = (await page.locator(".pdfx-page").first().boundingBox())!;
+    await page.mouse.move(stackBox.x + stackBox.width * 0.6, stackBox.y + stackBox.height * 0.02);
+    await page.mouse.down();
+    await page.mouse.move(stackBox.x + stackBox.width * 0.8, stackBox.y + stackBox.height * 0.06, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.getByText("1 annotation")).toBeVisible();
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+    await page.getByRole("button", { name: "Préparer" }).click();
+    // The fill layer gives way to the editing boxes.
+    await expect(page.locator(".annotationLayer").first()).toHaveCSS("visibility", "hidden");
+    await page.locator(".pdfx-prep-box", { hasText: /^qte$/ }).click();
+    await page.keyboard.press("Delete");
+    await expect(page.locator(".pdfx-prep-box", { hasText: /^qte$/ })).toHaveCount(0);
+    await expect(page.getByText("1 annotation")).toBeVisible();
+    // Ctrl+A does not select the comments behind the boxes either.
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("1 annotation")).toBeVisible();
+    expect(problems).toEqual([]);
+  });
+
+  test("un nom libéré par un renommage reste réservé ; une lettre tapée dans la boîte ne quitte pas le mode", async ({
+    page,
+  }) => {
+    const problems = trackHealth(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+    await page.getByRole("button", { name: "Préparer" }).click();
+    await page.locator(".pdfx-prep-box", { hasText: /^nom$/ }).dblclick();
+    let dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Nom").fill("client");
+    await dialog.getByRole("button", { name: "Appliquer" }).click();
+    await expect(page.locator(".pdfx-prep-box", { hasText: /^client$/ })).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Texte", exact: true }).first().click();
+    const layer = (await page.locator(".pdfx-prep").first().boundingBox())!;
+    await page.mouse.click(layer.x + layer.width * 0.6, layer.y + layer.height * 0.03);
+    await page.locator('.pdfx-prep-box[data-key^="c:"]').dblclick();
+    dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Nom").fill("nom");
+    await expect(dialog.getByText("Ce nom est déjà utilisé.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Appliquer" })).toBeDisabled();
+    // A tool letter while the dialog has focus changes nothing behind it.
+    await dialog.getByRole("tab", { name: "Aspect" }).click();
+    await page.keyboard.press("r");
+    await expect(page.locator(".pdfx-prep").first()).toBeVisible();
+    await dialog.getByRole("button", { name: "Annuler" }).click();
+    expect(problems).toEqual([]);
+  });
+});

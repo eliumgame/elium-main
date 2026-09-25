@@ -1844,7 +1844,7 @@
 
 /* The fill layer gives way to the editing boxes (pdf.js paints no widget on
    the canvas in ENABLE_FORMS mode: the boxes are the fields). */
-.pdfx-stack.is-preparing .annotationLayer {
+.pdfx-canvas.is-preparing .annotationLayer {
   visibility: hidden;
 }
 .pdfx-prep {
@@ -1987,10 +1987,10 @@
 /* Outil Sélection : les champs de formulaire restent cliquables (au-dessus du
    calque d'annotations, qui capte le pointeur pour la sélection), les liens
    laissent passer le pointeur vers les annotations posées dessus. */
-.pdfx-stack.is-annot-select .annotationLayer {
+.pdfx-canvas.is-annot-select .annotationLayer {
   z-index: 7;
 }
-.pdfx-stack.is-annot-select .annotationLayer section.linkAnnotation {
+.pdfx-canvas.is-annot-select .annotationLayer section.linkAnnotation {
   pointer-events: none;
 }
 

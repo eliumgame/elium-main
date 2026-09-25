@@ -96,9 +96,27 @@ export default function PrepareLayer(p: PrepareLayerProps) {
   };
   const toPage = (v: Pt) => viewToPs(v, p.size, p.rotation);
   const clampRect = (r: Rect): Rect => {
-    const w = Math.max(MIN, r.w);
-    const h = Math.max(MIN, r.h);
+    // Never larger than the page, never off it.
+    const w = Math.min(p.size.w, Math.max(MIN, r.w));
+    const h = Math.min(p.size.h, Math.max(MIN, r.h));
     return { x: Math.min(Math.max(0, r.x), p.size.w - w), y: Math.min(Math.max(0, r.y), p.size.h - h), w, h };
+  };
+  /** Move a group by (dx, dy), the shift limited so the WHOLE group stays on the page (alignment kept). */
+  const moveGroup = (rects: Iterable<[string, Rect]>, dx: number, dy: number): Map<string, Rect> => {
+    const list = [...rects];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const [, r] of list) {
+      minX = Math.min(minX, r.x);
+      minY = Math.min(minY, r.y);
+      maxX = Math.max(maxX, r.x + r.w);
+      maxY = Math.max(maxY, r.y + r.h);
+    }
+    const cdx = Math.min(Math.max(dx, -minX), p.size.w - maxX);
+    const cdy = Math.min(Math.max(dy, -minY), p.size.h - maxY);
+    return new Map(list.map(([k, r]) => [k, { ...r, x: r.x + cdx, y: r.y + cdy }]));
   };
 
   const rectOf = (b: PrepBox) => preview?.get(b.key) ?? b.rect;
@@ -121,9 +139,7 @@ export default function PrepareLayer(p: PrepareLayerProps) {
           p.onBeginChange();
           gesture.moved = true;
         }
-        const next = new Map<string, Rect>();
-        for (const [k, r] of gesture.origin) next.set(k, clampRect({ ...r, x: r.x + dx, y: r.y + dy }));
-        setPreview(next);
+        setPreview(moveGroup(gesture.origin, dx, dy));
         return;
       }
       // Resize, in view space so the handles follow the pointer on a rotated page.
@@ -152,8 +168,9 @@ export default function PrepareLayer(p: PrepareLayerProps) {
         const b = toPage(local(e));
         const small = Math.hypot(b.x - a.x, b.y - a.y) * p.scale < 4;
         const d = DEFAULT_FIELD_SIZE[g.fieldKind];
+        // A click places the usual size ON SCREEN from the pointer (a rotated page included).
         const r = small
-          ? { x: a.x, y: a.y, w: d.w, h: d.h }
+          ? rectFromView({ x: g.start.x, y: g.start.y, w: d.w, h: d.h }, p.size, p.rotation)
           : { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
         p.onCreate(g.fieldKind, clampRect(r));
         return;
@@ -212,6 +229,10 @@ export default function PrepareLayer(p: PrepareLayerProps) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // The layer's keys are its own: the workspace's shortcuts (Delete of the
+    // selected COMMENTS, tool letters…) must not act on them too. Escape still
+    // reaches the workspace: it leaves « Préparer ».
+    if (e.key !== "Escape") e.stopPropagation();
     const sel = p.boxes.filter((b) => p.selected.includes(b.key));
     if (!sel.length) return;
     if (e.key === "Delete" || e.key === "Backspace") {
@@ -239,12 +260,12 @@ export default function PrepareLayer(p: PrepareLayerProps) {
     const a = toPage({ x: 0, y: 0 });
     const b = toPage(d);
     p.onBeginChange();
-    p.onChangeRects(
-      sel.map((box) => ({
-        key: box.key,
-        rect: clampRect({ ...box.rect, x: box.rect.x + b.x - a.x, y: box.rect.y + b.y - a.y }),
-      })),
+    const moved = moveGroup(
+      sel.map((box) => [box.key, box.rect] as [string, Rect]),
+      b.x - a.x,
+      b.y - a.y,
     );
+    p.onChangeRects([...moved].map(([key, rect]) => ({ key, rect })));
   };
 
   const view = (r: Rect) => {

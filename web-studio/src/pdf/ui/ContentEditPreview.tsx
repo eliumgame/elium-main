@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Rotation, Size } from "../core/coords";
 import { psToView } from "../core/coords";
-import type { ContentEdit } from "../model/types";
+import type { ContentEdit, ImageEdit } from "../model/types";
 import { fontCss } from "../../ui/fonts";
 import { openPdfDocument } from "../core/assets";
 import { pdfjs } from "../core/pdfjs";
@@ -26,6 +26,8 @@ import { pdfjs } from "../core/pdfjs";
 
 export interface ContentEditPreviewProps {
   edits: ContentEdit[];
+  /** Moved, replaced, deleted or added pictures of the page (shown through the rebuild only). */
+  imageEdits?: ImageEdit[];
   size: Size;
   rotation: Rotation;
   scale: number;
@@ -56,10 +58,14 @@ function useRewrittenRaster(p: ContentEditPreviewProps): string | null {
       e.italic,
       e.restyled,
     ]),
-  );
+  ) +
+    JSON.stringify(
+      (p.imageEdits ?? []).map((e) => [e.id, e.action, e.rect, e.src?.length, e.src?.slice(-48)]),
+    );
+  const any = p.edits.length > 0 || (p.imageEdits?.length ?? 0) > 0;
   const latest = useRef(0);
   useEffect(() => {
-    if (!p.edits.length || !p.source || p.from == null || typeof document === "undefined") {
+    if (!any || !p.source || p.from == null || typeof document === "undefined") {
       setUrl(null);
       return;
     }
@@ -68,7 +74,7 @@ function useRewrittenRaster(p: ContentEditPreviewProps): string | null {
     const timer = setTimeout(async () => {
       try {
         const { rewrittenPage } = await import("../ops/editpreview");
-        const res = await rewrittenPage(p.source!.bytes, p.source!.password, p.from!, p.edits);
+        const res = await rewrittenPage(p.source!.bytes, p.source!.password, p.from!, p.edits, p.imageEdits ?? []);
         if (run !== latest.current) return;
         p.onMissing?.(res.missing);
         const task = openPdfDocument(res.bytes);
@@ -101,12 +107,12 @@ function useRewrittenRaster(p: ContentEditPreviewProps): string | null {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, p.source?.bytes, p.from, p.scale, p.rotation]);
-  return p.edits.length ? url : null;
+  return any ? url : null;
 }
 
 export default function ContentEditPreview(p: ContentEditPreviewProps) {
   const raster = useRewrittenRaster(p);
-  if (!p.edits.length) return null;
+  if (!p.edits.length && !p.imageEdits?.length) return null;
 
   if (raster) {
     return (

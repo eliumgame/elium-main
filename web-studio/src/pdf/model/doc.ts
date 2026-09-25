@@ -466,11 +466,18 @@ export function contentEditFor(state: PdfState, pageId: string, blockKey: string
 }
 
 export function upsertImageEdit(state: PdfState, edit: ImageEdit): PdfState {
-  const i = state.imageEdits.findIndex((e) => e.pageId === edit.pageId && e.occurrence === edit.occurrence);
+  // Added images are told apart by id; the page's own by their draw order.
+  const i = state.imageEdits.findIndex((e) =>
+    edit.occurrence < 0 ? e.id === edit.id : e.pageId === edit.pageId && e.occurrence === edit.occurrence,
+  );
   const next = state.imageEdits.slice();
   if (i < 0) next.push(edit);
   else next[i] = { ...next[i], ...edit };
   return { ...state, imageEdits: next };
+}
+
+export function removeImageEdit(state: PdfState, id: string): PdfState {
+  return { ...state, imageEdits: state.imageEdits.filter((e) => e.id !== id) };
 }
 
 // ---------------------------------------------------------------------------

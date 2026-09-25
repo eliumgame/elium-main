@@ -13,11 +13,13 @@
  */
 
 import { PDFDocument } from "pdf-lib";
-import type { ContentEdit } from "../model/types";
+import type { Rect } from "../core/coords";
+import type { ContentEdit, ImageEdit } from "../model/types";
 import { pageFrame } from "./annots-pdf";
 import { FontBook } from "./fonts";
+import { ImageBank } from "./images";
 import { openCrypt } from "./security";
-import { applyTextEdits } from "./textedit";
+import { applyImageEdits, applyTextEdits, pagePlacements } from "./textedit";
 
 const sources = new WeakMap<Uint8Array, Promise<PDFDocument>>();
 
@@ -55,12 +57,61 @@ export async function rewrittenPage(
   password: string | null | undefined,
   pageIndex: number,
   edits: readonly ContentEdit[],
+  imageEdits: readonly ImageEdit[] = [],
 ): Promise<PreviewResult> {
   const src = await sourceDoc(source, password);
   const out = await PDFDocument.create({ updateMetadata: false });
   const [page] = await out.copyPages(src, [pageIndex]);
   out.addPage(page);
-  const r = await applyTextEdits(out, page, edits, pageFrame(page), new FontBook(out));
+  // Same order as the save: text first, then pictures.
+  const r = edits.length
+    ? await applyTextEdits(out, page, edits, pageFrame(page), new FontBook(out))
+    : { missing: [] as string[], skipped: 0 };
+  if (imageEdits.length) {
+    const bank = new ImageBank(out);
+    await applyImageEdits(out, page, imageEdits, async (s) => {
+      const img = await bank.get(s);
+      return img ? { ref: img.ref } : null;
+    });
+  }
   const bytes = await out.save({ useObjectStreams: false, updateFieldAppearances: false });
   return { bytes, missing: [...new Set(r.missing.join(""))].join(""), skipped: r.skipped };
+}
+
+/** A picture of the page's own content, as « Modifier » lists it. */
+export interface PageImage {
+  /** Draw-order index among the page's XObject placements (`ImageEdit.occurrence`). */
+  occurrence: number;
+  /** Bounding box, top-left unrotated page space. */
+  rect: Rect;
+}
+
+/**
+ * The images the page `pageIndex` of `source` draws itself (not those inside
+ * form XObjects, not inline images), in the space the editor works in.
+ * Specks under 2 pt — separators, tracking pixels — are left out.
+ */
+export async function pageImages(
+  source: Uint8Array,
+  password: string | null | undefined,
+  pageIndex: number,
+): Promise<PageImage[]> {
+  const src = await sourceDoc(source, password);
+  const page = src.getPage(pageIndex);
+  const box = page.getCropBox();
+  const out: PageImage[] = [];
+  for (const p of await pagePlacements(page)) {
+    if (!p.isImage) continue;
+    const xs = p.corners.map((c) => c.x - box.x);
+    const ys = p.corners.map((c) => box.y + box.height - c.y);
+    const rect = {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      w: Math.max(...xs) - Math.min(...xs),
+      h: Math.max(...ys) - Math.min(...ys),
+    };
+    if (rect.w < 2 || rect.h < 2) continue;
+    out.push({ occurrence: p.occurrence, rect });
+  }
+  return out;
 }

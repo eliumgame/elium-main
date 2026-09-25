@@ -2081,3 +2081,93 @@
   background: var(--x-accent);
   cursor: ew-resize;
 }
+
+/* « Modifier le texte » lets clicks through outside its paragraphs, down to the pictures. */
+.pdfx-editlayer {
+  pointer-events: none;
+}
+.pdfx-editlayer > *,
+.pdfx-editlayer.is-adding {
+  pointer-events: auto;
+}
+.pdfx-editlayer > .pdfx-editlayer__empty {
+  pointer-events: none;
+}
+
+/* Pictures of the page content. */
+.pdfx-imagelayer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+}
+.pdfx-imagelayer.is-adding {
+  cursor: copy;
+}
+.pdfx-imagebox {
+  position: absolute;
+  border: 1px dashed rgba(59, 130, 246, 0.55);
+  cursor: move;
+  outline: none;
+  box-sizing: border-box;
+}
+.pdfx-imagebox:hover,
+.pdfx-imagebox:focus-visible {
+  border-color: var(--x-accent);
+  background: rgba(59, 130, 246, 0.06);
+}
+.pdfx-imagebox.is-selected {
+  border: 1.5px solid var(--x-accent);
+  z-index: 2;
+}
+.pdfx-imagebox.is-deleted {
+  cursor: pointer;
+  border-color: rgba(239, 68, 68, 0.7);
+  background: repeating-linear-gradient(45deg, rgba(239, 68, 68, 0.1) 0 6px, transparent 6px 12px);
+}
+.pdfx-imagebox__img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.pdfx-imagebox__ghost {
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.18);
+}
+.pdfx-imagebox__handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px;
+  background: #fff;
+  border: 1.5px solid var(--x-accent);
+  border-radius: 2px;
+}
+.pdfx-imagebox__handle--nw { left: 0; top: 0; cursor: nwse-resize; }
+.pdfx-imagebox__handle--ne { right: 0; top: 0; margin: -5px -5px 0 0; cursor: nesw-resize; }
+.pdfx-imagebox__handle--sw { left: 0; bottom: 0; margin: 0 0 -5px -5px; cursor: nesw-resize; }
+.pdfx-imagebox__handle--se { right: 0; bottom: 0; margin: 0 -5px -5px 0; cursor: nwse-resize; }
+.pdfx-imagebar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--x-chrome);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.pdfx-imagebar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--x-chrome-soft);
+  cursor: pointer;
+}
+.pdfx-imagebar button:hover {
+  background: rgba(127, 127, 127, 0.18);
+}

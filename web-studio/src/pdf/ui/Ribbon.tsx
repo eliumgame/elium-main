@@ -421,7 +421,19 @@ export default function Ribbon(p: RibbonProps) {
                 onClick={C("addText")}
                 title="Ajouter du texte dans la page (contenu du PDF, pas un commentaire)"
               />
-              <Cmd big icon={<ImageIcon size={19} />} label="Image" onClick={T("image")} active={p.tool === "image"} />
+              <Cmd
+                big
+                icon={<ImageIcon size={19} />}
+                label="Ajouter une image"
+                onClick={C("addImage")}
+                title="Ajouter une image dans la page (contenu du PDF, déplaçable dans « Modifier le texte »)"
+              />
+              <Cmd
+                icon={<ImageIcon size={17} />}
+                onClick={T("image")}
+                active={p.tool === "image"}
+                title="Image en tampon (annotation par-dessus la page)"
+              />
               <Cmd
                 icon={<Type size={17} />}
                 onClick={T("typewriter")}

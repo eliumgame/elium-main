@@ -37,6 +37,7 @@ import type {
   AnnotKind,
   Bookmark,
   ContentEdit,
+  ImageEdit,
   FieldKind,
   FieldProps,
   MeasureScale,
@@ -137,6 +138,7 @@ import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
+import ImageEditLayer from "./ImageEditLayer";
 import { PDFDocument } from "pdf-lib";
 import { formOf } from "../ops/pdfform";
 import { PreparePage } from "./PrepareLayer";
@@ -353,6 +355,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const previousMode = useRef<string | null>(null);
   /** « Ajouter du texte » armed: the next click on a page in « Modifier le texte » places text. */
   const [addingText, setAddingText] = useState(false);
+  /** « Ajouter une image »: the picked picture, placed by the next click on a page. */
+  const [addingImage, setAddingImage] = useState<string | null>(null);
   /** « Propriétés du champ » open on this field. */
   const [prepProps, setPrepProps] = useState<{
     key: string;
@@ -452,6 +456,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
     return map;
   }, [state.annots]);
+  const imageEditsByPage = useMemo(() => {
+    const map = new Map<string, ImageEdit[]>();
+    for (const e of state.imageEdits) {
+      const list = map.get(e.pageId);
+      if (list) list.push(e);
+      else map.set(e.pageId, [e]);
+    }
+    return map;
+  }, [state.imageEdits]);
   const contentEditsByPage = useMemo(() => {
     const map = new Map<string, ContentEdit[]>();
     for (const e of state.contentEdits) {
@@ -2009,10 +2022,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "editMode":
         setMode(mode === "editText" ? "view" : "editText");
         setAddingText(false);
+        setAddingImage(null);
         setTab("edit");
         return;
+      case "addImage": {
+        // An <input> in the document: some browsers ignore a detached one.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif";
+        input.style.display = "none";
+        input.dataset.testid = "add-image-input";
+        document.body.appendChild(input);
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => {
+            setMode("editText");
+            setAddingText(false);
+            setAddingImage(String(r.result));
+            toast("info", "Cliquez sur la page à l'endroit où placer l'image.");
+          };
+          r.readAsDataURL(f);
+        });
+        input.addEventListener("cancel", () => input.remove());
+        input.click();
+        return;
+      }
       case "addText":
         setMode("editText");
+        setAddingImage(null);
         setAddingText(true);
         toast("info", "Cliquez sur la page à l'endroit où ajouter le texte.");
         return;
@@ -3350,6 +3390,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const renderOverlay = (page: Page, index: number, { size, rotation, scale }: OverlayGeometry) => {
     const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
     const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
+    const pageImageEdits = imageEditsByPage.get(page.id) ?? EMPTY_ARRAY;
+    const source = bytesRef.current ? { bytes: bytesRef.current, password: passwordRef.current } : null;
     return (
       <>
         {/* Edited paragraphs are painted over the original raster in every
@@ -3357,13 +3399,31 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             visible after leaving the editor. */}
         <ContentEditPreview
           edits={pageEdits}
+          imageEdits={pageImageEdits}
           size={size}
           rotation={rotation}
           scale={scale}
           maskColor={themeDef.canvas}
-          source={bytesRef.current ? { bytes: bytesRef.current, password: passwordRef.current } : null}
+          source={source}
           from={page.from}
         />
+        {mode === "editText" && (
+          <ImageEditLayer
+            pageId={page.id}
+            // A duplicated page lists its original's pictures on every copy: each copy is its own page.
+            source={source}
+            from={page.from}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            edits={pageImageEdits}
+            adding={addingImage}
+            onAdded={() => setAddingImage(null)}
+            onBeginChange={checkpoint}
+            onChange={(edit: ImageEdit) => setState((s) => D.upsertImageEdit(s, edit))}
+            onRemove={(id: string) => setState((s) => D.removeImageEdit(s, id))}
+          />
+        )}
         {mode === "editText" && (
           <ContentEditLayer
             engine={engine}

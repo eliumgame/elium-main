@@ -365,51 +365,136 @@ function rgbOperands(hex: string): Operand[] {
   return [c.r, c.g, c.b].map((v) => ({ t: "num", v: round(v, 4) }) as Operand);
 }
 
+/** An XObject placement of a page, as the image editor lists it (same order as `ImageEdit.occurrence`). */
+export interface PagePlacement {
+  occurrence: number;
+  name: string;
+  /** An image (not a form XObject: those are not edited as pictures). */
+  isImage: boolean;
+  /** Corners in PDF user space (unit square under the CTM). */
+  corners: { x: number; y: number }[];
+}
+
+/** Every named XObject drawn by the page's own content, in draw order. */
+export async function pagePlacements(page: PDFPage): Promise<PagePlacement[]> {
+  const { ops } = await readPageContent(page);
+  const { walkPlacements } = await import("../core/contentstream");
+  const { PDFDict, PDFName, PDFStream } = await import("pdf-lib");
+  const xobjects = page.node.Resources()?.lookup(PDFName.of("XObject"));
+  return walkPlacements(ops)
+    .filter((p) => p.name !== null)
+    .map((p, occurrence) => {
+      const x = xobjects instanceof PDFDict ? xobjects.lookup(PDFName.of(p.name!)) : undefined;
+      const isImage = x instanceof PDFStream && x.dict.lookup(PDFName.of("Subtype"))?.toString() === "/Image";
+      return { occurrence, name: p.name!, isImage, corners: p.corners };
+    });
+}
+
+/** The affine map taking PDF rect `a` onto PDF rect `b` (a scale + a shift: orientation kept). */
+function rectToRect(a: Rect, b: Rect): number[] {
+  const sx = a.w ? b.w / a.w : 1;
+  const sy = a.h ? b.h / a.h : 1;
+  return [sx, 0, 0, sy, b.x - a.x * sx, b.y - a.y * sy];
+}
+
+const num = (v: number): Operand => ({ t: "num", v: round(v, 5) });
+
 /**
- * Delete or replace the page's own images.
- * A deleted image's `Do` operator is dropped; a replacement is embedded and
- * drawn with the same transformation matrix so it lands exactly in place.
+ * Edit the page's own images, and add new ones to its content: delete (the
+ * `Do` goes), replace (a new XObject drawn with the same matrix), move /
+ * resize (the draw wrapped in `q M cm … Q`, M taking the old frame onto the
+ * new one — a rotated or mirrored original stays so), add (drawn last, over
+ * the page content).
  */
 export async function applyImageEdits(
   doc: PDFDocument,
   page: PDFPage,
-  edits: readonly { occurrence: number; action: "delete" | "replace"; src?: string }[],
+  edits: readonly { occurrence: number; action: "delete" | "replace" | "move" | "add"; src?: string; rect?: Rect }[],
   embed: (src: string) => Promise<{ ref: import("pdf-lib").PDFRef } | null>,
 ): Promise<number> {
   if (!edits.length) return 0;
   const { ops } = await readPageContent(page);
   const { walkPlacements } = await import("../core/contentstream");
+  const { pageFrame } = await import("./annots-pdf");
+  const frame = pageFrame(page);
   const places = walkPlacements(ops).filter((p) => p.name !== null);
   let changed = 0;
-  const replacements = new Map<number, Op | null>();
+  const replacements = new Map<number, Op[]>();
+  const appended: Op[] = [];
 
   for (const edit of edits) {
-    const place = places[edit.occurrence];
-    if (!place) continue;
-    if (edit.action === "delete") {
-      replacements.set(place.opIndex, null);
+    if (edit.action === "add") {
+      if (!edit.src || !edit.rect) continue;
+      const embedded = await embed(edit.src);
+      if (!embedded) continue;
+      const name = page.node.newXObject("Image", embedded.ref).asString().replace(/^\//, "");
+      const r = frame.rectToPdf(edit.rect);
+      appended.push(
+        { op: "q", args: [] },
+        { op: "cm", args: [r.w, 0, 0, r.h, r.x, r.y].map(num) },
+        { op: "Do", args: [{ t: "name", v: name }] },
+        { op: "Q", args: [] },
+      );
       changed++;
       continue;
     }
-    if (!edit.src) continue;
-    const embedded = await embed(edit.src);
-    if (!embedded) continue;
-    const name = page.node.newXObject("Image", embedded.ref).asString().replace(/^\//, "");
-    replacements.set(place.opIndex, { op: "Do", args: [{ t: "name", v: name }] });
+    const place = places[edit.occurrence];
+    if (!place) continue;
+    if (edit.action === "delete") {
+      replacements.set(place.opIndex, []);
+      changed++;
+      continue;
+    }
+    let name = place.name!;
+    if (edit.action === "replace") {
+      if (!edit.src) continue;
+      const embedded = await embed(edit.src);
+      if (!embedded) continue;
+      name = page.node.newXObject("Image", embedded.ref).asString().replace(/^\//, "");
+    }
+    const draw: Op = { op: "Do", args: [{ t: "name", v: name }] };
+    if (edit.rect) {
+      const xs = place.corners.map((c) => c.x);
+      const ys = place.corners.map((c) => c.y);
+      const from: Rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+      // The CTM at the Do is in user space: M is prepended in the same space.
+      const m = rectToRect(from, frame.rectToPdf(edit.rect));
+      replacements.set(place.opIndex, [
+        { op: "q", args: [] },
+        ...(await inverseCtm(place.ctm)),
+        { op: "cm", args: m.map(num) },
+        { op: "cm", args: place.ctm.map(num) },
+        draw,
+        { op: "Q", args: [] },
+      ]);
+    } else {
+      replacements.set(place.opIndex, [draw]);
+    }
     changed++;
   }
 
-  if (replacements.size) {
+  if (replacements.size || appended.length) {
     const next: Op[] = [];
     for (let i = 0; i < ops.length; i++) {
-      if (replacements.has(i)) {
-        const rep = replacements.get(i);
-        if (rep) next.push(rep);
-        continue;
-      }
-      next.push(ops[i]);
+      const rep = replacements.get(i);
+      if (rep) next.push(...rep);
+      else next.push(ops[i]);
     }
+    next.push(...appended);
     writePageContent(doc, page, next);
   }
   return changed;
+}
+
+/**
+ * `cm` operators cancelling the CTM in force at a placement: moving an image
+ * is expressed in user space, from the identity — whatever the page's content
+ * had set before the `Do`.
+ */
+async function inverseCtm(ctm: readonly number[]): Promise<Op[]> {
+  const [a, b, c, d, e, f] = ctm;
+  const det = a * d - b * c;
+  if (Math.abs(det) < 1e-12) return [];
+  const inv = [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+  return [{ op: "cm", args: inv.map(num) }];
 }

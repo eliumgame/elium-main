@@ -347,15 +347,18 @@ export interface ContentEdit {
   isNew?: boolean;
 }
 
-/** An edit to one of the page's existing images. */
+/** An edit to one of the page's own images, or an image added to the page's content. */
 export interface ImageEdit {
   id: string;
   pageId: string;
-  /** Draw-order index of the image XObject on the page. */
+  /** Draw-order index of the XObject (`Do`) on the page; -1 for an added image. */
   occurrence: number;
-  action: "delete" | "replace";
-  /** Replacement picture as a data URL. */
+  /** « move » only moves / resizes; « replace » may move too; « add » draws a new image. */
+  action: "delete" | "replace" | "move" | "add";
+  /** Replacement (or added) picture as a data URL. */
   src?: string;
+  /** New frame, top-left unrotated page space (moved / resized, or where an added image goes). */
+  rect?: Rect;
 }
 
 // ---------------------------------------------------------------------------

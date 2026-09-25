@@ -305,6 +305,8 @@ export interface FieldEdit {
   rename?: string;
   /** New position of widgets: top-left, unrotated page space (like annotations). */
   rects?: Record<string, Rect>;
+  /** New export value of box widgets (checkbox / radio button), by widget. */
+  exportValues?: Record<string, string>;
   props?: FieldProps;
 }
 

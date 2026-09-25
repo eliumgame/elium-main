@@ -565,6 +565,7 @@ export function upsertFieldEdit(state: PdfState, name: string, patch: Omit<Parti
     ...patch,
     name,
     rects: patch.rects ? { ...(prev?.rects ?? {}), ...patch.rects } : prev?.rects,
+    exportValues: patch.exportValues ? { ...(prev?.exportValues ?? {}), ...patch.exportValues } : prev?.exportValues,
     props: patch.props ? { ...(prev?.props ?? {}), ...patch.props } : prev?.props,
   };
   return { ...state, fieldEdits: prev ? edits.map((e) => (e === prev ? next : e)) : [...edits, next] };

@@ -67,7 +67,19 @@ export function parseCall(code: string): { name: string; args: Arg[] } | null {
       while (i < src.length && src[i] !== c) {
         if (src[i] === "\\") {
           const e = src[++i];
-          out += e === "n" ? "\n" : e === "t" ? "\t" : e === "r" ? "\r" : e;
+          if (e === "u" && /^[0-9a-fA-F]{4}$/.test(src.slice(i + 1, i + 5))) {
+            out += String.fromCharCode(parseInt(src.slice(i + 1, i + 5), 16));
+            i += 4;
+          } else if (e === "x" && /^[0-9a-fA-F]{2}$/.test(src.slice(i + 1, i + 3))) {
+            out += String.fromCharCode(parseInt(src.slice(i + 1, i + 3), 16));
+            i += 2;
+          } else if (/[0-7]/.test(e)) {
+            const oct = /^[0-7]{1,3}/.exec(src.slice(i))![0];
+            out += String.fromCharCode(parseInt(oct, 8));
+            i += oct.length - 1;
+          } else {
+            out += e === "n" ? "\n" : e === "t" ? "\t" : e === "r" ? "\r" : e === "b" ? "\b" : e === "f" ? "\f" : e;
+          }
         } else out += src[i];
         i++;
       }

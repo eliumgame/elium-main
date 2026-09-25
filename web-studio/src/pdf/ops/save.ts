@@ -697,6 +697,11 @@ async function applyState(
   if (valuesChanged || report.fieldsCreated || state.fieldEdits.length || opts.flattenForms || formBase) {
     try {
       const ap = await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
+      if (ap.failed.length) {
+        report.warnings.push(
+          `Apparence non dessinée pour ${ap.failed.slice(0, 5).join(", ")} : le lecteur PDF la dessinera (/NeedAppearances).`,
+        );
+      }
       for (const u of ap.uncovered) {
         report.warnings.push(
           `Champ « ${u.field} » : caractère(s) « ${u.chars} » absent(s) des polices disponibles — son affichage est laissé au lecteur PDF.`,

@@ -94,6 +94,8 @@ type Obj =
   | { t: "dict"; v: Map<string, Obj> };
 
 const WS = new Set([0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]);
+/** One char per byte (TextDecoder's « latin1 » is windows-1252: fine for tokens, which are ASCII). */
+const LATIN1 = new TextDecoder("latin1");
 const DELIM = new Set("()<>[]{}/%".split("").map((c) => c.charCodeAt(0)));
 
 class Lexer {
@@ -115,7 +117,8 @@ class Lexer {
   word(): string {
     const start = this.pos;
     while (this.pos < this.b.length && !WS.has(this.b[this.pos]) && !DELIM.has(this.b[this.pos])) this.pos++;
-    return String.fromCharCode(...this.b.subarray(start, this.pos));
+    // (No spread of the bytes: a huge token would overflow the call stack.)
+    return LATIN1.decode(this.b.subarray(start, this.pos));
   }
 
   literal(): number[] {
@@ -188,7 +191,9 @@ class Lexer {
     try {
       return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
     } catch {
-      return String.fromCharCode(...bytes);
+      let out = "";
+      for (const b of bytes) out += String.fromCharCode(b);
+      return out;
     }
   }
 
@@ -258,13 +263,14 @@ class Lexer {
 
 /** Every `n g obj … endobj` and the trailer of an FDF file. */
 function parseObjects(bytes: Uint8Array): { objects: Map<number, Obj>; trailer: Map<string, Obj> | null } {
-  const text = String.fromCharCode(...bytes.subarray(0, Math.min(bytes.length, 8)));
+  const text = LATIN1.decode(bytes.subarray(0, Math.min(bytes.length, 8)));
   if (!text.startsWith("%FDF")) throw new Error("Ce fichier n'est pas un FDF.");
   const objects = new Map<number, Obj>();
   const lex = new Lexer(bytes);
   let trailer: Map<string, Obj> | null = null;
-  const latin = new TextDecoder("latin1").decode(bytes);
-  const re = /(\d+)\s+(\d+)\s+obj\b|trailer\b/g;
+  const latin = LATIN1.decode(bytes);
+  // Bounded numbers at a token boundary: no quadratic backtracking on long digit runs.
+  const re = /(?<![0-9])(\d{1,10})\s+(\d{1,5})\s+obj\b|trailer\b/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(latin))) {
     lex.pos = m.index + m[0].length;
@@ -274,6 +280,12 @@ function parseObjects(bytes: Uint8Array): { objects: Map<number, Obj>; trailer: 
       if (m[1] !== undefined) objects.set(Number(m[1]), o);
       else if (o.t === "dict") trailer = o.v;
       re.lastIndex = Math.max(re.lastIndex, lex.pos);
+      // A stream's data is not objects: skip to its end.
+      lex.skip();
+      if (latin.startsWith("stream", lex.pos)) {
+        const end = latin.indexOf("endstream", lex.pos);
+        re.lastIndex = end < 0 ? latin.length : end + 9;
+      }
     } catch {
       /* a damaged object: skip it, keep reading */
     }
@@ -315,12 +327,16 @@ export function parseFdf(bytes: Uint8Array): Map<string, RawDataValue> {
     }
     return null;
   };
+  // Each field dict once (shared or cyclic /Kids would be exponential), and a cap on the total.
+  const seen = new Set<Map<string, Obj>>();
+  const MAX_NODES = 100_000;
   const walk = (list: Obj | undefined, prefix: string, depth: number) => {
     const arr = resolve(list);
     if (arr?.t !== "arr" || depth > 32) return;
     for (const item of arr.v) {
       const f = dict(item);
-      if (!f) continue;
+      if (!f || seen.has(f) || seen.size >= MAX_NODES) continue;
+      seen.add(f);
       const t = resolve(f.get("T"));
       const part = t?.t === "str" ? decodePdfString(t.bytes) : "";
       const name = part ? (prefix ? `${prefix}.${part}` : part) : prefix;
@@ -396,7 +412,14 @@ export function toFdf(entries: readonly DataEntry[], pdfFileName: string): Uint8
 // ---------------------------------------------------------------------------
 
 const xmlEsc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\r/g, "&#13;");
+  s
+    // Characters XML 1.0 cannot carry at all (Acrobat rejects them too).
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\r/g, "&#13;");
 
 /** The values as XFDF `<fields>` (Acrobat's XML form data). */
 export function toXfdfFields(entries: readonly DataEntry[], pdfFileName: string): string {
@@ -459,9 +482,14 @@ function cellText(v: FormValue): string {
   return v;
 }
 
-/** Header row of field names, one row of values (what Acrobat's « Exporter → Texte » writes). */
+/**
+ * Header row of field names, one row of values (what Acrobat's « Exporter →
+ * Texte » writes). A multi-select list's items go one per line inside the
+ * cell: a comma may be part of an item (« Paris, France »).
+ */
 export function toTabText(entries: readonly DataEntry[]): string {
-  return `${entries.map((e) => tabCell(e.name)).join("\t")}\r\n${entries.map((e) => tabCell(cellText(e.value))).join("\t")}\r\n`;
+  const cell = (v: FormValue) => (Array.isArray(v) ? v.join("\n") : cellText(v));
+  return `${entries.map((e) => tabCell(e.name)).join("\t")}\r\n${entries.map((e) => tabCell(cell(e.value))).join("\t")}\r\n`;
 }
 
 function parseDelimited(text: string, sep: string): string[][] {
@@ -565,7 +593,18 @@ export function matchImported(
       }
       case "listbox":
         if (field.multiSelect) {
-          res.values[name] = rv.kind === "list" ? rv.items : text ? text.split(/\s*,\s*/) : [];
+          // One item per line (tab text); a single known item is kept whole even with a comma.
+          const items =
+            rv.kind === "list"
+              ? rv.items
+              : !text
+                ? []
+                : text.includes("\n")
+                  ? text.split(/\r?\n/)
+                  : field.options.some((o) => o.value === text)
+                    ? [text]
+                    : text.split(/\s*,\s*/);
+          res.values[name] = items.filter((x) => x !== "");
           break;
         }
         res.values[name] = coerceValue(field, text);

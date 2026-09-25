@@ -2515,7 +2515,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       fieldName,
       kind,
       name: edit?.rename ?? fieldName,
-      initial: { ...propsFromPdfjs(a, actions), ...(edit?.props ?? {}) },
+      initial: {
+        ...propsFromPdfjs(a, actions),
+        ...(edit?.props ?? {}),
+        ...(edit?.exportValues?.[widgetId] ? { exportValue: edit.exportValues[widgetId] } : {}),
+      },
     });
   };
 
@@ -2543,10 +2547,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
       if (!target.fieldName) return s;
       const rename = v.name !== target.fieldName ? v.name : undefined;
-      if (!Object.keys(v.props).length && rename === s.fieldEdits.find((e) => e.name === target.fieldName)?.rename) {
+      // A box's export value belongs to the widget whose dialog was opened.
+      const { exportValue, ...props } = v.props;
+      const exportValues = exportValue ? { [target.key.slice(2)]: exportValue } : undefined;
+      if (
+        !Object.keys(props).length &&
+        !exportValues &&
+        rename === s.fieldEdits.find((e) => e.name === target.fieldName)?.rename
+      ) {
         return s;
       }
-      return D.upsertFieldEdit(s, target.fieldName, { props: v.props, rename });
+      return D.upsertFieldEdit(s, target.fieldName, {
+        props: Object.keys(props).length ? props : undefined,
+        rename,
+        ...(exportValues ? { exportValues } : {}),
+      });
     });
   };
 

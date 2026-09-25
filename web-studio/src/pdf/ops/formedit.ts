@@ -83,9 +83,9 @@ function setCalculationOrder(form: PDFForm, ref: PDFRef, calculated: boolean): v
 // Properties
 // ---------------------------------------------------------------------------
 
+/** The field's flags, inherited from its parents when it has none of its own. */
 function flags(field: PDFField): number {
-  const ff = field.acroField.dict.lookup(PDFName.of("Ff"));
-  return ff instanceof PDFNumber ? ff.asNumber() : 0;
+  return field.acroField.getFlags();
 }
 
 function setFlag(field: PDFField, bit: number, on: boolean | undefined): void {
@@ -100,11 +100,23 @@ function setWidgetFlag(widget: PDFWidgetAnnotation, bit: number, on: boolean): v
   widget.dict.set(PDFName.of("F"), PDFNumber.of(on ? f | bit : f & ~bit));
 }
 
-/** Rewrite the font size of a /DA string (0 = auto), keeping font and colour. */
+/**
+ * Rewrite the font size of a /DA string (0 = auto), keeping font and colour.
+ * The LAST « Tf » is the one viewers use; numbers may be « +12 » or « 12. ».
+ */
 export function withFontSize(da: string, size: number): string {
-  const re = /(\/[^\s/]+\s+)(-?\d*\.?\d+)(\s+Tf)/;
-  if (re.test(da)) return da.replace(re, `$1${size}$3`);
-  return `/Helv ${size} Tf ${da}`.trim();
+  const re = /(\/[^\s/()<>[\]{}%]+\s+)([+-]?(?:\d+\.?\d*|\.\d+))(\s+Tf)/g;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(da))) last = m;
+  if (!last) return `/Helv ${size} Tf ${da}`.trim();
+  return da.slice(0, last.index) + `${last[1]}${size}${last[3]}` + da.slice(last.index + last[0].length);
+}
+
+/** The /DA that applies to a field: its own, inherited from its parents, or the AcroForm's. */
+function inheritedDA(field: PDFField, form: PDFForm): string {
+  const own = decode(field.acroField.getInheritableAttribute(PDFName.of("DA")));
+  return own ?? decode(form.acroForm.dict.lookup(PDFName.of("DA"))) ?? "/Helv 0 Tf 0 g";
 }
 
 function daDicts(field: PDFField): PDFDict[] {
@@ -118,24 +130,54 @@ function decode(v: unknown): string | undefined {
   return v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : undefined;
 }
 
-/** Rename a box widget's on-state (its /AP /N and /D keys, /AS, /V). */
-function setOnState(widget: PDFWidgetAnnotation, next: string): void {
-  const ap = widget.dict.lookup(PDFName.of("AP"));
-  if (!(ap instanceof PDFDict)) return;
-  let previous: string | null = null;
+/** The on-state (export value) a box widget declares in its /AP /N. */
+function onStateOf(widget: PDFWidgetAnnotation): string | null {
+  const n = widget.getAppearances()?.normal;
+  if (!(n instanceof PDFDict)) return null;
+  return (
+    n
+      .keys()
+      .map((k) => k.decodeText())
+      .find((k) => k !== "Off") ?? null
+  );
+}
+
+/** Index of a widget among its field's kids (the /Opt index, §12.7.4.2.3). */
+function kidIndex(field: PDFField, widget: PDFWidgetAnnotation): number {
+  return field.acroField.getWidgets().findIndex((w) => w.dict === widget.dict);
+}
+
+/**
+ * Give one box widget a new export value. With /Opt the value lives in /Opt
+ * (the state name stays an index); otherwise the on-state is renamed in /AP
+ * /N and /D, and /AS, /V, /DV follow when they named it.
+ */
+function setExportValue(doc: PDFDocument, field: PDFField, widget: PDFWidgetAnnotation, next: string): void {
+  const opt = field.acroField.getInheritableAttribute(PDFName.of("Opt"));
+  const i = kidIndex(field, widget);
+  if (opt instanceof PDFArray && i >= 0 && i < opt.size()) {
+    opt.set(i, text(next));
+    return;
+  }
+  const previous = onStateOf(widget);
+  if (previous === null || previous === next) return;
+  const ap = widget.dict.lookup(PDFName.of("AP")) as PDFDict;
   for (const key of ["N", "D"]) {
     const sub = ap.lookup(PDFName.of(key));
     if (!(sub instanceof PDFDict)) continue;
-    const on = sub.keys().find((k) => k.decodeText() !== "Off");
-    if (!on || on.decodeText() === next) continue;
-    previous = on.decodeText();
+    const on = sub.keys().find((k) => k.decodeText() === previous);
+    if (!on) continue;
     const v = sub.get(on)!;
     sub.delete(on);
     sub.set(PDFName.of(next), v);
   }
-  if (previous !== null && widget.getAppearanceState()?.decodeText() === previous) {
-    widget.setAppearanceState(PDFName.of(next));
+  if (widget.getAppearanceState()?.decodeText() === previous) widget.setAppearanceState(PDFName.of(next));
+  for (const key of ["V", "DV"]) {
+    const v = field.acroField.dict.lookup(PDFName.of(key));
+    if (v instanceof PDFName && v.decodeText() === previous)
+      field.acroField.dict.set(PDFName.of(key), PDFName.of(next));
   }
+  void doc;
 }
 
 export interface PropsResult {
@@ -198,8 +240,8 @@ export function setFieldProps(doc: PDFDocument, form: PDFForm, field: PDFField, 
   if (props.fontSize !== undefined) {
     redraw = true;
     for (const d of daDicts(field)) {
-      const da =
-        decode(d.lookup(PDFName.of("DA"))) ?? decode(form.acroForm.dict.lookup(PDFName.of("DA"))) ?? "/Helv 0 Tf 0 g";
+      // A widget's own /DA, else the field's (inherited from its parents, then the form's).
+      const da = (d !== dict && decode(d.lookup(PDFName.of("DA")))) || inheritedDA(field, form);
       d.set(PDFName.of("DA"), PDFString.of(withFontSize(da, props.fontSize)));
     }
   }
@@ -208,9 +250,9 @@ export function setFieldProps(doc: PDFDocument, form: PDFForm, field: PDFField, 
     dict.set(PDFName.of("Q"), PDFNumber.of({ left: 0, center: 1, right: 2 }[props.align]));
   }
 
-  if ((field instanceof PDFCheckBox || field instanceof PDFRadioGroup) && props.exportValue) {
-    // One widget per box: the first one takes the new export value.
-    if (widgets[0]) setOnState(widgets[0], props.exportValue);
+  if ((field instanceof PDFCheckBox || field instanceof PDFRadioGroup) && props.exportValue && widgets[0]) {
+    // A created box (one widget); the file's boxes are edited per widget (`exportValues`).
+    setExportValue(doc, field, widgets[0], props.exportValue);
   }
 
   if (props.defaultValue !== undefined) setDefault(doc, field, props.defaultValue);
@@ -240,7 +282,14 @@ function setDefault(doc: PDFDocument, field: PDFField, v: FormValue): void {
   const dict = field.acroField.dict;
   const key = PDFName.of("DV");
   if (field instanceof PDFCheckBox || field instanceof PDFRadioGroup) {
-    const s = v === true ? "Yes" : v === false || v === "" ? "Off" : Array.isArray(v) ? (v[0] ?? "Off") : v;
+    const states = field.acroField
+      .getWidgets()
+      .map(onStateOf)
+      .filter((x): x is string => !!x);
+    let s =
+      v === true ? (states[0] ?? "Yes") : v === false || v === "" ? "Off" : Array.isArray(v) ? (v[0] ?? "Off") : v;
+    // A value that names no state (« Oui » for a « Yes » box): the box's own on-state.
+    if (s !== "Off" && !states.includes(s)) s = states[0] ?? s;
     dict.set(key, PDFName.of(s));
     return;
   }
@@ -360,16 +409,58 @@ function ensureParent(doc: PDFDocument, form: PDFForm, parts: string[]): { dict:
   return parent;
 }
 
+/** The node of the field name tree at `parts` (terminal field or not), if any. */
+function nodeAt(form: PDFForm, parts: readonly string[]): PDFDict | null {
+  let list: unknown = form.acroForm.dict.lookup(PDFName.of("Fields"));
+  let node: PDFDict | null = null;
+  for (const part of parts) {
+    if (!(list instanceof PDFArray)) return null;
+    node = null;
+    for (let i = 0; i < list.size(); i++) {
+      const d = list.lookup(i);
+      if (d instanceof PDFDict && decode(d.lookup(PDFName.of("T"))) === part) node = d;
+    }
+    if (!node) return null;
+    list = node.lookup(PDFName.of("Kids"));
+  }
+  return node;
+}
+
+/** A field (as opposed to a mere branch of the name tree): it has a type, or widgets as kids. */
+function isTerminal(dict: PDFDict): boolean {
+  if (dict.has(PDFName.of("FT"))) return true;
+  const kids = dict.lookup(PDFName.of("Kids"));
+  if (!(kids instanceof PDFArray) || kids.size() === 0) return true;
+  const first = kids.lookup(0);
+  return first instanceof PDFDict && !first.has(PDFName.of("T"));
+}
+
+/** Entries a field may inherit from its parents (§12.7.3.1, table 220 and after). */
+const INHERITABLE = ["FT", "Ff", "V", "DV", "DA", "Q", "MaxLen", "Opt"];
+
 function renameField(doc: PDFDocument, form: PDFForm, field: PDFField, to: string): string | null {
   const parts = to.split(".").filter(Boolean);
   if (!parts.length) return "nom vide";
-  if (form.getFieldMaybe(to)) return `le nom « ${to} » est déjà pris`;
   const dict = field.acroField.dict;
+  // Taken: any node of the tree with that name, field or branch (« a » when « a.b » exists).
+  const existing = nodeAt(form, parts);
+  if (existing && existing !== dict) return `le nom « ${to} » est déjà pris`;
+  // A prefix that is itself a field cannot become a branch (« grp.x » → « grp.x.y »).
+  for (let k = 1; k < parts.length; k++) {
+    const n = nodeAt(form, parts.slice(0, k));
+    if (n && isTerminal(n)) return `« ${parts.slice(0, k).join(".")} » est un champ, pas un groupe`;
+  }
   const from = field.getName().split(".");
   const samePrefix = from.slice(0, -1).join(".") === parts.slice(0, -1).join(".");
   dict.set(PDFName.of("T"), text(parts[parts.length - 1]));
   if (samePrefix) return null;
-  // Another branch of the name tree: move the field there.
+  // Another branch of the name tree: move the field there, taking along what
+  // it inherited from its old parents (type, flags, value, appearance…).
+  for (const key of INHERITABLE) {
+    if (dict.has(PDFName.of(key))) continue;
+    const v = field.acroField.getInheritableAttribute(PDFName.of(key));
+    if (v !== undefined) dict.set(PDFName.of(key), v);
+  }
   const oldParent = dict.lookup(PDFName.of("Parent"));
   const container = containerOf(form, dict);
   const ref = (container && refIn(container, dict, doc)) || field.ref;
@@ -447,13 +538,33 @@ export function applyFieldEdits(doc: PDFDocument, edits: readonly FieldEdit[]): 
           continue;
         }
         const kids = field.acroField.dict.lookup(PDFName.of("Kids"));
+        // /Opt: the i-th entry belongs to the i-th kid — splice it with the kid.
+        const opt = field.acroField.getInheritableAttribute(PDFName.of("Opt"));
+        const indices = gone.map((w) => kidIndex(field, w)).sort((a, b) => b - a);
+        const goneStates = new Set(gone.map(onStateOf).filter((x): x is string => !!x));
         for (const w of gone) {
           const hit = pages.get(w.dict);
           if (hit) removeFrom(hit.page.node.Annots(), w.dict, doc);
           if (kids instanceof PDFArray) removeFrom(kids, w.dict, doc);
         }
+        if (opt instanceof PDFArray) {
+          const own = opt.clone();
+          for (const i of indices) if (i >= 0 && i < own.size()) own.remove(i);
+          field.acroField.dict.set(PDFName.of("Opt"), own);
+        }
+        // A value naming a removed button selects nothing any more.
+        const v = field.acroField.dict.lookup(PDFName.of("V"));
+        if (v instanceof PDFName && goneStates.has(v.decodeText()))
+          field.acroField.dict.set(PDFName.of("V"), PDFName.of("Off"));
       }
       if (edit.props) setFieldProps(doc, form, field, edit.props);
+      if (edit.exportValues && (field instanceof PDFCheckBox || field instanceof PDFRadioGroup)) {
+        for (const w of field.acroField.getWidgets()) {
+          const ref = pages.get(w.dict)?.ref;
+          const next = ref ? edit.exportValues[pdfjsId(ref)] : undefined;
+          if (next) setExportValue(doc, field, w, next);
+        }
+      }
       if (edit.rects) {
         for (const w of field.acroField.getWidgets()) {
           const hit = pages.get(w.dict);

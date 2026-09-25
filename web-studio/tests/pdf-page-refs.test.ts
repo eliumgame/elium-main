@@ -101,3 +101,50 @@ describe("a duplicated page shares its fields", () => {
     await task.destroy();
   });
 });
+
+describe("inserting a PDF", () => {
+  it("puts its pages where asked, with its fields and its bookmarks", async () => {
+    const { appendPdfPages } = await import("../src/pdf/ops/organize");
+    const host = await PDFDocument.load(await source());
+    const other = await PDFDocument.create();
+    const font = await other.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < 2; i++) {
+      const p = other.addPage([500, 700]);
+      p.drawText(`Annexe ${i + 1}`, { x: 40, y: 650, size: 12, font });
+    }
+    other.getForm().createTextField("annexe.nom").addToPage(other.getPage(1), { x: 40, y: 40, width: 200, height: 20 });
+    const ctx = other.context;
+    const item = ctx.register(
+      ctx.obj({ Title: PDFString.of("Deuxième annexe"), Dest: [other.getPage(1).ref, PDFName.of("Fit")] } as never),
+    );
+    const root = ctx.register(ctx.obj({ Type: "Outlines", First: item, Last: item, Count: 1 } as never));
+    (ctx.lookup(item) as PDFDict).set(PDFName.of("Parent"), root);
+    other.catalog.set(PDFName.of("Outlines"), root);
+    const res = await appendPdfPages(host, [{ name: "annexes.pdf", bytes: await other.save() }], undefined, 1);
+    expect(res.inserted).toBe(2);
+    const out = await host.save();
+    const doc = await PDFDocument.load(out);
+    expect(doc.getPageCount()).toBe(6);
+    expect(doc.getPage(1).getSize()).toEqual({ width: 500, height: 700 });
+    expect(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toContain("annexe.nom");
+    const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+    const js = await task.promise;
+    const outline = (await js.getOutline()) as {
+      title: string;
+      dest: unknown[];
+      items: { title: string; dest: unknown[] }[];
+    }[];
+    const top = outline.find((o) => o.title === "annexes")!;
+    expect((await js.getPageIndex(top.dest[0] as never)) + 1).toBe(2);
+    expect(top.items[0].title).toBe("Deuxième annexe");
+    expect((await js.getPageIndex(top.items[0].dest[0] as never)) + 1).toBe(3);
+    const fields = (await js.getFieldObjects()) as Record<string, { page?: number }[]>;
+    expect(fields["annexe.nom"].some((w) => w.page === 2)).toBe(true);
+    await task.destroy();
+  });
+});

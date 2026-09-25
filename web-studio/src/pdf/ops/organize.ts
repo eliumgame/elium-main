@@ -4,7 +4,18 @@
  * hard to get subtly wrong.
  */
 
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString, degrees } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFObjectCopier,
+  PDFRef,
+  PDFString,
+  degrees,
+} from "pdf-lib";
 import type { PDFPage } from "pdf-lib";
 import type { Page, PageLabelDef } from "../model/types";
 import { WrongPassword, openCrypt } from "./security";
@@ -125,8 +136,11 @@ export async function appendPdfPages(
   doc: PDFDocument,
   files: readonly { name: string; bytes: Uint8Array }[],
   askPassword?: (name: string, wrong: boolean) => Promise<string | null>,
+  /** Where the pages go (0: before the first page); the end when absent. */
+  at?: number,
 ): Promise<{ inserted: number; failed: { name: string; reason: string }[] }> {
   let inserted = 0;
+  let pos = at === undefined ? doc.getPageCount() : Math.max(0, Math.min(doc.getPageCount(), at));
   const failed: { name: string; reason: string }[] = [];
   for (const file of files) {
     let src: PDFDocument;
@@ -168,8 +182,20 @@ export async function appendPdfPages(
       continue;
     }
     const copied = await doc.copyPages(src, indices);
-    for (const page of copied) doc.addPage(page);
+    for (const page of copied) doc.insertPage(pos++, page);
     inserted += copied.length;
+    // Its form joins this one (same name: the same field, as in Acrobat) and
+    // its bookmarks come under one named after the file.
+    try {
+      adoptCopiedFields(doc, src, copied);
+    } catch {
+      /* the pages are in; their fields just stay inert */
+    }
+    try {
+      adoptOutline(doc, src, copied, file.name.replace(/\.pdf$/i, ""));
+    } catch {
+      /* no bookmarks from that file */
+    }
   }
   return { inserted, failed };
 }
@@ -817,4 +843,200 @@ export function purgeRemovedPages(doc: PDFDocument, order: readonly PDFPage[], k
     };
     visit(struct, 0);
   }
+}
+
+/**
+ * The fields of pages copied from `src` into `doc`: their root fields (as
+ * copied, found up the /Parent chain of each widget) are added to `doc`'s
+ * /AcroForm, with the resources their appearances name (/DR fonts).
+ */
+function adoptCopiedFields(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPage[]): void {
+  const ctx = doc.context;
+  const roots: PDFRef[] = [];
+  const seen = new Set<string>();
+  for (const page of copied) {
+    const annots = page.node.Annots();
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = 0; i < annots.size(); i++) {
+      const first = annots.get(i);
+      const widget = annots.lookup(i);
+      if (!(first instanceof PDFRef) || !(widget instanceof PDFDict)) continue;
+      if (widget.lookup(PDFName.of("Subtype"))?.toString() !== "/Widget") continue;
+      widget.set(PDFName.of("P"), page.ref);
+      let ref: PDFRef = first;
+      let dict: PDFDict = widget;
+      for (let guard = 0; guard < 32; guard++) {
+        const parent: unknown = dict.get(PDFName.of("Parent"));
+        const pd: unknown = parent instanceof PDFRef ? ctx.lookup(parent) : undefined;
+        if (!(parent instanceof PDFRef) || !(pd instanceof PDFDict)) break;
+        ref = parent;
+        dict = pd;
+      }
+      const key = refKey(ref);
+      if (!seen.has(key)) {
+        seen.add(key);
+        roots.push(ref);
+      }
+    }
+  }
+  if (!roots.length) return;
+  let acro = doc.catalog.lookup(PDFName.of("AcroForm"));
+  if (!(acro instanceof PDFDict)) {
+    acro = ctx.obj({ Fields: [] }) as PDFDict;
+    doc.catalog.set(PDFName.of("AcroForm"), ctx.register(acro as PDFDict));
+  }
+  const form = acro as PDFDict;
+  let fields = form.lookup(PDFName.of("Fields"));
+  if (!(fields instanceof PDFArray)) {
+    fields = ctx.obj([]) as PDFArray;
+    form.set(PDFName.of("Fields"), fields as PDFArray);
+  }
+  for (const r of roots) (fields as PDFArray).push(r);
+  // Fonts the copied appearances name, when this form lacks them.
+  const srcAcro = src.catalog.lookup(PDFName.of("AcroForm"));
+  const srcDr = srcAcro instanceof PDFDict ? srcAcro.lookup(PDFName.of("DR")) : undefined;
+  const srcFonts = srcDr instanceof PDFDict ? srcDr.lookup(PDFName.of("Font")) : undefined;
+  if (srcFonts instanceof PDFDict) {
+    const copier = PDFObjectCopier.for(src.context, ctx);
+    let dr = form.lookup(PDFName.of("DR"));
+    if (!(dr instanceof PDFDict)) {
+      dr = ctx.obj({}) as PDFDict;
+      form.set(PDFName.of("DR"), dr as PDFDict);
+    }
+    let fonts = (dr as PDFDict).lookup(PDFName.of("Font"));
+    if (!(fonts instanceof PDFDict)) {
+      fonts = ctx.obj({}) as PDFDict;
+      (dr as PDFDict).set(PDFName.of("Font"), fonts as PDFDict);
+    }
+    for (const [k, v] of srcFonts.entries()) {
+      if (!(fonts as PDFDict).get(k)) (fonts as PDFDict).set(k, copier.copy(v));
+    }
+  }
+  if (srcAcro instanceof PDFDict && srcAcro.lookup(PDFName.of("NeedAppearances"))?.toString() === "true") {
+    form.set(PDFName.of("NeedAppearances"), ctx.obj(true));
+  }
+}
+
+/**
+ * `src`'s bookmarks, pointing at their copies in `doc`, under one bookmark
+ * named `title` (to the first inserted page) at the end of `doc`'s outline.
+ */
+function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPage[], title: string): void {
+  if (!copied.length) return;
+  const ctx = doc.context;
+  const srcPages = src.getPages().map((p) => refKey(p.ref));
+  // Source page index of the copies (copyPages keeps the order asked, all pages here).
+  const target = (d: unknown): PDFRef | undefined => {
+    let dest = d instanceof PDFRef ? src.context.lookup(d) : d;
+    if (dest instanceof PDFString || dest instanceof PDFHexString || dest instanceof PDFName) {
+      dest = namedDest(src, dest instanceof PDFName ? dest.decodeText() : dest.decodeText());
+    }
+    if (dest instanceof PDFDict) dest = dest.lookup(PDFName.of("D"));
+    if (!(dest instanceof PDFArray)) return undefined;
+    const i = srcPages.indexOf(refKey(dest.get(0)));
+    return i >= 0 ? copied[i]?.ref : undefined;
+  };
+  interface Node {
+    title: string;
+    page?: PDFRef;
+    kids: Node[];
+  }
+  const read = (first: unknown, depth: number): Node[] => {
+    const out: Node[] = [];
+    let cur = first instanceof PDFRef ? src.context.lookup(first) : first;
+    let guard = 0;
+    while (cur instanceof PDFDict && guard++ < 100000 && depth < 64) {
+      const t = cur.lookup(PDFName.of("Title"));
+      const a = cur.lookup(PDFName.of("A"));
+      const page =
+        target(cur.get(PDFName.of("Dest"))) ??
+        (a instanceof PDFDict && a.lookup(PDFName.of("S"))?.toString() === "/GoTo"
+          ? target(a.get(PDFName.of("D")))
+          : undefined);
+      out.push({
+        title: t instanceof PDFString || t instanceof PDFHexString ? t.decodeText() : "",
+        page,
+        kids: read(cur.get(PDFName.of("First")), depth + 1),
+      });
+      const next = cur.get(PDFName.of("Next"));
+      cur = next instanceof PDFRef ? src.context.lookup(next) : undefined;
+    }
+    return out;
+  };
+  const srcOutline = src.catalog.lookup(PDFName.of("Outlines"));
+  const kids = srcOutline instanceof PDFDict ? read(srcOutline.get(PDFName.of("First")), 0) : [];
+
+  let root = doc.catalog.lookup(PDFName.of("Outlines"));
+  let rootRef = doc.catalog.get(PDFName.of("Outlines"));
+  if (!(root instanceof PDFDict) || !(rootRef instanceof PDFRef)) {
+    root = ctx.obj({ Type: "Outlines", Count: 0 }) as PDFDict;
+    rootRef = ctx.register(root as PDFDict);
+    doc.catalog.set(PDFName.of("Outlines"), rootRef);
+  }
+  // Write `nodes` as the children of `parentRef`; returns [first, last, count].
+  const write = (nodes: Node[], parentRef: PDFRef): [PDFRef | null, PDFRef | null, number] => {
+    const refs = nodes.map(() => ctx.nextRef());
+    let count = 0;
+    nodes.forEach((n, i) => {
+      const [f, l, c] = write(n.kids, refs[i]);
+      const dict: Record<string, unknown> = { Title: hexTitle(n.title), Parent: parentRef };
+      if (n.page) dict.Dest = [n.page, PDFName.of("XYZ"), null, null, null];
+      if (i > 0) dict.Prev = refs[i - 1];
+      if (i < nodes.length - 1) dict.Next = refs[i + 1];
+      if (f && l) {
+        dict.First = f;
+        dict.Last = l;
+        dict.Count = -c; // closed
+      }
+      ctx.assign(refs[i], ctx.obj(dict as never));
+      count += 1;
+    });
+    return [refs[0] ?? null, refs[refs.length - 1] ?? null, count];
+  };
+  const top: Node = { title, page: copied[0].ref, kids };
+  const [first] = write([top], rootRef as PDFRef);
+  if (!first) return;
+  const r = root as PDFDict;
+  const last = r.get(PDFName.of("Last"));
+  if (last instanceof PDFRef) {
+    const lastDict = ctx.lookup(last);
+    if (lastDict instanceof PDFDict) lastDict.set(PDFName.of("Next"), first);
+    (ctx.lookup(first) as PDFDict).set(PDFName.of("Prev"), last);
+  } else {
+    r.set(PDFName.of("First"), first);
+  }
+  r.set(PDFName.of("Last"), first);
+  const count = r.lookup(PDFName.of("Count"));
+  r.set(PDFName.of("Count"), PDFNumber.of((count instanceof PDFNumber ? Math.abs(count.asNumber()) : 0) + 1));
+}
+
+/** A named destination of `doc` (catalog /Dests or the /Names tree). */
+function namedDest(doc: PDFDocument, name: string): unknown {
+  const dests = doc.catalog.lookup(PDFName.of("Dests"));
+  if (dests instanceof PDFDict) {
+    const v = dests.lookup(PDFName.of(name));
+    if (v) return v;
+  }
+  const names = doc.catalog.lookup(PDFName.of("Names"));
+  const tree = names instanceof PDFDict ? names.lookup(PDFName.of("Dests")) : undefined;
+  const find = (node: unknown, depth: number): unknown => {
+    const n = node instanceof PDFRef ? doc.context.lookup(node) : node;
+    if (!(n instanceof PDFDict) || depth > 32) return undefined;
+    const list = n.lookup(PDFName.of("Names"));
+    if (list instanceof PDFArray) {
+      for (let i = 0; i + 1 < list.size(); i += 2) {
+        const k = list.lookup(i);
+        if ((k instanceof PDFString || k instanceof PDFHexString) && k.decodeText() === name) return list.lookup(i + 1);
+      }
+    }
+    const kids = n.lookup(PDFName.of("Kids"));
+    if (kids instanceof PDFArray) {
+      for (let i = 0; i < kids.size(); i++) {
+        const hit = find(kids.get(i), depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return undefined;
+  };
+  return tree ? find(tree, 0) : undefined;
 }

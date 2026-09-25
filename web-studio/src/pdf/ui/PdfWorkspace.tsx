@@ -408,6 +408,8 @@ export default function PdfWorkspace({
   const [signatures, setSignatures] = useState<SavedSignature[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dialog, setDialog] = useState<DialogId>(null);
+  /** Files picked for « Insérer », waiting for their position (the insert dialog). */
+  const [pendingInsert, setPendingInsert] = useState<{ kind: "pdf" | "image"; files: File[] } | null>(null);
   const [buildOptions] = useState<BuildOptions>({ ...DEFAULT_BUILD, author });
   const [compareReport, setCompareReport] = useState<ComparisonReport | null>(null);
   const [compareBusy, setCompareBusy] = useState(false);
@@ -3153,9 +3155,17 @@ export default function PdfWorkspace({
    * its key, into the file it was opened from. The session goes on with the
    * recomposed document (the current edits folded in), marked unsaved.
    */
-  const onMergePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onMergePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
+    if (!files.length || !bytesRef.current || !engine) return;
+    // Where they go is asked first (Acrobat's « Insérer des pages » dialog).
+    setPendingInsert({ kind: "pdf", files });
+    setDialog("insert");
+  };
+
+  /** The pages of `files` inserted at position `index` of the document. */
+  const insertPdfFiles = async (files: File[], index?: number) => {
     if (!files.length || !bytesRef.current || !engine) return;
     await engine.infoReady;
     const signed = sourceSignedRef.current || (!!diskRef.current && diskSignedRef.current);
@@ -3180,15 +3190,20 @@ export default function PdfWorkspace({
       const res = await savePdf({
         source: bytesRef.current,
         state,
-        // Redaction marks stay marks (/Redact): applying them is a save's job, confirmed.
-        options: { ...saveOptions(state), applyRedactions: false },
+        // Redaction marks stay marks (/Redact): applying them is a save's job,
+        // confirmed. Excluded pages are part of the document: kept.
+        options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
         security: null,
         transform: async (doc) => {
-          outcome = await appendPdfPages(doc, inputs, (name, wrong) =>
-            dialogs.prompt({
-              title: "PDF protégé",
-              label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
-            }),
+          outcome = await appendPdfPages(
+            doc,
+            inputs,
+            (name, wrong) =>
+              dialogs.prompt({
+                title: "PDF protégé",
+                label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+              }),
+            index,
           );
         },
       });
@@ -3288,14 +3303,43 @@ export default function PdfWorkspace({
       });
       return;
     }
-    setState((s) =>
-      D.insertPages(
-        s,
-        s.pages.length,
-        sources.map((src) => D.makePage(null, { image: src })),
-      ),
-    );
-    toast("success", `${sources.length} page(s) image ajoutée(s).`);
+    // Where they go is asked first.
+    setPendingInsert({ kind: "image", files });
+    setDialog("insert");
+  };
+
+  /**
+   * One page per picture, at position `index`, each the picture's own size
+   * (at 96 dpi, as a screen shows it; a large one brought down to A4).
+   */
+  const insertImageFiles = async (files: File[], index: number) => {
+    const read = (f: File) =>
+      new Promise<string>((res) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result as string);
+        r.readAsDataURL(f);
+      });
+    const sizeOfImage = (src: string) =>
+      new Promise<{ w: number; h: number }>((res) => {
+        const img = new Image();
+        img.onload = () => res({ w: img.naturalWidth || 595, h: img.naturalHeight || 842 });
+        img.onerror = () => res({ w: 595, h: 842 });
+        img.src = src;
+      });
+    const made: Page[] = [];
+    for (const f of files) {
+      const src = await read(f);
+      const px = await sizeOfImage(src);
+      let w = (px.w * 72) / 96;
+      let h = (px.h * 72) / 96;
+      const [a4w, a4h] = w > h ? [PAGE_SIZES.A4[1], PAGE_SIZES.A4[0]] : [PAGE_SIZES.A4[0], PAGE_SIZES.A4[1]];
+      const k = Math.min(1, a4w / w, a4h / h);
+      w = Math.round(w * k);
+      h = Math.round(h * k);
+      made.push(D.makePage(null, { image: src, size: { w, h } }));
+    }
+    setState((s) => D.insertPages(s, index, made));
+    toast("success", `${made.length} page(s) image ajoutée(s).`);
   };
 
   const onDataPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4623,16 +4667,32 @@ export default function PdfWorkspace({
       {dialog === "insert" && (
         <InsertPagesDialog
           pageCount={pageCount}
-          onClose={() => setDialog(null)}
-          onConfirm={({ where, at, count, size }) => {
-            const dims =
+          files={pendingInsert?.files.map((f) => f.name)}
+          initialAt={currentStore.get()}
+          onClose={() => {
+            setPendingInsert(null);
+            setDialog(null);
+          }}
+          onConfirm={({ where, at, count, size, landscape }) => {
+            // Before page 1 is position 0 (it used to fall to the end).
+            const index = where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            setDialog(null);
+            const pending = pendingInsert;
+            setPendingInsert(null);
+            if (pending?.kind === "pdf") {
+              void insertPdfFiles(pending.files, index);
+              return;
+            }
+            if (pending?.kind === "image") {
+              void insertImageFiles(pending.files, index);
+              return;
+            }
+            let dims =
               size === "same"
                 ? ([sizeOf(currentPage() ?? pages[0]).w, sizeOf(currentPage() ?? pages[0]).h] as [number, number])
                 : (PAGE_SIZES[size] ?? PAGE_SIZES.A4);
-            // Before page 1 is position 0 (it used to fall to the end).
-            const index = where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            if (landscape && size !== "same") dims = [Math.max(...dims), Math.min(...dims)];
             insertBlankAt(index, count, dims);
-            setDialog(null);
           }}
         />
       )}

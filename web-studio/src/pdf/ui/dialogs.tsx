@@ -1742,25 +1742,41 @@ export function InsertPagesDialog({
   pageCount,
   onConfirm,
   onClose,
+  files,
+  initialAt = 1,
 }: {
   pageCount: number;
-  onConfirm: (v: { where: "before" | "after" | "end"; at: number; count: number; size: string }) => void;
+  onConfirm: (v: {
+    where: "before" | "after" | "end";
+    at: number;
+    count: number;
+    size: string;
+    landscape: boolean;
+  }) => void;
   onClose: () => void;
+  /** Inserting these files (only the position is asked), not blank pages. */
+  files?: string[];
+  initialAt?: number;
 }) {
-  const [where, setWhere] = useState<"before" | "after" | "end">("after");
-  const [at, setAt] = useState(1);
+  const [where, setWhere] = useState<"before" | "after" | "end">(files ? "end" : "after");
+  const [at, setAt] = useState(Math.max(1, Math.min(pageCount, initialAt)));
   const [count, setCount] = useState(1);
   const [size, setSize] = useState("A4");
+  const [landscape, setLandscape] = useState(false);
   return (
     <Modal
-      title="Insérer des pages blanches"
+      title={
+        files
+          ? `Insérer ${files.length > 1 ? `${files.length} fichiers` : `« ${files[0]} »`}`
+          : "Insérer des pages blanches"
+      }
       onClose={onClose}
       footer={
         <>
           <button className="eb eb--outline eb--sm" onClick={onClose}>
             Annuler
           </button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ where, at, count, size })}>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ where, at, count, size, landscape })}>
             Insérer
           </button>
         </>
@@ -1781,21 +1797,34 @@ export function InsertPagesDialog({
             <input type="number" min={1} max={pageCount} value={at} onChange={(e) => setAt(Number(e.target.value))} />
           </label>
         )}
-        <label className="pdfx-form__row">
-          <span>Nombre</span>
-          <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
-        </label>
-        <label className="pdfx-form__row">
-          <span>Format</span>
-          <select value={size} onChange={(e) => setSize(e.target.value)}>
-            {Object.keys(PAGE_SIZES).map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-            <option value="same">Comme la page courante</option>
-          </select>
-        </label>
+        {!files && (
+          <>
+            <label className="pdfx-form__row">
+              <span>Nombre</span>
+              <input type="number" min={1} max={200} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+            </label>
+            <label className="pdfx-form__row">
+              <span>Format</span>
+              <select value={size} onChange={(e) => setSize(e.target.value)}>
+                {Object.keys(PAGE_SIZES).map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+                <option value="same">Comme la page courante</option>
+              </select>
+            </label>
+            {size !== "same" && (
+              <label className="pdfx-form__row">
+                <span>Orientation</span>
+                <select value={landscape ? "l" : "p"} onChange={(e) => setLandscape(e.target.value === "l")}>
+                  <option value="p">Portrait</option>
+                  <option value="l">Paysage</option>
+                </select>
+              </label>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );

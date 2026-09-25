@@ -633,3 +633,20 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   champ plus deux widgets. Avant : widget orphelin, hors formulaire.
 - Tests : pdf-page-refs (2, qui échouent sans le correctif). Suite complète 1972/1972 ;
   specs PDF 42/42.
+
+### Session cloud 1 : T5, point 8 (insertion)
+- « Depuis un PDF » et « Depuis une image » demandent maintenant la position (avant ou
+  après la page N, à la fin), comme Acrobat. Les pages blanches ont aussi une
+  orientation (portrait ou paysage).
+- PDF inséré :
+  - ses champs rejoignent le formulaire (/Fields, polices /DR) : ils se remplissent et
+    s'enregistrent ;
+  - ses signets arrivent sous un signet au nom du fichier, pointant vers les pages
+    insérées (destinations explicites ou nommées) ;
+  - les pages exclues du document ne sont plus perdues au passage.
+- Image insérée : la page a la taille de l'image (96 ppp), ramenée au A4 si elle est plus
+  grande ; avant, tout était en A4 portrait.
+- Tests : 1 unitaire, 2 navigateur (Drive + bureau). Suite complète 1973/1973 ; specs PDF
+  46/46.
+- Reste point 8 : coller depuis le presse-papiers ; autres formats (Office, HTML, TIFF
+  multipage).

@@ -1424,16 +1424,24 @@ export function CropDialog({
   current,
   onConfirm,
   onClose,
+  onDetect,
 }: {
+  /** The current page's margins, as seen (its rotation applied). */
   current: { top: number; right: number; bottom: number; left: number };
   onConfirm: (v: {
     crop: { top: number; right: number; bottom: number; left: number };
     scope: "selection" | "all";
+    /** Each page loses its own white margins (the values are then ignored). */
+    auto: boolean;
   }) => void;
   onClose: () => void;
+  /** The current page's white margins, as seen (null: nothing to find). */
+  onDetect?: () => Promise<{ top: number; right: number; bottom: number; left: number } | null>;
 }) {
   const [crop, setCrop] = useState(current);
   const [scope, setScope] = useState<"selection" | "all">("all");
+  const [auto, setAuto] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   return (
     <Modal
       title="Recadrer les pages"
@@ -1442,18 +1450,36 @@ export function CropDialog({
         <>
           <button
             className="eb eb--outline eb--sm"
-            onClick={() => onConfirm({ crop: { top: 0, right: 0, bottom: 0, left: 0 }, scope })}
+            onClick={() => onConfirm({ crop: { top: 0, right: 0, bottom: 0, left: 0 }, scope, auto: false })}
           >
             Réinitialiser
           </button>
-          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ crop, scope })}>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm({ crop, scope, auto })}>
             Appliquer
           </button>
         </>
       }
     >
       <div className="pdfx-form">
-        <p className="pdfx-form__lead">Marges à retirer, en points (1 pt = 0,353 mm).</p>
+        <p className="pdfx-form__lead">Marges à retirer, telles qu'on les voit, en points (1 pt = 0,353 mm).</p>
+        {onDetect && (
+          <button
+            type="button"
+            className="eb eb--outline eb--sm"
+            disabled={detecting}
+            onClick={async () => {
+              setDetecting(true);
+              try {
+                const m = await onDetect();
+                if (m) setCrop(m);
+              } finally {
+                setDetecting(false);
+              }
+            }}
+          >
+            {detecting ? "Détection…" : "Détecter les marges blanches"}
+          </button>
+        )}
         <div className="pdfx-cropgrid">
           <label>
             <span>Haut</span>
@@ -1499,6 +1525,12 @@ export function CropDialog({
             <option value="selection">Pages sélectionnées</option>
           </select>
         </label>
+        {onDetect && (
+          <label className="pdfx-form__row pdfx-form__row--check">
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            <span>Retirer les marges blanches de chaque page (chacune les siennes)</span>
+          </label>
+        )}
       </div>
     </Modal>
   );

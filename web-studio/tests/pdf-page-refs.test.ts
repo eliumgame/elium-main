@@ -169,3 +169,41 @@ describe("resizePage", () => {
     expect(c.getCropBox()).toMatchObject({ width: 595, height: 842 });
   });
 });
+
+describe("cropping", () => {
+  it("keeps what lies on the page on the same spot of its content", () => {
+    let s: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const id = s.pages[0].id;
+    s = {
+      ...s,
+      annots: [
+        {
+          id: "a",
+          pageId: id,
+          kind: "square",
+          rect: { x: 100, y: 200, w: 50, h: 50 },
+          color: "#000000",
+          opacity: 1,
+          strokeWidth: 1,
+          author: "M",
+          createdAt: "",
+          modifiedAt: "",
+          replies: [],
+        },
+      ],
+    };
+    s = D.cropPages(s, [id], { top: 30, right: 0, bottom: 0, left: 20 });
+    expect(s.annots[0].rect).toEqual({ x: 80, y: 170, w: 50, h: 50 });
+    s = D.cropPages(s, [id], null);
+    expect(s.annots[0].rect).toEqual({ x: 100, y: 200, w: 50, h: 50 });
+  });
+
+  it("turns margins as seen into the unturned page's, and back", () => {
+    const seen = { top: 1, right: 2, bottom: 3, left: 4 };
+    for (const r of [0, 90, 180, 270]) {
+      expect(D.sourceToVisualInsets(D.visualToSourceInsets(seen, r), r)).toEqual(seen);
+    }
+    // At 90°, the top as seen is the page's left edge.
+    expect(D.visualToSourceInsets(seen, 90).left).toBe(1);
+  });
+});

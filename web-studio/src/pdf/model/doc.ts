@@ -156,9 +156,78 @@ export function setPageRotation(state: PdfState, id: string, rotation: Rotation)
   return { ...state, pages: state.pages.map((p) => (p.id === id ? { ...p, rotate: rotation } : p)) };
 }
 
+/**
+ * Crop pages. Page space starts at the crop's top-left corner, so what lies
+ * on a cropped page — comments, text and picture edits, created fields — is
+ * moved by the change of that corner: it stays on the same spot of the content.
+ */
 export function cropPages(state: PdfState, ids: readonly string[], crop: NonNullable<Page["crop"]> | null): PdfState {
   const set = new Set(ids);
-  return { ...state, pages: state.pages.map((p) => (set.has(p.id) ? { ...p, crop } : p)) };
+  const shift = new Map<string, { dx: number; dy: number }>();
+  for (const p of state.pages) {
+    if (!set.has(p.id)) continue;
+    const dx = (p.crop?.left ?? 0) - (crop?.left ?? 0);
+    const dy = (p.crop?.top ?? 0) - (crop?.top ?? 0);
+    if (dx || dy) shift.set(p.id, { dx, dy });
+  }
+  const move = (r: Rect, d: { dx: number; dy: number }): Rect => ({ ...r, x: r.x + d.dx, y: r.y + d.dy });
+  const pt = <T extends { x: number; y: number }>(q: T, d: { dx: number; dy: number }): T => ({
+    ...q,
+    x: q.x + d.dx,
+    y: q.y + d.dy,
+  });
+  const next: PdfState = { ...state, pages: state.pages.map((p) => (set.has(p.id) ? { ...p, crop } : p)) };
+  if (!shift.size) return next;
+  return {
+    ...next,
+    annots: state.annots.map((a) => {
+      const d = shift.get(a.pageId);
+      if (!d) return a;
+      return {
+        ...a,
+        rect: move(a.rect, d),
+        quads: a.quads?.map((q) => q.map((v) => pt(v, d)) as typeof q),
+        paths: a.paths?.map((path) => path.map((v) => pt(v, d))),
+        callout: a.callout?.map((v) => pt(v, d)),
+      };
+    }),
+    contentEdits: state.contentEdits.map((e) => {
+      const d = shift.get(e.pageId);
+      return d ? { ...e, rect: move(e.rect, d), ...(e.placement ? { placement: move(e.placement, d) } : {}) } : e;
+    }),
+    imageEdits: state.imageEdits.map((e) => {
+      const d = shift.get(e.pageId);
+      return d && e.rect ? { ...e, rect: move(e.rect, d) } : e;
+    }),
+    createdFields: state.createdFields.map((f) => {
+      const d = shift.get(f.pageId);
+      return d ? { ...f, rect: move(f.rect, d) } : f;
+    }),
+  };
+}
+
+/** Margins as seen (a page turned by `rotation`) → the same margins on the unturned page, and back. */
+export function visualToSourceInsets(
+  v: { top: number; right: number; bottom: number; left: number },
+  rotation: number,
+): { top: number; right: number; bottom: number; left: number } {
+  const r = ((rotation % 360) + 360) % 360;
+  // The page turns clockwise: at 90°, what was its left edge is seen on top.
+  if (r === 90) return { left: v.top, top: v.right, right: v.bottom, bottom: v.left };
+  if (r === 180) return { top: v.bottom, right: v.left, bottom: v.top, left: v.right };
+  if (r === 270) return { right: v.top, bottom: v.right, left: v.bottom, top: v.left };
+  return { ...v };
+}
+
+export function sourceToVisualInsets(
+  s: { top: number; right: number; bottom: number; left: number },
+  rotation: number,
+): { top: number; right: number; bottom: number; left: number } {
+  const r = ((rotation % 360) + 360) % 360;
+  if (r === 90) return { top: s.left, right: s.top, bottom: s.right, left: s.bottom };
+  if (r === 180) return { top: s.bottom, right: s.left, bottom: s.top, left: s.right };
+  if (r === 270) return { top: s.right, right: s.bottom, bottom: s.left, left: s.top };
+  return { ...s };
 }
 
 export function setPageSkipped(state: PdfState, ids: readonly string[], skipped: boolean): PdfState {

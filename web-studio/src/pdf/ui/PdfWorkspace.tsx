@@ -2213,6 +2213,51 @@ export default function PdfWorkspace({
     return ids.map((id) => live.findIndex((q) => q.id === id)).filter((i) => i >= 0);
   };
 
+  /**
+   * The white margins of a page, as seen (its rotation applied), in points:
+   * the page drawn small, and the first non-white pixels from each edge.
+   * Relative to the file's crop box (an Elium crop is a margin from it).
+   */
+  const whiteMargins = async (
+    pg: Page,
+  ): Promise<{ top: number; right: number; bottom: number; left: number } | null> => {
+    if (pg.from == null || !engine) return null;
+    try {
+      const proxy = await engine.page(pg.from);
+      const scale = 1;
+      const viewport = proxy.getViewport({ scale, rotation: rotationOf({ ...pg, crop: null }) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.ceil(viewport.width));
+      canvas.height = Math.max(1, Math.ceil(viewport.height));
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await proxy.render({ canvas, canvasContext: ctx, viewport }).promise;
+      const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const ink = (i: number) => data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245;
+      let top = height;
+      let bottom = -1;
+      let left = width;
+      let right = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (!ink((y * width + x) * 4)) continue;
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+          if (x < left) left = x;
+          if (x > right) right = x;
+        }
+      }
+      if (bottom < 0) return null;
+      // A breath of margin kept around the content, as Acrobat does.
+      const keep = 2;
+      const pt = (v: number) => Math.max(0, Math.floor(v / scale - keep));
+      return { top: pt(top), left: pt(left), bottom: pt(height - 1 - bottom), right: pt(width - 1 - right) };
+    } catch {
+      return null;
+    }
+  };
+
   /** Blank pages at position `index` (0: before the first page). */
   const insertBlankAt = (index: number, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
     setState((s) => {
@@ -4711,13 +4756,30 @@ export default function PdfWorkspace({
       )}
       {dialog === "crop" && (
         <CropDialog
-          current={currentPage()?.crop ?? { top: 0, right: 0, bottom: 0, left: 0 }}
+          current={D.sourceToVisualInsets(
+            currentPage()?.crop ?? { top: 0, right: 0, bottom: 0, left: 0 },
+            currentPage() ? rotationOf(currentPage()!) : 0,
+          )}
+          onDetect={async () => {
+            const cur = currentPage();
+            return cur ? whiteMargins(cur) : null;
+          }}
           onClose={() => setDialog(null)}
-          onConfirm={({ crop, scope }) => {
+          onConfirm={async ({ crop, scope, auto }) => {
             const ids = scope === "all" ? pages.map((q) => q.id) : targetPages();
-            const empty = !crop.top && !crop.right && !crop.bottom && !crop.left;
-            setState((s) => D.cropPages(s, ids, empty ? null : crop));
             setDialog(null);
+            // Margins are given as seen: each page's own rotation says which edge is which.
+            const crops = new Map<string, { top: number; right: number; bottom: number; left: number } | null>();
+            for (const id of ids) {
+              const pg = pages.find((q) => q.id === id);
+              if (!pg) continue;
+              const seen = auto ? await whiteMargins(pg) : crop;
+              if (!seen) continue;
+              const src = D.visualToSourceInsets(seen, rotationOf(pg));
+              const empty = !src.top && !src.right && !src.bottom && !src.left;
+              crops.set(id, empty ? null : src);
+            }
+            setState((s) => [...crops].reduce((acc, [id, c]) => D.cropPages(acc, [id], c), s));
           }}
         />
       )}

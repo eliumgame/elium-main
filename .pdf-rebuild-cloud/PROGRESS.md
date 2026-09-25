@@ -664,3 +664,13 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   pages remplacées est nettoyé.
 - Tests : 1 unitaire (`resizePage`), 1 navigateur enchaînant les quatre (Drive +
   bureau). Suite complète 1974/1974 ; specs PDF 48/48.
+
+### Session cloud 1 : T5, point 10 (rognage)
+- Marges données telles qu'on les voit : chaque page les convertit selon sa rotation (sur
+  une page tournée, « Haut » coupait un autre bord).
+- Rogner ne déplace plus les annotations : ce qui est posé sur la page (commentaires,
+  modifications de texte et d'images, champs créés) suit l'origine de la page et reste au
+  même endroit du contenu.
+- « Détecter les marges blanches » (la page rendue, bords du contenu, 2 pt gardés), et
+  « Retirer les marges blanches de chaque page », chacune les siennes.
+- Tests : 2 unitaires, 1 navigateur. Suite complète OK ; specs PDF OK.

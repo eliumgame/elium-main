@@ -179,4 +179,28 @@ test.describe("PDF — organiser", () => {
     expect(sizes[3]).toEqual([595, 420, 0]);
     expect(problems).toEqual([]);
   });
+
+  test("recadrer : détecter les marges blanches", async ({ page }) => {
+    const problems = health(page);
+    // Content only in the middle: a block 200 × 100 at (200, 400).
+    const doc0 = await PDFDocument.create();
+    const p = doc0.addPage([600, 800]);
+    const { rgb } = await import("pdf-lib");
+    p.drawRectangle({ x: 200, y: 400, width: 200, height: 100, color: rgb(0, 0, 0) });
+    await open(page, Buffer.from(await doc0.save()));
+    await page.getByRole("tab", { name: "Organiser" }).click();
+    await page.getByRole("button", { name: "Recadrer" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Détecter les marges blanches" }).click();
+    await expect(dialog.getByRole("spinbutton").first()).not.toHaveValue("0");
+    await dialog.getByRole("button", { name: "Appliquer" }).click();
+    const doc = await save(page);
+    const box = doc.getPage(0).getCropBox();
+    // The block, with a hair of margin.
+    expect(Math.abs(box.x - 200)).toBeLessThan(4);
+    expect(Math.abs(box.y - 400)).toBeLessThan(4);
+    expect(Math.abs(box.width - 200)).toBeLessThan(6);
+    expect(Math.abs(box.height - 100)).toBeLessThan(6);
+    expect(problems).toEqual([]);
+  });
 });

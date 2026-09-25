@@ -47,6 +47,7 @@ import type {
   PdfState,
   Tool,
   DestFit,
+  InitialView,
   LinkAction,
 } from "../model/types";
 import { EMPTY_FILTER, type CommentFilter, type CommentSort } from "../model/doc";
@@ -423,6 +424,8 @@ export default function PdfWorkspace({
   const [layers, setLayers] = useState<LayerInfo[]>([]);
   /** The user's layer switches, in the order made (radio groups depend on it). */
   const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  /** The file's own Initial View (openPage: a 1-based source page). */
+  const [fileView, setFileView] = useState<InitialView | null>(null);
   /** The link whose properties are being edited (just drawn: `creating`). */
   const [linkEdit, setLinkEdit] = useState<{ id: string; creating: boolean } | null>(null);
   /** The file's page labels by source page (null: none). */
@@ -467,6 +470,7 @@ export default function PdfWorkspace({
   const textLayers = useRef(new Map<string, { layer: HTMLElement; host: HTMLElement }>());
   const openInput = useRef<HTMLInputElement>(null);
   const mergeInput = useRef<HTMLInputElement>(null);
+  const attachInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
   const p12Input = useRef<HTMLInputElement>(null);
@@ -803,6 +807,17 @@ export default function PdfWorkspace({
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
         setFileLabels(null);
         void next.pageLabels().then((l) => gen === shownGeneration.current && setFileLabels(l));
+        // The file's Initial View: shown as it asks on a fresh open (panel,
+        // page layout, page and zoom), kept for the Properties dialog.
+        setFileView(null);
+        void next
+          .initialView()
+          .then((iv) => {
+            if (gen !== shownGeneration.current) return;
+            setFileView(iv);
+            if (!restore && !derived && !rebased) applyInitialViewRef.current(iv);
+          })
+          .catch(() => {});
         // Let the first page paint before competing for the pdf.js worker.
         setTimeout(() => {
           if (gen !== shownGeneration.current) return;
@@ -1309,6 +1324,41 @@ export default function PdfWorkspace({
     }
   };
 
+  /** Open the document as its Initial View asks (what differs from Elium's defaults). */
+  const applyInitialView = (iv: InitialView) => {
+    const panels: Partial<Record<InitialView["pageMode"], SidePanel>> = {
+      UseOutlines: "bookmarks",
+      UseThumbs: "thumbnails",
+      UseAttachments: "attachments",
+      UseOC: "layers",
+    };
+    const panelFor = panels[iv.pageMode];
+    if (panelFor) setPanel(panelFor);
+    const layouts: Partial<Record<InitialView["pageLayout"], Pick<ViewState, "mode" | "spreadCover">>> = {
+      OneColumn: { mode: "continuous", spreadCover: true },
+      TwoColumnLeft: { mode: "facingContinuous", spreadCover: false },
+      TwoColumnRight: { mode: "facingContinuous", spreadCover: true },
+      TwoPageLeft: { mode: "facing", spreadCover: false },
+      TwoPageRight: { mode: "facing", spreadCover: true },
+    };
+    const layout = layouts[iv.pageLayout];
+    const zoom: Partial<ViewState> =
+      iv.openZoom === "Fit"
+        ? { zoomMode: "fitPage" }
+        : iv.openZoom === "FitH"
+          ? { zoomMode: "fitWidth" }
+          : iv.openZoom === "FitV"
+            ? { zoomMode: "fitVisible" }
+            : typeof iv.openZoom === "number"
+              ? { zoomMode: "custom", scale: clamp(presetScale(iv.openZoom), MIN_SCALE, MAX_SCALE) }
+              : {};
+    if (layout || Object.keys(zoom).length) setView((v) => ({ ...v, ...layout, ...zoom }));
+    // Once laid out (a fresh open: the pages are the file's, in its order).
+    if (iv.openPage > 1) setTimeout(() => goTo(iv.openPage), 120);
+  };
+  const applyInitialViewRef = useRef(applyInitialView);
+  applyInitialViewRef.current = applyInitialView;
+
   /** A link drawn in Elium, clicked. */
   const followLink = (a: Annot) => {
     const act = a.action;
@@ -1592,6 +1642,28 @@ export default function PdfWorkspace({
     [pages, fileLabels],
   );
   const pageLabels = useMemo(() => shownPages.map((pg) => pg.label), [shownPages]);
+
+  /** The document's attached files as they will be saved (the file's, less removed, plus added). */
+  const shownAttachments = useMemo((): Attachment[] => {
+    const e = state.attachmentEdits;
+    if (!e) return attachments;
+    const removed = new Set(e.removed);
+    const decode = (url: string) => {
+      const m = /^data:[^,]*;base64,(.*)$/s.exec(url);
+      return m ? Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0)) : new Uint8Array();
+    };
+    return [
+      ...attachments
+        .filter((a) => !removed.has(a.key))
+        .map((a) => (a.key in e.described ? { ...a, description: e.described[a.key] } : a)),
+      ...e.added.map((a) => ({
+        key: `added:${a.id}`,
+        name: a.name,
+        description: a.description,
+        bytes: decode(a.data),
+      })),
+    ];
+  }, [attachments, state.attachmentEdits]);
 
   const searchOptions = useMemo(
     () => ({
@@ -3617,7 +3689,8 @@ export default function PdfWorkspace({
         toast("info", "Aucun titre détecté.");
         return;
       }
-      setState((s) => ({ ...s, bookmarks: marks }));
+      // Added after the bookmarks already there, as Acrobat does.
+      setState((s) => ({ ...s, bookmarks: [...(s.bookmarks ?? []), ...marks] }));
       setPanel("bookmarks");
       toast("success", `${marks.length} signet(s) créé(s).`);
     } finally {
@@ -4672,7 +4745,7 @@ export default function PdfWorkspace({
               annots={state.annots}
               bookmarks={state.bookmarks ?? []}
               fields={state.createdFields}
-              attachments={attachments}
+              attachments={shownAttachments}
               layers={layers}
               searchHits={hits}
               searchIndex={searchState.index}
@@ -4732,6 +4805,18 @@ export default function PdfWorkspace({
                 }));
                 toast("success", "Destination du signet", `Page ${dest.page}, vue courante.`);
               }}
+              onBookmarkMove={(id, target, where) =>
+                setState((s) => ({ ...s, bookmarks: D.moveBookmark(s.bookmarks ?? [], id, target, where) }))
+              }
+              onBookmarkStyle={(id, patch) =>
+                setState((s) => ({
+                  ...s,
+                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, ...patch } : b)),
+                }))
+              }
+              onBookmarksClosed={(closed) =>
+                setQuiet((s) => ({ ...s, bookmarks: D.setBookmarksClosed(s.bookmarks ?? [], closed) }))
+              }
               onBookmarkToggle={(id) =>
                 setQuiet((s) => ({
                   ...s,
@@ -4764,6 +4849,38 @@ export default function PdfWorkspace({
                 );
               }}
               onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
+              onAttachmentAdd={() => attachInput.current?.click()}
+              onAttachmentRemove={(a) =>
+                setState((s) => {
+                  const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                  return {
+                    ...s,
+                    attachmentEdits: a.key.startsWith("added:")
+                      ? { ...e, added: e.added.filter((x) => `added:${x.id}` !== a.key) }
+                      : { ...e, removed: [...e.removed, a.key] },
+                  };
+                })
+              }
+              onAttachmentDescribe={async (a) => {
+                const text = await dialogs.prompt({
+                  title: "Description de la pièce jointe",
+                  label: a.name,
+                  defaultValue: a.description ?? "",
+                });
+                if (text == null) return;
+                setState((s) => {
+                  const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                  return {
+                    ...s,
+                    attachmentEdits: a.key.startsWith("added:")
+                      ? {
+                          ...e,
+                          added: e.added.map((x) => (`added:${x.id}` === a.key ? { ...x, description: text } : x)),
+                        }
+                      : { ...e, described: { ...e.described, [a.key]: text } },
+                  };
+                });
+              }}
               onFieldSelect={(id) => {
                 const f = state.createdFields.find((x) => x.id === id);
                 const index = f ? pages.findIndex((q) => q.id === f.pageId) : -1;
@@ -4985,6 +5102,43 @@ export default function PdfWorkspace({
       />
       <input ref={mergeInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
       <input
+        ref={attachInput}
+        type="file"
+        multiple
+        hidden
+        data-testid="attach-doc-input"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          const MAX = 25 * 1024 * 1024;
+          const big = files.filter((f) => f.size > MAX);
+          if (big.length)
+            toast("warning", "Pièce jointe trop lourde", `${big.map((f) => f.name).join(", ")} : 25 Mo au plus.`);
+          const read = (f: File) =>
+            new Promise<string>((res) => {
+              const r = new FileReader();
+              r.onload = () => res(r.result as string);
+              r.readAsDataURL(f);
+            });
+          const added = await Promise.all(
+            files
+              .filter((f) => f.size <= MAX)
+              .map(async (f) => ({
+                id: newId("att"),
+                name: f.name,
+                mime: f.type || "application/octet-stream",
+                data: await read(f),
+              })),
+          );
+          if (!added.length) return;
+          setState((s) => {
+            const ed = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+            return { ...s, attachmentEdits: { ...ed, added: [...ed.added, ...added] } };
+          });
+          setPanel("attachments");
+        }}
+      />
+      <input
         ref={replaceInput}
         type="file"
         accept="application/pdf,.pdf"
@@ -5071,9 +5225,20 @@ export default function PdfWorkspace({
           info={engine.info}
           xfa={xfaKind}
           metadata={state.metadata}
+          initialView={
+            state.initialView ??
+            (fileView
+              ? {
+                  ...fileView,
+                  // The file names a source page; the dialog, a page of the document as it is.
+                  openPage: Math.max(1, pages.findIndex((pg) => pg.from === fileView.openPage - 1) + 1),
+                }
+              : undefined)
+          }
+          pageCount={pages.length}
           sizeBytes={bytesRef.current?.length ?? 0}
           onClose={() => setDialog(null)}
-          onChange={(v) => setState((s) => ({ ...s, metadata: v }))}
+          onChange={(v, iv) => setState((s) => ({ ...s, metadata: v, ...(iv ? { initialView: iv } : {}) }))}
         />
       )}
       {dialog === "exportImages" && (

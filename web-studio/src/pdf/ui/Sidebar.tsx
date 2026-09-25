@@ -5,6 +5,8 @@ import {
   Crosshair,
   ExternalLink,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Copy,
   Download,
   FileText,
@@ -15,6 +17,7 @@ import {
   MessageSquare,
   Paperclip,
   Pencil,
+  Palette,
   Plus,
   RotateCw,
   Search,
@@ -34,7 +37,7 @@ import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { useListWindow } from "./useListWindow";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
 import { commentable, filterComments, flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
-import { textMatches, type SearchHit, type SearchOptions } from "../core/search";
+import { DEFAULT_SEARCH_OPTIONS, textMatches, type SearchHit, type SearchOptions } from "../core/search";
 import { KIND_LABEL, shortDate, type SidePanel } from "./state";
 
 /** The multi-panel navigation rail. Each panel mirrors an Acrobat pane. */
@@ -82,11 +85,18 @@ export interface SidebarProps {
   onBookmarkToggle: (id: string) => void;
   /** Point the bookmark at the current view. */
   onBookmarkRetarget: (id: string) => void;
+  onBookmarkMove: (id: string, targetId: string, where: "before" | "after" | "inside") => void;
+  onBookmarkStyle: (id: string, patch: Pick<Mark, "bold" | "italic" | "color">) => void;
+  /** Open (false) or close (true) every bookmark with children. */
+  onBookmarksClosed: (closed: boolean) => void;
   onSearchSelect: (index: number) => void;
   onLayerToggle: (id: string) => void;
   /** The current visibility becomes the file's default (/OCProperties /D). */
   onLayersSaveDefault: () => void;
   onAttachmentOpen: (a: Attachment) => void;
+  onAttachmentAdd: () => void;
+  onAttachmentRemove: (a: Attachment) => void;
+  onAttachmentDescribe: (a: Attachment) => void;
   onFieldSelect: (id: string) => void;
   onFieldDelete: (id: string) => void;
 }
@@ -385,112 +395,218 @@ const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
 function Bookmarks(p: SidebarProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const flat = useMemo(() => flattenBookmarks(p.bookmarks), [p.bookmarks]);
+  const [styling, setStyling] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; over?: string; where?: "before" | "after" | "inside" } | null>(null);
+  const flat = useMemo(() => {
+    if (!filter?.trim()) return flattenBookmarks(p.bookmarks);
+    // Filtered: every match, closed branches included, flat.
+    const out: { node: Mark; depth: number }[] = [];
+    const walk = (list: readonly Mark[]) =>
+      list.forEach((b) => {
+        if (textMatches(b.title, filter, DEFAULT_SEARCH_OPTIONS)) out.push({ node: b, depth: 0 });
+        walk(b.children);
+      });
+    walk(p.bookmarks);
+    return out;
+  }, [p.bookmarks, filter]);
+  const whereOf = (e: React.DragEvent<HTMLElement>): "before" | "after" | "inside" => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const f = (e.clientY - r.top) / r.height;
+    return f < 0.28 ? "before" : f > 0.72 ? "after" : "inside";
+  };
 
   return (
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Signets</span>
-        <button className="pdfx-icon" title="Nouveau signet sur la page courante" onClick={() => p.onBookmarkAdd(null)}>
+        <button className="pdfx-icon" title="Nouveau signet sur la vue affichée" onClick={() => p.onBookmarkAdd(null)}>
           <Plus size={14} />
         </button>
+        <button className="pdfx-icon" title="Tout déplier" onClick={() => p.onBookmarksClosed(false)}>
+          <ChevronsUpDown size={14} />
+        </button>
+        <button className="pdfx-icon" title="Tout replier" onClick={() => p.onBookmarksClosed(true)}>
+          <ChevronsDownUp size={14} />
+        </button>
+        <button
+          className={`pdfx-icon ${filter !== null ? "is-on" : ""}`}
+          title="Chercher dans les signets"
+          onClick={() => setFilter((f) => (f === null ? "" : null))}
+        >
+          <Search size={14} />
+        </button>
       </div>
+      {filter !== null && (
+        <div className="pdfx-panel__tools">
+          <input
+            className="pdfx-mark__input"
+            autoFocus
+            placeholder="Filtrer les signets…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setFilter(null)}
+          />
+        </div>
+      )}
       <div className="pdfx-panel__body">
         {!flat.length && (
           <p className="pdfx-empty">
-            Ce document ne contient aucun signet.
-            <br />
-            Ajoutez-en un pour créer un sommaire.
+            {filter?.trim() ? (
+              "Aucun signet ne correspond."
+            ) : (
+              <>
+                Ce document ne contient aucun signet.
+                <br />
+                Ajoutez-en un pour créer un sommaire.
+              </>
+            )}
           </p>
         )}
         {flat.map(({ node, depth }) => (
-          <div key={node.id} className="pdfx-mark" style={{ paddingLeft: 8 + depth * 14 }}>
-            {node.children.length > 0 ? (
-              <button
-                className="pdfx-mark__twist"
-                onClick={() => p.onBookmarkToggle(node.id)}
-                title={node.closed ? "Déplier" : "Replier"}
-              >
-                {node.closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-              </button>
-            ) : (
-              <span className="pdfx-mark__twist" />
-            )}
-            {editing === node.id ? (
-              <input
-                className="pdfx-mark__input"
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={() => {
-                  p.onBookmarkRename(node.id, draft.trim() || node.title);
-                  setEditing(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+          <div key={node.id}>
+            <div
+              className={`pdfx-mark ${drag?.over === node.id ? `is-drop-${drag.where}` : ""}`}
+              style={{ paddingLeft: 8 + depth * 14 }}
+              draggable={!filter && editing !== node.id}
+              onDragStart={(e) => {
+                setDrag({ id: node.id });
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", node.title);
+              }}
+              onDragOver={(e) => {
+                if (!drag || drag.id === node.id) return;
+                e.preventDefault();
+                const where = whereOf(e);
+                if (drag.over !== node.id || drag.where !== where) setDrag({ ...drag, over: node.id, where });
+              }}
+              onDrop={(e) => {
+                if (!drag) return;
+                e.preventDefault();
+                if (drag.id !== node.id) p.onBookmarkMove(drag.id, node.id, whereOf(e));
+                setDrag(null);
+              }}
+              onDragEnd={() => setDrag(null)}
+            >
+              {node.children.length > 0 && !filter ? (
+                <button
+                  className="pdfx-mark__twist"
+                  onClick={() => p.onBookmarkToggle(node.id)}
+                  title={node.closed ? "Déplier" : "Replier"}
+                >
+                  {node.closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                </button>
+              ) : (
+                <span className="pdfx-mark__twist" />
+              )}
+              {editing === node.id ? (
+                <input
+                  className="pdfx-mark__input"
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => {
                     p.onBookmarkRename(node.id, draft.trim() || node.title);
                     setEditing(null);
-                  }
-                  if (e.key === "Escape") setEditing(null);
-                }}
-              />
-            ) : (
-              <button
-                className="pdfx-mark__title"
-                style={{
-                  fontWeight: node.bold ? 700 : 500,
-                  fontStyle: node.italic ? "italic" : undefined,
-                  color: node.color,
-                }}
-                onClick={() => p.onBookmarkGoTo(node)}
-                onDoubleClick={() => {
-                  setDraft(node.title);
-                  setEditing(node.id);
-                }}
-                title={
-                  node.action
-                    ? node.action.kind === "uri"
-                      ? node.action.url
-                      : node.action.kind === "named"
-                        ? `Action : ${node.action.name}`
-                        : node.action.label
-                    : `Page ${node.page}`
-                }
-              >
-                {node.title}
-              </button>
-            )}
-            <span className="pdfx-mark__page">
-              {node.action ? (
-                node.action.kind === "uri" ? (
-                  <ExternalLink size={11} aria-label="Lien" />
-                ) : (
-                  "·"
-                )
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      p.onBookmarkRename(node.id, draft.trim() || node.title);
+                      setEditing(null);
+                    }
+                    if (e.key === "Escape") setEditing(null);
+                  }}
+                />
               ) : (
-                node.page
+                <button
+                  className="pdfx-mark__title"
+                  style={{
+                    fontWeight: node.bold ? 700 : 500,
+                    fontStyle: node.italic ? "italic" : undefined,
+                    color: node.color && node.color !== "#000000" ? node.color : undefined,
+                  }}
+                  onClick={() => p.onBookmarkGoTo(node)}
+                  onDoubleClick={() => {
+                    setDraft(node.title);
+                    setEditing(node.id);
+                  }}
+                  title={
+                    node.action
+                      ? node.action.kind === "uri"
+                        ? node.action.url
+                        : node.action.kind === "named"
+                          ? `Action : ${node.action.name}`
+                          : node.action.label
+                      : `Page ${node.page}`
+                  }
+                >
+                  {node.title}
+                </button>
               )}
-            </span>
-            <span className="pdfx-mark__ops">
-              <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
-                <Plus size={12} />
-              </button>
-              <button title="Définir la destination sur la vue courante" onClick={() => p.onBookmarkRetarget(node.id)}>
-                <Crosshair size={12} />
-              </button>
-              <button
-                title="Renommer"
-                onClick={() => {
-                  setDraft(node.title);
-                  setEditing(node.id);
-                }}
-              >
-                <Pencil size={12} />
-              </button>
-              <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}>
-                <Trash2 size={12} />
-              </button>
-            </span>
+              <span className="pdfx-mark__page">
+                {node.action ? (
+                  node.action.kind === "uri" ? (
+                    <ExternalLink size={11} aria-label="Lien" />
+                  ) : (
+                    "·"
+                  )
+                ) : (
+                  (p.pages[node.page - 1]?.label ?? node.page)
+                )}
+              </span>
+              <span className="pdfx-mark__ops">
+                <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
+                  <Plus size={12} />
+                </button>
+                <button
+                  title="Définir la destination sur la vue courante"
+                  onClick={() => p.onBookmarkRetarget(node.id)}
+                >
+                  <Crosshair size={12} />
+                </button>
+                <button title="Style et couleur" onClick={() => setStyling((v) => (v === node.id ? null : node.id))}>
+                  <Palette size={12} />
+                </button>
+                <button
+                  title="Renommer"
+                  onClick={() => {
+                    setDraft(node.title);
+                    setEditing(node.id);
+                  }}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}>
+                  <Trash2 size={12} />
+                </button>
+              </span>
+            </div>
+            {styling === node.id && (
+              <div className="pdfx-mark__style" style={{ paddingLeft: 26 + depth * 14 }}>
+                <label className="pdfx-check">
+                  <input
+                    type="checkbox"
+                    checked={!!node.bold}
+                    onChange={(e) => p.onBookmarkStyle(node.id, { bold: e.target.checked })}
+                  />
+                  Gras
+                </label>
+                <label className="pdfx-check">
+                  <input
+                    type="checkbox"
+                    checked={!!node.italic}
+                    onChange={(e) => p.onBookmarkStyle(node.id, { italic: e.target.checked })}
+                  />
+                  Italique
+                </label>
+                <input
+                  type="color"
+                  aria-label="Couleur du signet"
+                  value={node.color ?? "#000000"}
+                  onChange={(e) => p.onBookmarkStyle(node.id, { color: e.target.value })}
+                />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -930,22 +1046,56 @@ function SearchResults(p: SidebarProps) {
 // ---------------------------------------------------------------------------
 
 function Attachments(p: SidebarProps) {
+  // Files attached to comments are listed too (Acrobat shows both).
+  const onComments = p.annots.filter((a) => a.kind === "attachment" && a.file);
+  const pageOf = (pageId: string) => {
+    const i = p.pages.findIndex((pg) => pg.id === pageId);
+    return i < 0 ? "" : p.pages[i].label || String(i + 1);
+  };
   return (
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Pièces jointes</span>
-        <span className="pdfx-panel__count">{p.attachments.length}</span>
+        <span className="pdfx-panel__count">{p.attachments.length + onComments.length}</span>
+        <button className="pdfx-icon" title="Joindre un fichier au document" onClick={p.onAttachmentAdd}>
+          <Plus size={14} />
+        </button>
       </div>
       <div className="pdfx-panel__body">
-        {!p.attachments.length && <p className="pdfx-empty">Ce document ne contient aucune pièce jointe.</p>}
+        {!p.attachments.length && !onComments.length && (
+          <p className="pdfx-empty">Ce document ne contient aucune pièce jointe.</p>
+        )}
         {p.attachments.map((a) => (
-          <button key={a.name} className="pdfx-row" onClick={() => p.onAttachmentOpen(a)}>
+          <div key={a.key} className="pdfx-row" title={a.description || a.name}>
             <Paperclip size={14} />
-            <span className="pdfx-row__label">{a.name}</span>
-            <span className="pdfx-row__meta">{(a.bytes.length / 1024).toFixed(0)} Ko</span>
-            <Download size={13} />
-          </button>
+            <button className="pdfx-row__label" onClick={() => p.onAttachmentOpen(a)}>
+              {a.name}
+              {a.description && <small className="pdfx-row__sub">{a.description}</small>}
+            </button>
+            <span className="pdfx-row__meta">{Math.max(1, Math.round(a.bytes.length / 1024))} Ko</span>
+            <button className="pdfx-icon" title="Enregistrer" onClick={() => p.onAttachmentOpen(a)}>
+              <Download size={13} />
+            </button>
+            <button className="pdfx-icon" title="Modifier la description" onClick={() => p.onAttachmentDescribe(a)}>
+              <Pencil size={13} />
+            </button>
+            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onAttachmentRemove(a)}>
+              <Trash2 size={13} />
+            </button>
+          </div>
         ))}
+        {onComments.length > 0 && (
+          <>
+            <div className="pdfx-hits-group__head">Dans les commentaires</div>
+            {onComments.map((a) => (
+              <button key={a.id} className="pdfx-row" onClick={() => p.onSelectAnnot(a.id)}>
+                <Paperclip size={14} />
+                <span className="pdfx-row__label">{a.file!.name}</span>
+                <span className="pdfx-row__meta">p. {pageOf(a.pageId)}</span>
+              </button>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

@@ -165,3 +165,86 @@ describe("saving bookmarks", () => {
     expect(after.items["Chapitre"]).toContain("Dest=p2 /Fit");
   });
 });
+
+describe("editing the bookmark tree", () => {
+  const mk = (id: string, children: Bookmark[] = []): Bookmark => ({ id, title: id, page: 1, children });
+  const shape = (t: Bookmark[]): unknown => t.map((b) => (b.children.length ? [b.id, shape(b.children)] : b.id));
+  it("moves a bookmark before, after or inside another, never into its own branch", () => {
+    const tree = [mk("a", [mk("a1"), mk("a2")]), mk("b"), mk("c")];
+    expect(shape(D.moveBookmark(tree, "c", "a", "before"))).toEqual(["c", ["a", ["a1", "a2"]], "b"]);
+    expect(shape(D.moveBookmark(tree, "a1", "b", "after"))).toEqual([["a", ["a2"]], "b", "a1", "c"]);
+    expect(shape(D.moveBookmark(tree, "c", "a2", "inside"))).toEqual([["a", ["a1", ["a2", ["c"]]]], "b"]);
+    expect(D.moveBookmark(tree, "a", "a1", "inside")).toBe(tree);
+  });
+});
+
+describe("initial view", () => {
+  it("is written as Acrobat's Initial View and read back", async () => {
+    const bytes = await source();
+    const s: PdfState = {
+      ...emptyState(),
+      pages: D.pagesFromSource(4),
+      initialView: {
+        pageMode: "UseOutlines",
+        pageLayout: "TwoColumnRight",
+        openPage: 3,
+        openZoom: 1.5,
+        displayDocTitle: true,
+        fitWindow: true,
+      },
+    };
+    const out = (await buildPdf(bytes, s)).bytes;
+    const engine = await PdfEngine.open(out);
+    try {
+      expect(await engine.initialView()).toMatchObject({
+        pageMode: "UseOutlines",
+        pageLayout: "TwoColumnRight",
+        openPage: 3,
+        openZoom: 1.5,
+        displayDocTitle: true,
+        fitWindow: true,
+      });
+    } finally {
+      engine.destroy();
+    }
+  });
+});
+
+describe("document attachments", () => {
+  it("removes, describes and adds attached files", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    await doc.attach(new TextEncoder().encode("un"), "a.txt", { mimeType: "text/plain", description: "Premier" });
+    await doc.attach(new TextEncoder().encode("deux"), "b.txt", { mimeType: "text/plain" });
+    const bytes = await doc.save();
+    const list = async (b: Uint8Array) => {
+      const engine = await PdfEngine.open(b);
+      try {
+        return (await engine.attachments()).map((a) => [
+          a.name,
+          a.description ?? "",
+          new TextDecoder().decode(a.bytes),
+        ]);
+      } finally {
+        engine.destroy();
+      }
+    };
+    expect(await list(bytes)).toEqual([
+      ["a.txt", "Premier", "un"],
+      ["b.txt", "", "deux"],
+    ]);
+    const s: PdfState = {
+      ...emptyState(),
+      pages: D.pagesFromSource(1),
+      attachmentEdits: {
+        removed: ["a.txt"],
+        described: { "b.txt": "Deuxième" },
+        added: [{ id: "x", name: "c.txt", mime: "text/plain", data: `data:text/plain;base64,${btoa("trois")}` }],
+      },
+    };
+    expect(await list((await buildPdf(bytes, s)).bytes)).toEqual([
+      ["b.txt", "Deuxième", "deux"],
+      ["c.txt", "", "trois"],
+    ]);
+  });
+});

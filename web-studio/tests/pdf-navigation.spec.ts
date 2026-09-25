@@ -146,4 +146,28 @@ test.describe("PDF — navigation", () => {
     await expect(page.getByText("1 lien(s) créé(s)")).toBeVisible();
     expect(problems).toEqual([]);
   });
+
+  test("vue initiale du fichier ; pièce jointe ajoutée puis enregistrée", async ({ page }) => {
+    const problems = health(page);
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 4; i++) doc.addPage([595, 842]);
+    doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseAttachments"));
+    doc.catalog.set(PDFName.of("OpenAction"), doc.context.obj([doc.getPage(2).ref, PDFName.of("Fit")] as never));
+    await open(page, Buffer.from(await doc.save()));
+    await expect(page.locator('.pdfx-rail__btn[title="Pièces jointes"]')).toHaveClass(/is-active/);
+    await expect(page.getByRole("textbox", { name: /Numéro ou étiquette de page/ })).toHaveValue("3");
+
+    await page.getByTestId("attach-doc-input").setInputFiles({
+      name: "annexe.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("contenu de l'annexe"),
+    });
+    await expect(page.locator(".pdfx-panel").getByText("annexe.txt")).toBeVisible();
+    const dl = page.waitForEvent("download");
+    await page.keyboard.press("Control+s");
+    const saved = await PDFDocument.load(Buffer.concat(await (await (await dl).createReadStream()).toArray()));
+    const names = saved.catalog.lookup(PDFName.of("Names"))!.toString();
+    expect(names).toContain("EmbeddedFiles");
+    expect(problems).toEqual([]);
+  });
 });

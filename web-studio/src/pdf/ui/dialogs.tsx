@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Download, Eraser, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { Modal } from "../../ui/components";
-import type { Bates, DocMetadata, HeaderFooter, LinkAction, LinkStyle, MeasureScale, Watermark } from "../model/types";
+import type {
+  Bates,
+  DocMetadata,
+  HeaderFooter,
+  InitialView,
+  LinkAction,
+  LinkStyle,
+  MeasureScale,
+  Watermark,
+} from "../model/types";
 import type { Permissions } from "../ops/security";
 import { ALL_PERMISSIONS } from "../ops/security";
 import type { DocInfo } from "../core/engine";
@@ -818,6 +827,8 @@ export function PropertiesDialog({
   info,
   xfa = "none",
   metadata,
+  initialView,
+  pageCount,
   sizeBytes,
   onChange,
   onClose,
@@ -826,12 +837,21 @@ export function PropertiesDialog({
   /** Kind of XFA form, when there is one. */
   xfa?: "none" | "hybrid" | "dynamic";
   metadata: DocMetadata;
+  /** The Initial View (openPage: a page of the document as it is). */
+  initialView?: InitialView;
+  pageCount?: number;
   sizeBytes: number;
-  onChange: (v: DocMetadata) => void;
+  /** `view`: the Initial View, when changed. */
+  onChange: (v: DocMetadata, view?: InitialView) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<DocMetadata>(metadata);
   const set = (patch: Partial<DocMetadata>) => setDraft((v) => ({ ...v, ...patch }));
+  const [tab, setTab] = useState<"description" | "view">("description");
+  const startView: InitialView = initialView ?? { pageMode: "UseNone", pageLayout: "SinglePage", openPage: 1 };
+  const [iv, setIv] = useState<InitialView>(startView);
+  const setView = (patch: Partial<InitialView>) => setIv((v) => ({ ...v, ...patch }));
+  const viewChanged = JSON.stringify(iv) !== JSON.stringify(startView);
   return (
     <Modal
       title="Propriétés du document"
@@ -844,7 +864,7 @@ export function PropertiesDialog({
           <button
             className="eb eb--primary eb--sm"
             onClick={() => {
-              onChange(draft);
+              onChange(draft, viewChanged ? iv : undefined);
               onClose();
             }}
           >
@@ -853,75 +873,173 @@ export function PropertiesDialog({
         </>
       }
     >
-      <div className="pdfx-form">
-        <label className="pdfx-form__row">
-          <span>Titre</span>
-          <input value={draft.title ?? ""} onChange={(e) => set({ title: e.target.value })} />
-        </label>
-        <label className="pdfx-form__row">
-          <span>Auteur</span>
-          <input value={draft.author ?? ""} onChange={(e) => set({ author: e.target.value })} />
-        </label>
-        <label className="pdfx-form__row">
-          <span>Objet</span>
-          <input value={draft.subject ?? ""} onChange={(e) => set({ subject: e.target.value })} />
-        </label>
-        <label className="pdfx-form__row">
-          <span>Mots-clés</span>
-          <input
-            value={draft.keywords ?? ""}
-            onChange={(e) => set({ keywords: e.target.value })}
-            placeholder="séparés par des virgules"
-          />
-        </label>
-        <label className="pdfx-form__row">
-          <span>Langue</span>
-          <input value={draft.language ?? ""} onChange={(e) => set({ language: e.target.value })} placeholder="fr-FR" />
-        </label>
-
-        <dl className="pdfx-facts">
-          <div>
-            <dt>Pages</dt>
-            <dd>{info.pageCount}</dd>
-          </div>
-          <div>
-            <dt>Taille</dt>
-            <dd>{formatBytes(sizeBytes)}</dd>
-          </div>
-          <div>
-            <dt>Version PDF</dt>
-            <dd>{info.pdfVersion ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Producteur</dt>
-            <dd>{info.producer ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Créé avec</dt>
-            <dd>{info.creator ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Formulaire</dt>
-            <dd>
-              {info.isXfa
-                ? xfa === "hybrid"
-                  ? "XFA hybride (rempli par ses champs AcroForm)"
-                  : "XFA dynamique (lecture seule)"
-                : info.hasAcroForm
-                  ? "AcroForm"
-                  : "Aucun"}
-            </dd>
-          </div>
-          <div>
-            <dt>Signature</dt>
-            <dd>{info.signed ? "Présente" : "Aucune"}</dd>
-          </div>
-          <div>
-            <dt>Chiffrement</dt>
-            <dd>{info.encrypted ? "Protégé par mot de passe" : "Aucun"}</dd>
-          </div>
-        </dl>
+      <div className="pdfx-segment pdfx-segment--wide">
+        <button className={tab === "description" ? "is-on" : ""} onClick={() => setTab("description")}>
+          Description
+        </button>
+        <button className={tab === "view" ? "is-on" : ""} onClick={() => setTab("view")}>
+          Vue initiale
+        </button>
       </div>
+      {tab === "view" ? (
+        <div className="pdfx-form">
+          <label className="pdfx-form__row">
+            <span>Panneau</span>
+            <select
+              value={iv.pageMode}
+              onChange={(e) => setView({ pageMode: e.target.value as InitialView["pageMode"] })}
+            >
+              <option value="UseNone">Page seule</option>
+              <option value="UseOutlines">Panneau Signets et page</option>
+              <option value="UseThumbs">Panneau Vignettes et page</option>
+              <option value="UseAttachments">Panneau Pièces jointes et page</option>
+              <option value="UseOC">Panneau Calques et page</option>
+              <option value="FullScreen">Plein écran</option>
+            </select>
+          </label>
+          <label className="pdfx-form__row">
+            <span>Disposition</span>
+            <select
+              value={iv.pageLayout}
+              onChange={(e) => setView({ pageLayout: e.target.value as InitialView["pageLayout"] })}
+            >
+              <option value="SinglePage">Une seule page</option>
+              <option value="OneColumn">Continue</option>
+              <option value="TwoPageLeft">Deux pages</option>
+              <option value="TwoColumnLeft">Deux pages continues</option>
+              <option value="TwoPageRight">Deux pages (couverture)</option>
+              <option value="TwoColumnRight">Deux pages continues (couverture)</option>
+            </select>
+          </label>
+          <label className="pdfx-form__row">
+            <span>Agrandissement</span>
+            <select
+              value={typeof iv.openZoom === "number" ? String(iv.openZoom) : (iv.openZoom ?? "default")}
+              onChange={(e) => {
+                const v = e.target.value;
+                setView({
+                  openZoom: v === "default" ? undefined : v === "Fit" || v === "FitH" || v === "FitV" ? v : Number(v),
+                });
+              }}
+            >
+              <option value="default">Par défaut</option>
+              <option value="Fit">Page entière</option>
+              <option value="FitH">Pleine largeur</option>
+              <option value="FitV">Pleine hauteur</option>
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((z) => (
+                <option key={z} value={String(z)}>
+                  {Math.round(z * 100)} %
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="pdfx-form__row">
+            <span>Ouvrir à la page</span>
+            <input
+              type="number"
+              min={1}
+              max={pageCount ?? info.pageCount}
+              value={iv.openPage}
+              onChange={(e) =>
+                setView({ openPage: Math.max(1, Math.min(pageCount ?? info.pageCount, Number(e.target.value) || 1)) })
+              }
+            />
+          </label>
+          <h4 className="pdfx-form__title">Fenêtre</h4>
+          {(
+            [
+              ["fitWindow", "Ajuster la fenêtre à la page"],
+              ["centerWindow", "Centrer la fenêtre à l'écran"],
+              ["displayDocTitle", "Afficher le titre du document (et non le nom du fichier)"],
+              ["hideToolbar", "Masquer la barre d'outils"],
+              ["hideMenubar", "Masquer la barre de menus"],
+              ["hideWindowUI", "Masquer les commandes de la fenêtre"],
+            ] as [keyof InitialView, string][]
+          ).map(([key, label]) => (
+            <label key={key} className="pdfx-check">
+              <input type="checkbox" checked={!!iv[key]} onChange={(e) => setView({ [key]: e.target.checked })} />
+              {label}
+            </label>
+          ))}
+          <p className="pdfx-form__note">
+            Ces réglages sont enregistrés dans le fichier : Acrobat et les autres lecteurs les appliquent à l'ouverture.
+          </p>
+        </div>
+      ) : (
+        <div className="pdfx-form">
+          <label className="pdfx-form__row">
+            <span>Titre</span>
+            <input value={draft.title ?? ""} onChange={(e) => set({ title: e.target.value })} />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Auteur</span>
+            <input value={draft.author ?? ""} onChange={(e) => set({ author: e.target.value })} />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Objet</span>
+            <input value={draft.subject ?? ""} onChange={(e) => set({ subject: e.target.value })} />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Mots-clés</span>
+            <input
+              value={draft.keywords ?? ""}
+              onChange={(e) => set({ keywords: e.target.value })}
+              placeholder="séparés par des virgules"
+            />
+          </label>
+          <label className="pdfx-form__row">
+            <span>Langue</span>
+            <input
+              value={draft.language ?? ""}
+              onChange={(e) => set({ language: e.target.value })}
+              placeholder="fr-FR"
+            />
+          </label>
+
+          <dl className="pdfx-facts">
+            <div>
+              <dt>Pages</dt>
+              <dd>{info.pageCount}</dd>
+            </div>
+            <div>
+              <dt>Taille</dt>
+              <dd>{formatBytes(sizeBytes)}</dd>
+            </div>
+            <div>
+              <dt>Version PDF</dt>
+              <dd>{info.pdfVersion ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Producteur</dt>
+              <dd>{info.producer ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Créé avec</dt>
+              <dd>{info.creator ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>Formulaire</dt>
+              <dd>
+                {info.isXfa
+                  ? xfa === "hybrid"
+                    ? "XFA hybride (rempli par ses champs AcroForm)"
+                    : "XFA dynamique (lecture seule)"
+                  : info.hasAcroForm
+                    ? "AcroForm"
+                    : "Aucun"}
+              </dd>
+            </div>
+            <div>
+              <dt>Signature</dt>
+              <dd>{info.signed ? "Présente" : "Aucune"}</dd>
+            </div>
+            <div>
+              <dt>Chiffrement</dt>
+              <dd>{info.encrypted ? "Protégé par mot de passe" : "Aucun"}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
     </Modal>
   );
 }

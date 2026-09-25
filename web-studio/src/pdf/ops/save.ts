@@ -25,7 +25,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { Annot, Bookmark, Page, PageLabelDef, PdfState } from "../model/types";
+import type { Annot, AttachmentEdits, Bookmark, InitialView, Page, PageLabelDef, PdfState } from "../model/types";
 import { remapBookmarkPages } from "../model/doc";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
@@ -885,6 +885,25 @@ async function applyState(
     }
   }
 
+  if (state.attachmentEdits) {
+    try {
+      await applyAttachmentEdits(doc, state.attachmentEdits);
+    } catch {
+      report.lost.push("Les modifications des pièces jointes n'ont pas pu être écrites.");
+    }
+  }
+
+  if (state.initialView) {
+    try {
+      // The page it opens on counts the model's pages; the file has only those written.
+      const model = state.pages[state.initialView.openPage - 1];
+      const at = model ? targets.findIndex((t) => t.model.id === model.id) : -1;
+      writeInitialView(doc, state.initialView, Math.max(0, at));
+    } catch {
+      report.lost.push("La vue initiale n'a pas pu être écrite.");
+    }
+  }
+
   if (state.ocDefaults) {
     try {
       writeLayerDefaults(doc, state.ocDefaults);
@@ -1119,4 +1138,91 @@ function writeLayerDefaults(doc: PDFDocument, vis: Record<string, boolean>): voi
   dict.set(PDFName.of("BaseState"), PDFName.of("ON"));
   dict.set(PDFName.of("ON"), doc.context.obj(on));
   dict.set(PDFName.of("OFF"), doc.context.obj(off));
+}
+
+/**
+ * The Initial View (Acrobat's Propriétés › Vue initiale): /PageMode,
+ * /PageLayout, /OpenAction to page `pageIndex` (0-based, output) with its
+ * magnification, and the window options of /ViewerPreferences (the other
+ * preferences — print scaling, duplex… — stay as the file has them).
+ */
+function writeInitialView(doc: PDFDocument, v: InitialView, pageIndex: number): void {
+  const cat = doc.catalog;
+  const ctx = doc.context;
+  if (v.pageMode === "UseNone") cat.delete(PDFName.of("PageMode"));
+  else cat.set(PDFName.of("PageMode"), PDFName.of(v.pageMode));
+  if (v.pageLayout === "SinglePage") cat.delete(PDFName.of("PageLayout"));
+  else cat.set(PDFName.of("PageLayout"), PDFName.of(v.pageLayout));
+  const page = doc.getPages()[Math.min(pageIndex, doc.getPageCount() - 1)];
+  if (page) {
+    const z = v.openZoom;
+    const dest =
+      z === "Fit"
+        ? [page.ref, PDFName.of("Fit")]
+        : z === "FitH"
+          ? [page.ref, PDFName.of("FitH"), null]
+          : z === "FitV"
+            ? [page.ref, PDFName.of("FitV"), null]
+            : [page.ref, PDFName.of("XYZ"), null, null, typeof z === "number" ? z : null];
+    cat.set(PDFName.of("OpenAction"), ctx.obj(dest as never));
+  }
+  let prefs = cat.lookup(PDFName.of("ViewerPreferences"));
+  if (!(prefs instanceof PDFDict)) prefs = ctx.obj({});
+  const p = prefs as PDFDict;
+  const flags: [keyof InitialView, string][] = [
+    ["hideToolbar", "HideToolbar"],
+    ["hideMenubar", "HideMenubar"],
+    ["hideWindowUI", "HideWindowUI"],
+    ["fitWindow", "FitWindow"],
+    ["centerWindow", "CenterWindow"],
+    ["displayDocTitle", "DisplayDocTitle"],
+  ];
+  for (const [key, name] of flags) {
+    if (v[key]) p.set(PDFName.of(name), ctx.obj(true));
+    else p.delete(PDFName.of(name));
+  }
+  if (p.keys().length) cat.set(PDFName.of("ViewerPreferences"), p);
+  else cat.delete(PDFName.of("ViewerPreferences"));
+}
+
+/**
+ * The document's attached files as changed in Elium: removed from the
+ * /EmbeddedFiles name tree, described anew (/Desc of their file
+ * specification), or added.
+ */
+async function applyAttachmentEdits(doc: PDFDocument, edits: AttachmentEdits): Promise<void> {
+  const names = doc.catalog.lookup(PDFName.of("Names"));
+  const tree = names instanceof PDFDict ? names.lookup(PDFName.of("EmbeddedFiles")) : undefined;
+  const removed = new Set(edits.removed);
+  const walk = (node: unknown, depth: number) => {
+    const n = node instanceof PDFRef ? doc.context.lookup(node) : node;
+    if (!(n instanceof PDFDict) || depth > 32) return;
+    const list = n.lookup(PDFName.of("Names"));
+    if (list instanceof PDFArray) {
+      for (let i = list.size() - 2; i >= 0; i -= 2) {
+        const k = list.lookup(i);
+        const key = k instanceof PDFString || k instanceof PDFHexString ? k.decodeText() : "";
+        if (removed.has(key)) {
+          list.remove(i + 1);
+          list.remove(i);
+          continue;
+        }
+        const desc = edits.described[key];
+        const spec = list.lookup(i + 1);
+        if (desc !== undefined && spec instanceof PDFDict) {
+          if (desc) spec.set(PDFName.of("Desc"), PDFHexString.fromText(desc));
+          else spec.delete(PDFName.of("Desc"));
+        }
+      }
+    }
+    const kids = n.lookup(PDFName.of("Kids"));
+    if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) walk(kids.get(i), depth + 1);
+  };
+  if (tree) walk(tree, 0);
+  for (const a of edits.added) {
+    const m = /^data:[^,]*;base64,(.*)$/s.exec(a.data);
+    if (!m) continue;
+    const bytes = Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0));
+    await doc.attach(bytes, a.name, { mimeType: a.mime || "application/octet-stream", description: a.description });
+  }
 }

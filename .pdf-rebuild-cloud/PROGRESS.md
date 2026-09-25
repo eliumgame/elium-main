@@ -914,3 +914,39 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   affichés et suivis par pdf.js) ; lien vers un autre fichier (GoToR).
 - Tests : `pdf-links.test.ts` (3), 1 navigateur (× 2 projets). Suite 2011/2011 ;
   specs PDF 70/70.
+
+### Session cloud 1 : T6, points 12, 14 et 15 (T6 terminé hors relecture)
+- Signets :
+  - glisser-déposer pour réordonner ou imbriquer (avant, après, dedans ; jamais dans
+    sa propre branche) ;
+  - tout déplier et tout replier ; filtre de recherche ;
+  - style (gras, italique) et couleur ;
+  - la page affichée utilise l'étiquette ;
+  - « depuis les titres » ajoute au sommaire au lieu de le remplacer.
+- Vue initiale :
+  - lue dans le fichier (/PageMode, /PageLayout, /OpenAction, /ViewerPreferences) ;
+  - appliquée à l'ouverture : panneau, disposition, page et agrandissement ;
+  - onglet « Vue initiale » dans Propriétés ; écrite à l'enregistrement.
+  - Défaut trouvé au passage : pdf.js 6 renvoie des Map pour /OpenAction,
+    /ViewerPreferences et les pièces jointes. Le panneau Pièces jointes était vide
+    pour tous les fichiers.
+- Pièces jointes du document :
+  - contenu lu avec pdf-lib (pdf.js 6 ne le donne plus) ; clé unique (les noms en
+    double ne se confondent plus) ;
+  - ajout (25 Mo au plus), suppression, modification de la description ;
+  - celles des commentaires sont aussi listées.
+- Lecture pdf-lib du fichier partagée (calques, pièces jointes), déchiffrée avec le mot
+  de passe du document.
+- Limites notées :
+  - pas de panneau Destinations nommées ;
+  - liens existants du fichier non modifiables ;
+  - pas de GoToR ;
+  - calques ni aplatis ni imprimés selon /Usage.
+- Tests : 3 unitaires (arbre de signets, vue initiale, pièces jointes), 1 navigateur.
+  Suite 2014/2014 ; specs PDF 72/72.
+- À valider dans Acrobat :
+  - vue initiale écrite par Elium ;
+  - signets réécrits (actions conservées) ;
+  - liens visibles (/BS) ;
+  - calques « visibilité par défaut » ;
+  - pièces jointes ajoutées, décrites et supprimées.

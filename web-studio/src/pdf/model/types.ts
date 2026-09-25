@@ -472,6 +472,32 @@ export interface Bookmark {
   retargeted?: boolean;
 }
 
+/** Files attached to the document (not to a comment), as changed in Elium. */
+export interface AttachmentEdits {
+  added: { id: string; name: string; description?: string; mime: string; /** data: URL */ data: string }[];
+  /** Keys (in the file's /EmbeddedFiles name tree) of the attachments removed. */
+  removed: string[];
+  /** New descriptions of the file's attachments, by key. */
+  described: Record<string, string>;
+}
+
+/** How the document opens (ISO 32000: /PageMode, /PageLayout, /OpenAction, /ViewerPreferences). */
+export interface InitialView {
+  pageMode: "UseNone" | "UseOutlines" | "UseThumbs" | "UseAttachments" | "UseOC" | "FullScreen";
+  pageLayout: "SinglePage" | "OneColumn" | "TwoColumnLeft" | "TwoColumnRight" | "TwoPageLeft" | "TwoPageRight";
+  /** 1-based page it opens on. */
+  openPage: number;
+  /** Its magnification: a fit, or a zoom (1 = 100 %); absent: the reader's default. */
+  openZoom?: "Fit" | "FitH" | "FitV" | number;
+  hideToolbar?: boolean;
+  hideMenubar?: boolean;
+  hideWindowUI?: boolean;
+  fitWindow?: boolean;
+  centerWindow?: boolean;
+  /** The window shows the document's title rather than its file name. */
+  displayDocTitle?: boolean;
+}
+
 export type DestFit = "XYZ" | "Fit" | "FitH" | "FitV" | "FitB" | "FitBH" | "FitBV" | "FitR";
 
 export type BookmarkAction =
@@ -609,6 +635,10 @@ export interface PdfState {
    * /OFF), by pdf.js group id ("12R"); absent: the file's own.
    */
   ocDefaults?: Record<string, boolean>;
+  /** The Initial View set in Elium (Acrobat's Propriétés › Vue initiale); absent: the file's own. */
+  initialView?: InitialView;
+  /** Changes to the document's attached files (/EmbeddedFiles). */
+  attachmentEdits?: AttachmentEdits;
   /** Measurement scale used by new measurement annotations. */
   measureScale: MeasureScale;
   /**

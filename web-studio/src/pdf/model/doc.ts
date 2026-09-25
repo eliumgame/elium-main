@@ -705,6 +705,47 @@ export function insertBookmark(tree: readonly Bookmark[], parentId: string | nul
   );
 }
 
+/** The bookmark `id`, found anywhere in the tree. */
+export function findBookmark(tree: readonly Bookmark[], id: string): Bookmark | undefined {
+  for (const b of tree) {
+    if (b.id === id) return b;
+    const hit = findBookmark(b.children, id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Move bookmark `id` before or after `targetId`, or inside it (as its last
+ * child). A bookmark never moves into its own branch.
+ */
+export function moveBookmark(
+  tree: readonly Bookmark[],
+  id: string,
+  targetId: string,
+  where: "before" | "after" | "inside",
+): Bookmark[] {
+  const node = findBookmark(tree, id);
+  if (!node || id === targetId || findBookmark(node.children, targetId)) return tree as Bookmark[];
+  const without = removeBookmark(tree, id);
+  if (where === "inside") return insertBookmark(without, targetId, node);
+  const place = (list: readonly Bookmark[]): Bookmark[] => {
+    const i = list.findIndex((b) => b.id === targetId);
+    if (i >= 0) {
+      const out = list.slice();
+      out.splice(where === "before" ? i : i + 1, 0, node);
+      return out;
+    }
+    return list.map((b) => ({ ...b, children: place(b.children) }));
+  };
+  return place(without);
+}
+
+/** Every bookmark with children opened (`closed` false) or closed. */
+export function setBookmarksClosed(tree: readonly Bookmark[], closed: boolean): Bookmark[] {
+  return mapBookmarks(tree, (b) => (b.children.length ? { ...b, closed } : b));
+}
+
 /** Renumber bookmark targets after pages moved or were deleted. */
 export function remapBookmarkPages(tree: readonly Bookmark[], remap: (page: number) => number | null): Bookmark[] {
   return tree.map((b) => {

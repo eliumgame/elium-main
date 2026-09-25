@@ -23,7 +23,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { openPdfDocument, type LoadingTask } from "./assets";
 import type { Rotation } from "./coords";
 import { normRotation } from "./coords";
-import type { DestFit } from "../model/types";
+import type { DestFit, InitialView } from "../model/types";
 import type { PDFArray as PDFArrayT, PDFRef as PDFRefT } from "pdf-lib";
 
 /** Geometry of one source page, in unrotated page space. */
@@ -45,6 +45,8 @@ export interface PageInfo {
 }
 
 export interface Attachment {
+  /** Its key in the file's /EmbeddedFiles name tree (unique, unlike the file name). */
+  key: string;
   name: string;
   description?: string;
   bytes: Uint8Array;
@@ -525,6 +527,49 @@ export class PdfEngine {
     return out;
   }
 
+  /** How the file asks to open (its Initial View). `openPage` is a 1-based SOURCE page. */
+  async initialView(): Promise<InitialView> {
+    const doc = this.doc as unknown as {
+      getPageMode(): Promise<string | null>;
+      getPageLayout(): Promise<string | null>;
+      getViewerPreferences(): Promise<Map<string, unknown> | Record<string, unknown> | null>;
+      getOpenAction(): Promise<Map<string, unknown> | Record<string, unknown> | null>;
+    };
+    const [mode, layout, prefs, open] = await Promise.all([
+      doc.getPageMode().catch(() => null),
+      doc.getPageLayout().catch(() => null),
+      doc.getViewerPreferences().catch(() => null),
+      doc.getOpenAction().catch(() => null),
+    ]);
+    const view: InitialView = {
+      pageMode: (PAGE_MODES as readonly string[]).includes(mode ?? "") ? (mode as InitialView["pageMode"]) : "UseNone",
+      pageLayout: (PAGE_LAYOUTS as readonly string[]).includes(layout ?? "")
+        ? (layout as InitialView["pageLayout"])
+        : "SinglePage",
+      openPage: 1,
+    };
+    // pdf.js hands these over as Maps (older versions: plain objects).
+    const get = (o: unknown, k: string): unknown =>
+      o instanceof Map ? o.get(k) : o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined;
+    const openDest = get(open, "dest");
+    if (openDest) {
+      const d = await this.resolveDest(openDest);
+      if (d.page) view.openPage = d.page;
+      if (d.fit === "Fit" || d.fit === "FitB") view.openZoom = "Fit";
+      else if (d.fit === "FitH" || d.fit === "FitBH") view.openZoom = "FitH";
+      else if (d.fit === "FitV" || d.fit === "FitBV") view.openZoom = "FitV";
+      else if (d.zoom) view.openZoom = d.zoom;
+    }
+    const flag = (k: string) => (get(prefs, k) === true ? true : undefined);
+    view.hideToolbar = flag("HideToolbar");
+    view.hideMenubar = flag("HideMenubar");
+    view.hideWindowUI = flag("HideWindowUI");
+    view.fitWindow = flag("FitWindow");
+    view.centerWindow = flag("CenterWindow");
+    view.displayDocTitle = flag("DisplayDocTitle");
+    return view;
+  }
+
   /** The file's page labels (/PageLabels), by source page; null when it has none. */
   async pageLabels(): Promise<string[] | null> {
     try {
@@ -629,16 +674,87 @@ export class PdfEngine {
 
   async attachments(): Promise<Attachment[]> {
     try {
-      const raw = (await this.doc.getAttachments()) as Record<string, RawAttachment> | null;
+      const raw = (await this.doc.getAttachments()) as
+        Map<string, RawAttachment> | Record<string, RawAttachment> | null;
       if (!raw) return [];
-      return Object.values(raw).map((a) => ({
-        name: a.filename || "pièce-jointe",
+      // A Map in pdf.js 6 (a plain object before): read as either.
+      const entries = raw instanceof Map ? [...raw.entries()] : Object.entries(raw);
+      if (!entries.length) return [];
+      // pdf.js 6 no longer hands the content: read from the file itself.
+      const contents = await this.embeddedFiles();
+      return entries.map(([key, a]) => ({
+        key,
+        name: a.filename || key || "pièce-jointe",
         description: a.description,
-        bytes: a.content instanceof Uint8Array ? a.content : new Uint8Array(a.content ?? []),
+        bytes:
+          a.content instanceof Uint8Array && a.content.length
+            ? a.content
+            : (contents.get(key) ?? new Uint8Array(a.content ?? [])),
       }));
     } catch {
       return [];
     }
+  }
+
+  /** The content of each file of /Names /EmbeddedFiles, by key. */
+  private async embeddedFiles(): Promise<Map<string, Uint8Array>> {
+    const out = new Map<string, Uint8Array>();
+    try {
+      const lib = await import("pdf-lib");
+      const { PDFArray, PDFDict, PDFName, PDFRawStream, PDFString, PDFHexString, decodePDFRawStream } = lib;
+      const doc = await this.libDoc();
+      const names = doc.catalog.lookup(PDFName.of("Names"));
+      const tree = names instanceof PDFDict ? names.lookup(PDFName.of("EmbeddedFiles")) : undefined;
+      const walk = (node: unknown, depth: number) => {
+        if (!(node instanceof PDFDict) || depth > 32) return;
+        const list = node.lookup(PDFName.of("Names"));
+        if (list instanceof PDFArray) {
+          for (let i = 0; i + 1 < list.size(); i += 2) {
+            const k = list.lookup(i);
+            const key = k instanceof PDFString || k instanceof PDFHexString ? k.decodeText() : "";
+            const spec = list.lookup(i + 1);
+            const ef = spec instanceof PDFDict ? spec.lookup(PDFName.of("EF")) : undefined;
+            const stream =
+              ef instanceof PDFDict ? (ef.lookup(PDFName.of("F")) ?? ef.lookup(PDFName.of("UF"))) : undefined;
+            if (key && stream instanceof PDFRawStream) {
+              try {
+                out.set(key, decodePDFRawStream(stream).decode());
+              } catch {
+                /* an unreadable file: listed without content */
+              }
+            }
+          }
+        }
+        const kids = node.lookup(PDFName.of("Kids"));
+        if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) walk(kids.lookup(i), depth + 1);
+      };
+      walk(tree, 0);
+    } catch {
+      /* no content */
+    }
+    return out;
+  }
+
+  private libDocCache: Promise<import("pdf-lib").PDFDocument> | null = null;
+  /**
+   * The file read by pdf-lib, once, for what pdf.js does not report (layer
+   * tree, locked layers, attached files' content). Decrypted with the
+   * document's password when it has one.
+   */
+  private libDoc(): Promise<import("pdf-lib").PDFDocument> {
+    this.libDocCache ??= (async () => {
+      const { PDFDocument } = await import("pdf-lib");
+      const doc = await PDFDocument.load(this.bytes, { ignoreEncryption: true, updateMetadata: false });
+      try {
+        const { openCrypt } = await import("../ops/security");
+        const crypt = openCrypt(doc, this.password ?? "");
+        if (crypt) await crypt.decryptDocument(doc);
+      } catch {
+        /* structure still readable */
+      }
+      return doc;
+    })();
+    return this.libDocCache;
   }
 
   /**
@@ -694,8 +810,8 @@ export class PdfEngine {
    */
   layerTree(): Promise<{ rows: LayerInfo[]; locked: Set<string> }> {
     this.layerTreeCache ??= (async () => {
-      const { PDFDocument, PDFArray, PDFDict, PDFName, PDFRef, PDFString, PDFHexString } = await import("pdf-lib");
-      const doc = await PDFDocument.load(this.bytes, { ignoreEncryption: true, updateMetadata: false });
+      const { PDFArray, PDFDict, PDFName, PDFRef, PDFString, PDFHexString } = await import("pdf-lib");
+      const doc = await this.libDoc();
       const idOf = (r: PDFRefT) =>
         r.generationNumber ? `${r.objectNumber}R${r.generationNumber}` : `${r.objectNumber}R`;
       const text = (v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : undefined);
@@ -809,6 +925,15 @@ interface RawOutlineItem {
 }
 
 const DEST_FITS = ["XYZ", "Fit", "FitH", "FitV", "FitB", "FitBH", "FitBV", "FitR"] as const;
+const PAGE_MODES = ["UseNone", "UseOutlines", "UseThumbs", "UseAttachments", "UseOC", "FullScreen"] as const;
+const PAGE_LAYOUTS = [
+  "SinglePage",
+  "OneColumn",
+  "TwoColumnLeft",
+  "TwoColumnRight",
+  "TwoPageLeft",
+  "TwoPageRight",
+] as const;
 
 interface RawAttachment {
   filename?: string;

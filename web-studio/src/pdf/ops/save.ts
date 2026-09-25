@@ -1,33 +1,51 @@
 /**
- * The export pipeline: turn the source PDF plus the editing state into real
+ * The save pipeline: turn the source PDF plus the editing state into real
  * PDF bytes.
  *
  * Order matters, and it is the order Acrobat uses:
  *
  *   decrypt → reorganise pages → rewrite content (text, images, redaction)
  *   → crop/rotate → markup → form fields → page marks → outline & metadata
- *   → sanitise → optimise → protect
+ *   → sanitise → write (incremental update, or full rewrite + optimise/protect)
  *
  * Content rewriting happens *before* markup so a redaction can delete the very
  * text a highlight sits on without the highlight losing its place, and markup
  * happens before form fields so flattening a form does not swallow comments.
+ *
+ * Writing, like Acrobat's « Enregistrer », is INCREMENTAL by default
+ * (`ops/incremental.ts`): only what changed is appended, the original bytes —
+ * and therefore digital signatures, tags, XMP, everything we do not model —
+ * stay intact, and a protected file keeps its protection (new objects are
+ * encrypted with the file's own key). A FULL rewrite happens only when it is
+ * required: applying redactions or removing pages (earlier revisions would
+ * still hold what was removed), changing the password, optimising or
+ * sanitising, or when the file's own structure is too broken to append to.
  */
 
-import { PDFDocument, PDFName } from "pdf-lib";
-import type { PDFPage, PDFRef } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFRef, PDFString } from "pdf-lib";
+import type { PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { Annot, Page, PdfState } from "../model/types";
+import type { Annot, Bookmark, Page, PdfState } from "../model/types";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
 import { FontBook } from "./fonts";
 import { createFields, fillForm, flattenForm } from "./forms";
 import { ImageBank } from "./images";
+import {
+  fingerprint,
+  pruneUnreachable,
+  readXrefTail,
+  trailerId0,
+  writeIncrementalUpdate,
+  type Fingerprints,
+  type XrefTail,
+} from "./incremental";
 import { PAGE_SIZES, cropPage, rotatePage, writeOutline, writePageLabels } from "./organize";
 import type { OutlineEntry } from "./organize";
 import { applyRedactions, sanitiseDocument } from "./redact";
-import { protectDocument } from "./security";
-import type { ProtectOptions } from "./security";
+import { createCrypt, openCrypt, writeEncrypted } from "./security";
+import type { PdfCrypt, ProtectOptions } from "./security";
 import { applyImageEdits, applyTextEdits } from "./textedit";
 
 export interface BuildOptions {
@@ -41,11 +59,23 @@ export interface BuildOptions {
   sanitise: boolean;
   /** Recompress and downsample to reduce the file size. */
   optimise: boolean;
-  /** Password-protect the result. */
+  /** Password-protect the result (new protection → full rewrite). */
   protect?: ProtectOptions;
   author: string;
   fileName: string;
   onProgress?: (label: string, ratio: number) => void;
+  /** Password the source opens with (user or owner; "" or null for files that open freely). */
+  password?: string | null;
+  /** When the source is protected: keep that protection in the output (default) or drop it. */
+  encryption?: "keep" | "remove";
+  /**
+   * Imported annotations still identical (same object) to what was read from
+   * the file: they are left in the file byte for byte instead of being
+   * rewritten from the model.
+   */
+  pristineAnnots?: ReadonlySet<Annot>;
+  /** The bookmarks as read from the file: while `state.bookmarks` is this very array, the outline is left alone. */
+  pristineBookmarks?: readonly Bookmark[] | null;
 }
 
 export const DEFAULT_BUILD: BuildOptions = {
@@ -62,6 +92,8 @@ export interface BuildReport {
   pages: number;
   annotsWritten: number;
   annotsFlattened: number;
+  /** Imported annotations left untouched in the file. */
+  annotsKept: number;
   redactedGlyphs: number;
   redactedImages: number;
   textBlocksNative: number;
@@ -70,20 +102,34 @@ export interface BuildReport {
   fieldsCreated: number;
   fieldsFilled: number;
   bytes: number;
+  /** How the file was written. */
+  mode: "incremental" | "full";
+  /** Why a full rewrite was needed (empty for an incremental save). */
+  fullReasons: string[];
+  /** Objects written (incremental: the changed ones). */
+  objectsWritten: number;
+  /** Bytes appended by an incremental save. */
+  bytesAdded: number;
+  /** What happened to the file's password protection. */
+  encryption: "none" | "kept" | "added" | "changed" | "removed";
+  /** Scheme of the protection of the written file ("AES-256"…). */
+  scheme?: string;
+  durationMs: number;
+  /** Informative notes (substituted fonts, kept protection…). */
   warnings: string[];
+  /**
+   * Edits the screen shows that could NOT be carried into the file. Never
+   * report a plain success while this is non-empty.
+   */
+  lost: string[];
 }
 
-/** Build the output PDF. `sourceBytes` must already be decrypted. */
-export async function buildPdf(
-  sourceBytes: Uint8Array,
-  state: PdfState,
-  options: Partial<BuildOptions> = {},
-): Promise<{ bytes: Uint8Array; report: BuildReport }> {
-  const opts: BuildOptions = { ...DEFAULT_BUILD, ...options };
-  const report: BuildReport = {
+function emptyReport(): BuildReport {
+  return {
     pages: 0,
     annotsWritten: 0,
     annotsFlattened: 0,
+    annotsKept: 0,
     redactedGlyphs: 0,
     redactedImages: 0,
     textBlocksNative: 0,
@@ -92,16 +138,299 @@ export async function buildPdf(
     fieldsCreated: 0,
     fieldsFilled: 0,
     bytes: 0,
+    mode: "full",
+    fullReasons: [],
+    objectsWritten: 0,
+    bytesAdded: 0,
+    encryption: "none",
+    durationMs: 0,
     warnings: [],
+    lost: [],
   };
-  const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
+}
 
-  step("Ouverture du document", 0.02);
-  const doc = await PDFDocument.load(sourceBytes, {
+// ---------------------------------------------------------------------------
+// The destination file
+// ---------------------------------------------------------------------------
+
+/**
+ * What the destination file holds now — everything an incremental save needs
+ * to append to it: its bytes, where its last cross-reference section is, its
+ * security handler, and the plaintext serialisation of its objects (to tell
+ * what changed). Returned by every save for the next one.
+ */
+export interface DiskState {
+  bytes: Uint8Array;
+  /** Null when the file's tail is unusable: the next save must be a full rewrite. */
+  tail: XrefTail | null;
+  crypt: PdfCrypt | null;
+  encryptRef: PDFRef | null;
+  id0: Uint8Array | null;
+  fingerprints: Fingerprints;
+  /**
+   * First object number new objects may take. Fixed for a session (so the
+   * objects an earlier save created keep their numbers and are not rewritten
+   * when unchanged), moved up only by a full rewrite.
+   */
+  floor: number;
+}
+
+interface Working {
+  doc: PDFDocument;
+  crypt: PdfCrypt | null;
+  encryptRef: PDFRef | null;
+}
+
+/** Load bytes for editing: parsed, decrypted in place, `/Encrypt` detached. */
+async function openWorking(bytes: Uint8Array, password: string | null | undefined): Promise<Working> {
+  const doc = await PDFDocument.load(bytes, {
     ignoreEncryption: true,
     throwOnInvalidObject: false,
     updateMetadata: false,
   });
+  const crypt = openCrypt(doc, password ?? "");
+  const ref = doc.context.trailerInfo.Encrypt;
+  const encryptRef = ref instanceof PDFRef ? ref : null;
+  if (crypt) {
+    await crypt.decryptDocument(doc);
+    // The working copy is plaintext; the writer adds the target protection.
+    if (encryptRef) doc.context.delete(encryptRef);
+    doc.context.trailerInfo.Encrypt = undefined;
+  }
+  return { doc, crypt, encryptRef };
+}
+
+function diskFromWorking(bytes: Uint8Array, w: Working): DiskState {
+  const tail = readXrefTail(bytes);
+  return {
+    bytes,
+    tail,
+    crypt: w.crypt,
+    encryptRef: w.encryptRef,
+    id0: trailerId0(w.doc),
+    fingerprints: fingerprint(w.doc),
+    floor: Math.max(tail?.size ?? 0, w.doc.context.largestObjectNumber + 1),
+  };
+}
+
+/** Describe a file on disk (parses and decrypts it once). */
+export async function readDiskState(bytes: Uint8Array, password?: string | null): Promise<DiskState> {
+  return diskFromWorking(bytes, await openWorking(bytes, password));
+}
+
+// ---------------------------------------------------------------------------
+// Save
+// ---------------------------------------------------------------------------
+
+export type SecurityChange = { protect: ProtectOptions } | "remove";
+
+export interface SaveInput {
+  /** The bytes the editing state refers to — the file as it was opened. */
+  source: Uint8Array;
+  /**
+   * Bytes to build on instead of `source`: the output of pdf.js
+   * `pdfDocument.saveDocument()` (the source plus pdf.js's own update — form
+   * values from the annotationStorage). The Elium model is applied on top and
+   * everything lands in ONE update of the destination file.
+   */
+  base?: Uint8Array;
+  /** The destination as it is now. Omitted: the destination still holds `source` (first save). */
+  disk?: DiskState | null;
+  state: PdfState;
+  options?: Partial<BuildOptions>;
+  /** "auto": incremental unless something requires a full rewrite. */
+  mode?: "auto" | "incremental" | "full";
+  /** Change of protection (forces a full rewrite). */
+  security?: SecurityChange | null;
+}
+
+export interface SaveResult {
+  bytes: Uint8Array;
+  report: BuildReport;
+  /** The destination after this save — pass it to the next save. */
+  disk: DiskState;
+}
+
+/** Why the state cannot be written as an incremental update (empty = it can). */
+export function fullRewriteReasons(
+  state: PdfState,
+  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms">,
+  sourcePageCount: number,
+  security?: SecurityChange | null,
+): string[] {
+  const reasons: string[] = [];
+  if (security === "remove") reasons.push("retrait de la protection par mot de passe");
+  else if (security) reasons.push("nouvelle protection par mot de passe");
+  if (opts.applyRedactions && state.annots.some((a) => a.kind === "redact")) {
+    reasons.push("caviardage : le contenu masqué est retiré définitivement, révisions précédentes comprises");
+  }
+  const used = new Set(state.pages.filter((p) => !p.skipped && p.from != null).map((p) => p.from));
+  let removed = 0;
+  for (let i = 0; i < sourcePageCount; i++) if (!used.has(i)) removed++;
+  if (removed) reasons.push(`${removed} page(s) supprimée(s) : retirées définitivement du fichier`);
+  if (opts.optimise) reasons.push("optimisation de la taille");
+  if (opts.sanitise) reasons.push("assainissement");
+  if (opts.flattenForms) reasons.push("aplatissement du formulaire");
+  return reasons;
+}
+
+/**
+ * Save the document. Incremental when possible (see the file header), full
+ * rewrite otherwise; the report says which and why.
+ */
+export async function savePdf(input: SaveInput): Promise<SaveResult> {
+  const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const opts: BuildOptions = { ...DEFAULT_BUILD, ...(input.options ?? {}) };
+  const report = emptyReport();
+  const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
+  const state = input.state;
+
+  step("Ouverture du document", 0.02);
+  const buildBytes = input.base ?? input.source;
+  const work = await openWorking(buildBytes, opts.password);
+  const { doc } = work;
+  const sourcePageCount = doc.getPageCount();
+
+  // The destination: given, or — first save — the source itself.
+  let disk = input.disk ?? null;
+  if (!disk) {
+    disk =
+      buildBytes === input.source
+        ? diskFromWorking(input.source, work)
+        : await readDiskState(input.source, opts.password);
+  }
+  // New objects are numbered past everything the destination (and the build
+  // base) already uses: object-stream containers and xref streams are not in
+  // pdf-lib's context, so its own counter can be too low.
+  const baseTail = input.base ? readXrefTail(input.base) : null;
+  doc.context.largestObjectNumber = Math.max(
+    doc.context.largestObjectNumber,
+    disk.floor - 1,
+    (baseTail?.size ?? 0) - 1,
+  );
+
+  const security =
+    input.security ?? (opts.protect?.userPassword || opts.protect?.ownerPassword ? { protect: opts.protect } : null);
+  const reasons = fullRewriteReasons(state, opts, sourcePageCount, security);
+  if (!disk.tail) reasons.push("structure du fichier d'origine irrégulière : fichier réparé");
+  if (opts.encryption === "remove" && disk.crypt) reasons.push("copie sans protection");
+  if (input.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
+  const full = input.mode === "full" || reasons.length > 0;
+
+  await applyState(doc, state, opts, report, sourcePageCount);
+
+  step("Écriture du fichier", 0.92);
+  await doc.flush();
+  let bytes: Uint8Array;
+  let next: DiskState;
+
+  if (!full) {
+    const res = writeIncrementalUpdate({
+      disk: disk.bytes,
+      tail: disk.tail!,
+      doc,
+      before: disk.fingerprints,
+      crypt: disk.crypt,
+      encryptRef: disk.encryptRef,
+      id0: disk.id0,
+    });
+    bytes = res.bytes;
+    report.mode = "incremental";
+    report.objectsWritten = res.written;
+    report.bytesAdded = res.added;
+    report.encryption = disk.crypt ? "kept" : "none";
+    report.scheme = disk.crypt?.scheme;
+    next = { ...disk, bytes: res.bytes, tail: res.tail, fingerprints: res.after };
+  } else {
+    report.mode = "full";
+    report.fullReasons = reasons;
+    if (opts.optimise) {
+      step("Optimisation", 0.94);
+      const { optimiseDocument } = await import("./optimize");
+      try {
+        await optimiseDocument(doc);
+      } catch {
+        report.warnings.push("Optimisation ignorée (contenu non compressible).");
+      }
+    }
+    pruneUnreachable(doc);
+    // Target protection: a new one, none, or the destination's current one.
+    let crypt: PdfCrypt | null;
+    if (security === "remove" || opts.encryption === "remove") crypt = null;
+    else if (security) crypt = createCrypt(security.protect);
+    else crypt = disk.crypt;
+    report.encryption = !crypt
+      ? disk.crypt
+        ? "removed"
+        : "none"
+      : crypt === disk.crypt
+        ? "kept"
+        : disk.crypt
+          ? "changed"
+          : "added";
+    report.scheme = crypt?.scheme;
+    const prints = fingerprint(doc);
+    let encryptRef: PDFRef | null = null;
+    let id0: Uint8Array | null;
+    if (crypt) {
+      step("Chiffrement", 0.96);
+      bytes = await writeEncrypted(doc, crypt);
+      encryptRef = (doc.context.trailerInfo.Encrypt as PDFRef | undefined) ?? null;
+      id0 = crypt.id0;
+    } else {
+      id0 = trailerId0(doc) ?? randomBytes(16);
+      doc.context.trailerInfo.ID = doc.context.obj([
+        PDFHexString.of(toHex(id0)),
+        PDFHexString.of(toHex(randomBytes(16))),
+      ] as never);
+      bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+    }
+    report.objectsWritten = prints.size;
+    const tail = readXrefTail(bytes);
+    next = {
+      bytes,
+      tail,
+      crypt,
+      encryptRef,
+      id0,
+      fingerprints: prints,
+      floor: Math.max(tail?.size ?? 0, doc.context.largestObjectNumber + 1),
+    };
+  }
+
+  report.bytes = bytes.length;
+  report.durationMs = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - t0);
+  step("Terminé", 1);
+  return { bytes, report, disk: next };
+}
+
+/**
+ * Build the output PDF as a complete new file (exports, print, extraction,
+ * signing). `sourceBytes` may be protected: pass `options.password`; the
+ * protection is kept unless `options.encryption` is "remove" or
+ * `options.protect` sets a new one.
+ */
+export async function buildPdf(
+  sourceBytes: Uint8Array,
+  state: PdfState,
+  options: Partial<BuildOptions> = {},
+): Promise<{ bytes: Uint8Array; report: BuildReport }> {
+  const { bytes, report } = await savePdf({ source: sourceBytes, state, options, mode: "full" });
+  return { bytes, report };
+}
+
+// ---------------------------------------------------------------------------
+// Applying the model
+// ---------------------------------------------------------------------------
+
+async function applyState(
+  doc: PDFDocument,
+  state: PdfState,
+  opts: BuildOptions,
+  report: BuildReport,
+  sourcePageCount: number,
+): Promise<void> {
+  const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
 
   // --- 1. page order -------------------------------------------------------
   step("Organisation des pages", 0.08);
@@ -118,7 +447,10 @@ export async function buildPdf(
       continue;
     }
     const src = source[model.from];
-    if (!src) continue;
+    if (!src) {
+      report.lost.push(`Page introuvable dans le fichier source (n° ${model.from + 1}).`);
+      continue;
+    }
     if (!seen.has(model.from)) {
       seen.add(model.from);
       targets.push({ page: src, model });
@@ -129,11 +461,14 @@ export async function buildPdf(
     }
   }
 
+  // Leave the page tree alone when nothing moved: rebuilding it would rewrite
+  // every page dictionary (their /Parent) for nothing.
+  const identity =
+    targets.length === sourcePageCount && targets.every((t, i) => t.model.from === i && t.page === source[i]);
   if (!targets.length) {
     doc.addPage(PAGE_SIZES.A4);
     report.warnings.push("Aucune page à exporter : une page blanche a été produite.");
-  } else {
-    // Rebuild the page tree in the requested order.
+  } else if (!identity) {
     for (let i = doc.getPageCount() - 1; i >= 0; i--) doc.removePage(i);
     for (const t of targets) doc.addPage(t.page);
   }
@@ -148,7 +483,10 @@ export async function buildPdf(
   for (const t of targets) {
     if (t.model.from != null || !t.model.image) continue;
     const img = await images.get(t.model.image);
-    if (!img) continue;
+    if (!img) {
+      report.lost.push("Image d'une page insérée illisible : la page est restée blanche.");
+      continue;
+    }
     const { width, height } = t.page.getSize();
     const scale = Math.min(width / img.width, height / img.height);
     t.page.drawImage(img, {
@@ -161,8 +499,9 @@ export async function buildPdf(
 
   // --- 2. rewrite the page's own content ------------------------------------
   step("Application des modifications de contenu", 0.2);
-  for (const { page, model } of targets) {
+  for (const [index, { page, model }] of targets.entries()) {
     const frame = pageFrame(page);
+    const where = `page ${index + 1}`;
 
     const edits = state.contentEdits.filter((e) => e.pageId === model.id);
     if (edits.length) {
@@ -171,20 +510,28 @@ export async function buildPdf(
         report.textBlocksNative += r.native;
         report.textBlocksSubstituted += r.substituted;
         report.textBlocksSkipped += r.skipped;
+        if (r.skipped) {
+          report.lost.push(
+            `${where} : ${r.skipped} paragraphe(s) modifié(s) à l'écran n'ont pas pu être réécrits dans le fichier (texte introuvable dans le flux de la page).`,
+          );
+        }
       } catch {
-        report.warnings.push(`Modification de texte impossible sur une page (${model.id.slice(0, 6)}).`);
+        report.lost.push(`${where} : modification de texte impossible (${edits.length} paragraphe(s)).`);
       }
     }
 
     const imgEdits = state.imageEdits.filter((e) => e.pageId === model.id);
     if (imgEdits.length) {
       try {
-        await applyImageEdits(doc, page, imgEdits, async (src) => {
+        const done = await applyImageEdits(doc, page, imgEdits, async (src) => {
           const embedded = await images.get(src);
           return embedded ? { ref: embedded.ref } : null;
         });
+        if (typeof done === "number" && done < imgEdits.length) {
+          report.lost.push(`${where} : ${imgEdits.length - done} modification(s) d'image non appliquée(s).`);
+        }
       } catch {
-        report.warnings.push("Remplacement d'image impossible sur une page.");
+        report.lost.push(`${where} : remplacement ou suppression d'image impossible.`);
       }
     }
 
@@ -197,10 +544,15 @@ export async function buildPdf(
           report.redactedGlyphs += r.glyphsRemoved;
           report.redactedImages += r.imagesRemoved;
         } catch {
-          report.warnings.push("Caviardage partiel : le contenu d'une page n'a pas pu être réécrit.");
+          report.lost.push(`${where} : caviardage partiel, le contenu de la page n'a pas pu être réécrit.`);
         }
       }
     }
+  }
+  if (report.textBlocksSubstituted) {
+    report.warnings.push(
+      `${report.textBlocksSubstituted} paragraphe(s) réécrit(s) avec une police de substitution (police d'origine non réutilisable).`,
+    );
   }
 
   // --- 3. crop and rotate ---------------------------------------------------
@@ -210,14 +562,23 @@ export async function buildPdf(
   }
 
   // The markup the model imported from the source is about to be written back
-  // from the model — remove the originals so nothing is duplicated.
+  // from the model — remove the originals so nothing is duplicated. Imported
+  // annotations the user did not touch stay as they are in the file.
+  const pristine = new Set(opts.pristineAnnots ? state.annots.filter((a) => opts.pristineAnnots!.has(a)) : []);
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
-    for (const { page } of targets) {
+    for (const [index, { page, model }] of targets.entries()) {
+      const keep = new Set<string>();
+      for (const a of pristine) {
+        if (a.pageId !== model.id) continue;
+        const m = /^(\d+)R(\d*)$/.exec(a.id);
+        if (m) keep.add(`${m[1]} ${m[2] || "0"}`);
+      }
       try {
-        await stripImportedAnnots(page);
+        await stripImportedAnnots(page, keep);
+        report.annotsKept += keep.size;
       } catch {
-        /* leave them rather than break the page */
+        report.lost.push(`page ${index + 1} : les annotations d'origine n'ont pas pu être remplacées.`);
       }
     }
   }
@@ -228,7 +589,9 @@ export async function buildPdf(
   for (const { page, model } of targets) {
     const frame = pageFrame(page);
     const ctx: PaintContext = { doc, frame, fonts, images, measureScale: state.measureScale };
-    const mine = state.annots.filter((a) => a.pageId === model.id && !(a.kind === "redact" && !opts.applyRedactions));
+    const mine = state.annots.filter(
+      (a) => a.pageId === model.id && !pristine.has(a) && !(a.kind === "redact" && !opts.applyRedactions),
+    );
 
     if (!mine.length) continue;
     let toFlatten: Annot[];
@@ -259,16 +622,25 @@ export async function buildPdf(
         const hit = byPageId.get(pageId);
         return hit ? { page: hit.page, height: hit.page.getCropBox().height } : null;
       });
+      if (report.fieldsCreated < state.createdFields.length) {
+        report.lost.push(
+          `${state.createdFields.length - report.fieldsCreated} champ(s) de formulaire n'ont pas pu être créés.`,
+        );
+      }
     } catch {
-      report.warnings.push("Certains champs de formulaire n'ont pas pu être créés.");
+      report.lost.push("Les champs de formulaire créés n'ont pas pu être écrits.");
     }
   }
-  if (Object.keys(state.formValues).length) {
+  const valueCount = Object.keys(state.formValues).length;
+  if (valueCount) {
     const { font } = await fonts.standard();
     report.fieldsFilled = fillForm(doc, state.formValues, font).filled;
+    if (report.fieldsFilled < valueCount) {
+      report.lost.push(`${valueCount - report.fieldsFilled} valeur(s) de champ n'ont pas pu être enregistrées.`);
+    }
   }
   if (opts.flattenForms) {
-    if (!flattenForm(doc)) report.warnings.push("Aplatissement du formulaire impossible.");
+    if (!flattenForm(doc)) report.lost.push("Aplatissement du formulaire impossible.");
   }
 
   // --- 6. page marks --------------------------------------------------------
@@ -298,11 +670,14 @@ export async function buildPdf(
 
   // --- 7. outline, labels, metadata ----------------------------------------
   step("Signets et métadonnées", 0.84);
-  if (state.bookmarks?.length) {
+  // Untouched bookmarks stay exactly as the file has them (destinations,
+  // actions, structure links); edited ones — including "all deleted" — are
+  // written from the model.
+  if (state.bookmarks && state.bookmarks !== opts.pristineBookmarks) {
     try {
       writeOutline(doc, toOutlineEntries(state.bookmarks, targets.length));
     } catch {
-      report.warnings.push("Les signets n'ont pas pu être écrits.");
+      report.lost.push("Les signets n'ont pas pu être écrits.");
     }
   }
   if (state.pages.some((p) => p.label)) {
@@ -312,50 +687,55 @@ export async function buildPdf(
         targets.map((t) => t.model.label),
       );
     } catch {
-      /* labels are cosmetic */
+      report.lost.push("Les numéros de page personnalisés n'ont pas pu être écrits.");
     }
   }
 
-  const meta = state.metadata;
   try {
-    if (meta.title !== undefined) doc.setTitle(meta.title ?? "");
-    if (meta.author !== undefined) doc.setAuthor(meta.author ?? "");
-    if (meta.subject !== undefined) doc.setSubject(meta.subject ?? "");
-    if (meta.keywords !== undefined) doc.setKeywords(meta.keywords ? meta.keywords.split(/[,;]\s*/) : []);
-    if (meta.language) doc.setLanguage(meta.language);
-    doc.setProducer("Elium PDF");
-    doc.setCreator(meta.creator ?? "Elium");
-    doc.setModificationDate(new Date());
+    writeMetadata(doc, state);
   } catch {
-    /* metadata is best-effort */
+    report.lost.push("Les propriétés du document (titre, auteur…) n'ont pas pu être écrites.");
   }
 
   if (opts.sanitise) {
     const { removed } = sanitiseDocument(doc);
     if (removed.length) report.warnings.push(`Assaini : ${removed.join(", ")}.`);
   }
+}
 
-  // --- 8. serialise ---------------------------------------------------------
-  step("Écriture du fichier", 0.92);
-  if (opts.optimise) {
-    const { optimiseDocument } = await import("./optimize");
-    try {
-      await optimiseDocument(doc);
-    } catch {
-      report.warnings.push("Optimisation ignorée (contenu non compressible).");
-    }
+/** Info dictionary: only what the user changed, plus the producer and modification date. */
+function writeMetadata(doc: PDFDocument, state: PdfState): void {
+  const meta = state.metadata;
+  const same = (a: string | undefined, b: string | undefined) => (a ?? "") === (b ?? "");
+  if (meta.title !== undefined && !same(meta.title, doc.getTitle())) doc.setTitle(meta.title ?? "");
+  if (meta.author !== undefined && !same(meta.author, doc.getAuthor())) doc.setAuthor(meta.author ?? "");
+  if (meta.subject !== undefined && !same(meta.subject, doc.getSubject())) doc.setSubject(meta.subject ?? "");
+  // Kept verbatim (pdf-lib would join a split list with spaces).
+  if (meta.keywords !== undefined && !same(meta.keywords, doc.getKeywords())) {
+    doc.setKeywords(meta.keywords ? [meta.keywords] : []);
   }
+  if (meta.language) {
+    const lang = doc.catalog.lookup(PDFName.of("Lang"));
+    const current = lang instanceof PDFString || lang instanceof PDFHexString ? lang.decodeText() : undefined;
+    if (current !== meta.language) doc.setLanguage(meta.language);
+  }
+  // The authoring application stays the original one; Elium is the producer.
+  if (meta.creator !== undefined && !same(meta.creator, doc.getCreator())) doc.setCreator(meta.creator ?? "");
+  else if (!doc.getCreator()) doc.setCreator("Elium");
+  doc.setProducer("Elium PDF");
+  doc.setModificationDate(new Date());
+}
 
-  let bytes: Uint8Array;
-  if (opts.protect?.userPassword || opts.protect?.ownerPassword) {
-    step("Chiffrement", 0.96);
-    bytes = await protectDocument(doc, opts.protect);
-  } else {
-    bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
-  }
-  report.bytes = bytes.length;
-  step("Terminé", 1);
-  return { bytes, report };
+function randomBytes(n: number): Uint8Array {
+  const b = new Uint8Array(n);
+  globalThis.crypto.getRandomValues(b);
+  return b;
+}
+
+function toHex(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0");
+  return s;
 }
 
 function toOutlineEntries(
@@ -392,13 +772,15 @@ function toOutlineEntries(
 
 /**
  * A quick, faithful "print-ready" flatten: everything baked, no interactive
- * anything. Used by the Print command and by "Save a flattened copy".
+ * anything, no protection (it only lives in memory). Used by the Print command
+ * and by "Save a flattened copy".
  */
 export async function buildFlattened(
   sourceBytes: Uint8Array,
   state: PdfState,
   fileName: string,
   author: string,
+  password?: string | null,
 ): Promise<Uint8Array> {
   const { bytes } = await buildPdf(sourceBytes, state, {
     interactiveAnnots: false,
@@ -406,6 +788,8 @@ export async function buildFlattened(
     applyRedactions: true,
     fileName,
     author,
+    password,
+    encryption: "remove",
   });
   return bytes;
 }

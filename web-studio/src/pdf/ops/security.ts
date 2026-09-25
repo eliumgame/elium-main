@@ -612,7 +612,7 @@ async function repairEncryptedObjectStreams(
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Security handler: one object that knows a file's key and scheme
 // ---------------------------------------------------------------------------
 
 export class WrongPassword extends Error {
@@ -621,6 +621,269 @@ export class WrongPassword extends Error {
     this.name = "WrongPassword";
   }
 }
+
+/**
+ * The key and scheme of one protected file, able to decrypt that file's
+ * objects and to encrypt new ones exactly as the file expects — which is what
+ * saving a protected document without changing its protection requires:
+ * objects appended by an incremental update (or re-written by a full save)
+ * are encrypted with the *same* file key, so the same passwords and
+ * permissions keep working.
+ */
+export interface PdfCrypt {
+  /** Human label: "AES-256", "AES-128", "RC4-128"… */
+  readonly scheme: string;
+  readonly permissions: Permissions;
+  /** First element of the trailer `/ID` the key is bound to (revisions 2–4 derive the key from it). */
+  readonly id0: Uint8Array;
+  /** Decrypt every object of `doc` in place (the document this handler was opened from). */
+  decryptDocument(doc: PDFDocument): Promise<void>;
+  /** Encrypt every object of `doc` in place (last step of a full rewrite), skipping the given refs. */
+  encryptDocument(doc: PDFDocument, skip: ReadonlySet<string>): void;
+  /** An encrypted COPY of indirect object `ref`, ready to be written; `obj` itself is left untouched. */
+  encryptObject(ref: PDFRef, obj: PDFObject): PDFObject;
+  /** Register this handler's `/Encrypt` dictionary in `doc` (for a full rewrite) and return its ref. */
+  install(doc: PDFDocument): PDFRef;
+}
+
+interface CryptParams {
+  info: EncryptInfo;
+  fileKey: Uint8Array;
+  id0: Uint8Array;
+  entries: (doc: PDFDocument) => PDFDict;
+  scheme: string;
+}
+
+function schemeOf(info: EncryptInfo): string {
+  return info.v >= 5 ? "AES-256" : info.streamCfm === "AESV2" ? "AES-128" : `RC4-${info.lengthBytes * 8}`;
+}
+
+/** True for the streams the standard security handler never encrypts. */
+function exemptStream(dict: PDFDict, info: EncryptInfo): boolean {
+  const type = dict.lookup(PDFName.of("Type"));
+  const name = type instanceof PDFName ? type.asString().replace(/^\//, "") : "";
+  // Cross-reference streams are never encrypted; XMP metadata stays readable
+  // when the file says so (/EncryptMetadata false).
+  return name === "XRef" || (name === "Metadata" && !info.encryptMetadata);
+}
+
+/** A signature dictionary's /Contents (the CMS blob) is never encrypted (ISO 32000-2 §7.6.1). */
+function isSignatureDict(dict: PDFDict): boolean {
+  const type = dict.lookup(PDFName.of("Type"));
+  if (type instanceof PDFName && (type.asString() === "/Sig" || type.asString() === "/DocTimeStamp")) return true;
+  return dict.has(PDFName.of("ByteRange")) && dict.has(PDFName.of("Contents"));
+}
+
+function makeCrypt(p: CryptParams): PdfCrypt {
+  const { info, fileKey } = p;
+  const pick = (cfm: Cfm): Cfm => (info.v >= 5 ? "AESV3" : cfm === "None" && info.v < 4 ? "V2" : cfm);
+  const streamCfm = pick(info.streamCfm);
+  const stringCfm = pick(info.stringCfm);
+
+  const decryptWith =
+    (cfm: Cfm): Transform =>
+    (data, ref) => {
+      if (cfm === "None") return data;
+      if (cfm === "AESV3") return aesDecryptWithIv(fileKey, data);
+      if (cfm === "AESV2") return aesDecryptWithIv(objectKey(fileKey, ref, true), data);
+      return rc4(objectKey(fileKey, ref, false), data);
+    };
+  const encryptWith =
+    (cfm: Cfm): Transform =>
+    (data, ref) => {
+      if (cfm === "None") return data;
+      if (cfm === "AESV3") return data.length ? aesEncryptWithIv(fileKey, data) : data;
+      if (cfm === "AESV2") return data.length ? aesEncryptWithIv(objectKey(fileKey, ref, true), data) : data;
+      return rc4(objectKey(fileKey, ref, false), data);
+    };
+
+  const dStream = decryptWith(streamCfm);
+  const dString = decryptWith(stringCfm);
+  const eStream = encryptWith(streamCfm);
+  const eString = encryptWith(stringCfm);
+
+  return {
+    scheme: p.scheme,
+    permissions: pToPermissions(info.p),
+    id0: p.id0,
+    async decryptDocument(doc) {
+      const skip = new Set<string>();
+      const encryptRef = doc.context.trailerInfo.Encrypt;
+      if (encryptRef instanceof PDFRef) skip.add(String(encryptRef));
+      // pdf-lib's parser decompresses `/ObjStm` object streams while parsing —
+      // before we ever get a chance to decrypt them. If this file has any, they
+      // are still ciphertext at that point, decompression silently fails, and
+      // every object packed inside is dropped without a trace. Recover them here
+      // (or fail loudly if we can't) before touching anything else, so `skip`
+      // below can exclude their contents from the ordinary string-decryption walk
+      // (objects nested in an object stream are never separately encrypted).
+      await repairEncryptedObjectStreams(doc, dStream, skip);
+      applySplitTransform(doc, dStream, dString, skip, info);
+    },
+    encryptDocument(doc, skip) {
+      applySplitTransform(doc, eStream, eString, skip, info);
+    },
+    encryptObject(ref, obj) {
+      return encryptedCopy(obj, ref, eStream, eString, info);
+    },
+    install(doc) {
+      return doc.context.register(p.entries(doc));
+    },
+  };
+}
+
+/**
+ * Open the security handler of a loaded document with `password` (user or
+ * owner; "" for files that open without one). Returns null when the file is
+ * not encrypted, throws `WrongPassword` when the password fits neither slot.
+ */
+export function openCrypt(doc: PDFDocument, password: string): PdfCrypt | null {
+  const read = readEncryptDict(doc);
+  if (!read) return null;
+  const { info, id0 } = read;
+  const fileKey = deriveFileKey(info, id0, password);
+  if (!fileKey) throw new WrongPassword();
+  const encryptRef = doc.context.trailerInfo.Encrypt;
+  const original = encryptRef ? doc.context.lookup(encryptRef) : undefined;
+  return makeCrypt({
+    info,
+    fileKey,
+    id0,
+    scheme: schemeOf(info),
+    entries: (target) => {
+      if (!(original instanceof PDFDict)) throw new Error("Dictionnaire /Encrypt introuvable.");
+      return deepCopy(original, target) as PDFDict;
+    },
+  });
+}
+
+/** Deep copy of a direct object (dicts/arrays recursively), refs kept as refs. */
+function deepCopy(obj: PDFObject, target: PDFDocument): PDFObject {
+  if (obj instanceof PDFDict) {
+    const out = PDFDict.withContext(target.context);
+    for (const [k, v] of obj.entries()) out.set(k, deepCopy(v, target));
+    return out;
+  }
+  if (obj instanceof PDFArray) {
+    const out = PDFArray.withContext(target.context);
+    for (let i = 0; i < obj.size(); i++) out.push(deepCopy(obj.get(i), target));
+    return out;
+  }
+  return obj;
+}
+
+// ---------------------------------------------------------------------------
+// Walking objects
+// ---------------------------------------------------------------------------
+
+function mapString(obj: PDFObject, ref: PDFRef, x: Transform): PDFObject {
+  // `asBytes()` decodes a literal's escape sequences (\( \) \\ \ddd…), which
+  // encrypted strings routinely contain; `asString()` would keep them raw.
+  if (obj instanceof PDFHexString || obj instanceof PDFString) return PDFHexString.of(toHex(x(obj.asBytes(), ref)));
+  return obj;
+}
+
+function streamBytes(obj: PDFStream): Uint8Array | null {
+  if (obj instanceof PDFRawStream) return obj.contents;
+  try {
+    return (obj as unknown as { getContents(): Uint8Array }).getContents();
+  } catch {
+    return null;
+  }
+}
+
+/** In place: transform every string and stream payload of the document. */
+function applySplitTransform(
+  doc: PDFDocument,
+  streamX: Transform,
+  stringX: Transform,
+  skip: ReadonlySet<string>,
+  info: EncryptInfo,
+): void {
+  const ctx = doc.context;
+  const walk = (obj: PDFObject | undefined, ref: PDFRef, seen: Set<PDFObject>): void => {
+    if (!obj || seen.has(obj)) return;
+    seen.add(obj);
+    if (obj instanceof PDFArray) {
+      for (let i = 0; i < obj.size(); i++) {
+        const child = obj.get(i);
+        if (child instanceof PDFRef) continue;
+        if (child instanceof PDFString || child instanceof PDFHexString) obj.set(i, mapString(child, ref, stringX));
+        else walk(child, ref, seen);
+      }
+      return;
+    }
+    if (obj instanceof PDFDict) {
+      const isSig = isSignatureDict(obj);
+      for (const [key, child] of obj.entries()) {
+        if (child instanceof PDFRef) continue;
+        if (child instanceof PDFString || child instanceof PDFHexString) {
+          if (isSig && key.asString() === "/Contents") continue;
+          obj.set(key, mapString(child, ref, stringX));
+        } else walk(child, ref, seen);
+      }
+    }
+  };
+
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    if (skip.has(String(ref))) continue;
+    if (obj instanceof PDFStream) {
+      const dict = (obj as unknown as { dict: PDFDict }).dict;
+      if (exemptStream(dict, info)) continue;
+      walk(dict, ref, new Set());
+      const raw = streamBytes(obj);
+      if (!raw) continue;
+      const next = streamX(raw, ref);
+      dict.set(PDFName.of("Length"), PDFNumber.of(next.length));
+      ctx.assign(ref, PDFRawStream.of(dict, next));
+      continue;
+    }
+    if (obj instanceof PDFString || obj instanceof PDFHexString) {
+      ctx.assign(ref, mapString(obj, ref, stringX));
+      continue;
+    }
+    walk(obj, ref, new Set());
+  }
+}
+
+/** Copy-on-write variant of the walk: an encrypted copy of one indirect object. */
+function encryptedCopy(
+  obj: PDFObject,
+  ref: PDFRef,
+  streamX: Transform,
+  stringX: Transform,
+  info: EncryptInfo,
+): PDFObject {
+  const copy = (o: PDFObject): PDFObject => {
+    if (o instanceof PDFString || o instanceof PDFHexString) return mapString(o, ref, stringX);
+    if (o instanceof PDFArray) {
+      const out = PDFArray.withContext((o as unknown as { context: PDFDict["context"] }).context);
+      for (let i = 0; i < o.size(); i++) out.push(copy(o.get(i)));
+      return out;
+    }
+    if (o instanceof PDFDict) {
+      const out = PDFDict.withContext(o.context);
+      const isSig = isSignatureDict(o);
+      for (const [k, v] of o.entries()) out.set(k, isSig && k.asString() === "/Contents" ? v : copy(v));
+      return out;
+    }
+    return o;
+  };
+  if (obj instanceof PDFStream) {
+    const dict = (obj as unknown as { dict: PDFDict }).dict;
+    const raw = streamBytes(obj) ?? new Uint8Array(0);
+    const exempt = exemptStream(dict, info);
+    const d = exempt ? dict.clone() : (copy(dict) as PDFDict);
+    const data = exempt ? raw : streamX(raw, ref);
+    d.set(PDFName.of("Length"), PDFNumber.of(data.length));
+    return PDFRawStream.of(d, data);
+  }
+  return copy(obj);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export interface DecryptResult {
   bytes: Uint8Array;
@@ -641,115 +904,15 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
     throwOnInvalidObject: false,
     updateMetadata: false,
   });
-  const read = readEncryptDict(doc);
-  if (!read) {
-    return { bytes, permissions: ALL_PERMISSIONS, scheme: "aucune" };
-  }
-  const { info, id0 } = read;
-  const fileKey = deriveFileKey(info, id0, password);
-  if (!fileKey) throw new WrongPassword();
-
+  const crypt = openCrypt(doc, password);
+  if (!crypt) return { bytes, permissions: ALL_PERMISSIONS, scheme: "aucune" };
+  await crypt.decryptDocument(doc);
   const encryptRef = doc.context.trailerInfo.Encrypt;
-  const skip = new Set<string>();
-  if (encryptRef instanceof PDFRef) skip.add(String(encryptRef));
-
-  const decryptWith =
-    (cfm: Cfm): Transform =>
-    (data, ref) => {
-      if (cfm === "None") return data;
-      if (cfm === "AESV3") return aesDecryptWithIv(fileKey, data);
-      if (cfm === "AESV2") return aesDecryptWithIv(objectKey(fileKey, ref, true), data);
-      return rc4(objectKey(fileKey, ref, false), data);
-    };
-
-  const streamX = decryptWith(info.v >= 5 ? "AESV3" : info.streamCfm === "None" && info.v < 4 ? "V2" : info.streamCfm);
-  const stringX = decryptWith(info.v >= 5 ? "AESV3" : info.stringCfm === "None" && info.v < 4 ? "V2" : info.stringCfm);
-
-  // pdf-lib's own parser decompresses `/ObjStm` object streams while parsing —
-  // before we ever get a chance to decrypt them. If this file has any, they
-  // are still ciphertext at that point, decompression silently fails, and
-  // every object packed inside is dropped without a trace. Recover them here
-  // (or fail loudly if we can't) before touching anything else, so `skip`
-  // below can exclude their contents from the ordinary string-decryption walk
-  // (objects nested in an object stream are never separately encrypted).
-  await repairEncryptedObjectStreams(doc, streamX, skip);
-
-  applySplitTransform(doc, streamX, stringX, skip);
-
   doc.context.trailerInfo.Encrypt = undefined;
   if (encryptRef instanceof PDFRef) doc.context.delete(encryptRef);
 
   const out = await doc.save({ useObjectStreams: false, updateFieldAppearances: false });
-  return {
-    bytes: out,
-    permissions: pToPermissions(info.p),
-    scheme: info.v >= 5 ? "AES-256" : info.streamCfm === "AESV2" ? "AES-128" : `RC4-${info.lengthBytes * 8}`,
-  };
-}
-
-/** Same walk as `transformAll` but with separate handling for streams vs strings. */
-function applySplitTransform(
-  doc: PDFDocument,
-  streamX: Transform,
-  stringX: Transform,
-  skip: ReadonlySet<string>,
-): void {
-  const ctx = doc.context;
-  const mapString = (obj: PDFObject, ref: PDFRef): PDFObject => {
-    if (obj instanceof PDFHexString) return PDFHexString.of(toHex(stringX(obj.asBytes(), ref)));
-    if (obj instanceof PDFString) return PDFHexString.of(toHex(stringX(latin1Bytes(obj.asString()), ref)));
-    return obj;
-  };
-  const walk = (obj: PDFObject | undefined, ref: PDFRef, seen: Set<PDFObject>): void => {
-    if (!obj || seen.has(obj)) return;
-    seen.add(obj);
-    if (obj instanceof PDFArray) {
-      for (let i = 0; i < obj.size(); i++) {
-        const child = obj.get(i);
-        if (child instanceof PDFRef) continue;
-        if (child instanceof PDFString || child instanceof PDFHexString) obj.set(i, mapString(child, ref));
-        else walk(child, ref, seen);
-      }
-      return;
-    }
-    if (obj instanceof PDFDict) {
-      for (const [key, child] of obj.entries()) {
-        if (child instanceof PDFRef) continue;
-        if (child instanceof PDFString || child instanceof PDFHexString) obj.set(key, mapString(child, ref));
-        else walk(child, ref, seen);
-      }
-    }
-  };
-
-  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
-    if (skip.has(String(ref))) continue;
-    if (obj instanceof PDFStream) {
-      const dict = (obj as unknown as { dict: PDFDict }).dict;
-      const type = dict.lookup(PDFName.of("Type"));
-      // Cross-reference streams are never encrypted.
-      if (type instanceof PDFName && type.asString().replace(/^\//, "") === "XRef") continue;
-      walk(dict, ref, new Set());
-      let raw: Uint8Array | null = null;
-      if (obj instanceof PDFRawStream) raw = obj.contents;
-      else {
-        try {
-          raw = (obj as unknown as { getContents(): Uint8Array }).getContents();
-        } catch {
-          raw = null;
-        }
-      }
-      if (!raw) continue;
-      const next = streamX(raw, ref);
-      dict.set(PDFName.of("Length"), PDFNumber.of(next.length));
-      ctx.assign(ref, PDFRawStream.of(dict, next));
-      continue;
-    }
-    if (obj instanceof PDFString || obj instanceof PDFHexString) {
-      ctx.assign(ref, mapString(obj, ref));
-      continue;
-    }
-    walk(obj, ref, new Set());
-  }
+  return { bytes: out, permissions: crypt.permissions, scheme: crypt.scheme };
 }
 
 export interface ProtectOptions {
@@ -763,19 +926,15 @@ export interface ProtectOptions {
 }
 
 /**
- * Protect a document with AES-256 (revision 6) and write it out.
- * The document must already be fully assembled — this is the last step.
+ * A brand-new AES-256 (revision 6) security handler for `opts` — random file
+ * key, /U /UE /O /OE /Perms computed per ISO 32000-2.
  */
-export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): Promise<Uint8Array> {
+export function createCrypt(opts: ProtectOptions): PdfCrypt {
   const permissions = opts.permissions ?? ALL_PERMISSIONS;
   const p = permissionsToP(permissions);
   const encryptMetadata = opts.encryptMetadata !== false;
   const userPw = utf8Bytes(opts.userPassword).subarray(0, 127);
   const ownerPw = utf8Bytes(opts.ownerPassword || opts.userPassword).subarray(0, 127);
-
-  // Everything pdf-lib has queued (fonts, images, appearances) must be written
-  // into the context BEFORE we encrypt, or it would go out in the clear.
-  await doc.flush();
 
   const fileKey = randomBytes(32);
   const uValidationSalt = randomBytes(8);
@@ -800,39 +959,79 @@ export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): P
   perms.set(randomBytes(4), 12);
   const permsEnc = ecb(fileKey, { disablePadding: true }).encrypt(perms);
 
+  const info: EncryptInfo = {
+    v: 5,
+    r: 6,
+    lengthBytes: 32,
+    o,
+    u,
+    oe,
+    ue,
+    p,
+    encryptMetadata,
+    streamCfm: "AESV3",
+    stringCfm: "AESV3",
+  };
+  return makeCrypt({
+    info,
+    fileKey,
+    id0: randomBytes(16),
+    scheme: "AES-256",
+    entries: (doc) =>
+      doc.context.obj({
+        Filter: "Standard",
+        V: 5,
+        R: 6,
+        Length: 256,
+        CF: { StdCF: { CFM: "AESV3", AuthEvent: "DocOpen", Length: 32 } },
+        StmF: "StdCF",
+        StrF: "StdCF",
+        P: p,
+        EncryptMetadata: encryptMetadata,
+        O: PDFHexString.of(toHex(o)),
+        U: PDFHexString.of(toHex(u)),
+        OE: PDFHexString.of(toHex(oe)),
+        UE: PDFHexString.of(toHex(ue)),
+        Perms: PDFHexString.of(toHex(permsEnc)),
+      } as never) as unknown as PDFDict,
+  });
+}
+
+/** The trailer /ID for a file protected by `crypt`: its bound first element, a fresh second one. */
+export function fileIdFor(doc: PDFDocument, crypt: PdfCrypt): PDFArray {
+  return doc.context.obj([
+    PDFHexString.of(toHex(crypt.id0)),
+    PDFHexString.of(toHex(randomBytes(16))),
+  ] as never) as unknown as PDFArray;
+}
+
+/**
+ * Write `doc` in full, encrypted with `crypt` (a new handler from
+ * `createCrypt`, or the file's own from `openCrypt`). The document must be
+ * plaintext, fully assembled, and carry no `/Encrypt` of its own.
+ */
+export async function writeEncrypted(doc: PDFDocument, crypt: PdfCrypt): Promise<Uint8Array> {
+  // Everything pdf-lib has queued (fonts, images, appearances) must be written
+  // into the context BEFORE we encrypt, or it would go out in the clear.
+  await doc.flush();
   const ctx = doc.context;
-  const encryptDict = ctx.obj({
-    Filter: "Standard",
-    V: 5,
-    R: 6,
-    Length: 256,
-    CF: { StdCF: { CFM: "AESV3", AuthEvent: "DocOpen", Length: 32 } },
-    StmF: "StdCF",
-    StrF: "StdCF",
-    P: p,
-    EncryptMetadata: encryptMetadata,
-    O: PDFHexString.of(toHex(o)),
-    U: PDFHexString.of(toHex(u)),
-    OE: PDFHexString.of(toHex(oe)),
-    UE: PDFHexString.of(toHex(ue)),
-    Perms: PDFHexString.of(toHex(permsEnc)),
-  } as never);
-  const encryptRef = ctx.register(encryptDict);
-
-  // A file identifier is mandatory for encrypted documents.
-  if (!(ctx.trailerInfo.ID instanceof PDFArray)) {
-    const id = PDFHexString.of(toHex(randomBytes(16)));
-    ctx.trailerInfo.ID = ctx.obj([id, id] as never);
-  }
-
-  const skip = new Set<string>([String(encryptRef)]);
-  const xform: Transform = (data) => (data.length ? aesEncryptWithIv(fileKey, data) : data);
-  applySplitTransform(doc, xform, xform, skip);
-
+  const encryptRef = crypt.install(doc);
+  // A file identifier is mandatory for encrypted documents, and revisions 2–4
+  // bind the key to its first element.
+  ctx.trailerInfo.ID = fileIdFor(doc, crypt);
+  crypt.encryptDocument(doc, new Set([String(encryptRef)]));
   ctx.trailerInfo.Encrypt = encryptRef;
   // Object streams would nest strings inside an already-encrypted stream; the
   // classic layout keeps every object independently encrypted, as V5 expects.
   return doc.save({ useObjectStreams: false, updateFieldAppearances: false });
+}
+
+/**
+ * Protect a document with AES-256 (revision 6) and write it out.
+ * The document must already be fully assembled — this is the last step.
+ */
+export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): Promise<Uint8Array> {
+  return writeEncrypted(doc, createCrypt(opts));
 }
 
 /** Quick probe: is this file password-protected, and with what? */
@@ -848,12 +1047,7 @@ export async function inspectProtection(
     });
     const read = readEncryptDict(doc);
     if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS };
-    return {
-      encrypted: true,
-      scheme:
-        read.info.v >= 5 ? "AES-256" : read.info.streamCfm === "AESV2" ? "AES-128" : `RC4-${read.info.lengthBytes * 8}`,
-      permissions: pToPermissions(read.info.p),
-    };
+    return { encrypted: true, scheme: schemeOf(read.info), permissions: pToPermissions(read.info.p) };
   } catch {
     return null;
   }

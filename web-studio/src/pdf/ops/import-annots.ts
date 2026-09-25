@@ -632,11 +632,40 @@ export function isImportedSubtype(subtype: string | undefined): boolean {
  * Drop the markup the model now owns from a page's `/Annots`, leaving form
  * widgets and links alone. Called at export time when `importedAnnots` is set,
  * so an imported-then-edited comment appears once in the output.
+ *
+ * `keep` lists annotations ("num gen") the model still holds unchanged: they
+ * stay in the file byte for byte, together with their pop-ups and the replies
+ * threaded to them (`/IRT`). Returns the number of annotations removed.
  */
-export async function stripImportedAnnots(page: import("pdf-lib").PDFPage): Promise<number> {
+export async function stripImportedAnnots(
+  page: import("pdf-lib").PDFPage,
+  keep: ReadonlySet<string> = new Set(),
+): Promise<number> {
   const { PDFArray, PDFDict, PDFName, PDFRef } = await import("pdf-lib");
   const annots = page.node.Annots();
   if (!(annots instanceof PDFArray)) return 0;
+  const key = (r: unknown) => (r instanceof PDFRef ? `${r.objectNumber} ${r.generationNumber}` : "");
+
+  // Replies (and replies to replies) of a kept annotation are kept with it,
+  // then the pop-ups of everything kept.
+  const kept = new Set(keep);
+  if (kept.size) {
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (let i = 0; i < annots.size(); i++) {
+        const dict = annots.lookup(i);
+        const k = key(annots.get(i));
+        if (!(dict instanceof PDFDict) || !k || kept.has(k)) continue;
+        const irt = key(dict.get(PDFName.of("IRT")));
+        const parent = key(dict.get(PDFName.of("Parent")));
+        if ((irt && kept.has(irt)) || (parent && kept.has(parent))) {
+          kept.add(k);
+          grew = true;
+        }
+      }
+    }
+  }
+
   let removed = 0;
   for (let i = annots.size() - 1; i >= 0; i--) {
     const ref = annots.get(i);
@@ -645,6 +674,7 @@ export async function stripImportedAnnots(page: import("pdf-lib").PDFPage): Prom
     const sub = dict.lookup(PDFName.of("Subtype"));
     const name = sub instanceof PDFName ? sub.asString().replace(/^\//, "") : "";
     if (!IMPORTED_SUBTYPES.has(name)) continue;
+    if (kept.has(key(ref))) continue;
     annots.remove(i);
     if (ref instanceof PDFRef) page.doc.context.delete(ref);
     removed++;

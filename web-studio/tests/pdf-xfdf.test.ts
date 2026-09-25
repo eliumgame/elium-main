@@ -195,3 +195,40 @@ describe("XFDF checkmark", () => {
     expect(back.replies).toEqual([]);
   });
 });
+
+describe("XFDF text edits (Acrobat's « Remplacer le texte »)", () => {
+  it("round-trips a Caret and its struck-out text as one group", () => {
+    const list = roundTrip([
+      base({ id: "c1", kind: "caret", contents: "nouveau", rect: { x: 100, y: 100, w: 8, h: 8 }, color: "#1d4ed8" }),
+      base({
+        id: "s1",
+        kind: "strikeout",
+        group: "c1",
+        quads: [
+          [
+            { x: 40, y: 95 },
+            { x: 100, y: 95 },
+            { x: 100, y: 108 },
+            { x: 40, y: 108 },
+          ],
+        ],
+      }),
+    ]);
+    const caret = list.find((a) => a.kind === "caret")!;
+    const strike = list.find((a) => a.kind === "strikeout")!;
+    expect(caret.contents).toBe("nouveau");
+    expect(strike.group).toBe(caret.id);
+    expect(strike.contents).toBeUndefined();
+    expect(caret.replies).toEqual([]);
+  });
+
+  it("keeps the group when the import replaces local copies", () => {
+    const local = [base({ id: "L1", kind: "caret", pdf: { nm: "c1" } })];
+    const imported = [
+      base({ id: "c1", kind: "caret", pdf: { nm: "c1" } }),
+      base({ id: "s1", kind: "strikeout", group: "c1" }),
+    ];
+    const merged = mergeImported(local, imported);
+    expect(merged.find((a) => a.kind === "strikeout")?.group).toBe("L1");
+  });
+});

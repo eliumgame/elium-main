@@ -27,6 +27,8 @@ export type AnnotKind =
   | "underline"
   | "strikeout"
   | "squiggly"
+  // Acrobat's text edits: text inserted at a point (with a strike-out: replaced)
+  | "caret"
   // notes & text
   | "note"
   | "freetext"
@@ -190,6 +192,11 @@ export interface Annot {
   createdAt: string;
   modifiedAt: string;
   status?: ReviewStatus;
+  /**
+   * Part of another comment's group (`/IRT` + `/RT /Group`): the strike-out of
+   * a « Remplacer le texte », whose text and thread are its Caret's.
+   */
+  group?: string;
   /** Acrobat's checkmark (`/StateModel (Marked)`): the reviewer's own tick, not a status. */
   checked?: boolean;
   replies?: Reply[];

@@ -595,6 +595,12 @@ async function applyState(
       ? state.annots.filter((a) => opts.pristineAnnots!.has(a) && !(a.kind === "redact" && opts.applyRedactions))
       : [],
   );
+  // A group member kept as it was would point at its rewritten parent's old object.
+  for (const a of [...pristine]) {
+    if (!a.group) continue;
+    const parent = state.annots.find((x) => x.id === a.group);
+    if (!parent || !pristine.has(parent)) pristine.delete(a);
+  }
   // Annotations Elium leaves alone that hang on a comment it rewrites (a Caret
   // grouped with a strike-out, a reply to it from another app, their pop-ups).
   const dependents = new Map<

@@ -14,8 +14,8 @@
  *    must not be editable.
  */
 
-import type { PDFDocument, PDFPage, PDFRef } from "pdf-lib";
-import { PDFArray, PDFHexString, PDFName, PDFString } from "pdf-lib";
+import type { PDFDocument, PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFHexString, PDFName, PDFRef, PDFString } from "pdf-lib";
 import type { Pt, Rect } from "../core/coords";
 import { quadToPdfQuadPoints, rectOfPoints, round } from "../core/coords";
 import type { Annot, MeasureScale } from "../model/types";
@@ -363,6 +363,21 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       await upright(p, a, ctx, paintNoteIcon);
       break;
     }
+    case "caret": {
+      // The insertion mark: tip at the insertion point's top, notch at its foot.
+      const r = frame.rectToPdf(a.rect);
+      p.alpha({ fillAlpha: alpha }).fillColor(stroke);
+      p.polyline(
+        [
+          { x: r.x, y: r.y },
+          { x: r.x + r.w / 2, y: r.y + r.h },
+          { x: r.x + r.w, y: r.y },
+          { x: r.x + r.w / 2, y: r.y + r.h * 0.38 },
+        ],
+        true,
+      ).fill();
+      break;
+    }
     case "freetext":
     case "typewriter":
     case "callout": {
@@ -614,6 +629,7 @@ const SUBTYPE: Partial<Record<Annot["kind"], string>> = {
   underline: "Underline",
   strikeout: "StrikeOut",
   squiggly: "Squiggly",
+  caret: "Caret",
   note: "Text",
   freetext: "FreeText",
   typewriter: "FreeText",
@@ -681,6 +697,12 @@ interface WriteOptions {
  * Write annotations as real `/Annot` dictionaries with generated appearances.
  * Returns the ones that had to be flattened instead (whiteout, redaction).
  */
+/** The object of an annotation kept from the file (its model id is pdf.js' « 12R »). */
+function refOfPdfjsId(id: string): PDFRef | null {
+  const m = /^(\d+)R(\d*)$/.exec(id);
+  return m ? PDFRef.of(Number(m[1]), Number(m[2] || 0)) : null;
+}
+
 /** Review states as Acrobat names them (`/StateModel (Review)`). */
 const PDF_STATE: Record<NonNullable<Annot["status"]>, string> = {
   none: "None",
@@ -718,6 +740,22 @@ export async function writeAnnots(
     } catch {
       flattenLater.push(a);
     }
+  }
+
+  // Acrobat's « Remplacer le texte »: the strike-out is a member of its Caret's
+  // group, whose text and thread it shows. The Caret was rewritten here or is
+  // kept as it was in the file (its id is then its object, « 12R »).
+  for (const a of annots) {
+    if (!a.group) continue;
+    const ref = byId.get(a.id);
+    const parent = byId.get(a.group) ?? refOfPdfjsId(a.group);
+    if (!ref || !parent) continue;
+    const dict = ctx.doc.context.lookup(ref);
+    if (!(dict instanceof PDFDict)) continue;
+    dict.set(PDFName.of("IRT"), parent);
+    dict.set(PDFName.of("RT"), PDFName.of("Group"));
+    dict.set(PDFName.of("IT"), PDFName.of("StrikeOutTextEdit"));
+    dict.delete(PDFName.of("Contents"));
   }
 
   // Reply threads become real `/IRT` annotations so Acrobat shows the whole
@@ -1041,7 +1079,10 @@ export function writeRedactMarks(
 const RD_KINDS = new Set<Annot["kind"]>(["square", "circle", "freetext", "typewriter", "callout", "whiteout"]);
 
 /** Kinds drawn exactly inside their rect: nothing to leave room for. */
-const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link"]);
+const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link", "caret"]);
+
+/** Kinds drawn with line endings. */
+const ENDED_KINDS = new Set<Annot["kind"]>(["line", "arrow", "polyline", "distance", "perimeter", "callout"]);
 
 function inflateForStroke(rect: Rect, a: Annot): Rect {
   const textOnly = (a.kind === "freetext" || a.kind === "typewriter") && !(a.strokeWidth > 0);
@@ -1054,7 +1095,9 @@ function inflateForStroke(rect: Rect, a: Annot): Rect {
   }
   if (UNSTROKED.has(a.kind) || textOnly) return rect;
   let pad = (a.strokeWidth || 0) / 2 + 1;
-  if (a.lineEnd !== "none" || a.lineStart !== "none") pad += Math.max(4, (a.strokeWidth || 1) * 3.2);
+  // Room for real line endings only (an absent one is none: markup used to get 8 pt on each side).
+  const ends = [a.lineStart, a.lineEnd].some((e) => e && e !== "none");
+  if (ends && ENDED_KINDS.has(a.kind)) pad += Math.max(4, (a.strokeWidth || 1) * 3.2);
   if (a.borderStyle === "cloudy" || a.kind === "cloud") pad += Math.max(4, (a.strokeWidth || 1) * 3) * 2;
   if (a.kind === "callout" && a.callout?.length) {
     const all = [...a.callout, { x: rect.x, y: rect.y }, { x: rect.x + rect.w, y: rect.y + rect.h }];

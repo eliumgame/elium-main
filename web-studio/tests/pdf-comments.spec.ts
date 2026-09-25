@@ -192,4 +192,89 @@ test.describe("PDF — commentaires", () => {
     await expect(page.locator('.pdfx-optionbar [title="#2563eb"]')).toHaveClass(/is-active/);
     expect(problems).toEqual([]);
   });
+
+  test("modifications de texte : remplacer et insérer", async ({ page, context }) => {
+    const problems = health(page);
+    const maker = await context.newPage();
+    await maker.setContent(
+      `<html><body style="font-family:Arial;margin:60px"><p style="font-size:18px">Le rapport annuel est prêt.</p></body></html>`,
+    );
+    await open(page, await maker.pdf({ format: "A4" }));
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    const word = page.locator(".textLayer span", { hasText: "rapport" }).first();
+    await expect(word).toBeVisible();
+
+    // Replace « annuel »: select it (double-click), then « Remplacer le texte ».
+    await page
+      .locator(".textLayer")
+      .first()
+      .evaluate((layer) => {
+        const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const i = n.textContent!.indexOf("annuel");
+          if (i < 0) continue;
+          const r = document.createRange();
+          r.setStart(n, i);
+          r.setEnd(n, i + "annuel".length);
+          const sel = window.getSelection()!;
+          sel.removeAllRanges();
+          sel.addRange(r);
+          return;
+        }
+      });
+    await page.getByRole("button", { name: "Remplacer le texte sélectionné" }).click();
+    let dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").fill("mensuel");
+    await dialog.getByRole("button", { name: "Valider" }).click();
+
+    // Insert after « prêt »: a caret in the text, then « Insérer du texte ».
+    await page
+      .locator(".textLayer")
+      .first()
+      .evaluate((layer) => {
+        const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const i = n.textContent!.indexOf("prêt");
+          if (i < 0) continue;
+          const r = document.createRange();
+          r.setStart(n, i + 4);
+          r.collapse(true);
+          const sel = window.getSelection()!;
+          sel.removeAllRanges();
+          sel.addRange(r);
+          return;
+        }
+      });
+    await page.getByRole("button", { name: "Insérer du texte au curseur (cliquez d'abord dans le texte)" }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").fill(" à relire");
+    await dialog.getByRole("button", { name: "Valider" }).click();
+
+    const doc = await save(page);
+    const dicts = annotDicts(doc);
+    const sub = (d: PDFDict) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText();
+    const carets = dicts.filter((d) => sub(d) === "Caret");
+    expect(carets).toHaveLength(2);
+    const strike = dicts.find((d) => sub(d) === "StrikeOut")!;
+    expect(strike.lookup(PDFName.of("RT"), PDFName).decodeText()).toBe("Group");
+    // The replacement Caret sits right after « annuel », on the same line as the struck text.
+    const sr = strike
+      .lookup(PDFName.of("Rect"), PDFArray)
+      .asArray()
+      .map((v) => Number(v.toString()));
+    const replace = carets.find((d) => (d.lookup(PDFName.of("Contents"))?.toString() ?? "").includes("mensuel"))!;
+    const cr = replace
+      .lookup(PDFName.of("Rect"), PDFArray)
+      .asArray()
+      .map((v) => Number(v.toString()));
+    const qp = strike
+      .lookup(PDFName.of("QuadPoints"), PDFArray)
+      .asArray()
+      .map((v) => Number(v.toString()));
+    expect(Math.abs((cr[0] + cr[2]) / 2 - qp[2])).toBeLessThan(1);
+    expect(cr[1]).toBeLessThan(qp[5] + 1);
+    // The struck text's /Rect is its words (plus a hair), not 8 pt wider on each side.
+    expect(qp[0] - sr[0]).toBeLessThan(3);
+    expect(problems).toEqual([]);
+  });
 });

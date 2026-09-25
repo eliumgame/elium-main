@@ -461,6 +461,7 @@ export function withExtras(
 }
 
 const KIND: Record<string, AnnotKind> = {
+  Caret: "caret",
   Highlight: "highlight",
   Underline: "underline",
   StrikeOut: "strikeout",
@@ -629,12 +630,13 @@ export function importPageAnnots(
 
     // A reply carries `/IRT`; attach it to its parent instead of showing a
     // second icon on the page.
-    if (a.inReplyTo && a.stateModel === "Marked") {
+    const isGroupMember = !!a.inReplyTo && a.replyType === "Group";
+    if (a.inReplyTo && !isGroupMember && a.stateModel === "Marked") {
       // Acrobat's checkmark: a state of the comment, not a line of its thread.
       marks.push({ parent: pdfjsId.get(root) ?? a.inReplyTo, checked: a.state === "Marked", when: modified });
       continue;
     }
-    if (a.inReplyTo) {
+    if (a.inReplyTo && !isGroupMember) {
       replies.push({
         parent: pdfjsId.get(root) ?? a.inReplyTo,
         reply: {
@@ -669,6 +671,11 @@ export function importPageAnnots(
       locked: !!((a.annotationFlags ?? 0) & 128),
       hidden: !!((a.annotationFlags ?? 0) & 2),
     };
+    if (isGroupMember) {
+      // pdf.js hands a group member its parent's text and author: they are the Caret's.
+      annot.group = a.inReplyTo;
+      annot.contents = undefined;
+    }
 
     switch (kind) {
       case "highlight":
@@ -863,6 +870,12 @@ export function ownedAnnotations(links: readonly AnnotLink[]): Map<string, strin
     if (seen.has(l.key)) return null;
     seen.add(l.key);
     if (!l.irt) return KIND[l.subtype] ? l.key : null;
+    // A group member (the strike-out of « Remplacer le texte ») of a comment
+    // the model owns: its own annotation, tied to that comment.
+    if (l.rt === "Group") {
+      const parent = byKey.get(l.irt);
+      return KIND[l.subtype] && parent && !parent.irt && KIND[parent.subtype] ? l.key : null;
+    }
     if (l.subtype !== "Text" || (l.rt && l.rt !== "R")) return null;
     const parent = byKey.get(l.irt);
     return parent ? rootOf(parent, seen) : null;

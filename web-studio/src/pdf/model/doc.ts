@@ -284,8 +284,9 @@ export function updateAnnots(state: PdfState, ids: readonly string[], patch: Par
 }
 
 export function removeAnnots(state: PdfState, ids: readonly string[]): PdfState {
-  const set = new Set(ids);
-  return { ...state, annots: state.annots.filter((a) => !set.has(a.id) || a.locked) };
+  const set = new Set(state.annots.filter((a) => ids.includes(a.id) && !a.locked).map((a) => a.id));
+  // A group goes as one (the strike-out of a « Remplacer le texte » with its Caret).
+  return { ...state, annots: state.annots.filter((a) => !set.has(a.id) && !(a.group && set.has(a.group))) };
 }
 
 export function moveAnnots(state: PdfState, ids: readonly string[], dx: number, dy: number): PdfState {
@@ -446,7 +447,8 @@ export type CommentSort = "page" | "author" | "date" | "kind" | "status";
 
 /** Annotations that carry a comment — the ones Acrobat lists in its pane (not links, not white-out). */
 export function commentable(annots: readonly Annot[]): Annot[] {
-  return annots.filter((a) => a.kind !== "link" && a.kind !== "whiteout");
+  // A group member (the strike-out of a « Remplacer le texte ») is listed as its Caret.
+  return annots.filter((a) => a.kind !== "link" && a.kind !== "whiteout" && !a.group);
 }
 
 export function filterComments(

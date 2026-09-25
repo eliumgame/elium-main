@@ -491,3 +491,20 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
   y compris dans un autre document. L'inspecteur a « Par défaut » : les prochains
   commentaires de ce type prennent l'aspect du commentaire sélectionné.
 - Test navigateur (Drive + bureau). Suite complète 1947/1947 ; specs PDF 38/38.
+
+### Session cloud 1 : T4, point 12 (3e partie) : modifications de texte
+
+- « Insérer du texte au curseur » et « Remplacer le texte » (ruban Commenter, Texte),
+  comme Acrobat :
+  - insertion : un Caret au point d'insertion, portant le texte à insérer ;
+  - remplacement : la sélection barrée, plus un Caret juste après avec le nouveau texte.
+    Le barré est membre du groupe du Caret (/IRT, /RT /Group, /IT /StrikeOutTextEdit),
+    donc un seul commentaire au panneau (« Remplacement de texte »), supprimé d'un bloc.
+  Relu du PDF (une paire Acrobat devient la même paire modifiable) et en XFDF ;
+  réimporter garde le lien du groupe.
+- Corrigé : tout barré, surlignage, etc. avait un /Rect élargi de 8 pt de chaque côté (les
+  terminaisons de ligne absentes étaient prises pour présentes).
+- Tests : 1 PDF, 2 XFDF, 1 navigateur. Suite complète 1950/1950 ; specs PDF 40/40.
+- À vérifier dans Acrobat : un « Remplacer le texte » fait dans Elium doit apparaître
+  dans Acrobat comme le sien (un seul commentaire, texte de remplacement au survol du
+  barré), et l'inverse.

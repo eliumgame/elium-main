@@ -156,6 +156,7 @@ export const KIND_LABEL: Record<AnnotKind, string> = {
   underline: "Soulignement",
   strikeout: "Texte barré",
   squiggly: "Soulignement ondulé",
+  caret: "Insertion de texte",
   note: "Note",
   freetext: "Zone de texte",
   callout: "Légende",

@@ -75,6 +75,7 @@ import {
   Type,
   Underline,
   Undo2,
+  Replace,
   Unlock,
   UserRound,
   Volume2,
@@ -436,6 +437,12 @@ export default function Ribbon(p: RibbonProps) {
                 active={p.tool === "strikeout"}
                 title="Barrer"
               />
+              <Cmd
+                icon={<TextCursorInput size={17} />}
+                onClick={C("insertText")}
+                title="Insérer du texte au curseur (cliquez d'abord dans le texte)"
+              />
+              <Cmd icon={<Replace size={17} />} onClick={C("replaceText")} title="Remplacer le texte sélectionné" />
               <Cmd
                 icon={<Waves size={17} />}
                 onClick={T("squiggly")}

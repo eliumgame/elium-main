@@ -21,6 +21,7 @@ const XFDF_KIND: Partial<Record<AnnotKind, string>> = {
   underline: "underline",
   strikeout: "strikeout",
   squiggly: "squiggly",
+  caret: "caret",
   note: "text",
   freetext: "freetext",
   typewriter: "freetext",
@@ -47,6 +48,7 @@ const KIND_FROM_XFDF: Record<string, AnnotKind> = {
   underline: "underline",
   strikeout: "strikeout",
   squiggly: "squiggly",
+  caret: "caret",
   text: "note",
   freetext: "freetext",
   ink: "ink",
@@ -221,6 +223,11 @@ export function toXfdf(
       attrs.push(`color="${hexColour(a.color)}"`);
     }
     if (a.subject) attrs.push(`subject="${esc(a.subject)}"`);
+    if (a.group) {
+      // Acrobat's « Remplacer le texte »: the strike-out belongs to its Caret.
+      const parent = annots.find((x) => x.id === a.group);
+      attrs.push(`inreplyto="${esc(parent?.pdf?.nm ?? a.group)}"`, 'replyType="group"', 'intent="StrikeOutTextEdit"');
+    }
     if (a.fill && !textKind && a.kind !== "redact") attrs.push(`interior-color="${hexColour(a.fill)}"`);
     attrs.push(`width="${round(a.strokeWidth ?? 0, 2)}"`);
     if (a.borderStyle === "dashed") attrs.push('style="dash"', `dashes="${(a.dash ?? [4, 3]).join(",")}"`);
@@ -421,12 +428,12 @@ export function fromXfdf(
     const inReplyTo = el.getAttribute("inreplyto");
     const created = parseXfdfDate(el.getAttribute("creationdate") ?? el.getAttribute("date"));
     const flags = flagsFrom(el.getAttribute("flags"));
+    const isGroup =
+      !!inReplyTo && (el.getAttribute("replyType") ?? el.getAttribute("replytype") ?? "").toLowerCase() === "group";
 
-    if (inReplyTo) {
+    if (inReplyTo && !isGroup) {
       const state = el.getAttribute("state");
       const model = el.getAttribute("statemodel");
-      // A « group » member (Acrobat's replace-text) is not a reply.
-      if ((el.getAttribute("replyType") ?? el.getAttribute("replytype") ?? "reply").toLowerCase() === "group") continue;
       // The checkmark: a state of the comment, not a line of its thread.
       if ((model ?? "").toLowerCase() === "marked") {
         marks.push({ parent: inReplyTo, checked: (state ?? "").toLowerCase() === "marked", when: created });
@@ -484,6 +491,11 @@ export function fromXfdf(
     };
     const name = el.getAttribute("name");
     annot.pdf = { flags: flags.bits, ...(name ? { nm: name } : {}) };
+    if (isGroup) {
+      // The strike-out of a « Remplacer le texte »: its text is its Caret's.
+      annot.group = inReplyTo!;
+      annot.contents = undefined;
+    }
     if (rich?.innerHTML) annot.pdf = { ...annot.pdf, rc: rich.innerHTML, rcFor: contents };
     const dashes = parseNums(el.getAttribute("dashes"));
     if (dashes.length) annot.dash = dashes;
@@ -642,13 +654,17 @@ export function mergeImported(current: readonly Annot[], imported: readonly Anno
   const byId = new Map(imported.map((a) => [a.id, a]));
   const byNm = new Map(imported.filter((a) => a.pdf?.nm).map((a) => [a.pdf!.nm!, a]));
   const used = new Set<Annot>();
+  /** Imported id → the id it ends up with (a local one it replaced). */
+  const renamed = new Map<string, string>();
   const out = current.map((a) => {
     const hit = byId.get(a.id) ?? (a.pdf?.nm ? byNm.get(a.pdf.nm) : undefined) ?? byNm.get(a.id);
     if (!hit || used.has(hit)) return a;
     used.add(hit);
+    renamed.set(hit.id, a.id);
     // Keep the local id: selections and the pristine-annotation tracking hold it.
     return { ...hit, id: a.id, pageId: hit.pageId };
   });
   for (const a of imported) if (!used.has(a)) out.push(a);
-  return out;
+  // A group member follows its Caret's id.
+  return out.map((a) => (a.group && renamed.has(a.group) ? { ...a, group: renamed.get(a.group)! } : a));
 }

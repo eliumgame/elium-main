@@ -597,7 +597,7 @@ function AnnotLayer(p: AnnotLayerProps) {
       className: `pdfx-shape ${selected ? "is-selected" : ""} ${a.locked ? "is-locked" : ""}`,
       onPointerDown: (e: React.PointerEvent) => startMove(e, a),
       onDoubleClick: () => {
-        if (isTextMarkup(a.kind) || a.kind === "note") p.onRequestNoteText(a);
+        if (isTextMarkup(a.kind) || a.kind === "note" || a.kind === "caret") p.onRequestNoteText(a);
       },
       onContextMenu: (e: React.MouseEvent) => {
         e.preventDefault();
@@ -615,6 +615,23 @@ function AnnotLayer(p: AnnotLayerProps) {
     }
 
     switch (a.kind) {
+      case "caret": {
+        // Acrobat's insertion mark, its tip where the text goes.
+        const r = a.rect;
+        const pts = [
+          { x: r.x, y: r.y + r.h },
+          { x: r.x + r.w / 2, y: r.y },
+          { x: r.x + r.w, y: r.y + r.h },
+          { x: r.x + r.w / 2, y: r.y + r.h * 0.62 },
+        ].map(toView);
+        const d = `M${pts.map((q) => `${q.x} ${q.y}`).join("L")}Z`;
+        return (
+          <g key={a.id} {...common}>
+            <path d={d} fill={a.color} fillOpacity={a.opacity ?? 1} stroke="none" />
+            <path d={d} fill="transparent" stroke="transparent" strokeWidth={10} />
+          </g>
+        );
+      }
       case "ink":
         return (
           <g key={a.id} {...common}>

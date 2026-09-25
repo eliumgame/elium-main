@@ -21,7 +21,7 @@ import { useDialogs } from "../../ui/dialogs";
 import { useUndoable } from "../../ui/useUndoable";
 import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts";
 import type { Quad, Rect, Rotation, Size } from "../core/coords";
-import { clamp, normRotation, rectOfQuads } from "../core/coords";
+import { clamp, normRotation, rectOfQuads, viewToPs } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
 import { openPdfDocument, warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
@@ -1167,10 +1167,11 @@ export default function PdfWorkspace({
   };
 
   // --- text-anchored markup from the live selection -------------------------
-  const applyMarkupFromSelection = useCallback(
-    (kind: AnnotKind) => {
+  /** The markup of `kind` the live selection would make, one per page (nothing added yet). */
+  const markupsFromSelection = useCallback(
+    (kind: AnnotKind): Annot[] => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return false;
+      if (!sel || sel.isCollapsed) return [];
       const now = new Date().toISOString();
       const made: Annot[] = [];
       const byId = new Map(pages.map((q) => [q.id, q]));
@@ -1200,14 +1201,84 @@ export default function PdfWorkspace({
           status: "none",
         });
       }
+      return made;
+    },
+    [pages, sizeOf, rotationOf, view.scale, style, author],
+  );
+
+  const applyMarkupFromSelection = useCallback(
+    (kind: AnnotKind) => {
+      const made = markupsFromSelection(kind);
       if (!made.length) return false;
       setState((s) => made.reduce((acc, a) => D.addAnnot(acc, a), s));
-      sel.removeAllRanges();
+      window.getSelection()?.removeAllRanges();
       setSelectedIds(made.map((a) => a.id));
       return true;
     },
-    [pages, sizeOf, rotationOf, view.scale, style, author, setState],
+    [markupsFromSelection, setState],
   );
+
+  /**
+   * Where the text cursor is, in page space: the page and the foot of the
+   * insertion point (x, bottom of the line) with the line's height — for
+   * Acrobat's « Insérer du texte au curseur ».
+   */
+  const caretPoint = useCallback((): { pageId: string; x: number; y: number; h: number } | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const node = sel.focusNode;
+    const offset = sel.focusOffset;
+    if (!node) return null;
+    const byId = new Map(pages.map((q) => [q.id, q]));
+    for (const [pageId, { layer, host }] of textLayers.current) {
+      const page = byId.get(pageId);
+      if (!page || !layer.contains(node)) continue;
+      // A one-character range beside the cursor: its edge is the insertion point.
+      const probe = document.createRange();
+      const len = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").length : node.childNodes.length;
+      const before = offset >= len;
+      try {
+        if (before) probe.setStart(node, Math.max(0, offset - 1));
+        else probe.setStart(node, offset);
+        probe.setEnd(node, before ? offset : Math.min(len, offset + 1));
+      } catch {
+        return null;
+      }
+      const r = probe.getBoundingClientRect();
+      if (!r.width && !r.height) return null;
+      const o = host.getBoundingClientRect();
+      const toPs = (x: number, y: number) =>
+        viewToPs({ x: (x - o.left) / view.scale, y: (y - o.top) / view.scale }, sizeOf(page), rotationOf(page));
+      const a = toPs(before ? r.right : r.left, r.top);
+      const b = toPs(before ? r.right : r.left, r.bottom);
+      return { pageId, x: (a.x + b.x) / 2, y: Math.max(a.y, b.y), h: Math.abs(b.y - a.y) || Math.abs(b.x - a.x) };
+    }
+    return null;
+  }, [pages, sizeOf, rotationOf, view.scale]);
+
+  /** A Caret at `at` (the foot of the insertion point), sized to the line. */
+  const caretAnnot = (at: { pageId: string; x: number; y: number; h: number }, text: string, group?: string): Annot => {
+    const h = Math.max(6, Math.min(14, at.h * 0.55));
+    const w = h * 0.9;
+    const now = new Date().toISOString();
+    return {
+      id: newId("an"),
+      pageId: at.pageId,
+      kind: "caret",
+      rect: { x: at.x - w / 2, y: at.y - h * 0.45, w, h },
+      color: "#1d4ed8",
+      fill: null,
+      opacity: 1,
+      strokeWidth: 0,
+      author,
+      subject: group ? "Texte remplacé" : "Texte inséré",
+      contents: text,
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+      status: "none",
+    };
+  };
 
   // Picking a markup tool while text is selected applies it immediately.
   useEffect(() => {
@@ -2139,6 +2210,45 @@ export default function PdfWorkspace({
         });
         input.addEventListener("cancel", () => input.remove());
         input.click();
+        return;
+      }
+      case "insertText": {
+        // Acrobat's « Insérer du texte au curseur »: click in the text, then this.
+        const at = caretPoint();
+        if (!at) {
+          toast("info", "Cliquez d'abord dans le texte, à l'endroit de l'insertion.");
+          return;
+        }
+        const text = await dialogs.prompt({ title: "Insérer du texte", label: "Texte à insérer", defaultValue: "" });
+        if (text === null || !text.trim()) return;
+        const caret = caretAnnot(at, text);
+        setState((s) => D.addAnnot(s, caret));
+        setSelectedIds([caret.id]);
+        return;
+      }
+      case "replaceText": {
+        // Acrobat's « Remplacer le texte »: the selection struck out, the new text on a Caret after it.
+        const strikes = markupsFromSelection("strikeout");
+        if (!strikes.length) {
+          toast("info", "Sélectionnez d'abord le texte à remplacer.");
+          return;
+        }
+        const last = strikes[strikes.length - 1];
+        const q = last.quads![last.quads!.length - 1];
+        const right = Math.max(...q.map((pt) => pt.x));
+        const bottom = Math.max(...q.map((pt) => pt.y));
+        const height = Math.max(...q.map((pt) => pt.y)) - Math.min(...q.map((pt) => pt.y));
+        window.getSelection()?.removeAllRanges();
+        const text = await dialogs.prompt({
+          title: "Remplacer le texte",
+          label: "Texte de remplacement",
+          defaultValue: "",
+        });
+        if (text === null) return;
+        const caret = caretAnnot({ pageId: last.pageId, x: right, y: bottom, h: height }, text, "replace");
+        const members = strikes.map((a) => ({ ...a, color: "#1d4ed8", group: caret.id }));
+        setState((s) => [caret, ...members].reduce((acc, a) => D.addAnnot(acc, a), s));
+        setSelectedIds([caret.id]);
         return;
       }
       case "addText":

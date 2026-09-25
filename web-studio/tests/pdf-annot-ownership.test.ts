@@ -146,18 +146,25 @@ describe("ownership of a file's annotations", () => {
       { key: "11 0", subtype: "Text", irt: "12 0" },
       { key: "12 0", subtype: "Text", irt: "11 0" },
     ]);
+    // The group members of a comment the model owns (« Remplacer le texte »)
+    // are their own annotations; an attachment, its pop-up and replies are not.
     expect([...owned]).toEqual([
       ["1 0", "1 0"],
       ["3 0", "1 0"],
       ["4 0", "1 0"],
       ["5 0", "5 0"],
+      ["6 0", "6 0"],
+      ["7 0", "7 0"],
       ["2 0", "1 0"],
     ]);
   });
 
   it("imports a reply to a reply into the comment's thread", async () => {
     const state = await imported(await acrobatLike());
-    expect(state.annots.map((a) => a.kind).sort()).toEqual(["highlight", "strikeout"]);
+    expect(state.annots.map((a) => a.kind).sort()).toEqual(["caret", "highlight", "strikeout"]);
+    const caret = state.annots.find((a) => a.kind === "caret")!;
+    const strike = state.annots.find((a) => a.kind === "strikeout")!;
+    expect(caret.group).toBe(strike.id);
     const hl = state.annots.find((a) => a.kind === "highlight")!;
     expect(hl.replies?.map((r) => r.text)).toEqual(["D'accord", "Merci"]);
   });
@@ -637,5 +644,65 @@ describe("comments pane: checkmark, filters, replies, note icons", () => {
     await task.destroy();
     const back = (await imported((await buildPdf(await src.save(), s)).bytes)).annots[0];
     expect(back.icon).toBe("Help");
+  });
+});
+
+describe("text edits in the file", () => {
+  it("writes a replaced text as Acrobat does and reads it back as one group", async () => {
+    const src = await PDFDocument.create();
+    src.addPage([600, 800]);
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const pageId = base.pages[0].id;
+    const now = new Date().toISOString();
+    const common = {
+      pageId,
+      opacity: 1,
+      strokeWidth: 1,
+      author: "Marie",
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    };
+    const caret = {
+      ...common,
+      id: "c",
+      kind: "caret",
+      rect: { x: 197, y: 108, w: 8, h: 8 },
+      color: "#1d4ed8",
+      contents: "remplaçant",
+    } as Annot;
+    const strike = {
+      ...common,
+      id: "s",
+      kind: "strikeout",
+      group: "c",
+      color: "#1d4ed8",
+      rect: { x: 100, y: 100, w: 100, h: 14 },
+      quads: [
+        [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 200, y: 114 },
+          { x: 100, y: 114 },
+        ],
+      ],
+    } as Annot;
+    const out = (await buildPdf(await src.save(), { ...base, annots: [caret, strike] })).bytes;
+    const doc = await PDFDocument.load(out);
+    const refs = (doc.getPage(0).node.Annots() as PDFArray).asArray();
+    const dicts = refs.map((r) => doc.context.lookup(r, PDFDict));
+    const so = dicts.find((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "StrikeOut")!;
+    const ca = refs[dicts.findIndex((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "Caret")];
+    expect(so.get(PDFName.of("IRT"))?.toString()).toBe(ca.toString());
+    expect(so.lookup(PDFName.of("RT"), PDFName).decodeText()).toBe("Group");
+    expect(so.lookup(PDFName.of("IT"), PDFName).decodeText()).toBe("StrikeOutTextEdit");
+    const back = await imported(out);
+    const c2 = back.annots.find((a) => a.kind === "caret")!;
+    const s2 = back.annots.find((a) => a.kind === "strikeout")!;
+    expect(c2.contents).toBe("remplaçant");
+    expect(s2.group).toBe(c2.id);
+    // One comment in the pane, deleted as one.
+    expect(D.commentable(back.annots).map((a) => a.kind)).toEqual(["caret"]);
+    expect(D.removeAnnots(back, [c2.id]).annots).toEqual([]);
   });
 });

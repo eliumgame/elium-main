@@ -495,6 +495,8 @@ function Comments(p: SidebarProps) {
     [p.annots, p.filter, p.sort, pageOrder],
   );
   const kinds = useMemo(() => [...new Set(commentable(p.annots).map((a) => a.kind))], [p.annots]);
+  /** Carets with a struck-out text: Acrobat's « Remplacer le texte ». */
+  const replacing = useMemo(() => new Set(p.annots.filter((a) => a.group).map((a) => a.group!)), [p.annots]);
   const [editingReply, setEditingReply] = useState<string | null>(null);
   const [replyEdit, setReplyEdit] = useState("");
 
@@ -637,7 +639,8 @@ function Comments(p: SidebarProps) {
                 <span className="pdfx-comment__swatch" style={{ background: a.color }} />
                 <span className="pdfx-comment__author">{a.author}</span>
                 <span className="pdfx-comment__meta">
-                  {KIND_LABEL[a.kind]} · p. {pageOrder.get(a.pageId) ?? "?"}
+                  {replacing.has(a.id) ? "Remplacement de texte" : KIND_LABEL[a.kind]} · p.{" "}
+                  {pageOrder.get(a.pageId) ?? "?"}
                 </span>
                 <time className="pdfx-comment__date">{shortDate(a.createdAt)}</time>
               </header>

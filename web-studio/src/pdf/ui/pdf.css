@@ -439,6 +439,67 @@
    éditeur, dialogues, règles globales) n'est pas chargée.
    ========================================================================== */
 
+/* Colonne de la vue : bandeau de formulaire (comme la barre violette
+   d'Acrobat) au-dessus des pages. */
+.pdfx-viewcol {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.pdfx-viewcol > .pdfx-canvas {
+  min-height: 0;
+}
+.pdfx-formbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  background: color-mix(in srgb, #6d28d9 16%, var(--x-surface, #fff));
+  border-bottom: 1px solid color-mix(in srgb, #6d28d9 35%, transparent);
+  color: var(--x-text, inherit);
+  font-size: 12.5px;
+}
+.pdfx-formbar__text {
+  flex: 1;
+  min-width: 180px;
+}
+.pdfx-formbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pdfx-formbar__btn {
+  border: 1px solid color-mix(in srgb, #6d28d9 40%, transparent);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.pdfx-formbar__btn:hover {
+  background: color-mix(in srgb, #6d28d9 14%, transparent);
+}
+.pdfx-formbar__close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.pdfx-formbar__close:hover {
+  opacity: 1;
+}
+
 .pdfx-canvas {
   flex: 1;
   min-width: 0;
@@ -694,9 +755,9 @@
   transform-origin: 0 0;
   user-select: none;
 }
-/* Commentaires, champs, popups : Elium les affiche lui-même (calques
-   d'annotation et de formulaire). */
-.pdfx-stack .annotationLayer section:not(.linkAnnotation) {
+/* Commentaires et popups : Elium les affiche lui-même (calque d'annotation).
+   Liens et champs de formulaire restent ceux de pdf.js. */
+.pdfx-stack .annotationLayer section:not(.linkAnnotation, .textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
   display: none;
 }
 .pdfx-stack .textLayer.selecting ~ .annotationLayer section {
@@ -990,46 +1051,154 @@
    Calques formulaire et édition de texte
    ========================================================================== */
 
-.pdfx-formlayer {
+/* --- champs de formulaire (calque de formulaire pdf.js, remplissage) -----
+   Reprise de pdf_viewer.css, sans les fonds en SVG data: ; la couleur de
+   surlignage (« Surligner les champs », comme Acrobat) est une variable. */
+.pdfx-stack {
+  --pdfx-field-bg: rgba(0, 54, 255, 0.13);
+  --pdfx-field-hover: #1d4ed8;
+  --pdfx-field-focus: var(--x-accent, #2563eb);
+  --pdfx-field-required: #dc2626;
+}
+.pdfx-stack.no-field-highlight {
+  --pdfx-field-bg: transparent;
+}
+.pdfx-stack .annotationLayer .hasOwnCanvas:not(.sandboxModified) :is(input, textarea) {
+  display: none;
+}
+.pdfx-stack .annotationLayer .hasOwnCanvas.sandboxModified canvas.annotationContent {
+  display: none;
+}
+.pdfx-stack .annotationLayer canvas.annotationContent {
   position: absolute;
-  inset: 0;
-  z-index: 7;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
-.pdfx-field {
-  border: 1px solid transparent;
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a,
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a {
+  cursor: pointer;
   border-radius: 2px;
-  background: rgba(191, 219, 254, 0.38);
-  color: #0f172a;
-  padding: 0 3px;
-  font-family: var(--el-font);
 }
-.pdfx-formlayer.is-highlighted .pdfx-field {
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.45);
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a:hover {
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: inset 0 0 0 1px var(--pdfx-field-hover);
 }
-.pdfx-field:focus {
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a:focus-visible {
+  outline: 2px solid var(--pdfx-field-focus);
+}
+.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input) {
+  background-color: var(--pdfx-field-bg);
+  background-image: none;
+  border: 2px solid transparent;
+  box-sizing: border-box;
+  font: calc(9px * var(--total-scale-factor)) sans-serif;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  vertical-align: top;
+  color: #000;
+}
+.pdfx-stack .annotationLayer .textWidgetAnnotation :is(input, textarea) {
+  padding: 0 calc(2px * var(--total-scale-factor));
+}
+.pdfx-stack .annotationLayer .textWidgetAnnotation textarea {
+  resize: none;
+}
+.pdfx-stack .annotationLayer .choiceWidgetAnnotation select option {
+  padding: 0;
+}
+.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
+  outline: 1.5px solid var(--pdfx-field-required);
+  outline-offset: -1px;
+}
+.pdfx-stack.no-field-highlight .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
   outline: none;
-  background: rgba(219, 234, 254, 0.9);
-  box-shadow: 0 0 0 2px var(--el-primary);
 }
-.pdfx-field.is-required {
-  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.5);
-}
-.pdfx-field.is-readonly {
-  background: rgba(226, 232, 240, 0.55);
-  border-style: dashed;
-}
-.pdfx-field--check {
-  accent-color: var(--el-primary);
+.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input)[disabled] {
   background: none;
+  border-color: transparent;
+  cursor: not-allowed;
 }
-.pdfx-field--sig {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px dashed var(--el-primary);
-  color: var(--el-primary-text);
-  font-size: 11px;
-  background: rgba(219, 234, 254, 0.35);
+.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):not([disabled]):hover {
+  border-color: var(--pdfx-field-hover);
+  border-radius: 2px;
+}
+.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select):focus {
+  background: #fff;
+  border: 2px solid var(--pdfx-field-focus);
+  border-radius: 2px;
+  outline: none;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) input {
+  appearance: none;
+  cursor: pointer;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) input:focus {
+  border: 2px solid var(--pdfx-field-focus);
+  outline: none;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.radioButton input {
+  border-radius: 50%;
+}
+/* Case / bouton radio : les deux apparences du fichier (cochée, non cochée)
+   sont dessinées par pdf.js ; on montre celle qui correspond à l'état. */
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="checked"]:has(~ input:not(:checked)),
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="unchecked"]:has(~ input:checked) {
+  display: none;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="checked"]) input:checked,
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="unchecked"]) input:not(:checked) {
+  background-image: none;
+}
+/* Sans apparence dans le fichier : une coche dessinée en CSS. */
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.checkBox:not(:has(canvas)) input:checked {
+  background: var(--pdfx-field-bg) center / 80% 80% no-repeat;
+  box-shadow: inset 0 0 0 100px transparent;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.checkBox:not(:has(canvas)) input:checked::after {
+  content: "✓";
+  display: block;
+  text-align: center;
+  font: bold calc(10px * var(--total-scale-factor)) / 1 sans-serif;
+  color: #000;
+}
+.pdfx-stack .annotationLayer .buttonWidgetAnnotation.radioButton:not(:has(canvas)) input:checked::after {
+  content: "";
+  display: block;
+  margin: 25%;
+  width: 50%;
+  height: 50%;
+  border-radius: 50%;
+  background: #000;
+}
+.pdfx-stack .annotationLayer .textWidgetAnnotation input.comb {
+  --comb-width: 0px;
+  --comb-letter-spacing: calc(var(--comb-width) - 1ch);
+  font-family: monospace;
+  letter-spacing: var(--comb-letter-spacing);
+  overflow-x: hidden;
+  padding: 0;
+  text-indent: calc(var(--comb-offset, 0) * var(--comb-width) + var(--comb-letter-spacing) / 2);
+}
+.pdfx-stack .annotationLayer .textWidgetAnnotation input.comb:focus {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 calc(var(--comb-width) - 1px),
+    var(--pdfx-field-focus) calc(var(--comb-width) - 1px) var(--comb-width)
+  );
+}
+/* Préparation de formulaire : les champs deviennent des cadres éditables
+   (calque Elium) — les contrôles de remplissage s'effacent. */
+.pdfx--mode-fields .pdfx-stack .annotationLayer section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
+  visibility: hidden;
 }
 
 .pdfx-editpreview {

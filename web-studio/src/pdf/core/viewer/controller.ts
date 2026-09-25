@@ -26,6 +26,7 @@ import type { PDFPageProxy } from "pdfjs-dist";
 import type { PdfEngine } from "../engine";
 import { pdfjsAssetBase } from "../assets";
 import { thumbnailsFor, type ThumbnailService } from "../thumbs";
+import { FormSession } from "../forms/session";
 import { ImportedAnnotationMask } from "./annotmask";
 import { EliumLinkService, type LinkHandlers } from "./links";
 import { NO_L10N, PDF_TO_CSS_UNITS, canvasBudget, type ViewerLib } from "./lib";
@@ -140,6 +141,9 @@ export class PageViewController {
   private readonly thumbs: ThumbnailService;
   private readonly detachRasters: () => void;
   readonly mask: ImportedAnnotationMask;
+  /** The document's AcroForm link (values ⇄ model, scripts). */
+  readonly forms: FormSession;
+  private readonly detachForms: () => void;
 
   private scale = 1;
   private optionalContent: Promise<unknown> | null = null;
@@ -154,6 +158,7 @@ export class PageViewController {
     this.engine = opts.engine;
     this.lib = opts.lib;
     this.mask = ImportedAnnotationMask.for(opts.engine);
+    this.forms = FormSession.for(opts.engine);
     this.buffer = new ViewBuffer<Entry>(bufferSizeFor(0), (e) => this.evict(e));
     this.queue = new RenderQueue(
       () => this.pick(),
@@ -162,16 +167,23 @@ export class PageViewController {
     this.eventBus = new opts.lib.EventBus();
     this.linkService = new EliumLinkService(opts.links);
     this.linkService.eventBus = this.eventBus;
+    // The form layer: pdf.js renders the document's fields as real controls
+    // bound to its annotationStorage (`FormSession` keeps that in step with
+    // Elium's model); `enableScripting` is settled (`forms.layerReady`)
+    // before the first view is created.
     this.layerProperties = {
       annotationEditorUIManager: null,
       annotationStorage: (opts.engine.raw as unknown as { annotationStorage?: unknown }).annotationStorage ?? null,
       downloadManager: null,
       enableScripting: false,
-      fieldObjectsPromise: null,
+      fieldObjectsPromise: this.forms.fieldObjects,
       findController: null,
-      hasJSActionsPromise: null,
+      hasJSActionsPromise: this.forms.hasJSActions,
       linkService: this.linkService,
     };
+    void this.forms.layerReady.then((enabled) => {
+      this.layerProperties.enableScripting = enabled;
+    });
     const base = pdfjsAssetBase();
     this.imageResourcesPath = base ? `${base}images/` : "";
     // Thumbnails wait while pages are left to draw here, and are copied from
@@ -208,6 +220,11 @@ export class PageViewController {
       this.queue.schedule();
     });
     this.abort.signal.addEventListener("abort", offIds);
+    this.detachForms = this.forms.attachViewer({
+      eventBus: this.eventBus as never,
+      refresh: (pages) => this.refreshForms(pages),
+      currentPage: () => opts.links.currentSourcePage(),
+    });
     on("textlayerrendered", ({ source }) => {
       const entry = this.byView.get(source as PageViewLike);
       const div = entry?.view?.textLayer?.div;
@@ -315,6 +332,8 @@ export class PageViewController {
       // mask be switched on before they arrive.
       const ids = this.mask.ensure(entry.from);
       if (this.mask.enabled) await ids;
+      // Whether the form layer wires the scripts must be known before it is built.
+      await this.forms.layerReady;
     } catch {
       entry.creating = false;
       entry.failed = true;
@@ -339,9 +358,10 @@ export class PageViewController {
       optionalContentConfigPromise: this.optionalContent ?? undefined,
       renderingQueue: this.queue,
       textLayerMode: RENDER_TEXT_LAYER,
-      // Paint every annotation appearance (form fields included) on the
-      // canvas; the HTML annotation layer only carries the link areas.
-      annotationMode: AnnotationMode.ENABLE,
+      // Form fields are live HTML controls (pdf.js' form layer, filled into
+      // the annotationStorage); every other appearance is painted on the
+      // canvas. The HTML layer also carries the link areas.
+      annotationMode: AnnotationMode.ENABLE_FORMS,
       imageResourcesPath: this.imageResourcesPath,
       enableDetailCanvas: true,
       maxCanvasPixels: budget.maxCanvasPixels,
@@ -549,6 +569,34 @@ export class PageViewController {
     view.detailView?.update({ underlyingViewUpdated: true });
   }
 
+  /**
+   * Rebuild the form layer of these source pages from the annotationStorage
+   * (after the model changed the values: undo, reset, import). The page is
+   * re-rendered with a new form layer; views not on screen simply drop their
+   * raster and are rebuilt when shown again.
+   */
+  refreshForms(pages: ReadonlySet<number>): void {
+    if (this.destroyed) return;
+    for (const entry of this.entries.values()) {
+      const view = entry.view;
+      if (!view || !pages.has(entry.from)) continue;
+      if (!entry.host) {
+        this.drop(entry);
+        continue;
+      }
+      view.reset({
+        keepAnnotationLayer: false,
+        keepAnnotationEditorLayer: true,
+        keepXfaLayer: true,
+        keepTextLayer: true,
+        keepCanvasWrapper: true,
+        preserveDetailViewState: true,
+      });
+      view.detailView?.update({ underlyingViewUpdated: true });
+    }
+    this.queue.schedule();
+  }
+
   /** The pdf.js page div of a slot (tests / diagnostics). */
   viewOf(key: string): PageViewLike | null {
     return this.entries.get(key)?.view ?? null;
@@ -564,6 +612,7 @@ export class PageViewController {
     if (this.scaleTimer) clearTimeout(this.scaleTimer);
     this.queue.stop();
     this.detachRasters();
+    this.detachForms();
     this.thumbs.setMainBusy(false);
     for (const entry of [...this.entries.values()]) this.drop(entry);
     this.buffer.clear();

@@ -91,6 +91,8 @@ export interface PageStackProps {
   /** The 1-based page being read (reported back through `onCurrentChange`). */
   currentPage: CurrentPage;
   showTextLayer: boolean;
+  /** Tint the form fields (Acrobat's « Surligner les champs »). Default: on. */
+  fieldHighlight?: boolean;
   /** Imported markup is drawn by Elium: pdf.js must not paint it. */
   maskImported: boolean;
   /** pdf.js OptionalContentConfig (layers), when some are hidden. */
@@ -621,7 +623,10 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       aria-label="Pages du document"
       tabIndex={0}
     >
-      <div className={`pdfx-stack ${p.showTextLayer ? "" : "no-text"}`} style={stackStyle}>
+      <div
+        className={`pdfx-stack ${p.showTextLayer ? "" : "no-text"} ${p.fieldHighlight === false ? "no-field-highlight" : ""}`}
+        style={stackStyle}
+      >
         {slots}
       </div>
     </div>

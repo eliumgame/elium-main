@@ -212,8 +212,13 @@ export interface Page {
 
 export type FieldKind = "text" | "checkbox" | "radio" | "dropdown" | "listbox" | "signature" | "button";
 
-/** Value of an AcroForm field: text/choice → string, checkbox → boolean. */
-export type FormValue = string | boolean;
+/**
+ * Value of an AcroForm field (see `core/forms/values.ts`): text / single choice
+ * → string; checkbox / radio → the export value of the checked widget, "Off"
+ * when none (older sessions stored checkboxes as booleans, still accepted);
+ * multi-select list → string[].
+ */
+export type FormValue = string | boolean | string[];
 
 /** A form field the user created in Elium (existing PDF fields are read live). */
 export interface CreatedField {

@@ -9,6 +9,7 @@ import {
   Maximize2,
   PanelLeftClose,
   PanelLeftOpen,
+  PenSquare,
   Search,
   Upload,
   X,
@@ -24,6 +25,8 @@ import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
 import { warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
+import { FormSession } from "../core/forms/session";
+import { sameFormValue } from "../core/forms/values";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
@@ -366,6 +369,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [localModels, setLocalModels] = useState(false);
   const ocrAbort = useRef<AbortController | null>(null);
   const [hasForm, setHasForm] = useState(false);
+  /** Tint the form fields (Acrobat's « Surligner les champs »), remembered per browser. */
+  const [fieldHighlight, setFieldHighlight] = useState(() => {
+    try {
+      return localStorage.getItem("elium.pdf.fieldHighlight") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [formBarHidden, setFormBarHidden] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const stackRef = useRef<PageStackHandle>(null);
@@ -799,6 +811,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     () => () => {
       if (!engine) return;
       releaseThumbnails(engine);
+      FormSession.peek(engine)?.destroy();
       engine.destroy();
     },
     [engine],
@@ -816,6 +829,37 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
     });
   }, [engine]);
+  // --- form filling (pdf.js form layer ⇄ state.formValues) -----------------
+  const formSession = useMemo(() => (engine ? FormSession.for(engine) : null), [engine]);
+  useEffect(() => {
+    if (formSession) formSession.fileName = fileName || "document.pdf";
+  }, [formSession, fileName]);
+  useEffect(() => {
+    if (!formSession) return;
+    const off = formSession.onChange((changes, meta) => {
+      const apply = (s: PdfState) => ({ ...s, formValues: { ...s.formValues, ...changes } });
+      // One undo step per field visit (typing) or per click (boxes, lists);
+      // what the form's scripts compute joins the step that caused it.
+      if (meta.newStep) setState(apply);
+      else setQuiet(apply);
+    });
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formSession]);
+  useEffect(() => {
+    formSession?.sync(state.formValues);
+  }, [formSession, state.formValues]);
+  useEffect(() => {
+    setFormBarHidden(false);
+  }, [engine]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("elium.pdf.fieldHighlight", fieldHighlight ? "1" : "0");
+    } catch {
+      /* preference only */
+    }
+  }, [fieldHighlight]);
+
   useEffect(() => {
     void hasLocalModels().then(setLocalModels);
     // Fetch the viewer components and start the pdf.js worker (fetch + compile
@@ -1929,8 +1973,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setTab("edit");
         return;
       case "formMode":
-        setMode(mode === "form" ? "view" : "form");
-        setTab("forms");
+        // Fields are fillable as soon as the file opens (pdf.js form layer):
+        // this command only toggles their highlighting, like Acrobat.
+        setFieldHighlight((v) => !v);
+        if (mode === "form" || mode === "fields") setMode("view");
         return;
       case "signature":
         setDialog("signature");
@@ -2115,10 +2161,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           toCsv(state.formValues),
         );
         return;
-      case "formReset":
-        setState((s) => D.resetForm(s));
-        toast("info", "Formulaire réinitialisé.");
+      case "formReset": {
+        // Every field back to its default value (/DV, else empty), on screen
+        // and in the file — not merely « forget this session's edits ».
+        if (!formSession) return;
+        await formSession.ready;
+        const defaults = formSession.defaults();
+        const changed = Object.entries(defaults).filter(
+          ([name, v]) => !sameFormValue(formSession.values()[name], v),
+        ).length;
+        setState((s) => ({ ...s, formValues: { ...s.formValues, ...defaults } }));
+        toast("info", changed ? `Formulaire réinitialisé (${changed} champ(s)).` : "Le formulaire est déjà vide.");
         return;
+      }
       case "formFlatten":
         setSaveAsPreset({ flattenForms: true });
         setDialog("save");
@@ -2887,7 +2942,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
           />
         )}
-        {(mode === "form" || mode === "fields") && (
+        {mode === "fields" && (
           <FormLayer
             engine={engine}
             from={page.from}
@@ -3248,6 +3303,36 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onClose={() => setMode("view")}
           />
         ) : (
+          <div className="pdfx-viewcol">
+            {hasForm && !formBarHidden && mode !== "fields" && (
+              <div className="pdfx-formbar" role="status">
+                <PenSquare size={15} aria-hidden />
+                <span className="pdfx-formbar__text">
+                  {engine.info.isXfa
+                    ? "Ce document contient un formulaire XFA : seuls ses champs AcroForm peuvent être remplis."
+                    : "Ce document contient des champs de formulaire remplissables."}
+                </span>
+                <label className="pdfx-formbar__toggle">
+                  <input
+                    type="checkbox"
+                    checked={fieldHighlight}
+                    onChange={(e) => setFieldHighlight(e.target.checked)}
+                  />
+                  Surligner les champs
+                </label>
+                <button className="pdfx-formbar__btn" onClick={() => void command("formReset")}>
+                  Effacer le formulaire
+                </button>
+                <button
+                  className="pdfx-formbar__close"
+                  onClick={() => setFormBarHidden(true)}
+                  title="Masquer ce bandeau"
+                  aria-label="Masquer ce bandeau"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           <PageStack
             ref={stackRef}
             key={docKey}
@@ -3261,6 +3346,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             theme={view.theme}
             currentPage={currentStore}
             showTextLayer={mode === "view" && tool !== "hand"}
+            fieldHighlight={fieldHighlight}
             maskImported={state.importedAnnots}
             optionalContent={ocConfig}
             hitsOf={hitsOf}
@@ -3282,6 +3368,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 });
             }}
           />
+          </div>
         )}
 
         {inspector && selection.length > 0 && mode === "view" && (

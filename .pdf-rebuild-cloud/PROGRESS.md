@@ -480,3 +480,14 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
   Nouveau paragraphe, Paragraphe), au choix dans l'inspecteur, dessinées pareil à l'écran
   et dans le fichier (model/noteicons.ts), /Name écrit et relu.
 - Tests : 3 unitaires, 1 XFDF, 1 navigateur. Suite complète 1947/1947 ; specs PDF 36/36.
+
+### Session cloud 1 : T4, point 12 (2e partie)
+
+- Auteur des commentaires : bouton « Auteur » (ruban Commenter, Révision), l'équivalent
+  de Préférences → Identité dans Acrobat. Mémorisé dans ce navigateur (ui/prefs.ts) ;
+  « Moi » tant que rien n'est choisi.
+- Propriétés mémorisées par outil, comme la barre de propriétés d'Acrobat : une couleur,
+  une épaisseur ou une police choisie outil en main (sans sélection) reste à cet outil,
+  y compris dans un autre document. L'inspecteur a « Par défaut » : les prochains
+  commentaires de ce type prennent l'aspect du commentaire sélectionné.
+- Test navigateur (Drive + bureau). Suite complète 1947/1947 ; specs PDF 38/38.

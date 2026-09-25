@@ -158,4 +158,38 @@ test.describe("PDF — commentaires", () => {
     await expect(card.getByRole("checkbox")).toBeChecked();
     expect(problems).toEqual([]);
   });
+
+  test("auteur des commentaires et propriétés mémorisées par outil", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    await page.getByRole("button", { name: "Auteur" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").fill("Marie Curie");
+    await dialog.getByRole("button", { name: "Valider" }).click();
+
+    // A colour set with the Rectangle tool in hand stays with that tool.
+    await page.getByRole("button", { name: "Rectangle" }).click();
+    await page.locator('.pdfx-optionbar [title="#2563eb"]').click();
+    await page.getByRole("button", { name: "Nuage" }).click();
+    await page.getByRole("button", { name: "Rectangle" }).click();
+    await expect(page.locator('.pdfx-optionbar [title="#2563eb"]')).toHaveClass(/is-active/);
+    const c = (await page.locator(".pdfx-canvas").first().boundingBox())!;
+    await page.mouse.move(c.x + 100, c.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 220, c.y + 180, { steps: 4 });
+    await page.mouse.up();
+
+    const doc = await save(page);
+    const sq = annotDicts(doc).find((d) => d.lookup(PDFName.of("Subtype"), PDFName).decodeText() === "Square")!;
+    expect(sq.lookup(PDFName.of("T"))?.toString()).toContain("Marie Curie");
+    expect(sq.lookup(PDFName.of("C"))?.toString()).toBe("[ 0.1451 0.3882 0.9216 ]");
+
+    // Both survive a new document (this browser's preferences).
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    await page.getByRole("button", { name: "Rectangle" }).click();
+    await expect(page.locator('.pdfx-optionbar [title="#2563eb"]')).toHaveClass(/is-active/);
+    expect(problems).toEqual([]);
+  });
 });

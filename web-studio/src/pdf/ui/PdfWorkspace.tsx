@@ -37,6 +37,7 @@ import type {
   AnnotKind,
   Bookmark,
   ContentEdit,
+  DraftStyle,
   ImageEdit,
   FieldKind,
   FieldProps,
@@ -142,6 +143,7 @@ import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
 import ImageEditLayer from "./ImageEditLayer";
+import { loadPdfPrefs, rememberToolStyle, savePdfPrefs, styleSubset, toolStyle } from "./prefs";
 import { rememberCustomStamp } from "../model/stamps";
 import { PDFDocument } from "pdf-lib";
 import { formOf } from "../ops/pdfform";
@@ -176,6 +178,7 @@ import {
 import {
   DEFAULT_SEARCH,
   DEFAULT_VIEW,
+  KIND_LABEL,
   MAX_SCALE,
   MIN_SCALE,
   READING_THEMES,
@@ -257,8 +260,16 @@ function startsWithBytes(whole: Uint8Array, prefix: Uint8Array): boolean {
   return true;
 }
 
-export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi", vaultSecret }: Props) {
+export default function PdfWorkspace({
+  onHome,
+  initial,
+  onExportElium,
+  author: authorProp = "Moi",
+  vaultSecret,
+}: Props) {
   const dialogs = useDialogs();
+  /** The comments' author (Acrobat's Préférences → Identité), remembered in this browser. */
+  const [author, setAuthor] = useState(() => loadPdfPrefs().author?.trim() || authorProp);
 
   // --- document -------------------------------------------------------------
   const [engine, setEngine] = useState<PdfEngine | null>(null);
@@ -1135,7 +1146,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       setSelectedIds([]);
     } else if (toolIsAnnot(next) && mode === "fields") setMode("view");
     if (toolIsAnnot(next)) {
-      setStyle((s) => styleForKind(s, next));
+      // The tool's defaults, then what the user last set for it (Acrobat's sticky properties).
+      setStyle((s) => ({ ...styleForKind(s, next), ...toolStyle(next) }));
       const target = TOOL_TAB[next];
       if (target && target !== tab) setTab(target);
     }
@@ -2300,6 +2312,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         void buildBookmarksFromHeadings();
         return;
 
+      case "setAuthor": {
+        const name = await dialogs.prompt({
+          title: "Auteur des commentaires",
+          label: "Nom affiché sur vos commentaires et réponses",
+          defaultValue: author,
+        });
+        if (name === null) return;
+        const next = name.trim() || authorProp;
+        setAuthor(next);
+        savePdfPrefs({ author: next });
+        toast("success", "Auteur des commentaires", next);
+        return;
+      }
       case "exportCommentsFdf": {
         const { toFdfComments } = await import("../ops/fdfcomments");
         const fdf = await toFdfComments(state.annots, pages, await fdfBoxes(), fileName || "document.pdf", {
@@ -3770,6 +3795,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           // The stamp choice is the tool's, not a property of the selected comments.
           const { stamp: _s, stampSrc: _src, stampRatio: _r, ...rest } = patch;
           if (selectedIds.length && Object.keys(rest).length) patchSelection(rest as Partial<Annot>);
+          // Set with a tool in hand and nothing selected: that tool keeps it.
+          else if (toolIsAnnot(tool)) rememberToolStyle(tool, rest);
         }}
         onCommand={(id) => void command(id)}
         onStickyTool={setSticky}
@@ -3998,6 +4025,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             pageCount={pageCount}
             measureScale={state.measureScale}
             onPatch={patchSelection}
+            onMakeDefault={(a) => {
+              rememberToolStyle(a.kind, styleSubset(a as unknown as Partial<DraftStyle>));
+              toast("success", "Propriétés par défaut", `Les prochains « ${KIND_LABEL[a.kind]} » auront cet aspect.`);
+            }}
             onStatus={(status) =>
               setState((s) => D.setStatus(s, selectedIds, status, author, new Date().toISOString()))
             }

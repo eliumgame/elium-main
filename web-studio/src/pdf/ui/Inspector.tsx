@@ -42,6 +42,8 @@ export interface InspectorProps {
   pageCount: number;
   measureScale: MeasureScale;
   onPatch: (patch: Partial<Annot>) => void;
+  /** « Utiliser comme propriétés par défaut »: the tool of this kind takes this look. */
+  onMakeDefault?: (a: Annot) => void;
   /** A review action: sets the status AND records it in the thread (as the comments pane does). */
   onStatus: (status: ReviewStatus) => void;
   onDelete: () => void;
@@ -468,6 +470,15 @@ export default function Inspector(p: InspectorProps) {
         <button className="pdfx-mini" onClick={p.onDuplicate}>
           <Copy size={13} /> Dupliquer
         </button>
+        {one && p.onMakeDefault && (
+          <button
+            className="pdfx-mini"
+            title="Les prochains commentaires de ce type auront cet aspect"
+            onClick={() => p.onMakeDefault!(one)}
+          >
+            Par défaut
+          </button>
+        )}
         <button className="pdfx-mini pdfx-mini--danger" onClick={p.onDelete} disabled={locked}>
           <Trash2 size={13} /> Supprimer
         </button>

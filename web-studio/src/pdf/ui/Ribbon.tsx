@@ -76,6 +76,7 @@ import {
   Underline,
   Undo2,
   Unlock,
+  UserRound,
   Volume2,
   Waves,
   ZoomIn,
@@ -504,6 +505,12 @@ export default function Ribbon(p: RibbonProps) {
                 onClick={C("exportCommentsFdf")}
                 label="Exporter FDF"
                 title="Exporter les commentaires (FDF, format natif d'Acrobat)"
+              />
+              <Cmd
+                icon={<UserRound size={17} />}
+                onClick={C("setAuthor")}
+                label="Auteur"
+                title="Nom de l'auteur de vos commentaires"
               />
               <Cmd
                 icon={<FileOutput size={17} />}

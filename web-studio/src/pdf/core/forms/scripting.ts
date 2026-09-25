@@ -84,6 +84,8 @@ export class FormScripting {
   private calculationOrder: string[] | null = null;
   /** Last value each widget committed (the file's, then every accepted update) — see `onUpdate`. */
   private committed = new Map<string, { value: unknown; formattedValue: unknown }>();
+  /** Values `typeAhead` gave each field, in order (see there). */
+  private typed = new Map<string, string[]>();
   /** Resolves once the first sandbox is up (true) or failed to start (false). */
   readonly ready: Promise<boolean>;
 
@@ -129,14 +131,17 @@ export class FormScripting {
     const gen = ++this.generation;
     const run = (async () => {
       try {
-        const [mod, objects] = await Promise.all([loadSandboxModule(), this.o.objects()]);
-        this.rememberValues(objects);
+        const mod = await loadSandboxModule();
         const urls = pdfjsAssetUrls()!;
         const sandbox = await mod.QuickJSSandbox(new URL(urls.wasmUrl, location.href).href);
         if (this.destroyed || gen !== this.generation) {
           sandbox.nukeSandbox();
           return false;
         }
+        // The values as they are NOW: what was typed while the engine loaded
+        // (the form layer is not scripted until it is up) is in them.
+        const objects = await this.o.objects();
+        this.rememberValues(objects);
         const info = await this.o.pdf.getMetadata().catch(() => null);
         const meta = (info?.info ?? {}) as Record<string, unknown>;
         sandbox.create({
@@ -218,10 +223,55 @@ export class FormScripting {
   private dispatch(event: unknown): void {
     if (this.destroyed || !event) return;
     if (!this.sandbox) {
+      // While the engine loads, pdf.js still cancels the typing in a field
+      // with a Keystroke script and waits for the answer: give it (the plain
+      // edit, not filtered yet), or what was typed in the first second is
+      // lost and an empty value committed. Only commits wait for the engine.
+      if (this.typeAhead(event)) return;
+      const id = (event as { id?: unknown }).id;
+      if (typeof id === "string") this.typed.delete(id);
       this.queue.push(event);
       return;
     }
     this.post(event);
+  }
+
+  /** The engine's answer to a keystroke, computed here while it is not up yet. */
+  private typeAhead(event: unknown): boolean {
+    const e = event as {
+      id?: unknown;
+      name?: unknown;
+      willCommit?: unknown;
+      value?: unknown;
+      change?: unknown;
+      selStart?: unknown;
+      selEnd?: unknown;
+    };
+    if (e.name !== "Keystroke" || e.willCommit || typeof e.id !== "string" || typeof e.change !== "string") {
+      return false;
+    }
+    let value = typeof e.value === "string" ? e.value : String(e.value ?? "");
+    let start = typeof e.selStart === "number" ? Math.max(0, Math.min(value.length, e.selStart)) : value.length;
+    let end = typeof e.selEnd === "number" ? Math.max(start, Math.min(value.length, e.selEnd)) : start;
+    // Fast typing: a keystroke can carry the field as it was before our last
+    // answer reached it. Applied to that stale value, the characters in
+    // between would be lost — apply it to the latest one instead.
+    const chain = this.typed.get(e.id);
+    const at = chain ? chain.lastIndexOf(value) : -1;
+    if (chain && at >= 0 && at < chain.length - 1) {
+      const latest = chain[chain.length - 1];
+      const shift = latest.length - value.length;
+      value = latest;
+      start = Math.max(0, Math.min(latest.length, start + shift));
+      end = Math.max(start, Math.min(latest.length, end + shift));
+    }
+    const next = value.slice(0, start) + e.change + value.slice(end);
+    const caret = start + e.change.length;
+    this.typed.set(e.id, [...(chain && at >= 0 ? chain : [value]), next].slice(-64));
+    this.onUpdate(
+      new CustomEvent("updatefromsandbox", { detail: { id: e.id, value: next, selRange: [caret, caret] } }),
+    );
+    return true;
   }
 
   private post(event: unknown): void {
@@ -229,7 +279,13 @@ export class FormScripting {
     if (!sandbox) return;
     // Like pdf.js: after the widget's own DOM handlers have run.
     setTimeout(() => {
-      if (this.sandbox !== sandbox) return;
+      // Rebuilt in the meantime (new values pushed from outside): the event
+      // goes to the new sandbox — or its queue — instead of being lost, which
+      // left a quickly typed value out of the calculations.
+      if (this.sandbox !== sandbox) {
+        this.dispatch(event);
+        return;
+      }
       try {
         sandbox.dispatchEvent(event);
       } catch (e) {

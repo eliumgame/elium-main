@@ -500,6 +500,12 @@ export default function Ribbon(p: RibbonProps) {
                 title="Exporter les commentaires (XFDF)"
               />
               <Cmd
+                icon={<FileDown size={17} />}
+                onClick={C("exportCommentsFdf")}
+                label="Exporter FDF"
+                title="Exporter les commentaires (FDF, format natif d'Acrobat)"
+              />
+              <Cmd
                 icon={<FileOutput size={17} />}
                 onClick={C("importComments")}
                 label="Importer"

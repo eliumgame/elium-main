@@ -439,3 +439,30 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - Tests : pdf-xfdf (10). Suite complète 1941/1941 ; specs PDF 30/30.
 - À vérifier dans Acrobat : exporter les commentaires d'Elium en XFDF puis « Importer les
   commentaires » dans Acrobat, et l'inverse.
+
+### Session cloud 1 : T4, point 11 (FDF de commentaires) et un correctif formulaires
+
+- Commentaires en FDF (ops/fdfcomments.ts), le format natif d'« Exporter les
+  commentaires » d'Acrobat :
+  - export (bouton « Exporter FDF ») : les annotations sont écrites par le code de
+    l'enregistrement (apparences, /RD, réponses, états) puis sérialisées en FDF, avec
+    /Page à la place de /P ;
+  - import (« Importer » accepte un FDF, qui peut porter des champs ET des
+    commentaires) : les annotations sont posées sur des pages vides de la taille du
+    document, puis lues comme un PDF ouvert. Elles reçoivent de nouveaux id, et le /NM
+    sert à les reconnaître à une réimportation.
+  Tests : pdf-fdf-comments (2), spec navigateur (export puis import, Drive + bureau).
+- Corrigé : l'icône d'une note avec apparence était perdue à l'import (pdf.js remplace
+  /Name par « NoIcon »).
+- Corrigé (formulaires, trouvé en chassant un test instable) : ce qui était tapé dans un
+  champ à script de frappe (AFNumber_Keystroke…) AVANT que le moteur de scripts soit
+  chargé disparaissait (pdf.js annule la frappe et attend la réponse du moteur), puis
+  une valeur vide était validée : total faux. Tant que le moteur charge, la réponse est
+  calculée localement (sans filtrage), et même si la frappe arrive avec la valeur
+  d'avant la réponse précédente, aucun caractère n'est perdu. Seules les validations
+  attendent le moteur. Un événement parti vers un moteur reconstruit entre-temps est
+  renvoyé au nouveau au lieu d'être perdu. Test déterministe (moteur retardé de 3 s),
+  qui échoue sans le correctif.
+- Suite complète 1943/1943 ; specs PDF 34/34 ; stress 40/40 à 4 workers.
+- À vérifier dans Acrobat : exporter en FDF depuis Elium puis « Importer les
+  commentaires » dans Acrobat, et un FDF de commentaires d'Acrobat importé dans Elium.

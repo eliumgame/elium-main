@@ -23,7 +23,7 @@ import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts"
 import type { Quad, Rect, Rotation, Size } from "../core/coords";
 import { clamp, normRotation, rectOfQuads } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
-import { warmUpPdfWorker } from "../core/assets";
+import { openPdfDocument, warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
 import { FormSession } from "../core/forms/session";
 import { isEmptyValue, sameFormValue } from "../core/forms/values";
@@ -127,6 +127,7 @@ import {
   type RawDataValue,
 } from "../ops/formdata";
 import { fromXfdf, mergeImported, toXfdf, type XfdfPageBox } from "../ops/xfdf";
+import type { FdfPageBox } from "../ops/fdfcomments";
 import {
   hasImportableAnnots,
   importPageAnnots,
@@ -1730,6 +1731,39 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return out;
   };
 
+  /** Each page's geometry for an FDF of comments (size, origin, rotation). */
+  const fdfBoxes = async (): Promise<Map<string, FdfPageBox>> => {
+    const out = new Map<string, FdfPageBox>();
+    for (const pg of pages) {
+      const { w, h } = sizeOf(pg);
+      let box: FdfPageBox = { w, h, rotate: pg.rotate ?? 0 };
+      if (pg.from != null && engine) {
+        try {
+          const info = await engine.pageInfo(pg.from);
+          box = { w, h, ox: info.ox, oy: info.oy, rotate: (((info.rotate + (pg.rotate ?? 0)) % 360) + 360) % 360 };
+        } catch {
+          /* page 1's guess stays */
+        }
+      }
+      out.set(pg.id, box);
+    }
+    return out;
+  };
+
+  /** pdf.js' annotations of every page of `pdf` (the viewer's own reading). */
+  const readPdfAnnotations = async (pdf: Uint8Array): Promise<RawAnnotation[][]> => {
+    const task = openPdfDocument(pdf);
+    try {
+      const doc = await task.promise;
+      const out: RawAnnotation[][] = [];
+      for (let i = 1; i <= doc.numPages; i++)
+        out.push((await (await doc.getPage(i)).getAnnotations()) as RawAnnotation[]);
+      return out;
+    } finally {
+      void task.destroy();
+    }
+  };
+
   /** Where the source bytes of a recomposed document (inserted pages, OCR) go: see `openBytes` « derived ». */
   const adoptDerived = async (bytes: Uint8Array, session: DerivedSession, signedKept: boolean, keep?: PdfState) => {
     // The destination still holds the previous source (never saved into):
@@ -2266,6 +2300,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         void buildBookmarksFromHeadings();
         return;
 
+      case "exportCommentsFdf": {
+        const { toFdfComments } = await import("../ops/fdfcomments");
+        const fdf = await toFdfComments(state.annots, pages, await fdfBoxes(), fileName || "document.pdf", {
+          author,
+          measureScale: state.measureScale,
+        });
+        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-commentaires.fdf`, "application/vnd.fdf", fdf);
+        toast("success", "Commentaires exportés", `${state.annots.length} élément(s) au format FDF.`);
+        return;
+      }
       case "exportComments": {
         const xml = toXfdf(state.annots, pages, await xfdfBoxes(), fileName || "document.pdf");
         downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-commentaires.xfdf`, "application/vnd.adobe.xfdf", xml);
@@ -3051,6 +3095,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     try {
       if (head.startsWith("%FDF")) {
         raw = parseFdf(bytes);
+        // An FDF can carry comments too (Acrobat's « Exporter les commentaires »).
+        const { fromFdfComments } = await import("../ops/fdfcomments");
+        const imported = await fromFdfComments(bytes, pages, await fdfBoxes(), author, readPdfAnnotations).catch(
+          () => [] as Annot[],
+        );
+        if (imported.length) {
+          setState((s) => ({ ...s, annots: mergeImported(s.annots, imported.map(D.syncRect)) }));
+          comments = imported.length;
+        }
       } else {
         const text = new TextDecoder("utf-8").decode(bytes);
         if (/\.xfdf$/i.test(file.name) || /<xfdf[\s>]/.test(text)) {

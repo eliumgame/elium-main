@@ -92,4 +92,34 @@ test.describe("PDF — commentaires", () => {
     expect(polys[0].lookup(PDFName.of("Vertices"), PDFArray).size()).toBeGreaterThanOrEqual(8);
     expect(problems).toEqual([]);
   });
+
+  test("exporter puis importer les commentaires en FDF", async ({ page }) => {
+    const problems = health(page);
+    await open(page, await blankPdf());
+    await page.getByRole("tab", { name: "Commenter" }).click();
+    await page.getByRole("button", { name: "Tampon" }).click();
+    await page
+      .getByRole("menu", { name: "Tampons" })
+      .getByRole("menuitem", { name: /Confidentiel/ })
+      .first()
+      .click();
+    const c = (await page.locator(".pdfx-canvas").first().boundingBox())!;
+    await page.mouse.click(c.x + 150, c.y + 200);
+    await expect(page.locator(".pdfx-stamp").first()).toContainText("Confidentiel");
+    const dl = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Exporter FDF" }).click();
+    const fdf = Buffer.concat(await (await (await dl).createReadStream()).toArray());
+    expect(fdf.subarray(0, 8).toString("latin1")).toBe("%FDF-1.2");
+
+    // A fresh copy of the document, then « Importer » the FDF.
+    await open(page, await blankPdf());
+    await expect(page.locator(".pdfx-stamp")).toHaveCount(0);
+    await page.setInputFiles('input[type="file"][accept*=".fdf"]', {
+      name: "vierge-commentaires.fdf",
+      mimeType: "application/vnd.fdf",
+      buffer: fdf,
+    });
+    await expect(page.locator(".pdfx-stamp").first()).toContainText("Confidentiel");
+    expect(problems).toEqual([]);
+  });
 });

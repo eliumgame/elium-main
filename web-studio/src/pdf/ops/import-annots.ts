@@ -725,7 +725,11 @@ export function importPageAnnots(
       }
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
-        if (a.name && NOTE_ICONS.has(a.name)) annot.icon = a.name;
+        {
+          // pdf.js says « NoIcon » for a note with an appearance: the file's /Name wins.
+          const icon = a.extras?.name ?? a.name;
+          if (icon && NOTE_ICONS.has(icon)) annot.icon = icon;
+        }
         break;
       case "redact":
         // pdf.js hands /Redact over as a base annotation (no /IC, no overlay

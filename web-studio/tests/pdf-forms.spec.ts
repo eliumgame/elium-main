@@ -87,6 +87,33 @@ test.describe("PDF — formulaires", () => {
   });
 });
 
+test.describe("PDF — formulaires : saisie pendant le chargement des scripts", () => {
+  test("ce qui est tapé avant que le moteur de scripts soit prêt n'est pas perdu", async ({ page }) => {
+    const problems = trackHealth(page);
+    await noFilePickers(page);
+    // The script engine (QuickJS) arrives 3 s late: typing starts before it runs.
+    let release!: () => void;
+    const late = new Promise<void>((ok) => (release = ok));
+    await page.route("**/quickjs-eval.wasm", async (route) => {
+      await late;
+      await route.continue();
+    });
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    await field(page, "qte").fill("4");
+    await field(page, "prix").click();
+    // At a (fast) human pace: instant keys outrun even the loaded engine.
+    await page.keyboard.type("2.5", { delay: 30 });
+    await expect(field(page, "qte")).toHaveValue("4");
+    await expect(field(page, "prix")).toHaveValue("2.5");
+    await field(page, "nom").click();
+    release();
+    // Once the engine is up, the commits it waited for run: calculate, format.
+    await expect(field(page, "total")).toHaveValue("10,00 €", { timeout: 15_000 });
+    await expect(field(page, "prix")).toHaveValue("2.50");
+    expect(problems).toEqual([]);
+  });
+});
+
 test.describe("PDF — formulaires : validation", () => {
   test("une valeur refusée par le script de validation est signalée et annulée", async ({ page }) => {
     const problems = trackHealth(page);

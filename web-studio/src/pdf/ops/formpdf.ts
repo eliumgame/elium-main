@@ -226,7 +226,7 @@ export function defaultAppearanceOf(widget: PDFWidgetAnnotation, field: PDFField
   for (let depth = 0; dict && depth < 32; depth++) {
     const da = decodeText(dict.lookup(PDFName.of("DA")));
     if (da) return da;
-    const parent = dict.lookup(PDFName.of("Parent"));
+    const parent: unknown = dict.lookup(PDFName.of("Parent"));
     dict = parent instanceof PDFDict ? parent : undefined;
   }
   return decodeText(form.acroForm.dict.lookup(PDFName.of("DA"))) ?? "/Helv 0 Tf 0 g";
@@ -392,9 +392,10 @@ function textOf(field: PDFField): { text: string; spec: Omit<DrawSpec, "text"> }
     const value = field.acroField.getValues()[0];
     const v = value ? value.decodeText() : "";
     const opt = field.acroField.getOptions().find((o) => o.value.decodeText() === v);
+    const q = field.acroField.dict.lookup(PDFName.of("Q"));
     return {
       text: opt?.display?.decodeText() ?? v,
-      spec: { multiline: false, comb: 0, alignment: ALIGN[field.acroField.getQuadding() ?? 0] ?? TextAlignment.Left },
+      spec: { multiline: false, comb: 0, alignment: ALIGN[q instanceof PDFNumber ? q.asNumber() : 0] ?? TextAlignment.Left },
     };
   }
   return null;

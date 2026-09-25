@@ -1,0 +1,2 @@
+# Les PDF du corpus sont binaires : jamais de conversion de fins de ligne.
+*.pdf binary

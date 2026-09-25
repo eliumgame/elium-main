@@ -11,6 +11,9 @@ import { createCrypt, writeEncrypted } from "../src/pdf/ops/security";
 import { signPdfBytes, verifyPdfSignatures } from "../src/pdf/ops/pades";
 import { generateSelfSignedP12 } from "../src/pdf/ops/self-cert";
 import { importPageAnnots, type RawAnnotation } from "../src/pdf/ops/import-annots";
+import { writeOcrLayer } from "../src/pdf/ops/ocr";
+import { FontBook } from "../src/pdf/ops/fonts";
+import { sameValue } from "../src/pdf/model/same";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, newId, type Annot, type PdfState } from "../src/pdf/model/types";
 
@@ -210,4 +213,45 @@ describe("adding a comment leaves the page content alone", () => {
     const tail = Buffer.from(r.bytes.subarray(src.length)).toString("latin1");
     expect(tail).not.toContain(`${after.getPage(1).ref.objectNumber} 0 obj`);
   }, 30_000);
+});
+
+describe("OCR text layer added to a protected document", () => {
+  it("goes into an update of the source, encrypted with its key: searchable text, same pages", async () => {
+    const src = await writeEncrypted(
+      await PDFDocument.load(await makePdf(2, "Scan")),
+      createCrypt({ userPassword: "test", ownerPassword: "owner" }),
+    );
+    const derived = await savePdf({
+      source: src,
+      state: stateFor(2),
+      options: { password: "test" },
+      transform: async (doc) => {
+        const book = new FontBook(doc);
+        await writeOcrLayer(
+          doc,
+          doc.getPage(1),
+          [{ text: "Reconnu", confidence: 90, rect: { x: 20, y: 150, w: 80, h: 14 } }],
+          book,
+        );
+      },
+    });
+    expect(derived.report.mode).toBe("incremental");
+    expect(derived.report.encryption).toBe("kept");
+    expect(startsWith(derived.bytes, src)).toBe(true);
+    expect(Buffer.from(derived.bytes.subarray(src.length)).toString("latin1")).not.toContain("Reconnu");
+    const js = await openJs(derived.bytes, "test");
+    expect(js.numPages).toBe(2);
+    expect(await pageText(js, 2)).toContain("Reconnu");
+    await js.destroy();
+  }, 30_000);
+});
+
+describe("sameValue (restored annotations / outline recognised as untouched)", () => {
+  it("compares structurally, ignores undefined keys and the named keys", () => {
+    expect(sameValue({ a: 1, b: [1, { c: "x" }], d: undefined }, { b: [1, { c: "x" }], a: 1 })).toBe(true);
+    expect(sameValue({ a: 1 }, { a: 2 })).toBe(false);
+    expect(sameValue([{ id: "1", t: "A" }], [{ id: "2", t: "A" }], new Set(["id"]))).toBe(true);
+    expect(sameValue([{ id: "1", t: "A" }], [{ id: "2", t: "A" }])).toBe(false);
+    expect(sameValue(null, {})).toBe(false);
+  });
 });

@@ -126,7 +126,7 @@ import {
   toXfdfFields,
   type RawDataValue,
 } from "../ops/formdata";
-import { fromXfdf, toXfdf } from "../ops/xfdf";
+import { fromXfdf, mergeImported, toXfdf, type XfdfPageBox } from "../ops/xfdf";
 import {
   hasImportableAnnots,
   importPageAnnots,
@@ -1710,6 +1710,26 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return ok;
   };
 
+  /** Each page's frame for XFDF (height, crop-box origin in PDF user space). */
+  const xfdfBoxes = async (): Promise<Map<string, XfdfPageBox>> => {
+    const out = new Map<string, XfdfPageBox>();
+    for (const pg of pages) {
+      const h = sizeOf(pg).h;
+      if (pg.from == null) {
+        out.set(pg.id, h);
+        continue;
+      }
+      try {
+        if (!engine) throw new Error("no engine");
+        const info = await engine.pageInfo(pg.from);
+        out.set(pg.id, { h, ox: info.ox, oy: info.oy });
+      } catch {
+        out.set(pg.id, h);
+      }
+    }
+    return out;
+  };
+
   /** Where the source bytes of a recomposed document (inserted pages, OCR) go: see `openBytes` « derived ». */
   const adoptDerived = async (bytes: Uint8Array, session: DerivedSession, signedKept: boolean, keep?: PdfState) => {
     // The destination still holds the previous source (never saved into):
@@ -2247,8 +2267,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
 
       case "exportComments": {
-        const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
-        const xml = toXfdf(state.annots, pages, heights, fileName || "document.pdf");
+        const xml = toXfdf(state.annots, pages, await xfdfBoxes(), fileName || "document.pdf");
         downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-commentaires.xfdf`, "application/vnd.adobe.xfdf", xml);
         toast("success", "Commentaires exportés", `${state.annots.length} élément(s) au format XFDF.`);
         return;
@@ -3036,10 +3055,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         const text = new TextDecoder("utf-8").decode(bytes);
         if (/\.xfdf$/i.test(file.name) || /<xfdf[\s>]/.test(text)) {
           raw = parseXfdfFields(text);
-          const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
-          const imported = fromXfdf(text, pages, heights, author);
+          const imported = fromXfdf(text, pages, await xfdfBoxes(), author);
           if (imported.length) {
-            setState((s) => imported.reduce((acc, a) => D.addAnnot(acc, a), s));
+            // The same comment imported again (or sent back) replaces its copy.
+            setState((s) => ({ ...s, annots: mergeImported(s.annots, imported.map(D.syncRect)) }));
             comments = imported.length;
           }
         } else {

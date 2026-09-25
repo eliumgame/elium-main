@@ -417,3 +417,25 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
 - À vérifier dans Acrobat : une page paysage tournée à 90° avec une zone de texte et un
   tampon d'Elium, qui doivent être droits ; puis modifier la zone dans Acrobat, qui doit
   rester droite.
+
+### Session cloud 1 : T4, point 11 (XFDF)
+
+- XFDF réécrit selon la spécification XFDF 3.0 d'Adobe et ce qu'Acrobat écrit :
+  - statut en réponse d'état (`state` / `statemodel`), relu, avec aussi l'ancien
+    `<elium:status>` ;
+  - origine du CropBox dans les deux sens ;
+  - toutes les terminaisons de ligne aux deux bouts (head, tail) ;
+  - opacité et épaisseur 0 conservées ;
+  - zones de texte : `color` = fond, texte dans `defaultappearance`, justification,
+    légende (`callout`, intent), machine à écrire ;
+  - mesures (intent Dimension), nuage, pointillés, caviardages (overlay-text,
+    interior-color), icône de note, /Open, tampons (icon = /Name de la bibliothèque,
+    rotation), drapeaux (masqué, verrouillé, noprint…), texte riche, fuseau horaire des
+    dates ;
+  - les membres de groupe (« Remplacer le texte ») ne sont plus pris pour des
+    réponses ; les réponses aux réponses rejoignent le fil.
+- Réimporter les mêmes commentaires les met à jour au lieu de les dupliquer (par `name`,
+  ou par le /NM du fichier d'origine).
+- Tests : pdf-xfdf (10). Suite complète 1941/1941 ; specs PDF 30/30.
+- À vérifier dans Acrobat : exporter les commentaires d'Elium en XFDF puis « Importer les
+  commentaires » dans Acrobat, et l'inverse.

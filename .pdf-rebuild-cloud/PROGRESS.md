@@ -607,3 +607,13 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   contrairement à l'infobulle).
 - Extraction : les indices tiennent compte des pages exclues (mauvaises pages extraites).
 - « Avant la page 1 » insère bien en tête (et non à la fin).
+
+### Session cloud 1 : T5, point 6 (signets)
+- Les signets suivent leurs pages à chaque déplacement, suppression, insertion,
+  duplication ou inversion (`followPages`). Un signet vers une page supprimée tombe sur la
+  page suivante. À l'enregistrement, les numéros sont convertis vers l'ordre écrit (pages
+  exclues retirées).
+- Les signets du fichier, simplement déplacés avec leurs pages, restent ceux du fichier
+  (actions comprises) au lieu d'être réécrits.
+- Duplication : les modifications d'images sont copiées, les liens de groupe suivent les
+  copies, et une copie ne reprend pas le /NM de l'original.

@@ -41,15 +41,38 @@ export function pageIndexById(state: PdfState, id: string): number {
 }
 
 /** Move `ids` so they land at `to` (an index in the *current* order). */
+/**
+ * Bookmarks that follow their pages once the pages changed (moved, deleted,
+ * inserted, duplicated, reversed): each keeps its target page — one deleted
+ * falls on the next page still there (the previous one at the end).
+ */
+export function followPages(prev: PdfState, next: PdfState): PdfState {
+  if (!prev.bookmarks || prev.pages === next.pages) return next;
+  const at = new Map(next.pages.map((p, i) => [p.id, i + 1]));
+  const remap = (n: number): number | null => {
+    for (let i = n - 1; i < prev.pages.length; i++) {
+      const pos = at.get(prev.pages[i]?.id ?? "");
+      if (pos) return pos;
+    }
+    for (let i = n - 2; i >= 0; i--) {
+      const pos = at.get(prev.pages[i]?.id ?? "");
+      if (pos) return pos;
+    }
+    return null;
+  };
+  return { ...next, bookmarks: remapBookmarkPages(prev.bookmarks, remap) };
+}
+
 export function reorderPages(state: PdfState, ids: readonly string[], to: number): PdfState {
-  const moving = state.pages.filter((p) => ids.includes(p.id));
+  const ids_ = new Set(ids);
+  const moving = state.pages.filter((p) => ids_.has(p.id));
   if (!moving.length) return state;
-  const rest = state.pages.filter((p) => !ids.includes(p.id));
+  const rest = state.pages.filter((p) => !ids_.has(p.id));
   // `to` counts positions in the original list; translate it to the gap it
   // designates once the moved pages are lifted out.
-  const before = state.pages.slice(0, to).filter((p) => !ids.includes(p.id)).length;
+  const before = state.pages.slice(0, to).filter((p) => !ids_.has(p.id)).length;
   const next = [...rest.slice(0, before), ...moving, ...rest.slice(before)];
-  return { ...state, pages: next };
+  return followPages(state, { ...state, pages: next });
 }
 
 export function movePageBy(state: PdfState, id: string, delta: number): PdfState {
@@ -60,52 +83,65 @@ export function movePageBy(state: PdfState, id: string, delta: number): PdfState
   const pages = state.pages.slice();
   const [p] = pages.splice(i, 1);
   pages.splice(j, 0, p);
-  return { ...state, pages };
+  return followPages(state, { ...state, pages });
 }
 
 /** Delete pages (and their annotations). Never leaves the document empty. */
 export function deletePages(state: PdfState, ids: readonly string[]): PdfState {
-  const keep = state.pages.filter((p) => !ids.includes(p.id));
-  if (!keep.length) return state;
   const gone = new Set(ids);
-  return {
+  const keep = state.pages.filter((p) => !gone.has(p.id));
+  if (!keep.length) return state;
+  return followPages(state, {
     ...state,
     pages: keep,
     annots: state.annots.filter((a) => !gone.has(a.pageId)),
     contentEdits: state.contentEdits.filter((e) => !gone.has(e.pageId)),
     imageEdits: state.imageEdits.filter((e) => !gone.has(e.pageId)),
     createdFields: state.createdFields.filter((f) => !gone.has(f.pageId)),
-  };
+  });
 }
 
 export function duplicatePages(state: PdfState, ids: readonly string[]): PdfState {
+  const wanted = new Set(ids);
   const pages: Page[] = [];
   const annots = state.annots.slice();
   const contentEdits = state.contentEdits.slice();
+  const imageEdits = state.imageEdits.slice();
   const createdFields = state.createdFields.slice();
   for (const p of state.pages) {
     pages.push(p);
-    if (!ids.includes(p.id)) continue;
+    if (!wanted.has(p.id)) continue;
     const copy: Page = { ...p, id: newId("pg") };
     pages.push(copy);
+    // Group links (a strike-out to its Caret) follow the copies.
+    const copied = new Map<string, string>();
     for (const a of state.annots) {
       if (a.pageId !== p.id) continue;
-      annots.push({ ...cloneAnnot(a), pageId: copy.id });
+      const c = { ...cloneAnnot(a), pageId: copy.id };
+      copied.set(a.id, c.id);
+      annots.push(c);
+    }
+    for (let i = annots.length - copied.size; i < annots.length; i++) {
+      const g = annots[i].group;
+      if (g && copied.has(g)) annots[i] = { ...annots[i], group: copied.get(g) };
     }
     for (const e of state.contentEdits) {
       if (e.pageId === p.id) contentEdits.push({ ...e, id: newId("ce"), pageId: copy.id });
+    }
+    for (const e of state.imageEdits) {
+      if (e.pageId === p.id) imageEdits.push({ ...e, id: newId("im"), pageId: copy.id });
     }
     for (const f of state.createdFields) {
       if (f.pageId === p.id) createdFields.push({ ...f, id: newId("fd"), pageId: copy.id, name: `${f.name}_copie` });
     }
   }
-  return { ...state, pages, annots, contentEdits, createdFields };
+  return followPages(state, { ...state, pages, annots, contentEdits, imageEdits, createdFields });
 }
 
 export function insertPages(state: PdfState, at: number, pages: readonly Page[]): PdfState {
   const next = state.pages.slice();
   next.splice(Math.max(0, Math.min(next.length, at)), 0, ...pages);
-  return { ...state, pages: next };
+  return followPages(state, { ...state, pages: next });
 }
 
 export function rotatePages(state: PdfState, ids: readonly string[], delta: number): PdfState {
@@ -131,7 +167,7 @@ export function setPageSkipped(state: PdfState, ids: readonly string[], skipped:
 }
 
 export function reversePages(state: PdfState): PdfState {
-  return { ...state, pages: state.pages.slice().reverse() };
+  return followPages(state, { ...state, pages: state.pages.slice().reverse() });
 }
 
 /** Pages actually written on export (skipped ones are kept but not emitted). */
@@ -232,6 +268,8 @@ export function cloneAnnot(a: Annot): Annot {
     callout: a.callout?.map((p) => ({ ...p })),
     dash: a.dash ? [...a.dash] : a.dash,
     replies: a.replies?.map((r) => ({ ...r, id: newId("rp") })),
+    // A copy is another annotation: not the original's /NM.
+    pdf: a.pdf ? { ...a.pdf, nm: undefined } : a.pdf,
   };
 }
 

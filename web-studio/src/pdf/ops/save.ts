@@ -26,6 +26,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef,
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type { Annot, Bookmark, Page, PageLabelDef, PdfState } from "../model/types";
+import { remapBookmarkPages } from "../model/doc";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
 import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
@@ -830,7 +831,16 @@ async function applyState(
   // written from the model.
   if (state.bookmarks && state.bookmarks !== opts.pristineBookmarks) {
     try {
-      writeOutline(doc, toOutlineEntries(state.bookmarks, targets.length));
+      // Bookmark numbers count the model's pages; the file has only those written.
+      const out = new Map(targets.map((t, i) => [t.model.id, i + 1]));
+      const toOutput = (n: number): number | null => {
+        for (let i = n - 1; i < state.pages.length; i++) {
+          const pos = out.get(state.pages[i]?.id ?? "");
+          if (pos) return pos;
+        }
+        return null;
+      };
+      writeOutline(doc, toOutlineEntries(remapBookmarkPages(state.bookmarks, toOutput), targets.length));
     } catch {
       report.lost.push("Les signets n'ont pas pu être écrits.");
     }

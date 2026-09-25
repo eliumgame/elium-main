@@ -86,3 +86,32 @@ describe("excluded pages", () => {
     expect(copy.getPageCount()).toBe(2);
   });
 });
+
+describe("bookmarks follow their pages", () => {
+  it("through moves, deletions, insertions and in the saved file", async () => {
+    let s: PdfState = { ...emptyState(), pages: D.pagesFromSource(4) };
+    s = {
+      ...s,
+      bookmarks: [
+        { id: "b1", title: "Deux", page: 2, children: [] },
+        { id: "b2", title: "Trois", page: 3, children: [] },
+      ],
+    };
+    const [p1, p2, p3] = s.pages.map((p) => p.id);
+    s = D.reorderPages(s, [p3], 0); // 3, 1, 2, 4
+    expect(s.bookmarks!.map((b) => b.page)).toEqual([3, 1]);
+    s = D.deletePages(s, [p2]); // 3, 1, 4 — « Deux » falls on the next page (4)
+    expect(s.bookmarks!.map((b) => b.page)).toEqual([3, 1]);
+    s = D.insertPages(s, 0, [D.makePage(null, { size: { w: 300, h: 400 } })]); // blank, 3, 1, 4
+    expect(s.bookmarks!.map((b) => b.page)).toEqual([4, 2]);
+    // Excluded pages are not in a copy: the numbers follow.
+    s = D.setPageSkipped(s, [p1], true); // written: blank, 3, 4
+    const out = await PDFDocument.load((await buildPdf(await blank(4), s)).bytes);
+    const task = pdfjsLib.getDocument({ data: (await out.save()).slice(), isEvalSupported: false });
+    const js = await task.promise;
+    const outline = (await js.getOutline()) as { title: string; dest: unknown[] }[];
+    const pageOf = async (d: unknown[]) => (await js.getPageIndex(d[0] as never)) + 1;
+    expect(await Promise.all(outline.map((o) => pageOf(o.dest)))).toEqual([3, 2]);
+    await task.destroy();
+  });
+});

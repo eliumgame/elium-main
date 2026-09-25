@@ -1461,7 +1461,18 @@ export default function PdfWorkspace({
       }
     }
     const fileOutline = pristineBookmarksRef.current;
-    const sameOutline = !!st.bookmarks && !!fileOutline && sameValue(st.bookmarks, fileOutline, IGNORE_IDS);
+    // The file's bookmarks point at page objects: moved with their pages, they
+    // are still the file's own (kept as they are, actions and all).
+    const moved = fileOutline
+      ? D.remapBookmarkPages(fileOutline, (n) => {
+          const i = st.pages.findIndex((q) => q.from === n - 1);
+          return i >= 0 ? i + 1 : null;
+        })
+      : null;
+    const sameOutline =
+      !!st.bookmarks &&
+      !!fileOutline &&
+      (sameValue(st.bookmarks, fileOutline, IGNORE_IDS) || sameValue(st.bookmarks, moved, IGNORE_IDS));
     return { pristineAnnots: kept, pristineBookmarks: sameOutline ? st.bookmarks : fileOutline };
   };
 

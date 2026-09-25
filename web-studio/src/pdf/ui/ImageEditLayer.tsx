@@ -105,6 +105,8 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     return () => {
       live = false;
     };
+    // The source object is rebuilt every render; its bytes are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.source?.bytes, p.source?.password, p.from]);
 
   const items = useMemo<Item[]>(() => {
@@ -191,6 +193,8 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     setSelected(it.id);
+    // preventDefault below would keep the focus away: the frame takes the keys (Suppr, arrows).
+    (e.currentTarget as HTMLElement).closest<HTMLElement>(".pdfx-imagebox")?.focus({ preventScroll: true });
     // A deleted picture can only be selected (to restore it).
     if (it.deleted) return;
     e.preventDefault();
@@ -220,12 +224,20 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     window.addEventListener("pointerup", onUp);
   };
 
-  const onLayerDown = async (e: React.PointerEvent) => {
-    if (e.target !== layer.current) return;
-    if (!p.adding) {
+  // A click anywhere else lets go of the picture (the layer itself lets clicks through).
+  useEffect(() => {
+    if (!selected) return;
+    const off = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (t && layer.current?.contains(t) && t !== layer.current) return;
       setSelected(null);
-      return;
-    }
+    };
+    window.addEventListener("pointerdown", off, true);
+    return () => window.removeEventListener("pointerdown", off, true);
+  }, [selected]);
+
+  const onLayerDown = async (e: React.PointerEvent) => {
+    if (e.target !== layer.current || !p.adding) return;
     e.preventDefault();
     const at = local(e);
     const src = p.adding;
@@ -234,7 +246,14 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
     const w = Math.min(240, Math.max(MIN, p.size.w - at.x));
     const id = newId("im");
     p.onBeginChange();
-    p.onChange({ id, pageId: p.pageId, occurrence: -1, action: "add", src, rect: clamp({ x: at.x, y: at.y, w, h: w * ratio }) });
+    p.onChange({
+      id,
+      pageId: p.pageId,
+      occurrence: -1,
+      action: "add",
+      src,
+      rect: clamp({ x: at.x, y: at.y, w, h: w * ratio }),
+    });
     setSelected(id);
   };
 
@@ -277,7 +296,7 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
 
   return (
     <div
-      className={`pdfx-imagelayer ${p.adding ? "is-adding" : ""}`}
+      className={`pdfx-imagelayer ${p.adding ? "is-adding" : ""} ${selected ? "has-selection" : ""}`}
       ref={layer}
       onPointerDown={(e) => void onLayerDown(e)}
       data-testid="image-layer"
@@ -304,7 +323,9 @@ export default function ImageEditLayer(p: ImageEditLayerProps) {
             onClick={() => setSelected(it.id)}
             onKeyDown={(e) => onKey(e, it)}
           >
-            {draw && (it.src || it.added) && <img className="pdfx-imagebox__img" src={it.src} alt="" draggable={false} />}
+            {draw && (it.src || it.added) && (
+              <img className="pdfx-imagebox__img" src={it.src} alt="" draggable={false} />
+            )}
             {draw && !it.src && original && <span className="pdfx-imagebox__ghost" />}
             {isSel && !it.deleted && (
               <>

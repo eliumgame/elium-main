@@ -251,3 +251,42 @@ Reste T3 :
   l'existant).
 - Pages Edge ou « Microsoft Print to PDF » (texte minuscule ou en miroir d'après le
   diagnostic) : pas reproduit avec Chromium, corpus du poste nécessaire.
+
+### Session cloud 1, tranche 2 : éditeur de texte et images
+
+Fait :
+- Éditeur de texte : barre de mise en forme (police, taille, gras, italique, couleur,
+  alignement), déplacement par poignée, largeur, « Ajouter du texte » dans le contenu
+  de la page (pas un commentaire). Test navigateur pdf-textedit.spec.ts (Drive + bureau).
+- Images du contenu de la page, en mode « Modifier le texte » (ImageEditLayer.tsx) :
+  - cadre sur chaque image que la page dessine elle-même (pas celles des XObjects de
+    formulaire, pas les images en ligne) ;
+  - sélection, déplacement, redimensionnement par les coins (proportions gardées, Maj pour
+    libérer), flèches (1 pt, Maj 10 pt), Suppr ;
+  - Remplacer… (garde la largeur du cadre, avec les proportions de la nouvelle image),
+    Supprimer, Rétablir ;
+  - « Ajouter une image » (ruban Modifier) : l'image va DANS le contenu de la page.
+    L'ancien outil « Image » (tampon, annotation) reste, en petit bouton.
+  - Aperçu : la page reconstruite par le code de l'enregistrement, comme pour le texte.
+- Écriture (textedit.ts, applyImageEdits) : suppression du `Do`, remplacement par un
+  nouveau XObject, déplacement par `q, CTM⁻¹, M, CTM, Do, Q` (une image tournée ou en miroir
+  le reste), ajout en fin de contenu.
+- Corrigé : ce qui est ajouté en fin de contenu héritait d'un `cm` laissé en vigueur par le
+  flux de la page (Chromium/Skia) : image ajoutée réduite à 24 % et déplacée. Le contenu
+  d'origine est maintenant isolé dans `q … Q` quand il ne se termine pas dans l'état par
+  défaut (`leavesDefaultState`) ; même protection pour le texte réécrit.
+- Tests : pdf-image-edit (8), pdf-imageedit.spec.ts (2 × Drive + bureau). Suite complète
+  1909/1909.
+
+À vérifier dans Acrobat sur le poste :
+- une image déplacée, redimensionnée, remplacée et ajoutée (fichier Chromium ou Word) :
+  position identique à l'écran d'Elium ;
+- l'image remplacée garde la transparence d'un PNG.
+
+Reste T3 :
+- Rogner une image ; images dans les XObjects de formulaire et images en ligne (BI).
+- Liste : un seul bloc ; tableau : un bloc par colonne.
+- Réutiliser le sous-ensemble de la police d'origine quand il couvre le nouveau texte
+  (aujourd'hui : police d'origine si elle encode tout, sinon Liberation).
+- Pages Edge ou « Microsoft Print to PDF » : corpus du poste nécessaire.
+- L'historique d'annulation est remis à zéro en quittant « Préparer un formulaire » (T2).

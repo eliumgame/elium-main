@@ -2099,8 +2099,18 @@
   position: absolute;
   inset: 0;
   z-index: 6;
+  pointer-events: none;
+}
+.pdfx-imagelayer > * {
+  pointer-events: auto;
+}
+/* A selected picture (and its bar) comes over the paragraphs; so does a picture being placed. */
+.pdfx-imagelayer.has-selection,
+.pdfx-imagelayer.is-adding {
+  z-index: 8;
 }
 .pdfx-imagelayer.is-adding {
+  pointer-events: auto;
   cursor: copy;
 }
 .pdfx-imagebox {
@@ -2144,10 +2154,29 @@
   border: 1.5px solid var(--x-accent);
   border-radius: 2px;
 }
-.pdfx-imagebox__handle--nw { left: 0; top: 0; cursor: nwse-resize; }
-.pdfx-imagebox__handle--ne { right: 0; top: 0; margin: -5px -5px 0 0; cursor: nesw-resize; }
-.pdfx-imagebox__handle--sw { left: 0; bottom: 0; margin: 0 0 -5px -5px; cursor: nesw-resize; }
-.pdfx-imagebox__handle--se { right: 0; bottom: 0; margin: 0 -5px -5px 0; cursor: nwse-resize; }
+.pdfx-imagebox__handle--nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.pdfx-imagebox__handle--ne {
+  right: 0;
+  top: 0;
+  margin: -5px -5px 0 0;
+  cursor: nesw-resize;
+}
+.pdfx-imagebox__handle--sw {
+  left: 0;
+  bottom: 0;
+  margin: 0 0 -5px -5px;
+  cursor: nesw-resize;
+}
+.pdfx-imagebox__handle--se {
+  right: 0;
+  bottom: 0;
+  margin: 0 -5px -5px 0;
+  cursor: nwse-resize;
+}
 .pdfx-imagebar {
   position: absolute;
   z-index: 3;

@@ -148,10 +148,12 @@ describe("pictures of the page content", () => {
     const doc = await PDFDocument.load(bytes);
     const imgs = await pageImages(bytes, null, 0);
     expect(imgs).toHaveLength(2);
-    const { PDFName, PDFDict, PDFStream } = await import("pdf-lib");
+    const { PDFName, PDFDict } = await import("pdf-lib");
     const xo = doc.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
-    const widths = (await pagePlacements(doc.getPage(0))).map(
-      (p) => (xo.lookup(PDFName.of(p.name)) as InstanceType<typeof PDFStream>).dict.get(PDFName.of("Width"))?.toString(),
+    const widths = (await pagePlacements(doc.getPage(0))).map((p) =>
+      (xo.lookup(PDFName.of(p.name)) as unknown as { dict: InstanceType<typeof PDFDict> }).dict
+        .get(PDFName.of("Width"))
+        ?.toString(),
     );
     expect(widths).toEqual(["2", "4"]);
   });
@@ -161,7 +163,10 @@ describe("pictures of the page content", () => {
     const edits = [edit({ occurrence: 0, action: "move", rect: { x: 10, y: 20, w: 200, h: 100 } })];
     const prev = await rewrittenPage(src, null, 0, [], edits);
     const state = base();
-    const saved = await buildPdf(src, { ...state, imageEdits: edits.map((e) => ({ ...e, pageId: state.pages[0].id })) });
+    const saved = await buildPdf(src, {
+      ...state,
+      imageEdits: edits.map((e) => ({ ...e, pageId: state.pages[0].id })),
+    });
     expect(await placed(prev.bytes)).toEqual(await placed(saved.bytes));
   });
 
@@ -175,8 +180,22 @@ describe("pictures of the page content", () => {
   it("restores by dropping the edit; an added picture is told apart by id", () => {
     let s = base();
     const pageId = s.pages[0].id;
-    s = D.upsertImageEdit(s, { id: "a", pageId, occurrence: -1, action: "add", src: RED, rect: { x: 0, y: 0, w: 1, h: 1 } });
-    s = D.upsertImageEdit(s, { id: "b", pageId, occurrence: -1, action: "add", src: RED, rect: { x: 0, y: 0, w: 1, h: 1 } });
+    s = D.upsertImageEdit(s, {
+      id: "a",
+      pageId,
+      occurrence: -1,
+      action: "add",
+      src: RED,
+      rect: { x: 0, y: 0, w: 1, h: 1 },
+    });
+    s = D.upsertImageEdit(s, {
+      id: "b",
+      pageId,
+      occurrence: -1,
+      action: "add",
+      src: RED,
+      rect: { x: 0, y: 0, w: 1, h: 1 },
+    });
     s = D.upsertImageEdit(s, { id: "c", pageId, occurrence: 0, action: "move", rect: { x: 0, y: 0, w: 1, h: 1 } });
     s = D.upsertImageEdit(s, { id: "c", pageId, occurrence: 0, action: "delete" });
     expect(s.imageEdits.map((e) => [e.id, e.action])).toEqual([
@@ -186,5 +205,54 @@ describe("pictures of the page content", () => {
     ]);
     s = D.removeImageEdit(s, "c");
     expect(s.imageEdits.map((e) => e.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("content left in a transformed state (Chromium)", () => {
+  /** A page whose stream starts with a bare `cm`, never undone — as Skia writes. */
+  async function skiaLike(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 600]);
+    const { concatTransformationMatrix, drawObject } = await import("pdf-lib");
+    const img = await doc.embedPng(Buffer.from(RED.split(",")[1], "base64"));
+    const name = page.node.newXObject("Image", img.ref);
+    page.pushOperators(
+      concatTransformationMatrix(0.5, 0, 0, -0.5, 0, 600),
+      concatTransformationMatrix(200, 0, 0, -100, 100, 300),
+      drawObject(name),
+    );
+    return doc.save({ useObjectStreams: false });
+  }
+
+  it("adds a picture in page space all the same", async () => {
+    const state = base();
+    const pageId = state.pages[0].id;
+    const { bytes } = await buildPdf(await skiaLike(), {
+      ...state,
+      imageEdits: [{ id: "n", pageId, occurrence: -1, action: "add", src: BLUE, rect: { x: 20, y: 30, w: 60, h: 60 } }],
+    });
+    const got = await pageImages(bytes, null, 0);
+    expect(got[0].rect).toEqual({ x: 50, y: 100, w: 100, h: 50 });
+    expect(got[1].rect).toEqual({ x: 20, y: 30, w: 60, h: 60 });
+  });
+
+  it("tells a clean stream from one that leaves state behind", async () => {
+    const { leavesDefaultState } = await import("../src/pdf/ops/textedit");
+    const n = (v: number) => ({ t: "num", v }) as const;
+    expect(
+      leavesDefaultState([
+        { op: "q", args: [] },
+        { op: "cm", args: [1, 0, 0, 1, 5, 5].map(n) },
+        { op: "Q", args: [] },
+      ]),
+    ).toBe(true);
+    expect(leavesDefaultState([{ op: "cm", args: [1, 0, 0, 1, 5, 5].map(n) }])).toBe(false);
+    expect(leavesDefaultState([{ op: "q", args: [] }])).toBe(false);
+    expect(
+      leavesDefaultState([
+        { op: "W", args: [] },
+        { op: "n", args: [] },
+      ]),
+    ).toBe(false);
   });
 });

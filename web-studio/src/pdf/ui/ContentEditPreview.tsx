@@ -43,25 +43,23 @@ export interface ContentEditPreviewProps {
 /** The rewritten page as the file will have it, rendered at the view's size. */
 function useRewrittenRaster(p: ContentEditPreviewProps): string | null {
   const [url, setUrl] = useState<string | null>(null);
-  const key = JSON.stringify(
-    p.edits.map((e) => [
-      e.id,
-      e.text,
-      e.deleted,
-      e.fontSize,
-      e.align,
-      e.color,
-      e.rect,
-      e.placement,
-      e.fontFamily,
-      e.bold,
-      e.italic,
-      e.restyled,
-    ]),
-  ) +
+  const key =
     JSON.stringify(
-      (p.imageEdits ?? []).map((e) => [e.id, e.action, e.rect, e.src?.length, e.src?.slice(-48)]),
-    );
+      p.edits.map((e) => [
+        e.id,
+        e.text,
+        e.deleted,
+        e.fontSize,
+        e.align,
+        e.color,
+        e.rect,
+        e.placement,
+        e.fontFamily,
+        e.bold,
+        e.italic,
+        e.restyled,
+      ]),
+    ) + JSON.stringify((p.imageEdits ?? []).map((e) => [e.id, e.action, e.rect, e.src?.length, e.src?.slice(-48)]));
   const any = p.edits.length > 0 || (p.imageEdits?.length ?? 0) > 0;
   const latest = useRef(0);
   useEffect(() => {

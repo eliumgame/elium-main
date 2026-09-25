@@ -298,8 +298,10 @@ export async function applyTextEdits(
     fallbacks.push({ edit, box, size, color: colour });
   }
 
-  // Rewrite the operator list.
-  if (doomedOps.size || emitted.length) {
+  // Rewrite the operator list. What is drawn after it assumes the default
+  // graphics state: a stream left with a `cm` in force (Chromium's) is closed off first.
+  const isolate = !leavesDefaultState(ops) && (emitted.length > 0 || fallbacks.length > 0);
+  if (doomedOps.size || emitted.length || isolate) {
     const next: Op[] = [];
     for (let i = 0; i < ops.length; i++) {
       if (doomedOps.has(i)) {
@@ -309,8 +311,7 @@ export async function applyTextEdits(
       }
       next.push(ops[i]);
     }
-    next.push(...emitted);
-    writePageContent(doc, page, next);
+    writePageContent(doc, page, isolate ? [...isolated(next), ...emitted] : [...next, ...emitted]);
   }
 
   // Blocks the original font could not encode: draw with a substituted face.
@@ -363,6 +364,28 @@ function rgbHex(c: { r: number; g: number; b: number }): string {
 function rgbOperands(hex: string): Operand[] {
   const c = hexToRgb(hex);
   return [c.r, c.g, c.b].map((v) => ({ t: "num", v: round(v, 4) }) as Operand);
+}
+
+/**
+ * True when the content ends as it began: no `q` left open, no `cm`, clip or
+ * extended state still in force. Anything appended to such a stream is drawn in plain page space.
+ */
+export function leavesDefaultState(ops: readonly Op[]): boolean {
+  // Operators whose effect outlives them and would move, clip or blend what follows.
+  const LASTING = new Set(["cm", "W", "W*", "gs"]);
+  let depth = 0;
+  let dirty = false;
+  for (const { op } of ops) {
+    if (op === "q") depth++;
+    else if (op === "Q") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && LASTING.has(op)) dirty = true;
+  }
+  return depth === 0 && !dirty;
+}
+
+/** `ops` inside `q … Q`, so what follows starts from the default state. */
+export function isolated(ops: readonly Op[]): Op[] {
+  return [{ op: "q", args: [] }, ...ops, { op: "Q", args: [] }];
 }
 
 /** An XObject placement of a page, as the image editor lists it (same order as `ImageEdit.occurrence`). */
@@ -456,7 +479,12 @@ export async function applyImageEdits(
     if (edit.rect) {
       const xs = place.corners.map((c) => c.x);
       const ys = place.corners.map((c) => c.y);
-      const from: Rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+      const from: Rect = {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        w: Math.max(...xs) - Math.min(...xs),
+        h: Math.max(...ys) - Math.min(...ys),
+      };
       // The CTM at the Do is in user space: M is prepended in the same space.
       const m = rectToRect(from, frame.rectToPdf(edit.rect));
       replacements.set(place.opIndex, [
@@ -480,8 +508,9 @@ export async function applyImageEdits(
       if (rep) next.push(...rep);
       else next.push(ops[i]);
     }
-    next.push(...appended);
-    writePageContent(doc, page, next);
+    // Added pictures are placed in page space, whatever state the content leaves.
+    const body = appended.length && !leavesDefaultState(next) ? isolated(next) : next;
+    writePageContent(doc, page, [...body, ...appended]);
   }
   return changed;
 }

@@ -113,7 +113,13 @@ test.describe("PDF — modifier le texte", () => {
     await page.locator(".pdfx-editblock__input").fill("Texte ajouté — Ελλάδα");
     await page.keyboard.press("Control+Enter");
     const out = await save(page);
-    expect((await textItems(out)).map((i) => i.str).join(" ")).toContain("Texte ajouté — Ελλάδα");
+    const items = await textItems(out);
+    expect(items.map((i) => i.str).join(" ")).toContain("Texte ajouté — Ελλάδα");
+    // Where it was clicked, in page space (Chromium's stream leaves a `cm` in force).
+    const first = items.find((i) => i.str.startsWith("Texte ajouté"))!;
+    const pt = layer.width / 595.92;
+    expect(Math.abs(first.transform[4] - (layer.width * 0.1) / pt)).toBeLessThan(3);
+    expect(Math.abs(842 - first.transform[5] - 380 / pt)).toBeLessThan(16);
     expect(problems).toEqual([]);
   });
 });

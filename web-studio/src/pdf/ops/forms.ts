@@ -7,7 +7,7 @@
  * overlay uses. Writing is done with pdf-lib.
  */
 
-import { PDFArray, PDFDocument, PDFName, PDFNumber, PDFRadioGroup, PDFString } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRadioGroup, PDFString } from "pdf-lib";
 import type { PDFFont, PDFForm, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import { FieldFontBook, completeFieldAppearances, flattenFields, writeFieldValues } from "./formpdf";
@@ -60,6 +60,11 @@ export interface FieldBox {
   tooltip?: string;
   fontSize?: number;
   align: "left" | "center" | "right";
+}
+
+/** A PDF text string: literal for plain ASCII, UTF-16 otherwise (PDFString.of truncates to one byte per char). */
+function pdfText(s: string): PDFString | PDFHexString {
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
 }
 
 function kindOf(a: RawWidget): FieldKind | null {
@@ -394,11 +399,11 @@ function addSignatureField(
     FT: PDFName.of("Sig"),
     Rect: context.obj([at.x, at.y, at.x + at.width, at.y + at.height]),
     AP: context.obj({ N: apRef }),
-    T: PDFString.of(f.name),
+    T: pdfText(f.name),
     F: PDFNumber.of(4), // Print
     P: page.ref,
     ...(flags ? { Ff: PDFNumber.of(flags) } : {}),
-    ...(f.tooltip ? { TU: PDFString.of(f.tooltip) } : {}),
+    ...(f.tooltip ? { TU: pdfText(f.tooltip) } : {}),
   });
   const widgetRef = context.register(widget);
 
@@ -407,50 +412,4 @@ function addSignatureField(
   else page.node.set(PDFName.of("Annots"), context.obj([widgetRef]));
 
   form.acroForm.addField(widgetRef);
-}
-
-// ---------------------------------------------------------------------------
-// Import / export of form data
-// ---------------------------------------------------------------------------
-
-/** Serialise filled values as FDF, which Acrobat can import into the same form. */
-export function toFdf(values: Record<string, FormValue>, fileName: string): string {
-  const esc = (s: string) => s.replace(/([\\()])/g, "\\$1");
-  const entries = Object.entries(values).map(([name, value]) => {
-    const v = typeof value === "boolean" ? (value ? "/Yes" : "/Off") : `(${esc(String(value))})`;
-    return `<< /T (${esc(name)}) /V ${v} >>`;
-  });
-  return [
-    "%FDF-1.2",
-    "1 0 obj",
-    `<< /FDF << /Fields [ ${entries.join(" ")} ] /F (${esc(fileName)}) >> >>`,
-    "endobj",
-    "trailer",
-    "<< /Root 1 0 R >>",
-    "%%EOF",
-  ].join("\n");
-}
-
-/** Read values back from an FDF produced by Acrobat or by `toFdf`. */
-export function fromFdf(text: string): Record<string, FormValue> {
-  const out: Record<string, FormValue> = {};
-  const re = /\/T\s*\(((?:[^()\\]|\\.)*)\)\s*\/V\s*(?:\(((?:[^()\\]|\\.)*)\)|\/([A-Za-z0-9_.]+))/g;
-  let m: RegExpExecArray | null;
-  const unesc = (s: string) => s.replace(/\\([\\()])/g, "$1");
-  while ((m = re.exec(text)) !== null) {
-    const name = unesc(m[1]);
-    if (m[2] !== undefined) out[name] = unesc(m[2]);
-    else if (m[3] !== undefined) out[name] = m[3] !== "Off";
-  }
-  return out;
-}
-
-/** CSV of the filled values, for spreadsheets and mail merges. */
-export function toCsv(values: Record<string, FormValue>): string {
-  const esc = (s: string) => (/[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const rows = [
-    ["Champ", "Valeur"],
-    ...Object.entries(values).map(([k, v]) => [k, typeof v === "boolean" ? (v ? "Oui" : "Non") : String(v)]),
-  ];
-  return rows.map((r) => r.map(esc).join(";")).join("\r\n");
 }

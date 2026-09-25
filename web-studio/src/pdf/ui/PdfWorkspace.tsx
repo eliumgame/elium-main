@@ -111,7 +111,19 @@ import { WrongPassword, inspectProtection, removeProtection, type Permissions } 
 // a static import: `import type` is erased at compile time, so it doesn't
 // pull pades.ts (or node-forge) into this bundle.
 import type { PadesSignOptions } from "../ops/pades";
-import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
+import { suggestFields } from "../ops/forms";
+import {
+  exportEntries,
+  matchImported,
+  parseFdf,
+  parseTabText,
+  parseXfdfFields,
+  toCsv,
+  toFdf,
+  toTabText,
+  toXfdfFields,
+  type RawDataValue,
+} from "../ops/formdata";
 import { fromXfdf, toXfdf } from "../ops/xfdf";
 import {
   hasImportableAnnots,
@@ -2150,19 +2162,35 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
 
       case "exportFormData":
-        downloadBlob(
-          `${fileName.replace(/\.pdf$/i, "")}.fdf`,
-          "application/vnd.fdf",
-          toFdf(state.formValues, fileName),
-        );
-        return;
+      case "exportFormXfdf":
       case "exportFormCsv":
-        downloadBlob(
-          `${fileName.replace(/\.pdf$/i, "")}-donnees.csv`,
-          "text/csv;charset=utf-8",
-          toCsv(state.formValues),
-        );
+      case "exportFormText": {
+        // Every fillable field (Acrobat's export), not only the edited ones.
+        if (!formSession) return;
+        await formSession.ready;
+        await formSession.flush();
+        const entries = exportEntries(formSession.fields, formSession.values());
+        if (!entries.length) {
+          toast("warning", "Ce document n'a aucun champ de formulaire à exporter.");
+          return;
+        }
+        const stem = fileName.replace(/\.pdf$/i, "") || "formulaire";
+        if (id === "exportFormData") {
+          downloadBlob(`${stem}.fdf`, "application/vnd.fdf", toFdf(entries, fileName || "document.pdf"));
+        } else if (id === "exportFormXfdf") {
+          downloadBlob(
+            `${stem}-donnees.xfdf`,
+            "application/vnd.adobe.xfdf",
+            toXfdfFields(entries, fileName || "document.pdf"),
+          );
+        } else if (id === "exportFormCsv") {
+          downloadBlob(`${stem}-donnees.csv`, "text/csv;charset=utf-8", toCsv(entries));
+        } else {
+          downloadBlob(`${stem}-donnees.txt`, "text/plain;charset=utf-8", toTabText(entries));
+        }
+        toast("success", "Données exportées", `${entries.length} champ(s).`);
         return;
+      }
       case "formReset": {
         // Every field back to its default value (/DV, else empty), on screen
         // and in the file — not merely « forget this session's edits ».
@@ -2572,27 +2600,61 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const text = await file.text();
-    if (/\.xfdf$/i.test(file.name) || text.includes("<xfdf")) {
-      const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
-      const imported = fromXfdf(text, pages, heights, author);
-      if (!imported.length) {
-        toast("warning", "Aucun commentaire lisible dans ce fichier.");
-        return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
+    // Form data (FDF, XFDF <fields>, tab-delimited text) and comments (XFDF <annots>).
+    let raw = new Map<string, RawDataValue>();
+    let comments = 0;
+    try {
+      if (head.startsWith("%FDF")) {
+        raw = parseFdf(bytes);
+      } else {
+        const text = new TextDecoder("utf-8").decode(bytes);
+        if (/\.xfdf$/i.test(file.name) || /<xfdf[\s>]/.test(text)) {
+          raw = parseXfdfFields(text);
+          const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
+          const imported = fromXfdf(text, pages, heights, author);
+          if (imported.length) {
+            setState((s) => imported.reduce((acc, a) => D.addAnnot(acc, a), s));
+            comments = imported.length;
+          }
+        } else {
+          raw = parseTabText(text);
+        }
       }
-      setState((s) => imported.reduce((acc, a) => D.addAnnot(acc, a), s));
+    } catch (err) {
+      toast("danger", "Import impossible", err instanceof Error ? err.message : "Fichier illisible.");
+      return;
+    }
+    if (raw.size && formSession) {
+      await formSession.ready;
+      const res = matchImported(formSession.fields, raw);
+      const count = Object.keys(res.values).length;
+      if (count) {
+        setState((s) => ({ ...s, formValues: { ...s.formValues, ...res.values } }));
+        setMode("form");
+      }
+      const notes: string[] = [];
+      if (res.unknown.length) {
+        notes.push(`${res.unknown.length} champ(s) absent(s) de ce document : ${res.unknown.slice(0, 5).join(", ")}.`);
+      }
+      if (res.rejected.length) {
+        notes.push(`Valeur inadaptée ignorée pour : ${res.rejected.slice(0, 5).join(", ")}.`);
+      }
+      if (comments) notes.push(`${comments} commentaire(s) importé(s).`);
+      toast(
+        count ? (notes.length ? "warning" : "success") : "warning",
+        `${count} champ(s) importé(s)`,
+        notes.join(" "),
+      );
+      return;
+    }
+    if (comments) {
       setPanel("comments");
-      toast("success", `${imported.length} commentaire(s) importé(s).`);
+      toast("success", `${comments} commentaire(s) importé(s).`);
       return;
     }
-    const values = fromFdf(text);
-    if (!Object.keys(values).length) {
-      toast("warning", "Aucune donnée de formulaire trouvée.");
-      return;
-    }
-    setState((s) => ({ ...s, formValues: { ...s.formValues, ...values } }));
-    setMode("form");
-    toast("success", `${Object.keys(values).length} champ(s) importé(s).`);
+    toast("warning", "Aucune donnée de formulaire ni commentaire dans ce fichier.");
   };
 
   const onComparePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3464,7 +3526,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       />
       <input ref={mergeInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
-      <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml" hidden onChange={onDataPick} />
+      <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml,.txt" hidden onChange={onDataPick} />
       <input ref={compareInput} type="file" accept="application/pdf,.pdf" hidden onChange={onComparePick} />
       <input ref={p12Input} type="file" accept=".p12,.pfx" hidden onChange={onP12Pick} />
 

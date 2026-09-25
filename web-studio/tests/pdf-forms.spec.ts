@@ -111,3 +111,41 @@ test.describe("PDF — formulaires : validation", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("PDF — formulaires : échange de données", () => {
+  test("export FDF → réinitialisation → import : toutes les valeurs reviennent", async ({ page }) => {
+    const problems = trackHealth(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    await field(page, "nom").fill("Łukasz Wałęsa");
+    await field(page, "qte").fill("3");
+    await field(page, "prix").click();
+    await field(page, "prix").fill("2");
+    await field(page, "nom").click();
+    await field(page, "pays").selectOption({ label: "Suisse" });
+    await expect(field(page, "total")).toHaveValue("6,00 €");
+
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "FDF", exact: true }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe("commande.fdf");
+    const fdf = Buffer.concat(await (await file.createReadStream()).toArray());
+    expect(fdf.subarray(0, 8).toString("latin1")).toBe("%FDF-1.2");
+
+    await page.getByRole("button", { name: "Réinitialiser" }).click();
+    // (The list was set: its reset once left the page's whole form layer empty.)
+    await expect(field(page, "nom")).toHaveValue("");
+    await expect(field(page, "pays")).toHaveValue(" ");
+
+    await page.setInputFiles('input[type="file"][accept*="fdf"]', {
+      name: "commande.fdf",
+      mimeType: "application/vnd.fdf",
+      buffer: fdf,
+    });
+    await expect(field(page, "nom")).toHaveValue("Łukasz Wałęsa");
+    await expect(field(page, "qte")).toHaveValue("3");
+    await expect(field(page, "pays")).toHaveValue("CH");
+    await expect(field(page, "total")).toHaveValue("6,00 €");
+    expect(problems).toEqual([]);
+  });
+});

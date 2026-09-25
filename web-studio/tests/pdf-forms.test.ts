@@ -4,13 +4,10 @@ import {
   createFields,
   fillForm,
   flattenForm,
-  fromFdf,
   hasFormFields,
   missingRequired,
   readFields,
   suggestFields,
-  toCsv,
-  toFdf,
   type RawWidget,
 } from "../src/pdf/ops/forms";
 import type { CreatedField, FieldBox } from "../src/pdf/model/types";
@@ -157,38 +154,7 @@ describe("forms — missingRequired", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// FDF import/export and CSV
-// ---------------------------------------------------------------------------
-
-describe("forms — FDF and CSV serialisation", () => {
-  it("round-trips string and boolean values through toFdf/fromFdf", () => {
-    const values = { nom: "Jean (Dupont)", accepte: true, refuse: false };
-    const fdf = toFdf(values, "contrat.pdf");
-    expect(fdf).toContain("%FDF-1.2");
-    const back = fromFdf(fdf);
-    expect(back).toEqual({ nom: "Jean (Dupont)", accepte: true, refuse: false });
-  });
-
-  it("escapes parentheses and backslashes so they cannot break the FDF grammar", () => {
-    const fdf = toFdf({ note: "a\\b (c)" }, "f.pdf");
-    const back = fromFdf(fdf);
-    expect(back.note).toBe("a\\b (c)");
-  });
-
-  it("renders a CSV with a French header and Oui/Non for booleans", () => {
-    const csv = toCsv({ nom: "Martin", accepte: true });
-    const rows = csv.split("\r\n");
-    expect(rows[0]).toBe("Champ;Valeur");
-    expect(rows).toContain("nom;Martin");
-    expect(rows).toContain("accepte;Oui");
-  });
-
-  it("quotes CSV values that contain the delimiter or a newline", () => {
-    const csv = toCsv({ adresse: "1 rue de la Paix; Paris" });
-    expect(csv).toContain('"1 rue de la Paix; Paris"');
-  });
-});
+// (FDF / XFDF / text / CSV: tests/pdf-formdata.test.ts)
 
 // ---------------------------------------------------------------------------
 // suggestFields — Acrobat-style automatic field detection

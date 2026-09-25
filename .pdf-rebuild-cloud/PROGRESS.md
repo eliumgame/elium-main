@@ -99,3 +99,36 @@ Tests navigateur : tests/pdf-forms.spec.ts, dans les deux projets. Le formulaire
 - une valeur Unicode, puis Ctrl+S en téléchargement ;
 - le fichier relu avec pdf-lib : valeurs, code d'export CH, pas de /NeedAppearances.
 Résultat : 8/8 en répétition.
+
+### Session cloud 1, suite : validation et échange de données
+
+- Validation : pdf.js VIDAIT un champ dont la valeur est refusée par son script (par exemple
+  AFRange_Validate). On garde maintenant la dernière valeur validée, comme Acrobat
+  (`event.rc = false`). La valeur refusée n'atteint pas non plus le fichier. Voir
+  core/forms/scripting.ts `isRejection`.
+- Échange de données : ops/formdata.ts, nouveau module qui remplace toFdf/fromFdf/toCsv de
+  forms.ts.
+  - FDF façon Acrobat : hiérarchie /Kids, UTF-16, noms pour les cases, tableaux ; lecture
+    par un mini-analyseur d'objets PDF (références, octal, #xx).
+  - XFDF `<fields>`, texte tabulé d'Acrobat, CSV avec BOM.
+  - Export de TOUS les champs (on n'exportait que les champs modifiés). Import mis en
+    correspondance par type, champs inconnus ou refusés signalés.
+  - Ruban : FDF, XFDF, Importer, CSV, Texte.
+- P1 corrigé : « Réinitialiser » après le choix d'une liste déroulante VIDAIT tout le calque
+  de formulaire de la page. `storageEntries` écrivait `{ value: null }`, et pdf.js fait
+  `storedData.value.includes(…)`. On écrit maintenant des tableaux, ce qui évite aussi que
+  « CH » sélectionne « C ».
+- Champs créés : /T et /TU en UTF-16 si besoin (`PDFString.of` tronquait au-delà de U+00FF).
+- Tests : pdf-formdata (10), pdf-form-values (4), tests de pdf-review portés, et
+  pdf-forms.spec (3 parcours × 2 projets).
+
+À valider dans Acrobat : importer dans Acrobat le .fdf et le .xfdf exportés par Elium, puis
+l'inverse (export Acrobat → import Elium).
+
+Reste T2 :
+- préparation de formulaire (créer, déplacer, redimensionner, propriétés, ordre de
+  tabulation, calculs) ;
+- alertes des scripts dans une boîte Elium plutôt que `window.alert` (reporté à T10) ;
+- XFA (message clair, remplissage AcroForm de secours) ;
+- champs obligatoires signalés avant « Envoyer » ou à l'enregistrement ;
+- relecture adversariale.

@@ -536,9 +536,36 @@ export default function Ribbon(p: RibbonProps) {
               />
             </Group>
             <Group title="Données" optional>
-              <Cmd icon={<FileDown size={17} />} onClick={C("exportFormData")} label="Exporter" />
-              <Cmd icon={<FileOutput size={17} />} onClick={C("importFormData")} label="Importer" />
-              <Cmd icon={<FileSpreadsheet size={17} />} onClick={C("exportFormCsv")} label="CSV" />
+              <Cmd
+                icon={<FileDown size={17} />}
+                onClick={C("exportFormData")}
+                label="FDF"
+                title="Exporter les données du formulaire (FDF, lisible par Acrobat)"
+              />
+              <Cmd
+                icon={<FileDown size={17} />}
+                onClick={C("exportFormXfdf")}
+                label="XFDF"
+                title="Exporter les données du formulaire (XFDF, XML)"
+              />
+              <Cmd
+                icon={<FileOutput size={17} />}
+                onClick={C("importFormData")}
+                label="Importer"
+                title="Importer des données (FDF, XFDF, texte tabulé)"
+              />
+              <Cmd
+                icon={<FileSpreadsheet size={17} />}
+                onClick={C("exportFormCsv")}
+                label="CSV"
+                title="Exporter les données pour un tableur (CSV)"
+              />
+              <Cmd
+                icon={<FileSpreadsheet size={17} />}
+                onClick={C("exportFormText")}
+                label="Texte"
+                title="Exporter les données en texte tabulé (format d'Acrobat, réimportable)"
+              />
             </Group>
           </>
         )}

@@ -8,7 +8,8 @@ import { describe, it, expect } from "vitest";
 import { fromXfdf, toXfdf } from "../src/pdf/ops/xfdf";
 import { comparePages, diffTokens, similarityOf, tokenise } from "../src/pdf/ops/compare";
 import { batesLabel, expandTokens } from "../src/pdf/ops/decorate";
-import { fromFdf, missingRequired, suggestFields, toCsv, toFdf, type FieldBox } from "../src/pdf/ops/forms";
+import { missingRequired, suggestFields, type FieldBox } from "../src/pdf/ops/forms";
+import { parseFdf, toCsv, toFdf } from "../src/pdf/ops/formdata";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, newId, type Annot, type Page } from "../src/pdf/model/types";
 
@@ -284,17 +285,29 @@ describe("Page marks", () => {
 
 describe("Form data", () => {
   it("round-trips values through FDF", () => {
-    const values = { nom: "Dupont (Jean)", accord: true, refus: false, note: "a\\b" };
-    const back = fromFdf(toFdf(values, "contrat.pdf"));
-    expect(back.nom).toBe("Dupont (Jean)");
-    expect(back.note).toBe("a\\b");
-    expect(back.accord).toBe(true);
-    expect(back.refus).toBe(false);
+    const back = parseFdf(
+      toFdf(
+        [
+          { name: "nom", type: "text", value: "Dupont (Jean)" },
+          { name: "note", type: "text", value: "a\\b" },
+          { name: "accord", type: "checkbox", value: "Yes" },
+          { name: "refus", type: "checkbox", value: "Off" },
+        ],
+        "contrat.pdf",
+      ),
+    );
+    expect(back.get("nom")).toEqual({ kind: "text", text: "Dupont (Jean)" });
+    expect(back.get("note")).toEqual({ kind: "text", text: "a\\b" });
+    expect(back.get("accord")).toEqual({ kind: "name", text: "Yes" });
+    expect(back.get("refus")).toEqual({ kind: "name", text: "Off" });
   });
 
   it("exports a spreadsheet-safe CSV", () => {
-    const csv = toCsv({ "nom;complet": 'Jean "Le Grand"', ok: true });
-    expect(csv.split("\r\n")[0]).toBe("Champ;Valeur");
+    const csv = toCsv([
+      { name: "nom;complet", type: "text", value: 'Jean "Le Grand"' },
+      { name: "ok", type: "checkbox", value: "Oui" },
+    ]);
+    expect(csv.replace(/^\uFEFF/, "").split("\r\n")[0]).toBe("Champ;Valeur");
     expect(csv).toContain('"nom;complet"');
     expect(csv).toContain('"Jean ""Le Grand"""');
     expect(csv).toContain("Oui");

@@ -404,3 +404,16 @@ Plan, par ordre d'impact (preuves fichier:ligne dans l'audit) :
   formes. /IT, /CL et /LE sont lus par pdf-lib.
 - Test : trois enregistrements puis réouvertures, boîtes et ligne de légende identiques.
   Suite complète 1927/1927 ; specs PDF 30/30.
+
+### Session cloud 1 : T4, point 9
+
+- Pages tournées (/Rotate 90, 180, 270) : les zones de texte, machines à écrire, cadres de
+  légende, notes, tampons, images et signatures sont peints tournés contre la page
+  (`upright`), donc droits à la lecture, comme à l'écran d'Elium et comme dans Acrobat.
+  Cela vaut pour l'apparence et pour l'aplatissement ; /Rotate est écrit pour Acrobat. La
+  ligne d'une légende reste dans l'espace de la page.
+- Un tampon tourné sur lui-même n'est plus coupé : son /Rect contient ses coins tournés.
+- Tests : 4 (échouent sans le correctif). Suite complète 1931/1931 ; specs PDF 30/30.
+- À vérifier dans Acrobat : une page paysage tournée à 90° avec une zone de texte et un
+  tampon d'Elium, qui doivent être droits ; puis modifier la zone dans Acrobat, qui doit
+  rester droite.

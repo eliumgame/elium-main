@@ -57,6 +57,84 @@ export interface PaintContext {
   fonts: FontBook;
   images: ImageBank;
   measureScale: MeasureScale;
+  /**
+   * The page's `/Rotate` (0, 90, 180, 270). Text boxes, notes and stamps are
+   * shown upright on screen whatever the page's rotation, as in Acrobat: they
+   * are painted turned against it (see `upright`).
+   */
+  rotation?: number;
+}
+
+/** A frame over the box `box` of PDF user space (same conventions as `pageFrame`). */
+export function frameOfBox(box: { x: number; y: number; width: number; height: number }): PageFrame {
+  const toPdf = (p: Pt): Pt => ({ x: box.x + p.x, y: box.y + box.height - p.y });
+  return {
+    box,
+    toPdf,
+    rectToPdf: (r) => ({ x: box.x + r.x, y: box.y + box.height - r.y - r.h, w: r.w, h: r.h }),
+    rectArray: (r) => {
+      const q = { x: box.x + r.x, y: box.y + box.height - r.y - r.h, w: r.w, h: r.h };
+      return [round(q.x), round(q.y), round(q.x + q.w), round(q.y + q.h)];
+    },
+  };
+}
+
+/** Kinds read as upright boxes on screen, whatever the page's rotation. */
+export const UPRIGHT_KINDS = new Set<Annot["kind"]>([
+  "freetext",
+  "typewriter",
+  "callout",
+  "note",
+  "stamp",
+  "image",
+  "signature",
+]);
+
+/**
+ * Paint `a`'s box with `draw` so that it reads upright once the page is
+ * turned by its `/Rotate`: drawn in a frame of the box's on-screen size, then
+ * turned by the page's angle (counter-clockwise, the page turns clockwise)
+ * onto the box's place in page space.
+ */
+async function upright(
+  p: Painter,
+  a: Annot,
+  ctx: PaintContext,
+  draw: (p: Painter, a: Annot, ctx: PaintContext) => Promise<void>,
+): Promise<void> {
+  const rot = (((ctx.rotation ?? 0) % 360) + 360) % 360;
+  if (!rot) return draw(p, a, ctx);
+  const rect = a.kind === "note" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect;
+  const swap = rot % 180 !== 0;
+  const vw = swap ? rect.h : rect.w;
+  const vh = swap ? rect.w : rect.h;
+  const t = (rot * Math.PI) / 180;
+  const c = Math.round(Math.cos(t));
+  const s = Math.round(Math.sin(t));
+  // Where [0, vw] × [0, vh] lands under the rotation; shift it onto the box.
+  const xs = [0, vw * c, -vh * s, vw * c - vh * s];
+  const ys = [0, vw * s, vh * c, vw * s + vh * c];
+  const target = ctx.frame.rectToPdf(rect);
+  p.save().transform(c, s, -s, c, target.x - Math.min(...xs), target.y - Math.min(...ys));
+  await draw(
+    p,
+    { ...a, rect: { x: 0, y: 0, w: vw, h: vh } },
+    { ...ctx, rotation: 0, frame: frameOfBox({ x: 0, y: 0, width: vw, height: vh }) },
+  );
+  p.restore();
+}
+
+async function paintPicture(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
+  const r = ctx.frame.rectToPdf(a.rect);
+  const alpha = a.opacity ?? 1;
+  p.alpha({ fillAlpha: alpha, strokeAlpha: alpha });
+  if (a.rotation) p.rotateAbout(-a.rotation, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  if (a.src) {
+    const img = await ctx.images.get(a.src);
+    if (img) p.image(img, r.x, r.y, r.w, r.h);
+  } else if (a.stampLabel) {
+    await paintGeneratedStamp(p, a, ctx, r);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +359,7 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       break;
     }
     case "note": {
-      await paintNoteIcon(p, a, ctx);
+      await upright(p, a, ctx, paintNoteIcon);
       break;
     }
     case "freetext":
@@ -307,21 +385,13 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
           );
         }
       }
-      await paintTextBox(p, a, ctx);
+      await upright(p, a, ctx, paintTextBox);
       break;
     }
     case "stamp":
     case "signature":
     case "image": {
-      const r = frame.rectToPdf(a.rect);
-      p.alpha({ fillAlpha: alpha, strokeAlpha: alpha });
-      if (a.rotation) p.rotateAbout(-a.rotation, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
-      if (a.src) {
-        const img = await ctx.images.get(a.src);
-        if (img) p.image(img, r.x, r.y, r.w, r.h);
-      } else if (a.stampLabel) {
-        await paintGeneratedStamp(p, a, ctx, r);
-      }
+      await upright(p, a, ctx, paintPicture);
       break;
     }
     case "link": {
@@ -820,6 +890,10 @@ async function writeOne(
     }
   }
 
+  // Acrobat's key for a box kept upright on a turned page (it regenerates with it).
+  const pageRot = (((ctx.rotation ?? 0) % 360) + 360) % 360;
+  if (pageRot && UPRIGHT_KINDS.has(a.kind)) entries.Rotate = pageRot;
+
   // --- appearance stream ----------------------------------------------------
   const res = new FormResources();
   const painter = new Painter(res);
@@ -935,6 +1009,13 @@ const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note",
 
 function inflateForStroke(rect: Rect, a: Annot): Rect {
   const textOnly = (a.kind === "freetext" || a.kind === "typewriter") && !(a.strokeWidth > 0);
+  if (a.rotation && (a.kind === "stamp" || a.kind === "image" || a.kind === "signature")) {
+    // Turned about its centre: the /Rect must hold the turned corners, or it is cut.
+    const t = (a.rotation * Math.PI) / 180;
+    const w = Math.abs(rect.w * Math.cos(t)) + Math.abs(rect.h * Math.sin(t));
+    const h = Math.abs(rect.w * Math.sin(t)) + Math.abs(rect.h * Math.cos(t));
+    return { x: rect.x + (rect.w - w) / 2, y: rect.y + (rect.h - h) / 2, w, h };
+  }
   if (UNSTROKED.has(a.kind) || textOnly) return rect;
   let pad = (a.strokeWidth || 0) / 2 + 1;
   if (a.lineEnd !== "none" || a.lineStart !== "none") pad += Math.max(4, (a.strokeWidth || 1) * 3.2);

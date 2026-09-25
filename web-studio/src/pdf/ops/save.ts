@@ -630,7 +630,14 @@ async function applyState(
   const pageRefs: PDFRef[] = doc.getPages().map((p) => p.ref);
   for (const { page, model } of targets) {
     const frame = pageFrame(page);
-    const ctx: PaintContext = { doc, frame, fonts, images, measureScale: state.measureScale };
+    const ctx: PaintContext = {
+      doc,
+      frame,
+      fonts,
+      images,
+      measureScale: state.measureScale,
+      rotation: page.getRotation().angle,
+    };
     const mine = state.annots.filter(
       (a) => a.pageId === model.id && !pristine.has(a) && !(a.kind === "redact" && !opts.applyRedactions),
     );

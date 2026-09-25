@@ -483,3 +483,84 @@ describe("no growth on round trips", () => {
     ]);
   });
 });
+
+describe("text boxes and stamps on a turned page", () => {
+  for (const rot of [90, 180, 270]) {
+    it(`read upright on a page turned ${rot}°, inside their box`, async () => {
+      const src = await PDFDocument.create();
+      const pg = src.addPage([600, 800]);
+      pg.setRotation((await import("pdf-lib")).degrees(rot));
+      const bytes = await src.save();
+      const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+      const now = new Date().toISOString();
+      const rect = { x: 100, y: 200, w: 60, h: 180 };
+      const box = {
+        id: "t",
+        pageId: base.pages[0].id,
+        kind: "freetext",
+        rect,
+        color: "#000000",
+        opacity: 1,
+        strokeWidth: 0,
+        text: "Haut",
+        fontSize: 12,
+        textBg: null,
+        author: "Moi",
+        createdAt: now,
+        modifiedAt: now,
+        replies: [],
+      } as Annot;
+      const out = (await buildPdf(bytes, { ...base, annots: [box] }, { interactiveAnnots: false })).bytes;
+      const task = pdfjsLib.getDocument({ data: out.slice(), isEvalSupported: false });
+      const page = await (await task.promise).getPage(1);
+      const tc = await page.getTextContent();
+      const item = (tc.items as { str: string; transform: number[] }[]).find((i) => i.str.includes("Haut"))!;
+      // On screen (pdf.js' viewport, which applies /Rotate), the text runs left to right.
+      const vp = page.getViewport({ scale: 1 });
+      const [a, b] = item.transform;
+      const dir = { x: vp.transform[0] * a + vp.transform[2] * b, y: vp.transform[1] * a + vp.transform[3] * b };
+      expect(dir.x).toBeGreaterThan(0);
+      expect(Math.abs(dir.y)).toBeLessThan(1e-6);
+      // And it starts inside the box (page space: x 100..160, y from 800-380 to 800-200).
+      const [x, y] = [item.transform[4], item.transform[5]];
+      expect(x).toBeGreaterThanOrEqual(100 - 0.5);
+      expect(x).toBeLessThanOrEqual(160 + 0.5);
+      expect(y).toBeGreaterThanOrEqual(420 - 0.5);
+      expect(y).toBeLessThanOrEqual(600 + 0.5);
+      await task.destroy();
+    });
+  }
+
+  it("writes /Rotate for Acrobat, and a turned stamp's /Rect holds its corners", async () => {
+    const src = await PDFDocument.create();
+    const pg = src.addPage([600, 800]);
+    pg.setRotation((await import("pdf-lib")).degrees(90));
+    const base: PdfState = { ...emptyState(), pages: D.pagesFromSource(1) };
+    const now = new Date().toISOString();
+    const stamp = {
+      id: "s",
+      pageId: base.pages[0].id,
+      kind: "stamp",
+      rect: { x: 100, y: 100, w: 200, h: 50 },
+      rotation: 90,
+      color: "#000000",
+      opacity: 1,
+      strokeWidth: 0,
+      stampLabel: "Approuvé",
+      author: "Moi",
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    } as Annot;
+    const out = (await buildPdf(await src.save(), { ...base, annots: [stamp] })).bytes;
+    const doc = await PDFDocument.load(out);
+    const d = doc.context.lookup((doc.getPage(0).node.Annots() as PDFArray).get(0), PDFDict);
+    expect(d.lookup(PDFName.of("Rotate"))?.toString()).toBe("90");
+    const r = d
+      .lookup(PDFName.of("Rect"), PDFArray)
+      .asArray()
+      .map((v) => Number(v.toString()));
+    expect(Math.round(r[2] - r[0])).toBe(50);
+    expect(Math.round(r[3] - r[1])).toBe(200);
+  });
+});

@@ -105,6 +105,7 @@ import {
   pdfFromImages,
   splitDocument,
   PAGE_SIZES,
+  imagePageSize,
 } from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
 // signPdfBytes/verifyPdfSignatures/generateSelfSignedP12 pull in node-forge, a
@@ -197,6 +198,7 @@ import {
   type Toast,
   type ViewState,
 } from "./state";
+import { CombineDialog, type CombineItem } from "./CombineDialog";
 import "./pdf.css";
 
 type DialogId =
@@ -219,6 +221,7 @@ type DialogId =
   | "measure"
   | "compare"
   | "insert"
+  | "combine"
   | "redactSearch";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
@@ -1893,6 +1896,57 @@ export default function PdfWorkspace({
     });
   };
 
+  /**
+   * « Combiner des fichiers »: the listed files (the open document with its
+   * edits, when kept in the list) made into a new, unsaved document.
+   */
+  const combineFiles = async (items: CombineItem[], opts: { outline: boolean }) => {
+    setDialog(null);
+    if (!(await confirmDiscard())) return;
+    setBusy(true);
+    const id = toast("progress", "Combinaison des fichiers…");
+    try {
+      const { mergeDocuments, parsePageRange } = await import("../ops/organize");
+      const sources = await Promise.all(
+        items.map(async (it) => ({
+          name: it.id === "current" ? fileName : it.name,
+          bytes: it.bytes ?? (await buildDerived()).bytes,
+          pages: it.range.trim() && it.count ? parsePageRange(it.range, it.count) : undefined,
+        })),
+      );
+      const res = await mergeDocuments(sources, {
+        outline: opts.outline,
+        title: "Fichiers combinés",
+        askPassword: (name, wrong) =>
+          dialogs.prompt({
+            title: "PDF protégé",
+            label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+          }),
+      });
+      dismissToast(id);
+      const pagesIn = res.counts.reduce((a, b) => a + b, 0);
+      if (!pagesIn) {
+        toast("warning", "Rien à combiner", res.reasons.map((r) => `${r.name} (${r.reason})`).join(", ") || undefined);
+        return;
+      }
+      await openBytes(res.bytes, "Fichiers combinés.pdf", undefined, undefined, null, { unsaved: true });
+      if (res.reasons.length) {
+        toast(
+          "warning",
+          `${res.reasons.length} fichier(s) non repris`,
+          res.reasons.map((r) => `${r.name} (${r.reason})`).join(", "),
+        );
+      } else {
+        toast("success", `${items.length} fichier(s) combiné(s) : ${pagesIn} page(s).`);
+      }
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Échec de la combinaison", e instanceof Error ? e.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const goHome = async () => {
     if (await confirmDiscard()) onHome();
   };
@@ -2505,7 +2559,10 @@ export default function PdfWorkspace({
         imageInput.current?.click();
         return;
       case "merge":
-        mergeInput.current?.click();
+        setDialog("combine");
+        return;
+      case "insertClipboard":
+        void insertFromClipboard();
         return;
       case "importComments":
       case "importFormData":
@@ -3264,7 +3321,7 @@ export default function PdfWorkspace({
   // File pickers
   // -------------------------------------------------------------------------
   /**
-   * « Insérer depuis un PDF » / « Fusionner »: the other files' pages are
+   * « Insérer depuis un PDF »: the other files' pages are
    * appended to THIS document — the same file, saved like any other edit: an
    * incremental update of it (a signed revision stays intact), encrypted with
    * its key, into the file it was opened from. The session goes on with the
@@ -3445,16 +3502,60 @@ export default function PdfWorkspace({
     for (const f of files) {
       const src = await read(f);
       const px = await sizeOfImage(src);
-      let w = (px.w * 72) / 96;
-      let h = (px.h * 72) / 96;
-      const [a4w, a4h] = w > h ? [PAGE_SIZES.A4[1], PAGE_SIZES.A4[0]] : [PAGE_SIZES.A4[0], PAGE_SIZES.A4[1]];
-      const k = Math.min(1, a4w / w, a4h / h);
-      w = Math.round(w * k);
-      h = Math.round(h * k);
-      made.push(D.makePage(null, { image: src, size: { w, h } }));
+      made.push(D.makePage(null, { image: src, size: imagePageSize(px.w, px.h) }));
     }
     setState((s) => D.insertPages(s, index, made));
     toast("success", `${made.length} page(s) image ajoutée(s).`);
+  };
+
+  /**
+   * Pasted content as pages at `index` (after the selected pages, or the
+   * current one, by default): PDFs and pictures as they come, text laid out
+   * on A4 pages.
+   */
+  const pasteAsPages = async (files: File[], text: string, index?: number) => {
+    const at =
+      index ??
+      (selectedPages.length
+        ? Math.max(...selectedPages.map((id) => pages.findIndex((p) => p.id === id))) + 1
+        : Math.min(pages.length, currentStore.get()));
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    if (pdfs.length) return insertPdfFiles(pdfs, at);
+    if (images.length) return insertImageFiles(images, at);
+    if (text.trim()) {
+      const { textToPdf } = await import("../ops/organize");
+      const bytes = await textToPdf(text);
+      return insertPdfFiles([new File([bytes as BlobPart], "Presse-papiers.pdf", { type: "application/pdf" })], at);
+    }
+    toast("warning", "Presse-papiers", "Il ne contient ni image, ni PDF, ni texte à insérer.");
+  };
+
+  /** « Insérer depuis le presse-papiers » (the browser asks for permission). */
+  const insertFromClipboard = async () => {
+    let items: ClipboardItems;
+    try {
+      items = await navigator.clipboard.read();
+    } catch {
+      toast(
+        "warning",
+        "Presse-papiers inaccessible",
+        "Autorisez l'accès au presse-papiers, ou collez avec Ctrl+V dans la vue Organiser.",
+      );
+      return;
+    }
+    const files: File[] = [];
+    let text = "";
+    for (const item of items) {
+      const image = item.types.find((t) => t.startsWith("image/"));
+      if (image) {
+        const blob = await item.getType(image);
+        files.push(new File([blob], `Presse-papiers.${image.split("/")[1] || "png"}`, { type: image }));
+      } else if (item.types.includes("text/plain")) {
+        text += await (await item.getType("text/plain")).text();
+      }
+    }
+    await pasteAsPages(files, text);
   };
 
   const onDataPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3780,6 +3881,9 @@ export default function PdfWorkspace({
               <button className="eb eb--outline" onClick={() => imageInput.current?.click()} disabled={loading}>
                 Créer depuis des images
               </button>
+              <button className="eb eb--outline" onClick={() => setDialog("combine")} disabled={loading}>
+                Combiner des fichiers
+              </button>
             </div>
             {drafts.length > 0 && (
               <div className="pdfx-recover" role="region" aria-label="Modifications récupérables">
@@ -3842,6 +3946,9 @@ export default function PdfWorkspace({
             }
             onClose={() => setPendingPassword(null)}
           />
+        )}
+        {dialog === "combine" && (
+          <CombineDialog onClose={() => setDialog(null)} onConfirm={(items, o) => void combineFiles(items, o)} />
         )}
       </div>
     );
@@ -4294,6 +4401,7 @@ export default function PdfWorkspace({
                 toast("warning", "Insertion", "Seuls des PDF et des images peuvent être insérés comme pages.");
               }
             }}
+            onPaste={(files, text, at) => void pasteAsPages(files, text, at)}
             onCrop={() => setDialog("crop")}
             onLabels={() => setDialog("labels")}
             onReverse={() => setState((s) => D.reversePages(s))}
@@ -4913,7 +5021,7 @@ export default function PdfWorkspace({
                     label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
                   }),
                 from - 1,
-                { pages: Array.from({ length: n }, (_, k) => srcFrom - 1 + k) },
+                { pages: Array.from({ length: n }, (_, k) => srcFrom - 1 + k), outline: false },
               );
               const doomed = before.slice(from - 1, to);
               for (const p of doomed) {
@@ -4924,6 +5032,13 @@ export default function PdfWorkspace({
               purgeRemovedPages(doc, before, kept);
             });
           }}
+        />
+      )}
+      {dialog === "combine" && (
+        <CombineDialog
+          current={{ name: fileName, count: pages.length }}
+          onClose={() => setDialog(null)}
+          onConfirm={(items, o) => void combineFiles(items, o)}
         />
       )}
       {dialog === "insert" && (

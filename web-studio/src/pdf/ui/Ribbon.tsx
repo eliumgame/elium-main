@@ -16,6 +16,7 @@ import {
   BoxSelect,
   Circle,
   Cloud,
+  ClipboardPaste,
   Combine,
   Contrast,
   Copy,
@@ -413,7 +414,12 @@ export default function Ribbon(p: RibbonProps) {
             </Group>
             <Group title="Document">
               <Cmd icon={<FileSearch size={17} />} onClick={C("properties")} label="Propriétés" />
-              <Cmd icon={<Combine size={17} />} onClick={C("merge")} label="Fusionner" />
+              <Cmd
+                icon={<Combine size={17} />}
+                onClick={C("merge")}
+                label="Combiner"
+                title="Combiner des fichiers (PDF et images) en un nouveau document"
+              />
               <Cmd icon={<Scissors size={17} />} onClick={C("split")} label="Diviser" />
             </Group>
           </>
@@ -646,6 +652,12 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd icon={<FileText size={17} />} onClick={C("insertFile")} label="Depuis un PDF" />
               <Cmd icon={<FileImage size={17} />} onClick={C("insertImage")} label="Depuis une image" />
               <Cmd
+                icon={<ClipboardPaste size={17} />}
+                onClick={C("insertClipboard")}
+                label="Presse-papiers"
+                title="Insérer le contenu du presse-papiers (image, texte) comme page(s)"
+              />
+              <Cmd
                 icon={<Replace size={17} />}
                 onClick={C("replacePages")}
                 label="Remplacer"
@@ -660,7 +672,12 @@ export default function Ribbon(p: RibbonProps) {
             </Group>
             <Group title="Extraction" optional>
               <Cmd icon={<Scissors size={17} />} onClick={C("extract")} label="Extraire" />
-              <Cmd icon={<Combine size={17} />} onClick={C("merge")} label="Fusionner" />
+              <Cmd
+                icon={<Combine size={17} />}
+                onClick={C("merge")}
+                label="Combiner"
+                title="Combiner des fichiers (PDF et images) en un nouveau document"
+              />
               <Cmd icon={<FileOutput size={17} />} onClick={C("split")} label="Diviser" />
             </Group>
           </>

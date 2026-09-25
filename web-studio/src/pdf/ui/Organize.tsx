@@ -49,6 +49,8 @@ export interface OrganizeProps {
   onInsertImage: () => void;
   /** Files dragged in from the desktop or the Drive, dropped at page position `at`. */
   onDropFiles?: (files: File[], at: number) => void;
+  /** Ctrl+V in the organiser: pasted files or text, as pages at `at`. */
+  onPaste?: (files: File[], text: string, at: number) => void;
   onCrop: () => void;
   onLabels: () => void;
   onReverse: () => void;
@@ -432,8 +434,29 @@ export default function Organize(p: OrganizeProps) {
         ?.querySelector<HTMLElement>(`.pdfx-org__cell[data-index="${next}"]`)
         ?.scrollIntoView({ block: "nearest" });
     };
+    // Ctrl+V: what was copied becomes pages, after the selection (or at the end).
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (!p.onPaste || !e.clipboardData) return;
+      if (
+        t &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable || t.closest('[role="dialog"]'))
+      )
+        return;
+      const files = Array.from(e.clipboardData.files);
+      const text = files.length ? "" : e.clipboardData.getData("text/plain");
+      if (!files.length && !text.trim()) return;
+      e.preventDefault();
+      const chosen = new Set(p.selected);
+      const last = p.pages.reduce((m, x, i) => (chosen.has(x.id) ? i : m), -1);
+      p.onPaste(files, text, last >= 0 ? last + 1 : p.pages.length);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("paste", onPaste);
+    };
   }, [p, columns]);
 
   return (

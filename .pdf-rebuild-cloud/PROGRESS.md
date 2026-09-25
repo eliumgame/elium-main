@@ -729,3 +729,30 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   - suppression par Elium de marques posées par Acrobat.
 - Reste pour T5 : dialogue « Combiner » (liste de fichiers et ordre), insertion depuis
   le presse-papiers.
+
+### Session cloud 1 : T5, Combiner et presse-papiers (T5 terminé hors revue)
+- « Combiner des fichiers » (`ui/CombineDialog.tsx`, `mergeDocuments` réécrit) :
+  - liste de PDF et d'images, ordre par glisser ou flèches, sélection de pages par
+    fichier ;
+  - le document ouvert est proposé en tête, avec ses modifications ;
+  - un signet par fichier (réglable), avec les signets du fichier dessous, y compris
+    pour une sélection de pages ;
+  - champs de formulaire repris, fichiers protégés ouverts par mot de passe ;
+  - le résultat s'ouvre comme un nouveau document non enregistré ;
+  - accessible depuis le ruban (Organiser, Accueil : « Combiner », anciennement
+    « Fusionner », qui ne faisait qu'insérer) et depuis l'accueil PDF.
+- Défaut corrigé : deux fichiers ayant un champ de même nom donnaient deux champs
+  homonymes. Le champ copié rejoint désormais celui qui existe (comportement
+  d'Acrobat), récursivement pour les noms hiérarchiques. Cela vaut aussi pour
+  « Insérer depuis un PDF ».
+- Presse-papiers :
+  - bouton « Presse-papiers » (Organiser > Insérer) ;
+  - Ctrl+V dans la vue Organiser ;
+  - images, PDF ou texte (mis en page sur A4 par `textToPdf`), insérés après la
+    sélection.
+- Les pages image insérées et combinées ont la même taille (`imagePageSize`).
+- Tests : 3 unitaires, 3 navigateur. Suite complète 1989/1989 ; specs PDF 60/60.
+- À valider dans Acrobat :
+  - un fichier combiné contenant deux fois le même formulaire : un seul champ par
+    nom, valeur partagée ;
+  - les signets par fichier.

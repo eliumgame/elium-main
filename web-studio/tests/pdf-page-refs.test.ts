@@ -1,11 +1,13 @@
 // Must be the very first import — see pdfjs-node-shim.ts for why.
 import "./pdfjs-node-shim";
 import { createRequire } from "node:module";
+import zlib from "node:zlib";
 import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import { buildPdf } from "../src/pdf/ops/save";
+import { mergeDocuments, textToPdf } from "../src/pdf/ops/organize";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, type PdfState } from "../src/pdf/model/types";
 
@@ -252,5 +254,105 @@ describe("extracted and split parts stand on their own", () => {
     expect(parts.length).toBeGreaterThan(1);
     expect(parts.flatMap((p) => p.pages)).toEqual(Array.from({ length: 12 }, (_, i) => i));
     for (const p of parts) expect(p.bytes.length).toBeLessThanOrEqual(Math.ceil(bytes.length / 3) * 1.25);
+  });
+});
+
+/** A `w × h` PNG, solid grey. */
+function png(w: number, h: number): Uint8Array {
+  const chunk = (type: string, data: Uint8Array) => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), Buffer.from(data)]);
+    const out = Buffer.alloc(8 + data.length + 4);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(zlib.crc32(body) >>> 0, 8 + data.length);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 0, 0, 0, 0], 8); // 8-bit greyscale
+  const rows = Buffer.alloc((w + 1) * h, 0x80);
+  for (let y = 0; y < h; y++) rows[y * (w + 1)] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", new Uint8Array(0)),
+  ]);
+}
+
+describe("combining files", () => {
+  it("puts PDFs (whole or a selection) and pictures one after the other, a bookmark per file", async () => {
+    const src = await source();
+    const res = await mergeDocuments(
+      [
+        { name: "dossier.pdf", bytes: src, pages: [2, 0] },
+        { name: "photo.png", bytes: png(400, 200) },
+        { name: "annexe.pdf", bytes: src },
+      ],
+      { title: "Tout" },
+    );
+    expect(res.counts).toEqual([2, 1, 4]);
+    expect(res.reasons).toEqual([]);
+    const doc = await PDFDocument.load(res.bytes);
+    expect(doc.getPageCount()).toBe(7);
+    expect(doc.getTitle()).toBe("Tout");
+    // The picture at its size at 96 dpi.
+    expect(doc.getPage(2).getSize()).toEqual({ width: 300, height: 150 });
+    // Fields of both copies of the file kept (same names: one field, as in Acrobat).
+    expect(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName())
+        .sort(),
+    ).toEqual(["champ1", "champ2", "champ3", "champ4"]);
+
+    const task = pdfjsLib.getDocument({ data: res.bytes.slice(), isEvalSupported: false });
+    const pdf = await task.promise;
+    const outline = (await pdf.getOutline()) ?? [];
+    expect(outline.map((o) => o.title)).toEqual(["dossier", "photo", "annexe"]);
+    // The selection keeps the bookmark of a page it took (« Page trois » was page 3, now first).
+    expect(outline[0].items.map((o) => o.title)).toEqual(["Page trois"]);
+    const at = async (dest: unknown) => pdf.getPageIndex((dest as unknown[])[0] as never);
+    expect(await at(outline[0].items[0].dest)).toBe(0);
+    expect(await at(outline[1].dest)).toBe(2);
+    expect(await at(outline[2].dest)).toBe(3);
+    await task.destroy();
+  });
+
+  it("says which files could not be read, and why", async () => {
+    const res = await mergeDocuments(
+      [
+        { name: "bon.pdf", bytes: await source() },
+        { name: "cassé.pdf", bytes: new TextEncoder().encode("pas un pdf") },
+        { name: "image.png", bytes: png(10, 10).slice(0, 30) },
+      ],
+      { outline: false },
+    );
+    expect(res.counts).toEqual([4, 0, 0]);
+    expect(res.reasons).toEqual([
+      { name: "cassé.pdf", reason: "fichier illisible" },
+      { name: "image.png", reason: "image illisible" },
+    ]);
+    const pdf = await pdfjsLib.getDocument({ data: res.bytes.slice(), isEvalSupported: false }).promise;
+    expect(await pdf.getOutline()).toBeNull();
+  });
+});
+
+describe("text as pages", () => {
+  it("lays pasted text out on as many A4 pages as it takes, accents kept", async () => {
+    const text = ["Été à Łódź — première ligne", ...Array.from({ length: 80 }, (_, i) => `Ligne ${i + 2}`)].join(
+      "\r\n",
+    );
+    const bytes = await textToPdf(text);
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+    expect(pdf.numPages).toBe(2);
+    const page = await pdf.getPage(1);
+    expect(Math.round(page.getViewport({ scale: 1 }).width)).toBe(595);
+    const shown = (await page.getTextContent()).items.map((i) => ("str" in i ? i.str : "")).join("\n");
+    expect(shown).toContain("Été à Łódź — première ligne");
+    const second = (await (await pdf.getPage(2)).getTextContent()).items.map((i) => ("str" in i ? i.str : ""));
+    expect(second).toContain("Ligne 81");
   });
 });

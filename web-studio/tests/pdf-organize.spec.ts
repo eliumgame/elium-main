@@ -265,4 +265,127 @@ test.describe("PDF — organiser", () => {
     expect(doc.getPages().map((p) => Math.round(p.getWidth()))).toEqual([200, 500, 400, 600, 300]);
     expect(problems).toEqual([]);
   });
+
+  test("combiner des fichiers : ordre, sélection de pages, image, document ouvert", async ({ page }) => {
+    const problems = health(page);
+    await open(
+      page,
+      await pdf(
+        [
+          [300, 300],
+          [310, 310],
+        ],
+        "Ouvert",
+      ),
+    );
+    await page.getByRole("tab", { name: "Organiser" }).click();
+    await page.getByRole("button", { name: "Combiner" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("doc.pdf (document ouvert)");
+    const pngBytes = await page.evaluate(async () => {
+      const c = document.createElement("canvas");
+      c.width = 400;
+      c.height = 200;
+      c.getContext("2d")!.fillRect(0, 0, 400, 200);
+      const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
+      return Array.from(new Uint8Array(await blob!.arrayBuffer()));
+    });
+    await page.getByTestId("combine-input").setInputFiles([
+      {
+        name: "annexe.pdf",
+        mimeType: "application/pdf",
+        buffer: await pdf(
+          [
+            [500, 500],
+            [510, 510],
+            [520, 520],
+          ],
+          "Annexe",
+        ),
+      },
+      { name: "photo.png", mimeType: "image/png", buffer: Buffer.from(pngBytes) },
+    ]);
+    await expect(dialog.getByText("3 fichiers · 6 pages")).toBeVisible();
+    // The picture first, the annex's pages 3 and 1 only.
+    await dialog.getByRole("button", { name: "Monter photo.png" }).click();
+    await dialog.getByRole("button", { name: "Monter photo.png" }).click();
+    await dialog.getByRole("textbox", { name: "Pages de annexe.pdf" }).fill("3, 1");
+    await expect(dialog.getByText("3 fichiers · 5 pages")).toBeVisible();
+    await dialog.getByRole("button", { name: "Combiner", exact: true }).click();
+    // The open document has no unsaved edit: nothing to confirm.
+    await expect(page.getByText("3 fichier(s) combiné(s) : 5 page(s).")).toBeVisible();
+
+    const doc = await save(page);
+    expect(doc.getPages().map((p) => Math.round(p.getWidth()))).toEqual([300, 300, 310, 520, 500]);
+    expect(problems).toEqual([]);
+  });
+
+  test("combiner depuis l'accueil PDF", async ({ page }) => {
+    const problems = health(page);
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>;
+      delete w.showSaveFilePicker;
+      delete w.showOpenFilePicker;
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: /^PDF/ }).click();
+    await page.getByRole("button", { name: "Combiner des fichiers" }).click();
+    await page.getByTestId("combine-input").setInputFiles([
+      { name: "a.pdf", mimeType: "application/pdf", buffer: await pdf([[200, 200]], "A") },
+      { name: "b.pdf", mimeType: "application/pdf", buffer: await pdf([[250, 250]], "B") },
+    ]);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("2 fichiers · 2 pages")).toBeVisible();
+    await dialog.getByRole("button", { name: "Combiner", exact: true }).click();
+    await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
+    const doc = await save(page);
+    expect(doc.getPages().map((p) => Math.round(p.getWidth()))).toEqual([200, 250]);
+    expect(problems).toEqual([]);
+  });
+
+  test("presse-papiers : Ctrl+V dans la vue Organiser, bouton du ruban", async ({ page, context }) => {
+    const problems = health(page);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await open(
+      page,
+      await pdf(
+        [
+          [300, 300],
+          [310, 310],
+        ],
+        "Page",
+      ),
+    );
+    await page.getByRole("tab", { name: "Organiser" }).click();
+    await page.getByRole("button", { name: "Organiser", exact: true }).click();
+    const cells = page.locator(".pdfx-org__cell");
+    await expect(cells).toHaveCount(2);
+
+    // Text pasted after the selected first page: one A4 page.
+    await cells.nth(0).click();
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "Collé depuis le presse-papiers");
+      document.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
+    });
+    await expect(page.getByText("1 page(s) insérée(s)")).toBeVisible();
+    await expect(cells).toHaveCount(3);
+
+    // The ribbon's button reads the clipboard (permission granted): a picture, after page 1.
+    await page.getByRole("button", { name: "Terminer" }).click();
+    await page.evaluate(async () => {
+      const c = document.createElement("canvas");
+      c.width = 200;
+      c.height = 100;
+      c.getContext("2d")!.fillRect(0, 0, 200, 100);
+      const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob! })]);
+    });
+    await page.getByRole("button", { name: "Presse-papiers" }).click();
+    await expect(page.getByText("1 page(s) image ajoutée(s).")).toBeVisible();
+
+    const doc = await save(page);
+    expect(doc.getPages().map((p) => Math.round(p.getWidth()))).toEqual([300, 150, 595, 310]);
+    expect(problems).toEqual([]);
+  });
 });

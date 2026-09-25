@@ -108,7 +108,6 @@ export interface MergeSource {
   bytes: Uint8Array;
   /** Optional subset, 0-based, in the order they should appear. */
   pages?: number[];
-  password?: string;
 }
 
 export interface MergeResult {
@@ -117,12 +116,31 @@ export interface MergeResult {
   counts: number[];
   /** Sources that could not be opened. */
   failed: string[];
+  /** Why each of them failed, as `appendPdfPages` says. */
+  reasons: { name: string; reason: string }[];
+}
+
+/** A PNG or JPEG file (the formats a PDF embeds as they are). */
+export function imageKind(bytes: Uint8Array): "png" | "jpg" | null {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpg";
+  return null;
 }
 
 /**
- * Concatenate documents. Bookmarks from each source are preserved as a
- * top-level entry per file so a merged dossier stays navigable.
+ * The page a picture of `w × h` pixels is put on: its size at 96 dpi (as a
+ * screen shows it), a large one brought down to fit A4 in its orientation.
  */
+export function imagePageSize(w: number, h: number): { w: number; h: number } {
+  let pw = (w * 72) / 96;
+  let ph = (h * 72) / 96;
+  const [a4w, a4h] = pw > ph ? [842, 595] : [595, 842];
+  const k = Math.min(1, a4w / pw, a4h / ph);
+  pw = Math.max(1, Math.round(pw * k));
+  ph = Math.max(1, Math.round(ph * k));
+  return { w: pw, h: ph };
+}
+
 /**
  * Append the pages of other PDFs to `doc` — the working document of a save
  * (`SaveInput.transform`). The document stays the same file: its objects keep
@@ -195,7 +213,7 @@ export async function appendPdfPages(
       /* the pages are in; their fields just stay inert */
     }
     try {
-      if (opts.outline !== false && !opts.pages) adoptOutline(doc, src, copied, file.name.replace(/\.pdf$/i, ""));
+      if (opts.outline !== false) adoptOutline(doc, src, indices, copied, file.name.replace(/\.pdf$/i, ""));
     } catch {
       /* no bookmarks from that file */
     }
@@ -203,46 +221,52 @@ export async function appendPdfPages(
   return { inserted, failed };
 }
 
+/**
+ * Acrobat's « Combiner des fichiers »: the files one after the other in a new
+ * document — PDFs (whole or a page selection, with their form fields and
+ * bookmarks, a protected one opened with `askPassword`) and PNG/JPEG pictures
+ * (one page each). With `outline` (default), one bookmark per file, the
+ * file's own bookmarks under it, so the dossier stays navigable.
+ */
 export async function mergeDocuments(
   sources: readonly MergeSource[],
-  opts: { outline?: boolean } = {},
+  opts: {
+    outline?: boolean;
+    askPassword?: (name: string, wrong: boolean) => Promise<string | null>;
+    title?: string;
+  } = {},
 ): Promise<MergeResult> {
   const out = await PDFDocument.create();
+  if (opts.title) out.setTitle(opts.title);
+  out.setProducer("Elium");
   const counts: number[] = [];
-  const failed: string[] = [];
-  const marks: { title: string; page: number }[] = [];
-
+  const reasons: { name: string; reason: string }[] = [];
   for (const src of sources) {
-    try {
-      const doc = await PDFDocument.load(src.bytes, {
-        ignoreEncryption: true,
-        throwOnInvalidObject: false,
-        updateMetadata: false,
-      });
-      const indices = src.pages?.length
-        ? src.pages.filter((i) => i >= 0 && i < doc.getPageCount())
-        : doc.getPageIndices();
-      if (!indices.length) {
+    const kind = imageKind(src.bytes);
+    if (kind) {
+      try {
+        const img = kind === "png" ? await out.embedPng(src.bytes) : await out.embedJpg(src.bytes);
+        const size = imagePageSize(img.width, img.height);
+        const page = out.addPage([size.w, size.h]);
+        page.drawImage(img, { x: 0, y: 0, width: size.w, height: size.h });
+        if (opts.outline !== false) {
+          appendOutlineNodes(out, [{ title: src.name.replace(/\.[a-z0-9]+$/i, ""), page: page.ref, kids: [] }]);
+        }
+        counts.push(1);
+      } catch {
+        reasons.push({ name: src.name, reason: "image illisible" });
         counts.push(0);
-        continue;
       }
-      marks.push({ title: src.name.replace(/\.pdf$/i, ""), page: out.getPageCount() });
-      const copied = await out.copyPages(doc, indices);
-      for (const page of copied) out.addPage(page);
-      counts.push(copied.length);
-    } catch {
-      failed.push(src.name);
-      counts.push(0);
+      continue;
     }
+    const r = await appendPdfPages(out, [src], opts.askPassword, undefined, {
+      pages: src.pages,
+      outline: opts.outline,
+    });
+    reasons.push(...r.failed);
+    counts.push(r.inserted);
   }
-
-  if (opts.outline !== false && marks.length > 1) {
-    writeOutline(
-      out,
-      marks.map((m) => ({ title: m.title, page: m.page, children: [] })),
-    );
-  }
-  return { bytes: await out.save(), counts, failed };
+  return { bytes: await out.save(), counts, failed: reasons.map((r) => r.name), reasons };
 }
 
 /** Build a new document from a subset of pages, in the given order. */
@@ -995,7 +1019,10 @@ function adoptCopiedFields(doc: PDFDocument, src: PDFDocument, copied: readonly 
     fields = ctx.obj([]) as PDFArray;
     form.set(PDFName.of("Fields"), fields as PDFArray);
   }
-  for (const r of roots) (fields as PDFArray).push(r);
+  for (const r of roots) {
+    // Same name as a field already there: the same field (Acrobat), one more view of it.
+    if (!joinField(ctx, fields as PDFArray, r)) (fields as PDFArray).push(r);
+  }
   // Fonts the copied appearances name, when this form lacks them.
   const srcAcro = src.catalog.lookup(PDFName.of("AcroForm"));
   const srcDr = srcAcro instanceof PDFDict ? srcAcro.lookup(PDFName.of("DR")) : undefined;
@@ -1021,10 +1048,92 @@ function adoptCopiedFields(doc: PDFDocument, src: PDFDocument, copied: readonly 
   }
 }
 
+const partialName = (d: PDFDict): string | undefined => {
+  const t = d.lookup(PDFName.of("T"));
+  return t instanceof PDFString || t instanceof PDFHexString ? t.decodeText() : undefined;
+};
+
 /**
- * `src`'s bookmarks, pointing at their copies in `doc`, under one bookmark
- * named `title` (to the first inserted page) at the end of `doc`'s outline.
+ * A field whose single widget is merged into it, split into the field and
+ * that widget (the widget keeps the ref the page's /Annots holds). Returns
+ * the field's ref.
  */
+function splitMerged(ctx: PDFDocument["context"], ref: PDFRef, dict: PDFDict, siblings: PDFArray): PDFRef {
+  if (dict.get(PDFName.of("Kids")) || dict.lookup(PDFName.of("Subtype"))?.toString() !== "/Widget") return ref;
+  const field = ctx.obj({}) as PDFDict;
+  for (const k of FIELD_KEYS) {
+    const v = dict.get(PDFName.of(k));
+    if (v !== undefined) {
+      field.set(PDFName.of(k), v);
+      dict.delete(PDFName.of(k));
+    }
+  }
+  const da = dict.get(PDFName.of("DA"));
+  if (da) field.set(PDFName.of("DA"), da);
+  const parent = dict.get(PDFName.of("Parent"));
+  if (parent) field.set(PDFName.of("Parent"), parent);
+  const fieldRef = ctx.register(field);
+  field.set(PDFName.of("Kids"), ctx.obj([ref]));
+  dict.set(PDFName.of("Parent"), fieldRef);
+  const at = siblings.indexOf(ref);
+  if (at !== undefined && at >= 0) siblings.set(at, fieldRef);
+  return fieldRef;
+}
+
+/**
+ * Field `ref` (a copy) joins the field of the same name among `siblings`, if
+ * there is one of the same type: its widgets become that field's, named
+ * children are joined the same way one level down. The existing field's value
+ * stays. False when there is no such field (the copy stays a field of its own).
+ */
+function joinField(ctx: PDFDocument["context"], siblings: PDFArray, ref: PDFRef, depth = 0): boolean {
+  const copy = ctx.lookup(ref);
+  if (!(copy instanceof PDFDict) || depth > 16) return false;
+  const name = partialName(copy);
+  if (name === undefined) return false;
+  let targetRef: PDFRef | undefined;
+  let target: PDFDict | undefined;
+  for (let i = 0; i < siblings.size(); i++) {
+    const r = siblings.get(i);
+    const d = siblings.lookup(i);
+    if (r instanceof PDFRef && d instanceof PDFDict && refKey(r) !== refKey(ref) && partialName(d) === name) {
+      targetRef = r;
+      target = d;
+      break;
+    }
+  }
+  if (!targetRef || !target) return false;
+  const ft = (d: PDFDict) => d.lookup(PDFName.of("FT"))?.toString();
+  if (ft(copy) && ft(target) && ft(copy) !== ft(target)) return false;
+
+  const fieldRef = splitMerged(ctx, targetRef, target, siblings);
+  const field = ctx.lookup(fieldRef, PDFDict);
+  let kids = field.lookup(PDFName.of("Kids"));
+  if (!(kids instanceof PDFArray)) {
+    kids = ctx.obj([]) as PDFArray;
+    field.set(PDFName.of("Kids"), kids as PDFArray);
+  }
+  const into = kids as PDFArray;
+  const copyKids = copy.lookup(PDFName.of("Kids"));
+  if (copyKids instanceof PDFArray) {
+    for (let i = 0; i < copyKids.size(); i++) {
+      const k = copyKids.get(i);
+      const kd = copyKids.lookup(i);
+      if (!(k instanceof PDFRef) || !(kd instanceof PDFDict)) continue;
+      kd.set(PDFName.of("Parent"), fieldRef);
+      if (partialName(kd) !== undefined && joinField(ctx, into, k, depth + 1)) continue;
+      into.push(k);
+    }
+  } else {
+    // The copy is a field and its widget in one: the widget alone joins.
+    for (const k of FIELD_KEYS) copy.delete(PDFName.of(k));
+    copy.set(PDFName.of("Parent"), fieldRef);
+    into.push(ref);
+  }
+  return true;
+}
+
+/** A bookmark read from a file: its title, the page it goes to, its children. */
 interface OutlineNode {
   title: string;
   page?: PDFRef;
@@ -1119,9 +1228,17 @@ function appendOutlineNodes(doc: PDFDocument, nodes: readonly OutlineNode[]): vo
  * `src`'s bookmarks, pointing at their copies in `doc`, under one bookmark
  * named `title` (to the first inserted page) at the end of `doc`'s outline.
  */
-function adoptOutline(doc: PDFDocument, src: PDFDocument, copied: readonly PDFPage[], title: string): void {
+function adoptOutline(
+  doc: PDFDocument,
+  src: PDFDocument,
+  indices: readonly number[],
+  copied: readonly PDFPage[],
+  title: string,
+): void {
   if (!copied.length) return;
-  const kids = readOutlineNodes(src, (i) => copied[i]?.ref);
+  // Only the bookmarks of the pages taken (`indices[k]` became `copied[k]`).
+  const at = new Map(indices.map((i, k) => [i, copied[k]]));
+  const kids = readOutlineNodes(src, (i) => at.get(i)?.ref);
   appendOutlineNodes(doc, [{ title, page: copied[0].ref, kids }]);
 }
 
@@ -1154,4 +1271,32 @@ function namedDest(doc: PDFDocument, name: string): unknown {
     return undefined;
   };
   return tree ? find(tree, 0) : undefined;
+}
+
+/**
+ * Text as a PDF (Acrobat's « Créer à partir du presse-papiers » with text):
+ * A4 pages, 11 pt, 56 pt margins, wrapped, as many pages as it takes.
+ */
+export async function textToPdf(text: string): Promise<Uint8Array> {
+  const { FontBook, sanitiseForFont } = await import("./fonts");
+  const { measure, wrapText } = await import("./painter");
+  const doc = await PDFDocument.create();
+  doc.setProducer("Elium");
+  const clean = text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
+  const face = await new FontBook(doc).forText("Helvetica", false, false, clean);
+  const body = sanitiseForFont(clean, face.unicode);
+  const [W, H] = PAGE_SIZES.A4;
+  const margin = 56;
+  const size = 11;
+  const lead = size * 1.35;
+  const lines = wrapText(face.font, body, size, W - 2 * margin);
+  const perPage = Math.max(1, Math.floor((H - 2 * margin) / lead));
+  for (let at = 0; at < Math.max(1, lines.length); at += perPage) {
+    const page = doc.addPage([W, H]);
+    lines.slice(at, at + perPage).forEach((line, k) => {
+      if (!line || !measure(face.font, line, size)) return;
+      page.drawText(line, { x: margin, y: H - margin - size - k * lead, size, font: face.font });
+    });
+  }
+  return doc.save();
 }

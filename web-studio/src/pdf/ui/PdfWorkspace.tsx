@@ -83,7 +83,6 @@ import {
   putPdfDraft,
   resolvePdfDraft,
   sourceKey,
-  hasEdits,
   type PdfDraftEntry,
 } from "../model/recovery";
 import type { VaultSecret } from "../../crypto/local-vault";
@@ -515,8 +514,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setEverSaved(false);
         redactConfirmed.current = false;
         sourceKeyRef.current = null;
-        // A restored session with edits is unsaved work; a plain open is clean.
-        markClean.current = !restore || !hasEdits(restore);
+        // Freshly opened — or restored from an .elium, which holds the session:
+        // nothing is unsaved yet. (A recovered draft is applied afterwards, dirty.)
+        markClean.current = true;
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
         const base: PdfState = restore ?? {
           ...emptyState(),

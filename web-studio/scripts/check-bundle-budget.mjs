@@ -11,6 +11,10 @@
  * total catches growth spread across many small chunks that no single
  * per-chunk budget would flag.
  *
+ * pdf.js exists twice — modern and legacy builds, picked at run time
+ * (src/pdf/core/pdfjs.ts) — and a browser only ever downloads ONE of them:
+ * each has its own budget, and the total counts the heavier one only.
+ *
  * Run after `vite build` (see package.json's `build` script and CI).
  */
 import { readdirSync, statSync } from "node:fs";
@@ -21,9 +25,21 @@ const ASSETS_DIR = join(process.cwd(), "dist", "assets");
 const CHUNK_BUDGETS = [
   { prefix: "vendor-pdf-lib-", limitBytes: 1_300_000 },
   { prefix: "vendor-tiptap-", limitBytes: 570_000 },
-  { prefix: "vendor-pdfjs-", limitBytes: 520_000 },
+  { prefix: "vendor-pdfjs-", exclude: "vendor-pdfjs-legacy-", limitBytes: 520_000 },
+  { prefix: "vendor-pdfjs-legacy-", limitBytes: 590_000 },
 ];
-const TOTAL_JS_BUDGET_BYTES = 5_200_000;
+
+/** Chunk sets of which a browser loads exactly one (see the header). */
+const ALTERNATIVES = [
+  {
+    modern: (n) => /^vendor-(pdfjs|pdfviewer)-/.test(n) && !/-legacy-/.test(n),
+    legacy: (n) => /^vendor-(pdfjs|pdfviewer)-legacy-/.test(n),
+  },
+];
+// 5,2 Mo → 5,35 Mo : le total compte désormais le jeu pdf.js LEGACY (le plus
+// lourd, ~+65 Kio, que Chromium/Edge reçoivent tant qu'il leur manque
+// Math.sumPrecise) plus la refonte PDF (enregistrement incrémental, formulaires).
+const TOTAL_JS_BUDGET_BYTES = 5_350_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -40,12 +56,16 @@ function main() {
 
   const jsFiles = files.filter((f) => f.endsWith(".js"));
   const sizes = jsFiles.map((f) => ({ name: f, bytes: statSync(join(ASSETS_DIR, f)).size }));
-  const totalBytes = sizes.reduce((sum, f) => sum + f.bytes, 0);
+  let totalBytes = sizes.reduce((sum, f) => sum + f.bytes, 0);
+  for (const { modern, legacy } of ALTERNATIVES) {
+    const sum = (test) => sizes.filter((f) => test(f.name)).reduce((acc, f) => acc + f.bytes, 0);
+    totalBytes -= Math.min(sum(modern), sum(legacy));
+  }
 
   const failures = [];
 
-  for (const { prefix, limitBytes } of CHUNK_BUDGETS) {
-    const matches = sizes.filter((f) => f.name.startsWith(prefix));
+  for (const { prefix, exclude, limitBytes } of CHUNK_BUDGETS) {
+    const matches = sizes.filter((f) => f.name.startsWith(prefix) && !(exclude && f.name.startsWith(exclude)));
     if (matches.length === 0) {
       console.warn(`check-bundle-budget: aucun chunk "${prefix}*" trouvé — budget ignoré (renommage ?).`);
       continue;

@@ -129,9 +129,7 @@ export class FormSession {
 
   private constructor(private readonly engine: PdfEngine) {
     const raw = engine.raw;
-    this.fieldObjects = (
-      raw.getFieldObjects() as Promise<Record<string, RawFieldObject[]> | null>
-    ).catch(() => null);
+    this.fieldObjects = (raw.getFieldObjects() as Promise<Record<string, RawFieldObject[]> | null>).catch(() => null);
     this.hasJSActions = raw.hasJSActions().catch(() => false);
     this.layerReady = this.hasJSActions.then((js) => {
       this.scriptingEnabled = js && scriptingSupported();

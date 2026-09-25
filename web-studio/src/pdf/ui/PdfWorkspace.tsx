@@ -229,7 +229,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const pristineBookmarksRef = useRef<Bookmark[] | null>(null);
   /** Protection change relative to the source file (applied by the next save). */
   const securityRef = useRef<SecurityChange | null>(null);
-  const [securityDirty, setSecurityDirty] = useState(false);
+  const [securityDirty, setSecurityDirtyState] = useState(false);
+  // Read by the save itself (which may run from a closure older than the change).
+  const securityDirtyRef = useRef(false);
+  const setSecurityDirty = useCallback((v: boolean) => {
+    securityDirtyRef.current = v;
+    setSecurityDirtyState(v);
+  }, []);
   /** Stamp of the state last saved (or opened): `version !== savedVersion` = modified. */
   const [savedVersion, setSavedVersion] = useState(0);
   const markClean = useRef(false);
@@ -604,7 +610,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (gen === openGeneration.current) setLoading(false);
       }
     },
-    [reset, amend, importExistingMarkup, currentStore, dialogs, toast, vaultSecret],
+    [reset, amend, importExistingMarkup, currentStore, dialogs, toast, vaultSecret, setSecurityDirty],
   );
 
   const openFile = useCallback(
@@ -1222,7 +1228,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const ver = version;
     const disk = how.copy || how.fresh || !dest.persistent ? null : diskRef.current;
     // A protection change is relative to the source: re-applied whenever we start from it.
-    const security = disk ? (securityDirty ? securityRef.current : null) : securityRef.current;
+    const security = disk ? (securityDirtyRef.current ? securityRef.current : null) : securityRef.current;
     const opts: Partial<BuildOptions> = { ...saveOptions(), ...options };
     const marks = st.annots.filter((a) => a.kind === "redact").length;
     if (marks && opts.applyRedactions && !redactConfirmed.current) {
@@ -1544,6 +1550,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }),
       title.trim() || base,
     );
+    // The whole session (source + edits) is now kept in the .elium: nothing is lost.
+    setSavedVersion(version);
+    if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
     toast("success", "Document enregistré", "Scellé, chiffrable et re-modifiable.");
   };
 
@@ -2198,6 +2207,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // -------------------------------------------------------------------------
   // Keyboard
   // -------------------------------------------------------------------------
+  // The keyboard handler below is registered for a subset of the state only:
+  // saving must always see the latest state, so it goes through refs.
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
+  const openDialogRef = useRef(openDialog);
+  openDialogRef.current = openDialog;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -2221,7 +2236,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           if (e.shiftKey) {
             setSaveAsPreset({});
             setDialog("save");
-          } else void saveNow();
+          } else void saveNowRef.current();
           return;
         }
         if (k === "p") {
@@ -2231,7 +2246,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }
         if (k === "o") {
           e.preventDefault();
-          void openDialog();
+          void openDialogRef.current();
           return;
         }
         if (!inField && k === "a") {

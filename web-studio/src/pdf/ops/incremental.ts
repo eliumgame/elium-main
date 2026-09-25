@@ -21,6 +21,7 @@
 
 import { PDFArray, PDFDict, PDFHexString, PDFRef, PDFStream, PDFString } from "pdf-lib";
 import type { PDFDocument, PDFObject } from "pdf-lib";
+import { sha256 } from "@noble/hashes/sha2.js";
 import type { PdfCrypt } from "./security";
 
 // ---------------------------------------------------------------------------
@@ -126,8 +127,36 @@ function findForward(hay: Uint8Array, needle: string, from: number, to: number):
 // Fingerprints
 // ---------------------------------------------------------------------------
 
-/** Plaintext serialisation of every indirect object, keyed "num gen". */
-export type Fingerprints = Map<string, Uint8Array>;
+/**
+ * What an object looked like, keyed "num gen": its plaintext serialisation,
+ * or — for big objects (images, fonts of a scanned 200 MB file) — its length
+ * and SHA-256, so remembering a document does not cost a second copy of it.
+ */
+export type Fingerprint = Uint8Array | string;
+export type Fingerprints = Map<string, Fingerprint>;
+
+/** Objects above this size are remembered by digest rather than by bytes. */
+const DIGEST_ABOVE = 64 * 1024;
+
+function hexOf(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0");
+  return s;
+}
+
+/** The fingerprint of serialised object bytes. */
+export function fingerprintOf(bytes: Uint8Array): Fingerprint {
+  return bytes.length > DIGEST_ABOVE ? `${bytes.length}:${hexOf(sha256(bytes))}` : bytes;
+}
+
+function sameAs(old: Fingerprint | undefined, bytes: Uint8Array): boolean {
+  if (old === undefined) return false;
+  if (typeof old === "string") {
+    const colon = old.indexOf(":");
+    return Number(old.slice(0, colon)) === bytes.length && old === fingerprintOf(bytes);
+  }
+  return bytes.length <= DIGEST_ABOVE && bytesEqual(old, bytes);
+}
 
 const refKey = (ref: PDFRef) => `${ref.objectNumber} ${ref.generationNumber}`;
 
@@ -141,7 +170,9 @@ export function serializeObject(obj: PDFObject): Uint8Array {
 /** Fingerprint every object of a (plaintext) document. */
 export function fingerprint(doc: PDFDocument): Fingerprints {
   const map: Fingerprints = new Map();
-  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) map.set(refKey(ref), serializeObject(obj));
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
+    map.set(refKey(ref), fingerprintOf(serializeObject(obj)));
+  }
   return map;
 }
 
@@ -265,11 +296,10 @@ export function writeIncrementalUpdate(input: IncrementalInput): IncrementalResu
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
     const key = refKey(ref);
     const bytes = serializeObject(obj);
-    const old = before.get(key);
-    if (old && bytesEqual(old, bytes)) continue;
+    if (sameAs(before.get(key), bytes)) continue;
     if (!live.has(key)) continue; // new or edited, but nothing points at it
     changed.push([ref, obj, bytes]);
-    after.set(key, bytes);
+    after.set(key, fingerprintOf(bytes));
   }
   if (!changed.length) return { bytes: disk, written: 0, added: 0, after: before, tail };
   changed.sort((a, b) => a[0].objectNumber - b[0].objectNumber);

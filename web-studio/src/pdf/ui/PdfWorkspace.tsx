@@ -12,6 +12,7 @@ import {
   PenSquare,
   Search,
   Upload,
+  WholeWord,
   X,
   ZoomIn,
   ZoomOut,
@@ -419,6 +420,8 @@ export default function PdfWorkspace({
   const [layers, setLayers] = useState<LayerInfo[]>([]);
   /** The user's layer switches, in the order made (radio groups depend on it). */
   const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  /** The file's page labels by source page (null: none). */
+  const [fileLabels, setFileLabels] = useState<string[] | null>(null);
   const [ocConfig, setOcConfig] = useState<unknown>(undefined);
   const [filter, setFilter] = useState<CommentFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<CommentSort>("page");
@@ -770,6 +773,7 @@ export default function PdfWorkspace({
         setLayerVis(new Map());
         setOcConfig(undefined);
         currentStore.set(1);
+        viewHistory.current = { back: [], fwd: [] };
         // A recomposition (pages inserted, replaced…) from the organiser stays in it.
         setMode((m) => (derived && m === "organise" ? m : "view"));
 
@@ -792,6 +796,8 @@ export default function PdfWorkspace({
           .catch(() => {});
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
+        setFileLabels(null);
+        void next.pageLabels().then((l) => gen === shownGeneration.current && setFileLabels(l));
         // Let the first page paint before competing for the pdf.js worker.
         setTimeout(() => {
           if (gen !== shownGeneration.current) return;
@@ -1144,6 +1150,7 @@ export default function PdfWorkspace({
    * (page space, turned as the page is shown) at the top, and its zoom or fit.
    */
   const followDest = (d: { page: number; x?: number; y?: number; fit?: DestFit; zoom?: number }) => {
+    rememberView();
     const target = clamp(Math.round(d.page), 1, Math.max(1, pageCountRef.current));
     const page = pages[target - 1];
     let top = d.y;
@@ -1169,10 +1176,46 @@ export default function PdfWorkspace({
     else go();
   };
 
+  // --- previous / next view (Acrobat's Alt+← / Alt+→): the places left by a
+  // jump (link, bookmark, page number, named action), not by scrolling.
+  const viewHistory = useRef<{ back: { page: number; top: number }[]; fwd: { page: number; top: number }[] }>({
+    back: [],
+    fwd: [],
+  });
+  const hereView = () => {
+    const a = stackRef.current?.viewAnchor();
+    return a ? { page: a.index + 1, top: a.py } : { page: currentStore.get(), top: 0 };
+  };
+  const rememberView = () => {
+    const h = viewHistory.current;
+    const here = hereView();
+    const last = h.back[h.back.length - 1];
+    if (!last || last.page !== here.page || Math.abs(last.top - here.top) > 2) h.back.push(here);
+    if (h.back.length > 100) h.back.shift();
+    h.fwd = [];
+  };
+  const viewBack = () => {
+    const h = viewHistory.current;
+    const to = h.back.pop();
+    if (!to) return;
+    h.fwd.push(hereView());
+    goTo(to.page, to.top);
+  };
+  const viewForward = () => {
+    const h = viewHistory.current;
+    const to = h.fwd.pop();
+    if (!to) return;
+    h.back.push(hereView());
+    goTo(to.page, to.top);
+  };
+
   /** A named action (bookmark or link): pages counted as the document now is. */
   const runNamedAction = (name: string) => {
     const cur = currentStore.get();
     const n = pageCountRef.current;
+    if (name === "GoBack") return viewBack();
+    if (name === "GoForward") return viewForward();
+    if (["NextPage", "PrevPage", "FirstPage", "LastPage"].includes(name)) rememberView();
     if (name === "NextPage") goTo(Math.min(n, cur + 1));
     else if (name === "PrevPage") goTo(Math.max(1, cur - 1));
     else if (name === "FirstPage") goTo(1);
@@ -1402,19 +1445,31 @@ export default function PdfWorkspace({
         return;
       }
       const texts = await ensureText();
-      const found = runSearch(texts, query, {
+      const raw = runSearch(texts, query, {
         ...DEFAULT_SEARCH_OPTIONS,
         caseSensitive: searchState.caseSensitive,
         wholeWord: searchState.wholeWord,
         regex: searchState.regex,
         ignoreDiacritics: searchState.ignoreDiacritics,
       });
+      // The document as it is now: its pages' order, not the file's; nothing
+      // from a deleted page (a duplicated page answers once, where it first is).
+      const at = new Map<number, number>();
+      pages.forEach((pg, i) => pg.from != null && !at.has(pg.from) && at.set(pg.from, i));
+      const found = raw
+        .filter((h) => at.has(h.page))
+        .sort((a, b) => at.get(a.page)! - at.get(b.page)! || a.start - b.start);
       setHits(found);
-      setSearchState((s) => ({ ...s, index: found.length ? 0 : -1 }));
-      if (found.length) {
-        const target = pages.findIndex((pg) => pg.from === found[0].page);
-        goTo((target < 0 ? found[0].page : target) + 1);
-      }
+      // From the page being read on, as Acrobat does.
+      const cur = currentStore.get() - 1;
+      const first = found.length
+        ? Math.max(
+            0,
+            found.findIndex((h) => at.get(h.page)! >= cur),
+          )
+        : -1;
+      setSearchState((s) => ({ ...s, index: first }));
+      if (first >= 0) goTo(at.get(found[first].page)! + 1);
     },
     [
       engine,
@@ -1425,8 +1480,50 @@ export default function PdfWorkspace({
       searchState.ignoreDiacritics,
       pages,
       goTo,
+      currentStore,
     ],
   );
+
+  /**
+   * The pages as shown: each with its label — set in Elium, else the file's
+   * own (/PageLabels, which follows its page when pages move).
+   */
+  const shownPages = useMemo(
+    () =>
+      fileLabels
+        ? pages.map((pg) =>
+            pg.label || pg.from == null || !fileLabels[pg.from] ? pg : { ...pg, label: fileLabels[pg.from] },
+          )
+        : pages,
+    [pages, fileLabels],
+  );
+  const pageLabels = useMemo(() => shownPages.map((pg) => pg.label), [shownPages]);
+
+  const searchOptions = useMemo(
+    () => ({
+      ...DEFAULT_SEARCH_OPTIONS,
+      caseSensitive: searchState.caseSensitive,
+      wholeWord: searchState.wholeWord,
+      regex: searchState.regex,
+      ignoreDiacritics: searchState.ignoreDiacritics,
+    }),
+    [searchState.caseSensitive, searchState.wholeWord, searchState.regex, searchState.ignoreDiacritics],
+  );
+
+  // Typing, or changing an option, searches again — a moment after the last change.
+  useEffect(() => {
+    if (!searchState.open) return;
+    const t = setTimeout(() => void doSearch(searchState.query), searchState.query.length > 2 ? 150 : 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    searchState.query,
+    searchState.open,
+    searchState.caseSensitive,
+    searchState.wholeWord,
+    searchState.regex,
+    searchState.ignoreDiacritics,
+  ]);
 
   // Highlight rectangles are computed lazily, only for pages that have hits.
   useEffect(() => {
@@ -3859,6 +3956,12 @@ export default function PdfWorkspace({
           void openDialogRef.current();
           return;
         }
+        // Acrobat's « Aller à la page ».
+        if (k === "n" && e.shiftKey) {
+          e.preventDefault();
+          document.querySelector<HTMLInputElement>(".pdfx-pagenav__input")?.focus();
+          return;
+        }
         if (!inField && k === "a" && mode !== "fields") {
           e.preventDefault();
           setSelectedIds(state.annots.filter((a) => a.pageId === currentPage()?.id).map((a) => a.id));
@@ -3905,6 +4008,14 @@ export default function PdfWorkspace({
           pickTool("highlight");
           return;
         }
+        return;
+      }
+
+      // Acrobat's previous / next view (the browser's back must not leave the app).
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !inField) {
+        e.preventDefault();
+        if (e.key === "ArrowLeft") viewBack();
+        else viewForward();
         return;
       }
 
@@ -4276,10 +4387,7 @@ export default function PdfWorkspace({
                 className="pdfx-find__input"
                 placeholder="Rechercher dans le document…"
                 value={searchState.query}
-                onChange={(e) => {
-                  setSearchState((s) => ({ ...s, query: e.target.value }));
-                  void doSearch(e.target.value);
-                }}
+                onChange={(e) => setSearchState((s) => ({ ...s, query: e.target.value }))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -4309,8 +4417,29 @@ export default function PdfWorkspace({
                   setSearchState((s) => ({ ...s, caseSensitive: !s.caseSensitive }));
                 }}
                 title="Respecter la casse"
+                aria-pressed={searchState.caseSensitive}
               >
                 Aa
+              </button>
+              <button
+                className={`pdfx-topbtn ${searchState.wholeWord ? "is-on" : ""}`}
+                onClick={() => setSearchState((s) => ({ ...s, wholeWord: !s.wholeWord }))}
+                title="Mots entiers uniquement"
+                aria-pressed={searchState.wholeWord}
+              >
+                <WholeWord size={15} />
+              </button>
+              <button
+                className={`pdfx-topbtn ${!searchState.ignoreDiacritics ? "is-on" : ""}`}
+                onClick={() => setSearchState((s) => ({ ...s, ignoreDiacritics: !s.ignoreDiacritics }))}
+                title={
+                  searchState.ignoreDiacritics
+                    ? "Les accents sont ignorés (« e » trouve « é ») — cliquer pour les respecter"
+                    : "Les accents sont respectés — cliquer pour les ignorer"
+                }
+                aria-pressed={!searchState.ignoreDiacritics}
+              >
+                é
               </button>
               <button
                 className={`pdfx-topbtn ${searchState.regex ? "is-on" : ""}`}
@@ -4318,17 +4447,11 @@ export default function PdfWorkspace({
                   setSearchState((s) => ({ ...s, regex: !s.regex }));
                 }}
                 title="Expression régulière"
+                aria-pressed={searchState.regex}
               >
                 .*
               </button>
-              <button
-                className="pdfx-topbtn"
-                onClick={() => {
-                  setPanel("search");
-                  void doSearch(searchState.query);
-                }}
-                title="Tous les résultats"
-              >
+              <button className="pdfx-topbtn" onClick={() => setPanel("search")} title="Tous les résultats">
                 <Command size={14} />
               </button>
               <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}>
@@ -4346,7 +4469,15 @@ export default function PdfWorkspace({
           )}
         </div>
 
-        <PageNav store={currentStore} pageCount={pageCount} goTo={goTo} />
+        <PageNav
+          store={currentStore}
+          pageCount={pageCount}
+          labels={pageLabels}
+          goTo={(n) => {
+            rememberView();
+            goTo(n);
+          }}
+        />
 
         <div className="pdfx-zoombar">
           <button className="pdfx-topbtn" onClick={() => zoomStep(-1)} title="Zoom arrière" aria-label="Zoom arrière">
@@ -4437,7 +4568,7 @@ export default function PdfWorkspace({
             <Sidebar
               panel={panel}
               engine={engine}
-              pages={pages}
+              pages={shownPages}
               currentPage={currentStore}
               selectedPages={selectedPages}
               annots={state.annots}
@@ -4448,6 +4579,7 @@ export default function PdfWorkspace({
               searchHits={hits}
               searchIndex={searchState.index}
               searchQuery={searchState.query}
+              searchOptions={searchOptions}
               searchBusy={searchBusy}
               filter={filter}
               sort={sort}
@@ -4547,7 +4679,7 @@ export default function PdfWorkspace({
         {mode === "organise" ? (
           <Organize
             engine={engine}
-            pages={pages}
+            pages={shownPages}
             selected={selectedPages}
             onSelect={setSelectedPages}
             onReorder={(ids, to) => setState((s) => D.reorderPages(s, ids, to))}
@@ -4648,7 +4780,8 @@ export default function PdfWorkspace({
                 else textLayers.current.delete(pageId);
               }}
               onLinkActivate={(target) => {
-                if (target.page) followDest({ page: target.page, y: target.y });
+                if (target.named) runNamedAction(target.named);
+                else if (target.page) followDest({ ...target, page: target.page });
                 else if (target.url) openExternal(target.url);
               }}
             />
@@ -5328,8 +5461,32 @@ export default function PdfWorkspace({
  * Previous / page number / next. Subscribes to the current page itself, so
  * scrolling re-renders this box — not the workspace around it.
  */
-function PageNav({ store, pageCount, goTo }: { store: CurrentPage; pageCount: number; goTo: (page: number) => void }) {
+function PageNav({
+  store,
+  pageCount,
+  labels,
+  goTo,
+}: {
+  store: CurrentPage;
+  pageCount: number;
+  /** Each page's label (page labels of the file or set in Elium), by position. */
+  labels: readonly (string | undefined)[];
+  goTo: (page: number) => void;
+}) {
   const current = useCurrentPage(store);
+  const [draft, setDraft] = useState<string | null>(null);
+  const label = labels[current - 1];
+  const shown = label && label !== String(current) ? label : String(current);
+  /** A label as the file names it (« iv », « A-3 »), else a page number. */
+  const commit = () => {
+    const text = (draft ?? "").trim();
+    setDraft(null);
+    if (!text) return;
+    const byLabel = labels.findIndex((l) => l && l.toLowerCase() === text.toLowerCase());
+    if (byLabel >= 0) return goTo(byLabel + 1);
+    const n = Number(text);
+    if (Number.isInteger(n) && n >= 1 && n <= pageCount) goTo(n);
+  };
   return (
     <div className="pdfx-pagenav">
       <button
@@ -5343,14 +5500,29 @@ function PageNav({ store, pageCount, goTo }: { store: CurrentPage; pageCount: nu
       </button>
       <input
         className="pdfx-pagenav__input"
-        value={current}
-        onChange={(e) => {
-          const n = Number(e.target.value.replace(/\D/g, ""));
-          if (n) goTo(n);
+        value={draft ?? shown}
+        onFocus={(e) => {
+          setDraft(shown);
+          e.currentTarget.select();
         }}
-        aria-label="Numéro de page"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            setDraft(null);
+            e.currentTarget.blur();
+          }
+        }}
+        aria-label="Numéro ou étiquette de page (Entrée pour y aller)"
+        title="Aller à la page (Ctrl+Maj+N) : numéro ou étiquette"
       />
-      <span className="pdfx-pagenav__total">/ {pageCount}</span>
+      <span className="pdfx-pagenav__total">
+        {shown !== String(current) ? `(${current} / ${pageCount})` : `/ ${pageCount}`}
+      </span>
       <button
         className="pdfx-topbtn"
         onClick={() => goTo(current + 1)}

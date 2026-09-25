@@ -104,17 +104,63 @@ export interface FoldedText {
  * what the user wrote instead of running against a lower-cased haystack.
  */
 export function foldText(text: string, ignoreDiacritics: boolean): FoldedText {
-  let folded = "";
+  const out: string[] = [];
   const map: number[] = [];
   for (let i = 0; i < text.length; i++) {
-    const rep = foldChar(text[i], ignoreDiacritics);
+    const ch = text[i];
+    // A word cut at the end of a line: "exam-\nple" reads "example".
+    if (HYPHENS.has(ch) && text[i + 1] === "\n" && isLetter(text[i - 1]) && isLetter(text[i + 2])) {
+      i++;
+      continue;
+    }
+    // A letter written as base + combining accents (NFD, common in PDFs from Macs).
+    let j = i + 1;
+    while (j < text.length && COMBINING.test(text[j])) j++;
+    let rep: string;
+    if (COMBINING.test(ch)) rep = ignoreDiacritics ? "" : ch;
+    else if (j > i + 1) rep = ignoreDiacritics ? foldChar(ch, true) : text.slice(i, j).normalize("NFC");
+    else rep = foldChar(ch, ignoreDiacritics);
     for (let k = 0; k < rep.length; k++) {
-      folded += rep[k];
+      out.push(rep[k]);
       map.push(i);
     }
+    i = j - 1;
   }
   map.push(text.length);
-  return { folded, map, original: text };
+  return { folded: out.join(""), map, original: text };
+}
+
+const COMBINING = /[\u0300-\u036f]/;
+const HYPHENS = new Set(["-", "\u00ad", "\u2010", "\u2011"]);
+const isLetter = (ch: string | undefined) => !!ch && /\p{L}/u.test(ch);
+
+/** Folded pages, per page-text array and diacritics mode: page text does not change, folding it again on every keystroke did. */
+const foldCache = new WeakMap<readonly string[], Map<boolean, FoldedText[]>>();
+function foldedPages(pageTexts: readonly string[], ignoreDiacritics: boolean): FoldedText[] {
+  let modes = foldCache.get(pageTexts);
+  if (!modes) foldCache.set(pageTexts, (modes = new Map()));
+  let list = modes.get(ignoreDiacritics);
+  if (!list) modes.set(ignoreDiacritics, (list = []));
+  return list;
+}
+
+/** Whether `text` (a comment, a bookmark title…) contains the query, with the same options as the pages. */
+export function textMatches(text: string, query: string, opts: SearchOptions): boolean {
+  const re = compileQuery(query, opts);
+  if (!re || !text) return false;
+  const { folded } = foldText(text, opts.ignoreDiacritics);
+  re.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(folded)) !== null) {
+    if (!m[0].length) {
+      re.lastIndex++;
+      continue;
+    }
+    const a = m.index;
+    const b = a + m[0].length;
+    if (!opts.wholeWord || (!isWordChar(folded[a - 1]) && !isWordChar(folded[b]))) return true;
+  }
+  return false;
 }
 
 const WORD_RE = /[\p{L}\p{N}_]/u;
@@ -175,10 +221,11 @@ export function search(pageTexts: readonly string[], query: string, opts: Search
   const re = compileQuery(query, opts);
   if (!re) return [];
   const out: SearchHit[] = [];
+  const cache = foldedPages(pageTexts, opts.ignoreDiacritics);
   for (let page = 0; page < pageTexts.length; page++) {
     const text = pageTexts[page] ?? "";
     if (!text) continue;
-    const { folded, map } = foldText(text, opts.ignoreDiacritics);
+    const { folded, map } = (cache[page] ??= foldText(text, opts.ignoreDiacritics));
     re.lastIndex = 0;
     let m: RegExpExecArray | null;
     let guard = 0;

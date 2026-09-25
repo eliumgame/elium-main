@@ -8,6 +8,7 @@ import {
   foldText,
   search,
   stepHit,
+  textMatches,
 } from "../src/pdf/core/search";
 
 const opts = (over: Partial<typeof DEFAULT_SEARCH_OPTIONS> = {}) => ({ ...DEFAULT_SEARCH_OPTIONS, ...over });
@@ -125,5 +126,34 @@ describe("PDF search — navigation", () => {
 describe("PDF search — helpers", () => {
   it("escapes regex metacharacters", () => {
     expect(escapeRegExp("a.b*c")).toBe("a\\.b\\*c");
+  });
+});
+
+describe("search — text as PDFs write it", () => {
+  const opts = { ...DEFAULT_SEARCH_OPTIONS };
+  it("finds letters written as base + combining accent, with or without accents", () => {
+    const page = ["Une école et une école"];
+    expect(search(page, "ecole", opts)).toHaveLength(2);
+    expect(search(page, "école", opts)).toHaveLength(2);
+    const strict = { ...opts, ignoreDiacritics: false };
+    expect(search(page, "école", strict)).toHaveLength(2);
+    expect(search(page, "ecole", strict)).toHaveLength(0);
+    // The hit covers the accent too.
+    const [first] = search(page, "école", opts);
+    expect(page[0].slice(first.start, first.end)).toBe("école");
+  });
+
+  it("finds a word cut by a hyphen at the end of a line", () => {
+    const page = ["un exam-\nple ici, et bien-\n connu"];
+    const [hit] = search(page, "example", opts);
+    expect(page[0].slice(hit.start, hit.end)).toBe("exam-\nple");
+    // A hyphen before a line break then a space is not a cut word.
+    expect(search(page, "bienconnu", opts)).toHaveLength(0);
+  });
+
+  it("matches comments and bookmark titles with the same options", () => {
+    expect(textMatches("Voir l'Œuvre complète", "oeuvre", opts)).toBe(true);
+    expect(textMatches("Chapitres", "chapitre", { ...opts, wholeWord: true })).toBe(false);
+    expect(textMatches("Chapitre 3", "chapitre", { ...opts, wholeWord: true })).toBe(true);
   });
 });

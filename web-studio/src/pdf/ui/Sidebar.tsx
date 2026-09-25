@@ -34,7 +34,7 @@ import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { useListWindow } from "./useListWindow";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
 import { commentable, filterComments, flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
-import type { SearchHit } from "../core/search";
+import { textMatches, type SearchHit, type SearchOptions } from "../core/search";
 import { KIND_LABEL, shortDate, type SidePanel } from "./state";
 
 /** The multi-panel navigation rail. Each panel mirrors an Acrobat pane. */
@@ -54,6 +54,8 @@ export interface SidebarProps {
   searchHits: SearchHit[];
   searchIndex: number;
   searchQuery: string;
+  /** The find bar's options: comments and bookmarks are matched with them too. */
+  searchOptions: SearchOptions;
   searchBusy: boolean;
   filter: CommentFilter;
   sort: CommentSort;
@@ -818,15 +820,47 @@ function Comments(p: SidebarProps) {
 // ---------------------------------------------------------------------------
 
 function SearchResults(p: SidebarProps) {
-  const byPage = useMemo(() => {
-    const map = new Map<number, { hit: SearchHit; index: number }[]>();
+  // Hits come in document order: grouped by page as they come.
+  const groups = useMemo(() => {
+    const at = new Map<number, number>();
+    p.pages.forEach((pg, i) => pg.from != null && !at.has(pg.from) && at.set(pg.from, i));
+    const out: { key: number; label: string; items: { hit: SearchHit; index: number }[] }[] = [];
     p.searchHits.forEach((hit, index) => {
-      const list = map.get(hit.page) ?? [];
-      list.push({ hit, index });
-      map.set(hit.page, list);
+      const last = out[out.length - 1];
+      if (last && last.key === hit.page) last.items.push({ hit, index });
+      else {
+        const i = at.get(hit.page) ?? hit.page;
+        out.push({ key: hit.page, label: p.pages[i]?.label || String(i + 1), items: [{ hit, index }] });
+      }
     });
-    return [...map.entries()].sort((a, b) => a[0] - b[0]);
-  }, [p.searchHits]);
+    return out;
+  }, [p.searchHits, p.pages]);
+  const comments = useMemo(
+    () =>
+      p.searchQuery.trim()
+        ? commentable(p.annots).filter(
+            (a) =>
+              textMatches(a.contents || a.text || "", p.searchQuery, p.searchOptions) ||
+              (a.replies ?? []).some((r) => textMatches(r.text, p.searchQuery, p.searchOptions)),
+          )
+        : [],
+    [p.annots, p.searchQuery, p.searchOptions],
+  );
+  const marks = useMemo(() => {
+    if (!p.searchQuery.trim()) return [];
+    const out: Mark[] = [];
+    const walk = (list: readonly Mark[]) =>
+      list.forEach((b) => {
+        if (textMatches(b.title, p.searchQuery, p.searchOptions)) out.push(b);
+        walk(b.children);
+      });
+    walk(p.bookmarks);
+    return out;
+  }, [p.bookmarks, p.searchQuery, p.searchOptions]);
+  const pageLabel = (pageId: string) => {
+    const i = p.pages.findIndex((pg) => pg.id === pageId);
+    return i < 0 ? "" : p.pages[i].label || String(i + 1);
+  };
 
   return (
     <div className="pdfx-panel">
@@ -840,13 +874,13 @@ function SearchResults(p: SidebarProps) {
       </div>
       <div className="pdfx-panel__body">
         {!p.searchQuery && <p className="pdfx-empty">Saisissez un terme dans la barre de recherche.</p>}
-        {p.searchQuery && !p.searchHits.length && !p.searchBusy && (
+        {p.searchQuery && !p.searchHits.length && !comments.length && !marks.length && !p.searchBusy && (
           <p className="pdfx-empty">Aucun résultat pour « {p.searchQuery} ».</p>
         )}
-        {byPage.map(([page, items]) => (
-          <div key={page} className="pdfx-hits-group">
+        {groups.map(({ key, label, items }) => (
+          <div key={key} className="pdfx-hits-group">
             <div className="pdfx-hits-group__head">
-              Page {page + 1} <span>{items.length}</span>
+              Page {label} <span>{items.length}</span>
             </div>
             {items.map(({ hit, index }) => (
               <button
@@ -861,6 +895,31 @@ function SearchResults(p: SidebarProps) {
             ))}
           </div>
         ))}
+        {comments.length > 0 && (
+          <div className="pdfx-hits-group">
+            <div className="pdfx-hits-group__head">
+              Commentaires <span>{comments.length}</span>
+            </div>
+            {comments.map((a) => (
+              <button key={a.id} className="pdfx-hitrow" onClick={() => p.onSelectAnnot(a.id)}>
+                <b>p. {pageLabel(a.pageId)}</b> {a.author ? `${a.author} — ` : ""}
+                {(a.contents || a.text || a.replies?.find((r) => r.text)?.text || "").slice(0, 120)}
+              </button>
+            ))}
+          </div>
+        )}
+        {marks.length > 0 && (
+          <div className="pdfx-hits-group">
+            <div className="pdfx-hits-group__head">
+              Signets <span>{marks.length}</span>
+            </div>
+            {marks.map((b) => (
+              <button key={b.id} className="pdfx-hitrow" onClick={() => p.onBookmarkGoTo(b)}>
+                {b.title}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ import {
   type Layout,
   type PageBox,
 } from "../core/viewer/layout";
-import type { Page } from "../model/types";
+import type { DestFit, Page } from "../model/types";
 import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { MAX_SCALE, MIN_SCALE, READING_THEMES, type ReadingTheme, type ViewMode } from "./state";
 
@@ -112,7 +112,16 @@ export interface PageStackProps {
   /** A page's text layer (the selection surface) and the slot it lives in (the page's view origin). */
   onTextLayer?: (pageId: string, layer: HTMLElement | null, host: HTMLElement | null) => void;
   /** `page` is a 1-based OUTPUT page. */
-  onLinkActivate?: (target: { page?: number; y?: number; url?: string }) => void;
+  onLinkActivate?: (target: {
+    page?: number;
+    y?: number;
+    x?: number;
+    fit?: DestFit;
+    zoom?: number;
+    url?: string;
+    /** A named action (NextPage, GoBack…). */
+    named?: string;
+  }) => void;
 }
 
 /** Extra height mounted above and below the viewport (fraction of its height, min px). */
@@ -182,10 +191,11 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
       engine,
       lib,
       links: {
-        goToSourcePage: (page, y) => {
-          const i = live.current.pages.findIndex((q) => q.from === page - 1);
-          if (i >= 0) live.current.onLinkActivate?.({ page: i + 1, y });
+        goToSourcePage: (dest) => {
+          const i = live.current.pages.findIndex((q) => q.from === dest.page - 1);
+          if (i >= 0) live.current.onLinkActivate?.({ ...dest, page: i + 1 });
         },
+        namedAction: (name) => live.current.onLinkActivate?.({ named: name }),
         resolveDest: (dest) => engine.resolveDest(dest),
         openExternal: (url) => live.current.onLinkActivate?.({ url }),
         currentSourcePage: () => (live.current.pages[live.current.currentPage.get() - 1]?.from ?? 0) + 1,

@@ -869,3 +869,28 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 - Tests : `pdf-layers.test.ts` (3). Suite 2005/2005 ; specs PDF 61/62 : le test
   « saisie pendant le chargement des scripts » est instable sous charge en bureau
   (12/12 isolément), à surveiller.
+
+### Session cloud 1 : T6, points 8 à 11 (recherche, historique, case de page)
+- Recherche :
+  - relance automatique, temporisée, quand la requête ou une option change ;
+  - nouvelles options « Mots entiers » et « Accents » (respectés ou ignorés) ;
+  - accents décomposés (NFD) trouvés dans les deux modes ;
+  - mots coupés en fin de ligne (« exam-⏎ple ») trouvés ;
+  - textes repliés mis en cache par page (plus de repli à chaque frappe) ;
+  - résultats dans l'ordre actuel des pages, rien depuis une page supprimée ;
+  - premier résultat pris à partir de la page lue ;
+  - la liste des résultats affiche les étiquettes de page, et ajoute des sections
+    Commentaires (texte et réponses) et Signets.
+- Étiquettes du fichier (/PageLabels) enfin affichées (miniatures, vue Organiser,
+  résultats, case de page) ; elles suivent leurs pages.
+- Case de page :
+  - accepte une étiquette (« iv », « A-3 ») ou un numéro ;
+  - Entrée pour valider (plus de saut à chaque frappe) ;
+  - affiche « étiquette (n / N) » ; Ctrl+Maj+N pour y aller.
+- Vue précédente / suivante (Alt+← / Alt+→) après un lien, un signet, la case de page ou
+  une action nommée. GoBack et GoForward fonctionnent ; NextPage et les autres
+  actions nommées comptent les pages dans l'ordre actuel.
+- Les liens du fichier suivent maintenant toute leur destination (zoom, ajustement,
+  position horizontale).
+- Tests : 3 unitaires (recherche), `pdf-navigation.spec.ts` (3 × 2 projets). Suite
+  2008/2008 ; specs PDF 68/68.

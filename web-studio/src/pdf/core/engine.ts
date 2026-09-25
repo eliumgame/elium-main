@@ -525,6 +525,16 @@ export class PdfEngine {
     return out;
   }
 
+  /** The file's page labels (/PageLabels), by source page; null when it has none. */
+  async pageLabels(): Promise<string[] | null> {
+    try {
+      const labels = (await this.doc.getPageLabels()) as string[] | null;
+      return labels && labels.length === this.pageCount ? labels : null;
+    } catch {
+      return null;
+    }
+  }
+
   // -- outline -------------------------------------------------------------
 
   /** The PDF's own bookmark tree, with destinations resolved to page numbers. */

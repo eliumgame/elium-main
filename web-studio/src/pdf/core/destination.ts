@@ -84,6 +84,8 @@ export interface SaveDestination {
    * save is a new, self-contained copy.
    */
   readonly persistent: boolean;
+  /** The file handle, for a file on disk (kept with recovery drafts to reopen it). */
+  readonly handle?: FsFileHandle;
   /**
    * Obtain write access (asks the user if needed). Call it from the user's
    * gesture, BEFORE any long work: browsers refuse a permission prompt once
@@ -100,6 +102,7 @@ export function fileDestination(handle: FsFileHandle): SaveDestination {
     name: handle.name,
     label: handle.name,
     persistent: true,
+    handle,
     async prepare() {
       if (!handle.queryPermission || !handle.requestPermission) return true;
       const mode = { mode: "readwrite" as const };

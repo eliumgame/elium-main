@@ -14,7 +14,14 @@
  * avoid coordinating IndexedDB versions between independent features.
  */
 
-import { decryptAtRest, encryptAtRest, hasVaultSecret, type VaultSecret } from "../../crypto/local-vault";
+import {
+  decryptAtRest,
+  decryptBytesAtRest,
+  encryptAtRest,
+  encryptBytesAtRest,
+  hasVaultSecret,
+  type VaultSecret,
+} from "../../crypto/local-vault";
 import type { FsFileHandle } from "../core/destination";
 import type { PdfState } from "./types";
 
@@ -37,9 +44,20 @@ export interface PdfDraft {
   enc?: string;
   /** Handle of the file on disk, when it was opened with one (to reopen it directly). */
   handle?: FsFileHandle;
+  /**
+   * SHA-256 of the file as last SAVED in place. Once the session has written
+   * into the file, the original is gone from disk: the draft then also keeps
+   * the source bytes the state applies to, and re-opening the saved file
+   * (found by this key) restores the session on top of them.
+   */
+  diskKey?: string;
+  /** Source bytes (clear) — only after an in-place save, unprotected session. */
+  source?: Uint8Array;
+  /** Source bytes (encrypted at rest) — only after an in-place save, vault unlocked. */
+  sourceEnc?: string;
 }
 
-export type PdfDraftEntry = Omit<PdfDraft, "state" | "enc">;
+export type PdfDraftEntry = Omit<PdfDraft, "state" | "enc" | "source" | "sourceEnc">;
 
 /** SHA-256 hex of the source bytes: the key a draft is filed under. */
 export async function sourceKey(bytes: Uint8Array): Promise<string> {
@@ -63,6 +81,9 @@ export async function buildPdfDraft(input: {
   secret?: VaultSecret;
   handle?: FsFileHandle;
   updatedAt?: string;
+  /** Set once the session saved into its file: see `PdfDraft.diskKey`. */
+  diskKey?: string;
+  source?: Uint8Array;
 }): Promise<PdfDraft | null> {
   const base = {
     id: input.id,
@@ -70,12 +91,29 @@ export async function buildPdfDraft(input: {
     size: input.size,
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     ...(input.handle ? { handle: input.handle } : {}),
+    ...(input.diskKey ? { diskKey: input.diskKey } : {}),
   };
+  const keepSource = !!input.diskKey && !!input.source;
   if (hasVaultSecret(input.secret)) {
-    return { ...base, protected: true, enc: await encryptAtRest({ state: input.state }, input.secret!) };
+    return {
+      ...base,
+      protected: true,
+      enc: await encryptAtRest({ state: input.state }, input.secret!),
+      ...(keepSource ? { sourceEnc: await encryptBytesAtRest(input.source!, input.secret!) } : {}),
+    };
   }
   if (input.sourceProtected) return null;
-  return { ...base, protected: false, state: input.state };
+  return { ...base, protected: false, state: input.state, ...(keepSource ? { source: input.source } : {}) };
+}
+
+/** The source bytes a draft kept (after an in-place save), or null. */
+export async function resolvePdfDraftSource(d: PdfDraft, secret?: VaultSecret): Promise<Uint8Array | null> {
+  if (d.sourceEnc != null) {
+    if (!hasVaultSecret(secret))
+      throw new Error("Brouillon chiffré : déverrouillez le coffre local pour le restaurer.");
+    return decryptBytesAtRest(d.sourceEnc, secret!);
+  }
+  return d.source ?? null;
 }
 
 /** The state a draft holds, decrypting when needed. Throws when the secret is missing or wrong. */
@@ -128,6 +166,14 @@ export async function getPdfDraft(id: string): Promise<PdfDraft | undefined> {
   return run<PdfDraft | undefined>("readonly", (s) => s.get(id));
 }
 
+/** The draft for a file just opened: filed under its SHA-256, or saved into by a session (`diskKey`). */
+export async function findPdfDraft(key: string): Promise<PdfDraft | undefined> {
+  const direct = await getPdfDraft(key);
+  if (direct) return direct;
+  const all = await run<PdfDraft[]>("readonly", (s) => s.getAll());
+  return all.find((d) => d.diskKey === key);
+}
+
 export async function deletePdfDraft(id: string): Promise<void> {
   await run("readwrite", (s) => s.delete(id));
 }
@@ -136,7 +182,9 @@ export async function deletePdfDraft(id: string): Promise<void> {
 export async function listPdfDrafts(): Promise<PdfDraftEntry[]> {
   const all = await run<PdfDraft[]>("readonly", (s) => s.getAll());
   return all
-    .map(({ state: _s, enc: _e, ...meta }) => (void _s, void _e, meta))
+    .map(
+      ({ state: _s, enc: _e, source: _src, sourceEnc: _se, ...meta }) => (void _s, void _e, void _src, void _se, meta),
+    )
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 

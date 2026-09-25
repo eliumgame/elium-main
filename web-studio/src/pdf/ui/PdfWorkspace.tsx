@@ -58,6 +58,7 @@ import {
   DEFAULT_BUILD,
   buildPdf,
   fullRewriteReasons,
+  readDiskState,
   savePdf,
   type BuildOptions,
   type BuildReport,
@@ -78,10 +79,11 @@ import {
 import {
   buildPdfDraft,
   deletePdfDraft,
-  getPdfDraft,
+  findPdfDraft,
   listPdfDrafts,
   putPdfDraft,
   resolvePdfDraft,
+  resolvePdfDraftSource,
   sourceKey,
   type PdfDraftEntry,
 } from "../model/recovery";
@@ -240,6 +242,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const markClean = useRef(false);
   const [everSaved, setEverSaved] = useState(false);
   const sourceKeyRef = useRef<string | null>(null);
+  /** SHA-256 of the file as last saved in place (recovery finds the session by it once the original is overwritten). */
+  const diskKeyRef = useRef<string | null>(null);
   const saving = useRef(false);
   const redactConfirmed = useRef(false);
   const [drafts, setDrafts] = useState<PdfDraftEntry[]>([]);
@@ -479,7 +483,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   );
 
   const openBytes = useCallback(
-    async (raw: Uint8Array, name: string, password?: string, restore?: PdfState, handle?: FsFileHandle | null) => {
+    async (
+      raw: Uint8Array,
+      name: string,
+      password?: string,
+      restore?: PdfState,
+      handle?: FsFileHandle | null,
+      /** Recovery of a session that had already saved into `handle`: that file is the destination as it is. */
+      recovered?: { disk: Uint8Array },
+    ) => {
       // Taken BEFORE the (slow) open: when a second file is picked while the
       // first one is still opening, only the last choice may be shown, whichever
       // finishes first. The engine being replaced is destroyed by the `engine`
@@ -514,9 +526,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setEverSaved(false);
         redactConfirmed.current = false;
         sourceKeyRef.current = null;
+        diskKeyRef.current = null;
         // Freshly opened — or restored from an .elium, which holds the session:
-        // nothing is unsaved yet. (A recovered draft is applied afterwards, dirty.)
-        markClean.current = true;
+        // nothing is unsaved yet. A recovered session is unsaved work.
+        markClean.current = !recovered;
+        if (recovered) {
+          void readDiskState(recovered.disk, password)
+            .then((d) => {
+              if (gen === shownGeneration.current) diskRef.current = d;
+            })
+            .catch(() => {});
+          void sourceKey(recovered.disk).then((k) => {
+            if (gen === shownGeneration.current) diskKeyRef.current = k;
+          });
+        }
         const sourcePages = restore?.pages ?? D.pagesFromSource(next.pageCount);
         const base: PdfState = restore ?? {
           ...emptyState(),
@@ -575,7 +598,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             if (gen !== shownGeneration.current) return;
             sourceKeyRef.current = key;
             if (restore) return;
-            const draft = await getPdfDraft(key).catch(() => undefined);
+            const draft = await findPdfDraft(key).catch(() => undefined);
             if (!draft || gen !== shownGeneration.current) return;
             const when = new Date(draft.updatedAt).toLocaleString("fr-FR");
             const ok = await dialogs.confirm({
@@ -586,12 +609,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             });
             if (gen !== shownGeneration.current) return;
             if (!ok) {
-              await deletePdfDraft(key).catch(() => {});
+              await deletePdfDraft(draft.id).catch(() => {});
               return;
             }
             try {
               const recovered = await resolvePdfDraft(draft, vaultSecret);
-              reset(recovered);
+              if (draft.id === key) {
+                reset(recovered);
+              } else {
+                // This file was saved into by the session: rebuild it on the
+                // source it started from, with this file as its destination.
+                const source = await resolvePdfDraftSource(draft, vaultSecret);
+                if (!source) throw new Error("Le fichier d'origine de ces modifications n'a pas été conservé.");
+                await openBytes(source, name, password, recovered, handle, { disk: next.bytes });
+              }
               toast("success", "Modifications restaurées", "Enregistrez (Ctrl+S) pour les écrire dans le fichier.");
             } catch (err) {
               toast("danger", "Restauration impossible", err instanceof Error ? err.message : undefined);
@@ -705,7 +736,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         state,
         sourceProtected: engine.info.encrypted,
         secret: vaultSecret,
-        handle: openHandleRef.current ?? undefined,
+        handle: destRef.current?.handle ?? openHandleRef.current ?? undefined,
+        diskKey: diskKeyRef.current ?? undefined,
+        source: diskKeyRef.current ? (bytesRef.current ?? undefined) : undefined,
       })
         .then((draft) => (draft ? putPdfDraft(draft) : undefined))
         .catch(() => {});
@@ -1304,6 +1337,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (dest.persistent) {
           destRef.current = dest;
           diskRef.current = res.disk;
+          diskKeyRef.current = null;
+          void sourceKey(res.bytes).then((k) => {
+            if (diskRef.current === res.disk) diskKeyRef.current = k;
+          });
           if (dest.name !== fileName) setFileName(dest.name);
         } else {
           diskRef.current = null;

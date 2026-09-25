@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { fullRewriteReasons } from "../src/pdf/ops/save";
-import { buildPdfDraft, resolvePdfDraft, hasEdits, sourceKey } from "../src/pdf/model/recovery";
+import { buildPdfDraft, resolvePdfDraft, resolvePdfDraftSource, hasEdits, sourceKey } from "../src/pdf/model/recovery";
 import { downloadDestination, pdfName } from "../src/pdf/core/destination";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, type Annot, type PdfState } from "../src/pdf/model/types";
@@ -99,5 +99,47 @@ describe("destinations", () => {
     const d = downloadDestination("a.pdf");
     expect(d.kind).toBe("download");
     expect(d.persistent).toBe(false);
+  });
+});
+
+describe("recovery drafts after an in-place save", () => {
+  const state = { ...base(), annots: [annot("note", "p")] };
+  const source = new Uint8Array([37, 80, 68, 70, 1, 2, 3]);
+
+  it("keeps the source bytes (clear) so the saved file can be rebuilt", async () => {
+    const d = await buildPdfDraft({
+      id: "src",
+      name: "a.pdf",
+      size: 7,
+      state,
+      sourceProtected: false,
+      diskKey: "disk",
+      source,
+    });
+    expect(d?.diskKey).toBe("disk");
+    expect(await resolvePdfDraftSource(d!)).toEqual(source);
+  });
+
+  it("encrypts the kept source with the vault secret", async () => {
+    const secret = { password: "coffre" };
+    const d = await buildPdfDraft({
+      id: "src",
+      name: "a.pdf",
+      size: 7,
+      state,
+      sourceProtected: false,
+      secret,
+      diskKey: "disk",
+      source,
+    });
+    expect(d?.source).toBeUndefined();
+    expect(typeof d?.sourceEnc).toBe("string");
+    expect(await resolvePdfDraftSource(d!, secret)).toEqual(source);
+  });
+
+  it("keeps no source before the first in-place save", async () => {
+    const d = await buildPdfDraft({ id: "src", name: "a.pdf", size: 7, state, sourceProtected: false, source });
+    expect(d?.source).toBeUndefined();
+    expect(await resolvePdfDraftSource(d!)).toBeNull();
   });
 });

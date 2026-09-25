@@ -46,6 +46,15 @@ async function openPdf(page: Page, name: string, bytes: Uint8Array) {
   await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
 }
 
+/** Ctrl+S (a download, see `noFilePickers`) → the bytes written. */
+async function saveWithCtrlS(page: Page): Promise<Uint8Array> {
+  const download = page.waitForEvent("download");
+  await page.keyboard.press("Control+s");
+  const file = await download;
+  const chunks = await (await file.createReadStream()).toArray();
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
 /** The form-layer control of field `name` (pdf.js renders one per widget, `name` attribute = field name). */
 function field(page: Page, name: string) {
   return page.locator(`.annotationLayer [name="${name}"]`).first();
@@ -66,12 +75,7 @@ test.describe("PDF — formulaires", () => {
     await expect(field(page, "prix")).toHaveValue("2.50");
     await field(page, "pays").selectOption({ label: "Suisse" });
 
-    const download = page.waitForEvent("download");
-    await page.keyboard.press("Control+s");
-    const file = await download;
-    const saved = new Uint8Array(await (await file.createReadStream()).toArray().then((c) => Buffer.concat(c)));
-
-    const doc = await PDFDocument.load(saved);
+    const doc = await PDFDocument.load(await saveWithCtrlS(page));
     const form = doc.getForm();
     expect(form.getTextField("nom").getText()).toBe("Łukasz Wałęsa");
     expect(form.getTextField("qte").getText()).toBe("4");
@@ -79,6 +83,31 @@ test.describe("PDF — formulaires", () => {
     expect(form.getDropdown("pays").getSelected()).toEqual(["CH"]);
     // Every value is drawn: nothing left to the next viewer.
     expect(form.acroForm.dict.lookup(PDFName.of("NeedAppearances"))).toBeUndefined();
+    expect(problems).toEqual([]);
+  });
+});
+
+test.describe("PDF — formulaires : validation", () => {
+  test("une valeur refusée par le script de validation est signalée et annulée", async ({ page }) => {
+    const problems = trackHealth(page);
+    const dialogs: string[] = [];
+    page.on("dialog", (d) => {
+      dialogs.push(d.message());
+      void d.accept();
+    });
+    await noFilePickers(page);
+    await openPdf(page, "commande.pdf", await orderFormPdf());
+    await field(page, "qte").fill("4");
+    await field(page, "nom").click();
+    await expect(field(page, "qte")).toHaveValue("4");
+    await field(page, "qte").fill("150");
+    await field(page, "nom").click();
+    await expect.poll(() => dialogs.length).toBeGreaterThan(0);
+    await expect(field(page, "qte")).toHaveValue("4");
+    // The refused value never reaches the file either.
+    await field(page, "nom").click();
+    const doc = await PDFDocument.load(await saveWithCtrlS(page));
+    expect(doc.getForm().getTextField("qte").getText()).toBe("4");
     expect(problems).toEqual([]);
   });
 });

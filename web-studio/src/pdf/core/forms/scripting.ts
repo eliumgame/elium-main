@@ -82,6 +82,8 @@ export class FormScripting {
   private generation = 0;
   private docActions: unknown = null;
   private calculationOrder: string[] | null = null;
+  /** Last value each widget committed (the file's, then every accepted update) — see `onUpdate`. */
+  private committed = new Map<string, { value: unknown; formattedValue: unknown }>();
   /** Resolves once the first sandbox is up (true) or failed to start (false). */
   readonly ready: Promise<boolean>;
 
@@ -128,6 +130,7 @@ export class FormScripting {
     const run = (async () => {
       try {
         const [mod, objects] = await Promise.all([loadSandboxModule(), this.o.objects()]);
+        this.rememberValues(objects);
         const urls = pdfjsAssetUrls()!;
         const sandbox = await mod.QuickJSSandbox(new URL(urls.wasmUrl, location.href).href);
         if (this.destroyed || gen !== this.generation) {
@@ -235,6 +238,30 @@ export class FormScripting {
     }, 0);
   }
 
+  private rememberValues(objects: Record<string, unknown[]>): void {
+    this.committed.clear();
+    for (const list of Object.values(objects)) {
+      for (const o of list as { id?: unknown; value?: unknown }[]) {
+        if (typeof o?.id === "string" && "value" in o)
+          this.committed.set(o.id, { value: o.value, formattedValue: null });
+      }
+    }
+  }
+
+  /**
+   * pdf.js answers a value its Validate script refused (`event.rc = false`,
+   * e.g. AFRange_Validate) by EMPTYING the field. Acrobat rejects the value and
+   * keeps the previous one — what the user typed before is not lost, and the
+   * sandbox itself still holds that previous value. Recognised by its unique
+   * shape (runValidation's `else if (didValidateRun)` branch).
+   */
+  private static isRejection(d: Record<string, unknown>): boolean {
+    const r = d.selRange;
+    return (
+      d.value === "" && d.formattedValue === null && d.focus === true && Array.isArray(r) && r[0] === 0 && r[1] === 0
+    );
+  }
+
   private onUpdate = (event: CustomEvent) => {
     if (this.destroyed) return;
     const detail = { ...(event.detail ?? {}) } as Record<string, unknown> & {
@@ -250,8 +277,25 @@ export class FormScripting {
     }
     delete detail.id;
     delete detail.siblings;
+    const ids = siblings ? [id, ...siblings] : [id];
+    if (FormScripting.isRejection(detail)) {
+      const prev = this.committed.get(id);
+      const text = prev?.value == null ? "" : String(prev.value);
+      detail.value = text;
+      detail.formattedValue = prev?.formattedValue ?? null;
+      detail.selRange = [0, text.length];
+    } else if ("value" in detail && !("selRange" in detail)) {
+      // A commit or a calculation (keystrokes while typing carry a selRange).
+      for (const i of ids) {
+        const prev = this.committed.get(i);
+        this.committed.set(i, {
+          value: detail.value,
+          formattedValue: "formattedValue" in detail ? detail.formattedValue : (prev?.formattedValue ?? null),
+        });
+      }
+    }
     this.o.asScript(() => {
-      for (const elementId of siblings ? [id, ...siblings] : [id]) {
+      for (const elementId of ids) {
         if (!this.o.ownsId(elementId)) continue;
         const element = document.querySelector(`.pdfx-stack [data-element-id="${CSS.escape(elementId)}"]`);
         if (element) element.dispatchEvent(new CustomEvent("updatefromsandbox", { detail }));

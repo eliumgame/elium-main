@@ -1141,3 +1141,19 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
     - signatures enregistrées perdues hors .elium ;
     - proportions fausses à la restauration ;
     - outils coche, croix, point et date absents.
+
+### T7 : revue adversariale (défauts confirmés, correction en cours)
+1. Commentaires du modèle dans une zone caviardée réécrits après caviardage (save.ts ~709).
+2. /Resources partagées entre pages : caviarder une page retire les images d'une autre.
+3. /SMask et /Mask des images conservés intacts (signature PNG lisible).
+4-5. Tracés : règle « 50 % » (garde un mot vectorisé sous la boîte, supprime une bande visible hors boîte).
+6. Opérateurs ' et " remplacés par TJ sans T* / Tw / Tc : le texte suivant se décale.
+7. Fusion des calques masqués : formes, OCMD, annotations /OC non gérés (contenu révélé).
+8. Forme sans /Resources : ses images retirées par dropUnusedXObjects.
+9. Motifs (Pattern) et groupes de masque (ExtGState /SMask) non caviardés.
+10. Motif carte bancaire précédé d'un autre nombre : non détecté.
+11. Actions chaînées /Next conservées.
+12. Texte invisible : formes ignorées, avance sans largeurs de police.
+Plausibles : Organiser › Extraire sans le droit copie ; invite en boucle sur formulaires
+interdits ; mot de passe propriétaire ≡ ouverture après NFKC ; motif e-mail quadratique ;
+mots de passe accentués NFD en révisions 2-4.

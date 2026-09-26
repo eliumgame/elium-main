@@ -1329,12 +1329,15 @@ export function OcrDialog({
 // ---------------------------------------------------------------------------
 
 export function SignatureDialog({
+  kind = "signature",
   saved,
   onUse,
   onSave,
   onDelete,
   onClose,
 }: {
+  /** Acrobat's « Ajouter une signature » or « Ajouter des initiales ». */
+  kind?: SavedSignature["kind"];
   saved: SavedSignature[];
   onUse: (sig: { src: string; ratio: number }) => void;
   onSave: (sig: SavedSignature) => void;
@@ -1412,7 +1415,7 @@ export function SignatureDialog({
     if (store) {
       onSave({
         id: `sig_${Date.now().toString(36)}`,
-        kind: "signature",
+        kind,
         src: made.src,
         ratio: made.ratio,
         createdAt: new Date().toISOString(),
@@ -1423,7 +1426,7 @@ export function SignatureDialog({
 
   return (
     <Modal
-      title="Signature"
+      title={kind === "initials" ? "Initiales" : "Signature"}
       onClose={onClose}
       wide
       footer={

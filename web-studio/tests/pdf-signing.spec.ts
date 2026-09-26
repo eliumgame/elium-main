@@ -100,4 +100,46 @@ test.describe("PDF — signature avec certificat", () => {
     await expect(panel).toContainText("Des modifications autorisées ont été apportées depuis");
     expect(problems).toEqual([]);
   });
+
+  test("Remplir et signer : coche, croix, point, date, initiales mémorisées d'un document à l'autre", async ({
+    page,
+  }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    await open(page, await prepared());
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+    const marks = page.locator("[data-annot-id]");
+    for (const [i, label] of ["Coche", "Croix", "Point", "Date"].entries()) {
+      await page.getByRole("button", { name: label, exact: true }).click();
+      await expect(marks).toHaveCount(i + 1);
+    }
+    await expect(page.locator(".pdfx-canvas").first().locator("..")).toContainText(
+      new Date().toLocaleDateString("fr-FR"),
+    );
+
+    await page.getByRole("button", { name: "Initiales", exact: true }).click();
+    let dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Initiales");
+    await dialog.getByRole("button", { name: "Saisir" }).click();
+    await dialog.getByRole("textbox").first().fill("TS");
+    await dialog.getByRole("button", { name: "Placer sur la page" }).click();
+    await expect(marks).toHaveCount(5);
+
+    // Another session: the initials are still offered.
+    await page.reload();
+    await page.getByRole("button", { name: /^PDF/ }).click();
+    await page.setInputFiles('input[type="file"][accept*="pdf"]', {
+      name: "autre.pdf",
+      mimeType: "application/pdf",
+      buffer: await prepared(),
+    });
+    await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
+    await page.getByRole("tab", { name: "Formulaires" }).click();
+    await page.getByRole("button", { name: "Initiales", exact: true }).click();
+    dialog = page.getByRole("dialog");
+    await expect(dialog.getByTitle("Utiliser")).toHaveCount(1);
+    await dialog.getByTitle("Utiliser").click();
+    await expect(page.locator("[data-annot-id]")).toHaveCount(1);
+    expect(problems).toEqual([]);
+  });
 });

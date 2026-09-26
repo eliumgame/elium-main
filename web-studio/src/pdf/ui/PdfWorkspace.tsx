@@ -236,7 +236,8 @@ type DialogId =
   | "insert"
   | "combine"
   | "redactSearch"
-  | "identities";
+  | "identities"
+  | "initials";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -962,6 +963,15 @@ export default function PdfWorkspace({
     [openBytes],
   );
 
+  // Signatures and initials saved in this browser (Acrobat keeps them between documents).
+  useEffect(() => {
+    void import("./identities").then(({ listSavedMarks }) =>
+      listSavedMarks().then((kept) => {
+        if (kept.length) setSignatures((v) => [...kept.filter((k) => !v.some((x) => x.src === k.src)), ...v]);
+      }),
+    );
+  }, []);
+
   // Restore a session persisted in an .elium.
   const restored = useRef(false);
   useEffect(() => {
@@ -969,15 +979,23 @@ export default function PdfWorkspace({
     restored.current = true;
     const loaded = deserialize(initial);
     for (const [name, b64] of Object.entries(loaded.fonts)) registerCustomFont(name, base64ToBytes(b64));
-    setSignatures(
-      loaded.signatures.map((src, i) => ({
-        id: `sig_${i}`,
-        kind: "signature",
-        src,
-        ratio: 3,
-        createdAt: new Date().toISOString(),
-      })),
-    );
+    const fromElium = loaded.signatures.map((src, i) => ({
+      id: `sig_${i}`,
+      kind: "signature" as const,
+      src,
+      ratio: 3,
+      createdAt: new Date().toISOString(),
+    }));
+    setSignatures((v) => [...v, ...fromElium.filter((f) => !v.some((x) => x.src === f.src))]);
+    // The .elium keeps pictures only: their proportions come from the pictures themselves.
+    for (const f of fromElium) {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+        if (ratio > 0) setSignatures((v) => v.map((x) => (x.src === f.src ? { ...x, ratio } : x)));
+      };
+      img.src = f.src;
+    }
     void openBytes(loaded.bytes, loaded.name, loaded.sourcePassword, loaded.state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
@@ -2778,6 +2796,62 @@ export default function PdfWorkspace({
   // Commands
   // -------------------------------------------------------------------------
   const currentPage = () => pages[currentStore.get() - 1];
+
+  /**
+   * « Remplir et signer » marks: a check, a cross, a dot or today's date,
+   * placed on the current page and selected, to be dragged where it belongs.
+   */
+  const placeFillMark = (which: "fsCheck" | "fsCross" | "fsDot" | "fsDate") => {
+    const page = currentPage();
+    if (!page) return;
+    const size = sizeOf(page);
+    const now = new Date().toISOString();
+    const s = 14;
+    const x = size.w / 2 - s / 2;
+    const y = size.h / 3;
+    const base = {
+      id: newId("an"),
+      pageId: page.id,
+      color: "#0f172a",
+      opacity: 1,
+      strokeWidth: 1.8,
+      author,
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    };
+    let a: Annot;
+    if (which === "fsDate") {
+      const text = new Date().toLocaleDateString("fr-FR");
+      a = { ...base, kind: "typewriter", rect: { x, y, w: 70, h: 16 }, text, fontSize: 11, strokeWidth: 0 };
+    } else if (which === "fsDot") {
+      a = { ...base, kind: "circle", rect: { x: x + 4, y: y + 4, w: 6, h: 6 }, fill: "#0f172a", strokeWidth: 0.5 };
+    } else {
+      const paths =
+        which === "fsCheck"
+          ? [
+              [
+                { x, y: y + s * 0.55 },
+                { x: x + s * 0.38, y: y + s },
+                { x: x + s, y },
+              ],
+            ]
+          : [
+              [
+                { x, y },
+                { x: x + s, y: y + s },
+              ],
+              [
+                { x: x + s, y },
+                { x, y: y + s },
+              ],
+            ];
+      a = { ...base, kind: "ink", rect: { x, y, w: s, h: s }, paths };
+    }
+    addAnnot(a);
+    setSelectedIds([a.id]);
+    setTool("select");
+  };
   const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
   /** The pages a page command's scope designates (selection, all, even, odd, a range). */
@@ -3211,6 +3285,15 @@ export default function PdfWorkspace({
         return;
       case "signature":
         setDialog("signature");
+        return;
+      case "initials":
+        setDialog("initials");
+        return;
+      case "fsCheck":
+      case "fsCross":
+      case "fsDot":
+      case "fsDate":
+        placeFillMark(id);
         return;
       case "watermark":
         setDialog("watermark");
@@ -5799,17 +5882,26 @@ export default function PdfWorkspace({
           }}
         />
       )}
-      {dialog === "signature" && (
+      {(dialog === "signature" || dialog === "initials") && (
         <SignatureDialog
-          saved={signatures}
+          kind={dialog === "initials" ? "initials" : "signature"}
+          saved={signatures.filter(
+            (x) => (x.kind ?? "signature") === (dialog === "initials" ? "initials" : "signature"),
+          )}
           onClose={() => setDialog(null)}
-          onDelete={(id) => setSignatures((v) => v.filter((s) => s.id !== id))}
-          onSave={(sig) => setSignatures((v) => [...v, sig])}
+          onDelete={(id) => {
+            setSignatures((v) => v.filter((s) => s.id !== id));
+            void import("./identities").then(({ removeMark }) => removeMark(id));
+          }}
+          onSave={(sig) => {
+            setSignatures((v) => [...v, sig]);
+            void import("./identities").then(({ saveMark }) => saveMark(sig));
+          }}
           onUse={(sig) => {
             const page = currentPage();
             if (!page) return;
             const size = sizeOf(page);
-            const w = Math.min(200, size.w * 0.35);
+            const w = dialog === "initials" ? Math.min(70, size.w * 0.15) : Math.min(200, size.w * 0.35);
             const now = new Date().toISOString();
             addAnnot({
               id: newId("an"),

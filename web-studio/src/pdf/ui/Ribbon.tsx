@@ -89,6 +89,11 @@ import {
   ZoomIn,
   ZoomOut,
   KeyRound,
+  Check,
+  X,
+  Dot,
+  CalendarDays,
+  PenLine,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -706,6 +711,37 @@ export default function Ribbon(p: RibbonProps) {
               />
               <Cmd icon={<Ban size={17} />} onClick={C("formReset")} label="Réinitialiser" disabled={!p.hasForm} />
               <Cmd icon={<Lock size={17} />} onClick={C("formFlatten")} label="Aplatir" disabled={!p.hasForm} />
+            </Group>
+            <Group title="Remplir et signer">
+              <Cmd
+                icon={<Type size={17} />}
+                onClick={T("typewriter")}
+                active={p.tool === "typewriter"}
+                label="Ajouter du texte"
+                title="Taper du texte n'importe où sur la page"
+              />
+              <Cmd icon={<Check size={17} />} onClick={C("fsCheck")} label="Coche" title="Ajouter une coche" />
+              <Cmd icon={<X size={17} />} onClick={C("fsCross")} label="Croix" title="Ajouter une croix" />
+              <Cmd icon={<Dot size={17} />} onClick={C("fsDot")} label="Point" title="Ajouter un point" />
+              <Cmd
+                icon={<CalendarDays size={17} />}
+                onClick={C("fsDate")}
+                label="Date"
+                title="Ajouter la date du jour"
+              />
+              <Cmd
+                big
+                icon={<PenTool size={19} />}
+                label="Signer"
+                onClick={C("signature")}
+                title="Ajouter votre signature manuscrite"
+              />
+              <Cmd
+                icon={<PenLine size={17} />}
+                onClick={C("initials")}
+                label="Initiales"
+                title="Ajouter vos initiales"
+              />
             </Group>
             <Group title="Créer des champs">
               <Cmd

@@ -8,11 +8,15 @@
  *    protected by its password, asked at each signature.
  *  - Trusted identities are certificates (DER): a signature whose chain ends
  *    on one of them is shown as trusted. The user's own IDs are trusted.
+ *  - Handwritten signatures and initials (pictures) for « Remplir et signer ».
  */
+
+import type { SavedSignature } from "../ops/sign";
 
 const DB_NAME = "elium-pdf-ids";
 const STORE = "ids";
 const TRUST = "trusted";
+const MARKS = "marks";
 
 export type DigitalId =
   | { id: string; kind: "self"; name: string; created: number; key: CryptoKey; cert: Uint8Array }
@@ -27,11 +31,13 @@ export interface TrustedIdentity {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(TRUST)) db.createObjectStore(TRUST, { keyPath: "id" });
+      // v2: handwritten signatures and initials (Remplir et signer), kept between documents.
+      if (!db.objectStoreNames.contains(MARKS)) db.createObjectStore(MARKS, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -102,6 +108,24 @@ export async function removeTrusted(id: string): Promise<void> {
 export async function trustAnchors(): Promise<Uint8Array[]> {
   const [trusted, ids] = await Promise.all([listTrusted(), listIds()]);
   return [...trusted.map((t) => t.cert), ...ids.map((i) => i.cert)];
+}
+
+/** Saved handwritten signatures and initials (pictures), oldest first. */
+export async function listSavedMarks(): Promise<SavedSignature[]> {
+  try {
+    const all = await run<SavedSignature[]>(MARKS, "readonly", (s) => s.getAll() as IDBRequest<SavedSignature[]>);
+    return all.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveMark(mark: SavedSignature): Promise<void> {
+  await run(MARKS, "readwrite", (s) => s.put(mark)).catch(() => {});
+}
+
+export async function removeMark(id: string): Promise<void> {
+  await run(MARKS, "readwrite", (s) => s.delete(id)).catch(() => {});
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

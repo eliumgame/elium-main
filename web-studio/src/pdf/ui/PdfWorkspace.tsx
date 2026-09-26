@@ -605,7 +605,9 @@ export default function PdfWorkspace({
   const toast = useCallback((tone: Toast["tone"], text: string, detail?: string) => {
     const id = toastSeq++;
     setToasts((v) => [...v.filter((t) => t.tone !== "progress" || tone !== "progress"), { id, tone, text, detail }]);
-    if (tone !== "progress") setTimeout(() => setToasts((v) => v.filter((t) => t.id !== id)), 5200);
+    // An error stays until it is dismissed; the rest go after a few seconds.
+    if (tone !== "progress" && tone !== "danger")
+      setTimeout(() => setToasts((v) => v.filter((t) => t.id !== id)), tone === "warning" ? 8000 : 5200);
     return id;
   }, []);
   const dismissToast = (id: number) => setToasts((v) => v.filter((t) => t.id !== id));
@@ -4895,6 +4897,10 @@ export default function PdfWorkspace({
   saveNowRef.current = saveNow;
   const openDialogRef = useRef(openDialog);
   openDialogRef.current = openDialog;
+  const commandRef = useRef(command);
+  commandRef.current = command;
+  const goHomeRef = useRef(goHome);
+  goHomeRef.current = goHome;
   // Ctrl+S / Ctrl+Maj+S, caught in the capture phase so it works everywhere —
   // even inside a text box that stops key events — and never falls through to
   // the browser's « save page ». A comment, text block or bookmark being edited
@@ -4978,9 +4984,46 @@ export default function PdfWorkspace({
           zoomStep(1);
           return;
         }
-        if (k === "-") {
+        // With Shift the minus key arrives as « _ ».
+        if (k === "-" || k === "_") {
           e.preventDefault();
           zoomStep(-1);
+          return;
+        }
+        // Acrobat's Ctrl+3 « Zone de texte ».
+        if (k === "3" && !e.shiftKey) {
+          e.preventDefault();
+          requestFit("fitVisible");
+          return;
+        }
+        // Ctrl+E : the properties bar (Inspector), shown again once closed.
+        if (k === "e" && !e.shiftKey) {
+          e.preventDefault();
+          setInspector((v) => !v);
+          return;
+        }
+        // Ctrl+D : document properties.
+        if (k === "d" && !e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("properties");
+          return;
+        }
+        // Ctrl+L : full screen.
+        if (k === "l" && !e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("fullscreen");
+          return;
+        }
+        // Ctrl+W closes the document, not the window (in the desktop app it would close Elium).
+        if (k === "w" && !e.shiftKey) {
+          e.preventDefault();
+          void goHomeRef.current();
+          return;
+        }
+        // Ctrl+Maj+R : rotate pages.
+        if (k === "r" && e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("rotateDialog");
           return;
         }
         // Acrobat's: Ctrl+0 page entière, Ctrl+1 taille réelle (100 %), Ctrl+2 largeur.
@@ -5131,19 +5174,19 @@ export default function PdfWorkspace({
                   "Déposez un fichier ici, ou choisissez-le. Vous pourrez le lire, l'annoter, en modifier le texte, le caviarder, le signer et le protéger."}
             </p>
             <div className="pdfx-dropzone__actions">
-              <button className="eb eb--primary" onClick={() => void openDialog()} disabled={loading}>
+              <button className="eb eb--primary eb--md" onClick={() => void openDialog()} disabled={loading}>
                 {loading ? <Loader2 size={16} className="pdfx-spin" /> : <Upload size={16} />} Choisir un PDF
               </button>
-              <button className="eb eb--outline" onClick={() => imageInput.current?.click()} disabled={loading}>
+              <button className="eb eb--outline eb--md" onClick={() => imageInput.current?.click()} disabled={loading}>
                 Créer depuis des images
               </button>
-              <button className="eb eb--outline" onClick={() => createInput.current?.click()} disabled={loading}>
+              <button className="eb eb--outline eb--md" onClick={() => createInput.current?.click()} disabled={loading}>
                 Créer depuis un fichier…
               </button>
-              <button className="eb eb--outline" onClick={() => setDialog("combine")} disabled={loading}>
+              <button className="eb eb--outline eb--md" onClick={() => setDialog("combine")} disabled={loading}>
                 Combiner des fichiers
               </button>
-              <button className="eb eb--outline" onClick={() => void createFromClipboard()} disabled={loading}>
+              <button className="eb eb--outline eb--md" onClick={() => void createFromClipboard()} disabled={loading}>
                 Depuis le presse-papiers
               </button>
             </div>
@@ -5162,7 +5205,12 @@ export default function PdfWorkspace({
                           Rouvrir
                         </button>
                       ) : (
-                        <small>Rouvrez ce fichier pour les restaurer</small>
+                        <>
+                          <small>Rouvrez ce fichier pour les restaurer</small>
+                          <button className="eb eb--outline eb--sm" onClick={() => void openDialog()}>
+                            Choisir le fichier…
+                          </button>
+                        </>
                       )}
                       <button
                         className="eb eb--ghost eb--sm"
@@ -5982,6 +6030,20 @@ export default function PdfWorkspace({
           </>
         )}
         <span className="pdfx-status__spacer" />
+        {selection.length > 0 && mode === "view" && (
+          <>
+            <button
+              type="button"
+              className={`pdfx-status__btn ${inspector ? "is-active" : ""}`}
+              aria-pressed={inspector}
+              onClick={() => setInspector((v) => !v)}
+              title="Afficher ou masquer les propriétés de la sélection (Ctrl+E)"
+            >
+              Propriétés
+            </button>
+            <span>·</span>
+          </>
+        )}
         <span>{themeDef.label}</span>
         <span>·</span>
         <span>{zoomPercent(view.scale)} %</span>
@@ -5995,7 +6057,12 @@ export default function PdfWorkspace({
 
       <div className="pdfx-toasts">
         {toasts.map((t) => (
-          <div key={t.id} className={`pdfx-toast pdfx-toast--${t.tone}`}>
+          <div
+            key={t.id}
+            className={`pdfx-toast pdfx-toast--${t.tone}`}
+            role={t.tone === "danger" ? "alert" : "status"}
+            aria-live={t.tone === "danger" ? "assertive" : "polite"}
+          >
             <div className="pdfx-toast__body">
               <b>{t.text}</b>
               {t.detail && <small>{t.detail}</small>}
@@ -6006,7 +6073,7 @@ export default function PdfWorkspace({
               )}
             </div>
             {t.tone !== "progress" && (
-              <button onClick={() => dismissToast(t.id)}>
+              <button onClick={() => dismissToast(t.id)} aria-label="Fermer la notification" title="Fermer">
                 <X size={13} />
               </button>
             )}

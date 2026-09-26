@@ -1844,12 +1844,13 @@
 }
 .pdfx-recover li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
 }
 .pdfx-recover__name {
-  flex: 1;
+  flex: 1 1 16ch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1860,6 +1861,19 @@
 .pdfx-recover small {
   color: var(--x-chrome-mute);
   white-space: nowrap;
+}
+.pdfx-recover small {
+  white-space: normal;
+}
+
+/* Start screen buttons sit on the chrome, not on a page: chrome colours in both themes. */
+.pdfx-dropzone__actions .eb--outline {
+  background: var(--x-chrome-3);
+  color: var(--x-chrome-text);
+  border-color: var(--x-chrome-line);
+}
+.pdfx-dropzone__actions .eb--outline:hover:not(:disabled) {
+  background: var(--x-chrome-2);
 }
 
 /* --- Préparer un formulaire ------------------------------------------------ */
@@ -3096,4 +3110,23 @@
 .pdfx-a11y small {
   display: block;
   opacity: 0.75;
+}
+
+.pdfx-hits-more {
+  display: block;
+  margin: 8px auto;
+}
+
+.pdfx-status__btn {
+  padding: 1px 8px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  cursor: pointer;
+}
+.pdfx-status__btn:hover,
+.pdfx-status__btn.is-active {
+  background: var(--x-chrome-3);
 }

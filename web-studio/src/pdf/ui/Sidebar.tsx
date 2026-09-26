@@ -139,6 +139,9 @@ export default function Sidebar(p: SidebarProps) {
 // Thumbnails
 // ---------------------------------------------------------------------------
 
+/** Search results shown at once in the panel (more on demand). */
+const HIT_PAGE = 500;
+
 /** Gap between two thumbnails (`.pdfx-thumbs { gap }`). */
 const THUMB_GAP = 10;
 /** Widest thumbnail picture (`.pdfx-thumb { max-width: 168px }` minus its padding and borders). */
@@ -964,6 +967,21 @@ function SearchResults(p: SidebarProps) {
     });
     return out;
   }, [p.searchHits, p.pages]);
+  // Thousands of hits would make the panel (and every render after) crawl: they are shown
+  // a few hundred at a time, always far enough to include the current hit.
+  const [hitLimit, setHitLimit] = useState(HIT_PAGE);
+  useEffect(() => setHitLimit(HIT_PAGE), [p.searchQuery]);
+  const shownLimit = Math.max(hitLimit, p.searchIndex + 50);
+  const shownGroups = useMemo(() => {
+    const out: typeof groups = [];
+    let left = shownLimit;
+    for (const g of groups) {
+      if (left <= 0) break;
+      out.push(g.items.length <= left ? g : { ...g, items: g.items.slice(0, left) });
+      left -= g.items.length;
+    }
+    return out;
+  }, [groups, shownLimit]);
   const comments = useMemo(
     () =>
       p.searchQuery.trim()
@@ -1006,7 +1024,7 @@ function SearchResults(p: SidebarProps) {
         {p.searchQuery && !p.searchHits.length && !comments.length && !marks.length && !p.searchBusy && (
           <p className="pdfx-empty">Aucun résultat pour « {p.searchQuery} ».</p>
         )}
-        {groups.map(({ key, label, items }) => (
+        {shownGroups.map(({ key, label, items }) => (
           <div key={key} className="pdfx-hits-group">
             <div className="pdfx-hits-group__head">
               Page {label} <span>{items.length}</span>
@@ -1024,6 +1042,11 @@ function SearchResults(p: SidebarProps) {
             ))}
           </div>
         ))}
+        {p.searchHits.length > shownLimit && (
+          <button className="eb eb--outline eb--sm pdfx-hits-more" onClick={() => setHitLimit(shownLimit + HIT_PAGE)}>
+            Afficher plus ({p.searchHits.length - shownLimit} résultat(s) restant(s))
+          </button>
+        )}
         {comments.length > 0 && (
           <div className="pdfx-hits-group">
             <div className="pdfx-hits-group__head">

@@ -181,6 +181,13 @@ const PageStack = forwardRef<PageStackHandle, PageStackProps>(function PageStack
     };
   }, []);
 
+  // The document takes the keyboard when it opens (arrows and Space scroll at once),
+  // unless something else already has the focus.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) scrollerRef.current?.focus({ preventScroll: true });
+  }, [p.engine]);
+
   const slotEls = useRef(new Map<string, HTMLDivElement>());
   const readyKeys = useRef(new Set<string>());
 

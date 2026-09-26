@@ -2150,6 +2150,10 @@
 }
 
 @media (max-width: 900px) {
+  /* The overlays open under the top bar and the ribbon, never over the tabs. */
+  .pdfx-main {
+    position: relative;
+  }
   .pdfx-side,
   .elx-side {
     position: absolute;

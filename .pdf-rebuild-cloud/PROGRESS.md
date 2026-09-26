@@ -950,3 +950,10 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   - liens visibles (/BS) ;
   - calques « visibilité par défaut » ;
   - pièces jointes ajoutées, décrites et supprimées.
+
+### Session cloud 1 : T6, panneau Destinations
+- Destinations nommées : liste (filtrable), aller à, créer à partir de la vue affichée,
+  supprimer.
+- Écrites à l'enregistrement : arbre /Names /Dests trié, clés ASCII en chaîne simple
+  (les liens comparent les octets) ; /Dests du catalogue si l'arbre est découpé en /Kids.
+- Test unitaire (ajout, suppression, résolution). Suite 2027/2027 ; specs PDF 72/72.

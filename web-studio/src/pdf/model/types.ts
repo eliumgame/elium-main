@@ -472,6 +472,14 @@ export interface Bookmark {
   retargeted?: boolean;
 }
 
+/** Named destinations (Acrobat's Destinations panel) as changed in Elium. */
+export interface DestEdits {
+  /** New destinations: a view of a page (`pageId`), as bookmarks name them. */
+  added: { name: string; pageId: string; x?: number; y?: number; zoom?: number }[];
+  /** Names of the file's destinations removed. */
+  removed: string[];
+}
+
 /** Files attached to the document (not to a comment), as changed in Elium. */
 export interface AttachmentEdits {
   added: { id: string; name: string; description?: string; mime: string; /** data: URL */ data: string }[];
@@ -637,6 +645,8 @@ export interface PdfState {
   ocDefaults?: Record<string, boolean>;
   /** The Initial View set in Elium (Acrobat's Propriétés › Vue initiale); absent: the file's own. */
   initialView?: InitialView;
+  /** Named destinations added or removed in Elium. */
+  destEdits?: DestEdits;
   /** Changes to the document's attached files (/EmbeddedFiles). */
   attachmentEdits?: AttachmentEdits;
   /** Measurement scale used by new measurement annotations. */

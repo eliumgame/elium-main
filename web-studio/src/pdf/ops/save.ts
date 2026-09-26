@@ -25,7 +25,16 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { Annot, AttachmentEdits, Bookmark, InitialView, Page, PageLabelDef, PdfState } from "../model/types";
+import type {
+  Annot,
+  AttachmentEdits,
+  Bookmark,
+  DestEdits,
+  InitialView,
+  Page,
+  PageLabelDef,
+  PdfState,
+} from "../model/types";
 import { remapBookmarkPages } from "../model/doc";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
@@ -885,6 +894,14 @@ async function applyState(
     }
   }
 
+  if (state.destEdits) {
+    try {
+      writeDestEdits(doc, state.destEdits, (id) => outputIndex.get(id));
+    } catch {
+      report.lost.push("Les destinations nommées n'ont pas pu être écrites.");
+    }
+  }
+
   if (state.attachmentEdits) {
     try {
       await applyAttachmentEdits(doc, state.attachmentEdits);
@@ -1225,4 +1242,86 @@ async function applyAttachmentEdits(doc: PDFDocument, edits: AttachmentEdits): P
     const bytes = Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0));
     await doc.attach(bytes, a.name, { mimeType: a.mime || "application/octet-stream", description: a.description });
   }
+}
+
+/**
+ * Named destinations as changed in Elium: the removed ones leave the catalog's
+ * /Dests and the /Names /Dests tree; the added ones go into that tree (its
+ * top /Names array, kept sorted as ISO 32000 requires), or into /Dests when
+ * the tree is split into /Kids.
+ */
+function writeDestEdits(doc: PDFDocument, edits: DestEdits, indexOf: (pageId: string) => number | undefined): void {
+  const ctx = doc.context;
+  const removed = new Set([...edits.removed, ...edits.added.map((a) => a.name)]);
+  const keyText = (k: unknown) => (k instanceof PDFString || k instanceof PDFHexString ? k.decodeText() : "");
+  const dests = doc.catalog.lookup(PDFName.of("Dests"));
+  if (dests instanceof PDFDict) for (const name of removed) dests.delete(PDFName.of(name));
+  let names = doc.catalog.lookup(PDFName.of("Names"));
+  let tree = names instanceof PDFDict ? names.lookup(PDFName.of("Dests")) : undefined;
+  const walk = (node: unknown, depth: number) => {
+    if (!(node instanceof PDFDict) || depth > 32) return;
+    const list = node.lookup(PDFName.of("Names"));
+    if (list instanceof PDFArray) {
+      for (let i = list.size() - 2; i >= 0; i -= 2) {
+        if (removed.has(keyText(list.lookup(i)))) {
+          list.remove(i + 1);
+          list.remove(i);
+        }
+      }
+    }
+    const kids = node.lookup(PDFName.of("Kids"));
+    if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) walk(kids.lookup(i), depth + 1);
+  };
+  walk(tree, 0);
+  if (!edits.added.length) return;
+
+  const pages = doc.getPages();
+  const entries = edits.added.flatMap((a) => {
+    const at = indexOf(a.pageId);
+    const page = at !== undefined ? pages[at] : undefined;
+    if (!page) return [];
+    const box = page.getCropBox();
+    const dest = ctx.obj([
+      page.ref,
+      PDFName.of("XYZ"),
+      a.x != null ? a.x + box.x : null,
+      a.y != null ? box.y + box.height - a.y : null,
+      a.zoom ?? null,
+    ] as never);
+    return [{ name: a.name, dest }];
+  });
+  if (tree instanceof PDFDict && tree.lookup(PDFName.of("Kids")) && !tree.lookup(PDFName.of("Names"))) {
+    // A split tree: the catalog's /Dests (still read by every viewer).
+    let d = doc.catalog.lookup(PDFName.of("Dests"));
+    if (!(d instanceof PDFDict)) {
+      d = ctx.obj({});
+      doc.catalog.set(PDFName.of("Dests"), d as PDFDict);
+    }
+    for (const e of entries) (d as PDFDict).set(PDFName.of(e.name), e.dest);
+    return;
+  }
+  if (!(names instanceof PDFDict)) {
+    names = ctx.obj({});
+    doc.catalog.set(PDFName.of("Names"), names as PDFDict);
+  }
+  if (!(tree instanceof PDFDict)) {
+    tree = ctx.obj({ Names: [] } as never);
+    (names as PDFDict).set(PDFName.of("Dests"), tree as PDFDict);
+  }
+  const t = tree as PDFDict;
+  const list = t.lookup(PDFName.of("Names"));
+  const pairs: { key: string; k: unknown; v: unknown }[] = [];
+  if (list instanceof PDFArray) {
+    for (let i = 0; i + 1 < list.size(); i += 2)
+      pairs.push({ key: keyText(list.lookup(i)), k: list.get(i), v: list.get(i + 1) });
+  }
+  // An ASCII name as a plain string: links compare the bytes.
+  for (const e of entries) {
+    const k = /^[\x20-\x7e]*$/.test(e.name) ? PDFString.of(e.name) : PDFHexString.fromText(e.name);
+    pairs.push({ key: e.name, k, v: e.dest });
+  }
+  // Byte order of the keys (ISO 32000's lexical order); ASCII names sort the same.
+  pairs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  t.set(PDFName.of("Names"), ctx.obj(pairs.flatMap((p) => [p.k, p.v]) as never));
+  t.delete(PDFName.of("Limits"));
 }

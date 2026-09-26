@@ -527,6 +527,18 @@ export class PdfEngine {
     return out;
   }
 
+  /** The file's named destinations (names only, sorted: resolved when followed). */
+  async destinationNames(): Promise<string[]> {
+    try {
+      const raw = (await this.doc.getDestinations()) as Map<string, unknown> | Record<string, unknown> | null;
+      if (!raw) return [];
+      const names = raw instanceof Map ? [...raw.keys()] : Object.keys(raw);
+      return names.sort((a, b) => a.localeCompare(b, "fr"));
+    } catch {
+      return [];
+    }
+  }
+
   /** How the file asks to open (its Initial View). `openPage` is a 1-based SOURCE page. */
   async initialView(): Promise<InitialView> {
     const doc = this.doc as unknown as {

@@ -7,7 +7,8 @@ export type ViewMode = "single" | "continuous" | "facing" | "facingContinuous";
 export type ZoomMode = "custom" | "fitWidth" | "fitPage" | "fitVisible";
 export type ReadingTheme = "paper" | "sepia" | "grey" | "night" | "invert";
 export type RibbonTab = "home" | "comment" | "edit" | "organise" | "forms" | "protect" | "convert" | "view";
-export type SidePanel = "thumbnails" | "bookmarks" | "comments" | "search" | "attachments" | "layers" | "fields";
+export type SidePanel =
+  "thumbnails" | "bookmarks" | "destinations" | "comments" | "search" | "attachments" | "layers" | "fields";
 
 export interface ViewState {
   scale: number;

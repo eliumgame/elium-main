@@ -248,3 +248,39 @@ describe("document attachments", () => {
     ]);
   });
 });
+
+describe("named destinations", () => {
+  it("removes and adds destinations, the name tree kept sorted and resolvable", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([600, 800]);
+    const ctx = doc.context;
+    doc.catalog.set(
+      PDFName.of("Names"),
+      ctx.obj({
+        Dests: {
+          Names: [
+            PDFString.of("annexe"),
+            [doc.getPage(2).ref, PDFName.of("Fit")],
+            PDFString.of("debut"),
+            [doc.getPage(0).ref, PDFName.of("Fit")],
+          ],
+        },
+      } as never),
+    );
+    const bytes = await doc.save();
+    const s: PdfState = {
+      ...emptyState(),
+      pages: D.pagesFromSource(3),
+    };
+    s.destEdits = { removed: ["debut"], added: [{ name: "chapitre", pageId: s.pages[1].id, y: 100 }] };
+    const out = (await buildPdf(bytes, s)).bytes;
+    const engine = await PdfEngine.open(out);
+    try {
+      expect(await engine.destinationNames()).toEqual(["annexe", "chapitre"]);
+      expect(await engine.resolveDest("chapitre")).toMatchObject({ page: 2, y: 100 });
+      expect(await engine.resolveDest("annexe")).toMatchObject({ page: 3 });
+    } finally {
+      engine.destroy();
+    }
+  });
+});

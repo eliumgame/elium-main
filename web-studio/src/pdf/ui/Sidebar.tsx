@@ -93,6 +93,11 @@ export interface SidebarProps {
   onLayerToggle: (id: string) => void;
   /** The current visibility becomes the file's default (/OCProperties /D). */
   onLayersSaveDefault: () => void;
+  /** Named destinations (the file's, as changed). */
+  destinations: string[];
+  onDestGo: (name: string) => void;
+  onDestAdd: () => void;
+  onDestRemove: (name: string) => void;
   onAttachmentOpen: (a: Attachment) => void;
   onAttachmentAdd: () => void;
   onAttachmentRemove: (a: Attachment) => void;
@@ -113,6 +118,8 @@ export default function Sidebar(p: SidebarProps) {
       return <SearchResults {...p} />;
     case "attachments":
       return <Attachments {...p} />;
+    case "destinations":
+      return <Destinations {...p} />;
     case "layers":
       return <LayersPane {...p} />;
     case "fields":
@@ -1045,6 +1052,54 @@ function SearchResults(p: SidebarProps) {
 // Attachments / layers / fields
 // ---------------------------------------------------------------------------
 
+function Destinations(p: SidebarProps) {
+  const [filter, setFilter] = useState("");
+  const shown = filter.trim()
+    ? p.destinations.filter((d) => textMatches(d, filter, DEFAULT_SEARCH_OPTIONS))
+    : p.destinations;
+  return (
+    <div className="pdfx-panel">
+      <div className="pdfx-panel__head">
+        <span className="pdfx-panel__title">Destinations</span>
+        <span className="pdfx-panel__count">{p.destinations.length}</span>
+        <button className="pdfx-icon" title="Nouvelle destination sur la vue affichée" onClick={p.onDestAdd}>
+          <Plus size={14} />
+        </button>
+      </div>
+      {p.destinations.length > 8 && (
+        <div className="pdfx-panel__tools">
+          <input
+            className="pdfx-mark__input"
+            placeholder="Filtrer…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+      )}
+      <div className="pdfx-panel__body">
+        {!p.destinations.length && (
+          <p className="pdfx-empty">
+            Ce document n'a pas de destination nommée.
+            <br />
+            Une destination nomme une vue qu'un lien ou un autre document peut viser.
+          </p>
+        )}
+        {shown.map((name) => (
+          <div key={name} className="pdfx-row">
+            <Crosshair size={14} />
+            <button className="pdfx-row__label" onClick={() => p.onDestGo(name)}>
+              {name}
+            </button>
+            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onDestRemove(name)}>
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Attachments(p: SidebarProps) {
   // Files attached to comments are listed too (Acrobat shows both).
   const onComments = p.annots.filter((a) => a.kind === "attachment" && a.file);
@@ -1189,6 +1244,7 @@ export const PANEL_ICONS: { id: SidePanel; icon: React.ReactNode; label: string 
   { id: "bookmarks", icon: <Bookmark size={17} />, label: "Signets" },
   { id: "comments", icon: <MessageSquare size={17} />, label: "Commentaires" },
   { id: "search", icon: <Search size={17} />, label: "Recherche" },
+  { id: "destinations", icon: <Crosshair size={17} />, label: "Destinations" },
   { id: "attachments", icon: <Paperclip size={17} />, label: "Pièces jointes" },
   { id: "layers", icon: <Layers size={17} />, label: "Calques" },
   { id: "fields", icon: <FormInput size={17} />, label: "Champs" },

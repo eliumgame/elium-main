@@ -335,6 +335,7 @@ export function hasEdits(state: PdfState): boolean {
     !!state.stripMarks ||
     !!state.ocDefaults ||
     !!state.initialView ||
-    !!state.attachmentEdits
+    !!state.attachmentEdits ||
+    !!state.destEdits
   );
 }

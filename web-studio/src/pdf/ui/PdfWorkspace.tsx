@@ -424,6 +424,8 @@ export default function PdfWorkspace({
   const [layers, setLayers] = useState<LayerInfo[]>([]);
   /** The user's layer switches, in the order made (radio groups depend on it). */
   const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  /** The file's named destinations. */
+  const [fileDests, setFileDests] = useState<string[]>([]);
   /** The file's own Initial View (openPage: a 1-based source page). */
   const [fileView, setFileView] = useState<InitialView | null>(null);
   /** The link whose properties are being edited (just drawn: `creating`). */
@@ -809,6 +811,8 @@ export default function PdfWorkspace({
         void next.pageLabels().then((l) => gen === shownGeneration.current && setFileLabels(l));
         // The file's Initial View: shown as it asks on a fresh open (panel,
         // page layout, page and zoom), kept for the Properties dialog.
+        setFileDests([]);
+        void next.destinationNames().then((n) => gen === shownGeneration.current && setFileDests(n));
         setFileView(null);
         void next
           .initialView()
@@ -1359,6 +1363,21 @@ export default function PdfWorkspace({
   const applyInitialViewRef = useRef(applyInitialView);
   applyInitialViewRef.current = applyInitialView;
 
+  /** Go to a named destination: one added in Elium, else the file's. */
+  const goToNamedDest = async (name: string) => {
+    const added = state.destEdits?.added.find((a) => a.name === name);
+    if (added) {
+      const at = pages.findIndex((pg) => pg.id === added.pageId);
+      if (at >= 0) followDest({ page: at + 1, x: added.x, y: added.y, zoom: added.zoom, fit: "XYZ" });
+      return;
+    }
+    if (!engine) return;
+    const d = await engine.resolveDest(name);
+    const at = d.page ? pages.findIndex((pg) => pg.from === d.page! - 1) : -1;
+    if (at < 0) return toast("warning", "Destination", "Sa page n'est plus dans le document.");
+    followDest({ ...d, page: at + 1 });
+  };
+
   /** A link drawn in Elium, clicked. */
   const followLink = (a: Annot) => {
     const act = a.action;
@@ -1642,6 +1661,16 @@ export default function PdfWorkspace({
     [pages, fileLabels],
   );
   const pageLabels = useMemo(() => shownPages.map((pg) => pg.label), [shownPages]);
+
+  /** Named destinations as they will be saved: the file's, less removed, plus added. */
+  const shownDests = useMemo(() => {
+    const e = state.destEdits;
+    if (!e) return fileDests;
+    const removed = new Set(e.removed);
+    return [...new Set([...fileDests.filter((n) => !removed.has(n)), ...e.added.map((a) => a.name)])].sort((a, b) =>
+      a.localeCompare(b, "fr"),
+    );
+  }, [fileDests, state.destEdits]);
 
   /** The document's attached files as they will be saved (the file's, less removed, plus added). */
   const shownAttachments = useMemo((): Attachment[] => {
@@ -4850,6 +4879,33 @@ export default function PdfWorkspace({
               }}
               onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
               onAttachmentAdd={() => attachInput.current?.click()}
+              destinations={shownDests}
+              onDestGo={(name) => void goToNamedDest(name)}
+              onDestAdd={async () => {
+                const name = (
+                  await dialogs.prompt({ title: "Nouvelle destination", label: "Nom de la destination (vue affichée)" })
+                )?.trim();
+                if (!name) return;
+                if (shownDests.includes(name)) return toast("warning", "Destinations", `« ${name} » existe déjà.`);
+                const d = currentDest();
+                const pageId = pages[d.page - 1]?.id;
+                if (!pageId) return;
+                setState((s) => {
+                  const e = s.destEdits ?? { added: [], removed: [] };
+                  return {
+                    ...s,
+                    destEdits: { ...e, added: [...e.added, { name, pageId, x: d.x, y: d.y, zoom: d.zoom }] },
+                  };
+                });
+              }}
+              onDestRemove={(name) =>
+                setState((s) => {
+                  const e = s.destEdits ?? { added: [], removed: [] };
+                  return e.added.some((a) => a.name === name)
+                    ? { ...s, destEdits: { ...e, added: e.added.filter((a) => a.name !== name) } }
+                    : { ...s, destEdits: { ...e, removed: [...e.removed, name] } };
+                })
+              }
               onAttachmentRemove={(a) =>
                 setState((s) => {
                   const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };

@@ -2506,3 +2506,140 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Certificate signing: digital IDs, appearance options, signature panel. */
+.pdfx-muted {
+  opacity: 0.65;
+  font-style: normal;
+  font-size: 11.5px;
+}
+.pdfx-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pdfx-form__inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding-left: 22px;
+}
+.pdfx-idlist {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+.pdfx-idlist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--x-line, rgba(0, 0, 0, 0.08));
+}
+.pdfx-idlist li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdfx-sig__ok {
+  color: var(--x-ok, #2e9d5b);
+}
+.pdfx-sig__warn {
+  color: var(--x-warn, #c98a12);
+}
+.pdfx-sig__bad {
+  color: var(--x-danger, #d0443c);
+}
+.pdfx-sig__bar {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 6px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.pdfx-sig__bar--valid {
+  background: rgba(46, 157, 91, 0.12);
+}
+.pdfx-sig__bar--unknown {
+  background: rgba(201, 138, 18, 0.14);
+}
+.pdfx-sig__bar--invalid {
+  background: rgba(208, 68, 60, 0.14);
+}
+.pdfx-sig__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px;
+}
+.pdfx-sig__row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pdfx-sig__row > span {
+  min-width: 0;
+}
+.pdfx-sig__details {
+  padding: 2px 8px 10px 26px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pdfx-sig__details p {
+  margin: 4px 0;
+}
+.pdfx-sig__details ul {
+  margin: 2px 0 6px;
+  padding-left: 18px;
+}
+.pdfx-sig__cert {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 6px 0;
+}
+.pdfx-sig__cert dt {
+  opacity: 0.7;
+}
+.pdfx-sig__cert dd {
+  margin: 0;
+  word-break: break-word;
+}
+.pdfx-sig__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pdfx-sigtarget {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1.5px dashed rgba(79, 140, 255, 0.9);
+  border-radius: 3px;
+  background: rgba(79, 140, 255, 0.1);
+  color: #2f63c9;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pdfx-sigtarget:hover,
+.pdfx-sigtarget:focus-visible {
+  background: rgba(79, 140, 255, 0.2);
+}

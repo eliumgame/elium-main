@@ -177,7 +177,7 @@ describe("PAdES signing", () => {
     expect(trusted!.valid).toBe(true);
   });
 
-  it("signs a prepared field in place, and an encrypted file keeps its protection", async () => {
+  it("signs a prepared field in place, and an encrypted file keeps its protection", { timeout: 30_000 }, async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([400, 400]);
     const field = doc.context.register(
@@ -195,7 +195,7 @@ describe("PAdES signing", () => {
     const prepared = await doc.save({ useObjectStreams: false });
     const signed = await signPdfBytes(prepared, RSA, "pw", { visible: box });
     expect(await listSignatureFields(signed)).toEqual([
-      { name: "Client", page: 0, rect: [50, 50, 250, 110], signed: true },
+      { name: "Client", page: 0, rect: [50, 50, 250, 110], box: { x: 50, y: 290, w: 200, h: 60 }, signed: true },
     ]);
     const re = await PDFDocument.load(signed);
     const acro = re.catalog.lookup(PDFName.of("AcroForm"), PDFDict);

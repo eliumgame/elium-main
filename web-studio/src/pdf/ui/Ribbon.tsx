@@ -88,6 +88,7 @@ import {
   Waves,
   ZoomIn,
   ZoomOut,
+  KeyRound,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -805,21 +806,27 @@ export default function Ribbon(p: RibbonProps) {
               <Cmd
                 big
                 icon={<PenSquare size={19} />}
-                label="Signer (auto-signé)"
-                onClick={C("signSelfSigned")}
-                title="Signer la signature placée en PAdES avec un certificat auto-signé (reconnu par Adobe ; identité non vérifiée)"
+                label="Signer"
+                onClick={C("signPades")}
+                title="Signer numériquement avec un certificat (PAdES) : votre identifiant Elium ou un fichier .p12/.pfx. Les signatures déjà présentes restent valides."
               />
               <Cmd
                 icon={<FileSignature size={17} />}
-                label="Signer (certificat)"
-                onClick={C("signPades")}
-                title="Signature électronique PAdES avec votre certificat X.509 / PKCS#12 (coche verte « approuvé »)"
+                label="Certifier"
+                onClick={C("certify")}
+                title="Certifier le document (première signature) et choisir les modifications encore autorisées"
               />
               <Cmd
                 icon={<ShieldCheck size={17} />}
                 onClick={C("verifyPades")}
-                label="Vérifier"
-                title="Vérifier les signatures électroniques du document"
+                label="Signatures"
+                title="Panneau Signatures : vérifier les signatures du document"
+              />
+              <Cmd
+                icon={<KeyRound size={17} />}
+                onClick={C("identities")}
+                label="Identités"
+                title="Vos identifiants numériques et les certificats approuvés"
               />
             </Group>
             <Group title="Caviardage" optional>

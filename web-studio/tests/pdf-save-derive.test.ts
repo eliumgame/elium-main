@@ -83,7 +83,7 @@ describe("inserting pages from another PDF (SaveInput.transform)", () => {
     });
     expect(derived.report.mode).toBe("incremental");
     expect(startsWith(derived.bytes, signed)).toBe(true);
-    expect(verifyPdfSignatures(derived.bytes)[0]?.digestMatches).toBe(true);
+    expect((await verifyPdfSignatures(derived.bytes))[0]?.digestMatches).toBe(true);
 
     // …then saved into the file still holding the original: one update of it.
     const next = stateFor(5);
@@ -95,9 +95,12 @@ describe("inserting pages from another PDF (SaveInput.transform)", () => {
     expect(saved.report.mode).toBe("incremental");
     expect(saved.report.objectsWritten).toBeGreaterThan(3);
     expect(startsWith(saved.bytes, signed)).toBe(true);
-    const sig = verifyPdfSignatures(saved.bytes);
-    expect(sig[0]?.digestMatches).toBe(true);
-    expect(sig[0]?.valid).toBe(true);
+    const sig = await verifyPdfSignatures(saved.bytes);
+    expect(sig[0]?.intact).toBe(true);
+    // Pages added after an approval signature: the signed revision is intact,
+    // the change is reported as not allowed (as Acrobat and pyHanko do).
+    expect(sig[0]?.modifications).toBe("disallowed");
+    expect(sig[0]?.changes.map((c) => c.label)).toContain("Pages ajoutées ou supprimées");
     const js = await openJs(saved.bytes);
     expect(js.numPages).toBe(5);
     expect(await pageText(js, 1)).toBe("Signé 1");

@@ -306,14 +306,14 @@ describe("savePdf — digitally signed documents", () => {
   it("adding a comment keeps the signature valid (the signed revision stays intact)", async () => {
     const p12 = generateSelfSignedP12("Signataire Test", "pw");
     const signed = await signPdfBytes(await makePdf({ pages: 2 }), p12, "pw", { reason: "test" });
-    const before = verifyPdfSignatures(signed);
+    const before = await verifyPdfSignatures(signed);
     expect(before[0]?.valid).toBe(true);
 
     const state = stateFor(2);
     const r = await savePdf({ source: signed, state: { ...state, annots: [note(state.pages[1].id, "Vu")] } });
     expect(r.report.mode).toBe("incremental");
     expect(startsWith(r.bytes, signed)).toBe(true);
-    const after = verifyPdfSignatures(r.bytes);
+    const after = await verifyPdfSignatures(r.bytes);
     expect(after).toHaveLength(1);
     expect(after[0].digestMatches).toBe(true);
     expect(after[0].valid).toBe(true);
@@ -324,7 +324,7 @@ describe("savePdf — digitally signed documents", () => {
 
     // A forced full rewrite, by contrast, cannot keep it.
     const full = await savePdf({ source: signed, state, mode: "full" });
-    expect(verifyPdfSignatures(full.bytes).some((v) => v.valid)).toBe(false);
+    expect((await verifyPdfSignatures(full.bytes)).some((v) => v.valid)).toBe(false);
   }, 30_000);
 
   it("filling a form field of a signed document keeps the signature valid", async () => {
@@ -341,7 +341,7 @@ describe("savePdf — digitally signed documents", () => {
     const state = { ...stateFor(1), formValues: { nom: "Dupont" } };
     const r = await savePdf({ source: signed, state });
     expect(r.report.mode).toBe("incremental");
-    expect(verifyPdfSignatures(r.bytes)[0].valid).toBe(true);
+    expect((await verifyPdfSignatures(r.bytes))[0].valid).toBe(true);
     const js = await openJs(r.bytes);
     const fields = (await js.getFieldObjects()) as Record<string, { value: unknown }[]>;
     expect(fields.nom.find((f) => f.value !== undefined)?.value).toBe("Dupont");

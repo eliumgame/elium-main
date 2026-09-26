@@ -266,7 +266,7 @@ const text = (o: PDFObject | undefined): string | undefined =>
 // Signer material (PKCS #12)
 // ---------------------------------------------------------------------------
 
-interface SignerMaterial {
+export interface SignerMaterial {
   key: CryptoKey;
   keyType: "rsa" | "ec";
   hash: HashName;
@@ -396,13 +396,8 @@ function signatureAlgorithm(m: SignerMaterial): Uint8Array {
 }
 
 async function signBytes(m: SignerMaterial, data: Uint8Array): Promise<Uint8Array> {
-  if (m.keyType === "rsa") {
-    const pkcs8 = new Uint8Array(await subtle().exportKey("pkcs8", m.key));
-    const key = await subtle().importKey("pkcs8", buf(pkcs8), { name: "RSASSA-PKCS1-v1_5", hash: m.hash }, false, [
-      "sign",
-    ]);
-    return new Uint8Array(await subtle().sign("RSASSA-PKCS1-v1_5", key, buf(data)));
-  }
+  // RSA keys are imported (or generated) for RSASSA-PKCS1-v1_5 with SHA-256, the hash used with them.
+  if (m.keyType === "rsa") return new Uint8Array(await subtle().sign("RSASSA-PKCS1-v1_5", m.key, buf(data)));
   return ecdsaToDer(new Uint8Array(await subtle().sign({ name: "ECDSA", hash: m.hash }, m.key, buf(data))));
 }
 
@@ -623,9 +618,27 @@ function signatureFields(doc: PDFDocument): SigField[] {
 export async function listSignatureFields(
   bytes: Uint8Array,
   password?: string,
-): Promise<{ name: string; page: number; rect: [number, number, number, number]; signed: boolean }[]> {
+): Promise<
+  {
+    name: string;
+    page: number;
+    rect: [number, number, number, number];
+    /** The widget in model space: crop-box relative, top-left origin, unrotated. */
+    box: { x: number; y: number; w: number; h: number };
+    signed: boolean;
+  }[]
+> {
   const doc = await loadPlain(bytes, password);
-  return signatureFields(doc).map(({ name, pageIndex, rect, signed }) => ({ name, page: pageIndex, rect, signed }));
+  return signatureFields(doc).map(({ name, pageIndex, rect, signed }) => {
+    const crop = pageIndex >= 0 ? doc.getPage(pageIndex).getCropBox() : { x: 0, y: 0, width: 0, height: 0 };
+    return {
+      name,
+      page: pageIndex,
+      rect,
+      box: { x: rect[0] - crop.x, y: crop.y + crop.height - rect[3], w: rect[2] - rect[0], h: rect[3] - rect[1] },
+      signed,
+    };
+  });
 }
 
 /**
@@ -836,7 +849,15 @@ export async function signPdfBytes(
   password: string,
   opts: PadesSignOptions = {},
 ): Promise<Uint8Array> {
-  const m = await loadPkcs12(p12Bytes, password);
+  return signPdfWith(pdfBytes, await loadPkcs12(p12Bytes, password), opts);
+}
+
+/** Sign with key material already at hand (a digital ID kept in the browser). */
+export async function signPdfWith(
+  pdfBytes: Uint8Array,
+  m: SignerMaterial,
+  opts: PadesSignOptions = {},
+): Promise<Uint8Array> {
   const now = opts.now ?? new Date();
   const disk = pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes);
 

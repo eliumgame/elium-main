@@ -8,7 +8,15 @@ export type ZoomMode = "custom" | "fitWidth" | "fitPage" | "fitVisible";
 export type ReadingTheme = "paper" | "sepia" | "grey" | "night" | "invert";
 export type RibbonTab = "home" | "comment" | "edit" | "organise" | "forms" | "protect" | "convert" | "view";
 export type SidePanel =
-  "thumbnails" | "bookmarks" | "destinations" | "comments" | "search" | "attachments" | "layers" | "fields";
+  | "thumbnails"
+  | "bookmarks"
+  | "destinations"
+  | "comments"
+  | "search"
+  | "attachments"
+  | "layers"
+  | "fields"
+  | "signatures";
 
 export interface ViewState {
   scale: number;

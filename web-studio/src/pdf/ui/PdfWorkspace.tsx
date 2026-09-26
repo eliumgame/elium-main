@@ -119,7 +119,10 @@ import { WrongPassword, inspectProtection, removeProtection, type Permissions } 
 // same pattern as drive-cloud/ui/SignLinkView.tsx. Only the type survives as
 // a static import: `import type` is erased at compile time, so it doesn't
 // pull pades.ts (or node-forge) into this bundle.
-import type { PadesSignOptions } from "../ops/pades";
+import type { PadesSignOptions, PadesVerification } from "../ops/pades";
+import { IdentitiesDialog, SignDialog, type SignChoice } from "./SignDialogs";
+import type { SignatureView } from "./SignaturesPane";
+import SigFieldTargets from "./SigFieldTargets";
 import { suggestFields } from "../ops/forms";
 import {
   exportEntries,
@@ -232,7 +235,8 @@ type DialogId =
   | "compare"
   | "insert"
   | "combine"
-  | "redactSearch";
+  | "redactSearch"
+  | "identities";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -352,6 +356,21 @@ export default function PdfWorkspace({
   const sourceSignedRef = useRef(false);
   const diskSignedRef = useRef(false);
   const [docSigned, setDocSigned] = useState<boolean | null>(null);
+  /** A signature being prepared: where it goes (the signing dialog is open while set). */
+  const [signRequest, setSignRequest] = useState<{
+    fieldName?: string;
+    target?: { visible: NonNullable<PadesSignOptions["visible"]>; annotId: string };
+    placement: string;
+    canCertify: boolean;
+    certify: boolean;
+  } | null>(null);
+  /** The signature panel: verification of the file's signatures, and its empty signature fields. */
+  const [sigView, setSigView] = useState<SignatureView>({ list: null, empty: [] });
+  const [sigFields, setSigFields] = useState<
+    { name: string; page: number; box: { x: number; y: number; w: number; h: number }; signed: boolean }[]
+  >([]);
+  const sigRun = useRef(0);
+  const refreshSigRef = useRef<() => void>(() => {});
   /** Stamp of the state last written to an .elium: safe there, though the PDF file may lack it. */
   const [eliumVersion, setEliumVersion] = useState<number | null>(null);
   /** Restored session (draft, .elium): the file's own annotations as imported, to recognise the untouched ones. */
@@ -504,7 +523,6 @@ export default function PdfWorkspace({
   const attachInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
-  const p12Input = useRef<HTMLInputElement>(null);
   const compareInput = useRef<HTMLInputElement>(null);
   const pendingImageAt = useRef<{ pageId: string; x: number; y: number } | null>(null);
 
@@ -755,6 +773,7 @@ export default function PdfWorkspace({
         if (!(derived && restore)) snapshotRef.current = null;
         redactConfirmed.current = false;
         redactHiddenInfo.current = null;
+        declinedRights.current.clear();
         sourceKeyRef.current = null;
         setDocSigned(rebased ? false : derived ? sourceSignedRef.current : null);
         // Freshly opened, rebased on the file just saved, or restored from an
@@ -774,6 +793,15 @@ export default function PdfWorkspace({
             if (gen === shownGeneration.current) diskKeyRef.current = k;
           });
         }
+        // The signature panel and the empty signature fields follow the file.
+        void next.infoReady.then((info) => {
+          if (gen !== shownGeneration.current) return;
+          if (info.signed || info.hasAcroForm) refreshSigRef.current();
+          else {
+            setSigFields([]);
+            setSigView({ list: [], empty: [] });
+          }
+        });
         if (!rebased && !derived) {
           // Signature facts are computed in the background (see PdfEngine.infoReady).
           void next.infoReady.then((info) => {
@@ -988,7 +1016,11 @@ export default function PdfWorkspace({
       // A document that forbids filling: the value typed is taken back, unless unlocked.
       const r = restrictionsRef.current;
       if (r && !r.fillForms && !r.annotate) {
-        void requireRightRef.current("fillForms").then((ok) => {
+        // One prompt at a time, and none again once declined: every keystroke fires a change.
+        const ask = formPromptRef.current ?? requireRightRef.current("fillForms", { once: true });
+        formPromptRef.current = ask;
+        void ask.then((ok) => {
+          formPromptRef.current = null;
           if (ok) setState(apply);
           else
             setQuiet((s) => {
@@ -2441,10 +2473,10 @@ export default function PdfWorkspace({
     openInput.current?.click();
   };
 
-  // --- Signature électronique PAdES (certificat X.509) ---------------------
-  // Emplacement VISIBLE de la signature = la dernière signature placée (outil
-  // Signature) : Adobe la reconnaît alors comme une signature, à cet endroit,
-  // avec le dessin en apparence — au lieu d'une simple image.
+  // --- Certificate signatures (PAdES) ---------------------------------------
+  // The visible place of a signature: a prepared field clicked in the page,
+  // or the last signature picture placed with the Signature tool — which then
+  // becomes the field's appearance instead of staying a separate image.
   const visibleSigTarget = (): { visible: NonNullable<PadesSignOptions["visible"]>; annotId: string } | undefined => {
     const sig = [...state.annots].reverse().find((a) => a.kind === "signature" && a.src);
     if (!sig) return undefined;
@@ -2459,106 +2491,104 @@ export default function PdfWorkspace({
     };
   };
 
-  // Construit le PDF pour signature : si la signature placée devient l'apparence
-  // du champ /Sig (imagePng présent), on EXCLUT son annotation-image de l'export
-  // — sinon Adobe verrait une image (supprimable) EN PLUS du champ signature. La
-  // marque devient ainsi la signature elle-même.
-  const buildForSignature = (t: ReturnType<typeof visibleSigTarget>) => {
-    const st = t && t.visible.imagePng ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
-    return buildDerived(st);
+  /** Open the signing dialog; `fieldName`: a prepared signature field clicked in the page. */
+  const openSignDialog = async (fieldName?: string, certify = false) => {
+    if (!bytesRef.current || !engine) return;
+    const info = await engine.infoReady;
+    const target = fieldName ? undefined : visibleSigTarget();
+    const pageOf = (i: number) => shownPages[i]?.label ?? String(i + 1);
+    const placement = fieldName
+      ? `Champ de signature « ${fieldName} »`
+      : target
+        ? `Signature visible à l'emplacement de la signature placée (page ${pageOf(target.visible.page)}).`
+        : "Signature invisible. Pour une signature visible, placez d'abord votre signature (outil Signature) ou un champ de signature (Préparer le formulaire).";
+    setSignRequest({ fieldName, target, placement, canCertify: !info.signed, certify });
   };
 
-  const finishSigned = async (signed: Uint8Array, base: string, toastId: number): Promise<void> => {
-    downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
-    dismissToast(toastId);
-    const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = await verifyPdfSignatures(signed);
-    const ok = v.length > 0 && v.every((x) => x.valid);
-    const note = v[0]?.selfSigned
-      ? " · auto-signée (identité non vérifiée)"
-      : v[0]?.chainVerified
-        ? " · chaîne vérifiée"
-        : "";
-    toast(
-      ok ? "success" : "warning",
-      "PDF signé (PAdES)",
-      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}${note}` : undefined,
-    );
+  /**
+   * The bytes to sign: the document as a save would write it — an update
+   * appended to the file, so signatures already in it stay valid.
+   */
+  const bytesForSigning = async (st: PdfState): Promise<Uint8Array | null> => {
+    const source = bytesRef.current!;
+    const disk = destRef.current?.persistent ? diskRef.current : null;
+    const security = disk ? (securityDirtyRef.current ? securityRef.current : null) : securityRef.current;
+    const forceFull = disk && derivedRef.current?.forceFull.length ? derivedRef.current.forceFull : undefined;
+    const opts: Partial<BuildOptions> = { ...saveOptions(st), keepSkipped: true };
+    const signed = disk ? diskSignedRef.current : sourceSignedRef.current;
+    if (signed && engine) {
+      const reasons = fullRewriteReasons(
+        st,
+        {
+          applyRedactions: !!opts.applyRedactions,
+          optimise: false,
+          sanitise: false,
+          flattenForms: false,
+          keepSkipped: true,
+          hiddenInfo: undefined,
+        },
+        engine.pageCount,
+        security,
+      );
+      for (const r of forceFull ?? []) if (!reasons.includes(r)) reasons.push(r);
+      if (!(await confirmSignedSave(st, reasons, disk?.bytes ?? source))) return null;
+    }
+    const res = await savePdf({ source, disk, state: st, options: opts, security, forceFullReasons: forceFull });
+    return res.bytes;
   };
 
-  const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !bytesRef.current) return;
-    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
-    const pw = await dialogs.prompt({
-      title: "Signer avec un certificat (PAdES)",
-      label: `Mot de passe du certificat « ${file.name} »`,
-    });
-    if (pw === null) return;
+  const signWith = async (req: NonNullable<typeof signRequest>, choice: SignChoice) => {
+    setSignRequest(null);
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    // Where the signed file goes, asked first (the picker needs the click).
+    let dest: SaveDestination | null;
+    if (canWriteFiles()) {
+      try {
+        dest = await pickSaveTarget(pdfName(`${base}-signé`));
+      } catch {
+        dest = downloadDestination(pdfName(`${base}-signé`));
+      }
+      if (!dest) return;
+    } else {
+      dest = downloadDestination(pdfName(`${base}-signé`));
+    }
+    try {
+      if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
+    } catch (e) {
+      toast("danger", "Signature impossible", e instanceof Error ? e.message : undefined);
+      return;
+    }
     setBusy(true);
     const id = toast("progress", "Signature électronique…");
     try {
-      const p12 = new Uint8Array(await file.arrayBuffer());
-      const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const target = visibleSigTarget();
-      const { bytes } = await buildForSignature(target);
-      const { signPdfBytes } = await import("../ops/pades");
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: target?.visible });
-      await finishSigned(signed, base, id);
-    } catch (err) {
-      dismissToast(id);
-      toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Signe avec un certificat auto-signé généré dans l'app (zéro certificat à
-  // fournir). Adobe : « signé » mais « identité non vérifiée » (pas de CA).
-  // Le flux de signature PAdES est MONO-signature (cf. ops/pades.ts) : signer un
-  // PDF déjà signé écrase silencieusement le trou /Contents précédent et
-  // invalide la signature existante. On avertit explicitement et on demande
-  // confirmation avant de continuer.
-  const confirmResign = () =>
-    dialogs.confirm({
-      title: "Document déjà signé",
-      message:
-        "Ce PDF contient déjà une signature électronique. Elium ne gère qu'une seule signature par document : " +
-        "en signer une nouvelle invalidera silencieusement la signature existante. Continuer quand même ?",
-      confirmLabel: "Signer quand même",
-    });
-
-  const signSelfSigned = async () => {
-    if (!bytesRef.current) return;
-    const target = visibleSigTarget();
-    if (!target) {
-      toast(
-        "warning",
-        "Placez d'abord une signature",
-        "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.",
-      );
-      return;
-    }
-    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
-    setBusy(true);
-    const id = toast("progress", "Génération du certificat et signature…");
-    try {
-      // Laisse le toast s'afficher avant la génération RSA (bloquante ~1–3 s).
-      await new Promise((r) => setTimeout(r, 30));
-      const cn = author?.trim() || "Signature Elium (auto-signée)";
-      const pw = "elium-self";
-      const { generateSelfSignedP12 } = await import("../ops/self-cert");
-      const p12 = generateSelfSignedP12(cn, pw);
-      const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const { bytes } = await buildForSignature(target);
-      const { signPdfBytes } = await import("../ops/pades");
-      const signed = await signPdfBytes(bytes, p12, pw, {
-        reason: "Signé avec Elium",
-        signerName: cn,
-        visible: target.visible,
+      const t = req.target;
+      // The placed picture becomes the field's appearance: not kept as an image beside it.
+      const st = t ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
+      const bytes = await bytesForSigning(st);
+      if (!bytes) {
+        dismissToast(id);
+        return;
+      }
+      const { signPdfWith } = await import("../ops/pades");
+      const signed = await signPdfWith(bytes, choice.material, {
+        ...choice.options,
+        fieldName: req.fieldName,
+        visible: t ? { ...t.visible, imagePng: choice.picture ? t.visible.imagePng : undefined } : undefined,
+        password: passwordRef.current ?? undefined,
+        tsaFetch: tsaRelay,
       });
-      await finishSigned(signed, base, id);
+      await dest.write(signed);
+      dismissToast(id);
+      // The signed file is now the open document: a later « Enregistrer »
+      // appends to it (never rewrites the signature away).
+      await openBytes(signed, dest.name, passwordRef.current ?? undefined, undefined, dest.handle ?? null);
+      if (!dest.persistent) destRef.current = null;
+      toast(
+        "success",
+        choice.options.certify ? "Document certifié" : "Document signé",
+        `${choice.material.cert.commonName} · ${dest.persistent ? "enregistré" : "téléchargé"} : ${dest.name}`,
+      );
+      setPanel("signatures");
     } catch (err) {
       dismissToast(id);
       toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
@@ -2567,33 +2597,88 @@ export default function PdfWorkspace({
     }
   };
 
-  const verifySignatures = async () => {
-    if (!bytesRef.current) return;
-    const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = await verifyPdfSignatures(bytesRef.current);
-    if (v.length === 0) {
-      toast("warning", "Aucune signature", "Ce PDF ne contient pas de signature électronique (PAdES).");
-      return;
+  const verifySignatures = () => {
+    setPanel("signatures");
+    void refreshSignatures();
+  };
+
+  /** Verify the file's signatures (as saved: the disk's bytes) and list its signature fields. */
+  const refreshSignatures = async () => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes) return;
+    const run = ++sigRun.current;
+    setSigView((v) => ({ ...v, list: null, error: undefined }));
+    try {
+      const [{ verifyPdfSignatures, listSignatureFields }, { trustAnchors }] = await Promise.all([
+        import("../ops/pades"),
+        import("./identities"),
+      ]);
+      const password = passwordRef.current ?? undefined;
+      const [list, fields] = await Promise.all([
+        verifyPdfSignatures(bytes, { password, trusted: await trustAnchors() }),
+        listSignatureFields(bytes, password).catch(() => []),
+      ]);
+      if (run !== sigRun.current) return;
+      setSigFields(fields);
+      setSigView({
+        list,
+        empty: fields.filter((f) => !f.signed && f.page >= 0).map(({ name, page }) => ({ name, page })),
+      });
+    } catch (e) {
+      if (run === sigRun.current)
+        setSigView({ list: [], empty: [], error: e instanceof Error ? e.message : "Vérification impossible." });
     }
-    for (const s of v) {
-      const trust = s.selfSigned
-        ? " · auto-signée (identité non vérifiée)"
-        : s.chainVerified
-          ? " · chaîne vérifiée"
-          : "";
-      const invalidReason =
-        s.error ||
-        (!s.certValidAtSigning
-          ? "Certificat hors de sa période de validité"
-          : "Invalide ou document modifié après signature");
-      toast(
-        s.valid ? "success" : "danger",
-        `Signature : ${s.signerName || "inconnu"}`,
-        s.valid
-          ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}${trust}`
-          : invalidReason,
-      );
-    }
+  };
+
+  refreshSigRef.current = () => void refreshSignatures();
+
+  /**
+   * Sends a timestamp request. The desktop app's page may only reach its own
+   * server (CSP), and TSAs rarely allow cross-origin calls: the local server
+   * (desktop) or the Drive server relays it.
+   */
+  const tsaRelay = async (url: string, request: Uint8Array): Promise<Uint8Array> => {
+    const token = document.querySelector<HTMLMetaElement>('meta[name="elium-token"]')?.content;
+    const relay = token ? "/__tsa__" : "/api/tsa";
+    const res = await fetch(relay, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/timestamp-query",
+        "X-Elium-TSA-Url": url,
+        ...(token ? { "X-Elium-Token": token } : {}),
+      },
+      body: request.slice().buffer as ArrayBuffer,
+      credentials: "same-origin",
+    }).catch(() => null);
+    if (res?.ok) return new Uint8Array(await res.arrayBuffer());
+    // No relay (web page served elsewhere): ask the TSA directly.
+    const direct = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/timestamp-query" },
+      body: request.slice().buffer as ArrayBuffer,
+    });
+    if (!direct.ok) throw new Error(`serveur d'horodatage : HTTP ${direct.status}`);
+    return new Uint8Array(await direct.arrayBuffer());
+  };
+
+  /** Open the signed version of a signature (Acrobat's « Afficher la version signée »). */
+  const showSignedVersion = async (v: PadesVerification) => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes || !(await confirmDiscard())) return;
+    const { signedVersion } = await import("../ops/pades");
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    await openBytes(
+      signedVersion(bytes, v),
+      `${base} (version signée rév. ${v.revision}).pdf`,
+      passwordRef.current ?? undefined,
+    );
+  };
+
+  const goToSigField = (name: string) => {
+    const f = sigFields.find((x) => x.name === name);
+    if (!f || f.page < 0) return;
+    const index = pages.findIndex((q) => q.from === f.page);
+    if (index >= 0) goTo(index + 1, Math.max(0, f.box.y - 80));
   };
 
   const saveElium = async () => {
@@ -2806,10 +2891,15 @@ export default function PdfWorkspace({
    * May the document do this? Its restrictions apply unless opened with the
    * permissions password — which is asked for then (and lifts them all).
    */
-  const requireRight = async (right: keyof Permissions | "owner"): Promise<boolean> => {
+  const requireRight = async (
+    right: keyof Permissions | "owner",
+    how: { once?: boolean } = {},
+  ): Promise<boolean> => {
     const r = restrictionsRef.current;
     if (!r) return true;
     if (right !== "owner" && (r[right] || (right === "fillForms" && r.annotate))) return true;
+    // Asked by an automatic event (form typing): declined once, not asked again.
+    if (how.once && declinedRights.current.has(right)) return false;
     const what: Record<keyof Permissions | "owner", string> = {
       print: "l'impression",
       printHighRes: "l'impression haute résolution",
@@ -2827,7 +2917,10 @@ export default function PdfWorkspace({
       password: true,
       confirmLabel: "Déverrouiller",
     });
-    if (!pw || !bytesRef.current) return false;
+    if (!pw || !bytesRef.current) {
+      declinedRights.current.add(right);
+      return false;
+    }
     const p = await inspectProtection(bytesRef.current, pw);
     if (!p?.owner) {
       toast("danger", "Mot de passe incorrect", "Ce n'est pas le mot de passe des autorisations.");
@@ -2841,6 +2934,8 @@ export default function PdfWorkspace({
   };
 
   const requireRightRef = useRef(requireRight);
+  const declinedRights = useRef(new Set<string>());
+  const formPromptRef = useRef<Promise<boolean> | null>(null);
   requireRightRef.current = requireRight;
 
   // Copying text out of a document that forbids it.
@@ -2913,6 +3008,7 @@ export default function PdfWorkspace({
     signature: ["fillForms"],
     signPades: ["fillForms"],
     signSelfSigned: ["fillForms"],
+    certify: ["fillForms"],
     protect: ["owner"],
     unprotect: ["owner"],
   };
@@ -3121,13 +3217,17 @@ export default function PdfWorkspace({
         setDialog("protect");
         return;
       case "signPades":
-        p12Input.current?.click();
-        return;
       case "signSelfSigned":
-        void signSelfSigned();
+        void openSignDialog();
+        return;
+      case "certify":
+        void openSignDialog(undefined, true);
+        return;
+      case "identities":
+        setDialog("identities");
         return;
       case "verifyPades":
-        void verifySignatures();
+        verifySignatures();
         return;
       case "split":
         setDialog("split");
@@ -3421,6 +3521,8 @@ export default function PdfWorkspace({
   // --- command implementations ---------------------------------------------
   const extractSelection = async (indices: number[]) => {
     if (!bytesRef.current || !indices.length) return;
+    // An extracted copy is unprotected: it takes the right to copy, not only to organise.
+    if (!(await requireRight("assemble")) || !(await requireRight("copy"))) return;
     setBusy(true);
     try {
       const { bytes } = await buildDerived();
@@ -4687,6 +4789,17 @@ export default function PdfWorkspace({
             onDelete={deletePrepFields}
           />
         )}
+        {mode === "view" && (tool === "textSelect" || tool === "select" || tool === "hand") && page.from != null && (
+          <SigFieldTargets
+            fields={sigFields.filter(
+              (f) => !f.signed && f.page === page.from && pages.findIndex((q) => q.from === page.from) === index,
+            )}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            onSign={(name) => void openSignDialog(name)}
+          />
+        )}
         {mode === "view" && (
           <AnnotLayer
             pageId={page.id}
@@ -4957,6 +5070,34 @@ export default function PdfWorkspace({
         {panel && (
           <aside className="pdfx-side" aria-label="Panneau latéral">
             <Sidebar
+              signatures={{
+                view: sigView,
+                pageLabel: (i) => {
+                  const index = pages.findIndex((q) => q.from === i);
+                  return index >= 0 ? (shownPages[index]?.label ?? String(index + 1)) : String(i + 1);
+                },
+                onRefresh: () => void refreshSignatures(),
+                onSignField: (name) => void openSignDialog(name),
+                onGoToField: goToSigField,
+                onSignedVersion: (v) => void showSignedVersion(v),
+                onTrust: async (v) => {
+                  const anchor = v.chain[v.chain.length - 1] ?? v.certificate;
+                  if (!anchor) return;
+                  const ok = await dialogs.confirm({
+                    title: "Approuver un certificat",
+                    message:
+                      `Les signatures dont la chaîne aboutit à « ${anchor.commonName} » seront affichées comme approuvées.\n\n` +
+                      `Sujet : ${anchor.subject}\nÉmetteur : ${anchor.issuer}\nNuméro de série : ${anchor.serialHex}\n\n` +
+                      "Vérifiez ces informations auprès du signataire (par un autre moyen que ce document) avant d'accepter.",
+                    confirmLabel: "Approuver",
+                  });
+                  if (!ok) return;
+                  const { addTrusted } = await import("./identities");
+                  await addTrusted(anchor.commonName, anchor.der);
+                  void refreshSignatures();
+                },
+                onIdentities: () => setDialog("identities"),
+              }}
               panel={panel}
               engine={engine}
               pages={shownPages}
@@ -5417,7 +5558,6 @@ export default function PdfWorkspace({
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
       <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml,.txt" hidden onChange={onDataPick} />
       <input ref={compareInput} type="file" accept="application/pdf,.pdf" hidden onChange={onComparePick} />
-      <input ref={p12Input} type="file" accept=".p12,.pfx" hidden onChange={onP12Pick} />
 
       {/* dialogs */}
       {dialog === "save" && (
@@ -5440,6 +5580,26 @@ export default function PdfWorkspace({
             void saveAs(name, o);
           }}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {signRequest && (
+        <SignDialog
+          author={author ?? ""}
+          placement={signRequest.placement}
+          hasPicture={!!signRequest.target?.visible.imagePng}
+          canCertify={signRequest.canCertify}
+          initialCertify={signRequest.certify}
+          onClose={() => setSignRequest(null)}
+          onConfirm={(choice) => void signWith(signRequest, choice)}
+        />
+      )}
+      {dialog === "identities" && (
+        <IdentitiesDialog
+          author={author ?? ""}
+          onClose={() => {
+            setDialog(null);
+            if (sigView.list?.length) void refreshSignatures();
+          }}
         />
       )}
       {dialog === "protect" && (
@@ -5964,9 +6124,9 @@ export default function PdfWorkspace({
                 regex: v.regex,
                 ignoreDiacritics: true,
               }).flatMap((h) => {
-                if (!preset?.valid) return [h];
-                const n = preset.valid(texts[h.page].slice(h.start, h.end));
-                return n > 0 ? [{ ...h, end: h.start + n }] : [];
+                if (!preset?.validRange) return [h];
+                const r = preset.validRange(texts[h.page].slice(h.start, h.end));
+                return r ? [{ ...h, start: h.start + r.start, end: h.start + r.start + r.length }] : [];
               });
               if (!found.length) {
                 toast("info", "Aucune occurrence trouvée.");

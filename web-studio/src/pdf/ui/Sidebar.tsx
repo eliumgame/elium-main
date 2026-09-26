@@ -28,6 +28,7 @@ import {
   CircleDot,
   FormInput,
   ArrowUpDown,
+  FileSignature,
 } from "lucide-react";
 import type { PdfEngine, Attachment, LayerInfo } from "../core/engine";
 import { thumbAspect, thumbnailsFor } from "../core/thumbs";
@@ -39,6 +40,7 @@ import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "
 import { commentable, filterComments, flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
 import { DEFAULT_SEARCH_OPTIONS, textMatches, type SearchHit, type SearchOptions } from "../core/search";
 import { KIND_LABEL, shortDate, type SidePanel } from "./state";
+import SignaturesPane, { type SignaturesPaneProps } from "./SignaturesPane";
 
 /** The multi-panel navigation rail. Each panel mirrors an Acrobat pane. */
 
@@ -104,6 +106,8 @@ export interface SidebarProps {
   onAttachmentDescribe: (a: Attachment) => void;
   onFieldSelect: (id: string) => void;
   onFieldDelete: (id: string) => void;
+  /** The signature panel's data and actions. */
+  signatures?: SignaturesPaneProps;
 }
 
 export default function Sidebar(p: SidebarProps) {
@@ -124,6 +128,8 @@ export default function Sidebar(p: SidebarProps) {
       return <LayersPane {...p} />;
     case "fields":
       return <FieldsPane {...p} />;
+    case "signatures":
+      return p.signatures ? <SignaturesPane {...p.signatures} /> : null;
     default:
       return null;
   }
@@ -1248,6 +1254,7 @@ export const PANEL_ICONS: { id: SidePanel; icon: React.ReactNode; label: string 
   { id: "attachments", icon: <Paperclip size={17} />, label: "Pièces jointes" },
   { id: "layers", icon: <Layers size={17} />, label: "Calques" },
   { id: "fields", icon: <FormInput size={17} />, label: "Champs" },
+  { id: "signatures", icon: <FileSignature size={17} />, label: "Signatures" },
 ];
 
 export { ArrowUpDown };

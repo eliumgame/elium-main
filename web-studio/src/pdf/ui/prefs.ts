@@ -5,6 +5,7 @@
  */
 
 import type { AnnotKind, DraftStyle } from "../model/types";
+import type { SignatureLook } from "../ops/pades";
 
 const KEY = "elium.pdf.prefs";
 
@@ -13,6 +14,18 @@ export interface PdfPrefs {
   author?: string;
   /** Documents' JavaScript runs (Acrobat's « Activer JavaScript »); absent: yes. */
   scripts?: boolean;
+  /** Certificate signing: last choices (Acrobat remembers them too). */
+  signature?: {
+    lastId?: string;
+    reason?: string;
+    location?: string;
+    contact?: string;
+    look?: SignatureLook;
+    /** Show the text part of the appearance. */
+    text?: boolean;
+    useTsa?: boolean;
+    tsaUrl?: string;
+  };
   /** Each tool's own properties (colour, width, font…), as last set. */
   toolStyles?: Partial<Record<AnnotKind, Partial<DraftStyle>>>;
 }

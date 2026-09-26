@@ -2817,3 +2817,71 @@ export function RedactApplyDialog({
     </Modal>
   );
 }
+
+/** « Enregistrer au format PDF/A »: what the document lacks now, the part to convert to. */
+export function PdfADialog({
+  problems,
+  signed,
+  onConfirm,
+  onClose,
+}: {
+  /** The usual PDF/A failures the document shows now (null: still checking). */
+  problems: string[] | null;
+  signed: boolean;
+  onConfirm: (part: 2 | 3) => void;
+  onClose: () => void;
+}) {
+  const [part, setPart] = useState<2 | 3>(2);
+  return (
+    <Modal
+      title="Enregistrer au format PDF/A"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm(part)}>
+            Convertir et enregistrer
+          </button>
+        </>
+      }
+    >
+      <div className="pdfx-form">
+        <p className="pdfx-form__lead">
+          Le PDF/A est la norme d'archivage à long terme (ISO 19005) : polices incorporées, couleurs définies,
+          métadonnées normalisées, ni JavaScript ni contenu externe.
+        </p>
+        <label className="pdfx-radio">
+          <input type="radio" checked={part === 2} onChange={() => setPart(2)} /> PDF/A-2b (recommandé)
+        </label>
+        <label className="pdfx-radio">
+          <input type="radio" checked={part === 3} onChange={() => setPart(3)} /> PDF/A-3b (garde les fichiers joints)
+        </label>
+        <fieldset className="pdfx-form__set">
+          <legend>État actuel du document</legend>
+          {problems === null ? (
+            <p className="pdfx-form__note">Vérification…</p>
+          ) : problems.length ? (
+            <ul className="pdfx-list">
+              {problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="pdfx-form__note">Aucun défaut courant détecté.</p>
+          )}
+        </fieldset>
+        {signed && (
+          <p className="pdfx-form__error">
+            Le document est signé : la conversion le modifie, ses signatures électroniques seront retirées de la copie.
+          </p>
+        )}
+        <p className="pdfx-form__note">
+          Une copie est enregistrée ; le document ouvert n'est pas modifié. Les polices non incorporées sont remplacées
+          par des polices Liberation équivalentes.
+        </p>
+      </div>
+    </Modal>
+  );
+}

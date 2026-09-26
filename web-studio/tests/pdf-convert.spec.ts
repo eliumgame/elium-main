@@ -175,4 +175,24 @@ test.describe("PDF — conversion", () => {
     expect(report.getPageCount()).toBeGreaterThan(1);
     expect(problems).toEqual([]);
   });
+
+  test("PDF/A : défauts signalés, copie conforme enregistrée", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    await open(page, await twoPages());
+    await page.getByRole("tab", { name: "Convertir" }).click();
+    await page.getByRole("button", { name: "PDF/A", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Police non incorporée");
+    const dl = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Convertir et enregistrer" }).click();
+    const saved = await PDFDocument.load(await readFile((await (await dl).path())!));
+    await expect(page.getByRole("dialog")).toContainText("Enregistré au format PDF/A-2b");
+    const raw = await saved.save({ useObjectStreams: false });
+    const text = Buffer.from(raw).toString("latin1");
+    expect(text).toContain("pdfaid:part");
+    expect(text).toContain("/GTS_PDFA1");
+    expect(text).toContain("/FontFile2");
+    expect(problems).toEqual([]);
+  });
 });

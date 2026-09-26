@@ -173,6 +173,7 @@ import {
   LinkDialog,
   DEFAULT_LINK_STYLE,
   RedactApplyDialog,
+  PdfADialog,
   MovePagesDialog,
   ReplacePagesDialog,
   ResizePagesDialog,
@@ -238,7 +239,8 @@ type DialogId =
   | "redactSearch"
   | "identities"
   | "initials"
-  | "print";
+  | "print"
+  | "pdfa";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -3190,6 +3192,8 @@ export default function PdfWorkspace({
     certify: ["fillForms"],
     protect: ["owner"],
     unprotect: ["owner"],
+    // A PDF/A copy carries no protection.
+    pdfa: ["owner"],
   };
 
   const command = async (id: string) => {
@@ -3678,6 +3682,9 @@ export default function PdfWorkspace({
         setSaveAsPreset({ sanitise: true });
         setDialog("save");
         return;
+      case "pdfa":
+        void openPdfA();
+        return;
       case "spaceAudit":
         void showSpaceAudit();
         return;
@@ -3844,6 +3851,70 @@ export default function PdfWorkspace({
     } catch {
       dismissToast(id);
       toast("danger", "Export impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const [pdfaProblems, setPdfaProblems] = useState<string[] | null>(null);
+
+  /** « Enregistrer au format PDF/A »: the dialog, with the document's current state checked. */
+  const openPdfA = async () => {
+    if (!bytesRef.current) return;
+    setPdfaProblems(null);
+    setDialog("pdfa");
+    try {
+      const [{ PDFDocument }, { checkPdfA }] = await Promise.all([import("pdf-lib"), import("../ops/pdfa")]);
+      const { bytes } = await buildDerived(state, { keepSkipped: false });
+      setPdfaProblems(checkPdfA(await PDFDocument.load(bytes, { updateMetadata: false })));
+    } catch {
+      setPdfaProblems([]);
+    }
+  };
+
+  const convertPdfA = async (part: 2 | 3) => {
+    setDialog(null);
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    let dest: SaveDestination | null;
+    if (canWriteFiles()) {
+      try {
+        dest = await pickSaveTarget(pdfName(`${base}-PDFA`));
+      } catch {
+        dest = downloadDestination(pdfName(`${base}-PDFA`));
+      }
+      if (!dest) return;
+    } else dest = downloadDestination(pdfName(`${base}-PDFA`));
+    setBusy(true);
+    const id = toast("progress", "Conversion PDF/A…");
+    try {
+      if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
+      const [{ PDFDocument }, { convertToPdfA }, { pdfjsAssetUrls }] = await Promise.all([
+        import("pdf-lib"),
+        import("../ops/pdfa"),
+        import("../core/assets"),
+      ]);
+      const { bytes } = await buildDerived(state, { keepSkipped: false });
+      const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+      const urls = pdfjsAssetUrls();
+      const icc = urls
+        ? await fetch(`${urls.iccUrl}CGATS001Compat-v2-micro.icc`)
+            .then((r) => (r.ok ? r.arrayBuffer() : null))
+            .catch(() => null)
+        : null;
+      const report = await convertToPdfA(doc, { part, cmykProfile: icc ? new Uint8Array(icc) : null });
+      await dest.write(await doc.save({ useObjectStreams: false }));
+      dismissToast(id);
+      await dialogs.alert({
+        title: report.remaining.length
+          ? `PDF/A-${part}b : conversion incomplète`
+          : `Enregistré au format PDF/A-${part}b`,
+        message:
+          `${dest.name}\n\nModifications :\n• ${report.fixed.join("\n• ") || "aucune"}` +
+          (report.remaining.length ? `\n\nNon conforme :\n• ${report.remaining.join("\n• ")}` : ""),
+      });
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Conversion PDF/A impossible", e instanceof Error ? e.message : undefined);
     } finally {
       setBusy(false);
     }
@@ -5943,6 +6014,14 @@ export default function PdfWorkspace({
             setDialog(null);
             void saveAs(name, o);
           }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "pdfa" && (
+        <PdfADialog
+          problems={pdfaProblems}
+          signed={!!engine?.info.signed}
+          onConfirm={(part) => void convertPdfA(part)}
           onClose={() => setDialog(null)}
         />
       )}

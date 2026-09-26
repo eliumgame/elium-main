@@ -96,6 +96,7 @@ import {
   PenLine,
   PieChart,
   Presentation,
+  Archive,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -947,6 +948,12 @@ export default function Ribbon(p: RibbonProps) {
             </Group>
             <Group title="Comparer et alléger" optional>
               <Cmd icon={<GitCompareArrows size={17} />} onClick={C("compare")} label="Comparer" />
+              <Cmd
+                icon={<Archive size={17} />}
+                onClick={C("pdfa")}
+                label="PDF/A"
+                title="Enregistrer au format PDF/A (archivage à long terme)"
+              />
               <Cmd icon={<FileDown size={17} />} onClick={C("optimise")} label="Optimiser" />
               <Cmd
                 icon={<PieChart size={17} />}

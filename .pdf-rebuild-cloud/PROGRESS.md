@@ -1275,3 +1275,20 @@ rafraîchi après enregistrement, double validation, .p12 mémorisé une fois.
 ### T9 : à valider dans Acrobat / Office
 - Exports Word/Excel/PowerPoint (ouverture dans Office), PDF/A dans le contrôle en amont
   d'Acrobat, impression livret/affiche sur imprimante réelle, OCR sur vrais scans.
+
+### T9 : revue adverse (14 défauts confirmés, en correction)
+Reproductions : web-studio/tests/zz-review9-* (ignorés par git), journal scratchpad/review9.txt.
+1. Optimiser : Filter/DecodeParms en tableau → images Flate brouillées.
+2. Optimiser : orientation EXIF des JPEG appliquée (image tournée/déformée).
+3. Optimiser : /Decode ou /Mask invalides conservés en passant en DeviceRGB.
+4. PDF/A : descendantes CID non incorporées réécrites en TrueType.
+5. PDF/A : largeurs fausses (Differences, MacRoman).
+6. PDF/A : dictionnaires de police / ExtGState directs non traités.
+7. PDF/A : champs/commentaires sans apparence supprimés (générer l'apparence).
+8. PDF/A : configurations de calques sans /Name.
+9. PDF/A-3 : fichiers joints sans /AFRelationship ni /AF.
+10. Exports Office : caractères de contrôle interdits en XML.
+11. CSV : injection de formule (= + - @).
+12. OCR : couche décalée si le contenu laisse l'état graphique déséquilibré.
+13. TIFF : bombe de décompression (limite de pixels) + erreurs non attrapées.
+14. Imposition : plages étiquettes/numéros ambiguës.

@@ -22,7 +22,7 @@
  * sanitising, or when the file's own structure is too broken to append to.
  */
 
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
 import type {
@@ -106,6 +106,8 @@ export interface BuildOptions {
    * rewritten from the model.
    */
   pristineAnnots?: ReadonlySet<Annot>;
+  /** Built to be printed: what does not print (no Print flag, hidden) is left out. */
+  forPrint?: boolean;
   /** The bookmarks as read from the file: while `state.bookmarks` is this very array, the outline is left alone. */
   pristineBookmarks?: readonly Bookmark[] | null;
 }
@@ -861,9 +863,24 @@ async function applyState(
   }
   // « Nettoyer le document » takes the form fields away too: their values become page content.
   if (opts.flattenForms || opts.sanitise) {
-    const fr = flattenFields(doc);
+    const fr = flattenFields(doc, { printing: opts.forPrint });
     if (fr.notDrawn.length) {
       report.lost.push(`Aplatissement : valeur non dessinée pour ${fr.notDrawn.slice(0, 5).join(", ")}.`);
+    }
+  }
+
+  // Printing: annotations that do not print (no Print flag, hidden) are left out.
+  if (opts.forPrint) {
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookup(PDFName.of("Annots"));
+      if (!(annots instanceof PDFArray)) continue;
+      for (let i = annots.size() - 1; i >= 0; i--) {
+        const a = annots.lookup(i);
+        if (!(a instanceof PDFDict)) continue;
+        const f = a.lookup(PDFName.of("F"));
+        const flags = f instanceof PDFNumber ? f.asNumber() : 0;
+        if (!(flags & 4) || flags & 2) annots.remove(i);
+      }
     }
   }
 

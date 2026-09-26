@@ -2024,7 +2024,13 @@ export function CompareDialog({
                   </p>
                 </div>
               ))}
-            {!report.pages.some((pg) => pg.status !== "unchanged") && (
+            {report.pagesWithoutText > 0 && (
+              <p className="pdfx-form__note">
+                {report.pagesWithoutText} page(s) sans texte (images ou dessins) : leur contenu n'a pas pu être comparé.
+                Lancez d'abord la reconnaissance de texte (OCR) sur les deux documents.
+              </p>
+            )}
+            {!report.pages.some((pg) => pg.status !== "unchanged") && report.pagesWithoutText === 0 && (
               <p className="pdfx-empty">Les deux documents sont identiques.</p>
             )}
           </div>

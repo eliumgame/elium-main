@@ -41,6 +41,8 @@ export interface ComparisonReport {
   pagesModified: number;
   /** 0..1 over the whole document. */
   similarity: number;
+  /** Paired pages with no text on either side (scans, drawings): their text says nothing. */
+  pagesWithoutText: number;
 }
 
 const WORD_RE = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*|[^\s\p{L}\p{N}]/gu;
@@ -284,7 +286,14 @@ export function comparePages(left: readonly string[], right: readonly string[]):
   }
 
   const paired = pages.filter((p) => p.status === "modified" || p.status === "unchanged").length;
+  const pagesWithoutText = pages.filter(
+    (p) =>
+      p.status === "unchanged" &&
+      !tokenise(left[p.leftPage! - 1] ?? "").length &&
+      !tokenise(right[p.rightPage! - 1] ?? "").length,
+  ).length;
   return {
+    pagesWithoutText,
     pages,
     wordsAdded,
     wordsRemoved,

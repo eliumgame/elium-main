@@ -241,12 +241,16 @@ export function detectTables(pages: readonly PageText[], minRows = 3): DetectedT
       if (group.length >= minRows) {
         const columns = columnEdges(group);
         if (columns.length >= 2) {
-          out.push({ page: p.page, rows: group.map((l) => splitByColumns(l, columns)) });
+          const rows = group.map((l) => splitByColumns(l, columns));
+          // Two columns of running text are not a table: table cells are short.
+          const cells = rows.flat().filter(Boolean);
+          const mean = cells.reduce((n, c) => n + c.length, 0) / Math.max(1, cells.length);
+          if (mean <= 28) out.push({ page: p.page, rows });
         }
       }
       group = [];
     };
-    for (const line of p.lines) {
+    for (const line of rowsOf(p.lines)) {
       const gaps = countGaps(line);
       if (gaps >= 1) {
         const prev = group[group.length - 1];
@@ -262,6 +266,32 @@ export function detectTables(pages: readonly PageText[], minRows = 3): DetectedT
     flush();
   }
   return out;
+}
+
+/**
+ * Page lines rejoined into visual rows: the layout splits a line at wide gaps
+ * (columns of a table are separate lines there), a table row is all of them.
+ */
+function rowsOf(lines: readonly TextLine[]): TextLine[] {
+  const horizontal = lines.filter((l) => Math.abs(l.angle) < 1);
+  const sorted = [...horizontal].sort((a, b) => a.origin.y - b.origin.y || a.origin.x - b.origin.x);
+  const rows: TextLine[][] = [];
+  for (const l of sorted) {
+    const row = rows[rows.length - 1];
+    const ref = row?.[0];
+    if (ref && Math.abs(l.origin.y - ref.origin.y) < Math.max(ref.fontSize, l.fontSize) * 0.4) row!.push(l);
+    else rows.push([l]);
+  }
+  return rows.map((row) => {
+    if (row.length === 1) return row[0]!;
+    const parts = [...row].sort((a, b) => a.origin.x - b.origin.x);
+    return {
+      ...parts[0]!,
+      runs: parts.flatMap((p) => p.runs),
+      text: parts.map((p) => p.text).join(" "),
+      fontSize: Math.max(...parts.map((p) => p.fontSize)),
+    };
+  });
 }
 
 function countGaps(line: TextLine): number {
@@ -309,7 +339,7 @@ function splitByColumns(line: TextLine, columns: readonly number[]): string[] {
 }
 
 export function tablesToCsv(tables: readonly DetectedTable[]): string {
-  const esc = (s: string) => (/[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const esc = (s: string) => (/["\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   return tables
     .map((t) => `# Page ${t.page + 1}\r\n${t.rows.map((r) => r.map(esc).join(";")).join("\r\n")}`)
     .join("\r\n\r\n");

@@ -733,6 +733,7 @@ export interface FlattenReport {
 }
 
 const F_HIDDEN = 2;
+const F_PRINT = 4;
 const F_NOVIEW = 32;
 
 type Matrix = [number, number, number, number, number, number];
@@ -811,7 +812,7 @@ function hasValue(field: PDFField): boolean {
  * Bake the form into the pages: every visible, printable widget's appearance
  * becomes page content; the fields are removed from the AcroForm.
  */
-export function flattenFields(doc: PDFDocument): FlattenReport {
+export function flattenFields(doc: PDFDocument, how: { printing?: boolean } = {}): FlattenReport {
   const report: FlattenReport = { drawn: 0, hiddenRemoved: 0, notDrawn: [], fields: 0 };
   let form: PDFForm;
   let fields: PDFField[];
@@ -853,7 +854,8 @@ export function flattenFields(doc: PDFDocument): FlattenReport {
       const flags = widget.getFlags();
       // Hidden widgets go without being drawn; non-printing ones are drawn, as
       // Acrobat's flattening does by default (what the screen showed stays).
-      if (flags & F_HIDDEN || flags & F_NOVIEW) {
+      // Printing: a widget without the Print flag (a screen-only button) is not printed.
+      if (flags & F_HIDDEN || flags & F_NOVIEW || (how.printing && !(flags & F_PRINT))) {
         if (page && ref) removeFromAnnots(page, ref);
         report.hiddenRemoved++;
         continue;

@@ -2763,15 +2763,45 @@ export default function PdfWorkspace({
     });
   };
 
+  /**
+   * A print-ready copy made of page pictures (150 dpi): what a document that
+   * allows only low-resolution printing may be printed as.
+   */
+  const lowResolution = async (bytes: Uint8Array): Promise<Uint8Array> => {
+    const { PDFDocument } = await import("pdf-lib");
+    const { renderToCanvas, canvasToBlob } = await import("../core/render");
+    const src = await PdfEngine.open(bytes);
+    try {
+      const out = await PDFDocument.create();
+      for (let i = 0; i < src.pageCount; i++) {
+        const proxy = await src.page(i);
+        const vp = proxy.getViewport({ scale: 1 });
+        const canvas = await renderToCanvas(proxy, { scale: 150 / 72 });
+        const jpg = await out.embedJpg(
+          new Uint8Array(await (await canvasToBlob(canvas, "image/jpeg", 0.85)).arrayBuffer()),
+        );
+        out.addPage([vp.width, vp.height]).drawImage(jpg, { x: 0, y: 0, width: vp.width, height: vp.height });
+      }
+      return await out.save();
+    } finally {
+      src.destroy();
+    }
+  };
+
   const printDocument = async (which: "document" | "summary" = "document") => {
     if (!bytesRef.current) return;
     setBusy(true);
     const id = toast("progress", "Préparation de l'impression…");
     try {
-      const bytes =
+      // Layers print as they are shown now.
+      const st: PdfState = layers.length
+        ? { ...state, ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])) }
+        : state;
+      let bytes =
         which === "summary"
           ? await commentSummary()
-          : (await buildDerived(state, { interactiveAnnots: false, flattenForms: true })).bytes;
+          : (await buildDerived(st, { interactiveAnnots: false, flattenForms: true, forPrint: true })).bytes;
+      if (restrictionsRef.current && !restrictionsRef.current.printHighRes) bytes = await lowResolution(bytes);
       const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
       const frame = document.createElement("iframe");
       frame.style.position = "fixed";
@@ -2781,17 +2811,23 @@ export default function PdfWorkspace({
       frame.style.height = "0";
       frame.style.border = "0";
       frame.src = url;
+      let done = false;
+      const cleanup = () => {
+        if (done) return;
+        done = true;
+        frame.remove();
+        URL.revokeObjectURL(url);
+      };
       frame.onload = () => {
         try {
+          // Removed once the print dialog closes (a long print queue keeps it until then).
+          frame.contentWindow?.addEventListener("afterprint", () => setTimeout(cleanup, 1000));
           frame.contentWindow?.focus();
           frame.contentWindow?.print();
         } catch {
           window.open(url, "_blank");
         }
-        setTimeout(() => {
-          frame.remove();
-          URL.revokeObjectURL(url);
-        }, 60_000);
+        setTimeout(cleanup, 10 * 60_000);
       };
       document.body.appendChild(frame);
       dismissToast(id);
@@ -3636,16 +3672,47 @@ export default function PdfWorkspace({
     }
   };
 
+  /**
+   * Run `fn` on the document as it is now — pages reordered, rotated, cropped
+   * or deleted, comments, text and image edits, marks and form values, excluded
+   * pages left out (as Acrobat leaves them out of exports) — built into a
+   * temporary engine. `toDerived` maps a displayed page index to that
+   * document's, `toDisplayed` back.
+   */
+  const withCurrentDocument = async <T,>(
+    fn: (
+      e: PdfEngine,
+      map: { toDerived: (i: number) => number | undefined; toDisplayed: (i: number) => number | undefined },
+    ) => Promise<T>,
+  ): Promise<T> => {
+    const { bytes } = await buildDerived(state, { flattenForms: true, interactiveAnnots: false, keepSkipped: false });
+    const kept = pages.map((p, i) => (p.skipped ? -1 : i)).filter((i) => i >= 0);
+    const temp = await PdfEngine.open(bytes);
+    try {
+      return await fn(temp, {
+        toDerived: (i) => {
+          const k = kept.indexOf(i);
+          return k >= 0 ? k : undefined;
+        },
+        toDisplayed: (i) => kept[i],
+      });
+    } finally {
+      temp.destroy();
+    }
+  };
+
   const exportAs = async (kind: "docx" | "text" | "html" | "tables") => {
     if (!engine) return;
     setBusy(true);
     const id = toast("progress", "Extraction du contenu…");
     try {
-      const layout = await extractLayout(engine, (done, total) => {
-        setToasts((v) =>
-          v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
-        );
-      });
+      const layout = await withCurrentDocument((doc) =>
+        extractLayout(doc, (done, total) => {
+          setToasts((v) =>
+            v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
+          );
+        }),
+      );
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       if (kind === "docx")
         downloadBlob(
@@ -4464,18 +4531,43 @@ export default function PdfWorkspace({
     toast("warning", "Aucune donnée de formulaire ni commentaire dans ce fichier.");
   };
 
+  /** Compare report pages (the current document's) → displayed page index. */
+  const compareMapRef = useRef<(i: number) => number | undefined>((i) => i);
+
   const onComparePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !engine) return;
+    let pw: string | undefined;
     setCompareBusy(true);
     try {
-      const other = await PdfEngine.open(new Uint8Array(await file.arrayBuffer()));
-      const [mine, theirs] = [await engine.allText(), await other.allText()];
+      const raw = new Uint8Array(await file.arrayBuffer());
+      let other: PdfEngine | null = null;
+      for (let wrong = false; !other;) {
+        try {
+          other = await PdfEngine.open(raw, pw);
+        } catch (err) {
+          if (!(err instanceof PdfPasswordRequired)) throw err;
+          const typed = await dialogs.prompt({
+            title: "Document protégé",
+            label: `${wrong ? "Mot de passe incorrect. " : ""}Mot de passe de « ${file.name} » :`,
+            password: true,
+          });
+          if (typed === null) return;
+          pw = typed;
+          wrong = true;
+        }
+      }
+      // The document as it is now against the other file.
+      const mine = await withCurrentDocument((doc, map) => {
+        compareMapRef.current = map.toDisplayed;
+        return doc.allText();
+      });
+      const theirs = await other.allText();
       setCompareReport(comparePages(mine, theirs));
       other.destroy();
     } catch {
-      toast("danger", "Comparaison impossible (fichier illisible ou protégé).");
+      toast("danger", "Comparaison impossible (fichier illisible).");
     } finally {
       setCompareBusy(false);
     }
@@ -5772,20 +5864,23 @@ export default function PdfWorkspace({
             setBusy(true);
             const id = toast("progress", "Rendu des pages…");
             try {
-              const indices = v.range.trim()
-                ? parsePageRange(v.range, pageCount)
-                    .map((i) => pages[i]?.from)
-                    .filter((n): n is number => n != null)
-                : undefined;
-              const made = await exportImages(engine, fileName.replace(/\.pdf$/i, ""), {
-                format: v.format,
-                dpi: v.dpi,
-                quality: v.quality,
-                pages: indices,
-                onProgress: (done, total) =>
-                  setToasts((t) =>
-                    t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x)),
-                  ),
+              const made = await withCurrentDocument((doc, map) => {
+                const indices = v.range.trim()
+                  ? parsePageRange(v.range, pageCount)
+                      .map((i) => map.toDerived(i))
+                      .filter((n): n is number => n != null)
+                  : undefined;
+                if (indices && !indices.length) throw new Error("Aucune page à exporter dans cette plage.");
+                return exportImages(doc, fileName.replace(/\.pdf$/i, ""), {
+                  format: v.format,
+                  dpi: v.dpi,
+                  quality: v.quality,
+                  pages: indices,
+                  onProgress: (done, total) =>
+                    setToasts((t) =>
+                      t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x)),
+                    ),
+                });
               });
               if (v.zip)
                 downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-images.zip`, "application/zip", await zipImages(made));
@@ -6048,7 +6143,8 @@ export default function PdfWorkspace({
           busy={compareBusy}
           onPick={() => compareInput.current?.click()}
           onGoTo={(page) => {
-            goTo(page);
+            // Report pages are the compared document's (excluded pages left out).
+            goTo((compareMapRef.current(page - 1) ?? page - 1) + 1);
             setDialog(null);
           }}
           onClose={() => setDialog(null)}

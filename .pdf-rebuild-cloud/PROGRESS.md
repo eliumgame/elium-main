@@ -1241,3 +1241,16 @@ DPI des images, création depuis images/presse-papiers, boîte d'impression + ap
 comparaison (document courant, visuelle, rapport), Optimiser (réglages, Flate, doublons).
 P2 : PDF/A-2b/3b (OutputIntent sRGB, XMP pdfaid, polices incorporées) + contrôle, PDF/X,
 vérificateur d'accessibilité, création depuis Office/HTML.
+
+### T8 : revue 2 — corrigé (ca17120)
+Chiffré + flux d'objets (révisions ultérieures écrasées), re-signature d'un fichier à fin
+irrégulière, champ préparé choisi sans chevauchement, SSRF des deux relais (IPv6 avec IPv4
+embarquée, NAT64, 6to4, rebinding DNS, redirections, réponse non bornée, délais),
+mot de passe après Protéger, pages des champs vides, décalage de recadrage, panneau
+rafraîchi après enregistrement, double validation, .p12 mémorisé une fois.
+
+### T9 : fait
+- OCR hors ligne (de13456) : worker + cœur wasm publiés par `scripts/tesseract-assets-plugin.ts`,
+  modèles deu/spa/ita/por/nld ajoutés (best_int, Apache-2.0) ; vérifié sous la CSP bureau
+  (spec pdf-ocr : aucune requête externe) ; page /Rotate reconnue ; couche par ligne avec
+  espaces ; mots douteux conservés ; annulation sans écriture.

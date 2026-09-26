@@ -1207,3 +1207,37 @@ mots de passe accentués NFD en révisions 2-4.
    la clé publique).
 Non couvert par la revue (coupée) : signature de fichiers atypiques, relais TSA (SSRF,
 DNS rebinding), parcours UI. À reprendre lors de la vérification finale (V).
+
+## T9 : conversion, OCR, impression
+
+### Audit (session cloud 1), par ordre d'impact
+1. OCR : 100 % d'échec dans l'app de bureau (worker + core wasm chargés depuis jsDelivr,
+   bloqués par la CSP) ; dans le Drive, dépend du CDN. Seuls eng et fra sont fournis :
+   deu/spa/ita/por/nld proposés mais ignorés en silence.
+2. Exports (txt/docx/html/images) et comparaison ignorent l'état du document (pages
+   supprimées, réordonnées, commentaires, modifications).
+3. Export « Tableaux » (CSV) ne trouve jamais de tableau (groupLines coupe les lignes).
+4. OCR sur page /Rotate : texte illisible annoncé comme réussi.
+5. OCR « Interrompre » écrit quand même le résultat partiel.
+6. Couche OCR mot à mot (lignes de base incohérentes, pas d'espaces) ; pas de
+   redressement ; mots à faible confiance supprimés sans liste des mots douteux.
+7. Impression : champs sans l'indicateur Print (boutons écran) imprimés.
+8. PDF depuis images : DPI ignoré (page géante), TIFF → page blanche.
+9. Export Word pauvre (pas de styles.xml, tableaux, images, liens, gras/italique).
+10. Impression : printHighRes non appliqué, calques affichés ignorés, iframe retirée
+    au minuteur, pas de repli sans visionneuse PDF.
+11. Comparaison : PDF images « identiques », page déplacée = ajout + suppression, fichier
+    protégé non géré, pas de comparaison visuelle ni de rapport.
+Manquants : export Excel / PowerPoint / RTF / TIFF, création depuis Office/HTML,
+PDF/A-X-UA, boîte d'impression complète (n-up, livret, poster, modes commentaires),
+réglages Optimiser, rapport d'espace.
+
+### Plan T9
+P0 : OCR hors ligne (worker/core/langues servis par l'app) ; OCR correct (rotation,
+lignes, espaces, mots douteux, annulation) ; exports depuis le document courant ;
+tableaux ; impression (Print/NoView, calques, basse résolution, afterprint).
+P1 : Word via docToDocx, Excel via workbookToXlsx, PowerPoint via deckToPptx, RTF, TIFF,
+DPI des images, création depuis images/presse-papiers, boîte d'impression + aperçu,
+comparaison (document courant, visuelle, rapport), Optimiser (réglages, Flate, doublons).
+P2 : PDF/A-2b/3b (OutputIntent sRGB, XMP pdfaid, polices incorporées) + contrôle, PDF/X,
+vérificateur d'accessibilité, création depuis Office/HTML.

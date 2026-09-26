@@ -2,11 +2,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import pdfjsAssets from "./scripts/pdfjs-assets-plugin.ts";
+import tesseractAssets from "./scripts/tesseract-assets-plugin.ts";
 
 export default defineConfig({
   // pdfjsAssets : publie wasm/cmaps/polices standard/ICC de pdf.js sous dist/pdfjs/
   // (servis depuis node_modules en dev) — voir scripts/pdfjs-assets-plugin.ts.
-  plugins: [react(), pdfjsAssets()],
+  // tesseractAssets : worker et cœur WebAssembly de l'OCR sous dist/tesseract/ (hors ligne).
+  plugins: [react(), pdfjsAssets(), tesseractAssets()],
   server: {
     port: 3000,
     // Dev uniquement (ignoré par `vite build`) : proxifie l'API Drive + le relais

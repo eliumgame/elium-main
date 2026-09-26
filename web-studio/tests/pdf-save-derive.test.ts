@@ -3,7 +3,7 @@ import "./pdfjs-node-shim";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
-import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import { savePdf, readDiskState } from "../src/pdf/ops/save";
 import { appendPdfPages } from "../src/pdf/ops/organize";
@@ -230,10 +230,21 @@ describe("OCR text layer added to a protected document", () => {
       options: { password: "test" },
       transform: async (doc) => {
         const book = new FontBook(doc);
+        const page = doc.getPage(1);
         await writeOcrLayer(
           doc,
-          doc.getPage(1),
-          [{ text: "Reconnu", confidence: 90, rect: { x: 20, y: 150, w: 80, h: 14 } }],
+          page,
+          {
+            rotation: 0,
+            size: { w: page.getWidth(), h: page.getHeight() },
+            lines: [
+              {
+                words: [{ text: "Reconnu", confidence: 90, rect: { x: 20, y: 150, w: 80, h: 14 } }],
+                baseline: { x0: 20, y0: 161, x1: 100, y1: 161 },
+                height: 14,
+              },
+            ],
+          },
           book,
         );
       },
@@ -247,6 +258,42 @@ describe("OCR text layer added to a protected document", () => {
     expect(await pageText(js, 2)).toContain("Reconnu");
     await js.destroy();
   }, 30_000);
+
+  it("OCR text layer: one line with spaces between words, upright on a page turned 90°", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 300]);
+    page.setRotation(degrees(90));
+    const book = new FontBook(doc);
+    // Displayed page: 300 wide, 400 high (turned); a line near its top.
+    const words = [
+      { text: "Bonjour", confidence: 95, rect: { x: 30, y: 40, w: 60, h: 14 } },
+      { text: "le", confidence: 40, rect: { x: 96, y: 40, w: 14, h: 14 }, suspect: true },
+      { text: "monde", confidence: 92, rect: { x: 116, y: 40, w: 50, h: 14 } },
+    ];
+    await writeOcrLayer(
+      doc,
+      page,
+      {
+        rotation: 90,
+        size: { w: 400, h: 300 },
+        lines: [{ words, baseline: { x0: 30, y0: 51, x1: 166, y1: 51 }, height: 14 }],
+      },
+      book,
+    );
+    const js = await openJs(await doc.save());
+    const p = await js.getPage(1);
+    const tc = await p.getTextContent();
+    const text = tc.items.map((i) => ("str" in i ? i.str : "")).join("");
+    expect(text.replace(/\s+/g, " ").trim()).toBe("Bonjour le monde");
+    // Upright when displayed: in the viewport (rotation applied) the words run left to right, near the top.
+    const vp = p.getViewport({ scale: 1 });
+    // pdf.js reads the line as one run: it starts where « Bonjour » is on the displayed page.
+    const first = tc.items.find((i) => "str" in i && i.str.startsWith("Bonjour")) as { transform: number[] };
+    const [x, y] = vp.convertToViewportPoint(first.transform[4]!, first.transform[5]!);
+    expect(x).toBeCloseTo(30, 0);
+    expect(y).toBeCloseTo(51, 0);
+    await js.destroy();
+  });
 });
 
 describe("sameValue (restored annotations / outline recognised as untouched)", () => {

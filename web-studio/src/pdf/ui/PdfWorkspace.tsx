@@ -2225,6 +2225,8 @@ export default function PdfWorkspace({
         });
       }
       await reportSave(res.report, dest, signed ? res.bytes : null, notes);
+      // The Signatures panel judges the file as saved: judge it again.
+      if (sigView.list?.length) void refreshSignatures();
       return true;
     } catch (e) {
       dismissToast(id);
@@ -2527,7 +2529,7 @@ export default function PdfWorkspace({
    * The bytes to sign: the document as a save would write it — an update
    * appended to the file, so signatures already in it stay valid.
    */
-  const bytesForSigning = async (st: PdfState): Promise<Uint8Array | null> => {
+  const bytesForSigning = async (st: PdfState): Promise<{ bytes: Uint8Array; password?: string } | null> => {
     const source = bytesRef.current!;
     const disk = destRef.current?.persistent ? diskRef.current : null;
     const security = disk ? (securityDirtyRef.current ? securityRef.current : null) : securityRef.current;
@@ -2552,7 +2554,14 @@ export default function PdfWorkspace({
       if (!(await confirmSignedSave(st, reasons, disk?.bytes ?? source))) return null;
     }
     const res = await savePdf({ source, disk, state: st, options: opts, security, forceFullReasons: forceFull });
-    return res.bytes;
+    // The password of the bytes just built: a protection change applies to them.
+    const password =
+      security === "remove"
+        ? undefined
+        : security
+          ? security.protect.userPassword || security.protect.ownerPassword || undefined
+          : (passwordRef.current ?? undefined);
+    return { bytes: res.bytes, password };
   };
 
   const signWith = async (req: NonNullable<typeof signRequest>, choice: SignChoice) => {
@@ -2582,24 +2591,25 @@ export default function PdfWorkspace({
       const t = req.target;
       // The placed picture becomes the field's appearance: not kept as an image beside it.
       const st = t ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
-      const bytes = await bytesForSigning(st);
-      if (!bytes) {
+      const built = await bytesForSigning(st);
+      if (!built) {
         dismissToast(id);
         return;
       }
+      const { bytes, password } = built;
       const { signPdfWith } = await import("../ops/pades");
       const signed = await signPdfWith(bytes, choice.material, {
         ...choice.options,
         fieldName: req.fieldName,
         visible: t ? { ...t.visible, imagePng: choice.picture ? t.visible.imagePng : undefined } : undefined,
-        password: passwordRef.current ?? undefined,
+        password,
         tsaFetch: tsaRelay,
       });
       await dest.write(signed);
       dismissToast(id);
       // The signed file is now the open document: a later « Enregistrer »
       // appends to it (never rewrites the signature away).
-      await openBytes(signed, dest.name, passwordRef.current ?? undefined, undefined, dest.handle ?? null);
+      await openBytes(signed, dest.name, password, undefined, dest.handle ?? null);
       if (!dest.persistent) destRef.current = null;
       toast(
         "success",
@@ -2634,7 +2644,8 @@ export default function PdfWorkspace({
       const password = passwordRef.current ?? undefined;
       const [list, fields] = await Promise.all([
         verifyPdfSignatures(bytes, { password, trusted: await trustAnchors() }),
-        listSignatureFields(bytes, password).catch(() => []),
+        // Fields as the open document shows them: pages indexed like `page.from`.
+        listSignatureFields(bytesRef.current ?? bytes, password).catch(() => []),
       ]);
       if (run !== sigRun.current) return;
       setSigFields(fields);
@@ -2670,8 +2681,8 @@ export default function PdfWorkspace({
       body,
     }).catch(() => null);
     if (res?.ok) return new Uint8Array(await res.arrayBuffer());
-    // The relay answered and refused (address not allowed, TSA down): say why.
-    if (res && (res.status === 400 || res.status === 502)) {
+    // A relay answered but refused (address not allowed, TSA down, too many requests): say why.
+    if (res && res.status !== 404 && res.status !== 405) {
       const why = await res
         .json()
         .then((j: { error?: { message?: string } }) => j.error?.message)
@@ -2705,7 +2716,7 @@ export default function PdfWorkspace({
     const f = sigFields.find((x) => x.name === name);
     if (!f || f.page < 0) return;
     const index = pages.findIndex((q) => q.from === f.page);
-    if (index >= 0) goTo(index + 1, Math.max(0, f.box.y - 80));
+    if (index >= 0) goTo(index + 1, Math.max(0, f.box.y - (pages[index]!.crop?.top ?? 0) - 80));
   };
 
   const saveElium = async () => {
@@ -4880,9 +4891,15 @@ export default function PdfWorkspace({
         )}
         {mode === "view" && (tool === "textSelect" || tool === "select" || tool === "hand") && page.from != null && (
           <SigFieldTargets
-            fields={sigFields.filter(
-              (f) => !f.signed && f.page === page.from && pages.findIndex((q) => q.from === page.from) === index,
-            )}
+            fields={sigFields
+              .filter(
+                (f) => !f.signed && f.page === page.from && pages.findIndex((q) => q.from === page.from) === index,
+              )
+              // A page cropped in Elium shows its content shifted by the crop.
+              .map((f) => ({
+                ...f,
+                box: { ...f.box, x: f.box.x - (page.crop?.left ?? 0), y: f.box.y - (page.crop?.top ?? 0) },
+              }))}
             size={size}
             rotation={rotation}
             scale={scale}
@@ -5834,6 +5851,7 @@ export default function PdfWorkspace({
                 onProgress: setOcrProgress,
               });
               const words = results.reduce((n, r) => n + r.words.length, 0);
+              const suspects = results.reduce((n, r) => n + r.words.filter((w) => w.suspect).length, 0);
               if (!words) {
                 toast("info", "Aucun texte reconnu.");
                 setOcrRunning(false);
@@ -5855,7 +5873,7 @@ export default function PdfWorkspace({
                   const docPages = doc.getPages();
                   for (const r of results) {
                     const target = docPages[r.page];
-                    if (target && r.words.length) await writeOcrLayer(doc, target, r.words, book);
+                    if (target && r.lines.length) await writeOcrLayer(doc, target, r, book);
                   }
                 },
               });
@@ -5873,11 +5891,16 @@ export default function PdfWorkspace({
               toast(
                 "success",
                 "Reconnaissance terminée",
-                `${words} mots indexés — le document est désormais cherchable.`,
+                `${words} mots indexés — le document est désormais cherchable.` +
+                  (suspects ? ` ${suspects} mot(s) reconnu(s) avec peu de certitude : vérifiez-les.` : ""),
               );
-            } catch {
+            } catch (e) {
               setOcrRunning(false);
-              toast("danger", "La reconnaissance a échoué.");
+              if (e instanceof Error && e.name === "OcrCancelled") {
+                toast("info", "Reconnaissance interrompue", "Le document n'a pas été modifié.");
+                return;
+              }
+              toast("danger", "La reconnaissance a échoué.", e instanceof Error ? e.message : undefined);
             }
           }}
         />

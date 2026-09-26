@@ -90,6 +90,87 @@ function tiffResolution(t: Uint8Array): { x: number; y: number } | null {
 }
 
 // ---------------------------------------------------------------------------
+// EXIF orientation (phones store a photo sideways and say how to turn it)
+// ---------------------------------------------------------------------------
+
+/** The EXIF orientation of a JPEG (1 to 8), 1 when it says nothing. */
+export function jpegOrientation(bytes: Uint8Array): number {
+  if (!(bytes[0] === 0xff && bytes[1] === 0xd8)) return 1;
+  for (let at = 2; at + 4 <= bytes.length && bytes[at] === 0xff;) {
+    const marker = bytes[at + 1]!;
+    if (marker === 0xda || marker === 0xd9) break;
+    const len = be16(bytes, at + 2);
+    const seg = bytes.subarray(at + 4, at + 2 + len);
+    if (marker === 0xe1 && String.fromCharCode(...seg.subarray(0, 4)) === "Exif") {
+      const t = seg.subarray(6);
+      if (t.length < 8) return 1;
+      const le = t[0] === 0x49;
+      const u16 = (i: number) => (le ? t[i]! | (t[i + 1]! << 8) : be16(t, i));
+      const ifd = le ? (t[4]! | (t[5]! << 8) | (t[6]! << 16) | (t[7]! << 24)) >>> 0 : be32(t, 4);
+      if (ifd + 2 > t.length) return 1;
+      const n = u16(ifd);
+      for (let i = 0; i < n; i++) {
+        const e = ifd + 2 + i * 12;
+        if (e + 12 > t.length) break;
+        if (u16(e) === 0x112) {
+          const o = u16(e + 8);
+          return o >= 1 && o <= 8 ? o : 1;
+        }
+      }
+      return 1;
+    }
+    at += 2 + len;
+  }
+  return 1;
+}
+
+/** Does this orientation turn the picture a quarter (width and height swapped)? */
+export const orientationSwaps = (o: number) => o >= 5 && o <= 8;
+
+/**
+ * The matrix drawing a picture's unit square upright into a `w × h` box
+ * (the box already in the upright orientation), for EXIF orientation `o`.
+ */
+export function orientationMatrix(o: number, w: number, h: number): [number, number, number, number, number, number] {
+  switch (o) {
+    case 2: return [-w, 0, 0, h, w, 0];
+    case 3: return [-w, 0, 0, -h, w, h];
+    case 4: return [w, 0, 0, -h, 0, h];
+    case 5: return [0, -h, -w, 0, w, h];
+    case 6: return [0, -h, w, 0, 0, h];
+    case 7: return [0, h, w, 0, 0, 0];
+    case 8: return [0, h, -w, 0, w, 0];
+    default: return [w, 0, 0, h, 0, 0];
+  }
+}
+
+/** The JPEG without its EXIF segments (a decoder then shows the pixels as stored, like a PDF viewer). */
+export function withoutExif(bytes: Uint8Array): Uint8Array {
+  if (!(bytes[0] === 0xff && bytes[1] === 0xd8)) return bytes;
+  const parts: Uint8Array[] = [bytes.subarray(0, 2)];
+  let at = 2;
+  let dropped = false;
+  while (at + 4 <= bytes.length && bytes[at] === 0xff) {
+    const marker = bytes[at + 1]!;
+    if (marker === 0xda || marker === 0xd9) break;
+    const len = be16(bytes, at + 2);
+    const isExif = marker === 0xe1 && String.fromCharCode(...bytes.subarray(at + 4, at + 8)) === "Exif";
+    if (isExif) dropped = true;
+    else parts.push(bytes.subarray(at, at + 2 + len));
+    at += 2 + len;
+  }
+  if (!dropped) return bytes;
+  parts.push(bytes.subarray(at));
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Writing the resolution into exported files
 // ---------------------------------------------------------------------------
 
@@ -203,7 +284,11 @@ export interface RgbaImage {
   dpi?: { x: number; y: number };
 }
 
-/** Every page of a TIFF file, as RGBA pixels. */
+/** Largest TIFF page decoded (an A3 scan at 600 dpi is 70 megapixels). */
+export const TIFF_MAX_PIXELS = 100_000_000;
+const TIFF_MAX_SIDE = 32_000;
+
+/** Every page of a TIFF file, as RGBA pixels (throws on a page too large to decode). */
 export async function readTiff(bytes: Uint8Array): Promise<RgbaImage[]> {
   const UTIF = (await import("utif2")).default ?? (await import("utif2"));
   const buf = bytes.slice().buffer;
@@ -213,6 +298,11 @@ export async function readTiff(bytes: Uint8Array): Promise<RgbaImage[]> {
     // Thumbnails (NewSubfileType 1) are not pages.
     const sub = ifd.t254 as number[] | undefined;
     if (sub && sub[0] === 1) continue;
+    // The size is checked before decoding: a few bytes can claim a 60 000 × 60 000 picture.
+    const w = (ifd.t256 as number[] | undefined)?.[0] ?? 0;
+    const h = (ifd.t257 as number[] | undefined)?.[0] ?? 0;
+    if (w > TIFF_MAX_SIDE || h > TIFF_MAX_SIDE || w * h > TIFF_MAX_PIXELS)
+      throw new Error(`Image TIFF trop grande (${w} × ${h} pixels).`);
     UTIF.decodeImage(buf, ifd);
     if (!ifd.width || !ifd.height) continue;
     const x = resolutionOf(ifd.t282);

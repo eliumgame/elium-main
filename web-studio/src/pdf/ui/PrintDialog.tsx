@@ -143,7 +143,19 @@ export function PrintDialog({
     setOpts((o) => ({ ...o, poster: { ...o.poster, ...patch } }));
 
   const summary = useMemo(() => describeSheets(opts, pageCount, pageSizes), [opts, pageCount, pageSizes]);
-  const rangeEmpty = opts.pages === "range" && !resolvePageSpec(opts.range, pageCount, labels).length;
+  const rangePages = useMemo(
+    () => (opts.pages === "range" ? resolvePageSpec(opts.range, pageCount, labels) : []),
+    [opts.pages, opts.range, pageCount, labels],
+  );
+  const rangeEmpty = opts.pages === "range" && !rangePages.length;
+  // With page labels, the pages the range picked are spelled out (« 3-9 » mixes a label and a page number).
+  const rangeHint =
+    labels?.length && rangePages.length && opts.range.trim()
+      ? `${rangePages.length} page(s) : ${rangePages
+          .slice(0, 12)
+          .map((i) => (labels[i] ? `${labels[i]} (${i + 1})` : String(i + 1)))
+          .join(", ")}${rangePages.length > 12 ? "…" : ""}`
+      : "";
   const problem = rangeEmpty
     ? "Aucune page ne correspond à cette plage."
     : !summary.pages
@@ -303,9 +315,14 @@ export function PrintDialog({
                   onFocus={() => set({ pages: "range" })}
                   onChange={(e) => set({ pages: "range", range: e.target.value })}
                   aria-label="Plage de pages"
-                  title="Par exemple « 1-3, 5, 8- »"
+                  title={
+                    labels?.length
+                      ? "Étiquettes de page ou numéros de page, par exemple « iii-2, 5 »"
+                      : "Par exemple « 1-3, 5, 8- »"
+                  }
                 />
               </label>
+              {rangeHint && <p className="pdfx-print__hint">{rangeHint}</p>}
             </div>
             <label className="pdfx-form__row">
               <span>Sous-ensemble</span>

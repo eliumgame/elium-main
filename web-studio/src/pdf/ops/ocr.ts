@@ -13,6 +13,7 @@
  */
 
 import type { PDFDocument, PDFPage } from "pdf-lib";
+import { PDFArray } from "pdf-lib";
 import type { PdfEngine } from "../core/engine";
 import { renderToCanvas } from "../core/render";
 import type { Rect, Rotation } from "../core/coords";
@@ -345,6 +346,12 @@ export async function writeOcrLayer(
   painter.raw("100 Tz").raw("ET").restore();
 
   if (!written) return 0;
+  // The page's own content is closed in q … Q first: one ending inside a `cm` would move the layer.
+  if (page.node.Contents()) {
+    page.node.addContentStream(doc.context.register(doc.context.stream("\nQ\n")));
+    const contents = page.node.Contents();
+    if (contents instanceof PDFArray) contents.insert(0, doc.context.register(doc.context.stream("q\n")));
+  }
   page.node.addContentStream(doc.context.register(doc.context.stream(`q\n${painter.toString()}\nQ\n`)));
   return written;
 }

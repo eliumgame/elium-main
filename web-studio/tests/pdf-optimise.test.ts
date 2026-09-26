@@ -72,4 +72,40 @@ describe("optimise", () => {
     expect(audit.categories[0]!.label).toBe("Images");
     expect(audit.categories.reduce((n, c) => n + c.bytes, 0)).toBe(bytes.length);
   });
+
+  it("reads /Filter and /DecodeParms given as one-element arrays (PNG predictor undone)", async () => {
+    const doc = await PDFDocument.create();
+    const w = 1600;
+    const h = 1200;
+    // Left half dark, right half light; rows written with the PNG « Up » predictor.
+    const raw = new Uint8Array(h * (w * 3 + 1));
+    for (let y = 0; y < h; y++) {
+      raw[y * (w * 3 + 1)] = 2;
+      if (y) continue; // « Up » rows after the first are all zero differences
+      for (let x = 0; x < w; x++) raw.fill(x < w / 2 ? 20 : 235, 1 + x * 3, 4 + x * 3);
+    }
+    const dict = doc.context.obj({
+      Type: "XObject",
+      Subtype: "Image",
+      Width: w,
+      Height: h,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      Filter: ["FlateDecode"],
+      DecodeParms: [{ Predictor: 15, Colors: 3, Columns: w }],
+    }) as PDFDict;
+    // Noise in the compressed bytes' size would let zlib win: force a large stream.
+    const ref = doc.context.register(PDFRawStream.of(dict, zlibSync(raw, { level: 0 })));
+    const page = doc.addPage([400, 300]);
+    page.node.set(PDFName.of("Resources"), doc.context.obj({ XObject: { Im1: ref } }));
+    page.node.set(PDFName.of("Contents"), doc.context.register(doc.context.stream("q 400 0 0 300 0 0 cm /Im1 Do Q")));
+    const r = await optimiseDocument(doc, { imageDpi: 72, dedupe: false });
+    expect(r.imagesRecompressed).toBe(1);
+    const s = doc.context.lookup(ref) as PDFRawStream;
+    const nw = (s.dict.lookup(PDFName.of("Width")) as PDFNumber).asNumber();
+    const { unzlibSync } = await import("fflate");
+    const px = unzlibSync(s.contents);
+    expect(px[(10 * nw + 3) * 3]).toBe(20);
+    expect(px[(10 * nw + nw - 3) * 3]).toBe(235);
+  });
 });

@@ -2676,6 +2676,11 @@
   display: grid;
   gap: 6px;
 }
+.pdfx-print__hint {
+  margin: 2px 0 0 24px;
+  font-size: 12px;
+  color: var(--el-text-muted);
+}
 .pdfx-print__range {
   display: flex;
   align-items: center;

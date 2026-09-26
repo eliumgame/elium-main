@@ -155,9 +155,11 @@ const POSTER_MARGIN = 18;
 
 /**
  * Resolve a page spec into 0-based indices, in the order written. With
- * `labels`, a token that names a page label (« iv », « A-2 », « iii-2 »)
- * designates that page; anything else is read as physical page numbers
- * (`parsePageRange`: « 1-3, 5, 8- », « impaires »…).
+ * `labels`, every page named in the spec (alone or as a range end) is first
+ * looked up among the page labels (« iv », « A-2 »); a number that is no label
+ * is the physical page of that number. So with labels i, ii, iii, 1, 2…,
+ * « 1-3 » is labels 1 to 3, « ii-2 » runs from label ii to label 2, and « 9 »
+ * (no such label) is the ninth page. Without labels: `parsePageRange`.
  */
 export function resolvePageSpec(spec: string, total: number, labels?: readonly string[]): number[] {
   if (total <= 0) return [];
@@ -171,44 +173,39 @@ export function resolvePageSpec(spec: string, total: number, labels?: readonly s
   if (!byLabel.size) return parsePageRange(spec, total);
   const text = spec.trim();
   if (!text || /^(all|tout|toutes|odd|even|impaires?|paires?)$/i.test(text)) return parsePageRange(text, total);
+  const page = (t: string): number | undefined => {
+    const k = t.trim().toLowerCase();
+    const l = byLabel.get(k);
+    if (l !== undefined) return l;
+    if (/^\d+$/.test(k)) {
+      const n = Number(k);
+      if (n >= 1 && n <= total) return n - 1;
+    }
+    return undefined;
+  };
   const out: number[] = [];
   for (const raw of text.split(/[,;]/)) {
     const tok = raw.trim();
     if (!tok) continue;
-    const whole = byLabel.get(tok.toLowerCase());
+    const whole = page(tok);
     if (whole !== undefined) {
       out.push(whole);
       continue;
     }
-    const range = labelRange(tok, byLabel, total);
-    if (range) {
-      out.push(...range);
-      continue;
+    // A range: the first separator whose two sides both name a page (a label may hold a dash: « A-2 »).
+    for (const m of tok.matchAll(/\s*(?:-|–|\bà\b)\s*/g)) {
+      const a = tok.slice(0, m.index).trim();
+      const b = tok.slice(m.index! + m[0].length).trim();
+      if (!a && !b) continue;
+      const ia = a ? page(a) : 0;
+      const ib = b ? page(b) : total - 1;
+      if (ia === undefined || ib === undefined) continue;
+      const step = ia <= ib ? 1 : -1;
+      for (let i = ia; step > 0 ? i <= ib : i >= ib; i += step) out.push(i);
+      break;
     }
-    out.push(...parsePageRange(tok, total));
   }
   return out;
-}
-
-/** « iii-2 », « A-1 - A-4 »: a range whose ends are labels (either may be empty). */
-function labelRange(tok: string, byLabel: Map<string, number>, total: number): number[] | null {
-  const seps = [...tok.matchAll(/\s*(?:-|–|\bà\b)\s*/g)];
-  for (const m of seps) {
-    const a = tok.slice(0, m.index).trim().toLowerCase();
-    const b = tok
-      .slice(m.index! + m[0].length)
-      .trim()
-      .toLowerCase();
-    const ia = a ? byLabel.get(a) : 0;
-    const ib = b ? byLabel.get(b) : total - 1;
-    if (ia === undefined || ib === undefined || (!a && !b)) continue;
-    // Both ends plain numbers that are not labels would have been caught above.
-    const out: number[] = [];
-    const step = ia <= ib ? 1 : -1;
-    for (let i = ia; step > 0 ? i <= ib : i >= ib; i += step) out.push(i);
-    return out;
-  }
-  return null;
 }
 
 /** The pages to print, in print order (0-based). A booklet ignores the subset and the reverse order. */

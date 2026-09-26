@@ -23,6 +23,7 @@ import type { PDFDocument, PDFObject } from "pdf-lib";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { canvasToBlob } from "../core/render";
 import { unPng } from "./redact";
+import { withoutExif } from "./imagefile";
 
 /**
  * Number of colour components a JPEG's SOFn marker declares (1 = grayscale,
@@ -156,7 +157,8 @@ const numOf = (d: PDFDict, key: string): number | null => {
 /** Decode a JPEG payload to a canvas, downscaled to `maxSide`. */
 async function jpegToCanvas(bytes: Uint8Array, maxSide: number): Promise<HTMLCanvasElement | null> {
   try {
-    const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: "image/jpeg" });
+    // Decoded as stored: a PDF viewer ignores the EXIF orientation, a browser would apply it.
+    const blob = new Blob([withoutExif(bytes).slice().buffer as ArrayBuffer], { type: "image/jpeg" });
     const bitmap = await createImageBitmap(blob);
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
@@ -222,7 +224,11 @@ export async function optimiseDocument(
       subtype === "Image" &&
       filter === "DCTDecode" &&
       obj instanceof PDFRawStream &&
-      dict.lookup(PDFName.of("SMask")) === undefined
+      dict.lookup(PDFName.of("SMask")) === undefined &&
+      // An inverted or colour-keyed picture keeps its bytes (the re-encode is always plain RGB).
+      !dict.has(PDFName.of("Decode")) &&
+      !dict.has(PDFName.of("Mask")) &&
+      !dict.has(PDFName.of("ImageMask"))
     ) {
       const w = numOf(dict, "Width") ?? 0;
       const h = numOf(dict, "Height") ?? 0;
@@ -306,10 +312,19 @@ function flatePixels(dict: PDFDict, stream: PDFRawStream, comps: number): Uint8A
   } catch {
     return null;
   }
-  const parms = dict.lookup(PDFName.of("DecodeParms"));
+  // /DecodeParms may be a dictionary or, like /Filter, a one-element array.
+  let parms = dict.lookup(PDFName.of("DecodeParms"));
+  if (parms instanceof PDFArray) {
+    if (parms.size() > 1) return null;
+    parms = parms.size() ? parms.lookup(0) : undefined;
+  }
   const pred = parms instanceof PDFDict ? (numOf(parms, "Predictor") ?? 1) : 1;
-  if (pred >= 10) data = unPng(data, w * comps, comps, h);
-  else if (pred !== 1) return null;
+  if (pred >= 10) {
+    const p = parms as PDFDict;
+    if ((numOf(p, "Colors") ?? 1) !== comps || (numOf(p, "BitsPerComponent") ?? 8) !== 8 || (numOf(p, "Columns") ?? 1) !== w)
+      return null;
+    data = unPng(data, w * comps, comps, h);
+  } else if (pred !== 1) return null;
   return data.length >= w * h * comps ? data : null;
 }
 

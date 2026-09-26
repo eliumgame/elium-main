@@ -4,7 +4,7 @@
  * hard to get subtly wrong.
  */
 
-import { imageDpi, pictureSize } from "./imagefile";
+import { imageDpi, jpegOrientation, orientationMatrix, orientationSwaps, pictureSize } from "./imagefile";
 import {
   PDFArray,
   PDFDict,
@@ -17,7 +17,11 @@ import {
   PDFPage,
   PDFRef,
   PDFString,
+  concatTransformationMatrix,
   degrees,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
 } from "pdf-lib";
 import type { BookmarkAction, DestFit, Page, PageLabelDef } from "../model/types";
 import { round } from "../core/coords";
@@ -263,9 +267,23 @@ export async function mergeDocuments(
       try {
         const img = kind === "png" ? await out.embedPng(src.bytes) : await out.embedJpg(src.bytes);
         // Its real size when the file gives its resolution (a 300 dpi scan stays A4).
-        const size = imagePageSize(img.width, img.height, imageDpi(src.bytes));
+        // A phone photo stored sideways is drawn upright (EXIF orientation).
+        const turn = kind === "jpg" ? jpegOrientation(src.bytes) : 1;
+        const dpi = imageDpi(src.bytes);
+        const size = orientationSwaps(turn)
+          ? imagePageSize(img.height, img.width, dpi && { x: dpi.y, y: dpi.x })
+          : imagePageSize(img.width, img.height, dpi);
         const page = out.addPage([size.w, size.h]);
-        page.drawImage(img, { x: 0, y: 0, width: size.w, height: size.h });
+        if (turn === 1) page.drawImage(img, { x: 0, y: 0, width: size.w, height: size.h });
+        else {
+          const name = page.node.newXObject("Im", img.ref);
+          page.pushOperators(
+            pushGraphicsState(),
+            concatTransformationMatrix(...orientationMatrix(turn, size.w, size.h)),
+            drawObject(name),
+            popGraphicsState(),
+          );
+        }
         if (opts.outline !== false) {
           appendOutlineNodes(out, [{ title: src.name.replace(/\.[a-z0-9]+$/i, ""), page: page.ref, kids: [] }]);
         }

@@ -5,7 +5,17 @@
  * its resolution gives (a 300 dpi A4 scan is an A4 page).
  */
 import { imageKind } from "../ops/organize";
-import { imageDpi, isTiff, pictureSize, readTiff, withPngDpi, type RgbaImage } from "../ops/imagefile";
+import {
+  imageDpi,
+  isTiff,
+  jpegOrientation,
+  orientationSwaps,
+  pictureSize,
+  readTiff,
+  withJpegDpi,
+  withPngDpi,
+  type RgbaImage,
+} from "../ops/imagefile";
 
 export interface PagePicture {
   /** PNG or JPEG bytes. */
@@ -62,10 +72,36 @@ function pixelSize(bytes: Uint8Array, kind: "png" | "jpg"): { w: number; h: numb
   return null;
 }
 
-/** The page pictures of one file (several for a multi-page TIFF); empty when unreadable. */
+/** A JPEG turned as its EXIF orientation says (the browser's decoder applies it), or null. */
+async function uprightJpeg(file: Blob, bytes: Uint8Array): Promise<PagePicture | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+    if (!blob) return null;
+    let dpi = imageDpi(bytes);
+    if (dpi && orientationSwaps(jpegOrientation(bytes))) dpi = { x: dpi.y, y: dpi.x };
+    let out: Uint8Array = new Uint8Array(await blob.arrayBuffer());
+    if (dpi) out = withJpegDpi(out, dpi.x);
+    return { bytes: out, src: dataUrl(out, "image/jpeg"), size: pictureSize(canvas.width, canvas.height, dpi) };
+  } catch {
+    return null;
+  }
+}
+
+/** The page pictures of one file (several for a multi-page TIFF); empty when unreadable (never throws). */
 export async function pagePictures(file: Blob): Promise<PagePicture[]> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const kind = imageKind(bytes);
+  if (kind === "jpg" && jpegOrientation(bytes) !== 1) {
+    // A phone photo stored sideways: a PDF viewer ignores EXIF, so it is turned upright here.
+    const upright = await uprightJpeg(file, bytes);
+    if (upright) return [upright];
+  }
   if (kind) {
     const px = pixelSize(bytes, kind);
     if (px) {
@@ -79,13 +115,17 @@ export async function pagePictures(file: Blob): Promise<PagePicture[]> {
     }
   }
   if (isTiff(bytes)) {
-    const out: PagePicture[] = [];
-    for (const page of await readTiff(bytes)) {
-      let png = await rgbaPng(page);
-      if (page.dpi) png = withPngDpi(png, page.dpi.x);
-      out.push({ bytes: png, src: dataUrl(png, "image/png"), size: pictureSize(page.width, page.height, page.dpi) });
+    try {
+      const out: PagePicture[] = [];
+      for (const page of await readTiff(bytes)) {
+        let png = await rgbaPng(page);
+        if (page.dpi) png = withPngDpi(png, page.dpi.x);
+        out.push({ bytes: png, src: dataUrl(png, "image/png"), size: pictureSize(page.width, page.height, page.dpi) });
+      }
+      return out;
+    } catch {
+      return []; // damaged or too large: reported as unreadable
     }
-    return out;
   }
   try {
     const bitmap = await createImageBitmap(file);

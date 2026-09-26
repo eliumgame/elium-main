@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { zlibSync } from "fflate";
-import { imageDpi, pictureSize, readTiff, withJpegDpi, withPngDpi, writeTiff } from "../src/pdf/ops/imagefile";
+import {
+  imageDpi,
+  jpegOrientation,
+  orientationMatrix,
+  pictureSize,
+  readTiff,
+  withJpegDpi,
+  withoutExif,
+  withPngDpi,
+  writeTiff,
+} from "../src/pdf/ops/imagefile";
 import { mergeDocuments } from "../src/pdf/ops/organize";
 
 /** Picture files: resolution read and written, TIFF, page size of a scan. */
@@ -91,5 +101,53 @@ describe("picture files", () => {
     const { width, height } = doc.getPage(0).getSize();
     expect(width).toBeCloseTo(595.2, 0);
     expect(height).toBeCloseTo(841.9, 0);
+  });
+
+  it("reads the EXIF orientation of a phone photo, and draws it upright when combining", async () => {
+    // The 1×1 JPEG claiming 40 × 20 pixels (its frame header patched), stored sideways (orientation 6).
+    const sof = JPEG.findIndex((b, i) => b === 0xff && JPEG[i + 1] === 0xc0);
+    const wide = JPEG.slice();
+    wide[sof + 5] = 0;
+    wide[sof + 6] = 20;
+    wide[sof + 7] = 0;
+    wide[sof + 8] = 40;
+    const tiff = [0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+    const body = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
+    const app1 = [0xff, 0xe1, 0, body.length + 2, ...body];
+    const photo = new Uint8Array([...wide.subarray(0, 2), ...app1, ...wide.subarray(2)]);
+    expect(jpegOrientation(photo)).toBe(6);
+    expect(jpegOrientation(JPEG)).toBe(1);
+    expect(jpegOrientation(withoutExif(photo))).toBe(1);
+    expect(withoutExif(photo).length).toBe(wide.length);
+    // Turned a quarter clockwise: the stored top-left corner ends top-right.
+    const [a, b, c, d, e, f] = orientationMatrix(6, 20, 40);
+    expect([a * 0 + c * 1 + e, b * 0 + d * 1 + f]).toEqual([20, 40]);
+
+    const { bytes } = await mergeDocuments([{ name: "photo.jpg", bytes: photo }]);
+    const doc = await PDFDocument.load(bytes);
+    const { width, height } = doc.getPage(0).getSize();
+    expect(height).toBeGreaterThan(width);
+  });
+
+  it("refuses a TIFF claiming a huge picture before decoding it", async () => {
+    const le = (n: number, b: number) => Array.from({ length: b }, (_, i) => (n >> (8 * i)) & 255);
+    const entries = [
+      [256, 4, 60000],
+      [257, 4, 60000],
+      [258, 3, 8],
+      [259, 3, 1],
+      [262, 3, 1],
+      [273, 4, 8 + 2 + 9 * 12 + 4],
+      [277, 3, 1],
+      [278, 4, 60000],
+      [279, 4, 16],
+    ];
+    const hdr = [0x49, 0x49, 42, 0, ...le(8, 4), ...le(entries.length, 2)];
+    for (const [tag, type, val] of entries)
+      hdr.push(...le(tag!, 2), ...le(type!, 2), ...le(1, 4), ...(type === 3 ? [...le(val!, 2), 0, 0] : le(val!, 4)));
+    hdr.push(0, 0, 0, 0, ...new Array(16).fill(0));
+    const t0 = Date.now();
+    await expect(readTiff(new Uint8Array(hdr))).rejects.toThrow(/trop grande/);
+    expect(Date.now() - t0).toBeLessThan(2000);
   });
 });

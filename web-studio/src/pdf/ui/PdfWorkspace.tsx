@@ -4610,7 +4610,11 @@ export default function PdfWorkspace({
       const bytes = await pdfFromImages(
         pictures.map((p) => ({ src: p.src })),
         { pageSize: "fit" },
-      );
+      ).catch(() => null);
+      if (!bytes) {
+        toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+        return;
+      }
       // A new document, saved nowhere yet.
       await openBytes(bytes, files[0].name.replace(/\.[^.]+$/, ".pdf"), undefined, undefined, null, {
         unsaved: true,
@@ -4708,7 +4712,7 @@ export default function PdfWorkspace({
         bytes = await pdfFromImages(
           pictures.map((p) => ({ src: p.src })),
           { pageSize: "fit" },
-        );
+        ).catch(() => null);
     } else if (got.text.trim()) {
       const { textToPdf } = await import("../ops/organize");
       bytes = await textToPdf(got.text);

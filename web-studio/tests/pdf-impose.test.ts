@@ -127,6 +127,18 @@ describe("page choice", () => {
     expect(resolvePageSpec("2-3", 4)).toEqual([1, 2]);
   });
 
+  it("reads every range end as a label first, else as a page number", () => {
+    const labels = ["i", "ii", "iii", "1", "2", "3", "4", "5", "6", "7"];
+    const named = (s: string) => resolvePageSpec(s, 10, labels).map((i) => labels[i]);
+    expect(named("1-3")).toEqual(["1", "2", "3"]);
+    // « 8 » is no label: the eighth page (label 5); both ends read the same way.
+    expect(named("8")).toEqual(["5"]);
+    expect(named("1-8")).toEqual(["1", "2", "3", "4", "5"]);
+    expect(named("ii-9")).toEqual(["ii", "iii", "1", "2", "3", "4", "5", "6"]);
+    expect(named("iii-2")).toEqual(["iii", "1", "2"]);
+    expect(named("xx-3")).toEqual([]);
+  });
+
   it("prints only the pages chosen, in the order chosen", async () => {
     const bytes = await pagesOf(5);
     const odd = await impose(bytes, { subset: "odd" });

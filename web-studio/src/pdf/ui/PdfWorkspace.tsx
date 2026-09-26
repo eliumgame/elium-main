@@ -2017,7 +2017,7 @@ export default function PdfWorkspace({
     if (signedOutput) {
       try {
         const { verifyPdfSignatures } = await import("../ops/pades");
-        const v = verifyPdfSignatures(signedOutput);
+        const v = await verifyPdfSignatures(signedOutput);
         if (v.length && v.every((x) => x.digestMatches)) {
           facts.push("signature électronique préservée (version signée intacte)");
         } else {
@@ -2472,7 +2472,7 @@ export default function PdfWorkspace({
     downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
     dismissToast(toastId);
     const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = verifyPdfSignatures(signed);
+    const v = await verifyPdfSignatures(signed);
     const ok = v.length > 0 && v.every((x) => x.valid);
     const note = v[0]?.selfSigned
       ? " · auto-signée (identité non vérifiée)"
@@ -2570,7 +2570,7 @@ export default function PdfWorkspace({
   const verifySignatures = async () => {
     if (!bytesRef.current) return;
     const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = verifyPdfSignatures(bytesRef.current);
+    const v = await verifyPdfSignatures(bytesRef.current);
     if (v.length === 0) {
       toast("warning", "Aucune signature", "Ce PDF ne contient pas de signature électronique (PAdES).");
       return;

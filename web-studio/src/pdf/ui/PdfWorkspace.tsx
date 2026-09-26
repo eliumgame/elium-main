@@ -121,6 +121,7 @@ import type { PadesSignOptions, PadesVerification } from "../ops/pades";
 import { IdentitiesDialog, SignDialog, type SignChoice } from "./SignDialogs";
 import type { SignatureView } from "./SignaturesPane";
 import SigFieldTargets from "./SigFieldTargets";
+import type { AccessibilityRule } from "../ops/accessibility";
 import { PrintDialog } from "./PrintDialog";
 import { CompareView } from "./CompareView";
 import { contentState, keepFormFieldsOnly, type ContentMode } from "../ops/impose";
@@ -174,6 +175,7 @@ import {
   DEFAULT_LINK_STYLE,
   RedactApplyDialog,
   PdfADialog,
+  AccessibilityDialog,
   MovePagesDialog,
   ReplacePagesDialog,
   ResizePagesDialog,
@@ -240,7 +242,8 @@ type DialogId =
   | "identities"
   | "initials"
   | "print"
-  | "pdfa";
+  | "pdfa"
+  | "accessibility";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -3685,6 +3688,9 @@ export default function PdfWorkspace({
       case "pdfa":
         void openPdfA();
         return;
+      case "accessibility":
+        void runAccessibilityCheck();
+        return;
       case "spaceAudit":
         void showSpaceAudit();
         return;
@@ -3857,6 +3863,24 @@ export default function PdfWorkspace({
   };
 
   const [pdfaProblems, setPdfaProblems] = useState<string[] | null>(null);
+  const [a11yRules, setA11yRules] = useState<AccessibilityRule[] | null>(null);
+
+  /** « Vérification de l'accessibilité » of the document as it would be saved. */
+  const runAccessibilityCheck = async (st: PdfState = state) => {
+    setA11yRules(null);
+    setDialog("accessibility");
+    try {
+      const [{ PDFDocument }, { checkAccessibility }] = await Promise.all([
+        import("pdf-lib"),
+        import("../ops/accessibility"),
+      ]);
+      const { bytes } = await buildDerived(st, { keepSkipped: false });
+      const texts = engine ? await engine.allText() : [];
+      setA11yRules(checkAccessibility(await PDFDocument.load(bytes, { updateMetadata: false }), texts));
+    } catch {
+      setA11yRules([]);
+    }
+  };
 
   /** « Enregistrer au format PDF/A »: the dialog, with the document's current state checked. */
   const openPdfA = async () => {
@@ -6013,6 +6037,25 @@ export default function PdfWorkspace({
           onConfirm={(name, o) => {
             setDialog(null);
             void saveAs(name, o);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "accessibility" && (
+        <AccessibilityDialog
+          rules={a11yRules}
+          title={state.metadata.title ?? ""}
+          language={state.metadata.language ?? ""}
+          onFix={async ({ title, language }) => {
+            // The file's own initial view, with the title shown in the window.
+            const view = state.initialView ?? (engine ? await engine.initialView() : undefined);
+            const next: PdfState = {
+              ...state,
+              metadata: { ...state.metadata, title, language },
+              ...(view ? { initialView: { ...view, displayDocTitle: true } } : {}),
+            };
+            setState(() => next);
+            void runAccessibilityCheck(next);
           }}
           onClose={() => setDialog(null)}
         />

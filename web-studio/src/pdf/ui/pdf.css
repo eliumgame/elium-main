@@ -3064,3 +3064,31 @@
   font-size: 12.5px;
   line-height: 1.45;
 }
+.pdfx-a11y {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pdfx-a11y li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.pdfx-a11y li > span:first-child {
+  width: 14px;
+  font-weight: 700;
+}
+.pdfx-a11y li.is-pass > span:first-child {
+  color: var(--x-ok, #2e9d5b);
+}
+.pdfx-a11y li.is-fail > span:first-child {
+  color: var(--x-danger, #d0443c);
+}
+.pdfx-a11y li.is-manual > span:first-child {
+  color: var(--x-warn, #c98a12);
+}
+.pdfx-a11y small {
+  display: block;
+  opacity: 0.75;
+}

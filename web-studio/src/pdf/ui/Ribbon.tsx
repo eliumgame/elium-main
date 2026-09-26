@@ -97,6 +97,7 @@ import {
   PieChart,
   Presentation,
   Archive,
+  Accessibility,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -948,6 +949,12 @@ export default function Ribbon(p: RibbonProps) {
             </Group>
             <Group title="Comparer et alléger" optional>
               <Cmd icon={<GitCompareArrows size={17} />} onClick={C("compare")} label="Comparer" />
+              <Cmd
+                icon={<Accessibility size={17} />}
+                onClick={C("accessibility")}
+                label="Accessibilité"
+                title="Vérification de l'accessibilité (balises, langue, titre, textes de remplacement…)"
+              />
               <Cmd
                 icon={<Archive size={17} />}
                 onClick={C("pdfa")}

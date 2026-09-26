@@ -2885,3 +2885,97 @@ export function PdfADialog({
     </Modal>
   );
 }
+
+/** Accessibility report (Acrobat's « Vérification complète »), with the fixes that need no tagging. */
+export function AccessibilityDialog({
+  rules,
+  title,
+  language,
+  onFix,
+  onClose,
+}: {
+  rules: import("../ops/accessibility").AccessibilityRule[] | null;
+  title: string;
+  language: string;
+  /** Set the title (shown in the window) and the language. */
+  onFix: (v: { title: string; language: string }) => void;
+  onClose: () => void;
+}) {
+  const [t, setT] = useState(title);
+  const [lang, setLang] = useState(language || "fr-FR");
+  const icon = { pass: "✓", fail: "✗", manual: "?" } as const;
+  const groups = rules ? [...new Set(rules.map((r) => r.category))] : [];
+  const failed = rules?.filter((r) => r.status === "fail").length ?? 0;
+  const manual = rules?.filter((r) => r.status === "manual").length ?? 0;
+  const needsFix = rules?.some((r) => (r.rule === "Titre" || r.rule === "Langue principale") && r.status === "fail");
+  return (
+    <Modal
+      title="Vérification de l'accessibilité"
+      onClose={onClose}
+      wide
+      footer={
+        <button className="eb eb--primary eb--sm" onClick={onClose}>
+          Fermer
+        </button>
+      }
+    >
+      <div className="pdfx-form">
+        {!rules ? (
+          <p className="pdfx-form__note">Vérification…</p>
+        ) : (
+          <>
+            <p className="pdfx-form__lead">
+              {failed ? `${failed} problème(s) détecté(s)` : "Aucun problème détecté"} · {manual} point(s) à vérifier
+              manuellement.
+            </p>
+            {needsFix && (
+              <fieldset className="pdfx-form__set">
+                <legend>Corriger</legend>
+                <label className="pdfx-form__row">
+                  <span>Titre du document</span>
+                  <input value={t} onChange={(e) => setT(e.target.value)} />
+                </label>
+                <label className="pdfx-form__row">
+                  <span>Langue</span>
+                  <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                    {["fr-FR", "en-GB", "en-US", "de-DE", "es-ES", "it-IT", "nl-NL", "pt-PT"].map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="eb eb--outline eb--sm"
+                  disabled={!t.trim()}
+                  onClick={() => onFix({ title: t.trim(), language: lang })}
+                >
+                  Appliquer le titre et la langue
+                </button>
+              </fieldset>
+            )}
+            {groups.map((g) => (
+              <fieldset key={g} className="pdfx-form__set">
+                <legend>{g}</legend>
+                <ul className="pdfx-a11y">
+                  {rules
+                    .filter((r) => r.category === g)
+                    .map((r) => (
+                      <li key={r.rule} className={`is-${r.status}`}>
+                        <span aria-hidden="true">{icon[r.status]}</span>
+                        <span>
+                          {r.rule}
+                          {r.status === "manual" && <em> — à vérifier manuellement</em>}
+                          {r.detail && <small>{r.detail}</small>}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              </fieldset>
+            ))}
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}

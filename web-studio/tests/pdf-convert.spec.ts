@@ -195,4 +195,20 @@ test.describe("PDF — conversion", () => {
     expect(text).toContain("/FontFile2");
     expect(problems).toEqual([]);
   });
+
+  test("accessibilité : rapport, puis titre et langue corrigés", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    await open(page, await twoPages());
+    await page.getByRole("tab", { name: "Convertir" }).click();
+    await page.getByRole("button", { name: "Accessibilité", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("problème(s) détecté(s)");
+    await expect(dialog.locator(".pdfx-a11y li.is-fail", { hasText: "Titre" })).toHaveCount(1);
+    await dialog.getByLabel("Titre du document").fill("Deux pages");
+    await dialog.getByRole("button", { name: "Appliquer le titre et la langue" }).click();
+    await expect(dialog.locator(".pdfx-a11y li.is-pass", { hasText: /^✓Titre/ })).toHaveCount(1);
+    await expect(dialog.locator(".pdfx-a11y li.is-pass", { hasText: "Langue principale" })).toHaveCount(1);
+    expect(problems).toEqual([]);
+  });
 });

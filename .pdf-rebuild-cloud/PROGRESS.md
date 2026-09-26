@@ -1194,3 +1194,16 @@ mots de passe accentués NFD en révisions 2-4.
   `a8/el-cert.pdf` (certifié P2), `a8/el-tsa.pdf` (horodaté, TSA de test non approuvé),
   signature par identifiant auto-signé Elium (coche après « approuver le certificat »),
   verrouillage du document après signature.
+
+### T8 : revue adversariale (partielle) — corrigé
+1. Une révision ultérieure pouvait réécrire le dictionnaire d'une signature (retirer la
+   certification P1 ou le verrou, falsifier motif / date) et passer pour « modification
+   autorisée ». Corrigé : dictionnaire, /Reference, /Lock, /M, motif lus dans la version
+   signée ; toute modification d'une signature existante ou d'un champ signé est non
+   autorisée ; dictionnaire absent/altéré dans la révision signée = erreur.
+2-3. Un horodatage ne sert de preuve de l'heure que si l'autorité est approuvée
+   (sinon affiché, non retenu).
+7. Clés issues d'un .p12 importées non exportables (copie exportable seulement pour lire
+   la clé publique).
+Non couvert par la revue (coupée) : signature de fichiers atypiques, relais TSA (SSRF,
+DNS rebinding), parcours UI. À reprendre lors de la vérification finale (V).

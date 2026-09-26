@@ -172,6 +172,10 @@ export interface PadesVerification {
   /** The chain reaches a trusted identity (kept for older callers: same as trust === "trusted"). */
   chainVerified: boolean;
   timestamped: boolean;
+  /** The timestamp authority is trusted: its time is the signing time. */
+  timestampTrusted?: boolean;
+  /** Time of an untrusted timestamp (shown, not relied on). */
+  timestampAt?: string;
   /** Certification level when this is a certifying signature. */
   certification?: 1 | 2 | 3;
   /** Fields this signature locks (FieldMDP), "*" = all. */
@@ -291,18 +295,20 @@ async function importPrivateKey(
   const alg = children(info[1]!);
   const algOid = oidOf(alg[0]!);
   if (algOid === OID.rsaEncryption) {
-    const key = await subtle().importKey("pkcs8", buf(pkcs8), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, true, [
-      "sign",
-    ]);
-    return { key, keyType: "rsa", jwk: await subtle().exportKey("jwk", key) };
+    const alg = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
+    // An extractable copy only to read the public half; the key kept for signing is not.
+    const probe = await subtle().importKey("pkcs8", buf(pkcs8), alg, true, ["sign"]);
+    const key = await subtle().importKey("pkcs8", buf(pkcs8), alg, false, ["sign"]);
+    return { key, keyType: "rsa", jwk: await subtle().exportKey("jwk", probe) };
   }
   if (algOid === OID.ecPublicKey) {
     const curve = alg[1]?.tag === 0x06 ? oidOf(alg[1]) : "";
     const namedCurve =
       curve === OID.prime256v1 ? "P-256" : curve === OID.secp384r1 ? "P-384" : curve === OID.secp521r1 ? "P-521" : "";
     if (!namedCurve) throw new Pkcs12Error("Courbe elliptique non prise en charge (P-256, P-384 ou P-521 attendue).");
-    const key = await subtle().importKey("pkcs8", buf(pkcs8), { name: "ECDSA", namedCurve }, true, ["sign"]);
-    return { key, keyType: "ec", jwk: await subtle().exportKey("jwk", key) };
+    const probe = await subtle().importKey("pkcs8", buf(pkcs8), { name: "ECDSA", namedCurve }, true, ["sign"]);
+    const key = await subtle().importKey("pkcs8", buf(pkcs8), { name: "ECDSA", namedCurve }, false, ["sign"]);
+    return { key, keyType: "ec", jwk: await subtle().exportKey("jwk", probe) };
   }
   throw new Pkcs12Error("Type de clé non pris en charge (RSA ou EC attendu).");
 }
@@ -532,6 +538,9 @@ interface SigField {
   /** Its widget (the same dict for a merged field/widget). */
   widget: PDFDict;
   widgetRef?: PDFRef;
+  /** The field's and its signature dictionary's references (to find them in an earlier revision). */
+  fieldRef?: PDFRef;
+  sigRef?: PDFRef;
   name: string;
   pageIndex: number;
   rect: [number, number, number, number];
@@ -605,10 +614,13 @@ function signatureFields(doc: PDFDocument): SigField[] {
         const p = widget.get(PDFName.of("P"));
         pageIndex = p instanceof PDFRef ? pages.findIndex((pg) => pg.ref === p) : -1;
       }
+      const v = node.get(PDFName.of("V"));
       out.push({
         field: node,
         widget,
         widgetRef,
+        fieldRef: ref instanceof PDFRef ? ref : undefined,
+        sigRef: v instanceof PDFRef ? v : undefined,
         name,
         pageIndex,
         rect,
@@ -1120,6 +1132,9 @@ interface SignerCheck {
   signingTime?: Date;
   timestamp?: Date;
   timestampOk?: boolean;
+  /** The timestamp authority's certificate and the certificates its token carries. */
+  tsaCert?: Certificate;
+  tsaPool?: Certificate[];
   essOk: boolean;
 }
 
@@ -1243,6 +1258,8 @@ async function checkSigner(sd: SignedData, signer: Tlv, signedContent: Uint8Arra
         const tsd = signedDataOf(token);
         const tcheck = await checkSigner(tsd, tsd.signers[0]!, tsd.eContent ?? new Uint8Array());
         tokenOk = tcheck.signatureOk && tcheck.digestOk;
+        out.tsaCert = tcheck.cert;
+        out.tsaPool = tsd.certificates;
       } catch {
         tokenOk = false;
       }
@@ -1414,6 +1431,15 @@ function diffRevisions(rev: PDFDocument, fin: PDFDocument): { kind: ChangeKind; 
     const d =
       obj instanceof PDFDict ? obj : obj instanceof PDFStream ? (obj as unknown as { dict: PDFDict }).dict : undefined;
     const claimed = owner.get(k);
+    // A signature already made, or its signed field, must never change afterwards.
+    if (old instanceof PDFDict && old.has(PDFName.of("ByteRange"))) {
+      add("disallowed", "Signature existante modifiée");
+      continue;
+    }
+    if (old instanceof PDFDict && inheritedFT(old) === "Sig" && old.lookup(PDFName.of("V")) instanceof PDFDict) {
+      add("disallowed", "Champ de signature signé modifié");
+      continue;
+    }
     if (d && (d.lookup(PDFName.of("Type")) === PDFName.of("Sig") || d.has(PDFName.of("ByteRange")))) {
       add("signature", "Signature ajoutée");
       continue;
@@ -1478,6 +1504,8 @@ function judge(
 
 interface FoundSig {
   name: string;
+  fieldRef?: PDFRef;
+  sigRef?: PDFRef;
   /** The signature dictionary; absent when found by scanning a damaged file. */
   sig?: PDFDict;
   range?: number[];
@@ -1505,6 +1533,8 @@ export async function verifyPdfSignatures(
         const lk = f.field.lookup(PDFName.of("Lock"));
         found.push({
           name: f.name,
+          fieldRef: f.fieldRef,
+          sigRef: f.sigRef,
           sig: v,
           lock:
             lk instanceof PDFDict
@@ -1551,17 +1581,57 @@ export async function verifyPdfSignatures(
   for (let idx = 0; idx < entries.length; idx++) {
     const { f, r } = entries[idx]!;
     const [a, b, c, d] = r as [number, number, number, number];
+    const whole = a === 0 && c + d === bytes.length;
+    // The signed revision: what the signature covers. Its own dictionary, its
+    // certification, its locks and its details are read there — a later
+    // revision may rewrite them, and that rewrite is a change like any other.
+    let rev: PDFDocument | null = whole ? fin : null;
+    if (!whole && fin) {
+      const end = c + d;
+      if (!revCache.has(end)) {
+        try {
+          revCache.set(end, await loadPlain(bytes.subarray(0, end), options.password));
+        } catch {
+          revCache.set(end, null);
+        }
+      }
+      rev = revCache.get(end) ?? null;
+    }
+    let sig = f.sig;
+    let fieldLock = f.lock;
+    let sigTampered = false;
+    if (rev && f.sig) {
+      const revField = f.fieldRef ? rev.context.lookup(f.fieldRef) : undefined;
+      const fromRev = f.sigRef
+        ? rev.context.lookup(f.sigRef)
+        : revField instanceof PDFDict
+          ? revField.lookup(PDFName.of("V"))
+          : undefined;
+      const revRange = fromRev instanceof PDFDict ? fromRev.lookup(PDFName.of("ByteRange")) : undefined;
+      const sameRange =
+        revRange instanceof PDFArray &&
+        [0, 1, 2, 3].every((i) => (revRange.lookup(i) as PDFNumber | undefined)?.asNumber?.() === r[i]);
+      if (fromRev instanceof PDFDict && sameRange) sig = fromRev;
+      else sigTampered = true;
+      const lk = revField instanceof PDFDict ? revField.lookup(PDFName.of("Lock")) : undefined;
+      fieldLock =
+        lk instanceof PDFDict
+          ? { ...lockOf(lk), p: (lk.lookup(PDFName.of("P")) as PDFNumber | undefined)?.asNumber?.() }
+          : revField instanceof PDFDict
+            ? undefined
+            : f.lock;
+    }
     const out: PadesVerification = {
       fieldName: f.name,
-      signerName: text(f.sig?.lookup(PDFName.of("Name"))) ?? "",
-      reason: text(f.sig?.lookup(PDFName.of("Reason"))),
-      location: text(f.sig?.lookup(PDFName.of("Location"))),
-      contactInfo: text(f.sig?.lookup(PDFName.of("ContactInfo"))),
+      signerName: text(sig?.lookup(PDFName.of("Name"))) ?? "",
+      reason: text(sig?.lookup(PDFName.of("Reason"))),
+      location: text(sig?.lookup(PDFName.of("Location"))),
+      contactInfo: text(sig?.lookup(PDFName.of("ContactInfo"))),
       timeSource: "none",
-      subFilter: (f.sig?.lookup(PDFName.of("SubFilter")) as PDFName | undefined)?.decodeText?.() ?? "",
+      subFilter: (sig?.lookup(PDFName.of("SubFilter")) as PDFName | undefined)?.decodeText?.() ?? "",
       intact: false,
       digestMatches: false,
-      coversWholeDocument: a === 0 && c + d === bytes.length,
+      coversWholeDocument: whole,
       modifications: "none",
       changes: [],
       valid: false,
@@ -1574,14 +1644,16 @@ export async function verifyPdfSignatures(
       revisionEnd: c + d,
       chain: [],
     };
-    const ref = f.sig ? referenceOf(f.sig) : {};
+    const ref = sig ? referenceOf(sig) : {};
     if (ref.certification) {
       out.certification = ref.certification;
       certification = certification ?? ref.certification;
     }
-    const lock = ref.locks ? { ...ref.locks, p: f.lock?.p } : f.lock;
+    const lock = ref.locks ? { ...ref.locks, p: fieldLock?.p } : fieldLock;
     if (lock) out.locks = lock.action === "All" ? ["*"] : lock.fields;
     try {
+      if (sigTampered)
+        throw new Error("Le dictionnaire de cette signature ne figure pas tel quel dans la version signée.");
       if (a !== 0 || b <= 0 || c <= b || c + d > bytes.length || bytes[b] !== 0x3c || bytes[c - 1] !== 0x3e)
         throw new Error("Plage d'octets signée incohérente.");
       if (/rsa_sha1/.test(out.subFilter)) throw new Error(`Format de signature non pris en charge (${out.subFilter}).`);
@@ -1607,10 +1679,18 @@ export async function verifyPdfSignatures(
       out.signerName = check.cert.commonName || out.signerName;
       out.certificate = certInfo(check.cert);
       out.selfSigned = selfIssued(check.cert);
-      const claimed = check.signingTime ?? parsePdfDate(text(f.sig?.lookup(PDFName.of("M"))));
-      const at = check.timestamp && check.timestampOk ? check.timestamp : claimed;
+      const claimed = check.signingTime ?? parsePdfDate(text(sig?.lookup(PDFName.of("M"))));
+      // A timestamp proves the time only when its authority is trusted too.
+      let tsaTrusted = false;
+      if (check.timestamp && check.timestampOk && check.tsaCert) {
+        const tsaChain = await buildChain(check.tsaCert, check.tsaPool ?? [], trusted, check.timestamp);
+        tsaTrusted = tsaChain.trust === "trusted" && tsaChain.validAt;
+      }
+      out.timestampTrusted = tsaTrusted;
+      const at = tsaTrusted ? check.timestamp : claimed;
       out.timestamped = !!check.timestamp && !!check.timestampOk;
-      out.timeSource = out.timestamped ? "timestamp" : at ? "signer" : "none";
+      out.timeSource = tsaTrusted ? "timestamp" : at ? "signer" : "none";
+      if (out.timestamped && !tsaTrusted) out.timestampAt = check.timestamp!.toISOString();
       if (at) out.signedAt = at.toISOString();
       const chain = await buildChain(check.cert, sd.certificates, trusted, at ?? new Date());
       out.trust = chain.trust;
@@ -1624,15 +1704,6 @@ export async function verifyPdfSignatures(
 
     // Changes after this signature.
     if (!out.coversWholeDocument && fin) {
-      const end = c + d;
-      if (!revCache.has(end)) {
-        try {
-          revCache.set(end, await loadPlain(bytes.subarray(0, end), options.password));
-        } catch {
-          revCache.set(end, null);
-        }
-      }
-      const rev = revCache.get(end);
       const raw = rev ? diffRevisions(rev, fin) : [{ kind: "disallowed" as const, label: "Révision signée illisible" }];
       // A later signature's own field counts as the signature it is.
       const locks = [...activeLocks, ...(lock ? [lock] : [])];

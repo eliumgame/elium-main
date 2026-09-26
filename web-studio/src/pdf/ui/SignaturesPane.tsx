@@ -111,6 +111,12 @@ function Details({ v, p }: { v: PadesVerification; p: SignaturesPaneProps }) {
           ? `Horodatage de confiance : ${when(v.signedAt)}.`
           : `Heure de signature (horloge du signataire) : ${when(v.signedAt)}.`}
       </p>
+      {v.timestampAt && (
+        <p>
+          Horodatage présent ({when(v.timestampAt)}), mais son autorité ne fait pas partie de vos identités approuvées :
+          il n'est pas pris comme preuve de l'heure.
+        </p>
+      )}
       {v.certification && (
         <p>
           Signature de certification :{" "}

@@ -231,4 +231,53 @@ describe("PAdES signing", () => {
       }),
     ).rejects.toThrow(/horodatage/i);
   });
+
+  it("a later revision rewriting a signature (certification, lock, reason, date) is caught; details come from the signed version", async () => {
+    const sigOf = (doc: PDFDocument) => {
+      const fields = doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict).lookup(PDFName.of("Fields"), PDFArray);
+      for (let i = 0; i < fields.size(); i++) {
+        const f = fields.lookup(i, PDFDict);
+        const v = f.lookup(PDFName.of("V"));
+        if (v instanceof PDFDict && v.has(PDFName.of("ByteRange"))) return { field: f, sig: v };
+      }
+      throw new Error("no signature");
+    };
+    const fill = (doc: PDFDocument) => doc.getForm().getTextField("Nom").setText("Changé après");
+
+    // Certification level 1 removed from the dictionary, then a field filled.
+    const certified = await signPdfBytes(await makePdf(true), RSA, "pw", { certify: 1, reason: "Accord" });
+    const uncertified = await update(certified, (doc) => {
+      sigOf(doc).sig.delete(PDFName.of("Reference"));
+      fill(doc);
+    });
+    let [v] = await verifyPdfSignatures(uncertified);
+    expect(v!.valid).toBe(false);
+    expect(v!.certification).toBe(1);
+    expect(v!.changes.map((c) => c.label)).toContain("Signature existante modifiée");
+
+    // Document lock removed (dictionary and field), then a field filled.
+    const locked = await signPdfBytes(await makePdf(true), RSA, "pw", { lockDocument: true });
+    const unlocked = await update(locked, (doc) => {
+      const { field, sig } = sigOf(doc);
+      sig.delete(PDFName.of("Reference"));
+      field.delete(PDFName.of("Lock"));
+      fill(doc);
+    });
+    [v] = await verifyPdfSignatures(unlocked);
+    expect(v!.valid).toBe(false);
+    expect(v!.locks).toEqual(["*"]);
+
+    // Reason and date forged afterwards: the signed ones are shown, the change reported.
+    const now = new Date(Date.UTC(2026, 3, 1, 10, 0, 0));
+    const signed = await signPdfBytes(await makePdf(true), RSA, "pw", { reason: "Accord", now });
+    const forged = await update(signed, (doc) => {
+      const { sig } = sigOf(doc);
+      sig.set(PDFName.of("Reason"), PDFHexString.fromText("Refusé"));
+      sig.set(PDFName.of("M"), PDFHexString.fromText("D:20200101000000Z"));
+    });
+    [v] = await verifyPdfSignatures(forged);
+    expect(v!.reason).toBe("Accord");
+    expect(v!.signedAt).toBe(now.toISOString());
+    expect(v!.modifications).toBe("disallowed");
+  });
 });

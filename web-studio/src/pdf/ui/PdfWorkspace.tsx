@@ -110,7 +110,6 @@ import {
   pdfFromImages,
   splitDocument,
   PAGE_SIZES,
-  imagePageSize,
 } from "../ops/organize";
 import { WrongPassword, inspectProtection, removeProtection, type Permissions } from "../ops/security";
 // signPdfBytes/verifyPdfSignatures/generateSelfSignedP12 pull in node-forge, a
@@ -3193,7 +3192,7 @@ export default function PdfWorkspace({
         // A picture stamp: remembered in this browser, placed with the Tampon tool.
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "image/png,image/jpeg,image/webp,image/gif";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif,image/tiff,image/bmp,.tif,.tiff";
         input.style.display = "none";
         document.body.appendChild(input);
         input.addEventListener("cancel", () => input.remove());
@@ -3224,7 +3223,7 @@ export default function PdfWorkspace({
         // An <input> in the document: some browsers ignore a detached one.
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "image/png,image/jpeg,image/webp,image/gif";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif,image/tiff,image/bmp,.tif,.tiff";
         input.style.display = "none";
         input.dataset.testid = "add-image-input";
         document.body.appendChild(input);
@@ -4368,8 +4367,15 @@ export default function PdfWorkspace({
     }
 
     if (!bytesRef.current) {
+      // Every page of every file (TIFF scans have several), each at its resolution.
+      const { pagePictures } = await import("./imagefiles");
+      const pictures = (await Promise.all(files.map((f) => pagePictures(f)))).flat();
+      if (!pictures.length) {
+        toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+        return;
+      }
       const bytes = await pdfFromImages(
-        sources.map((src) => ({ src })),
+        pictures.map((p) => ({ src: p.src })),
         { pageSize: "fit" },
       );
       // A new document, saved nowhere yet.
@@ -4384,28 +4390,18 @@ export default function PdfWorkspace({
   };
 
   /**
-   * One page per picture, at position `index`, each the picture's own size
-   * (at 96 dpi, as a screen shows it; a large one brought down to A4).
+   * One page per picture (per page of a TIFF), at position `index`, each the
+   * picture's real size when its file gives its resolution, else its size at
+   * 96 dpi (as a screen shows it; a large one brought down to A4).
    */
   const insertImageFiles = async (files: File[], index: number) => {
-    const read = (f: File) =>
-      new Promise<string>((res) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result as string);
-        r.readAsDataURL(f);
-      });
-    const sizeOfImage = (src: string) =>
-      new Promise<{ w: number; h: number }>((res) => {
-        const img = new Image();
-        img.onload = () => res({ w: img.naturalWidth || 595, h: img.naturalHeight || 842 });
-        img.onerror = () => res({ w: 595, h: 842 });
-        img.src = src;
-      });
+    const { pagePictures } = await import("./imagefiles");
     const made: Page[] = [];
-    for (const f of files) {
-      const src = await read(f);
-      const px = await sizeOfImage(src);
-      made.push(D.makePage(null, { image: src, size: imagePageSize(px.w, px.h) }));
+    for (const f of files)
+      for (const p of await pagePictures(f)) made.push(D.makePage(null, { image: p.src, size: p.size }));
+    if (!made.length) {
+      toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+      return;
     }
     setState((s) => D.insertPages(s, index, made));
     toast("success", `${made.length} page(s) image ajoutée(s).`);
@@ -4434,8 +4430,8 @@ export default function PdfWorkspace({
     toast("warning", "Presse-papiers", "Il ne contient ni image, ni PDF, ni texte à insérer.");
   };
 
-  /** « Insérer depuis le presse-papiers » (the browser asks for permission). */
-  const insertFromClipboard = async () => {
+  /** What the clipboard holds (the browser asks for permission); null when unreadable. */
+  const readClipboard = async (): Promise<{ files: File[]; text: string } | null> => {
     let items: ClipboardItems;
     try {
       items = await navigator.clipboard.read();
@@ -4445,7 +4441,7 @@ export default function PdfWorkspace({
         "Presse-papiers inaccessible",
         "Autorisez l'accès au presse-papiers, ou collez avec Ctrl+V dans la vue Organiser.",
       );
-      return;
+      return null;
     }
     const files: File[] = [];
     let text = "";
@@ -4458,7 +4454,37 @@ export default function PdfWorkspace({
         text += await (await item.getType("text/plain")).text();
       }
     }
-    await pasteAsPages(files, text);
+    return { files, text };
+  };
+
+  /** « Insérer depuis le presse-papiers ». */
+  const insertFromClipboard = async () => {
+    const got = await readClipboard();
+    if (got) await pasteAsPages(got.files, got.text);
+  };
+
+  /** « Créer un PDF depuis le presse-papiers »: a new document of its picture or its text. */
+  const createFromClipboard = async () => {
+    const got = await readClipboard();
+    if (!got) return;
+    let bytes: Uint8Array | null = null;
+    if (got.files.length) {
+      const { pagePictures } = await import("./imagefiles");
+      const pictures = (await Promise.all(got.files.map((f) => pagePictures(f)))).flat();
+      if (pictures.length)
+        bytes = await pdfFromImages(
+          pictures.map((p) => ({ src: p.src })),
+          { pageSize: "fit" },
+        );
+    } else if (got.text.trim()) {
+      const { textToPdf } = await import("../ops/organize");
+      bytes = await textToPdf(got.text);
+    }
+    if (!bytes) {
+      toast("warning", "Presse-papiers", "Il ne contient ni image ni texte.");
+      return;
+    }
+    await openBytes(bytes, "Presse-papiers.pdf", undefined, undefined, null, { unsaved: true });
   };
 
   const onDataPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4825,6 +4851,9 @@ export default function PdfWorkspace({
               </button>
               <button className="eb eb--outline" onClick={() => setDialog("combine")} disabled={loading}>
                 Combiner des fichiers
+              </button>
+              <button className="eb eb--outline" onClick={() => void createFromClipboard()} disabled={loading}>
+                Depuis le presse-papiers
               </button>
             </div>
             {drafts.length > 0 && (

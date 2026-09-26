@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { writeTiff } from "../src/pdf/ops/imagefile";
 
 /** Exports follow the document as it is shown (projects « drive » and « desktop »). */
 
@@ -44,6 +45,50 @@ test.describe("PDF — conversion", () => {
     const text = await readFile((await (await dl).path())!, "utf-8");
     expect(text).toContain("SECONDE PAGE");
     expect(text).not.toContain("PREMIERE PAGE");
+    expect(problems).toEqual([]);
+  });
+
+  test("créer un PDF : un TIFF à 300 dpi donne une page A4 ; le presse-papiers donne un document", async ({
+    page,
+    context,
+  }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>;
+      delete w.showSaveFilePicker;
+      delete w.showOpenFilePicker;
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: /^PDF/ }).click();
+    // An A4 page scanned at 300 dpi, grey.
+    const tif = await writeTiff({ width: 2480, height: 3508, rgba: new Uint8Array(2480 * 3508 * 4).fill(180) }, 300);
+    await page
+      .locator('input[type="file"][accept="image/*"]')
+      .first()
+      .setInputFiles({
+        name: "scan.tif",
+        mimeType: "image/tiff",
+        buffer: Buffer.from(tif),
+      });
+    await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
+    const dl = page.waitForEvent("download");
+    await page.keyboard.press("Control+s");
+    const saved = await PDFDocument.load(await readFile((await (await dl).path())!));
+    const { width, height } = saved.getPage(0).getSize();
+    expect(width).toBeCloseTo(595.2, 0);
+    expect(height).toBeCloseTo(841.9, 0);
+
+    // A new document from copied text.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/");
+    await page.getByRole("button", { name: /^PDF/ }).click();
+    await page.evaluate(() => navigator.clipboard.writeText("Texte venu du presse-papiers"));
+    await page.getByRole("button", { name: "Depuis le presse-papiers" }).click();
+    await expect(page.locator(".pdfx-canvas").first()).toBeVisible();
+    await page.keyboard.press("Control+f");
+    await page.getByPlaceholder("Rechercher dans le document…").fill("presse-papiers");
+    await expect(page.locator(".pdfx-find__count")).toHaveText("1/1");
     expect(problems).toEqual([]);
   });
 });

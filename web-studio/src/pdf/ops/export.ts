@@ -7,6 +7,7 @@
  * usable shape.
  */
 
+import { withJpegDpi, withPngDpi, writeTiff } from "./imagefile";
 import { zipSync, strToU8 } from "fflate";
 import type { PdfEngine } from "../core/engine";
 import { renderToCanvas, canvasToBlob } from "../core/render";
@@ -17,7 +18,7 @@ import type { TextBlock, TextLine } from "../core/text";
 // Images
 // ---------------------------------------------------------------------------
 
-export type ImageFormat = "png" | "jpeg" | "webp";
+export type ImageFormat = "png" | "jpeg" | "webp" | "tiff";
 
 export interface ImageExportOptions {
   format: ImageFormat;
@@ -47,11 +48,23 @@ export async function exportImages(
   for (let i = 0; i < indices.length; i++) {
     const index = indices[i];
     const page = await engine.page(index);
-    const canvas = await renderToCanvas(page, { scale, background: opts.format === "png" ? "#ffffff" : "#ffffff" });
-    const blob = await canvasToBlob(canvas, mime, opts.quality);
+    const canvas = await renderToCanvas(page, { scale, background: "#ffffff" });
+    // The resolution goes into the file: an editor or a printer shows it at its real size.
+    let data: Uint8Array;
+    if (opts.format === "tiff") {
+      const px = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+      data = await writeTiff(
+        { width: canvas.width, height: canvas.height, rgba: new Uint8Array(px.data.buffer) },
+        opts.dpi,
+      );
+    } else {
+      data = new Uint8Array(await (await canvasToBlob(canvas, mime, opts.quality)).arrayBuffer());
+      if (opts.format === "png") data = withPngDpi(data, opts.dpi);
+      if (opts.format === "jpeg") data = withJpegDpi(data, opts.dpi);
+    }
     out.push({
-      name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format}`,
-      blob,
+      name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format === "tiff" ? "tif" : opts.format}`,
+      blob: new Blob([data.slice().buffer as ArrayBuffer], { type: mime }),
       page: index,
     });
     opts.onProgress?.(i + 1, indices.length);

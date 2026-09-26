@@ -1135,7 +1135,7 @@ export function ExportImagesDialog({
 }: {
   pageCount: number;
   onConfirm: (v: {
-    format: "png" | "jpeg" | "webp";
+    format: "png" | "jpeg" | "webp" | "tiff";
     dpi: number;
     quality: number;
     range: string;
@@ -1143,7 +1143,7 @@ export function ExportImagesDialog({
   }) => void;
   onClose: () => void;
 }) {
-  const [format, setFormat] = useState<"png" | "jpeg" | "webp">("png");
+  const [format, setFormat] = useState<"png" | "jpeg" | "webp" | "tiff">("png");
   const [dpi, setDpi] = useState(150);
   const [quality, setQuality] = useState(0.9);
   const [range, setRange] = useState("");
@@ -1170,6 +1170,7 @@ export function ExportImagesDialog({
             <option value="png">PNG (sans perte)</option>
             <option value="jpeg">JPEG (plus léger)</option>
             <option value="webp">WebP</option>
+            <option value="tiff">TIFF</option>
           </select>
         </label>
         <label className="pdfx-form__row">

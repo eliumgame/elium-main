@@ -4,6 +4,7 @@
  * hard to get subtly wrong.
  */
 
+import { imageDpi, pictureSize } from "./imagefile";
 import {
   PDFArray,
   PDFDict,
@@ -133,14 +134,8 @@ export function imageKind(bytes: Uint8Array): "png" | "jpg" | null {
  * The page a picture of `w × h` pixels is put on: its size at 96 dpi (as a
  * screen shows it), a large one brought down to fit A4 in its orientation.
  */
-export function imagePageSize(w: number, h: number): { w: number; h: number } {
-  let pw = (w * 72) / 96;
-  let ph = (h * 72) / 96;
-  const [a4w, a4h] = pw > ph ? [842, 595] : [595, 842];
-  const k = Math.min(1, a4w / pw, a4h / ph);
-  pw = Math.max(1, Math.round(pw * k));
-  ph = Math.max(1, Math.round(ph * k));
-  return { w: pw, h: ph };
+export function imagePageSize(w: number, h: number, dpi?: { x: number; y: number } | null): { w: number; h: number } {
+  return pictureSize(w, h, dpi);
 }
 
 /**
@@ -267,7 +262,8 @@ export async function mergeDocuments(
     if (kind) {
       try {
         const img = kind === "png" ? await out.embedPng(src.bytes) : await out.embedJpg(src.bytes);
-        const size = imagePageSize(img.width, img.height);
+        // Its real size when the file gives its resolution (a 300 dpi scan stays A4).
+        const size = imagePageSize(img.width, img.height, imageDpi(src.bytes));
         const page = out.addPage([size.w, size.h]);
         page.drawImage(img, { x: 0, y: 0, width: size.w, height: size.h });
         if (opts.outline !== false) {
@@ -671,8 +667,13 @@ export async function pdfFromImages(
     const img = await bank.get(item.src);
     if (!img) continue;
     if (opts.pageSize === "fit" || !opts.pageSize) {
-      const page = doc.addPage([img.width, img.height]);
-      page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+      // At the picture's resolution (points = pixels × 72 / dpi); 72 dpi when unknown.
+      const comma = item.src.indexOf(",");
+      const dpi = item.src.startsWith("data:") && comma > 0 ? imageDpi(base64Bytes(item.src.slice(comma + 1))) : null;
+      const w = dpi ? (img.width * 72) / dpi.x : img.width;
+      const h = dpi ? (img.height * 72) / dpi.y : img.height;
+      const page = doc.addPage([w, h]);
+      page.drawImage(img, { x: 0, y: 0, width: w, height: h });
     } else {
       const [w, h] = opts.pageSize;
       const page = doc.addPage([w, h]);
@@ -684,8 +685,15 @@ export async function pdfFromImages(
       page.drawImage(img, { x: (w - dw) / 2, y: (h - dh) / 2, width: dw, height: dh });
     }
   }
-  if (!doc.getPageCount()) doc.addPage(PAGE_SIZES.A4);
+  if (!doc.getPageCount()) throw new Error("Aucune image lisible : formats acceptés PNG, JPEG, TIFF, WebP, GIF, BMP.");
   return doc.save();
+}
+
+function base64Bytes(b64: string): Uint8Array {
+  const bin = atob(b64.slice(0, 200_000)); // the resolution sits in the file's first bytes
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 /** Build a blank PDF, for "create a new document". */

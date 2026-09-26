@@ -1,3 +1,4 @@
+import { isTiff } from "../ops/imagefile";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, FileImage, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { Modal } from "../../ui/components";
@@ -43,6 +44,21 @@ async function readItem(file: File): Promise<CombineItem> {
   const id = `cf${++seq}`;
   let bytes: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
   const isImage = file.type.startsWith("image/") || !!imageKind(bytes);
+  // A TIFF (often a multi-page scan) becomes a PDF of its pages, each at its resolution.
+  if (isTiff(bytes)) {
+    try {
+      const { pagePictures } = await import("./imagefiles");
+      const { pdfFromImages } = await import("../ops/organize");
+      const pictures = await pagePictures(file);
+      const pdf = await pdfFromImages(
+        pictures.map((p) => ({ src: p.src })),
+        { pageSize: "fit" },
+      );
+      return { id, name: file.name, bytes: pdf, count: pictures.length, range: "", image: false };
+    } catch {
+      return { id, name: file.name, bytes: undefined, count: 0, range: "", image: true };
+    }
+  }
   if (isImage) {
     if (!imageKind(bytes)) bytes = await asPng(file);
     return { id, name: file.name, bytes: bytes ?? undefined, count: bytes ? 1 : 0, range: "", image: true };

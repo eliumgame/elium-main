@@ -866,6 +866,8 @@ export interface PathObject {
   /** The painting operator (S, f, B…); `n` paths (clips only) are not listed. */
   to: number;
   box: ClipBox;
+  /** The CTM in force (a path cannot change it while being built). */
+  ctm: Mat;
 }
 
 /** Every stroked or filled path, with the CTM in force (q/Q/cm tracked). */
@@ -898,7 +900,7 @@ export function walkPaths(ops: readonly Op[], start: Mat = IDENTITY): PathObject
         extend(x, y + h);
       } else for (let k = 0; k + 1 < args.length; k += 2) extend(num(args[k]), num(args[k + 1]));
     } else if (PATH_PAINT.has(op)) {
-      if (from >= 0 && box && op !== "n") out.push({ from, to: i, box });
+      if (from >= 0 && box && op !== "n") out.push({ from, to: i, box, ctm });
       from = -1;
       box = null;
     }

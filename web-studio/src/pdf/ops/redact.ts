@@ -10,7 +10,7 @@
  */
 
 import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, decodePDFRawStream } from "pdf-lib";
-import type { PDFDocument, PDFPage } from "pdf-lib";
+import type { PDFDocument, PDFObject, PDFPage } from "pdf-lib";
 import type { Mat, Op, Operand } from "../core/contentstream";
 import {
   IDENTITY,
@@ -88,7 +88,7 @@ export interface RedactionResult {
   annotsRemoved: number;
   /** Pictures whose covered pixels were destroyed (the rest kept). */
   imagesEdited?: number;
-  /** Paths (line art, text drawn as outlines) removed from under the areas. */
+  /** Subpaths (line art, text drawn as outlines) removed or cut back under the areas. */
   pathsRemoved?: number;
   /** What could only be done coarsely (an image removed whole…). */
   warnings?: string[];
@@ -109,9 +109,10 @@ const MAX_FORM_DEPTH = 8;
 
 /**
  * Strip everything inside `rects` (PDF user space) from one page: glyphs
- * (also inside form XObjects, which are copied first — another page may draw
- * the same form), the covered pixels of pictures, line art under the areas,
- * and the annotations and form fields there. The caller paints the boxes.
+ * (also inside form XObjects, tiling patterns and soft-mask groups, which are
+ * copied first — another page may draw them), the covered pixels of pictures
+ * and of their masks, line art under the areas, and the annotations and form
+ * fields there. The caller paints the boxes.
  */
 export async function applyRedactions(
   doc: PDFDocument,
@@ -130,11 +131,11 @@ export async function applyRedactions(
 
   const { ops, fonts } = await readPageContent(page);
   if (ops.length) {
-    let resources = page.node.Resources();
-    if (!(resources instanceof PDFDict)) {
-      resources = doc.context.obj({}) as PDFDict;
-      page.node.set(PDFName.of("Resources"), resources);
-    }
+    // The page's own copy of its resources: they may be shared with other
+    // pages, or inherited from /Pages, and are about to change.
+    const current = page.node.Resources();
+    const resources = current instanceof PDFDict ? current.clone(doc.context) : (doc.context.obj({}) as PDFDict);
+    page.node.set(PDFName.of("Resources"), resources);
     const scope: Scope = { doc, resources, fonts, depth: 0, seen: new Set(), result };
     const next = await redactOps(ops, scope, rects, IDENTITY);
     if (next) {
@@ -146,10 +147,28 @@ export async function applyRedactions(
   return result;
 }
 
+/** What replaces an operator: another, several, or nothing (null). */
+type Replacement = Op | Op[] | null;
+
+/**
+ * The operators that redo what `'` and `"` do before showing text (a line
+ * move, and `"`'s spacings), for the show that replaces them.
+ */
+function lineMoveOf(op: Op): Op[] {
+  if (op.op === "'") return [{ op: "T*", args: [] }];
+  if (op.op === '"' && op.args.length >= 3)
+    return [
+      { op: "Tw", args: [op.args[0]] },
+      { op: "Tc", args: [op.args[1]] },
+      { op: "T*", args: [] },
+    ];
+  return [];
+}
+
 /** The operators with what lies in `rects` removed; null when nothing was. */
 async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[], start: Mat): Promise<Op[] | null> {
   const { fonts, result } = scope;
-  const replacements = new Map<number, Op | null>();
+  const replacements = new Map<number, Replacement>();
 
   // --- text -----------------------------------------------------------------
   for (const show of walkText(ops, widthFnFor(fonts), start)) {
@@ -188,7 +207,7 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
     if (doomed.size === codes.length) {
       // Whole operator gone. Keep the caret moving so later text stays put.
       const skipped = boxes.reduce((s, g) => s + g.advance, 0) + sumTj(tj, show.state.size, show.state.hScale);
-      replacements.set(show.opIndex, shiftOnly(skipped, show.state.size, show.state.hScale));
+      replacements.set(show.opIndex, [...lineMoveOf(op), shiftOnly(skipped, show.state.size, show.state.hScale)]);
       continue;
     }
 
@@ -226,21 +245,23 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
     flushRun();
     flushSkip();
 
-    replacements.set(show.opIndex, { op: "TJ", args: [{ t: "arr", v: items }] });
+    replacements.set(show.opIndex, [...lineMoveOf(op), { op: "TJ", args: [{ t: "arr", v: items }] }]);
   }
 
-  // --- line art: a path mostly under an area goes (text drawn as outlines,
-  // a shape carrying meaning); a large one crossing it stays, hidden by the box.
+  // Patterns and soft masks first: they look at the paths as drawn.
+  let resourcesChanged = await redactPatterns(ops, scope, rects, start);
+  if (await redactSoftMasks(ops, scope, rects, start)) resourcesChanged = true;
+
+  // --- line art: every subpath that meets an area goes (text drawn as
+  // outlines, a shape carrying meaning); the others stay. A filled rectangle
+  // only partly covered keeps its visible part.
   for (const path of walkPaths(ops, start)) {
-    const box = { x: path.box.x0, y: path.box.y0, w: path.box.x1 - path.box.x0, h: path.box.y1 - path.box.y0 };
-    const area = Math.max(box.w, 0.01) * Math.max(box.h, 0.01);
-    const covered = rects.reduce(
-      (sum, r) => sum + overlaps({ ...box, w: Math.max(box.w, 0.01), h: Math.max(box.h, 0.01) }, r) * area,
-      0,
-    );
-    if (covered / area < 0.5) continue;
-    for (let i = path.from; i <= path.to; i++) if (PATH_OPS.has(ops[i].op)) replacements.set(i, null);
-    result.pathsRemoved++;
+    if (!rects.some((r) => meets(rectOf(path.box), r))) continue;
+    const rebuilt = redactPath(ops, path, rects);
+    if (!rebuilt) continue;
+    replacements.set(path.from, rebuilt.ops);
+    for (let i = path.from + 1; i <= path.to; i++) replacements.set(i, null);
+    result.pathsRemoved += rebuilt.removed;
   }
 
   // --- pictures and forms ------------------------------------------------------
@@ -272,7 +293,7 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
       continue;
     }
     if (!hit) continue;
-    const edited = await redactImage(scope.doc, xo, place.ctm, rects);
+    const edited = await redactImage(scope.doc, xo, place.ctm, rects, result.warnings);
     if (edited) {
       const name = addXObject(scope, edited);
       replacements.set(place.opIndex, { op: "Do", args: [{ t: "name", v: name }] });
@@ -280,13 +301,14 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
     } else {
       replacements.set(place.opIndex, null);
       result.imagesRemoved++;
-      const note =
-        "Une image n'a pas pu être modifiée pixel par pixel (format non pris en charge) : elle est retirée entière.";
-      if (!result.warnings.includes(note)) result.warnings.push(note);
+      warn(
+        result,
+        "Une image n'a pas pu être modifiée pixel par pixel (format non pris en charge) : elle est retirée entière.",
+      );
     }
   }
 
-  if (!replacements.size) return null;
+  if (!replacements.size && !resourcesChanged) return null;
   const next: Op[] = [];
   for (let i = 0; i < ops.length; i++) {
     if (!replacements.has(i)) {
@@ -294,12 +316,146 @@ async function redactOps(ops: readonly Op[], scope: Scope, rects: readonly Rect[
       continue;
     }
     const rep = replacements.get(i);
-    if (rep) next.push(rep);
+    if (Array.isArray(rep)) next.push(...rep);
+    else if (rep) next.push(rep);
   }
   return next;
 }
 
-const PATH_OPS = new Set(["m", "l", "c", "v", "y", "h", "re", "S", "s", "f", "F", "f*", "B", "B*", "b", "b*"]);
+function warn(result: Required<RedactionResult>, note: string): void {
+  if (!result.warnings.includes(note)) result.warnings.push(note);
+}
+
+const CONSTRUCT = new Set(["m", "l", "c", "v", "y", "h", "re"]);
+const FILL_ONLY = new Set(["f", "F", "f*"]);
+
+/** How far a subpath may reach into an area and still be kept (a shared edge, rounding). */
+const EDGE = 0.05;
+
+/**
+ * Whether `a` really reaches into `b` — more than an edge's width; a flat box
+ * (a horizontal or vertical line) when it runs inside it.
+ */
+function meets(a: Rect, b: Rect): boolean {
+  const along = (a0: number, al: number, b0: number, bl: number) => {
+    if (al <= EDGE) {
+      const mid = a0 + al / 2;
+      return mid > b0 && mid < b0 + bl;
+    }
+    return Math.min(a0 + al, b0 + bl) - Math.max(a0, b0) > EDGE;
+  };
+  return along(a.x, a.w, b.x, b.w) && along(a.y, a.h, b.y, b.h);
+}
+
+const rectOf = (b: { x0: number; y0: number; x1: number; y1: number }): Rect => ({
+  x: b.x0,
+  y: b.y0,
+  w: b.x1 - b.x0,
+  h: b.y1 - b.y0,
+});
+
+/** `p` without `cut`: up to four rectangles that do not overlap. */
+function subtract(p: Rect, cut: Rect): Rect[] {
+  const x0 = Math.max(p.x, cut.x);
+  const x1 = Math.min(p.x + p.w, cut.x + cut.w);
+  const y0 = Math.max(p.y, cut.y);
+  const y1 = Math.min(p.y + p.h, cut.y + cut.h);
+  if (x1 <= x0 || y1 <= y0) return [p];
+  const out: Rect[] = [];
+  if (y0 > p.y) out.push({ x: p.x, y: p.y, w: p.w, h: y0 - p.y });
+  if (p.y + p.h > y1) out.push({ x: p.x, y: y1, w: p.w, h: p.y + p.h - y1 });
+  if (x0 > p.x) out.push({ x: p.x, y: y0, w: x0 - p.x, h: y1 - y0 });
+  if (p.x + p.w > x1) out.push({ x: x1, y: y0, w: p.x + p.w - x1, h: y1 - y0 });
+  return out;
+}
+
+interface Subpath {
+  /** Its construction operators. */
+  ops: Op[];
+  /** Its box in user space (control points included: on the safe side). */
+  box: Rect;
+  /** A lone `re`: its rectangle in the path's own space. */
+  rect?: [number, number, number, number];
+}
+
+/**
+ * One painted path without its subpaths that meet an area. Null when every
+ * subpath is clear, or when the path holds operators it does not know.
+ */
+function redactPath(
+  ops: readonly Op[],
+  path: { from: number; to: number; ctm: Mat },
+  rects: readonly Rect[],
+): { ops: Op[]; removed: number } | null {
+  const num = (o: Operand | undefined) => (o && o.t === "num" ? o.v : 0);
+  const paint = ops[path.to];
+  const clip: Op[] = [];
+  const subs: Subpath[] = [];
+  let pts: { x: number; y: number }[] = [];
+  let current: Subpath | null = null;
+  const close = () => {
+    if (current && pts.length) current.box = boundsOf(pts);
+    pts = [];
+  };
+  for (let i = path.from; i < path.to; i++) {
+    const o = ops[i];
+    if (o.op === "W" || o.op === "W*") {
+      clip.push(o);
+      continue;
+    }
+    if (!CONSTRUCT.has(o.op)) return null;
+    const coords: [number, number][] = [];
+    for (let k = 0; k + 1 < o.args.length; k += 2) coords.push([num(o.args[k]), num(o.args[k + 1])]);
+    if (o.op === "re") {
+      const [x, y, w, h] = [num(o.args[0]), num(o.args[1]), num(o.args[2]), num(o.args[3])];
+      coords.splice(0, coords.length, [x, y], [x + w, y], [x + w, y + h], [x, y + h]);
+    }
+    if (o.op === "m" || o.op === "re" || !current) {
+      close();
+      current = { ops: [], box: { x: 0, y: 0, w: 0, h: 0 } };
+      subs.push(current);
+      if (o.op === "re") current.rect = [num(o.args[0]), num(o.args[1]), num(o.args[2]), num(o.args[3])];
+    } else if (current.rect) current.rect = undefined; // a segment after `re`: no longer a plain rectangle
+    current.ops.push(o);
+    for (const [x, y] of coords) pts.push(apply(path.ctm, x, y));
+  }
+  close();
+
+  const inv = invert(path.ctm);
+  const straight = Math.abs(path.ctm[1]) < 1e-9 && Math.abs(path.ctm[2]) < 1e-9;
+  const quarter = Math.abs(path.ctm[0]) < 1e-9 && Math.abs(path.ctm[3]) < 1e-9;
+  const kept: Op[] = [];
+  let removed = 0;
+  for (const sp of subs) {
+    if (!rects.some((r) => meets(sp.box, r))) {
+      kept.push(...sp.ops);
+      continue;
+    }
+    removed++;
+    // A filled rectangle keeps what lies outside the areas (exact: the pieces do not overlap).
+    if (sp.rect && FILL_ONLY.has(paint.op) && inv && (straight || quarter)) {
+      let pieces = [sp.box];
+      for (const r of rects) pieces = pieces.flatMap((p) => subtract(p, r));
+      for (const p of pieces) {
+        if (p.w <= EDGE || p.h <= EDGE) continue;
+        const a = apply(inv, p.x, p.y);
+        const b = apply(inv, p.x + p.w, p.y + p.h);
+        const x = Math.min(a.x, b.x);
+        const y = Math.min(a.y, b.y);
+        kept.push({
+          op: "re",
+          args: [x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y)].map((v) => ({ t: "num" as const, v })),
+        });
+      }
+    }
+  }
+  if (!removed) return null;
+  const out: Op[] = [];
+  // A clipping path keeps clipping, whatever is left to paint.
+  if (clip.length) out.push(...ops.slice(path.from, path.to), { op: "n", args: [] });
+  if (kept.length) out.push(...kept, { op: paint.op, args: [] });
+  return { ops: out, removed };
+}
 
 function intersects(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -320,25 +476,81 @@ function invert(m: Mat): Mat | null {
 
 const apply = (m: Mat, x: number, y: number) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
 
+/** A resource dictionary's entry, with `key` → `value` set in a copy of its category (never shared). */
+function setResource(scope: Scope, category: string, key: string, value: PDFObject): void {
+  const ctx = scope.doc.context;
+  const current = scope.resources.lookup(PDFName.of(category));
+  const dict = current instanceof PDFDict ? current.clone(ctx) : (ctx.obj({}) as PDFDict);
+  dict.set(PDFName.of(key), value);
+  scope.resources.set(PDFName.of(category), dict);
+}
+
 /** Name `ref` in the scope's /XObject resources (a fresh name; the dictionary copied, never shared). */
 function addXObject(scope: Scope, ref: PDFRef): string {
-  const ctx = scope.doc.context;
   const current = scope.resources.lookup(PDFName.of("XObject"));
-  const dict = current instanceof PDFDict ? current.clone(ctx) : (ctx.obj({}) as PDFDict);
   let n = 1;
-  while (dict.get(PDFName.of(`Rd${n}`))) n++;
-  dict.set(PDFName.of(`Rd${n}`), ref);
-  scope.resources.set(PDFName.of("XObject"), dict);
+  while (current instanceof PDFDict && current.get(PDFName.of(`Rd${n}`))) n++;
+  setResource(scope, "XObject", `Rd${n}`, ref);
   return `Rd${n}`;
 }
 
-/** XObject names the new operators no longer draw: out of the resources (their objects can then go). */
+/** Decoded operators of a content stream; null when it cannot be read. */
+function streamOps(s: unknown): Op[] | null {
+  if (!(s instanceof PDFRawStream)) return null;
+  try {
+    return parseContentStream(decodePDFRawStream(s).decode());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * XObject names the new operators no longer draw: out of the resources (their
+ * objects can then go). What draws with these resources without its own —
+ * a form, a pattern, a soft-mask group, a Type 3 glyph — counts as drawing.
+ */
 function dropUnusedXObjects(doc: PDFDocument, resources: PDFDict, ops: readonly Op[]): void {
   const current = resources.lookup(PDFName.of("XObject"));
   if (!(current instanceof PDFDict)) return;
-  const used = new Set(
-    ops.filter((o) => o.op === "Do" && o.args[0]?.t === "name").map((o) => (o.args[0] as { v: string }).v),
-  );
+  const noResources = (s: unknown): s is PDFRawStream =>
+    s instanceof PDFRawStream && !(s.dict.lookup(PDFName.of("Resources")) instanceof PDFDict);
+  const queue: (readonly Op[])[] = [ops];
+  const seen = new Set<unknown>();
+  const visit = (s: unknown) => {
+    if (seen.has(s) || !noResources(s)) return;
+    seen.add(s);
+    const inner = streamOps(s);
+    // Unreadable, it may draw anything: nothing is pruned.
+    if (!inner) throw new Error("unreadable");
+    queue.push(inner);
+  };
+  const each = (category: string, fn: (v: unknown) => void) => {
+    const d = resources.lookup(PDFName.of(category));
+    if (d instanceof PDFDict) for (const k of d.keys()) fn(d.lookup(k));
+  };
+  const used = new Set<string>();
+  try {
+    each("Pattern", visit);
+    each("ExtGState", (g) => {
+      const sm = g instanceof PDFDict ? g.lookup(PDFName.of("SMask")) : undefined;
+      if (sm instanceof PDFDict) visit(sm.lookup(PDFName.of("G")));
+    });
+    each("Font", (f) => {
+      if (!(f instanceof PDFDict) || f.lookup(PDFName.of("Resources")) instanceof PDFDict) return;
+      const procs = f.lookup(PDFName.of("CharProcs"));
+      if (procs instanceof PDFDict) for (const k of procs.keys()) visit(procs.lookup(k));
+    });
+    while (queue.length) {
+      for (const o of queue.pop()!) {
+        if (o.op !== "Do" || o.args[0]?.t !== "name") continue;
+        used.add(o.args[0].v);
+        const xo = current.lookup(PDFName.of(o.args[0].v));
+        if (xo instanceof PDFRawStream && xo.dict.lookup(PDFName.of("Subtype"))?.toString() === "/Form") visit(xo);
+      }
+    }
+  } catch {
+    return;
+  }
   const dict = current.clone(doc.context);
   let changed = false;
   for (const key of dict.keys()) {
@@ -348,6 +560,39 @@ function dropUnusedXObjects(doc: PDFDocument, resources: PDFDict, ops: readonly 
     }
   }
   if (changed) resources.set(PDFName.of("XObject"), dict);
+}
+
+/** A form's /Matrix (identity when absent or malformed). */
+function matrixOf(d: PDFDict): Mat {
+  const mArr = d.lookup(PDFName.of("Matrix"));
+  if (!(mArr instanceof PDFArray) || mArr.size() !== 6) return IDENTITY;
+  return [0, 1, 2, 3, 4, 5].map((i) => {
+    const v = mArr.lookup(i);
+    return v instanceof PDFNumber ? v.asNumber() : 0;
+  }) as Mat;
+}
+
+/** A /BBox as a rectangle (normalised), or null. */
+function bboxOf(d: PDFDict): Rect | null {
+  const bb = d.lookup(PDFName.of("BBox"));
+  if (!(bb instanceof PDFArray) || bb.size() !== 4) return null;
+  const [x0, y0, x1, y1] = [0, 1, 2, 3].map((i) => {
+    const v = bb.lookup(i);
+    return v instanceof PDFNumber ? v.asNumber() : 0;
+  });
+  return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+}
+
+/** A content stream's copy with `ops` as its content and `resources` as its resources. */
+function copyStream(doc: PDFDocument, of: PDFRawStream, ops: readonly Op[], resources: PDFDict): PDFRef {
+  const ctx = doc.context;
+  const dict: Record<string, unknown> = {};
+  for (const [k, v] of of.dict.entries()) {
+    const name = k.asString();
+    if (name !== "/Length" && name !== "/Filter" && name !== "/DecodeParms") dict[name.slice(1)] = v;
+  }
+  dict.Resources = resources;
+  return ctx.register(ctx.flateStream(writeContentStream(ops), dict as never));
 }
 
 /**
@@ -362,33 +607,36 @@ async function redactForm(
   scope: Scope,
   rects: readonly Rect[],
 ): Promise<string | null> {
+  const copy = await redactFormCopy(xo, ref, ctm, scope, rects);
+  return copy ? addXObject(scope, copy) : null;
+}
+
+/** A form (or a soft-mask group) drawn with `ctm`, redacted in a copy; null when untouched. */
+async function redactFormCopy(
+  xo: PDFRawStream,
+  ref: unknown,
+  ctm: Mat,
+  scope: Scope,
+  rects: readonly Rect[],
+): Promise<PDFRef | null> {
   const key = ref instanceof PDFRef ? `${ref.objectNumber} ${ref.generationNumber}` : "";
   if (scope.depth >= MAX_FORM_DEPTH || (key && scope.seen.has(key))) return null;
-  const ctx = scope.doc.context;
-  const mArr = xo.dict.lookup(PDFName.of("Matrix"));
-  const num = (a: PDFArray, i: number) => {
-    const v = a.lookup(i);
-    return v instanceof PDFNumber ? v.asNumber() : 0;
-  };
-  const matrix: Mat =
-    mArr instanceof PDFArray && mArr.size() === 6 ? ([0, 1, 2, 3, 4, 5].map((i) => num(mArr, i)) as Mat) : IDENTITY;
-  const inner = mul(matrix, ctm);
+  const inner = mul(matrixOf(xo.dict), ctm);
   // Its box on the page: nothing to do when no area reaches it.
-  const bb = xo.dict.lookup(PDFName.of("BBox"));
-  if (bb instanceof PDFArray && bb.size() === 4) {
-    const [x0, y0, x1, y1] = [0, 1, 2, 3].map((i) => num(bb, i));
-    const box = boundsOf([apply(inner, x0, y0), apply(inner, x1, y0), apply(inner, x1, y1), apply(inner, x0, y1)]);
+  const bb = bboxOf(xo.dict);
+  if (bb) {
+    const box = boundsOf([
+      apply(inner, bb.x, bb.y),
+      apply(inner, bb.x + bb.w, bb.y),
+      apply(inner, bb.x + bb.w, bb.y + bb.h),
+      apply(inner, bb.x, bb.y + bb.h),
+    ]);
     if (!rects.some((r) => intersects(box, r))) return null;
   }
-  let content: Uint8Array;
-  try {
-    content = decodePDFRawStream(xo).decode();
-  } catch {
-    return null;
-  }
+  const ops = streamOps(xo);
+  if (!ops) return null;
   const ownRes = xo.dict.lookup(PDFName.of("Resources"));
-  const baseRes = ownRes instanceof PDFDict ? ownRes : scope.resources;
-  const resources = baseRes.clone(ctx);
+  const resources = (ownRes instanceof PDFDict ? ownRes : scope.resources).clone(scope.doc.context);
   const sub: Scope = {
     ...scope,
     resources,
@@ -396,18 +644,226 @@ async function redactForm(
     depth: scope.depth + 1,
     seen: new Set([...scope.seen, key]),
   };
-  const ops = parseContentStream(content);
   const next = await redactOps(ops, sub, rects, inner);
   if (!next) return null;
   dropUnusedXObjects(scope.doc, resources, next);
-  const dict: Record<string, unknown> = {};
-  for (const [k, v] of xo.dict.entries()) {
-    const name = k.asString();
-    if (name !== "/Length" && name !== "/Filter" && name !== "/DecodeParms") dict[name.slice(1)] = v;
+  return copyStream(scope.doc, xo, next, resources);
+}
+
+/** Path painting operators that fill, and those that stroke. */
+const FILLS = new Set(["f", "F", "f*", "B", "B*", "b", "b*"]);
+const STROKES = new Set(["S", "s", "B", "B*", "b", "b*"]);
+
+/** The pattern (resource name) each painting operator fills and strokes with. */
+function patternsAt(ops: readonly Op[]): Map<number, { fill: string | null; stroke: string | null }> {
+  const out = new Map<number, { fill: string | null; stroke: string | null }>();
+  let cur = { fill: null as string | null, stroke: null as string | null };
+  const stack: (typeof cur)[] = [];
+  ops.forEach((o, i) => {
+    const last = o.args[o.args.length - 1];
+    switch (o.op) {
+      case "q":
+        stack.push(cur);
+        break;
+      case "Q":
+        cur = stack.pop() ?? { fill: null, stroke: null };
+        break;
+      case "cs":
+      case "g":
+      case "rg":
+      case "k":
+      case "sc":
+        cur = { ...cur, fill: null };
+        break;
+      case "CS":
+      case "G":
+      case "RG":
+      case "K":
+      case "SC":
+        cur = { ...cur, stroke: null };
+        break;
+      case "scn":
+        cur = { ...cur, fill: last?.t === "name" ? last.v : null };
+        break;
+      case "SCN":
+        cur = { ...cur, stroke: last?.t === "name" ? last.v : null };
+        break;
+      default:
+        if (FILLS.has(o.op) || STROKES.has(o.op)) out.set(i, cur);
+    }
+  });
+  return out;
+}
+
+/** Tiles of a tiling pattern beyond which a pattern under an area is emptied rather than redacted. */
+const MAX_TILE_RECTS = 4096;
+
+/**
+ * The areas in a tiling pattern's cell: every place of the cell that one of
+ * its repetitions puts inside an area. Null when there would be too many.
+ */
+function tileRects(rects: readonly Rect[], toUser: Mat, cell: Rect, xStep: number, yStep: number): Rect[] | null {
+  const inv = invert(toUser);
+  if (!inv) return null;
+  const out: Rect[] = [];
+  const xs = Math.abs(xStep);
+  const ys = Math.abs(yStep);
+  for (const r of rects) {
+    const p = boundsOf([
+      apply(inv, r.x, r.y),
+      apply(inv, r.x + r.w, r.y),
+      apply(inv, r.x + r.w, r.y + r.h),
+      apply(inv, r.x, r.y + r.h),
+    ]);
+    // Along an axis the area spans a whole step: every column (row) of the cell is under it.
+    const xFull = !xs || p.w >= xs;
+    const yFull = !ys || p.h >= ys;
+    const range = (a0: number, al: number, c0: number, cl: number, step: number, full: boolean) => {
+      if (full || !step) return [0];
+      const out: number[] = [];
+      for (let i = Math.floor((a0 - (c0 + cl)) / step); i <= Math.ceil((a0 + al - c0) / step); i++) out.push(i);
+      return out;
+    };
+    const is = range(p.x, p.w, cell.x, cell.w, xs, xFull);
+    const js = range(p.y, p.h, cell.y, cell.h, ys, yFull);
+    if (is.length * js.length + out.length > MAX_TILE_RECTS) return null;
+    for (const i of is) {
+      for (const j of js) {
+        const shifted: Rect = {
+          x: xFull && xs ? cell.x : p.x - i * xs,
+          y: yFull && ys ? cell.y : p.y - j * ys,
+          w: xFull && xs ? cell.w : p.w,
+          h: yFull && ys ? cell.h : p.h,
+        };
+        if (intersects(shifted, cell) || (xFull && yFull)) out.push(shifted);
+      }
+    }
   }
-  dict.Resources = resources;
-  const copy = ctx.register(ctx.flateStream(writeContentStream(next), dict as never));
-  return addXObject(scope, copy);
+  return out;
+}
+
+/**
+ * Tiling patterns painted over an area: their cell redacted in a copy —
+ * wherever one of its repetitions falls under an area, in every repetition —
+ * or emptied when that cannot be worked out. True when a pattern changed.
+ */
+async function redactPatterns(ops: readonly Op[], scope: Scope, rects: readonly Rect[], start: Mat): Promise<boolean> {
+  const patterns = scope.resources.lookup(PDFName.of("Pattern"));
+  if (!(patterns instanceof PDFDict)) return false;
+  const using = patternsAt(ops);
+  const hits = new Map<string, Rect[]>();
+  for (const path of walkPaths(ops, start)) {
+    const st = using.get(path.to);
+    if (!st) continue;
+    const paint = ops[path.to].op;
+    const names = [FILLS.has(paint) ? st.fill : null, STROKES.has(paint) ? st.stroke : null];
+    // The painted box, with room for a stroke's width.
+    const pad = STROKES.has(paint) ? 5 : 0;
+    const box = rectOf({ x0: path.box.x0 - pad, y0: path.box.y0 - pad, x1: path.box.x1 + pad, y1: path.box.y1 + pad });
+    for (const name of names) {
+      if (!name) continue;
+      for (const r of rects) {
+        const x0 = Math.max(box.x, r.x);
+        const y0 = Math.max(box.y, r.y);
+        const x1 = Math.min(box.x + box.w, r.x + r.w);
+        const y1 = Math.min(box.y + box.h, r.y + r.h);
+        if (x1 > x0 && y1 > y0) hits.set(name, [...(hits.get(name) ?? []), { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }]);
+      }
+    }
+  }
+  let changed = false;
+  for (const [name, areas] of hits) {
+    const ref = patterns.get(PDFName.of(name));
+    const pat = ref instanceof PDFRef ? scope.doc.context.lookup(ref) : ref;
+    if (!(pat instanceof PDFRawStream)) continue;
+    const type = pat.dict.lookup(PDFName.of("PatternType"));
+    if (!(type instanceof PDFNumber) || type.asNumber() !== 1) continue; // a shading: nothing written in it
+    const n = (k: string) => {
+      const v = pat.dict.lookup(PDFName.of(k));
+      return v instanceof PDFNumber ? v.asNumber() : 0;
+    };
+    const cell = bboxOf(pat.dict);
+    const key = ref instanceof PDFRef ? `${ref.objectNumber} ${ref.generationNumber}` : "";
+    const own = pat.dict.lookup(PDFName.of("Resources"));
+    const resources = own instanceof PDFDict ? own.clone(scope.doc.context) : (scope.doc.context.obj({}) as PDFDict);
+    const inCell =
+      cell && scope.depth < MAX_FORM_DEPTH && !scope.seen.has(key)
+        ? tileRects(areas, mul(matrixOf(pat.dict), start), cell, n("XStep"), n("YStep"))
+        : null;
+    const ops = streamOps(pat);
+    let next: Op[] | null;
+    if (inCell && ops) {
+      const sub: Scope = {
+        ...scope,
+        resources,
+        fonts: await loadFontsFrom(resources),
+        depth: scope.depth + 1,
+        seen: new Set([...scope.seen, key]),
+      };
+      next = await redactOps(ops, sub, inCell, IDENTITY);
+      if (!next) continue;
+      dropUnusedXObjects(scope.doc, resources, next);
+      warn(
+        scope.result,
+        "Un motif de remplissage passait sous une zone caviardée : ce qui s'y trouvait est retiré de chacune de ses répétitions.",
+      );
+    } else {
+      next = [];
+      warn(
+        scope.result,
+        "Un motif de remplissage sous une zone caviardée n'a pas pu être caviardé précisément : il est vidé entièrement.",
+      );
+    }
+    setResource(scope, "Pattern", name, copyStream(scope.doc, pat, next, resources));
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Soft masks (graphics states' /SMask /G groups) set over an area: the group
+ * redacted in a copy, in the space in force where the state is set. True when
+ * one changed.
+ */
+async function redactSoftMasks(ops: readonly Op[], scope: Scope, rects: readonly Rect[], start: Mat): Promise<boolean> {
+  const states = scope.resources.lookup(PDFName.of("ExtGState"));
+  if (!(states instanceof PDFDict)) return false;
+  const num = (o: Operand | undefined) => (o && o.t === "num" ? o.v : 0);
+  const uses = new Map<string, Mat[]>();
+  let ctm = start;
+  const stack: Mat[] = [];
+  for (const o of ops) {
+    if (o.op === "q") stack.push(ctm);
+    else if (o.op === "Q") ctm = stack.pop() ?? start;
+    else if (o.op === "cm")
+      ctm = mul([num(o.args[0]), num(o.args[1]), num(o.args[2]), num(o.args[3]), num(o.args[4]), num(o.args[5])], ctm);
+    else if (o.op === "gs" && o.args[0]?.t === "name") uses.set(o.args[0].v, [...(uses.get(o.args[0].v) ?? []), ctm]);
+  }
+  let changed = false;
+  for (const [name, ctms] of uses) {
+    const gs = states.lookup(PDFName.of(name));
+    const smask = gs instanceof PDFDict ? gs.lookup(PDFName.of("SMask")) : undefined;
+    if (!(gs instanceof PDFDict) || !(smask instanceof PDFDict)) continue;
+    let ref: unknown = smask.get(PDFName.of("G"));
+    let group = ref instanceof PDFRef ? scope.doc.context.lookup(ref) : ref;
+    let copied = false;
+    for (const at of ctms) {
+      if (!(group instanceof PDFRawStream)) break;
+      const copy = await redactFormCopy(group, ref, at, scope, rects);
+      if (!copy) continue;
+      ref = copy;
+      group = scope.doc.context.lookup(copy);
+      copied = true;
+    }
+    if (!copied) continue;
+    const mask = smask.clone(scope.doc.context);
+    mask.set(PDFName.of("G"), ref as PDFRef);
+    const state = gs.clone(scope.doc.context);
+    state.set(PDFName.of("SMask"), mask);
+    setResource(scope, "ExtGState", name, state);
+    changed = true;
+  }
+  return changed;
 }
 
 /**
@@ -422,6 +878,8 @@ async function redactImage(
   xo: PDFRawStream,
   ctm: Mat,
   rects: readonly Rect[],
+  warnings: string[],
+  depth = 0,
 ): Promise<PDFRef | null> {
   const d = xo.dict;
   const n = (k: string) => {
@@ -462,6 +920,22 @@ async function redactImage(
     const name = k.asString();
     if (name !== "/Length" && name !== "/Filter" && name !== "/DecodeParms") entries[name.slice(1)] = v;
   }
+  // Its soft mask (alpha) and stencil mask are pictures of the same place:
+  // their covered pixels go too (a copy each), or the mask goes.
+  const redactMasks = async () => {
+    for (const key of depth ? [] : ["SMask", "Mask"]) {
+      const m = d.lookup(PDFName.of(key));
+      if (!(m instanceof PDFRawStream)) continue; // a colour-key /Mask array holds no picture
+      const edited = await redactImage(doc, m, ctm, rects, warnings, depth + 1);
+      if (edited) entries[key] = edited;
+      else {
+        delete entries[key];
+        const note =
+          "Le masque de transparence d'une image caviardée n'a pas pu être modifié : il est retiré (l'image peut apparaître opaque).";
+        if (!warnings.includes(note)) warnings.push(note);
+      }
+    }
+  };
 
   if (filters.length === 1 && filters[0] === "/DCTDecode") {
     const rgba = await decodeJpeg(xo.getContents());
@@ -476,6 +950,7 @@ async function redactImage(
     delete entries.Decode;
     entries.ColorSpace = PDFName.of("DeviceRGB");
     entries.BitsPerComponent = 8;
+    await redactMasks();
     return doc.context.register(doc.context.flateStream(px, entries as never));
   }
   if (filters.some((f) => f !== "/FlateDecode")) return null;
@@ -509,6 +984,7 @@ async function redactImage(
       }
     }
   }
+  await redactMasks();
   return doc.context.register(doc.context.flateStream(data.subarray(0, rowBytes * H), entries as never));
 }
 
@@ -738,11 +1214,40 @@ export const AFTER_REDACTION: HiddenInfoOptions = { ...ALL_HIDDEN_INFO, comments
 const MEDIA = new Set(["/FileAttachment", "/Movie", "/Screen", "/RichMedia", "/Sound", "/3D"]);
 
 /**
+ * The actions chained after a kept one (/Next, a dictionary or an array),
+ * down to the last: only « go to a page » ones stay — a script or a launch
+ * would otherwise run after it. True when one was removed.
+ */
+function stripNext(doc: PDFDocument, action: PDFDict, depth = 0): boolean {
+  const raw = action.get(PDFName.of("Next"));
+  if (!raw) return false;
+  if (depth > 32) {
+    action.delete(PDFName.of("Next"));
+    return true;
+  }
+  const resolved = raw instanceof PDFRef ? doc.context.lookup(raw) : raw;
+  const items = resolved instanceof PDFArray ? resolved.asArray() : [raw];
+  let removed = false;
+  const kept: PDFObject[] = [];
+  for (const item of items) {
+    const a = item instanceof PDFRef ? doc.context.lookup(item) : item;
+    if (a instanceof PDFDict && a.lookup(PDFName.of("S"))?.toString() === "/GoTo") {
+      if (stripNext(doc, a, depth + 1)) removed = true;
+      kept.push(item);
+    } else removed = true;
+  }
+  if (!removed) return false;
+  if (!kept.length) action.delete(PDFName.of("Next"));
+  else action.set(PDFName.of("Next"), kept.length === 1 ? kept[0] : doc.context.obj(kept));
+  return true;
+}
+
+/**
  * Remove the hidden information chosen in `opts` — what may still carry text
  * a redaction removed, or what a document should not take with it. Returns
  * what was actually found and removed (never a category that had nothing).
  */
-export function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): { removed: string[] } {
+export async function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): Promise<{ removed: string[] }> {
   const removed = new Set<string>();
   const ctx = doc.context;
   const cat = doc.catalog;
@@ -791,7 +1296,7 @@ export function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): { r
       } else if (a instanceof PDFDict && o.lookup(PDFName.of("Subtype"))?.toString() === "/Widget") {
         o.delete(PDFName.of("A"));
         removed.add("actions des champs");
-      }
+      } else if (a instanceof PDFDict && stripNext(doc, a)) removed.add("actions enchaînées");
     }
   }
 
@@ -841,7 +1346,8 @@ export function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): { r
   if (opts.hiddenLayers || opts.hiddenText || opts.structure) {
     const props = cat.lookup(PDFName.of("OCProperties"));
     const off = new Set<string>();
-    if (opts.hiddenLayers && props instanceof PDFDict) {
+    const layers = opts.hiddenLayers && props instanceof PDFDict;
+    if (layers) {
       const d = props.lookup(PDFName.of("D"));
       const base = d instanceof PDFDict ? d.lookup(PDFName.of("BaseState"))?.toString() : undefined;
       const list = (k: string) => {
@@ -855,13 +1361,21 @@ export function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): { r
         if (ocgs instanceof PDFArray) for (const r of ocgs.asArray()) if (!on.has(String(r))) off.add(String(r));
       }
     }
+    const clean: CleanContext = {
+      doc,
+      opts,
+      layers,
+      visible: (oc) => ocVisible(doc, oc, off),
+      done: new Set(),
+      count: { text: 0, layers: 0, alt: 0 },
+    };
     for (const page of doc.getPages()) {
-      const n = cleanPageContent(doc, page, opts, off);
-      if (n.text) removed.add("texte invisible");
-      if (n.layers) removed.add("contenu des calques masqués");
-      if (n.alt) removed.add("textes de remplacement");
+      await cleanPage(page, clean);
     }
-    if (opts.hiddenLayers && props instanceof PDFDict) {
+    if (clean.count.text) removed.add("texte invisible");
+    if (clean.count.layers) removed.add("contenu des calques masqués");
+    if (clean.count.alt) removed.add("textes de remplacement");
+    if (layers) {
       cat.delete(PDFName.of("OCProperties"));
       removed.add("calques (fusionnés)");
     }
@@ -870,83 +1384,225 @@ export function removeHiddenInfo(doc: PDFDocument, opts: HiddenInfoOptions): { r
 }
 
 /**
- * One page's content without invisible text, hidden layers' content, or the
- * replacement text of its marked content. Returns what it removed.
+ * Whether content tagged with `oc` (an optional content group, or a
+ * membership dictionary: /OCGs with /P, or a /VE expression) shows when the
+ * groups in `off` are off — the document's default view.
  */
-function cleanPageContent(
-  doc: PDFDocument,
-  page: PDFPage,
-  opts: HiddenInfoOptions,
-  offLayers: ReadonlySet<string>,
-): { text: number; layers: number; alt: number } {
-  const count = { text: 0, layers: 0, alt: 0 };
-  const bytes = readPageContentBytes(page);
-  if (!bytes.length) return count;
-  const ops = parseContentStream(bytes);
-  const resources = page.node.Resources();
-  const properties = resources instanceof PDFDict ? resources.lookup(PDFName.of("Properties")) : undefined;
-  const xobjects = resources instanceof PDFDict ? resources.lookup(PDFName.of("XObject")) : undefined;
-  const drop = new Set<number>();
-  const replace = new Map<number, Op>();
+function ocVisible(doc: PDFDocument, oc: unknown, off: ReadonlySet<string>): boolean {
+  const groupOn = (v: unknown) => !(v instanceof PDFRef && off.has(String(v)));
+  const expression = (e: unknown, depth: number): boolean => {
+    const arr = e instanceof PDFRef ? doc.context.lookup(e) : e;
+    if (!(arr instanceof PDFArray) || depth > 32) return groupOn(e);
+    const op = arr.lookup(0)?.toString();
+    const args = arr.asArray().slice(1);
+    if (op === "/Not") return !expression(args[0], depth + 1);
+    if (op === "/Or") return args.some((a) => expression(a, depth + 1));
+    return args.every((a) => expression(a, depth + 1)); // /And
+  };
+  const d = oc instanceof PDFRef ? doc.context.lookup(oc) : oc;
+  if (!(d instanceof PDFDict)) return true;
+  if (d.lookup(PDFName.of("Type"))?.toString() !== "/OCMD" && !d.has(PDFName.of("OCGs"))) return groupOn(oc);
+  const ve = d.lookup(PDFName.of("VE"));
+  if (ve instanceof PDFArray) return expression(ve, 0);
+  const raw = d.get(PDFName.of("OCGs"));
+  const list = raw instanceof PDFArray ? raw.asArray() : raw instanceof PDFRef ? [raw] : [];
+  const resolved =
+    raw instanceof PDFRef && doc.context.lookup(raw) instanceof PDFArray
+      ? (doc.context.lookup(raw) as PDFArray).asArray()
+      : list;
+  if (!resolved.length) return true;
+  const states = resolved.map(groupOn);
+  switch (d.lookup(PDFName.of("P"))?.toString()) {
+    case "/AllOn":
+      return states.every(Boolean);
+    case "/AnyOff":
+      return states.some((s) => !s);
+    case "/AllOff":
+      return states.every((s) => !s);
+    default: // /AnyOn
+      return states.some(Boolean);
+  }
+}
 
-  if (opts.hiddenText) {
-    for (const show of walkText(ops)) {
-      if (show.state.renderMode !== 3) continue;
-      // Keep the caret where the text left it.
-      replace.set(show.opIndex, shiftOnly(show.advance, show.state.size, show.state.hScale));
-      count.text++;
+interface CleanContext {
+  doc: PDFDocument;
+  opts: HiddenInfoOptions;
+  /** Hidden layers are being removed. */
+  layers: boolean;
+  visible: (oc: unknown) => boolean;
+  /** Streams already cleaned (by object number): a form drawn twice is cleaned once. */
+  done: Set<string>;
+  count: { text: number; layers: number; alt: number };
+}
+
+/**
+ * One page without invisible text, hidden layers' content, or the replacement
+ * text of its marked content — in its content, the forms and patterns it
+ * draws, and its annotations' appearances; annotations in a hidden layer go.
+ */
+async function cleanPage(page: PDFPage, c: CleanContext): Promise<void> {
+  const bytes = readPageContentBytes(page);
+  const resources = page.node.Resources();
+  const res = resources instanceof PDFDict ? resources : undefined;
+  if (bytes.length) {
+    const next = await cleanOps(parseContentStream(bytes), res, c, 0);
+    if (next) writePageContent(c.doc, page, next);
+  }
+  const annots = page.node.Annots();
+  if (!(annots instanceof PDFArray)) return;
+  const ctx = c.doc.context;
+  for (let i = annots.size() - 1; i >= 0; i--) {
+    const ref = annots.get(i);
+    const dict = annots.lookup(i);
+    if (!(dict instanceof PDFDict)) continue;
+    const oc = dict.get(PDFName.of("OC"));
+    if (c.layers && oc && !c.visible(oc)) {
+      annots.remove(i);
+      const popup = dict.get(PDFName.of("Popup"));
+      if (popup instanceof PDFRef) {
+        for (let k = annots.size() - 1; k >= 0; k--) if (annots.get(k) === popup) annots.remove(k);
+        i = Math.min(i, annots.size());
+      }
+      if (popup instanceof PDFRef) ctx.delete(popup);
+      if (dict.lookup(PDFName.of("Subtype"))?.toString() === "/Widget" && ref instanceof PDFRef)
+        detachWidget(c.doc, ref, dict);
+      if (ref instanceof PDFRef) ctx.delete(ref);
+      c.count.layers++;
+      continue;
+    }
+    const ap = dict.lookup(PDFName.of("AP"));
+    if (!(ap instanceof PDFDict)) continue;
+    for (const k of ["N", "R", "D"]) {
+      const raw = ap.get(PDFName.of(k));
+      const v = raw instanceof PDFRef ? ctx.lookup(raw) : raw;
+      if (v instanceof PDFRawStream) await cleanStream(v, raw, undefined, c, 0);
+      else if (v instanceof PDFDict) {
+        // Appearance states (a check box's /On and /Off).
+        for (const s of v.keys()) {
+          const sr = v.get(s);
+          const sv = sr instanceof PDFRef ? ctx.lookup(sr) : sr;
+          if (sv instanceof PDFRawStream) await cleanStream(sv, sr, undefined, c, 0);
+        }
+      }
     }
   }
-  if (offLayers.size) {
-    const layerOf = (name: string) => {
-      const p = properties instanceof PDFDict ? properties.get(PDFName.of(name)) : undefined;
-      return p ? String(p) : "";
-    };
+}
+
+/**
+ * A form, pattern or appearance stream cleaned in place (hidden information
+ * goes from the whole document, wherever the stream is drawn). A stream
+ * without resources of its own uses `inherited`.
+ */
+async function cleanStream(
+  stream: PDFRawStream,
+  ref: unknown,
+  inherited: PDFDict | undefined,
+  c: CleanContext,
+  depth: number,
+): Promise<void> {
+  if (!(ref instanceof PDFRef) || depth > MAX_FORM_DEPTH) return;
+  const key = `${ref.objectNumber} ${ref.generationNumber}`;
+  if (c.done.has(key)) return;
+  c.done.add(key);
+  const ops = streamOps(stream);
+  if (!ops) return;
+  const own = stream.dict.lookup(PDFName.of("Resources"));
+  const next = await cleanOps(ops, own instanceof PDFDict ? own : inherited, c, depth + 1);
+  if (!next) return;
+  const dict: Record<string, unknown> = {};
+  for (const [k, v] of stream.dict.entries()) {
+    const name = k.asString();
+    if (name !== "/Length" && name !== "/Filter" && name !== "/DecodeParms") dict[name.slice(1)] = v;
+  }
+  c.doc.context.assign(ref, c.doc.context.flateStream(writeContentStream(next), dict as never));
+}
+
+/** Operators without invisible text, hidden layers' content or replacement text; null when unchanged. */
+async function cleanOps(
+  ops: readonly Op[],
+  resources: PDFDict | undefined,
+  c: CleanContext,
+  depth: number,
+): Promise<Op[] | null> {
+  const ctx = c.doc.context;
+  const properties = resources?.lookup(PDFName.of("Properties"));
+  const xobjects = resources?.lookup(PDFName.of("XObject"));
+  const drop = new Set<number>();
+  const replace = new Map<number, Op[]>();
+
+  if (c.opts.hiddenText) {
+    // Real widths: the caret must move by what the removed text advanced.
+    const measure = widthFnFor(await loadFontsFrom(resources));
+    for (const show of walkText(ops, measure)) {
+      if (show.state.renderMode !== 3) continue;
+      replace.set(show.opIndex, [
+        ...lineMoveOf(ops[show.opIndex]),
+        shiftOnly(show.advance, show.state.size, show.state.hScale),
+      ]);
+      c.count.text++;
+    }
+  }
+  if (c.layers) {
+    const layerOf = (name: string) => (properties instanceof PDFDict ? properties.get(PDFName.of(name)) : undefined);
     const stack: { at: number; hidden: boolean }[] = [];
     ops.forEach((o, i) => {
       if (o.op === "BDC" || o.op === "BMC") {
         const tag = o.args[0];
         const prop = o.args[1];
-        const hidden =
-          o.op === "BDC" && tag?.t === "name" && tag.v === "OC" && prop?.t === "name" && offLayers.has(layerOf(prop.v));
-        stack.push({ at: i, hidden });
+        const oc =
+          o.op === "BDC" && tag?.t === "name" && tag.v === "OC" && prop?.t === "name" ? layerOf(prop.v) : undefined;
+        stack.push({ at: i, hidden: !!oc && !c.visible(oc) });
       } else if (o.op === "EMC") {
         const top = stack.pop();
         if (top?.hidden) {
           for (let k = top.at; k <= i; k++) drop.add(k);
-          count.layers++;
+          c.count.layers++;
         }
       } else if (o.op === "Do" && o.args[0]?.t === "name" && xobjects instanceof PDFDict) {
         const xo = xobjects.lookup(PDFName.of(o.args[0].v));
         const oc = xo instanceof PDFRawStream ? xo.dict.get(PDFName.of("OC")) : undefined;
-        if (oc && offLayers.has(String(oc))) {
+        if (oc && !c.visible(oc)) {
           drop.add(i);
-          count.layers++;
+          c.count.layers++;
         }
       }
     });
   }
-  if (opts.structure) {
+  if (c.opts.structure) {
     ops.forEach((o, i) => {
       const prop = o.op === "BDC" ? o.args[1] : undefined;
       if (prop?.t !== "dict") return;
       const kept = new Map([...prop.v].filter(([k]) => k !== "ActualText" && k !== "Alt" && k !== "E"));
       if (kept.size !== prop.v.size) {
-        replace.set(i, { op: "BDC", args: [o.args[0], { t: "dict", v: kept }] });
-        count.alt++;
+        replace.set(i, [{ op: "BDC", args: [o.args[0], { t: "dict", v: kept }] }]);
+        c.count.alt++;
       }
     });
   }
-  if (!drop.size && !replace.size) return count;
-  writePageContent(
-    doc,
-    page,
-    ops.flatMap((o, i) => (drop.has(i) ? [] : [replace.get(i) ?? o])),
-  );
-  return count;
+  // The forms it still draws, and its patterns: cleaned too.
+  if (xobjects instanceof PDFDict) {
+    for (let i = 0; i < ops.length; i++) {
+      const o = ops[i];
+      if (drop.has(i) || o.op !== "Do" || o.args[0]?.t !== "name") continue;
+      const raw = xobjects.get(PDFName.of(o.args[0].v));
+      const xo = raw instanceof PDFRef ? ctx.lookup(raw) : raw;
+      if (xo instanceof PDFRawStream && xo.dict.lookup(PDFName.of("Subtype"))?.toString() === "/Form")
+        await cleanStream(xo, raw, resources, c, depth);
+    }
+  }
+  const patterns = resources?.lookup(PDFName.of("Pattern"));
+  if (patterns instanceof PDFDict) {
+    for (const k of patterns.keys()) {
+      const raw = patterns.get(k);
+      const pat = raw instanceof PDFRef ? ctx.lookup(raw) : raw;
+      if (pat instanceof PDFRawStream) await cleanStream(pat, raw, undefined, c, depth);
+    }
+  }
+  if (!drop.size && !replace.size) return null;
+  return ops.flatMap((o, i) => (drop.has(i) ? [] : (replace.get(i) ?? [o])));
 }
 
 /** Everything (Acrobat's « Nettoyer le document »). */
-export function sanitiseDocument(doc: PDFDocument): { removed: string[] } {
+export async function sanitiseDocument(doc: PDFDocument): Promise<{ removed: string[] }> {
   return removeHiddenInfo(doc, ALL_HIDDEN_INFO);
 }

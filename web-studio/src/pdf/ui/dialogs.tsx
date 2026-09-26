@@ -270,7 +270,8 @@ export function ProtectDialog({
     restrict && !owner ? "Saisissez le mot de passe des autorisations." : "",
     restrict && owner && owner !== ownerConfirm ? "Les deux saisies du mot de passe des autorisations diffèrent." : "",
     // Acrobat refuses it: whoever can open the file would then hold every right.
-    restrict && owner && owner === openPw
+    // Compared as AES-256 hashes them (NFKC): « é » composed or not is the same password.
+    restrict && owner && owner.normalize("NFKC") === openPw.normalize("NFKC")
       ? "Le mot de passe des autorisations doit différer de celui d'ouverture."
       : "",
     !needOpen && !restrict ? "Choisissez au moins une protection." : "",

@@ -17,6 +17,12 @@ export interface RedactPattern {
    * none is valid.
    */
   valid?: (match: string) => number;
+  /**
+   * The valid part of a match anywhere in it — leading groups dropped too
+   * (« Commande 12 4111 1111 1111 1111 » finds the card): its offset in the
+   * match and its length, or null when none is valid. Preferred over `valid`.
+   */
+  validRange?: (match: string) => { start: number; length: number } | null;
 }
 
 const digits = (s: string) => s.replace(/[^0-9A-Za-z]/g, "");
@@ -72,10 +78,49 @@ function longestValid(match: string, check: (s: string) => boolean): number {
   }
 }
 
+/**
+ * The longest run of whole groups that passes `check`, starting at any group
+ * (the first one on a tie): its offset and length, or null.
+ */
+function longestValidRange(match: string, check: (s: string) => boolean): { start: number; length: number } | null {
+  const groups = Array.from(match.matchAll(/[^\s-]+/g), (m) => ({ start: m.index, end: m.index + m[0].length }));
+  let best: { start: number; length: number } | null = null;
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = groups.length - 1; j >= i; j--) {
+      const length = groups[j].end - groups[i].start;
+      if (best && length <= best.length) break;
+      if (check(match.slice(groups[i].start, groups[j].end))) {
+        best = { start: groups[i].start, length };
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+/** `valid` and `validRange` for a check. */
+function checked(check: (s: string) => boolean): Pick<RedactPattern, "valid" | "validRange"> {
+  return { valid: (m) => longestValid(m, check), validRange: (m) => longestValidRange(m, check) };
+}
+
+/** A whole-match check. */
+function whole(check: (s: string) => boolean): Pick<RedactPattern, "valid" | "validRange"> {
+  return {
+    valid: (m) => (check(m) ? m.length : 0),
+    validRange: (m) => (check(m) ? { start: 0, length: m.length } : null),
+  };
+}
+
 const MONTHS = "janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre";
 
 export const REDACT_PATTERNS: RedactPattern[] = [
-  { id: "email", label: "Adresses e-mail", pattern: "[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+" },
+  {
+    id: "email",
+    label: "Adresses e-mail",
+    // The look-behind starts a match only where the local part starts: a long
+    // run without « @ » is scanned once, not from each of its characters.
+    pattern: "(?<![\\w.+-])[\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+",
+  },
   {
     id: "phone",
     label: "Numéros de téléphone",
@@ -88,25 +133,25 @@ export const REDACT_PATTERNS: RedactPattern[] = [
     label: "IBAN",
     pattern: "\\b[A-Z]{2}\\d{2}(?:\\s?[A-Z0-9]){11,30}\\b",
     caseSensitive: true,
-    valid: (m) => longestValid(m, ibanValid),
+    ...checked(ibanValid),
   },
   {
     id: "card",
     label: "Cartes bancaires",
     pattern: "\\b(?:\\d[ -]?){12,18}\\d\\b",
-    valid: (m) => longestValid(m, (s) => s.replace(/\D/g, "").length >= 13 && luhn(s)),
+    ...checked((s) => s.replace(/\D/g, "").length >= 13 && luhn(s)),
   },
   {
     id: "nir",
     label: "Numéros de sécurité sociale",
     pattern: "\\b[1-478]\\s?\\d{2}\\s?\\d{2}\\s?(?:\\d{2}|2[AB])\\s?\\d{3}\\s?\\d{3}\\s?\\d{2}\\b",
-    valid: (m) => (nirValid(m) ? m.length : 0),
+    ...whole(nirValid),
   },
   {
     id: "siret",
     label: "SIRET / SIREN",
     pattern: "\\b\\d{3}\\s?\\d{3}\\s?\\d{3}(?:\\s?\\d{5})?\\b",
-    valid: (m) => (luhn(m) ? m.length : 0),
+    ...whole(luhn),
   },
   {
     id: "date",

@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, StandardFonts, decodePDFRawStream } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  StandardFonts,
+  decodePDFRawStream,
+} from "pdf-lib";
 import * as D from "../src/pdf/model/doc";
 import { emptyState, newId, type Annot, type PdfState } from "../src/pdf/model/types";
 import { buildPdf } from "../src/pdf/ops/save";
-import { AFTER_REDACTION } from "../src/pdf/ops/redact";
+import { ALL_HIDDEN_INFO, AFTER_REDACTION, removeHiddenInfo } from "../src/pdf/ops/redact";
 
 /** Redaction and hidden information: nothing of what was removed may stay anywhere in the file. */
 
@@ -267,6 +276,348 @@ describe("redaction", () => {
     expect(await leftovers(bytes, ["TYPETHREESECRET", "OCRSECRET", "KER", "NSECRET", "VISIBLE"])).toEqual(["VISIBLE"]);
     expect(await leftovers(bytes, ["150 30 re"])).toEqual([]);
     void report;
+  });
+});
+
+/** An annotation of `kind` made in Elium, over a PDF-space rect. */
+function annot(state: PdfState, kind: string, x: number, y: number, w: number, h: number, extra: object = {}) {
+  return D.addAnnot(state, {
+    id: newId("an"),
+    pageId: state.pages[0].id,
+    kind,
+    rect: { x, y: H - (y + h), w, h },
+    color: "#000000",
+    fill: "#000000",
+    opacity: 1,
+    strokeWidth: 0,
+    author: "t",
+    createdAt: "2026-01-01T00:00:00Z",
+    modifiedAt: "2026-01-01T00:00:00Z",
+    replies: [],
+    ...extra,
+  } as Annot);
+}
+
+/** A page's content, decoded, whitespace collapsed. */
+function pageText(doc: PDFDocument, index = 0): string {
+  const c = doc.getPages()[index].node.Contents();
+  const parts = c instanceof PDFArray ? c.asArray() : c ? [c] : [];
+  return parts
+    .map((r) => {
+      const s = doc.context.lookup(r as never);
+      return s instanceof PDFRawStream ? new TextDecoder("latin1").decode(decodePDFRawStream(s).decode()) : "";
+    })
+    .join(" ")
+    .replace(/\s+/g, " ");
+}
+
+const rgbImage = (doc: PDFDocument, px: Uint8Array, w: number, h: number, extra: object = {}) =>
+  doc.context.register(
+    doc.context.stream(px, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: w,
+      Height: h,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      ...extra,
+    } as never),
+  );
+
+describe("redaction: what else carries the covered content", () => {
+  it("comments made in Elium over the area are not written back", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([W, H]);
+    let st = baseState(1);
+    st = annot(st, "note", 120, 700, 20, 20, { contents: "NOTESECRET", replies: [] });
+    st = annot(st, "freetext", 100, 650, 200, 30, { contents: "FREETEXTSECRET", text: "FREETEXTSECRET" });
+    st = annot(st, "note", 400, 100, 20, 20, { contents: "ELSEWHERE" });
+    st = annot(st, "redact", 90, 640, 300, 100);
+    const { bytes } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    expect(await leftovers(bytes, ["NOTESECRET", "FREETEXTSECRET", "ELSEWHERE"])).toEqual(["ELSEWHERE"]);
+  });
+
+  it("resources shared with another page (or inherited) are copied, not stripped", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const p1 = doc.addPage([W, H]);
+    const p2 = doc.addPage([W, H]);
+    const px = new Uint8Array(10 * 10 * 3).fill(200);
+    const res = doc.context.register(
+      doc.context.obj({
+        Font: { F1: font.ref },
+        XObject: { Im1: rgbImage(doc, px, 10, 10), Im2: rgbImage(doc, px.slice(), 10, 10) },
+      } as never),
+    );
+    p1.node.set(PDFName.of("Resources"), res);
+    p2.node.set(PDFName.of("Resources"), res);
+    const stream = (s: string) => doc.context.register(doc.context.stream(s));
+    p1.node.set(
+      PDFName.of("Contents"),
+      stream("q 100 0 0 100 50 50 cm /Im1 Do Q BT /F1 20 Tf 100 700 Td (P1SECRET) Tj ET"),
+    );
+    p2.node.set(PDFName.of("Contents"), stream("q 300 0 0 300 50 50 cm /Im2 Do Q"));
+    const st = mark(baseState(2), 0, 90, 690, 200, 35);
+    const { bytes } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    const out = await PDFDocument.load(bytes);
+    const xo = out.getPages()[1].node.Resources()?.lookup(PDFName.of("XObject"));
+    expect(xo instanceof PDFDict ? xo.keys().map(String) : []).toContain("/Im2");
+    expect(await leftovers(bytes, ["P1SECRET"])).toEqual([]);
+  });
+
+  it("an image's soft mask loses the covered pixels too", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([W, H]);
+    const alpha = new Uint8Array(16 * 16);
+    alpha.set(new TextEncoder().encode("SMASKSECRETSIGNATURE"), 40);
+    const smask = doc.context.register(
+      doc.context.stream(alpha, {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: 16,
+        Height: 16,
+        ColorSpace: "DeviceGray",
+        BitsPerComponent: 8,
+      } as never),
+    );
+    page.node.setXObject(PDFName.of("Im1"), rgbImage(doc, new Uint8Array(16 * 16 * 3), 16, 16, { SMask: smask }));
+    page.node.set(
+      PDFName.of("Contents"),
+      doc.context.register(doc.context.stream("q 200 0 0 200 100 100 cm /Im1 Do Q")),
+    );
+    const st = mark(baseState(1), 0, 90, 90, 220, 220);
+    const { bytes, report } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    expect(report.redactedImages).toBe(1);
+    expect(await leftovers(bytes, ["SMASKSECRETSIGNATURE"])).toEqual([]);
+    // The edited picture still has a (redacted) soft mask.
+    const out = await PDFDocument.load(bytes);
+    const xo = out.getPages()[0].node.Resources()?.lookup(PDFName.of("XObject")) as PDFDict;
+    const img = xo.lookup(xo.keys()[0]) as PDFRawStream;
+    expect(img.dict.lookup(PDFName.of("SMask"))).toBeInstanceOf(PDFRawStream);
+  });
+
+  it("line art: the subpaths under the area go, the others stay; a filled band keeps its visible part", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([W, H]);
+    // One path: ten « glyph » squares; the third one (x 140..170) is under the area.
+    let glyphs = "";
+    for (let i = 0; i < 10; i++) glyphs += `${50 + i * 45} 700 30 30 re `;
+    const outlined = "150 500 m 160 520 l 170 500 l h 400 500 m 410 520 l 420 500 l h f ";
+    page.node.set(
+      PDFName.of("Contents"),
+      doc.context.register(doc.context.stream(`${glyphs}f ${outlined} 0.8 g 50 600 400 40 re f`)),
+    );
+    let st = baseState(1);
+    st = mark(st, 0, 135, 695, 40, 40);
+    st = mark(st, 0, 40, 590, 220, 60); // the band 50..450: 50..260 under the area
+    st = mark(st, 0, 140, 490, 40, 40);
+    const { bytes, report } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    const text = pageText(await PDFDocument.load(bytes));
+    expect(text).not.toContain("140 700 30 30 re");
+    expect(text).toContain("95 700 30 30 re");
+    expect(text).toContain("185 700 30 30 re");
+    expect(text).not.toContain("150 500 m");
+    expect(text).toContain("400 500 m");
+    expect(text).toContain("260 600 190 40 re");
+    expect(text).not.toContain("50 600 400 40 re");
+    void report;
+  });
+
+  it("text removed from ' and \" keeps their line move (and \"'s spacings)", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    page.node.setFontDictionary(PDFName.of("F1"), font.ref);
+    page.node.set(
+      PDFName.of("Contents"),
+      doc.context.register(
+        doc.context.stream("BT /F1 12 Tf 14 TL 100 700 Td (line1) Tj (QSECRET) ' 5 2 (DQSECRET) \" (line4) ' ET"),
+      ),
+    );
+    const st = mark(baseState(1), 0, 90, 668, 200, 30);
+    const { bytes } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    const text = pageText(await PDFDocument.load(bytes));
+    expect(text).toMatch(/\(line1\) Tj T\* \[-?[\d.]+\] TJ 5 Tw 2 Tc T\* \[-?[\d.]+\] TJ \(line4\) '/);
+    expect(await leftovers(bytes, ["QSECRET", "DQSECRET"])).toEqual([]);
+  });
+
+  it("a tiling pattern painted over the area loses what its cells put there", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    const ctx = doc.context;
+    const pat = ctx.register(
+      ctx.stream("BT /F1 10 Tf 0 5 Td (PATTERNSECRET) Tj ET", {
+        Type: "Pattern",
+        PatternType: 1,
+        PaintType: 1,
+        TilingType: 1,
+        BBox: [0, 0, 200, 30],
+        XStep: 200,
+        YStep: 30,
+        Resources: { Font: { F1: font.ref } },
+      } as never),
+    );
+    page.node.set(PDFName.of("Resources"), ctx.obj({ Pattern: { P1: pat } } as never));
+    page.node.set(PDFName.of("Contents"), ctx.register(ctx.stream("/Pattern cs /P1 scn 100 700 200 30 re f")));
+    const st = mark(baseState(1), 0, 90, 690, 220, 50);
+    const { bytes, report } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    expect(await leftovers(bytes, ["PATTERNSECRET"])).toEqual([]);
+    expect(report.warnings.some((w) => w.includes("motif"))).toBe(true);
+  });
+
+  it("a soft-mask group set over the area is redacted in a copy", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    const ctx = doc.context;
+    const g = ctx.register(
+      ctx.stream("BT /F1 20 Tf 100 700 Td (SMASKGROUPSECRET) Tj ET", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, W, H],
+        Group: { S: "Transparency", CS: "DeviceGray" },
+        Resources: { Font: { F1: font.ref } },
+      } as never),
+    );
+    page.node.set(
+      PDFName.of("Resources"),
+      ctx.obj({ ExtGState: { G1: { SMask: { S: "Luminosity", G: g } } } } as never),
+    );
+    page.node.set(PDFName.of("Contents"), ctx.register(ctx.stream("q /G1 gs 0 0 1 rg 90 690 300 40 re f Q")));
+    const st = mark(baseState(1), 0, 80, 680, 320, 60);
+    const { bytes } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    expect(await leftovers(bytes, ["SMASKGROUPSECRET"])).toEqual([]);
+  });
+
+  it("a form without resources of its own keeps the page's images it draws", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    const ctx = doc.context;
+    const im = rgbImage(doc, new Uint8Array(4 * 4 * 3).fill(128), 4, 4);
+    const fm = ctx.register(
+      ctx.stream("q 100 0 0 100 0 0 cm /Im1 Do Q", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 100, 100],
+      } as never),
+    );
+    page.node.set(PDFName.of("Resources"), ctx.obj({ Font: { F1: font.ref }, XObject: { Im1: im, Fm1: fm } } as never));
+    page.node.set(
+      PDFName.of("Contents"),
+      ctx.register(ctx.stream("q 1 0 0 1 300 100 cm /Fm1 Do Q BT /F1 20 Tf 100 700 Td (GSECRET) Tj ET")),
+    );
+    const st = mark(baseState(1), 0, 90, 690, 200, 35);
+    const { bytes } = await buildPdf(await doc.save(), st, { applyRedactions: true });
+    const xo = (await PDFDocument.load(bytes)).getPages()[0].node.Resources()?.lookup(PDFName.of("XObject"));
+    expect(xo instanceof PDFDict ? xo.keys().map(String) : []).toEqual(expect.arrayContaining(["/Im1", "/Fm1"]));
+  });
+});
+
+describe("hidden information: what hides deeper", () => {
+  it("hidden layers: in forms, through membership dictionaries, and on annotations", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    const ctx = doc.context;
+    const hidden = ctx.register(ctx.obj({ Type: "OCG", Name: PDFString.of("Masqué") } as never));
+    const shown = ctx.register(ctx.obj({ Type: "OCG", Name: PDFString.of("Visible") } as never));
+    const allOff = ctx.register(ctx.obj({ Type: "OCMD", OCGs: [shown], P: "AllOff" } as never));
+    const anyOn = ctx.register(ctx.obj({ Type: "OCMD", OCGs: [hidden, shown] } as never));
+    doc.catalog.set(PDFName.of("OCProperties"), ctx.obj({ OCGs: [hidden, shown], D: { OFF: [hidden] } } as never));
+    const form = ctx.register(
+      ctx.stream(
+        "/OC /L1 BDC BT /F1 20 Tf 100 700 Td (LAYERSECRET) Tj ET EMC " +
+          "/OC /M1 BDC BT /F1 20 Tf 100 650 Td (OCMDSECRET) Tj ET EMC " +
+          "/OC /M2 BDC BT /F1 20 Tf 100 600 Td (ANYONKEPT) Tj ET EMC",
+        {
+          Type: "XObject",
+          Subtype: "Form",
+          BBox: [0, 0, W, H],
+          Resources: { Font: { F1: font.ref }, Properties: { L1: hidden, M1: allOff, M2: anyOn } },
+        } as never,
+      ),
+    );
+    page.node.setXObject(PDFName.of("Fm1"), form);
+    page.node.set(PDFName.of("Contents"), ctx.register(ctx.stream("/Fm1 Do")));
+    const note = ctx.register(
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Square",
+        Rect: [10, 10, 50, 50],
+        Contents: PDFString.of("ANNOTHIDDENSECRET"),
+        OC: hidden,
+      } as never),
+    );
+    page.node.set(PDFName.of("Annots"), ctx.obj([note] as never));
+    const src = await PDFDocument.load(await doc.save());
+    const { removed } = await removeHiddenInfo(src, { ...ALL_HIDDEN_INFO, comments: false });
+    expect(removed).toContain("contenu des calques masqués");
+    const bytes = await src.save();
+    expect(await leftovers(bytes, ["LAYERSECRET", "OCMDSECRET", "ANNOTHIDDENSECRET", "ANYONKEPT"])).toEqual([
+      "ANYONKEPT",
+    ]);
+  });
+
+  it("invisible text inside a form goes; the caret moves by the real width", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([W, H]);
+    const ctx = doc.context;
+    const fm = ctx.register(
+      ctx.stream("BT 3 Tr /F1 12 Tf 100 100 Td (OCRFORMSECRET) Tj ET", {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, W, H],
+        Resources: { Font: { F1: font.ref } },
+      } as never),
+    );
+    page.node.setXObject(PDFName.of("Fm1"), fm);
+    page.node.setFontDictionary(PDFName.of("F1"), font.ref);
+    page.node.set(
+      PDFName.of("Contents"),
+      ctx.register(ctx.stream("/Fm1 Do BT /F1 12 Tf 100 300 Td 3 Tr (INVISIBLEWORDS) Tj 0 Tr (VISIBLE) Tj ET")),
+    );
+    const { bytes } = await buildPdf(await doc.save(), baseState(1), { sanitise: true });
+    expect(await leftovers(bytes, ["OCRFORMSECRET", "INVISIBLEWORDS"])).toEqual([]);
+    const shift = Number(/\[(-?[\d.]+)\] TJ 0 Tr \(VISIBLE\)/.exec(pageText(await PDFDocument.load(bytes)))?.[1]);
+    // Helvetica's widths, not 500 per glyph (-7000).
+    expect(Math.abs(shift + (font.widthOfTextAtSize("INVISIBLEWORDS", 12) * 1000) / 12)).toBeLessThan(50);
+  });
+
+  it("actions chained after a kept « go to » (/Next) go", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage();
+    const ctx = doc.context;
+    const outlines = ctx.register(ctx.obj({ Type: "Outlines" } as never));
+    const item = ctx.register(
+      ctx.obj({
+        Title: PDFString.of("Chapitre"),
+        Parent: outlines,
+        A: {
+          S: "GoTo",
+          D: [page.ref, PDFName.of("Fit")],
+          Next: [
+            { S: "GoTo", D: [page.ref, PDFName.of("Fit")], Next: { S: "Launch", F: PDFString.of("LAUNCHSECRET") } },
+            { S: "JavaScript", JS: PDFString.of("NEXTJSSECRET") },
+          ],
+        },
+      } as never),
+    );
+    const o = ctx.lookup(outlines) as PDFDict;
+    o.set(PDFName.of("First"), item);
+    o.set(PDFName.of("Last"), item);
+    doc.catalog.set(PDFName.of("Outlines"), outlines);
+    const { removed } = await removeHiddenInfo(doc, { ...ALL_HIDDEN_INFO, bookmarks: false });
+    expect(removed).toContain("actions enchaînées");
+    const all = ctx
+      .enumerateIndirectObjects()
+      .map(([, x]) => x.toString())
+      .join("\n");
+    expect(all).not.toContain("NEXTJSSECRET");
+    expect(all).not.toContain("LAUNCHSECRET");
+    expect(((ctx.lookup(item) as PDFDict).lookup(PDFName.of("A")) as PDFDict).has(PDFName.of("Next"))).toBe(true);
   });
 });
 

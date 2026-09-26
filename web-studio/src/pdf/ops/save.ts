@@ -324,6 +324,23 @@ export function fullRewriteReasons(
 }
 
 /**
+ * The annotations (not redaction marks) that meet a redaction mark on their
+ * page, and the members of their groups: a redaction removes them with the
+ * content they cover.
+ */
+export function annotsUnderRedaction(annots: readonly Annot[]): Set<string> {
+  const gone = new Set<string>();
+  const marks = annots.filter((a) => a.kind === "redact");
+  if (!marks.length) return gone;
+  const meets = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const a of annots) {
+    if (a.kind !== "redact" && marks.some((m) => m.pageId === a.pageId && meets(a.rect, m.rect))) gone.add(a.id);
+  }
+  for (const a of annots) if (a.group && gone.has(a.group)) gone.add(a.id);
+  return gone;
+}
+
+/**
  * Save the document. Incremental when possible (see the file header), full
  * rewrite otherwise; the report says which and why.
  */
@@ -696,6 +713,9 @@ async function applyState(
   step("Écriture des annotations", 0.45);
   const pageRefs: PDFRef[] = doc.getPages().map((p) => p.ref);
   const outputIndex = new Map(targets.map((t, i) => [t.model.id, i]));
+  // What a redaction covers goes, comments included: a note or a text box over
+  // the area is not written back (its replies and pop-up go with it).
+  const underRedaction = opts.applyRedactions ? annotsUnderRedaction(state.annots) : new Set<string>();
   for (const { page, model } of targets) {
     const frame = pageFrame(page);
     const ctx: PaintContext = {
@@ -707,7 +727,11 @@ async function applyState(
       rotation: page.getRotation().angle,
     };
     const mine = state.annots.filter(
-      (a) => a.pageId === model.id && !pristine.has(a) && !(a.kind === "redact" && !opts.applyRedactions),
+      (a) =>
+        a.pageId === model.id &&
+        !pristine.has(a) &&
+        !underRedaction.has(a.id) &&
+        !(a.kind === "redact" && !opts.applyRedactions),
     );
     if (!opts.applyRedactions) {
       // Marks not applied stay marks — `/Redact` annotations, as Acrobat keeps them.
@@ -944,7 +968,7 @@ async function applyState(
 
   const hidden = opts.sanitise ? ALL_HIDDEN_INFO : opts.hiddenInfo;
   if (hidden) {
-    const { removed } = removeHiddenInfo(doc, hidden);
+    const { removed } = await removeHiddenInfo(doc, hidden);
     report.warnings.push(
       removed.length
         ? `Informations masquées supprimées : ${removed.join(", ")}.`

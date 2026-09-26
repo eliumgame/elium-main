@@ -359,10 +359,18 @@ function passwordRole(
     }
     return null;
   }
-  const asUser = legacyFileKey(password, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
-  const asOwner = legacyOwnerKey(info, id0, password);
-  if (asOwner) return { key: asOwner, owner: true };
-  return checkLegacyUser(asUser, info, id0) ? { key: asUser, owner: false } : null;
+  // Latin-1 wants composed accents (« é » as one character): the NFC form
+  // first, then the password as typed.
+  const forms = [...new Set([password.normalize("NFC"), password])];
+  for (const pw of forms) {
+    const asOwner = legacyOwnerKey(info, id0, pw);
+    if (asOwner) return { key: asOwner, owner: true };
+  }
+  for (const pw of forms) {
+    const asUser = legacyFileKey(pw, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
+    if (checkLegacyUser(asUser, info, id0)) return { key: asUser, owner: false };
+  }
+  return null;
 }
 
 function r6Role(info: EncryptInfo, pw: Uint8Array): { key: Uint8Array; owner: boolean } | null {

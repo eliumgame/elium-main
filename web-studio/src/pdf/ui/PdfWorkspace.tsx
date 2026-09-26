@@ -2639,7 +2639,9 @@ export default function PdfWorkspace({
    */
   const tsaRelay = async (url: string, request: Uint8Array): Promise<Uint8Array> => {
     const token = document.querySelector<HTMLMetaElement>('meta[name="elium-token"]')?.content;
-    const relay = token ? "/__tsa__" : "/api/tsa";
+    const { getConfiguredApiBase } = await import("../../drive-cloud/api");
+    const relay = token ? "/__tsa__" : `${getConfiguredApiBase().replace(/\/$/, "")}/tsa`;
+    const body = request.slice().buffer as ArrayBuffer;
     const res = await fetch(relay, {
       method: "POST",
       headers: {
@@ -2647,15 +2649,22 @@ export default function PdfWorkspace({
         "X-Elium-TSA-Url": url,
         ...(token ? { "X-Elium-Token": token } : {}),
       },
-      body: request.slice().buffer as ArrayBuffer,
-      credentials: "same-origin",
+      body,
     }).catch(() => null);
     if (res?.ok) return new Uint8Array(await res.arrayBuffer());
-    // No relay (web page served elsewhere): ask the TSA directly.
+    // The relay answered and refused (address not allowed, TSA down): say why.
+    if (res && (res.status === 400 || res.status === 502)) {
+      const why = await res
+        .json()
+        .then((j: { error?: { message?: string } }) => j.error?.message)
+        .catch(() => undefined);
+      throw new Error(why ?? `relais d'horodatage : HTTP ${res.status}`);
+    }
+    // No relay here (page served elsewhere): ask the TSA directly.
     const direct = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/timestamp-query" },
-      body: request.slice().buffer as ArrayBuffer,
+      body,
     });
     if (!direct.ok) throw new Error(`serveur d'horodatage : HTTP ${direct.status}`);
     return new Uint8Array(await direct.arrayBuffer());
@@ -2891,10 +2900,7 @@ export default function PdfWorkspace({
    * May the document do this? Its restrictions apply unless opened with the
    * permissions password — which is asked for then (and lifts them all).
    */
-  const requireRight = async (
-    right: keyof Permissions | "owner",
-    how: { once?: boolean } = {},
-  ): Promise<boolean> => {
+  const requireRight = async (right: keyof Permissions | "owner", how: { once?: boolean } = {}): Promise<boolean> => {
     const r = restrictionsRef.current;
     if (!r) return true;
     if (right !== "owner" && (r[right] || (right === "fillForms" && r.annotate))) return true;

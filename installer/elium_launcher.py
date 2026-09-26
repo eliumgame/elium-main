@@ -405,6 +405,44 @@ _rate_limit_hits: "list[float]" = []
 _rate_limit_lock = threading.Lock()
 
 
+_TSA_MAX_REQUEST = 8 * 1024
+_TSA_MAX_REPLY = 64 * 1024
+
+
+def _tsa_target_problem(url: str) -> "str | None":
+    """Refuse ce qui n'est pas un serveur d'horodatage public en http(s)."""
+    import ipaddress
+
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return "Adresse du serveur d'horodatage invalide"
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
+    except OSError:
+        return "Serveur d'horodatage introuvable"
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return "Adresse réseau non autorisée pour l'horodatage"
+    return None
+
+
+def _tsa_forward(url: str, body: bytes) -> bytes:
+    import urllib.request
+
+    req = urllib.request.Request(  # noqa: S310 (schéma http/https vérifié par _tsa_target_problem)
+        url,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/timestamp-query", "User-Agent": "Elium"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as res:  # noqa: S310 (schéma vérifié)
+        data = res.read(_TSA_MAX_REPLY + 1)
+    if len(data) > _TSA_MAX_REPLY:
+        raise ValueError("réponse d'horodatage trop volumineuse")
+    return data
+
+
 def _rate_limited() -> bool:
     import time as _time
 
@@ -746,6 +784,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if clean == "/__ports__/set":
             self._handle_set_port()
             return
+        if clean == "/__tsa__":
+            self._handle_tsa_relay()
+            return
         if clean == "/__update__/start":
             status = {"state": "idle"}
             if updater is not None:
@@ -805,6 +846,27 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+    def _handle_tsa_relay(self) -> None:
+        """Relaie une demande d'horodatage RFC 3161 vers le serveur choisi par
+        l'utilisateur (la CSP interdit à la page tout accès réseau externe)."""
+        target = (self.headers.get("X-Elium-TSA-Url") or "").strip()
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        problem = _tsa_target_problem(target)
+        if problem or not (0 < length <= _TSA_MAX_REQUEST):
+            self.send_error(400, problem or "Demande d'horodatage invalide")
+            return
+        body = self.rfile.read(length)
+        try:
+            reply = _tsa_forward(target, body)
+        except Exception as e:  # réseau, HTTP, taille
+            _log_launcher(f"POST /__tsa__: {e}")
+            self.send_error(502, "Serveur d'horodatage injoignable")
+            return
+        self._serve_bytes(reply, "application/timestamp-reply")
 
     def _handle_set_port(self) -> None:
         """Épingle un port pour les PROCHAINS lancements (le serveur déjà lié sur

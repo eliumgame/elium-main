@@ -213,4 +213,22 @@ describe("PAdES signing", () => {
     expect(v!.valid).toBe(true);
     expect(v!.reason).toBe("Accord chiffré");
   });
+
+  it("a timestamp authority's refusal or a malformed reply stops the signature with a clear message", async () => {
+    const pdf = await makePdf();
+    await expect(
+      signPdfBytes(pdf, RSA, "pw", {
+        tsaUrl: "https://tsa.example/",
+        tsaFetch: async () => {
+          throw new Error("HTTP 503");
+        },
+      }),
+    ).rejects.toThrow(/Horodatage impossible : HTTP 503/);
+    await expect(
+      signPdfBytes(pdf, RSA, "pw", {
+        tsaUrl: "https://tsa.example/",
+        tsaFetch: async () => new Uint8Array([0x30, 0x03, 0x02, 0x01, 0x02]),
+      }),
+    ).rejects.toThrow(/horodatage/i);
+  });
 });

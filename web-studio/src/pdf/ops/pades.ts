@@ -488,8 +488,15 @@ function tsaClient(url: string, send?: PadesSignOptions["tsaFetch"]): TsaClient 
       } catch (e) {
         throw new Error(`Horodatage impossible : ${e instanceof Error ? e.message : String(e)}`);
       }
-      const [status, token] = children(readTlv(res));
-      const code = status ? content(children(status)[0]!)[0] : 2;
+      let token: Tlv | undefined;
+      let code: number | undefined;
+      try {
+        const [status, t] = children(readTlv(res));
+        token = t;
+        code = status ? content(children(status)[0]!)[0] : 2;
+      } catch {
+        throw new Error("Réponse du serveur d'horodatage illisible.");
+      }
       if (!token || (code !== 0 && code !== 1)) throw new Error("Le serveur d'horodatage a refusé la demande.");
       const tst = readTimestamp(raw(token));
       if (!tst || !bytesEqual(tst.imprint, imprint)) throw new Error("Réponse d'horodatage incohérente.");

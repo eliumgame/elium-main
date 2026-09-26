@@ -380,3 +380,33 @@ def test_script_and_wasm_types_do_not_depend_on_the_windows_registry():
     assert types[".js"] == "text/javascript"
     assert types[".mjs"] == "text/javascript"
     assert types[".wasm"] == "application/wasm"
+
+
+# --------------------------------------------------------------------------- #
+# Relais d'horodatage RFC 3161 (/__tsa__)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "ftp://tsa.example/", "http://127.0.0.1:3000/", "http://10.0.0.8/tsr", "not a url"],
+)
+def test_tsa_relay_refuses_non_public_targets(url):
+    assert elium_launcher._tsa_target_problem(url) is not None
+
+
+def test_tsa_relay_accepts_a_public_https_server(monkeypatch):
+    monkeypatch.setattr(
+        elium_launcher.socket,
+        "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))],
+    )
+    assert elium_launcher._tsa_target_problem("https://freetsa.org/tsr") is None
+
+
+def test_tsa_relay_refuses_a_name_resolving_to_a_private_address(monkeypatch):
+    monkeypatch.setattr(
+        elium_launcher.socket,
+        "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.10", 443))],
+    )
+    assert elium_launcher._tsa_target_problem("https://tsa.intranet/") is not None

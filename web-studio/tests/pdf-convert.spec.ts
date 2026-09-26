@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { writeTiff } from "../src/pdf/ops/imagefile";
+import { unzipSync, strFromU8 } from "fflate";
 
 /** Exports follow the document as it is shown (projects « drive » and « desktop »). */
 
@@ -89,6 +90,39 @@ test.describe("PDF — conversion", () => {
     await page.keyboard.press("Control+f");
     await page.getByPlaceholder("Rechercher dans le document…").fill("presse-papiers");
     await expect(page.locator(".pdfx-find__count")).toHaveText("1/1");
+    expect(problems).toEqual([]);
+  });
+
+  test("exporter vers Word et Excel : le texte et le tableau du document", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const p = doc.addPage([595, 842]);
+    p.drawText("Facture annuelle", { x: 60, y: 780, size: 22, font });
+    const rows = [
+      ["Article", "Qte", "Prix", "Total"],
+      ["Pommes", "12", "3,50", "42,00"],
+      ["Poires", "7", "2,10", "14,70"],
+      ["Cerises", "250", "14,00", "3500,00"],
+    ];
+    rows.forEach((r, i) =>
+      r.forEach((c, j) => p.drawText(c, { x: [60, 220, 300, 440][j]!, y: 700 - i * 18, size: 11, font })),
+    );
+    await open(page, Buffer.from(await doc.save()));
+    await page.getByRole("tab", { name: "Convertir" }).click();
+
+    let dl = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Word", exact: true }).click();
+    let files = unzipSync(new Uint8Array(await readFile((await (await dl).path())!)));
+    const docxml = strFromU8(files["word/document.xml"]!);
+    expect(docxml).toContain("Facture annuelle");
+    expect(docxml).toContain("<w:tbl>");
+
+    dl = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Excel", exact: true }).click();
+    files = unzipSync(new Uint8Array(await readFile((await (await dl).path())!)));
+    expect(strFromU8(files["xl/worksheets/sheet1.xml"]!)).toContain("<v>3500</v>");
     expect(problems).toEqual([]);
   });
 });

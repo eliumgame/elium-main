@@ -95,6 +95,7 @@ import {
   CalendarDays,
   PenLine,
   PieChart,
+  Presentation,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -909,7 +910,21 @@ export default function Ribbon(p: RibbonProps) {
         {p.tab === "convert" && (
           <>
             <Group title="Exporter vers">
-              <Cmd big icon={<FileType2 size={19} />} label="Word" onClick={C("exportDocx")} />
+              <Cmd big icon={<FileType2 size={19} />} label="Word" onClick={C("exportDocx")} title="Word (.docx)" />
+              <Cmd
+                big
+                icon={<FileSpreadsheet size={19} />}
+                label="Excel"
+                onClick={C("exportXlsx")}
+                title="Excel (.xlsx) : un onglet par tableau"
+              />
+              <Cmd
+                big
+                icon={<Presentation size={19} />}
+                label="PowerPoint"
+                onClick={C("exportPptx")}
+                title="PowerPoint (.pptx) : une diapositive par page"
+              />
               <Cmd big icon={<FileImage size={19} />} label="Images" onClick={C("exportImages")} />
               <Cmd big icon={<FileText size={19} />} label="Texte" onClick={C("exportText")} />
               <Cmd
@@ -919,6 +934,7 @@ export default function Ribbon(p: RibbonProps) {
                 title="Détecter les tableaux et exporter en CSV"
               />
               <Cmd icon={<FileOutput size={17} />} onClick={C("exportHtml")} label="HTML" />
+              <Cmd icon={<FileText size={17} />} onClick={C("exportRtf")} label="RTF" title="Texte enrichi (.rtf)" />
             </Group>
             <Group title="Reconnaissance" optional>
               <Cmd

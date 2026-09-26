@@ -3094,6 +3094,9 @@ export default function PdfWorkspace({
     printSummary: ["print"],
     exportImages: ["copy"],
     exportDocx: ["copy"],
+    exportXlsx: ["copy"],
+    exportPptx: ["copy"],
+    exportRtf: ["copy"],
     exportText: ["copy"],
     exportHtml: ["copy"],
     exportTables: ["copy"],
@@ -3649,7 +3652,16 @@ export default function PdfWorkspace({
         return;
 
       case "exportDocx":
-        void exportAs("docx");
+        void exportOffice("docx");
+        return;
+      case "exportXlsx":
+        void exportOffice("xlsx");
+        return;
+      case "exportPptx":
+        void exportOffice("pptx");
+        return;
+      case "exportRtf":
+        void exportOffice("rtf");
         return;
       case "exportText":
         void exportAs("text");
@@ -3709,6 +3721,50 @@ export default function PdfWorkspace({
       });
     } finally {
       temp.destroy();
+    }
+  };
+
+  /** « Exporter un PDF » to Word, Excel, PowerPoint or RTF, from the document as shown. */
+  const exportOffice = async (kind: "docx" | "xlsx" | "pptx" | "rtf") => {
+    if (!engine) return;
+    setBusy(true);
+    const id = toast("progress", "Extraction du contenu…");
+    try {
+      const base = fileName.replace(/\.pdf$/i, "") || "document";
+      const [{ exportDocx, exportPptx, exportRtf, exportXlsx, OFFICE_MIME }, { createPageRasteriser }] =
+        await Promise.all([import("../ops/export-office"), import("../ops/export-office-raster")]);
+      let noTable = false;
+      const out = await withCurrentDocument(async (doc) => {
+        const layout = await extractLayout(doc, (done, total) =>
+          setToasts((v) =>
+            v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
+          ),
+        );
+        if (kind === "xlsx") {
+          noTable = !detectTables(layout).length;
+          return exportXlsx(layout);
+        }
+        const raster = createPageRasteriser(doc, layout, { scale: 2 });
+        try {
+          if (kind === "docx") return await exportDocx(doc, layout, { cropImage: raster.crop });
+          if (kind === "rtf") return await exportRtf(doc, layout, { cropImage: raster.crop, title: base });
+          return await exportPptx(doc, layout, { pageImage: raster.background });
+        } finally {
+          raster.dispose();
+        }
+      });
+      downloadBlob(`${base}.${kind}`, OFFICE_MIME[kind], out);
+      dismissToast(id);
+      toast(
+        "success",
+        "Export terminé.",
+        noTable ? "Aucun tableau détecté : le texte est exporté ligne par ligne." : undefined,
+      );
+    } catch {
+      dismissToast(id);
+      toast("danger", "Export impossible.");
+    } finally {
+      setBusy(false);
     }
   };
 

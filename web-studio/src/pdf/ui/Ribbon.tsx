@@ -94,6 +94,7 @@ import {
   Dot,
   CalendarDays,
   PenLine,
+  PieChart,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
@@ -931,6 +932,12 @@ export default function Ribbon(p: RibbonProps) {
             <Group title="Comparer et alléger" optional>
               <Cmd icon={<GitCompareArrows size={17} />} onClick={C("compare")} label="Comparer" />
               <Cmd icon={<FileDown size={17} />} onClick={C("optimise")} label="Optimiser" />
+              <Cmd
+                icon={<PieChart size={17} />}
+                onClick={C("spaceAudit")}
+                label="Espace utilisé"
+                title="Audit de l'espace utilisé : ce qui pèse dans le fichier"
+              />
             </Group>
           </>
         )}

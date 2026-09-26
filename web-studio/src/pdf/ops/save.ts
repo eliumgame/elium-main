@@ -91,6 +91,8 @@ export interface BuildOptions {
   hiddenInfo?: HiddenInfoOptions;
   /** Recompress and downsample to reduce the file size. */
   optimise: boolean;
+  /** How (« Optimisation avancée »): resolution, JPEG quality, what to do. */
+  optimiseOptions?: Partial<import("./optimize").OptimiseOptions>;
   /** Password-protect the result (new protection → full rewrite). */
   protect?: ProtectOptions;
   author: string;
@@ -148,6 +150,8 @@ export interface BuildReport {
   encryption: "none" | "kept" | "added" | "changed" | "removed";
   /** Scheme of the protection of the written file ("AES-256"…). */
   scheme?: string;
+  /** What « Optimiser » did. */
+  optimised?: import("./optimize").OptimiseReport;
   durationMs: number;
   /** Informative notes (substituted fonts, kept protection…). */
   warnings: string[];
@@ -418,7 +422,7 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
       step("Optimisation", 0.94);
       const { optimiseDocument } = await import("./optimize");
       try {
-        await optimiseDocument(doc);
+        report.optimised = await optimiseDocument(doc, opts.optimiseOptions);
       } catch {
         report.warnings.push("Optimisation ignorée (contenu non compressible).");
       }

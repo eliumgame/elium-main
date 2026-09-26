@@ -1033,7 +1033,7 @@ function componentsOf(cs: unknown, doc: PDFDocument): number {
 }
 
 /** PNG predictors (10-15) undone: raw rows. */
-function unPng(data: Uint8Array, rowBytes: number, bpp: number, rows: number): Uint8Array {
+export function unPng(data: Uint8Array, rowBytes: number, bpp: number, rows: number): Uint8Array {
   const out = new Uint8Array(rowBytes * rows);
   const stride = rowBytes + 1;
   for (let r = 0; r < rows && (r + 1) * stride <= data.length; r++) {

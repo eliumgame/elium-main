@@ -2059,6 +2059,15 @@ export default function PdfWorkspace({
     if (r.encryption === "added") facts.push(`protégé (${r.scheme})`);
     if (r.encryption === "changed") facts.push(`nouveau mot de passe (${r.scheme})`);
     if (r.encryption === "removed") facts.push("protection retirée");
+    if (r.optimised) {
+      const o = r.optimised;
+      const parts = [
+        o.imagesRecompressed ? `${o.imagesRecompressed} image(s) réduite(s)` : "",
+        o.duplicatesMerged ? `${o.duplicatesMerged} objet(s) en double supprimé(s)` : "",
+        o.streamsRecompressed ? `${o.streamsRecompressed} flux compressé(s)` : "",
+      ].filter(Boolean);
+      facts.push(parts.length ? `optimisé : ${parts.join(", ")} (−${size(o.bytesSaved)})` : "rien à optimiser");
+    }
     if (r.redactedGlyphs || r.redactedImages) {
       facts.push(`${r.redactedGlyphs} caractère(s) et ${r.redactedImages} image(s) caviardés`);
     }
@@ -3625,6 +3634,9 @@ export default function PdfWorkspace({
         setSaveAsPreset({ sanitise: true });
         setDialog("save");
         return;
+      case "spaceAudit":
+        void showSpaceAudit();
+        return;
       case "optimise":
         setSaveAsPreset({ optimise: true });
         setDialog("save");
@@ -3738,6 +3750,35 @@ export default function PdfWorkspace({
     } finally {
       setBusy(false);
     }
+  };
+
+  /** « Audit de l'espace utilisé »: where the file's bytes go. */
+  const showSpaceAudit = async () => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes) return;
+    const [{ PDFDocument }, { openCrypt }, { spaceAudit, formatBytes }] = await Promise.all([
+      import("pdf-lib"),
+      import("../ops/security"),
+      import("../ops/optimize"),
+    ]);
+    const doc = await PDFDocument.load(bytes, {
+      ignoreEncryption: true,
+      throwOnInvalidObject: false,
+      updateMetadata: false,
+    });
+    const crypt = openCrypt(doc, passwordRef.current ?? "");
+    if (crypt) await crypt.decryptDocument(doc, bytes);
+    const audit = spaceAudit(doc, bytes.length);
+    await dialogs.alert({
+      title: "Audit de l'espace utilisé",
+      message:
+        `Taille du fichier : ${formatBytes(audit.total)}\n\n` +
+        audit.categories
+          .map(
+            (c) => `${c.label} : ${formatBytes(c.bytes)} (${Math.round((c.bytes / Math.max(1, audit.total)) * 100)} %)`,
+          )
+          .join("\n"),
+    });
   };
 
   const inspectDocument = async () => {

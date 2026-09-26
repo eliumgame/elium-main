@@ -1,20 +1,28 @@
 /**
- * File-size reduction ("Optimise PDF").
+ * File-size reduction ("Optimise PDF", Acrobat's « Réduire la taille du fichier »
+ * and « Optimisation avancée »).
  *
- * Three safe wins, in order of payoff:
+ * Safe wins, in order of payoff:
  *   1. downsample and recompress oversized JPEG images (scans are 90% of the
  *      weight of a typical heavy PDF),
- *   2. Flate-compress streams that were stored uncompressed,
- *   3. drop cached artefacts readers regenerate anyway — page thumbnails,
+ *   2. downsample oversized Flate images (8-bit gray/RGB, with their soft
+ *      mask), kept lossless,
+ *   3. store identical streams once (a logo repeated on every page by a
+ *      careless producer),
+ *   4. Flate-compress streams that were stored uncompressed,
+ *   5. drop cached artefacts readers regenerate anyway — page thumbnails,
  *      producer piece-info, spider/web-capture data.
+ * `spaceAudit` tells where the bytes go (Acrobat's « Audit de l'espace utilisé »).
  *
  * Anything that risks changing how the document renders is left alone.
  */
 
-import { zlibSync } from "fflate";
-import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFStream } from "pdf-lib";
-import type { PDFDocument } from "pdf-lib";
+import { unzlibSync, zlibSync } from "fflate";
+import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream } from "pdf-lib";
+import type { PDFDocument, PDFObject } from "pdf-lib";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { canvasToBlob } from "../core/render";
+import { unPng } from "./redact";
 
 /**
  * Number of colour components a JPEG's SOFn marker declares (1 = grayscale,
@@ -106,6 +114,10 @@ export interface OptimiseOptions {
   dropThumbnails: boolean;
   dropPieceInfo: boolean;
   recompressStreams: boolean;
+  /** Downsample oversized lossless (Flate) pictures too. */
+  downsampleFlate: boolean;
+  /** Store identical streams (pictures, fonts, forms) once. */
+  dedupe: boolean;
 }
 
 export const DEFAULT_OPTIMISE: OptimiseOptions = {
@@ -114,11 +126,15 @@ export const DEFAULT_OPTIMISE: OptimiseOptions = {
   dropThumbnails: true,
   dropPieceInfo: true,
   recompressStreams: true,
+  downsampleFlate: true,
+  dedupe: true,
 };
 
 export interface OptimiseReport {
   imagesRecompressed: number;
   streamsRecompressed: number;
+  /** Streams found twice or more and stored once. */
+  duplicatesMerged: number;
   bytesSaved: number;
 }
 
@@ -161,7 +177,7 @@ export async function optimiseDocument(
   options: Partial<OptimiseOptions> = {},
 ): Promise<OptimiseReport> {
   const opts: OptimiseOptions = { ...DEFAULT_OPTIMISE, ...options };
-  const report: OptimiseReport = { imagesRecompressed: 0, streamsRecompressed: 0, bytesSaved: 0 };
+  const report: OptimiseReport = { imagesRecompressed: 0, streamsRecompressed: 0, duplicatesMerged: 0, bytesSaved: 0 };
   const ctx = doc.context;
 
   // The largest a picture needs to be, derived from the biggest page.
@@ -186,8 +202,17 @@ export async function optimiseDocument(
     }
   }
 
+  // Soft masks are resized with their picture, never on their own.
+  const masks = new Set<string>();
+  for (const [, obj] of ctx.enumerateIndirectObjects()) {
+    const d = obj instanceof PDFStream ? (obj as unknown as { dict: PDFDict }).dict : undefined;
+    const m = d?.get(PDFName.of("SMask"));
+    if (m instanceof PDFRef) masks.add(m.toString());
+  }
+
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
     if (!(obj instanceof PDFStream)) continue;
+    if (masks.has(ref.toString())) continue;
     const dict = (obj as unknown as { dict: PDFDict }).dict;
     const subtype = nameOf(dict, "Subtype");
     const filter = nameOf(dict, "Filter");
@@ -227,6 +252,20 @@ export async function optimiseDocument(
       }
     }
 
+    // --- oversized lossless pictures (and their soft mask) --------------------
+    if (opts.downsampleFlate && subtype === "Image" && filter === "FlateDecode" && obj instanceof PDFRawStream) {
+      const w = numOf(dict, "Width") ?? 0;
+      const h = numOf(dict, "Height") ?? 0;
+      if (Math.max(w, h) > maxSide * 1.15) {
+        const saved = downsampleFlate(doc, ref, dict, obj, maxSide);
+        if (saved > 0) {
+          report.bytesSaved += saved;
+          report.imagesRecompressed++;
+        }
+        continue;
+      }
+    }
+
     // --- uncompressed streams ------------------------------------------------
     if (opts.recompressStreams && !filter && obj instanceof PDFRawStream && obj.contents.length > 256) {
       try {
@@ -244,7 +283,233 @@ export async function optimiseDocument(
     }
   }
 
+  if (opts.dedupe) {
+    const merged = dedupeStreams(doc);
+    report.duplicatesMerged = merged.count;
+    report.bytesSaved += merged.bytes;
+  }
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// Lossless pictures
+// ---------------------------------------------------------------------------
+
+/** Pixels of an 8-bit Flate picture with `comps` components (PNG predictors undone), or null. */
+function flatePixels(dict: PDFDict, stream: PDFRawStream, comps: number): Uint8Array | null {
+  const w = numOf(dict, "Width") ?? 0;
+  const h = numOf(dict, "Height") ?? 0;
+  if (numOf(dict, "BitsPerComponent") !== 8 || !w || !h) return null;
+  let data: Uint8Array;
+  try {
+    data = unzlibSync(stream.contents);
+  } catch {
+    return null;
+  }
+  const parms = dict.lookup(PDFName.of("DecodeParms"));
+  const pred = parms instanceof PDFDict ? (numOf(parms, "Predictor") ?? 1) : 1;
+  if (pred >= 10) data = unPng(data, w * comps, comps, h);
+  else if (pred !== 1) return null;
+  return data.length >= w * h * comps ? data : null;
+}
+
+/** Box-filter `src` (w×h×comps) down to nw×nh. */
+function boxResample(src: Uint8Array, w: number, h: number, comps: number, nw: number, nh: number): Uint8Array {
+  const out = new Uint8Array(nw * nh * comps);
+  const fx = w / nw;
+  const fy = h / nh;
+  for (let y = 0; y < nh; y++) {
+    const y0 = Math.floor(y * fy);
+    const y1 = Math.max(y0 + 1, Math.floor((y + 1) * fy));
+    for (let x = 0; x < nw; x++) {
+      const x0 = Math.floor(x * fx);
+      const x1 = Math.max(x0 + 1, Math.floor((x + 1) * fx));
+      for (let c = 0; c < comps; c++) {
+        let sum = 0;
+        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) sum += src[(yy * w + xx) * comps + c]!;
+        out[(y * nw + x) * comps + c] = Math.round(sum / ((y1 - y0) * (x1 - x0)));
+      }
+    }
+  }
+  return out;
+}
+
+const componentsOf = (doc: PDFDocument, dict: PDFDict): number => {
+  const cs = dict.lookup(PDFName.of("ColorSpace"));
+  const v = cs instanceof PDFRef ? doc.context.lookup(cs) : cs;
+  if (v instanceof PDFName) return v.asString() === "/DeviceGray" ? 1 : v.asString() === "/DeviceRGB" ? 3 : 0;
+  return 0;
+};
+
+/** Downsample one Flate picture (and its /SMask) in place; the bytes saved, 0 when left alone. */
+function downsampleFlate(
+  doc: PDFDocument,
+  selfRef: PDFRef,
+  dict: PDFDict,
+  stream: PDFRawStream,
+  maxSide: number,
+): number {
+  const comps = dict.has(PDFName.of("ImageMask")) ? 0 : componentsOf(doc, dict);
+  if (!comps || dict.has(PDFName.of("Decode")) || dict.has(PDFName.of("Mask"))) return 0;
+  const w = numOf(dict, "Width")!;
+  const h = numOf(dict, "Height")!;
+  const k = maxSide / Math.max(w, h);
+  const nw = Math.max(1, Math.round(w * k));
+  const nh = Math.max(1, Math.round(h * k));
+  const px = flatePixels(dict, stream, comps);
+  if (!px) return 0;
+  // The soft mask must shrink with the picture (same size), or be left as is.
+  const smaskRef = dict.get(PDFName.of("SMask"));
+  const smask = smaskRef instanceof PDFRef ? doc.context.lookup(smaskRef) : undefined;
+  let smaskNext: Uint8Array | null = null;
+  if (smask) {
+    if (!(smask instanceof PDFRawStream)) return 0;
+    const sd = smask.dict;
+    if (numOf(sd, "Width") !== w || numOf(sd, "Height") !== h || nameOf(sd, "Filter") !== "FlateDecode") return 0;
+    const alpha = flatePixels(sd, smask, 1);
+    if (!alpha) return 0;
+    smaskNext = zlibSync(boxResample(alpha, w, h, 1, nw, nh), { level: 8 });
+  }
+  const next = zlibSync(boxResample(px, w, h, comps, nw, nh), { level: 8 });
+  const before = stream.contents.length + (smask instanceof PDFRawStream ? smask.contents.length : 0);
+  const after = next.length + (smaskNext?.length ?? 0);
+  if (after >= before * 0.92) return 0;
+  const apply = (d: PDFDict, ref: PDFRef, bytes: Uint8Array) => {
+    d.set(PDFName.of("Width"), PDFNumber.of(nw));
+    d.set(PDFName.of("Height"), PDFNumber.of(nh));
+    d.set(PDFName.of("Length"), PDFNumber.of(bytes.length));
+    d.delete(PDFName.of("DecodeParms"));
+    doc.context.assign(ref, PDFRawStream.of(d, bytes));
+  };
+  if (smask instanceof PDFRawStream && smaskNext) apply(smask.dict, smaskRef as PDFRef, smaskNext);
+  apply(dict, selfRef, next);
+  return before - after;
+}
+
+// ---------------------------------------------------------------------------
+// Identical streams
+// ---------------------------------------------------------------------------
+
+function replaceRefs(o: PDFObject, map: Map<string, PDFRef>): void {
+  if (o instanceof PDFDict) {
+    for (const [k, v] of o.entries()) {
+      if (v instanceof PDFRef) {
+        const to = map.get(v.toString());
+        if (to) o.set(k, to);
+      } else replaceRefs(v, map);
+    }
+  } else if (o instanceof PDFArray) {
+    for (let i = 0; i < o.size(); i++) {
+      const v = o.get(i);
+      if (v instanceof PDFRef) {
+        const to = map.get(v.toString());
+        if (to) o.set(i, to);
+      } else replaceRefs(v, map);
+    }
+  } else if (o instanceof PDFStream) {
+    replaceRefs((o as unknown as { dict: PDFDict }).dict, map);
+  }
+}
+
+/** Store identical streams once; every reference points at the one kept. */
+export function dedupeStreams(doc: PDFDocument): { count: number; bytes: number } {
+  const ctx = doc.context;
+  const seen = new Map<string, PDFRef>();
+  const map = new Map<string, PDFRef>();
+  let bytes = 0;
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream) || obj.contents.length < 64) continue;
+    const dict = obj.dict;
+    // Page content streams are never shared (a later edit of one page would change both).
+    if (!nameOf(dict, "Subtype") && !nameOf(dict, "Type") && !dict.has(PDFName.of("Length1"))) continue;
+    const keys = [...dict.entries()]
+      .filter(([k]) => k.asString() !== "/Length")
+      .map(([k, v]) => `${k.asString()} ${v.toString()}`)
+      .sort()
+      .join("\n");
+    const h = sha256(new TextEncoder().encode(keys));
+    const digest = Array.from(sha256(obj.contents), (b) => b.toString(16).padStart(2, "0")).join("");
+    const key = `${Array.from(h, (b) => b.toString(16).padStart(2, "0")).join("")}:${digest}`;
+    const first = seen.get(key);
+    if (first) {
+      map.set(ref.toString(), first);
+      bytes += obj.contents.length;
+    } else seen.set(key, ref);
+  }
+  if (!map.size) return { count: 0, bytes: 0 };
+  for (const [, obj] of ctx.enumerateIndirectObjects()) replaceRefs(obj, map);
+  replaceRefs(ctx.trailerInfo.Root as PDFObject, map);
+  for (const k of map.keys()) {
+    const [num, gen] = k.split(" ");
+    ctx.delete(PDFRef.of(Number(num), Number(gen)));
+  }
+  return { count: map.size, bytes };
+}
+
+// ---------------------------------------------------------------------------
+// Space audit
+// ---------------------------------------------------------------------------
+
+export interface SpaceAudit {
+  total: number;
+  categories: { label: string; bytes: number }[];
+}
+
+/** Where the bytes of a file go, by kind of object (Acrobat's « Audit de l'espace utilisé »). */
+export function spaceAudit(doc: PDFDocument, fileSize: number): SpaceAudit {
+  const sums = new Map<string, number>();
+  const add = (label: string, n: number) => sums.set(label, (sums.get(label) ?? 0) + n);
+  const pageContents = new Set<string>();
+  for (const page of doc.getPages()) {
+    const c = page.node.get(PDFName.of("Contents"));
+    if (c instanceof PDFRef) pageContents.add(c.toString());
+    const arr = c instanceof PDFRef ? doc.context.lookup(c) : c;
+    if (arr instanceof PDFArray) for (let i = 0; i < arr.size(); i++) pageContents.add(String(arr.get(i)));
+  }
+  let counted = 0;
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
+    const size = obj.sizeInBytes();
+    counted += size;
+    if (obj instanceof PDFStream) {
+      const d = (obj as unknown as { dict: PDFDict }).dict;
+      const subtype = nameOf(d, "Subtype");
+      const type = nameOf(d, "Type");
+      if (subtype === "Image") add("Images", size);
+      else if (
+        d.has(PDFName.of("Length1")) ||
+        d.has(PDFName.of("Length2")) ||
+        subtype === "Type1C" ||
+        subtype === "CIDFontType0C" ||
+        subtype === "OpenType"
+      )
+        add("Polices", size);
+      else if (subtype === "Form") add("Objets graphiques (formulaires XObject)", size);
+      else if (type === "Metadata") add("Métadonnées", size);
+      else if (pageContents.has(ref.toString())) add("Contenu des pages", size);
+      else if (type === "EmbeddedFile") add("Fichiers joints", size);
+      else add("Autres flux", size);
+    } else if (obj instanceof PDFDict) {
+      const type = nameOf(obj, "Type");
+      if (type === "Annot") add("Commentaires et champs", size);
+      else if (type === "Font" || type === "FontDescriptor") add("Polices", size);
+      else if (type === "Outlines" || obj.has(PDFName.of("First")) || obj.has(PDFName.of("Dest"))) add("Signets", size);
+      else add("Structure du document", size);
+    } else add("Structure du document", size);
+  }
+  // Objects packed in object streams take less room in the file than on their own: shares, then.
+  if (counted > fileSize) {
+    const k = fileSize / counted;
+    for (const [label, n] of sums) sums.set(label, Math.floor(n * k));
+    const rest = fileSize - [...sums.values()].reduce((a, b) => a + b, 0);
+    add("Structure du document", rest);
+  } else add("Tables de références et divers", fileSize - counted);
+  return {
+    total: fileSize,
+    categories: [...sums.entries()]
+      .map(([label, bytes]) => ({ label, bytes }))
+      .filter((c) => c.bytes > 0)
+      .sort((a, b) => b.bytes - a.bytes),
+  };
 }
 
 /** Human-readable byte size. */

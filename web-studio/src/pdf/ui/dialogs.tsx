@@ -39,7 +39,7 @@ import type { ComparisonReport } from "../ops/compare";
 /** Options « Enregistrer sous… » can change; any of them makes the result a separate copy. */
 export type SaveAsOptions = Pick<
   BuildOptions,
-  "interactiveAnnots" | "flattenForms" | "applyRedactions" | "sanitise" | "optimise"
+  "interactiveAnnots" | "flattenForms" | "applyRedactions" | "sanitise" | "optimise" | "optimiseOptions"
 >;
 
 /** True when these options produce a transformed copy rather than the document itself. */
@@ -178,6 +178,76 @@ export function SaveDialog({
             <small>Réécrit tout le fichier, rééchantillonne les images et recompresse les flux.</small>
           </span>
         </label>
+        {options.optimise && (
+          <fieldset className="pdfx-form__set">
+            <legend>Optimisation</legend>
+            <label className="pdfx-form__row">
+              <span>Résolution maximale des images</span>
+              <select
+                value={options.optimiseOptions?.imageDpi ?? 150}
+                onChange={(e) =>
+                  onChange({ optimiseOptions: { ...options.optimiseOptions, imageDpi: Number(e.target.value) } })
+                }
+              >
+                <option value={72}>72 ppp (écran)</option>
+                <option value={96}>96 ppp</option>
+                <option value={150}>150 ppp (lecture, e-mail)</option>
+                <option value={200}>200 ppp</option>
+                <option value={300}>300 ppp (impression)</option>
+              </select>
+            </label>
+            <label className="pdfx-form__row">
+              <span>Qualité JPEG</span>
+              <select
+                value={options.optimiseOptions?.jpegQuality ?? 0.72}
+                onChange={(e) =>
+                  onChange({ optimiseOptions: { ...options.optimiseOptions, jpegQuality: Number(e.target.value) } })
+                }
+              >
+                <option value={0.5}>Basse</option>
+                <option value={0.72}>Moyenne</option>
+                <option value={0.85}>Haute</option>
+                <option value={0.95}>Maximale</option>
+              </select>
+            </label>
+            <label className="pdfx-check">
+              <input
+                type="checkbox"
+                checked={options.optimiseOptions?.downsampleFlate ?? true}
+                onChange={(e) =>
+                  onChange({ optimiseOptions: { ...options.optimiseOptions, downsampleFlate: e.target.checked } })
+                }
+              />
+              Rééchantillonner aussi les images sans perte (PNG)
+            </label>
+            <label className="pdfx-check">
+              <input
+                type="checkbox"
+                checked={options.optimiseOptions?.dedupe ?? true}
+                onChange={(e) =>
+                  onChange({ optimiseOptions: { ...options.optimiseOptions, dedupe: e.target.checked } })
+                }
+              />
+              Ne garder qu'une fois les images, polices et objets identiques
+            </label>
+            <label className="pdfx-check">
+              <input
+                type="checkbox"
+                checked={options.optimiseOptions?.dropThumbnails ?? true}
+                onChange={(e) =>
+                  onChange({
+                    optimiseOptions: {
+                      ...options.optimiseOptions,
+                      dropThumbnails: e.target.checked,
+                      dropPieceInfo: e.target.checked,
+                    },
+                  })
+                }
+              />
+              Supprimer les vignettes et données privées d'applications
+            </label>
+          </fieldset>
+        )}
 
         <p className="pdfx-form__note">
           {copy

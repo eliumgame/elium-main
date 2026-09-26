@@ -122,6 +122,8 @@ import type { PadesSignOptions, PadesVerification } from "../ops/pades";
 import { IdentitiesDialog, SignDialog, type SignChoice } from "./SignDialogs";
 import type { SignatureView } from "./SignaturesPane";
 import SigFieldTargets from "./SigFieldTargets";
+import { PrintDialog } from "./PrintDialog";
+import { contentState, keepFormFieldsOnly, type ContentMode } from "../ops/impose";
 import { suggestFields } from "../ops/forms";
 import {
   exportEntries,
@@ -236,7 +238,8 @@ type DialogId =
   | "combine"
   | "redactSearch"
   | "identities"
-  | "initials";
+  | "initials"
+  | "print";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -1773,6 +1776,8 @@ export default function PdfWorkspace({
     [pages, fileLabels],
   );
   const pageLabels = useMemo(() => shownPages.map((pg) => pg.label), [shownPages]);
+  /** The pages that print (excluded ones left out). */
+  const printablePages = useMemo(() => pages.filter((p) => !p.skipped), [pages]);
 
   /** Named destinations as they will be saved: the file's, less removed, plus added. */
   const shownDests = useMemo(() => {
@@ -2796,48 +2801,66 @@ export default function PdfWorkspace({
     }
   };
 
+  /** Sends print-ready bytes to the browser's print dialog (hidden blob iframe). */
+  const sendToPrinter = (bytes: Uint8Array) => {
+    const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.src = url;
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      frame.remove();
+      URL.revokeObjectURL(url);
+    };
+    frame.onload = () => {
+      try {
+        // Removed once the print dialog closes (a long print queue keeps it until then).
+        frame.contentWindow?.addEventListener("afterprint", () => setTimeout(cleanup, 1000));
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } catch {
+        window.open(url, "_blank");
+      }
+      setTimeout(cleanup, 10 * 60_000);
+    };
+    document.body.appendChild(frame);
+  };
+
+  /** The document as it prints in `mode` (Acrobat's « Commentaires et formulaires »). */
+  const printSource = async (mode: ContentMode): Promise<Uint8Array> => {
+    // Layers print as they are shown now.
+    const base: PdfState = layers.length
+      ? { ...state, ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])) }
+      : state;
+    const st = contentState(base, mode);
+    if (mode === "forms") {
+      return keepFormFieldsOnly(
+        (await buildDerived(st, { interactiveAnnots: false, flattenForms: false, forPrint: true })).bytes,
+      );
+    }
+    return (await buildDerived(st, { interactiveAnnots: false, flattenForms: true, forPrint: true })).bytes;
+  };
+
+  /** The comment summary goes straight to the printer; the document goes through the print dialog. */
   const printDocument = async (which: "document" | "summary" = "document") => {
     if (!bytesRef.current) return;
+    if (which === "document") {
+      setDialog("print");
+      return;
+    }
     setBusy(true);
     const id = toast("progress", "Préparation de l'impression…");
     try {
-      // Layers print as they are shown now.
-      const st: PdfState = layers.length
-        ? { ...state, ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])) }
-        : state;
-      let bytes =
-        which === "summary"
-          ? await commentSummary()
-          : (await buildDerived(st, { interactiveAnnots: false, flattenForms: true, forPrint: true })).bytes;
+      let bytes = await commentSummary();
       if (restrictionsRef.current && !restrictionsRef.current.printHighRes) bytes = await lowResolution(bytes);
-      const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
-      const frame = document.createElement("iframe");
-      frame.style.position = "fixed";
-      frame.style.right = "0";
-      frame.style.bottom = "0";
-      frame.style.width = "0";
-      frame.style.height = "0";
-      frame.style.border = "0";
-      frame.src = url;
-      let done = false;
-      const cleanup = () => {
-        if (done) return;
-        done = true;
-        frame.remove();
-        URL.revokeObjectURL(url);
-      };
-      frame.onload = () => {
-        try {
-          // Removed once the print dialog closes (a long print queue keeps it until then).
-          frame.contentWindow?.addEventListener("afterprint", () => setTimeout(cleanup, 1000));
-          frame.contentWindow?.focus();
-          frame.contentWindow?.print();
-        } catch {
-          window.open(url, "_blank");
-        }
-        setTimeout(cleanup, 10 * 60_000);
-      };
-      document.body.appendChild(frame);
+      sendToPrinter(bytes);
       dismissToast(id);
     } catch {
       dismissToast(id);
@@ -5904,6 +5927,33 @@ export default function PdfWorkspace({
             void saveAs(name, o);
           }}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "print" && (
+        <PrintDialog
+          pageCount={printablePages.length}
+          currentPage={Math.max(0, printablePages.indexOf(pages[currentStore.get() - 1]!))}
+          labels={printablePages.map((p, i) => shownPages.find((q) => q.id === p.id)?.label ?? String(i + 1))}
+          pageSizes={printablePages.map((p) => {
+            const sz = sizeOf(p);
+            return [sz.w, sz.h] as const;
+          })}
+          imageOnly={!!restrictionsRef.current && !restrictionsRef.current.printHighRes}
+          buildSource={printSource}
+          onClose={() => setDialog(null)}
+          onPrint={(bytes, asImage) => {
+            setDialog(null);
+            void (async () => {
+              const id = toast("progress", "Préparation de l'impression…");
+              try {
+                sendToPrinter(asImage ? await lowResolution(bytes) : bytes);
+              } catch {
+                toast("danger", "Impossible d'imprimer");
+              } finally {
+                dismissToast(id);
+              }
+            })();
+          }}
         />
       )}
       {signRequest && (

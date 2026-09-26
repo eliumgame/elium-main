@@ -125,4 +125,19 @@ test.describe("PDF — conversion", () => {
     expect(strFromU8(files["xl/worksheets/sheet1.xml"]!)).toContain("<v>3500</v>");
     expect(problems).toEqual([]);
   });
+
+  test("imprimer : boîte avec aperçu, 2 pages par feuille, envoi à l'impression", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    await open(page, await twoPages());
+    await page.keyboard.press("Control+p");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Feuille 1 sur 2");
+    await dialog.getByRole("tab", { name: "Multiple" }).click();
+    await expect(dialog).toContainText("Feuille 1 sur 1");
+    await dialog.getByRole("button", { name: "Imprimer", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator('iframe[src^="blob:"]')).toHaveCount(1);
+    expect(problems).toEqual([]);
+  });
 });

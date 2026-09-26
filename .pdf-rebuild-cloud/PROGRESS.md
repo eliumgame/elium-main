@@ -1157,3 +1157,40 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 Plausibles : Organiser › Extraire sans le droit copie ; invite en boucle sur formulaires
 interdits ; mot de passe propriétaire ≡ ouverture après NFKC ; motif e-mail quadratique ;
 mots de passe accentués NFD en révisions 2-4.
+
+### T8 : fait (session cloud 1)
+- Moteur PAdES reconstruit (`ops/pades.ts`, `ops/der.ts`) : signature en mise à jour
+  incrémentale (plusieurs signatures valides), CMS B-B (signing-certificate-v2, pas de
+  signing-time), RSA et EC (WebCrypto), certification DocMDP 1/2/3, verrou FieldMDP
+  (/Lock P 1), apparence texte + image, horodatage RFC 3161.
+- Vérification : identifiant du signataire, date de signature (horodatage > attribut >
+  /M), SHA-1/256/384/512, RSA, RSA-PSS, ECDSA, chaîne jusqu'aux identités approuvées,
+  analyse des révisions (formulaires, commentaires, signatures autorisés ; contenu,
+  pages, structure non autorisés) jugée selon DocMDP / FieldMDP ; fichiers endommagés
+  lus par balayage des /ByteRange.
+- Validé avec pyHanko : simple, double (RSA puis EC), certifiée, horodatée
+  (TIMESTAMP_TOKEN INTACT:TRUSTED) ; fixtures pyHanko (EC, SHA-512, adbe, cert + 2e
+  signature) vérifiées correctement.
+- Interface : dialogue Signer / Certifier, identifiants numériques (clé WebCrypto non
+  exportable en IndexedDB, .p12 mémorisé), identités approuvées, panneau Signatures,
+  version signée, champ vide cliquable, document signé rouvert.
+- Relais d'horodatage : lanceur `/__tsa__` (jeton), serveur `/api/tsa` (adresses
+  publiques seulement, bornes de taille, limite de débit).
+- Remplir et signer : texte, coche, croix, point, date, initiales, signatures
+  mémorisées d'un document à l'autre.
+- T7 revue : 12 défauts corrigés (agent), + Extraire exige le droit copie, invite
+  formulaire unique.
+
+### T8 : limites connues
+- Pas de LTV (DSS/VRI, OCSP/CRL embarqués) ni de magasin de certificats système.
+- Horodatage non testé contre un vrai TSA public depuis le cloud (proxy 403) :
+  validé avec le TSA factice de pyHanko.
+- Ajout de pages après une signature d'approbation : signalé « non autorisé » (comme
+  pyHanko ; Acrobat peut l'afficher comme simple avertissement).
+- Coche/croix/point posés au centre de la page (à déplacer), pas au clic.
+
+### T8 : à valider dans Acrobat
+- `a8/el-1.pdf` (signature visible avec texte), `a8/el-2.pdf` (RSA puis EC),
+  `a8/el-cert.pdf` (certifié P2), `a8/el-tsa.pdf` (horodaté, TSA de test non approuvé),
+  signature par identifiant auto-signé Elium (coche après « approuver le certificat »),
+  verrouillage du document après signature.

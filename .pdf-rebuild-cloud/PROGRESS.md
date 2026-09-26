@@ -1254,3 +1254,24 @@ rafraîchi après enregistrement, double validation, .p12 mémorisé une fois.
   modèles deu/spa/ita/por/nld ajoutés (best_int, Apache-2.0) ; vérifié sous la CSP bureau
   (spec pdf-ocr : aucune requête externe) ; page /Rotate reconnue ; couche par ligne avec
   espaces ; mots douteux conservés ; annulation sans écriture.
+
+### T9 : fait (suite)
+- Exports depuis le document courant (23a9898), tableaux, impression (Print/NoView, calques,
+  basse résolution), comparaison sans texte signalée.
+- Images : résolution réelle (pHYs/JFIF/EXIF/TIFF), TIFF multipage (utif2, MIT), export TIFF
+  et résolution inscrite, création depuis le presse-papiers (785a05a).
+- Optimiser : images Flate + masque, doublons, réglages, audit d'espace (e59c7e2).
+- Exports Word / Excel / PowerPoint / RTF (a78bd92, agent).
+- Boîte d'impression + imposition (8df4cc4, agent) ; comparaison visuelle + rapport
+  (ec8582a, agent).
+- PDF/A-2b/3b validé veraPDF 1.28.2 sur 14 fichiers variés (02096cc) ; vérificateur
+  d'accessibilité (439b0ea).
+- En cours : création de PDF depuis Office/HTML (agent).
+- veraPDF : scratchpad/vera (jar Maven greenfield-apps 1.28.2) ; test optionnel
+  tests/pdf-pdfa.test.ts (VERAPDF_JAR).
+- Instable sous charge (à surveiller) : pdf-formpdf « an unchanged value adds no field
+  object… » (passe seul).
+
+### T9 : à valider dans Acrobat / Office
+- Exports Word/Excel/PowerPoint (ouverture dans Office), PDF/A dans le contrôle en amont
+  d'Acrobat, impression livret/affiche sur imprimante réelle, OCR sur vrais scans.

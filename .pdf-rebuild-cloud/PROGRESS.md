@@ -1101,3 +1101,43 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   déverrouillage, Drive + bureau). Suite 2035/2035 ; specs PDF 74/74.
 - À valider dans Acrobat : les autorisations écrites (impression basse résolution,
   « commentaires et formulaires »), et une ouverture avec chaque mot de passe.
+
+## T8 : signatures
+
+### Audit (session cloud 1), par ordre d'impact
+- Vérifié correct : une signature PAdES simple (pyHanko 0.37 : INTACT, UNTOUCHED,
+  ENTIRE_FILE, SHA-256, RSA) ; les enregistrements après signature sont incrémentaux.
+1. Deuxième signature impossible : réécriture complète, et recherche du premier
+   /ByteRange (celui de l'ancienne signature). Erreur « Placeholder /ByteRange trop
+   court ».
+2. Vérification trompeuse : un contenu modifié après signature s'affiche « Valide »
+   (pas d'analyse des révisions ni de DocMDP).
+3. « Chaîne vérifiée » affiché pour n'importe quelle autorité incluse par le
+   signataire : pas de magasin de confiance.
+4. Faux négatifs à la vérification :
+   - SHA-256 imposé ; clés RSA seules ;
+   - certificat pris en premier plutôt que par l'identifiant du signataire ;
+   - validité jugée à la date du jour et non à la date de signature ;
+   - nom de champ inventé ;
+   - /ByteRange dans un flux d'objets non trouvé.
+5. Clés EC impossibles pour signer (node-forge), avec un message qui accuse le mot de
+   passe.
+6. Mot de passe PKCS#12 saisi en clair.
+7. Le PDF signé est seulement téléchargé : le document ouvert reste non signé, et un
+   « Enregistrer » ultérieur écrase la version signée.
+8. PAdES B-B non conforme : pas de signing-certificate-v2, signing-time dans la CMS.
+9. Pas d'horodatage RFC 3161 ni de LTV (DSS/VRI) ; le réseau est fermé par la CSP du
+   poste.
+10. Pas de certification DocMDP, de FieldMDP ni de /Lock.
+11. Champ préparé : SigFlags non fixé ; un clic sur un champ de signature vide ne lance
+    rien.
+12. Apparence visible réduite à l'image : pas de nom, date, motif ni lieu ; motif
+    imposé.
+13. Ni panneau Signatures ni affichage de la version signée.
+14. Identifiant auto-signé jetable (recréé à chaque signature, mot de passe fixe) ;
+    génération bloquante.
+15. Remplir et signer :
+    - initiales non gérées ;
+    - signatures enregistrées perdues hors .elium ;
+    - proportions fausses à la restauration ;
+    - outils coche, croix, point et date absents.

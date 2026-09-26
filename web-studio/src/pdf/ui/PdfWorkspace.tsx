@@ -27,6 +27,7 @@ import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from 
 import { openPdfDocument, warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
 import { FormSession } from "../core/forms/session";
+import { setDocumentScriptsEnabled } from "../core/forms/scripting";
 import { isEmptyValue, sameFormValue } from "../core/forms/values";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
@@ -357,6 +358,19 @@ export default function PdfWorkspace({
   const snapshotRef = useRef<Map<string, Annot> | null>(null);
   const saving = useRef(false);
   const redactConfirmed = useRef(false);
+  /** Documents' JavaScript (a preference of this browser). */
+  const [scriptsOn, setScriptsOn] = useState(() => {
+    const on = loadPdfPrefs().scripts !== false;
+    setDocumentScriptsEnabled(on);
+    return on;
+  });
+  /**
+   * The document's restrictions, when it was opened without the permissions
+   * (owner) password — null: none apply. Acrobat enforces them; so does Elium.
+   */
+  const [restrictions, setRestrictions] = useState<Permissions | null>(null);
+  const restrictionsRef = useRef(restrictions);
+  restrictionsRef.current = restrictions;
   /** The hidden information chosen, with the redaction, to go too (null: none). */
   const redactHiddenInfo = useRef<HiddenInfoOptions | null>(null);
   /** The « Appliquer le caviardage » dialog, waiting for its answer. */
@@ -825,6 +839,13 @@ export default function PdfWorkspace({
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
         setFileLabels(null);
+        setRestrictions(null);
+        void inspectProtection(next.bytes, password ?? "").then((p) => {
+          if (gen !== shownGeneration.current) return;
+          // Only a document that withholds some right is restricted (an open password alone is not).
+          const withheld = p?.encrypted && !p.owner && Object.values(p.permissions).some((v) => !v);
+          setRestrictions(withheld ? p.permissions : null);
+        });
         void next.pageLabels().then((l) => gen === shownGeneration.current && setFileLabels(l));
         // The file's Initial View: shown as it asks on a fresh open (panel,
         // page layout, page and zoom), kept for the Properties dialog.
@@ -964,6 +985,19 @@ export default function PdfWorkspace({
     if (!formSession) return;
     const off = formSession.onChange((changes, meta) => {
       const apply = (s: PdfState) => ({ ...s, formValues: { ...s.formValues, ...changes } });
+      // A document that forbids filling: the value typed is taken back, unless unlocked.
+      const r = restrictionsRef.current;
+      if (r && !r.fillForms && !r.annotate) {
+        void requireRightRef.current("fillForms").then((ok) => {
+          if (ok) setState(apply);
+          else
+            setQuiet((s) => {
+              formSession.sync(s.formValues);
+              return s;
+            });
+        });
+        return;
+      }
       // One undo step per field visit (typing) or per click (boxes, lists);
       // what the form's scripts compute joins the step that caused it.
       if (meta.newStep) setState(apply);
@@ -1446,6 +1480,11 @@ export default function PdfWorkspace({
   };
 
   const pickTool = (next: Tool) => {
+    // A restricted document: comment tools need « commentaires », field tools « modification ».
+    if (restrictionsRef.current && (next.startsWith("field:") || toolIsAnnot(next))) {
+      void requireRight(next.startsWith("field:") ? "modify" : "annotate").then((ok) => ok && pickTool(next));
+      return;
+    }
     setTool(next);
     setEditingId(null);
     // A field tool works in « Préparer un formulaire »; a markup tool leaves it.
@@ -2355,6 +2394,7 @@ export default function PdfWorkspace({
         askPassword: (name, wrong) =>
           dialogs.prompt({
             title: "PDF protégé",
+            password: true,
             label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
           }),
       });
@@ -2762,11 +2802,139 @@ export default function PdfWorkspace({
     insertBlankAt(at, count, size);
   };
 
+  /**
+   * May the document do this? Its restrictions apply unless opened with the
+   * permissions password — which is asked for then (and lifts them all).
+   */
+  const requireRight = async (right: keyof Permissions | "owner"): Promise<boolean> => {
+    const r = restrictionsRef.current;
+    if (!r) return true;
+    if (right !== "owner" && (r[right] || (right === "fillForms" && r.annotate))) return true;
+    const what: Record<keyof Permissions | "owner", string> = {
+      print: "l'impression",
+      printHighRes: "l'impression haute résolution",
+      modify: "la modification",
+      copy: "la copie et l'extraction du contenu",
+      annotate: "l'ajout de commentaires",
+      fillForms: "le remplissage des formulaires",
+      assemble: "l'organisation des pages",
+      extractForAccessibility: "l'extraction pour l'accessibilité",
+      owner: "la modification de sa sécurité",
+    };
+    const pw = await dialogs.prompt({
+      title: "Document protégé",
+      label: `Ce document interdit ${what[right]}. Mot de passe des autorisations :`,
+      password: true,
+      confirmLabel: "Déverrouiller",
+    });
+    if (!pw || !bytesRef.current) return false;
+    const p = await inspectProtection(bytesRef.current, pw);
+    if (!p?.owner) {
+      toast("danger", "Mot de passe incorrect", "Ce n'est pas le mot de passe des autorisations.");
+      return false;
+    }
+    passwordRef.current = pw;
+    restrictionsRef.current = null;
+    setRestrictions(null);
+    toast("success", "Restrictions levées", "Toutes les opérations sont permises pour cette session.");
+    return true;
+  };
+
+  const requireRightRef = useRef(requireRight);
+  requireRightRef.current = requireRight;
+
+  // Copying text out of a document that forbids it.
+  useEffect(() => {
+    if (!restrictions || restrictions.copy) return;
+    const onCopy = (e: ClipboardEvent) => {
+      const sel = window.getSelection();
+      const node = sel?.anchorNode instanceof Element ? sel.anchorNode : sel?.anchorNode?.parentElement;
+      if (!node?.closest(".pdfx-viewcol, .pdfx-stack")) return;
+      e.preventDefault();
+      toast("warning", "Copie interdite", "Ce document interdit la copie de son contenu.");
+    };
+    document.addEventListener("copy", onCopy, true);
+    return () => document.removeEventListener("copy", onCopy, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restrictions]);
+
+  /** The right each command needs on a restricted document. */
+  const COMMAND_RIGHT: Record<string, (keyof Permissions | "owner")[]> = {
+    print: ["print"],
+    printSummary: ["print"],
+    exportImages: ["copy"],
+    exportDocx: ["copy"],
+    exportText: ["copy"],
+    exportHtml: ["copy"],
+    exportTables: ["copy"],
+    extract: ["assemble", "copy"],
+    split: ["assemble", "copy"],
+    merge: ["assemble", "copy"],
+    organise: ["assemble"],
+    insertBlank: ["assemble"],
+    insertFile: ["assemble"],
+    insertImage: ["assemble"],
+    insertClipboard: ["assemble"],
+    rotateDialog: ["assemble"],
+    movePages: ["assemble"],
+    replacePages: ["assemble"],
+    rotateLeft: ["assemble"],
+    rotateRight: ["assemble"],
+    duplicatePage: ["assemble"],
+    deletePage: ["assemble"],
+    reverse: ["assemble"],
+    crop: ["modify"],
+    resize: ["modify"],
+    pageLabels: ["modify"],
+    editMode: ["modify"],
+    addImage: ["modify"],
+    formPrepare: ["modify"],
+    detectFields: ["modify"],
+    formFlatten: ["modify"],
+    watermark: ["modify"],
+    headerFooter: ["modify"],
+    bates: ["modify"],
+    redactSearch: ["modify"],
+    redactApply: ["modify"],
+    linksFromUrls: ["modify"],
+    sanitise: ["modify"],
+    optimise: ["modify"],
+    ocr: ["modify"],
+    bookmarkAdd: ["modify"],
+    bookmarksFromHeadings: ["modify"],
+    insertText: ["annotate"],
+    replaceText: ["annotate"],
+    addText: ["annotate"],
+    attachFile: ["annotate"],
+    stampCustom: ["annotate"],
+    importComments: ["annotate"],
+    importFormData: ["fillForms"],
+    formReset: ["fillForms"],
+    signature: ["fillForms"],
+    signPades: ["fillForms"],
+    signSelfSigned: ["fillForms"],
+    protect: ["owner"],
+    unprotect: ["owner"],
+  };
+
   const command = async (id: string) => {
+    for (const right of COMMAND_RIGHT[id] ?? []) if (!(await requireRight(right))) return;
     switch (id) {
       case "undo":
         undo();
         return;
+      case "toggleScripts": {
+        const on = !scriptsOn;
+        setScriptsOn(on);
+        setDocumentScriptsEnabled(on);
+        savePdfPrefs({ scripts: on });
+        toast(
+          "info",
+          on ? "JavaScript activé" : "JavaScript désactivé",
+          "Pris en compte à la prochaine ouverture d'un document.",
+        );
+        return;
+      }
       case "redo":
         redo();
         return;
@@ -3328,7 +3496,7 @@ export default function PdfWorkspace({
     }
     const pw =
       passwordRef.current ??
-      (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document" }));
+      (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document", password: true }));
     if (!pw) return;
     setBusy(true);
     try {
@@ -3835,6 +4003,7 @@ export default function PdfWorkspace({
             (name, wrong) =>
               dialogs.prompt({
                 title: "PDF protégé",
+                password: true,
                 label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
               }),
             index,
@@ -4744,6 +4913,7 @@ export default function PdfWorkspace({
         preparing={mode === "fields"}
         busy={busy}
         stickyTool={sticky}
+        scriptsOn={scriptsOn}
         onTab={setTab}
         onTool={pickTool}
         onStyle={(patch) => {
@@ -4807,8 +4977,11 @@ export default function PdfWorkspace({
               author={author}
               onGoTo={goTo}
               onSelectPages={setSelectedPages}
-              onReorderPages={(ids, to) => setState((s) => D.reorderPages(s, ids, to))}
-              onPageAction={(action, ids) => {
+              onReorderPages={(ids, to) =>
+                void requireRight("assemble").then((ok) => ok && setState((s) => D.reorderPages(s, ids, to)))
+              }
+              onPageAction={async (action, ids) => {
+                if (!(await requireRight("assemble"))) return;
                 const targets = ids.length ? ids : targetPages();
                 if (action === "rotate") setState((s) => D.rotatePages(s, targets, 90));
                 if (action === "delete") setState((s) => D.deletePages(s, targets));
@@ -5669,6 +5842,7 @@ export default function PdfWorkspace({
                 (name, wrong) =>
                   dialogs.prompt({
                     title: "PDF protégé",
+                    password: true,
                     label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
                   }),
                 from - 1,
@@ -5781,11 +5955,18 @@ export default function PdfWorkspace({
             setBusy(true);
             try {
               const texts = await ensureText();
+              const { REDACT_PATTERNS } = await import("../ops/redactpatterns");
+              const preset = v.preset ? REDACT_PATTERNS.find((p) => p.id === v.preset) : undefined;
+              // A pattern's check keeps only real numbers (a key, Luhn), trimmed to their valid part.
               const found = runSearch(texts, v.query, {
                 caseSensitive: v.caseSensitive,
                 wholeWord: v.wholeWord,
                 regex: v.regex,
                 ignoreDiacritics: true,
+              }).flatMap((h) => {
+                if (!preset?.valid) return [h];
+                const n = preset.valid(texts[h.page].slice(h.start, h.end));
+                return n > 0 ? [{ ...h, end: h.start + n }] : [];
               });
               if (!found.length) {
                 toast("info", "Aucune occurrence trouvée.");

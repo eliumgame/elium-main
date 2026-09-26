@@ -56,6 +56,55 @@ export interface ScriptingOptions {
 
 let moduleLoad: Promise<{ QuickJSSandbox: (wasmUrl: string) => Promise<QuickSandbox> }> | null = null;
 
+/** Acrobat's « Activer JavaScript » (Préférences): documents' scripts run only when on. */
+let scriptsEnabled = true;
+export function setDocumentScriptsEnabled(on: boolean): void {
+  scriptsEnabled = on;
+}
+export function documentScriptsEnabled(): boolean {
+  return scriptsEnabled;
+}
+
+/**
+ * pdf.js' sandbox shows a script's app.alert / confirm / response with the
+ * browser's own boxes (they must answer synchronously). While documents'
+ * scripts run, those boxes say where the message comes from — a document,
+ * not Elium — and a script cannot raise more than 3 of them in 10 seconds.
+ */
+let dialogGuards = 0;
+let restoreDialogs: (() => void) | null = null;
+function guardScriptDialogs(fileName: () => string): () => void {
+  if (typeof window === "undefined") return () => {};
+  if (dialogGuards++ === 0) {
+    const { alert, confirm, prompt } = window;
+    let times: number[] = [];
+    const allow = () => {
+      const now = Date.now();
+      times = times.filter((t) => now - t < 10_000);
+      if (times.length >= 3) return false;
+      times.push(now);
+      return true;
+    };
+    const head = () => `Message du document PDF « ${fileName()} » (et non d'Elium) :\n\n`;
+    window.alert = (m?: unknown) => {
+      if (allow()) alert.call(window, head() + String(m ?? ""));
+    };
+    window.confirm = (m?: string) => (allow() ? confirm.call(window, head() + String(m ?? "")) : false);
+    window.prompt = (m?: string, d?: string) => (allow() ? prompt.call(window, head() + String(m ?? ""), d) : null);
+    restoreDialogs = () => {
+      window.alert = alert;
+      window.confirm = confirm;
+      window.prompt = prompt;
+    };
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--dialogGuards === 0) restoreDialogs?.();
+  };
+}
+
 /** Can form JavaScript run here? (a page with the published pdf.js assets, WebAssembly available) */
 export function scriptingSupported(): boolean {
   return typeof window !== "undefined" && typeof WebAssembly !== "undefined" && !!pdfjsAssetUrls();
@@ -142,6 +191,8 @@ export class FormScripting {
         // (the form layer is not scripted until it is up) is in them.
         const objects = await this.o.objects();
         this.rememberValues(objects);
+        this.unguard();
+        this.unguard = guardScriptDialogs(this.o.fileName);
         const info = await this.o.pdf.getMetadata().catch(() => null);
         const meta = (info?.info ?? {}) as Record<string, unknown>;
         sandbox.create({
@@ -394,9 +445,12 @@ export class FormScripting {
     }
   }
 
+  private unguard: () => void = () => {};
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.unguard();
     this.abort.abort();
     this.queue = [];
     try {

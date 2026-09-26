@@ -44,6 +44,7 @@ import {
   Italic,
   Layers,
   LayoutGrid,
+  FileCode,
   Lock,
   MessageSquarePlus,
   Minus,
@@ -123,6 +124,8 @@ export interface RibbonProps {
   preparing?: boolean;
   busy: boolean;
   stickyTool: boolean;
+  /** Documents' JavaScript is on (Acrobat's « Activer JavaScript »). */
+  scriptsOn?: boolean;
   onTab: (tab: RibbonTab) => void;
   onTool: (tool: Tool) => void;
   onStyle: (patch: Partial<DraftStyle>) => void;
@@ -790,6 +793,13 @@ export default function Ribbon(p: RibbonProps) {
                 title="Mot de passe et autorisations"
               />
               <Cmd icon={<Unlock size={17} />} onClick={C("unprotect")} label="Retirer" />
+              <Cmd
+                icon={<FileCode size={17} />}
+                onClick={C("toggleScripts")}
+                active={p.scriptsOn !== false}
+                label="JavaScript"
+                title="Exécuter le JavaScript des documents (calculs et contrôles des formulaires). Désactivé : les champs se remplissent sans leurs scripts."
+              />
             </Group>
             <Group title="Signature électronique">
               <Cmd

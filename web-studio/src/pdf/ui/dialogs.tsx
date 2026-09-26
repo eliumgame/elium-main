@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Download, Eraser, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { Modal } from "../../ui/components";
 import type {
@@ -27,6 +27,7 @@ import type { Pt } from "../core/coords";
 import { formatBytes } from "../ops/optimize";
 import type { BuildOptions } from "../ops/save";
 import { AFTER_REDACTION, type HiddenInfoOptions } from "../ops/redact";
+import { REDACT_PATTERNS } from "../ops/redactpatterns";
 import type { ComparisonReport } from "../ops/compare";
 
 /** Every modal the PDF workspace can open, kept together so they share styling. */
@@ -199,7 +200,7 @@ export function SaveDialog({
 // Protection
 // ---------------------------------------------------------------------------
 
-const PERMISSION_LABELS: [keyof Permissions, string][] = [
+export const PERMISSION_LABELS: [keyof Permissions, string][] = [
   ["print", "Impression"],
   ["printHighRes", "Impression haute définition"],
   ["copy", "Copie du texte et des images"],
@@ -209,6 +210,34 @@ const PERMISSION_LABELS: [keyof Permissions, string][] = [
   ["assemble", "Assemblage des pages"],
   ["extractForAccessibility", "Extraction pour l'accessibilité"],
 ];
+
+type PrintLevel = "none" | "low" | "high";
+type ChangesLevel = "none" | "assemble" | "forms" | "comments" | "all";
+
+/** Acrobat's « Autorisations » choices as permission bits. */
+export function acrobatPermissions(
+  print: PrintLevel,
+  changes: ChangesLevel,
+  copy: boolean,
+  access: boolean,
+): Permissions {
+  return {
+    print: print !== "none",
+    printHighRes: print === "high",
+    modify: changes === "all",
+    assemble: changes === "assemble" || changes === "all",
+    fillForms: changes === "forms" || changes === "comments" || changes === "all",
+    annotate: changes === "comments" || changes === "all",
+    copy,
+    extractForAccessibility: access || copy,
+  };
+}
+
+/** A strong random password (the permissions one, when the user did not ask for restrictions). */
+function randomPassword(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0")).join("");
+}
 
 export function ProtectDialog({
   onConfirm,
@@ -222,13 +251,30 @@ export function ProtectDialog({
   }) => void;
   onClose: () => void;
 }) {
+  const [needOpen, setNeedOpen] = useState(true);
   const [user, setUser] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [restrict, setRestrict] = useState(false);
   const [owner, setOwner] = useState("");
-  const [permissions, setPermissions] = useState<Permissions>({ ...ALL_PERMISSIONS });
+  const [ownerConfirm, setOwnerConfirm] = useState("");
+  const [print, setPrint] = useState<PrintLevel>("high");
+  const [changes, setChanges] = useState<ChangesLevel>("none");
+  const [copy, setCopy] = useState(false);
+  const [access, setAccess] = useState(true);
   const [encryptMetadata, setEncryptMetadata] = useState(true);
-  const mismatch = !!user && user !== confirm;
+  const openPw = needOpen ? user : "";
   const strength = passwordStrength(user);
+  const problems = [
+    needOpen && !user ? "Saisissez le mot de passe d'ouverture." : "",
+    needOpen && user && user !== confirm ? "Les deux saisies du mot de passe d'ouverture diffèrent." : "",
+    restrict && !owner ? "Saisissez le mot de passe des autorisations." : "",
+    restrict && owner && owner !== ownerConfirm ? "Les deux saisies du mot de passe des autorisations diffèrent." : "",
+    // Acrobat refuses it: whoever can open the file would then hold every right.
+    restrict && owner && owner === openPw
+      ? "Le mot de passe des autorisations doit différer de celui d'ouverture."
+      : "",
+    !needOpen && !restrict ? "Choisissez au moins une protection." : "",
+  ].filter(Boolean);
 
   return (
     <Modal
@@ -241,9 +287,15 @@ export function ProtectDialog({
           </button>
           <button
             className="eb eb--primary eb--sm"
-            disabled={(!user && !owner) || mismatch}
+            disabled={problems.length > 0}
             onClick={() =>
-              onConfirm({ userPassword: user, ownerPassword: owner || user, permissions, encryptMetadata })
+              onConfirm({
+                userPassword: openPw,
+                // No restriction asked: every right is granted, behind a password nobody knows.
+                ownerPassword: restrict ? owner : randomPassword(),
+                permissions: restrict ? acrobatPermissions(print, changes, copy, access) : { ...ALL_PERMISSIONS },
+                encryptMetadata,
+              })
             }
           >
             Protéger
@@ -253,61 +305,85 @@ export function ProtectDialog({
     >
       <div className="pdfx-form">
         <p className="pdfx-form__lead">
-          Chiffrement <b>AES-256</b> (révision 6), le standard écrit par Acrobat X et suivants.
+          Chiffrement <b>AES-256</b> (révision 6), celui d'Acrobat X et des versions suivantes.
         </p>
-        <label className="pdfx-form__row">
-          <span>Mot de passe d'ouverture</span>
-          <input
-            type="password"
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            autoFocus
-            placeholder="Laisser vide pour ne pas restreindre l'ouverture"
-          />
+        <label className="pdfx-check">
+          <input type="checkbox" checked={needOpen} onChange={(e) => setNeedOpen(e.target.checked)} />
+          Exiger un mot de passe pour ouvrir le document
         </label>
-        {!!user && (
+        {needOpen && (
           <>
+            <label className="pdfx-form__row">
+              <span>Mot de passe d'ouverture</span>
+              <input type="password" value={user} onChange={(e) => setUser(e.target.value)} autoFocus />
+            </label>
             <label className="pdfx-form__row">
               <span>Confirmer</span>
               <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </label>
-            <div className={`pdfx-strength pdfx-strength--${strength.level}`}>
-              <span style={{ width: `${strength.score}%` }} />
-              <em>{strength.label}</em>
-            </div>
+            {!!user && (
+              <div className={`pdfx-strength pdfx-strength--${strength.level}`}>
+                <span style={{ width: `${strength.score}%` }} />
+                <em>{strength.label}</em>
+              </div>
+            )}
           </>
         )}
-        {mismatch && <p className="pdfx-form__error">Les deux saisies diffèrent.</p>}
 
-        <label className="pdfx-form__row">
-          <span>Mot de passe propriétaire</span>
-          <input
-            type="password"
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            placeholder="Identique au précédent si vide"
-          />
+        <label className="pdfx-check">
+          <input type="checkbox" checked={restrict} onChange={(e) => setRestrict(e.target.checked)} />
+          Restreindre la modification et l'impression du document
         </label>
-
-        <fieldset className="pdfx-form__set">
-          <legend>Autorisations accordées sans le mot de passe propriétaire</legend>
-          {PERMISSION_LABELS.map(([key, label]) => (
-            <label key={key} className="pdfx-check">
+        {restrict && (
+          <fieldset className="pdfx-form__set">
+            <legend>Autorisations</legend>
+            <label className="pdfx-form__row">
+              <span>Mot de passe des autorisations</span>
+              <input type="password" value={owner} onChange={(e) => setOwner(e.target.value)} />
+            </label>
+            <label className="pdfx-form__row">
+              <span>Confirmer</span>
+              <input type="password" value={ownerConfirm} onChange={(e) => setOwnerConfirm(e.target.value)} />
+            </label>
+            <label className="pdfx-form__row">
+              <span>Impression autorisée</span>
+              <select value={print} onChange={(e) => setPrint(e.target.value as PrintLevel)}>
+                <option value="none">Aucune</option>
+                <option value="low">Basse résolution (150 ppp)</option>
+                <option value="high">Haute résolution</option>
+              </select>
+            </label>
+            <label className="pdfx-form__row">
+              <span>Modifications autorisées</span>
+              <select value={changes} onChange={(e) => setChanges(e.target.value as ChangesLevel)}>
+                <option value="none">Aucune</option>
+                <option value="assemble">Insertion, suppression et rotation des pages</option>
+                <option value="forms">Remplissage des champs de formulaire et signature</option>
+                <option value="comments">Commentaires, remplissage des champs et signature</option>
+                <option value="all">Toutes, sauf l'extraction des pages</option>
+              </select>
+            </label>
+            <label className="pdfx-check">
+              <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
+              Autoriser la copie de texte, d'images et d'autre contenu
+            </label>
+            <label className="pdfx-check">
               <input
                 type="checkbox"
-                checked={permissions[key]}
-                onChange={(e) => setPermissions((v) => ({ ...v, [key]: e.target.checked }))}
+                checked={access || copy}
+                disabled={copy}
+                onChange={(e) => setAccess(e.target.checked)}
               />
-              {label}
+              Autoriser l'accès au texte pour les lecteurs d'écran
             </label>
-          ))}
-        </fieldset>
+          </fieldset>
+        )}
 
         <label className="pdfx-check">
           <input type="checkbox" checked={encryptMetadata} onChange={(e) => setEncryptMetadata(e.target.checked)} />
           Chiffrer aussi les métadonnées
         </label>
-
+        {problems.length > 0 && <p className="pdfx-form__error">{problems[0]}</p>}
         <p className="pdfx-form__note">
           Aucun recouvrement n'est possible : si le mot de passe est perdu, le document est définitivement illisible.
         </p>
@@ -2050,25 +2126,20 @@ export function RedactSearchDialog({
   onConfirm,
   onClose,
 }: {
-  onConfirm: (v: { query: string; wholeWord: boolean; caseSensitive: boolean; regex: boolean }) => void;
+  onConfirm: (v: {
+    query: string;
+    wholeWord: boolean;
+    caseSensitive: boolean;
+    regex: boolean;
+    preset?: string;
+  }) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [wholeWord, setWholeWord] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
-  const presets = useMemo(
-    () => [
-      { label: "Adresses e-mail", pattern: "[\\w.+-]+@[\\w-]+\\.[\\w.-]+" },
-      { label: "Numéros de téléphone", pattern: "(?:\\+33|0)\\s?[1-9](?:[\\s.-]?\\d{2}){4}" },
-      { label: "IBAN", pattern: "[A-Z]{2}\\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}" },
-      {
-        label: "Numéro de sécurité sociale",
-        pattern: "[12]\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{2}",
-      },
-    ],
-    [],
-  );
+  const [preset, setPreset] = useState<string | undefined>(undefined);
   return (
     <Modal
       title="Marquer par recherche"
@@ -2081,7 +2152,7 @@ export function RedactSearchDialog({
           <button
             className="eb eb--primary eb--sm"
             disabled={!query}
-            onClick={() => onConfirm({ query, wholeWord, caseSensitive, regex })}
+            onClick={() => onConfirm({ query, wholeWord, caseSensitive, regex, preset })}
           >
             Marquer tout
           </button>
@@ -2091,16 +2162,25 @@ export function RedactSearchDialog({
       <div className="pdfx-form">
         <label className="pdfx-form__row">
           <span>Texte à caviarder</span>
-          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPreset(undefined);
+            }}
+          />
         </label>
         <div className="pdfx-chips">
-          {presets.map((p) => (
+          {REDACT_PATTERNS.map((p) => (
             <button
-              key={p.label}
-              className="pdfx-chip"
+              key={p.id}
+              className={`pdfx-chip ${preset === p.id ? "is-on" : ""}`}
               onClick={() => {
                 setQuery(p.pattern);
                 setRegex(true);
+                setCaseSensitive(!!p.caseSensitive);
+                setPreset(p.id);
               }}
             >
               {p.label}

@@ -24,7 +24,7 @@
 
 import type { PdfEngine } from "../engine";
 import type { FormValue } from "../../model/types";
-import { FormScripting, scriptingSupported, type ScriptCommand } from "./scripting";
+import { FormScripting, documentScriptsEnabled, scriptingSupported, type ScriptCommand } from "./scripting";
 import {
   buildFields,
   coerceValue,
@@ -376,6 +376,8 @@ export class FormSession {
     let scripting: FormScripting | null = null;
     void this.layerReady.then((enabled) => {
       if (!enabled || this.viewer !== viewer || this.destroyed) return;
+      // « JavaScript des documents » turned off: fields are filled without their scripts.
+      if (!documentScriptsEnabled()) return;
       scripting = new FormScripting({
         pdf: this.engine.raw,
         eventBus: viewer.eventBus,

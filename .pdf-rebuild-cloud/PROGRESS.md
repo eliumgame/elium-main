@@ -1059,3 +1059,45 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   charge). Suite 2028/2028 ; specs PDF 72/72.
 - À valider dans Acrobat : un fichier caviardé (image partiellement couverte, XObject)
   et un fichier nettoyé.
+
+### Session cloud 1 : T7, protection (points 6 à 12)
+- Permissions des fichiers ouverts, appliquées comme dans Acrobat (hors mot de passe
+  propriétaire) :
+  - chaque commande et chaque outil demande son droit : impression, copie et
+    extraction, organisation, modification, commentaires, remplissage, sécurité ;
+  - la copie (Ctrl+C) est bloquée ; une saisie de champ interdite est annulée ;
+  - « Mot de passe des autorisations » demandé à ce moment-là : le bon lève toutes les
+    restrictions pour la session, un faux est refusé ;
+  - un fichier protégé seulement à l'ouverture n'est pas restreint ;
+  - `inspectProtection` sait si le mot de passe utilisé est celui du propriétaire.
+- Dialogue « Protéger » refait comme Acrobat :
+  - mot de passe d'ouverture et mot de passe des autorisations, chacun confirmé ; le
+    second doit différer du premier ;
+  - impression (aucune, basse, haute résolution) ; modifications (aucune, pages,
+    formulaires, commentaires, toutes sauf extraction) ; copie ; lecteurs d'écran ;
+  - sans restriction demandée, le mot de passe propriétaire est aléatoire (il ne
+    reprend plus le mot de passe d'ouverture).
+- /P conforme (bits 1-2 à 0, 7-8 et 13-32 à 1 : -4 pour tout autoriser).
+- Mots de passe AES-256 normalisés (NFKC, approche de SASLprep), avec repli sur la
+  forme brute pour les fichiers déjà écrits.
+- Protection par certificat détectée : message clair au lieu de « mot de passe
+  incorrect ».
+- Modèles de recherche à caviarder (`ops/redactpatterns.ts`), avec contrôle quand le
+  format en a un :
+  - IBAN (mod 97, dernier groupe compris) ;
+  - NIR (Corse 2A/2B, préfixes 3/4/7/8, clé) ;
+  - téléphones français (+33 (0)…) et internationaux ;
+  - cartes (Luhn), SIRET/SIREN (Luhn), dates.
+- JavaScript des documents : préférence « JavaScript » (onglet Protéger). Les boîtes
+  alert, confirm et prompt des scripts indiquent leur origine (le document, pas Elium) ;
+  au-delà de 3 en 10 s, elles sont ignorées.
+- Les invites de mot de passe d'un PDF inséré masquent la saisie.
+- Restent :
+  - chiffrement par certificat ;
+  - niveaux AES-128 et RC4 à la création (AES-256 seul) ;
+  - chiffrer seulement les pièces jointes ;
+  - texte blanc sur blanc.
+- Tests : `pdf-security-t7.test.ts` (7), `pdf-protection.spec.ts` (restrictions puis
+  déverrouillage, Drive + bureau). Suite 2035/2035 ; specs PDF 74/74.
+- À valider dans Acrobat : les autorisations écrites (impression basse résolution,
+  « commentaires et formulaires »), et une ouverture avec chaque mot de passe.

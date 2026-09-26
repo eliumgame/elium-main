@@ -15,6 +15,8 @@ export interface PromptOptions {
   placeholder?: string;
   hint?: string;
   multiline?: boolean;
+  /** Masked input (a password). */
+  password?: boolean;
   confirmLabel?: string;
 }
 
@@ -140,6 +142,8 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 <input
                   ref={inputRef}
                   className="input"
+                  type={request.opts.password ? "password" : "text"}
+                  autoComplete={request.opts.password ? "off" : undefined}
                   value={value}
                   placeholder={request.opts.placeholder}
                   onChange={(e) => setValue(e.target.value)}

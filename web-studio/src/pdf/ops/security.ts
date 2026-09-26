@@ -70,13 +70,10 @@ const BIT = {
 } as const;
 
 export function permissionsToP(p: Permissions): number {
-  // All reserved high bits set, then clear the ones that are denied.
-  let v = -1 & ~0b111100; // bits 1-2 and 7-8 are reserved-0 in revision 3+
-  v |= 0xfffff000;
-  for (const [key, bit] of Object.entries(BIT)) {
-    if (p[key as keyof Permissions]) v |= bit;
-    else v &= ~bit;
-  }
+  // ISO 32000 table 22: bits 1-2 shall be 0, bits 7-8 and 13-32 shall be 1;
+  // then the permission bits that are granted.
+  let v = 0xfffff0c0;
+  for (const [key, bit] of Object.entries(BIT)) if (p[key as keyof Permissions]) v |= bit;
   return v | 0;
 }
 
@@ -333,33 +330,65 @@ function readEncryptDict(doc: PDFDocument): { info: EncryptInfo; id0: Uint8Array
   };
 }
 
+/**
+ * An AES-256 password as ISO 32000-2 wants it: SASLprep'd (approximated by
+ * NFKC — the same accented password typed on two systems, composed or not,
+ * gives the same bytes), UTF-8, 127 bytes at most.
+ */
+function r6Password(password: string | undefined): Uint8Array {
+  return utf8Bytes((password ?? "").normalize("NFKC")).subarray(0, 127);
+}
+
 /** Recover the file key from a user or owner password, or null if neither fits. */
 function deriveFileKey(info: EncryptInfo, id0: Uint8Array, password: string): Uint8Array | null {
+  const role = passwordRole(info, id0, password);
+  return role ? role.key : null;
+}
+
+/** The file key, and whether `password` is the owner's (full rights) or the user's. */
+function passwordRole(
+  info: EncryptInfo,
+  id0: Uint8Array,
+  password: string,
+): { key: Uint8Array; owner: boolean } | null {
   if (info.v >= 5) {
-    const pw = utf8Bytes(password).subarray(0, 127);
+    // The normalised form first; the raw one for files written before normalisation.
+    for (const pw of [r6Password(password), utf8Bytes(password).subarray(0, 127)]) {
+      const hit = r6Role(info, pw);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const asUser = legacyFileKey(password, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
+  const asOwner = legacyOwnerKey(info, id0, password);
+  if (asOwner) return { key: asOwner, owner: true };
+  return checkLegacyUser(asUser, info, id0) ? { key: asUser, owner: false } : null;
+}
+
+function r6Role(info: EncryptInfo, pw: Uint8Array): { key: Uint8Array; owner: boolean } | null {
+  {
     const uValidation = info.u.subarray(32, 40);
     const uKeySalt = info.u.subarray(40, 48);
-    const userHash = info.r === 5 ? sha256(concatBytes(pw, uValidation)) : hash2B(pw, uValidation, new Uint8Array(0));
-    if (equal(userHash, info.u.subarray(0, 32)) && info.ue) {
-      const ik = info.r === 5 ? sha256(concatBytes(pw, uKeySalt)) : hash2B(pw, uKeySalt, new Uint8Array(0));
-      return aesCbcNoPadDecrypt(ik, ZERO_IV, info.ue.subarray(0, 32));
-    }
+    // Owner first: a password that is both is the owner's.
     const u48 = info.u.subarray(0, 48);
     const oValidation = info.o.subarray(32, 40);
     const oKeySalt = info.o.subarray(40, 48);
     const ownerHash = info.r === 5 ? sha256(concatBytes(pw, oValidation, u48)) : hash2B(pw, oValidation, u48);
     if (equal(ownerHash, info.o.subarray(0, 32)) && info.oe) {
       const ik = info.r === 5 ? sha256(concatBytes(pw, oKeySalt, u48)) : hash2B(pw, oKeySalt, u48);
-      return aesCbcNoPadDecrypt(ik, ZERO_IV, info.oe.subarray(0, 32));
+      return { key: aesCbcNoPadDecrypt(ik, ZERO_IV, info.oe.subarray(0, 32)), owner: true };
+    }
+    const userHash = info.r === 5 ? sha256(concatBytes(pw, uValidation)) : hash2B(pw, uValidation, new Uint8Array(0));
+    if (equal(userHash, info.u.subarray(0, 32)) && info.ue) {
+      const ik = info.r === 5 ? sha256(concatBytes(pw, uKeySalt)) : hash2B(pw, uKeySalt, new Uint8Array(0));
+      return { key: aesCbcNoPadDecrypt(ik, ZERO_IV, info.ue.subarray(0, 32)), owner: false };
     }
     return null;
   }
+}
 
-  // Revisions 2–4: try the password as user, then as owner.
-  const asUser = legacyFileKey(password, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
-  if (checkLegacyUser(asUser, info, id0)) return asUser;
-
-  // Owner path: decrypt /O to recover the user password, then redo algorithm 2.
+/** Revisions 2–4, owner path: decrypt /O to recover the user password, then redo algorithm 2. */
+function legacyOwnerKey(info: EncryptInfo, id0: Uint8Array, password: string): Uint8Array | null {
   let ownerKey: Uint8Array = md5(padPassword(password));
   if (info.r >= 3) for (let i = 0; i < 50; i++) ownerKey = md5(ownerKey);
   const n = info.r === 2 ? 5 : info.lengthBytes;
@@ -737,7 +766,17 @@ function makeCrypt(p: CryptParams): PdfCrypt {
  * owner; "" for files that open without one). Returns null when the file is
  * not encrypted, throws `WrongPassword` when the password fits neither slot.
  */
+/** A document protected by certificates (or another handler than passwords): not a wrong password. */
+export class UnsupportedSecurityHandler extends Error {
+  constructor(readonly handler: string) {
+    super(`Document protégé par certificat (${handler}) : ce type de protection n'est pas pris en charge.`);
+    this.name = "UnsupportedSecurityHandler";
+  }
+}
+
 export function openCrypt(doc: PDFDocument, password: string): PdfCrypt | null {
+  const handler = encryptHandler(doc);
+  if (handler && handler !== "Standard") throw new UnsupportedSecurityHandler(handler);
   const read = readEncryptDict(doc);
   if (!read) return null;
   const { info, id0 } = read;
@@ -933,8 +972,8 @@ export function createCrypt(opts: ProtectOptions): PdfCrypt {
   const permissions = opts.permissions ?? ALL_PERMISSIONS;
   const p = permissionsToP(permissions);
   const encryptMetadata = opts.encryptMetadata !== false;
-  const userPw = utf8Bytes(opts.userPassword).subarray(0, 127);
-  const ownerPw = utf8Bytes(opts.ownerPassword || opts.userPassword).subarray(0, 127);
+  const userPw = r6Password(opts.userPassword);
+  const ownerPw = r6Password(opts.ownerPassword || opts.userPassword);
 
   const fileKey = randomBytes(32);
   const uValidationSalt = randomBytes(8);
@@ -1037,7 +1076,17 @@ export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): P
 /** Quick probe: is this file password-protected, and with what? */
 export async function inspectProtection(
   bytes: Uint8Array,
-): Promise<{ encrypted: boolean; scheme: string; permissions: Permissions } | null> {
+  /** The password the file was opened with: says whether it holds the owner's rights. */
+  password?: string | null,
+): Promise<{
+  encrypted: boolean;
+  scheme: string;
+  permissions: Permissions;
+  /** The document's restrictions do not apply: not protected, or opened with the owner password. */
+  owner: boolean;
+  /** Protected by another handler than the password one (certificates: /Adobe.PubSec…). */
+  handler?: string;
+} | null> {
   try {
     const { PDFDocument } = await import("pdf-lib");
     const doc = await PDFDocument.load(bytes, {
@@ -1045,12 +1094,31 @@ export async function inspectProtection(
       throwOnInvalidObject: false,
       updateMetadata: false,
     });
+    const handler = encryptHandler(doc);
+    if (handler && handler !== "Standard") {
+      return { encrypted: true, scheme: handler, permissions: pToPermissions(0), owner: false, handler };
+    }
     const read = readEncryptDict(doc);
-    if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS };
-    return { encrypted: true, scheme: schemeOf(read.info), permissions: pToPermissions(read.info.p) };
+    if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS, owner: true };
+    const role = passwordRole(read.info, read.id0, password ?? "");
+    return {
+      encrypted: true,
+      scheme: schemeOf(read.info),
+      permissions: pToPermissions(read.info.p),
+      owner: !!role?.owner,
+    };
   } catch {
     return null;
   }
+}
+
+/** The /Filter of the file's /Encrypt (« Standard » for passwords), or null when not protected. */
+export function encryptHandler(doc: PDFDocument): string | null {
+  const ref = doc.context.trailerInfo.Encrypt;
+  const enc = ref ? doc.context.lookup(ref) : undefined;
+  if (!(enc instanceof PDFDict)) return null;
+  const f = enc.lookup(PDFName.of("Filter"));
+  return f instanceof PDFName ? f.asString().replace(/^\//, "") : "Standard";
 }
 
 export { decodePDFRawStream };

@@ -11,6 +11,8 @@ const KEY = "elium.pdf.prefs";
 export interface PdfPrefs {
   /** Name written as the author of new comments. */
   author?: string;
+  /** Documents' JavaScript runs (Acrobat's « Activer JavaScript »); absent: yes. */
+  scripts?: boolean;
   /** Each tool's own properties (colour, width, font…), as last set. */
   toolStyles?: Partial<Record<AnnotKind, Partial<DraftStyle>>>;
 }

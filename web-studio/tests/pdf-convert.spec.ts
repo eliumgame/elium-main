@@ -140,4 +140,39 @@ test.describe("PDF — conversion", () => {
     await expect(page.locator('iframe[src^="blob:"]')).toHaveCount(1);
     expect(problems).toEqual([]);
   });
+
+  test("comparer : mot remplacé et page déplacée, rapport PDF", async ({ page }) => {
+    test.setTimeout(90_000);
+    const problems: string[] = [];
+    page.on("pageerror", (e) => problems.push(e.message));
+    const make = async (texts: string[]) => {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      for (const t of texts) doc.addPage([595, 842]).drawText(t, { x: 60, y: 760, size: 18, font });
+      return Buffer.from(await doc.save());
+    };
+    await open(page, await make(["Contrat de vente signe", "Annexe tarifaire detaillee", "Conditions generales"]));
+    await page.getByRole("tab", { name: "Convertir" }).click();
+    await page.getByRole("button", { name: "Comparer", exact: true }).click();
+    const chooser = page.waitForEvent("filechooser");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /Choisir un PDF/ })
+      .click();
+    await (
+      await chooser
+    ).setFiles({
+      name: "v2.pdf",
+      mimeType: "application/pdf",
+      buffer: await make(["Conditions generales", "Contrat de location signe", "Annexe tarifaire detaillee"]),
+    });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("pages déplacées", { timeout: 30_000 });
+    await expect(dialog).toContainText("location");
+    const dl = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: /Rapport PDF/ }).click();
+    const report = await PDFDocument.load(await readFile((await (await dl).path())!));
+    expect(report.getPageCount()).toBeGreaterThan(1);
+    expect(problems).toEqual([]);
+  });
 });

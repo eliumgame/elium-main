@@ -64,7 +64,6 @@ import {
   tablesToCsv,
   zipImages,
 } from "../ops/export";
-import { comparePages, type ComparisonReport } from "../ops/compare";
 import {
   DEFAULT_BUILD,
   buildPdf,
@@ -123,6 +122,7 @@ import { IdentitiesDialog, SignDialog, type SignChoice } from "./SignDialogs";
 import type { SignatureView } from "./SignaturesPane";
 import SigFieldTargets from "./SigFieldTargets";
 import { PrintDialog } from "./PrintDialog";
+import { CompareView } from "./CompareView";
 import { contentState, keepFormFieldsOnly, type ContentMode } from "../ops/impose";
 import { suggestFields } from "../ops/forms";
 import {
@@ -166,7 +166,6 @@ import Ribbon from "./Ribbon";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
 import { CurrentPage, useCurrentPage } from "./currentPage";
 import {
-  CompareDialog,
   CropDialog,
   ExportImagesDialog,
   HeaderFooterDialog,
@@ -492,7 +491,26 @@ export default function PdfWorkspace({
   /** Files picked for « Insérer », waiting for their position (the insert dialog). */
   const [pendingInsert, setPendingInsert] = useState<{ kind: "pdf" | "image"; files: File[] } | null>(null);
   const [buildOptions] = useState<BuildOptions>({ ...DEFAULT_BUILD, author });
-  const [compareReport, setCompareReport] = useState<ComparisonReport | null>(null);
+  /** The two documents being compared (kept open while the results are shown). */
+  const [compareEngines, setCompareEngines] = useState<{ left: PdfEngine; right: PdfEngine; rightName: string } | null>(
+    null,
+  );
+  const compareEnginesRef = useRef(compareEngines);
+  compareEnginesRef.current = compareEngines;
+  const closeCompare = () => {
+    const cur = compareEnginesRef.current;
+    cur?.left.destroy();
+    cur?.right.destroy();
+    compareEnginesRef.current = null;
+    setCompareEngines(null);
+  };
+  useEffect(
+    () => () => {
+      compareEnginesRef.current?.left.destroy();
+      compareEnginesRef.current?.right.destroy();
+    },
+    [],
+  );
   const [compareBusy, setCompareBusy] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<{ page: number; total: number; stage: string; ratio: number } | null>(
@@ -3418,7 +3436,7 @@ export default function PdfWorkspace({
         setDialog("ocr");
         return;
       case "compare":
-        setCompareReport(null);
+        closeCompare();
         setDialog("compare");
         return;
       case "redactSearch":
@@ -4704,14 +4722,13 @@ export default function PdfWorkspace({
           wrong = true;
         }
       }
-      // The document as it is now against the other file.
-      const mine = await withCurrentDocument((doc, map) => {
-        compareMapRef.current = map.toDisplayed;
-        return doc.allText();
-      });
-      const theirs = await other.allText();
-      setCompareReport(comparePages(mine, theirs));
-      other.destroy();
+      // The document as it is now against the other file (kept open for the results view).
+      const { bytes } = await buildDerived(state, { flattenForms: true, interactiveAnnots: false, keepSkipped: false });
+      const kept = pages.map((p, i) => (p.skipped ? -1 : i)).filter((i) => i >= 0);
+      compareMapRef.current = (i) => kept[i];
+      const mine = await PdfEngine.open(bytes);
+      closeCompare();
+      setCompareEngines({ left: mine, right: other, rightName: file.name });
     } catch {
       toast("danger", "Comparaison impossible (fichier illisible).");
     } finally {
@@ -6314,16 +6331,24 @@ export default function PdfWorkspace({
         />
       )}
       {dialog === "compare" && (
-        <CompareDialog
-          report={compareReport}
+        <CompareView
+          left={compareEngines?.left ?? null}
+          right={compareEngines?.right ?? null}
+          leftName={fileName || "document.pdf"}
+          rightName={compareEngines?.rightName ?? ""}
           busy={compareBusy}
           onPick={() => compareInput.current?.click()}
           onGoTo={(page) => {
             // Report pages are the compared document's (excluded pages left out).
             goTo((compareMapRef.current(page - 1) ?? page - 1) + 1);
+            closeCompare();
             setDialog(null);
           }}
-          onClose={() => setDialog(null)}
+          onSaveReport={(bytes, name) => downloadBlob(name, "application/pdf", bytes)}
+          onClose={() => {
+            closeCompare();
+            setDialog(null);
+          }}
         />
       )}
       {dialog === "rotatePages" && (

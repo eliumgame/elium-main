@@ -27,6 +27,7 @@
  *                    to reference live cell ranges instead of literal data
  */
 import { zipSync, strToU8 } from "fflate";
+import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
 import type {
   Workbook,
@@ -50,8 +51,7 @@ const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 const XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
 
-const xe = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const xe = escapeXmlText;
 
 /** 0-based column index → spreadsheet letters (0→"A", 26→"AA"). */
 export function colLetters(n: number): string {
@@ -241,15 +241,31 @@ function createStyleTable() {
 }
 type StyleTable = ReturnType<typeof createStyleTable>;
 
-function cellXml(key: string, raw: string, s: number): string {
+/** Excel's limits: 32 767 characters in a cell, 8 192 in a formula. */
+const MAX_CELL_TEXT = 32767;
+const MAX_FORMULA = 8192;
+
+/** At most `max` UTF-16 units of `s`, never ending on half a surrogate pair. */
+function clip(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * One `<c>`. With `literal`, text starting with « = » is written as the text
+ * it is, never as a formula (data imported from elsewhere: a PDF's tables).
+ */
+function cellXml(key: string, raw: string, s: number, literal = false): string {
   const sAttr = s ? ` s="${s}"` : "";
-  if (raw.startsWith("=")) {
-    return `<c r="${key}"${sAttr}><f>${xe(raw.slice(1))}</f></c>`;
+  const text = xmlSafeText(raw);
+  if (!literal && text.startsWith("=") && text.length <= MAX_FORMULA) {
+    return `<c r="${key}"${sAttr}><f>${xe(text.slice(1))}</f></c>`;
   }
-  if (isNumeric(raw)) {
-    return `<c r="${key}"${sAttr}><v>${xe(raw.trim())}</v></c>`;
+  if (isNumeric(text)) {
+    return `<c r="${key}"${sAttr}><v>${xe(text.trim())}</v></c>`;
   }
-  return `<c r="${key}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xe(raw)}</t></is></c>`;
+  return `<c r="${key}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xe(clip(text, MAX_CELL_TEXT))}</t></is></c>`;
 }
 
 /** mergeCells — one <mergeCell> per merged rectangle (§18.3.1.55). */
@@ -550,7 +566,7 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
 /** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
 const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
 
-function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): string {
+function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
@@ -577,7 +593,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean): st
       const list = byRow.get(r) ?? [];
       const cells = list
         .sort((a, b) => a.col - b.col)
-        .map((c) => cellXml(c.key, c.raw, c.s))
+        .map((c) => cellXml(c.key, c.raw, c.s, literal))
         .join("");
       const customH = sheet.rowHeights?.[r - 1];
       const htAttr = customH != null ? ` ht="${pxToPt(customH)}" customHeight="1"` : "";
@@ -606,7 +622,7 @@ function sanitizeNames(sheets: SheetData[]): string[] {
   const seen = new Set<string>();
   return sheets.map((sh, i) => {
     const name =
-      (sh.name || `Feuille ${i + 1}`)
+      xmlSafeText(sh.name || `Feuille ${i + 1}`)
         .replace(/[[\]:*?/\\]/g, " ")
         .slice(0, 31)
         .trim() || `Feuille ${i + 1}`;
@@ -659,7 +675,12 @@ function commentsXml(notes: Record<string, string> | undefined): string | null {
   );
 }
 
-export function workbookToXlsx(wb: Workbook): Uint8Array {
+export interface XlsxExportOptions {
+  /** Write every cell as data: text starting with « = » stays text, no `<f>` is produced. */
+  literalText?: boolean;
+}
+
+export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint8Array {
   const styles = createStyleTable();
   const names = sanitizeNames(wb.sheets);
   const files: Record<string, Uint8Array> = {};
@@ -673,7 +694,7 @@ export function workbookToXlsx(wb: Workbook): Uint8Array {
     const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
     const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0));
+    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0, opts.literalText));
 
     const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {

@@ -11,6 +11,7 @@
 import { zipSync, strToU8 } from "fflate";
 import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData } from "./model";
 import { bodyHtmlOf } from "./model";
+import { escapeXmlText } from "../format/xml-text";
 
 const CX = 12192000; // 13.333in in EMU (16:9 width)
 const CY = 6858000; // 7.5in in EMU (16:9 height)
@@ -21,9 +22,7 @@ const CT = "http://schemas.openxmlformats.org/package/2006/content-types";
 const C = "http://schemas.openxmlformats.org/drawingml/2006/chart"; // DrawingML charts
 const REL = "http://schemas.openxmlformats.org/package/2006/relationships";
 
-function xmlEsc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
+const xmlEsc = escapeXmlText;
 const hex = (c: string) => c.replace(/^#/, "").slice(0, 6).toUpperCase() || "000000";
 const ex = (pct: number, span: number) => Math.round((pct / 100) * span);
 /** Solid hex for a PPTX background: a plain #hex, or the first stop of a gradient. */

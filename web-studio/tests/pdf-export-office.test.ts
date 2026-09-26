@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as pdfjsLib from "pdfjs-dist";
 import { strFromU8, unzipSync } from "fflate";
-import { PDFDocument, PDFName, PDFString, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
+import { JSDOM } from "jsdom";
 import { PdfEngine } from "../src/pdf/core/engine";
 import { detectTables, extractLayout, type PageText } from "../src/pdf/ops/export";
 import {
@@ -20,6 +21,8 @@ import {
 } from "../src/pdf/ops/export-office";
 import { listMarker, readingOrder } from "../src/pdf/ops/export-office-model";
 import { rtfEscape } from "../src/pdf/ops/export-rtf";
+import { workbookToXlsx } from "../src/sheet/xlsx-export";
+import { xmlSafeText } from "../src/format/xml-text";
 
 /** « Exporter un PDF » vers Word, Excel, PowerPoint et RTF. */
 
@@ -361,5 +364,149 @@ describe("RTF", () => {
     expect(rtfEscape("a{b}\\c")).toBe("a\\{b\\}\\\\c");
     expect(rtfEscape("été €")).toBe("\\u233?t\\u233? \\u8364?");
     expect(rtfEscape("😀")).toBe("\\u-10179?\\u-8704?");
+  });
+});
+
+/**
+ * A page whose text carries characters XML forbids — a ToUnicode map sending
+ * « A » to U+0001 and « B » to U+FFFE, as real files do — and a table whose
+ * cells a spreadsheet would run as formulas.
+ */
+async function hostilePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const f = await doc.embedFont(StandardFonts.Helvetica);
+  const p = doc.addPage([595, 842]);
+  p.drawText("Titre <b>&amp; \"x\"</b>", { x: 72, y: 780, size: 22, font: f });
+  const rows = [
+    ["Nom", "Formule", "Montant"],
+    ['=HYPERLINK("http://evil","x")', "+cmd|' /C calc'!A0", "12,00"],
+    ["@SUM(A1:A2)", "-2+3", "-14,50"],
+    ["Alpha", "Beta", "15,00"],
+    ["Gamma", "Delta", "16,00"],
+  ];
+  rows.forEach((r, i) => r.forEach((c, j) => p.drawText(c, { x: 72 + j * 170, y: 700 - i * 18, size: 10, font: f })));
+  const cmap =
+    "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /X def 1 begincodespacerange <00> <FF> endcodespacerange " +
+    "2 beginbfchar <41> <0001> <42> <FFFE> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+  const tu = doc.context.register(doc.context.stream(cmap));
+  const f2 = doc.context.register(
+    doc.context.obj({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", Encoding: "WinAnsiEncoding", ToUnicode: tu }),
+  );
+  (p.node.Resources()!.lookup(PDFName.of("Font")) as PDFDict).set(PDFName.of("FCtl"), f2);
+  p.node.addContentStream(
+    doc.context.register(
+      doc.context.stream(
+        "BT /FCtl 12 Tf 72 400 Td (Hello ABAB world) Tj ET BT /FCtl 10 Tf 72 628 Td (xAx) Tj ET BT /FCtl 10 Tf 242 628 Td (yBy) Tj ET",
+      ),
+    ),
+  );
+  return doc.save();
+}
+
+/** Characters XML 1.0 forbids (C0 controls but tab / LF / CR, U+FFFE / U+FFFF, lone surrogates). */
+const FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/** Parse `xml` with a real XML parser; the error message when it is not well-formed. */
+const XmlParser = new JSDOM("").window.DOMParser;
+function xmlError(xml: string): string | null {
+  const doc = new XmlParser().parseFromString(xml, "application/xml");
+  const err = doc.getElementsByTagName("parsererror")[0];
+  return err ? err.textContent : null;
+}
+
+describe("hostile text: forbidden characters and formulas", () => {
+  let engine: PdfEngine;
+  let layout: PageText[];
+  beforeAll(async () => {
+    engine = await PdfEngine.open(await hostilePdf());
+    layout = await extractLayout(engine);
+  });
+  afterAll(() => engine.destroy());
+
+  /** Every XML part of an Office package parses, and none holds a forbidden character. */
+  function expectWellFormed(bytes: Uint8Array): Record<string, string> {
+    const parts: Record<string, string> = {};
+    for (const [name, data] of Object.entries(unzipSync(bytes))) {
+      if (!/\.(xml|rels)$/.test(name)) continue;
+      const xml = strFromU8(data);
+      parts[name] = xml;
+      expect(FORBIDDEN.test(xml), name).toBe(false);
+      expect(xmlError(xml), name).toBeNull();
+    }
+    return parts;
+  }
+
+  it("the layout really carries the forbidden characters (the test is meaningful)", () => {
+    const text = layout.flatMap((p) => p.lines.map((l) => l.text)).join("\n");
+    expect(text).toMatch(/\u0001/);
+    expect(text).toMatch(/￾/);
+  });
+
+  it("Word, Excel and PowerPoint packages are well-formed XML", async () => {
+    const docx = expectWellFormed(await exportDocx(engine, layout));
+    expect(docx["word/document.xml"]).toContain("Hello");
+    expect(docx["word/document.xml"]).toContain("Titre &lt;b&gt;&amp;amp;");
+    expectWellFormed(exportXlsx(layout));
+    const pptx = expectWellFormed(await exportPptx(engine, layout));
+    expect(Object.values(pptx).some((x) => x.includes("Hello"))).toBe(true);
+  });
+
+  it("Excel never turns text printed in the PDF into a formula", () => {
+    const parts = expectWellFormed(exportXlsx(layout));
+    const sheets = Object.entries(parts).filter(([n]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
+    expect(sheets.length).toBeGreaterThan(0);
+    const all = sheets.map(([, x]) => x).join("");
+    expect(all).not.toContain("<f>");
+    expect(all).toContain('t="inlineStr"><is><t xml:space="preserve">=HYPERLINK(&quot;http://evil&quot;,&quot;x&quot;)</t>');
+    expect(all).toContain(">@SUM(A1:A2)</t>");
+    expect(all).toContain(">-2+3</t>");
+    // Real numbers stay numbers.
+    expect(all).toContain("<v>-14.5</v>");
+  });
+
+  it("RTF drops noncharacters with the controls", async () => {
+    const rtf = await exportRtf(engine, layout, { title: "t\u0001￾" });
+    expect(rtf).not.toContain("\\u-2?"); // U+FFFE
+    expect(rtf).not.toContain("\\u-1?"); // U+FFFF
+    expect(rtf).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f]/);
+    expect(rtfEscape("a\u0001b￾c￿d\uD800e")).toBe("abcde");
+    expect(rtfEscape("😀")).toBe("\\u-10179?\\u-8704?");
+  });
+
+  it("the shared XML writers clean titles, sheet names, notes and long cells", () => {
+    const long = "x".repeat(40000);
+    const bytes = workbookToXlsx({
+      active: 0,
+      sheets: [
+        {
+          name: "Bad\u0001Name￾",
+          rows: 3,
+          cols: 1,
+          cells: { A1: "a\u0002b", A2: long, A3: "=" + "1+".repeat(5000) + "1" },
+          notes: { A1: "note\u0003￿" },
+        },
+      ],
+    });
+    const parts = expectWellFormed(bytes);
+    expect(parts["xl/workbook.xml"]).toContain('name="BadName"');
+    const sheet = parts["xl/worksheets/sheet1.xml"]!;
+    expect(sheet).toContain(">ab</t>");
+    expect(sheet).toContain(`>${"x".repeat(32767)}</t>`);
+    expect(sheet).not.toContain("x".repeat(32768));
+    // A formula past Excel's 8 192 characters is kept as text, not written as <f>.
+    expect(sheet).not.toContain("<f>");
+    expect(Object.values(parts).join("")).toContain(">note</t>");
+    // In the app's own export, a real formula is still a formula.
+    const f = strFromU8(
+      unzipSync(workbookToXlsx({ active: 0, sheets: [{ name: "S", rows: 1, cols: 1, cells: { A1: "=SUM(1,2)" } }] }))[
+        "xl/worksheets/sheet1.xml"
+      ]!,
+    );
+    expect(f).toContain("<f>SUM(1,2)</f>");
+  });
+
+  it("the sanitiser keeps tab, newline, astral characters and drops the rest", () => {
+    expect(xmlSafeText("a\tb\nc\rd😀")).toBe("a\tb\nc\rd😀");
+    expect(xmlSafeText("\u0000a\u0008\u000b\u000c\u001f￾￿b\uDC00\uD83D")).toBe("ab");
   });
 });

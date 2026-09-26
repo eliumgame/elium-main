@@ -43,6 +43,7 @@ import {
   type OfficeRun,
 } from "./export-office-model";
 import { officeToRtf } from "./export-rtf";
+import { xmlSafeText } from "../../format/xml-text";
 
 export { analyseLayout, collectPageMeta, detectTableRegions } from "./export-office-model";
 export type { OfficeDocument } from "./export-office-model";
@@ -334,7 +335,8 @@ export function parseLocaleNumber(input: string): ParsedNumber | null {
 }
 
 /** A cell's raw content and style from the text printed in the PDF. */
-function cellOf(text: string): { raw: string; style?: CellStyle } {
+function cellOf(input: string): { raw: string; style?: CellStyle } {
+  const text = xmlSafeText(input);
   const n = parseLocaleNumber(text);
   if (n) {
     const raw = String(n.value);
@@ -353,8 +355,7 @@ function cellOf(text: string): { raw: string; style?: CellStyle } {
     }
     return { raw };
   }
-  // Text that starts with « = » would be read as a formula: write it as one returning the text.
-  if (text.startsWith("=")) return { raw: `="${text.replace(/"/g, '""')}"` };
+  // Text starting with « = » stays text: `exportXlsx` writes every cell literally (no formula).
   return { raw: text };
 }
 
@@ -432,7 +433,8 @@ export function exportXlsx(layout: readonly PageText[]): Uint8Array {
     sheets.push(sheetOf("Texte", rows, false));
   }
   const wb: Workbook = { sheets, active: 0 };
-  return workbookToXlsx(wb);
+  // Data out of a PDF, never formulas: « =HYPERLINK(…) » printed in a table stays that text.
+  return workbookToXlsx(wb, { literalText: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -476,7 +478,7 @@ export async function exportPptx(
   return officeToPptx(model, backgrounds);
 }
 
-const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escHtml = (s: string) => xmlSafeText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const runsHtml = (runs: readonly OfficeRun[]) =>
   runs

@@ -11,11 +11,14 @@
 
 import type { OfficeDocument, OfficeImage, OfficeItem, OfficeRun, OfficeTable } from "./export-office-model";
 import { textMargins } from "./export-office-model";
+import { xmlSafeText } from "../../format/xml-text";
 
 const twips = (pt: number) => Math.round(pt * 20);
 
 /** Escape text for RTF: control characters of the format, then non-ASCII as `\uN?`. */
-export function rtfEscape(s: string): string {
+export function rtfEscape(input: string): string {
+  // Noncharacters and lone surrogates are garbage in any reader: dropped with the controls.
+  const s = xmlSafeText(input);
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];

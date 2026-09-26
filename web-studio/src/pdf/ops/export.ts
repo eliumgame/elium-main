@@ -13,6 +13,7 @@ import type { PdfEngine } from "../core/engine";
 import { renderToCanvas, canvasToBlob } from "../core/render";
 import { buildRuns, groupBlocks, groupLines } from "../core/text";
 import type { TextBlock, TextLine } from "../core/text";
+import { xmlSafeText } from "../../format/xml-text";
 
 // ---------------------------------------------------------------------------
 // Images
@@ -108,10 +109,17 @@ export async function extractLayout(
   return out;
 }
 
+/**
+ * A block's text as one string. Characters no text file or XML part should
+ * hold (C0 controls but tab / LF / CR, U+FFFE / U+FFFF, lone surrogates — a
+ * broken ToUnicode map yields them) are dropped.
+ */
+const blockText = (b: TextBlock) => xmlSafeText(b.lines.map((l) => l.text).join(" "));
+
 export function toPlainText(pages: readonly PageText[], separator = "\n\n"): string {
   // A form feed between pages is the convention text tools expect.
   return pages
-    .map((p) => p.blocks.map((b) => b.lines.map((l) => l.text).join(" ")).join(separator))
+    .map((p) => p.blocks.map(blockText).join(separator))
     .join("\n\f\n")
     .trim();
 }
@@ -119,12 +127,12 @@ export function toPlainText(pages: readonly PageText[], separator = "\n\n"): str
 /** Plain text with an explicit page marker between pages. */
 export function toPlainTextWithMarkers(pages: readonly PageText[]): string {
   return pages
-    .map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map((b) => b.lines.map((l) => l.text).join(" ")).join("\n\n")}`)
+    .map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map(blockText).join("\n\n")}`)
     .join("\n\n");
 }
 
 const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  xmlSafeText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Reconstructed HTML: paragraphs, headings inferred from relative size. */
 export function toHtml(pages: readonly PageText[], title: string): string {
@@ -134,7 +142,7 @@ export function toHtml(pages: readonly PageText[], title: string): string {
   for (const p of pages) {
     parts.push(`<section class="page" data-page="${p.page + 1}">`);
     for (const b of p.blocks) {
-      const text = escapeHtml(b.lines.map((l) => l.text).join(" ")).trim();
+      const text = escapeHtml(blockText(b)).trim();
       if (!text) continue;
       const ratio = b.fontSize / body;
       const tag = ratio >= 1.7 ? "h1" : ratio >= 1.35 ? "h2" : ratio >= 1.15 ? "h3" : "p";
@@ -176,7 +184,7 @@ const DOCX_DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
 
 const escapeXml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  xmlSafeText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
 /**
  * Build a .docx from the extracted layout. Paragraphs keep their alignment,
@@ -351,8 +359,24 @@ function splitByColumns(line: TextLine, columns: readonly number[]): string[] {
   return cells.map((c) => c.trim());
 }
 
+/** A number as printed: « -2 », « -12,50 », « +1 234.5 », « 12 % » — kept as it is in a CSV. */
+const PLAIN_NUMBER = /^[-+]?\d[\d \u00a0\u202f.,']*%?$/;
+
+/**
+ * A CSV cell a spreadsheet will not run: text starting with « = + - @ », a tab
+ * or a carriage return is read as a formula by Excel / LibreOffice (« CSV
+ * injection »), so it gets a leading apostrophe — plain numbers excepted.
+ */
+export function csvSafeCell(value: string): string {
+  const s = xmlSafeText(value);
+  return /^[=+\-@\t\r]/.test(s) && !PLAIN_NUMBER.test(s) ? `'${s}` : s;
+}
+
 export function tablesToCsv(tables: readonly DetectedTable[]): string {
-  const esc = (s: string) => (/["\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const esc = (value: string) => {
+    const s = csvSafeCell(value);
+    return /["\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
   return tables
     .map((t) => `# Page ${t.page + 1}\r\n${t.rows.map((r) => r.map(esc).join(";")).join("\r\n")}`)
     .join("\r\n\r\n");

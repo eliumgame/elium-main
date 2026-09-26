@@ -67,7 +67,7 @@ import {
   writePageLabels,
 } from "./organize";
 import type { OutlineEntry } from "./organize";
-import { applyRedactions, sanitiseDocument } from "./redact";
+import { ALL_HIDDEN_INFO, applyRedactions, removeHiddenInfo, type HiddenInfoOptions } from "./redact";
 import { createCrypt, openCrypt, writeEncrypted } from "./security";
 import type { PdfCrypt, ProtectOptions } from "./security";
 import { applyImageEdits, applyTextEdits } from "./textedit";
@@ -85,8 +85,10 @@ export interface BuildOptions {
    * exclusion leaves them out of copies, prints and extractions only.
    */
   keepSkipped?: boolean;
-  /** Strip metadata, JavaScript, attachments and automatic actions. */
+  /** Acrobat's « Nettoyer le document »: every kind of hidden information, form fields flattened. */
   sanitise: boolean;
+  /** Only these kinds of hidden information (after a redaction, typically). */
+  hiddenInfo?: HiddenInfoOptions;
   /** Recompress and downsample to reduce the file size. */
   optimise: boolean;
   /** Password-protect the result (new protection → full rewrite). */
@@ -297,7 +299,7 @@ export interface SaveResult {
 /** Why the state cannot be written as an incremental update (empty = it can). */
 export function fullRewriteReasons(
   state: PdfState,
-  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms" | "keepSkipped">,
+  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms" | "keepSkipped" | "hiddenInfo">,
   sourcePageCount: number,
   security?: SecurityChange | null,
 ): string[] {
@@ -315,6 +317,8 @@ export function fullRewriteReasons(
   if (removed) reasons.push(`${removed} page(s) supprimée(s) : retirées définitivement du fichier`);
   if (opts.optimise) reasons.push("optimisation de la taille");
   if (opts.sanitise) reasons.push("assainissement");
+  else if (opts.hiddenInfo && Object.values(opts.hiddenInfo).some(Boolean))
+    reasons.push("informations masquées supprimées, révisions précédentes comprises");
   if (opts.flattenForms) reasons.push("aplatissement du formulaire");
   return reasons;
 }
@@ -619,7 +623,8 @@ async function applyState(
         try {
           const r = await applyRedactions(doc, page, rects);
           report.redactedGlyphs += r.glyphsRemoved;
-          report.redactedImages += r.imagesRemoved;
+          report.redactedImages += r.imagesRemoved + (r.imagesEdited ?? 0);
+          for (const w of r.warnings ?? []) if (!report.warnings.includes(w)) report.warnings.push(w);
         } catch {
           report.lost.push(`${where} : caviardage partiel, le contenu de la page n'a pas pu être réécrit.`);
         }
@@ -830,7 +835,8 @@ async function applyState(
       report.warnings.push("Apparence des champs non régénérée : le lecteur PDF les redessinera.");
     }
   }
-  if (opts.flattenForms) {
+  // « Nettoyer le document » takes the form fields away too: their values become page content.
+  if (opts.flattenForms || opts.sanitise) {
     const fr = flattenFields(doc);
     if (fr.notDrawn.length) {
       report.lost.push(`Aplatissement : valeur non dessinée pour ${fr.notDrawn.slice(0, 5).join(", ")}.`);
@@ -936,9 +942,14 @@ async function applyState(
     report.lost.push("Les propriétés du document (titre, auteur…) n'ont pas pu être écrites.");
   }
 
-  if (opts.sanitise) {
-    const { removed } = sanitiseDocument(doc);
-    if (removed.length) report.warnings.push(`Assaini : ${removed.join(", ")}.`);
+  const hidden = opts.sanitise ? ALL_HIDDEN_INFO : opts.hiddenInfo;
+  if (hidden) {
+    const { removed } = removeHiddenInfo(doc, hidden);
+    report.warnings.push(
+      removed.length
+        ? `Informations masquées supprimées : ${removed.join(", ")}.`
+        : "Aucune information masquée à supprimer n'a été trouvée.",
+    );
   }
 }
 

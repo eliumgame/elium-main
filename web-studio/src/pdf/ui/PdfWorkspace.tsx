@@ -168,6 +168,7 @@ import {
   InsertPagesDialog,
   LinkDialog,
   DEFAULT_LINK_STYLE,
+  RedactApplyDialog,
   MovePagesDialog,
   ReplacePagesDialog,
   ResizePagesDialog,
@@ -206,6 +207,7 @@ import {
   type ZoomMode,
 } from "./state";
 import { CombineDialog, type CombineItem } from "./CombineDialog";
+import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
 
 type DialogId =
@@ -355,6 +357,16 @@ export default function PdfWorkspace({
   const snapshotRef = useRef<Map<string, Annot> | null>(null);
   const saving = useRef(false);
   const redactConfirmed = useRef(false);
+  /** The hidden information chosen, with the redaction, to go too (null: none). */
+  const redactHiddenInfo = useRef<HiddenInfoOptions | null>(null);
+  /** The « Appliquer le caviardage » dialog, waiting for its answer. */
+  const [redactAsk, setRedactAsk] = useState<{
+    marks: number;
+    answer: (v: HiddenInfoOptions | null | false) => void;
+  } | null>(null);
+  /** Ask to apply the redaction: false when cancelled, else the hidden information to remove as well. */
+  const askRedaction = (marks: number) =>
+    new Promise<HiddenInfoOptions | null | false>((answer) => setRedactAsk({ marks, answer }));
   const [drafts, setDrafts] = useState<PdfDraftEntry[]>([]);
   /** Options pre-set when « Enregistrer sous » is opened by a command (optimise, sanitise…). */
   const [saveAsPreset, setSaveAsPreset] = useState<Partial<SaveAsOptions>>({});
@@ -728,6 +740,7 @@ export default function PdfWorkspace({
         // (A recomposition that keeps the state — OCR — keeps what recognises its untouched markup.)
         if (!(derived && restore)) snapshotRef.current = null;
         redactConfirmed.current = false;
+        redactHiddenInfo.current = null;
         sourceKeyRef.current = null;
         setDocSigned(rebased ? false : derived ? sourceSignedRef.current : null);
         // Freshly opened, rebased on the file just saved, or restored from an
@@ -2028,14 +2041,13 @@ export default function PdfWorkspace({
     const opts: Partial<BuildOptions> = { ...saveOptions(st), keepSkipped: !how.copy, ...options };
     const marks = st.annots.filter((a) => a.kind === "redact").length;
     if (marks && opts.applyRedactions && !redactConfirmed.current) {
-      const ok = await dialogs.confirm({
-        title: "Appliquer le caviardage",
-        message: `${marks} zone(s) marquée(s) seront définitivement supprimées du fichier enregistré (texte, images et annotations dessous), révisions précédentes comprises.`,
-        confirmLabel: "Caviarder et enregistrer",
-      });
-      if (!ok) return false;
+      const answer = await askRedaction(marks);
+      if (answer === false) return false;
       redactConfirmed.current = true;
+      redactHiddenInfo.current = answer;
     }
+    if (marks && opts.applyRedactions && redactHiddenInfo.current && !opts.sanitise)
+      opts.hiddenInfo = redactHiddenInfo.current;
     await engine.infoReady;
     // Signed as the file this save builds on is — not as the source once was
     // (a full rewrite already removed the signature from the file saved into).
@@ -2049,6 +2061,7 @@ export default function PdfWorkspace({
           sanitise: !!opts.sanitise,
           flattenForms: !!opts.flattenForms,
           keepSkipped: !!opts.keepSkipped,
+          hiddenInfo: opts.hiddenInfo,
         },
         engine.pageCount,
         security,
@@ -3198,13 +3211,10 @@ export default function PdfWorkspace({
           toast("info", "Aucune zone marquée.");
           return;
         }
-        const ok = await dialogs.confirm({
-          title: "Appliquer le caviardage",
-          message: `${marks.length} zone(s) seront définitivement supprimées du fichier à l'enregistrement : texte, images et annotations situés dessous. Le fichier est entièrement réécrit, sans révision antérieure qui garderait ce contenu.`,
-          confirmLabel: "Caviarder et enregistrer",
-        });
-        if (!ok) return;
+        const answer = await askRedaction(marks.length);
+        if (answer === false) return;
         redactConfirmed.current = true;
+        redactHiddenInfo.current = answer;
         void saveNow(true);
         return;
       }
@@ -5710,6 +5720,19 @@ export default function PdfWorkspace({
             />
           );
         })()}
+      {redactAsk && (
+        <RedactApplyDialog
+          marks={redactAsk.marks}
+          onClose={() => {
+            redactAsk.answer(false);
+            setRedactAsk(null);
+          }}
+          onConfirm={(hidden) => {
+            redactAsk.answer(hidden);
+            setRedactAsk(null);
+          }}
+        />
+      )}
       {dialog === "combine" && (
         <CombineDialog
           current={{ name: fileName, count: pages.length }}

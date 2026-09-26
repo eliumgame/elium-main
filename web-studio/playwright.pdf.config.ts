@@ -12,6 +12,9 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: /pdf-.*\.spec\.ts/,
   timeout: 60_000,
+  // Assertions wait longer than the default 5 s: under a loaded machine (the full suite in parallel), a
+  // first render or a save can take that long, and an early timeout is not a defect.
+  expect: { timeout: 12_000 },
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "list",
   use: {

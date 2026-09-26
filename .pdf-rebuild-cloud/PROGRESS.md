@@ -1025,3 +1025,37 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
   - « liens depuis les URL » comparait deux repères sur les pages rognées ;
   - lecture pdf-lib libérée 15 s après usage.
 - Tests : `pdf-navigation-review.test.ts` (8). Suite 2023/2023 ; specs PDF 72/72.
+
+### Session cloud 1 : T7, caviardage et informations masquées (points 1 à 5)
+- Caviardage (`ops/redact.ts`, moteur réécrit) :
+  - descente dans les XObjects de formulaire (copiés avant modification : une autre
+    page peut les dessiner), sur 8 niveaux au plus ;
+  - pixels couverts détruits dans une copie de l'image. Pris en charge : brut, Flate
+    (prédicteurs PNG compris), 1 à 16 bits par composante, CMYK ; JPEG décodé dans le
+    navigateur puis réécrit sans perte. Sinon, l'image est retirée entière, avec un
+    avertissement ;
+  - les originaux ne sont plus référencés, donc élagués à la réécriture complète ;
+  - dessins vectoriels couverts à plus de 50 % retirés (texte vectorisé, formes) ;
+  - toute annotation touchée retirée, avec sa pop-up ; un champ dont tous les widgets
+    partent quitte le formulaire, valeur comprise (plus de /Kids [null]).
+- Informations masquées (`removeHiddenInfo`), en catégories comme dans Acrobat :
+  - métadonnées (tout /Info, XMP partout, /PieceInfo, vignettes) ;
+  - fichiers joints (/EmbeddedFiles, /AF, pièces jointes et multimédia) ;
+  - liens, actions et JavaScript (document, pages, champs, signets hors « aller à »,
+    XFA) ;
+  - signets, commentaires ;
+  - texte invisible (Tr 3, la position des glyphes suivants est gardée) ;
+  - calques masqués (contenu supprimé, calques fusionnés) ;
+  - textes de remplacement (/Alt, /ActualText, /E, dictionnaires imbriqués et contenu
+    marqué compris).
+- « Appliquer le caviardage » ouvre un dialogue qui propose aussi de supprimer les
+  informations masquées. Coché par défaut : tout sauf les commentaires et le texte
+  invisible (OCR).
+- « Nettoyer le document » : toutes les catégories, et les champs sont aplatis. Le
+  rapport ne dit plus que ce qui a réellement été supprimé.
+- Limite : le texte blanc sur blanc n'est pas détecté.
+- Tests : `pdf-redaction.test.ts` (5 ; recherche de texte résiduel dans tous les objets,
+  flux décodés). Délai des assertions Playwright porté à 12 s (échecs d'ouverture sous
+  charge). Suite 2028/2028 ; specs PDF 72/72.
+- À valider dans Acrobat : un fichier caviardé (image partiellement couverte, XObject)
+  et un fichier nettoyé.

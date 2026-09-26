@@ -581,9 +581,9 @@ export type WidthFn = (font: string | null, bytes: Uint8Array) => { widths: numb
  * are still correct at the *start* of each operator, which is enough to locate
  * an operator inside a rectangle.
  */
-export function walkText(ops: readonly Op[], measure?: WidthFn): ShowOp[] {
+export function walkText(ops: readonly Op[], measure?: WidthFn, start: Mat = IDENTITY): ShowOp[] {
   const out: ShowOp[] = [];
-  let ctm: Mat = IDENTITY;
+  let ctm: Mat = start;
   const ctmStack: Mat[] = [];
   let gs = initialTextState();
   const gsStack: TextState[] = [];
@@ -615,7 +615,7 @@ export function walkText(ops: readonly Op[], measure?: WidthFn): ShowOp[] {
         gsStack.push({ ...gs });
         break;
       case "Q":
-        ctm = ctmStack.pop() ?? IDENTITY;
+        ctm = ctmStack.pop() ?? start;
         gs = gsStack.pop() ?? initialTextState();
         break;
       case "cm":
@@ -768,9 +768,9 @@ const PATH_PAINT = new Set(["S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n"]
  * which is all a placement needs: PDF always draws an XObject into the unit
  * square, so the CTM *is* its position and size.
  */
-export function walkPlacements(ops: readonly Op[]): Placement[] {
+export function walkPlacements(ops: readonly Op[], start: Mat = IDENTITY): Placement[] {
   const out: Placement[] = [];
-  let ctm: Mat = IDENTITY;
+  let ctm: Mat = start;
   let clip: ClipBox | null = null;
   const stack: { ctm: Mat; clip: ClipBox | null }[] = [];
   // The path being built (its box, user space) and whether it will clip.
@@ -798,7 +798,7 @@ export function walkPlacements(ops: readonly Op[]): Placement[] {
         continue;
       case "Q": {
         const top = stack.pop();
-        ctm = top?.ctm ?? IDENTITY;
+        ctm = top?.ctm ?? start;
         clip = top?.clip ?? null;
         continue;
       }
@@ -854,6 +854,53 @@ export function walkPlacements(ops: readonly Op[]): Placement[] {
           path = null;
           clipping = false;
         }
+    }
+  }
+  return out;
+}
+
+/** One painted path: the operators that build and paint it, and its box (user space). */
+export interface PathObject {
+  /** First path-construction operator. */
+  from: number;
+  /** The painting operator (S, f, B…); `n` paths (clips only) are not listed. */
+  to: number;
+  box: ClipBox;
+}
+
+/** Every stroked or filled path, with the CTM in force (q/Q/cm tracked). */
+export function walkPaths(ops: readonly Op[], start: Mat = IDENTITY): PathObject[] {
+  const out: PathObject[] = [];
+  let ctm: Mat = start;
+  const stack: Mat[] = [];
+  let from = -1;
+  let box: ClipBox | null = null;
+  const num = (o: Operand | undefined): number => (o && o.t === "num" ? o.v : 0);
+  const extend = (x: number, y: number) => {
+    const q = { x: ctm[0] * x + ctm[2] * y + ctm[4], y: ctm[1] * x + ctm[3] * y + ctm[5] };
+    box = box
+      ? { x0: Math.min(box.x0, q.x), y0: Math.min(box.y0, q.y), x1: Math.max(box.x1, q.x), y1: Math.max(box.y1, q.y) }
+      : { x0: q.x, y0: q.y, x1: q.x, y1: q.y };
+  };
+  for (let i = 0; i < ops.length; i++) {
+    const { op, args } = ops[i];
+    if (op === "q") stack.push(ctm);
+    else if (op === "Q") ctm = stack.pop() ?? start;
+    else if (op === "cm")
+      ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
+    else if (op === "m" || op === "l" || op === "c" || op === "v" || op === "y" || op === "re") {
+      if (from < 0) from = i;
+      if (op === "re") {
+        const [x, y, w, h] = [num(args[0]), num(args[1]), num(args[2]), num(args[3])];
+        extend(x, y);
+        extend(x + w, y + h);
+        extend(x + w, y);
+        extend(x, y + h);
+      } else for (let k = 0; k + 1 < args.length; k += 2) extend(num(args[k]), num(args[k + 1]));
+    } else if (PATH_PAINT.has(op)) {
+      if (from >= 0 && box && op !== "n") out.push({ from, to: i, box });
+      from = -1;
+      box = null;
     }
   }
   return out;

@@ -26,6 +26,7 @@ import {
 import type { Pt } from "../core/coords";
 import { formatBytes } from "../ops/optimize";
 import type { BuildOptions } from "../ops/save";
+import { AFTER_REDACTION, type HiddenInfoOptions } from "../ops/redact";
 import type { ComparisonReport } from "../ops/compare";
 
 /** Every modal the PDF workspace can open, kept together so they share styling. */
@@ -2565,6 +2566,93 @@ export function LinkDialog({
           </label>
         )}
       </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Apply redaction (and remove hidden information)
+// ---------------------------------------------------------------------------
+
+const HIDDEN_INFO_LABELS: [keyof HiddenInfoOptions, string, string][] = [
+  ["metadata", "Métadonnées", "Propriétés du document, XMP, données privées d'applications, vignettes"],
+  ["bookmarks", "Signets", "Leurs titres reprennent souvent le texte des pages"],
+  ["structure", "Textes de remplacement", "Texte alternatif et texte de substitution de la structure"],
+  ["actions", "Liens, actions et JavaScript", "Scripts, actions automatiques, liens"],
+  ["attachments", "Fichiers joints", "Pièces jointes du document et des commentaires, multimédia"],
+  ["hiddenLayers", "Calques masqués", "Le contenu des calques masqués est supprimé, les autres fusionnés"],
+  ["comments", "Commentaires", "Toutes les annotations qui ne sont ni des champs ni des liens"],
+  [
+    "hiddenText",
+    "Texte invisible",
+    "Dont la couche de texte d'une numérisation (OCR) : le texte ne sera plus sélectionnable",
+  ],
+];
+
+/** The kinds of hidden information, as checkboxes. */
+export function HiddenInfoChoices({
+  value,
+  onChange,
+}: {
+  value: HiddenInfoOptions;
+  onChange: (v: HiddenInfoOptions) => void;
+}) {
+  return (
+    <div className="pdfx-form">
+      {HIDDEN_INFO_LABELS.map(([key, label, hint]) => (
+        <label key={key} className="pdfx-check" title={hint}>
+          <input
+            type="checkbox"
+            checked={value[key]}
+            onChange={(e) => onChange({ ...value, [key]: e.target.checked })}
+          />
+          <span>
+            {label}
+            <small className="pdfx-row__sub">{hint}</small>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+export function RedactApplyDialog({
+  marks,
+  onConfirm,
+  onClose,
+}: {
+  marks: number;
+  /** `hidden`: the hidden information to remove as well (null: none). */
+  onConfirm: (hidden: HiddenInfoOptions | null) => void;
+  onClose: () => void;
+}) {
+  const [also, setAlso] = useState(true);
+  const [hidden, setHidden] = useState<HiddenInfoOptions>(AFTER_REDACTION);
+  return (
+    <Modal
+      title="Appliquer le caviardage"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="eb eb--outline eb--sm" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="eb eb--primary eb--sm" onClick={() => onConfirm(also ? hidden : null)}>
+            Caviarder et enregistrer
+          </button>
+        </>
+      }
+    >
+      <p className="pdfx-form__note">
+        {marks} zone(s) seront définitivement supprimées du fichier : texte (y compris dans les objets imbriqués),
+        pixels des images, dessins, commentaires et champs situés dessous. Le fichier est entièrement réécrit, sans
+        révision antérieure qui garderait ce contenu.
+      </p>
+      <label className="pdfx-check">
+        <input type="checkbox" checked={also} onChange={(e) => setAlso(e.target.checked)} />
+        Supprimer aussi les informations masquées (recommandé)
+      </label>
+      {also && <HiddenInfoChoices value={hidden} onChange={setHidden} />}
     </Modal>
   );
 }

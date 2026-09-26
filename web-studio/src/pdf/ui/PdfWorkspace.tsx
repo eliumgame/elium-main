@@ -3878,7 +3878,9 @@ export default function PdfWorkspace({
         import("../ops/accessibility"),
       ]);
       const { bytes } = await buildDerived(st, { keepSkipped: false });
-      const texts = engine ? await engine.allText() : [];
+      // The text of the pages as they are now (source text per page, in the document's current order).
+      const source = engine ? await engine.allText() : [];
+      const texts = st.pages.filter((p) => !p.skipped).map((p) => (p.from != null ? (source[p.from] ?? "") : ""));
       setA11yRules(checkAccessibility(await PDFDocument.load(bytes, { updateMetadata: false }), texts));
     } catch {
       setA11yRules([]);

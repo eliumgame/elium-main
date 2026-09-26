@@ -120,7 +120,7 @@ export function PrintDialog({
   onClose,
 }: {
   pageCount: number;
-  /** 0-based. */
+  /** Index among the printable pages; -1 when the page shown is excluded from the document. */
   currentPage: number;
   /** The document's page labels, if it has any (accepted in the range field). */
   labels?: readonly string[];
@@ -303,8 +303,13 @@ export function PrintDialog({
                 Toutes ({pageCount})
               </label>
               <label className="pdfx-check">
-                <input type="radio" checked={opts.pages === "current"} onChange={() => set({ pages: "current" })} />
-                Page courante ({currentLabel})
+                <input
+                  type="radio"
+                  checked={opts.pages === "current"}
+                  disabled={currentPage < 0}
+                  onChange={() => set({ pages: "current" })}
+                />
+                {currentPage < 0 ? "Page courante (exclue du document)" : `Page courante (${currentLabel})`}
               </label>
               <label className="pdfx-check pdfx-print__range">
                 <input type="radio" checked={opts.pages === "range"} onChange={() => set({ pages: "range" })} />

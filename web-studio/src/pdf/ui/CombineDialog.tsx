@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, FileImage, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { Modal } from "../../ui/components";
 import { imageKind, parsePageRange } from "../ops/organize";
+import { CREATE_FROM_FILE_ACCEPT, createSourceKind } from "../ops/create-kinds";
 
 /**
  * Acrobat's « Combiner des fichiers »: a list of PDFs and pictures, put in
@@ -42,6 +43,16 @@ async function asPng(file: File): Promise<Uint8Array | null> {
 
 async function readItem(file: File): Promise<CombineItem> {
   const id = `cf${++seq}`;
+  // Word, Excel, PowerPoint, HTML, text…: converted to PDF first.
+  if (createSourceKind(file.name)) {
+    try {
+      const { createPdfFromFile } = await import("../ops/create-from-file");
+      const r = await createPdfFromFile(file);
+      return { id, name: file.name, bytes: r.bytes, count: r.pageCount, range: "", image: false };
+    } catch {
+      return { id, name: file.name, bytes: undefined, count: 0, range: "", image: false };
+    }
+  }
   let bytes: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
   const isImage = file.type.startsWith("image/") || !!imageKind(bytes);
   // A TIFF (often a multi-page scan) becomes a PDF of its pages, each at its resolution.
@@ -255,7 +266,7 @@ export function CombineDialog({
         <input
           ref={input}
           type="file"
-          accept="application/pdf,.pdf,image/*"
+          accept={`application/pdf,.pdf,image/*,${CREATE_FROM_FILE_ACCEPT}`}
           multiple
           hidden
           data-testid="combine-input"

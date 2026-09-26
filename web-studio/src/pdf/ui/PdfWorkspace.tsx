@@ -123,6 +123,7 @@ import type { SignatureView } from "./SignaturesPane";
 import SigFieldTargets from "./SigFieldTargets";
 import type { AccessibilityRule } from "../ops/accessibility";
 import { PrintDialog } from "./PrintDialog";
+import { CREATE_FROM_FILE_ACCEPT, createSourceKind } from "../ops/create-kinds";
 import { CompareView } from "./CompareView";
 import { contentState, keepFormFieldsOnly, type ContentMode } from "../ops/impose";
 import { suggestFields } from "../ops/forms";
@@ -548,6 +549,8 @@ export default function PdfWorkspace({
   const mergeInput = useRef<HTMLInputElement>(null);
   const attachInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+  /** « Créer depuis un fichier » : Word, Excel, PowerPoint, HTML, texte, Markdown, Elium. */
+  const createInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
   const compareInput = useRef<HTMLInputElement>(null);
   const pendingImageAt = useRef<{ pageId: string; x: number; y: number } | null>(null);
@@ -3953,14 +3956,20 @@ export default function PdfWorkspace({
       import("../ops/security"),
       import("../ops/optimize"),
     ]);
-    const doc = await PDFDocument.load(bytes, {
-      ignoreEncryption: true,
-      throwOnInvalidObject: false,
-      updateMetadata: false,
-    });
-    const crypt = openCrypt(doc, passwordRef.current ?? "");
-    if (crypt) await crypt.decryptDocument(doc, bytes);
-    const audit = spaceAudit(doc, bytes.length);
+    let audit: ReturnType<typeof spaceAudit>;
+    try {
+      const doc = await PDFDocument.load(bytes, {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+        updateMetadata: false,
+      });
+      const crypt = openCrypt(doc, passwordRef.current ?? "");
+      if (crypt) await crypt.decryptDocument(doc, bytes);
+      audit = spaceAudit(doc, bytes.length);
+    } catch (e) {
+      toast("danger", "Audit impossible", e instanceof Error ? e.message : undefined);
+      return;
+    }
     await dialogs.alert({
       title: "Audit de l'espace utilisé",
       message:
@@ -4701,6 +4710,42 @@ export default function PdfWorkspace({
   };
 
   /** « Créer un PDF depuis le presse-papiers »: a new document of its picture or its text. */
+  /** A new PDF made from a Word, Excel, PowerPoint, HTML, text, Markdown or Elium file. */
+  const createFromFile = async (file: File) => {
+    setLoading(true);
+    const id = toast("progress", `Conversion de « ${file.name} » en PDF…`);
+    try {
+      const { createPdfFromFile } = await import("../ops/create-from-file");
+      const { EliumPasswordRequired } = await import("../../format/elium-package");
+      let password: string | undefined;
+      for (;;) {
+        try {
+          const r = await createPdfFromFile(file, { password });
+          dismissToast(id);
+          await openBytes(r.bytes, r.name, undefined, undefined, null, { unsaved: true });
+          return;
+        } catch (e) {
+          if (!(e instanceof EliumPasswordRequired)) throw e;
+          const typed = await dialogs.prompt({
+            title: "Document protégé",
+            label: `${password !== undefined ? "Mot de passe incorrect. " : ""}Mot de passe de « ${file.name} » :`,
+            password: true,
+          });
+          if (typed === null) {
+            dismissToast(id);
+            return;
+          }
+          password = typed;
+        }
+      }
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Création impossible", e instanceof Error ? e.message : "Fichier illisible.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const createFromClipboard = async () => {
     const got = await readClipboard();
     if (!got) return;
@@ -4803,9 +4848,10 @@ export default function PdfWorkspace({
     if (!file || !engine) return;
     let pw: string | undefined;
     setCompareBusy(true);
+    let other: PdfEngine | null = null;
+    let mine: PdfEngine | null = null;
     try {
       const raw = new Uint8Array(await file.arrayBuffer());
-      let other: PdfEngine | null = null;
       for (let wrong = false; !other;) {
         try {
           other = await PdfEngine.open(raw, pw);
@@ -4825,10 +4871,13 @@ export default function PdfWorkspace({
       const { bytes } = await buildDerived(state, { flattenForms: true, interactiveAnnots: false, keepSkipped: false });
       const kept = pages.map((p, i) => (p.skipped ? -1 : i)).filter((i) => i >= 0);
       compareMapRef.current = (i) => kept[i];
-      const mine = await PdfEngine.open(bytes);
+      mine = await PdfEngine.open(bytes);
       closeCompare();
       setCompareEngines({ left: mine, right: other, rightName: file.name });
     } catch {
+      // Neither document stays open for nothing.
+      mine?.destroy();
+      other?.destroy();
       toast("danger", "Comparaison impossible (fichier illisible).");
     } finally {
       setCompareBusy(false);
@@ -5064,7 +5113,8 @@ export default function PdfWorkspace({
             setDragOver(false);
             const handle = droppedHandle(e.dataTransfer); // synchronous: the transfer empties after the event
             const f = e.dataTransfer.files?.[0];
-            if (f) void handle.then((h) => openFile(f, h));
+            if (f && createSourceKind(f.name)) void createFromFile(f);
+            else if (f) void handle.then((h) => openFile(f, h));
           }}
         >
           <div className="pdfx-dropzone__card">
@@ -5084,6 +5134,9 @@ export default function PdfWorkspace({
               </button>
               <button className="eb eb--outline" onClick={() => imageInput.current?.click()} disabled={loading}>
                 Créer depuis des images
+              </button>
+              <button className="eb eb--outline" onClick={() => createInput.current?.click()} disabled={loading}>
+                Créer depuis un fichier…
               </button>
               <button className="eb eb--outline" onClick={() => setDialog("combine")} disabled={loading}>
                 Combiner des fichiers
@@ -5144,6 +5197,17 @@ export default function PdfWorkspace({
           }}
         />
         <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
+        <input
+          ref={createInput}
+          type="file"
+          accept={CREATE_FROM_FILE_ACCEPT}
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void createFromFile(f);
+          }}
+        />
         {pendingPassword && (
           <PasswordPrompt
             wrong={pendingPassword.wrong}
@@ -6075,7 +6139,7 @@ export default function PdfWorkspace({
       {dialog === "print" && (
         <PrintDialog
           pageCount={printablePages.length}
-          currentPage={Math.max(0, printablePages.indexOf(pages[currentStore.get() - 1]!))}
+          currentPage={printablePages.indexOf(pages[currentStore.get() - 1]!)}
           labels={printablePages.map((p, i) => shownPages.find((q) => q.id === p.id)?.label ?? String(i + 1))}
           pageSizes={printablePages.map((p) => {
             const sz = sizeOf(p);
@@ -6249,7 +6313,12 @@ export default function PdfWorkspace({
           }) => {
             if (!bytesRef.current) return;
             setOcrRunning(true);
-            ocrAbort.current = new AbortController();
+            const abort = new AbortController();
+            ocrAbort.current = abort;
+            // Cancelled once the pages are read, nothing is written either.
+            const stopIfCancelled = () => {
+              if (abort.signal.aborted) throw Object.assign(new Error("OCR annulé"), { name: "OcrCancelled" });
+            };
             try {
               const indices = v.range.trim()
                 ? parsePageRange(v.range, pageCount)
@@ -6261,7 +6330,7 @@ export default function PdfWorkspace({
                 dpi: v.dpi,
                 pages: indices,
                 skipPagesWithText: v.skipPagesWithText,
-                signal: ocrAbort.current.signal,
+                signal: abort.signal,
                 onProgress: setOcrProgress,
               });
               const words = results.reduce((n, r) => n + r.words.length, 0);
@@ -6273,7 +6342,11 @@ export default function PdfWorkspace({
               }
 
               const { FontBook } = await import("../ops/fonts");
-              if (!engine) return;
+              stopIfCancelled();
+              if (!engine) {
+                setOcrRunning(false);
+                return;
+              }
               // The text layer goes into the document itself — an update of
               // the source, encrypted with its key, its signed revision left
               // intact — and the session goes on with it, edits kept.
@@ -6291,6 +6364,7 @@ export default function PdfWorkspace({
                   }
                 },
               });
+              stopIfCancelled();
               await adoptDerived(
                 res.bytes,
                 {

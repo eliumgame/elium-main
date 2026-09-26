@@ -1292,3 +1292,23 @@ Reproductions : web-studio/tests/zz-review9-* (ignorés par git), journal scratc
 12. OCR : couche décalée si le contenu laisse l'état graphique déséquilibré.
 13. TIFF : bombe de décompression (limite de pixels) + erreurs non attrapées.
 14. Imposition : plages étiquettes/numéros ambiguës.
+
+### T9 : revue corrigée (26/09)
+- Exports Office/CSV (d3ccf4c), optimiseur/EXIF/OCR/TIFF/imposition (7203526), création depuis
+  Word/Excel/PowerPoint/HTML/texte/Markdown/Elium + points plausibles (f56ac30), PDF/A (60af723 :
+  CID, largeurs, dictionnaires directs, apparences générées, calques nommés, AF PDF/A-3 ; 15/15 veraPDF).
+- Création depuis un fichier : pages en images 150 dpi + couche texte invisible (pas de texte
+  vectoriel, pas de balisage) ; limites listées dans le rapport d'agent (docx sans mise en page
+  propre, Excel sans graphiques, Safari refusé).
+- Suite vitest : 2196 OK ; échecs uniquement interop Python (module elium absent du conteneur) et zz-*.
+
+### T10 : en cours
+- Audit : .pdf-rebuild-cloud/T10-AUDIT.md.
+- P0 fait (8e5b0de) : Inspecteur réouvrable (Ctrl+E, barre d'état), chevrons du ruban, panneaux
+  étroits sous le chrome, écran d'accueil, résultats de recherche par tranches de 500, toasts
+  accessibles, raccourcis Ctrl+3/D/E/L/W, Ctrl+Maj+R/−, focus du document.
+- P1 : registre de commandes, « Tous les outils », palette, menus contextuels, barre d'état,
+  mode lecture, accessibilité du ruban.
+
+### À valider dans Acrobat / Office (ajouts)
+- Création depuis Word/Excel/PowerPoint : fidélité visuelle comparée à l'impression PDF d'Office.

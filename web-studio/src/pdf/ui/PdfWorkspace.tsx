@@ -294,6 +294,8 @@ export default function PdfWorkspace({
 
   // --- document -------------------------------------------------------------
   const [engine, setEngine] = useState<PdfEngine | null>(null);
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
   const bytesRef = useRef<Uint8Array | null>(null);
   const passwordRef = useRef<string | null>(null);
   const [fileName, setFileName] = useState("");
@@ -424,6 +426,7 @@ export default function PdfWorkspace({
   const [layers, setLayers] = useState<LayerInfo[]>([]);
   /** The user's layer switches, in the order made (radio groups depend on it). */
   const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  const layerVisRef = useRef(layerVis);
   /** The file's named destinations. */
   const [fileDests, setFileDests] = useState<string[]>([]);
   /** The file's own Initial View (openPage: a 1-based source page). */
@@ -782,6 +785,7 @@ export default function PdfWorkspace({
         setAttachments([]);
         setLayers([]);
         setLayerVis(new Map());
+        layerVisRef.current = new Map();
         setOcConfig(undefined);
         currentStore.set(1);
         viewHistory.current = { back: [], fwd: [] };
@@ -1288,10 +1292,13 @@ export default function PdfWorkspace({
               w: r.rect![2] - r.rect![0],
               h: r.rect![3] - r.rect![1],
             })),
-          ...state.annots.filter((a) => a.pageId === page.id && a.kind === "link").map((a) => a.rect),
         ];
+        // Elium's links are in the page as cropped in Elium; the text, in the file's page.
         const dx = page.crop?.left ?? 0;
         const dy = page.crop?.top ?? 0;
+        for (const a of state.annots) {
+          if (a.pageId === page.id && a.kind === "link") taken.push({ ...a.rect, x: a.rect.x + dx, y: a.rect.y + dy });
+        }
         for (const m of found) {
           const quads = quadsForCharRange(runs, tc.items, m.index!, m.index! + m[0].length);
           if (!quads.length) continue;
@@ -1598,9 +1605,12 @@ export default function PdfWorkspace({
     return texts;
   }, [engine]);
 
+  /** Each search's number: an answer that comes back after a newer search is dropped. */
+  const searchRun = useRef(0);
   const doSearch = useCallback(
     async (query: string) => {
       if (!engine) return;
+      const run = ++searchRun.current;
       if (!query.trim()) {
         setHits([]);
         setHitQuads(new Map());
@@ -1608,6 +1618,7 @@ export default function PdfWorkspace({
         return;
       }
       const texts = await ensureText();
+      if (run !== searchRun.current) return;
       const raw = runSearch(texts, query, {
         ...DEFAULT_SEARCH_OPTIONS,
         caseSensitive: searchState.caseSensitive,
@@ -4859,12 +4870,18 @@ export default function PdfWorkspace({
               onLayerToggle={async (id) => {
                 const layer = layers.find((l) => l.id === id);
                 if (!layer || layer.locked || layer.heading) return;
-                const next = new Map(layerVis);
+                // From the latest switches (a second click before the first
+                // finished builds on it), for this document only.
+                const next = new Map(layerVisRef.current);
                 next.delete(id);
                 next.set(id, !layer.visible);
+                layerVisRef.current = next;
                 setLayerVis(next);
-                setOcConfig(await engine.optionalContentConfig(next));
-                setLayers(await engine.layers(next));
+                const doc = engine;
+                const [cfg, rows] = await Promise.all([doc.optionalContentConfig(next), doc.layers(next)]);
+                if (layerVisRef.current !== next || engineRef.current !== doc) return;
+                setOcConfig(cfg);
+                setLayers(rows);
               }}
               onLayersSaveDefault={() => {
                 setState((s) => ({

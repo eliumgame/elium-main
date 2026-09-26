@@ -852,6 +852,8 @@ export function PropertiesDialog({
   const [iv, setIv] = useState<InitialView>(startView);
   const setView = (patch: Partial<InitialView>) => setIv((v) => ({ ...v, ...patch }));
   const viewChanged = JSON.stringify(iv) !== JSON.stringify(startView);
+  const openChanged =
+    !!startView.openChanged || iv.openPage !== startView.openPage || iv.openZoom !== startView.openZoom;
   return (
     <Modal
       title="Propriétés du document"
@@ -864,7 +866,7 @@ export function PropertiesDialog({
           <button
             className="eb eb--primary eb--sm"
             onClick={() => {
-              onChange(draft, viewChanged ? iv : undefined);
+              onChange(draft, viewChanged ? { ...iv, openChanged } : undefined);
               onClose();
             }}
           >

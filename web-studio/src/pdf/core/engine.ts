@@ -684,70 +684,59 @@ export class PdfEngine {
 
   // -- attachments / layers -------------------------------------------------
 
+  /**
+   * The document's attached files (/Names /EmbeddedFiles), in the tree's
+   * order, keyed by position (`#0`, `#1`…: two may share a name). Read from
+   * the file with pdf-lib (pdf.js 6 no longer hands their content, and keys
+   * its list by name) — only when pdf.js says there are some.
+   */
   async attachments(): Promise<Attachment[]> {
     try {
-      const raw = (await this.doc.getAttachments()) as
-        Map<string, RawAttachment> | Record<string, RawAttachment> | null;
-      if (!raw) return [];
-      // A Map in pdf.js 6 (a plain object before): read as either.
-      const entries = raw instanceof Map ? [...raw.entries()] : Object.entries(raw);
-      if (!entries.length) return [];
-      // pdf.js 6 no longer hands the content: read from the file itself.
-      const contents = await this.embeddedFiles();
-      return entries.map(([key, a]) => ({
-        key,
-        name: a.filename || key || "pièce-jointe",
-        description: a.description,
-        bytes:
-          a.content instanceof Uint8Array && a.content.length
-            ? a.content
-            : (contents.get(key) ?? new Uint8Array(a.content ?? [])),
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  /** The content of each file of /Names /EmbeddedFiles, by key. */
-  private async embeddedFiles(): Promise<Map<string, Uint8Array>> {
-    const out = new Map<string, Uint8Array>();
-    try {
-      const lib = await import("pdf-lib");
-      const { PDFArray, PDFDict, PDFName, PDFRawStream, PDFString, PDFHexString, decodePDFRawStream } = lib;
+      const listed = (await this.doc.getAttachments()) as Map<string, unknown> | Record<string, unknown> | null;
+      if (!listed || (listed instanceof Map ? !listed.size : !Object.keys(listed).length)) return [];
+      const { PDFDict, PDFName, PDFRawStream, PDFRef, PDFString, PDFHexString, decodePDFRawStream } =
+        await import("pdf-lib");
+      const { readNameTree } = await import("../ops/nametree");
       const doc = await this.libDoc();
       const names = doc.catalog.lookup(PDFName.of("Names"));
-      const tree = names instanceof PDFDict ? names.lookup(PDFName.of("EmbeddedFiles")) : undefined;
-      const walk = (node: unknown, depth: number) => {
-        if (!(node instanceof PDFDict) || depth > 32) return;
-        const list = node.lookup(PDFName.of("Names"));
-        if (list instanceof PDFArray) {
-          for (let i = 0; i + 1 < list.size(); i += 2) {
-            const k = list.lookup(i);
-            const key = k instanceof PDFString || k instanceof PDFHexString ? k.decodeText() : "";
-            const spec = list.lookup(i + 1);
-            const ef = spec instanceof PDFDict ? spec.lookup(PDFName.of("EF")) : undefined;
-            const stream =
-              ef instanceof PDFDict ? (ef.lookup(PDFName.of("F")) ?? ef.lookup(PDFName.of("UF"))) : undefined;
-            if (key && stream instanceof PDFRawStream) {
-              try {
-                out.set(key, decodePDFRawStream(stream).decode());
-              } catch {
-                /* an unreadable file: listed without content */
-              }
-            }
+      const text = (v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : undefined);
+      return readNameTree(names instanceof PDFDict ? names : undefined, "EmbeddedFiles").map((e, i) => {
+        const spec = e.v instanceof PDFRef ? doc.context.lookup(e.v) : e.v;
+        const d = spec instanceof PDFDict ? spec : undefined;
+        const ef = d?.lookup(PDFName.of("EF"));
+        const stream = ef instanceof PDFDict ? (ef.lookup(PDFName.of("UF")) ?? ef.lookup(PDFName.of("F"))) : undefined;
+        let bytes: Uint8Array = new Uint8Array();
+        if (stream instanceof PDFRawStream) {
+          try {
+            bytes = decodePDFRawStream(stream).decode();
+          } catch {
+            /* listed without content */
           }
         }
-        const kids = node.lookup(PDFName.of("Kids"));
-        if (kids instanceof PDFArray) for (let i = 0; i < kids.size(); i++) walk(kids.lookup(i), depth + 1);
-      };
-      walk(tree, 0);
+        return {
+          key: `#${i}`,
+          name: text(d?.lookup(PDFName.of("UF"))) || text(d?.lookup(PDFName.of("F"))) || e.key || "pièce-jointe",
+          description: text(d?.lookup(PDFName.of("Desc"))),
+          bytes,
+        };
+      });
     } catch {
-      /* no content */
+      return [];
+    } finally {
+      this.releaseLibDoc();
     }
-    return out;
   }
 
   private libDocCache: Promise<import("pdf-lib").PDFDocument> | null = null;
+  private libDocTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The parsed file is dropped a little after its last use (it doubles the memory a document takes). */
+  private releaseLibDoc(): void {
+    if (this.libDocTimer) clearTimeout(this.libDocTimer);
+    this.libDocTimer = setTimeout(() => {
+      this.libDocCache = null;
+      this.libDocTimer = null;
+    }, 15_000);
+  }
   /**
    * The file read by pdf-lib, once, for what pdf.js does not report (layer
    * tree, locked layers, attached files' content). Decrypted with the
@@ -868,6 +857,12 @@ export class PdfEngine {
       };
       const order = d instanceof PDFDict ? d.lookup(PDFName.of("Order")) : undefined;
       if (order instanceof PDFArray) walk(order, 0);
+      else {
+        // No /Order (it is optional; CAD and GIS exports often leave it out): every group, flat.
+        const ocgs = props instanceof PDFDict ? props.lookup(PDFName.of("OCGs")) : undefined;
+        if (ocgs instanceof PDFArray) walk(ocgs, 0);
+      }
+      this.releaseLibDoc();
       return { rows, locked };
     })().catch(() => ({ rows: [], locked: new Set<string>() }));
     return this.layerTreeCache;
@@ -946,12 +941,6 @@ const PAGE_LAYOUTS = [
   "TwoPageLeft",
   "TwoPageRight",
 ] as const;
-
-interface RawAttachment {
-  filename?: string;
-  description?: string;
-  content?: Uint8Array | number[];
-}
 
 function colorArrayToHex(c: Uint8ClampedArray | number[] | undefined): string | undefined {
   if (!c || c.length < 3) return undefined;

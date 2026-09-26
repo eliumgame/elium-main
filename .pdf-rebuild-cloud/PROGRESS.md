@@ -957,3 +957,71 @@ d'Acrobat (Sound) restent intacts dans le fichier, mais ne sont ni lus ni créé
 - Écrites à l'enregistrement : arbre /Names /Dests trié, clés ASCII en chaîne simple
   (les liens comparent les octets) ; /Dests du catalogue si l'arbre est découpé en /Kids.
 - Test unitaire (ajout, suppression, résolution). Suite 2027/2027 ; specs PDF 72/72.
+
+## T7 : sécurité
+
+### Audit (session cloud 1), par ordre d'impact
+- Vérifié correct :
+  - protection AES-256 R6 (qpdf l'ouvre avec les deux mots de passe, /Perms juste) ;
+  - enregistrements incrémentaux de fichiers protégés (RC4, AES-128, AES-256) ;
+  - le caviardage réécrit tout le fichier ; glyphes Type3, texte OCR invisible et TJ
+    retirés.
+1. Caviardage : le texte dans les XObjects de formulaire reste (non parcourus), sans
+   avertissement.
+2. Caviardage d'image : l'image « retirée » reste entière dans /Resources ; sous 2 %
+   de recouvrement, rien n'est retiré ; tout ou rien (une ligne caviardée efface toute
+   la page scannée).
+3. Caviardage : la valeur du champ reste dans l'AcroForm (/V), et /Kids [null] reste
+   pendant.
+4. Informations masquées gardées après caviardage, sans proposer de les supprimer :
+   - titres de signets, /Alt, /ActualText, Info, JavaScript du document, /Thumb ;
+   - annotations recouvertes à 25 % ou moins ;
+   - dessins vectoriels sous la zone.
+5. « Assainir » annonce avoir tout retiré mais laisse :
+   - des fichiers incorporés (/AF) ;
+   - du JavaScript dans les liens, widgets et signets, et des actions Launch ;
+   - commentaires, valeurs de champs, texte caché, calques masqués ;
+   - /PieceInfo, /Thumb, /Alt, clés Info personnalisées.
+6. Les permissions des fichiers ouverts sont ignorées : tout est permis, la protection
+   peut être retirée sans le mot de passe propriétaire, et les copies sortent non
+   chiffrées.
+7. Le mot de passe propriétaire prend par défaut la valeur du mot de passe
+   d'ouverture : les restrictions ne servent à rien.
+8. Modèles de recherche à caviarder :
+   - IBAN tronqué ;
+   - NIR sans Corse ni préfixes 3, 4, 7, 8 ;
+   - téléphones internationaux absents ;
+   - pas de carte bancaire (Luhn), de SIRET/SIREN, de dates.
+9. Bits 1-2 de /P mis à 1 (-1 au lieu de -4).
+10. Options :
+    - AES-256 seul ; permissions en cases brutes au lieu des choix d'Acrobat ;
+    - mots de passe R6 sans SASLprep ;
+    - /Filter non vérifié.
+11. Chiffrement par certificat absent.
+12. Visionneuse globalement saine. À faire :
+    - préférence « Activer JavaScript » ;
+    - boîtes alert/confirm des scripts à encadrer ;
+    - copies d'impression non nettoyées de leur JavaScript.
+
+### Session cloud 1 : relecture adversariale de T6, 7 défauts corrigés
+1. Pièce jointe ajoutée à un arbre /EmbeddedFiles en /Kids : perdue à la réouverture
+   (pdf-lib ajoutait /Names à côté de /Kids).
+2. Arbre non trié après ajout, et /Limits périmés après suppression.
+   Correctif pour les deux : nouveau module `ops/nametree.ts` (lecture dans l'ordre,
+   réécriture en une feuille triée par octets, clés uniques), utilisé aussi par les
+   destinations. Le fichier joint est construit à la main (plus de `doc.attach`).
+3. Lien vers une page supprimée ou exclue : il était enregistré vers la page qui avait
+   pris son numéro. Il reste maintenant sans destination.
+4. Régression : panneau Calques vide sans /Order. Repli sur /OCGs, à plat.
+5. « Visibilité par défaut » : allumait les groupes hors /Order. L'état existant (/ON,
+   /OFF, /BaseState) est maintenant fusionné.
+6. Pièces jointes de même nom : une seule listée, et les deux supprimées. Clés par
+   position (#0, #1…), lecture par pdf-lib.
+7. Vue initiale : /OpenAction n'est réécrit que si la page ou l'agrandissement ont
+   changé (un script ou une position exacte restent).
+- Aussi :
+  - course entre recherches (numéro de requête) ;
+  - bascule de calque sur un état périmé ou sur un autre document ;
+  - « liens depuis les URL » comparait deux repères sur les pages rognées ;
+  - lecture pdf-lib libérée 15 s après usage.
+- Tests : `pdf-navigation-review.test.ts` (8). Suite 2023/2023 ; specs PDF 72/72.

@@ -504,6 +504,11 @@ export interface InitialView {
   centerWindow?: boolean;
   /** The window shows the document's title rather than its file name. */
   displayDocTitle?: boolean;
+  /**
+   * The opening page or magnification was changed in Elium: /OpenAction is
+   * rewritten. Otherwise the file's stays (a script, an exact position).
+   */
+  openChanged?: boolean;
 }
 
 export type DestFit = "XYZ" | "Fit" | "FitH" | "FitV" | "FitB" | "FitBH" | "FitBV" | "FitR";

@@ -189,6 +189,7 @@ describe("initial view", () => {
         pageLayout: "TwoColumnRight",
         openPage: 3,
         openZoom: 1.5,
+        openChanged: true,
         displayDocTitle: true,
         fitWindow: true,
       },
@@ -237,8 +238,8 @@ describe("document attachments", () => {
       ...emptyState(),
       pages: D.pagesFromSource(1),
       attachmentEdits: {
-        removed: ["a.txt"],
-        described: { "b.txt": "Deuxième" },
+        removed: ["#0"],
+        described: { "#1": "Deuxième" },
         added: [{ id: "x", name: "c.txt", mime: "text/plain", data: `data:text/plain;base64,${btoa("trois")}` }],
       },
     };

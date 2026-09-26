@@ -1048,8 +1048,9 @@ async function writeOne(
       entries.A = { Type: "Action", S: "Named", N: PDFName.of(act.name) };
     } else if (act?.type === "page") {
       // The page it names, wherever it now is; else the page number it was given.
-      const at = act.pageId ? opts.pageIndexOf?.(act.pageId) : undefined;
-      const index = at ?? act.page - 1;
+      // A page removed or excluded from this output: the link leads nowhere
+      // (no /Dest) — never to whatever page now has its old number.
+      const index = act.pageId && opts.pageIndexOf ? (opts.pageIndexOf(act.pageId) ?? -1) : act.page - 1;
       const dest = destArray(ctx.doc, {
         title: "",
         children: [],

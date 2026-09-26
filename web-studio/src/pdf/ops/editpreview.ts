@@ -34,7 +34,7 @@ function sourceDoc(bytes: Uint8Array, password: string | null | undefined): Prom
         updateMetadata: false,
       });
       const crypt = openCrypt(doc, password ?? "");
-      if (crypt) await crypt.decryptDocument(doc);
+      if (crypt) await crypt.decryptDocument(doc, bytes);
       return doc;
     })();
     p.catch(() => sources.delete(bytes));

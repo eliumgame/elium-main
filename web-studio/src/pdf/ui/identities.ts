@@ -77,6 +77,9 @@ export async function addSelfId(name: string, key: CryptoKey, cert: Uint8Array):
 }
 
 export async function addP12Id(name: string, fileName: string, p12: Uint8Array, cert: Uint8Array): Promise<DigitalId> {
+  // The same certificate chosen again: the one already remembered.
+  const known = (await listIds()).find((i) => i.kind === "p12" && sameBytes(i.cert, cert));
+  if (known) return known;
   const id: DigitalId = { id: newId(), kind: "p12", name, created: Date.now(), fileName, p12, cert };
   await run(STORE, "readwrite", (s) => s.put(id));
   return id;

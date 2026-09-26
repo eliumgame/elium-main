@@ -749,7 +749,7 @@ export class PdfEngine {
       try {
         const { openCrypt } = await import("../ops/security");
         const crypt = openCrypt(doc, this.password ?? "");
-        if (crypt) await crypt.decryptDocument(doc);
+        if (crypt) await crypt.decryptDocument(doc, this.bytes);
       } catch {
         /* structure still readable */
       }

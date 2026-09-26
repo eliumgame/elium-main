@@ -224,7 +224,7 @@ async function openWorking(bytes: Uint8Array, password: string | null | undefine
   const ref = doc.context.trailerInfo.Encrypt;
   const encryptRef = ref instanceof PDFRef ? ref : null;
   if (crypt) {
-    await crypt.decryptDocument(doc);
+    await crypt.decryptDocument(doc, bytes);
     // The working copy is plaintext; the writer adds the target protection.
     if (encryptRef) doc.context.delete(encryptRef);
     doc.context.trailerInfo.Encrypt = undefined;

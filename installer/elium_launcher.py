@@ -409,38 +409,106 @@ _TSA_MAX_REQUEST = 8 * 1024
 _TSA_MAX_REPLY = 64 * 1024
 
 
-def _tsa_target_problem(url: str) -> "str | None":
-    """Refuse ce qui n'est pas un serveur d'horodatage public en http(s)."""
+_TSA_TIMEOUT_S = 15
+
+
+def _tsa_is_non_public(ip_text: str) -> bool:
+    """Vrai pour toute adresse que le relais ne doit jamais joindre : non globale
+    (privée, loopback, lien local, site local fec0::/10, CGNAT 100.64/10,
+    documentation…), multicast, et les IPv4 embarquées (IPv4-mapped, 6to4,
+    NAT64 64:ff9b::/96) jugées sur l'IPv4 qu'elles désignent."""
     import ipaddress
 
-    parts = urllib.parse.urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        return "Adresse du serveur d'horodatage invalide"
     try:
-        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80))
-    except OSError:
-        return "Serveur d'horodatage introuvable"
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return "Adresse réseau non autorisée pour l'horodatage"
-    return None
-
-
-def _tsa_forward(url: str, body: bytes) -> bytes:
-    import urllib.request
-
-    req = urllib.request.Request(  # noqa: S310 (schéma http/https vérifié par _tsa_target_problem)
-        url,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/timestamp-query", "User-Agent": "Elium"},
+        ip = ipaddress.ip_address(ip_text.split("%", 1)[0])
+    except ValueError:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return _tsa_is_non_public(str(ip.ipv4_mapped))
+        if ip.sixtofour is not None:
+            return _tsa_is_non_public(str(ip.sixtofour))
+        if ip in ipaddress.ip_network("64:ff9b::/96"):
+            return _tsa_is_non_public(str(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)))
+        if ip in ipaddress.ip_network("::/96") or ip.is_site_local or ip.teredo is not None:
+            return True
+    return (
+        not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_unspecified or ip.is_loopback or ip.is_link_local
     )
-    with urllib.request.urlopen(req, timeout=15) as res:  # noqa: S310 (schéma vérifié)
+
+
+def _tsa_resolve(url: str) -> "tuple[str | None, tuple | None]":
+    """Résout la cible UNE seule fois : (problème, None) ou (None, cible), la cible
+    étant (schéma, hôte, port, chemin, ip vérifiée) — la connexion se fait vers
+    cette ip, jamais vers une seconde résolution (rebinding DNS)."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:  # port hors bornes / non numérique, IPv6 mal formée
+        return "Adresse du serveur d'horodatage invalide", None
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+        return "Adresse du serveur d'horodatage invalide", None
+    port = port or (443 if parts.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return "Serveur d'horodatage introuvable", None
+    addresses = [str(info[4][0]) for info in infos]
+    if not addresses or any(_tsa_is_non_public(a) for a in addresses):
+        return "Adresse réseau non autorisée pour l'horodatage", None
+    path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+    return None, (parts.scheme, parts.hostname, port, path, addresses[0])
+
+
+def _tsa_target_problem(url: str) -> "str | None":
+    """Refuse ce qui n'est pas un serveur d'horodatage public en http(s)."""
+    return _tsa_resolve(url)[0]
+
+
+def _tsa_send(target: tuple, body: bytes) -> bytes:
+    """POST vers l'ip déjà vérifiée de `target` (Host et SNI = nom d'origine), sans
+    suivre de redirection, réponse bornée à _TSA_MAX_REPLY."""
+    import http.client
+    import ssl
+
+    scheme, host, port, path, ip = target
+    if _tsa_is_non_public(ip):
+        raise ValueError("adresse d'horodatage non publique")
+    sock = socket.create_connection((ip, port), timeout=_TSA_TIMEOUT_S)
+    conn: http.client.HTTPConnection
+    try:
+        if scheme == "https":
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+            conn = http.client.HTTPSConnection(host, port, timeout=_TSA_TIMEOUT_S)
+        else:
+            conn = http.client.HTTPConnection(host, port, timeout=_TSA_TIMEOUT_S)
+    except BaseException:
+        sock.close()
+        raise
+    conn.sock = sock  # déjà connecté : http.client ne résout ni ne se reconnecte
+    try:
+        conn.request(
+            "POST",
+            path,
+            body=body,
+            headers={"Content-Type": "application/timestamp-query", "User-Agent": "Elium"},
+        )
+        res = conn.getresponse()
+        if not 200 <= res.status < 300:  # redirections comprises : jamais suivies
+            raise ValueError(f"réponse d'horodatage HTTP {res.status}")
         data = res.read(_TSA_MAX_REPLY + 1)
+    finally:
+        conn.close()
     if len(data) > _TSA_MAX_REPLY:
         raise ValueError("réponse d'horodatage trop volumineuse")
     return data
+
+
+def _tsa_forward(url: str, body: bytes) -> bytes:
+    problem, target = _tsa_resolve(url)
+    if problem or target is None:
+        raise ValueError(problem or "cible d'horodatage invalide")
+    return _tsa_send(target, body)
 
 
 def _rate_limited() -> bool:
@@ -855,13 +923,25 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or "0")
         except ValueError:
             length = 0
-        problem = _tsa_target_problem(target)
-        if problem or not (0 < length <= _TSA_MAX_REQUEST):
+        problem, resolved = _tsa_resolve(target)
+        if problem or resolved is None or not (0 < length <= _TSA_MAX_REQUEST):
             self.send_error(400, problem or "Demande d'horodatage invalide")
             return
-        body = self.rfile.read(length)
+        # Un Content-Length plus grand que le corps réel ne doit pas bloquer ce thread.
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(_TSA_TIMEOUT_S)
         try:
-            reply = _tsa_forward(target, body)
+            body = self.rfile.read(length)
+        except OSError:  # socket.timeout inclus
+            body = b""
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if len(body) != length:
+            self.close_connection = True
+            self.send_error(400, "Demande d'horodatage invalide")
+            return
+        try:
+            reply = _tsa_send(resolved, body)
         except Exception as e:  # réseau, HTTP, taille
             _log_launcher(f"POST /__tsa__: {e}")
             self.send_error(502, "Serveur d'horodatage injoignable")

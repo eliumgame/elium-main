@@ -536,6 +536,7 @@ async function repairOneObjectStream(
   ref: PDFRef,
   raw: Uint8Array,
   streamX: Transform,
+  offsets?: Map<string, number>,
 ): Promise<string[] | null> {
   const streamKw = findAscii(raw, "stream");
   if (streamKw === -1) return null;
@@ -579,7 +580,7 @@ async function repairOneObjectStream(
   const plaintext = streamX(ciphertext, ref);
 
   const ctx = doc.context;
-  const before = new Set(ctx.enumerateIndirectObjects().map(([r]) => String(r)));
+  const before = new Map(ctx.enumerateIndirectObjects().map(([r, o]) => [String(r), o] as const));
   const fixedDict: PDFDict = ctx.obj({
     Type: "ObjStm",
     N: parseInt(nMatch[1], 10),
@@ -593,12 +594,37 @@ async function repairOneObjectStream(
   } catch {
     return null;
   }
+  // The objects this stream (re)defines. pdf-lib parsed the whole file before
+  // this repair: an object a later update redefined is already in the context,
+  // and must not be replaced by the older copy packed in this stream.
   const recovered: string[] = [];
-  for (const [r] of ctx.enumerateIndirectObjects()) {
+  const streamAt = offsets?.get(String(ref)) ?? -1;
+  for (const [r, o] of ctx.enumerateIndirectObjects()) {
     const tag = String(r);
-    if (!before.has(tag)) recovered.push(tag);
+    const old = before.get(tag);
+    if (old === o) continue;
+    if (old !== undefined) {
+      const directAt = offsets?.get(tag);
+      // Without the file's bytes, the object already there wins (never undo an update).
+      const laterDirect = !offsets || (directAt !== undefined && directAt > streamAt);
+      if (laterDirect) {
+        ctx.assign(r, old);
+        continue;
+      }
+    }
+    recovered.push(tag);
   }
   return recovered;
+}
+
+/** Where each object is (last) defined in the file: "num gen" → byte offset. */
+function objectOffsets(bytes: Uint8Array): Map<string, number> {
+  const out = new Map<string, number>();
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const re = /(?:^|[\s>\]])(\d{1,10})\s+(\d{1,5})\s+obj\b/g;
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) out.set(`${+m[1]!} ${+m[2]!} R`, m.index);
+  return out;
 }
 
 /**
@@ -612,6 +638,7 @@ async function repairEncryptedObjectStreams(
   doc: PDFDocument,
   streamX: Transform,
   plaintextRefs: Set<string>,
+  bytes?: Uint8Array,
 ): Promise<void> {
   const ctx = doc.context;
   const candidates: PDFRef[] = [];
@@ -624,12 +651,15 @@ async function repairEncryptedObjectStreams(
     candidates.push(ref);
   }
   if (candidates.length === 0) return;
+  // Oldest first: a later revision's object stream supersedes an earlier one.
+  const offsets = bytes ? objectOffsets(bytes) : undefined;
+  if (offsets) candidates.sort((a, b) => (offsets.get(String(a)) ?? 0) - (offsets.get(String(b)) ?? 0));
 
   for (const ref of candidates) {
     const obj = ctx.lookup(ref);
     if (!(obj instanceof PDFInvalidObject)) continue;
     const raw = (obj as unknown as { data: Uint8Array }).data;
-    const recovered = await repairOneObjectStream(doc, ref, raw, streamX);
+    const recovered = await repairOneObjectStream(doc, ref, raw, streamX, offsets);
     if (!recovered) throw new UnsupportedEncryptedObjectStreams();
     ctx.delete(ref);
     for (const tag of recovered) plaintextRefs.add(tag);
@@ -673,8 +703,12 @@ export interface PdfCrypt {
   readonly permissions: Permissions;
   /** First element of the trailer `/ID` the key is bound to (revisions 2–4 derive the key from it). */
   readonly id0: Uint8Array;
-  /** Decrypt every object of `doc` in place (the document this handler was opened from). */
-  decryptDocument(doc: PDFDocument): Promise<void>;
+  /**
+   * Decrypt every object of `doc` in place (the document this handler was opened
+   * from). Pass the file's bytes when it may hold encrypted object streams and
+   * later updates: they tell which definition of an object is the current one.
+   */
+  decryptDocument(doc: PDFDocument, bytes?: Uint8Array): Promise<void>;
   /** Encrypt every object of `doc` in place (last step of a full rewrite), skipping the given refs. */
   encryptDocument(doc: PDFDocument, skip: ReadonlySet<string>): void;
   /** An encrypted COPY of indirect object `ref`, ready to be written; `obj` itself is left untouched. */
@@ -743,7 +777,7 @@ function makeCrypt(p: CryptParams): PdfCrypt {
     scheme: p.scheme,
     permissions: pToPermissions(info.p),
     id0: p.id0,
-    async decryptDocument(doc) {
+    async decryptDocument(doc, bytes) {
       const skip = new Set<string>();
       const encryptRef = doc.context.trailerInfo.Encrypt;
       if (encryptRef instanceof PDFRef) skip.add(String(encryptRef));
@@ -754,7 +788,7 @@ function makeCrypt(p: CryptParams): PdfCrypt {
       // (or fail loudly if we can't) before touching anything else, so `skip`
       // below can exclude their contents from the ordinary string-decryption walk
       // (objects nested in an object stream are never separately encrypted).
-      await repairEncryptedObjectStreams(doc, dStream, skip);
+      await repairEncryptedObjectStreams(doc, dStream, skip, bytes);
       applySplitTransform(doc, dStream, dString, skip, info);
     },
     encryptDocument(doc, skip) {
@@ -953,7 +987,7 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
   });
   const crypt = openCrypt(doc, password);
   if (!crypt) return { bytes, permissions: ALL_PERMISSIONS, scheme: "aucune" };
-  await crypt.decryptDocument(doc);
+  await crypt.decryptDocument(doc, bytes);
   const encryptRef = doc.context.trailerInfo.Encrypt;
   doc.context.trailerInfo.Encrypt = undefined;
   if (encryptRef instanceof PDFRef) doc.context.delete(encryptRef);

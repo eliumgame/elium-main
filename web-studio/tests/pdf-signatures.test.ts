@@ -193,7 +193,8 @@ describe("PAdES signing", () => {
     page.node.set(PDFName.of("Annots"), doc.context.obj([field]));
     doc.catalog.set(PDFName.of("AcroForm"), doc.context.obj({ Fields: [field] }));
     const prepared = await doc.save({ useObjectStreams: false });
-    const signed = await signPdfBytes(prepared, RSA, "pw", { visible: box });
+    // No placement: the one prepared field is the one signed.
+    const signed = await signPdfBytes(prepared, RSA, "pw");
     expect(await listSignatureFields(signed)).toEqual([
       { name: "Client", page: 0, rect: [50, 50, 250, 110], box: { x: 50, y: 290, w: 200, h: 60 }, signed: true },
     ]);
@@ -279,5 +280,50 @@ describe("PAdES signing", () => {
     expect(v!.reason).toBe("Accord");
     expect(v!.signedAt).toBe(now.toISOString());
     expect(v!.modifications).toBe("disallowed");
+  });
+
+  it("encrypted files with object streams: a later revision is kept when signing and judged when verifying", async () => {
+    // AES-256, object streams, one update already appended (fixture made with pikepdf).
+    const src = fx("enc-aes256-objstm.pdf");
+    const annots = async (bytes: Uint8Array) => {
+      const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+      const { openCrypt } = await import("../src/pdf/ops/security");
+      await openCrypt(doc, "")?.decryptDocument(doc, bytes);
+      const a = doc.getPage(0).node.lookup(PDFName.of("Annots"));
+      return a instanceof PDFArray ? a.size() : 0;
+    };
+    const one = await signPdfBytes(src, RSA, "pw", { visible: { page: 0, rect: { x: 20, y: 20, w: 120, h: 40 } } });
+    expect(await annots(one)).toBe(1);
+    const two = await signPdfBytes(one, EC, "pw", { visible: { page: 0, rect: { x: 20, y: 100, w: 120, h: 40 } } });
+    expect(await annots(two)).toBe(2);
+    expect((await verifyPdfSignatures(two)).map((v) => [v.valid, v.modifications])).toEqual([
+      [true, "allowed"],
+      [true, "none"],
+    ]);
+    // Signed, then an update pointing the page at other content.
+    const [tampered] = await verifyPdfSignatures(fx("enc-objstm-tampered.pdf"));
+    expect(tampered!.modifications).toBe("disallowed");
+    expect(tampered!.valid).toBe(false);
+  });
+
+  it("a signed file whose end cannot be appended to is not re-signed (the signature would be lost)", async () => {
+    const signed = await signPdfBytes(await makePdf(), RSA, "pw");
+    const padded = new Uint8Array(signed.length + 70_000);
+    padded.set(signed);
+    await expect(signPdfBytes(padded, EC, "pw")).rejects.toThrow(/irrégulière/);
+  });
+
+  it("a placed signature lands in a prepared field only when it overlaps it", async () => {
+    // hier.pdf: a hierarchical prepared field « form.Sig » at [150 20 280 70] on page 1.
+    const hier = fx("hier.pdf");
+    const elsewhere = await signPdfBytes(hier, RSA, "pw", {
+      visible: { page: 0, rect: { x: 10, y: 10, w: 100, h: 40 } },
+    });
+    const fields = await listSignatureFields(elsewhere);
+    expect(fields.find((f) => f.name === "form.Sig")?.signed).toBe(false);
+    expect(fields.filter((f) => f.signed)).toHaveLength(1);
+    const { box } = fields.find((f) => f.name === "form.Sig")!;
+    const over = await signPdfBytes(hier, RSA, "pw", { visible: { page: 0, rect: { ...box } } });
+    expect((await listSignatureFields(over)).find((f) => f.name === "form.Sig")?.signed).toBe(true);
   });
 });

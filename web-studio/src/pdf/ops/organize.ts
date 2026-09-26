@@ -193,7 +193,7 @@ export async function appendPdfPages(
           password = next;
         }
       }
-      if (crypt) await crypt.decryptDocument(src);
+      if (crypt) await crypt.decryptDocument(src, file.bytes);
     } catch (e) {
       failed.push({
         name: file.name,

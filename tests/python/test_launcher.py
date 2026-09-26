@@ -410,3 +410,203 @@ def test_tsa_relay_refuses_a_name_resolving_to_a_private_address(monkeypatch):
         lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.168.1.10", 443))],
     )
     assert elium_launcher._tsa_target_problem("https://tsa.intranet/") is not None
+
+
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "100.64.0.1",  # CGNAT
+        "198.18.0.1",  # benchmark
+        "192.0.0.1",
+        "224.0.0.1",
+        "0.0.0.0",  # noqa: S104 (adresse testée, pas un bind)
+        "fec0::1",  # site local
+        "fe80::1%eth0",
+        "fd00::1",
+        "ff0e::1",  # multicast (même de portée globale)
+        "::1",
+        "::",
+        "::7f00:1",  # IPv4-compatible
+        "::ffff:127.0.0.1",
+        "::ffff:a9fe:a9fe",  # IPv4-mapped 169.254.169.254
+        "2002:7f00:1::1",  # 6to4 -> 127.0.0.1
+        "64:ff9b::a00:1",  # NAT64 -> 10.0.0.1
+        "2001:0:4136:e378::1",  # Teredo
+        "2001:db8::1",
+        "pas une ip",
+    ],
+)
+def test_tsa_refuses_every_non_global_address(ip):
+    assert elium_launcher._tsa_is_non_public(ip) is True
+
+
+@pytest.mark.parametrize("ip", ["93.184.216.34", "2606:4700::1111", "::ffff:93.184.216.34", "64:ff9b::5db8:d822"])
+def test_tsa_accepts_global_addresses(ip):
+    assert elium_launcher._tsa_is_non_public(ip) is False
+
+
+@pytest.mark.parametrize(
+    "url", ["http://[fec0::1]/", "http://100.64.0.1/", "http://[::ffff:127.0.0.1]/", "http://u:p@93.184.216.34/"]
+)
+def test_tsa_relay_refuses_more_non_public_targets(url):
+    assert elium_launcher._tsa_target_problem(url) is not None
+
+
+@pytest.mark.parametrize("url", ["http://tsa.example:99999/", "http://tsa.example:abc/", "http://[::1/"])
+def test_tsa_relay_invalid_url_is_a_problem_not_an_exception(url):
+    assert elium_launcher._tsa_target_problem(url) is not None
+
+
+def _local_http_server(handle):
+    """Petit serveur HTTP loopback (stand-in d'un TSA ou d'un service interne)."""
+    import http.server
+    import threading
+
+    class _H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_a):
+            pass
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            self.rfile.read(length)
+            handle(self)
+
+        do_GET = do_POST
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
+
+
+def _reply(h, code, body=b"", headers=()):
+    h.send_response(code)
+    for k, v in headers:
+        h.send_header(k, v)
+    h.send_header("Content-Length", str(len(body)))
+    h.end_headers()
+    h.wfile.write(body)
+
+
+def test_tsa_relay_does_not_follow_redirects(monkeypatch):
+    hits = []
+    internal, internal_port = _local_http_server(lambda h: (hits.append(h.path), _reply(h, 200, b"INTERNAL")))
+    redirect, redirect_port = _local_http_server(
+        lambda h: _reply(h, 302, headers=[("Location", f"http://127.0.0.1:{internal_port}/admin")])
+    )
+    # Le stand-in écoute sur loopback : on ne relâche la politique d'adresse que pour lui.
+    monkeypatch.setattr(elium_launcher, "_tsa_is_non_public", lambda ip: ip != "127.0.0.1")
+    try:
+        with pytest.raises(ValueError, match="302"):
+            elium_launcher._tsa_forward(f"http://127.0.0.1:{redirect_port}/tsr", b"\x30\x00")
+        assert hits == []
+    finally:
+        internal.shutdown()
+        redirect.shutdown()
+
+
+def test_tsa_relay_connects_to_the_checked_address_without_resolving_again(monkeypatch):
+    """Rebinding DNS : le nom n'est résolu qu'une fois, la connexion va à l'ip vérifiée
+    avec l'en-tête Host d'origine."""
+    seen = {}
+
+    def tsa(h):
+        seen["host"] = h.headers.get("Host")
+        seen["path"] = h.path
+        _reply(h, 200, b"\x30\x00")
+
+    server, port = _local_http_server(tsa)
+    calls = []
+
+    real_getaddrinfo = socket.getaddrinfo
+
+    def fake_getaddrinfo(host, p, *a, **k):
+        calls.append(host)
+        if host != "rebind.test":  # l'ip littérale passée à create_connection
+            return real_getaddrinfo(host, p, *a, **k)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", p))]
+
+    monkeypatch.setattr(elium_launcher.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(elium_launcher, "_tsa_is_non_public", lambda ip: ip != "127.0.0.1")
+    try:
+        problem, target = elium_launcher._tsa_resolve(f"http://rebind.test:{port}/tsr?x=1")
+        assert problem is None and target is not None
+        assert target[4] == "127.0.0.1"
+        assert elium_launcher._tsa_send(target, b"\x30\x00") == b"\x30\x00"
+        # Aucune seconde résolution DU NOM : seule l'ip vérifiée est passée au socket.
+        assert calls.count("rebind.test") == 1
+        assert set(calls) <= {"rebind.test", "127.0.0.1"}
+        assert seen == {"host": f"rebind.test:{port}", "path": "/tsr?x=1"}
+    finally:
+        server.shutdown()
+
+
+def test_tsa_relay_rebinding_to_loopback_is_refused(monkeypatch):
+    answers = iter(["93.184.216.34", "127.0.0.1"])
+    monkeypatch.setattr(
+        elium_launcher.socket,
+        "getaddrinfo",
+        lambda host, p, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers), p))],
+    )
+    problem, target = elium_launcher._tsa_resolve("http://rebind.test/tsr")
+    assert problem is None and target[4] == "93.184.216.34"
+    # Même si le nom « rebinde » ensuite, _tsa_send ne résout pas : il vise 93.184.216.34.
+    connected = []
+
+    def fake_connect(addr, timeout=None):
+        connected.append(addr)
+        raise OSError("pas de réseau dans les tests")
+
+    monkeypatch.setattr(elium_launcher.socket, "create_connection", fake_connect)
+    with pytest.raises(OSError):
+        elium_launcher._tsa_send(target, b"\x30\x00")
+    assert connected == [("93.184.216.34", 80)]
+    # Et une cible loopback est refusée avant toute connexion.
+    with pytest.raises(ValueError):
+        elium_launcher._tsa_send(("http", "x", 80, "/", "127.0.0.1"), b"\x30\x00")
+    assert connected == [("93.184.216.34", 80)]
+
+
+def test_tsa_relay_bounds_the_reply(monkeypatch):
+    server, port = _local_http_server(lambda h: _reply(h, 200, b"\x30" * (200 * 1024)))
+    monkeypatch.setattr(elium_launcher, "_tsa_is_non_public", lambda ip: ip != "127.0.0.1")
+    try:
+        with pytest.raises(ValueError, match="volumineuse"):
+            elium_launcher._tsa_forward(f"http://127.0.0.1:{port}/", b"\x30\x00")
+    finally:
+        server.shutdown()
+
+
+def test_tsa_relay_body_read_times_out_on_a_short_body(monkeypatch):
+    """Content-Length > corps réel : le thread du handler ne doit pas rester bloqué."""
+    import time
+
+    monkeypatch.setattr(
+        elium_launcher.socket,
+        "getaddrinfo",
+        lambda host, p, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", p))],
+    )
+    monkeypatch.setattr(elium_launcher, "_TSA_TIMEOUT_S", 0.3)
+    sent = []
+    monkeypatch.setattr(elium_launcher, "_tsa_send", lambda *a: sent.append(a) or b"")
+    server_end, client_end = socket.socketpair()
+    try:
+        client_end.sendall(b"\x30\x03\x02")  # 3 octets sur les 100 annoncés
+
+        class _Relay:
+            headers = {"X-Elium-TSA-Url": "https://tsa.example/tsr", "Content-Length": "100"}
+            connection = server_end
+            rfile = server_end.makefile("rb")
+            close_connection = False
+
+            def send_error(self, code, _message=""):
+                self.error_code = code
+
+        relay = _Relay()
+        start = time.monotonic()
+        elium_launcher.QuietHandler._handle_tsa_relay(relay)
+        assert time.monotonic() - start < 5
+        assert relay.error_code == 400
+        assert sent == []
+    finally:
+        server_end.close()
+        client_end.close()

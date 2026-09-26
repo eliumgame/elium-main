@@ -161,6 +161,7 @@ export function SignDialog({
   const needsPassword = chosen === "file" ? !!file : id?.kind === "p12";
 
   const confirm = async () => {
+    if (busy) return;
     setBusy(true);
     setError("");
     try {
@@ -278,7 +279,7 @@ export function SignDialog({
                 value={password}
                 autoFocus
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void confirm()}
+                onKeyDown={(e) => e.key === "Enter" && !busy && void confirm()}
               />
             </label>
           )}

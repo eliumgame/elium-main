@@ -670,9 +670,11 @@ function pickPreparedField(doc: PDFDocument, visible: PadesSignOptions["visible"
   if (!empty.length) return undefined;
   if (!visible) return empty.length === 1 ? empty[0] : undefined;
   const pageIndex = Math.min(Math.max(0, visible.page), doc.getPageCount() - 1);
-  const same = empty.filter((f) => f.pageIndex === pageIndex);
-  if (same.length <= 1) return same[0];
+  // Only a prepared field the placed signature overlaps: the user put it there.
   const t = toPdfRect(doc, pageIndex, visible.rect);
+  const meets = (f: SigField) => f.rect[0] < t[2] && t[0] < f.rect[2] && f.rect[1] < t[3] && t[1] < f.rect[3];
+  const same = empty.filter((f) => f.pageIndex === pageIndex && meets(f));
+  if (same.length <= 1) return same[0];
   const cx = (t[0] + t[2]) / 2;
   const cy = (t[1] + t[3]) / 2;
   const dist = (f: SigField) => Math.hypot((f.rect[0] + f.rect[2]) / 2 - cx, (f.rect[1] + f.rect[3]) / 2 - cy);
@@ -807,7 +809,7 @@ async function loadPlain(bytes: Uint8Array, password?: string): Promise<PDFDocum
     updateMetadata: false,
   });
   const crypt = openCrypt(doc, password ?? "");
-  if (crypt) await crypt.decryptDocument(doc);
+  if (crypt) await crypt.decryptDocument(doc, bytes);
   return doc;
 }
 
@@ -889,7 +891,7 @@ export async function signPdfWith(
   const encryptRaw = doc.context.trailerInfo.Encrypt;
   const encryptRef = encryptRaw instanceof PDFRef ? encryptRaw : null;
   if (crypt) {
-    await crypt.decryptDocument(doc);
+    await crypt.decryptDocument(doc, disk);
     if (encryptRef) doc.context.delete(encryptRef);
     doc.context.trailerInfo.Encrypt = undefined;
   }
@@ -900,6 +902,11 @@ export async function signPdfWith(
   doc.context.largestObjectNumber = Math.max(doc.context.largestObjectNumber, (tail?.size ?? 0) - 1);
 
   const existing = signatureFields(doc);
+  // A file whose end cannot be appended to would be rewritten: its signatures would be lost.
+  if (!tail && existing.some((f) => f.signed))
+    throw new Error(
+      "La fin de ce fichier est irrégulière : le signer à nouveau effacerait les signatures existantes. Enregistrez-en une copie pour le signer.",
+    );
   const level = docMdpLevel(doc);
   if (level === 1)
     throw new Error("Ce document est certifié sans modification autorisée : il ne peut plus être signé.");

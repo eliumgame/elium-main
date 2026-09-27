@@ -149,6 +149,8 @@ export interface RibbonProps {
   showGrid?: boolean;
   /** « Raccourcis à une touche » are on: tool tips show the keys. */
   singleKeys?: boolean;
+  /** « Enregistrer en .elium » is offered (not for a PDF opened from the Drive). */
+  canElium?: boolean;
   onTab: (tab: RibbonTab) => void;
   onTool: (tool: Tool) => void;
   onStyle: (patch: Partial<DraftStyle>) => void;
@@ -499,7 +501,12 @@ export default function Ribbon(p: RibbonProps) {
                   icon={<ShieldCheck size={19} />}
                   label=".elium"
                   onClick={C("saveElium")}
-                  title="Enregistrer scellé et re-modifiable"
+                  disabled={p.canElium === false}
+                  title={
+                    p.canElium === false
+                      ? "Non disponible pour un PDF du Drive : il est enregistré dans le Drive"
+                      : "Enregistrer scellé et re-modifiable"
+                  }
                 />
                 <Cmd big icon={<Printer size={19} />} label="Imprimer" onClick={C("print")} title="Imprimer (Ctrl+P)" />
                 <Cmd icon={<Download size={17} />} onClick={C("downloadOriginal")} title="Télécharger l'original" />

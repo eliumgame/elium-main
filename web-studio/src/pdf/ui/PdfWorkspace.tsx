@@ -2818,7 +2818,11 @@ export default function PdfWorkspace({
   };
 
   const saveElium = async () => {
-    if (!bytesRef.current || !onExportElium) return;
+    if (!bytesRef.current) return;
+    if (!onExportElium) {
+      toast("info", "Enregistrement en .elium indisponible ici", "Ce PDF est enregistré dans le Drive (Ctrl+S).");
+      return;
+    }
     const base = fileName.replace(/.pdf$/i, "") || "document";
     const title = await dialogs.prompt({
       title: "Enregistrer en .elium",
@@ -5960,6 +5964,7 @@ export default function PdfWorkspace({
       </header>
 
       <Ribbon
+        canElium={!!onExportElium}
         tab={tab}
         tool={tool}
         style={style}

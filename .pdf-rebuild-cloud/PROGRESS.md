@@ -1323,3 +1323,14 @@ Reproductions : web-studio/tests/zz-review9-* (ignorés par git), journal scratc
   DÉSACTIVÉ dans cette version (DRIVE_PDF_EDITOR = false dans DriveBrowser.tsx), à la demande :
   la liaison Drive viendra ensuite. Reste à faire : surcouche (lien d'évitement visible,
   hauteur du ruban), test navigateur permanent, « Enregistrer dans le Drive » depuis un PDF local.
+
+### 4.8.1 : PDF du Drive activé (27/09)
+- Double-clic sur un PDF du Drive → éditeur PDF ; Ctrl+S = nouvelle version chiffrée (clé et
+  époque courantes), alerte de conflit si modifié entre-temps (vérifié à deux onglets).
+- « .elium » désactivé pour un PDF du Drive ; bouton « Retour au Drive ».
+- Test navigateur permanent tests/pdf-drive.spec.ts (projet drive, ignoré sans serveur Drive :
+  `npx tsx tests/dev-drive-server.ts`, besoin de libicu60 ; en root, Postgres embarqué exige
+  createPostgresUser). Specs PDF 123/123, vitest 2165/2165.
+- Reste (plus tard) : « Enregistrer dans le Drive » depuis un PDF local, demande de signature
+  par lien pour un PDF (SignRequestDialog ne gère que .elium), brouillons de récupération
+  liés au nœud du Drive.

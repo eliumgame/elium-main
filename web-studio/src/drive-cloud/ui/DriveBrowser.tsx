@@ -52,6 +52,7 @@ import {
   downloadFile,
   nodeKeyFrom,
   triggerDownload,
+  isPdfEntry,
   searchDriveTree,
   type DriveEntry,
   type OpsCtx,
@@ -81,6 +82,7 @@ import CollabDocEditor from "./CollabDocEditor";
 import CollabSheetEditor from "./CollabSheetEditor";
 import CollabSlidesEditor from "./CollabSlidesEditor";
 import VersionsDialog from "./VersionsDialog";
+import DrivePdfEditor from "./DrivePdfEditor";
 import { importToDoc } from "../../format/importers";
 import { docxToDoc } from "../../format/docx";
 import type { ProseMirrorNode } from "../../format/types";
@@ -149,6 +151,8 @@ export default function DriveBrowser() {
   const [shareTarget, setShareTarget] = useState<DriveEntry | null>(null);
   const [signTarget, setSignTarget] = useState<DriveEntry | null>(null);
   const [versionsTarget, setVersionsTarget] = useState<DriveEntry | null>(null);
+  /** A PDF open in the PDF module (saves go back to the Drive as new versions). */
+  const [pdfTarget, setPdfTarget] = useState<DriveEntry | null>(null);
   const [collab, setCollab] = useState<{
     kind: "doc" | "sheet" | "slides";
     entry: DriveEntry;
@@ -507,6 +511,7 @@ export default function DriveBrowser() {
       setPath((p) => [...p, { id: e.id, name: e.name }]);
       setSelection([]);
     } else if (isCollab(e)) void openCollab(e);
+    else if (isPdfEntry(e) && e.hasContent) setPdfTarget(e);
     else void download(e);
   };
 
@@ -1145,6 +1150,20 @@ export default function DriveBrowser() {
 
       {versionsTarget && ctx && (
         <VersionsDialog ctx={ctx} entry={versionsTarget} onClose={() => setVersionsTarget(null)} />
+      )}
+
+      {pdfTarget && ctx && (
+        <DrivePdfEditor
+          key={pdfTarget.id}
+          ctx={ctx}
+          entry={pdfTarget}
+          author={d.user ? d.user.displayName || d.user.email : undefined}
+          onClose={() => {
+            setPdfTarget(null);
+            void reload();
+          }}
+          onSaved={() => void reload()}
+        />
       )}
 
       {collab &&

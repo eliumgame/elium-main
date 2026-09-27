@@ -69,6 +69,8 @@ export interface SidebarProps {
   onSelectPages: (ids: string[]) => void;
   onReorderPages: (ids: string[], to: number) => void;
   onPageAction: (action: "rotate" | "delete" | "duplicate" | "insert", ids: string[]) => void;
+  /** A thumbnail's context menu (right click, Maj+F10 or the menu key), at a point of the window. */
+  onPageContextMenu?: (id: string, at: { x: number; y: number }) => void;
   onSelectAnnot: (id: string) => void;
   onAnnotStatus: (ids: string[], status: ReviewStatus) => void;
   onAnnotReply: (id: string, text: string) => void;
@@ -240,7 +242,7 @@ function Thumbnails(p: SidebarProps) {
     [],
   );
 
-  const onPick = useCallback((id: string, e: React.MouseEvent, index: number) => {
+  const onPick = useCallback((id: string, e: React.MouseEvent | React.KeyboardEvent, index: number) => {
     const q = live.current;
     if (e.shiftKey && q.selectedPages.length) {
       const last = q.pages.findIndex((x) => x.id === q.selectedPages[q.selectedPages.length - 1]);
@@ -261,6 +263,20 @@ function Thumbnails(p: SidebarProps) {
     (action: "rotate" | "delete" | "duplicate", id: string) => live.current.onPageAction(action, [id]),
     [],
   );
+  const onMenu = useCallback(
+    (id: string, at: { x: number; y: number }) => live.current.onPageContextMenu?.(id, at),
+    [],
+  );
+  // The arrows move from thumbnail to thumbnail (the page follows); the one
+  // to focus may only mount once the pane has scrolled to it.
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  const onStep = useCallback((index: number) => {
+    const q = live.current;
+    const to = Math.max(0, Math.min(q.pages.length - 1, index));
+    q.onGoTo(to + 1);
+    setFocusIndex(to);
+  }, []);
+  const onFocused = useCallback(() => setFocusIndex(null), []);
   const onDragStart = useCallback((id: string, selected: boolean) => {
     dragging.current = selected ? live.current.selectedPages : [id];
   }, []);
@@ -297,8 +313,12 @@ function Thumbnails(p: SidebarProps) {
                 current={current === i + 1}
                 selected={selected.has(page.id)}
                 dropTarget={dragOver === i}
+                focus={focusIndex === i}
                 onPick={onPick}
                 onAction={onAction}
+                onMenu={onMenu}
+                onStep={onStep}
+                onFocused={onFocused}
                 onDragStart={onDragStart}
                 onDragOverItem={setDragOver}
                 onDrop={onDrop}
@@ -333,8 +353,13 @@ interface ThumbItemProps {
   current: boolean;
   selected: boolean;
   dropTarget: boolean;
-  onPick: (id: string, e: React.MouseEvent, index: number) => void;
+  /** Take the focus once mounted (keyboard navigation). */
+  focus: boolean;
+  onPick: (id: string, e: React.MouseEvent | React.KeyboardEvent, index: number) => void;
   onAction: (action: "rotate" | "delete" | "duplicate", id: string) => void;
+  onMenu: (id: string, at: { x: number; y: number }) => void;
+  onStep: (index: number) => void;
+  onFocused: () => void;
   onDragStart: (id: string, selected: boolean) => void;
   onDragOverItem: (updater: (v: number | null) => number | null) => void;
   onDrop: (index: number) => void;
@@ -346,9 +371,46 @@ interface ThumbItemProps {
  */
 const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
   const { page, index: i } = t;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!t.focus) return;
+    ref.current?.focus();
+    t.onFocused();
+  }, [t.focus, t]);
+  const label = page.label || String(i + 1);
   return (
     <div
+      ref={ref}
       className={`pdfx-thumb ${t.current ? "is-current" : ""} ${t.selected ? "is-selected" : ""} ${t.dropTarget ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
+      data-index={i}
+      // One tab stop for the list: the current page's thumbnail (the arrows move from there).
+      tabIndex={t.current ? 0 : -1}
+      aria-label={label === String(i + 1) ? `Page ${label}` : `Page ${label} (${i + 1})`}
+      aria-current={t.current ? "page" : undefined}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        const step: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+        if (e.key in step) {
+          e.preventDefault();
+          t.onStep(i + step[e.key]);
+        } else if (e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          t.onStep(e.key === "Home" ? 0 : Number.MAX_SAFE_INTEGER);
+        } else if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          t.onPick(page.id, e, i);
+        } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          t.onMenu(page.id, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        t.onMenu(page.id, { x: e.clientX, y: e.clientY });
+      }}
       draggable
       onDragStart={() => t.onDragStart(page.id, t.selected)}
       onDragOver={(e) => {

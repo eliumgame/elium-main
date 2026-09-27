@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BoxSelect,
+  BringToFront,
   ChevronLeft,
   ChevronRight,
   Command,
+  Copy,
+  CopyPlus,
   FileText,
+  Highlighter,
+  LayoutGrid,
+  Link2,
+  MessageSquarePlus,
+  Reply,
+  SendToBack,
+  SlidersHorizontal,
+  Strikethrough,
+  Trash2,
+  Underline,
   Home,
   Loader2,
   Maximize2,
@@ -165,6 +179,19 @@ import Inspector from "./Inspector";
 import Organize from "./Organize";
 import PageStack, { type HitMark, type OverlayGeometry, type PageStackHandle } from "./PageStack";
 import Ribbon from "./Ribbon";
+import AllTools from "./AllTools";
+import CommandPalette from "./CommandPalette";
+import ContextMenu, { type MenuEntry, type MenuItem } from "./ContextMenu";
+import ZoomBox from "./ZoomBox";
+import {
+  COMMAND_BY_ID,
+  COMMAND_RIGHT,
+  SINGLE_KEY_TOOLS,
+  hasRight,
+  unavailableReason,
+  type CommandContext,
+  type CommandDef,
+} from "./commands";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
 import { CurrentPage, useCurrentPage } from "./currentPage";
 import {
@@ -256,6 +283,8 @@ interface Props {
   author?: string;
   /** Secret of the unlocked local vault: recovery drafts are encrypted with it. */
   vaultSecret?: VaultSecret;
+  /** A PDF opened from elsewhere (the Drive), saved back where it came from. */
+  source?: { bytes: Uint8Array; name: string; destination: SaveDestination };
 }
 
 let toastSeq = 1;
@@ -302,6 +331,7 @@ export default function PdfWorkspace({
   onExportElium,
   author: authorProp = "Moi",
   vaultSecret,
+  source,
 }: Props) {
   const dialogs = useDialogs();
   /** The comments' author (Acrobat's Préférences → Identité), remembered in this browser. */
@@ -466,6 +496,20 @@ export default function PdfWorkspace({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
   const [inspector, setInspector] = useState(true);
+  /** Mode lecture (Ctrl+H): the document alone, without ribbon, panels or status bar. */
+  const [reading, setReading] = useState(false);
+  /** « Rechercher des outils » (Ctrl+Maj+P) is open. */
+  const [palette, setPalette] = useState(false);
+  /** Acrobat's « Raccourcis à une touche » (V, T, H, R…): on unless turned off. */
+  const [singleKeys, setSingleKeys] = useState(() => loadPdfPrefs().singleKeys !== false);
+  /** The open context menu. */
+  const [menu, setMenu] = useState<{ x: number; y: number; label: string; entries: MenuEntry[] } | null>(null);
+  /** The text selection a context menu acts on (restored before each of its commands). */
+  const menuRange = useRef<Range | null>(null);
+  /** When the keyboard (Maj+F10, menu key) last opened a menu: the browser's own event that follows is ignored. */
+  const menuByKeyAt = useRef(0);
+  /** Opens the context menu of what has the focus (set once the document is shown). */
+  const menuAtFocusRef = useRef<() => void>(() => {});
 
   // --- search ---------------------------------------------------------------
   const [searchState, setSearchState] = useState(DEFAULT_SEARCH);
@@ -783,7 +827,11 @@ export default function PdfWorkspace({
           // A new document: its own destination, nothing saved yet — or the
           // file just rewritten by a save, which the session now continues on.
           diskRef.current = rebased?.disk ?? null;
-          destRef.current = rebased?.dest ?? (handle ? fileDestination(handle) : null);
+          destRef.current =
+            rebased?.dest ??
+            (handle ? fileDestination(handle) : null) ??
+            // The Drive document itself (also after its password was asked), not another file opened later.
+            (source && raw === source.bytes ? source.destination : null);
           openHandleRef.current = handle ?? null;
           securityRef.current = null;
           setSecurityDirty(false);
@@ -1001,6 +1049,15 @@ export default function PdfWorkspace({
       }),
     );
   }, []);
+
+  // A PDF handed over by the Drive: opened at once, its saves go back there.
+  const sourceOpened = useRef(false);
+  useEffect(() => {
+    if (sourceOpened.current || !source) return;
+    sourceOpened.current = true;
+    void openBytes(source.bytes, source.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   // Restore a session persisted in an .elium.
   const restored = useRef(false);
@@ -3139,71 +3196,6 @@ export default function PdfWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restrictions]);
 
-  /** The right each command needs on a restricted document. */
-  const COMMAND_RIGHT: Record<string, (keyof Permissions | "owner")[]> = {
-    print: ["print"],
-    printSummary: ["print"],
-    exportImages: ["copy"],
-    exportDocx: ["copy"],
-    exportXlsx: ["copy"],
-    exportPptx: ["copy"],
-    exportRtf: ["copy"],
-    exportText: ["copy"],
-    exportHtml: ["copy"],
-    exportTables: ["copy"],
-    extract: ["assemble", "copy"],
-    split: ["assemble", "copy"],
-    merge: ["assemble", "copy"],
-    organise: ["assemble"],
-    insertBlank: ["assemble"],
-    insertFile: ["assemble"],
-    insertImage: ["assemble"],
-    insertClipboard: ["assemble"],
-    rotateDialog: ["assemble"],
-    movePages: ["assemble"],
-    replacePages: ["assemble"],
-    rotateLeft: ["assemble"],
-    rotateRight: ["assemble"],
-    duplicatePage: ["assemble"],
-    deletePage: ["assemble"],
-    reverse: ["assemble"],
-    crop: ["modify"],
-    resize: ["modify"],
-    pageLabels: ["modify"],
-    editMode: ["modify"],
-    addImage: ["modify"],
-    formPrepare: ["modify"],
-    detectFields: ["modify"],
-    formFlatten: ["modify"],
-    watermark: ["modify"],
-    headerFooter: ["modify"],
-    bates: ["modify"],
-    redactSearch: ["modify"],
-    redactApply: ["modify"],
-    linksFromUrls: ["modify"],
-    sanitise: ["modify"],
-    optimise: ["modify"],
-    ocr: ["modify"],
-    bookmarkAdd: ["modify"],
-    bookmarksFromHeadings: ["modify"],
-    insertText: ["annotate"],
-    replaceText: ["annotate"],
-    addText: ["annotate"],
-    attachFile: ["annotate"],
-    stampCustom: ["annotate"],
-    importComments: ["annotate"],
-    importFormData: ["fillForms"],
-    formReset: ["fillForms"],
-    signature: ["fillForms"],
-    signPades: ["fillForms"],
-    signSelfSigned: ["fillForms"],
-    certify: ["fillForms"],
-    protect: ["owner"],
-    unprotect: ["owner"],
-    // A PDF/A copy carries no protection.
-    pdfa: ["owner"],
-  };
-
   const command = async (id: string) => {
     for (const right of COMMAND_RIGHT[id] ?? []) if (!(await requireRight(right))) return;
     switch (id) {
@@ -3489,6 +3481,29 @@ export default function PdfWorkspace({
       case "fitPage":
         requestFit("fitPage");
         return;
+      case "fitVisible":
+        requestFit("fitVisible");
+        return;
+      case "spreadCover":
+        setView((v) => ({ ...v, spreadCover: !v.spreadCover }));
+        return;
+      case "toggleGrid":
+        setView((v) => ({ ...v, showGrid: !v.showGrid }));
+        return;
+      case "readingMode":
+        setReading((v) => !v);
+        return;
+      case "toggleSingleKeys": {
+        const on = !singleKeys;
+        setSingleKeys(on);
+        savePdfPrefs({ singleKeys: on });
+        toast(
+          "info",
+          on ? "Raccourcis à une touche activés" : "Raccourcis à une touche désactivés",
+          on ? "V, T, H, R… choisissent les outils." : "Les outils se choisissent dans le ruban.",
+        );
+        return;
+      }
       case "viewSingle":
         setView((v) => ({ ...v, mode: "single" }));
         return;
@@ -4948,6 +4963,12 @@ export default function PdfWorkspace({
           setSearchState((s) => ({ ...s, open: true }));
           return;
         }
+        // « Rechercher des outils ».
+        if (k === "p" && e.shiftKey) {
+          e.preventDefault();
+          setPalette(true);
+          return;
+        }
         if (k === "p") {
           e.preventDefault();
           void printDocument();
@@ -5047,6 +5068,12 @@ export default function PdfWorkspace({
           pickTool("highlight");
           return;
         }
+        // Ctrl+H : mode lecture (not the browser's history).
+        if (k === "h") {
+          e.preventDefault();
+          setReading((v) => !v);
+          return;
+        }
         return;
       }
 
@@ -5062,9 +5089,17 @@ export default function PdfWorkspace({
       // « Préparer » handles its own keys (PrepareLayer): only Escape leaves the mode here.
       if (mode === "fields" && e.key !== "Escape") return;
 
+      // Maj+F10 or the menu key: the context menu of what has the focus.
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault();
+        menuAtFocusRef.current();
+        return;
+      }
+
       switch (e.key) {
         case "Escape":
-          if (searchState.open) setSearchState((s) => ({ ...s, open: false }));
+          if (reading) setReading(false);
+          else if (searchState.open) setSearchState((s) => ({ ...s, open: false }));
           else if (mode !== "view") setMode("view");
           else if (selectedIds.length) setSelectedIds([]);
           else setTool("textSelect");
@@ -5104,23 +5139,14 @@ export default function PdfWorkspace({
           break;
       }
 
-      const shortcuts: Record<string, Tool> = {
-        v: "select",
-        t: "textSelect",
-        h: "hand",
-        z: "zoomArea",
-        g: "highlight",
-        u: "underline",
-        k: "strikeout",
-        n: "note",
-        d: "ink",
-        r: "square",
-        e: "circle",
-        l: "line",
-        a: "arrow",
-        x: "eraser",
-      };
-      const picked = shortcuts[e.key.toLowerCase()];
+      // « / » : « Rechercher des outils ».
+      if (e.key === "/" && !e.altKey) {
+        e.preventDefault();
+        setPalette(true);
+        return;
+      }
+      // Acrobat's single-key tool shortcuts, when the preference is on.
+      const picked = singleKeys && !e.altKey ? SINGLE_KEY_TOOLS[e.key.toLowerCase()] : undefined;
       if (picked) {
         e.preventDefault();
         pickTool(picked);
@@ -5129,7 +5155,17 @@ export default function PdfWorkspace({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.annots, selectedIds, pageCount, searchState.open, mode, hits.length, searchState.index]);
+  }, [
+    state.annots,
+    selectedIds,
+    pageCount,
+    searchState.open,
+    mode,
+    hits.length,
+    searchState.index,
+    reading,
+    singleKeys,
+  ]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -5276,6 +5312,299 @@ export default function PdfWorkspace({
   }
 
   const themeDef = READING_THEMES.find((t) => t.id === view.theme) ?? READING_THEMES[0];
+
+  // --- commands everywhere: « Tous les outils », palette, context menus -----
+  const commandCtx: CommandContext = {
+    hasForm: hasForm || state.createdFields.length > 0,
+    canUndo,
+    canRedo,
+    hasRedactions: state.annots.some((a) => a.kind === "redact"),
+    encrypted: !!engine.info.encrypted,
+    pageCount,
+  };
+  /** Run a registry entry as the ribbon would: a tool is picked, a command dispatched. */
+  const runDef = (def: CommandDef) => {
+    if (def.kind === "tool" && def.tool) pickTool(def.tool);
+    else void command(def.id);
+    // Nothing took the focus (no dialog opened): back to the document.
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body)
+        document.querySelector<HTMLElement>(".pdfx-canvas")?.focus({ preventScroll: true });
+    });
+  };
+  /** A context menu item running command `id` (greyed as the registry says). */
+  const menuCommand = (id: string, label?: string): MenuItem => {
+    const def = COMMAND_BY_ID.get(id);
+    return {
+      id,
+      label: label ?? def?.label ?? id,
+      icon: def?.icon,
+      shortcut: def?.shortcut,
+      danger: id === "deletePage",
+      disabled: !!def && !!unavailableReason(def, commandCtx, restrictions),
+      run: () => void commandRef.current(id),
+    };
+  };
+  const pageLabelOf = (index: number) => shownPages[index]?.label || String(index + 1);
+  /** « 210 × 297 mm »: page `index` (0-based) as it stands (crop and page rotation, not the view's). */
+  const pageSizeLabel = (index: number): string => {
+    const page = pages[index];
+    if (!page) return "";
+    const size = sizeOf(page);
+    const turned = normRotation(rotationOf(page) - view.viewRotation) % 180 !== 0;
+    const mm = (pt: number) => Math.round((pt * 25.4) / 72);
+    return `${mm(turned ? size.h : size.w)} × ${mm(turned ? size.w : size.h)} mm`;
+  };
+  /** The page menu: page commands act on that page (it becomes the selected one). */
+  const openPageMenu = (index: number, at: { x: number; y: number }) => {
+    const page = pages[index];
+    if (!page) return;
+    setSelectedPages([page.id]);
+    setMenu({
+      ...at,
+      label: `Page ${pageLabelOf(index)}`,
+      entries: [
+        menuCommand("rotateRight"),
+        menuCommand("rotateLeft"),
+        "sep",
+        menuCommand("insertBlank", "Insérer des pages…"),
+        menuCommand("extract", "Extraire la page…"),
+        menuCommand("deletePage"),
+        "sep",
+        menuCommand("zoomIn"),
+        menuCommand("zoomOut"),
+        menuCommand("fitPage"),
+        menuCommand("fitWidth"),
+        "sep",
+        menuCommand("properties", "Propriétés du document…"),
+      ],
+    });
+  };
+  /** A thumbnail's menu: on the selected pages when it is one of them, else on it alone. */
+  const openThumbMenu = (id: string, at: { x: number; y: number }) => {
+    const inSelection = selectedPages.includes(id);
+    if (!inSelection) setSelectedPages([id]);
+    const n = inSelection ? selectedPages.length : 1;
+    setMenu({
+      ...at,
+      label: n > 1 ? `${n} pages` : "Page",
+      entries: [
+        menuCommand("rotateRight"),
+        menuCommand("rotateLeft"),
+        "sep",
+        menuCommand("insertBlank", "Insérer des pages…"),
+        menuCommand("extract", n > 1 ? `Extraire ${n} pages…` : "Extraire la page…"),
+        menuCommand("duplicatePage", n > 1 ? `Dupliquer ${n} pages` : undefined),
+        menuCommand("deletePage", n > 1 ? `Supprimer ${n} pages` : undefined),
+      ],
+    });
+  };
+  /** Put back the text selection the menu was opened on, then run `fn`. */
+  const onMenuSelection = (fn: () => void) => () => {
+    const range = menuRange.current;
+    const sel = window.getSelection();
+    if (range && sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    fn();
+  };
+  /** A note on the selected text: a highlight carrying the comment (Acrobat's « Ajouter une note au texte »). */
+  const noteOnSelection = async () => {
+    const made = markupsFromSelection("highlight");
+    if (!made.length) return;
+    window.getSelection()?.removeAllRanges();
+    const text = await dialogs.prompt({ title: "Note", label: "Commentaire" });
+    if (text === null) return;
+    setState((s) => made.reduce((acc, a) => D.addAnnot(acc, { ...a, contents: text }), s));
+    setSelectedIds(made.map((a) => a.id));
+  };
+  /** Redaction marks over the selected text, one per line (as « Rechercher et caviarder » makes them). */
+  const redactSelection = () => {
+    const marks = markupsFromSelection("redact").flatMap((a) =>
+      (a.quads ?? []).map((q) => ({
+        ...a,
+        id: newId("an"),
+        rect: rectOfQuads([q]),
+        quads: undefined,
+        subject: undefined,
+        color: "#000000",
+        fill: "#000000",
+        opacity: 1,
+        strokeWidth: 0,
+      })),
+    );
+    if (!marks.length) return;
+    window.getSelection()?.removeAllRanges();
+    setState((s) => marks.reduce((acc, a) => D.addAnnot(acc, a), s));
+    setTab("protect");
+  };
+  /** A link over the selected text; its destination is asked for next (as after drawing one). */
+  const linkOnSelection = () => {
+    const [first] = markupsFromSelection("link");
+    if (!first) return;
+    window.getSelection()?.removeAllRanges();
+    addAnnot({ ...first, quads: undefined, subject: undefined, color: "#1d4ed8", opacity: 1, strokeWidth: 0 });
+  };
+  /** The menu of the selected text, when the point `at` is on it. */
+  const openTextMenu = (at: { x: number; y: number }, anywhere = false): boolean => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+    const range = sel.getRangeAt(0);
+    const host = range.commonAncestorContainer;
+    const el = host instanceof Element ? host : host.parentElement;
+    if (!el?.closest(".pdfx-viewcol")) return false;
+    const on = [...range.getClientRects()].some(
+      (r) => at.x >= r.left - 2 && at.x <= r.right + 2 && at.y >= r.top - 2 && at.y <= r.bottom + 2,
+    );
+    if (!on && !anywhere) return false;
+    menuRange.current = range.cloneRange();
+    const text = sel.toString().replace(/\s+/g, " ").trim();
+    const short = text.length > 28 ? `${text.slice(0, 28)}…` : text;
+    const annotate = !hasRight(restrictions, "annotate");
+    const markup = (kind: AnnotKind, label: string, icon: MenuItem["icon"]): MenuItem => ({
+      id: kind,
+      label,
+      icon,
+      disabled: annotate,
+      run: onMenuSelection(() => applyMarkupFromSelection(kind)),
+    });
+    setMenu({
+      ...at,
+      label: "Texte sélectionné",
+      entries: [
+        {
+          id: "copy",
+          label: "Copier",
+          icon: Copy,
+          shortcut: "Ctrl+C",
+          disabled: !hasRight(restrictions, "copy"),
+          run: onMenuSelection(() => document.execCommand("copy")),
+        },
+        "sep",
+        markup("highlight", "Surligner le texte", Highlighter),
+        markup("underline", "Souligner le texte", Underline),
+        markup("strikeout", "Barrer le texte", Strikethrough),
+        {
+          id: "note",
+          label: "Ajouter une note au texte…",
+          icon: MessageSquarePlus,
+          disabled: annotate,
+          run: onMenuSelection(() => void noteOnSelection()),
+        },
+        "sep",
+        {
+          id: "redact",
+          label: "Caviarder le texte",
+          icon: BoxSelect,
+          disabled: !hasRight(restrictions, "modify"),
+          run: onMenuSelection(redactSelection),
+        },
+        { id: "link", label: "Créer un lien…", icon: Link2, disabled: annotate, run: onMenuSelection(linkOnSelection) },
+        "sep",
+        {
+          id: "search",
+          label: `Rechercher « ${short} »`,
+          icon: Search,
+          run: () => setSearchState((s) => ({ ...s, open: true, query: text })),
+        },
+      ],
+    });
+    return true;
+  };
+  const duplicateAnnots = (list: Annot[]) => {
+    const copies = list.map((a) => ({
+      ...D.cloneAnnot(a),
+      rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 },
+    }));
+    setState((s) => copies.reduce((acc, a) => D.addAnnot(acc, a), s));
+    setSelectedIds(copies.map((a) => a.id));
+  };
+  const replyTo = async (id: string) => {
+    const text = (await dialogs.prompt({ title: "Répondre", label: "Réponse" }))?.trim();
+    if (text) setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }));
+  };
+  /** A comment's menu: properties (the Inspector), reply, duplicate, order, delete. */
+  const openAnnotMenu = (a: Annot, at: { x: number; y: number }) => {
+    setSelectedIds([a.id]);
+    setMenu({
+      ...at,
+      label: KIND_LABEL[a.kind],
+      entries: [
+        {
+          id: "properties",
+          label: "Propriétés…",
+          icon: SlidersHorizontal,
+          shortcut: "Ctrl+E",
+          run: () => {
+            setSelectedIds([a.id]);
+            setInspector(true);
+          },
+        },
+        { id: "reply", label: "Répondre…", icon: Reply, run: () => void replyTo(a.id) },
+        { id: "duplicate", label: "Dupliquer", icon: CopyPlus, run: () => duplicateAnnots([a]) },
+        "sep",
+        {
+          id: "front",
+          label: "Mettre au premier plan",
+          icon: BringToFront,
+          run: () => setState((s) => D.reorderAnnot(s, a.id, "front")),
+        },
+        {
+          id: "back",
+          label: "Mettre à l'arrière-plan",
+          icon: SendToBack,
+          run: () => setState((s) => D.reorderAnnot(s, a.id, "back")),
+        },
+        "sep",
+        {
+          id: "delete",
+          label: "Supprimer",
+          icon: Trash2,
+          danger: true,
+          disabled: !!a.locked,
+          run: () => deleteAnnots([a.id]),
+        },
+      ],
+    });
+  };
+  /** Right click in the document: the selected text's menu, a page's, never the browser's. */
+  const onViewContextMenu = (e: React.MouseEvent) => {
+    // An annotation opened its own; the keyboard already opened one.
+    if (e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    // Fields and text being edited keep the browser's menu (paste, spelling).
+    if (mode !== "view" || target.closest("input, textarea, select, [contenteditable='true'], .pdfx-formbar")) return;
+    e.preventDefault();
+    if (performance.now() - menuByKeyAt.current < 500) return;
+    const at = { x: e.clientX, y: e.clientY };
+    if (openTextMenu(at)) return;
+    const slot = target.closest<HTMLElement>(".pdfx-slot[data-page]");
+    openPageMenu(slot ? Number(slot.dataset.page) - 1 : currentStore.get() - 1, at);
+  };
+  // Maj+F10 / menu key: the menu of the focused thumbnail, selected text, selected comment or current page.
+  menuAtFocusRef.current = () => {
+    menuByKeyAt.current = performance.now();
+    const active = document.activeElement as HTMLElement | null;
+    const centre = (el: Element | null | undefined) => {
+      const r = el?.getBoundingClientRect();
+      return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + Math.min(r.height / 2, 120)) } : null;
+    };
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount) {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      if (openTextMenu({ x: Math.round(r.left), y: Math.round(r.bottom + 4) }, true)) return;
+    }
+    if (selection.length === 1 && mode === "view") {
+      const el = document.querySelector(`[data-annot-id="${CSS.escape(selection[0].id)}"]`);
+      const at = centre(el) ?? centre(active) ?? { x: 200, y: 200 };
+      openAnnotMenu(selection[0], at);
+      return;
+    }
+    const n = currentStore.get();
+    const at = centre(document.querySelector(`.pdfx-slot[data-page="${n}"]`)) ?? centre(active) ?? { x: 200, y: 200 };
+    openPageMenu(n - 1, at);
+  };
   /** XFA in the file: hybrid (AcroForm fields too, fillable) or dynamic (XFA only). */
   const xfaKind: "none" | "hybrid" | "dynamic" = !engine.info.isXfa
     ? "none"
@@ -5400,7 +5729,7 @@ export default function PdfWorkspace({
             onDelete={deleteAnnots}
             onToolDone={finishTool}
             onBeginGesture={checkpoint}
-            onContextMenu={(a) => setSelectedIds([a.id])}
+            onContextMenu={openAnnotMenu}
             onRequestImage={(at) => {
               pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
               imageInput.current?.click();
@@ -5421,9 +5750,23 @@ export default function PdfWorkspace({
   };
 
   return (
-    <div className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""}`}>
+    <div
+      className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""} ${reading ? "pdfx--reading" : ""}`}
+    >
+      <button
+        type="button"
+        className="pdfx-skip"
+        onClick={() => document.querySelector<HTMLElement>(".pdfx-canvas")?.focus()}
+      >
+        Aller au document
+      </button>
       <header className="pdfx-topbar">
-        <button className="pdfx-topbtn" onClick={() => void goHome()} title="Retour à l'accueil">
+        <button
+          className="pdfx-topbtn"
+          onClick={() => void goHome()}
+          title={source ? "Retour au Drive" : "Retour à l'accueil"}
+          aria-label={source ? "Retour au Drive" : "Retour à l'accueil"}
+        >
           <Home size={16} />
         </button>
         <span className="pdfx-topbar__brand">
@@ -5458,6 +5801,16 @@ export default function PdfWorkspace({
 
         <span className="pdfx-topbar__spacer" />
 
+        <button
+          type="button"
+          className="pdfx-topbtn pdfx-toolsearch"
+          onClick={() => setPalette(true)}
+          title="Rechercher des outils (Ctrl+Maj+P)"
+          aria-haspopup="dialog"
+        >
+          <Command size={14} aria-hidden /> <span>Rechercher des outils</span>
+        </button>
+
         <div className="pdfx-find">
           {searchState.open ? (
             <>
@@ -5485,10 +5838,22 @@ export default function PdfWorkspace({
                       ? "0"
                       : ""}
               </span>
-              <button className="pdfx-topbtn" onClick={() => stepHit(-1)} disabled={!hits.length}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => stepHit(-1)}
+                disabled={!hits.length}
+                title="Résultat précédent (Maj+F3)"
+                aria-label="Résultat précédent"
+              >
                 <ChevronLeft size={15} />
               </button>
-              <button className="pdfx-topbtn" onClick={() => stepHit(1)} disabled={!hits.length}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => stepHit(1)}
+                disabled={!hits.length}
+                title="Résultat suivant (F3)"
+                aria-label="Résultat suivant"
+              >
                 <ChevronRight size={15} />
               </button>
               <button
@@ -5505,6 +5870,7 @@ export default function PdfWorkspace({
                 className={`pdfx-topbtn ${searchState.wholeWord ? "is-on" : ""}`}
                 onClick={() => setSearchState((s) => ({ ...s, wholeWord: !s.wholeWord }))}
                 title="Mots entiers uniquement"
+                aria-label="Mots entiers uniquement"
                 aria-pressed={searchState.wholeWord}
               >
                 <WholeWord size={15} />
@@ -5531,10 +5897,20 @@ export default function PdfWorkspace({
               >
                 .*
               </button>
-              <button className="pdfx-topbtn" onClick={() => setPanel("search")} title="Tous les résultats">
+              <button
+                className="pdfx-topbtn"
+                onClick={() => setPanel("search")}
+                title="Tous les résultats"
+                aria-label="Tous les résultats"
+              >
                 <Command size={14} />
               </button>
-              <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}
+                title="Fermer la recherche"
+                aria-label="Fermer la recherche"
+              >
                 <X size={15} />
               </button>
             </>
@@ -5543,6 +5919,7 @@ export default function PdfWorkspace({
               className="pdfx-topbtn"
               onClick={() => setSearchState((s) => ({ ...s, open: true }))}
               title="Rechercher (Ctrl+F)"
+              aria-label="Rechercher (Ctrl+F)"
             >
               <Search size={16} />
             </button>
@@ -5563,30 +5940,20 @@ export default function PdfWorkspace({
           <button className="pdfx-topbtn" onClick={() => zoomStep(-1)} title="Zoom arrière" aria-label="Zoom arrière">
             <ZoomOut size={16} />
           </button>
-          <select
-            className="pdfx-zoombar__select"
-            aria-label="Niveau de zoom"
-            value={view.zoomMode === "custom" ? "custom" : view.zoomMode}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "fitWidth" || v === "fitPage" || v === "fitVisible") requestFit(v);
-              else setScale(presetScale(Number(v)));
-            }}
-          >
-            <option value="custom">{zoomPercent(view.scale)} %</option>
-            <option value="fitWidth">Largeur</option>
-            <option value="fitPage">Page entière</option>
-            <option value="fitVisible">Zone de texte</option>
-            {ZOOM_PRESETS.map((z) => (
-              <option key={z} value={z}>
-                {Math.round(z * 100)} %
-              </option>
-            ))}
-          </select>
+          <ZoomBox
+            percent={zoomPercent(view.scale)}
+            onPercent={(percent) => setScale(presetScale(percent / 100))}
+            onFit={requestFit}
+          />
           <button className="pdfx-topbtn" onClick={() => zoomStep(1)} title="Zoom avant" aria-label="Zoom avant">
             <ZoomIn size={16} />
           </button>
-          <button className="pdfx-topbtn" onClick={() => void command("fullscreen")} title="Plein écran (F11)">
+          <button
+            className="pdfx-topbtn"
+            onClick={() => void command("fullscreen")}
+            title="Plein écran (F11)"
+            aria-label="Plein écran (F11)"
+          >
             <Maximize2 size={16} />
           </button>
         </div>
@@ -5604,6 +5971,10 @@ export default function PdfWorkspace({
         busy={busy}
         stickyTool={sticky}
         scriptsOn={scriptsOn}
+        viewMode={view.mode}
+        spreadCover={view.spreadCover}
+        showGrid={view.showGrid}
+        singleKeys={singleKeys}
         onTab={setTab}
         onTool={pickTool}
         onStyle={(patch) => {
@@ -5619,13 +5990,24 @@ export default function PdfWorkspace({
       />
 
       <div className="pdfx-main">
-        <nav className="pdfx-rail">
+        <nav className="pdfx-rail" aria-label="Panneaux">
+          <button
+            className={`pdfx-rail__btn ${panel === "tools" ? "is-active" : ""}`}
+            onClick={() => setPanel(panel === "tools" ? null : "tools")}
+            title="Tous les outils"
+            aria-label="Tous les outils"
+            aria-pressed={panel === "tools"}
+          >
+            <LayoutGrid size={17} />
+          </button>
           {PANEL_ICONS.map((item) => (
             <button
               key={item.id}
               className={`pdfx-rail__btn ${panel === item.id ? "is-active" : ""}`}
               onClick={() => setPanel(panel === item.id ? null : item.id)}
               title={item.label}
+              aria-label={item.label}
+              aria-pressed={panel === item.id}
             >
               {item.icon}
               {item.id === "comments" && state.annots.length > 0 && (
@@ -5639,6 +6021,7 @@ export default function PdfWorkspace({
             className="pdfx-rail__btn"
             onClick={() => setPanel(panel ? null : "thumbnails")}
             title={panel ? "Masquer le panneau" : "Afficher le panneau"}
+            aria-label={panel ? "Masquer le panneau" : "Afficher le panneau"}
           >
             {panel ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
           </button>
@@ -5646,222 +6029,234 @@ export default function PdfWorkspace({
 
         {panel && (
           <aside className="pdfx-side" aria-label="Panneau latéral">
-            <Sidebar
-              signatures={{
-                view: sigView,
-                pageLabel: (i) => {
-                  const index = pages.findIndex((q) => q.from === i);
-                  return index >= 0 ? (shownPages[index]?.label ?? String(index + 1)) : String(i + 1);
-                },
-                onRefresh: () => void refreshSignatures(),
-                onSignField: (name) => void openSignDialog(name),
-                onGoToField: goToSigField,
-                onSignedVersion: (v) => void showSignedVersion(v),
-                onTrust: async (v) => {
-                  const anchor = v.chain[v.chain.length - 1] ?? v.certificate;
-                  if (!anchor) return;
-                  const ok = await dialogs.confirm({
-                    title: "Approuver un certificat",
-                    message:
-                      `Les signatures dont la chaîne aboutit à « ${anchor.commonName} » seront affichées comme approuvées.\n\n` +
-                      `Sujet : ${anchor.subject}\nÉmetteur : ${anchor.issuer}\nNuméro de série : ${anchor.serialHex}\n\n` +
-                      "Vérifiez ces informations auprès du signataire (par un autre moyen que ce document) avant d'accepter.",
-                    confirmLabel: "Approuver",
+            {panel === "tools" ? (
+              <AllTools ctx={commandCtx} restrictions={restrictions} tool={tool} onFamily={setTab} onRun={runDef} />
+            ) : (
+              <Sidebar
+                signatures={{
+                  view: sigView,
+                  pageLabel: (i) => {
+                    const index = pages.findIndex((q) => q.from === i);
+                    return index >= 0 ? (shownPages[index]?.label ?? String(index + 1)) : String(i + 1);
+                  },
+                  onRefresh: () => void refreshSignatures(),
+                  onSignField: (name) => void openSignDialog(name),
+                  onGoToField: goToSigField,
+                  onSignedVersion: (v) => void showSignedVersion(v),
+                  onTrust: async (v) => {
+                    const anchor = v.chain[v.chain.length - 1] ?? v.certificate;
+                    if (!anchor) return;
+                    const ok = await dialogs.confirm({
+                      title: "Approuver un certificat",
+                      message:
+                        `Les signatures dont la chaîne aboutit à « ${anchor.commonName} » seront affichées comme approuvées.\n\n` +
+                        `Sujet : ${anchor.subject}\nÉmetteur : ${anchor.issuer}\nNuméro de série : ${anchor.serialHex}\n\n` +
+                        "Vérifiez ces informations auprès du signataire (par un autre moyen que ce document) avant d'accepter.",
+                      confirmLabel: "Approuver",
+                    });
+                    if (!ok) return;
+                    const { addTrusted } = await import("./identities");
+                    await addTrusted(anchor.commonName, anchor.der);
+                    void refreshSignatures();
+                  },
+                  onIdentities: () => setDialog("identities"),
+                }}
+                panel={panel}
+                engine={engine}
+                pages={shownPages}
+                currentPage={currentStore}
+                selectedPages={selectedPages}
+                annots={state.annots}
+                bookmarks={state.bookmarks ?? []}
+                fields={state.createdFields}
+                attachments={shownAttachments}
+                layers={layers}
+                searchHits={hits}
+                searchIndex={searchState.index}
+                searchQuery={searchState.query}
+                searchOptions={searchOptions}
+                searchBusy={searchBusy}
+                filter={filter}
+                sort={sort}
+                author={author}
+                onGoTo={goTo}
+                onSelectPages={setSelectedPages}
+                onReorderPages={(ids, to) =>
+                  void requireRight("assemble").then((ok) => ok && setState((s) => D.reorderPages(s, ids, to)))
+                }
+                onPageAction={async (action, ids) => {
+                  if (!(await requireRight("assemble"))) return;
+                  const targets = ids.length ? ids : targetPages();
+                  if (action === "rotate") setState((s) => D.rotatePages(s, targets, 90));
+                  if (action === "delete") setState((s) => D.deletePages(s, targets));
+                  if (action === "duplicate") setState((s) => D.duplicatePages(s, targets));
+                  if (action === "insert") insertBlankAfter(targets[targets.length - 1] ?? null);
+                }}
+                onSelectAnnot={(id) => {
+                  setSelectedIds([id]);
+                  const a = state.annots.find((x) => x.id === id);
+                  const index = a ? pages.findIndex((q) => q.id === a.pageId) : -1;
+                  if (index >= 0) goTo(index + 1, Math.max(0, a!.rect.y - 80));
+                }}
+                onAnnotStatus={(ids, status) =>
+                  setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))
+                }
+                onAnnotReply={(id, text) =>
+                  setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))
+                }
+                onAnnotDelete={deleteAnnots}
+                onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
+                onAnnotCheck={(ids, checked) => setState((s) => D.setChecked(s, ids, checked))}
+                onReplyEdit={(annotId, replyId, text) =>
+                  setState((s) => D.updateReply(s, annotId, replyId, text, new Date().toISOString()))
+                }
+                onReplyDelete={(annotId, replyId) => setState((s) => D.removeReply(s, annotId, replyId))}
+                onFilterChange={setFilter}
+                onSortChange={setSort}
+                onBookmarkGoTo={followBookmark}
+                onBookmarkAdd={addBookmark}
+                onBookmarkRename={(id, title) =>
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)),
+                  }))
+                }
+                onBookmarkDelete={(id) =>
+                  setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))
+                }
+                onBookmarkRetarget={(id) => {
+                  const dest = currentDest();
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
+                      b.id === id ? { ...b, ...dest, action: undefined, retargeted: true } : b,
+                    ),
+                  }));
+                  toast("success", "Destination du signet", `Page ${dest.page}, vue courante.`);
+                }}
+                onBookmarkMove={(id, target, where) =>
+                  setState((s) => ({ ...s, bookmarks: D.moveBookmark(s.bookmarks ?? [], id, target, where) }))
+                }
+                onBookmarkStyle={(id, patch) =>
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, ...patch } : b)),
+                  }))
+                }
+                onBookmarksClosed={(closed) =>
+                  setQuiet((s) => ({ ...s, bookmarks: D.setBookmarksClosed(s.bookmarks ?? [], closed) }))
+                }
+                onBookmarkToggle={(id) =>
+                  setQuiet((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
+                      b.id === id ? { ...b, closed: !b.closed } : b,
+                    ),
+                  }))
+                }
+                onSearchSelect={(index) => {
+                  setSearchState((s) => ({ ...s, index }));
+                  goToHit(index);
+                }}
+                onLayerToggle={async (id) => {
+                  const layer = layers.find((l) => l.id === id);
+                  if (!layer || layer.locked || layer.heading) return;
+                  // From the latest switches (a second click before the first
+                  // finished builds on it), for this document only.
+                  const next = new Map(layerVisRef.current);
+                  next.delete(id);
+                  next.set(id, !layer.visible);
+                  layerVisRef.current = next;
+                  setLayerVis(next);
+                  const doc = engine;
+                  const [cfg, rows] = await Promise.all([doc.optionalContentConfig(next), doc.layers(next)]);
+                  if (layerVisRef.current !== next || engineRef.current !== doc) return;
+                  setOcConfig(cfg);
+                  setLayers(rows);
+                }}
+                onLayersSaveDefault={() => {
+                  setState((s) => ({
+                    ...s,
+                    ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])),
+                  }));
+                  toast(
+                    "success",
+                    "Calques",
+                    "Visibilité actuelle enregistrée comme état par défaut (à l'enregistrement du fichier).",
+                  );
+                }}
+                onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
+                onAttachmentAdd={() => attachInput.current?.click()}
+                destinations={shownDests}
+                onDestGo={(name) => void goToNamedDest(name)}
+                onDestAdd={async () => {
+                  const name = (
+                    await dialogs.prompt({
+                      title: "Nouvelle destination",
+                      label: "Nom de la destination (vue affichée)",
+                    })
+                  )?.trim();
+                  if (!name) return;
+                  if (shownDests.includes(name)) return toast("warning", "Destinations", `« ${name} » existe déjà.`);
+                  const d = currentDest();
+                  const pageId = pages[d.page - 1]?.id;
+                  if (!pageId) return;
+                  setState((s) => {
+                    const e = s.destEdits ?? { added: [], removed: [] };
+                    return {
+                      ...s,
+                      destEdits: { ...e, added: [...e.added, { name, pageId, x: d.x, y: d.y, zoom: d.zoom }] },
+                    };
                   });
-                  if (!ok) return;
-                  const { addTrusted } = await import("./identities");
-                  await addTrusted(anchor.commonName, anchor.der);
-                  void refreshSignatures();
-                },
-                onIdentities: () => setDialog("identities"),
-              }}
-              panel={panel}
-              engine={engine}
-              pages={shownPages}
-              currentPage={currentStore}
-              selectedPages={selectedPages}
-              annots={state.annots}
-              bookmarks={state.bookmarks ?? []}
-              fields={state.createdFields}
-              attachments={shownAttachments}
-              layers={layers}
-              searchHits={hits}
-              searchIndex={searchState.index}
-              searchQuery={searchState.query}
-              searchOptions={searchOptions}
-              searchBusy={searchBusy}
-              filter={filter}
-              sort={sort}
-              author={author}
-              onGoTo={goTo}
-              onSelectPages={setSelectedPages}
-              onReorderPages={(ids, to) =>
-                void requireRight("assemble").then((ok) => ok && setState((s) => D.reorderPages(s, ids, to)))
-              }
-              onPageAction={async (action, ids) => {
-                if (!(await requireRight("assemble"))) return;
-                const targets = ids.length ? ids : targetPages();
-                if (action === "rotate") setState((s) => D.rotatePages(s, targets, 90));
-                if (action === "delete") setState((s) => D.deletePages(s, targets));
-                if (action === "duplicate") setState((s) => D.duplicatePages(s, targets));
-                if (action === "insert") insertBlankAfter(targets[targets.length - 1] ?? null);
-              }}
-              onSelectAnnot={(id) => {
-                setSelectedIds([id]);
-                const a = state.annots.find((x) => x.id === id);
-                const index = a ? pages.findIndex((q) => q.id === a.pageId) : -1;
-                if (index >= 0) goTo(index + 1, Math.max(0, a!.rect.y - 80));
-              }}
-              onAnnotStatus={(ids, status) =>
-                setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))
-              }
-              onAnnotReply={(id, text) =>
-                setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))
-              }
-              onAnnotDelete={deleteAnnots}
-              onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
-              onAnnotCheck={(ids, checked) => setState((s) => D.setChecked(s, ids, checked))}
-              onReplyEdit={(annotId, replyId, text) =>
-                setState((s) => D.updateReply(s, annotId, replyId, text, new Date().toISOString()))
-              }
-              onReplyDelete={(annotId, replyId) => setState((s) => D.removeReply(s, annotId, replyId))}
-              onFilterChange={setFilter}
-              onSortChange={setSort}
-              onBookmarkGoTo={followBookmark}
-              onBookmarkAdd={addBookmark}
-              onBookmarkRename={(id, title) =>
-                setState((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)),
-                }))
-              }
-              onBookmarkDelete={(id) => setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))}
-              onBookmarkRetarget={(id) => {
-                const dest = currentDest();
-                setState((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
-                    b.id === id ? { ...b, ...dest, action: undefined, retargeted: true } : b,
-                  ),
-                }));
-                toast("success", "Destination du signet", `Page ${dest.page}, vue courante.`);
-              }}
-              onBookmarkMove={(id, target, where) =>
-                setState((s) => ({ ...s, bookmarks: D.moveBookmark(s.bookmarks ?? [], id, target, where) }))
-              }
-              onBookmarkStyle={(id, patch) =>
-                setState((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, ...patch } : b)),
-                }))
-              }
-              onBookmarksClosed={(closed) =>
-                setQuiet((s) => ({ ...s, bookmarks: D.setBookmarksClosed(s.bookmarks ?? [], closed) }))
-              }
-              onBookmarkToggle={(id) =>
-                setQuiet((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, closed: !b.closed } : b)),
-                }))
-              }
-              onSearchSelect={(index) => {
-                setSearchState((s) => ({ ...s, index }));
-                goToHit(index);
-              }}
-              onLayerToggle={async (id) => {
-                const layer = layers.find((l) => l.id === id);
-                if (!layer || layer.locked || layer.heading) return;
-                // From the latest switches (a second click before the first
-                // finished builds on it), for this document only.
-                const next = new Map(layerVisRef.current);
-                next.delete(id);
-                next.set(id, !layer.visible);
-                layerVisRef.current = next;
-                setLayerVis(next);
-                const doc = engine;
-                const [cfg, rows] = await Promise.all([doc.optionalContentConfig(next), doc.layers(next)]);
-                if (layerVisRef.current !== next || engineRef.current !== doc) return;
-                setOcConfig(cfg);
-                setLayers(rows);
-              }}
-              onLayersSaveDefault={() => {
-                setState((s) => ({
-                  ...s,
-                  ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])),
-                }));
-                toast(
-                  "success",
-                  "Calques",
-                  "Visibilité actuelle enregistrée comme état par défaut (à l'enregistrement du fichier).",
-                );
-              }}
-              onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
-              onAttachmentAdd={() => attachInput.current?.click()}
-              destinations={shownDests}
-              onDestGo={(name) => void goToNamedDest(name)}
-              onDestAdd={async () => {
-                const name = (
-                  await dialogs.prompt({ title: "Nouvelle destination", label: "Nom de la destination (vue affichée)" })
-                )?.trim();
-                if (!name) return;
-                if (shownDests.includes(name)) return toast("warning", "Destinations", `« ${name} » existe déjà.`);
-                const d = currentDest();
-                const pageId = pages[d.page - 1]?.id;
-                if (!pageId) return;
-                setState((s) => {
-                  const e = s.destEdits ?? { added: [], removed: [] };
-                  return {
-                    ...s,
-                    destEdits: { ...e, added: [...e.added, { name, pageId, x: d.x, y: d.y, zoom: d.zoom }] },
-                  };
-                });
-              }}
-              onDestRemove={(name) =>
-                setState((s) => {
-                  const e = s.destEdits ?? { added: [], removed: [] };
-                  return e.added.some((a) => a.name === name)
-                    ? { ...s, destEdits: { ...e, added: e.added.filter((a) => a.name !== name) } }
-                    : { ...s, destEdits: { ...e, removed: [...e.removed, name] } };
-                })
-              }
-              onAttachmentRemove={(a) =>
-                setState((s) => {
-                  const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
-                  return {
-                    ...s,
-                    attachmentEdits: a.key.startsWith("added:")
-                      ? { ...e, added: e.added.filter((x) => `added:${x.id}` !== a.key) }
-                      : { ...e, removed: [...e.removed, a.key] },
-                  };
-                })
-              }
-              onAttachmentDescribe={async (a) => {
-                const text = await dialogs.prompt({
-                  title: "Description de la pièce jointe",
-                  label: a.name,
-                  defaultValue: a.description ?? "",
-                });
-                if (text == null) return;
-                setState((s) => {
-                  const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
-                  return {
-                    ...s,
-                    attachmentEdits: a.key.startsWith("added:")
-                      ? {
-                          ...e,
-                          added: e.added.map((x) => (`added:${x.id}` === a.key ? { ...x, description: text } : x)),
-                        }
-                      : { ...e, described: { ...e.described, [a.key]: text } },
-                  };
-                });
-              }}
-              onFieldSelect={(id) => {
-                const f = state.createdFields.find((x) => x.id === id);
-                const index = f ? pages.findIndex((q) => q.id === f.pageId) : -1;
-                if (index >= 0) goTo(index + 1);
-              }}
-              onFieldDelete={(id) => setState((s) => D.removeField(s, id))}
-            />
+                }}
+                onDestRemove={(name) =>
+                  setState((s) => {
+                    const e = s.destEdits ?? { added: [], removed: [] };
+                    return e.added.some((a) => a.name === name)
+                      ? { ...s, destEdits: { ...e, added: e.added.filter((a) => a.name !== name) } }
+                      : { ...s, destEdits: { ...e, removed: [...e.removed, name] } };
+                  })
+                }
+                onAttachmentRemove={(a) =>
+                  setState((s) => {
+                    const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                    return {
+                      ...s,
+                      attachmentEdits: a.key.startsWith("added:")
+                        ? { ...e, added: e.added.filter((x) => `added:${x.id}` !== a.key) }
+                        : { ...e, removed: [...e.removed, a.key] },
+                    };
+                  })
+                }
+                onAttachmentDescribe={async (a) => {
+                  const text = await dialogs.prompt({
+                    title: "Description de la pièce jointe",
+                    label: a.name,
+                    defaultValue: a.description ?? "",
+                  });
+                  if (text == null) return;
+                  setState((s) => {
+                    const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                    return {
+                      ...s,
+                      attachmentEdits: a.key.startsWith("added:")
+                        ? {
+                            ...e,
+                            added: e.added.map((x) => (`added:${x.id}` === a.key ? { ...x, description: text } : x)),
+                          }
+                        : { ...e, described: { ...e.described, [a.key]: text } },
+                    };
+                  });
+                }}
+                onFieldSelect={(id) => {
+                  const f = state.createdFields.find((x) => x.id === id);
+                  const index = f ? pages.findIndex((q) => q.id === f.pageId) : -1;
+                  if (index >= 0) goTo(index + 1);
+                }}
+                onFieldDelete={(id) => setState((s) => D.removeField(s, id))}
+                onPageContextMenu={openThumbMenu}
+              />
+            )}
           </aside>
         )}
 
@@ -5900,7 +6295,7 @@ export default function PdfWorkspace({
             onClose={() => setMode("view")}
           />
         ) : (
-          <div className="pdfx-viewcol">
+          <div className="pdfx-viewcol" onContextMenu={onViewContextMenu}>
             {hasForm && !formBarHidden && mode !== "fields" && (
               <div className="pdfx-formbar" role="status">
                 <PenSquare size={15} aria-hidden />
@@ -5992,14 +6387,7 @@ export default function PdfWorkspace({
               setState((s) => D.setStatus(s, selectedIds, status, author, new Date().toISOString()))
             }
             onDelete={() => deleteAnnots(selectedIds)}
-            onDuplicate={() => {
-              const copies = selection.map((a) => ({
-                ...D.cloneAnnot(a),
-                rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 },
-              }));
-              setState((s) => copies.reduce((acc, a) => D.addAnnot(acc, a), s));
-              setSelectedIds(copies.map((a) => a.id));
-            }}
+            onDuplicate={() => duplicateAnnots(selection)}
             onOrder={(where) => selectedIds.forEach((id) => setState((s) => D.reorderAnnot(s, id, where)))}
             onMeasureScale={(scale: MeasureScale) => setState((s) => ({ ...s, measureScale: scale }))}
             onClose={() => setInspector(false)}
@@ -6008,9 +6396,7 @@ export default function PdfWorkspace({
       </div>
 
       <footer className="pdfx-status">
-        <span>
-          {pageCount} page{pageCount > 1 ? "s" : ""}
-        </span>
+        <StatusPage store={currentStore} pageCount={pageCount} labels={pageLabels} sizeLabel={pageSizeLabel} />
         <span>·</span>
         <span>
           {state.annots.length} annotation{state.annots.length > 1 ? "s" : ""}
@@ -6030,6 +6416,16 @@ export default function PdfWorkspace({
           </>
         )}
         <span className="pdfx-status__spacer" />
+        {(selection.length > 0 || selectedPages.length > 1) && (
+          <>
+            <span className="pdfx-status__sel" role="status">
+              {selection.length > 0
+                ? `${selection.length} objet${selection.length > 1 ? "s" : ""} sélectionné${selection.length > 1 ? "s" : ""}`
+                : `${selectedPages.length} pages sélectionnées`}
+            </span>
+            <span>·</span>
+          </>
+        )}
         {selection.length > 0 && mode === "view" && (
           <>
             <button
@@ -6046,7 +6442,33 @@ export default function PdfWorkspace({
         )}
         <span>{themeDef.label}</span>
         <span>·</span>
-        <span>{zoomPercent(view.scale)} %</span>
+        <button
+          type="button"
+          className="pdfx-status__btn"
+          aria-haspopup="menu"
+          title="Changer le zoom"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({
+              x: Math.round(r.left),
+              y: Math.round(r.top),
+              label: "Zoom",
+              entries: [
+                menuCommand("fitWidth"),
+                menuCommand("fitPage"),
+                menuCommand("fitVisible"),
+                "sep",
+                ...ZOOM_PRESETS.map((z): MenuItem => ({
+                  id: `zoom${z}`,
+                  label: `${Math.round(z * 100)} %`,
+                  run: () => setScale(presetScale(z)),
+                })),
+              ],
+            });
+          }}
+        >
+          {zoomPercent(view.scale)} %
+        </button>
         {busy && (
           <>
             <span>·</span>
@@ -6080,6 +6502,21 @@ export default function PdfWorkspace({
           </div>
         ))}
       </div>
+
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+      {palette && (
+        <CommandPalette ctx={commandCtx} restrictions={restrictions} onRun={runDef} onClose={() => setPalette(false)} />
+      )}
+      {reading && (
+        <button
+          type="button"
+          className="pdfx-reading-exit"
+          onClick={() => setReading(false)}
+          title="Quitter le mode lecture (Échap ou Ctrl+H)"
+        >
+          <X size={14} aria-hidden /> Quitter le mode lecture
+        </button>
+      )}
 
       {/* hidden inputs */}
       <input
@@ -6883,6 +7320,38 @@ export default function PdfWorkspace({
  * Previous / page number / next. Subscribes to the current page itself, so
  * scrolling re-renders this box — not the workspace around it.
  */
+/** « Page ii (2 sur 4) · 210 × 297 mm »: re-rendered alone as the page being read changes. */
+function StatusPage({
+  store,
+  pageCount,
+  labels,
+  sizeLabel,
+}: {
+  store: CurrentPage;
+  pageCount: number;
+  labels: readonly (string | undefined)[];
+  /** The page's format, by position (0-based). */
+  sizeLabel: (index: number) => string;
+}) {
+  const current = useCurrentPage(store);
+  const label = labels[current - 1];
+  const named = !!label && label !== String(current);
+  const size = sizeLabel(current - 1);
+  return (
+    <>
+      <span className="pdfx-status__page">
+        {named ? `Page ${label} (${current} sur ${pageCount})` : `Page ${current} sur ${pageCount}`}
+      </span>
+      {size && (
+        <>
+          <span>·</span>
+          <span title="Format de la page courante">{size}</span>
+        </>
+      )}
+    </>
+  );
+}
+
 function PageNav({
   store,
   pageCount,

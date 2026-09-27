@@ -1812,3 +1812,19 @@
 /* SignLinkView / SignPlacementPreview / SignRequestDialog sont migrés vers le
    système de design partagé (.elx-standalone*, .elx-signrow*, .elx-signplace,
    voir ui/workspace.css) — les classes dc-sign-* n'ont plus de consommateur. */
+
+/* A Drive PDF open in the PDF module (DrivePdfEditor). */
+.dc-doc.dc-pdf {
+  background: var(--x-desk, var(--surface));
+}
+.dc-pdf > .pdfx {
+  flex: 1;
+  min-height: 0;
+}
+.dc-pdf__loading {
+  margin: auto;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  color: var(--text-soft);
+}

@@ -101,11 +101,15 @@ import {
   Presentation,
   Archive,
   Accessibility,
+  BookOpen,
+  Grid3x3,
+  Keyboard,
 } from "lucide-react";
 import type { DraftStyle, Tool } from "../model/types";
 import { HIGHLIGHT_SWATCHES, INK_SWATCHES } from "../model/types";
 import { allFontNames } from "../../ui/fonts";
-import type { RibbonTab } from "./state";
+import type { RibbonTab, ViewMode } from "./state";
+import { toolKey } from "./commands";
 
 /**
  * The command surface: a tab strip plus one contextual ribbon per tab.
@@ -139,6 +143,12 @@ export interface RibbonProps {
   stickyTool: boolean;
   /** Documents' JavaScript is on (Acrobat's « Activer JavaScript »). */
   scriptsOn?: boolean;
+  /** The page layout, the cover page in two-up layouts and the grid, as shown in Affichage. */
+  viewMode?: ViewMode;
+  spreadCover?: boolean;
+  showGrid?: boolean;
+  /** « Raccourcis à une touche » are on: tool tips show the keys. */
+  singleKeys?: boolean;
   onTab: (tab: RibbonTab) => void;
   onTool: (tool: Tool) => void;
   onStyle: (patch: Partial<DraftStyle>) => void;
@@ -188,23 +198,31 @@ function Cmd({
   danger,
   title,
   big,
+  hint,
 }: {
   icon: React.ReactNode;
   label?: string;
   onClick: () => void;
+  /** Given (true or false): a toggle or a tool, announced as pressed or not. */
   active?: boolean;
   disabled?: boolean;
   danger?: boolean;
   title?: string;
   big?: boolean;
+  /** The single key that picks this tool, shown in the tool tip only. */
+  hint?: string;
 }) {
+  const tip = title ?? label;
   return (
     <button
       type="button"
       className={`pdfx-cmd ${big ? "pdfx-cmd--big" : ""} ${active ? "is-active" : ""} ${danger ? "is-danger" : ""}`}
       onClick={onClick}
       disabled={disabled}
-      title={title ?? label}
+      title={hint && tip ? `${tip} (${hint})` : tip}
+      // Icon only: named by its tool tip's text (the key hint aside).
+      aria-label={label ? undefined : tip}
+      aria-pressed={active === undefined ? undefined : active}
     >
       <span className="pdfx-cmd__icon">{icon}</span>
       {label && <span className="pdfx-cmd__label">{label}</span>}
@@ -336,6 +354,7 @@ export default function Ribbon(p: RibbonProps) {
   const fontRef = useRef<HTMLSelectElement>(null);
   const T = (tool: Tool) => () => p.onTool(tool);
   const C = (id: string) => () => p.onCommand(id);
+  const K = (tool: Tool) => (p.singleKeys ? toolKey(tool) : undefined);
   const textTool = ["freetext", "typewriter", "callout"].includes(p.tool);
   const shapeTool = ["square", "circle", "line", "arrow", "polygon", "polyline", "cloud", "ink"].includes(p.tool);
   const markupTool = ["highlight", "underline", "strikeout", "squiggly"].includes(p.tool);
@@ -345,15 +364,38 @@ export default function Ribbon(p: RibbonProps) {
     sync();
     bodyRef.current?.scrollTo({ left: 0 });
   }, [p.tab, sync, bodyRef]);
+  /** The tab strip's arrows (ARIA tabs pattern, automatic activation). */
+  const onTabKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const i = RIBBON_TABS.findIndex((t) => t.id === p.tab);
+    const n = RIBBON_TABS.length;
+    const to =
+      e.key === "ArrowRight"
+        ? (i + 1) % n
+        : e.key === "ArrowLeft"
+          ? (i - 1 + n) % n
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? n - 1
+              : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    p.onTab(RIBBON_TABS[to].id);
+    e.currentTarget.querySelector<HTMLElement>(`#pdfx-tab-${RIBBON_TABS[to].id}`)?.focus();
+  };
 
   return (
     <div className="pdfx-ribbon" role="region" aria-label="Barre d'outils PDF">
-      <div className="pdfx-tabs" role="tablist">
+      <div className="pdfx-tabs" role="tablist" aria-label="Onglets du ruban" onKeyDown={onTabKey}>
         {RIBBON_TABS.map((t) => (
           <button
             key={t.id}
+            type="button"
             role="tab"
+            id={`pdfx-tab-${t.id}`}
             aria-selected={p.tab === t.id}
+            aria-controls="pdfx-ribbon-panel"
+            tabIndex={p.tab === t.id ? 0 : -1}
             className={`pdfx-tab ${p.tab === t.id ? "is-active" : ""}`}
             onClick={() => p.onTab(t.id)}
           >
@@ -391,6 +433,9 @@ export default function Ribbon(p: RibbonProps) {
         <div
           className="pdfx-ribbon__body"
           ref={bodyRef}
+          role="tabpanel"
+          id="pdfx-ribbon-panel"
+          aria-labelledby={`pdfx-tab-${p.tab}`}
           onWheel={(e) => {
             // The wheel scrolls the ribbon sideways (it has no vertical scroll).
             if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
@@ -406,20 +451,29 @@ export default function Ribbon(p: RibbonProps) {
               icon={<MousePointer2 size={17} />}
               onClick={T("select")}
               active={p.tool === "select"}
-              title="Sélectionner (V)"
+              title="Sélectionner"
+              hint={K("select")}
             />
             <Cmd
               icon={<Baseline size={17} />}
               onClick={T("textSelect")}
               active={p.tool === "textSelect"}
-              title="Sélection de texte (T)"
+              title="Sélection de texte"
+              hint={K("textSelect")}
             />
-            <Cmd icon={<Hand size={17} />} onClick={T("hand")} active={p.tool === "hand"} title="Main (H)" />
+            <Cmd
+              icon={<Hand size={17} />}
+              onClick={T("hand")}
+              active={p.tool === "hand"}
+              title="Main"
+              hint={K("hand")}
+            />
             <Cmd
               icon={<Focus size={17} />}
               onClick={T("zoomArea")}
               active={p.tool === "zoomArea"}
-              title="Zoom sur une zone (Z)"
+              title="Zoom sur une zone"
+              hint={K("zoomArea")}
             />
           </Group>
 
@@ -489,18 +543,21 @@ export default function Ribbon(p: RibbonProps) {
                   onClick={T("highlight")}
                   active={p.tool === "highlight"}
                   title="Surligner (Ctrl+Maj+H)"
+                  hint={K("highlight")}
                 />
                 <Cmd
                   icon={<Underline size={17} />}
                   onClick={T("underline")}
                   active={p.tool === "underline"}
                   title="Souligner"
+                  hint={K("underline")}
                 />
                 <Cmd
                   icon={<Strikethrough size={17} />}
                   onClick={T("strikeout")}
                   active={p.tool === "strikeout"}
                   title="Barrer"
+                  hint={K("strikeout")}
                 />
                 <Cmd
                   icon={<TextCursorInput size={17} />}
@@ -521,6 +578,7 @@ export default function Ribbon(p: RibbonProps) {
                   onClick={T("note")}
                   active={p.tool === "note"}
                   title="Note autocollante"
+                  hint={K("note")}
                 />
                 <Cmd
                   icon={<Paperclip size={17} />}
@@ -551,20 +609,35 @@ export default function Ribbon(p: RibbonProps) {
                   onClick={T("ink")}
                   active={p.tool === "ink"}
                   title="Dessin libre"
+                  hint={K("ink")}
                 />
                 <Cmd
                   icon={<BoxSelect size={17} />}
                   onClick={T("square")}
                   active={p.tool === "square"}
                   title="Rectangle"
+                  hint={K("square")}
                 />
-                <Cmd icon={<Circle size={17} />} onClick={T("circle")} active={p.tool === "circle"} title="Ellipse" />
-                <Cmd icon={<Minus size={17} />} onClick={T("line")} active={p.tool === "line"} title="Trait" />
+                <Cmd
+                  icon={<Circle size={17} />}
+                  onClick={T("circle")}
+                  active={p.tool === "circle"}
+                  title="Ellipse"
+                  hint={K("circle")}
+                />
+                <Cmd
+                  icon={<Minus size={17} />}
+                  onClick={T("line")}
+                  active={p.tool === "line"}
+                  title="Trait"
+                  hint={K("line")}
+                />
                 <Cmd
                   icon={<ArrowUpRight size={17} />}
                   onClick={T("arrow")}
                   active={p.tool === "arrow"}
                   title="Flèche"
+                  hint={K("arrow")}
                 />
                 <Cmd
                   icon={<Pentagon size={17} />}
@@ -579,7 +652,13 @@ export default function Ribbon(p: RibbonProps) {
                   title="Ligne brisée"
                 />
                 <Cmd icon={<Cloud size={17} />} onClick={T("cloud")} active={p.tool === "cloud"} title="Nuage" />
-                <Cmd icon={<Eraser size={17} />} onClick={T("eraser")} active={p.tool === "eraser"} title="Gomme" />
+                <Cmd
+                  icon={<Eraser size={17} />}
+                  onClick={T("eraser")}
+                  active={p.tool === "eraser"}
+                  title="Gomme"
+                  hint={K("eraser")}
+                />
               </Group>
               <Group title="Révision" optional>
                 <Cmd
@@ -1038,9 +1117,38 @@ export default function Ribbon(p: RibbonProps) {
                 <Cmd icon={<Move size={17} />} onClick={C("fitWidth")} label="Largeur" />
               </Group>
               <Group title="Disposition">
-                <Cmd icon={<FileText size={17} />} onClick={C("viewSingle")} label="Une page" />
-                <Cmd icon={<LayoutGrid size={17} />} onClick={C("viewContinuous")} label="Continu" />
-                <Cmd icon={<Grid2x2 size={17} />} onClick={C("viewFacing")} label="Double page" />
+                <Cmd
+                  icon={<FileText size={17} />}
+                  onClick={C("viewSingle")}
+                  label="Une page"
+                  active={p.viewMode === "single"}
+                />
+                <Cmd
+                  icon={<LayoutGrid size={17} />}
+                  onClick={C("viewContinuous")}
+                  label="Continu"
+                  active={p.viewMode === "continuous"}
+                />
+                <Cmd
+                  icon={<Grid2x2 size={17} />}
+                  onClick={C("viewFacing")}
+                  label="Double page"
+                  active={p.viewMode === "facing" || p.viewMode === "facingContinuous"}
+                  title={
+                    p.viewMode === "facing"
+                      ? "Double page (cliquer à nouveau : défilement continu)"
+                      : p.viewMode === "facingContinuous"
+                        ? "Double page, défilement continu (cliquer à nouveau : page par page)"
+                        : "Double page"
+                  }
+                />
+                <Cmd
+                  icon={<BookOpen size={17} />}
+                  onClick={C("spreadCover")}
+                  label="Couverture"
+                  active={!!p.spreadCover}
+                  title="Afficher la page de couverture seule en double page"
+                />
                 <Cmd icon={<RotateCw size={17} />} onClick={C("rotateView")} label="Pivoter la vue" />
               </Group>
               <Group title="Confort" optional>
@@ -1051,6 +1159,26 @@ export default function Ribbon(p: RibbonProps) {
                   title="Papier, sépia, nuit, contraste inversé"
                 />
                 <Cmd icon={<Contrast size={17} />} onClick={C("fullscreen")} label="Plein écran" title="F11" />
+                <Cmd
+                  icon={<BookOpen size={17} />}
+                  onClick={C("readingMode")}
+                  label="Mode lecture"
+                  title="Mode lecture : masquer le ruban et les panneaux (Ctrl+H, Échap pour sortir)"
+                />
+                <Cmd
+                  icon={<Grid3x3 size={17} />}
+                  onClick={C("toggleGrid")}
+                  label="Grille"
+                  active={!!p.showGrid}
+                  title="Grille et magnétisme : les commentaires dessinés s'alignent sur la grille"
+                />
+                <Cmd
+                  icon={<Keyboard size={17} />}
+                  onClick={C("toggleSingleKeys")}
+                  label="Une touche"
+                  active={!!p.singleKeys}
+                  title="Raccourcis à une touche pour choisir les outils (V, T, H, R…)"
+                />
                 <Cmd icon={<Layers size={17} />} onClick={C("panelLayers")} label="Calques" />
                 <Cmd icon={<Volume2 size={17} />} onClick={C("readAloud")} label="Lire à voix haute" />
               </Group>

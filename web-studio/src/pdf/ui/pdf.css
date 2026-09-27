@@ -3130,3 +3130,334 @@
 .pdfx-status__btn.is-active {
   background: var(--x-chrome-3);
 }
+
+/* ==========================================================================
+   Tous les outils, recherche d'outils, menus contextuels, zoom, mode lecture
+   ========================================================================== */
+
+/* --- « Tous les outils » (AllTools.tsx) ----------------------------------- */
+.pdfx-alltools {
+  flex: 1;
+  min-width: 0;
+}
+.pdfx-alltools .pdfx-panel__body {
+  overflow-y: auto;
+  padding: 8px;
+}
+.pdfx-alltools__family {
+  margin-bottom: 10px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel-2);
+}
+.pdfx-alltools__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--x-radius-sm) var(--x-radius-sm) 0 0;
+  background: transparent;
+  color: var(--x-text);
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-alltools__head:hover {
+  background: var(--x-accent-soft);
+}
+.pdfx-alltools__chev {
+  margin-left: auto;
+  color: var(--x-mute);
+}
+.pdfx-alltools__list {
+  margin: 0;
+  padding: 0 4px 6px;
+  list-style: none;
+}
+.pdfx-alltools__cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--x-soft);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-alltools__cmd:hover:not(:disabled) {
+  background: var(--x-accent-soft);
+  color: var(--x-text);
+}
+.pdfx-alltools__cmd.is-active {
+  border-color: var(--x-accent-line);
+  background: var(--x-accent-soft);
+  color: var(--x-text);
+}
+.pdfx-alltools__cmd:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- « Rechercher des outils » (CommandPalette.tsx, rendue dans <body>) --- */
+.pdfx-palette__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  background: rgba(8, 12, 20, 0.35);
+  font-family: var(--el-font);
+  font-size: 13px;
+}
+.pdfx-palette__scrim *,
+.pdfx-ctxmenu,
+.pdfx-ctxmenu * {
+  box-sizing: border-box;
+}
+.pdfx-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 70vh;
+  overflow: hidden;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius);
+  background: var(--x-chrome-2);
+  color: var(--x-chrome-text);
+  box-shadow: var(--x-shadow-pop);
+}
+.pdfx-palette__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--x-chrome-line);
+  color: var(--x-chrome-soft);
+}
+.pdfx-palette__input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  font-size: 14px;
+}
+.pdfx-palette__input:focus,
+.pdfx-palette__input:focus-visible {
+  outline: none;
+}
+.pdfx-palette__list {
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+.pdfx-palette__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--x-radius-sm);
+  cursor: pointer;
+}
+.pdfx-palette__opt.is-active {
+  border-color: var(--x-accent-line);
+  background: var(--x-accent-soft);
+}
+.pdfx-palette__opt.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pdfx-palette__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfx-palette__family {
+  color: var(--x-chrome-mute);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.pdfx-palette__kbd,
+.pdfx-ctxmenu__kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 4px;
+  color: var(--x-chrome-soft);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pdfx-palette__empty {
+  padding: 14px;
+  color: var(--x-chrome-mute);
+  text-align: center;
+}
+
+/* --- menus contextuels (ContextMenu.tsx, rendus dans <body>) --------------- */
+.pdfx-ctxmenu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  min-width: 230px;
+  max-height: calc(100vh - 12px);
+  font-family: var(--el-font);
+}
+.pdfx-ctxmenu .pdfx-menu__item {
+  padding: 6px 9px;
+}
+.pdfx-ctxmenu .pdfx-menu__item:focus-visible,
+.pdfx-ctxmenu .pdfx-menu__item:focus {
+  outline: none;
+  background: var(--x-accent-soft);
+  border-color: var(--x-accent-line);
+}
+.pdfx-ctxmenu .pdfx-menu__item.is-danger {
+  color: #fca5a5;
+}
+.pdfx-ctxmenu__noicon {
+  width: 14px;
+}
+.pdfx-ctxmenu__label {
+  flex: 1;
+}
+
+/* --- zoom éditable (ZoomBox.tsx) ------------------------------------------ */
+.pdfx-zoombox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-chrome-2);
+}
+.pdfx-zoombox:focus-within {
+  border-color: #93c5fd;
+}
+.pdfx-zoombox__input {
+  width: 64px;
+  height: 100%;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pdfx-zoombox__input:focus,
+.pdfx-zoombox__input:focus-visible {
+  outline: none;
+}
+.pdfx-zoombox__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-soft);
+  cursor: pointer;
+}
+.pdfx-zoombox__list {
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  min-width: 150px;
+  margin: 0;
+  list-style: none;
+}
+
+/* --- barre supérieure et barre d'état ------------------------------------- */
+.pdfx-toolsearch {
+  border-color: var(--x-chrome-line);
+  color: var(--x-chrome-soft);
+}
+@container editor (max-width: 1180px) {
+  .pdfx-toolsearch span {
+    display: none;
+  }
+}
+.pdfx-status__page {
+  color: var(--x-chrome-text);
+  font-variant-numeric: tabular-nums;
+}
+.pdfx-status__sel {
+  color: var(--x-chrome-text);
+}
+
+/* --- lien d'évitement ------------------------------------------------------ */
+.pdfx-skip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 80;
+  padding: 6px 12px;
+  border: 2px solid #93c5fd;
+  border-radius: var(--x-radius-sm);
+  background: var(--x-chrome);
+  color: var(--x-chrome-text);
+  transform: translateY(-200%);
+}
+.pdfx-skip:focus,
+.pdfx-skip:focus-visible {
+  transform: none;
+}
+
+/* --- mode lecture (Ctrl+H) -------------------------------------------------- */
+.pdfx--reading {
+  grid-template-rows: minmax(0, 1fr);
+}
+.pdfx--reading .pdfx-topbar,
+.pdfx--reading .pdfx-ribbon,
+.pdfx--reading .pdfx-rail,
+.pdfx--reading .pdfx-side,
+.pdfx--reading .pdfx-inspector,
+.pdfx--reading .pdfx-status,
+.pdfx--reading .pdfx-formbar {
+  display: none;
+}
+.pdfx-reading-exit {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 999px;
+  background: rgba(27, 31, 39, 0.85);
+  color: var(--x-chrome-text);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity var(--el-motion-fast) var(--el-ease-standard);
+}
+.pdfx-reading-exit:hover,
+.pdfx-reading-exit:focus-visible {
+  opacity: 1;
+}
+
+/* --- vignettes au clavier --------------------------------------------------- */
+.pdfx-thumb:focus-visible {
+  outline: 2px solid var(--x-accent);
+  outline-offset: 2px;
+}

@@ -28,6 +28,13 @@ export interface PdfPrefs {
   };
   /** Each tool's own properties (colour, width, font…), as last set. */
   toolStyles?: Partial<Record<AnnotKind, Partial<DraftStyle>>>;
+  /**
+   * Acrobat's « Utiliser des raccourcis à une touche pour accéder aux outils »
+   * (V, T, H, R…); absent: yes (Acrobat defaults to no, Elium always had them).
+   */
+  singleKeys?: boolean;
+  /** Commands last run from « Rechercher des outils », most recent first. */
+  recentCommands?: string[];
 }
 
 /** Properties a tool remembers: its look, never the stamp being placed. */

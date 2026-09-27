@@ -66,7 +66,7 @@ describe("PAdES-B (sign + verify)", () => {
     // Le résultat reste un PDF valide (se recharge).
     await expect(PDFDocument.load(signed)).resolves.toBeTruthy();
 
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.digestMatches).toBe(true);
     expect(res[0]!.coversWholeDocument).toBe(true);
@@ -87,7 +87,7 @@ describe("PAdES-B (sign + verify)", () => {
     });
     const pdf = await makePdf();
     const signed = await signPdfBytes(pdf, p12, "pw");
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res[0]!.digestMatches).toBe(true);
     expect(res[0]!.certValidAtSigning).toBe(false);
     expect(res[0]!.valid).toBe(false);
@@ -102,7 +102,7 @@ describe("PAdES-B (sign + verify)", () => {
     const tampered = new Uint8Array(signed);
     tampered[30] = tampered[30] === 65 ? 66 : 65;
 
-    const res = verifyPdfSignatures(tampered);
+    const res = await verifyPdfSignatures(tampered);
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(false);
   }, 30000);
@@ -118,7 +118,7 @@ describe("PAdES-B (sign + verify)", () => {
     const p12 = generateSelfSignedP12("Signature Elium (auto-signée)", pw);
     const pdf = await makePdf();
     const signed = await signPdfBytes(pdf, p12, pw, { reason: "Approbation" });
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
     expect(res[0]!.signerName).toBe("Signature Elium (auto-signée)");
@@ -138,7 +138,7 @@ describe("PAdES-B (sign + verify)", () => {
     });
     // Toujours un PDF chargeable et une signature cryptographiquement valide.
     await expect(PDFDocument.load(signed)).resolves.toBeTruthy();
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res[0]!.valid).toBe(true);
     // L'apparence a bien été émise (form XObject + image), et le widget porte un
     // /Rect non nul (sinon Adobe ne montre rien à l'emplacement).
@@ -202,11 +202,11 @@ describe("PAdES-B — dimensionnement dynamique du placeholder /Contents", () =>
 
     const shortChainP12 = makeP12WithLongChain("Alice", "pw", 0);
     const signedShort = await signPdfBytes(pdf, shortChainP12, "pw");
-    expect(verifyPdfSignatures(signedShort)[0]!.valid).toBe(true);
+    expect((await verifyPdfSignatures(signedShort))[0]!.valid).toBe(true);
 
     const longChainP12 = makeP12WithLongChain("Alice", "pw", 60);
     const signedLong = await signPdfBytes(pdf, longChainP12, "pw");
-    expect(verifyPdfSignatures(signedLong)[0]!.valid).toBe(true);
+    expect((await verifyPdfSignatures(signedLong))[0]!.valid).toBe(true);
 
     // La réservation suit la taille réelle du CMS (certificats embarqués), pas
     // une constante : une chaîne longue obtient un trou /Contents plus large.
@@ -222,7 +222,7 @@ describe("PAdES-B — dimensionnement dynamique du placeholder /Contents", () =>
     const p12 = makeP12WithLongChain("Dave", "pw", 60);
     const pdf = await makePdf();
     const signed = await signPdfBytes(pdf, p12, "pw");
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.digestMatches).toBe(true);
     expect(res[0]!.valid).toBe(true);
@@ -273,7 +273,7 @@ describe("PAdES-B — réutilisation d'un champ /FT /Sig déjà préparé", () =
     expect(Math.round(rect.width)).toBe(150);
     expect(Math.round(rect.height)).toBe(40);
 
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
     expect(res[0]!.signerName).toBe("Alice");
@@ -336,7 +336,7 @@ describe("PAdES-B — résolution automatique du champ préparé (fieldName non 
     expect(fields).toHaveLength(1);
     expect(fields[0]!.getName()).toBe("signature_1");
 
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
   }, 30000);
@@ -367,7 +367,7 @@ describe("PAdES-B — résolution automatique du champ préparé (fieldName non 
     // ... l'autre reste vide, tel que préparé.
     expect(farField.acroField.dict.get(PDFName.of("V"))).toBeUndefined();
 
-    const res = verifyPdfSignatures(signed);
+    const res = await verifyPdfSignatures(signed);
     expect(res).toHaveLength(1);
     expect(res[0]!.valid).toBe(true);
   }, 30000);

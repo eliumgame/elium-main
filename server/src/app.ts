@@ -25,6 +25,7 @@ import signingRoutes from "./routes/signing.js";
 import versionRoutes from "./routes/versions.js";
 import ssoRoutes from "./routes/sso.js";
 import scimRoutes from "./routes/scim.js";
+import tsaRoutes from "./routes/tsa.js";
 import { registerCollab } from "./collab/relay.js";
 import { createRateLimitRedis, getBackplaneHealth } from "./collab/backplane.js";
 
@@ -138,6 +139,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(nodeRoutes, { prefix: "/api/nodes" });
   await app.register(shareRoutes, { prefix: "/api" });
   await app.register(signingRoutes, { prefix: "/api" });
+  await app.register(tsaRoutes, { prefix: "/api" });
   await app.register(versionRoutes, { prefix: "/api" });
   await app.register(ssoRoutes, { prefix: "/api" });
   await app.register(scimRoutes, { prefix: "/api" });

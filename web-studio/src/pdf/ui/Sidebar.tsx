@@ -2,15 +2,22 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {
   Bookmark,
   ChevronDown,
+  Crosshair,
+  ExternalLink,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Copy,
   Download,
   FileText,
   Filter,
   Layers,
+  Lock,
+  Save,
   MessageSquare,
   Paperclip,
   Pencil,
+  Palette,
   Plus,
   RotateCw,
   Search,
@@ -21,6 +28,7 @@ import {
   CircleDot,
   FormInput,
   ArrowUpDown,
+  FileSignature,
 } from "lucide-react";
 import type { PdfEngine, Attachment, LayerInfo } from "../core/engine";
 import { thumbAspect, thumbnailsFor } from "../core/thumbs";
@@ -29,9 +37,10 @@ import ThumbCanvas from "./ThumbCanvas";
 import { useCurrentPage, type CurrentPage } from "./currentPage";
 import { useListWindow } from "./useListWindow";
 import type { Annot, Bookmark as Mark, CreatedField, Page, ReviewStatus } from "../model/types";
-import { flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
-import type { SearchHit } from "../core/search";
+import { commentable, filterComments, flattenBookmarks, type CommentFilter, type CommentSort } from "../model/doc";
+import { DEFAULT_SEARCH_OPTIONS, textMatches, type SearchHit, type SearchOptions } from "../core/search";
 import { KIND_LABEL, shortDate, type SidePanel } from "./state";
+import SignaturesPane, { type SignaturesPaneProps } from "./SignaturesPane";
 
 /** The multi-panel navigation rail. Each panel mirrors an Acrobat pane. */
 
@@ -47,10 +56,11 @@ export interface SidebarProps {
   fields: CreatedField[];
   attachments: Attachment[];
   layers: LayerInfo[];
-  hiddenLayers: Set<string>;
   searchHits: SearchHit[];
   searchIndex: number;
   searchQuery: string;
+  /** The find bar's options: comments and bookmarks are matched with them too. */
+  searchOptions: SearchOptions;
   searchBusy: boolean;
   filter: CommentFilter;
   sort: CommentSort;
@@ -59,11 +69,17 @@ export interface SidebarProps {
   onSelectPages: (ids: string[]) => void;
   onReorderPages: (ids: string[], to: number) => void;
   onPageAction: (action: "rotate" | "delete" | "duplicate" | "insert", ids: string[]) => void;
+  /** A thumbnail's context menu (right click, Maj+F10 or the menu key), at a point of the window. */
+  onPageContextMenu?: (id: string, at: { x: number; y: number }) => void;
   onSelectAnnot: (id: string) => void;
   onAnnotStatus: (ids: string[], status: ReviewStatus) => void;
   onAnnotReply: (id: string, text: string) => void;
   onAnnotDelete: (ids: string[]) => void;
   onAnnotEditContents: (id: string, text: string) => void;
+  /** Acrobat's checkmark. */
+  onAnnotCheck: (ids: string[], checked: boolean) => void;
+  onReplyEdit: (annotId: string, replyId: string, text: string) => void;
+  onReplyDelete: (annotId: string, replyId: string) => void;
   onFilterChange: (f: CommentFilter) => void;
   onSortChange: (s: CommentSort) => void;
   onBookmarkGoTo: (b: Mark) => void;
@@ -71,11 +87,29 @@ export interface SidebarProps {
   onBookmarkRename: (id: string, title: string) => void;
   onBookmarkDelete: (id: string) => void;
   onBookmarkToggle: (id: string) => void;
+  /** Point the bookmark at the current view. */
+  onBookmarkRetarget: (id: string) => void;
+  onBookmarkMove: (id: string, targetId: string, where: "before" | "after" | "inside") => void;
+  onBookmarkStyle: (id: string, patch: Pick<Mark, "bold" | "italic" | "color">) => void;
+  /** Open (false) or close (true) every bookmark with children. */
+  onBookmarksClosed: (closed: boolean) => void;
   onSearchSelect: (index: number) => void;
   onLayerToggle: (id: string) => void;
+  /** The current visibility becomes the file's default (/OCProperties /D). */
+  onLayersSaveDefault: () => void;
+  /** Named destinations (the file's, as changed). */
+  destinations: string[];
+  onDestGo: (name: string) => void;
+  onDestAdd: () => void;
+  onDestRemove: (name: string) => void;
   onAttachmentOpen: (a: Attachment) => void;
+  onAttachmentAdd: () => void;
+  onAttachmentRemove: (a: Attachment) => void;
+  onAttachmentDescribe: (a: Attachment) => void;
   onFieldSelect: (id: string) => void;
   onFieldDelete: (id: string) => void;
+  /** The signature panel's data and actions. */
+  signatures?: SignaturesPaneProps;
 }
 
 export default function Sidebar(p: SidebarProps) {
@@ -90,10 +124,14 @@ export default function Sidebar(p: SidebarProps) {
       return <SearchResults {...p} />;
     case "attachments":
       return <Attachments {...p} />;
+    case "destinations":
+      return <Destinations {...p} />;
     case "layers":
       return <LayersPane {...p} />;
     case "fields":
       return <FieldsPane {...p} />;
+    case "signatures":
+      return p.signatures ? <SignaturesPane {...p.signatures} /> : null;
     default:
       return null;
   }
@@ -102,6 +140,9 @@ export default function Sidebar(p: SidebarProps) {
 // ---------------------------------------------------------------------------
 // Thumbnails
 // ---------------------------------------------------------------------------
+
+/** Search results shown at once in the panel (more on demand). */
+const HIT_PAGE = 500;
 
 /** Gap between two thumbnails (`.pdfx-thumbs { gap }`). */
 const THUMB_GAP = 10;
@@ -201,7 +242,7 @@ function Thumbnails(p: SidebarProps) {
     [],
   );
 
-  const onPick = useCallback((id: string, e: React.MouseEvent, index: number) => {
+  const onPick = useCallback((id: string, e: React.MouseEvent | React.KeyboardEvent, index: number) => {
     const q = live.current;
     if (e.shiftKey && q.selectedPages.length) {
       const last = q.pages.findIndex((x) => x.id === q.selectedPages[q.selectedPages.length - 1]);
@@ -222,6 +263,20 @@ function Thumbnails(p: SidebarProps) {
     (action: "rotate" | "delete" | "duplicate", id: string) => live.current.onPageAction(action, [id]),
     [],
   );
+  const onMenu = useCallback(
+    (id: string, at: { x: number; y: number }) => live.current.onPageContextMenu?.(id, at),
+    [],
+  );
+  // The arrows move from thumbnail to thumbnail (the page follows); the one
+  // to focus may only mount once the pane has scrolled to it.
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  const onStep = useCallback((index: number) => {
+    const q = live.current;
+    const to = Math.max(0, Math.min(q.pages.length - 1, index));
+    q.onGoTo(to + 1);
+    setFocusIndex(to);
+  }, []);
+  const onFocused = useCallback(() => setFocusIndex(null), []);
   const onDragStart = useCallback((id: string, selected: boolean) => {
     dragging.current = selected ? live.current.selectedPages : [id];
   }, []);
@@ -258,8 +313,12 @@ function Thumbnails(p: SidebarProps) {
                 current={current === i + 1}
                 selected={selected.has(page.id)}
                 dropTarget={dragOver === i}
+                focus={focusIndex === i}
                 onPick={onPick}
                 onAction={onAction}
+                onMenu={onMenu}
+                onStep={onStep}
+                onFocused={onFocused}
                 onDragStart={onDragStart}
                 onDragOverItem={setDragOver}
                 onDrop={onDrop}
@@ -294,8 +353,13 @@ interface ThumbItemProps {
   current: boolean;
   selected: boolean;
   dropTarget: boolean;
-  onPick: (id: string, e: React.MouseEvent, index: number) => void;
+  /** Take the focus once mounted (keyboard navigation). */
+  focus: boolean;
+  onPick: (id: string, e: React.MouseEvent | React.KeyboardEvent, index: number) => void;
   onAction: (action: "rotate" | "delete" | "duplicate", id: string) => void;
+  onMenu: (id: string, at: { x: number; y: number }) => void;
+  onStep: (index: number) => void;
+  onFocused: () => void;
   onDragStart: (id: string, selected: boolean) => void;
   onDragOverItem: (updater: (v: number | null) => number | null) => void;
   onDrop: (index: number) => void;
@@ -307,9 +371,46 @@ interface ThumbItemProps {
  */
 const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
   const { page, index: i } = t;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!t.focus) return;
+    ref.current?.focus();
+    t.onFocused();
+  }, [t.focus, t]);
+  const label = page.label || String(i + 1);
   return (
     <div
+      ref={ref}
       className={`pdfx-thumb ${t.current ? "is-current" : ""} ${t.selected ? "is-selected" : ""} ${t.dropTarget ? "is-droptarget" : ""} ${page.skipped ? "is-skipped" : ""}`}
+      data-index={i}
+      // One tab stop for the list: the current page's thumbnail (the arrows move from there).
+      tabIndex={t.current ? 0 : -1}
+      aria-label={label === String(i + 1) ? `Page ${label}` : `Page ${label} (${i + 1})`}
+      aria-current={t.current ? "page" : undefined}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        const step: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+        if (e.key in step) {
+          e.preventDefault();
+          t.onStep(i + step[e.key]);
+        } else if (e.key === "Home" || e.key === "End") {
+          e.preventDefault();
+          t.onStep(e.key === "Home" ? 0 : Number.MAX_SAFE_INTEGER);
+        } else if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          t.onPick(page.id, e, i);
+        } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          t.onMenu(page.id, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        t.onMenu(page.id, { x: e.clientX, y: e.clientY });
+      }}
       draggable
       onDragStart={() => t.onDragStart(page.id, t.selected)}
       onDragOver={(e) => {
@@ -372,91 +473,218 @@ const ThumbItem = memo(function ThumbItem(t: ThumbItemProps) {
 function Bookmarks(p: SidebarProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const flat = useMemo(() => flattenBookmarks(p.bookmarks), [p.bookmarks]);
+  const [styling, setStyling] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; over?: string; where?: "before" | "after" | "inside" } | null>(null);
+  const flat = useMemo(() => {
+    if (!filter?.trim()) return flattenBookmarks(p.bookmarks);
+    // Filtered: every match, closed branches included, flat.
+    const out: { node: Mark; depth: number }[] = [];
+    const walk = (list: readonly Mark[]) =>
+      list.forEach((b) => {
+        if (textMatches(b.title, filter, DEFAULT_SEARCH_OPTIONS)) out.push({ node: b, depth: 0 });
+        walk(b.children);
+      });
+    walk(p.bookmarks);
+    return out;
+  }, [p.bookmarks, filter]);
+  const whereOf = (e: React.DragEvent<HTMLElement>): "before" | "after" | "inside" => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const f = (e.clientY - r.top) / r.height;
+    return f < 0.28 ? "before" : f > 0.72 ? "after" : "inside";
+  };
 
   return (
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Signets</span>
-        <button className="pdfx-icon" title="Nouveau signet sur la page courante" onClick={() => p.onBookmarkAdd(null)}>
+        <button className="pdfx-icon" title="Nouveau signet sur la vue affichée" onClick={() => p.onBookmarkAdd(null)}>
           <Plus size={14} />
         </button>
+        <button className="pdfx-icon" title="Tout déplier" onClick={() => p.onBookmarksClosed(false)}>
+          <ChevronsUpDown size={14} />
+        </button>
+        <button className="pdfx-icon" title="Tout replier" onClick={() => p.onBookmarksClosed(true)}>
+          <ChevronsDownUp size={14} />
+        </button>
+        <button
+          className={`pdfx-icon ${filter !== null ? "is-on" : ""}`}
+          title="Chercher dans les signets"
+          onClick={() => setFilter((f) => (f === null ? "" : null))}
+        >
+          <Search size={14} />
+        </button>
       </div>
+      {filter !== null && (
+        <div className="pdfx-panel__tools">
+          <input
+            className="pdfx-mark__input"
+            autoFocus
+            placeholder="Filtrer les signets…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setFilter(null)}
+          />
+        </div>
+      )}
       <div className="pdfx-panel__body">
         {!flat.length && (
           <p className="pdfx-empty">
-            Ce document ne contient aucun signet.
-            <br />
-            Ajoutez-en un pour créer un sommaire.
+            {filter?.trim() ? (
+              "Aucun signet ne correspond."
+            ) : (
+              <>
+                Ce document ne contient aucun signet.
+                <br />
+                Ajoutez-en un pour créer un sommaire.
+              </>
+            )}
           </p>
         )}
         {flat.map(({ node, depth }) => (
-          <div key={node.id} className="pdfx-mark" style={{ paddingLeft: 8 + depth * 14 }}>
-            {node.children.length > 0 ? (
-              <button
-                className="pdfx-mark__twist"
-                onClick={() => p.onBookmarkToggle(node.id)}
-                title={node.closed ? "Déplier" : "Replier"}
-              >
-                {node.closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-              </button>
-            ) : (
-              <span className="pdfx-mark__twist" />
-            )}
-            {editing === node.id ? (
-              <input
-                className="pdfx-mark__input"
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={() => {
-                  p.onBookmarkRename(node.id, draft.trim() || node.title);
-                  setEditing(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+          <div key={node.id}>
+            <div
+              className={`pdfx-mark ${drag?.over === node.id ? `is-drop-${drag.where}` : ""}`}
+              style={{ paddingLeft: 8 + depth * 14 }}
+              draggable={!filter && editing !== node.id}
+              onDragStart={(e) => {
+                setDrag({ id: node.id });
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", node.title);
+              }}
+              onDragOver={(e) => {
+                if (!drag || drag.id === node.id) return;
+                e.preventDefault();
+                const where = whereOf(e);
+                if (drag.over !== node.id || drag.where !== where) setDrag({ ...drag, over: node.id, where });
+              }}
+              onDrop={(e) => {
+                if (!drag) return;
+                e.preventDefault();
+                if (drag.id !== node.id) p.onBookmarkMove(drag.id, node.id, whereOf(e));
+                setDrag(null);
+              }}
+              onDragEnd={() => setDrag(null)}
+            >
+              {node.children.length > 0 && !filter ? (
+                <button
+                  className="pdfx-mark__twist"
+                  onClick={() => p.onBookmarkToggle(node.id)}
+                  title={node.closed ? "Déplier" : "Replier"}
+                >
+                  {node.closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                </button>
+              ) : (
+                <span className="pdfx-mark__twist" />
+              )}
+              {editing === node.id ? (
+                <input
+                  className="pdfx-mark__input"
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => {
                     p.onBookmarkRename(node.id, draft.trim() || node.title);
                     setEditing(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      p.onBookmarkRename(node.id, draft.trim() || node.title);
+                      setEditing(null);
+                    }
+                    if (e.key === "Escape") setEditing(null);
+                  }}
+                />
+              ) : (
+                <button
+                  className="pdfx-mark__title"
+                  style={{
+                    fontWeight: node.bold ? 700 : 500,
+                    fontStyle: node.italic ? "italic" : undefined,
+                    color: node.color && node.color !== "#000000" ? node.color : undefined,
+                  }}
+                  onClick={() => p.onBookmarkGoTo(node)}
+                  onDoubleClick={() => {
+                    setDraft(node.title);
+                    setEditing(node.id);
+                  }}
+                  title={
+                    node.action
+                      ? node.action.kind === "uri"
+                        ? node.action.url
+                        : node.action.kind === "named"
+                          ? `Action : ${node.action.name}`
+                          : node.action.label
+                      : `Page ${node.page}`
                   }
-                  if (e.key === "Escape") setEditing(null);
-                }}
-              />
-            ) : (
-              <button
-                className="pdfx-mark__title"
-                style={{
-                  fontWeight: node.bold ? 700 : 500,
-                  fontStyle: node.italic ? "italic" : undefined,
-                  color: node.color,
-                }}
-                onClick={() => p.onBookmarkGoTo(node)}
-                onDoubleClick={() => {
-                  setDraft(node.title);
-                  setEditing(node.id);
-                }}
-                title={`Page ${node.page}`}
-              >
-                {node.title}
-              </button>
+                >
+                  {node.title}
+                </button>
+              )}
+              <span className="pdfx-mark__page">
+                {node.action ? (
+                  node.action.kind === "uri" ? (
+                    <ExternalLink size={11} aria-label="Lien" />
+                  ) : (
+                    "·"
+                  )
+                ) : (
+                  (p.pages[node.page - 1]?.label ?? node.page)
+                )}
+              </span>
+              <span className="pdfx-mark__ops">
+                <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
+                  <Plus size={12} />
+                </button>
+                <button
+                  title="Définir la destination sur la vue courante"
+                  onClick={() => p.onBookmarkRetarget(node.id)}
+                >
+                  <Crosshair size={12} />
+                </button>
+                <button title="Style et couleur" onClick={() => setStyling((v) => (v === node.id ? null : node.id))}>
+                  <Palette size={12} />
+                </button>
+                <button
+                  title="Renommer"
+                  onClick={() => {
+                    setDraft(node.title);
+                    setEditing(node.id);
+                  }}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}>
+                  <Trash2 size={12} />
+                </button>
+              </span>
+            </div>
+            {styling === node.id && (
+              <div className="pdfx-mark__style" style={{ paddingLeft: 26 + depth * 14 }}>
+                <label className="pdfx-check">
+                  <input
+                    type="checkbox"
+                    checked={!!node.bold}
+                    onChange={(e) => p.onBookmarkStyle(node.id, { bold: e.target.checked })}
+                  />
+                  Gras
+                </label>
+                <label className="pdfx-check">
+                  <input
+                    type="checkbox"
+                    checked={!!node.italic}
+                    onChange={(e) => p.onBookmarkStyle(node.id, { italic: e.target.checked })}
+                  />
+                  Italique
+                </label>
+                <input
+                  type="color"
+                  aria-label="Couleur du signet"
+                  value={node.color ?? "#000000"}
+                  onChange={(e) => p.onBookmarkStyle(node.id, { color: e.target.value })}
+                />
+              </div>
             )}
-            <span className="pdfx-mark__page">{node.page}</span>
-            <span className="pdfx-mark__ops">
-              <button title="Sous-signet" onClick={() => p.onBookmarkAdd(node.id)}>
-                <Plus size={12} />
-              </button>
-              <button
-                title="Renommer"
-                onClick={() => {
-                  setDraft(node.title);
-                  setEditing(node.id);
-                }}
-              >
-                <Pencil size={12} />
-              </button>
-              <button title="Supprimer" onClick={() => p.onBookmarkDelete(node.id)}>
-                <Trash2 size={12} />
-              </button>
-            </span>
           </div>
         ))}
       </div>
@@ -486,35 +714,15 @@ function Comments(p: SidebarProps) {
   const pageOrder = useMemo(() => new Map(p.pages.map((page, i) => [page.id, i + 1])), [p.pages]);
   const authors = useMemo(() => [...new Set(p.annots.map((a) => a.author))].sort(), [p.annots]);
 
-  const list = useMemo(() => {
-    const q = p.filter.query.trim().toLowerCase();
-    const out = p.annots.filter((a) => {
-      if (a.kind === "link") return false;
-      if (p.filter.authors && !p.filter.authors.includes(a.author)) return false;
-      if (p.filter.statuses && !p.filter.statuses.includes(a.status ?? "none")) return false;
-      if (q) {
-        const hay = `${a.contents ?? ""} ${a.text ?? ""} ${a.author} ${(a.replies ?? []).map((r) => r.text).join(" ")}`;
-        if (!hay.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-    const page = (a: Annot) => pageOrder.get(a.pageId) ?? 1e9;
-    out.sort((a, b) => {
-      switch (p.sort) {
-        case "author":
-          return a.author.localeCompare(b.author) || page(a) - page(b);
-        case "date":
-          return b.createdAt.localeCompare(a.createdAt);
-        case "kind":
-          return a.kind.localeCompare(b.kind) || page(a) - page(b);
-        case "status":
-          return (a.status ?? "none").localeCompare(b.status ?? "none") || page(a) - page(b);
-        default:
-          return page(a) - page(b) || a.rect.y - b.rect.y || a.rect.x - b.rect.x;
-      }
-    });
-    return out;
-  }, [p.annots, p.filter, p.sort, pageOrder]);
+  const list = useMemo(
+    () => filterComments(p.annots, p.filter, pageOrder, p.sort),
+    [p.annots, p.filter, p.sort, pageOrder],
+  );
+  const kinds = useMemo(() => [...new Set(commentable(p.annots).map((a) => a.kind))], [p.annots]);
+  /** Carets with a struck-out text: Acrobat's « Remplacer le texte ». */
+  const replacing = useMemo(() => new Set(p.annots.filter((a) => a.group).map((a) => a.group!)), [p.annots]);
+  const [editingReply, setEditingReply] = useState<string | null>(null);
+  const [replyEdit, setReplyEdit] = useState("");
 
   return (
     <div className="pdfx-panel">
@@ -565,6 +773,53 @@ function Comments(p: SidebarProps) {
             </select>
           </div>
           <div className="pdfx-filter__row">
+            <span>Type</span>
+            <select
+              value={p.filter.kinds?.[0] ?? ""}
+              onChange={(e) =>
+                p.onFilterChange({ ...p.filter, kinds: e.target.value ? [e.target.value as Annot["kind"]] : null })
+              }
+            >
+              <option value="">Tous</option>
+              {kinds.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="pdfx-filter__row">
+            <span>Page</span>
+            <input
+              className="pdfx-input pdfx-input--mini"
+              type="number"
+              min={1}
+              max={p.pages.length}
+              placeholder="Toutes"
+              value={p.filter.pages?.[0] ?? ""}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                p.onFilterChange({ ...p.filter, pages: e.target.value && n >= 1 ? [n] : null });
+              }}
+            />
+          </div>
+          <div className="pdfx-filter__row">
+            <span>Coche</span>
+            <select
+              value={p.filter.checked ?? ""}
+              onChange={(e) =>
+                p.onFilterChange({
+                  ...p.filter,
+                  checked: (e.target.value || null) as CommentFilter["checked"],
+                })
+              }
+            >
+              <option value="">Tous</option>
+              <option value="checked">Cochés</option>
+              <option value="unchecked">Non cochés</option>
+            </select>
+          </div>
+          <div className="pdfx-filter__row">
             <span>Statut</span>
             <select
               value={p.filter.statuses?.[0] ?? ""}
@@ -596,10 +851,20 @@ function Comments(p: SidebarProps) {
           return (
             <article key={a.id} className="pdfx-comment" onClick={() => p.onSelectAnnot(a.id)}>
               <header className="pdfx-comment__head">
+                <input
+                  type="checkbox"
+                  className="pdfx-comment__check"
+                  checked={!!a.checked}
+                  title="Coche (marque personnelle, comme dans Acrobat)"
+                  aria-label={`Cocher le commentaire de ${a.author}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => p.onAnnotCheck([a.id], e.target.checked)}
+                />
                 <span className="pdfx-comment__swatch" style={{ background: a.color }} />
                 <span className="pdfx-comment__author">{a.author}</span>
                 <span className="pdfx-comment__meta">
-                  {KIND_LABEL[a.kind]} · p. {pageOrder.get(a.pageId) ?? "?"}
+                  {replacing.has(a.id) ? "Remplacement de texte" : KIND_LABEL[a.kind]} · p.{" "}
+                  {pageOrder.get(a.pageId) ?? "?"}
                 </span>
                 <time className="pdfx-comment__date">{shortDate(a.createdAt)}</time>
               </header>
@@ -632,10 +897,46 @@ function Comments(p: SidebarProps) {
               {(a.replies ?? [])
                 .filter((r) => r.text)
                 .map((r) => (
-                  <div key={r.id} className="pdfx-reply">
+                  <div key={r.id} className="pdfx-reply" onClick={(e) => e.stopPropagation()}>
                     <span className="pdfx-reply__author">{r.author}</span>
                     <time>{shortDate(r.createdAt)}</time>
-                    <p>{r.text}</p>
+                    {!r.status && (
+                      <button
+                        type="button"
+                        className="pdfx-reply__del"
+                        aria-label="Supprimer la réponse"
+                        title="Supprimer la réponse"
+                        onClick={() => p.onReplyDelete(a.id, r.id)}
+                      >
+                        ×
+                      </button>
+                    )}
+                    {editingReply === r.id ? (
+                      <textarea
+                        className="pdfx-comment__edit"
+                        autoFocus
+                        value={replyEdit}
+                        onChange={(e) => setReplyEdit(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setEditingReply(null);
+                        }}
+                        onBlur={() => {
+                          if (replyEdit.trim() && replyEdit !== r.text) p.onReplyEdit(a.id, r.id, replyEdit.trim());
+                          setEditingReply(null);
+                        }}
+                      />
+                    ) : (
+                      <p
+                        title={r.status ? undefined : "Double-cliquez pour modifier"}
+                        onDoubleClick={() => {
+                          if (r.status) return;
+                          setReplyEdit(r.text);
+                          setEditingReply(r.id);
+                        }}
+                      >
+                        {r.text}
+                      </p>
+                    )}
                   </div>
                 ))}
 
@@ -713,15 +1014,62 @@ function Comments(p: SidebarProps) {
 // ---------------------------------------------------------------------------
 
 function SearchResults(p: SidebarProps) {
-  const byPage = useMemo(() => {
-    const map = new Map<number, { hit: SearchHit; index: number }[]>();
+  // Hits come in document order: grouped by page as they come.
+  const groups = useMemo(() => {
+    const at = new Map<number, number>();
+    p.pages.forEach((pg, i) => pg.from != null && !at.has(pg.from) && at.set(pg.from, i));
+    const out: { key: number; label: string; items: { hit: SearchHit; index: number }[] }[] = [];
     p.searchHits.forEach((hit, index) => {
-      const list = map.get(hit.page) ?? [];
-      list.push({ hit, index });
-      map.set(hit.page, list);
+      const last = out[out.length - 1];
+      if (last && last.key === hit.page) last.items.push({ hit, index });
+      else {
+        const i = at.get(hit.page) ?? hit.page;
+        out.push({ key: hit.page, label: p.pages[i]?.label || String(i + 1), items: [{ hit, index }] });
+      }
     });
-    return [...map.entries()].sort((a, b) => a[0] - b[0]);
-  }, [p.searchHits]);
+    return out;
+  }, [p.searchHits, p.pages]);
+  // Thousands of hits would make the panel (and every render after) crawl: they are shown
+  // a few hundred at a time, always far enough to include the current hit.
+  const [hitLimit, setHitLimit] = useState(HIT_PAGE);
+  useEffect(() => setHitLimit(HIT_PAGE), [p.searchQuery]);
+  const shownLimit = Math.max(hitLimit, p.searchIndex + 50);
+  const shownGroups = useMemo(() => {
+    const out: typeof groups = [];
+    let left = shownLimit;
+    for (const g of groups) {
+      if (left <= 0) break;
+      out.push(g.items.length <= left ? g : { ...g, items: g.items.slice(0, left) });
+      left -= g.items.length;
+    }
+    return out;
+  }, [groups, shownLimit]);
+  const comments = useMemo(
+    () =>
+      p.searchQuery.trim()
+        ? commentable(p.annots).filter(
+            (a) =>
+              textMatches(a.contents || a.text || "", p.searchQuery, p.searchOptions) ||
+              (a.replies ?? []).some((r) => textMatches(r.text, p.searchQuery, p.searchOptions)),
+          )
+        : [],
+    [p.annots, p.searchQuery, p.searchOptions],
+  );
+  const marks = useMemo(() => {
+    if (!p.searchQuery.trim()) return [];
+    const out: Mark[] = [];
+    const walk = (list: readonly Mark[]) =>
+      list.forEach((b) => {
+        if (textMatches(b.title, p.searchQuery, p.searchOptions)) out.push(b);
+        walk(b.children);
+      });
+    walk(p.bookmarks);
+    return out;
+  }, [p.bookmarks, p.searchQuery, p.searchOptions]);
+  const pageLabel = (pageId: string) => {
+    const i = p.pages.findIndex((pg) => pg.id === pageId);
+    return i < 0 ? "" : p.pages[i].label || String(i + 1);
+  };
 
   return (
     <div className="pdfx-panel">
@@ -735,13 +1083,13 @@ function SearchResults(p: SidebarProps) {
       </div>
       <div className="pdfx-panel__body">
         {!p.searchQuery && <p className="pdfx-empty">Saisissez un terme dans la barre de recherche.</p>}
-        {p.searchQuery && !p.searchHits.length && !p.searchBusy && (
+        {p.searchQuery && !p.searchHits.length && !comments.length && !marks.length && !p.searchBusy && (
           <p className="pdfx-empty">Aucun résultat pour « {p.searchQuery} ».</p>
         )}
-        {byPage.map(([page, items]) => (
-          <div key={page} className="pdfx-hits-group">
+        {shownGroups.map(({ key, label, items }) => (
+          <div key={key} className="pdfx-hits-group">
             <div className="pdfx-hits-group__head">
-              Page {page + 1} <span>{items.length}</span>
+              Page {label} <span>{items.length}</span>
             </div>
             {items.map(({ hit, index }) => (
               <button
@@ -756,6 +1104,36 @@ function SearchResults(p: SidebarProps) {
             ))}
           </div>
         ))}
+        {p.searchHits.length > shownLimit && (
+          <button className="eb eb--outline eb--sm pdfx-hits-more" onClick={() => setHitLimit(shownLimit + HIT_PAGE)}>
+            Afficher plus ({p.searchHits.length - shownLimit} résultat(s) restant(s))
+          </button>
+        )}
+        {comments.length > 0 && (
+          <div className="pdfx-hits-group">
+            <div className="pdfx-hits-group__head">
+              Commentaires <span>{comments.length}</span>
+            </div>
+            {comments.map((a) => (
+              <button key={a.id} className="pdfx-hitrow" onClick={() => p.onSelectAnnot(a.id)}>
+                <b>p. {pageLabel(a.pageId)}</b> {a.author ? `${a.author} — ` : ""}
+                {(a.contents || a.text || a.replies?.find((r) => r.text)?.text || "").slice(0, 120)}
+              </button>
+            ))}
+          </div>
+        )}
+        {marks.length > 0 && (
+          <div className="pdfx-hits-group">
+            <div className="pdfx-hits-group__head">
+              Signets <span>{marks.length}</span>
+            </div>
+            {marks.map((b) => (
+              <button key={b.id} className="pdfx-hitrow" onClick={() => p.onBookmarkGoTo(b)}>
+                {b.title}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -765,23 +1143,105 @@ function SearchResults(p: SidebarProps) {
 // Attachments / layers / fields
 // ---------------------------------------------------------------------------
 
+function Destinations(p: SidebarProps) {
+  const [filter, setFilter] = useState("");
+  const shown = filter.trim()
+    ? p.destinations.filter((d) => textMatches(d, filter, DEFAULT_SEARCH_OPTIONS))
+    : p.destinations;
+  return (
+    <div className="pdfx-panel">
+      <div className="pdfx-panel__head">
+        <span className="pdfx-panel__title">Destinations</span>
+        <span className="pdfx-panel__count">{p.destinations.length}</span>
+        <button className="pdfx-icon" title="Nouvelle destination sur la vue affichée" onClick={p.onDestAdd}>
+          <Plus size={14} />
+        </button>
+      </div>
+      {p.destinations.length > 8 && (
+        <div className="pdfx-panel__tools">
+          <input
+            className="pdfx-mark__input"
+            placeholder="Filtrer…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+      )}
+      <div className="pdfx-panel__body">
+        {!p.destinations.length && (
+          <p className="pdfx-empty">
+            Ce document n'a pas de destination nommée.
+            <br />
+            Une destination nomme une vue qu'un lien ou un autre document peut viser.
+          </p>
+        )}
+        {shown.map((name) => (
+          <div key={name} className="pdfx-row">
+            <Crosshair size={14} />
+            <button className="pdfx-row__label" onClick={() => p.onDestGo(name)}>
+              {name}
+            </button>
+            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onDestRemove(name)}>
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Attachments(p: SidebarProps) {
+  // Files attached to comments are listed too (Acrobat shows both).
+  const onComments = p.annots.filter((a) => a.kind === "attachment" && a.file);
+  const pageOf = (pageId: string) => {
+    const i = p.pages.findIndex((pg) => pg.id === pageId);
+    return i < 0 ? "" : p.pages[i].label || String(i + 1);
+  };
   return (
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Pièces jointes</span>
-        <span className="pdfx-panel__count">{p.attachments.length}</span>
+        <span className="pdfx-panel__count">{p.attachments.length + onComments.length}</span>
+        <button className="pdfx-icon" title="Joindre un fichier au document" onClick={p.onAttachmentAdd}>
+          <Plus size={14} />
+        </button>
       </div>
       <div className="pdfx-panel__body">
-        {!p.attachments.length && <p className="pdfx-empty">Ce document ne contient aucune pièce jointe.</p>}
+        {!p.attachments.length && !onComments.length && (
+          <p className="pdfx-empty">Ce document ne contient aucune pièce jointe.</p>
+        )}
         {p.attachments.map((a) => (
-          <button key={a.name} className="pdfx-row" onClick={() => p.onAttachmentOpen(a)}>
+          <div key={a.key} className="pdfx-row" title={a.description || a.name}>
             <Paperclip size={14} />
-            <span className="pdfx-row__label">{a.name}</span>
-            <span className="pdfx-row__meta">{(a.bytes.length / 1024).toFixed(0)} Ko</span>
-            <Download size={13} />
-          </button>
+            <button className="pdfx-row__label" onClick={() => p.onAttachmentOpen(a)}>
+              {a.name}
+              {a.description && <small className="pdfx-row__sub">{a.description}</small>}
+            </button>
+            <span className="pdfx-row__meta">{Math.max(1, Math.round(a.bytes.length / 1024))} Ko</span>
+            <button className="pdfx-icon" title="Enregistrer" onClick={() => p.onAttachmentOpen(a)}>
+              <Download size={13} />
+            </button>
+            <button className="pdfx-icon" title="Modifier la description" onClick={() => p.onAttachmentDescribe(a)}>
+              <Pencil size={13} />
+            </button>
+            <button className="pdfx-icon" title="Supprimer" onClick={() => p.onAttachmentRemove(a)}>
+              <Trash2 size={13} />
+            </button>
+          </div>
         ))}
+        {onComments.length > 0 && (
+          <>
+            <div className="pdfx-hits-group__head">Dans les commentaires</div>
+            {onComments.map((a) => (
+              <button key={a.id} className="pdfx-row" onClick={() => p.onSelectAnnot(a.id)}>
+                <Paperclip size={14} />
+                <span className="pdfx-row__label">{a.file!.name}</span>
+                <span className="pdfx-row__meta">p. {pageOf(a.pageId)}</span>
+              </button>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
@@ -792,17 +1252,46 @@ function LayersPane(p: SidebarProps) {
     <div className="pdfx-panel">
       <div className="pdfx-panel__head">
         <span className="pdfx-panel__title">Calques</span>
-        <span className="pdfx-panel__count">{p.layers.length}</span>
+        <span className="pdfx-panel__count">{p.layers.filter((l) => !l.heading).length}</span>
+        {p.layers.length > 0 && (
+          <button
+            className="pdfx-icon"
+            title="Enregistrer la visibilité actuelle comme état par défaut du fichier"
+            onClick={p.onLayersSaveDefault}
+          >
+            <Save size={14} />
+          </button>
+        )}
       </div>
       <div className="pdfx-panel__body">
         {!p.layers.length && <p className="pdfx-empty">Ce document ne contient pas de calques.</p>}
-        {p.layers.map((l) => (
-          <label key={l.id} className="pdfx-row pdfx-row--check">
-            <input type="checkbox" checked={!p.hiddenLayers.has(l.id)} onChange={() => p.onLayerToggle(l.id)} />
-            <Layers size={14} />
-            <span className="pdfx-row__label">{l.name}</span>
-          </label>
-        ))}
+        {p.layers.map((l) =>
+          l.heading ? (
+            <div key={l.id} className="pdfx-row pdfx-row--heading" style={{ paddingLeft: 8 + l.depth * 14 }}>
+              <span className="pdfx-row__label">{l.name}</span>
+            </div>
+          ) : (
+            <label
+              key={l.id}
+              className="pdfx-row pdfx-row--check"
+              style={{ paddingLeft: 8 + l.depth * 14 }}
+              title={
+                l.locked ? "Calque verrouillé par le document" : l.radio ? "Calque exclusif de son groupe" : undefined
+              }
+            >
+              <input
+                type={l.radio ? "radio" : "checkbox"}
+                checked={l.visible}
+                disabled={l.locked}
+                onChange={() => p.onLayerToggle(l.id)}
+                onClick={() => l.radio && l.visible && p.onLayerToggle(l.id)}
+              />
+              <Layers size={14} />
+              <span className="pdfx-row__label">{l.name}</span>
+              {l.locked && <Lock size={12} aria-label="Verrouillé" />}
+            </label>
+          ),
+        )}
       </div>
     </div>
   );
@@ -846,9 +1335,11 @@ export const PANEL_ICONS: { id: SidePanel; icon: React.ReactNode; label: string 
   { id: "bookmarks", icon: <Bookmark size={17} />, label: "Signets" },
   { id: "comments", icon: <MessageSquare size={17} />, label: "Commentaires" },
   { id: "search", icon: <Search size={17} />, label: "Recherche" },
+  { id: "destinations", icon: <Crosshair size={17} />, label: "Destinations" },
   { id: "attachments", icon: <Paperclip size={17} />, label: "Pièces jointes" },
   { id: "layers", icon: <Layers size={17} />, label: "Calques" },
   { id: "fields", icon: <FormInput size={17} />, label: "Champs" },
+  { id: "signatures", icon: <FileSignature size={17} />, label: "Signatures" },
 ];
 
 export { ArrowUpDown };

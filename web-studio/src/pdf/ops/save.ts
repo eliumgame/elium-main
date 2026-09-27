@@ -4,8 +4,8 @@
  *
  * Order matters, and it is the order Acrobat uses:
  *
- *   decrypt → reorganise pages → rewrite content (text, images, redaction)
- *   → crop/rotate → markup → form fields → page marks → outline & metadata
+ *   decrypt → reorganise pages → crop/rotate → rewrite content (text,
+ *   images, redaction) → markup → form fields → page marks → outline & metadata
  *   → sanitise → write (incremental update, or full rewrite + optimise/protect)
  *
  * Content rewriting happens *before* markup so a redaction can delete the very
@@ -22,15 +22,29 @@
  * sanitising, or when the file's own structure is too broken to append to.
  */
 
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
 import type { Rect } from "../core/coords";
-import type { Annot, Bookmark, Page, PdfState } from "../model/types";
+import type {
+  Annot,
+  AttachmentEdits,
+  Bookmark,
+  DestEdits,
+  InitialView,
+  Page,
+  PageLabelDef,
+  PdfState,
+} from "../model/types";
+import { remapBookmarkPages } from "../model/doc";
 import { pageFrame, flattenAnnots, mustFlatten, writeAnnots, writeRedactMarks } from "./annots-pdf";
 import type { PaintContext } from "./annots-pdf";
-import { applyBand, applyBatesStamp, applyWatermark, batesLabel } from "./decorate";
+import { decoratePage, planMarks, stripPageMarks } from "./decorate";
+import { nameKey, readNameTree, uniqueKey, writeNameTree } from "./nametree";
 import { FontBook } from "./fonts";
-import { createFields, fillForm, flattenForm } from "./forms";
+import { FieldFontBook, completeFieldAppearances, flattenFields } from "./formpdf";
+import { applyFieldEdits } from "./formedit";
+import { dropHybridXfa } from "./xfa";
+import { createFields, fillForm } from "./forms";
 import { ImageBank } from "./images";
 import {
   fingerprint,
@@ -41,9 +55,19 @@ import {
   type Fingerprints,
   type XrefTail,
 } from "./incremental";
-import { PAGE_SIZES, cropPage, rotatePage, writeOutline, writePageLabels } from "./organize";
+import {
+  PAGE_SIZES,
+  copyPagesMapped,
+  cropPage,
+  purgeRemovedPages,
+  readPageLabelDefs,
+  rotatePage,
+  shareCopiedFields,
+  writeOutline,
+  writePageLabels,
+} from "./organize";
 import type { OutlineEntry } from "./organize";
-import { applyRedactions, sanitiseDocument } from "./redact";
+import { ALL_HIDDEN_INFO, applyRedactions, removeHiddenInfo, type HiddenInfoOptions } from "./redact";
 import { createCrypt, openCrypt, writeEncrypted } from "./security";
 import type { PdfCrypt, ProtectOptions } from "./security";
 import { applyImageEdits, applyTextEdits } from "./textedit";
@@ -56,10 +80,19 @@ export interface BuildOptions {
   flattenForms: boolean;
   /** Perform pending redactions destructively. */
   applyRedactions: boolean;
-  /** Strip metadata, JavaScript, attachments and automatic actions. */
+  /**
+   * Keep the pages excluded (« Exclure ») — the document itself is being saved:
+   * exclusion leaves them out of copies, prints and extractions only.
+   */
+  keepSkipped?: boolean;
+  /** Acrobat's « Nettoyer le document »: every kind of hidden information, form fields flattened. */
   sanitise: boolean;
+  /** Only these kinds of hidden information (after a redaction, typically). */
+  hiddenInfo?: HiddenInfoOptions;
   /** Recompress and downsample to reduce the file size. */
   optimise: boolean;
+  /** How (« Optimisation avancée »): resolution, JPEG quality, what to do. */
+  optimiseOptions?: Partial<import("./optimize").OptimiseOptions>;
   /** Password-protect the result (new protection → full rewrite). */
   protect?: ProtectOptions;
   author: string;
@@ -75,6 +108,8 @@ export interface BuildOptions {
    * rewritten from the model.
    */
   pristineAnnots?: ReadonlySet<Annot>;
+  /** Built to be printed: what does not print (no Print flag, hidden) is left out. */
+  forPrint?: boolean;
   /** The bookmarks as read from the file: while `state.bookmarks` is this very array, the outline is left alone. */
   pristineBookmarks?: readonly Bookmark[] | null;
 }
@@ -115,6 +150,8 @@ export interface BuildReport {
   encryption: "none" | "kept" | "added" | "changed" | "removed";
   /** Scheme of the protection of the written file ("AES-256"…). */
   scheme?: string;
+  /** What « Optimiser » did. */
+  optimised?: import("./optimize").OptimiseReport;
   durationMs: number;
   /** Informative notes (substituted fonts, kept protection…). */
   warnings: string[];
@@ -193,7 +230,7 @@ async function openWorking(bytes: Uint8Array, password: string | null | undefine
   const ref = doc.context.trailerInfo.Encrypt;
   const encryptRef = ref instanceof PDFRef ? ref : null;
   if (crypt) {
-    await crypt.decryptDocument(doc);
+    await crypt.decryptDocument(doc, bytes);
     // The working copy is plaintext; the writer adds the target protection.
     if (encryptRef) doc.context.delete(encryptRef);
     doc.context.trailerInfo.Encrypt = undefined;
@@ -268,7 +305,7 @@ export interface SaveResult {
 /** Why the state cannot be written as an incremental update (empty = it can). */
 export function fullRewriteReasons(
   state: PdfState,
-  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms">,
+  opts: Pick<BuildOptions, "applyRedactions" | "optimise" | "sanitise" | "flattenForms" | "keepSkipped" | "hiddenInfo">,
   sourcePageCount: number,
   security?: SecurityChange | null,
 ): string[] {
@@ -278,14 +315,35 @@ export function fullRewriteReasons(
   if (opts.applyRedactions && state.annots.some((a) => a.kind === "redact")) {
     reasons.push("caviardage : le contenu masqué est retiré définitivement, révisions précédentes comprises");
   }
-  const used = new Set(state.pages.filter((p) => !p.skipped && p.from != null).map((p) => p.from));
+  const used = new Set(
+    state.pages.filter((p) => (opts.keepSkipped || !p.skipped) && p.from != null).map((p) => p.from),
+  );
   let removed = 0;
   for (let i = 0; i < sourcePageCount; i++) if (!used.has(i)) removed++;
   if (removed) reasons.push(`${removed} page(s) supprimée(s) : retirées définitivement du fichier`);
   if (opts.optimise) reasons.push("optimisation de la taille");
   if (opts.sanitise) reasons.push("assainissement");
+  else if (opts.hiddenInfo && Object.values(opts.hiddenInfo).some(Boolean))
+    reasons.push("informations masquées supprimées, révisions précédentes comprises");
   if (opts.flattenForms) reasons.push("aplatissement du formulaire");
   return reasons;
+}
+
+/**
+ * The annotations (not redaction marks) that meet a redaction mark on their
+ * page, and the members of their groups: a redaction removes them with the
+ * content they cover.
+ */
+export function annotsUnderRedaction(annots: readonly Annot[]): Set<string> {
+  const gone = new Set<string>();
+  const marks = annots.filter((a) => a.kind === "redact");
+  if (!marks.length) return gone;
+  const meets = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const a of annots) {
+    if (a.kind !== "redact" && marks.some((m) => m.pageId === a.pageId && meets(a.rect, m.rect))) gone.add(a.id);
+  }
+  for (const a of annots) if (a.group && gone.has(a.group)) gone.add(a.id);
+  return gone;
 }
 
 /**
@@ -332,7 +390,7 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
   if (input.mode === "full" && !reasons.length) reasons.push("réécriture complète demandée");
   const full = input.mode === "full" || reasons.length > 0;
 
-  await applyState(doc, state, opts, report);
+  await applyState(doc, state, opts, report, !!input.base);
   if (input.transform) await input.transform(doc, report);
 
   step("Écriture du fichier", 0.92);
@@ -364,7 +422,7 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
       step("Optimisation", 0.94);
       const { optimiseDocument } = await import("./optimize");
       try {
-        await optimiseDocument(doc);
+        report.optimised = await optimiseDocument(doc, opts.optimiseOptions);
       } catch {
         report.warnings.push("Optimisation ignorée (contenu non compressible).");
       }
@@ -439,15 +497,29 @@ export async function buildPdf(
 // Applying the model
 // ---------------------------------------------------------------------------
 
-async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions, report: BuildReport): Promise<void> {
+async function applyState(
+  doc: PDFDocument,
+  state: PdfState,
+  opts: BuildOptions,
+  report: BuildReport,
+  formBase: boolean,
+): Promise<void> {
   const step = (label: string, ratio: number) => opts.onProgress?.(label, ratio);
 
   // --- 1. page order -------------------------------------------------------
   step("Organisation des pages", 0.08);
-  const wanted = state.pages.filter((p) => !p.skipped);
+  const wanted = state.pages.filter((p) => opts.keepSkipped || !p.skipped);
   const source = doc.getPages();
+  // The file's own labels, by source page, before the pages move.
+  let fileLabels: (PageLabelDef | undefined)[] | null = null;
+  try {
+    fileLabels = readPageLabelDefs(doc);
+  } catch {
+    fileLabels = null;
+  }
   const targets: { page: PDFPage; model: Page }[] = [];
   const seen = new Set<number>();
+  const copies: { original: PDFPage; copy: PDFPage }[] = [];
 
   for (const model of wanted) {
     if (model.from == null) {
@@ -466,8 +538,9 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
       seen.add(model.from);
       targets.push({ page: src, model });
     } else {
-      const [copy] = await doc.copyPages(doc, [model.from]);
+      const [copy] = copyPagesMapped(doc, doc, [model.from], true);
       targets.push({ page: copy, model });
+      copies.push({ original: src, copy });
     }
   }
 
@@ -484,6 +557,14 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     );
   }
   report.pages = doc.getPageCount();
+  // A duplicated page's fields are the same fields; removed pages leave nothing pointing at them.
+  try {
+    shareCopiedFields(doc, copies);
+    const kept = new Set(targets.map((t) => `${t.page.ref.objectNumber} ${t.page.ref.generationNumber}`));
+    purgeRemovedPages(doc, source, kept);
+  } catch {
+    report.warnings.push("Les liens vers les pages retirées n'ont pas tous pu être nettoyés.");
+  }
 
   const fonts = new FontBook(doc);
   const images = new ImageBank(doc);
@@ -509,6 +590,13 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
   }
 
   // --- 2. rewrite the page's own content ------------------------------------
+  // --- crop and rotate: first, since the model's coordinates (text and image
+  // edits, redactions, markup) are those of the page as cropped in Elium.
+  for (const { page, model } of targets) {
+    if (model.crop) cropPage(page, model.crop);
+    if (model.rotate) rotatePage(page, model.rotate);
+  }
+
   step("Application des modifications de contenu", 0.2);
   for (const [index, { page, model }] of targets.entries()) {
     const frame = pageFrame(page);
@@ -521,6 +609,11 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
         report.textBlocksNative += r.native;
         report.textBlocksSubstituted += r.substituted;
         report.textBlocksSkipped += r.skipped;
+        if (r.missing.length) {
+          report.lost.push(
+            `${where} : caractère(s) « ${[...new Set(r.missing.join(""))].join("")} » absent(s) des polices disponibles, non écrit(s).`,
+          );
+        }
         if (r.skipped) {
           report.lost.push(
             `${where} : ${r.skipped} paragraphe(s) modifié(s) à l'écran n'ont pas pu être réécrits dans le fichier (texte introuvable dans le flux de la page).`,
@@ -553,7 +646,8 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
         try {
           const r = await applyRedactions(doc, page, rects);
           report.redactedGlyphs += r.glyphsRemoved;
-          report.redactedImages += r.imagesRemoved;
+          report.redactedImages += r.imagesRemoved + (r.imagesEdited ?? 0);
+          for (const w of r.warnings ?? []) if (!report.warnings.includes(w)) report.warnings.push(w);
         } catch {
           report.lost.push(`${where} : caviardage partiel, le contenu de la page n'a pas pu être réécrit.`);
         }
@@ -566,12 +660,6 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     );
   }
 
-  // --- 3. crop and rotate ---------------------------------------------------
-  for (const { page, model } of targets) {
-    if (model.crop) cropPage(page, model.crop);
-    if (model.rotate) rotatePage(page, model.rotate);
-  }
-
   // The markup the model imported from the source is about to be written back
   // from the model — remove the originals so nothing is duplicated. Imported
   // annotations the user did not touch stay as they are in the file.
@@ -581,6 +669,29 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
       ? state.annots.filter((a) => opts.pristineAnnots!.has(a) && !(a.kind === "redact" && opts.applyRedactions))
       : [],
   );
+  // A group member kept as it was would point at its rewritten parent's old object.
+  for (const a of [...pristine]) {
+    if (!a.group) continue;
+    const parent = state.annots.find((x) => x.id === a.group);
+    if (!parent || !pristine.has(parent)) pristine.delete(a);
+  }
+  // Annotations Elium leaves alone that hang on a comment it rewrites (a Caret
+  // grouped with a strike-out, a reply to it from another app, their pop-ups).
+  const dependents = new Map<
+    string,
+    { dict: import("pdf-lib").PDFDict; field: "IRT" | "Parent"; ref: PDFRef; page: PDFPage }[]
+  >();
+  const written = new Map<string, PDFRef>();
+  // A large attachment file stays where it is in the source: keep its /FS
+  // before the original annotations are removed, for the rewrite to reuse.
+  const keptFiles = new Map<string, unknown>();
+  for (const a of state.annots) {
+    const src = a.kind === "attachment" && !a.file?.data ? a.file?.source : undefined;
+    const m = src ? /^(\d+)R(\d*)$/.exec(src) : null;
+    if (!m) continue;
+    const dict = doc.context.lookup(PDFRef.of(Number(m[1]), Number(m[2] || 0)));
+    if (dict instanceof PDFDict && dict.get(PDFName.of("FS"))) keptFiles.set(src!, dict.get(PDFName.of("FS")));
+  }
   if (state.importedAnnots) {
     const { stripImportedAnnots } = await import("./import-annots");
     for (const [index, { page, model }] of targets.entries()) {
@@ -591,7 +702,12 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
         if (m) keep.add(`${m[1]} ${m[2] || "0"}`);
       }
       try {
-        await stripImportedAnnots(page, keep);
+        const r = await stripImportedAnnots(page, keep);
+        for (const [k, list] of r.dependents)
+          dependents.set(
+            k,
+            list.map((d) => ({ ...d, page })),
+          );
         report.annotsKept += keep.size;
       } catch {
         report.lost.push(`page ${index + 1} : les annotations d'origine n'ont pas pu être remplacées.`);
@@ -602,11 +718,26 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
   // --- 4. markup ------------------------------------------------------------
   step("Écriture des annotations", 0.45);
   const pageRefs: PDFRef[] = doc.getPages().map((p) => p.ref);
+  const outputIndex = new Map(targets.map((t, i) => [t.model.id, i]));
+  // What a redaction covers goes, comments included: a note or a text box over
+  // the area is not written back (its replies and pop-up go with it).
+  const underRedaction = opts.applyRedactions ? annotsUnderRedaction(state.annots) : new Set<string>();
   for (const { page, model } of targets) {
     const frame = pageFrame(page);
-    const ctx: PaintContext = { doc, frame, fonts, images, measureScale: state.measureScale };
+    const ctx: PaintContext = {
+      doc,
+      frame,
+      fonts,
+      images,
+      measureScale: state.measureScale,
+      rotation: page.getRotation().angle,
+    };
     const mine = state.annots.filter(
-      (a) => a.pageId === model.id && !pristine.has(a) && !(a.kind === "redact" && !opts.applyRedactions),
+      (a) =>
+        a.pageId === model.id &&
+        !pristine.has(a) &&
+        !underRedaction.has(a.id) &&
+        !(a.kind === "redact" && !opts.applyRedactions),
     );
     if (!opts.applyRedactions) {
       // Marks not applied stay marks — `/Redact` annotations, as Acrobat keeps them.
@@ -617,7 +748,13 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     if (!mine.length) continue;
     let toFlatten: Annot[];
     if (opts.interactiveAnnots) {
-      toFlatten = await writeAnnots(page, mine, ctx, { defaultAuthor: opts.author, pageRefs });
+      toFlatten = await writeAnnots(page, mine, ctx, {
+        defaultAuthor: opts.author,
+        pageRefs,
+        written,
+        keptFiles,
+        pageIndexOf: (id) => outputIndex.get(id),
+      });
       report.annotsWritten += mine.length - toFlatten.length;
     } else {
       toFlatten = mine.slice();
@@ -632,6 +769,37 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     report.annotsFlattened +=
       state.annots.filter((a) => a.kind === "redact").length -
       state.annots.filter((a) => a.kind === "redact" && mustFlatten(a.kind)).length;
+  }
+
+  // Text-edit groups, across pages (a Caret may sit on another page than its strike-out).
+  {
+    const { linkGroups } = await import("./annots-pdf");
+    linkGroups(doc, state.annots, written, new Set([...pristine].map((a) => a.id)));
+  }
+  if (dependents.size) {
+    const { keyOfPdfjsId } = await import("./import-annots");
+    const rewritten = new Map<string, PDFRef>();
+    for (const [id, ref] of written) rewritten.set(keyOfPdfjsId(id), ref);
+    for (const [key, list] of dependents) {
+      const to = rewritten.get(key);
+      for (const d of list) {
+        if (to) {
+          d.dict.set(PDFName.of(d.field), to);
+          continue;
+        }
+        // Its comment was deleted (or flattened): it goes with it, as in Acrobat.
+        const annots = d.page.node.Annots();
+        const at = annots?.indexOf(d.ref) ?? -1;
+        if (annots && at >= 0) annots.remove(at);
+        doc.context.delete(d.ref);
+        const popup = d.dict.get(PDFName.of("Popup"));
+        if (popup instanceof PDFRef) {
+          const pi = annots?.indexOf(popup) ?? -1;
+          if (annots && pi >= 0) annots.remove(pi);
+          doc.context.delete(popup);
+        }
+      }
+    }
   }
 
   // --- 5. forms -------------------------------------------------------------
@@ -653,15 +821,71 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     }
   }
   const valueCount = Object.keys(state.formValues).length;
+  let valuesChanged = 0;
   if (valueCount) {
-    const { font } = await fonts.standard();
-    report.fieldsFilled = fillForm(doc, state.formValues, font).filled;
-    if (report.fieldsFilled < valueCount) {
-      report.lost.push(`${valueCount - report.fieldsFilled} valeur(s) de champ n'ont pas pu être enregistrées.`);
+    const r = fillForm(doc, state.formValues);
+    report.fieldsFilled = r.filled;
+    valuesChanged = r.changed;
+    if (r.skipped.length) {
+      report.lost.push(
+        `Valeur non enregistrée pour ${r.skipped.length} champ(s) : ${r.skipped.slice(0, 5).join(", ")}.`,
+      );
+    }
+    const unknown = valueCount - r.filled - r.skipped.length;
+    if (unknown > 0)
+      report.lost.push(`${unknown} valeur(s) de champ n'ont pas pu être enregistrées (champ absent du fichier).`);
+  }
+  // Appearances: every field this save touched (or pdf.js' own update, when
+  // building on it) is drawn now, in a font that shows its value — the file
+  // never relies on the next viewer (/NeedAppearances), as with Acrobat.
+  // A hybrid XFA form filled through its AcroForm: Acrobat would show the stale XFA data.
+  if ((valuesChanged || report.fieldsCreated || state.fieldEdits.length) && dropHybridXfa(doc)) {
+    report.warnings.push(
+      "Formulaire XFA hybride : la partie XFA a été retirée pour qu'Acrobat affiche les valeurs saisies (mise en page inchangée).",
+    );
+  }
+  if (state.fieldEdits.length) {
+    const r = applyFieldEdits(doc, state.fieldEdits);
+    for (const problem of r.problems) report.lost.push(`Préparation du formulaire : ${problem}.`);
+  }
+  if (valuesChanged || report.fieldsCreated || state.fieldEdits.length || opts.flattenForms || formBase) {
+    try {
+      const ap = await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
+      if (ap.failed.length) {
+        report.warnings.push(
+          `Apparence non dessinée pour ${ap.failed.slice(0, 5).join(", ")} : le lecteur PDF la dessinera (/NeedAppearances).`,
+        );
+      }
+      for (const u of ap.uncovered) {
+        report.warnings.push(
+          `Champ « ${u.field} » : caractère(s) « ${u.chars} » absent(s) des polices disponibles — son affichage est laissé au lecteur PDF.`,
+        );
+      }
+    } catch {
+      report.warnings.push("Apparence des champs non régénérée : le lecteur PDF les redessinera.");
     }
   }
-  if (opts.flattenForms) {
-    if (!flattenForm(doc)) report.lost.push("Aplatissement du formulaire impossible.");
+  // « Nettoyer le document » takes the form fields away too: their values become page content.
+  if (opts.flattenForms || opts.sanitise) {
+    const fr = flattenFields(doc, { printing: opts.forPrint });
+    if (fr.notDrawn.length) {
+      report.lost.push(`Aplatissement : valeur non dessinée pour ${fr.notDrawn.slice(0, 5).join(", ")}.`);
+    }
+  }
+
+  // Printing: annotations that do not print (no Print flag, hidden) are left out.
+  if (opts.forPrint) {
+    for (const page of doc.getPages()) {
+      const annots = page.node.lookup(PDFName.of("Annots"));
+      if (!(annots instanceof PDFArray)) continue;
+      for (let i = annots.size() - 1; i >= 0; i--) {
+        const a = annots.lookup(i);
+        if (!(a instanceof PDFDict)) continue;
+        const f = a.lookup(PDFName.of("F"));
+        const flags = f instanceof PDFNumber ? f.asNumber() : 0;
+        if (!(flags & 4) || flags & 2) annots.remove(i);
+      }
+    }
   }
 
   // --- 6. page marks --------------------------------------------------------
@@ -677,16 +901,11 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
       total: targets.length,
     },
   };
+  const plan = planMarks(state, targets.length);
   for (let i = 0; i < targets.length; i++) {
     const { page } = targets[i];
-    const frame = pageFrame(page);
-    const bates = state.bates.enabled ? batesLabel(state.bates, i) : undefined;
-    await applyWatermark(page, frame, state.watermark, decorateCtx, i, targets.length);
-    await applyBand(page, frame, state.header, true, decorateCtx, i, targets.length, bates);
-    await applyBand(page, frame, state.footer, false, decorateCtx, i, targets.length, bates);
-    if (state.bates.enabled && !state.footer.enabled && !state.header.enabled && bates) {
-      await applyBatesStamp(page, frame, state.bates, bates, decorateCtx);
-    }
+    if (state.stripMarks) stripPageMarks(doc, page);
+    await decoratePage(page, pageFrame(page), i, state, plan, decorateCtx);
   }
 
   // --- 7. outline, labels, metadata ----------------------------------------
@@ -696,19 +915,69 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
   // written from the model.
   if (state.bookmarks && state.bookmarks !== opts.pristineBookmarks) {
     try {
-      writeOutline(doc, toOutlineEntries(state.bookmarks, targets.length));
+      // Bookmark numbers count the model's pages; the file has only those written.
+      const out = new Map(targets.map((t, i) => [t.model.id, i + 1]));
+      const toOutput = (n: number): number | null => {
+        for (let i = n - 1; i < state.pages.length; i++) {
+          const pos = out.get(state.pages[i]?.id ?? "");
+          if (pos) return pos;
+        }
+        return null;
+      };
+      writeOutline(doc, toOutlineEntries(remapBookmarkPages(state.bookmarks, toOutput), targets.length));
     } catch {
       report.lost.push("Les signets n'ont pas pu être écrits.");
     }
   }
-  if (state.pages.some((p) => p.label)) {
+  // Labels follow their pages (the file's, or those set in Elium), then are
+  // written back as ranges for the output order.
+  const untouched =
+    !state.pages.some((p) => p.labelDef) &&
+    targets.length === (fileLabels?.length ?? -1) &&
+    targets.every((t, i) => t.model.from === i);
+  if (!untouched && (fileLabels || state.pages.some((p) => p.labelDef))) {
     try {
       writePageLabels(
         doc,
-        targets.map((t) => t.model.label),
+        targets.map((t) => t.model.labelDef ?? (t.model.from != null ? fileLabels?.[t.model.from] : undefined)),
       );
     } catch {
       report.lost.push("Les numéros de page personnalisés n'ont pas pu être écrits.");
+    }
+  }
+
+  if (state.destEdits) {
+    try {
+      writeDestEdits(doc, state.destEdits, (id) => outputIndex.get(id));
+    } catch {
+      report.lost.push("Les destinations nommées n'ont pas pu être écrites.");
+    }
+  }
+
+  if (state.attachmentEdits) {
+    try {
+      await applyAttachmentEdits(doc, state.attachmentEdits);
+    } catch {
+      report.lost.push("Les modifications des pièces jointes n'ont pas pu être écrites.");
+    }
+  }
+
+  if (state.initialView) {
+    try {
+      // The page it opens on counts the model's pages; the file has only those written.
+      const model = state.pages[state.initialView.openPage - 1];
+      const at = model ? targets.findIndex((t) => t.model.id === model.id) : -1;
+      writeInitialView(doc, state.initialView, Math.max(0, at));
+    } catch {
+      report.lost.push("La vue initiale n'a pas pu être écrite.");
+    }
+  }
+
+  if (state.ocDefaults) {
+    try {
+      writeLayerDefaults(doc, state.ocDefaults);
+    } catch {
+      report.lost.push("La visibilité par défaut des calques n'a pas pu être écrite.");
     }
   }
 
@@ -718,9 +987,14 @@ async function applyState(doc: PDFDocument, state: PdfState, opts: BuildOptions,
     report.lost.push("Les propriétés du document (titre, auteur…) n'ont pas pu être écrites.");
   }
 
-  if (opts.sanitise) {
-    const { removed } = sanitiseDocument(doc);
-    if (removed.length) report.warnings.push(`Assaini : ${removed.join(", ")}.`);
+  const hidden = opts.sanitise ? ALL_HIDDEN_INFO : opts.hiddenInfo;
+  if (hidden) {
+    const { removed } = await removeHiddenInfo(doc, hidden);
+    report.warnings.push(
+      removed.length
+        ? `Informations masquées supprimées : ${removed.join(", ")}.`
+        : "Aucune information masquée à supprimer n'a été trouvée.",
+    );
   }
 }
 
@@ -859,19 +1133,7 @@ function toHex(bytes: Uint8Array): string {
   return s;
 }
 
-function toOutlineEntries(
-  nodes: readonly {
-    title: string;
-    page: number;
-    y?: number;
-    bold?: boolean;
-    italic?: boolean;
-    color?: string;
-    closed?: boolean;
-    children: readonly unknown[];
-  }[],
-  pageCount: number,
-): OutlineEntry[] {
+function toOutlineEntries(nodes: readonly Bookmark[], pageCount: number): OutlineEntry[] {
   const hex = (c?: string) => {
     if (!c) return undefined;
     const h = c.replace("#", "");
@@ -883,11 +1145,17 @@ function toOutlineEntries(
     title: n.title,
     page: Math.max(0, Math.min(pageCount - 1, (n.page || 1) - 1)),
     y: n.y,
+    x: n.x,
+    fit: n.fit,
+    zoom: n.zoom,
     bold: n.bold,
     italic: n.italic,
     color: hex(n.color),
     closed: n.closed,
-    children: toOutlineEntries(n.children as never, pageCount),
+    action: n.action,
+    src: n.src,
+    retargeted: n.retargeted,
+    children: toOutlineEntries(n.children, pageCount),
   }));
 }
 
@@ -916,3 +1184,193 @@ export async function buildFlattened(
 }
 
 export { PDFName };
+
+/**
+ * Layer visibility as the file's default (Acrobat's « Enregistrer la
+ * visibilité actuelle des calques »): the default configuration's /ON and
+ * /OFF lists, /BaseState ON. `vis` is keyed by pdf.js group id ("12R",
+ * "12R3" with a generation).
+ */
+function writeLayerDefaults(doc: PDFDocument, vis: Record<string, boolean>): void {
+  const props = doc.catalog.lookup(PDFName.of("OCProperties"));
+  if (!(props instanceof PDFDict)) return;
+  let d = props.lookup(PDFName.of("D"));
+  if (!(d instanceof PDFDict)) {
+    d = doc.context.obj({});
+    props.set(PDFName.of("D"), d as PDFDict);
+  }
+  const dict = d as PDFDict;
+  // Every group keeps its present default unless `vis` names it (a group the
+  // panel does not list — out of /Order — stays as it was).
+  const key = (r: PDFRef) => `${r.objectNumber} ${r.generationNumber}`;
+  const refsOf = (name: string) => {
+    const a = dict.lookup(PDFName.of(name));
+    return a instanceof PDFArray ? a.asArray().filter((r): r is PDFRef => r instanceof PDFRef) : [];
+  };
+  const baseOff = dict.lookup(PDFName.of("BaseState"))?.toString() === "/OFF";
+  const offNow = new Set(refsOf("OFF").map(key));
+  const onNow = new Set(refsOf("ON").map(key));
+  const all = new Map<string, PDFRef>();
+  const ocgs = props.lookup(PDFName.of("OCGs"));
+  if (ocgs instanceof PDFArray) for (const r of ocgs.asArray()) if (r instanceof PDFRef) all.set(key(r), r);
+  for (const r of [...refsOf("ON"), ...refsOf("OFF")]) all.set(key(r), r);
+  const wanted = new Map<string, boolean>();
+  for (const [id, visible] of Object.entries(vis)) {
+    const m = /^(\d+)R(\d*)$/.exec(id);
+    if (!m) continue;
+    const ref = PDFRef.of(Number(m[1]), m[2] ? Number(m[2]) : 0);
+    if (!(doc.context.lookup(ref) instanceof PDFDict)) continue;
+    all.set(key(ref), ref);
+    wanted.set(key(ref), visible);
+  }
+  const on: PDFRef[] = [];
+  const off: PDFRef[] = [];
+  for (const [k, ref] of all) {
+    const visible = wanted.get(k) ?? (offNow.has(k) ? false : onNow.has(k) ? true : !baseOff);
+    (visible ? on : off).push(ref);
+  }
+  dict.set(PDFName.of("BaseState"), PDFName.of("ON"));
+  dict.set(PDFName.of("ON"), doc.context.obj(on));
+  dict.set(PDFName.of("OFF"), doc.context.obj(off));
+}
+
+/**
+ * The Initial View (Acrobat's Propriétés › Vue initiale): /PageMode,
+ * /PageLayout, /OpenAction to page `pageIndex` (0-based, output) with its
+ * magnification, and the window options of /ViewerPreferences (the other
+ * preferences — print scaling, duplex… — stay as the file has them).
+ */
+function writeInitialView(doc: PDFDocument, v: InitialView, pageIndex: number): void {
+  const cat = doc.catalog;
+  const ctx = doc.context;
+  if (v.pageMode === "UseNone") cat.delete(PDFName.of("PageMode"));
+  else cat.set(PDFName.of("PageMode"), PDFName.of(v.pageMode));
+  if (v.pageLayout === "SinglePage") cat.delete(PDFName.of("PageLayout"));
+  else cat.set(PDFName.of("PageLayout"), PDFName.of(v.pageLayout));
+  const page = doc.getPages()[Math.min(pageIndex, doc.getPageCount() - 1)];
+  if (page && v.openChanged) {
+    const z = v.openZoom;
+    const dest =
+      z === "Fit"
+        ? [page.ref, PDFName.of("Fit")]
+        : z === "FitH"
+          ? [page.ref, PDFName.of("FitH"), null]
+          : z === "FitV"
+            ? [page.ref, PDFName.of("FitV"), null]
+            : [page.ref, PDFName.of("XYZ"), null, null, typeof z === "number" ? z : null];
+    cat.set(PDFName.of("OpenAction"), ctx.obj(dest as never));
+  }
+  let prefs = cat.lookup(PDFName.of("ViewerPreferences"));
+  if (!(prefs instanceof PDFDict)) prefs = ctx.obj({});
+  const p = prefs as PDFDict;
+  const flags: [keyof InitialView, string][] = [
+    ["hideToolbar", "HideToolbar"],
+    ["hideMenubar", "HideMenubar"],
+    ["hideWindowUI", "HideWindowUI"],
+    ["fitWindow", "FitWindow"],
+    ["centerWindow", "CenterWindow"],
+    ["displayDocTitle", "DisplayDocTitle"],
+  ];
+  for (const [key, name] of flags) {
+    if (v[key]) p.set(PDFName.of(name), ctx.obj(true));
+    else p.delete(PDFName.of(name));
+  }
+  if (p.keys().length) cat.set(PDFName.of("ViewerPreferences"), p);
+  else cat.delete(PDFName.of("ViewerPreferences"));
+}
+
+/**
+ * The document's attached files as changed in Elium: removed from the
+ * /EmbeddedFiles name tree, described anew (/Desc of their file
+ * specification), or added. The file's attachments are named by their
+ * position in the tree (`#0`, `#1`… — two may share a name); the tree is
+ * written back sorted, as one leaf.
+ */
+async function applyAttachmentEdits(doc: PDFDocument, edits: AttachmentEdits): Promise<void> {
+  const ctx = doc.context;
+  let names = doc.catalog.lookup(PDFName.of("Names"));
+  const entries = readNameTree(names instanceof PDFDict ? names : undefined, "EmbeddedFiles");
+  const removed = new Set(edits.removed);
+  const kept = entries.filter((e, i) => {
+    if (removed.has(`#${i}`)) return false;
+    const desc = edits.described[`#${i}`];
+    const spec = e.v instanceof PDFRef ? ctx.lookup(e.v) : e.v;
+    if (desc !== undefined && spec instanceof PDFDict) {
+      if (desc) spec.set(PDFName.of("Desc"), PDFHexString.fromText(desc));
+      else spec.delete(PDFName.of("Desc"));
+    }
+    return true;
+  });
+  // One encoding for every key (a UTF-16 key sorts after all ASCII ones): nothing points at these by name.
+  for (const e of kept) e.k = nameKey(e.key);
+  const taken = new Set(kept.map((e) => e.key));
+  for (const a of edits.added) {
+    const m = /^data:[^,]*;base64,(.*)$/s.exec(a.data);
+    if (!m) continue;
+    const bytes = Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0));
+    const now = PDFString.fromDate(new Date());
+    const file = ctx.register(
+      ctx.flateStream(bytes, {
+        Type: "EmbeddedFile",
+        Subtype: PDFName.of(a.mime || "application/octet-stream"),
+        Params: { Size: bytes.length, ModDate: now, CreationDate: now },
+      } as never),
+    );
+    const key = uniqueKey(a.name, taken);
+    taken.add(key);
+    const spec = ctx.register(
+      ctx.obj({
+        Type: "Filespec",
+        F: PDFString.of(a.name.replace(/[^\x20-\x7e]/g, "_")),
+        UF: PDFHexString.fromText(a.name),
+        EF: { F: file, UF: file },
+        ...(a.description ? { Desc: PDFHexString.fromText(a.description) } : {}),
+        AFRelationship: "Unspecified",
+      } as never),
+    );
+    kept.push({ key, k: nameKey(key), v: spec });
+  }
+  if (!(names instanceof PDFDict)) {
+    if (!kept.length) return;
+    names = ctx.obj({});
+    doc.catalog.set(PDFName.of("Names"), names as PDFDict);
+  }
+  writeNameTree(doc, names as PDFDict, "EmbeddedFiles", kept);
+}
+
+/**
+ * Named destinations as changed in Elium: the removed ones leave the catalog's
+ * /Dests and the /Names /Dests tree; the added ones join the tree, written
+ * back sorted (as ISO 32000 requires).
+ */
+function writeDestEdits(doc: PDFDocument, edits: DestEdits, indexOf: (pageId: string) => number | undefined): void {
+  const ctx = doc.context;
+  const removed = new Set([...edits.removed, ...edits.added.map((a) => a.name)]);
+  const dests = doc.catalog.lookup(PDFName.of("Dests"));
+  if (dests instanceof PDFDict) for (const name of removed) dests.delete(PDFName.of(name));
+  let names = doc.catalog.lookup(PDFName.of("Names"));
+  const entries = readNameTree(names instanceof PDFDict ? names : undefined, "Dests").filter(
+    (e) => !removed.has(e.key),
+  );
+  const pages = doc.getPages();
+  for (const a of edits.added) {
+    const at = indexOf(a.pageId);
+    const page = at !== undefined ? pages[at] : undefined;
+    if (!page) continue;
+    const box = page.getCropBox();
+    const dest = ctx.obj([
+      page.ref,
+      PDFName.of("XYZ"),
+      a.x != null ? a.x + box.x : null,
+      a.y != null ? box.y + box.height - a.y : null,
+      a.zoom ?? null,
+    ] as never);
+    entries.push({ key: a.name, k: nameKey(a.name), v: dest });
+  }
+  if (!(names instanceof PDFDict)) {
+    if (!entries.length) return;
+    names = ctx.obj({});
+    doc.catalog.set(PDFName.of("Names"), names as PDFDict);
+  }
+  writeNameTree(doc, names as PDFDict, "Dests", entries);
+}

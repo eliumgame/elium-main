@@ -7,17 +7,19 @@
  * usable shape.
  */
 
+import { withJpegDpi, withPngDpi, writeTiff } from "./imagefile";
 import { zipSync, strToU8 } from "fflate";
 import type { PdfEngine } from "../core/engine";
 import { renderToCanvas, canvasToBlob } from "../core/render";
 import { buildRuns, groupBlocks, groupLines } from "../core/text";
 import type { TextBlock, TextLine } from "../core/text";
+import { xmlSafeText } from "../../format/xml-text";
 
 // ---------------------------------------------------------------------------
 // Images
 // ---------------------------------------------------------------------------
 
-export type ImageFormat = "png" | "jpeg" | "webp";
+export type ImageFormat = "png" | "jpeg" | "webp" | "tiff";
 
 export interface ImageExportOptions {
   format: ImageFormat;
@@ -47,11 +49,23 @@ export async function exportImages(
   for (let i = 0; i < indices.length; i++) {
     const index = indices[i];
     const page = await engine.page(index);
-    const canvas = await renderToCanvas(page, { scale, background: opts.format === "png" ? "#ffffff" : "#ffffff" });
-    const blob = await canvasToBlob(canvas, mime, opts.quality);
+    const canvas = await renderToCanvas(page, { scale, background: "#ffffff" });
+    // The resolution goes into the file: an editor or a printer shows it at its real size.
+    let data: Uint8Array;
+    if (opts.format === "tiff") {
+      const px = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+      data = await writeTiff(
+        { width: canvas.width, height: canvas.height, rgba: new Uint8Array(px.data.buffer) },
+        opts.dpi,
+      );
+    } else {
+      data = new Uint8Array(await (await canvasToBlob(canvas, mime, opts.quality)).arrayBuffer());
+      if (opts.format === "png") data = withPngDpi(data, opts.dpi);
+      if (opts.format === "jpeg") data = withJpegDpi(data, opts.dpi);
+    }
     out.push({
-      name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format}`,
-      blob,
+      name: `${baseName}-${String(index + 1).padStart(3, "0")}.${opts.format === "jpeg" ? "jpg" : opts.format === "tiff" ? "tif" : opts.format}`,
+      blob: new Blob([data.slice().buffer as ArrayBuffer], { type: mime }),
       page: index,
     });
     opts.onProgress?.(i + 1, indices.length);
@@ -85,8 +99,9 @@ export async function extractLayout(
   for (let i = 0; i < engine.pageCount; i++) {
     const page = await engine.page(i);
     const vp = page.getViewport({ scale: 1, rotation: 0 });
-    const tc = await engine.text(i);
-    const runs = buildRuns(tc, vp.transform as unknown as number[]);
+    const [tc, fonts] = await Promise.all([engine.text(i), engine.fonts(i)]);
+    // Real fonts: bold / italic survive into the Word export.
+    const runs = buildRuns(tc, vp.transform as unknown as number[], fonts);
     const lines = groupLines(runs, tc.items);
     out.push({ page: i, lines, blocks: groupBlocks(lines) });
     onProgress?.(i + 1, engine.pageCount);
@@ -94,23 +109,28 @@ export async function extractLayout(
   return out;
 }
 
+/**
+ * A block's text as one string. Characters no text file or XML part should
+ * hold (C0 controls but tab / LF / CR, U+FFFE / U+FFFF, lone surrogates — a
+ * broken ToUnicode map yields them) are dropped.
+ */
+const blockText = (b: TextBlock) => xmlSafeText(b.lines.map((l) => l.text).join(" "));
+
 export function toPlainText(pages: readonly PageText[], separator = "\n\n"): string {
   // A form feed between pages is the convention text tools expect.
   return pages
-    .map((p) => p.blocks.map((b) => b.lines.map((l) => l.text).join(" ")).join(separator))
+    .map((p) => p.blocks.map(blockText).join(separator))
     .join("\n\f\n")
     .trim();
 }
 
 /** Plain text with an explicit page marker between pages. */
 export function toPlainTextWithMarkers(pages: readonly PageText[]): string {
-  return pages
-    .map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map((b) => b.lines.map((l) => l.text).join(" ")).join("\n\n")}`)
-    .join("\n\n");
+  return pages.map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map(blockText).join("\n\n")}`).join("\n\n");
 }
 
 const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  xmlSafeText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Reconstructed HTML: paragraphs, headings inferred from relative size. */
 export function toHtml(pages: readonly PageText[], title: string): string {
@@ -120,7 +140,7 @@ export function toHtml(pages: readonly PageText[], title: string): string {
   for (const p of pages) {
     parts.push(`<section class="page" data-page="${p.page + 1}">`);
     for (const b of p.blocks) {
-      const text = escapeHtml(b.lines.map((l) => l.text).join(" ")).trim();
+      const text = escapeHtml(blockText(b)).trim();
       if (!text) continue;
       const ratio = b.fontSize / body;
       const tag = ratio >= 1.7 ? "h1" : ratio >= 1.35 ? "h2" : ratio >= 1.15 ? "h3" : "p";
@@ -162,7 +182,12 @@ const DOCX_DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
 
 const escapeXml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  xmlSafeText(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 
 /**
  * Build a .docx from the extracted layout. Paragraphs keep their alignment,
@@ -240,12 +265,16 @@ export function detectTables(pages: readonly PageText[], minRows = 3): DetectedT
       if (group.length >= minRows) {
         const columns = columnEdges(group);
         if (columns.length >= 2) {
-          out.push({ page: p.page, rows: group.map((l) => splitByColumns(l, columns)) });
+          const rows = group.map((l) => splitByColumns(l, columns));
+          // Two columns of running text are not a table: table cells are short.
+          const cells = rows.flat().filter(Boolean);
+          const mean = cells.reduce((n, c) => n + c.length, 0) / Math.max(1, cells.length);
+          if (mean <= 28) out.push({ page: p.page, rows });
         }
       }
       group = [];
     };
-    for (const line of p.lines) {
+    for (const line of rowsOf(p.lines)) {
       const gaps = countGaps(line);
       if (gaps >= 1) {
         const prev = group[group.length - 1];
@@ -261,6 +290,32 @@ export function detectTables(pages: readonly PageText[], minRows = 3): DetectedT
     flush();
   }
   return out;
+}
+
+/**
+ * Page lines rejoined into visual rows: the layout splits a line at wide gaps
+ * (columns of a table are separate lines there), a table row is all of them.
+ */
+function rowsOf(lines: readonly TextLine[]): TextLine[] {
+  const horizontal = lines.filter((l) => Math.abs(l.angle) < 1);
+  const sorted = [...horizontal].sort((a, b) => a.origin.y - b.origin.y || a.origin.x - b.origin.x);
+  const rows: TextLine[][] = [];
+  for (const l of sorted) {
+    const row = rows[rows.length - 1];
+    const ref = row?.[0];
+    if (ref && Math.abs(l.origin.y - ref.origin.y) < Math.max(ref.fontSize, l.fontSize) * 0.4) row!.push(l);
+    else rows.push([l]);
+  }
+  return rows.map((row) => {
+    if (row.length === 1) return row[0]!;
+    const parts = [...row].sort((a, b) => a.origin.x - b.origin.x);
+    return {
+      ...parts[0]!,
+      runs: parts.flatMap((p) => p.runs),
+      text: parts.map((p) => p.text).join(" "),
+      fontSize: Math.max(...parts.map((p) => p.fontSize)),
+    };
+  });
 }
 
 function countGaps(line: TextLine): number {
@@ -307,8 +362,24 @@ function splitByColumns(line: TextLine, columns: readonly number[]): string[] {
   return cells.map((c) => c.trim());
 }
 
+/** A number as printed: « -2 », « -12,50 », « +1 234.5 », « 12 % » — kept as it is in a CSV. */
+const PLAIN_NUMBER = /^[-+]?\d[\d \u00a0\u202f.,']*%?$/;
+
+/**
+ * A CSV cell a spreadsheet will not run: text starting with « = + - @ », a tab
+ * or a carriage return is read as a formula by Excel / LibreOffice (« CSV
+ * injection »), so it gets a leading apostrophe — plain numbers excepted.
+ */
+export function csvSafeCell(value: string): string {
+  const s = xmlSafeText(value);
+  return /^[=+\-@\t\r]/.test(s) && !PLAIN_NUMBER.test(s) ? `'${s}` : s;
+}
+
 export function tablesToCsv(tables: readonly DetectedTable[]): string {
-  const esc = (s: string) => (/[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const esc = (value: string) => {
+    const s = csvSafeCell(value);
+    return /["\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
   return tables
     .map((t) => `# Page ${t.page + 1}\r\n${t.rows.map((r) => r.map(esc).join(";")).join("\r\n")}`)
     .join("\r\n\r\n");

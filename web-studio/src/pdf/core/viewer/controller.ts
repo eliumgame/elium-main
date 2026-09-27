@@ -21,7 +21,7 @@
  *    the visible rectangle of every page on screen.
  */
 
-import { AnnotationMode } from "pdfjs-dist";
+import { pdfjs } from "../pdfjs";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { PdfEngine } from "../engine";
 import { pdfjsAssetBase } from "../assets";
@@ -361,7 +361,7 @@ export class PageViewController {
       // Form fields are live HTML controls (pdf.js' form layer, filled into
       // the annotationStorage); every other appearance is painted on the
       // canvas. The HTML layer also carries the link areas.
-      annotationMode: AnnotationMode.ENABLE_FORMS,
+      annotationMode: pdfjs.AnnotationMode.ENABLE_FORMS,
       imageResourcesPath: this.imageResourcesPath,
       enableDetailCanvas: true,
       maxCanvasPixels: budget.maxCanvasPixels,

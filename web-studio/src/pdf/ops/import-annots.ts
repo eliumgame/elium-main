@@ -11,6 +11,8 @@ import { zlibSync } from "fflate";
 import type { Pt, Quad, Rect } from "../core/coords";
 import { rectOfPoints, rectOfQuads } from "../core/coords";
 import { concat, parseContentStream } from "../core/contentstream";
+import { stampByName } from "../model/stamps";
+import { newAnnotName, safeMime } from "./annotids";
 import type { Annot, AnnotKind, BorderStyle, LineEnding, Reply, ReviewStatus } from "../model/types";
 import { newId } from "../model/types";
 import { bytesToBase64 } from "../model/persist";
@@ -40,6 +42,11 @@ export interface RawAnnotation {
   name?: string;
   inReplyTo?: string;
   replyType?: string;
+  /** What pdf-lib read from the file on top (`resolveAnnotExtras`). */
+  extras?: AnnotExtras;
+  /** A `/Text` state reply: `/StateModel` (Review, Marked) and `/State`. */
+  state?: string | null;
+  stateModel?: string | null;
   fieldType?: string;
   it?: string;
   defaultAppearanceData?: { fontSize?: number; fontColor?: Uint8ClampedArray | number[] };
@@ -278,10 +285,59 @@ export async function resolveStampAppearanceImages(
   sourceBytes: Uint8Array,
   password?: string | null,
 ): Promise<Map<number, Map<string, AppearanceImage>>> {
-  const byPage = new Map<number, Map<string, AppearanceImage>>();
+  const out = new Map<number, Map<string, AppearanceImage>>();
+  for (const [page, extras] of await resolveAnnotExtras(sourceBytes, password)) {
+    const images = new Map<string, AppearanceImage>();
+    for (const [id, x] of extras) if (x.appearanceImage) images.set(id, x.appearanceImage);
+    if (images.size) out.set(page, images);
+  }
+  return out;
+}
+
+/** What pdf.js' `getAnnotations()` leaves out, read from the file itself. */
+export interface AnnotExtras {
+  appearanceImage?: AppearanceImage;
+  /** `/Name` (stamps, attachments) and `/Subj`: pdf.js drops them for stamps. */
+  name?: string;
+  subject?: string;
+  nm?: string;
+  rc?: string;
+  open?: boolean;
+  overlayText?: string;
+  /** Redact `/IC` (the fill of the applied box), 0–1 RGB. */
+  interior?: number[];
+  /** `/RD`: the shape's box inside the /Rect (left, top, right, bottom). */
+  rd?: number[];
+  /** `/IT` (FreeTextCallout, LineDimension…): pdf.js never passes it on. */
+  it?: string;
+  /** A file attachment's file (/FS → /EF), as a data URL, with its name and type. */
+  file?: { name: string; mime: string; data: string; description?: string };
+  /** A callout's `/CL` line (PDF user space, tip first). */
+  cl?: number[];
+  /** `/LE` of a callout (one name). */
+  le?: string;
+}
+
+/**
+ * The extras of every annotation, per 0-based page, keyed like pdf.js' ids
+ * ("12R", "12R3"). One parse of the document with pdf-lib (see above for the
+ * stamp pictures). Best effort: a failure leaves annotations out of the map.
+ */
+export async function resolveAnnotExtras(
+  sourceBytes: Uint8Array,
+  password?: string | null,
+): Promise<Map<number, Map<string, AnnotExtras>>> {
+  const byPage = new Map<number, Map<string, AnnotExtras>>();
   try {
     const pdfLib = await import("pdf-lib");
-    const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef } = pdfLib;
+    const { PDFDocument, PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString, PDFHexString } =
+      pdfLib;
+    const text = (v: unknown): string | undefined =>
+      v instanceof PDFName
+        ? v.decodeText()
+        : v instanceof PDFString || v instanceof PDFHexString
+          ? v.decodeText()
+          : undefined;
 
     let bytes = sourceBytes;
     if (password) {
@@ -294,59 +350,157 @@ export async function resolveStampAppearanceImages(
       updateMetadata: false,
     });
 
+    const stampImage = (annotDict: import("pdf-lib").PDFDict): AppearanceImage | null => {
+      const ap = annotDict.lookup(PDFName.of("AP"));
+      if (!(ap instanceof PDFDict)) return null;
+      let n = ap.lookup(PDFName.of("N"));
+      if (n instanceof PDFDict) {
+        // A dictionary of named appearance states — pick the active one.
+        const as = annotDict.lookup(PDFName.of("AS"));
+        n = as instanceof PDFName ? n.lookup(as) : undefined;
+      }
+      if (!(n instanceof PDFRawStream)) return null;
+      const subtype = pdfName(n.dict, "Subtype", PDFName);
+      const imgStream = subtype === "Image" ? n : subtype === "Form" ? findPaintedImage(n, pdfLib, 0) : null;
+      if (!imgStream) return null;
+      const width = pdfNumber(imgStream.dict, "Width", PDFName, PDFNumber);
+      const height = pdfNumber(imgStream.dict, "Height", PDFName, PDFNumber);
+      if (!width || !height) return null;
+      const resolved = readImageBytes(imgStream, pdfLib);
+      if (!resolved) return null;
+      return {
+        bytes: resolved.bytes,
+        filter: resolved.filter,
+        width,
+        height,
+        colorSpace: pdfName(imgStream.dict, "ColorSpace", PDFName) ?? null,
+        bitsPerComponent: pdfNumber(imgStream.dict, "BitsPerComponent", PDFName, PDFNumber) ?? null,
+      };
+    };
+
     const pages = doc.getPages();
     for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       const annotsArr = pages[pageIndex].node.Annots();
       if (!(annotsArr instanceof PDFArray)) continue;
-      let pageMap: Map<string, AppearanceImage> | null = null;
+      let pageMap: Map<string, AnnotExtras> | null = null;
 
       for (let i = 0; i < annotsArr.size(); i++) {
         const ref = annotsArr.get(i);
         if (!(ref instanceof PDFRef)) continue;
         const annotDict = annotsArr.lookup(i);
         if (!(annotDict instanceof PDFDict)) continue;
-        if (pdfName(annotDict, "Subtype", PDFName) !== "Stamp") continue;
-
-        const ap = annotDict.lookup(PDFName.of("AP"));
-        if (!(ap instanceof PDFDict)) continue;
-        let n = ap.lookup(PDFName.of("N"));
-        if (n instanceof PDFDict) {
-          // A dictionary of named appearance states — pick the active one.
-          const as = annotDict.lookup(PDFName.of("AS"));
-          n = as instanceof PDFName ? n.lookup(as) : undefined;
+        const extras: AnnotExtras = {};
+        const name = text(annotDict.lookup(PDFName.of("Name")));
+        const subject = text(annotDict.lookup(PDFName.of("Subj")));
+        if (name) extras.name = name;
+        if (subject) extras.subject = subject;
+        const nm = text(annotDict.lookup(PDFName.of("NM")));
+        if (nm) extras.nm = nm;
+        const rc = annotDict.lookup(PDFName.of("RC"));
+        const rcText =
+          rc instanceof PDFRawStream ? new TextDecoder().decode(pdfLib.decodePDFRawStream(rc).decode()) : text(rc);
+        if (rcText) extras.rc = rcText;
+        // A pop-up's /Open, on its parent.
+        const popup = annotDict.lookup(PDFName.of("Popup"));
+        const open = (popup instanceof PDFDict ? popup : annotDict).lookup(PDFName.of("Open"));
+        if (open instanceof pdfLib.PDFBool) extras.open = open.asBoolean();
+        const overlay = text(annotDict.lookup(PDFName.of("OverlayText")));
+        if (overlay) extras.overlayText = overlay;
+        const it = text(annotDict.lookup(PDFName.of("IT")));
+        if (it) extras.it = it;
+        const cl = annotDict.lookup(PDFName.of("CL"));
+        if (cl instanceof PDFArray && cl.size() >= 4) {
+          extras.cl = cl.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
         }
-        if (!(n instanceof PDFRawStream)) continue;
-
-        const subtype = pdfName(n.dict, "Subtype", PDFName);
-        const imgStream = subtype === "Image" ? n : subtype === "Form" ? findPaintedImage(n, pdfLib, 0) : null;
-        if (!imgStream) continue;
-
-        const width = pdfNumber(imgStream.dict, "Width", PDFName, PDFNumber);
-        const height = pdfNumber(imgStream.dict, "Height", PDFName, PDFNumber);
-        if (!width || !height) continue;
-        const resolved = readImageBytes(imgStream, pdfLib);
-        if (!resolved) continue;
-
+        const le = annotDict.lookup(PDFName.of("LE"));
+        if (le instanceof PDFName) extras.le = le.decodeText();
+        const fs = annotDict.lookup(PDFName.of("FS"));
+        if (fs instanceof PDFDict) {
+          try {
+            const ef = fs.lookup(PDFName.of("EF"));
+            const stream = ef instanceof PDFDict ? (ef.lookup(PDFName.of("UF")) ?? ef.lookup(PDFName.of("F"))) : null;
+            if (stream instanceof PDFRawStream) {
+              const mime = safeMime(text(stream.dict.lookup(PDFName.of("Subtype"))));
+              const name = text(fs.lookup(PDFName.of("UF"))) || text(fs.lookup(PDFName.of("F"))) || "fichier";
+              const description = text(fs.lookup(PDFName.of("Desc")));
+              const key = ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
+              // A large file stays in the source PDF (the save reuses it): not
+              // decoded on the main thread, nor carried in the state and history.
+              let data = "";
+              if (stream.contents.length <= ATTACHMENT_INLINE_MAX) {
+                const bytes = pdfLib.decodePDFRawStream(stream).decode();
+                let bin = "";
+                for (let k = 0; k < bytes.length; k += 0x8000)
+                  bin += String.fromCharCode(...bytes.subarray(k, k + 0x8000));
+                data = `data:${mime};base64,${btoa(bin)}`;
+              }
+              extras.file = {
+                name: name.split(/[\\/]/).pop() || name,
+                mime,
+                data,
+                ...(data ? {} : { source: key }),
+                ...(description ? { description } : {}),
+              };
+            }
+          } catch {
+            /* an unreadable file: the attachment keeps what pdf.js gave */
+          }
+        }
+        const rd = annotDict.lookup(PDFName.of("RD"));
+        if (rd instanceof PDFArray && rd.size() === 4) {
+          extras.rd = rd.asArray().map((v) => (v instanceof PDFNumber ? Math.max(0, v.asNumber()) : 0));
+        }
+        const ic = annotDict.lookup(PDFName.of("IC"));
+        if (ic instanceof PDFArray && ic.size() === 3) {
+          extras.interior = ic.asArray().map((v) => (v instanceof PDFNumber ? v.asNumber() : 0));
+        }
+        if (pdfName(annotDict, "Subtype", PDFName) === "Stamp") {
+          try {
+            const img = stampImage(annotDict);
+            if (img) extras.appearanceImage = img;
+          } catch {
+            /* this stamp keeps the labelled-box fallback */
+          }
+        }
+        if (!Object.keys(extras).length) continue;
         const key = ref.generationNumber ? `${ref.objectNumber}R${ref.generationNumber}` : `${ref.objectNumber}R`;
-        (pageMap ??= new Map()).set(key, {
-          bytes: resolved.bytes,
-          filter: resolved.filter,
-          width,
-          height,
-          colorSpace: pdfName(imgStream.dict, "ColorSpace", PDFName) ?? null,
-          bitsPerComponent: pdfNumber(imgStream.dict, "BitsPerComponent", PDFName, PDFNumber) ?? null,
-        });
+        (pageMap ??= new Map()).set(key, extras);
       }
 
       if (pageMap) byPage.set(pageIndex, pageMap);
     }
   } catch {
-    /* best effort — every page's stamps keep the labelled-box fallback */
+    /* best effort — annotations keep what pdf.js gave */
   }
   return byPage;
 }
 
+/** `raw` with the extras of the same annotations (pdf.js' own values win). */
+export function withExtras(
+  raw: readonly RawAnnotation[],
+  extras: Map<string, AnnotExtras> | undefined,
+): RawAnnotation[] {
+  if (!extras?.size) return raw.slice();
+  return raw.map((a) => {
+    const x = a.id ? extras.get(a.id) : undefined;
+    if (!x) return a;
+    return {
+      ...a,
+      appearanceImage: a.appearanceImage ?? x.appearanceImage,
+      name: a.name ?? x.name,
+      subject: a.subject || x.subject,
+      it: a.it ?? x.it,
+      extras: x,
+    };
+  });
+}
+
+/** Attachments up to this size (encoded) are copied into the model; larger ones stay in the source. */
+const ATTACHMENT_INLINE_MAX = 4 * 1024 * 1024;
+
 const KIND: Record<string, AnnotKind> = {
+  Caret: "caret",
+  FileAttachment: "attachment",
   Highlight: "highlight",
   Underline: "underline",
   StrikeOut: "strikeout",
@@ -420,6 +574,20 @@ const flip =
   (f: Frame) =>
   (x: number, y: number): Pt => ({ x: x - f.x, y: f.y + f.h - y });
 
+/** The /Rect less its /RD (PDF [x0 y0 x1 y1]); the /Rect itself when that makes no sense. */
+function insetRect(raw: number[] | undefined, rd: number[] | undefined): number[] | undefined {
+  if (!raw || raw.length < 4 || !rd) return raw;
+  const [x0, y0, x1, y1] = [
+    Math.min(raw[0], raw[2]),
+    Math.min(raw[1], raw[3]),
+    Math.max(raw[0], raw[2]),
+    Math.max(raw[1], raw[3]),
+  ];
+  const [l, t, r, b] = rd;
+  if (l + r >= x1 - x0 || t + b >= y1 - y0) return raw;
+  return [x0 + l, y0 + b, x1 - r, y1 - t];
+}
+
 function rectFrom(raw: number[] | undefined, frame: Frame): Rect {
   if (!raw || raw.length < 4) return { x: 0, y: 0, w: 0, h: 0 };
   const x1 = Math.min(raw[0], raw[2]);
@@ -477,6 +645,9 @@ export function importPageAnnots(
   const annots: Annot[] = [];
   const replies: { parent: string; reply: Reply }[] = [];
   let skipped = 0;
+  const owned = ownedAnnotations(linksOfRaw(raw));
+  const marks: { parent: string; checked: boolean; when: string }[] = [];
+  const pdfjsId = new Map(raw.filter((a) => a.id).map((a) => [keyOfPdfjsId(a.id), a.id!]));
 
   for (const a of raw) {
     const subtype = a.subtype ?? "";
@@ -484,7 +655,9 @@ export function importPageAnnots(
     // the little windows attached to a parent comment.
     if (subtype === "Widget" || subtype === "Popup" || subtype === "Link") continue;
     const kind = KIND[subtype];
-    if (!kind) {
+    const root = a.id ? owned.get(keyOfPdfjsId(a.id)) : undefined;
+    // Not the model's (see `ownedAnnotations`): stays in the file, drawn by pdf.js.
+    if (!kind || !root) {
       skipped++;
       continue;
     }
@@ -496,10 +669,22 @@ export function importPageAnnots(
 
     // A reply carries `/IRT`; attach it to its parent instead of showing a
     // second icon on the page.
-    if (a.inReplyTo) {
+    const isGroupMember = !!a.inReplyTo && a.replyType === "Group";
+    if (a.inReplyTo && !isGroupMember && a.stateModel === "Marked") {
+      // Acrobat's checkmark: a state of the comment, not a line of its thread.
+      marks.push({ parent: pdfjsId.get(root) ?? a.inReplyTo, checked: a.state === "Marked", when: modified });
+      continue;
+    }
+    if (a.inReplyTo && !isGroupMember) {
       replies.push({
-        parent: a.inReplyTo,
-        reply: { id: a.id || newId("rp"), author, text: contents, createdAt: created },
+        parent: pdfjsId.get(root) ?? a.inReplyTo,
+        reply: {
+          id: a.id || newId("rp"),
+          author,
+          text: contents,
+          createdAt: created,
+          ...(a.stateModel === "Review" && a.state ? { status: REVIEW_STATE[a.state] ?? "none" } : {}),
+        },
       });
       continue;
     }
@@ -508,7 +693,7 @@ export function importPageAnnots(
       id: a.id || newId("an"),
       pageId,
       kind,
-      rect: rectFrom(a.rect, frame),
+      rect: rectFrom(insetRect(a.rect, a.extras?.rd), frame),
       color: hex(a.color, kind === "highlight" ? "#ffd400" : "#e11d48"),
       fill: a.interiorColor ? hex(a.interiorColor, "#ffffff") : null,
       opacity: typeof a.opacity === "number" ? a.opacity : 1,
@@ -525,6 +710,11 @@ export function importPageAnnots(
       locked: !!((a.annotationFlags ?? 0) & 128),
       hidden: !!((a.annotationFlags ?? 0) & 2),
     };
+    if (isGroupMember) {
+      // pdf.js hands a group member its parent's text and author: they are the Caret's.
+      annot.group = a.inReplyTo;
+      annot.contents = undefined;
+    }
 
     switch (kind) {
       case "highlight":
@@ -577,11 +767,29 @@ export function importPageAnnots(
         annot.color = hex(a.defaultAppearanceData?.fontColor, "#0f172a");
         annot.textBg = a.color ? hex(a.color, "#ffffff") : null;
         annot.strokeWidth = a.borderStyle?.width ?? 0;
-        if (a.it === "FreeTextCallout") annot.kind = "callout";
+        if (a.it === "FreeTextCallout") {
+          annot.kind = "callout";
+          if (a.extras?.cl) annot.callout = pointsFrom(a.extras.cl, frame);
+          const end = a.extras?.le ? LINE_ENDING[a.extras.le] : undefined;
+          if (end) annot.lineEnd = end;
+        } else if (a.it === "FreeTextTypeWriter") annot.kind = "typewriter";
         break;
       }
+      case "attachment":
+        annot.rect = { ...annot.rect, w: 20, h: 20 };
+        if (a.extras?.file) annot.file = a.extras.file;
+        {
+          const icon = a.extras?.name ?? a.name;
+          if (icon) annot.icon = icon;
+        }
+        break;
       case "note":
         annot.rect = { ...annot.rect, w: 20, h: 20 };
+        {
+          // pdf.js says « NoIcon » for a note with an appearance: the file's /Name wins.
+          const icon = a.extras?.name ?? a.name;
+          if (icon && NOTE_ICONS.has(icon)) annot.icon = icon;
+        }
         break;
       case "redact":
         // pdf.js hands /Redact over as a base annotation (no /IC, no overlay
@@ -590,6 +798,14 @@ export function importPageAnnots(
         annot.fill = "#000000";
         annot.strokeWidth = 0;
         annot.opacity = 1;
+        if (a.extras?.overlayText) annot.redactText = a.extras.overlayText;
+        if (a.extras?.interior) {
+          const c = a.extras.interior;
+          annot.redactFill = hex(
+            c.map((v) => Math.round(v * 255)),
+            "#000000",
+          );
+        }
         break;
       case "stamp": {
         // pdf.js paints the appearance stream itself — but only as long as
@@ -599,7 +815,13 @@ export function importPageAnnots(
         // and once by Elium). From that point on the picture has to live in
         // the model, or it simply never appears again. `stampLabel` stays as
         // a fallback (and for genuinely text-only stamps).
-        annot.stampLabel = a.name || a.subject || "TAMPON";
+        // A library stamp (Acrobat's or Elium's) comes back as that entry.
+        const def = stampByName(a.name);
+        annot.stampLabel = def?.label || a.subject || a.name || "TAMPON";
+        if (def) {
+          annot.stampTone = def.tone;
+          annot.stampName = a.name;
+        }
         if (a.appearanceImage) {
           const src = stampImageDataUrl(a.appearanceImage);
           if (src) annot.src = src;
@@ -610,6 +832,19 @@ export function importPageAnnots(
         break;
     }
 
+    // What the model does not edit but the file said: written back on rewrite.
+    const flags = a.annotationFlags;
+    const keep: NonNullable<Annot["pdf"]> = {};
+    // Its own unique name: pdf.js' « 12R » must never travel as one (see annotids.ts).
+    keep.nm = a.extras?.nm ?? newAnnotName();
+    if (typeof flags === "number") keep.flags = flags;
+    if (typeof a.extras?.open === "boolean") keep.open = a.extras.open;
+    if (a.extras?.rc) {
+      keep.rc = a.extras.rc;
+      keep.rcFor = annot.text ?? annot.contents ?? "";
+    }
+    if (Object.keys(keep).length) annot.pdf = keep;
+
     annots.push(annot);
   }
 
@@ -618,25 +853,110 @@ export function importPageAnnots(
     if (target) target.replies = [...(target.replies ?? []), reply];
     else skipped++;
   }
+  // The latest checkmark state wins.
+  marks.sort((x, y) => x.when.localeCompare(y.when));
+  for (const m of marks) {
+    const target = annots.find((a) => a.id === m.parent);
+    if (target) target.checked = m.checked;
+  }
+  // The comment's status is its latest review action.
+  for (const a of annots) {
+    if (!a.replies?.length) continue;
+    a.replies.sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+    const last = [...a.replies].reverse().find((r) => r.status);
+    if (last?.status) a.status = last.status;
+  }
 
   return { annots, skipped };
+}
+
+/** Sticky-note icons of ISO 32000 (`/Name` of a Text annotation). */
+export const NOTE_ICONS = new Set(["Comment", "Key", "Note", "Help", "NewParagraph", "Paragraph", "Insert"]);
+
+const REVIEW_STATE: Record<string, ReviewStatus> = {
+  None: "none",
+  Accepted: "accepted",
+  Rejected: "rejected",
+  Cancelled: "cancelled",
+  Completed: "completed",
+};
+
+/** One annotation of a page, as `ownedAnnotations` needs it (keys: "num gen"). */
+export interface AnnotLink {
+  key: string;
+  subtype: string;
+  /** `/IRT`, `/RT` ("R" when absent), `/Parent` (pop-ups). */
+  irt?: string | null;
+  rt?: string | null;
+  parent?: string | null;
+}
+
+/** pdf.js' annotation id ("12R", "12R3") as a "num gen" key. */
+export function keyOfPdfjsId(id: string | null | undefined): string {
+  const m = /^(\d+)R(\d*)$/.exec(id ?? "");
+  // Anything else (synthetic ids) is its own key.
+  return m ? `${m[1]} ${m[2] || "0"}` : (id ?? "");
+}
+
+/**
+ * What Elium's model takes over from a page's annotations — the one rule the
+ * import, the save and the viewer share:
+ * - a modelled subtype (markup, notes, shapes, stamps, Caret, FileAttachment…)
+ *   that is not in reply to anything (a comment);
+ * - a modelled member (`/RT /Group`) of such a comment's group — the strike-out
+ *   of Acrobat's « Remplacer le texte » —, as its own annotation;
+ * - a `/Text` reply (`/RT /R`) whose thread leads back to such a comment
+ *   (replies to replies are folded into the thread);
+ * - the pop-up of anything owned.
+ * Everything else — subtypes not modelled (Sound, Movie, 3D…), a reply to
+ * something not owned, their pop-ups — is left in the file as it is and
+ * painted by pdf.js.
+ *
+ * Returns each owned key with the comment it belongs to (itself for a root).
+ */
+export function ownedAnnotations(links: readonly AnnotLink[]): Map<string, string> {
+  const byKey = new Map(links.map((l) => [l.key, l]));
+  const owned = new Map<string, string>();
+  const rootOf = (l: AnnotLink, seen: Set<string>): string | null => {
+    if (seen.has(l.key)) return null;
+    seen.add(l.key);
+    if (!l.irt) return KIND[l.subtype] ? l.key : null;
+    // A group member (the strike-out of « Remplacer le texte ») of a comment
+    // the model owns: its own annotation, tied to that comment.
+    if (l.rt === "Group") {
+      const parent = byKey.get(l.irt);
+      return KIND[l.subtype] && parent && !parent.irt && KIND[parent.subtype] ? l.key : null;
+    }
+    if (l.subtype !== "Text" || (l.rt && l.rt !== "R")) return null;
+    const parent = byKey.get(l.irt);
+    return parent ? rootOf(parent, seen) : null;
+  };
+  for (const l of links) {
+    if (l.subtype === "Popup" || l.subtype === "Widget" || l.subtype === "Link") continue;
+    const root = rootOf(l, new Set());
+    if (root) owned.set(l.key, root);
+  }
+  for (const l of links) {
+    if (l.subtype === "Popup" && l.parent && owned.has(l.parent)) owned.set(l.key, owned.get(l.parent)!);
+  }
+  return owned;
+}
+
+/** The ownership links of pdf.js' `getAnnotations()` data. */
+export function linksOfRaw(raw: readonly RawAnnotation[]): AnnotLink[] {
+  return raw
+    .filter((a) => a.id)
+    .map((a) => ({
+      key: keyOfPdfjsId(a.id),
+      subtype: a.subtype ?? "",
+      irt: a.inReplyTo ? keyOfPdfjsId(a.inReplyTo) : null,
+      rt: a.replyType ?? null,
+    }));
 }
 
 /** True when a page carries markup worth importing (cheap pre-check). */
 export function hasImportableAnnots(raw: readonly RawAnnotation[]): boolean {
   return raw.some((a) => a.subtype && KIND[a.subtype]);
-}
-
-/** Subtypes that were imported into the model and must not be written twice. */
-const IMPORTED_SUBTYPES = new Set([...Object.keys(KIND), "Popup"]);
-
-/**
- * True for an annotation subtype the model takes over once imported — the set
- * the export strips (`stripImportedAnnots`) and the viewer stops pdf.js from
- * painting (`core/viewer/annotmask.ts`), so both always agree.
- */
-export function isImportedSubtype(subtype: string | undefined): boolean {
-  return !!subtype && IMPORTED_SUBTYPES.has(subtype);
 }
 
 /**
@@ -651,44 +971,72 @@ export function isImportedSubtype(subtype: string | undefined): boolean {
 export async function stripImportedAnnots(
   page: import("pdf-lib").PDFPage,
   keep: ReadonlySet<string> = new Set(),
-): Promise<number> {
+): Promise<StripResult> {
   const { PDFArray, PDFDict, PDFName, PDFRef } = await import("pdf-lib");
+  const result: StripResult = { removed: 0, dependents: new Map() };
   const annots = page.node.Annots();
-  if (!(annots instanceof PDFArray)) return 0;
+  if (!(annots instanceof PDFArray)) return result;
   const key = (r: unknown) => (r instanceof PDFRef ? `${r.objectNumber} ${r.generationNumber}` : "");
+  const nameOf = (v: unknown) => (v instanceof PDFName ? v.asString().replace(/^\//, "") : null);
 
-  // Replies (and replies to replies) of a kept annotation are kept with it,
-  // then the pop-ups of everything kept.
-  const kept = new Set(keep);
-  if (kept.size) {
-    for (let grew = true; grew;) {
-      grew = false;
-      for (let i = 0; i < annots.size(); i++) {
-        const dict = annots.lookup(i);
-        const k = key(annots.get(i));
-        if (!(dict instanceof PDFDict) || !k || kept.has(k)) continue;
-        const irt = key(dict.get(PDFName.of("IRT")));
-        const parent = key(dict.get(PDFName.of("Parent")));
-        if ((irt && kept.has(irt)) || (parent && kept.has(parent))) {
-          kept.add(k);
-          grew = true;
-        }
-      }
-    }
-  }
-
-  let removed = 0;
-  for (let i = annots.size() - 1; i >= 0; i--) {
+  const entries: { ref: unknown; dict: import("pdf-lib").PDFDict; link: AnnotLink }[] = [];
+  for (let i = 0; i < annots.size(); i++) {
     const ref = annots.get(i);
     const dict = annots.lookup(i);
-    if (!(dict instanceof PDFDict)) continue;
-    const sub = dict.lookup(PDFName.of("Subtype"));
-    const name = sub instanceof PDFName ? sub.asString().replace(/^\//, "") : "";
-    if (!IMPORTED_SUBTYPES.has(name)) continue;
-    if (kept.has(key(ref))) continue;
+    const k = key(ref);
+    if (!(dict instanceof PDFDict) || !k) continue;
+    entries.push({
+      ref,
+      dict,
+      link: {
+        key: k,
+        subtype: nameOf(dict.lookup(PDFName.of("Subtype"))) ?? "",
+        irt: key(dict.get(PDFName.of("IRT"))) || null,
+        rt: nameOf(dict.lookup(PDFName.of("RT"))),
+        parent: key(dict.get(PDFName.of("Parent"))) || null,
+      },
+    });
+  }
+  const owned = ownedAnnotations(entries.map((e) => e.link));
+  // A kept comment keeps its whole thread and pop-ups.
+  const kept = (k: string) => keep.has(owned.get(k) ?? k);
+  const doomed = new Set(entries.filter((e) => owned.has(e.link.key) && !kept(e.link.key)).map((e) => e.link.key));
+
+  for (let i = annots.size() - 1; i >= 0; i--) {
+    const ref = annots.get(i);
+    const k = key(ref);
+    if (!doomed.has(k)) continue;
     annots.remove(i);
     if (ref instanceof PDFRef) page.doc.context.delete(ref);
-    removed++;
+    result.removed++;
   }
-  return removed;
+  // What is not the model's but hangs on a removed comment: re-attached by the
+  // caller once the comment is rewritten (or removed with it).
+  for (const e of entries) {
+    if (owned.has(e.link.key)) continue;
+    for (const [field, target] of [
+      ["IRT", e.link.irt],
+      ["Parent", e.link.parent],
+    ] as const) {
+      if (!target || !doomed.has(target)) continue;
+      const root = owned.get(target) ?? target;
+      const list = result.dependents.get(root) ?? [];
+      list.push({ dict: e.dict, field, ref: e.ref as import("pdf-lib").PDFRef });
+      result.dependents.set(root, list);
+    }
+  }
+  return result;
+}
+
+export interface StripResult {
+  removed: number;
+  /**
+   * Annotations left in the file that point (`/IRT`, `/Parent`) at a removed
+   * comment, by that comment's key ("num gen"): point them at its rewrite, or
+   * drop them if it is gone.
+   */
+  dependents: Map<
+    string,
+    { dict: import("pdf-lib").PDFDict; field: "IRT" | "Parent"; ref: import("pdf-lib").PDFRef }[]
+  >;
 }

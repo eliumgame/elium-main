@@ -54,14 +54,13 @@ import {
   commentsRelXml,
   type CommentEntry,
 } from "./docx-comments";
+import { escapeXmlText } from "./xml-text";
 
 // =========================================================================
 // XML helpers
 // =========================================================================
 
-function xmlEsc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
+const xmlEsc = escapeXmlText;
 
 function xmlDecode(s: string): string {
   return s

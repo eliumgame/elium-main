@@ -27,8 +27,12 @@ export type AnnotKind =
   | "underline"
   | "strikeout"
   | "squiggly"
+  // Acrobat's text edits: text inserted at a point (with a strike-out: replaced)
+  | "caret"
   // notes & text
   | "note"
+  // a file carried by the page (Acrobat's « Joindre un fichier »)
+  | "attachment"
   | "freetext"
   | "callout"
   | "typewriter"
@@ -78,6 +82,20 @@ export function isPolyKind(k: AnnotKind): boolean {
 /** Review state of a comment, mirroring Acrobat's review workflow. */
 export type ReviewStatus = "none" | "accepted" | "rejected" | "cancelled" | "completed";
 
+/** A file carried by an annotation. */
+export interface AnnotFile {
+  name: string;
+  mime: string;
+  /** The bytes, as a base64 data URL ("" for a large file left in the source PDF). */
+  data: string;
+  description?: string;
+  /**
+   * A large file is not copied into the model: it stays in the source PDF, in
+   * the annotation whose pdf.js id this is, and the save reuses it from there.
+   */
+  source?: string;
+}
+
 /** A reply in a comment thread (Acrobat `/IRT` + `/RT /R`). */
 export interface Reply {
   id: string;
@@ -107,7 +125,25 @@ export interface MeasureScale {
 export const DEFAULT_MEASURE_SCALE: MeasureScale = { unitsPerPoint: 25.4 / 72 / 10, unit: "cm", precision: 2 };
 
 /** Where a link goes. */
-export type LinkAction = { type: "page"; page: number } | { type: "url"; url: string };
+export type LinkAction =
+  /**
+   * A view of a page of this document. `pageId` names the page (it follows it
+   * when pages move); `page` (1-based) is the fallback of older sessions.
+   */
+  | { type: "page"; page: number; pageId?: string; x?: number; y?: number; fit?: DestFit; zoom?: number }
+  | { type: "url"; url: string }
+  /** Acrobat's named actions: NextPage, PrevPage, FirstPage, LastPage, GoBack, GoForward. */
+  | { type: "named"; name: string };
+
+/** How a link shows (Acrobat's « Propriétés du lien »): border, its style and width, the click highlight. */
+export interface LinkStyle {
+  /** A visible rectangle (colour: the annotation's `color`); false: invisible. */
+  visible: boolean;
+  line: "solid" | "dashed" | "underline";
+  width: number;
+  /** /H: none, invert, outline, push. */
+  highlight: "N" | "I" | "O" | "P";
+}
 
 /**
  * A single annotation. Geometry is always in the page's *unrotated* top-left
@@ -159,13 +195,34 @@ export interface Annot {
   /** Standard stamp label ("APPROVED", …) when the stamp is generated, not an image. */
   stampLabel?: string;
   stampTone?: "green" | "red" | "blue" | "orange" | "neutral";
+  /** PDF `/Name` of a library stamp (« Approved », « #DReceived »…). */
+  stampName?: string;
+  /** Second line of a dynamic stamp (who and when, frozen at placement). */
+  stampSub?: string;
 
   // --- special ------------------------------------------------------------
   action?: LinkAction;
+  linkStyle?: LinkStyle;
   /** Overlay text printed on top of a redaction box, e.g. "[CAVIARDÉ]". */
   redactText?: string;
   redactFill?: string;
   measure?: MeasureScale;
+  /**
+   * Note icon (PDF `/Name`: Comment, Key, Note, Help, NewParagraph, Paragraph,
+   * Insert), or an attachment's (PushPin, Paperclip, Graph, Tag).
+   */
+  icon?: string;
+  /** The file an « attachment » carries (embedded in the PDF at save). */
+  file?: AnnotFile;
+
+  /**
+   * What the file said about an imported annotation that the model does not
+   * edit, written back when it is rewritten: its `/NM`, the `/F` bits other
+   * than Hidden / Locked (NoPrint, NoZoom, NoRotate, ReadOnly…), a pop-up's
+   * `/Open`, and the rich text `/RC` — kept only while the text is the one it
+   * was written for.
+   */
+  pdf?: { nm?: string; flags?: number; open?: boolean; rc?: string; rcFor?: string };
 
   // --- review metadata (Acrobat comment pane) -----------------------------
   author: string;
@@ -175,6 +232,13 @@ export interface Annot {
   createdAt: string;
   modifiedAt: string;
   status?: ReviewStatus;
+  /**
+   * Part of another comment's group (`/IRT` + `/RT /Group`): the strike-out of
+   * a « Remplacer le texte », whose text and thread are its Caret's.
+   */
+  group?: string;
+  /** Acrobat's checkmark (`/StateModel (Marked)`): the reviewer's own tick, not a status. */
+  checked?: boolean;
   replies?: Reply[];
   /** Locked annotations cannot be moved or edited, only read. */
   locked?: boolean;
@@ -189,6 +253,14 @@ export interface Annot {
  * A page in the output order. `from` indexes the *source* document; null means
  * a page this session inserted (blank or built from an image).
  */
+/** One page's label, the way ISO 32000 /PageLabels describe it (12.4.2). */
+export interface PageLabelDef {
+  style: "decimal" | "roman" | "ROMAN" | "alpha" | "ALPHA" | "none";
+  prefix: string;
+  /** This page's number in its range (the range's /St plus its offset). */
+  num: number;
+}
+
 export interface Page {
   id: string;
   from: number | null;
@@ -202,6 +274,8 @@ export interface Page {
   image?: string;
   /** Custom page label shown instead of the ordinal ("i", "A-1", …). */
   label?: string;
+  /** What `label` is made of, as a PDF page-label range writes it (style, prefix, number). */
+  labelDef?: PageLabelDef;
   /** Excluded from export without losing its annotations. */
   skipped?: boolean;
 }
@@ -220,23 +294,94 @@ export type FieldKind = "text" | "checkbox" | "radio" | "dropdown" | "listbox" |
  */
 export type FormValue = string | boolean | string[];
 
-/** A form field the user created in Elium (existing PDF fields are read live). */
-export interface CreatedField {
+/**
+ * How a text field shows and accepts its value — Acrobat's « Format » tab,
+ * written as its own AF* functions (AFNumber_Format…), which every PDF viewer
+ * with form JavaScript knows.
+ */
+export type FieldFormat =
+  | { kind: "none" }
+  | {
+      kind: "number";
+      decimals: number;
+      /** 0 « 1,234.56 » · 1 « 1234.56 » · 2 « 1.234,56 » · 3 « 1234,56 » · 4 « 1'234.56 » */
+      sepStyle: 0 | 1 | 2 | 3 | 4;
+      /** 0 « -1 » · 1 red · 2 « (1) » · 3 « (1) » red */
+      negStyle: 0 | 1 | 2 | 3;
+      currency: string;
+      currencyPrepend: boolean;
+    }
+  | { kind: "percent"; decimals: number; sepStyle: 0 | 1 | 2 | 3 | 4 }
+  /** `pattern`: « dd/mm/yyyy », « d mmmm yyyy »… (Acrobat's date masks). */
+  | { kind: "date"; pattern: string }
+  /** 0 « HH:MM » · 1 « h:MM tt » · 2 « HH:MM:ss » · 3 « h:MM:ss tt » */
+  | { kind: "time"; style: 0 | 1 | 2 | 3 }
+  | { kind: "custom"; keystroke?: string; format?: string };
+
+/** Acrobat's « Calcul » tab. */
+export type FieldCalculation =
+  { kind: "simple"; op: "SUM" | "PRD" | "AVG" | "MIN" | "MAX"; fields: string[] } | { kind: "custom"; script: string };
+
+/** Properties shared by fields created in Elium and fields of the file being edited. */
+export interface FieldProps {
+  /** Tooltip (/TU), also what screen readers announce. */
+  tooltip?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  /** Not shown on screen nor printed (widget flag Hidden). */
+  hidden?: boolean;
+  /** Shown on screen, not printed. */
+  noPrint?: boolean;
+  multiLine?: boolean;
+  password?: boolean;
+  maxLen?: number | null;
+  /** Characters spread over `maxLen` boxes. */
+  comb?: boolean;
+  /** 0 = automatic size. */
+  fontSize?: number;
+  align?: "left" | "center" | "right";
+  /** List items: export value and label. */
+  options?: { value: string; label: string }[];
+  /** A dropdown that also accepts typed text. */
+  editable?: boolean;
+  multiSelect?: boolean;
+  /** Export value (on-state) of a checkbox / radio widget. */
+  exportValue?: string;
+  /** What « Réinitialiser » restores (/DV). */
+  defaultValue?: FormValue;
+  format?: FieldFormat;
+  /** Range check (AFRange_Validate); null removes it. */
+  validate?: { min?: number; max?: number } | null;
+  calculate?: FieldCalculation | null;
+}
+
+/** A form field the user created in Elium. */
+export interface CreatedField extends FieldProps {
   id: string;
   pageId: string;
   name: string;
   kind: FieldKind;
   rect: Rect;
-  required?: boolean;
-  readOnly?: boolean;
-  multiLine?: boolean;
-  maxLen?: number | null;
-  options?: { value: string; label: string }[];
-  defaultValue?: FormValue;
-  fontSize?: number;
-  tooltip?: string;
   /** Tab order within the page; lower comes first. */
   tabIndex?: number;
+}
+
+/**
+ * A change made in « Préparer un formulaire » to a field the FILE already has
+ * (addressed by its fully qualified name, its widgets by pdf.js id « 12R »).
+ */
+export interface FieldEdit {
+  name: string;
+  deleted?: boolean;
+  /** Widgets removed (one button of a group…); all of them removes the field. */
+  removeWidgets?: string[];
+  /** New fully qualified name. */
+  rename?: string;
+  /** New position of widgets: top-left, unrotated page space (like annotations). */
+  rects?: Record<string, Rect>;
+  /** New export value of box widgets (checkbox / radio button), by widget. */
+  exportValues?: Record<string, string>;
+  props?: FieldProps;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,17 +413,28 @@ export interface ContentEdit {
   bold?: boolean;
   italic?: boolean;
   deleted?: boolean;
+  /** Where the text now goes when the block was moved or resized (default: `rect`). */
+  placement?: Rect;
+  /** Family / weight / slant changed by the user: the original font is not reused. */
+  restyled?: boolean;
+  /** Text added in Elium: nothing on the page to remove. */
+  isNew?: boolean;
 }
 
-/** An edit to one of the page's existing images. */
+/** An edit to one of the page's own images, or an image added to the page's content. */
 export interface ImageEdit {
   id: string;
   pageId: string;
-  /** Draw-order index of the image XObject on the page. */
+  /** Draw-order index of the XObject (`Do`) on the page; -1 for an added image. */
   occurrence: number;
-  action: "delete" | "replace";
-  /** Replacement picture as a data URL. */
+  /** « move » only moves / resizes; « replace » may move too; « add » draws a new image. */
+  action: "delete" | "replace" | "move" | "add";
+  /** Replacement (or added) picture as a data URL. */
   src?: string;
+  /** New frame, top-left unrotated page space (moved / resized, or where an added image goes). */
+  rect?: Rect;
+  /** Part of the frame left visible, as fractions of it (top-left origin): « Rogner ». */
+  crop?: Rect;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,13 +448,76 @@ export interface Bookmark {
   page: number;
   /** Vertical target within the page, page-space points from the top. */
   y?: number;
+  /** Horizontal target, page-space points from the left. */
+  x?: number;
+  /** How the page is shown (ISO 32000 destination types); /XYZ when absent. */
+  fit?: DestFit;
+  /** /XYZ magnification (1 = 100 %); absent: unchanged. */
+  zoom?: number;
   bold?: boolean;
   italic?: boolean;
   color?: string;
   children: Bookmark[];
-  /** Collapsed in the sidebar. */
+  /** Collapsed in the sidebar (and /Count negative in the file). */
   closed?: boolean;
+  /** Not a page: what the item does instead (then `page` means nothing). */
+  action?: BookmarkAction;
+  /**
+   * Where the item sits in the file's own outline ("0.2.1"): saved, it reuses
+   * that item, so what Elium does not model (actions, structure links, the
+   * exact destination) is kept.
+   */
+  src?: string;
+  /** The target was set in Elium: the file's destination or action is replaced. */
+  retargeted?: boolean;
 }
+
+/** Named destinations (Acrobat's Destinations panel) as changed in Elium. */
+export interface DestEdits {
+  /** New destinations: a view of a page (`pageId`), as bookmarks name them. */
+  added: { name: string; pageId: string; x?: number; y?: number; zoom?: number }[];
+  /** Names of the file's destinations removed. */
+  removed: string[];
+}
+
+/** Files attached to the document (not to a comment), as changed in Elium. */
+export interface AttachmentEdits {
+  added: { id: string; name: string; description?: string; mime: string; /** data: URL */ data: string }[];
+  /** Keys (in the file's /EmbeddedFiles name tree) of the attachments removed. */
+  removed: string[];
+  /** New descriptions of the file's attachments, by key. */
+  described: Record<string, string>;
+}
+
+/** How the document opens (ISO 32000: /PageMode, /PageLayout, /OpenAction, /ViewerPreferences). */
+export interface InitialView {
+  pageMode: "UseNone" | "UseOutlines" | "UseThumbs" | "UseAttachments" | "UseOC" | "FullScreen";
+  pageLayout: "SinglePage" | "OneColumn" | "TwoColumnLeft" | "TwoColumnRight" | "TwoPageLeft" | "TwoPageRight";
+  /** 1-based page it opens on. */
+  openPage: number;
+  /** Its magnification: a fit, or a zoom (1 = 100 %); absent: the reader's default. */
+  openZoom?: "Fit" | "FitH" | "FitV" | number;
+  hideToolbar?: boolean;
+  hideMenubar?: boolean;
+  hideWindowUI?: boolean;
+  fitWindow?: boolean;
+  centerWindow?: boolean;
+  /** The window shows the document's title rather than its file name. */
+  displayDocTitle?: boolean;
+  /**
+   * The opening page or magnification was changed in Elium: /OpenAction is
+   * rewritten. Otherwise the file's stays (a script, an exact position).
+   */
+  openChanged?: boolean;
+}
+
+export type DestFit = "XYZ" | "Fit" | "FitH" | "FitV" | "FitB" | "FitBH" | "FitBV" | "FitR";
+
+export type BookmarkAction =
+  | { kind: "uri"; url: string }
+  | { kind: "named"; name: string }
+  /** Another file, a script, a form action…: kept as is, not run. */
+  | { kind: "other"; label: string };
 
 // ---------------------------------------------------------------------------
 // Document-level settings
@@ -317,7 +536,8 @@ export interface DocMetadata {
 /** Watermark / background applied at export time. */
 export interface Watermark {
   enabled: boolean;
-  mode: "text" | "image";
+  /** `color`: Acrobat's background — the whole page tinted, under the content. */
+  mode: "text" | "image" | "color";
   text: string;
   src?: string;
   fontSize: number;
@@ -361,6 +581,8 @@ export interface HeaderFooter {
   marginPt: number;
   /** 1-based page range spec, empty = all pages. */
   pages: string;
+  /** The number `{page}` shows on the first page of the document (default 1). */
+  startPage?: number;
 }
 
 export const emptyBand = (): HeaderFooter => ({
@@ -381,6 +603,8 @@ export interface Bates {
   suffix: string;
   start: number;
   digits: number;
+  /** 1-based page range spec, empty = all pages; numbers run over these pages only. */
+  pages?: string;
 }
 
 export const DEFAULT_BATES: Bates = { enabled: false, prefix: "", suffix: "", start: 1, digits: 6 };
@@ -404,6 +628,8 @@ export interface PdfState {
   formValues: Record<string, FormValue>;
   /** Fields the user added with the form builder. */
   createdFields: CreatedField[];
+  /** Changes to the file's own fields (« Préparer un formulaire »). */
+  fieldEdits: FieldEdit[];
   /** null = use the PDF's own outline; an array = user-edited bookmarks. */
   bookmarks: Bookmark[] | null;
   metadata: DocMetadata;
@@ -411,6 +637,23 @@ export interface PdfState {
   header: HeaderFooter;
   footer: HeaderFooter;
   bates: Bates;
+  /**
+   * Remove the page marks the file already carries (watermarks, backgrounds,
+   * headers/footers added by Elium or Acrobat) before painting the new ones —
+   * Acrobat's « Supprimer ». Optional: older sessions have none.
+   */
+  stripMarks?: boolean;
+  /**
+   * Layer visibility to save as the file's default (/OCProperties /D /ON
+   * /OFF), by pdf.js group id ("12R"); absent: the file's own.
+   */
+  ocDefaults?: Record<string, boolean>;
+  /** The Initial View set in Elium (Acrobat's Propriétés › Vue initiale); absent: the file's own. */
+  initialView?: InitialView;
+  /** Named destinations added or removed in Elium. */
+  destEdits?: DestEdits;
+  /** Changes to the document's attached files (/EmbeddedFiles). */
+  attachmentEdits?: AttachmentEdits;
   /** Measurement scale used by new measurement annotations. */
   measureScale: MeasureScale;
   /**
@@ -429,6 +672,7 @@ export function emptyState(): PdfState {
     imageEdits: [],
     formValues: {},
     createdFields: [],
+    fieldEdits: [],
     bookmarks: null,
     metadata: {},
     watermark: { ...DEFAULT_WATERMARK },
@@ -493,6 +737,13 @@ export interface DraftStyle {
   lineStart: LineEnding;
   lineEnd: LineEnding;
   textBg: string | null;
+  /** Library stamp the Tampon tool places (`model/stamps.ts` id). */
+  stamp?: string;
+  /** A picture stamp instead (data URL), and its height / width. */
+  stampSrc?: string | null;
+  stampRatio?: number;
+  /** The file the « Joindre un fichier » tool places next. */
+  attachFile?: AnnotFile | null;
 }
 
 export const DEFAULT_STYLE: DraftStyle = {

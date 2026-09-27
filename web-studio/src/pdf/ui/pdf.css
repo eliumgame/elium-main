@@ -757,10 +757,17 @@
 }
 /* Commentaires et popups : Elium les affiche lui-même (calque d'annotation).
    Liens et champs de formulaire restent ceux de pdf.js. */
-.pdfx-stack .annotationLayer section:not(.linkAnnotation, .textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
+.pdfx-stack
+  .annotationLayer
+  section:not(.linkAnnotation, .textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
   display: none;
 }
-.pdfx-stack .textLayer.selecting ~ .annotationLayer section {
+/* Pendant une sélection de texte, les liens laissent passer le glisser (comme
+   pdf.js). PAS les champs de formulaire : dans Chromium, le focus d'un champ
+   active « selecting » via selectionchange, et seul un keyup/pointerup le
+   retire — après un collage par menu, une saisie automatique ou une méthode de
+   saisie, tous les champs restaient impossibles à cliquer. */
+.pdfx-stack .textLayer.selecting ~ .annotationLayer section.linkAnnotation {
   pointer-events: none;
 }
 .pdfx-stack .annotationLayer .linkAnnotation > a {
@@ -885,10 +892,11 @@
   position: relative;
   width: 100%;
   height: 100%;
+  padding: 0;
   border: 0;
-  border-radius: 4px 4px 4px 1px;
+  background: transparent;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+  filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, 0.35));
   transition: transform var(--el-motion-fast) var(--el-ease-spring);
 }
 .pdfx-note:hover {
@@ -1094,7 +1102,13 @@
 .pdfx-stack .annotationLayer .buttonWidgetAnnotation.pushButton > a:focus-visible {
   outline: 2px solid var(--pdfx-field-focus);
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input) {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ) {
   background-color: var(--pdfx-field-bg);
   background-image: none;
   border: 2px solid transparent;
@@ -1115,19 +1129,43 @@
 .pdfx-stack .annotationLayer .choiceWidgetAnnotation select option {
   padding: 0;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):required {
   outline: 1.5px solid var(--pdfx-field-required);
   outline-offset: -1px;
 }
-.pdfx-stack.no-field-highlight .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):required {
+.pdfx-stack.no-field-highlight
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):required {
   outline: none;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input)[disabled] {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  )[disabled] {
   background: none;
   border-color: transparent;
   cursor: not-allowed;
 }
-.pdfx-stack .annotationLayer :is(.textWidgetAnnotation :is(input, textarea), .choiceWidgetAnnotation select, .buttonWidgetAnnotation:is(.checkBox, .radioButton) input):not([disabled]):hover {
+.pdfx-stack
+  .annotationLayer
+  :is(
+    .textWidgetAnnotation :is(input, textarea),
+    .choiceWidgetAnnotation select,
+    .buttonWidgetAnnotation:is(.checkBox, .radioButton) input
+  ):not([disabled]):hover {
   border-color: var(--pdfx-field-hover);
   border-radius: 2px;
 }
@@ -1150,12 +1188,24 @@
 }
 /* Case / bouton radio : les deux apparences du fichier (cochée, non cochée)
    sont dessinées par pdf.js ; on montre celle qui correspond à l'état. */
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="checked"]:has(~ input:not(:checked)),
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton) [data-canvas-name="unchecked"]:has(~ input:checked) {
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton)
+  [data-canvas-name="checked"]:has(~ input:not(:checked)),
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton)
+  [data-canvas-name="unchecked"]:has(~ input:checked) {
   display: none;
 }
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="checked"]) input:checked,
-.pdfx-stack .annotationLayer .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="unchecked"]) input:not(:checked) {
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="checked"])
+  input:checked,
+.pdfx-stack
+  .annotationLayer
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has([data-canvas-name="unchecked"])
+  input:not(:checked) {
   background-image: none;
 }
 /* Sans apparence dans le fichier : une coche dessinée en CSS. */
@@ -1197,7 +1247,10 @@
 }
 /* Préparation de formulaire : les champs deviennent des cadres éditables
    (calque Elium) — les contrôles de remplissage s'effacent. */
-.pdfx--mode-fields .pdfx-stack .annotationLayer section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
+.pdfx--mode-fields
+  .pdfx-stack
+  .annotationLayer
+  section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) {
   visibility: hidden;
 }
 
@@ -1401,9 +1454,30 @@
   border-color: var(--x-accent);
   background: rgba(79, 140, 255, 0.14);
 }
-.pdfx-org__cell.is-drop {
-  border-color: var(--x-ok);
-  border-style: dashed;
+/* Where the dragged pages land: a bar in the gap before or after the page. */
+.pdfx-org__cell.is-drop-before::before,
+.pdfx-org__cell.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--x-ok);
+  pointer-events: none;
+}
+.pdfx-org__cell.is-drop-before::before {
+  left: -13px;
+}
+.pdfx-org__cell.is-drop-after::after {
+  right: -13px;
+}
+.pdfx-org__band {
+  position: fixed;
+  z-index: 50;
+  border: 1px solid var(--x-accent);
+  background: rgba(79, 140, 255, 0.14);
+  pointer-events: none;
 }
 .pdfx-org__cell.is-skipped {
   opacity: 0.45;
@@ -1770,12 +1844,13 @@
 }
 .pdfx-recover li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
 }
 .pdfx-recover__name {
-  flex: 1;
+  flex: 1 1 16ch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1786,4 +1861,1603 @@
 .pdfx-recover small {
   color: var(--x-chrome-mute);
   white-space: nowrap;
+}
+.pdfx-recover small {
+  white-space: normal;
+}
+
+/* Start screen buttons sit on the chrome, not on a page: chrome colours in both themes. */
+.pdfx-dropzone__actions .eb--outline {
+  background: var(--x-chrome-3);
+  color: var(--x-chrome-text);
+  border-color: var(--x-chrome-line);
+}
+.pdfx-dropzone__actions .eb--outline:hover:not(:disabled) {
+  background: var(--x-chrome-2);
+}
+
+/* --- Préparer un formulaire ------------------------------------------------ */
+
+/* The fill layer gives way to the editing boxes (pdf.js paints no widget on
+   the canvas in ENABLE_FORMS mode: the boxes are the fields). */
+.pdfx-canvas.is-preparing .annotationLayer {
+  visibility: hidden;
+}
+.pdfx-prep {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  outline: none;
+  touch-action: none;
+}
+.pdfx-prep.is-drawing {
+  cursor: crosshair;
+}
+.pdfx-prep-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.12);
+  cursor: move;
+  user-select: none;
+}
+.pdfx-prep-box.is-required {
+  border-color: #dc2626;
+}
+.pdfx-prep-box.is-selected {
+  border: 2px solid var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.22);
+}
+.pdfx-prep-name {
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  max-width: calc(100% - 4px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font:
+    600 10px/1.2 system-ui,
+    sans-serif;
+  color: #1e3a8a;
+  pointer-events: none;
+}
+.pdfx-prep-box--checkbox .pdfx-prep-name,
+.pdfx-prep-box--radio .pdfx-prep-name {
+  top: auto;
+  bottom: 100%;
+  left: 0;
+  max-width: none;
+}
+.pdfx-prep-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  background: #fff;
+  border: 1px solid var(--x-accent, #2563eb);
+  border-radius: 1px;
+}
+.pdfx-prep-handle--nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.pdfx-prep-handle--n {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.pdfx-prep-handle--ne {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.pdfx-prep-handle--e {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.pdfx-prep-handle--se {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.pdfx-prep-handle--s {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.pdfx-prep-handle--sw {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.pdfx-prep-handle--w {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+.pdfx-prep-draft {
+  position: absolute;
+  border: 1px dashed var(--x-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+
+/* Propriétés du champ */
+.pdfx-form__list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border, #d4d4d8);
+  border-radius: 6px;
+}
+.pdfx-form__list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+}
+.pdfx-form__list li label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pdfx-form__list li em {
+  color: var(--text-soft, #71717a);
+}
+.pdfx-form__row--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.pdfx-form__row--stack textarea {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* Outil Sélection : les champs de formulaire restent cliquables (au-dessus du
+   calque d'annotations, qui capte le pointeur pour la sélection), les liens
+   laissent passer le pointeur vers les annotations posées dessus. */
+.pdfx-canvas.is-annot-select .annotationLayer {
+  z-index: 7;
+}
+.pdfx-canvas.is-annot-select .annotationLayer section.linkAnnotation {
+  pointer-events: none;
+}
+
+.pdfx-formbar__btn--req {
+  border-color: #dc2626;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+/* Rewritten page (the file's own rendering of the edits): over the canvas,
+   under the text, form and comment layers; same reading-theme filter. */
+.pdfx-editpreview--raster {
+  z-index: 1;
+}
+.pdfx-editpreview__raster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: var(--pdfx-page-filter);
+  user-select: none;
+}
+
+/* « Modifier le texte » : barre de mise en forme, poignées. */
+.pdfx-editlayer.is-adding {
+  cursor: text;
+}
+.pdfx-editblock__bar {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--x-chrome);
+  color: var(--x-chrome-text);
+  box-shadow: var(--x-shadow-pop);
+  z-index: 4;
+  white-space: nowrap;
+}
+.pdfx-editblock__bar button,
+.pdfx-editblock__bar select,
+.pdfx-editblock__bar input {
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+}
+.pdfx-editblock__bar button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.pdfx-editblock__bar button:hover,
+.pdfx-editblock__bar button.is-on {
+  background: var(--x-chrome-3);
+}
+.pdfx-editblock__bar select {
+  max-width: 130px;
+  background: var(--x-chrome-3);
+}
+.pdfx-editblock__bar input[type="number"] {
+  width: 48px;
+  background: var(--x-chrome-3);
+  padding: 0 4px;
+}
+.pdfx-editblock__bar input[type="color"] {
+  width: 26px;
+  padding: 0;
+}
+.pdfx-editblock__grip {
+  cursor: move !important;
+}
+.pdfx-editblock__width {
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  width: 8px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 3px;
+  background: var(--x-accent);
+  cursor: ew-resize;
+}
+
+/* « Modifier le texte » lets clicks through outside its paragraphs, down to the pictures. */
+.pdfx-editlayer {
+  pointer-events: none;
+}
+.pdfx-editlayer > *,
+.pdfx-editlayer.is-adding {
+  pointer-events: auto;
+}
+.pdfx-editlayer > .pdfx-editlayer__empty {
+  pointer-events: none;
+}
+
+/* Pictures of the page content. */
+.pdfx-imagelayer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.pdfx-imagelayer > * {
+  pointer-events: auto;
+}
+/* A selected picture (and its bar) comes over the paragraphs; so does a picture being placed. */
+.pdfx-imagelayer.has-selection,
+.pdfx-imagelayer.is-adding {
+  z-index: 8;
+}
+.pdfx-imagelayer.is-adding {
+  pointer-events: auto;
+  cursor: copy;
+}
+.pdfx-imagebox {
+  position: absolute;
+  border: 1px dashed rgba(59, 130, 246, 0.55);
+  cursor: move;
+  outline: none;
+  box-sizing: border-box;
+}
+.pdfx-imagebox:hover,
+.pdfx-imagebox:focus-visible {
+  border-color: var(--x-accent);
+  background: rgba(59, 130, 246, 0.06);
+}
+.pdfx-imagebox.is-selected {
+  border: 1.5px solid var(--x-accent);
+  z-index: 2;
+}
+.pdfx-imagebox.is-deleted {
+  cursor: pointer;
+  border-color: rgba(239, 68, 68, 0.7);
+  background: repeating-linear-gradient(45deg, rgba(239, 68, 68, 0.1) 0 6px, transparent 6px 12px);
+}
+.pdfx-imagebox__img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.pdfx-imagebox.is-dragging {
+  overflow: hidden;
+}
+.pdfx-imagebox.is-cropping {
+  border-style: dashed;
+  border-width: 2px;
+}
+.pdfx-imagebox__frame {
+  position: absolute;
+  z-index: 1;
+  border: 1px dotted var(--x-accent);
+  background: rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+.pdfx-imagebox__ghost {
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.18);
+}
+.pdfx-imagebox__handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -5px;
+  background: #fff;
+  border: 1.5px solid var(--x-accent);
+  border-radius: 2px;
+}
+.pdfx-imagebox__handle--nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.pdfx-imagebox__handle--ne {
+  right: 0;
+  top: 0;
+  margin: -5px -5px 0 0;
+  cursor: nesw-resize;
+}
+.pdfx-imagebox__handle--sw {
+  left: 0;
+  bottom: 0;
+  margin: 0 0 -5px -5px;
+  cursor: nesw-resize;
+}
+.pdfx-imagebox__handle--se {
+  right: 0;
+  bottom: 0;
+  margin: 0 -5px -5px 0;
+  cursor: nwse-resize;
+}
+.pdfx-imagebar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--x-chrome);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.pdfx-imagebar button {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--x-chrome-soft);
+  cursor: pointer;
+}
+.pdfx-imagebar button:hover {
+  background: rgba(127, 127, 127, 0.18);
+}
+
+/* Library stamps: a dynamic one has who / when under its label. */
+.pdfx-stamp.has-sub {
+  flex-direction: column;
+  gap: 0.1em;
+}
+.pdfx-stamp__sub {
+  font-size: 0.42em;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Stamp library (ribbon « Tampon »). */
+.pdfx-stampmenu {
+  position: relative;
+  display: inline-flex;
+}
+.pdfx-stampmenu__panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--x-chrome, #fff);
+  color: var(--x-chrome-soft, #334155);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.pdfx-stampmenu__title {
+  margin: 6px 2px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.pdfx-stampmenu__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+.pdfx-stampmenu__item {
+  height: 44px;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.pdfx-stampmenu__item:hover,
+.pdfx-stampmenu__item.is-active {
+  border-color: var(--x-accent, #3b82f6);
+}
+.pdfx-stampmenu__item .pdfx-stamp {
+  font-size: 11px;
+}
+.pdfx-stampmenu__item img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.pdfx-stampmenu__custom {
+  position: relative;
+  display: grid;
+}
+.pdfx-stampmenu__forget {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+.pdfx-stampmenu__create {
+  margin-top: 10px;
+  width: 100%;
+  padding: 6px;
+  border: 1px dashed currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Comments pane: checkmark, reply delete. */
+.pdfx-comment__check {
+  margin: 0 2px 0 0;
+  cursor: pointer;
+}
+.pdfx-reply {
+  position: relative;
+}
+.pdfx-reply__del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+.pdfx-reply:hover .pdfx-reply__del,
+.pdfx-reply__del:focus-visible {
+  opacity: 0.7;
+}
+.pdfx-input--mini {
+  width: 80px;
+}
+
+.pdfx-note__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* « Combiner des fichiers » */
+.pdfx-combine {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+}
+.pdfx-combine__empty {
+  margin: 0;
+  padding: 48px 16px;
+  text-align: center;
+  border: 2px dashed var(--x-line, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+  color: var(--x-muted, inherit);
+}
+.pdfx-combine__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow: auto;
+}
+.pdfx-combine__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--x-line, rgba(127, 127, 127, 0.3));
+  border-radius: 8px;
+  cursor: grab;
+  min-width: 0;
+}
+.pdfx-combine__item.is-dragged {
+  opacity: 0.5;
+}
+.pdfx-combine__item.is-pending {
+  cursor: default;
+  opacity: 0.75;
+}
+.pdfx-combine__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfx-combine__count {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+.pdfx-combine__range {
+  width: 110px;
+}
+.pdfx-combine__ops {
+  display: flex;
+  gap: 4px;
+}
+.pdfx-combine__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pdfx-combine__total {
+  margin-right: auto;
+  font-size: 13px;
+  opacity: 0.8;
+}
+@media (max-width: 560px) {
+  .pdfx-combine__item {
+    flex-wrap: wrap;
+  }
+  .pdfx-combine__range {
+    width: 100%;
+  }
+}
+
+/* Layers: a label of the file's /Order (no layer of its own). */
+.pdfx-row--heading {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  cursor: default;
+}
+
+.pdfx-form__title {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.pdfx-insp-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+/* Bookmarks: where a dragged bookmark lands, and the style row. */
+.pdfx-mark.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--x-ok);
+}
+.pdfx-mark.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--x-ok);
+}
+.pdfx-mark.is-drop-inside {
+  background: rgba(79, 140, 255, 0.16);
+}
+.pdfx-mark__style {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.pdfx-panel__tools {
+  padding: 4px 8px;
+}
+
+.pdfx-row__sub {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Certificate signing: digital IDs, appearance options, signature panel. */
+.pdfx-muted {
+  opacity: 0.65;
+  font-style: normal;
+  font-size: 11.5px;
+}
+.pdfx-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pdfx-form__inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding-left: 22px;
+}
+.pdfx-idlist {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+.pdfx-idlist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--x-line, rgba(0, 0, 0, 0.08));
+}
+.pdfx-idlist li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdfx-sig__ok {
+  color: var(--x-ok, #2e9d5b);
+}
+.pdfx-sig__warn {
+  color: var(--x-warn, #c98a12);
+}
+.pdfx-sig__bad {
+  color: var(--x-danger, #d0443c);
+}
+.pdfx-sig__bar {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 6px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.pdfx-sig__bar--valid {
+  background: rgba(46, 157, 91, 0.12);
+}
+.pdfx-sig__bar--unknown {
+  background: rgba(201, 138, 18, 0.14);
+}
+.pdfx-sig__bar--invalid {
+  background: rgba(208, 68, 60, 0.14);
+}
+.pdfx-sig__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px;
+}
+.pdfx-sig__row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pdfx-sig__row > span {
+  min-width: 0;
+}
+.pdfx-sig__details {
+  padding: 2px 8px 10px 26px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pdfx-sig__details p {
+  margin: 4px 0;
+}
+.pdfx-sig__details ul {
+  margin: 2px 0 6px;
+  padding-left: 18px;
+}
+.pdfx-sig__cert {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 6px 0;
+}
+.pdfx-sig__cert dt {
+  opacity: 0.7;
+}
+.pdfx-sig__cert dd {
+  margin: 0;
+  word-break: break-word;
+}
+.pdfx-sig__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pdfx-sigtarget {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1.5px dashed rgba(79, 140, 255, 0.9);
+  border-radius: 3px;
+  background: rgba(79, 140, 255, 0.1);
+  color: #2f63c9;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pdfx-sigtarget:hover,
+.pdfx-sigtarget:focus-visible {
+  background: rgba(79, 140, 255, 0.2);
+}
+
+/* --- Imprimer (PrintDialog) --------------------------------------------- */
+.modal-card:has(.pdfx-print) {
+  max-width: 860px;
+}
+.pdfx-print {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 20px;
+  align-items: start;
+}
+.pdfx-print .pdfx-form__row > span:first-child {
+  width: 128px;
+}
+.pdfx-print .pdfx-check {
+  font-size: 13px;
+  color: var(--el-text);
+  white-space: normal;
+}
+.pdfx-print .pdfx-check input {
+  accent-color: var(--el-primary);
+}
+.pdfx-print .pdfx-segment--wide {
+  margin-bottom: 2px;
+}
+.pdfx-print .pdfx-form__suffixed input {
+  width: 64px;
+  flex: none;
+}
+.pdfx-print__choices {
+  display: grid;
+  gap: 6px;
+}
+.pdfx-print__hint {
+  margin: 2px 0 0 24px;
+  font-size: 12px;
+  color: var(--el-text-muted);
+}
+.pdfx-print__range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pdfx-print__range > input:not([type="radio"]),
+.pdfx-print__range .pdfx-form__suffixed input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--el-border);
+  border-radius: 7px;
+  background: var(--el-surface);
+  color: var(--el-text);
+  font: inherit;
+  font-size: 13px;
+}
+.pdfx-print__range > input:not([type="radio"]) {
+  flex: 1;
+  min-width: 0;
+}
+.pdfx-print__range input:focus {
+  outline: none;
+  border-color: var(--el-primary);
+  box-shadow: var(--el-ring);
+}
+.pdfx-print__preview {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.pdfx-print__sheet {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--el-surface-3);
+}
+.pdfx-print__canvas {
+  display: flex;
+  transition: opacity var(--el-motion-fast);
+}
+.pdfx-print__canvas canvas {
+  display: block;
+  box-shadow: var(--el-elev-2);
+  background: #fff;
+}
+.pdfx-print__canvas.is-stale {
+  opacity: 0.45;
+}
+.pdfx-print__busy {
+  position: absolute;
+  color: var(--el-text-muted);
+}
+.pdfx-print__nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--el-text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.pdfx-print__summary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--el-text-muted);
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .pdfx-print {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pdfx-print__preview {
+    position: static;
+    order: -1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Comparer des fichiers — results (CompareView)
+   --------------------------------------------------------------------------- */
+.modal-card--wide:has(.pdfx-cmp) {
+  max-width: min(1320px, 96vw);
+  width: 96vw;
+}
+.pdfx-cmp {
+  --cmp-removed: 220, 38, 38;
+  --cmp-added: 21, 128, 61;
+  --cmp-format: 37, 99, 235;
+  --cmp-image: 234, 115, 12;
+  --cmp-page: 124, 58, 237;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.pdfx-cmp--busy {
+  place-items: center;
+  min-height: 160px;
+  color: var(--el-text-muted);
+  font-size: 13px;
+}
+.pdfx-cmp__error {
+  margin: 0;
+  color: var(--el-danger-text);
+  font-size: 12.5px;
+}
+.pdfx-cmp__files {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pdfx-cmp__files span {
+  overflow: hidden;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--el-surface-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfx-cmp__files .is-left::before {
+  content: "Original : ";
+  color: var(--el-text-muted);
+  font-weight: 400;
+}
+.pdfx-cmp__files .is-right::before {
+  content: "Révisé : ";
+  color: var(--el-text-muted);
+  font-weight: 400;
+}
+.pdfx-cmp__stat.is-added {
+  box-shadow: inset 0 -3px 0 rgb(var(--cmp-added));
+}
+.pdfx-cmp__stat.is-removed {
+  box-shadow: inset 0 -3px 0 rgb(var(--cmp-removed));
+}
+.pdfx-cmp__stat.is-format {
+  box-shadow: inset 0 -3px 0 rgb(var(--cmp-format));
+}
+.pdfx-cmp__stat.is-image {
+  box-shadow: inset 0 -3px 0 rgb(var(--cmp-image));
+}
+.pdfx-cmp__stat.is-page {
+  box-shadow: inset 0 -3px 0 rgb(var(--cmp-page));
+}
+.pdfx-cmp__bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.pdfx-cmp__filters,
+.pdfx-cmp__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pdfx-cmp__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--el-border-strong);
+  border-radius: 999px;
+  background: var(--el-surface);
+  color: var(--el-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pdfx-cmp__chip span {
+  font-size: 11px;
+  font-weight: 600;
+}
+.pdfx-cmp__chip.is-on {
+  border-color: var(--el-primary);
+  background: var(--el-primary-50);
+  color: var(--el-text);
+}
+.pdfx-cmp__chip:focus-visible {
+  box-shadow: var(--el-ring);
+  outline: none;
+}
+.pdfx-cmp__main {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+.pdfx-cmp__list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: 66vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+.pdfx-cmp__group {
+  border: 1px solid var(--el-border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.pdfx-cmp__group.is-current {
+  border-color: var(--el-primary);
+}
+.pdfx-cmp__grouphead {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: var(--el-surface-2);
+  color: var(--el-primary-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-cmp__grouphead span {
+  color: var(--el-text-muted);
+  font-weight: 400;
+}
+.pdfx-cmp__group ul {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+.pdfx-cmp__item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--el-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-cmp__item b {
+  font-size: 11px;
+  font-weight: 600;
+}
+.pdfx-cmp__item span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--el-text-soft);
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.pdfx-cmp__item:hover,
+.pdfx-cmp__item.is-selected {
+  background: var(--el-surface-2);
+}
+.pdfx-cmp__item.is-removed {
+  border-left-color: rgb(var(--cmp-removed));
+}
+.pdfx-cmp__item.is-added {
+  border-left-color: rgb(var(--cmp-added));
+}
+.pdfx-cmp__item.is-format {
+  border-left-color: rgb(var(--cmp-format));
+}
+.pdfx-cmp__item.is-image {
+  border-left-color: rgb(var(--cmp-image));
+}
+.pdfx-cmp__item.is-page {
+  border-left-color: rgb(var(--cmp-page));
+}
+.pdfx-cmp__viewer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+.pdfx-cmp__nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pdfx-cmp__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-width: 0;
+}
+.pdfx-cmp__side {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+}
+.pdfx-cmp__sidehead {
+  color: var(--el-text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.pdfx-cmp__pane {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--el-app-canvas);
+}
+.pdfx-cmp__page {
+  position: relative;
+  min-height: 120px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+}
+.pdfx-cmp__page canvas {
+  display: block;
+}
+.pdfx-cmp__page.is-added {
+  outline: 3px solid rgb(var(--cmp-added));
+}
+.pdfx-cmp__page.is-removed {
+  outline: 3px solid rgb(var(--cmp-removed));
+}
+.pdfx-cmp__page.is-missing {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--el-border-strong);
+  color: var(--el-text-muted);
+  font-size: 12px;
+}
+.pdfx-cmp__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--el-text-muted);
+}
+.pdfx-cmp__mark {
+  position: absolute;
+  padding: 0;
+  border: 1px solid rgba(var(--cmp-tone), 0.9);
+  border-radius: 2px;
+  background: rgba(var(--cmp-tone), 0.22);
+  cursor: pointer;
+}
+.pdfx-cmp__mark.is-removed {
+  --cmp-tone: var(--cmp-removed);
+}
+.pdfx-cmp__mark.is-added {
+  --cmp-tone: var(--cmp-added);
+}
+.pdfx-cmp__mark.is-format {
+  --cmp-tone: var(--cmp-format);
+}
+.pdfx-cmp__mark.is-image {
+  --cmp-tone: var(--cmp-image);
+}
+.pdfx-cmp__mark.is-page {
+  --cmp-tone: var(--cmp-page);
+}
+.pdfx-cmp__mark.is-selected,
+.pdfx-cmp__mark:focus-visible {
+  outline: 2px solid rgba(var(--cmp-tone), 1);
+  outline-offset: 2px;
+  background: rgba(var(--cmp-tone), 0.35);
+}
+@media (max-width: 900px) {
+  .pdfx-cmp__main {
+    grid-template-columns: 1fr;
+  }
+  .pdfx-cmp__list {
+    max-height: 30vh;
+  }
+}
+.pdfx-list {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.pdfx-a11y {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pdfx-a11y li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.pdfx-a11y li > span:first-child {
+  width: 14px;
+  font-weight: 700;
+}
+.pdfx-a11y li.is-pass > span:first-child {
+  color: var(--x-ok, #2e9d5b);
+}
+.pdfx-a11y li.is-fail > span:first-child {
+  color: var(--x-danger, #d0443c);
+}
+.pdfx-a11y li.is-manual > span:first-child {
+  color: var(--x-warn, #c98a12);
+}
+.pdfx-a11y small {
+  display: block;
+  opacity: 0.75;
+}
+
+.pdfx-hits-more {
+  display: block;
+  margin: 8px auto;
+}
+
+.pdfx-status__btn {
+  padding: 1px 8px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  cursor: pointer;
+}
+.pdfx-status__btn:hover,
+.pdfx-status__btn.is-active {
+  background: var(--x-chrome-3);
+}
+
+/* ==========================================================================
+   Tous les outils, recherche d'outils, menus contextuels, zoom, mode lecture
+   ========================================================================== */
+
+/* --- « Tous les outils » (AllTools.tsx) ----------------------------------- */
+.pdfx-alltools {
+  flex: 1;
+  min-width: 0;
+}
+.pdfx-alltools .pdfx-panel__body {
+  overflow-y: auto;
+  padding: 8px;
+}
+.pdfx-alltools__family {
+  margin-bottom: 10px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel-2);
+}
+.pdfx-alltools__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--x-radius-sm) var(--x-radius-sm) 0 0;
+  background: transparent;
+  color: var(--x-text);
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-alltools__head:hover {
+  background: var(--x-accent-soft);
+}
+.pdfx-alltools__chev {
+  margin-left: auto;
+  color: var(--x-mute);
+}
+.pdfx-alltools__list {
+  margin: 0;
+  padding: 0 4px 6px;
+  list-style: none;
+}
+.pdfx-alltools__cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--x-soft);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.pdfx-alltools__cmd:hover:not(:disabled) {
+  background: var(--x-accent-soft);
+  color: var(--x-text);
+}
+.pdfx-alltools__cmd.is-active {
+  border-color: var(--x-accent-line);
+  background: var(--x-accent-soft);
+  color: var(--x-text);
+}
+.pdfx-alltools__cmd:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- « Rechercher des outils » (CommandPalette.tsx, rendue dans <body>) --- */
+.pdfx-palette__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  background: rgba(8, 12, 20, 0.35);
+  font-family: var(--el-font);
+  font-size: 13px;
+}
+.pdfx-palette__scrim *,
+.pdfx-ctxmenu,
+.pdfx-ctxmenu * {
+  box-sizing: border-box;
+}
+.pdfx-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 70vh;
+  overflow: hidden;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius);
+  background: var(--x-chrome-2);
+  color: var(--x-chrome-text);
+  box-shadow: var(--x-shadow-pop);
+}
+.pdfx-palette__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--x-chrome-line);
+  color: var(--x-chrome-soft);
+}
+.pdfx-palette__input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  font-size: 14px;
+}
+.pdfx-palette__input:focus,
+.pdfx-palette__input:focus-visible {
+  outline: none;
+}
+.pdfx-palette__list {
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+.pdfx-palette__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--x-radius-sm);
+  cursor: pointer;
+}
+.pdfx-palette__opt.is-active {
+  border-color: var(--x-accent-line);
+  background: var(--x-accent-soft);
+}
+.pdfx-palette__opt.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pdfx-palette__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfx-palette__family {
+  color: var(--x-chrome-mute);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.pdfx-palette__kbd,
+.pdfx-ctxmenu__kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 4px;
+  color: var(--x-chrome-soft);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pdfx-palette__empty {
+  padding: 14px;
+  color: var(--x-chrome-mute);
+  text-align: center;
+}
+
+/* --- menus contextuels (ContextMenu.tsx, rendus dans <body>) --------------- */
+.pdfx-ctxmenu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  min-width: 230px;
+  max-height: calc(100vh - 12px);
+  font-family: var(--el-font);
+}
+.pdfx-ctxmenu .pdfx-menu__item {
+  padding: 6px 9px;
+}
+.pdfx-ctxmenu .pdfx-menu__item:focus-visible,
+.pdfx-ctxmenu .pdfx-menu__item:focus {
+  outline: none;
+  background: var(--x-accent-soft);
+  border-color: var(--x-accent-line);
+}
+.pdfx-ctxmenu .pdfx-menu__item.is-danger {
+  color: #fca5a5;
+}
+.pdfx-ctxmenu__noicon {
+  width: 14px;
+}
+.pdfx-ctxmenu__label {
+  flex: 1;
+}
+
+/* --- zoom éditable (ZoomBox.tsx) ------------------------------------------ */
+.pdfx-zoombox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-chrome-2);
+}
+.pdfx-zoombox:focus-within {
+  border-color: #93c5fd;
+}
+.pdfx-zoombox__input {
+  width: 64px;
+  height: 100%;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pdfx-zoombox__input:focus,
+.pdfx-zoombox__input:focus-visible {
+  outline: none;
+}
+.pdfx-zoombox__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--x-chrome-soft);
+  cursor: pointer;
+}
+.pdfx-zoombox__list {
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  min-width: 150px;
+  margin: 0;
+  list-style: none;
+}
+
+/* --- barre supérieure et barre d'état ------------------------------------- */
+.pdfx-toolsearch {
+  border-color: var(--x-chrome-line);
+  color: var(--x-chrome-soft);
+}
+@container editor (max-width: 1180px) {
+  .pdfx-toolsearch span {
+    display: none;
+  }
+}
+.pdfx-status__page {
+  color: var(--x-chrome-text);
+  font-variant-numeric: tabular-nums;
+}
+.pdfx-status__sel {
+  color: var(--x-chrome-text);
+}
+
+/* --- lien d'évitement ------------------------------------------------------ */
+.pdfx-skip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 80;
+  padding: 6px 12px;
+  border: 2px solid #93c5fd;
+  border-radius: var(--x-radius-sm);
+  background: var(--x-chrome);
+  color: var(--x-chrome-text);
+  transform: translateY(-200%);
+}
+.pdfx-skip:focus,
+.pdfx-skip:focus-visible {
+  transform: none;
+}
+
+/* --- mode lecture (Ctrl+H) -------------------------------------------------- */
+.pdfx--reading {
+  grid-template-rows: minmax(0, 1fr);
+}
+.pdfx--reading .pdfx-topbar,
+.pdfx--reading .pdfx-ribbon,
+.pdfx--reading .pdfx-rail,
+.pdfx--reading .pdfx-side,
+.pdfx--reading .pdfx-inspector,
+.pdfx--reading .pdfx-status,
+.pdfx--reading .pdfx-formbar {
+  display: none;
+}
+.pdfx-reading-exit {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--x-chrome-line);
+  border-radius: 999px;
+  background: rgba(27, 31, 39, 0.85);
+  color: var(--x-chrome-text);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity var(--el-motion-fast) var(--el-ease-standard);
+}
+.pdfx-reading-exit:hover,
+.pdfx-reading-exit:focus-visible {
+  opacity: 1;
+}
+
+/* --- vignettes au clavier --------------------------------------------------- */
+.pdfx-thumb:focus-visible {
+  outline: 2px solid var(--x-accent);
+  outline-offset: 2px;
 }

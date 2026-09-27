@@ -17,6 +17,8 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3100",
     trace: "retain-on-failure",
+    // Conteneurs où le Chromium de Playwright est préinstallé ailleurs (cloud).
+    launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
   },
   webServer: {
     command: "npx vite --port 3100 --strictPort",

@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BoxSelect,
+  BringToFront,
   ChevronLeft,
   ChevronRight,
   Command,
+  Copy,
+  CopyPlus,
   FileText,
+  Highlighter,
+  LayoutGrid,
+  Link2,
+  MessageSquarePlus,
+  Reply,
+  SendToBack,
+  SlidersHorizontal,
+  Strikethrough,
+  Trash2,
+  Underline,
   Home,
   Loader2,
   Maximize2,
@@ -12,6 +26,7 @@ import {
   PenSquare,
   Search,
   Upload,
+  WholeWord,
   X,
   ZoomIn,
   ZoomOut,
@@ -20,13 +35,14 @@ import { downloadBlob } from "../../export/exporters";
 import { useDialogs } from "../../ui/dialogs";
 import { useUndoable } from "../../ui/useUndoable";
 import { getCustomFont, isCustomFont, registerCustomFont } from "../../ui/fonts";
-import type { Quad, Rotation, Size } from "../core/coords";
-import { clamp, normRotation, rectOfQuads } from "../core/coords";
+import type { Quad, Rect, Rotation, Size } from "../core/coords";
+import { clamp, normRotation, rectOfQuads, viewToPs } from "../core/coords";
 import { PdfEngine, PdfPasswordRequired, type Attachment, type LayerInfo } from "../core/engine";
-import { warmUpPdfWorker } from "../core/assets";
+import { openPdfDocument, warmUpPdfWorker } from "../core/assets";
 import { releaseThumbnails } from "../core/thumbs";
 import { FormSession } from "../core/forms/session";
-import { sameFormValue } from "../core/forms/values";
+import { setDocumentScriptsEnabled } from "../core/forms/scripting";
+import { isEmptyValue, sameFormValue } from "../core/forms/values";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
@@ -37,11 +53,17 @@ import type {
   AnnotKind,
   Bookmark,
   ContentEdit,
-  FormValue,
+  DraftStyle,
+  ImageEdit,
+  FieldKind,
+  FieldProps,
   MeasureScale,
   Page,
   PdfState,
   Tool,
+  DestFit,
+  InitialView,
+  LinkAction,
 } from "../model/types";
 import { EMPTY_FILTER, type CommentFilter, type CommentSort } from "../model/doc";
 import { DEFAULT_STYLE, emptyState, isTextMarkup, newId, styleForKind, toolIsAnnot } from "../model/types";
@@ -56,7 +78,6 @@ import {
   tablesToCsv,
   zipImages,
 } from "../ops/export";
-import { comparePages, type ComparisonReport } from "../ops/compare";
 import {
   DEFAULT_BUILD,
   buildPdf,
@@ -110,13 +131,36 @@ import { WrongPassword, inspectProtection, removeProtection, type Permissions } 
 // same pattern as drive-cloud/ui/SignLinkView.tsx. Only the type survives as
 // a static import: `import type` is erased at compile time, so it doesn't
 // pull pades.ts (or node-forge) into this bundle.
-import type { PadesSignOptions } from "../ops/pades";
-import { fromFdf, suggestFields, toCsv, toFdf } from "../ops/forms";
-import { fromXfdf, toXfdf } from "../ops/xfdf";
+import type { PadesSignOptions, PadesVerification } from "../ops/pades";
+import { IdentitiesDialog, SignDialog, type SignChoice } from "./SignDialogs";
+import type { SignatureView } from "./SignaturesPane";
+import SigFieldTargets from "./SigFieldTargets";
+import type { AccessibilityRule } from "../ops/accessibility";
+import { PrintDialog } from "./PrintDialog";
+import { CREATE_FROM_FILE_ACCEPT, createSourceKind } from "../ops/create-kinds";
+import { CompareView } from "./CompareView";
+import { contentState, keepFormFieldsOnly, type ContentMode } from "../ops/impose";
+import { suggestFields } from "../ops/forms";
+import {
+  exportEntries,
+  matchImported,
+  parseFdf,
+  parseTabText,
+  parseXfdfFields,
+  toCsv,
+  toFdf,
+  toTabText,
+  toXfdfFields,
+  type RawDataValue,
+} from "../ops/formdata";
+import { fromXfdf, mergeImported, toXfdf, type XfdfPageBox } from "../ops/xfdf";
+import type { FdfPageBox } from "../ops/fdfcomments";
 import {
   hasImportableAnnots,
   importPageAnnots,
-  resolveStampAppearanceImages,
+  resolveAnnotExtras,
+  withExtras,
+  type AnnotExtras,
   type RawAnnotation,
 } from "../ops/import-annots";
 import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
@@ -124,19 +168,47 @@ import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
-import FormLayer from "./FormLayer";
+import ImageEditLayer from "./ImageEditLayer";
+import { loadPdfPrefs, rememberToolStyle, savePdfPrefs, styleSubset, toolStyle } from "./prefs";
+import { rememberCustomStamp } from "../model/stamps";
+import { PDFDocument } from "pdf-lib";
+import { formOf } from "../ops/pdfform";
+import { PreparePage } from "./PrepareLayer";
+import FieldPropertiesDialog, { propsFromPdfjs, type PdfjsWidgetData } from "./FieldProperties";
 import Inspector from "./Inspector";
 import Organize from "./Organize";
 import PageStack, { type HitMark, type OverlayGeometry, type PageStackHandle } from "./PageStack";
 import Ribbon from "./Ribbon";
+import AllTools from "./AllTools";
+import CommandPalette from "./CommandPalette";
+import ContextMenu, { type MenuEntry, type MenuItem } from "./ContextMenu";
+import ZoomBox from "./ZoomBox";
+import {
+  COMMAND_BY_ID,
+  COMMAND_RIGHT,
+  SINGLE_KEY_TOOLS,
+  hasRight,
+  unavailableReason,
+  type CommandContext,
+  type CommandDef,
+} from "./commands";
 import Sidebar, { PANEL_ICONS } from "./Sidebar";
 import { CurrentPage, useCurrentPage } from "./currentPage";
 import {
-  CompareDialog,
   CropDialog,
   ExportImagesDialog,
   HeaderFooterDialog,
   InsertPagesDialog,
+  LinkDialog,
+  DEFAULT_LINK_STYLE,
+  RedactApplyDialog,
+  PdfADialog,
+  AccessibilityDialog,
+  MovePagesDialog,
+  ReplacePagesDialog,
+  ResizePagesDialog,
+  RotatePagesDialog,
+  type PageScope,
   MeasureScaleDialog,
   OcrDialog,
   PageLabelsDialog,
@@ -154,6 +226,7 @@ import {
 import {
   DEFAULT_SEARCH,
   DEFAULT_VIEW,
+  KIND_LABEL,
   MAX_SCALE,
   MIN_SCALE,
   READING_THEMES,
@@ -166,11 +239,18 @@ import {
   type SidePanel,
   type Toast,
   type ViewState,
+  type ZoomMode,
 } from "./state";
+import { CombineDialog, type CombineItem } from "./CombineDialog";
+import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
 
 type DialogId =
   | null
+  | "rotatePages"
+  | "movePages"
+  | "resizePages"
+  | "replacePages"
   | "save"
   | "protect"
   | "watermark"
@@ -185,7 +265,13 @@ type DialogId =
   | "measure"
   | "compare"
   | "insert"
-  | "redactSearch";
+  | "combine"
+  | "redactSearch"
+  | "identities"
+  | "initials"
+  | "print"
+  | "pdfa"
+  | "accessibility";
 
 type Mode = "view" | "organise" | "editText" | "form" | "fields";
 
@@ -197,6 +283,8 @@ interface Props {
   author?: string;
   /** Secret of the unlocked local vault: recovery drafts are encrypted with it. */
   vaultSecret?: VaultSecret;
+  /** A PDF opened from elsewhere (the Drive), saved back where it came from. */
+  source?: { bytes: Uint8Array; name: string; destination: SaveDestination };
 }
 
 let toastSeq = 1;
@@ -224,6 +312,8 @@ interface OpenExtra {
   derived?: { session: DerivedSession; disk?: DiskState | null; diskKey?: string | null; signedKept: boolean };
   /** A new document that exists nowhere yet (built from pictures…). */
   unsaved?: boolean;
+  /** What the fresh state of a recomposed document takes over from the session (excluded pages, page marks). */
+  carry?: (fresh: PdfState) => PdfState;
 }
 
 /** Outline nodes get fresh ids each time they are read from the file. */
@@ -235,11 +325,22 @@ function startsWithBytes(whole: Uint8Array, prefix: Uint8Array): boolean {
   return true;
 }
 
-export default function PdfWorkspace({ onHome, initial, onExportElium, author = "Moi", vaultSecret }: Props) {
+export default function PdfWorkspace({
+  onHome,
+  initial,
+  onExportElium,
+  author: authorProp = "Moi",
+  vaultSecret,
+  source,
+}: Props) {
   const dialogs = useDialogs();
+  /** The comments' author (Acrobat's Préférences → Identité), remembered in this browser. */
+  const [author, setAuthor] = useState(() => loadPdfPrefs().author?.trim() || authorProp);
 
   // --- document -------------------------------------------------------------
   const [engine, setEngine] = useState<PdfEngine | null>(null);
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
   const bytesRef = useRef<Uint8Array | null>(null);
   const passwordRef = useRef<string | null>(null);
   const [fileName, setFileName] = useState("");
@@ -293,12 +394,50 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const sourceSignedRef = useRef(false);
   const diskSignedRef = useRef(false);
   const [docSigned, setDocSigned] = useState<boolean | null>(null);
+  /** A signature being prepared: where it goes (the signing dialog is open while set). */
+  const [signRequest, setSignRequest] = useState<{
+    fieldName?: string;
+    target?: { visible: NonNullable<PadesSignOptions["visible"]>; annotId: string };
+    placement: string;
+    canCertify: boolean;
+    certify: boolean;
+  } | null>(null);
+  /** The signature panel: verification of the file's signatures, and its empty signature fields. */
+  const [sigView, setSigView] = useState<SignatureView>({ list: null, empty: [] });
+  const [sigFields, setSigFields] = useState<
+    { name: string; page: number; box: { x: number; y: number; w: number; h: number }; signed: boolean }[]
+  >([]);
+  const sigRun = useRef(0);
+  const refreshSigRef = useRef<() => void>(() => {});
   /** Stamp of the state last written to an .elium: safe there, though the PDF file may lack it. */
   const [eliumVersion, setEliumVersion] = useState<number | null>(null);
   /** Restored session (draft, .elium): the file's own annotations as imported, to recognise the untouched ones. */
   const snapshotRef = useRef<Map<string, Annot> | null>(null);
   const saving = useRef(false);
   const redactConfirmed = useRef(false);
+  /** Documents' JavaScript (a preference of this browser). */
+  const [scriptsOn, setScriptsOn] = useState(() => {
+    const on = loadPdfPrefs().scripts !== false;
+    setDocumentScriptsEnabled(on);
+    return on;
+  });
+  /**
+   * The document's restrictions, when it was opened without the permissions
+   * (owner) password — null: none apply. Acrobat enforces them; so does Elium.
+   */
+  const [restrictions, setRestrictions] = useState<Permissions | null>(null);
+  const restrictionsRef = useRef(restrictions);
+  restrictionsRef.current = restrictions;
+  /** The hidden information chosen, with the redaction, to go too (null: none). */
+  const redactHiddenInfo = useRef<HiddenInfoOptions | null>(null);
+  /** The « Appliquer le caviardage » dialog, waiting for its answer. */
+  const [redactAsk, setRedactAsk] = useState<{
+    marks: number;
+    answer: (v: HiddenInfoOptions | null | false) => void;
+  } | null>(null);
+  /** Ask to apply the redaction: false when cancelled, else the hidden information to remove as well. */
+  const askRedaction = (marks: number) =>
+    new Promise<HiddenInfoOptions | null | false>((answer) => setRedactAsk({ marks, answer }));
   const [drafts, setDrafts] = useState<PdfDraftEntry[]>([]);
   /** Options pre-set when « Enregistrer sous » is opened by a command (optimise, sanitise…). */
   const [saveAsPreset, setSaveAsPreset] = useState<Partial<SaveAsOptions>>({});
@@ -332,6 +471,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   /** The page being read — outside React state, see `currentPage.ts`. */
   const [currentStore] = useState(() => new CurrentPage(1));
   const [mode, setMode] = useState<Mode>("view");
+  /** « Préparer un formulaire » : selected field boxes (« c:<id> » created, « w:<widget> » file). */
+  const [prepSelected, setPrepSelected] = useState<string[]>([]);
+  const previousMode = useRef<string | null>(null);
+  /** « Ajouter du texte » armed: the next click on a page in « Modifier le texte » places text. */
+  const [addingText, setAddingText] = useState(false);
+  /** « Ajouter une image »: the picked picture, placed by the next click on a page. */
+  const [addingImage, setAddingImage] = useState<string | null>(null);
+  /** « Propriétés du champ » open on this field. */
+  const [prepProps, setPrepProps] = useState<{
+    key: string;
+    /** Original name of a file field (its edits are keyed by it). */
+    fieldName?: string;
+    kind: FieldKind;
+    name: string;
+    initial: FieldProps;
+  } | null>(null);
   const [tab, setTab] = useState<RibbonTab>("home");
   const [panel, setPanel] = useState<SidePanel | null>("thumbnails");
   const [tool, setTool] = useState<Tool>("textSelect");
@@ -341,6 +496,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
   const [inspector, setInspector] = useState(true);
+  /** Mode lecture (Ctrl+H): the document alone, without ribbon, panels or status bar. */
+  const [reading, setReading] = useState(false);
+  /** « Rechercher des outils » (Ctrl+Maj+P) is open. */
+  const [palette, setPalette] = useState(false);
+  /** Acrobat's « Raccourcis à une touche » (V, T, H, R…): on unless turned off. */
+  const [singleKeys, setSingleKeys] = useState(() => loadPdfPrefs().singleKeys !== false);
+  /** The open context menu. */
+  const [menu, setMenu] = useState<{ x: number; y: number; label: string; entries: MenuEntry[] } | null>(null);
+  /** The text selection a context menu acts on (restored before each of its commands). */
+  const menuRange = useRef<Range | null>(null);
+  /** When the keyboard (Maj+F10, menu key) last opened a menu: the browser's own event that follows is ignored. */
+  const menuByKeyAt = useRef(0);
+  /** Opens the context menu of what has the focus (set once the document is shown). */
+  const menuAtFocusRef = useRef<() => void>(() => {});
 
   // --- search ---------------------------------------------------------------
   const [searchState, setSearchState] = useState(DEFAULT_SEARCH);
@@ -352,15 +521,46 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // --- ancillary ------------------------------------------------------------
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [layers, setLayers] = useState<LayerInfo[]>([]);
-  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  /** The user's layer switches, in the order made (radio groups depend on it). */
+  const [layerVis, setLayerVis] = useState<Map<string, boolean>>(new Map());
+  const layerVisRef = useRef(layerVis);
+  /** The file's named destinations. */
+  const [fileDests, setFileDests] = useState<string[]>([]);
+  /** The file's own Initial View (openPage: a 1-based source page). */
+  const [fileView, setFileView] = useState<InitialView | null>(null);
+  /** The link whose properties are being edited (just drawn: `creating`). */
+  const [linkEdit, setLinkEdit] = useState<{ id: string; creating: boolean } | null>(null);
+  /** The file's page labels by source page (null: none). */
+  const [fileLabels, setFileLabels] = useState<string[] | null>(null);
   const [ocConfig, setOcConfig] = useState<unknown>(undefined);
   const [filter, setFilter] = useState<CommentFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<CommentSort>("page");
   const [signatures, setSignatures] = useState<SavedSignature[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dialog, setDialog] = useState<DialogId>(null);
+  /** Files picked for « Insérer », waiting for their position (the insert dialog). */
+  const [pendingInsert, setPendingInsert] = useState<{ kind: "pdf" | "image"; files: File[] } | null>(null);
   const [buildOptions] = useState<BuildOptions>({ ...DEFAULT_BUILD, author });
-  const [compareReport, setCompareReport] = useState<ComparisonReport | null>(null);
+  /** The two documents being compared (kept open while the results are shown). */
+  const [compareEngines, setCompareEngines] = useState<{ left: PdfEngine; right: PdfEngine; rightName: string } | null>(
+    null,
+  );
+  const compareEnginesRef = useRef(compareEngines);
+  compareEnginesRef.current = compareEngines;
+  const closeCompare = () => {
+    const cur = compareEnginesRef.current;
+    cur?.left.destroy();
+    cur?.right.destroy();
+    compareEnginesRef.current = null;
+    setCompareEngines(null);
+  };
+  useEffect(
+    () => () => {
+      compareEnginesRef.current?.left.destroy();
+      compareEnginesRef.current?.right.destroy();
+    },
+    [],
+  );
   const [compareBusy, setCompareBusy] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<{ page: number; total: number; stage: string; ratio: number } | null>(
@@ -391,9 +591,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const textLayers = useRef(new Map<string, { layer: HTMLElement; host: HTMLElement }>());
   const openInput = useRef<HTMLInputElement>(null);
   const mergeInput = useRef<HTMLInputElement>(null);
+  const attachInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
+  /** « Créer depuis un fichier » : Word, Excel, PowerPoint, HTML, texte, Markdown, Elium. */
+  const createInput = useRef<HTMLInputElement>(null);
   const dataInput = useRef<HTMLInputElement>(null);
-  const p12Input = useRef<HTMLInputElement>(null);
   const compareInput = useRef<HTMLInputElement>(null);
   const pendingImageAt = useRef<{ pageId: string; x: number; y: number } | null>(null);
 
@@ -422,6 +624,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
     return map;
   }, [state.annots]);
+  const imageEditsByPage = useMemo(() => {
+    const map = new Map<string, ImageEdit[]>();
+    for (const e of state.imageEdits) {
+      const list = map.get(e.pageId);
+      if (list) list.push(e);
+      else map.set(e.pageId, [e]);
+    }
+    return map;
+  }, [state.imageEdits]);
   const contentEditsByPage = useMemo(() => {
     const map = new Map<string, ContentEdit[]>();
     for (const e of state.contentEdits) {
@@ -438,7 +649,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   const toast = useCallback((tone: Toast["tone"], text: string, detail?: string) => {
     const id = toastSeq++;
     setToasts((v) => [...v.filter((t) => t.tone !== "progress" || tone !== "progress"), { id, tone, text, detail }]);
-    if (tone !== "progress") setTimeout(() => setToasts((v) => v.filter((t) => t.id !== id)), 5200);
+    // An error stays until it is dismissed; the rest go after a few seconds.
+    if (tone !== "progress" && tone !== "danger")
+      setTimeout(() => setToasts((v) => v.filter((t) => t.id !== id)), tone === "warning" ? 8000 : 5200);
     return id;
   }, []);
   const dismissToast = (id: number) => setToasts((v) => v.filter((t) => t.id !== id));
@@ -492,15 +705,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       await Promise.all(Array.from({ length: Math.min(4, froms.length) }, worker));
       if (gen !== shownGeneration.current || !raws.size) return null;
 
-      // A Stamp's own picture never comes back from pdf.js's getAnnotations()
-      // (only a `hasAppearance` boolean) — resolving it needs a separate walk
-      // of the source bytes with pdf-lib, keyed by annotation. That walk parses
-      // the whole document, so it only runs when some stamp has a picture.
-      const needsPictures = [...raws.values()].some((raw) => raw.some((a) => a.subtype === "Stamp" && a.hasAppearance));
-      const appearances = needsPictures
-        ? await resolveStampAppearanceImages(next.bytes, next.password).catch(
-            () => new Map<number, Map<string, NonNullable<RawAnnotation["appearanceImage"]>>>(),
-          )
+      // What pdf.js' getAnnotations() leaves out (a Stamp's picture and
+      // /Name, /NM, /RC, redaction overlay…) needs a separate walk of the
+      // source bytes with pdf-lib — only when there is something to import.
+      const extras = raws.size
+        ? await resolveAnnotExtras(next.bytes, next.password).catch(() => new Map<number, Map<string, AnnotExtras>>())
         : null;
       if (gen !== shownGeneration.current) return null;
 
@@ -509,12 +718,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (page.from == null || byFrom.has(page.from)) continue;
         const raw = raws.get(page.from);
         if (!raw) continue;
-        const pageAppearances = appearances?.get(page.from);
-        const withImages = pageAppearances?.size
-          ? raw.map((a) =>
-              a.id && pageAppearances.has(a.id) ? { ...a, appearanceImage: pageAppearances.get(a.id) } : a,
-            )
-          : raw;
+        const withImages = withExtras(raw, extras?.get(page.from));
         const info = await next.pageInfo(page.from);
         const origin = { x: info.ox, y: info.oy };
         byFrom.set(page.from, importPageAnnots(withImages, page.id, info.h, author, origin).annots);
@@ -580,7 +784,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       handle?: FsFileHandle | null,
       extra: OpenExtra = {},
     ) => {
-      const { recovered, rebased, derived, unsaved } = extra;
+      const { recovered, rebased, derived, unsaved, carry } = extra;
       // Taken BEFORE the (slow) open: when a second file is picked while the
       // first one is still opening, only the last choice may be shown, whichever
       // finishes first. The engine being replaced is destroyed by the `engine`
@@ -623,7 +827,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           // A new document: its own destination, nothing saved yet — or the
           // file just rewritten by a save, which the session now continues on.
           diskRef.current = rebased?.disk ?? null;
-          destRef.current = rebased?.dest ?? (handle ? fileDestination(handle) : null);
+          destRef.current =
+            rebased?.dest ??
+            (handle ? fileDestination(handle) : null) ??
+            // The Drive document itself (also after its password was asked), not another file opened later.
+            (source && raw === source.bytes ? source.destination : null);
           openHandleRef.current = handle ?? null;
           securityRef.current = null;
           setSecurityDirty(false);
@@ -643,6 +851,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         // (A recomposition that keeps the state — OCR — keeps what recognises its untouched markup.)
         if (!(derived && restore)) snapshotRef.current = null;
         redactConfirmed.current = false;
+        redactHiddenInfo.current = null;
+        declinedRights.current.clear();
         sourceKeyRef.current = null;
         setDocSigned(rebased ? false : derived ? sourceSignedRef.current : null);
         // Freshly opened, rebased on the file just saved, or restored from an
@@ -662,6 +872,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             if (gen === shownGeneration.current) diskKeyRef.current = k;
           });
         }
+        // The signature panel and the empty signature fields follow the file.
+        void next.infoReady.then((info) => {
+          if (gen !== shownGeneration.current) return;
+          if (info.signed || info.hasAcroForm) refreshSigRef.current();
+          else {
+            setSigFields([]);
+            setSigView({ list: [], empty: [] });
+          }
+        });
         if (!rebased && !derived) {
           // Signature facts are computed in the background (see PdfEngine.infoReady).
           void next.infoReady.then((info) => {
@@ -685,7 +904,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             language: next.info.language,
           },
         };
-        reset(base);
+        reset(restore || !carry ? base : carry(base));
         setDocKey(gen);
         setEngine(next);
         setFileName(name);
@@ -699,22 +918,55 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setSelectedPages([]);
         setAttachments([]);
         setLayers([]);
-        setHiddenLayers(new Set());
+        setLayerVis(new Map());
+        layerVisRef.current = new Map();
         setOcConfig(undefined);
         currentStore.set(1);
-        setMode("view");
+        viewHistory.current = { back: [], fwd: [] };
+        // A recomposition (pages inserted, replaced…) from the organiser stays in it.
+        setMode((m) => (derived && m === "organise" ? m : "view"));
 
         void next
           .outline()
           .then((outline) => {
             if (gen !== shownGeneration.current || !outline.length) return;
-            const bookmarks: Bookmark[] = outlineToBookmarks(outline);
+            const bookmarks: Bookmark[] = D.outlineToBookmarks(outline);
             if (!(derived && restore)) pristineBookmarksRef.current = bookmarks;
-            amend((s) => (s.bookmarks == null ? { ...s, bookmarks } : s));
+            // A recomposed file holds the bookmarks as the session had them:
+            // each one is now the file's item at its position.
+            amend((s) =>
+              s.bookmarks == null
+                ? { ...s, bookmarks }
+                : derived && restore
+                  ? { ...s, bookmarks: D.rebaseBookmarks(s.bookmarks) }
+                  : s,
+            );
           })
           .catch(() => {});
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
+        setFileLabels(null);
+        setRestrictions(null);
+        void inspectProtection(next.bytes, password ?? "").then((p) => {
+          if (gen !== shownGeneration.current) return;
+          // Only a document that withholds some right is restricted (an open password alone is not).
+          const withheld = p?.encrypted && !p.owner && Object.values(p.permissions).some((v) => !v);
+          setRestrictions(withheld ? p.permissions : null);
+        });
+        void next.pageLabels().then((l) => gen === shownGeneration.current && setFileLabels(l));
+        // The file's Initial View: shown as it asks on a fresh open (panel,
+        // page layout, page and zoom), kept for the Properties dialog.
+        setFileDests([]);
+        void next.destinationNames().then((n) => gen === shownGeneration.current && setFileDests(n));
+        setFileView(null);
+        void next
+          .initialView()
+          .then((iv) => {
+            if (gen !== shownGeneration.current) return;
+            setFileView(iv);
+            if (!restore && !derived && !rebased) applyInitialViewRef.current(iv);
+          })
+          .catch(() => {});
         // Let the first page paint before competing for the pdf.js worker.
         setTimeout(() => {
           if (gen !== shownGeneration.current) return;
@@ -771,6 +1023,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         if (e instanceof PdfPasswordRequired) {
           setPendingPassword({ bytes: raw, name, wrong: e.wrong, handle });
         } else {
+          // The message stays generic for the user; the cause goes to the console for diagnosis.
+          console.warn("[pdf] ouverture impossible :", e);
           setLoadError("Impossible d'ouvrir ce PDF : le fichier semble illisible ou endommagé.");
         }
       } finally {
@@ -787,6 +1041,24 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     [openBytes],
   );
 
+  // Signatures and initials saved in this browser (Acrobat keeps them between documents).
+  useEffect(() => {
+    void import("./identities").then(({ listSavedMarks }) =>
+      listSavedMarks().then((kept) => {
+        if (kept.length) setSignatures((v) => [...kept.filter((k) => !v.some((x) => x.src === k.src)), ...v]);
+      }),
+    );
+  }, []);
+
+  // A PDF handed over by the Drive: opened at once, its saves go back there.
+  const sourceOpened = useRef(false);
+  useEffect(() => {
+    if (sourceOpened.current || !source) return;
+    sourceOpened.current = true;
+    void openBytes(source.bytes, source.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
+
   // Restore a session persisted in an .elium.
   const restored = useRef(false);
   useEffect(() => {
@@ -794,15 +1066,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     restored.current = true;
     const loaded = deserialize(initial);
     for (const [name, b64] of Object.entries(loaded.fonts)) registerCustomFont(name, base64ToBytes(b64));
-    setSignatures(
-      loaded.signatures.map((src, i) => ({
-        id: `sig_${i}`,
-        kind: "signature",
-        src,
-        ratio: 3,
-        createdAt: new Date().toISOString(),
-      })),
-    );
+    const fromElium = loaded.signatures.map((src, i) => ({
+      id: `sig_${i}`,
+      kind: "signature" as const,
+      src,
+      ratio: 3,
+      createdAt: new Date().toISOString(),
+    }));
+    setSignatures((v) => [...v, ...fromElium.filter((f) => !v.some((x) => x.src === f.src))]);
+    // The .elium keeps pictures only: their proportions come from the pictures themselves.
+    for (const f of fromElium) {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+        if (ratio > 0) setSignatures((v) => v.map((x) => (x.src === f.src ? { ...x, ratio } : x)));
+      };
+      img.src = f.src;
+    }
     void openBytes(loaded.bytes, loaded.name, loaded.sourcePassword, loaded.state);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
@@ -838,6 +1118,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (!formSession) return;
     const off = formSession.onChange((changes, meta) => {
       const apply = (s: PdfState) => ({ ...s, formValues: { ...s.formValues, ...changes } });
+      // A document that forbids filling: the value typed is taken back, unless unlocked.
+      const r = restrictionsRef.current;
+      if (r && !r.fillForms && !r.annotate) {
+        // One prompt at a time, and none again once declined: every keystroke fires a change.
+        const ask = formPromptRef.current ?? requireRightRef.current("fillForms", { once: true });
+        formPromptRef.current = ask;
+        void ask.then((ok) => {
+          formPromptRef.current = null;
+          if (ok) setState(apply);
+          else
+            setQuiet((s) => {
+              formSession.sync(s.formValues);
+              return s;
+            });
+        });
+        return;
+      }
       // One undo step per field visit (typing) or per click (boxes, lists);
       // what the form's scripts compute joins the step that caused it.
       if (meta.newStep) setState(apply);
@@ -1060,6 +1357,237 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     [currentStore],
   );
 
+  /**
+   * Show a destination (a bookmark's, a link's): its page, the point it names
+   * (page space, turned as the page is shown) at the top, and its zoom or fit.
+   */
+  const followDest = (d: { page: number; x?: number; y?: number; fit?: DestFit; zoom?: number }) => {
+    rememberView();
+    const target = clamp(Math.round(d.page), 1, Math.max(1, pageCountRef.current));
+    const page = pages[target - 1];
+    let top = d.y;
+    if (page && (d.x != null || d.y != null)) {
+      const { w, h } = sizeOf(page);
+      const x = d.x ?? 0;
+      const y = d.y ?? 0;
+      // The page-space point, seen on the page as turned on screen.
+      const r = rotationOf(page);
+      top = r === 90 ? x : r === 180 ? h - y : r === 270 ? w - x : y;
+      if (d.y == null && (r === 0 || r === 180)) top = undefined;
+    }
+    const zoomMode: ZoomMode | null =
+      d.fit === "Fit" || d.fit === "FitB" ? "fitPage" : d.fit === "FitH" || d.fit === "FitBH" ? "fitWidth" : null;
+    // A destination's zoom is Acrobat's (1 = 100 %).
+    const scale = (d.fit === "XYZ" || !d.fit) && d.zoom ? presetScale(d.zoom) : undefined;
+    const rezoom = zoomMode ? zoomMode !== view.zoomMode : !!scale && Math.abs(scale - view.scale) > 1e-3;
+    if (zoomMode && rezoom) setView((v) => ({ ...v, zoomMode }));
+    else if (scale && rezoom) setView((v) => ({ ...v, scale: clamp(scale, MIN_SCALE, MAX_SCALE), zoomMode: "custom" }));
+    const go = () => goTo(target, top);
+    // A new zoom lays the pages out again first.
+    if (rezoom) requestAnimationFrame(() => requestAnimationFrame(go));
+    else go();
+  };
+
+  // --- previous / next view (Acrobat's Alt+← / Alt+→): the places left by a
+  // jump (link, bookmark, page number, named action), not by scrolling.
+  const viewHistory = useRef<{ back: { page: number; top: number }[]; fwd: { page: number; top: number }[] }>({
+    back: [],
+    fwd: [],
+  });
+  const hereView = () => {
+    const a = stackRef.current?.viewAnchor();
+    return a ? { page: a.index + 1, top: a.py } : { page: currentStore.get(), top: 0 };
+  };
+  const rememberView = () => {
+    const h = viewHistory.current;
+    const here = hereView();
+    const last = h.back[h.back.length - 1];
+    if (!last || last.page !== here.page || Math.abs(last.top - here.top) > 2) h.back.push(here);
+    if (h.back.length > 100) h.back.shift();
+    h.fwd = [];
+  };
+  const viewBack = () => {
+    const h = viewHistory.current;
+    const to = h.back.pop();
+    if (!to) return;
+    h.fwd.push(hereView());
+    goTo(to.page, to.top);
+  };
+  const viewForward = () => {
+    const h = viewHistory.current;
+    const to = h.fwd.pop();
+    if (!to) return;
+    h.back.push(hereView());
+    goTo(to.page, to.top);
+  };
+
+  /** A named action (bookmark or link): pages counted as the document now is. */
+  const runNamedAction = (name: string) => {
+    const cur = currentStore.get();
+    const n = pageCountRef.current;
+    if (name === "GoBack") return viewBack();
+    if (name === "GoForward") return viewForward();
+    if (["NextPage", "PrevPage", "FirstPage", "LastPage"].includes(name)) rememberView();
+    if (name === "NextPage") goTo(Math.min(n, cur + 1));
+    else if (name === "PrevPage") goTo(Math.max(1, cur - 1));
+    else if (name === "FirstPage") goTo(1);
+    else if (name === "LastPage") goTo(n);
+    else toast("info", "Action du fichier", `« ${name} » n'est pas exécutée par Elium.`);
+  };
+
+  const openExternal = (url: string) =>
+    void dialogs.confirm({ title: "Ouvrir un lien externe", message: url }).then((ok) => {
+      if (ok) window.open(url, "_blank", "noopener,noreferrer");
+    });
+
+  /**
+   * Acrobat's « Créer des liens à partir des URL »: every web address written
+   * in the text (http(s)://…, www.…) becomes a link — a real one, saved in the
+   * file — unless a link is already there.
+   */
+  const linksFromUrls = async () => {
+    if (!engine) return;
+    const id = toast("progress", "Recherche des adresses web…");
+    try {
+      const texts = await ensureText();
+      const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'()]+[^\s<>"'().,;:!?]/gi;
+      const now = new Date().toISOString();
+      const made: Annot[] = [];
+      const done = new Set<number>();
+      for (const page of pages) {
+        if (page.from == null || done.has(page.from)) continue;
+        done.add(page.from);
+        const text = texts[page.from] ?? "";
+        const found = [...text.matchAll(URL_RE)];
+        if (!found.length) continue;
+        const pdfPage = await engine.page(page.from);
+        const vp = pdfPage.getViewport({ scale: 1, rotation: 0 });
+        const tc = await engine.text(page.from);
+        const runs = buildRuns(tc, vp.transform as unknown as number[]);
+        // What is already a link: the file's own, and Elium's.
+        const raw = (await engine.annotations(page.from)) as { subtype?: string; rect?: number[] }[];
+        const info = await engine.pageInfo(page.from);
+        const taken: { x: number; y: number; w: number; h: number }[] = [
+          ...raw
+            .filter((r) => r.subtype === "Link" && r.rect)
+            .map((r) => ({
+              x: r.rect![0] - info.ox,
+              y: info.h - (r.rect![3] - info.oy),
+              w: r.rect![2] - r.rect![0],
+              h: r.rect![3] - r.rect![1],
+            })),
+        ];
+        // Elium's links are in the page as cropped in Elium; the text, in the file's page.
+        const dx = page.crop?.left ?? 0;
+        const dy = page.crop?.top ?? 0;
+        for (const a of state.annots) {
+          if (a.pageId === page.id && a.kind === "link") taken.push({ ...a.rect, x: a.rect.x + dx, y: a.rect.y + dy });
+        }
+        for (const m of found) {
+          const quads = quadsForCharRange(runs, tc.items, m.index!, m.index! + m[0].length);
+          if (!quads.length) continue;
+          const r = rectOfQuads(quads);
+          const cx = r.x + r.w / 2;
+          const cy = r.y + r.h / 2;
+          if (taken.some((t) => cx >= t.x && cx <= t.x + t.w && cy >= t.y && cy <= t.y + t.h)) continue;
+          const url = /^www\./i.test(m[0]) ? `https://${m[0]}` : m[0];
+          made.push({
+            id: newId("an"),
+            pageId: page.id,
+            kind: "link",
+            rect: { x: r.x - dx, y: r.y - dy, w: r.w, h: r.h },
+            color: "#1d4ed8",
+            fill: null,
+            opacity: 1,
+            strokeWidth: 0,
+            action: { type: "url", url },
+            linkStyle: { ...DEFAULT_LINK_STYLE },
+            author,
+            createdAt: now,
+            modifiedAt: now,
+            replies: [],
+          });
+        }
+      }
+      dismissToast(id);
+      if (!made.length) return toast("info", "Liens", "Aucune adresse web sans lien dans le texte.");
+      setState((s) => ({ ...s, annots: [...s.annots, ...made] }));
+      toast("success", `${made.length} lien(s) créé(s)`, "À partir des adresses web du texte.");
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Liens", e instanceof Error ? e.message : undefined);
+    }
+  };
+
+  /** Open the document as its Initial View asks (what differs from Elium's defaults). */
+  const applyInitialView = (iv: InitialView) => {
+    const panels: Partial<Record<InitialView["pageMode"], SidePanel>> = {
+      UseOutlines: "bookmarks",
+      UseThumbs: "thumbnails",
+      UseAttachments: "attachments",
+      UseOC: "layers",
+    };
+    const panelFor = panels[iv.pageMode];
+    if (panelFor) setPanel(panelFor);
+    const layouts: Partial<Record<InitialView["pageLayout"], Pick<ViewState, "mode" | "spreadCover">>> = {
+      OneColumn: { mode: "continuous", spreadCover: true },
+      TwoColumnLeft: { mode: "facingContinuous", spreadCover: false },
+      TwoColumnRight: { mode: "facingContinuous", spreadCover: true },
+      TwoPageLeft: { mode: "facing", spreadCover: false },
+      TwoPageRight: { mode: "facing", spreadCover: true },
+    };
+    const layout = layouts[iv.pageLayout];
+    const zoom: Partial<ViewState> =
+      iv.openZoom === "Fit"
+        ? { zoomMode: "fitPage" }
+        : iv.openZoom === "FitH"
+          ? { zoomMode: "fitWidth" }
+          : iv.openZoom === "FitV"
+            ? { zoomMode: "fitVisible" }
+            : typeof iv.openZoom === "number"
+              ? { zoomMode: "custom", scale: clamp(presetScale(iv.openZoom), MIN_SCALE, MAX_SCALE) }
+              : {};
+    if (layout || Object.keys(zoom).length) setView((v) => ({ ...v, ...layout, ...zoom }));
+    // Once laid out (a fresh open: the pages are the file's, in its order).
+    if (iv.openPage > 1) setTimeout(() => goTo(iv.openPage), 120);
+  };
+  const applyInitialViewRef = useRef(applyInitialView);
+  applyInitialViewRef.current = applyInitialView;
+
+  /** Go to a named destination: one added in Elium, else the file's. */
+  const goToNamedDest = async (name: string) => {
+    const added = state.destEdits?.added.find((a) => a.name === name);
+    if (added) {
+      const at = pages.findIndex((pg) => pg.id === added.pageId);
+      if (at >= 0) followDest({ page: at + 1, x: added.x, y: added.y, zoom: added.zoom, fit: "XYZ" });
+      return;
+    }
+    if (!engine) return;
+    const d = await engine.resolveDest(name);
+    const at = d.page ? pages.findIndex((pg) => pg.from === d.page! - 1) : -1;
+    if (at < 0) return toast("warning", "Destination", "Sa page n'est plus dans le document.");
+    followDest({ ...d, page: at + 1 });
+  };
+
+  /** A link drawn in Elium, clicked. */
+  const followLink = (a: Annot) => {
+    const act = a.action;
+    if (!act) return toast("info", "Lien sans destination", "Choisissez-la avec l'outil Lien, dans l'inspecteur.");
+    if (act.type === "url") return openExternal(act.url);
+    if (act.type === "named") return runNamedAction(act.name);
+    const at = act.pageId ? pages.findIndex((pg) => pg.id === act.pageId) : -1;
+    if (act.pageId && at < 0) return toast("warning", "Lien", "La page visée a été supprimée.");
+    followDest({ page: at >= 0 ? at + 1 : act.page, x: act.x, y: act.y, fit: act.fit, zoom: act.zoom });
+  };
+
+  const followBookmark = (b: Bookmark) => {
+    const a = b.action;
+    if (!a) followDest(b);
+    else if (a.kind === "uri") openExternal(a.url);
+    else if (a.kind === "named") runNamedAction(a.name);
+    else toast("info", a.label, "Cette action est conservée dans le fichier, mais Elium ne l'exécute pas.");
+  };
+
   const onCurrentChange = useCallback((current: number) => currentStore.set(current), [currentStore]);
   // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.
   const onScaleChange = useCallback((scale: number) => {
@@ -1073,6 +1601,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
   const addAnnot = (a: Annot) => {
     setState((s) => D.addAnnot(s, a));
+    // A link just drawn: where it goes, and how it looks (Acrobat's « Créer un lien »).
+    if (a.kind === "link" && !a.action) setLinkEdit({ id: a.id, creating: true });
   };
   const patchAnnot = (id: string, patch: Partial<Annot>, live: boolean) => {
     const now = new Date().toISOString();
@@ -1087,10 +1617,21 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   const pickTool = (next: Tool) => {
+    // A restricted document: comment tools need « commentaires », field tools « modification ».
+    if (restrictionsRef.current && (next.startsWith("field:") || toolIsAnnot(next))) {
+      void requireRight(next.startsWith("field:") ? "modify" : "annotate").then((ok) => ok && pickTool(next));
+      return;
+    }
     setTool(next);
     setEditingId(null);
+    // A field tool works in « Préparer un formulaire »; a markup tool leaves it.
+    if (next.startsWith("field:")) {
+      setMode("fields");
+      setSelectedIds([]);
+    } else if (toolIsAnnot(next) && mode === "fields") setMode("view");
     if (toolIsAnnot(next)) {
-      setStyle((s) => styleForKind(s, next));
+      // The tool's defaults, then what the user last set for it (Acrobat's sticky properties).
+      setStyle((s) => ({ ...styleForKind(s, next), ...toolStyle(next) }));
       const target = TOOL_TAB[next];
       if (target && target !== tab) setTab(target);
     }
@@ -1110,10 +1651,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   // --- text-anchored markup from the live selection -------------------------
-  const applyMarkupFromSelection = useCallback(
-    (kind: AnnotKind) => {
+  /** The markup of `kind` the live selection would make, one per page (nothing added yet). */
+  const markupsFromSelection = useCallback(
+    (kind: AnnotKind): Annot[] => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return false;
+      if (!sel || sel.isCollapsed) return [];
       const now = new Date().toISOString();
       const made: Annot[] = [];
       const byId = new Map(pages.map((q) => [q.id, q]));
@@ -1143,14 +1685,84 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           status: "none",
         });
       }
+      return made;
+    },
+    [pages, sizeOf, rotationOf, view.scale, style, author],
+  );
+
+  const applyMarkupFromSelection = useCallback(
+    (kind: AnnotKind) => {
+      const made = markupsFromSelection(kind);
       if (!made.length) return false;
       setState((s) => made.reduce((acc, a) => D.addAnnot(acc, a), s));
-      sel.removeAllRanges();
+      window.getSelection()?.removeAllRanges();
       setSelectedIds(made.map((a) => a.id));
       return true;
     },
-    [pages, sizeOf, rotationOf, view.scale, style, author, setState],
+    [markupsFromSelection, setState],
   );
+
+  /**
+   * Where the text cursor is, in page space: the page and the foot of the
+   * insertion point (x, bottom of the line) with the line's height — for
+   * Acrobat's « Insérer du texte au curseur ».
+   */
+  const caretPoint = useCallback((): { pageId: string; x: number; y: number; h: number } | null => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const node = sel.focusNode;
+    const offset = sel.focusOffset;
+    if (!node) return null;
+    const byId = new Map(pages.map((q) => [q.id, q]));
+    for (const [pageId, { layer, host }] of textLayers.current) {
+      const page = byId.get(pageId);
+      if (!page || !layer.contains(node)) continue;
+      // A one-character range beside the cursor: its edge is the insertion point.
+      const probe = document.createRange();
+      const len = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").length : node.childNodes.length;
+      const before = offset >= len;
+      try {
+        if (before) probe.setStart(node, Math.max(0, offset - 1));
+        else probe.setStart(node, offset);
+        probe.setEnd(node, before ? offset : Math.min(len, offset + 1));
+      } catch {
+        return null;
+      }
+      const r = probe.getBoundingClientRect();
+      if (!r.width && !r.height) return null;
+      const o = host.getBoundingClientRect();
+      const toPs = (x: number, y: number) =>
+        viewToPs({ x: (x - o.left) / view.scale, y: (y - o.top) / view.scale }, sizeOf(page), rotationOf(page));
+      const a = toPs(before ? r.right : r.left, r.top);
+      const b = toPs(before ? r.right : r.left, r.bottom);
+      return { pageId, x: (a.x + b.x) / 2, y: Math.max(a.y, b.y), h: Math.abs(b.y - a.y) || Math.abs(b.x - a.x) };
+    }
+    return null;
+  }, [pages, sizeOf, rotationOf, view.scale]);
+
+  /** A Caret at `at` (the foot of the insertion point), sized to the line. */
+  const caretAnnot = (at: { pageId: string; x: number; y: number; h: number }, text: string, group?: string): Annot => {
+    const h = Math.max(6, Math.min(14, at.h * 0.55));
+    const w = h * 0.9;
+    const now = new Date().toISOString();
+    return {
+      id: newId("an"),
+      pageId: at.pageId,
+      kind: "caret",
+      rect: { x: at.x - w / 2, y: at.y - h * 0.45, w, h },
+      color: "#1d4ed8",
+      fill: null,
+      opacity: 1,
+      strokeWidth: 0,
+      author,
+      subject: group ? "Texte remplacé" : "Texte inséré",
+      contents: text,
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+      status: "none",
+    };
+  };
 
   // Picking a markup tool while text is selected applies it immediately.
   useEffect(() => {
@@ -1182,9 +1794,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return texts;
   }, [engine]);
 
+  /** Each search's number: an answer that comes back after a newer search is dropped. */
+  const searchRun = useRef(0);
   const doSearch = useCallback(
     async (query: string) => {
       if (!engine) return;
+      const run = ++searchRun.current;
       if (!query.trim()) {
         setHits([]);
         setHitQuads(new Map());
@@ -1192,19 +1807,32 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       }
       const texts = await ensureText();
-      const found = runSearch(texts, query, {
+      if (run !== searchRun.current) return;
+      const raw = runSearch(texts, query, {
         ...DEFAULT_SEARCH_OPTIONS,
         caseSensitive: searchState.caseSensitive,
         wholeWord: searchState.wholeWord,
         regex: searchState.regex,
         ignoreDiacritics: searchState.ignoreDiacritics,
       });
+      // The document as it is now: its pages' order, not the file's; nothing
+      // from a deleted page (a duplicated page answers once, where it first is).
+      const at = new Map<number, number>();
+      pages.forEach((pg, i) => pg.from != null && !at.has(pg.from) && at.set(pg.from, i));
+      const found = raw
+        .filter((h) => at.has(h.page))
+        .sort((a, b) => at.get(a.page)! - at.get(b.page)! || a.start - b.start);
       setHits(found);
-      setSearchState((s) => ({ ...s, index: found.length ? 0 : -1 }));
-      if (found.length) {
-        const target = pages.findIndex((pg) => pg.from === found[0].page);
-        goTo((target < 0 ? found[0].page : target) + 1);
-      }
+      // From the page being read on, as Acrobat does.
+      const cur = currentStore.get() - 1;
+      const first = found.length
+        ? Math.max(
+            0,
+            found.findIndex((h) => at.get(h.page)! >= cur),
+          )
+        : -1;
+      setSearchState((s) => ({ ...s, index: first }));
+      if (first >= 0) goTo(at.get(found[first].page)! + 1);
     },
     [
       engine,
@@ -1215,8 +1843,84 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       searchState.ignoreDiacritics,
       pages,
       goTo,
+      currentStore,
     ],
   );
+
+  /**
+   * The pages as shown: each with its label — set in Elium, else the file's
+   * own (/PageLabels, which follows its page when pages move).
+   */
+  const shownPages = useMemo(
+    () =>
+      fileLabels
+        ? pages.map((pg) =>
+            pg.label || pg.from == null || !fileLabels[pg.from] ? pg : { ...pg, label: fileLabels[pg.from] },
+          )
+        : pages,
+    [pages, fileLabels],
+  );
+  const pageLabels = useMemo(() => shownPages.map((pg) => pg.label), [shownPages]);
+  /** The pages that print (excluded ones left out). */
+  const printablePages = useMemo(() => pages.filter((p) => !p.skipped), [pages]);
+
+  /** Named destinations as they will be saved: the file's, less removed, plus added. */
+  const shownDests = useMemo(() => {
+    const e = state.destEdits;
+    if (!e) return fileDests;
+    const removed = new Set(e.removed);
+    return [...new Set([...fileDests.filter((n) => !removed.has(n)), ...e.added.map((a) => a.name)])].sort((a, b) =>
+      a.localeCompare(b, "fr"),
+    );
+  }, [fileDests, state.destEdits]);
+
+  /** The document's attached files as they will be saved (the file's, less removed, plus added). */
+  const shownAttachments = useMemo((): Attachment[] => {
+    const e = state.attachmentEdits;
+    if (!e) return attachments;
+    const removed = new Set(e.removed);
+    const decode = (url: string) => {
+      const m = /^data:[^,]*;base64,(.*)$/s.exec(url);
+      return m ? Uint8Array.from(atob(m[1]), (c) => c.charCodeAt(0)) : new Uint8Array();
+    };
+    return [
+      ...attachments
+        .filter((a) => !removed.has(a.key))
+        .map((a) => (a.key in e.described ? { ...a, description: e.described[a.key] } : a)),
+      ...e.added.map((a) => ({
+        key: `added:${a.id}`,
+        name: a.name,
+        description: a.description,
+        bytes: decode(a.data),
+      })),
+    ];
+  }, [attachments, state.attachmentEdits]);
+
+  const searchOptions = useMemo(
+    () => ({
+      ...DEFAULT_SEARCH_OPTIONS,
+      caseSensitive: searchState.caseSensitive,
+      wholeWord: searchState.wholeWord,
+      regex: searchState.regex,
+      ignoreDiacritics: searchState.ignoreDiacritics,
+    }),
+    [searchState.caseSensitive, searchState.wholeWord, searchState.regex, searchState.ignoreDiacritics],
+  );
+
+  // Typing, or changing an option, searches again — a moment after the last change.
+  useEffect(() => {
+    if (!searchState.open) return;
+    const t = setTimeout(() => void doSearch(searchState.query), searchState.query.length > 2 ? 150 : 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    searchState.query,
+    searchState.open,
+    searchState.caseSensitive,
+    searchState.wholeWord,
+    searchState.regex,
+    searchState.ignoreDiacritics,
+  ]);
 
   // Highlight rectangles are computed lazily, only for pages that have hits.
   useEffect(() => {
@@ -1333,7 +2037,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       }
     }
     const fileOutline = pristineBookmarksRef.current;
-    const sameOutline = !!st.bookmarks && !!fileOutline && sameValue(st.bookmarks, fileOutline, IGNORE_IDS);
+    // The file's bookmarks point at page objects: moved with their pages, they
+    // are still the file's own (kept as they are, actions and all).
+    const moved = fileOutline
+      ? D.remapBookmarkPages(fileOutline, (n) => {
+          const i = st.pages.findIndex((q) => q.from === n - 1);
+          return i >= 0 ? i + 1 : null;
+        })
+      : null;
+    const sameOutline =
+      !!st.bookmarks &&
+      !!fileOutline &&
+      (sameValue(st.bookmarks, fileOutline, IGNORE_IDS) || sameValue(st.bookmarks, moved, IGNORE_IDS));
     return { pristineAnnots: kept, pristineBookmarks: sameOutline ? st.bookmarks : fileOutline };
   };
 
@@ -1355,10 +2070,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (st.contentEdits.length) out.push("texte modifié");
     if (st.imageEdits.length) out.push("images modifiées");
     if (st.pages.some((p, i) => p.from !== i || p.rotate || p.crop || p.skipped || p.label)) out.push("pages");
-    if (st.watermark.enabled || st.header.enabled || st.footer.enabled || st.bates.enabled) {
+    if (st.watermark.enabled || st.header.enabled || st.footer.enabled || st.bates.enabled || st.stripMarks) {
       out.push("filigrane / en-têtes");
     }
     if (st.createdFields.length) out.push("champs ajoutés");
+    if (st.fieldEdits.length) out.push("champs du formulaire modifiés");
     return out;
   };
 
@@ -1433,6 +2149,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (r.encryption === "added") facts.push(`protégé (${r.scheme})`);
     if (r.encryption === "changed") facts.push(`nouveau mot de passe (${r.scheme})`);
     if (r.encryption === "removed") facts.push("protection retirée");
+    if (r.optimised) {
+      const o = r.optimised;
+      const parts = [
+        o.imagesRecompressed ? `${o.imagesRecompressed} image(s) réduite(s)` : "",
+        o.duplicatesMerged ? `${o.duplicatesMerged} objet(s) en double supprimé(s)` : "",
+        o.streamsRecompressed ? `${o.streamsRecompressed} flux compressé(s)` : "",
+      ].filter(Boolean);
+      facts.push(parts.length ? `optimisé : ${parts.join(", ")} (−${size(o.bytesSaved)})` : "rien à optimiser");
+    }
     if (r.redactedGlyphs || r.redactedImages) {
       facts.push(`${r.redactedGlyphs} caractère(s) et ${r.redactedImages} image(s) caviardés`);
     }
@@ -1440,7 +2165,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     if (signedOutput) {
       try {
         const { verifyPdfSignatures } = await import("../ops/pades");
-        const v = verifyPdfSignatures(signedOutput);
+        const v = await verifyPdfSignatures(signedOutput);
         if (v.length && v.every((x) => x.digestMatches)) {
           facts.push("signature électronique préservée (version signée intacte)");
         } else {
@@ -1499,17 +2224,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     // A recomposed session saved into the file that still has the pages it
     // removed before recomposing: that file must be rewritten.
     const forceFull = disk && derivedRef.current?.forceFull.length ? derivedRef.current.forceFull : undefined;
-    const opts: Partial<BuildOptions> = { ...saveOptions(st), ...options };
+    // Saving the document itself keeps its excluded pages (only copies leave them out).
+    const opts: Partial<BuildOptions> = { ...saveOptions(st), keepSkipped: !how.copy, ...options };
     const marks = st.annots.filter((a) => a.kind === "redact").length;
     if (marks && opts.applyRedactions && !redactConfirmed.current) {
-      const ok = await dialogs.confirm({
-        title: "Appliquer le caviardage",
-        message: `${marks} zone(s) marquée(s) seront définitivement supprimées du fichier enregistré (texte, images et annotations dessous), révisions précédentes comprises.`,
-        confirmLabel: "Caviarder et enregistrer",
-      });
-      if (!ok) return false;
+      const answer = await askRedaction(marks);
+      if (answer === false) return false;
       redactConfirmed.current = true;
+      redactHiddenInfo.current = answer;
     }
+    if (marks && opts.applyRedactions && redactHiddenInfo.current && !opts.sanitise)
+      opts.hiddenInfo = redactHiddenInfo.current;
     await engine.infoReady;
     // Signed as the file this save builds on is — not as the source once was
     // (a full rewrite already removed the signature from the file saved into).
@@ -1522,6 +2247,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           optimise: !!opts.optimise,
           sanitise: !!opts.sanitise,
           flattenForms: !!opts.flattenForms,
+          keepSkipped: !!opts.keepSkipped,
+          hiddenInfo: opts.hiddenInfo,
         },
         engine.pageCount,
         security,
@@ -1596,6 +2323,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         });
       }
       await reportSave(res.report, dest, signed ? res.bytes : null, notes);
+      // The Signatures panel judges the file as saved: judge it again.
+      if (sigView.list?.length) void refreshSignatures();
       return true;
     } catch (e) {
       dismissToast(id);
@@ -1665,8 +2394,74 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     return ok;
   };
 
+  /** Each page's frame for XFDF (height, crop-box origin in PDF user space). */
+  const xfdfBoxes = async (): Promise<Map<string, XfdfPageBox>> => {
+    const out = new Map<string, XfdfPageBox>();
+    for (const pg of pages) {
+      const h = sizeOf(pg).h;
+      if (pg.from == null) {
+        out.set(pg.id, h);
+        continue;
+      }
+      try {
+        if (!engine) throw new Error("no engine");
+        const info = await engine.pageInfo(pg.from);
+        // Page space starts at the box shown: the file's crop box, less an Elium crop.
+        out.set(pg.id, { h, ox: info.ox + (pg.crop?.left ?? 0), oy: info.oy + (pg.crop?.bottom ?? 0) });
+      } catch {
+        out.set(pg.id, h);
+      }
+    }
+    return out;
+  };
+
+  /** Each page's geometry for an FDF of comments (size, origin, rotation). */
+  const fdfBoxes = async (): Promise<Map<string, FdfPageBox>> => {
+    const out = new Map<string, FdfPageBox>();
+    for (const pg of pages) {
+      const { w, h } = sizeOf(pg);
+      let box: FdfPageBox = { w, h, rotate: pg.rotate ?? 0 };
+      if (pg.from != null && engine) {
+        try {
+          const info = await engine.pageInfo(pg.from);
+          box = {
+            w,
+            h,
+            ox: info.ox + (pg.crop?.left ?? 0),
+            oy: info.oy + (pg.crop?.bottom ?? 0),
+            rotate: (((info.rotate + (pg.rotate ?? 0)) % 360) + 360) % 360,
+          };
+        } catch {
+          /* page 1's guess stays */
+        }
+      }
+      out.set(pg.id, box);
+    }
+    return out;
+  };
+
+  /** pdf.js' annotations of every page of `pdf` (the viewer's own reading). */
+  const readPdfAnnotations = async (pdf: Uint8Array): Promise<RawAnnotation[][]> => {
+    const task = openPdfDocument(pdf);
+    try {
+      const doc = await task.promise;
+      const out: RawAnnotation[][] = [];
+      for (let i = 1; i <= doc.numPages; i++)
+        out.push((await (await doc.getPage(i)).getAnnotations()) as RawAnnotation[]);
+      return out;
+    } finally {
+      void task.destroy();
+    }
+  };
+
   /** Where the source bytes of a recomposed document (inserted pages, OCR) go: see `openBytes` « derived ». */
-  const adoptDerived = async (bytes: Uint8Array, session: DerivedSession, signedKept: boolean, keep?: PdfState) => {
+  const adoptDerived = async (
+    bytes: Uint8Array,
+    session: DerivedSession,
+    signedKept: boolean,
+    keep?: PdfState,
+    carry?: (fresh: PdfState) => PdfState,
+  ) => {
     // The destination still holds the previous source (never saved into):
     // describe it now — it is what the next save appends to.
     let disk: DiskState | null = null;
@@ -1676,7 +2471,105 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     const diskKey = diskKeyRef.current ?? sourceKeyRef.current;
     await openBytes(bytes, fileName, passwordRef.current ?? undefined, keep, openHandleRef.current, {
       derived: { session, disk, diskKey, signedKept },
+      carry,
     });
+  };
+
+  /**
+   * A recomposition (pages inserted, replaced, resized) is built with every
+   * page (the excluded ones too) and WITHOUT the page marks: those are painted
+   * at save time, over the final pages and their final count. The reopened
+   * document takes over the excluded pages (`shift`: where the page at an old
+   * position now is) and the marks settings.
+   */
+  const forRecompose = (st: PdfState): PdfState => ({
+    ...st,
+    watermark: { ...st.watermark, enabled: false },
+    header: { ...st.header, enabled: false },
+    footer: { ...st.footer, enabled: false },
+    bates: { ...st.bates, enabled: false },
+    stripMarks: false,
+  });
+  const carryOver =
+    (st: PdfState, shift: (index: number) => number = (i) => i) =>
+    (fresh: PdfState): PdfState => {
+      const skipped = new Set(st.pages.flatMap((p, i) => (p.skipped ? [shift(i)] : [])));
+      return {
+        ...fresh,
+        pages: skipped.size ? fresh.pages.map((p, i) => (skipped.has(i) ? { ...p, skipped: true } : p)) : fresh.pages,
+        watermark: st.watermark,
+        header: st.header,
+        footer: st.footer,
+        bates: st.bates,
+        stripMarks: st.stripMarks,
+        metadata: st.metadata,
+      };
+    };
+
+  /**
+   * « Combiner des fichiers »: the listed files (the open document with its
+   * edits, when kept in the list) made into a new, unsaved document.
+   */
+  const combineFiles = async (items: CombineItem[], opts: { outline: boolean }) => {
+    setDialog(null);
+    if (!(await confirmDiscard())) return;
+    setBusy(true);
+    const id = toast("progress", "Combinaison des fichiers…");
+    try {
+      const { mergeDocuments, parsePageRange } = await import("../ops/organize");
+      // The open document is combined as copied: without its excluded pages.
+      // Its range is typed in the numbers the viewer shows (excluded pages
+      // included): converted to positions in that copy.
+      const outputOf = (model: number[]) => {
+        const out: number[] = [];
+        for (const i of model) {
+          if (!pages[i] || pages[i].skipped) continue;
+          out.push(pages.slice(0, i).filter((p) => !p.skipped).length);
+        }
+        return out;
+      };
+      const sources = await Promise.all(
+        items.map(async (it) => {
+          const range = it.range.trim() && it.count ? parsePageRange(it.range, it.count) : undefined;
+          return {
+            name: it.id === "current" ? fileName : it.name,
+            bytes: it.bytes ?? (await buildDerived()).bytes,
+            pages: it.id === "current" && range ? outputOf(range) : range,
+          };
+        }),
+      );
+      const res = await mergeDocuments(sources, {
+        outline: opts.outline,
+        title: "Fichiers combinés",
+        askPassword: (name, wrong) =>
+          dialogs.prompt({
+            title: "PDF protégé",
+            password: true,
+            label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+          }),
+      });
+      dismissToast(id);
+      const pagesIn = res.counts.reduce((a, b) => a + b, 0);
+      if (!pagesIn) {
+        toast("warning", "Rien à combiner", res.reasons.map((r) => `${r.name} (${r.reason})`).join(", ") || undefined);
+        return;
+      }
+      await openBytes(res.bytes, "Fichiers combinés.pdf", undefined, undefined, null, { unsaved: true });
+      if (res.reasons.length) {
+        toast(
+          "warning",
+          `${res.reasons.length} fichier(s) non repris`,
+          res.reasons.map((r) => `${r.name} (${r.reason})`).join(", "),
+        );
+      } else {
+        toast("success", `${items.length} fichier(s) combiné(s) : ${pagesIn} page(s).`);
+      }
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Échec de la combinaison", e instanceof Error ? e.message : undefined);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const goHome = async () => {
@@ -1698,10 +2591,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     openInput.current?.click();
   };
 
-  // --- Signature électronique PAdES (certificat X.509) ---------------------
-  // Emplacement VISIBLE de la signature = la dernière signature placée (outil
-  // Signature) : Adobe la reconnaît alors comme une signature, à cet endroit,
-  // avec le dessin en apparence — au lieu d'une simple image.
+  // --- Certificate signatures (PAdES) ---------------------------------------
+  // The visible place of a signature: a prepared field clicked in the page,
+  // or the last signature picture placed with the Signature tool — which then
+  // becomes the field's appearance instead of staying a separate image.
   const visibleSigTarget = (): { visible: NonNullable<PadesSignOptions["visible"]>; annotId: string } | undefined => {
     const sig = [...state.annots].reverse().find((a) => a.kind === "signature" && a.src);
     if (!sig) return undefined;
@@ -1716,106 +2609,112 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     };
   };
 
-  // Construit le PDF pour signature : si la signature placée devient l'apparence
-  // du champ /Sig (imagePng présent), on EXCLUT son annotation-image de l'export
-  // — sinon Adobe verrait une image (supprimable) EN PLUS du champ signature. La
-  // marque devient ainsi la signature elle-même.
-  const buildForSignature = (t: ReturnType<typeof visibleSigTarget>) => {
-    const st = t && t.visible.imagePng ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
-    return buildDerived(st);
+  /** Open the signing dialog; `fieldName`: a prepared signature field clicked in the page. */
+  const openSignDialog = async (fieldName?: string, certify = false) => {
+    if (!bytesRef.current || !engine) return;
+    const info = await engine.infoReady;
+    const target = fieldName ? undefined : visibleSigTarget();
+    const pageOf = (i: number) => shownPages[i]?.label ?? String(i + 1);
+    const placement = fieldName
+      ? `Champ de signature « ${fieldName} »`
+      : target
+        ? `Signature visible à l'emplacement de la signature placée (page ${pageOf(target.visible.page)}).`
+        : "Signature invisible. Pour une signature visible, placez d'abord votre signature (outil Signature) ou un champ de signature (Préparer le formulaire).";
+    setSignRequest({ fieldName, target, placement, canCertify: !info.signed, certify });
   };
 
-  const finishSigned = async (signed: Uint8Array, base: string, toastId: number): Promise<void> => {
-    downloadBlob(`${base}-signe.pdf`, "application/pdf", signed);
-    dismissToast(toastId);
-    const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = verifyPdfSignatures(signed);
-    const ok = v.length > 0 && v.every((x) => x.valid);
-    const note = v[0]?.selfSigned
-      ? " · auto-signée (identité non vérifiée)"
-      : v[0]?.chainVerified
-        ? " · chaîne vérifiée"
-        : "";
-    toast(
-      ok ? "success" : "warning",
-      "PDF signé (PAdES)",
-      v[0] ? `Signataire : ${v[0].signerName}${ok ? " · signature valide" : ""}${note}` : undefined,
-    );
+  /**
+   * The bytes to sign: the document as a save would write it — an update
+   * appended to the file, so signatures already in it stay valid.
+   */
+  const bytesForSigning = async (st: PdfState): Promise<{ bytes: Uint8Array; password?: string } | null> => {
+    const source = bytesRef.current!;
+    const disk = destRef.current?.persistent ? diskRef.current : null;
+    const security = disk ? (securityDirtyRef.current ? securityRef.current : null) : securityRef.current;
+    const forceFull = disk && derivedRef.current?.forceFull.length ? derivedRef.current.forceFull : undefined;
+    const opts: Partial<BuildOptions> = { ...saveOptions(st), keepSkipped: true };
+    const signed = disk ? diskSignedRef.current : sourceSignedRef.current;
+    if (signed && engine) {
+      const reasons = fullRewriteReasons(
+        st,
+        {
+          applyRedactions: !!opts.applyRedactions,
+          optimise: false,
+          sanitise: false,
+          flattenForms: false,
+          keepSkipped: true,
+          hiddenInfo: undefined,
+        },
+        engine.pageCount,
+        security,
+      );
+      for (const r of forceFull ?? []) if (!reasons.includes(r)) reasons.push(r);
+      if (!(await confirmSignedSave(st, reasons, disk?.bytes ?? source))) return null;
+    }
+    const res = await savePdf({ source, disk, state: st, options: opts, security, forceFullReasons: forceFull });
+    // The password of the bytes just built: a protection change applies to them.
+    const password =
+      security === "remove"
+        ? undefined
+        : security
+          ? security.protect.userPassword || security.protect.ownerPassword || undefined
+          : (passwordRef.current ?? undefined);
+    return { bytes: res.bytes, password };
   };
 
-  const onP12Pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !bytesRef.current) return;
-    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
-    const pw = await dialogs.prompt({
-      title: "Signer avec un certificat (PAdES)",
-      label: `Mot de passe du certificat « ${file.name} »`,
-    });
-    if (pw === null) return;
+  const signWith = async (req: NonNullable<typeof signRequest>, choice: SignChoice) => {
+    setSignRequest(null);
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    // Where the signed file goes, asked first (the picker needs the click).
+    let dest: SaveDestination | null;
+    if (canWriteFiles()) {
+      try {
+        dest = await pickSaveTarget(pdfName(`${base}-signé`));
+      } catch {
+        dest = downloadDestination(pdfName(`${base}-signé`));
+      }
+      if (!dest) return;
+    } else {
+      dest = downloadDestination(pdfName(`${base}-signé`));
+    }
+    try {
+      if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
+    } catch (e) {
+      toast("danger", "Signature impossible", e instanceof Error ? e.message : undefined);
+      return;
+    }
     setBusy(true);
     const id = toast("progress", "Signature électronique…");
     try {
-      const p12 = new Uint8Array(await file.arrayBuffer());
-      const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const target = visibleSigTarget();
-      const { bytes } = await buildForSignature(target);
-      const { signPdfBytes } = await import("../ops/pades");
-      const signed = await signPdfBytes(bytes, p12, pw, { reason: "Signé avec Elium", visible: target?.visible });
-      await finishSigned(signed, base, id);
-    } catch (err) {
-      dismissToast(id);
-      toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Signe avec un certificat auto-signé généré dans l'app (zéro certificat à
-  // fournir). Adobe : « signé » mais « identité non vérifiée » (pas de CA).
-  // Le flux de signature PAdES est MONO-signature (cf. ops/pades.ts) : signer un
-  // PDF déjà signé écrase silencieusement le trou /Contents précédent et
-  // invalide la signature existante. On avertit explicitement et on demande
-  // confirmation avant de continuer.
-  const confirmResign = () =>
-    dialogs.confirm({
-      title: "Document déjà signé",
-      message:
-        "Ce PDF contient déjà une signature électronique. Elium ne gère qu'une seule signature par document : " +
-        "en signer une nouvelle invalidera silencieusement la signature existante. Continuer quand même ?",
-      confirmLabel: "Signer quand même",
-    });
-
-  const signSelfSigned = async () => {
-    if (!bytesRef.current) return;
-    const target = visibleSigTarget();
-    if (!target) {
-      toast(
-        "warning",
-        "Placez d'abord une signature",
-        "Utilisez l'outil Signature pour dessiner/placer votre signature, puis signez numériquement.",
-      );
-      return;
-    }
-    if ((await engine?.infoReady)?.signed && !(await confirmResign())) return;
-    setBusy(true);
-    const id = toast("progress", "Génération du certificat et signature…");
-    try {
-      // Laisse le toast s'afficher avant la génération RSA (bloquante ~1–3 s).
-      await new Promise((r) => setTimeout(r, 30));
-      const cn = author?.trim() || "Signature Elium (auto-signée)";
-      const pw = "elium-self";
-      const { generateSelfSignedP12 } = await import("../ops/self-cert");
-      const p12 = generateSelfSignedP12(cn, pw);
-      const base = fileName.replace(/\.pdf$/i, "") || "document";
-      const { bytes } = await buildForSignature(target);
-      const { signPdfBytes } = await import("../ops/pades");
-      const signed = await signPdfBytes(bytes, p12, pw, {
-        reason: "Signé avec Elium",
-        signerName: cn,
-        visible: target.visible,
+      const t = req.target;
+      // The placed picture becomes the field's appearance: not kept as an image beside it.
+      const st = t ? { ...state, annots: state.annots.filter((a) => a.id !== t.annotId) } : state;
+      const built = await bytesForSigning(st);
+      if (!built) {
+        dismissToast(id);
+        return;
+      }
+      const { bytes, password } = built;
+      const { signPdfWith } = await import("../ops/pades");
+      const signed = await signPdfWith(bytes, choice.material, {
+        ...choice.options,
+        fieldName: req.fieldName,
+        visible: t ? { ...t.visible, imagePng: choice.picture ? t.visible.imagePng : undefined } : undefined,
+        password,
+        tsaFetch: tsaRelay,
       });
-      await finishSigned(signed, base, id);
+      await dest.write(signed);
+      dismissToast(id);
+      // The signed file is now the open document: a later « Enregistrer »
+      // appends to it (never rewrites the signature away).
+      await openBytes(signed, dest.name, password, undefined, dest.handle ?? null);
+      if (!dest.persistent) destRef.current = null;
+      toast(
+        "success",
+        choice.options.certify ? "Document certifié" : "Document signé",
+        `${choice.material.cert.commonName} · ${dest.persistent ? "enregistré" : "téléchargé"} : ${dest.name}`,
+      );
+      setPanel("signatures");
     } catch (err) {
       dismissToast(id);
       toast("danger", "Échec de la signature", err instanceof Error ? err.message : undefined);
@@ -1824,37 +2723,106 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
-  const verifySignatures = async () => {
-    if (!bytesRef.current) return;
-    const { verifyPdfSignatures } = await import("../ops/pades");
-    const v = verifyPdfSignatures(bytesRef.current);
-    if (v.length === 0) {
-      toast("warning", "Aucune signature", "Ce PDF ne contient pas de signature électronique (PAdES).");
-      return;
+  const verifySignatures = () => {
+    setPanel("signatures");
+    void refreshSignatures();
+  };
+
+  /** Verify the file's signatures (as saved: the disk's bytes) and list its signature fields. */
+  const refreshSignatures = async () => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes) return;
+    const run = ++sigRun.current;
+    setSigView((v) => ({ ...v, list: null, error: undefined }));
+    try {
+      const [{ verifyPdfSignatures, listSignatureFields }, { trustAnchors }] = await Promise.all([
+        import("../ops/pades"),
+        import("./identities"),
+      ]);
+      const password = passwordRef.current ?? undefined;
+      const [list, fields] = await Promise.all([
+        verifyPdfSignatures(bytes, { password, trusted: await trustAnchors() }),
+        // Fields as the open document shows them: pages indexed like `page.from`.
+        listSignatureFields(bytesRef.current ?? bytes, password).catch(() => []),
+      ]);
+      if (run !== sigRun.current) return;
+      setSigFields(fields);
+      setSigView({
+        list,
+        empty: fields.filter((f) => !f.signed && f.page >= 0).map(({ name, page }) => ({ name, page })),
+      });
+    } catch (e) {
+      if (run === sigRun.current)
+        setSigView({ list: [], empty: [], error: e instanceof Error ? e.message : "Vérification impossible." });
     }
-    for (const s of v) {
-      const trust = s.selfSigned
-        ? " · auto-signée (identité non vérifiée)"
-        : s.chainVerified
-          ? " · chaîne vérifiée"
-          : "";
-      const invalidReason =
-        s.error ||
-        (!s.certValidAtSigning
-          ? "Certificat hors de sa période de validité"
-          : "Invalide ou document modifié après signature");
-      toast(
-        s.valid ? "success" : "danger",
-        `Signature : ${s.signerName || "inconnu"}`,
-        s.valid
-          ? `Valide${s.coversWholeDocument ? " · couvre tout le document" : " · ne couvre pas tout le document"}${trust}`
-          : invalidReason,
-      );
+  };
+
+  refreshSigRef.current = () => void refreshSignatures();
+
+  /**
+   * Sends a timestamp request. The desktop app's page may only reach its own
+   * server (CSP), and TSAs rarely allow cross-origin calls: the local server
+   * (desktop) or the Drive server relays it.
+   */
+  const tsaRelay = async (url: string, request: Uint8Array): Promise<Uint8Array> => {
+    const token = document.querySelector<HTMLMetaElement>('meta[name="elium-token"]')?.content;
+    const { getConfiguredApiBase } = await import("../../drive-cloud/api");
+    const relay = token ? "/__tsa__" : `${getConfiguredApiBase().replace(/\/$/, "")}/tsa`;
+    const body = request.slice().buffer as ArrayBuffer;
+    const res = await fetch(relay, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/timestamp-query",
+        "X-Elium-TSA-Url": url,
+        ...(token ? { "X-Elium-Token": token } : {}),
+      },
+      body,
+    }).catch(() => null);
+    if (res?.ok) return new Uint8Array(await res.arrayBuffer());
+    // A relay answered but refused (address not allowed, TSA down, too many requests): say why.
+    if (res && res.status !== 404 && res.status !== 405) {
+      const why = await res
+        .json()
+        .then((j: { error?: { message?: string } }) => j.error?.message)
+        .catch(() => undefined);
+      throw new Error(why ?? `relais d'horodatage : HTTP ${res.status}`);
     }
+    // No relay here (page served elsewhere): ask the TSA directly.
+    const direct = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/timestamp-query" },
+      body,
+    });
+    if (!direct.ok) throw new Error(`serveur d'horodatage : HTTP ${direct.status}`);
+    return new Uint8Array(await direct.arrayBuffer());
+  };
+
+  /** Open the signed version of a signature (Acrobat's « Afficher la version signée »). */
+  const showSignedVersion = async (v: PadesVerification) => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes || !(await confirmDiscard())) return;
+    const { signedVersion } = await import("../ops/pades");
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    await openBytes(
+      signedVersion(bytes, v),
+      `${base} (version signée rév. ${v.revision}).pdf`,
+      passwordRef.current ?? undefined,
+    );
+  };
+
+  const goToSigField = (name: string) => {
+    const f = sigFields.find((x) => x.name === name);
+    if (!f || f.page < 0) return;
+    const index = pages.findIndex((q) => q.from === f.page);
+    if (index >= 0) goTo(index + 1, Math.max(0, f.box.y - (pages[index]!.crop?.top ?? 0) - 80));
   };
 
   const saveElium = async () => {
-    if (!bytesRef.current || !onExportElium) return;
+    if (!bytesRef.current) return;
+    if (!onExportElium) {
+      toast("info", "Enregistrement en .elium indisponible ici", "Ce PDF est enregistré dans le Drive (Ctrl+S).");
+      return;
+    }
     const base = fileName.replace(/.pdf$/i, "") || "document";
     const title = await dialogs.prompt({
       title: "Enregistrer en .elium",
@@ -1887,34 +2855,101 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     );
   };
 
-  const printDocument = async () => {
+  /** The comment summary (Acrobat's « Résumer les commentaires »), as a PDF. */
+  const commentSummary = async (): Promise<Uint8Array> => {
+    const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
+    const { buildCommentSummary } = await import("../ops/summary");
+    return buildCommentSummary(bytes, state, {
+      title: fileName.replace(/\.pdf$/i, "") || "Document",
+      kindLabel: KIND_LABEL,
+    });
+  };
+
+  /**
+   * A print-ready copy made of page pictures (150 dpi): what a document that
+   * allows only low-resolution printing may be printed as.
+   */
+  const lowResolution = async (bytes: Uint8Array): Promise<Uint8Array> => {
+    const { PDFDocument } = await import("pdf-lib");
+    const { renderToCanvas, canvasToBlob } = await import("../core/render");
+    const src = await PdfEngine.open(bytes);
+    try {
+      const out = await PDFDocument.create();
+      for (let i = 0; i < src.pageCount; i++) {
+        const proxy = await src.page(i);
+        const vp = proxy.getViewport({ scale: 1 });
+        const canvas = await renderToCanvas(proxy, { scale: 150 / 72 });
+        const jpg = await out.embedJpg(
+          new Uint8Array(await (await canvasToBlob(canvas, "image/jpeg", 0.85)).arrayBuffer()),
+        );
+        out.addPage([vp.width, vp.height]).drawImage(jpg, { x: 0, y: 0, width: vp.width, height: vp.height });
+      }
+      return await out.save();
+    } finally {
+      src.destroy();
+    }
+  };
+
+  /** Sends print-ready bytes to the browser's print dialog (hidden blob iframe). */
+  const sendToPrinter = (bytes: Uint8Array) => {
+    const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.src = url;
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      frame.remove();
+      URL.revokeObjectURL(url);
+    };
+    frame.onload = () => {
+      try {
+        // Removed once the print dialog closes (a long print queue keeps it until then).
+        frame.contentWindow?.addEventListener("afterprint", () => setTimeout(cleanup, 1000));
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } catch {
+        window.open(url, "_blank");
+      }
+      setTimeout(cleanup, 10 * 60_000);
+    };
+    document.body.appendChild(frame);
+  };
+
+  /** The document as it prints in `mode` (Acrobat's « Commentaires et formulaires »). */
+  const printSource = async (mode: ContentMode): Promise<Uint8Array> => {
+    // Layers print as they are shown now.
+    const base: PdfState = layers.length
+      ? { ...state, ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])) }
+      : state;
+    const st = contentState(base, mode);
+    if (mode === "forms") {
+      return keepFormFieldsOnly(
+        (await buildDerived(st, { interactiveAnnots: false, flattenForms: false, forPrint: true })).bytes,
+      );
+    }
+    return (await buildDerived(st, { interactiveAnnots: false, flattenForms: true, forPrint: true })).bytes;
+  };
+
+  /** The comment summary goes straight to the printer; the document goes through the print dialog. */
+  const printDocument = async (which: "document" | "summary" = "document") => {
     if (!bytesRef.current) return;
+    if (which === "document") {
+      setDialog("print");
+      return;
+    }
     setBusy(true);
     const id = toast("progress", "Préparation de l'impression…");
     try {
-      const { bytes } = await buildDerived(state, { interactiveAnnots: false, flattenForms: true });
-      const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }));
-      const frame = document.createElement("iframe");
-      frame.style.position = "fixed";
-      frame.style.right = "0";
-      frame.style.bottom = "0";
-      frame.style.width = "0";
-      frame.style.height = "0";
-      frame.style.border = "0";
-      frame.src = url;
-      frame.onload = () => {
-        try {
-          frame.contentWindow?.focus();
-          frame.contentWindow?.print();
-        } catch {
-          window.open(url, "_blank");
-        }
-        setTimeout(() => {
-          frame.remove();
-          URL.revokeObjectURL(url);
-        }, 60_000);
-      };
-      document.body.appendChild(frame);
+      let bytes = await commentSummary();
+      if (restrictionsRef.current && !restrictionsRef.current.printHighRes) bytes = await lowResolution(bytes);
+      sendToPrinter(bytes);
       dismissToast(id);
     } catch {
       dismissToast(id);
@@ -1928,21 +2963,261 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // Commands
   // -------------------------------------------------------------------------
   const currentPage = () => pages[currentStore.get() - 1];
+
+  /**
+   * « Remplir et signer » marks: a check, a cross, a dot or today's date,
+   * placed on the current page and selected, to be dragged where it belongs.
+   */
+  const placeFillMark = (which: "fsCheck" | "fsCross" | "fsDot" | "fsDate") => {
+    const page = currentPage();
+    if (!page) return;
+    const size = sizeOf(page);
+    const now = new Date().toISOString();
+    const s = 14;
+    const x = size.w / 2 - s / 2;
+    const y = size.h / 3;
+    const base = {
+      id: newId("an"),
+      pageId: page.id,
+      color: "#0f172a",
+      opacity: 1,
+      strokeWidth: 1.8,
+      author,
+      createdAt: now,
+      modifiedAt: now,
+      replies: [],
+    };
+    let a: Annot;
+    if (which === "fsDate") {
+      const text = new Date().toLocaleDateString("fr-FR");
+      a = { ...base, kind: "typewriter", rect: { x, y, w: 70, h: 16 }, text, fontSize: 11, strokeWidth: 0 };
+    } else if (which === "fsDot") {
+      a = { ...base, kind: "circle", rect: { x: x + 4, y: y + 4, w: 6, h: 6 }, fill: "#0f172a", strokeWidth: 0.5 };
+    } else {
+      const paths =
+        which === "fsCheck"
+          ? [
+              [
+                { x, y: y + s * 0.55 },
+                { x: x + s * 0.38, y: y + s },
+                { x: x + s, y },
+              ],
+            ]
+          : [
+              [
+                { x, y },
+                { x: x + s, y: y + s },
+              ],
+              [
+                { x: x + s, y },
+                { x, y: y + s },
+              ],
+            ];
+      a = { ...base, kind: "ink", rect: { x, y, w: s, h: s }, paths };
+    }
+    addAnnot(a);
+    setSelectedIds([a.id]);
+    setTool("select");
+  };
   const targetPages = () => (selectedPages.length ? selectedPages : ([currentPage()?.id].filter(Boolean) as string[]));
 
-  const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
-    setState((s) => {
-      const at = afterId ? s.pages.findIndex((q) => q.id === afterId) + 1 : s.pages.length;
-      const made = Array.from({ length: count }, () => D.makePage(null, { size: { w: size[0], h: size[1] } }));
-      return D.insertPages(s, at, made);
-    });
+  /** The pages a page command's scope designates (selection, all, even, odd, a range). */
+  const scopeIds = (scope: PageScope, range: string): string[] => {
+    if (scope === "selection") return targetPages();
+    const spec = scope === "all" ? "" : scope === "even" ? "paires" : scope === "odd" ? "impaires" : range;
+    return parsePageRange(spec, pages.length).map((i) => pages[i].id);
   };
 
+  /**
+   * A change made to the file itself (resized pages, replaced pages): the
+   * document is rebuilt with the current edits folded in, `transform` applied
+   * — its pages in the model's order, excluded ones included — and the
+   * session goes on with it, like an insertion.
+   */
+  const recompose = async (label: string, transform: (doc: PDFDocument) => Promise<void> | void) => {
+    if (!bytesRef.current || !engine) return;
+    setBusy(true);
+    const id = toast("progress", `${label}…`);
+    try {
+      const res = await savePdf({
+        source: bytesRef.current,
+        state: forRecompose(state),
+        options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
+        security: null,
+        transform: async (doc) => {
+          await transform(doc);
+        },
+      });
+      dismissToast(id);
+      if (res.report.lost.length) {
+        toast("warning", `${label} : certaines modifications n'ont pas pu être reportées`, res.report.lost.join(" · "));
+      }
+      await adoptDerived(
+        res.bytes,
+        { changes: [label], forceFull: res.report.mode === "full" ? res.report.fullReasons : [] },
+        res.report.mode === "incremental",
+        undefined,
+        carryOver(state),
+      );
+      toast("success", label, "Enregistrez (Ctrl+S) pour l'écrire dans le fichier.");
+    } catch (err) {
+      dismissToast(id);
+      toast("danger", `${label} impossible`, err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const replaceInput = useRef<HTMLInputElement>(null);
+  /** Files picked for « Remplacer », with their page count. */
+  const [replaceSource, setReplaceSource] = useState<{ name: string; bytes: Uint8Array; count: number } | null>(null);
+
+  /**
+   * Where pages land in a built copy: excluded pages are not in it, so the
+   * index is among the others (an excluded page itself is not there at all).
+   */
+  const outputIndices = (ids: readonly string[]): number[] => {
+    const live = pages.filter((q) => !q.skipped);
+    return ids.map((id) => live.findIndex((q) => q.id === id)).filter((i) => i >= 0);
+  };
+
+  /**
+   * The white margins of a page, as seen (its rotation applied), in points:
+   * the page drawn small, and the first non-white pixels from each edge.
+   * Relative to the file's crop box (an Elium crop is a margin from it).
+   */
+  const whiteMargins = async (
+    pg: Page,
+  ): Promise<{ top: number; right: number; bottom: number; left: number } | null> => {
+    if (pg.from == null || !engine) return null;
+    try {
+      const proxy = await engine.page(pg.from);
+      const scale = 1;
+      const viewport = proxy.getViewport({ scale, rotation: rotationOf({ ...pg, crop: null }) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.ceil(viewport.width));
+      canvas.height = Math.max(1, Math.ceil(viewport.height));
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await proxy.render({ canvas, canvasContext: ctx, viewport }).promise;
+      const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const ink = (i: number) => data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245;
+      let top = height;
+      let bottom = -1;
+      let left = width;
+      let right = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (!ink((y * width + x) * 4)) continue;
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+          if (x < left) left = x;
+          if (x > right) right = x;
+        }
+      }
+      if (bottom < 0) return null;
+      // A breath of margin kept around the content, as Acrobat does.
+      const keep = 2;
+      const pt = (v: number) => Math.max(0, Math.floor(v / scale - keep));
+      return { top: pt(top), left: pt(left), bottom: pt(height - 1 - bottom), right: pt(width - 1 - right) };
+    } catch {
+      return null;
+    }
+  };
+
+  /** Blank pages at position `index` (0: before the first page). */
+  const insertBlankAt = (index: number, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
+    setState((s) => {
+      const made = Array.from({ length: count }, () => D.makePage(null, { size: { w: size[0], h: size[1] } }));
+      return D.insertPages(s, Math.max(0, Math.min(s.pages.length, index)), made);
+    });
+  };
+  const insertBlankAfter = (afterId: string | null, count = 1, size: [number, number] = PAGE_SIZES.A4) => {
+    const at = afterId ? pages.findIndex((q) => q.id === afterId) + 1 : pages.length;
+    insertBlankAt(at, count, size);
+  };
+
+  /**
+   * May the document do this? Its restrictions apply unless opened with the
+   * permissions password — which is asked for then (and lifts them all).
+   */
+  const requireRight = async (right: keyof Permissions | "owner", how: { once?: boolean } = {}): Promise<boolean> => {
+    const r = restrictionsRef.current;
+    if (!r) return true;
+    if (right !== "owner" && (r[right] || (right === "fillForms" && r.annotate))) return true;
+    // Asked by an automatic event (form typing): declined once, not asked again.
+    if (how.once && declinedRights.current.has(right)) return false;
+    const what: Record<keyof Permissions | "owner", string> = {
+      print: "l'impression",
+      printHighRes: "l'impression haute résolution",
+      modify: "la modification",
+      copy: "la copie et l'extraction du contenu",
+      annotate: "l'ajout de commentaires",
+      fillForms: "le remplissage des formulaires",
+      assemble: "l'organisation des pages",
+      extractForAccessibility: "l'extraction pour l'accessibilité",
+      owner: "la modification de sa sécurité",
+    };
+    const pw = await dialogs.prompt({
+      title: "Document protégé",
+      label: `Ce document interdit ${what[right]}. Mot de passe des autorisations :`,
+      password: true,
+      confirmLabel: "Déverrouiller",
+    });
+    if (!pw || !bytesRef.current) {
+      declinedRights.current.add(right);
+      return false;
+    }
+    const p = await inspectProtection(bytesRef.current, pw);
+    if (!p?.owner) {
+      toast("danger", "Mot de passe incorrect", "Ce n'est pas le mot de passe des autorisations.");
+      return false;
+    }
+    passwordRef.current = pw;
+    restrictionsRef.current = null;
+    setRestrictions(null);
+    toast("success", "Restrictions levées", "Toutes les opérations sont permises pour cette session.");
+    return true;
+  };
+
+  const requireRightRef = useRef(requireRight);
+  const declinedRights = useRef(new Set<string>());
+  const formPromptRef = useRef<Promise<boolean> | null>(null);
+  requireRightRef.current = requireRight;
+
+  // Copying text out of a document that forbids it.
+  useEffect(() => {
+    if (!restrictions || restrictions.copy) return;
+    const onCopy = (e: ClipboardEvent) => {
+      const sel = window.getSelection();
+      const node = sel?.anchorNode instanceof Element ? sel.anchorNode : sel?.anchorNode?.parentElement;
+      if (!node?.closest(".pdfx-viewcol, .pdfx-stack")) return;
+      e.preventDefault();
+      toast("warning", "Copie interdite", "Ce document interdit la copie de son contenu.");
+    };
+    document.addEventListener("copy", onCopy, true);
+    return () => document.removeEventListener("copy", onCopy, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restrictions]);
+
   const command = async (id: string) => {
+    for (const right of COMMAND_RIGHT[id] ?? []) if (!(await requireRight(right))) return;
     switch (id) {
       case "undo":
         undo();
         return;
+      case "toggleScripts": {
+        const on = !scriptsOn;
+        setScriptsOn(on);
+        setDocumentScriptsEnabled(on);
+        savePdfPrefs({ scripts: on });
+        toast(
+          "info",
+          on ? "JavaScript activé" : "JavaScript désactivé",
+          "Pris en compte à la prochaine ouverture d'un document.",
+        );
+        return;
+      }
       case "redo":
         redo();
         return;
@@ -1970,7 +3245,144 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       case "editMode":
         setMode(mode === "editText" ? "view" : "editText");
+        setAddingText(false);
+        setAddingImage(null);
         setTab("edit");
+        return;
+      case "stampCustom": {
+        // A picture stamp: remembered in this browser, placed with the Tampon tool.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif,image/tiff,image/bmp,.tif,.tiff";
+        input.style.display = "none";
+        document.body.appendChild(input);
+        input.addEventListener("cancel", () => input.remove());
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => {
+            const src = String(r.result);
+            const img = new Image();
+            img.onload = () => {
+              const ratio = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
+              rememberCustomStamp({ id: newId("st"), label: f.name.replace(/\.[^.]+$/, ""), src, ratio });
+              setStyle((st) => ({ ...st, stampSrc: src, stampRatio: ratio }));
+              pickTool("stamp");
+              toast("info", "Cliquez sur la page pour poser le tampon.");
+            };
+            img.onerror = () => toast("danger", "Image illisible.");
+            img.src = src;
+          };
+          r.readAsDataURL(f);
+        });
+        input.click();
+        return;
+      }
+      case "addImage": {
+        // An <input> in the document: some browsers ignore a detached one.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/png,image/jpeg,image/webp,image/gif,image/tiff,image/bmp,.tif,.tiff";
+        input.style.display = "none";
+        input.dataset.testid = "add-image-input";
+        document.body.appendChild(input);
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          const r = new FileReader();
+          r.onload = () => {
+            setMode("editText");
+            setAddingText(false);
+            setAddingImage(String(r.result));
+            toast("info", "Cliquez sur la page à l'endroit où placer l'image.");
+          };
+          r.readAsDataURL(f);
+        });
+        input.addEventListener("cancel", () => input.remove());
+        input.click();
+        return;
+      }
+      case "attachFile": {
+        // Acrobat's « Joindre un fichier »: pick it, then click where its icon goes.
+        const input = document.createElement("input");
+        input.type = "file";
+        input.style.display = "none";
+        input.dataset.testid = "attach-file-input";
+        document.body.appendChild(input);
+        input.addEventListener("cancel", () => input.remove());
+        input.addEventListener("change", () => {
+          const f = input.files?.[0];
+          input.remove();
+          if (!f) return;
+          if (f.size > 50 * 1024 * 1024) {
+            toast("warning", "Fichier trop volumineux", "Une pièce jointe est limitée à 50 Mo.");
+            return;
+          }
+          const r = new FileReader();
+          r.onload = () => {
+            const file = { name: f.name, mime: f.type || "application/octet-stream", data: String(r.result) };
+            setStyle((st) => ({ ...st, attachFile: file }));
+            pickTool("attachment");
+            toast("info", "Cliquez sur la page à l'endroit de la pièce jointe.");
+          };
+          r.readAsDataURL(f);
+        });
+        input.click();
+        return;
+      }
+      case "insertText": {
+        // Acrobat's « Insérer du texte au curseur »: click in the text, then this.
+        const at = caretPoint();
+        if (!at) {
+          toast("info", "Cliquez d'abord dans le texte, à l'endroit de l'insertion.");
+          return;
+        }
+        const text = await dialogs.prompt({ title: "Insérer du texte", label: "Texte à insérer", defaultValue: "" });
+        if (text === null || !text.trim()) return;
+        const caret = caretAnnot(at, text);
+        setState((s) => D.addAnnot(s, caret));
+        setSelectedIds([caret.id]);
+        return;
+      }
+      case "replaceText": {
+        // Acrobat's « Remplacer le texte »: the selection struck out, the new text on a Caret after it.
+        const strikes = markupsFromSelection("strikeout");
+        if (!strikes.length) {
+          toast("info", "Sélectionnez d'abord le texte à remplacer.");
+          return;
+        }
+        const last = strikes[strikes.length - 1];
+        const q = last.quads![last.quads!.length - 1];
+        const right = Math.max(...q.map((pt) => pt.x));
+        const bottom = Math.max(...q.map((pt) => pt.y));
+        const height = Math.max(...q.map((pt) => pt.y)) - Math.min(...q.map((pt) => pt.y));
+        window.getSelection()?.removeAllRanges();
+        const text = await dialogs.prompt({
+          title: "Remplacer le texte",
+          label: "Texte de remplacement",
+          defaultValue: "",
+        });
+        if (text === null) return;
+        const caret = caretAnnot({ pageId: last.pageId, x: right, y: bottom, h: height }, text, "replace");
+        const members = strikes.map((a) => ({ ...a, color: "#1d4ed8", group: caret.id }));
+        setState((s) => [caret, ...members].reduce((acc, a) => D.addAnnot(acc, a), s));
+        setSelectedIds([caret.id]);
+        return;
+      }
+      case "addText":
+        setMode("editText");
+        setAddingImage(null);
+        setAddingText(true);
+        toast("info", "Cliquez sur la page à l'endroit où ajouter le texte.");
+        return;
+      case "formPrepare":
+        setMode(mode === "fields" ? "view" : "fields");
+        setPrepSelected([]);
+        setSelectedIds([]);
+        if (mode !== "fields") setTool("select");
         return;
       case "formMode":
         // Fields are fillable as soon as the file opens (pdf.js form layer):
@@ -1980,6 +3392,15 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       case "signature":
         setDialog("signature");
+        return;
+      case "initials":
+        setDialog("initials");
+        return;
+      case "fsCheck":
+      case "fsCross":
+      case "fsDot":
+      case "fsDate":
+        placeFillMark(id);
         return;
       case "watermark":
         setDialog("watermark");
@@ -1992,13 +3413,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setDialog("protect");
         return;
       case "signPades":
-        p12Input.current?.click();
-        return;
       case "signSelfSigned":
-        void signSelfSigned();
+        void openSignDialog();
+        return;
+      case "certify":
+        void openSignDialog(undefined, true);
+        return;
+      case "identities":
+        setDialog("identities");
         return;
       case "verifyPades":
-        void verifySignatures();
+        verifySignatures();
         return;
       case "split":
         setDialog("split");
@@ -2019,7 +3444,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         setDialog("ocr");
         return;
       case "compare":
-        setCompareReport(null);
+        closeCompare();
         setDialog("compare");
         return;
       case "redactSearch":
@@ -2034,8 +3459,14 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "insertImage":
         imageInput.current?.click();
         return;
+      case "linksFromUrls":
+        void linksFromUrls();
+        return;
       case "merge":
-        mergeInput.current?.click();
+        setDialog("combine");
+        return;
+      case "insertClipboard":
+        void insertFromClipboard();
         return;
       case "importComments":
       case "importFormData":
@@ -2054,6 +3485,29 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       case "fitPage":
         requestFit("fitPage");
         return;
+      case "fitVisible":
+        requestFit("fitVisible");
+        return;
+      case "spreadCover":
+        setView((v) => ({ ...v, spreadCover: !v.spreadCover }));
+        return;
+      case "toggleGrid":
+        setView((v) => ({ ...v, showGrid: !v.showGrid }));
+        return;
+      case "readingMode":
+        setReading((v) => !v);
+        return;
+      case "toggleSingleKeys": {
+        const on = !singleKeys;
+        setSingleKeys(on);
+        savePdfPrefs({ singleKeys: on });
+        toast(
+          "info",
+          on ? "Raccourcis à une touche activés" : "Raccourcis à une touche désactivés",
+          on ? "V, T, H, R… choisissent les outils." : "Les outils se choisissent dans le ruban.",
+        );
+        return;
+      }
       case "viewSingle":
         setView((v) => ({ ...v, mode: "single" }));
         return;
@@ -2102,6 +3556,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       }
 
+      case "rotateDialog":
+        setDialog("rotatePages");
+        return;
+      case "movePages":
+        setDialog("movePages");
+        return;
+      case "resize":
+        setDialog("resizePages");
+        return;
+      case "replacePages":
+        replaceInput.current?.click();
+        return;
       case "rotateLeft":
         setState((s) => D.rotatePages(s, targetPages(), -90));
         return;
@@ -2119,8 +3585,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
       case "extract": {
         const ids = targetPages();
-        const indices = ids.map((pid) => pages.findIndex((q) => q.id === pid)).filter((i) => i >= 0);
-        await extractSelection(indices);
+        await extractSelection(outputIndices(ids));
         return;
       }
 
@@ -2131,36 +3596,81 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         void buildBookmarksFromHeadings();
         return;
 
+      case "setAuthor": {
+        const name = await dialogs.prompt({
+          title: "Auteur des commentaires",
+          label: "Nom affiché sur vos commentaires et réponses",
+          defaultValue: author,
+        });
+        if (name === null) return;
+        const next = name.trim() || authorProp;
+        setAuthor(next);
+        savePdfPrefs({ author: next });
+        toast("success", "Auteur des commentaires", next);
+        return;
+      }
+      case "exportCommentsFdf": {
+        const { toFdfComments } = await import("../ops/fdfcomments");
+        const fdf = await toFdfComments(state.annots, pages, await fdfBoxes(), fileName || "document.pdf", {
+          author,
+          measureScale: state.measureScale,
+        });
+        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-commentaires.fdf`, "application/vnd.fdf", fdf);
+        toast("success", "Commentaires exportés", `${state.annots.length} élément(s) au format FDF.`);
+        return;
+      }
       case "exportComments": {
-        const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
-        const xml = toXfdf(state.annots, pages, heights, fileName || "document.pdf");
+        const xml = toXfdf(state.annots, pages, await xfdfBoxes(), fileName || "document.pdf");
         downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-commentaires.xfdf`, "application/vnd.adobe.xfdf", xml);
         toast("success", "Commentaires exportés", `${state.annots.length} élément(s) au format XFDF.`);
         return;
       }
       case "commentsReport": {
-        const rows = state.annots.map((a, i) => {
-          const page = pages.findIndex((q) => q.id === a.pageId) + 1;
-          return `${i + 1}. [p.${page}] ${a.author} — ${a.contents || a.text || "(sans texte)"}`;
-        });
-        downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-synthese.txt`, "text/plain;charset=utf-8", rows.join("\n"));
+        const id = toast("progress", "Synthèse des commentaires…");
+        try {
+          const pdf = await commentSummary();
+          downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-synthese.pdf`, "application/pdf", pdf);
+          dismissToast(id);
+        } catch (e) {
+          dismissToast(id);
+          toast("danger", "Synthèse impossible", e instanceof Error ? e.message : undefined);
+        }
         return;
       }
+      case "printSummary":
+        void printDocument("summary");
+        return;
 
       case "exportFormData":
-        downloadBlob(
-          `${fileName.replace(/\.pdf$/i, "")}.fdf`,
-          "application/vnd.fdf",
-          toFdf(state.formValues, fileName),
-        );
-        return;
+      case "exportFormXfdf":
       case "exportFormCsv":
-        downloadBlob(
-          `${fileName.replace(/\.pdf$/i, "")}-donnees.csv`,
-          "text/csv;charset=utf-8",
-          toCsv(state.formValues),
-        );
+      case "exportFormText": {
+        // Every fillable field (Acrobat's export), not only the edited ones.
+        if (!formSession) return;
+        await formSession.ready;
+        await formSession.flush();
+        const entries = exportEntries(formSession.fields, formSession.values());
+        if (!entries.length) {
+          toast("warning", "Ce document n'a aucun champ de formulaire à exporter.");
+          return;
+        }
+        const stem = fileName.replace(/\.pdf$/i, "") || "formulaire";
+        if (id === "exportFormData") {
+          downloadBlob(`${stem}.fdf`, "application/vnd.fdf", toFdf(entries, fileName || "document.pdf"));
+        } else if (id === "exportFormXfdf") {
+          downloadBlob(
+            `${stem}-donnees.xfdf`,
+            "application/vnd.adobe.xfdf",
+            toXfdfFields(entries, fileName || "document.pdf"),
+          );
+        } else if (id === "exportFormCsv") {
+          downloadBlob(`${stem}-donnees.csv`, "text/csv;charset=utf-8", toCsv(entries));
+        } else {
+          downloadBlob(`${stem}-donnees.txt`, "text/plain;charset=utf-8", toTabText(entries));
+        }
+        toast("success", "Données exportées", `${entries.length} champ(s).`);
         return;
+      }
       case "formReset": {
         // Every field back to its default value (/DV, else empty), on screen
         // and in the file — not merely « forget this session's edits ».
@@ -2188,19 +3698,25 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           toast("info", "Aucune zone marquée.");
           return;
         }
-        const ok = await dialogs.confirm({
-          title: "Appliquer le caviardage",
-          message: `${marks.length} zone(s) seront définitivement supprimées du fichier à l'enregistrement : texte, images et annotations situés dessous. Le fichier est entièrement réécrit, sans révision antérieure qui garderait ce contenu.`,
-          confirmLabel: "Caviarder et enregistrer",
-        });
-        if (!ok) return;
+        const answer = await askRedaction(marks.length);
+        if (answer === false) return;
         redactConfirmed.current = true;
+        redactHiddenInfo.current = answer;
         void saveNow(true);
         return;
       }
       case "sanitise":
         setSaveAsPreset({ sanitise: true });
         setDialog("save");
+        return;
+      case "pdfa":
+        void openPdfA();
+        return;
+      case "accessibility":
+        void runAccessibilityCheck();
+        return;
+      case "spaceAudit":
+        void showSpaceAudit();
         return;
       case "optimise":
         setSaveAsPreset({ optimise: true });
@@ -2214,7 +3730,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         return;
 
       case "exportDocx":
-        void exportAs("docx");
+        void exportOffice("docx");
+        return;
+      case "exportXlsx":
+        void exportOffice("xlsx");
+        return;
+      case "exportPptx":
+        void exportOffice("pptx");
+        return;
+      case "exportRtf":
+        void exportOffice("rtf");
         return;
       case "exportText":
         void exportAs("text");
@@ -2233,6 +3758,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // --- command implementations ---------------------------------------------
   const extractSelection = async (indices: number[]) => {
     if (!bytesRef.current || !indices.length) return;
+    // An extracted copy is unprotected: it takes the right to copy, not only to organise.
+    if (!(await requireRight("assemble")) || !(await requireRight("copy"))) return;
     setBusy(true);
     try {
       const { bytes } = await buildDerived();
@@ -2246,16 +3773,91 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
+  /**
+   * Run `fn` on the document as it is now — pages reordered, rotated, cropped
+   * or deleted, comments, text and image edits, marks and form values, excluded
+   * pages left out (as Acrobat leaves them out of exports) — built into a
+   * temporary engine. `toDerived` maps a displayed page index to that
+   * document's, `toDisplayed` back.
+   */
+  const withCurrentDocument = async <T,>(
+    fn: (
+      e: PdfEngine,
+      map: { toDerived: (i: number) => number | undefined; toDisplayed: (i: number) => number | undefined },
+    ) => Promise<T>,
+  ): Promise<T> => {
+    const { bytes } = await buildDerived(state, { flattenForms: true, interactiveAnnots: false, keepSkipped: false });
+    const kept = pages.map((p, i) => (p.skipped ? -1 : i)).filter((i) => i >= 0);
+    const temp = await PdfEngine.open(bytes);
+    try {
+      return await fn(temp, {
+        toDerived: (i) => {
+          const k = kept.indexOf(i);
+          return k >= 0 ? k : undefined;
+        },
+        toDisplayed: (i) => kept[i],
+      });
+    } finally {
+      temp.destroy();
+    }
+  };
+
+  /** « Exporter un PDF » to Word, Excel, PowerPoint or RTF, from the document as shown. */
+  const exportOffice = async (kind: "docx" | "xlsx" | "pptx" | "rtf") => {
+    if (!engine) return;
+    setBusy(true);
+    const id = toast("progress", "Extraction du contenu…");
+    try {
+      const base = fileName.replace(/\.pdf$/i, "") || "document";
+      const [{ exportDocx, exportPptx, exportRtf, exportXlsx, OFFICE_MIME }, { createPageRasteriser }] =
+        await Promise.all([import("../ops/export-office"), import("../ops/export-office-raster")]);
+      let noTable = false;
+      const out = await withCurrentDocument(async (doc) => {
+        const layout = await extractLayout(doc, (done, total) =>
+          setToasts((v) =>
+            v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
+          ),
+        );
+        if (kind === "xlsx") {
+          noTable = !detectTables(layout).length;
+          return exportXlsx(layout);
+        }
+        const raster = createPageRasteriser(doc, layout, { scale: 2 });
+        try {
+          if (kind === "docx") return await exportDocx(doc, layout, { cropImage: raster.crop });
+          if (kind === "rtf") return await exportRtf(doc, layout, { cropImage: raster.crop, title: base });
+          return await exportPptx(doc, layout, { pageImage: raster.background });
+        } finally {
+          raster.dispose();
+        }
+      });
+      downloadBlob(`${base}.${kind}`, OFFICE_MIME[kind], out);
+      dismissToast(id);
+      toast(
+        "success",
+        "Export terminé.",
+        noTable ? "Aucun tableau détecté : le texte est exporté ligne par ligne." : undefined,
+      );
+    } catch {
+      dismissToast(id);
+      toast("danger", "Export impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const exportAs = async (kind: "docx" | "text" | "html" | "tables") => {
     if (!engine) return;
     setBusy(true);
     const id = toast("progress", "Extraction du contenu…");
     try {
-      const layout = await extractLayout(engine, (done, total) => {
-        setToasts((v) =>
-          v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
-        );
-      });
+      const layout = await withCurrentDocument((doc) =>
+        extractLayout(doc, (done, total) => {
+          setToasts((v) =>
+            v.map((t) => (t.id === id ? { ...t, ratio: done / total, text: `Page ${done}/${total}` } : t)),
+          );
+        }),
+      );
       const base = fileName.replace(/\.pdf$/i, "") || "document";
       if (kind === "docx")
         downloadBlob(
@@ -2284,12 +3886,131 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
+  const [pdfaProblems, setPdfaProblems] = useState<string[] | null>(null);
+  const [a11yRules, setA11yRules] = useState<AccessibilityRule[] | null>(null);
+
+  /** « Vérification de l'accessibilité » of the document as it would be saved. */
+  const runAccessibilityCheck = async (st: PdfState = state) => {
+    setA11yRules(null);
+    setDialog("accessibility");
+    try {
+      const [{ PDFDocument }, { checkAccessibility }] = await Promise.all([
+        import("pdf-lib"),
+        import("../ops/accessibility"),
+      ]);
+      const { bytes } = await buildDerived(st, { keepSkipped: false });
+      // The text of the pages as they are now (source text per page, in the document's current order).
+      const source = engine ? await engine.allText() : [];
+      const texts = st.pages.filter((p) => !p.skipped).map((p) => (p.from != null ? (source[p.from] ?? "") : ""));
+      setA11yRules(checkAccessibility(await PDFDocument.load(bytes, { updateMetadata: false }), texts));
+    } catch {
+      setA11yRules([]);
+    }
+  };
+
+  /** « Enregistrer au format PDF/A »: the dialog, with the document's current state checked. */
+  const openPdfA = async () => {
+    if (!bytesRef.current) return;
+    setPdfaProblems(null);
+    setDialog("pdfa");
+    try {
+      const [{ PDFDocument }, { checkPdfA }] = await Promise.all([import("pdf-lib"), import("../ops/pdfa")]);
+      const { bytes } = await buildDerived(state, { keepSkipped: false });
+      setPdfaProblems(checkPdfA(await PDFDocument.load(bytes, { updateMetadata: false })));
+    } catch {
+      setPdfaProblems([]);
+    }
+  };
+
+  const convertPdfA = async (part: 2 | 3) => {
+    setDialog(null);
+    const base = fileName.replace(/\.pdf$/i, "") || "document";
+    let dest: SaveDestination | null;
+    if (canWriteFiles()) {
+      try {
+        dest = await pickSaveTarget(pdfName(`${base}-PDFA`));
+      } catch {
+        dest = downloadDestination(pdfName(`${base}-PDFA`));
+      }
+      if (!dest) return;
+    } else dest = downloadDestination(pdfName(`${base}-PDFA`));
+    setBusy(true);
+    const id = toast("progress", "Conversion PDF/A…");
+    try {
+      if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
+      const [{ PDFDocument }, { convertToPdfA }, { pdfjsAssetUrls }] = await Promise.all([
+        import("pdf-lib"),
+        import("../ops/pdfa"),
+        import("../core/assets"),
+      ]);
+      const { bytes } = await buildDerived(state, { keepSkipped: false });
+      const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+      const urls = pdfjsAssetUrls();
+      const icc = urls
+        ? await fetch(`${urls.iccUrl}CGATS001Compat-v2-micro.icc`)
+            .then((r) => (r.ok ? r.arrayBuffer() : null))
+            .catch(() => null)
+        : null;
+      const report = await convertToPdfA(doc, { part, cmykProfile: icc ? new Uint8Array(icc) : null });
+      await dest.write(await doc.save({ useObjectStreams: false }));
+      dismissToast(id);
+      await dialogs.alert({
+        title: report.remaining.length
+          ? `PDF/A-${part}b : conversion incomplète`
+          : `Enregistré au format PDF/A-${part}b`,
+        message:
+          `${dest.name}\n\nModifications :\n• ${report.fixed.join("\n• ") || "aucune"}` +
+          (report.remaining.length ? `\n\nNon conforme :\n• ${report.remaining.join("\n• ")}` : ""),
+      });
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Conversion PDF/A impossible", e instanceof Error ? e.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** « Audit de l'espace utilisé »: where the file's bytes go. */
+  const showSpaceAudit = async () => {
+    const bytes = diskRef.current?.bytes ?? bytesRef.current;
+    if (!bytes) return;
+    const [{ PDFDocument }, { openCrypt }, { spaceAudit, formatBytes }] = await Promise.all([
+      import("pdf-lib"),
+      import("../ops/security"),
+      import("../ops/optimize"),
+    ]);
+    let audit: ReturnType<typeof spaceAudit>;
+    try {
+      const doc = await PDFDocument.load(bytes, {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+        updateMetadata: false,
+      });
+      const crypt = openCrypt(doc, passwordRef.current ?? "");
+      if (crypt) await crypt.decryptDocument(doc, bytes);
+      audit = spaceAudit(doc, bytes.length);
+    } catch (e) {
+      toast("danger", "Audit impossible", e instanceof Error ? e.message : undefined);
+      return;
+    }
+    await dialogs.alert({
+      title: "Audit de l'espace utilisé",
+      message:
+        `Taille du fichier : ${formatBytes(audit.total)}\n\n` +
+        audit.categories
+          .map(
+            (c) => `${c.label} : ${formatBytes(c.bytes)} (${Math.round((c.bytes / Math.max(1, audit.total)) * 100)} %)`,
+          )
+          .join("\n"),
+    });
+  };
+
   const inspectDocument = async () => {
     if (!engine || !bytesRef.current) return;
     const protection = await inspectProtection(bytesRef.current);
     const lines = [
       `Pages : ${engine.pageCount}`,
-      `Formulaire : ${engine.info.isXfa ? "XFA" : engine.info.hasAcroForm ? "AcroForm" : "aucun"}`,
+      `Formulaire : ${engine.info.isXfa ? `XFA ${xfaKind === "hybrid" ? "hybride" : "dynamique"}` : engine.info.hasAcroForm ? "AcroForm" : "aucun"}`,
       `Signature : ${engine.info.signed ? "présente" : "aucune"}`,
       `Pièces jointes : ${attachments.length}`,
       `Calques : ${layers.length}`,
@@ -2308,7 +4029,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
     const pw =
       passwordRef.current ??
-      (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document" }));
+      (await dialogs.prompt({ title: "Retirer la protection", label: "Mot de passe du document", password: true }));
     if (!pw) return;
     setBusy(true);
     try {
@@ -2330,6 +4051,329 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       setBusy(false);
     }
   };
+
+  // --- « Préparer un formulaire » -------------------------------------------
+
+  const FIELD_BASE: Record<FieldKind, string> = {
+    text: "Texte",
+    checkbox: "Case",
+    radio: "Groupe",
+    dropdown: "Liste",
+    listbox: "ZoneListe",
+    signature: "Signature",
+    button: "Bouton",
+  };
+
+  /** « Texte1 », « Texte2 »… free among created fields, the file's and renames (as Acrobat numbers them). */
+  const nextFieldName = (st: PdfState, base: string): string => {
+    const taken = new Set<string>([...st.createdFields.map((f) => f.name), ...(formSession?.fields.keys() ?? [])]);
+    for (const e of st.fieldEdits) if (e.rename) taken.add(e.rename);
+    for (let n = 1; ; n++) if (!taken.has(`${base}${n}`)) return `${base}${n}`;
+  };
+
+  const createFieldAt = (pageId: string, kind: FieldKind, rect: Rect) => {
+    const id = newId("fd");
+    setState((s) => {
+      // A radio button drawn while another created radio is selected joins its group.
+      const sel = prepSelected.length === 1 && prepSelected[0].startsWith("c:") ? prepSelected[0].slice(2) : null;
+      const group = kind === "radio" ? s.createdFields.find((f) => f.id === sel && f.kind === "radio") : undefined;
+      let name: string;
+      let exportValue: string | undefined;
+      if (group) {
+        name = group.name;
+        const used = new Set(s.createdFields.filter((f) => f.name === name).map((f) => f.exportValue));
+        let n = 1;
+        while (used.has(`Choix${n}`)) n++;
+        exportValue = `Choix${n}`;
+      } else {
+        name = nextFieldName(s, FIELD_BASE[kind]);
+        exportValue = kind === "radio" ? "Choix1" : kind === "checkbox" ? "Oui" : undefined;
+      }
+      return D.addField(s, { id, pageId, name, kind, rect, ...(exportValue ? { exportValue } : {}) });
+    });
+    setPrepSelected([`c:${id}`]);
+    if (!stickyRef.current) setTool("select");
+  };
+
+  const movePrepFields = (changes: { key: string; rect: Rect; fieldName?: string }[]) => {
+    setQuiet((s) => {
+      let next = s;
+      for (const c of changes) {
+        if (c.key.startsWith("c:")) next = D.updateField(next, c.key.slice(2), { rect: c.rect });
+        else if (c.fieldName) next = D.upsertFieldEdit(next, c.fieldName, { rects: { [c.key.slice(2)]: c.rect } });
+      }
+      return next;
+    });
+  };
+
+  const deletePrepFields = (items: { key: string; fieldName?: string }[]) => {
+    setQuiet((s) => {
+      let next = s;
+      for (const it of items) {
+        if (it.key.startsWith("c:")) next = D.removeField(next, it.key.slice(2));
+        else if (it.fieldName) {
+          const prev = next.fieldEdits.find((e) => e.name === it.fieldName)?.removeWidgets ?? [];
+          next = D.upsertFieldEdit(next, it.fieldName, { removeWidgets: [...prev, it.key.slice(2)] });
+        }
+      }
+      return next;
+    });
+    setPrepSelected([]);
+  };
+
+  /** Every field name as « Préparer » shows it (renames applied, deleted ones left out). */
+  const allFieldNames = (st: PdfState): string[] => {
+    const out = new Set<string>();
+    for (const name of formSession?.fields.keys() ?? []) {
+      const e = st.fieldEdits.find((x) => x.name === name);
+      if (e?.deleted) continue;
+      out.add(e?.rename ?? name);
+    }
+    for (const f of st.createdFields) out.add(f.name);
+    return [...out];
+  };
+
+  const openFieldProps = async (key: string, fieldName?: string) => {
+    if (key.startsWith("c:")) {
+      const f = state.createdFields.find((x) => x.id === key.slice(2));
+      if (!f) return;
+      const { id: _i, pageId: _p, name, kind, rect: _r, tabIndex: _t, ...props } = f;
+      void [_i, _p, _r, _t];
+      setPrepProps({ key, kind, name, initial: props });
+      return;
+    }
+    if (!fieldName || !formSession || !engine) return;
+    const field = formSession.fields.get(fieldName);
+    const widgetId = key.slice(2);
+    const page = field?.widgets.find((w) => w.id === widgetId)?.page ?? field?.widgets[0]?.page ?? -1;
+    const [anns, objects] = await Promise.all([
+      page >= 0 ? engine.annotations(page).catch(() => []) : Promise.resolve([]),
+      (engine.raw.getFieldObjects() as Promise<Record<string, { actions?: Record<string, string[]> }[]> | null>).catch(
+        () => null,
+      ),
+    ]);
+    const a = (
+      anns as ({ id?: string } & PdfjsWidgetData & {
+          fieldType?: string;
+          checkBox?: boolean;
+          radioButton?: boolean;
+          combo?: boolean;
+          pushButton?: boolean;
+        })[]
+    ).find((x) => x.id === widgetId);
+    if (!a) return;
+    const kind: FieldKind =
+      a.fieldType === "Tx"
+        ? "text"
+        : a.fieldType === "Ch"
+          ? a.combo
+            ? "dropdown"
+            : "listbox"
+          : a.fieldType === "Sig"
+            ? "signature"
+            : a.pushButton
+              ? "button"
+              : a.radioButton
+                ? "radio"
+                : "checkbox";
+    const actions = objects?.[fieldName]?.find((o) => o.actions)?.actions ?? null;
+    const edit = state.fieldEdits.find((e) => e.name === fieldName);
+    setPrepProps({
+      key,
+      fieldName,
+      kind,
+      name: edit?.rename ?? fieldName,
+      initial: {
+        ...propsFromPdfjs(a, actions),
+        ...(edit?.props ?? {}),
+        ...(edit?.exportValues?.[widgetId] ? { exportValue: edit.exportValues[widgetId] } : {}),
+      },
+    });
+  };
+
+  const applyFieldProps = (v: { name: string; props: FieldProps }) => {
+    const target = prepProps;
+    setPrepProps(null);
+    if (!target) return;
+    setState((s) => {
+      if (target.key.startsWith("c:")) {
+        const f = s.createdFields.find((x) => x.id === target.key.slice(2));
+        if (!f) return s;
+        let next = D.updateField(s, f.id, v.props);
+        if (v.name !== f.name) {
+          // The whole radio group follows, and so does what was filled in.
+          next = {
+            ...next,
+            createdFields: next.createdFields.map((x) => (x.name === f.name ? { ...x, name: v.name } : x)),
+          };
+          if (f.name in next.formValues) {
+            const { [f.name]: moved, ...rest } = next.formValues;
+            next = { ...next, formValues: { ...rest, [v.name]: moved } };
+          }
+        }
+        return next;
+      }
+      if (!target.fieldName) return s;
+      const rename = v.name !== target.fieldName ? v.name : undefined;
+      // A box's export value belongs to the widget whose dialog was opened.
+      const { exportValue, ...props } = v.props;
+      const exportValues = exportValue ? { [target.key.slice(2)]: exportValue } : undefined;
+      if (
+        !Object.keys(props).length &&
+        !exportValues &&
+        rename === s.fieldEdits.find((e) => e.name === target.fieldName)?.rename
+      ) {
+        return s;
+      }
+      return D.upsertFieldEdit(s, target.fieldName, {
+        props: Object.keys(props).length ? props : undefined,
+        rename,
+        ...(exportValues ? { exportValues } : {}),
+      });
+    });
+  };
+
+  /**
+   * Leaving « Préparer » : the fields prepared there go into the document
+   * itself (an update of the source, encrypted with its key, like OCR), so
+   * the form layer shows them as the real fields they now are — scripts,
+   * formats and calculations included. The session goes on, its other edits
+   * kept; fields on pages the source does not have (added in Elium, duplicates)
+   * stay in the model and are written by the next save.
+   */
+  const foldPreparedFields = async (then: Mode) => {
+    if (!engine || !bytesRef.current) return;
+    const st = state;
+    const idByFrom = new Map<number, string>();
+    for (const pg of st.pages) if (pg.from != null && !idByFrom.has(pg.from)) idByFrom.set(pg.from, pg.id);
+    const identity = D.pagesFromSource(engine.pageCount).map((pg, i) => ({ ...pg, id: idByFrom.get(i) ?? pg.id }));
+    const ids = new Set(identity.map((pg) => pg.id));
+    const folded = st.createdFields.filter((f) => ids.has(f.pageId));
+    if (!folded.length && !st.fieldEdits.length) return;
+    setBusy(true);
+    const id = toast("progress", "Mise à jour du formulaire…");
+    try {
+      const res = await savePdf({
+        source: bytesRef.current,
+        state: { ...emptyState(), pages: identity, createdFields: folded, fieldEdits: st.fieldEdits },
+        options: { password: passwordRef.current ?? "", author, fileName },
+        security: null,
+      });
+      dismissToast(id);
+      // What was filled in follows renamed fields and new export values;
+      // deleted fields take theirs along.
+      const formValues = { ...st.formValues };
+      for (const e of st.fieldEdits) {
+        if (!e.exportValues || !(e.name in formValues)) continue;
+        const f = formSession?.fields.get(e.name);
+        for (const [widgetId, next] of Object.entries(e.exportValues)) {
+          const old = f?.widgets.find((w) => w.id === widgetId)?.exportValue;
+          if (old && formValues[e.name] === old) formValues[e.name] = next;
+        }
+      }
+      for (const e of st.fieldEdits) {
+        if (!(e.name in formValues)) continue;
+        const v = formValues[e.name];
+        delete formValues[e.name];
+        if (!e.deleted && !(e.removeWidgets && !e.rename)) formValues[e.rename ?? e.name] = v;
+        else if (e.removeWidgets && !e.deleted) formValues[e.name] = v;
+      }
+      // A created field the file could not take (a name clash…) stays in the model, not lost.
+      const made = await PDFDocument.load(res.bytes, { ignoreEncryption: true, updateMetadata: false })
+        .then(
+          (d) =>
+            new Set(
+              formOf(d)
+                .getFields()
+                .map((f) => f.getName()),
+            ),
+        )
+        .catch(() => null);
+      const keep: PdfState = {
+        ...st,
+        formValues,
+        createdFields: st.createdFields.filter((f) => !folded.includes(f) || (made && !made.has(f.name))),
+        fieldEdits: [],
+      };
+      if (res.report.lost.length) {
+        toast("warning", "Préparation du formulaire", res.report.lost.join(" · "));
+      }
+      await adoptDerived(
+        res.bytes,
+        {
+          changes: ["formulaire préparé"],
+          forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+        },
+        res.report.mode === "incremental",
+        keep,
+      );
+      // Reopening shows the document in « view »: go on in the mode the user asked for.
+      if (then !== "view") setMode(then);
+    } catch (err) {
+      dismissToast(id);
+      toast("danger", "Mise à jour du formulaire impossible", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Required fields still empty (Acrobat's « champs obligatoires »), in page order.
+  const [requiredLeft, setRequiredLeft] = useState<{ name: string; widget: string; page: number }[]>([]);
+  useEffect(() => {
+    if (!formSession) {
+      setRequiredLeft([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      await formSession.ready;
+      const details = await formSession.details();
+      const values = formSession.values();
+      const out: { name: string; widget: string; page: number }[] = [];
+      for (const f of formSession.fields.values()) {
+        const d = details.get(f.name);
+        if (!d?.required || d.readOnly || d.hidden) continue;
+        if (!isEmptyValue(f, values[f.name] ?? f.fileValue)) continue;
+        const w = f.widgets.find((x) => x.page >= 0);
+        if (w) out.push({ name: f.name, widget: w.id, page: w.page });
+      }
+      out.sort((a, b) => a.page - b.page);
+      if (!cancelled) setRequiredLeft(out);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [formSession, state.formValues]);
+
+  /** Show and focus the next required field still empty. */
+  const goNextRequired = () => {
+    const next = requiredLeft[0];
+    if (!next) return;
+    const index = pages.findIndex((pg) => pg.from === next.page);
+    if (index < 0) return;
+    goTo(index + 1);
+    // The page mounts, then its form layer: wait for the control.
+    let tries = 0;
+    const focus = () => {
+      const el = document.querySelector<HTMLElement>(`.pdfx-stack [data-element-id="${CSS.escape(next.widget)}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.focus();
+      } else if (tries++ < 40) setTimeout(focus, 50);
+    };
+    focus();
+  };
+
+  useEffect(() => {
+    const was = previousMode.current;
+    previousMode.current = mode;
+    if (was === "fields" && mode !== "fields") {
+      setPrepSelected([]);
+      if (tool === "select" || tool.startsWith("field:")) setTool("textSelect");
+      void foldPreparedFields(mode as Mode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const detectFields = async () => {
     if (!engine) return;
@@ -2396,7 +4440,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         toast("info", "Aucun titre détecté.");
         return;
       }
-      setState((s) => ({ ...s, bookmarks: marks }));
+      // Added after the bookmarks already there, as Acrobat does.
+      setState((s) => ({ ...s, bookmarks: [...(s.bookmarks ?? []), ...marks] }));
       setPanel("bookmarks");
       toast("success", `${marks.length} signet(s) créé(s).`);
     } finally {
@@ -2404,9 +4449,33 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
   };
 
+  /** The current view as a destination (Acrobat's new bookmark): page, point at the top left, zoom. */
+  const currentDest = (): Pick<Bookmark, "page" | "x" | "y" | "fit" | "zoom"> => {
+    const a = stackRef.current?.viewAnchor();
+    const index = a ? a.index : currentStore.get() - 1;
+    const page = pages[index];
+    const dest: Pick<Bookmark, "page" | "x" | "y" | "fit" | "zoom"> = {
+      page: index + 1,
+      fit: "XYZ",
+      zoom: view.zoomMode === "custom" ? Math.round((view.scale / ZOOM_UNIT) * 1000) / 1000 : undefined,
+    };
+    if (a && page) {
+      // View-oriented point → page space (the page as turned on screen).
+      const { w, h } = sizeOf(page);
+      const r = rotationOf(page);
+      const [x, y] =
+        r === 90 ? [a.py, h - a.px] : r === 180 ? [w - a.px, h - a.py] : r === 270 ? [w - a.py, a.px] : [a.px, a.py];
+      dest.x = Math.round(Math.max(0, Math.min(w, x)));
+      dest.y = Math.round(Math.max(0, Math.min(h, y)));
+    }
+    return dest;
+  };
+
   const addBookmark = (parentId: string | null) => {
-    const at = currentStore.get();
-    const node: Bookmark = { id: newId("bm"), title: `Page ${at}`, page: at, children: [] };
+    const dest = currentDest();
+    // Acrobat titles it with the selected text, when there is some.
+    const picked = window.getSelection()?.toString().replace(/\s+/g, " ").trim().slice(0, 120);
+    const node: Bookmark = { id: newId("bm"), title: picked || `Page ${dest.page}`, ...dest, children: [] };
     setState((s) => ({ ...s, bookmarks: D.insertBookmark(s.bookmarks ?? [], parentId, node) }));
     setPanel("bookmarks");
   };
@@ -2415,15 +4484,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   // File pickers
   // -------------------------------------------------------------------------
   /**
-   * « Insérer depuis un PDF » / « Fusionner »: the other files' pages are
+   * « Insérer depuis un PDF »: the other files' pages are
    * appended to THIS document — the same file, saved like any other edit: an
    * incremental update of it (a signed revision stays intact), encrypted with
    * its key, into the file it was opened from. The session goes on with the
    * recomposed document (the current edits folded in), marked unsaved.
    */
-  const onMergePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onMergePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
+    if (!files.length || !bytesRef.current || !engine) return;
+    // Where they go is asked first (Acrobat's « Insérer des pages » dialog).
+    setPendingInsert({ kind: "pdf", files });
+    setDialog("insert");
+  };
+
+  /** The pages of `files` inserted at position `index` of the document. */
+  const insertPdfFiles = async (files: File[], index?: number) => {
     if (!files.length || !bytesRef.current || !engine) return;
     await engine.infoReady;
     const signed = sourceSignedRef.current || (!!diskRef.current && diskSignedRef.current);
@@ -2447,16 +4524,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       let outcome: Awaited<ReturnType<typeof appendPdfPages>> = { inserted: 0, failed: [] };
       const res = await savePdf({
         source: bytesRef.current,
-        state,
-        // Redaction marks stay marks (/Redact): applying them is a save's job, confirmed.
-        options: { ...saveOptions(state), applyRedactions: false },
+        state: forRecompose(state),
+        // Redaction marks stay marks (/Redact): applying them is a save's job,
+        // confirmed. Excluded pages are part of the document: kept.
+        options: { ...saveOptions(state), applyRedactions: false, keepSkipped: true },
         security: null,
         transform: async (doc) => {
-          outcome = await appendPdfPages(doc, inputs, (name, wrong) =>
-            dialogs.prompt({
-              title: "PDF protégé",
-              label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
-            }),
+          outcome = await appendPdfPages(
+            doc,
+            inputs,
+            (name, wrong) =>
+              dialogs.prompt({
+                title: "PDF protégé",
+                password: true,
+                label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+              }),
+            index,
           );
         },
       });
@@ -2481,6 +4564,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
         },
         res.report.mode === "incremental",
+        undefined,
+        // Pages from the insertion point on moved down by the pages inserted.
+        carryOver(state, (k) => (index !== undefined && k >= index ? k + outcome.inserted : k)),
       );
       toast(
         "success",
@@ -2546,65 +4632,276 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     }
 
     if (!bytesRef.current) {
+      // Every page of every file (TIFF scans have several), each at its resolution.
+      const { pagePictures } = await import("./imagefiles");
+      const pictures = (await Promise.all(files.map((f) => pagePictures(f)))).flat();
+      if (!pictures.length) {
+        toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+        return;
+      }
       const bytes = await pdfFromImages(
-        sources.map((src) => ({ src })),
+        pictures.map((p) => ({ src: p.src })),
         { pageSize: "fit" },
-      );
+      ).catch(() => null);
+      if (!bytes) {
+        toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+        return;
+      }
       // A new document, saved nowhere yet.
       await openBytes(bytes, files[0].name.replace(/\.[^.]+$/, ".pdf"), undefined, undefined, null, {
         unsaved: true,
       });
       return;
     }
-    setState((s) =>
-      D.insertPages(
-        s,
-        s.pages.length,
-        sources.map((src) => D.makePage(null, { image: src })),
-      ),
-    );
-    toast("success", `${sources.length} page(s) image ajoutée(s).`);
+    // Where they go is asked first.
+    setPendingInsert({ kind: "image", files });
+    setDialog("insert");
+  };
+
+  /**
+   * One page per picture (per page of a TIFF), at position `index`, each the
+   * picture's real size when its file gives its resolution, else its size at
+   * 96 dpi (as a screen shows it; a large one brought down to A4).
+   */
+  const insertImageFiles = async (files: File[], index: number) => {
+    const { pagePictures } = await import("./imagefiles");
+    const made: Page[] = [];
+    for (const f of files)
+      for (const p of await pagePictures(f)) made.push(D.makePage(null, { image: p.src, size: p.size }));
+    if (!made.length) {
+      toast("danger", "Image illisible", "Formats acceptés : PNG, JPEG, TIFF, WebP, GIF, BMP.");
+      return;
+    }
+    setState((s) => D.insertPages(s, index, made));
+    toast("success", `${made.length} page(s) image ajoutée(s).`);
+  };
+
+  /**
+   * Pasted content as pages at `index` (after the selected pages, or the
+   * current one, by default): PDFs and pictures as they come, text laid out
+   * on A4 pages.
+   */
+  const pasteAsPages = async (files: File[], text: string, index?: number) => {
+    const at =
+      index ??
+      (selectedPages.length
+        ? Math.max(...selectedPages.map((id) => pages.findIndex((p) => p.id === id))) + 1
+        : Math.min(pages.length, currentStore.get()));
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    if (pdfs.length) return insertPdfFiles(pdfs, at);
+    if (images.length) return insertImageFiles(images, at);
+    if (text.trim()) {
+      const { textToPdf } = await import("../ops/organize");
+      const bytes = await textToPdf(text);
+      return insertPdfFiles([new File([bytes as BlobPart], "Presse-papiers.pdf", { type: "application/pdf" })], at);
+    }
+    toast("warning", "Presse-papiers", "Il ne contient ni image, ni PDF, ni texte à insérer.");
+  };
+
+  /** What the clipboard holds (the browser asks for permission); null when unreadable. */
+  const readClipboard = async (): Promise<{ files: File[]; text: string } | null> => {
+    let items: ClipboardItems;
+    try {
+      items = await navigator.clipboard.read();
+    } catch {
+      toast(
+        "warning",
+        "Presse-papiers inaccessible",
+        "Autorisez l'accès au presse-papiers, ou collez avec Ctrl+V dans la vue Organiser.",
+      );
+      return null;
+    }
+    const files: File[] = [];
+    let text = "";
+    for (const item of items) {
+      const image = item.types.find((t) => t.startsWith("image/"));
+      if (image) {
+        const blob = await item.getType(image);
+        files.push(new File([blob], `Presse-papiers.${image.split("/")[1] || "png"}`, { type: image }));
+      } else if (item.types.includes("text/plain")) {
+        text += await (await item.getType("text/plain")).text();
+      }
+    }
+    return { files, text };
+  };
+
+  /** « Insérer depuis le presse-papiers ». */
+  const insertFromClipboard = async () => {
+    const got = await readClipboard();
+    if (got) await pasteAsPages(got.files, got.text);
+  };
+
+  /** « Créer un PDF depuis le presse-papiers »: a new document of its picture or its text. */
+  /** A new PDF made from a Word, Excel, PowerPoint, HTML, text, Markdown or Elium file. */
+  const createFromFile = async (file: File) => {
+    setLoading(true);
+    const id = toast("progress", `Conversion de « ${file.name} » en PDF…`);
+    try {
+      const { createPdfFromFile } = await import("../ops/create-from-file");
+      const { EliumPasswordRequired } = await import("../../format/elium-package");
+      let password: string | undefined;
+      for (;;) {
+        try {
+          const r = await createPdfFromFile(file, { password });
+          dismissToast(id);
+          await openBytes(r.bytes, r.name, undefined, undefined, null, { unsaved: true });
+          return;
+        } catch (e) {
+          if (!(e instanceof EliumPasswordRequired)) throw e;
+          const typed = await dialogs.prompt({
+            title: "Document protégé",
+            label: `${password !== undefined ? "Mot de passe incorrect. " : ""}Mot de passe de « ${file.name} » :`,
+            password: true,
+          });
+          if (typed === null) {
+            dismissToast(id);
+            return;
+          }
+          password = typed;
+        }
+      }
+    } catch (e) {
+      dismissToast(id);
+      toast("danger", "Création impossible", e instanceof Error ? e.message : "Fichier illisible.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createFromClipboard = async () => {
+    const got = await readClipboard();
+    if (!got) return;
+    let bytes: Uint8Array | null = null;
+    if (got.files.length) {
+      const { pagePictures } = await import("./imagefiles");
+      const pictures = (await Promise.all(got.files.map((f) => pagePictures(f)))).flat();
+      if (pictures.length)
+        bytes = await pdfFromImages(
+          pictures.map((p) => ({ src: p.src })),
+          { pageSize: "fit" },
+        ).catch(() => null);
+    } else if (got.text.trim()) {
+      const { textToPdf } = await import("../ops/organize");
+      bytes = await textToPdf(got.text);
+    }
+    if (!bytes) {
+      toast("warning", "Presse-papiers", "Il ne contient ni image ni texte.");
+      return;
+    }
+    await openBytes(bytes, "Presse-papiers.pdf", undefined, undefined, null, { unsaved: true });
   };
 
   const onDataPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const text = await file.text();
-    if (/\.xfdf$/i.test(file.name) || text.includes("<xfdf")) {
-      const heights = new Map(pages.map((pg) => [pg.id, sizeOf(pg).h]));
-      const imported = fromXfdf(text, pages, heights, author);
-      if (!imported.length) {
-        toast("warning", "Aucun commentaire lisible dans ce fichier.");
-        return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
+    // Form data (FDF, XFDF <fields>, tab-delimited text) and comments (XFDF <annots>).
+    let raw = new Map<string, RawDataValue>();
+    let comments = 0;
+    try {
+      if (head.startsWith("%FDF")) {
+        raw = parseFdf(bytes);
+        // An FDF can carry comments too (Acrobat's « Exporter les commentaires »).
+        const { fromFdfComments } = await import("../ops/fdfcomments");
+        const imported = await fromFdfComments(bytes, pages, await fdfBoxes(), author, readPdfAnnotations).catch(
+          () => [] as Annot[],
+        );
+        if (imported.length) {
+          setState((s) => ({ ...s, annots: mergeImported(s.annots, imported.map(D.syncRect)) }));
+          comments = imported.length;
+        }
+      } else {
+        const text = new TextDecoder("utf-8").decode(bytes);
+        if (/\.xfdf$/i.test(file.name) || /<xfdf[\s>]/.test(text)) {
+          raw = parseXfdfFields(text);
+          const imported = fromXfdf(text, pages, await xfdfBoxes(), author);
+          if (imported.length) {
+            // The same comment imported again (or sent back) replaces its copy.
+            setState((s) => ({ ...s, annots: mergeImported(s.annots, imported.map(D.syncRect)) }));
+            comments = imported.length;
+          }
+        } else {
+          raw = parseTabText(text);
+        }
       }
-      setState((s) => imported.reduce((acc, a) => D.addAnnot(acc, a), s));
+    } catch (err) {
+      toast("danger", "Import impossible", err instanceof Error ? err.message : "Fichier illisible.");
+      return;
+    }
+    if (raw.size && formSession) {
+      await formSession.ready;
+      const res = matchImported(formSession.fields, raw);
+      const count = Object.keys(res.values).length;
+      if (count) {
+        setState((s) => ({ ...s, formValues: { ...s.formValues, ...res.values } }));
+        setMode("form");
+      }
+      const notes: string[] = [];
+      if (res.unknown.length) {
+        notes.push(`${res.unknown.length} champ(s) absent(s) de ce document : ${res.unknown.slice(0, 5).join(", ")}.`);
+      }
+      if (res.rejected.length) {
+        notes.push(`Valeur inadaptée ignorée pour : ${res.rejected.slice(0, 5).join(", ")}.`);
+      }
+      if (comments) notes.push(`${comments} commentaire(s) importé(s).`);
+      toast(
+        count ? (notes.length ? "warning" : "success") : "warning",
+        `${count} champ(s) importé(s)`,
+        notes.join(" "),
+      );
+      return;
+    }
+    if (comments) {
       setPanel("comments");
-      toast("success", `${imported.length} commentaire(s) importé(s).`);
+      toast("success", `${comments} commentaire(s) importé(s).`);
       return;
     }
-    const values = fromFdf(text);
-    if (!Object.keys(values).length) {
-      toast("warning", "Aucune donnée de formulaire trouvée.");
-      return;
-    }
-    setState((s) => ({ ...s, formValues: { ...s.formValues, ...values } }));
-    setMode("form");
-    toast("success", `${Object.keys(values).length} champ(s) importé(s).`);
+    toast("warning", "Aucune donnée de formulaire ni commentaire dans ce fichier.");
   };
+
+  /** Compare report pages (the current document's) → displayed page index. */
+  const compareMapRef = useRef<(i: number) => number | undefined>((i) => i);
 
   const onComparePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !engine) return;
+    let pw: string | undefined;
     setCompareBusy(true);
+    let other: PdfEngine | null = null;
+    let mine: PdfEngine | null = null;
     try {
-      const other = await PdfEngine.open(new Uint8Array(await file.arrayBuffer()));
-      const [mine, theirs] = [await engine.allText(), await other.allText()];
-      setCompareReport(comparePages(mine, theirs));
-      other.destroy();
+      const raw = new Uint8Array(await file.arrayBuffer());
+      for (let wrong = false; !other;) {
+        try {
+          other = await PdfEngine.open(raw, pw);
+        } catch (err) {
+          if (!(err instanceof PdfPasswordRequired)) throw err;
+          const typed = await dialogs.prompt({
+            title: "Document protégé",
+            label: `${wrong ? "Mot de passe incorrect. " : ""}Mot de passe de « ${file.name} » :`,
+            password: true,
+          });
+          if (typed === null) return;
+          pw = typed;
+          wrong = true;
+        }
+      }
+      // The document as it is now against the other file (kept open for the results view).
+      const { bytes } = await buildDerived(state, { flattenForms: true, interactiveAnnots: false, keepSkipped: false });
+      const kept = pages.map((p, i) => (p.skipped ? -1 : i)).filter((i) => i >= 0);
+      compareMapRef.current = (i) => kept[i];
+      mine = await PdfEngine.open(bytes);
+      closeCompare();
+      setCompareEngines({ left: mine, right: other, rightName: file.name });
     } catch {
-      toast("danger", "Comparaison impossible (fichier illisible ou protégé).");
+      // Neither document stays open for nothing.
+      mine?.destroy();
+      other?.destroy();
+      toast("danger", "Comparaison impossible (fichier illisible).");
     } finally {
       setCompareBusy(false);
     }
@@ -2619,6 +4916,10 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   saveNowRef.current = saveNow;
   const openDialogRef = useRef(openDialog);
   openDialogRef.current = openDialog;
+  const commandRef = useRef(command);
+  commandRef.current = command;
+  const goHomeRef = useRef(goHome);
+  goHomeRef.current = goHome;
   // Ctrl+S / Ctrl+Maj+S, caught in the capture phase so it works everywhere —
   // even inside a text box that stops key events — and never falls through to
   // the browser's « save page ». A comment, text block or bookmark being edited
@@ -2648,6 +4949,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A dialog owns the keyboard (a tool letter would leave the mode behind it).
+      if (document.querySelector('[role="dialog"]')) return;
       const target = e.target as HTMLElement | null;
       const inField =
         !!target &&
@@ -2664,6 +4967,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           setSearchState((s) => ({ ...s, open: true }));
           return;
         }
+        // « Rechercher des outils ».
+        if (k === "p" && e.shiftKey) {
+          e.preventDefault();
+          setPalette(true);
+          return;
+        }
         if (k === "p") {
           e.preventDefault();
           void printDocument();
@@ -2674,7 +4983,13 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           void openDialogRef.current();
           return;
         }
-        if (!inField && k === "a") {
+        // Acrobat's « Aller à la page ».
+        if (k === "n" && e.shiftKey) {
+          e.preventDefault();
+          document.querySelector<HTMLInputElement>(".pdfx-pagenav__input")?.focus();
+          return;
+        }
+        if (!inField && k === "a" && mode !== "fields") {
           e.preventDefault();
           setSelectedIds(state.annots.filter((a) => a.pageId === currentPage()?.id).map((a) => a.id));
           return;
@@ -2694,9 +5009,46 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           zoomStep(1);
           return;
         }
-        if (k === "-") {
+        // With Shift the minus key arrives as « _ ».
+        if (k === "-" || k === "_") {
           e.preventDefault();
           zoomStep(-1);
+          return;
+        }
+        // Acrobat's Ctrl+3 « Zone de texte ».
+        if (k === "3" && !e.shiftKey) {
+          e.preventDefault();
+          requestFit("fitVisible");
+          return;
+        }
+        // Ctrl+E : the properties bar (Inspector), shown again once closed.
+        if (k === "e" && !e.shiftKey) {
+          e.preventDefault();
+          setInspector((v) => !v);
+          return;
+        }
+        // Ctrl+D : document properties.
+        if (k === "d" && !e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("properties");
+          return;
+        }
+        // Ctrl+L : full screen.
+        if (k === "l" && !e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("fullscreen");
+          return;
+        }
+        // Ctrl+W closes the document, not the window (in the desktop app it would close Elium).
+        if (k === "w" && !e.shiftKey) {
+          e.preventDefault();
+          void goHomeRef.current();
+          return;
+        }
+        // Ctrl+Maj+R : rotate pages.
+        if (k === "r" && e.shiftKey) {
+          e.preventDefault();
+          void commandRef.current("rotateDialog");
           return;
         }
         // Acrobat's: Ctrl+0 page entière, Ctrl+1 taille réelle (100 %), Ctrl+2 largeur.
@@ -2720,14 +5072,38 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           pickTool("highlight");
           return;
         }
+        // Ctrl+H : mode lecture (not the browser's history).
+        if (k === "h") {
+          e.preventDefault();
+          setReading((v) => !v);
+          return;
+        }
+        return;
+      }
+
+      // Acrobat's previous / next view (the browser's back must not leave the app).
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !inField) {
+        e.preventDefault();
+        if (e.key === "ArrowLeft") viewBack();
+        else viewForward();
         return;
       }
 
       if (inField) return;
+      // « Préparer » handles its own keys (PrepareLayer): only Escape leaves the mode here.
+      if (mode === "fields" && e.key !== "Escape") return;
+
+      // Maj+F10 or the menu key: the context menu of what has the focus.
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault();
+        menuAtFocusRef.current();
+        return;
+      }
 
       switch (e.key) {
         case "Escape":
-          if (searchState.open) setSearchState((s) => ({ ...s, open: false }));
+          if (reading) setReading(false);
+          else if (searchState.open) setSearchState((s) => ({ ...s, open: false }));
           else if (mode !== "view") setMode("view");
           else if (selectedIds.length) setSelectedIds([]);
           else setTool("textSelect");
@@ -2767,23 +5143,14 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           break;
       }
 
-      const shortcuts: Record<string, Tool> = {
-        v: "select",
-        t: "textSelect",
-        h: "hand",
-        z: "zoomArea",
-        g: "highlight",
-        u: "underline",
-        k: "strikeout",
-        n: "note",
-        d: "ink",
-        r: "square",
-        e: "circle",
-        l: "line",
-        a: "arrow",
-        x: "eraser",
-      };
-      const picked = shortcuts[e.key.toLowerCase()];
+      // « / » : « Rechercher des outils ».
+      if (e.key === "/" && !e.altKey) {
+        e.preventDefault();
+        setPalette(true);
+        return;
+      }
+      // Acrobat's single-key tool shortcuts, when the preference is on.
+      const picked = singleKeys && !e.altKey ? SINGLE_KEY_TOOLS[e.key.toLowerCase()] : undefined;
       if (picked) {
         e.preventDefault();
         pickTool(picked);
@@ -2792,7 +5159,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.annots, selectedIds, pageCount, searchState.open, mode, hits.length, searchState.index]);
+  }, [
+    state.annots,
+    selectedIds,
+    pageCount,
+    searchState.open,
+    mode,
+    hits.length,
+    searchState.index,
+    reading,
+    singleKeys,
+  ]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -2821,7 +5198,8 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setDragOver(false);
             const handle = droppedHandle(e.dataTransfer); // synchronous: the transfer empties after the event
             const f = e.dataTransfer.files?.[0];
-            if (f) void handle.then((h) => openFile(f, h));
+            if (f && createSourceKind(f.name)) void createFromFile(f);
+            else if (f) void handle.then((h) => openFile(f, h));
           }}
         >
           <div className="pdfx-dropzone__card">
@@ -2836,11 +5214,20 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   "Déposez un fichier ici, ou choisissez-le. Vous pourrez le lire, l'annoter, en modifier le texte, le caviarder, le signer et le protéger."}
             </p>
             <div className="pdfx-dropzone__actions">
-              <button className="eb eb--primary" onClick={() => void openDialog()} disabled={loading}>
+              <button className="eb eb--primary eb--md" onClick={() => void openDialog()} disabled={loading}>
                 {loading ? <Loader2 size={16} className="pdfx-spin" /> : <Upload size={16} />} Choisir un PDF
               </button>
-              <button className="eb eb--outline" onClick={() => imageInput.current?.click()} disabled={loading}>
+              <button className="eb eb--outline eb--md" onClick={() => imageInput.current?.click()} disabled={loading}>
                 Créer depuis des images
+              </button>
+              <button className="eb eb--outline eb--md" onClick={() => createInput.current?.click()} disabled={loading}>
+                Créer depuis un fichier…
+              </button>
+              <button className="eb eb--outline eb--md" onClick={() => setDialog("combine")} disabled={loading}>
+                Combiner des fichiers
+              </button>
+              <button className="eb eb--outline eb--md" onClick={() => void createFromClipboard()} disabled={loading}>
+                Depuis le presse-papiers
               </button>
             </div>
             {drafts.length > 0 && (
@@ -2858,7 +5245,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                           Rouvrir
                         </button>
                       ) : (
-                        <small>Rouvrez ce fichier pour les restaurer</small>
+                        <>
+                          <small>Rouvrez ce fichier pour les restaurer</small>
+                          <button className="eb eb--outline eb--sm" onClick={() => void openDialog()}>
+                            Choisir le fichier…
+                          </button>
+                        </>
                       )}
                       <button
                         className="eb eb--ghost eb--sm"
@@ -2895,6 +5287,17 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           }}
         />
         <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
+        <input
+          ref={createInput}
+          type="file"
+          accept={CREATE_FROM_FILE_ACCEPT}
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void createFromFile(f);
+          }}
+        />
         {pendingPassword && (
           <PasswordPrompt
             wrong={pendingPassword.wrong}
@@ -2905,18 +5308,322 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onClose={() => setPendingPassword(null)}
           />
         )}
+        {dialog === "combine" && (
+          <CombineDialog onClose={() => setDialog(null)} onConfirm={(items, o) => void combineFiles(items, o)} />
+        )}
       </div>
     );
   }
 
   const themeDef = READING_THEMES.find((t) => t.id === view.theme) ?? READING_THEMES[0];
 
+  // --- commands everywhere: « Tous les outils », palette, context menus -----
+  const commandCtx: CommandContext = {
+    hasForm: hasForm || state.createdFields.length > 0,
+    canUndo,
+    canRedo,
+    hasRedactions: state.annots.some((a) => a.kind === "redact"),
+    encrypted: !!engine.info.encrypted,
+    pageCount,
+  };
+  /** Run a registry entry as the ribbon would: a tool is picked, a command dispatched. */
+  const runDef = (def: CommandDef) => {
+    if (def.kind === "tool" && def.tool) pickTool(def.tool);
+    else void command(def.id);
+    // Nothing took the focus (no dialog opened): back to the document.
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body)
+        document.querySelector<HTMLElement>(".pdfx-canvas")?.focus({ preventScroll: true });
+    });
+  };
+  /** A context menu item running command `id` (greyed as the registry says). */
+  const menuCommand = (id: string, label?: string): MenuItem => {
+    const def = COMMAND_BY_ID.get(id);
+    return {
+      id,
+      label: label ?? def?.label ?? id,
+      icon: def?.icon,
+      shortcut: def?.shortcut,
+      danger: id === "deletePage",
+      disabled: !!def && !!unavailableReason(def, commandCtx, restrictions),
+      run: () => void commandRef.current(id),
+    };
+  };
+  const pageLabelOf = (index: number) => shownPages[index]?.label || String(index + 1);
+  /** « 210 × 297 mm »: page `index` (0-based) as it stands (crop and page rotation, not the view's). */
+  const pageSizeLabel = (index: number): string => {
+    const page = pages[index];
+    if (!page) return "";
+    const size = sizeOf(page);
+    const turned = normRotation(rotationOf(page) - view.viewRotation) % 180 !== 0;
+    const mm = (pt: number) => Math.round((pt * 25.4) / 72);
+    return `${mm(turned ? size.h : size.w)} × ${mm(turned ? size.w : size.h)} mm`;
+  };
+  /** The page menu: page commands act on that page (it becomes the selected one). */
+  const openPageMenu = (index: number, at: { x: number; y: number }) => {
+    const page = pages[index];
+    if (!page) return;
+    setSelectedPages([page.id]);
+    setMenu({
+      ...at,
+      label: `Page ${pageLabelOf(index)}`,
+      entries: [
+        menuCommand("rotateRight"),
+        menuCommand("rotateLeft"),
+        "sep",
+        menuCommand("insertBlank", "Insérer des pages…"),
+        menuCommand("extract", "Extraire la page…"),
+        menuCommand("deletePage"),
+        "sep",
+        menuCommand("zoomIn"),
+        menuCommand("zoomOut"),
+        menuCommand("fitPage"),
+        menuCommand("fitWidth"),
+        "sep",
+        menuCommand("properties", "Propriétés du document…"),
+      ],
+    });
+  };
+  /** A thumbnail's menu: on the selected pages when it is one of them, else on it alone. */
+  const openThumbMenu = (id: string, at: { x: number; y: number }) => {
+    const inSelection = selectedPages.includes(id);
+    if (!inSelection) setSelectedPages([id]);
+    const n = inSelection ? selectedPages.length : 1;
+    setMenu({
+      ...at,
+      label: n > 1 ? `${n} pages` : "Page",
+      entries: [
+        menuCommand("rotateRight"),
+        menuCommand("rotateLeft"),
+        "sep",
+        menuCommand("insertBlank", "Insérer des pages…"),
+        menuCommand("extract", n > 1 ? `Extraire ${n} pages…` : "Extraire la page…"),
+        menuCommand("duplicatePage", n > 1 ? `Dupliquer ${n} pages` : undefined),
+        menuCommand("deletePage", n > 1 ? `Supprimer ${n} pages` : undefined),
+      ],
+    });
+  };
+  /** Put back the text selection the menu was opened on, then run `fn`. */
+  const onMenuSelection = (fn: () => void) => () => {
+    const range = menuRange.current;
+    const sel = window.getSelection();
+    if (range && sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    fn();
+  };
+  /** A note on the selected text: a highlight carrying the comment (Acrobat's « Ajouter une note au texte »). */
+  const noteOnSelection = async () => {
+    const made = markupsFromSelection("highlight");
+    if (!made.length) return;
+    window.getSelection()?.removeAllRanges();
+    const text = await dialogs.prompt({ title: "Note", label: "Commentaire" });
+    if (text === null) return;
+    setState((s) => made.reduce((acc, a) => D.addAnnot(acc, { ...a, contents: text }), s));
+    setSelectedIds(made.map((a) => a.id));
+  };
+  /** Redaction marks over the selected text, one per line (as « Rechercher et caviarder » makes them). */
+  const redactSelection = () => {
+    const marks = markupsFromSelection("redact").flatMap((a) =>
+      (a.quads ?? []).map((q) => ({
+        ...a,
+        id: newId("an"),
+        rect: rectOfQuads([q]),
+        quads: undefined,
+        subject: undefined,
+        color: "#000000",
+        fill: "#000000",
+        opacity: 1,
+        strokeWidth: 0,
+      })),
+    );
+    if (!marks.length) return;
+    window.getSelection()?.removeAllRanges();
+    setState((s) => marks.reduce((acc, a) => D.addAnnot(acc, a), s));
+    setTab("protect");
+  };
+  /** A link over the selected text; its destination is asked for next (as after drawing one). */
+  const linkOnSelection = () => {
+    const [first] = markupsFromSelection("link");
+    if (!first) return;
+    window.getSelection()?.removeAllRanges();
+    addAnnot({ ...first, quads: undefined, subject: undefined, color: "#1d4ed8", opacity: 1, strokeWidth: 0 });
+  };
+  /** The menu of the selected text, when the point `at` is on it. */
+  const openTextMenu = (at: { x: number; y: number }, anywhere = false): boolean => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+    const range = sel.getRangeAt(0);
+    const host = range.commonAncestorContainer;
+    const el = host instanceof Element ? host : host.parentElement;
+    if (!el?.closest(".pdfx-viewcol")) return false;
+    const on = [...range.getClientRects()].some(
+      (r) => at.x >= r.left - 2 && at.x <= r.right + 2 && at.y >= r.top - 2 && at.y <= r.bottom + 2,
+    );
+    if (!on && !anywhere) return false;
+    menuRange.current = range.cloneRange();
+    const text = sel.toString().replace(/\s+/g, " ").trim();
+    const short = text.length > 28 ? `${text.slice(0, 28)}…` : text;
+    const annotate = !hasRight(restrictions, "annotate");
+    const markup = (kind: AnnotKind, label: string, icon: MenuItem["icon"]): MenuItem => ({
+      id: kind,
+      label,
+      icon,
+      disabled: annotate,
+      run: onMenuSelection(() => applyMarkupFromSelection(kind)),
+    });
+    setMenu({
+      ...at,
+      label: "Texte sélectionné",
+      entries: [
+        {
+          id: "copy",
+          label: "Copier",
+          icon: Copy,
+          shortcut: "Ctrl+C",
+          disabled: !hasRight(restrictions, "copy"),
+          run: onMenuSelection(() => document.execCommand("copy")),
+        },
+        "sep",
+        markup("highlight", "Surligner le texte", Highlighter),
+        markup("underline", "Souligner le texte", Underline),
+        markup("strikeout", "Barrer le texte", Strikethrough),
+        {
+          id: "note",
+          label: "Ajouter une note au texte…",
+          icon: MessageSquarePlus,
+          disabled: annotate,
+          run: onMenuSelection(() => void noteOnSelection()),
+        },
+        "sep",
+        {
+          id: "redact",
+          label: "Caviarder le texte",
+          icon: BoxSelect,
+          disabled: !hasRight(restrictions, "modify"),
+          run: onMenuSelection(redactSelection),
+        },
+        { id: "link", label: "Créer un lien…", icon: Link2, disabled: annotate, run: onMenuSelection(linkOnSelection) },
+        "sep",
+        {
+          id: "search",
+          label: `Rechercher « ${short} »`,
+          icon: Search,
+          run: () => setSearchState((s) => ({ ...s, open: true, query: text })),
+        },
+      ],
+    });
+    return true;
+  };
+  const duplicateAnnots = (list: Annot[]) => {
+    const copies = list.map((a) => ({
+      ...D.cloneAnnot(a),
+      rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 },
+    }));
+    setState((s) => copies.reduce((acc, a) => D.addAnnot(acc, a), s));
+    setSelectedIds(copies.map((a) => a.id));
+  };
+  const replyTo = async (id: string) => {
+    const text = (await dialogs.prompt({ title: "Répondre", label: "Réponse" }))?.trim();
+    if (text) setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }));
+  };
+  /** A comment's menu: properties (the Inspector), reply, duplicate, order, delete. */
+  const openAnnotMenu = (a: Annot, at: { x: number; y: number }) => {
+    setSelectedIds([a.id]);
+    setMenu({
+      ...at,
+      label: KIND_LABEL[a.kind],
+      entries: [
+        {
+          id: "properties",
+          label: "Propriétés…",
+          icon: SlidersHorizontal,
+          shortcut: "Ctrl+E",
+          run: () => {
+            setSelectedIds([a.id]);
+            setInspector(true);
+          },
+        },
+        { id: "reply", label: "Répondre…", icon: Reply, run: () => void replyTo(a.id) },
+        { id: "duplicate", label: "Dupliquer", icon: CopyPlus, run: () => duplicateAnnots([a]) },
+        "sep",
+        {
+          id: "front",
+          label: "Mettre au premier plan",
+          icon: BringToFront,
+          run: () => setState((s) => D.reorderAnnot(s, a.id, "front")),
+        },
+        {
+          id: "back",
+          label: "Mettre à l'arrière-plan",
+          icon: SendToBack,
+          run: () => setState((s) => D.reorderAnnot(s, a.id, "back")),
+        },
+        "sep",
+        {
+          id: "delete",
+          label: "Supprimer",
+          icon: Trash2,
+          danger: true,
+          disabled: !!a.locked,
+          run: () => deleteAnnots([a.id]),
+        },
+      ],
+    });
+  };
+  /** Right click in the document: the selected text's menu, a page's, never the browser's. */
+  const onViewContextMenu = (e: React.MouseEvent) => {
+    // An annotation opened its own; the keyboard already opened one.
+    if (e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    // Fields and text being edited keep the browser's menu (paste, spelling).
+    if (mode !== "view" || target.closest("input, textarea, select, [contenteditable='true'], .pdfx-formbar")) return;
+    e.preventDefault();
+    if (performance.now() - menuByKeyAt.current < 500) return;
+    const at = { x: e.clientX, y: e.clientY };
+    if (openTextMenu(at)) return;
+    const slot = target.closest<HTMLElement>(".pdfx-slot[data-page]");
+    openPageMenu(slot ? Number(slot.dataset.page) - 1 : currentStore.get() - 1, at);
+  };
+  // Maj+F10 / menu key: the menu of the focused thumbnail, selected text, selected comment or current page.
+  menuAtFocusRef.current = () => {
+    menuByKeyAt.current = performance.now();
+    const active = document.activeElement as HTMLElement | null;
+    const centre = (el: Element | null | undefined) => {
+      const r = el?.getBoundingClientRect();
+      return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + Math.min(r.height / 2, 120)) } : null;
+    };
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount) {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      if (openTextMenu({ x: Math.round(r.left), y: Math.round(r.bottom + 4) }, true)) return;
+    }
+    if (selection.length === 1 && mode === "view") {
+      const el = document.querySelector(`[data-annot-id="${CSS.escape(selection[0].id)}"]`);
+      const at = centre(el) ?? centre(active) ?? { x: 200, y: 200 };
+      openAnnotMenu(selection[0], at);
+      return;
+    }
+    const n = currentStore.get();
+    const at = centre(document.querySelector(`.pdfx-slot[data-page="${n}"]`)) ?? centre(active) ?? { x: 200, y: 200 };
+    openPageMenu(n - 1, at);
+  };
+  /** XFA in the file: hybrid (AcroForm fields too, fillable) or dynamic (XFA only). */
+  const xfaKind: "none" | "hybrid" | "dynamic" = !engine.info.isXfa
+    ? "none"
+    : hasForm && (formSession?.hasFields ?? true)
+      ? "hybrid"
+      : "dynamic";
+
   // Elium's layers for one page, rendered by PageStack inside the page slot
   // (same stacking and coordinates as the old PageView children). `scale` is
   // PageStack's — during a Ctrl+wheel gesture it leads `view.scale`.
-  const renderOverlay = (page: Page, _index: number, { size, rotation, scale }: OverlayGeometry) => {
+  const renderOverlay = (page: Page, index: number, { size, rotation, scale }: OverlayGeometry) => {
     const pageAnnots = annotsByPage.get(page.id) ?? EMPTY_ARRAY;
     const pageEdits = contentEditsByPage.get(page.id) ?? EMPTY_ARRAY;
+    const pageImageEdits = imageEditsByPage.get(page.id) ?? EMPTY_ARRAY;
+    const source = bytesRef.current ? { bytes: bytesRef.current, password: passwordRef.current } : null;
     return (
       <>
         {/* Edited paragraphs are painted over the original raster in every
@@ -2924,11 +5631,31 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             visible after leaving the editor. */}
         <ContentEditPreview
           edits={pageEdits}
+          imageEdits={pageImageEdits}
           size={size}
           rotation={rotation}
           scale={scale}
           maskColor={themeDef.canvas}
+          source={source}
+          from={page.from}
         />
+        {mode === "editText" && (
+          <ImageEditLayer
+            pageId={page.id}
+            // A duplicated page lists its original's pictures on every copy: each copy is its own page.
+            source={source}
+            from={page.from}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            edits={pageImageEdits}
+            adding={addingImage}
+            onAdded={() => setAddingImage(null)}
+            onBeginChange={checkpoint}
+            onChange={(edit: ImageEdit) => setState((s) => D.upsertImageEdit(s, edit))}
+            onRemove={(id: string) => setState((s) => D.removeImageEdit(s, id))}
+          />
+        )}
         {mode === "editText" && (
           <ContentEditLayer
             engine={engine}
@@ -2938,26 +5665,49 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             rotation={rotation}
             scale={scale}
             edits={pageEdits}
+            adding={addingText}
+            onAdded={() => setAddingText(false)}
             onBeginChange={checkpoint}
             onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
           />
         )}
         {mode === "fields" && (
-          <FormLayer
+          <PreparePage
             engine={engine}
-            from={page.from}
+            // A duplicated page shows its original's fields only on the first copy
+            // (the same widgets: editing them twice would move both).
+            from={page.from != null && pages.findIndex((q) => q.from === page.from) === index ? page.from : null}
             pageId={page.id}
             size={size}
             rotation={rotation}
             scale={scale}
-            values={state.formValues}
+            tool={tool}
             created={state.createdFields}
-            highlight
+            edits={state.fieldEdits}
+            selected={prepSelected}
+            onSelect={(keys) => setPrepSelected(keys)}
+            onCreate={(kind, rect) => createFieldAt(page.id, kind, rect)}
+            onChangeRects={movePrepFields}
             onBeginChange={checkpoint}
-            onChange={(name, value: FormValue) => setQuiet((s) => D.setFormValue(s, name, value))}
-            onFields={() => {
-              /* fields are read live */
-            }}
+            onOpen={(key, fieldName) => void openFieldProps(key, fieldName)}
+            onDelete={deletePrepFields}
+          />
+        )}
+        {mode === "view" && (tool === "textSelect" || tool === "select" || tool === "hand") && page.from != null && (
+          <SigFieldTargets
+            fields={sigFields
+              .filter(
+                (f) => !f.signed && f.page === page.from && pages.findIndex((q) => q.from === page.from) === index,
+              )
+              // A page cropped in Elium shows its content shifted by the crop.
+              .map((f) => ({
+                ...f,
+                box: { ...f.box, x: f.box.x - (page.crop?.left ?? 0), y: f.box.y - (page.crop?.top ?? 0) },
+              }))}
+            size={size}
+            rotation={rotation}
+            scale={scale}
+            onSign={(name) => void openSignDialog(name)}
           />
         )}
         {mode === "view" && (
@@ -2983,11 +5733,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onDelete={deleteAnnots}
             onToolDone={finishTool}
             onBeginGesture={checkpoint}
-            onContextMenu={(a) => setSelectedIds([a.id])}
+            onContextMenu={openAnnotMenu}
             onRequestImage={(at) => {
               pendingImageAt.current = { pageId: page.id, x: at.x, y: at.y };
               imageInput.current?.click();
             }}
+            onFollowLink={(a) => followLink(a)}
             onRequestNoteText={async (a) => {
               const text = await dialogs.prompt({
                 title: "Note",
@@ -3003,9 +5754,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
   };
 
   return (
-    <div className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""}`}>
+    <div
+      className={`pdfx pdfx--theme-${view.theme} ${mode !== "view" ? `pdfx--mode-${mode}` : ""} ${reading ? "pdfx--reading" : ""}`}
+    >
+      <button
+        type="button"
+        className="pdfx-skip"
+        onClick={() => document.querySelector<HTMLElement>(".pdfx-canvas")?.focus()}
+      >
+        Aller au document
+      </button>
       <header className="pdfx-topbar">
-        <button className="pdfx-topbtn" onClick={() => void goHome()} title="Retour à l'accueil">
+        <button
+          className="pdfx-topbtn"
+          onClick={() => void goHome()}
+          title={source ? "Retour au Drive" : "Retour à l'accueil"}
+          aria-label={source ? "Retour au Drive" : "Retour à l'accueil"}
+        >
           <Home size={16} />
         </button>
         <span className="pdfx-topbar__brand">
@@ -3032,9 +5797,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         ) : null}
         {engine.info.encrypted && <span className="pdfx-badge pdfx-badge--lock">protégé</span>}
         {(docSigned ?? engine.info.signed) && <span className="pdfx-badge pdfx-badge--seal">signé</span>}
-        {engine.info.isXfa && <span className="pdfx-badge pdfx-badge--warn">XFA — lecture seule</span>}
+        {engine.info.isXfa && (
+          <span className="pdfx-badge pdfx-badge--warn">
+            {xfaKind === "hybrid" ? "XFA hybride" : "XFA dynamique — lecture seule"}
+          </span>
+        )}
 
         <span className="pdfx-topbar__spacer" />
+
+        <button
+          type="button"
+          className="pdfx-topbtn pdfx-toolsearch"
+          onClick={() => setPalette(true)}
+          title="Rechercher des outils (Ctrl+Maj+P)"
+          aria-haspopup="dialog"
+        >
+          <Command size={14} aria-hidden /> <span>Rechercher des outils</span>
+        </button>
 
         <div className="pdfx-find">
           {searchState.open ? (
@@ -3045,10 +5824,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 className="pdfx-find__input"
                 placeholder="Rechercher dans le document…"
                 value={searchState.query}
-                onChange={(e) => {
-                  setSearchState((s) => ({ ...s, query: e.target.value }));
-                  void doSearch(e.target.value);
-                }}
+                onChange={(e) => setSearchState((s) => ({ ...s, query: e.target.value }))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -3066,10 +5842,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                       ? "0"
                       : ""}
               </span>
-              <button className="pdfx-topbtn" onClick={() => stepHit(-1)} disabled={!hits.length}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => stepHit(-1)}
+                disabled={!hits.length}
+                title="Résultat précédent (Maj+F3)"
+                aria-label="Résultat précédent"
+              >
                 <ChevronLeft size={15} />
               </button>
-              <button className="pdfx-topbtn" onClick={() => stepHit(1)} disabled={!hits.length}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => stepHit(1)}
+                disabled={!hits.length}
+                title="Résultat suivant (F3)"
+                aria-label="Résultat suivant"
+              >
                 <ChevronRight size={15} />
               </button>
               <button
@@ -3078,8 +5866,30 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   setSearchState((s) => ({ ...s, caseSensitive: !s.caseSensitive }));
                 }}
                 title="Respecter la casse"
+                aria-pressed={searchState.caseSensitive}
               >
                 Aa
+              </button>
+              <button
+                className={`pdfx-topbtn ${searchState.wholeWord ? "is-on" : ""}`}
+                onClick={() => setSearchState((s) => ({ ...s, wholeWord: !s.wholeWord }))}
+                title="Mots entiers uniquement"
+                aria-label="Mots entiers uniquement"
+                aria-pressed={searchState.wholeWord}
+              >
+                <WholeWord size={15} />
+              </button>
+              <button
+                className={`pdfx-topbtn ${!searchState.ignoreDiacritics ? "is-on" : ""}`}
+                onClick={() => setSearchState((s) => ({ ...s, ignoreDiacritics: !s.ignoreDiacritics }))}
+                title={
+                  searchState.ignoreDiacritics
+                    ? "Les accents sont ignorés (« e » trouve « é ») — cliquer pour les respecter"
+                    : "Les accents sont respectés — cliquer pour les ignorer"
+                }
+                aria-pressed={!searchState.ignoreDiacritics}
+              >
+                é
               </button>
               <button
                 className={`pdfx-topbtn ${searchState.regex ? "is-on" : ""}`}
@@ -3087,20 +5897,24 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   setSearchState((s) => ({ ...s, regex: !s.regex }));
                 }}
                 title="Expression régulière"
+                aria-pressed={searchState.regex}
               >
                 .*
               </button>
               <button
                 className="pdfx-topbtn"
-                onClick={() => {
-                  setPanel("search");
-                  void doSearch(searchState.query);
-                }}
+                onClick={() => setPanel("search")}
                 title="Tous les résultats"
+                aria-label="Tous les résultats"
               >
                 <Command size={14} />
               </button>
-              <button className="pdfx-topbtn" onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}>
+              <button
+                className="pdfx-topbtn"
+                onClick={() => setSearchState((s) => ({ ...s, open: false, query: "" }))}
+                title="Fermer la recherche"
+                aria-label="Fermer la recherche"
+              >
                 <X size={15} />
               </button>
             </>
@@ -3109,48 +5923,48 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               className="pdfx-topbtn"
               onClick={() => setSearchState((s) => ({ ...s, open: true }))}
               title="Rechercher (Ctrl+F)"
+              aria-label="Rechercher (Ctrl+F)"
             >
               <Search size={16} />
             </button>
           )}
         </div>
 
-        <PageNav store={currentStore} pageCount={pageCount} goTo={goTo} />
+        <PageNav
+          store={currentStore}
+          pageCount={pageCount}
+          labels={pageLabels}
+          goTo={(n) => {
+            rememberView();
+            goTo(n);
+          }}
+        />
 
         <div className="pdfx-zoombar">
           <button className="pdfx-topbtn" onClick={() => zoomStep(-1)} title="Zoom arrière" aria-label="Zoom arrière">
             <ZoomOut size={16} />
           </button>
-          <select
-            className="pdfx-zoombar__select"
-            aria-label="Niveau de zoom"
-            value={view.zoomMode === "custom" ? "custom" : view.zoomMode}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "fitWidth" || v === "fitPage" || v === "fitVisible") requestFit(v);
-              else setScale(presetScale(Number(v)));
-            }}
-          >
-            <option value="custom">{zoomPercent(view.scale)} %</option>
-            <option value="fitWidth">Largeur</option>
-            <option value="fitPage">Page entière</option>
-            <option value="fitVisible">Zone de texte</option>
-            {ZOOM_PRESETS.map((z) => (
-              <option key={z} value={z}>
-                {Math.round(z * 100)} %
-              </option>
-            ))}
-          </select>
+          <ZoomBox
+            percent={zoomPercent(view.scale)}
+            onPercent={(percent) => setScale(presetScale(percent / 100))}
+            onFit={requestFit}
+          />
           <button className="pdfx-topbtn" onClick={() => zoomStep(1)} title="Zoom avant" aria-label="Zoom avant">
             <ZoomIn size={16} />
           </button>
-          <button className="pdfx-topbtn" onClick={() => void command("fullscreen")} title="Plein écran (F11)">
+          <button
+            className="pdfx-topbtn"
+            onClick={() => void command("fullscreen")}
+            title="Plein écran (F11)"
+            aria-label="Plein écran (F11)"
+          >
             <Maximize2 size={16} />
           </button>
         </div>
       </header>
 
       <Ribbon
+        canElium={!!onExportElium}
         tab={tab}
         tool={tool}
         style={style}
@@ -3158,26 +5972,47 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         canRedo={canRedo}
         hasSelection={selectedIds.length > 0}
         hasForm={hasForm || state.createdFields.length > 0}
+        preparing={mode === "fields"}
         busy={busy}
         stickyTool={sticky}
+        scriptsOn={scriptsOn}
+        viewMode={view.mode}
+        spreadCover={view.spreadCover}
+        showGrid={view.showGrid}
+        singleKeys={singleKeys}
         onTab={setTab}
         onTool={pickTool}
         onStyle={(patch) => {
           setStyle((s) => ({ ...s, ...patch }));
-          if (selectedIds.length) patchSelection(patch as Partial<Annot>);
+          // The stamp choice is the tool's, not a property of the selected comments.
+          const { stamp: _s, stampSrc: _src, stampRatio: _r, ...rest } = patch;
+          if (selectedIds.length && Object.keys(rest).length) patchSelection(rest as Partial<Annot>);
+          // Set with a tool in hand and nothing selected: that tool keeps it.
+          else if (toolIsAnnot(tool)) rememberToolStyle(tool, rest);
         }}
         onCommand={(id) => void command(id)}
         onStickyTool={setSticky}
       />
 
       <div className="pdfx-main">
-        <nav className="pdfx-rail">
+        <nav className="pdfx-rail" aria-label="Panneaux">
+          <button
+            className={`pdfx-rail__btn ${panel === "tools" ? "is-active" : ""}`}
+            onClick={() => setPanel(panel === "tools" ? null : "tools")}
+            title="Tous les outils"
+            aria-label="Tous les outils"
+            aria-pressed={panel === "tools"}
+          >
+            <LayoutGrid size={17} />
+          </button>
           {PANEL_ICONS.map((item) => (
             <button
               key={item.id}
               className={`pdfx-rail__btn ${panel === item.id ? "is-active" : ""}`}
               onClick={() => setPanel(panel === item.id ? null : item.id)}
               title={item.label}
+              aria-label={item.label}
+              aria-pressed={panel === item.id}
             >
               {item.icon}
               {item.id === "comments" && state.annots.length > 0 && (
@@ -3191,6 +6026,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             className="pdfx-rail__btn"
             onClick={() => setPanel(panel ? null : "thumbnails")}
             title={panel ? "Masquer le panneau" : "Afficher le panneau"}
+            aria-label={panel ? "Masquer le panneau" : "Afficher le panneau"}
           >
             {panel ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
           </button>
@@ -3198,92 +6034,241 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
         {panel && (
           <aside className="pdfx-side" aria-label="Panneau latéral">
-            <Sidebar
-              panel={panel}
-              engine={engine}
-              pages={pages}
-              currentPage={currentStore}
-              selectedPages={selectedPages}
-              annots={state.annots}
-              bookmarks={state.bookmarks ?? []}
-              fields={state.createdFields}
-              attachments={attachments}
-              layers={layers}
-              hiddenLayers={hiddenLayers}
-              searchHits={hits}
-              searchIndex={searchState.index}
-              searchQuery={searchState.query}
-              searchBusy={searchBusy}
-              filter={filter}
-              sort={sort}
-              author={author}
-              onGoTo={goTo}
-              onSelectPages={setSelectedPages}
-              onReorderPages={(ids, to) => setState((s) => D.reorderPages(s, ids, to))}
-              onPageAction={(action, ids) => {
-                const targets = ids.length ? ids : targetPages();
-                if (action === "rotate") setState((s) => D.rotatePages(s, targets, 90));
-                if (action === "delete") setState((s) => D.deletePages(s, targets));
-                if (action === "duplicate") setState((s) => D.duplicatePages(s, targets));
-                if (action === "insert") insertBlankAfter(targets[targets.length - 1] ?? null);
-              }}
-              onSelectAnnot={(id) => {
-                setSelectedIds([id]);
-                const a = state.annots.find((x) => x.id === id);
-                const index = a ? pages.findIndex((q) => q.id === a.pageId) : -1;
-                if (index >= 0) goTo(index + 1, Math.max(0, a!.rect.y - 80));
-              }}
-              onAnnotStatus={(ids, status) =>
-                setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))
-              }
-              onAnnotReply={(id, text) =>
-                setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))
-              }
-              onAnnotDelete={deleteAnnots}
-              onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
-              onFilterChange={setFilter}
-              onSortChange={setSort}
-              onBookmarkGoTo={(b) => goTo(b.page, b.y)}
-              onBookmarkAdd={addBookmark}
-              onBookmarkRename={(id, title) =>
-                setState((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)),
-                }))
-              }
-              onBookmarkDelete={(id) => setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))}
-              onBookmarkToggle={(id) =>
-                setQuiet((s) => ({
-                  ...s,
-                  bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, closed: !b.closed } : b)),
-                }))
-              }
-              onSearchSelect={(index) => {
-                setSearchState((s) => ({ ...s, index }));
-                goToHit(index);
-              }}
-              onLayerToggle={async (id) => {
-                const next = new Set(hiddenLayers);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                setHiddenLayers(next);
-                setOcConfig(await engine.optionalContentConfig(next));
-              }}
-              onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
-              onFieldSelect={(id) => {
-                const f = state.createdFields.find((x) => x.id === id);
-                const index = f ? pages.findIndex((q) => q.id === f.pageId) : -1;
-                if (index >= 0) goTo(index + 1);
-              }}
-              onFieldDelete={(id) => setState((s) => D.removeField(s, id))}
-            />
+            {panel === "tools" ? (
+              <AllTools ctx={commandCtx} restrictions={restrictions} tool={tool} onFamily={setTab} onRun={runDef} />
+            ) : (
+              <Sidebar
+                signatures={{
+                  view: sigView,
+                  pageLabel: (i) => {
+                    const index = pages.findIndex((q) => q.from === i);
+                    return index >= 0 ? (shownPages[index]?.label ?? String(index + 1)) : String(i + 1);
+                  },
+                  onRefresh: () => void refreshSignatures(),
+                  onSignField: (name) => void openSignDialog(name),
+                  onGoToField: goToSigField,
+                  onSignedVersion: (v) => void showSignedVersion(v),
+                  onTrust: async (v) => {
+                    const anchor = v.chain[v.chain.length - 1] ?? v.certificate;
+                    if (!anchor) return;
+                    const ok = await dialogs.confirm({
+                      title: "Approuver un certificat",
+                      message:
+                        `Les signatures dont la chaîne aboutit à « ${anchor.commonName} » seront affichées comme approuvées.\n\n` +
+                        `Sujet : ${anchor.subject}\nÉmetteur : ${anchor.issuer}\nNuméro de série : ${anchor.serialHex}\n\n` +
+                        "Vérifiez ces informations auprès du signataire (par un autre moyen que ce document) avant d'accepter.",
+                      confirmLabel: "Approuver",
+                    });
+                    if (!ok) return;
+                    const { addTrusted } = await import("./identities");
+                    await addTrusted(anchor.commonName, anchor.der);
+                    void refreshSignatures();
+                  },
+                  onIdentities: () => setDialog("identities"),
+                }}
+                panel={panel}
+                engine={engine}
+                pages={shownPages}
+                currentPage={currentStore}
+                selectedPages={selectedPages}
+                annots={state.annots}
+                bookmarks={state.bookmarks ?? []}
+                fields={state.createdFields}
+                attachments={shownAttachments}
+                layers={layers}
+                searchHits={hits}
+                searchIndex={searchState.index}
+                searchQuery={searchState.query}
+                searchOptions={searchOptions}
+                searchBusy={searchBusy}
+                filter={filter}
+                sort={sort}
+                author={author}
+                onGoTo={goTo}
+                onSelectPages={setSelectedPages}
+                onReorderPages={(ids, to) =>
+                  void requireRight("assemble").then((ok) => ok && setState((s) => D.reorderPages(s, ids, to)))
+                }
+                onPageAction={async (action, ids) => {
+                  if (!(await requireRight("assemble"))) return;
+                  const targets = ids.length ? ids : targetPages();
+                  if (action === "rotate") setState((s) => D.rotatePages(s, targets, 90));
+                  if (action === "delete") setState((s) => D.deletePages(s, targets));
+                  if (action === "duplicate") setState((s) => D.duplicatePages(s, targets));
+                  if (action === "insert") insertBlankAfter(targets[targets.length - 1] ?? null);
+                }}
+                onSelectAnnot={(id) => {
+                  setSelectedIds([id]);
+                  const a = state.annots.find((x) => x.id === id);
+                  const index = a ? pages.findIndex((q) => q.id === a.pageId) : -1;
+                  if (index >= 0) goTo(index + 1, Math.max(0, a!.rect.y - 80));
+                }}
+                onAnnotStatus={(ids, status) =>
+                  setState((s) => D.setStatus(s, ids, status, author, new Date().toISOString()))
+                }
+                onAnnotReply={(id, text) =>
+                  setState((s) => D.addReply(s, id, { author, text, createdAt: new Date().toISOString() }))
+                }
+                onAnnotDelete={deleteAnnots}
+                onAnnotEditContents={(id, text) => patchAnnot(id, { contents: text }, false)}
+                onAnnotCheck={(ids, checked) => setState((s) => D.setChecked(s, ids, checked))}
+                onReplyEdit={(annotId, replyId, text) =>
+                  setState((s) => D.updateReply(s, annotId, replyId, text, new Date().toISOString()))
+                }
+                onReplyDelete={(annotId, replyId) => setState((s) => D.removeReply(s, annotId, replyId))}
+                onFilterChange={setFilter}
+                onSortChange={setSort}
+                onBookmarkGoTo={followBookmark}
+                onBookmarkAdd={addBookmark}
+                onBookmarkRename={(id, title) =>
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, title } : b)),
+                  }))
+                }
+                onBookmarkDelete={(id) =>
+                  setState((s) => ({ ...s, bookmarks: D.removeBookmark(s.bookmarks ?? [], id) }))
+                }
+                onBookmarkRetarget={(id) => {
+                  const dest = currentDest();
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
+                      b.id === id ? { ...b, ...dest, action: undefined, retargeted: true } : b,
+                    ),
+                  }));
+                  toast("success", "Destination du signet", `Page ${dest.page}, vue courante.`);
+                }}
+                onBookmarkMove={(id, target, where) =>
+                  setState((s) => ({ ...s, bookmarks: D.moveBookmark(s.bookmarks ?? [], id, target, where) }))
+                }
+                onBookmarkStyle={(id, patch) =>
+                  setState((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) => (b.id === id ? { ...b, ...patch } : b)),
+                  }))
+                }
+                onBookmarksClosed={(closed) =>
+                  setQuiet((s) => ({ ...s, bookmarks: D.setBookmarksClosed(s.bookmarks ?? [], closed) }))
+                }
+                onBookmarkToggle={(id) =>
+                  setQuiet((s) => ({
+                    ...s,
+                    bookmarks: D.mapBookmarks(s.bookmarks ?? [], (b) =>
+                      b.id === id ? { ...b, closed: !b.closed } : b,
+                    ),
+                  }))
+                }
+                onSearchSelect={(index) => {
+                  setSearchState((s) => ({ ...s, index }));
+                  goToHit(index);
+                }}
+                onLayerToggle={async (id) => {
+                  const layer = layers.find((l) => l.id === id);
+                  if (!layer || layer.locked || layer.heading) return;
+                  // From the latest switches (a second click before the first
+                  // finished builds on it), for this document only.
+                  const next = new Map(layerVisRef.current);
+                  next.delete(id);
+                  next.set(id, !layer.visible);
+                  layerVisRef.current = next;
+                  setLayerVis(next);
+                  const doc = engine;
+                  const [cfg, rows] = await Promise.all([doc.optionalContentConfig(next), doc.layers(next)]);
+                  if (layerVisRef.current !== next || engineRef.current !== doc) return;
+                  setOcConfig(cfg);
+                  setLayers(rows);
+                }}
+                onLayersSaveDefault={() => {
+                  setState((s) => ({
+                    ...s,
+                    ocDefaults: Object.fromEntries(layers.filter((l) => !l.heading).map((l) => [l.id, l.visible])),
+                  }));
+                  toast(
+                    "success",
+                    "Calques",
+                    "Visibilité actuelle enregistrée comme état par défaut (à l'enregistrement du fichier).",
+                  );
+                }}
+                onAttachmentOpen={(a) => downloadBlob(a.name, "application/octet-stream", a.bytes)}
+                onAttachmentAdd={() => attachInput.current?.click()}
+                destinations={shownDests}
+                onDestGo={(name) => void goToNamedDest(name)}
+                onDestAdd={async () => {
+                  const name = (
+                    await dialogs.prompt({
+                      title: "Nouvelle destination",
+                      label: "Nom de la destination (vue affichée)",
+                    })
+                  )?.trim();
+                  if (!name) return;
+                  if (shownDests.includes(name)) return toast("warning", "Destinations", `« ${name} » existe déjà.`);
+                  const d = currentDest();
+                  const pageId = pages[d.page - 1]?.id;
+                  if (!pageId) return;
+                  setState((s) => {
+                    const e = s.destEdits ?? { added: [], removed: [] };
+                    return {
+                      ...s,
+                      destEdits: { ...e, added: [...e.added, { name, pageId, x: d.x, y: d.y, zoom: d.zoom }] },
+                    };
+                  });
+                }}
+                onDestRemove={(name) =>
+                  setState((s) => {
+                    const e = s.destEdits ?? { added: [], removed: [] };
+                    return e.added.some((a) => a.name === name)
+                      ? { ...s, destEdits: { ...e, added: e.added.filter((a) => a.name !== name) } }
+                      : { ...s, destEdits: { ...e, removed: [...e.removed, name] } };
+                  })
+                }
+                onAttachmentRemove={(a) =>
+                  setState((s) => {
+                    const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                    return {
+                      ...s,
+                      attachmentEdits: a.key.startsWith("added:")
+                        ? { ...e, added: e.added.filter((x) => `added:${x.id}` !== a.key) }
+                        : { ...e, removed: [...e.removed, a.key] },
+                    };
+                  })
+                }
+                onAttachmentDescribe={async (a) => {
+                  const text = await dialogs.prompt({
+                    title: "Description de la pièce jointe",
+                    label: a.name,
+                    defaultValue: a.description ?? "",
+                  });
+                  if (text == null) return;
+                  setState((s) => {
+                    const e = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+                    return {
+                      ...s,
+                      attachmentEdits: a.key.startsWith("added:")
+                        ? {
+                            ...e,
+                            added: e.added.map((x) => (`added:${x.id}` === a.key ? { ...x, description: text } : x)),
+                          }
+                        : { ...e, described: { ...e.described, [a.key]: text } },
+                    };
+                  });
+                }}
+                onFieldSelect={(id) => {
+                  const f = state.createdFields.find((x) => x.id === id);
+                  const index = f ? pages.findIndex((q) => q.id === f.pageId) : -1;
+                  if (index >= 0) goTo(index + 1);
+                }}
+                onFieldDelete={(id) => setState((s) => D.removeField(s, id))}
+                onPageContextMenu={openThumbMenu}
+              />
+            )}
           </aside>
         )}
 
         {mode === "organise" ? (
           <Organize
             engine={engine}
-            pages={pages}
+            pages={shownPages}
             selected={selectedPages}
             onSelect={setSelectedPages}
             onReorder={(ids, to) => setState((s) => D.reorderPages(s, ids, to))}
@@ -3291,27 +6276,50 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             onDelete={(ids) => setState((s) => D.deletePages(s, ids))}
             onDuplicate={(ids) => setState((s) => D.duplicatePages(s, ids))}
             onSkip={(ids, skipped) => setState((s) => D.setPageSkipped(s, ids, skipped))}
-            onExtract={(ids) =>
-              void extractSelection(ids.map((id) => pages.findIndex((q) => q.id === id)).filter((i) => i >= 0))
-            }
+            onExtract={(ids) => void extractSelection(outputIndices(ids))}
             onInsertBlank={(afterId) => insertBlankAfter(afterId)}
             onInsertFile={() => mergeInput.current?.click()}
             onInsertImage={() => imageInput.current?.click()}
+            onDropFiles={(files, at) => {
+              const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+              const images = files.filter((f) => f.type.startsWith("image/"));
+              if (pdfs.length && images.length) {
+                toast("warning", "Insertion", "Déposez les PDF et les images en deux fois.");
+              } else if (pdfs.length) {
+                void insertPdfFiles(pdfs, at);
+              } else if (images.length) {
+                void insertImageFiles(images, at);
+              } else {
+                toast("warning", "Insertion", "Seuls des PDF et des images peuvent être insérés comme pages.");
+              }
+            }}
+            onPaste={(files, text, at) => void pasteAsPages(files, text, at)}
             onCrop={() => setDialog("crop")}
             onLabels={() => setDialog("labels")}
             onReverse={() => setState((s) => D.reversePages(s))}
             onClose={() => setMode("view")}
           />
         ) : (
-          <div className="pdfx-viewcol">
+          <div className="pdfx-viewcol" onContextMenu={onViewContextMenu}>
             {hasForm && !formBarHidden && mode !== "fields" && (
               <div className="pdfx-formbar" role="status">
                 <PenSquare size={15} aria-hidden />
                 <span className="pdfx-formbar__text">
-                  {engine.info.isXfa
-                    ? "Ce document contient un formulaire XFA : seuls ses champs AcroForm peuvent être remplis."
-                    : "Ce document contient des champs de formulaire remplissables."}
+                  {xfaKind === "hybrid"
+                    ? "Formulaire XFA hybride : il se remplit par ses champs AcroForm ; à l'enregistrement, la partie XFA est retirée pour qu'Acrobat affiche vos valeurs."
+                    : xfaKind === "dynamic"
+                      ? "Formulaire XFA dynamique : il ne peut pas être rempli ici (Adobe Acrobat ou Reader requis)."
+                      : "Ce document contient des champs de formulaire remplissables."}
                 </span>
+                {requiredLeft.length > 0 && (
+                  <button
+                    className="pdfx-formbar__btn pdfx-formbar__btn--req"
+                    onClick={goNextRequired}
+                    title="Aller au prochain champ obligatoire vide"
+                  >
+                    {requiredLeft.length} champ(s) obligatoire(s) à remplir — Suivant
+                  </button>
+                )}
                 <label className="pdfx-formbar__toggle">
                   <input
                     type="checkbox"
@@ -3333,41 +6341,39 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 </button>
               </div>
             )}
-          <PageStack
-            ref={stackRef}
-            key={docKey}
-            engine={engine}
-            pages={pages}
-            sizeOf={stableSizeOf}
-            rotationOf={rotationOf}
-            scale={view.scale}
-            mode={view.mode}
-            cover={view.spreadCover}
-            theme={view.theme}
-            currentPage={currentStore}
-            showTextLayer={mode === "view" && tool !== "hand"}
-            fieldHighlight={fieldHighlight}
-            maskImported={state.importedAnnots}
-            optionalContent={ocConfig}
-            hitsOf={hitsOf}
-            className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""}`}
-            style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
-            renderOverlay={renderOverlay}
-            onCurrentChange={onCurrentChange}
-            onScaleChange={onScaleChange}
-            onViewportResize={setViewport}
-            onTextLayer={(pageId, layer, host) => {
-              if (layer && host) textLayers.current.set(pageId, { layer, host });
-              else textLayers.current.delete(pageId);
-            }}
-            onLinkActivate={(target) => {
-              if (target.page) goTo(target.page, target.y);
-              else if (target.url)
-                void dialogs.confirm({ title: "Ouvrir un lien externe", message: target.url }).then((ok) => {
-                  if (ok) window.open(target.url, "_blank", "noopener,noreferrer");
-                });
-            }}
-          />
+            <PageStack
+              ref={stackRef}
+              key={docKey}
+              engine={engine}
+              pages={pages}
+              sizeOf={stableSizeOf}
+              rotationOf={rotationOf}
+              scale={view.scale}
+              mode={view.mode}
+              cover={view.spreadCover}
+              theme={view.theme}
+              currentPage={currentStore}
+              showTextLayer={mode === "view" && tool !== "hand"}
+              fieldHighlight={fieldHighlight}
+              maskImported={state.importedAnnots}
+              optionalContent={ocConfig}
+              hitsOf={hitsOf}
+              className={`pdfx-canvas--${view.mode} ${tool === "hand" ? "is-hand" : ""} ${mode === "fields" ? "is-preparing" : ""} ${mode === "view" && tool === "select" ? "is-annot-select" : ""}`}
+              style={{ background: view.theme === "night" || view.theme === "invert" ? "#0b0e14" : undefined }}
+              renderOverlay={renderOverlay}
+              onCurrentChange={onCurrentChange}
+              onScaleChange={onScaleChange}
+              onViewportResize={setViewport}
+              onTextLayer={(pageId, layer, host) => {
+                if (layer && host) textLayers.current.set(pageId, { layer, host });
+                else textLayers.current.delete(pageId);
+              }}
+              onLinkActivate={(target) => {
+                if (target.named) runNamedAction(target.named);
+                else if (target.page) followDest({ ...target, page: target.page });
+                else if (target.url) openExternal(target.url);
+              }}
+            />
           </div>
         )}
 
@@ -3377,15 +6383,16 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             pageCount={pageCount}
             measureScale={state.measureScale}
             onPatch={patchSelection}
-            onDelete={() => deleteAnnots(selectedIds)}
-            onDuplicate={() => {
-              const copies = selection.map((a) => ({
-                ...D.cloneAnnot(a),
-                rect: { ...a.rect, x: a.rect.x + 12, y: a.rect.y + 12 },
-              }));
-              setState((s) => copies.reduce((acc, a) => D.addAnnot(acc, a), s));
-              setSelectedIds(copies.map((a) => a.id));
+            onEditLink={(a) => setLinkEdit({ id: a.id, creating: false })}
+            onMakeDefault={(a) => {
+              rememberToolStyle(a.kind, styleSubset(a as unknown as Partial<DraftStyle>));
+              toast("success", "Propriétés par défaut", `Les prochains « ${KIND_LABEL[a.kind]} » auront cet aspect.`);
             }}
+            onStatus={(status) =>
+              setState((s) => D.setStatus(s, selectedIds, status, author, new Date().toISOString()))
+            }
+            onDelete={() => deleteAnnots(selectedIds)}
+            onDuplicate={() => duplicateAnnots(selection)}
             onOrder={(where) => selectedIds.forEach((id) => setState((s) => D.reorderAnnot(s, id, where)))}
             onMeasureScale={(scale: MeasureScale) => setState((s) => ({ ...s, measureScale: scale }))}
             onClose={() => setInspector(false)}
@@ -3394,9 +6401,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       </div>
 
       <footer className="pdfx-status">
-        <span>
-          {pageCount} page{pageCount > 1 ? "s" : ""}
-        </span>
+        <StatusPage store={currentStore} pageCount={pageCount} labels={pageLabels} sizeLabel={pageSizeLabel} />
         <span>·</span>
         <span>
           {state.annots.length} annotation{state.annots.length > 1 ? "s" : ""}
@@ -3416,9 +6421,59 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           </>
         )}
         <span className="pdfx-status__spacer" />
+        {(selection.length > 0 || selectedPages.length > 1) && (
+          <>
+            <span className="pdfx-status__sel" role="status">
+              {selection.length > 0
+                ? `${selection.length} objet${selection.length > 1 ? "s" : ""} sélectionné${selection.length > 1 ? "s" : ""}`
+                : `${selectedPages.length} pages sélectionnées`}
+            </span>
+            <span>·</span>
+          </>
+        )}
+        {selection.length > 0 && mode === "view" && (
+          <>
+            <button
+              type="button"
+              className={`pdfx-status__btn ${inspector ? "is-active" : ""}`}
+              aria-pressed={inspector}
+              onClick={() => setInspector((v) => !v)}
+              title="Afficher ou masquer les propriétés de la sélection (Ctrl+E)"
+            >
+              Propriétés
+            </button>
+            <span>·</span>
+          </>
+        )}
         <span>{themeDef.label}</span>
         <span>·</span>
-        <span>{zoomPercent(view.scale)} %</span>
+        <button
+          type="button"
+          className="pdfx-status__btn"
+          aria-haspopup="menu"
+          title="Changer le zoom"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({
+              x: Math.round(r.left),
+              y: Math.round(r.top),
+              label: "Zoom",
+              entries: [
+                menuCommand("fitWidth"),
+                menuCommand("fitPage"),
+                menuCommand("fitVisible"),
+                "sep",
+                ...ZOOM_PRESETS.map((z): MenuItem => ({
+                  id: `zoom${z}`,
+                  label: `${Math.round(z * 100)} %`,
+                  run: () => setScale(presetScale(z)),
+                })),
+              ],
+            });
+          }}
+        >
+          {zoomPercent(view.scale)} %
+        </button>
         {busy && (
           <>
             <span>·</span>
@@ -3429,7 +6484,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
       <div className="pdfx-toasts">
         {toasts.map((t) => (
-          <div key={t.id} className={`pdfx-toast pdfx-toast--${t.tone}`}>
+          <div
+            key={t.id}
+            className={`pdfx-toast pdfx-toast--${t.tone}`}
+            role={t.tone === "danger" ? "alert" : "status"}
+            aria-live={t.tone === "danger" ? "assertive" : "polite"}
+          >
             <div className="pdfx-toast__body">
               <b>{t.text}</b>
               {t.detail && <small>{t.detail}</small>}
@@ -3440,13 +6500,28 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               )}
             </div>
             {t.tone !== "progress" && (
-              <button onClick={() => dismissToast(t.id)}>
+              <button onClick={() => dismissToast(t.id)} aria-label="Fermer la notification" title="Fermer">
                 <X size={13} />
               </button>
             )}
           </div>
         ))}
       </div>
+
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+      {palette && (
+        <CommandPalette ctx={commandCtx} restrictions={restrictions} onRun={runDef} onClose={() => setPalette(false)} />
+      )}
+      {reading && (
+        <button
+          type="button"
+          className="pdfx-reading-exit"
+          onClick={() => setReading(false)}
+          title="Quitter le mode lecture (Échap ou Ctrl+H)"
+        >
+          <X size={14} aria-hidden /> Quitter le mode lecture
+        </button>
+      )}
 
       {/* hidden inputs */}
       <input
@@ -3461,10 +6536,66 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         }}
       />
       <input ref={mergeInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onMergePick} />
+      <input
+        ref={attachInput}
+        type="file"
+        multiple
+        hidden
+        data-testid="attach-doc-input"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          const MAX = 25 * 1024 * 1024;
+          const big = files.filter((f) => f.size > MAX);
+          if (big.length)
+            toast("warning", "Pièce jointe trop lourde", `${big.map((f) => f.name).join(", ")} : 25 Mo au plus.`);
+          const read = (f: File) =>
+            new Promise<string>((res) => {
+              const r = new FileReader();
+              r.onload = () => res(r.result as string);
+              r.readAsDataURL(f);
+            });
+          const added = await Promise.all(
+            files
+              .filter((f) => f.size <= MAX)
+              .map(async (f) => ({
+                id: newId("att"),
+                name: f.name,
+                mime: f.type || "application/octet-stream",
+                data: await read(f),
+              })),
+          );
+          if (!added.length) return;
+          setState((s) => {
+            const ed = s.attachmentEdits ?? { added: [], removed: [], described: {} };
+            return { ...s, attachmentEdits: { ...ed, added: [...ed.added, ...added] } };
+          });
+          setPanel("attachments");
+        }}
+      />
+      <input
+        ref={replaceInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        data-testid="replace-input"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          try {
+            const d = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+            setReplaceSource({ name: f.name, bytes, count: d.getPageCount() });
+            setDialog("replacePages");
+          } catch {
+            toast("danger", "Fichier illisible", f.name);
+          }
+        }}
+      />
       <input ref={imageInput} type="file" accept="image/*" multiple hidden onChange={onImagePick} />
-      <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml" hidden onChange={onDataPick} />
+      <input ref={dataInput} type="file" accept=".xfdf,.fdf,.xml,.txt" hidden onChange={onDataPick} />
       <input ref={compareInput} type="file" accept="application/pdf,.pdf" hidden onChange={onComparePick} />
-      <input ref={p12Input} type="file" accept=".p12,.pfx" hidden onChange={onP12Pick} />
 
       {/* dialogs */}
       {dialog === "save" && (
@@ -3489,6 +6620,80 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === "accessibility" && (
+        <AccessibilityDialog
+          rules={a11yRules}
+          title={state.metadata.title ?? ""}
+          language={state.metadata.language ?? ""}
+          onFix={async ({ title, language }) => {
+            // The file's own initial view, with the title shown in the window.
+            const view = state.initialView ?? (engine ? await engine.initialView() : undefined);
+            const next: PdfState = {
+              ...state,
+              metadata: { ...state.metadata, title, language },
+              ...(view ? { initialView: { ...view, displayDocTitle: true } } : {}),
+            };
+            setState(() => next);
+            void runAccessibilityCheck(next);
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "pdfa" && (
+        <PdfADialog
+          problems={pdfaProblems}
+          signed={!!engine?.info.signed}
+          onConfirm={(part) => void convertPdfA(part)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "print" && (
+        <PrintDialog
+          pageCount={printablePages.length}
+          currentPage={printablePages.indexOf(pages[currentStore.get() - 1]!)}
+          labels={printablePages.map((p, i) => shownPages.find((q) => q.id === p.id)?.label ?? String(i + 1))}
+          pageSizes={printablePages.map((p) => {
+            const sz = sizeOf(p);
+            return [sz.w, sz.h] as const;
+          })}
+          imageOnly={!!restrictionsRef.current && !restrictionsRef.current.printHighRes}
+          buildSource={printSource}
+          onClose={() => setDialog(null)}
+          onPrint={(bytes, asImage) => {
+            setDialog(null);
+            void (async () => {
+              const id = toast("progress", "Préparation de l'impression…");
+              try {
+                sendToPrinter(asImage ? await lowResolution(bytes) : bytes);
+              } catch {
+                toast("danger", "Impossible d'imprimer");
+              } finally {
+                dismissToast(id);
+              }
+            })();
+          }}
+        />
+      )}
+      {signRequest && (
+        <SignDialog
+          author={author ?? ""}
+          placement={signRequest.placement}
+          hasPicture={!!signRequest.target?.visible.imagePng}
+          canCertify={signRequest.canCertify}
+          initialCertify={signRequest.certify}
+          onClose={() => setSignRequest(null)}
+          onConfirm={(choice) => void signWith(signRequest, choice)}
+        />
+      )}
+      {dialog === "identities" && (
+        <IdentitiesDialog
+          author={author ?? ""}
+          onClose={() => {
+            setDialog(null);
+            if (sigView.list?.length) void refreshSignatures();
+          }}
+        />
+      )}
       {dialog === "protect" && (
         <ProtectDialog
           onClose={() => setDialog(null)}
@@ -3508,8 +6713,9 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       {dialog === "watermark" && (
         <WatermarkDialog
           value={state.watermark}
+          stripMarks={!!state.stripMarks}
           onClose={() => setDialog(null)}
-          onChange={(v) => setState((s) => ({ ...s, watermark: v }))}
+          onChange={(v, stripMarks) => setState((s) => ({ ...s, watermark: v, stripMarks }))}
         />
       )}
       {dialog === "headerFooter" && (
@@ -3517,6 +6723,7 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           header={state.header}
           footer={state.footer}
           bates={state.bates}
+          stripMarks={!!state.stripMarks}
           onClose={() => setDialog(null)}
           onChange={(v) => setState((s) => ({ ...s, ...v }))}
         />
@@ -3524,10 +6731,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       {dialog === "properties" && (
         <PropertiesDialog
           info={engine.info}
+          xfa={xfaKind}
           metadata={state.metadata}
+          initialView={
+            state.initialView ??
+            (fileView
+              ? {
+                  ...fileView,
+                  // The file names a source page; the dialog, a page of the document as it is.
+                  openPage: Math.max(1, pages.findIndex((pg) => pg.from === fileView.openPage - 1) + 1),
+                }
+              : undefined)
+          }
+          pageCount={pages.length}
           sizeBytes={bytesRef.current?.length ?? 0}
           onClose={() => setDialog(null)}
-          onChange={(v) => setState((s) => ({ ...s, metadata: v }))}
+          onChange={(v, iv) => setState((s) => ({ ...s, metadata: v, ...(iv ? { initialView: iv } : {}) }))}
         />
       )}
       {dialog === "exportImages" && (
@@ -3539,20 +6758,23 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setBusy(true);
             const id = toast("progress", "Rendu des pages…");
             try {
-              const indices = v.range.trim()
-                ? parsePageRange(v.range, pageCount)
-                    .map((i) => pages[i]?.from)
-                    .filter((n): n is number => n != null)
-                : undefined;
-              const made = await exportImages(engine, fileName.replace(/\.pdf$/i, ""), {
-                format: v.format,
-                dpi: v.dpi,
-                quality: v.quality,
-                pages: indices,
-                onProgress: (done, total) =>
-                  setToasts((t) =>
-                    t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x)),
-                  ),
+              const made = await withCurrentDocument((doc, map) => {
+                const indices = v.range.trim()
+                  ? parsePageRange(v.range, pageCount)
+                      .map((i) => map.toDerived(i))
+                      .filter((n): n is number => n != null)
+                  : undefined;
+                if (indices && !indices.length) throw new Error("Aucune page à exporter dans cette plage.");
+                return exportImages(doc, fileName.replace(/\.pdf$/i, ""), {
+                  format: v.format,
+                  dpi: v.dpi,
+                  quality: v.quality,
+                  pages: indices,
+                  onProgress: (done, total) =>
+                    setToasts((t) =>
+                      t.map((x) => (x.id === id ? { ...x, ratio: done / total, text: `Page ${done}/${total}` } : x)),
+                    ),
+                });
               });
               if (v.zip)
                 downloadBlob(`${fileName.replace(/\.pdf$/i, "")}-images.zip`, "application/zip", await zipImages(made));
@@ -3568,6 +6790,19 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               setBusy(false);
             }
           }}
+        />
+      )}
+      {prepProps && (
+        <FieldPropertiesDialog
+          kind={prepProps.kind}
+          name={prepProps.name}
+          initial={prepProps.initial}
+          otherFields={allFieldNames(state)}
+          takenNames={
+            new Set([...allFieldNames(state), ...state.fieldEdits.filter((e) => e.rename).map((e) => e.name)])
+          }
+          onConfirm={applyFieldProps}
+          onClose={() => setPrepProps(null)}
         />
       )}
       {dialog === "ocr" && (
@@ -3589,7 +6824,12 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
           }) => {
             if (!bytesRef.current) return;
             setOcrRunning(true);
-            ocrAbort.current = new AbortController();
+            const abort = new AbortController();
+            ocrAbort.current = abort;
+            // Cancelled once the pages are read, nothing is written either.
+            const stopIfCancelled = () => {
+              if (abort.signal.aborted) throw Object.assign(new Error("OCR annulé"), { name: "OcrCancelled" });
+            };
             try {
               const indices = v.range.trim()
                 ? parsePageRange(v.range, pageCount)
@@ -3601,10 +6841,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                 dpi: v.dpi,
                 pages: indices,
                 skipPagesWithText: v.skipPagesWithText,
-                signal: ocrAbort.current.signal,
+                signal: abort.signal,
                 onProgress: setOcrProgress,
               });
               const words = results.reduce((n, r) => n + r.words.length, 0);
+              const suspects = results.reduce((n, r) => n + r.words.filter((w) => w.suspect).length, 0);
               if (!words) {
                 toast("info", "Aucun texte reconnu.");
                 setOcrRunning(false);
@@ -3612,7 +6853,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               }
 
               const { FontBook } = await import("../ops/fonts");
-              if (!engine) return;
+              stopIfCancelled();
+              if (!engine) {
+                setOcrRunning(false);
+                return;
+              }
               // The text layer goes into the document itself — an update of
               // the source, encrypted with its key, its signed revision left
               // intact — and the session goes on with it, edits kept.
@@ -3626,10 +6871,11 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                   const docPages = doc.getPages();
                   for (const r of results) {
                     const target = docPages[r.page];
-                    if (target && r.words.length) await writeOcrLayer(doc, target, r.words, book);
+                    if (target && r.lines.length) await writeOcrLayer(doc, target, r, book);
                   }
                 },
               });
+              stopIfCancelled();
               await adoptDerived(
                 res.bytes,
                 {
@@ -3644,26 +6890,40 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
               toast(
                 "success",
                 "Reconnaissance terminée",
-                `${words} mots indexés — le document est désormais cherchable.`,
+                `${words} mots indexés — le document est désormais cherchable.` +
+                  (suspects ? ` ${suspects} mot(s) reconnu(s) avec peu de certitude : vérifiez-les.` : ""),
               );
-            } catch {
+            } catch (e) {
               setOcrRunning(false);
-              toast("danger", "La reconnaissance a échoué.");
+              if (e instanceof Error && e.name === "OcrCancelled") {
+                toast("info", "Reconnaissance interrompue", "Le document n'a pas été modifié.");
+                return;
+              }
+              toast("danger", "La reconnaissance a échoué.", e instanceof Error ? e.message : undefined);
             }
           }}
         />
       )}
-      {dialog === "signature" && (
+      {(dialog === "signature" || dialog === "initials") && (
         <SignatureDialog
-          saved={signatures}
+          kind={dialog === "initials" ? "initials" : "signature"}
+          saved={signatures.filter(
+            (x) => (x.kind ?? "signature") === (dialog === "initials" ? "initials" : "signature"),
+          )}
           onClose={() => setDialog(null)}
-          onDelete={(id) => setSignatures((v) => v.filter((s) => s.id !== id))}
-          onSave={(sig) => setSignatures((v) => [...v, sig])}
+          onDelete={(id) => {
+            setSignatures((v) => v.filter((s) => s.id !== id));
+            void import("./identities").then(({ removeMark }) => removeMark(id));
+          }}
+          onSave={(sig) => {
+            setSignatures((v) => [...v, sig]);
+            void import("./identities").then(({ saveMark }) => saveMark(sig));
+          }}
           onUse={(sig) => {
             const page = currentPage();
             if (!page) return;
             const size = sizeOf(page);
-            const w = Math.min(200, size.w * 0.35);
+            const w = dialog === "initials" ? Math.min(70, size.w * 0.15) : Math.min(200, size.w * 0.35);
             const now = new Date().toISOString();
             addAnnot({
               id: newId("an"),
@@ -3707,9 +6967,22 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
                       ? { kind: "maxSize", bytes: v.maxMb * 1024 * 1024 }
                       : { kind: "bookmarks", level: 1 },
                 base,
-                (state.bookmarks ?? []).map((b) => ({ title: b.title, page: b.page })),
+                // Section starts in the copy's numbering (excluded pages are not in it).
+                (state.bookmarks ?? []).flatMap((b) => {
+                  const pg = pages[b.page - 1];
+                  const at = pg ? outputIndices([pg.id])[0] : undefined;
+                  return at === undefined ? [] : [{ title: b.title, page: at + 1 }];
+                }),
               );
-              for (const part of parts) downloadBlob(part.name, "application/pdf", part.bytes);
+              if (parts.length === 1) {
+                downloadBlob(parts[0].name, "application/pdf", parts[0].bytes);
+              } else {
+                // One archive: browsers block a burst of downloads.
+                const { zipSync } = await import("fflate");
+                const files: Record<string, Uint8Array> = {};
+                for (const part of parts) files[part.name] = part.bytes;
+                downloadBlob(`${base}-parties.zip`, "application/zip", zipSync(files, { level: 0 }));
+              }
               toast("success", `${parts.length} fichier(s) produit(s).`);
             } catch {
               toast("danger", "Division impossible.");
@@ -3721,13 +6994,30 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
       )}
       {dialog === "crop" && (
         <CropDialog
-          current={currentPage()?.crop ?? { top: 0, right: 0, bottom: 0, left: 0 }}
+          current={D.sourceToVisualInsets(
+            currentPage()?.crop ?? { top: 0, right: 0, bottom: 0, left: 0 },
+            currentPage() ? rotationOf(currentPage()!) : 0,
+          )}
+          onDetect={async () => {
+            const cur = currentPage();
+            return cur ? whiteMargins(cur) : null;
+          }}
           onClose={() => setDialog(null)}
-          onConfirm={({ crop, scope }) => {
+          onConfirm={async ({ crop, scope, auto }) => {
             const ids = scope === "all" ? pages.map((q) => q.id) : targetPages();
-            const empty = !crop.top && !crop.right && !crop.bottom && !crop.left;
-            setState((s) => D.cropPages(s, ids, empty ? null : crop));
             setDialog(null);
+            // Margins are given as seen: each page's own rotation says which edge is which.
+            const crops = new Map<string, { top: number; right: number; bottom: number; left: number } | null>();
+            for (const id of ids) {
+              const pg = pages.find((q) => q.id === id);
+              if (!pg) continue;
+              const seen = auto ? await whiteMargins(pg) : crop;
+              if (!seen) continue;
+              const src = D.visualToSourceInsets(seen, rotationOf(pg));
+              const empty = !src.top && !src.right && !src.bottom && !src.left;
+              crops.set(id, empty ? null : src);
+            }
+            setState((s) => [...crops].reduce((acc, [id, c]) => D.cropPages(acc, [id], c), s));
           }}
         />
       )}
@@ -3752,29 +7042,196 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
         />
       )}
       {dialog === "compare" && (
-        <CompareDialog
-          report={compareReport}
+        <CompareView
+          left={compareEngines?.left ?? null}
+          right={compareEngines?.right ?? null}
+          leftName={fileName || "document.pdf"}
+          rightName={compareEngines?.rightName ?? ""}
           busy={compareBusy}
           onPick={() => compareInput.current?.click()}
           onGoTo={(page) => {
-            goTo(page);
+            // Report pages are the compared document's (excluded pages left out).
+            goTo((compareMapRef.current(page - 1) ?? page - 1) + 1);
+            closeCompare();
             setDialog(null);
           }}
+          onSaveReport={(bytes, name) => downloadBlob(name, "application/pdf", bytes)}
+          onClose={() => {
+            closeCompare();
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === "rotatePages" && (
+        <RotatePagesDialog
+          hasSelection={selectedPages.length > 0}
           onClose={() => setDialog(null)}
+          onConfirm={({ delta, scope, range }) => {
+            setDialog(null);
+            const ids = scopeIds(scope, range);
+            if (ids.length) setState((s) => D.rotatePages(s, ids, delta));
+          }}
+        />
+      )}
+      {dialog === "movePages" && (
+        <MovePagesDialog
+          count={targetPages().length}
+          pageCount={pageCount}
+          onClose={() => setDialog(null)}
+          onConfirm={({ where, at }) => {
+            setDialog(null);
+            const to = where === "start" ? 0 : where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            setState((s) => D.reorderPages(s, targetPages(), to));
+          }}
+        />
+      )}
+      {dialog === "resizePages" && (
+        <ResizePagesDialog
+          hasSelection={selectedPages.length > 0}
+          onClose={() => setDialog(null)}
+          onConfirm={({ size, landscape, fit, scope, range }) => {
+            setDialog(null);
+            const ids = new Set(scopeIds(scope, range));
+            // The rebuilt document has the model's pages, excluded ones included.
+            const indices = pages.map((q, i) => (ids.has(q.id) ? i : -1)).filter((i) => i >= 0);
+            const [a, b] = PAGE_SIZES[size] ?? PAGE_SIZES.A4;
+            const [w, h] = landscape ? [Math.max(a, b), Math.min(a, b)] : [Math.min(a, b), Math.max(a, b)];
+            void recompose(`${indices.length} page(s) redimensionnée(s) (${size})`, async (doc) => {
+              const { resizePage } = await import("../ops/organize");
+              for (const i of indices) if (i < doc.getPageCount()) resizePage(doc.getPage(i), w, h, fit);
+            });
+          }}
+        />
+      )}
+      {dialog === "replacePages" && replaceSource && (
+        <ReplacePagesDialog
+          fileName={replaceSource.name}
+          pageCount={pageCount}
+          sourceCount={replaceSource.count}
+          initialAt={currentStore.get()}
+          onClose={() => {
+            setReplaceSource(null);
+            setDialog(null);
+          }}
+          onConfirm={({ from, to, srcFrom }) => {
+            setDialog(null);
+            const src = replaceSource;
+            setReplaceSource(null);
+            const n = to - from + 1;
+            void recompose(`${n} page(s) remplacée(s) par celles de « ${src.name} »`, async (doc) => {
+              const { appendPdfPages, purgeRemovedPages, readPageLabelDefs, writePageLabels } =
+                await import("../ops/organize");
+              const before = doc.getPages();
+              // As many pages in, at the same place: the labels stay by position.
+              const labels = readPageLabelDefs(doc);
+              // The new pages first, then the old ones out (what pointed at them is cleaned).
+              await appendPdfPages(
+                doc,
+                [{ name: src.name, bytes: src.bytes }],
+                (name, wrong) =>
+                  dialogs.prompt({
+                    title: "PDF protégé",
+                    password: true,
+                    label: wrong ? `Mot de passe incorrect pour « ${name} », réessayez` : `Mot de passe de « ${name} »`,
+                  }),
+                from - 1,
+                { pages: Array.from({ length: n }, (_, k) => srcFrom - 1 + k), outline: false },
+              );
+              const doomed = before.slice(from - 1, to);
+              for (const p of doomed) {
+                const i = doc.getPages().indexOf(p);
+                if (i >= 0) doc.removePage(i);
+              }
+              const kept = new Set(doc.getPages().map((p) => `${p.ref.objectNumber} ${p.ref.generationNumber}`));
+              purgeRemovedPages(doc, before, kept);
+              if (labels) writePageLabels(doc, labels);
+            });
+          }}
+        />
+      )}
+      {linkEdit &&
+        (() => {
+          const link = state.annots.find((a) => a.id === linkEdit.id);
+          if (!link) return null;
+          const target = link.action?.type === "page" ? link.action.pageId : undefined;
+          const at = target ? pages.findIndex((pg) => pg.id === target) : -1;
+          const action = link.action?.type === "page" && at >= 0 ? { ...link.action, page: at + 1 } : link.action;
+          return (
+            <LinkDialog
+              value={{ action, linkStyle: link.linkStyle ?? DEFAULT_LINK_STYLE, color: link.color || "#1d4ed8" }}
+              creating={linkEdit.creating}
+              pageCount={pages.length}
+              pageLabel={(n) => pageLabels[n - 1] || String(n)}
+              currentView={() => {
+                const d = currentDest();
+                return { type: "page", page: d.page, x: d.x, y: d.y, fit: "XYZ", zoom: d.zoom };
+              }}
+              onClose={() => setLinkEdit(null)}
+              onConfirm={(v) => {
+                setLinkEdit(null);
+                const act: LinkAction | undefined =
+                  v.action?.type === "page" ? { ...v.action, pageId: pages[v.action.page - 1]?.id } : v.action;
+                setState((s) =>
+                  D.updateAnnot(s, link.id, {
+                    action: act,
+                    linkStyle: v.linkStyle,
+                    color: v.color,
+                    modifiedAt: new Date().toISOString(),
+                  }),
+                );
+              }}
+            />
+          );
+        })()}
+      {redactAsk && (
+        <RedactApplyDialog
+          marks={redactAsk.marks}
+          onClose={() => {
+            redactAsk.answer(false);
+            setRedactAsk(null);
+          }}
+          onConfirm={(hidden) => {
+            redactAsk.answer(hidden);
+            setRedactAsk(null);
+          }}
+        />
+      )}
+      {dialog === "combine" && (
+        <CombineDialog
+          current={{ name: fileName, count: pages.length }}
+          onClose={() => setDialog(null)}
+          onConfirm={(items, o) => void combineFiles(items, o)}
         />
       )}
       {dialog === "insert" && (
         <InsertPagesDialog
           pageCount={pageCount}
-          onClose={() => setDialog(null)}
-          onConfirm={({ where, at, count, size }) => {
-            const dims =
+          files={pendingInsert?.files.map((f) => f.name)}
+          initialAt={currentStore.get()}
+          onClose={() => {
+            setPendingInsert(null);
+            setDialog(null);
+          }}
+          onConfirm={({ where, at, count, size, landscape }) => {
+            // Before page 1 is position 0 (it used to fall to the end).
+            const index = where === "end" ? pages.length : where === "before" ? at - 1 : at;
+            setDialog(null);
+            const pending = pendingInsert;
+            setPendingInsert(null);
+            if (pending?.kind === "pdf") {
+              void insertPdfFiles(pending.files, index);
+              return;
+            }
+            if (pending?.kind === "image") {
+              void insertImageFiles(pending.files, index);
+              return;
+            }
+            let dims =
               size === "same"
                 ? ([sizeOf(currentPage() ?? pages[0]).w, sizeOf(currentPage() ?? pages[0]).h] as [number, number])
                 : (PAGE_SIZES[size] ?? PAGE_SIZES.A4);
-            const anchor = where === "end" ? null : (pages[where === "before" ? at - 2 : at - 1]?.id ?? null);
-            insertBlankAfter(anchor, count, dims);
-            setDialog(null);
+            if (landscape && size !== "same") dims = [Math.max(...dims), Math.min(...dims)];
+            insertBlankAt(index, count, dims);
           }}
         />
       )}
@@ -3787,11 +7244,18 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
             setBusy(true);
             try {
               const texts = await ensureText();
+              const { REDACT_PATTERNS } = await import("../ops/redactpatterns");
+              const preset = v.preset ? REDACT_PATTERNS.find((p) => p.id === v.preset) : undefined;
+              // A pattern's check keeps only real numbers (a key, Luhn), trimmed to their valid part.
               const found = runSearch(texts, v.query, {
                 caseSensitive: v.caseSensitive,
                 wholeWord: v.wholeWord,
                 regex: v.regex,
                 ignoreDiacritics: true,
+              }).flatMap((h) => {
+                if (!preset?.validRange) return [h];
+                const r = preset.validRange(texts[h.page].slice(h.start, h.end));
+                return r ? [{ ...h, start: h.start + r.start, end: h.start + r.start + r.length }] : [];
               });
               if (!found.length) {
                 toast("info", "Aucune occurrence trouvée.");
@@ -3857,35 +7321,68 @@ export default function PdfWorkspace({ onHome, initial, onExportElium, author = 
 
 // ---------------------------------------------------------------------------
 
-function outlineToBookmarks(
-  nodes: {
-    title: string;
-    page: number | null;
-    y?: number;
-    bold: boolean;
-    italic: boolean;
-    color?: string;
-    children: unknown[];
-  }[],
-): Bookmark[] {
-  return nodes.map((n) => ({
-    id: newId("bm"),
-    title: n.title,
-    page: n.page ?? 1,
-    y: n.y,
-    bold: n.bold,
-    italic: n.italic,
-    color: n.color,
-    children: outlineToBookmarks((n.children ?? []) as never),
-  }));
-}
-
 /**
  * Previous / page number / next. Subscribes to the current page itself, so
  * scrolling re-renders this box — not the workspace around it.
  */
-function PageNav({ store, pageCount, goTo }: { store: CurrentPage; pageCount: number; goTo: (page: number) => void }) {
+/** « Page ii (2 sur 4) · 210 × 297 mm »: re-rendered alone as the page being read changes. */
+function StatusPage({
+  store,
+  pageCount,
+  labels,
+  sizeLabel,
+}: {
+  store: CurrentPage;
+  pageCount: number;
+  labels: readonly (string | undefined)[];
+  /** The page's format, by position (0-based). */
+  sizeLabel: (index: number) => string;
+}) {
   const current = useCurrentPage(store);
+  const label = labels[current - 1];
+  const named = !!label && label !== String(current);
+  const size = sizeLabel(current - 1);
+  return (
+    <>
+      <span className="pdfx-status__page">
+        {named ? `Page ${label} (${current} sur ${pageCount})` : `Page ${current} sur ${pageCount}`}
+      </span>
+      {size && (
+        <>
+          <span>·</span>
+          <span title="Format de la page courante">{size}</span>
+        </>
+      )}
+    </>
+  );
+}
+
+function PageNav({
+  store,
+  pageCount,
+  labels,
+  goTo,
+}: {
+  store: CurrentPage;
+  pageCount: number;
+  /** Each page's label (page labels of the file or set in Elium), by position. */
+  labels: readonly (string | undefined)[];
+  goTo: (page: number) => void;
+}) {
+  const current = useCurrentPage(store);
+  const [draft, setDraft] = useState<string | null>(null);
+  const label = labels[current - 1];
+  const shown = label && label !== String(current) ? label : String(current);
+  /** A label as the file names it (« iv », « A-3 »), else a page number. */
+  const commit = () => {
+    const text = (draft ?? "").trim();
+    setDraft(null);
+    if (!text) return;
+    const byLabel = labels.findIndex((l) => l && l.toLowerCase() === text.toLowerCase());
+    if (byLabel >= 0) return goTo(byLabel + 1);
+    const n = Number(text);
+    if (Number.isInteger(n) && n >= 1 && n <= pageCount) goTo(n);
+  };
   return (
     <div className="pdfx-pagenav">
       <button
@@ -3899,14 +7396,29 @@ function PageNav({ store, pageCount, goTo }: { store: CurrentPage; pageCount: nu
       </button>
       <input
         className="pdfx-pagenav__input"
-        value={current}
-        onChange={(e) => {
-          const n = Number(e.target.value.replace(/\D/g, ""));
-          if (n) goTo(n);
+        value={draft ?? shown}
+        onFocus={(e) => {
+          setDraft(shown);
+          e.currentTarget.select();
         }}
-        aria-label="Numéro de page"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            setDraft(null);
+            e.currentTarget.blur();
+          }
+        }}
+        aria-label="Numéro ou étiquette de page (Entrée pour y aller)"
+        title="Aller à la page (Ctrl+Maj+N) : numéro ou étiquette"
       />
-      <span className="pdfx-pagenav__total">/ {pageCount}</span>
+      <span className="pdfx-pagenav__total">
+        {shown !== String(current) ? `(${current} / ${pageCount})` : `/ ${pageCount}`}
+      </span>
       <button
         className="pdfx-topbtn"
         onClick={() => goTo(current + 1)}

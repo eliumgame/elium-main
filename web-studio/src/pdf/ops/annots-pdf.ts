@@ -14,16 +14,20 @@
  *    must not be editable.
  */
 
-import type { PDFDocument, PDFPage, PDFRef } from "pdf-lib";
-import { PDFArray, PDFHexString, PDFName, PDFString } from "pdf-lib";
+import type { PDFDocument, PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFHexString, PDFName, PDFRef, PDFString } from "pdf-lib";
 import type { Pt, Rect } from "../core/coords";
 import { quadToPdfQuadPoints, rectOfPoints, round } from "../core/coords";
 import type { Annot, MeasureScale } from "../model/types";
 import { isTextMarkup } from "../model/types";
 import type { FontBook } from "./fonts";
 import { sanitiseForFont } from "./fonts";
+import { noteIcon } from "../model/noteicons";
+import { safeMime } from "./annotids";
+import { pdfFamilyOf } from "../../ui/fonts";
 import type { ImageBank } from "./images";
 import { FormResources, PageResources, Painter, hexToRgb, measure, rgbToPdfArray, wrapText } from "./painter";
+import { destArray } from "./organize";
 
 /** Maps this page's page-space coordinates into PDF user space. */
 export interface PageFrame {
@@ -56,6 +60,85 @@ export interface PaintContext {
   fonts: FontBook;
   images: ImageBank;
   measureScale: MeasureScale;
+  /**
+   * The page's `/Rotate` (0, 90, 180, 270). Text boxes, notes and stamps are
+   * shown upright on screen whatever the page's rotation, as in Acrobat: they
+   * are painted turned against it (see `upright`).
+   */
+  rotation?: number;
+}
+
+/** A frame over the box `box` of PDF user space (same conventions as `pageFrame`). */
+export function frameOfBox(box: { x: number; y: number; width: number; height: number }): PageFrame {
+  const toPdf = (p: Pt): Pt => ({ x: box.x + p.x, y: box.y + box.height - p.y });
+  return {
+    box,
+    toPdf,
+    rectToPdf: (r) => ({ x: box.x + r.x, y: box.y + box.height - r.y - r.h, w: r.w, h: r.h }),
+    rectArray: (r) => {
+      const q = { x: box.x + r.x, y: box.y + box.height - r.y - r.h, w: r.w, h: r.h };
+      return [round(q.x), round(q.y), round(q.x + q.w), round(q.y + q.h)];
+    },
+  };
+}
+
+/** Kinds read as upright boxes on screen, whatever the page's rotation. */
+export const UPRIGHT_KINDS = new Set<Annot["kind"]>([
+  "freetext",
+  "typewriter",
+  "callout",
+  "note",
+  "attachment",
+  "stamp",
+  "image",
+  "signature",
+]);
+
+/**
+ * Paint `a`'s box with `draw` so that it reads upright once the page is
+ * turned by its `/Rotate`: drawn in a frame of the box's on-screen size, then
+ * turned by the page's angle (counter-clockwise, the page turns clockwise)
+ * onto the box's place in page space.
+ */
+async function upright(
+  p: Painter,
+  a: Annot,
+  ctx: PaintContext,
+  draw: (p: Painter, a: Annot, ctx: PaintContext) => Promise<void>,
+): Promise<void> {
+  const rot = (((ctx.rotation ?? 0) % 360) + 360) % 360;
+  if (!rot) return draw(p, a, ctx);
+  const rect = a.kind === "note" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect;
+  const swap = rot % 180 !== 0;
+  const vw = swap ? rect.h : rect.w;
+  const vh = swap ? rect.w : rect.h;
+  const t = (rot * Math.PI) / 180;
+  const c = Math.round(Math.cos(t));
+  const s = Math.round(Math.sin(t));
+  // Where [0, vw] × [0, vh] lands under the rotation; shift it onto the box.
+  const xs = [0, vw * c, -vh * s, vw * c - vh * s];
+  const ys = [0, vw * s, vh * c, vw * s + vh * c];
+  const target = ctx.frame.rectToPdf(rect);
+  p.save().transform(c, s, -s, c, target.x - Math.min(...xs), target.y - Math.min(...ys));
+  await draw(
+    p,
+    { ...a, rect: { x: 0, y: 0, w: vw, h: vh } },
+    { ...ctx, rotation: 0, frame: frameOfBox({ x: 0, y: 0, width: vw, height: vh }) },
+  );
+  p.restore();
+}
+
+async function paintPicture(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
+  const r = ctx.frame.rectToPdf(a.rect);
+  const alpha = a.opacity ?? 1;
+  p.alpha({ fillAlpha: alpha, strokeAlpha: alpha });
+  if (a.rotation) p.rotateAbout(-a.rotation, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  if (a.src) {
+    const img = await ctx.images.get(a.src);
+    if (img) p.image(img, r.x, r.y, r.w, r.h);
+  } else if (a.stampLabel) {
+    await paintGeneratedStamp(p, a, ctx, r);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +248,7 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
         .rect(r.x, r.y, r.w, r.h)
         .fill();
       if (a.redactText) {
-        const { font, unicode } = await ctx.fonts.standard(true);
+        const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, a.redactText);
         const label = sanitiseForFont(a.redactText, unicode);
         const size = Math.min(10, Math.max(5, r.h * 0.55));
         const w = measure(font, label, size);
@@ -279,8 +362,24 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
       }
       break;
     }
-    case "note": {
-      await paintNoteIcon(p, a, ctx);
+    case "note":
+    case "attachment": {
+      await upright(p, a, ctx, paintNoteIcon);
+      break;
+    }
+    case "caret": {
+      // The insertion mark: tip at the insertion point's top, notch at its foot.
+      const r = frame.rectToPdf(a.rect);
+      p.alpha({ fillAlpha: alpha }).fillColor(stroke);
+      p.polyline(
+        [
+          { x: r.x, y: r.y },
+          { x: r.x + r.w / 2, y: r.y + r.h },
+          { x: r.x + r.w, y: r.y },
+          { x: r.x + r.w / 2, y: r.y + r.h * 0.38 },
+        ],
+        true,
+      ).fill();
       break;
     }
     case "freetext":
@@ -306,25 +405,30 @@ export async function paintAnnot(p: Painter, a: Annot, ctx: PaintContext): Promi
           );
         }
       }
-      await paintTextBox(p, a, ctx);
+      await upright(p, a, ctx, paintTextBox);
       break;
     }
     case "stamp":
     case "signature":
     case "image": {
-      const r = frame.rectToPdf(a.rect);
-      p.alpha({ fillAlpha: alpha, strokeAlpha: alpha });
-      if (a.rotation) p.rotateAbout(-a.rotation, { x: r.x + r.w / 2, y: r.y + r.h / 2 });
-      if (a.src) {
-        const img = await ctx.images.get(a.src);
-        if (img) p.image(img, r.x, r.y, r.w, r.h);
-      } else if (a.stampLabel) {
-        await paintGeneratedStamp(p, a, ctx, r);
-      }
+      await upright(p, a, ctx, paintPicture);
       break;
     }
     case "link": {
-      // The clickable area is the annotation; nothing is painted by default.
+      // The clickable area is the annotation; its border only when it has one.
+      const st = a.linkStyle;
+      if (!st?.visible) break;
+      const r = ctx.frame.rectToPdf(a.rect);
+      const w = Math.max(0.5, st.width || 1);
+      p.strokeColor(hexToRgb(a.color, { r: 0, g: 0, b: 1 })).lineWidth(w);
+      if (st.line === "underline") {
+        p.moveTo({ x: r.x, y: r.y + w / 2 })
+          .lineTo({ x: r.x + r.w, y: r.y + w / 2 })
+          .stroke();
+      } else {
+        if (st.line === "dashed") p.dash([3]);
+        p.rect(r.x + w / 2, r.y + w / 2, r.w - w, r.h - w).stroke();
+      }
       break;
     }
   }
@@ -368,7 +472,7 @@ function centroid(pts: readonly Pt[]): Pt {
 
 /** A measurement caption on a pill background, centred on `at`. */
 async function paintCaption(p: Painter, ctx: PaintContext, a: Annot, label: string, at: Pt): Promise<void> {
-  const { font, unicode } = await ctx.fonts.standard(true);
+  const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, label);
   const size = a.fontSize || 10;
   const text = sanitiseForFont(label, unicode);
   const w = measure(font, text, size);
@@ -386,24 +490,37 @@ async function paintCaption(p: Painter, ctx: PaintContext, a: Annot, label: stri
 async function paintNoteIcon(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
   const r = ctx.frame.rectToPdf({ ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE });
   const c = hexToRgb(a.color, { r: 0.98, g: 0.75, b: 0.14 });
+  const ink = { r: 0.15, g: 0.15, b: 0.15 };
   const s = Math.min(r.w, r.h);
+  // The shared unit-square drawing (model/noteicons.ts), y turned up.
+  const at = (u: number, v: number): Pt => ({ x: r.x + u * s, y: r.y + (1 - v) * s });
   p.save();
   p.alpha({ fillAlpha: a.opacity ?? 1, strokeAlpha: 1 });
-  p.fillColor(c).strokeColor({ r: 0.15, g: 0.15, b: 0.15 }).lineWidth(0.7);
-  p.roundRect(r.x, r.y + s * 0.18, s, s * 0.72, s * 0.16).fillStroke();
-  // The tail
-  p.fillColor(c).strokeColor({ r: 0.15, g: 0.15, b: 0.15 });
-  p.moveTo({ x: r.x + s * 0.24, y: r.y + s * 0.2 })
-    .lineTo({ x: r.x + s * 0.2, y: r.y })
-    .lineTo({ x: r.x + s * 0.46, y: r.y + s * 0.2 })
-    .closePath()
-    .fillStroke();
-  p.strokeColor({ r: 0.15, g: 0.15, b: 0.15 }).lineWidth(0.6);
-  for (let i = 0; i < 3; i++) {
-    const y = r.y + s * (0.72 - i * 0.16);
-    p.moveTo({ x: r.x + s * 0.16, y })
-      .lineTo({ x: r.x + s * (i === 2 ? 0.62 : 0.84), y })
-      .stroke();
+  p.lineWidth(0.7).strokeColor(ink);
+  for (const sh of noteIcon(a.icon, a.kind === "attachment")) {
+    if (sh.t === "rrect") {
+      p.fillColor(c).roundRect(r.x + sh.x * s, r.y + (1 - sh.y - sh.h) * s, sh.w * s, sh.h * s, sh.r * s);
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else if (sh.t === "circle") {
+      p.fillColor(c).ellipse(r.x + sh.cx * s, r.y + (1 - sh.cy) * s, sh.r * s, sh.r * s);
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else if (sh.t === "poly") {
+      p.fillColor(c).polyline(
+        sh.pts.map(([u, v]) => at(u, v)),
+        sh.close,
+      );
+      if (sh.fill) p.fillStroke();
+      else p.stroke();
+    } else {
+      const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, sh.text);
+      const text = sanitiseForFont(sh.text, unicode);
+      const size = sh.size * s;
+      const w = measure(font, text, size);
+      const o = at(sh.x, sh.y);
+      p.fillColor(ink).text(font, size, { x: o.x - w / 2, y: o.y }, text);
+    }
   }
   p.restore();
 }
@@ -414,7 +531,7 @@ export const NOTE_SIZE = 20;
 async function paintTextBox(p: Painter, a: Annot, ctx: PaintContext): Promise<void> {
   const r = ctx.frame.rectToPdf(a.rect);
   const size = a.fontSize || 12;
-  const { font, unicode } = await ctx.fonts.get(a.fontFamily, a.bold, a.italic);
+  const { font, unicode } = await ctx.fonts.forText(a.fontFamily, !!a.bold, !!a.italic, a.text ?? "");
   const pad = 3;
   const alpha = a.opacity ?? 1;
 
@@ -469,8 +586,9 @@ async function paintGeneratedStamp(
   r: { x: number; y: number; w: number; h: number },
 ): Promise<void> {
   const tone = STAMP_TONES[a.stampTone ?? "red"] ?? STAMP_TONES.red;
-  const { font, unicode } = await ctx.fonts.standard(true);
-  const label = sanitiseForFont(a.stampLabel ?? "", unicode).toUpperCase();
+  const upper = (a.stampLabel ?? "").toUpperCase();
+  const { font, unicode } = await ctx.fonts.forText("Helvetica", true, false, upper);
+  const label = sanitiseForFont(upper, unicode);
   const fg = hexToRgb(tone.fg);
   p.alpha({ fillAlpha: (a.opacity ?? 1) * 0.14 }).fillColor(hexToRgb(tone.bg));
   p.roundRect(r.x, r.y, r.w, r.h, Math.min(6, r.h / 4)).fill();
@@ -478,12 +596,23 @@ async function paintGeneratedStamp(
     .strokeColor(fg)
     .lineWidth(Math.max(1.2, r.h * 0.05));
   p.roundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, Math.min(6, r.h / 4)).stroke();
-  let size = r.h * 0.5;
+  // A dynamic stamp: the label in the top 60 %, who / when below.
+  const sub = a.stampSub ? a.stampSub : "";
+  const labelBox = sub ? { y: r.y + r.h * 0.4, h: r.h * 0.6 } : { y: r.y, h: r.h };
+  let size = labelBox.h * 0.5;
   if (label) {
     const maxW = r.w * 0.86;
     while (size > 4 && measure(font, label, size) > maxW) size -= 0.5;
     const w = measure(font, label, size);
-    p.fillColor(fg).text(font, size, { x: r.x + (r.w - w) / 2, y: r.y + (r.h - size * 0.72) / 2 }, label);
+    p.fillColor(fg).text(font, size, { x: r.x + (r.w - w) / 2, y: labelBox.y + (labelBox.h - size * 0.72) / 2 }, label);
+  }
+  if (sub) {
+    const small = await ctx.fonts.forText("Helvetica", false, false, sub);
+    const line = sanitiseForFont(sub, small.unicode);
+    let s2 = r.h * 0.2;
+    while (s2 > 3 && measure(small.font, line, s2) > r.w * 0.9) s2 -= 0.25;
+    const w = measure(small.font, line, s2);
+    p.fillColor(fg).text(small.font, s2, { x: r.x + (r.w - w) / 2, y: r.y + r.h * 0.4 - s2 * 1.05 }, line);
   }
 }
 
@@ -517,7 +646,9 @@ const SUBTYPE: Partial<Record<Annot["kind"], string>> = {
   underline: "Underline",
   strikeout: "StrikeOut",
   squiggly: "Squiggly",
+  caret: "Caret",
   note: "Text",
+  attachment: "FileAttachment",
   freetext: "FreeText",
   typewriter: "FreeText",
   callout: "FreeText",
@@ -576,12 +707,75 @@ interface WriteOptions {
   defaultAuthor: string;
   /** 1-based page numbers of the output, for resolving internal links. */
   pageRefs: PDFRef[];
+  /** Filled with the object written for each annotation, by `Annot.id`. */
+  written?: Map<string, PDFRef>;
+  /** The /FS of attachments whose large file stayed in the source, by the source annotation's id. */
+  keptFiles?: ReadonlyMap<string, unknown>;
+  /** A model page's 0-based position in the output (links to a page follow it). */
+  pageIndexOf?: (pageId: string) => number | undefined;
 }
 
 /**
  * Write annotations as real `/Annot` dictionaries with generated appearances.
  * Returns the ones that had to be flattened instead (whiteout, redaction).
  */
+/** The bytes of a base64 data URL (null when it is not one). */
+function dataUrlBytes(url: string): Uint8Array | null {
+  const m = /^data:[^,]*;base64,(.*)$/s.exec(url);
+  if (!m) return null;
+  try {
+    const bin = atob(m[1]);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Acrobat's « Remplacer le texte »: each strike-out becomes a member of its
+ * Caret's group (/IRT, /RT /Group, /IT /StrikeOutTextEdit). Run once every
+ * page is written — the Caret may be on another page. `written` holds the
+ * objects written by id; `kept` the ids of comments left as they are in the
+ * file (their object is their pdf.js id, « 12R »).
+ */
+export function linkGroups(
+  doc: PDFDocument,
+  annots: readonly Annot[],
+  written: ReadonlyMap<string, PDFRef>,
+  kept: ReadonlySet<string>,
+): void {
+  for (const a of annots) {
+    if (!a.group) continue;
+    const ref = written.get(a.id);
+    if (!ref) continue;
+    const parent = written.get(a.group) ?? (kept.has(a.group) ? refOfPdfjsId(a.group) : null);
+    const dict = doc.context.lookup(ref);
+    if (!(dict instanceof PDFDict)) continue;
+    if (!parent) continue;
+    dict.set(PDFName.of("IRT"), parent);
+    dict.set(PDFName.of("RT"), PDFName.of("Group"));
+    dict.set(PDFName.of("IT"), PDFName.of("StrikeOutTextEdit"));
+    dict.delete(PDFName.of("Contents"));
+  }
+}
+
+/** The object of an annotation kept from the file (its model id is pdf.js' « 12R »). */
+function refOfPdfjsId(id: string): PDFRef | null {
+  const m = /^(\d+)R(\d*)$/.exec(id);
+  return m ? PDFRef.of(Number(m[1]), Number(m[2] || 0)) : null;
+}
+
+/** Review states as Acrobat names them (`/StateModel (Review)`). */
+const PDF_STATE: Record<NonNullable<Annot["status"]>, string> = {
+  none: "None",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  completed: "Completed",
+};
+
 export async function writeAnnots(
   page: PDFPage,
   annots: readonly Annot[],
@@ -603,8 +797,10 @@ export async function writeAnnots(
     }
     try {
       const ref = await writeOne(page, a, ctx, opts, subtype);
-      if (ref) byId.set(a.id, ref);
-      else flattenLater.push(a);
+      if (ref) {
+        byId.set(a.id, ref);
+        opts.written?.set(a.id, ref);
+      } else flattenLater.push(a);
     } catch {
       flattenLater.push(a);
     }
@@ -614,9 +810,32 @@ export async function writeAnnots(
   // conversation, not just the first comment.
   for (const a of annots) {
     const parent = byId.get(a.id);
-    if (!parent || !a.replies?.length) continue;
+    if (!parent) continue;
+    if (a.checked) {
+      // Acrobat's checkmark: a hidden state reply of the Marked model.
+      try {
+        const mark = ctx.doc.context.obj({
+          Type: "Annot",
+          Subtype: "Text",
+          Rect: ctx.frame.rectArray({ x: a.rect.x, y: a.rect.y, w: NOTE_SIZE, h: NOTE_SIZE }),
+          F: 2 | 4,
+          IRT: parent,
+          RT: PDFName.of("R"),
+          T: textString(a.author || opts.defaultAuthor),
+          Contents: textString("Marked set by " + (a.author || opts.defaultAuthor)),
+          StateModel: PDFString.of("Marked"),
+          State: PDFString.of("Marked"),
+          M: PDFString.of(pdfDate(a.modifiedAt)),
+        });
+        pushAnnot(page, ctx.doc.context.register(mark));
+      } catch {
+        /* the tick is not worth failing the save */
+      }
+    }
+    if (!a.replies?.length) continue;
     for (const reply of a.replies) {
-      if (!reply.text) continue;
+      // A review action is kept even without text (other tools write none).
+      if (!reply.text && !reply.status) continue;
       try {
         const dict = ctx.doc.context.obj({
           Type: "Annot",
@@ -629,6 +848,8 @@ export async function writeAnnots(
           Contents: textString(reply.text),
           CreationDate: PDFString.of(pdfDate(reply.createdAt)),
           M: PDFString.of(pdfDate(reply.createdAt)),
+          // A review action is Acrobat's state reply: « Accepted set by … ».
+          ...(reply.status ? { StateModel: PDFString.of("Review"), State: PDFString.of(PDF_STATE[reply.status]) } : {}),
         });
         pushAnnot(page, ctx.doc.context.register(dict));
       } catch {
@@ -659,15 +880,18 @@ async function writeOne(
     T: textString(a.author || opts.defaultAuthor),
     M: PDFString.of(pdfDate(a.modifiedAt)),
     CreationDate: PDFString.of(pdfDate(a.createdAt)),
-    NM: PDFString.of(a.id),
-    // Print + (locked when asked). Bit 3 = Print, bit 8 = Locked.
-    F: 4 | (a.locked ? 128 : 0) | (a.hidden ? 2 : 0),
+    // An imported annotation keeps its own unique name (not pdf.js' « 12R »).
+    NM: PDFString.of(a.pdf?.nm ?? a.id),
+    // Print + (locked when asked). Bit 3 = Print, bit 8 = Locked. An imported
+    // one keeps its other bits (NoPrint, NoZoom, NoRotate, ReadOnly…).
+    F: (a.pdf?.flags !== undefined ? a.pdf.flags & ~(2 | 128) : 4) | (a.locked ? 128 : 0) | (a.hidden ? 2 : 0),
   };
+  // Rich text from the file, while the text is still the one it renders.
+  if (a.pdf?.rc && a.pdf.rcFor === (a.text ?? a.contents ?? "")) entries.RC = textString(a.pdf.rc);
 
   const comment = a.contents ?? (a.kind === "note" ? a.text : undefined);
   if (comment) entries.Contents = textString(comment);
   if (a.subject) entries.Subj = textString(a.subject);
-  if (a.status && a.status !== "none") entries.StateModel = textString("Review");
 
   // --- per-kind entries -----------------------------------------------------
   if (isTextMarkup(a.kind) && a.quads?.length) {
@@ -678,8 +902,32 @@ async function writeOne(
   }
 
   if (a.kind === "note") {
-    entries.Name = PDFName.of("Comment");
-    entries.Open = false;
+    entries.Name = PDFName.of(a.icon ?? "Comment");
+    entries.Open = a.pdf?.open ?? false;
+  }
+
+  if (a.kind === "attachment" && a.file) {
+    // The file itself, embedded: /FS → /EF → an EmbeddedFile stream.
+    const bytes = dataUrlBytes(a.file.data);
+    const kept = a.file.source ? opts.keptFiles?.get(a.file.source) : undefined;
+    if (!bytes && kept) entries.FS = kept;
+    if (bytes) {
+      const stream = doc.context.flateStream(bytes, {
+        Type: "EmbeddedFile",
+        Subtype: PDFName.of(safeMime(a.file.mime)),
+        Params: { Size: bytes.length, ModDate: PDFString.of(pdfDate(a.modifiedAt)) },
+      } as never);
+      const efRef = doc.context.register(stream);
+      entries.FS = {
+        Type: "Filespec",
+        F: textString(a.file.name),
+        UF: textString(a.file.name),
+        ...(a.file.description ? { Desc: textString(a.file.description) } : {}),
+        EF: { F: efRef, UF: efRef },
+      };
+    }
+    entries.Name = PDFName.of(a.icon ?? "PushPin");
+    if (!entries.Contents) entries.Contents = textString(a.file.description || a.file.name);
   }
 
   if (a.kind === "ink" && a.paths?.length) {
@@ -742,11 +990,24 @@ async function writeOne(
   }
 
   if (a.kind === "freetext" || a.kind === "typewriter" || a.kind === "callout") {
-    const { font } = await ctx.fonts.get(a.fontFamily, a.bold, a.italic);
+    // FreeText: /C is the BOX's colour (none: transparent), the text's is in
+    // /DA — as Acrobat reads them. /DA names a font every reader knows (there
+    // is no /DR behind an annotation); the painted /AP has the real face.
+    if (a.textBg) entries.C = rgbToPdfArray(hexToRgb(a.textBg));
+    else delete entries.C;
     const c = hexToRgb(a.color);
-    entries.DA = PDFString.of(
-      `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)} rg /${font.name} ${round(a.fontSize ?? 12, 2)} Tf`,
+    const size = round(a.fontSize ?? 12, 2);
+    const fam = pdfFamilyOf(a.fontFamily);
+    const daFont = fam === "times" ? "TiRo" : fam === "courier" ? "Cour" : "Helv";
+    const col = `${round(c.r, 3)} ${round(c.g, 3)} ${round(c.b, 3)}`;
+    // The callout line and the border are drawn in the same colour as the text.
+    entries.DA = PDFString.of(`${col} rg ${col} RG /${daFont} ${size} Tf`);
+    const css = fam === "times" ? "Times New Roman" : fam === "courier" ? "Courier New" : "Helvetica";
+    entries.DS = textString(
+      `font: ${a.italic ? "italic " : ""}${a.bold ? "bold " : ""}${size}pt ${css}; ` +
+        `text-align:${a.align === "center" ? "center" : a.align === "right" ? "right" : "left"}; color:${a.color}`,
     );
+    if (a.kind === "typewriter") entries.IT = PDFName.of("FreeTextTypeWriter");
     entries.Q = a.align === "center" ? 1 : a.align === "right" ? 2 : 0;
     entries.Contents = textString(a.text ?? a.contents ?? "");
     if (a.kind === "callout" && a.callout?.length) {
@@ -760,21 +1021,52 @@ async function writeOne(
   }
 
   if (a.kind === "stamp" || a.kind === "image" || a.kind === "signature") {
-    entries.Name = PDFName.of("Draft");
+    entries.Name = PDFName.of(a.kind === "stamp" && a.stampName ? a.stampName : "Draft");
     if (a.stampLabel) entries.Subj = textString(a.stampLabel);
   }
 
   if (a.kind === "link") {
-    delete entries.C;
     delete entries.CA;
-    entries.Border = [0, 0, 0];
-    if (a.action?.type === "url") {
-      entries.A = { Type: "Action", S: "URI", URI: PDFString.of(a.action.url) };
-    } else if (a.action?.type === "page") {
-      const target = opts.pageRefs[Math.max(0, Math.min(opts.pageRefs.length - 1, a.action.page - 1))];
-      if (target) entries.Dest = [target, PDFName.of("Fit")];
+    // Border as Acrobat writes it: /BS (width, style) and /C, or none at all.
+    const st = a.linkStyle;
+    if (st?.visible) {
+      entries.BS = {
+        Type: "Border",
+        W: Math.max(0.5, st.width || 1),
+        S: st.line === "dashed" ? "D" : st.line === "underline" ? "U" : "S",
+        ...(st.line === "dashed" ? { D: [3] } : {}),
+      };
+    } else {
+      delete entries.C;
+      entries.Border = [0, 0, 0];
+    }
+    if (st && st.highlight !== "I") entries.H = PDFName.of(st.highlight);
+    const act = a.action;
+    if (act?.type === "url") {
+      entries.A = { Type: "Action", S: "URI", URI: PDFString.of(act.url) };
+    } else if (act?.type === "named") {
+      entries.A = { Type: "Action", S: "Named", N: PDFName.of(act.name) };
+    } else if (act?.type === "page") {
+      // The page it names, wherever it now is; else the page number it was given.
+      // A page removed or excluded from this output: the link leads nowhere
+      // (no /Dest) — never to whatever page now has its old number.
+      const index = act.pageId && opts.pageIndexOf ? (opts.pageIndexOf(act.pageId) ?? -1) : act.page - 1;
+      const dest = destArray(ctx.doc, {
+        title: "",
+        children: [],
+        page: index,
+        x: act.x,
+        y: act.y,
+        fit: act.fit ?? (act.y != null || act.zoom ? "XYZ" : "Fit"),
+        zoom: act.zoom,
+      });
+      if (dest && index >= 0 && index < opts.pageRefs.length) entries.Dest = dest;
     }
   }
+
+  // Acrobat's key for a box kept upright on a turned page (it regenerates with it).
+  const pageRot = (((ctx.rotation ?? 0) % 360) + 360) % 360;
+  if (pageRot && UPRIGHT_KINDS.has(a.kind)) entries.Rotate = pageRot;
 
   // --- appearance stream ----------------------------------------------------
   const res = new FormResources();
@@ -782,6 +1074,16 @@ async function writeOne(
   await paintAnnot(painter, a, ctx);
   if (!painter.isEmpty) {
     const bbox = frame.rectArray(inflateForStroke(rect, a));
+    // The shape's own box inside the (stroke-inflated) /Rect: without it a
+    // reader — or this import — takes the /Rect for the shape, and it grows
+    // on every round trip. ISO 32000 /RD: left, top, right, bottom.
+    if (RD_KINDS.has(a.kind)) {
+      const inner = frame.rectArray(rect);
+      const rd = [inner[0] - bbox[0], bbox[3] - inner[3], bbox[2] - inner[2], inner[1] - bbox[1]].map((v) =>
+        round(Math.max(0, v), 3),
+      );
+      if (rd.some((v) => v > 0)) entries.RD = rd;
+    }
     const apDict: Record<string, unknown> = {
       Type: "XObject",
       Subtype: "Form",
@@ -873,9 +1175,29 @@ export function writeRedactMarks(
 }
 
 /** Widen the box so strokes, arrow heads and cloud bumps are not clipped. */
+/** Subtypes whose /RD tells the shape's box inside the /Rect (ISO 32000-2 12.5.6). */
+const RD_KINDS = new Set<Annot["kind"]>(["square", "circle", "freetext", "typewriter", "callout", "whiteout"]);
+
+/** Kinds drawn exactly inside their rect: nothing to leave room for. */
+const UNSTROKED = new Set<Annot["kind"]>(["stamp", "image", "signature", "note", "link", "caret", "attachment"]);
+
+/** Kinds drawn with line endings. */
+const ENDED_KINDS = new Set<Annot["kind"]>(["line", "arrow", "polyline", "distance", "perimeter", "callout"]);
+
 function inflateForStroke(rect: Rect, a: Annot): Rect {
+  const textOnly = (a.kind === "freetext" || a.kind === "typewriter") && !(a.strokeWidth > 0);
+  if (a.rotation && (a.kind === "stamp" || a.kind === "image" || a.kind === "signature")) {
+    // Turned about its centre: the /Rect must hold the turned corners, or it is cut.
+    const t = (a.rotation * Math.PI) / 180;
+    const w = Math.abs(rect.w * Math.cos(t)) + Math.abs(rect.h * Math.sin(t));
+    const h = Math.abs(rect.w * Math.sin(t)) + Math.abs(rect.h * Math.cos(t));
+    return { x: rect.x + (rect.w - w) / 2, y: rect.y + (rect.h - h) / 2, w, h };
+  }
+  if (UNSTROKED.has(a.kind) || textOnly) return rect;
   let pad = (a.strokeWidth || 0) / 2 + 1;
-  if (a.lineEnd !== "none" || a.lineStart !== "none") pad += Math.max(4, (a.strokeWidth || 1) * 3.2);
+  // Room for real line endings only (an absent one is none: markup used to get 8 pt on each side).
+  const ends = [a.lineStart, a.lineEnd].some((e) => e && e !== "none");
+  if (ends && ENDED_KINDS.has(a.kind)) pad += Math.max(4, (a.strokeWidth || 1) * 3.2);
   if (a.borderStyle === "cloudy" || a.kind === "cloud") pad += Math.max(4, (a.strokeWidth || 1) * 3) * 2;
   if (a.kind === "callout" && a.callout?.length) {
     const all = [...a.callout, { x: rect.x, y: rect.y }, { x: rect.x + rect.w, y: rect.y + rect.h }];

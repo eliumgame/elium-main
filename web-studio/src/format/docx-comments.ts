@@ -14,6 +14,9 @@
  * intact in the native `.elium` format and are dropped on DOCX export/import,
  * same policy as every other Elium-only extension in this exporter.
  */
+
+import { escapeXmlText } from "./xml-text";
+
 export const COMMENTS_PART = "word/comments.xml";
 
 const NS =
@@ -23,13 +26,7 @@ const NS =
 const CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
 const REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 
-function esc(s: string): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+const esc = escapeXmlText;
 
 /** One comment thread's root, as written to (and read from) `comments.xml`. */
 export interface CommentEntry {

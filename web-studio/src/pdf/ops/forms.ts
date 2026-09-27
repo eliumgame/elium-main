@@ -7,21 +7,14 @@
  * overlay uses. Writing is done with pdf-lib.
  */
 
-import {
-  PDFArray,
-  PDFCheckBox,
-  PDFDocument,
-  PDFDropdown,
-  PDFName,
-  PDFNumber,
-  PDFOptionList,
-  PDFRadioGroup,
-  PDFString,
-  PDFTextField,
-} from "pdf-lib";
-import type { PDFFont, PDFForm, PDFPage } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRadioGroup, PDFString } from "pdf-lib";
+import type { PDFField, PDFFont, PDFForm, PDFPage } from "pdf-lib";
 import type { Rect } from "../core/coords";
+import { FieldFontBook, completeFieldAppearances, flattenFields, writeFieldValues } from "./formpdf";
+import { setFieldProps } from "./formedit";
+import type { FlattenReport } from "./formpdf";
 import type { CreatedField, FieldKind, FormValue } from "../model/types";
+import { formOf } from "./pdfform";
 
 /** Subset of a pdf.js widget annotation we consume (`getAnnotations()` is untyped). */
 export interface RawWidget {
@@ -69,6 +62,11 @@ export interface FieldBox {
   tooltip?: string;
   fontSize?: number;
   align: "left" | "center" | "right";
+}
+
+/** A PDF text string: literal for plain ASCII, UTF-16 otherwise (PDFString.of truncates to one byte per char). */
+function pdfText(s: string): PDFString | PDFHexString {
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
 }
 
 function kindOf(a: RawWidget): FieldKind | null {
@@ -164,66 +162,30 @@ export function missingRequired(fields: readonly FieldBox[], values: Record<stri
 
 export interface FillReport {
   filled: number;
+  /** Fields whose value changed in the file. */
+  changed: number;
   skipped: string[];
 }
 
-/** Write collected values into an already-loaded document. */
-export function fillForm(doc: PDFDocument, values: Record<string, FormValue>, font?: PDFFont): FillReport {
-  const report: FillReport = { filled: 0, skipped: [] };
-  let form;
-  try {
-    form = doc.getForm();
-  } catch {
-    return report;
-  }
-  for (const field of form.getFields()) {
-    const name = field.getName();
-    if (!(name in values)) continue;
-    const val = values[name];
-    try {
-      if (field instanceof PDFTextField) {
-        field.setText(typeof val === "boolean" ? (val ? "Oui" : "") : String(val ?? ""));
-      } else if (field instanceof PDFCheckBox) {
-        if (val === true || (typeof val === "string" && val && val !== "Off")) field.check();
-        else field.uncheck();
-      } else if (field instanceof PDFRadioGroup) {
-        if (typeof val === "string" && val) {
-          const opts = field.getOptions();
-          // pdf.js reports the appearance-state name, which may be a numeric
-          // index rather than pdf-lib's option name — map it back.
-          if (opts.includes(val)) field.select(val);
-          else if (/^\d+$/.test(val) && opts[Number(val)] != null) field.select(opts[Number(val)]);
-          else {
-            report.skipped.push(name);
-            continue;
-          }
-        } else field.clear();
-      } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
-        if (typeof val === "string" && val) field.select(val);
-        else field.clear();
-      } else {
-        continue;
-      }
-      report.filled++;
-    } catch {
-      report.skipped.push(name);
-    }
-  }
-  try {
-    if (font) form.updateFieldAppearances(font);
-    else form.updateFieldAppearances();
-  } catch {
-    /* appearances are best-effort */
-  }
-  return report;
+/**
+ * Write collected values into an already-loaded document (the field objects
+ * only — `completeFieldAppearances` then draws what changed, see `formpdf.ts`).
+ */
+export function fillForm(doc: PDFDocument, values: Record<string, FormValue>): FillReport {
+  const r = writeFieldValues(doc, values);
+  return { filled: r.filled, changed: r.changed.length, skipped: r.skipped };
 }
 
-export function flattenForm(doc: PDFDocument): boolean {
+/**
+ * Bake the form into the pages (appearances completed first, so a value no
+ * appearance showed yet is drawn too). Null when the document has no form.
+ */
+export async function flattenForm(doc: PDFDocument): Promise<FlattenReport | null> {
   try {
-    doc.getForm().flatten();
-    return true;
+    await completeFieldAppearances(doc, new FieldFontBook(doc), { refreshStale: true });
+    return flattenFields(doc);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -296,7 +258,7 @@ export function createFields(
   pageOf: (pageId: string) => { page: PDFPage; height: number } | null,
 ): number {
   if (!fields.length) return 0;
-  const form = ctx.doc.getForm();
+  const form = formOf(ctx.doc);
   let made = 0;
   const ordered = [...fields].sort((a, b) => (a.tabIndex ?? 0) - (b.tabIndex ?? 0));
 
@@ -311,61 +273,57 @@ export function createFields(
       width: Math.max(6, f.rect.w),
       height: Math.max(6, f.rect.h),
     };
-    // NOTE: anything that touches a field's default appearance — the font
-    // size, and any value whose look has to be rendered — only works *after*
-    // `addToPage`, which is what creates the `/DA` entry in the first place.
+    // `addToPage` creates the widget and its /DA; every property (flags,
+    // /Opt with labels, /Q, /TU, /DV, scripts…) is then set by the same code
+    // that edits the file's own fields, and the default value is written like
+    // any filled-in value (its appearance is drawn later, in a font that
+    // shows it — see formpdf.ts).
+    const { kind: _kind, id: _id, pageId: _pageId, name: _name, rect: _rect, tabIndex: _tab, ...props } = f;
+    void [_kind, _id, _pageId, _name, _rect, _tab];
     try {
+      let created: PDFField | null = null;
       switch (f.kind) {
         case "text": {
           const field = form.createTextField(f.name);
-          if (f.multiLine) field.enableMultiline();
-          if (f.maxLen) field.setMaxLength(f.maxLen);
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.setText(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, ...props });
           break;
         }
         case "checkbox": {
           const field = form.createCheckBox(f.name);
-          if (f.required) field.enableRequired();
           field.addToPage(page, at);
-          if (f.defaultValue === true) field.check();
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, props);
           break;
         }
         case "radio": {
           const existing = form.getFieldMaybe(f.name);
           const group = existing instanceof PDFRadioGroup ? existing : form.createRadioGroup(f.name);
-          const option = (typeof f.defaultValue === "string" && f.defaultValue) || f.options?.[0]?.value || "Option1";
-          if (f.required) group.enableRequired();
+          const option =
+            f.exportValue ||
+            (typeof f.defaultValue === "string" && f.defaultValue) ||
+            f.options?.[0]?.value ||
+            "Option1";
           group.addOptionToPage(option, page, at);
-          // Unlike checkbox/dropdown/listbox below, addOptionToPage() alone never
-          // marks the button selected — without this the requested default is
-          // silently ignored and the group opens with no value at all.
-          if (typeof f.defaultValue === "string" && f.defaultValue) group.select(option);
+          created = group;
+          const { exportValue: _e, defaultValue: _d, ...groupProps } = props;
+          void [_e, _d];
+          setFieldProps(ctx.doc, form, group, groupProps);
           break;
         }
         case "dropdown": {
           const field = form.createDropdown(f.name);
-          field.addOptions((f.options ?? []).map((o) => o.value));
-          field.enableEditing();
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.select(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, options: f.options ?? [], ...props });
           break;
         }
         case "listbox": {
           const field = form.createOptionList(f.name);
-          field.addOptions((f.options ?? []).map((o) => o.value));
-          if (f.required) field.enableRequired();
           field.addToPage(page, { ...at, font: ctx.font });
-          field.setFontSize(f.fontSize ?? 11);
-          if (typeof f.defaultValue === "string" && f.defaultValue) field.select(f.defaultValue);
-          if (f.readOnly) field.enableReadOnly();
+          created = field;
+          setFieldProps(ctx.doc, form, field, { fontSize: 0, options: f.options ?? [], ...props });
           break;
         }
         case "signature": {
@@ -379,6 +337,9 @@ export function createFields(
         }
         default:
           continue;
+      }
+      if (created && f.defaultValue !== undefined && f.defaultValue !== "") {
+        writeFieldValues(ctx.doc, { [f.name]: f.defaultValue });
       }
       made++;
     } catch {
@@ -439,11 +400,11 @@ function addSignatureField(
     FT: PDFName.of("Sig"),
     Rect: context.obj([at.x, at.y, at.x + at.width, at.y + at.height]),
     AP: context.obj({ N: apRef }),
-    T: PDFString.of(f.name),
+    T: pdfText(f.name),
     F: PDFNumber.of(4), // Print
     P: page.ref,
     ...(flags ? { Ff: PDFNumber.of(flags) } : {}),
-    ...(f.tooltip ? { TU: PDFString.of(f.tooltip) } : {}),
+    ...(f.tooltip ? { TU: pdfText(f.tooltip) } : {}),
   });
   const widgetRef = context.register(widget);
 
@@ -452,50 +413,4 @@ function addSignatureField(
   else page.node.set(PDFName.of("Annots"), context.obj([widgetRef]));
 
   form.acroForm.addField(widgetRef);
-}
-
-// ---------------------------------------------------------------------------
-// Import / export of form data
-// ---------------------------------------------------------------------------
-
-/** Serialise filled values as FDF, which Acrobat can import into the same form. */
-export function toFdf(values: Record<string, FormValue>, fileName: string): string {
-  const esc = (s: string) => s.replace(/([\\()])/g, "\\$1");
-  const entries = Object.entries(values).map(([name, value]) => {
-    const v = typeof value === "boolean" ? (value ? "/Yes" : "/Off") : `(${esc(String(value))})`;
-    return `<< /T (${esc(name)}) /V ${v} >>`;
-  });
-  return [
-    "%FDF-1.2",
-    "1 0 obj",
-    `<< /FDF << /Fields [ ${entries.join(" ")} ] /F (${esc(fileName)}) >> >>`,
-    "endobj",
-    "trailer",
-    "<< /Root 1 0 R >>",
-    "%%EOF",
-  ].join("\n");
-}
-
-/** Read values back from an FDF produced by Acrobat or by `toFdf`. */
-export function fromFdf(text: string): Record<string, FormValue> {
-  const out: Record<string, FormValue> = {};
-  const re = /\/T\s*\(((?:[^()\\]|\\.)*)\)\s*\/V\s*(?:\(((?:[^()\\]|\\.)*)\)|\/([A-Za-z0-9_.]+))/g;
-  let m: RegExpExecArray | null;
-  const unesc = (s: string) => s.replace(/\\([\\()])/g, "$1");
-  while ((m = re.exec(text)) !== null) {
-    const name = unesc(m[1]);
-    if (m[2] !== undefined) out[name] = unesc(m[2]);
-    else if (m[3] !== undefined) out[name] = m[3] !== "Off";
-  }
-  return out;
-}
-
-/** CSV of the filled values, for spreadsheets and mail merges. */
-export function toCsv(values: Record<string, FormValue>): string {
-  const esc = (s: string) => (/[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const rows = [
-    ["Champ", "Valeur"],
-    ...Object.entries(values).map(([k, v]) => [k, typeof v === "boolean" ? (v ? "Oui" : "Non") : String(v)]),
-  ];
-  return rows.map((r) => r.map(esc).join(";")).join("\r\n");
 }

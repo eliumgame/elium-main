@@ -56,6 +56,55 @@ export interface ScriptingOptions {
 
 let moduleLoad: Promise<{ QuickJSSandbox: (wasmUrl: string) => Promise<QuickSandbox> }> | null = null;
 
+/** Acrobat's « Activer JavaScript » (Préférences): documents' scripts run only when on. */
+let scriptsEnabled = true;
+export function setDocumentScriptsEnabled(on: boolean): void {
+  scriptsEnabled = on;
+}
+export function documentScriptsEnabled(): boolean {
+  return scriptsEnabled;
+}
+
+/**
+ * pdf.js' sandbox shows a script's app.alert / confirm / response with the
+ * browser's own boxes (they must answer synchronously). While documents'
+ * scripts run, those boxes say where the message comes from — a document,
+ * not Elium — and a script cannot raise more than 3 of them in 10 seconds.
+ */
+let dialogGuards = 0;
+let restoreDialogs: (() => void) | null = null;
+function guardScriptDialogs(fileName: () => string): () => void {
+  if (typeof window === "undefined") return () => {};
+  if (dialogGuards++ === 0) {
+    const { alert, confirm, prompt } = window;
+    let times: number[] = [];
+    const allow = () => {
+      const now = Date.now();
+      times = times.filter((t) => now - t < 10_000);
+      if (times.length >= 3) return false;
+      times.push(now);
+      return true;
+    };
+    const head = () => `Message du document PDF « ${fileName()} » (et non d'Elium) :\n\n`;
+    window.alert = (m?: unknown) => {
+      if (allow()) alert.call(window, head() + String(m ?? ""));
+    };
+    window.confirm = (m?: string) => (allow() ? confirm.call(window, head() + String(m ?? "")) : false);
+    window.prompt = (m?: string, d?: string) => (allow() ? prompt.call(window, head() + String(m ?? ""), d) : null);
+    restoreDialogs = () => {
+      window.alert = alert;
+      window.confirm = confirm;
+      window.prompt = prompt;
+    };
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--dialogGuards === 0) restoreDialogs?.();
+  };
+}
+
 /** Can form JavaScript run here? (a page with the published pdf.js assets, WebAssembly available) */
 export function scriptingSupported(): boolean {
   return typeof window !== "undefined" && typeof WebAssembly !== "undefined" && !!pdfjsAssetUrls();
@@ -82,6 +131,10 @@ export class FormScripting {
   private generation = 0;
   private docActions: unknown = null;
   private calculationOrder: string[] | null = null;
+  /** Last value each widget committed (the file's, then every accepted update) — see `onUpdate`. */
+  private committed = new Map<string, { value: unknown; formattedValue: unknown }>();
+  /** Values `typeAhead` gave each field, in order (see there). */
+  private typed = new Map<string, string[]>();
   /** Resolves once the first sandbox is up (true) or failed to start (false). */
   readonly ready: Promise<boolean>;
 
@@ -127,13 +180,19 @@ export class FormScripting {
     const gen = ++this.generation;
     const run = (async () => {
       try {
-        const [mod, objects] = await Promise.all([loadSandboxModule(), this.o.objects()]);
+        const mod = await loadSandboxModule();
         const urls = pdfjsAssetUrls()!;
         const sandbox = await mod.QuickJSSandbox(new URL(urls.wasmUrl, location.href).href);
         if (this.destroyed || gen !== this.generation) {
           sandbox.nukeSandbox();
           return false;
         }
+        // The values as they are NOW: what was typed while the engine loaded
+        // (the form layer is not scripted until it is up) is in them.
+        const objects = await this.o.objects();
+        this.rememberValues(objects);
+        this.unguard();
+        this.unguard = guardScriptDialogs(this.o.fileName);
         const info = await this.o.pdf.getMetadata().catch(() => null);
         const meta = (info?.info ?? {}) as Record<string, unknown>;
         sandbox.create({
@@ -215,10 +274,55 @@ export class FormScripting {
   private dispatch(event: unknown): void {
     if (this.destroyed || !event) return;
     if (!this.sandbox) {
+      // While the engine loads, pdf.js still cancels the typing in a field
+      // with a Keystroke script and waits for the answer: give it (the plain
+      // edit, not filtered yet), or what was typed in the first second is
+      // lost and an empty value committed. Only commits wait for the engine.
+      if (this.typeAhead(event)) return;
+      const id = (event as { id?: unknown }).id;
+      if (typeof id === "string") this.typed.delete(id);
       this.queue.push(event);
       return;
     }
     this.post(event);
+  }
+
+  /** The engine's answer to a keystroke, computed here while it is not up yet. */
+  private typeAhead(event: unknown): boolean {
+    const e = event as {
+      id?: unknown;
+      name?: unknown;
+      willCommit?: unknown;
+      value?: unknown;
+      change?: unknown;
+      selStart?: unknown;
+      selEnd?: unknown;
+    };
+    if (e.name !== "Keystroke" || e.willCommit || typeof e.id !== "string" || typeof e.change !== "string") {
+      return false;
+    }
+    let value = typeof e.value === "string" ? e.value : String(e.value ?? "");
+    let start = typeof e.selStart === "number" ? Math.max(0, Math.min(value.length, e.selStart)) : value.length;
+    let end = typeof e.selEnd === "number" ? Math.max(start, Math.min(value.length, e.selEnd)) : start;
+    // Fast typing: a keystroke can carry the field as it was before our last
+    // answer reached it. Applied to that stale value, the characters in
+    // between would be lost — apply it to the latest one instead.
+    const chain = this.typed.get(e.id);
+    const at = chain ? chain.lastIndexOf(value) : -1;
+    if (chain && at >= 0 && at < chain.length - 1) {
+      const latest = chain[chain.length - 1];
+      const shift = latest.length - value.length;
+      value = latest;
+      start = Math.max(0, Math.min(latest.length, start + shift));
+      end = Math.max(start, Math.min(latest.length, end + shift));
+    }
+    const next = value.slice(0, start) + e.change + value.slice(end);
+    const caret = start + e.change.length;
+    this.typed.set(e.id, [...(chain && at >= 0 ? chain : [value]), next].slice(-64));
+    this.onUpdate(
+      new CustomEvent("updatefromsandbox", { detail: { id: e.id, value: next, selRange: [caret, caret] } }),
+    );
+    return true;
   }
 
   private post(event: unknown): void {
@@ -226,13 +330,43 @@ export class FormScripting {
     if (!sandbox) return;
     // Like pdf.js: after the widget's own DOM handlers have run.
     setTimeout(() => {
-      if (this.sandbox !== sandbox) return;
+      // Rebuilt in the meantime (new values pushed from outside): the event
+      // goes to the new sandbox — or its queue — instead of being lost, which
+      // left a quickly typed value out of the calculations.
+      if (this.sandbox !== sandbox) {
+        this.dispatch(event);
+        return;
+      }
       try {
         sandbox.dispatchEvent(event);
       } catch (e) {
         this.o.onError?.(e instanceof Error ? e.message : String(e));
       }
     }, 0);
+  }
+
+  private rememberValues(objects: Record<string, unknown[]>): void {
+    this.committed.clear();
+    for (const list of Object.values(objects)) {
+      for (const o of list as { id?: unknown; value?: unknown }[]) {
+        if (typeof o?.id === "string" && "value" in o)
+          this.committed.set(o.id, { value: o.value, formattedValue: null });
+      }
+    }
+  }
+
+  /**
+   * pdf.js answers a value its Validate script refused (`event.rc = false`,
+   * e.g. AFRange_Validate) by EMPTYING the field. Acrobat rejects the value and
+   * keeps the previous one — what the user typed before is not lost, and the
+   * sandbox itself still holds that previous value. Recognised by its unique
+   * shape (runValidation's `else if (didValidateRun)` branch).
+   */
+  private static isRejection(d: Record<string, unknown>): boolean {
+    const r = d.selRange;
+    return (
+      d.value === "" && d.formattedValue === null && d.focus === true && Array.isArray(r) && r[0] === 0 && r[1] === 0
+    );
   }
 
   private onUpdate = (event: CustomEvent) => {
@@ -250,8 +384,25 @@ export class FormScripting {
     }
     delete detail.id;
     delete detail.siblings;
+    const ids = siblings ? [id, ...siblings] : [id];
+    if (FormScripting.isRejection(detail)) {
+      const prev = this.committed.get(id);
+      const text = prev?.value == null ? "" : String(prev.value);
+      detail.value = text;
+      detail.formattedValue = prev?.formattedValue ?? null;
+      detail.selRange = [0, text.length];
+    } else if ("value" in detail && !("selRange" in detail)) {
+      // A commit or a calculation (keystrokes while typing carry a selRange).
+      for (const i of ids) {
+        const prev = this.committed.get(i);
+        this.committed.set(i, {
+          value: detail.value,
+          formattedValue: "formattedValue" in detail ? detail.formattedValue : (prev?.formattedValue ?? null),
+        });
+      }
+    }
     this.o.asScript(() => {
-      for (const elementId of siblings ? [id, ...siblings] : [id]) {
+      for (const elementId of ids) {
         if (!this.o.ownsId(elementId)) continue;
         const element = document.querySelector(`.pdfx-stack [data-element-id="${CSS.escape(elementId)}"]`);
         if (element) element.dispatchEvent(new CustomEvent("updatefromsandbox", { detail }));
@@ -294,9 +445,12 @@ export class FormScripting {
     }
   }
 
+  private unguard: () => void = () => {};
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.unguard();
     this.abort.abort();
     this.queue = [];
     try {

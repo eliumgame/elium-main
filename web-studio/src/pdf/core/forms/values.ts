@@ -191,9 +191,13 @@ export function storageEntries(field: FormField, value: FormValue): [string, { v
       return field.widgets.map((w) => [w.id, { value: v !== "Off" && w.exportValue === v }]);
     case "listbox":
       if (field.multiSelect) return field.widgets.map((w) => [w.id, { value: Array.isArray(v) ? [...v] : [] }]);
-      return field.widgets.map((w) => [w.id, { value: typeof v === "string" && v ? v : null }]);
+      return field.widgets.map((w) => [w.id, { value: typeof v === "string" && v ? [v] : [] }]);
     case "combobox":
-      return field.widgets.map((w) => [w.id, { value: typeof v === "string" && v ? v : null }]);
+      // An ARRAY, never null or a bare string: pdf.js' choice widget renders
+      // with `storedData.value.includes(exportValue)` — null throws (the whole
+      // form layer of the page came back empty after « Réinitialiser »), and a
+      // string would select « C » too when the value is « CH ».
+      return field.widgets.map((w) => [w.id, { value: typeof v === "string" && v ? [v] : [] }]);
     case "text":
       return field.widgets.map((w) => [w.id, { value: typeof v === "string" ? v : String(v) }]);
     default:

@@ -7,7 +7,18 @@ export type ViewMode = "single" | "continuous" | "facing" | "facingContinuous";
 export type ZoomMode = "custom" | "fitWidth" | "fitPage" | "fitVisible";
 export type ReadingTheme = "paper" | "sepia" | "grey" | "night" | "invert";
 export type RibbonTab = "home" | "comment" | "edit" | "organise" | "forms" | "protect" | "convert" | "view";
-export type SidePanel = "thumbnails" | "bookmarks" | "comments" | "search" | "attachments" | "layers" | "fields";
+export type SidePanel =
+  /** « Tous les outils » (AllTools), not a Sidebar pane. */
+  | "tools"
+  | "thumbnails"
+  | "bookmarks"
+  | "destinations"
+  | "comments"
+  | "search"
+  | "attachments"
+  | "layers"
+  | "fields"
+  | "signatures";
 
 export interface ViewState {
   scale: number;
@@ -156,7 +167,9 @@ export const KIND_LABEL: Record<AnnotKind, string> = {
   underline: "Soulignement",
   strikeout: "Texte barré",
   squiggly: "Soulignement ondulé",
+  caret: "Insertion de texte",
   note: "Note",
+  attachment: "Pièce jointe",
   freetext: "Zone de texte",
   callout: "Légende",
   typewriter: "Machine à écrire",

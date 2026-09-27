@@ -113,6 +113,7 @@ function normalise(s: Partial<PdfState>): PdfState {
     imageEdits: s.imageEdits ?? [],
     formValues: s.formValues ?? {},
     createdFields: s.createdFields ?? [],
+    fieldEdits: s.fieldEdits ?? [],
     bookmarks: s.bookmarks ?? null,
     metadata: s.metadata ?? {},
     watermark: { ...base.watermark, ...(s.watermark ?? {}) },

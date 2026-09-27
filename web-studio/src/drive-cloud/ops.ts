@@ -284,6 +284,40 @@ export async function uploadFile(ctx: OpsCtx, parentId: string | null, file: Fil
   return updated;
 }
 
+/** The Drive changed the file since it was opened (another save, a restore). */
+export class DriveConflict extends Error {
+  constructor(readonly modifiedAt: string) {
+    super("Le fichier a été modifié dans le Drive depuis son ouverture.");
+    this.name = "DriveConflict";
+  }
+}
+
+/**
+ * The file's new content, written as its next version (the server keeps the
+ * earlier ones in the history). The node key is re-read first, so a save after
+ * a key rotation encrypts with the current key. With `expectedModifiedAt`, a
+ * file changed since then is refused (`DriveConflict`) unless `force`.
+ */
+export async function saveNewVersion(
+  ctx: OpsCtx,
+  nodeId: string,
+  bytes: Uint8Array,
+  opts: { expectedModifiedAt?: string; force?: boolean } = {},
+): Promise<NodeMeta> {
+  const { node, myWrappedKey } = await ctx.api.getNode(nodeId);
+  if (!opts.force && opts.expectedModifiedAt && node.modifiedAt !== opts.expectedModifiedAt)
+    throw new DriveConflict(node.modifiedAt);
+  const key = await nodeKeyFrom(ctx, myWrappedKey);
+  if (!key) throw new Error("Clé du nœud indisponible.");
+  const enc = await encryptContent(key, bytes);
+  const { node: updated } = await ctx.api.putContent(nodeId, enc.ciphertext, enc.nonceHex, node.keyEpoch);
+  return updated;
+}
+
+/** Is this Drive file a PDF (by its kind, else its name)? */
+export const isPdfEntry = (e: { kind: string; appKind?: string | null; name: string }) =>
+  e.kind === "file" && (e.appKind === "pdf" || /\.pdf$/i.test(e.name));
+
 export async function renameNode(ctx: OpsCtx, entry: DriveEntry, newName: string): Promise<void> {
   const key = await nodeKeyFrom(ctx, entry.myWrappedKey);
   if (!key) throw new Error("Clé du nœud indisponible.");

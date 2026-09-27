@@ -13,6 +13,7 @@
  */
 
 import { NOTE_TITLES, noteNumFmt, type NoteEntry, type NoteKind } from "../editor/notes";
+import { escapeXmlText } from "./xml-text";
 
 /** Nom de la partie OOXML, par famille. */
 export const NOTE_PART: Record<NoteKind, string> = {
@@ -55,13 +56,7 @@ const NS =
   'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
 
-function esc(s: string): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+const esc = escapeXmlText;
 
 /**
  * Identifiant OOXML de la n-ième note (rang à partir de 1).

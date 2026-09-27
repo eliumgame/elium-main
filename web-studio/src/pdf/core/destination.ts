@@ -122,6 +122,26 @@ export function fileDestination(handle: FsFileHandle): SaveDestination {
   };
 }
 
+/**
+ * A document of the encrypted Drive: each save uploads a new version (the
+ * Drive keeps the earlier ones). `prepare` lets the caller check first that
+ * nobody changed the file meanwhile (and ask what to do).
+ */
+export function driveDestination(opts: {
+  name: string;
+  prepare?: () => Promise<boolean>;
+  write: (bytes: Uint8Array) => Promise<void>;
+}): SaveDestination {
+  return {
+    kind: "drive",
+    name: opts.name,
+    label: `${opts.name} (Drive)`,
+    persistent: true,
+    prepare: opts.prepare ?? (async () => true),
+    write: opts.write,
+  };
+}
+
 /** A download (fallback when files cannot be written in place). */
 export function downloadDestination(name: string): SaveDestination {
   return {

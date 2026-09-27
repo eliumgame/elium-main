@@ -8,11 +8,25 @@
  * itself (the desktop app is a single-page `--app` window).
  */
 
+import type { DestFit } from "../../model/types";
+
+/** A resolved destination: 1-based SOURCE page, the point (page space) and the view. */
+export interface SourceDest {
+  page: number;
+  y?: number;
+  x?: number;
+  fit?: DestFit;
+  zoom?: number;
+}
+
 export interface LinkHandlers {
-  /** 1-based SOURCE page number and optional offset (points from the page top). */
-  goToSourcePage: (page: number, y?: number) => void;
+  goToSourcePage: (dest: SourceDest) => void;
   /** Resolve a pdf.js destination to a 1-based source page. */
-  resolveDest: (dest: unknown) => Promise<{ page: number | null; y?: number }>;
+  resolveDest: (
+    dest: unknown,
+  ) => Promise<{ page: number | null; y?: number; x?: number; fit?: DestFit; zoom?: number }>;
+  /** A named action (NextPage, GoBack…), run on the document as it now is. */
+  namedAction: (name: string) => void;
   openExternal: (url: string) => void;
   /** 1-based source page currently shown (for named actions). */
   currentSourcePage: () => number;
@@ -33,7 +47,7 @@ export class EliumLinkService {
     return this.h.currentSourcePage();
   }
   set page(value: number) {
-    this.h.goToSourcePage(value);
+    this.h.goToSourcePage({ page: value });
   }
   get rotation(): number {
     return 0;
@@ -51,12 +65,12 @@ export class EliumLinkService {
 
   async goToDestination(dest: unknown): Promise<void> {
     const resolved = await this.h.resolveDest(dest);
-    if (resolved.page) this.h.goToSourcePage(resolved.page, resolved.y);
+    if (resolved.page) this.h.goToSourcePage({ ...resolved, page: resolved.page });
   }
 
   goToPage(value: number | string): void {
     const n = typeof value === "string" ? parseInt(value, 10) : value | 0;
-    if (Number.isInteger(n) && n >= 1 && n <= this.pagesCount) this.h.goToSourcePage(n);
+    if (Number.isInteger(n) && n >= 1 && n <= this.pagesCount) this.h.goToSourcePage({ page: n });
   }
 
   goToXY(pageNumber: number): void {
@@ -90,23 +104,7 @@ export class EliumLinkService {
   setHash(): void {}
 
   executeNamedAction(action: string): void {
-    const cur = this.h.currentSourcePage();
-    switch (action) {
-      case "NextPage":
-        this.goToPage(Math.min(this.pagesCount, cur + 1));
-        break;
-      case "PrevPage":
-        this.goToPage(Math.max(1, cur - 1));
-        break;
-      case "FirstPage":
-        this.goToPage(1);
-        break;
-      case "LastPage":
-        this.goToPage(this.pagesCount);
-        break;
-      default:
-        break;
-    }
+    this.h.namedAction(action);
   }
 
   async executeSetOCGState(): Promise<void> {

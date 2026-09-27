@@ -66,6 +66,22 @@
   --x-desk: #14171e;
 }
 
+/* Anneau de focus sur le chrome, sombre dans les deux thèmes : l'anneau global
+   (--el-focus-ring, #1d4ed8 en thème clair) n'y atteignait que ~2,4:1. Un bleu
+   clair y dépasse 9:1 (WCAG 2.4.11 : 3:1 au moins). */
+.pdfx-topbar,
+.elx-topbar,
+.pdfx-ribbon,
+.elx-ribbon,
+.pdfx-rail,
+.elx-rail,
+.pdfx-status,
+.elx-status,
+.pdfx-menu,
+.elx-menu {
+  --el-focus-ring: #93c5fd;
+}
+
 .pdfx *,
 .elx *,
 .pdfx *::before,
@@ -2150,6 +2166,10 @@
 }
 
 @media (max-width: 900px) {
+  /* The overlays open under the top bar and the ribbon, never over the tabs. */
+  .pdfx-main {
+    position: relative;
+  }
   .pdfx-side,
   .elx-side {
     position: absolute;

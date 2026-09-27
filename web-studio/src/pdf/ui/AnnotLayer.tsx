@@ -5,6 +5,8 @@ import type { Annot, AnnotKind, DraftStyle, Tool } from "../model/types";
 import { isPolyKind, isTextMarkup, newId } from "../model/types";
 import { fontCss } from "../../ui/fonts";
 import { NOTE_SIZE } from "../ops/annots-pdf";
+import { noteIcon } from "../model/noteicons";
+import { stampById, stampFields } from "../model/stamps";
 
 /** Image d'un tampon/image/signature avec repli LIBELLÉ : si la source est
  *  absente ou ne se charge pas (data URL cassée), on affiche une étiquette
@@ -25,6 +27,50 @@ function StampImg({ src, fit, label, tone }: { src: string; fit: "fill" | "conta
       onError={() => setBroken(true)}
       style={{ width: "100%", height: "100%", objectFit: fit }}
     />
+  );
+}
+
+/** A sticky note's icon, drawn from the same shapes as its appearance in the file. */
+function NoteIconSvg({ name, color, attachment = false }: { name?: string; color: string; attachment?: boolean }) {
+  return (
+    <svg className="pdfx-note__icon" viewBox="-0.05 -0.05 1.1 1.1" aria-hidden>
+      {noteIcon(name, attachment).map((sh, i) => {
+        const common = { stroke: "#262626", strokeWidth: 0.035, strokeLinejoin: "round" as const };
+        if (sh.t === "rrect")
+          return (
+            <rect
+              key={i}
+              x={sh.x}
+              y={sh.y}
+              width={sh.w}
+              height={sh.h}
+              rx={sh.r}
+              fill={sh.fill ? color : "none"}
+              {...common}
+            />
+          );
+        if (sh.t === "circle")
+          return <circle key={i} cx={sh.cx} cy={sh.cy} r={sh.r} fill={sh.fill ? color : "none"} {...common} />;
+        if (sh.t === "poly") {
+          const d = `M${sh.pts.map(([u, v]) => `${u} ${v}`).join("L")}${sh.close ? "Z" : ""}`;
+          return <path key={i} d={d} fill={sh.fill ? color : "none"} {...common} />;
+        }
+        return (
+          <text
+            key={i}
+            x={sh.x}
+            y={sh.y}
+            fontSize={sh.size}
+            textAnchor="middle"
+            fontWeight={700}
+            fill="#262626"
+            fontFamily="Helvetica, Arial, sans-serif"
+          >
+            {sh.text}
+          </text>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -60,6 +106,8 @@ export interface AnnotLayerProps {
   onContextMenu: (annot: Annot, at: { x: number; y: number }) => void;
   onRequestImage: (at: Pt) => void;
   onRequestNoteText: (annot: Annot) => void;
+  /** A click on a link (outside the Link tool, which edits them): follow it. */
+  onFollowLink?: (annot: Annot) => void;
 }
 
 interface DraftShape {
@@ -85,10 +133,18 @@ const BOX_TOOLS: AnnotKind[] = [
   "image",
   "signature",
   "link",
-  "area",
 ];
 const LINE_TOOLS: AnnotKind[] = ["line", "arrow", "distance"];
-const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter"];
+// « Aire » is drawn point by point like a polygon (it used to be a box, left empty).
+const POLY_TOOLS: AnnotKind[] = ["polygon", "polyline", "cloud", "perimeter", "area"];
+
+/** A click with the Tampon tool: the stamp's natural size (points). */
+function stampSize(style: DraftStyle): { w: number; h: number } {
+  if (style.stampSrc) return { w: 160, h: 160 * (style.stampRatio || 0.5) };
+  const def = stampById(style.stamp);
+  const w = Math.max(120, Math.min(260, def.label.length * 13 + 44));
+  return { w, h: def.dynamic ? 58 : 44 };
+}
 
 function AnnotLayer(p: AnnotLayerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -222,6 +278,21 @@ function AnnotLayer(p: AnnotLayerProps) {
       return;
     }
 
+    if (kind === "attachment") {
+      if (!p.style.attachFile) {
+        p.onToolDone();
+        return;
+      }
+      const annot = baseAnnot("attachment", { x: start.x, y: start.y, w: NOTE_SIZE, h: NOTE_SIZE });
+      annot.file = p.style.attachFile;
+      annot.icon = "PushPin";
+      annot.color = "#2563eb";
+      annot.contents = p.style.attachFile.name;
+      p.onCreate(annot);
+      p.onToolDone();
+      return;
+    }
+
     if (kind === "note") {
       const annot = baseAnnot("note", { x: start.x, y: start.y, w: NOTE_SIZE, h: NOTE_SIZE });
       annot.contents = "";
@@ -321,8 +392,13 @@ function AnnotLayer(p: AnnotLayerProps) {
             w: kind === "callout" ? 190 : 200,
             h: isText ? Math.max(24, p.style.fontSize * 2) : 70,
           };
+          if (kind === "stamp") rect = { ...rect, ...stampSize(p.style) };
         }
         const annot = baseAnnot(kind, rect);
+        if (kind === "stamp") {
+          if (p.style.stampSrc) annot.src = p.style.stampSrc;
+          else Object.assign(annot, stampFields(stampById(p.style.stamp), p.author, new Date()));
+        }
         if (kind === "callout") {
           annot.callout = [
             { x: Math.max(0, rect.x - 70), y: rect.y + rect.h + 40 },
@@ -392,7 +468,21 @@ function AnnotLayer(p: AnnotLayerProps) {
       p.onDelete([annot.id]);
       return;
     }
-    if (p.tool !== "select" && p.tool !== "textSelect") return;
+    // A link is followed on a click, as in Acrobat; the Link tool selects and moves it.
+    if (annot.kind === "link" && p.tool !== "link") {
+      if (p.tool !== "select" && p.tool !== "textSelect" && p.tool !== "hand") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener("pointerup", up);
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) p.onFollowLink?.(annot);
+      };
+      window.addEventListener("pointerup", up);
+      return;
+    }
+    if (p.tool !== "select" && p.tool !== "textSelect" && !(p.tool === "link" && annot.kind === "link")) return;
     e.preventDefault();
     e.stopPropagation();
     const already = p.selectedIds.includes(annot.id);
@@ -538,7 +628,7 @@ function AnnotLayer(p: AnnotLayerProps) {
       className: `pdfx-shape ${selected ? "is-selected" : ""} ${a.locked ? "is-locked" : ""}`,
       onPointerDown: (e: React.PointerEvent) => startMove(e, a),
       onDoubleClick: () => {
-        if (isTextMarkup(a.kind) || a.kind === "note") p.onRequestNoteText(a);
+        if (isTextMarkup(a.kind) || a.kind === "note" || a.kind === "caret") p.onRequestNoteText(a);
       },
       onContextMenu: (e: React.MouseEvent) => {
         e.preventDefault();
@@ -556,6 +646,23 @@ function AnnotLayer(p: AnnotLayerProps) {
     }
 
     switch (a.kind) {
+      case "caret": {
+        // Acrobat's insertion mark, its tip where the text goes.
+        const r = a.rect;
+        const pts = [
+          { x: r.x, y: r.y + r.h },
+          { x: r.x + r.w / 2, y: r.y },
+          { x: r.x + r.w, y: r.y + r.h },
+          { x: r.x + r.w / 2, y: r.y + r.h * 0.62 },
+        ].map(toView);
+        const d = `M${pts.map((q) => `${q.x} ${q.y}`).join("L")}Z`;
+        return (
+          <g key={a.id} {...common}>
+            <path d={d} fill={a.color} fillOpacity={a.opacity ?? 1} stroke="none" />
+            <path d={d} fill="transparent" stroke="transparent" strokeWidth={10} />
+          </g>
+        );
+      }
       case "ink":
         return (
           <g key={a.id} {...common}>
@@ -694,15 +801,54 @@ function AnnotLayer(p: AnnotLayerProps) {
       }
       case "link": {
         const r = viewRect(a.rect);
+        // Edited with the Link tool (or selected): its frame. Otherwise as the file shows it.
+        const editing = p.tool === "link" || selected;
+        const st = a.linkStyle;
+        const w = Math.max(0.5, st?.width || 1) * p.scale;
         return (
-          <g key={a.id} {...common}>
+          <g
+            key={a.id}
+            {...common}
+            // The Link tool draws new links AND picks existing ones.
+            style={editing ? (p.tool === "link" ? { pointerEvents: "auto" } : undefined) : { cursor: "pointer" }}
+          >
+            <title>
+              {a.action?.type === "url"
+                ? a.action.url
+                : a.action?.type === "page"
+                  ? `Aller à la page ${a.action.page}`
+                  : a.action?.type === "named"
+                    ? a.action.name
+                    : "Lien sans destination"}
+            </title>
+            {st?.visible && st.line === "underline" ? (
+              <line
+                x1={r.x}
+                y1={r.y + r.h - w / 2}
+                x2={r.x + r.w}
+                y2={r.y + r.h - w / 2}
+                stroke={a.color}
+                strokeWidth={w}
+              />
+            ) : st?.visible ? (
+              <rect
+                x={r.x + w / 2}
+                y={r.y + w / 2}
+                width={Math.max(0, r.w - w)}
+                height={Math.max(0, r.h - w)}
+                fill="none"
+                stroke={a.color}
+                strokeWidth={w}
+                strokeDasharray={st.line === "dashed" ? `${3 * p.scale}` : undefined}
+              />
+            ) : null}
             <rect
               x={r.x}
               y={r.y}
               width={r.w}
               height={r.h}
-              fill="rgba(37,99,235,.08)"
-              stroke="#2563eb"
+              fill={editing ? "rgba(37,99,235,.08)" : "transparent"}
+              stroke={editing ? "#2563eb" : "none"}
               strokeWidth={1}
               strokeDasharray="4 3"
             />
@@ -806,7 +952,9 @@ function AnnotLayer(p: AnnotLayerProps) {
   /** Text boxes, notes, stamps and images live in HTML so they can be edited. */
   const renderHtml = (a: Annot) => {
     const selected = p.selectedIds.includes(a.id);
-    const r = viewRect(a.kind === "note" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect);
+    const r = viewRect(
+      a.kind === "note" || a.kind === "attachment" ? { ...a.rect, w: NOTE_SIZE, h: NOTE_SIZE } : a.rect,
+    );
     const base: React.CSSProperties = {
       position: "absolute",
       left: r.x,
@@ -832,19 +980,44 @@ function AnnotLayer(p: AnnotLayerProps) {
       </div>
     );
 
+    if (a.kind === "attachment") {
+      const file = a.file;
+      return wrapper(
+        <button
+          type="button"
+          className="pdfx-note pdfx-note--attachment"
+          title={file ? `${file.name} — double-cliquez pour l'enregistrer` : "Pièce jointe"}
+          aria-label={file ? `Pièce jointe : ${file.name}` : "Pièce jointe"}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (!file) return;
+            const link = document.createElement("a");
+            link.href = file.data;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }}
+        >
+          <NoteIconSvg name={a.icon ?? "PushPin"} color={a.color} attachment />
+        </button>,
+        "pdfx-html--note",
+      );
+    }
+
     if (a.kind === "note") {
       return wrapper(
         <button
           type="button"
           className="pdfx-note"
-          style={{ background: a.color }}
+          data-icon={a.icon ?? "Comment"}
           title={a.contents || "Note"}
           onClick={(e) => {
             e.stopPropagation();
             p.onRequestNoteText(a);
           }}
         >
-          <span className="pdfx-note__tail" style={{ borderTopColor: a.color }} />
+          <NoteIconSvg name={a.icon} color={a.color} />
           {(a.replies?.length ?? 0) > 0 && <span className="pdfx-note__count">{a.replies!.length}</span>}
         </button>,
         "pdfx-html--note",
@@ -868,8 +1041,9 @@ function AnnotLayer(p: AnnotLayerProps) {
         a.src ? (
           <StampImg src={a.src} fit={fit} label={label} tone={tone} />
         ) : (
-          <div className="pdfx-stamp" data-tone={tone}>
-            {label}
+          <div className={`pdfx-stamp ${a.stampSub ? "has-sub" : ""}`} data-tone={tone}>
+            <span className="pdfx-stamp__label">{label}</span>
+            {a.stampSub && <span className="pdfx-stamp__sub">{a.stampSub}</span>}
           </div>
         ),
       );
@@ -1023,6 +1197,7 @@ export default memo(AnnotLayer, annotLayerPropsEqual);
 function isHtmlKind(k: AnnotKind): boolean {
   return (
     k === "note" ||
+    k === "attachment" ||
     k === "freetext" ||
     k === "typewriter" ||
     k === "callout" ||

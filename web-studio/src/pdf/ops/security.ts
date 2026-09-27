@@ -70,13 +70,10 @@ const BIT = {
 } as const;
 
 export function permissionsToP(p: Permissions): number {
-  // All reserved high bits set, then clear the ones that are denied.
-  let v = -1 & ~0b111100; // bits 1-2 and 7-8 are reserved-0 in revision 3+
-  v |= 0xfffff000;
-  for (const [key, bit] of Object.entries(BIT)) {
-    if (p[key as keyof Permissions]) v |= bit;
-    else v &= ~bit;
-  }
+  // ISO 32000 table 22: bits 1-2 shall be 0, bits 7-8 and 13-32 shall be 1;
+  // then the permission bits that are granted.
+  let v = 0xfffff0c0;
+  for (const [key, bit] of Object.entries(BIT)) if (p[key as keyof Permissions]) v |= bit;
   return v | 0;
 }
 
@@ -333,33 +330,73 @@ function readEncryptDict(doc: PDFDocument): { info: EncryptInfo; id0: Uint8Array
   };
 }
 
+/**
+ * An AES-256 password as ISO 32000-2 wants it: SASLprep'd (approximated by
+ * NFKC — the same accented password typed on two systems, composed or not,
+ * gives the same bytes), UTF-8, 127 bytes at most.
+ */
+function r6Password(password: string | undefined): Uint8Array {
+  return utf8Bytes((password ?? "").normalize("NFKC")).subarray(0, 127);
+}
+
 /** Recover the file key from a user or owner password, or null if neither fits. */
 function deriveFileKey(info: EncryptInfo, id0: Uint8Array, password: string): Uint8Array | null {
+  const role = passwordRole(info, id0, password);
+  return role ? role.key : null;
+}
+
+/** The file key, and whether `password` is the owner's (full rights) or the user's. */
+function passwordRole(
+  info: EncryptInfo,
+  id0: Uint8Array,
+  password: string,
+): { key: Uint8Array; owner: boolean } | null {
   if (info.v >= 5) {
-    const pw = utf8Bytes(password).subarray(0, 127);
+    // The normalised form first; the raw one for files written before normalisation.
+    for (const pw of [r6Password(password), utf8Bytes(password).subarray(0, 127)]) {
+      const hit = r6Role(info, pw);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  // Latin-1 wants composed accents (« é » as one character): the NFC form
+  // first, then the password as typed.
+  const forms = [...new Set([password.normalize("NFC"), password])];
+  for (const pw of forms) {
+    const asOwner = legacyOwnerKey(info, id0, pw);
+    if (asOwner) return { key: asOwner, owner: true };
+  }
+  for (const pw of forms) {
+    const asUser = legacyFileKey(pw, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
+    if (checkLegacyUser(asUser, info, id0)) return { key: asUser, owner: false };
+  }
+  return null;
+}
+
+function r6Role(info: EncryptInfo, pw: Uint8Array): { key: Uint8Array; owner: boolean } | null {
+  {
     const uValidation = info.u.subarray(32, 40);
     const uKeySalt = info.u.subarray(40, 48);
-    const userHash = info.r === 5 ? sha256(concatBytes(pw, uValidation)) : hash2B(pw, uValidation, new Uint8Array(0));
-    if (equal(userHash, info.u.subarray(0, 32)) && info.ue) {
-      const ik = info.r === 5 ? sha256(concatBytes(pw, uKeySalt)) : hash2B(pw, uKeySalt, new Uint8Array(0));
-      return aesCbcNoPadDecrypt(ik, ZERO_IV, info.ue.subarray(0, 32));
-    }
+    // Owner first: a password that is both is the owner's.
     const u48 = info.u.subarray(0, 48);
     const oValidation = info.o.subarray(32, 40);
     const oKeySalt = info.o.subarray(40, 48);
     const ownerHash = info.r === 5 ? sha256(concatBytes(pw, oValidation, u48)) : hash2B(pw, oValidation, u48);
     if (equal(ownerHash, info.o.subarray(0, 32)) && info.oe) {
       const ik = info.r === 5 ? sha256(concatBytes(pw, oKeySalt, u48)) : hash2B(pw, oKeySalt, u48);
-      return aesCbcNoPadDecrypt(ik, ZERO_IV, info.oe.subarray(0, 32));
+      return { key: aesCbcNoPadDecrypt(ik, ZERO_IV, info.oe.subarray(0, 32)), owner: true };
+    }
+    const userHash = info.r === 5 ? sha256(concatBytes(pw, uValidation)) : hash2B(pw, uValidation, new Uint8Array(0));
+    if (equal(userHash, info.u.subarray(0, 32)) && info.ue) {
+      const ik = info.r === 5 ? sha256(concatBytes(pw, uKeySalt)) : hash2B(pw, uKeySalt, new Uint8Array(0));
+      return { key: aesCbcNoPadDecrypt(ik, ZERO_IV, info.ue.subarray(0, 32)), owner: false };
     }
     return null;
   }
+}
 
-  // Revisions 2–4: try the password as user, then as owner.
-  const asUser = legacyFileKey(password, info.o, info.p, id0, info.r, info.lengthBytes, info.encryptMetadata);
-  if (checkLegacyUser(asUser, info, id0)) return asUser;
-
-  // Owner path: decrypt /O to recover the user password, then redo algorithm 2.
+/** Revisions 2–4, owner path: decrypt /O to recover the user password, then redo algorithm 2. */
+function legacyOwnerKey(info: EncryptInfo, id0: Uint8Array, password: string): Uint8Array | null {
   let ownerKey: Uint8Array = md5(padPassword(password));
   if (info.r >= 3) for (let i = 0; i < 50; i++) ownerKey = md5(ownerKey);
   const n = info.r === 2 ? 5 : info.lengthBytes;
@@ -499,6 +536,7 @@ async function repairOneObjectStream(
   ref: PDFRef,
   raw: Uint8Array,
   streamX: Transform,
+  offsets?: Map<string, number>,
 ): Promise<string[] | null> {
   const streamKw = findAscii(raw, "stream");
   if (streamKw === -1) return null;
@@ -542,7 +580,7 @@ async function repairOneObjectStream(
   const plaintext = streamX(ciphertext, ref);
 
   const ctx = doc.context;
-  const before = new Set(ctx.enumerateIndirectObjects().map(([r]) => String(r)));
+  const before = new Map(ctx.enumerateIndirectObjects().map(([r, o]) => [String(r), o] as const));
   const fixedDict: PDFDict = ctx.obj({
     Type: "ObjStm",
     N: parseInt(nMatch[1], 10),
@@ -556,12 +594,37 @@ async function repairOneObjectStream(
   } catch {
     return null;
   }
+  // The objects this stream (re)defines. pdf-lib parsed the whole file before
+  // this repair: an object a later update redefined is already in the context,
+  // and must not be replaced by the older copy packed in this stream.
   const recovered: string[] = [];
-  for (const [r] of ctx.enumerateIndirectObjects()) {
+  const streamAt = offsets?.get(String(ref)) ?? -1;
+  for (const [r, o] of ctx.enumerateIndirectObjects()) {
     const tag = String(r);
-    if (!before.has(tag)) recovered.push(tag);
+    const old = before.get(tag);
+    if (old === o) continue;
+    if (old !== undefined) {
+      const directAt = offsets?.get(tag);
+      // Without the file's bytes, the object already there wins (never undo an update).
+      const laterDirect = !offsets || (directAt !== undefined && directAt > streamAt);
+      if (laterDirect) {
+        ctx.assign(r, old);
+        continue;
+      }
+    }
+    recovered.push(tag);
   }
   return recovered;
+}
+
+/** Where each object is (last) defined in the file: "num gen" → byte offset. */
+function objectOffsets(bytes: Uint8Array): Map<string, number> {
+  const out = new Map<string, number>();
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const re = /(?:^|[\s>\]])(\d{1,10})\s+(\d{1,5})\s+obj\b/g;
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) out.set(`${+m[1]!} ${+m[2]!} R`, m.index);
+  return out;
 }
 
 /**
@@ -575,6 +638,7 @@ async function repairEncryptedObjectStreams(
   doc: PDFDocument,
   streamX: Transform,
   plaintextRefs: Set<string>,
+  bytes?: Uint8Array,
 ): Promise<void> {
   const ctx = doc.context;
   const candidates: PDFRef[] = [];
@@ -587,12 +651,15 @@ async function repairEncryptedObjectStreams(
     candidates.push(ref);
   }
   if (candidates.length === 0) return;
+  // Oldest first: a later revision's object stream supersedes an earlier one.
+  const offsets = bytes ? objectOffsets(bytes) : undefined;
+  if (offsets) candidates.sort((a, b) => (offsets.get(String(a)) ?? 0) - (offsets.get(String(b)) ?? 0));
 
   for (const ref of candidates) {
     const obj = ctx.lookup(ref);
     if (!(obj instanceof PDFInvalidObject)) continue;
     const raw = (obj as unknown as { data: Uint8Array }).data;
-    const recovered = await repairOneObjectStream(doc, ref, raw, streamX);
+    const recovered = await repairOneObjectStream(doc, ref, raw, streamX, offsets);
     if (!recovered) throw new UnsupportedEncryptedObjectStreams();
     ctx.delete(ref);
     for (const tag of recovered) plaintextRefs.add(tag);
@@ -636,8 +703,12 @@ export interface PdfCrypt {
   readonly permissions: Permissions;
   /** First element of the trailer `/ID` the key is bound to (revisions 2–4 derive the key from it). */
   readonly id0: Uint8Array;
-  /** Decrypt every object of `doc` in place (the document this handler was opened from). */
-  decryptDocument(doc: PDFDocument): Promise<void>;
+  /**
+   * Decrypt every object of `doc` in place (the document this handler was opened
+   * from). Pass the file's bytes when it may hold encrypted object streams and
+   * later updates: they tell which definition of an object is the current one.
+   */
+  decryptDocument(doc: PDFDocument, bytes?: Uint8Array): Promise<void>;
   /** Encrypt every object of `doc` in place (last step of a full rewrite), skipping the given refs. */
   encryptDocument(doc: PDFDocument, skip: ReadonlySet<string>): void;
   /** An encrypted COPY of indirect object `ref`, ready to be written; `obj` itself is left untouched. */
@@ -706,7 +777,7 @@ function makeCrypt(p: CryptParams): PdfCrypt {
     scheme: p.scheme,
     permissions: pToPermissions(info.p),
     id0: p.id0,
-    async decryptDocument(doc) {
+    async decryptDocument(doc, bytes) {
       const skip = new Set<string>();
       const encryptRef = doc.context.trailerInfo.Encrypt;
       if (encryptRef instanceof PDFRef) skip.add(String(encryptRef));
@@ -717,7 +788,7 @@ function makeCrypt(p: CryptParams): PdfCrypt {
       // (or fail loudly if we can't) before touching anything else, so `skip`
       // below can exclude their contents from the ordinary string-decryption walk
       // (objects nested in an object stream are never separately encrypted).
-      await repairEncryptedObjectStreams(doc, dStream, skip);
+      await repairEncryptedObjectStreams(doc, dStream, skip, bytes);
       applySplitTransform(doc, dStream, dString, skip, info);
     },
     encryptDocument(doc, skip) {
@@ -737,7 +808,17 @@ function makeCrypt(p: CryptParams): PdfCrypt {
  * owner; "" for files that open without one). Returns null when the file is
  * not encrypted, throws `WrongPassword` when the password fits neither slot.
  */
+/** A document protected by certificates (or another handler than passwords): not a wrong password. */
+export class UnsupportedSecurityHandler extends Error {
+  constructor(readonly handler: string) {
+    super(`Document protégé par certificat (${handler}) : ce type de protection n'est pas pris en charge.`);
+    this.name = "UnsupportedSecurityHandler";
+  }
+}
+
 export function openCrypt(doc: PDFDocument, password: string): PdfCrypt | null {
+  const handler = encryptHandler(doc);
+  if (handler && handler !== "Standard") throw new UnsupportedSecurityHandler(handler);
   const read = readEncryptDict(doc);
   if (!read) return null;
   const { info, id0 } = read;
@@ -906,7 +987,7 @@ export async function removeProtection(bytes: Uint8Array, password: string): Pro
   });
   const crypt = openCrypt(doc, password);
   if (!crypt) return { bytes, permissions: ALL_PERMISSIONS, scheme: "aucune" };
-  await crypt.decryptDocument(doc);
+  await crypt.decryptDocument(doc, bytes);
   const encryptRef = doc.context.trailerInfo.Encrypt;
   doc.context.trailerInfo.Encrypt = undefined;
   if (encryptRef instanceof PDFRef) doc.context.delete(encryptRef);
@@ -933,8 +1014,8 @@ export function createCrypt(opts: ProtectOptions): PdfCrypt {
   const permissions = opts.permissions ?? ALL_PERMISSIONS;
   const p = permissionsToP(permissions);
   const encryptMetadata = opts.encryptMetadata !== false;
-  const userPw = utf8Bytes(opts.userPassword).subarray(0, 127);
-  const ownerPw = utf8Bytes(opts.ownerPassword || opts.userPassword).subarray(0, 127);
+  const userPw = r6Password(opts.userPassword);
+  const ownerPw = r6Password(opts.ownerPassword || opts.userPassword);
 
   const fileKey = randomBytes(32);
   const uValidationSalt = randomBytes(8);
@@ -1037,7 +1118,17 @@ export async function protectDocument(doc: PDFDocument, opts: ProtectOptions): P
 /** Quick probe: is this file password-protected, and with what? */
 export async function inspectProtection(
   bytes: Uint8Array,
-): Promise<{ encrypted: boolean; scheme: string; permissions: Permissions } | null> {
+  /** The password the file was opened with: says whether it holds the owner's rights. */
+  password?: string | null,
+): Promise<{
+  encrypted: boolean;
+  scheme: string;
+  permissions: Permissions;
+  /** The document's restrictions do not apply: not protected, or opened with the owner password. */
+  owner: boolean;
+  /** Protected by another handler than the password one (certificates: /Adobe.PubSec…). */
+  handler?: string;
+} | null> {
   try {
     const { PDFDocument } = await import("pdf-lib");
     const doc = await PDFDocument.load(bytes, {
@@ -1045,12 +1136,31 @@ export async function inspectProtection(
       throwOnInvalidObject: false,
       updateMetadata: false,
     });
+    const handler = encryptHandler(doc);
+    if (handler && handler !== "Standard") {
+      return { encrypted: true, scheme: handler, permissions: pToPermissions(0), owner: false, handler };
+    }
     const read = readEncryptDict(doc);
-    if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS };
-    return { encrypted: true, scheme: schemeOf(read.info), permissions: pToPermissions(read.info.p) };
+    if (!read) return { encrypted: false, scheme: "aucune", permissions: ALL_PERMISSIONS, owner: true };
+    const role = passwordRole(read.info, read.id0, password ?? "");
+    return {
+      encrypted: true,
+      scheme: schemeOf(read.info),
+      permissions: pToPermissions(read.info.p),
+      owner: !!role?.owner,
+    };
   } catch {
     return null;
   }
+}
+
+/** The /Filter of the file's /Encrypt (« Standard » for passwords), or null when not protected. */
+export function encryptHandler(doc: PDFDocument): string | null {
+  const ref = doc.context.trailerInfo.Encrypt;
+  const enc = ref ? doc.context.lookup(ref) : undefined;
+  if (!(enc instanceof PDFDict)) return null;
+  const f = enc.lookup(PDFName.of("Filter"));
+  return f instanceof PDFName ? f.asString().replace(/^\//, "") : "Standard";
 }
 
 export { decodePDFRawStream };

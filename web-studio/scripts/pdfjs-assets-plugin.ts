@@ -41,7 +41,11 @@ const DIRS: { src: string; dest: string; filter?: RegExp }[] = [
   { src: "web/images", dest: "images", filter: /^annotation-.*\.svg$/ },
 ];
 /** Single files copied to the root of `pdfjs/` (source path relative to pdfjs-dist). */
-const FILES: Record<string, string> = { "pdf.sandbox.min.mjs": "build/pdf.sandbox.min.mjs" };
+const FILES: Record<string, string> = {
+  "pdf.sandbox.min.mjs": "build/pdf.sandbox.min.mjs",
+  // For browsers that get pdf.js' legacy build (src/pdf/core/pdfjs.ts).
+  "legacy/pdf.sandbox.min.mjs": "legacy/build/pdf.sandbox.min.mjs",
+};
 
 const MIME: Record<string, string> = {
   ".wasm": "application/wasm",

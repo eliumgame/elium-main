@@ -1312,3 +1312,14 @@ Reproductions : web-studio/tests/zz-review9-* (ignorés par git), journal scratc
 
 ### À valider dans Acrobat / Office (ajouts)
 - Création depuis Word/Excel/PowerPoint : fidélité visuelle comparée à l'impression PDF d'Office.
+
+### Publication 4.8.0 (27/09)
+- T10 P1 livré tel quel (Tous les outils, recherche d'outils Ctrl+Maj+P, menus contextuels,
+  zone de zoom saisissable, mode lecture Ctrl+H, barre d'état, raccourcis à une touche
+  désactivables, grille). Specs PDF 121/121 réelles vertes (drive + bureau), vitest 2165/2165,
+  pytest 281, serveur 372, lint/format/typecheck/audit OK, budget JS relevé à 6,2 Mo.
+- T11 (PDF du Drive) : code prêt et validé de bout en bout sur la vraie pile (API + Postgres
+  embarqué : dépôt, ouverture, annotation, nouvelle version chiffrée, réouverture), mais
+  DÉSACTIVÉ dans cette version (DRIVE_PDF_EDITOR = false dans DriveBrowser.tsx), à la demande :
+  la liaison Drive viendra ensuite. Reste à faire : surcouche (lien d'évitement visible,
+  hauteur du ruban), test navigateur permanent, « Enregistrer dans le Drive » depuis un PDF local.

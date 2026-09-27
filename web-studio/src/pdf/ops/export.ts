@@ -126,9 +126,7 @@ export function toPlainText(pages: readonly PageText[], separator = "\n\n"): str
 
 /** Plain text with an explicit page marker between pages. */
 export function toPlainTextWithMarkers(pages: readonly PageText[]): string {
-  return pages
-    .map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map(blockText).join("\n\n")}`)
-    .join("\n\n");
+  return pages.map((p) => `--- Page ${p.page + 1} ---\n${p.blocks.map(blockText).join("\n\n")}`).join("\n\n");
 }
 
 const escapeHtml = (s: string) =>
@@ -184,7 +182,12 @@ const DOCX_DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
 
 const escapeXml = (s: string) =>
-  xmlSafeText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  xmlSafeText(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 
 /**
  * Build a .docx from the extracted layout. Paragraphs keep their alignment,

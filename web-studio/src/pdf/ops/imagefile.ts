@@ -133,14 +133,22 @@ export const orientationSwaps = (o: number) => o >= 5 && o <= 8;
  */
 export function orientationMatrix(o: number, w: number, h: number): [number, number, number, number, number, number] {
   switch (o) {
-    case 2: return [-w, 0, 0, h, w, 0];
-    case 3: return [-w, 0, 0, -h, w, h];
-    case 4: return [w, 0, 0, -h, 0, h];
-    case 5: return [0, -h, -w, 0, w, h];
-    case 6: return [0, -h, w, 0, 0, h];
-    case 7: return [0, h, w, 0, 0, 0];
-    case 8: return [0, h, -w, 0, w, 0];
-    default: return [w, 0, 0, h, 0, 0];
+    case 2:
+      return [-w, 0, 0, h, w, 0];
+    case 3:
+      return [-w, 0, 0, -h, w, h];
+    case 4:
+      return [w, 0, 0, -h, 0, h];
+    case 5:
+      return [0, -h, -w, 0, w, h];
+    case 6:
+      return [0, -h, w, 0, 0, h];
+    case 7:
+      return [0, h, w, 0, 0, 0];
+    case 8:
+      return [0, h, -w, 0, w, 0];
+    default:
+      return [w, 0, 0, h, 0, 0];
   }
 }
 

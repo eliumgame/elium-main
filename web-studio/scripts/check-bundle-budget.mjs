@@ -39,7 +39,11 @@ const ALTERNATIVES = [
 // 5,2 Mo → 5,35 Mo : le total compte désormais le jeu pdf.js LEGACY (le plus
 // lourd, ~+65 Kio, que Chromium/Edge reçoivent tant qu'il leur manque
 // Math.sumPrecise) plus la refonte PDF (enregistrement incrémental, formulaires).
-const TOTAL_JS_BUDGET_BYTES = 5_350_000;
+// 5,35 Mo → 6,2 Mo : refonte PDF de niveau Acrobat (4.8.0), tout chargé à la
+// demande par import() : OCR hors ligne, PDF/A, exports Word/Excel/PowerPoint,
+// création depuis Office/HTML, signatures PAdES, comparaison, impression,
+// palette et menus contextuels.
+const TOTAL_JS_BUDGET_BYTES = 6_200_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

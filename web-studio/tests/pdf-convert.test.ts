@@ -104,7 +104,7 @@ async function hostilePdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const f = await doc.embedFont(StandardFonts.Helvetica);
   const p = doc.addPage([595, 842]);
-  p.drawText("Titre <b>&amp; \"x\"</b>", { x: 72, y: 780, size: 22, font: f });
+  p.drawText('Titre <b>&amp; "x"</b>', { x: 72, y: 780, size: 22, font: f });
   const rows = [
     ["Nom", "Formule", "Montant"],
     ['=HYPERLINK("http://evil","x")', "+cmd|' /C calc'!A0", "12,00"],
@@ -118,7 +118,13 @@ async function hostilePdf(): Promise<Uint8Array> {
     "2 beginbfchar <41> <0001> <42> <FFFE> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
   const tu = doc.context.register(doc.context.stream(cmap));
   const f2 = doc.context.register(
-    doc.context.obj({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", Encoding: "WinAnsiEncoding", ToUnicode: tu }),
+    doc.context.obj({
+      Type: "Font",
+      Subtype: "Type1",
+      BaseFont: "Helvetica",
+      Encoding: "WinAnsiEncoding",
+      ToUnicode: tu,
+    }),
   );
   (p.node.Resources()!.lookup(PDFName.of("Font")) as PDFDict).set(PDFName.of("FCtl"), f2);
   p.node.addContentStream(
@@ -132,7 +138,8 @@ async function hostilePdf(): Promise<Uint8Array> {
 }
 
 /** Characters XML 1.0 forbids (C0 controls but tab / LF / CR, U+FFFE / U+FFFF, lone surrogates). */
-const FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const FORBIDDEN =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /** Parse `xml` with a real XML parser; the error message when it is not well-formed. */
 const XmlParser = new JSDOM("").window.DOMParser;
@@ -144,7 +151,7 @@ function xmlError(xml: string): string | null {
 
 describe("hostile text: forbidden characters and formulas", () => {
   it("CSV cells a spreadsheet would run get an apostrophe; plain numbers stay numbers", () => {
-    expect(csvSafeCell("=HYPERLINK(\"http://evil\")")).toBe("'=HYPERLINK(\"http://evil\")");
+    expect(csvSafeCell('=HYPERLINK("http://evil")')).toBe('\'=HYPERLINK("http://evil")');
     expect(csvSafeCell("+cmd|' /C calc'!A0")).toBe("'+cmd|' /C calc'!A0");
     expect(csvSafeCell("@SUM(A1:A2)")).toBe("'@SUM(A1:A2)");
     expect(csvSafeCell("-2+3")).toBe("'-2+3");

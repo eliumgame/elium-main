@@ -83,6 +83,9 @@ import CollabSheetEditor from "./CollabSheetEditor";
 import CollabSlidesEditor from "./CollabSlidesEditor";
 import VersionsDialog from "./VersionsDialog";
 import DrivePdfEditor from "./DrivePdfEditor";
+
+/** Drive PDFs open in the PDF module (off until that integration ships). */
+const DRIVE_PDF_EDITOR = false;
 import { importToDoc } from "../../format/importers";
 import { docxToDoc } from "../../format/docx";
 import type { ProseMirrorNode } from "../../format/types";
@@ -511,7 +514,8 @@ export default function DriveBrowser() {
       setPath((p) => [...p, { id: e.id, name: e.name }]);
       setSelection([]);
     } else if (isCollab(e)) void openCollab(e);
-    else if (isPdfEntry(e) && e.hasContent) setPdfTarget(e);
+    // Opening Drive PDFs in the PDF module (DrivePdfEditor) comes in a later version.
+    else if (DRIVE_PDF_EDITOR && isPdfEntry(e) && e.hasContent) setPdfTarget(e);
     else void download(e);
   };
 

@@ -23,9 +23,7 @@ interface Props {
 
 export default function DrivePdfEditor({ ctx, entry, author, onClose, onSaved }: Props) {
   const dialogs = useDialogs();
-  const [source, setSource] = useState<{ bytes: Uint8Array; name: string; destination: SaveDestination } | null>(
-    null,
-  );
+  const [source, setSource] = useState<{ bytes: Uint8Array; name: string; destination: SaveDestination } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The version the session is based on: a save over a newer one asks first.
   const base = useRef(entry.modifiedAt);

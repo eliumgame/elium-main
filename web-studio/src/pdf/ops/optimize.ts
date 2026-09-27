@@ -321,7 +321,11 @@ function flatePixels(dict: PDFDict, stream: PDFRawStream, comps: number): Uint8A
   const pred = parms instanceof PDFDict ? (numOf(parms, "Predictor") ?? 1) : 1;
   if (pred >= 10) {
     const p = parms as PDFDict;
-    if ((numOf(p, "Colors") ?? 1) !== comps || (numOf(p, "BitsPerComponent") ?? 8) !== 8 || (numOf(p, "Columns") ?? 1) !== w)
+    if (
+      (numOf(p, "Colors") ?? 1) !== comps ||
+      (numOf(p, "BitsPerComponent") ?? 8) !== 8 ||
+      (numOf(p, "Columns") ?? 1) !== w
+    )
       return null;
     data = unPng(data, w * comps, comps, h);
   } else if (pred !== 1) return null;

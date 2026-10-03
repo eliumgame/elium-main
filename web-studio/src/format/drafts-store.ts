@@ -17,9 +17,9 @@
 import type { EliumProfile, PageSettings, ProseMirrorNode } from "./types";
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 
-const DB_NAME = "elium-drafts";
+import { openMigrated } from "./idb-migrate";
+import { DRAFTS_SPEC } from "./db-specs";
 const STORE = "drafts";
-const DB_VERSION = 1;
 
 export interface DraftContent {
   doc: ProseMirrorNode;
@@ -50,17 +50,7 @@ export interface DraftDoc {
 export type DraftEntry = Omit<DraftDoc, "doc" | "page" | "docx" | "enc"> & { legacy: boolean };
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(DRAFTS_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

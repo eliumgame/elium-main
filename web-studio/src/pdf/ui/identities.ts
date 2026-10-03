@@ -13,7 +13,8 @@
 
 import type { SavedSignature } from "../ops/sign";
 
-const DB_NAME = "elium-pdf-ids";
+import { openMigrated } from "../../format/idb-migrate";
+import { PDF_IDS_SPEC } from "../../format/db-specs";
 const STORE = "ids";
 const TRUST = "trusted";
 const MARKS = "marks";
@@ -30,18 +31,7 @@ export interface TrustedIdentity {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(TRUST)) db.createObjectStore(TRUST, { keyPath: "id" });
-      // v2: handwritten signatures and initials (Remplir et signer), kept between documents.
-      if (!db.objectStoreNames.contains(MARKS)) db.createObjectStore(MARKS, { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(PDF_IDS_SPEC);
 }
 
 async function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {

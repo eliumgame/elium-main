@@ -23,9 +23,9 @@ import {
   type VaultSecret,
 } from "../crypto/local-vault";
 
-const DB_NAME = "elium-drive";
+import { openMigrated } from "./idb-migrate";
+import { DRIVE_SPEC } from "./db-specs";
 const STORE = "docs";
-const DB_VERSION = 1;
 
 interface TitleProfile {
   title: string;
@@ -68,17 +68,7 @@ export interface ResolvedDriveEntry {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(DRIVE_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

@@ -22,9 +22,9 @@
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 import type { Deck } from "./model";
 
-const DB_NAME = "elium-slides";
+import { openMigrated } from "../format/idb-migrate";
+import { SLIDES_SPEC } from "../format/db-specs";
 const STORE = "decks";
-const DB_VERSION = 1;
 const CURRENT = "current";
 
 interface DeckRecord {
@@ -35,15 +35,7 @@ interface DeckRecord {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(SLIDES_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

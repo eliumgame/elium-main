@@ -11,9 +11,9 @@
 import type { ProseMirrorNode } from "./types";
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 
-const DB_NAME = "elium";
+import { openMigrated } from "./idb-migrate";
+import { VERSIONS_SPEC } from "./db-specs";
 const STORE = "versions";
-const DB_VERSION = 1;
 const MAX_VERSIONS = 50;
 
 export interface DocumentVersion {
@@ -38,18 +38,7 @@ export async function versionDoc(v: DocumentVersion, secret?: VaultSecret): Prom
 // --- IndexedDB plumbing ---------------------------------------------------
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const os = db.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
-        os.createIndex("docKey", "docKey", { unique: false });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(VERSIONS_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

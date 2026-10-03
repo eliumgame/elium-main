@@ -5,21 +5,13 @@
  */
 import type { Workbook } from "./model";
 
-const DB_NAME = "elium-sheets";
+import { openMigrated } from "../format/idb-migrate";
+import { SHEETS_SPEC } from "../format/db-specs";
 const STORE = "workbooks";
-const DB_VERSION = 1;
 const CURRENT = "current";
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(SHEETS_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

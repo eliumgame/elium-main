@@ -36,10 +36,10 @@ import {
 import type { FsFileHandle } from "../core/destination";
 import type { PdfState } from "./types";
 
-const DB_NAME = "elium-pdf-recovery";
+import { openMigrated } from "../../format/idb-migrate";
+import { PDF_RECOVERY_SPEC } from "../../format/db-specs";
 const STORE = "drafts";
 const SOURCES = "sources";
-const DB_VERSION = 2;
 
 /** What a recomposed session carries besides its state (see PdfWorkspace « document dérivé »). */
 export interface DerivedSession {
@@ -206,38 +206,7 @@ export async function resolvePdfDraft(d: PdfDraft, secret?: VaultSecret): Promis
 // ---------------------------------------------------------------------------
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = req.result;
-      const tx = req.transaction!;
-      const drafts = db.objectStoreNames.contains(STORE)
-        ? tx.objectStore(STORE)
-        : db.createObjectStore(STORE, { keyPath: "id" });
-      if (!drafts.indexNames.contains("diskKey")) drafts.createIndex("diskKey", "diskKey", { unique: false });
-      const sources = db.objectStoreNames.contains(SOURCES)
-        ? tx.objectStore(SOURCES)
-        : db.createObjectStore(SOURCES, { keyPath: "id" });
-      if (e.oldVersion >= 1 && e.oldVersion < 2) {
-        // v1 kept a copy of the source in every draft: move it out, once.
-        drafts.openCursor().onsuccess = (ev) => {
-          const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
-          if (!cursor) return;
-          const d = cursor.value as PdfDraft;
-          if (d.source || d.sourceEnc) {
-            sources.put({ id: d.id, protected: !!d.sourceEnc, bytes: d.source, legacyEnc: d.sourceEnc });
-            const { source: _s, sourceEnc: _e, ...rest } = d;
-            void _s;
-            void _e;
-            cursor.update(rest);
-          }
-          cursor.continue();
-        };
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(PDF_RECOVERY_SPEC);
 }
 
 function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {

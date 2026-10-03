@@ -388,6 +388,41 @@ export interface FieldEdit {
 // Real content edits (rewriting the page's own operators)
 // ---------------------------------------------------------------------------
 
+/** How a stretch of a paragraph is set. Fully resolved: nothing is inherited from the block. */
+export interface TextSpanStyle {
+  /**
+   * The page's own font resource ("F3") the stretch was set in, reused as long as it can
+   * encode the text. null / absent: set by `fontFamily` (substituted face).
+   */
+  fontResource?: string | null;
+  /** Elium family closest to the original face (what the editor shows and what substitutes it). */
+  fontFamily?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  /** Em size in points. */
+  fontSize: number;
+  /** "#rrggbb". */
+  color: string;
+}
+
+/**
+ * A stretch of a paragraph in one style. A paragraph is an ordered list of spans (Acrobat keeps
+ * a bold word in the middle of a sentence bold when the sentence is edited). `\n` inside a
+ * span's text is a HARD line break; lines that merely wrapped are joined, so the layout reflows.
+ */
+export interface TextSpan {
+  text: string;
+  style: TextSpanStyle;
+}
+
+/** Where a paragraph's lines start, in points from the left of its box (first line / the others). */
+export interface TextIndent {
+  first: number;
+  rest: number;
+}
+
 /**
  * An edit to a paragraph of the PDF's *own* text. On export the original
  * text-showing operators for the block are removed from the content stream and
@@ -419,6 +454,15 @@ export interface ContentEdit {
   restyled?: boolean;
   /** Text added in Elium: nothing on the page to remove. */
   isNew?: boolean;
+  /**
+   * The paragraph as styled stretches, when it has mixed or resolved styles. When present it
+   * is authoritative for what is drawn, and `text` is exactly the concatenation of its spans'
+   * texts (so search, stale detection and old code keep working). Absent: the block-level
+   * `fontFamily` / `bold` / `italic` / `color` / `fontSize` apply to the whole `text`.
+   */
+  spans?: TextSpan[];
+  /** Line starts of the paragraph (first-line indent, hanging indent). Absent: 0 / 0. */
+  indent?: TextIndent;
 }
 
 /** An edit to one of the page's own images, or an image added to the page's content. */

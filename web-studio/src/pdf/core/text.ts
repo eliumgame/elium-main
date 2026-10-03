@@ -13,6 +13,7 @@ import { pdfjs } from "./pdfjs";
 import type { Matrix, Pt, Quad, Rect, Rotation, Size } from "./coords";
 import { quadFromRect, rectFromView, rectOfPoints } from "./coords";
 import type { FontFacts, TextContentLike, TextItemLike } from "./engine";
+import type { TextIndent, TextSpan } from "../model/types";
 
 /** One text-showing operation, placed in page space. */
 export interface TextRun {
@@ -72,6 +73,15 @@ export interface TextBlock {
   fontFamily?: string;
   bold: boolean;
   italic: boolean;
+  /**
+   * The paragraph as styled stretches (colour, original font resource, size, bold…), with
+   * wrapped lines joined and hard breaks kept as `\n`. `text` is their concatenation.
+   * Filled in by `ops/textblocks.readTextBlocks` (which knows the content stream); `groupBlocks`
+   * alone gives one span per block.
+   */
+  spans?: TextSpan[];
+  /** Line starts of the paragraph (first-line indent / hanging indent), points from `rect.x`. */
+  indent?: TextIndent;
 }
 
 /** Fraction of the em box above/below the baseline a markup quad should cover. */

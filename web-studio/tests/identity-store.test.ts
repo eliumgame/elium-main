@@ -26,7 +26,9 @@ describe("identity backup (.eliumkey)", () => {
     expect(restored.publicKeyHex).toBe(id.publicKeyHex);
     expect(restored.fingerprint).toBe(id.fingerprint);
 
-    expect(keyFileName(id.fingerprint)).toBe(`identite-elium-${id.fingerprint.slice(0, 12)}.eliumkey`);
+    const name = keyFileName(id.fingerprint);
+    expect(name).toMatch(/^elium-cles-\d{4}-\d{2}-\d{2}\.eliumkey$/);
+    expect(name).not.toContain(id.fingerprint.slice(0, 8));
   });
 
   it("rejects a wrong password and a backup whose public key was swapped", async () => {

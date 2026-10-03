@@ -35,7 +35,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     bodyLimit: config.maxBlobBytes,
     // Ne pas faire confiance aveuglément à X-Forwarded-For (usurpation d'IP →
     // contournement du rate-limit) : uniquement le proxy de tête. Voir config.ts.
-    trustProxy: config.trustProxy,
+    // Fastify ≥ 5.12.5 n'accepte plus le nombre de sauts tel quel : même sémantique que
+    // proxy-addr (« les n derniers sauts »), exprimée en fonction.
+    trustProxy:
+      typeof config.trustProxy === "number"
+        ? (
+            (n: number) => (_addr: string, hop: number) =>
+              hop < n
+          )(config.trustProxy)
+        : config.trustProxy,
   });
 
   // API pure JSON (aucun HTML applicatif servi) : CSP verrouillée au maximum —

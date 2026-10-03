@@ -24,6 +24,7 @@ import {
 import { useDrive } from "../session";
 import { getConfiguredApiBase, setConfiguredApiBase } from "../api";
 import { webauthnSupported } from "../prf-unlock";
+import { reportError } from "../../ui/crash-log";
 
 type Mode = "login" | "register";
 
@@ -164,7 +165,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                     type="button"
                     className="eb eb--primary eb--block"
                     disabled={d.busy}
-                    onClick={() => void d.completeMfaWebauthn().catch(() => {})}
+                    onClick={() => void d.completeMfaWebauthn().catch((e) => reportError("drive.passkey", e))}
                   >
                     <KeyRound size={16} /> Se connecter avec une clé
                   </button>
@@ -218,7 +219,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                     type="button"
                     className="eb eb--primary eb--block"
                     disabled={d.busy}
-                    onClick={() => void d.unlockWithPasskey().catch(() => {})}
+                    onClick={() => void d.unlockWithPasskey().catch((e) => reportError("drive.passkey", e))}
                   >
                     <Fingerprint size={16} /> Déverrouiller avec une clé d'accès
                   </button>
@@ -353,7 +354,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                     type="button"
                     className="eb eb--primary eb--block"
                     disabled={d.busy}
-                    onClick={() => void d.loginWithPasskey().catch(() => {})}
+                    onClick={() => void d.loginWithPasskey().catch((e) => reportError("drive.passkey", e))}
                   >
                     <Fingerprint size={16} /> Se connecter avec une clé d'accès
                   </button>

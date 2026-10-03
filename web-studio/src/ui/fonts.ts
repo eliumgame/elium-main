@@ -11,6 +11,7 @@
  */
 
 import catalog from "./font-catalog.json";
+import { reportError } from "./crash-log";
 
 type BundledCategory = "sans" | "serif" | "mono" | "display" | "hand";
 interface BundledFont {
@@ -87,7 +88,7 @@ export function registerCustomFont(name: string, bytes: Uint8Array, filename?: s
     void ff
       .load()
       .then((loaded) => (globalThis as unknown as { document?: Document }).document?.fonts?.add(loaded))
-      .catch(() => {});
+      .catch((e) => reportError("fonts.load", e));
   } catch {
     /* FontFace unavailable (non-DOM env) */
   }

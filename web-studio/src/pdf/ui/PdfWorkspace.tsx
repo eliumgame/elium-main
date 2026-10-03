@@ -244,6 +244,7 @@ import {
 import { CombineDialog, type CombineItem } from "./CombineDialog";
 import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
+import { reportError } from "../../ui/crash-log";
 
 type DialogId =
   | null
@@ -826,7 +827,7 @@ export default function PdfWorkspace({
           };
           sourceSignedRef.current = derived.signedKept && sourceSignedRef.current;
           // Its drafts are filed under the new source: the old one goes.
-          if (previousSourceKey) void deletePdfDraft(previousSourceKey).catch(() => {});
+          if (previousSourceKey) void deletePdfDraft(previousSourceKey).catch((e) => reportError("pdf.workspace", e));
         } else {
           // A new document: its own destination, nothing saved yet — or the
           // file just rewritten by a save, which the session now continues on.
@@ -871,7 +872,7 @@ export default function PdfWorkspace({
             .then((d) => {
               if (gen === shownGeneration.current) diskRef.current = d;
             })
-            .catch(() => {});
+            .catch((e) => reportError("pdf.workspace", e));
           void sourceKey(recovered.disk).then((k) => {
             if (gen === shownGeneration.current) diskKeyRef.current = k;
           });
@@ -946,7 +947,7 @@ export default function PdfWorkspace({
                   : s,
             );
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
         setFileLabels(null);
@@ -970,12 +971,12 @@ export default function PdfWorkspace({
             setFileView(iv);
             if (!restore && !derived && !rebased) applyInitialViewRef.current(iv);
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
         // Let the first page paint before competing for the pdf.js worker.
         setTimeout(() => {
           if (gen !== shownGeneration.current) return;
-          if (!restore) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
-          else if (!derived) void snapshotMarkup(next, sourcePages, gen).catch(() => {});
+          if (!restore) void importExistingMarkup(next, sourcePages, gen).catch((e) => reportError("pdf.workspace", e));
+          else if (!derived) void snapshotMarkup(next, sourcePages, gen).catch((e) => reportError("pdf.workspace", e));
         }, 250);
         // Unsaved edits of this very file from an earlier session (crash,
         // closed window) are offered back.
@@ -995,7 +996,7 @@ export default function PdfWorkspace({
             });
             if (gen !== shownGeneration.current) return;
             if (!ok) {
-              await deletePdfDraft(draft.id).catch(() => {});
+              await deletePdfDraft(draft.id).catch((e) => reportError("pdf.workspace", e));
               return;
             }
             try {
@@ -1004,7 +1005,7 @@ export default function PdfWorkspace({
                 reset(recoveredState);
                 markClean.current = false;
                 setSavedVersion(-1);
-                void snapshotMarkup(next, recoveredState.pages, gen).catch(() => {});
+                void snapshotMarkup(next, recoveredState.pages, gen).catch((e) => reportError("pdf.workspace", e));
               } else {
                 // This file was saved into by the session (or the session was
                 // recomposed): rebuild it on the source it applies to, with
@@ -1020,7 +1021,7 @@ export default function PdfWorkspace({
               toast("danger", "Restauration impossible", err instanceof Error ? err.message : undefined);
             }
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
       } catch (e) {
         // A newer file was picked meanwhile: this one's failure is moot.
         if (gen !== openGeneration.current) return;
@@ -1224,7 +1225,7 @@ export default function PdfWorkspace({
           }
           await putPdfDraft(draft);
         })
-        .catch(() => {});
+        .catch((e) => reportError("pdf.workspace", e));
     }, 1500);
     return () => clearTimeout(timer);
   }, [engine, dirty, state, fileName, vaultSecret]);
@@ -1235,7 +1236,7 @@ export default function PdfWorkspace({
     let alive = true;
     void listPdfDrafts()
       .then((list) => alive && setDrafts(list))
-      .catch(() => {});
+      .catch((e) => reportError("pdf.workspace", e));
     return () => {
       alive = false;
     };
@@ -2313,7 +2314,7 @@ export default function PdfWorkspace({
         setSecurityDirty(false);
         setEverSaved(true);
         const key = sourceKeyRef.current;
-        if (key) void deletePdfDraft(key).catch(() => {});
+        if (key) void deletePdfDraft(key).catch((e) => reportError("pdf.workspace", e));
         sourceStoredRef.current = null;
       }
       dismissToast(id);
@@ -2397,7 +2398,7 @@ export default function PdfWorkspace({
       confirmLabel: "Abandonner les modifications",
       cancelLabel: "Annuler",
     });
-    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
+    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
     return ok;
   };
 
@@ -2851,7 +2852,7 @@ export default function PdfWorkspace({
     // The whole session (source + edits) is now kept in the .elium — but the
     // PDF file itself is not updated: Ctrl+S still writes it.
     setEliumVersion(ver);
-    if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
+    if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
     sourceStoredRef.current = null;
     toast(
       "success",
@@ -4346,7 +4347,7 @@ export default function PdfWorkspace({
       }
       out.sort((a, b) => a.page - b.page);
       if (!cancelled) setRequiredLeft(out);
-    })().catch(() => {});
+    })().catch((e) => reportError("pdf.workspace", e));
     return () => {
       cancelled = true;
     };
@@ -5264,7 +5265,7 @@ export default function PdfWorkspace({
                         title="Oublier ces modifications"
                         aria-label={`Oublier les modifications de ${d.name}`}
                         onClick={() => {
-                          void deletePdfDraft(d.id).catch(() => {});
+                          void deletePdfDraft(d.id).catch((e) => reportError("pdf.workspace", e));
                           setDrafts((v) => v.filter((x) => x.id !== d.id));
                         }}
                       >

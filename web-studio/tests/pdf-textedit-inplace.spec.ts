@@ -176,7 +176,8 @@ test.describe("PDF — modifier le texte, sur la page", () => {
     expect(spans.at(-1)).toEqual([" EN GRAS", "700"]);
     expect(spans[0]![1]).toBe("400");
     // A size typed in the panel applies to the selection only.
-    await page.keyboard.press("Shift+Home");
+    await page.keyboard.press("Control+Shift+ArrowLeft");
+    await page.keyboard.press("Control+Shift+ArrowLeft");
     const size = page.getByLabel("Taille");
     await size.fill("14");
     await size.press("Enter");

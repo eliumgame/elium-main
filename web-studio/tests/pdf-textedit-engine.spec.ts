@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
  */
 
 const DEV = "http://localhost:3101";
-const FIXTURES = ["letter", "slides", "form-xobject", "pdflib", "chromium", "chromium-a4"];
+const FIXTURES = ["letter", "slides", "form-xobject", "pdflib", "chromium"];
 
 interface Outcome {
   where: string;

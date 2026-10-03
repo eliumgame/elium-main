@@ -8,15 +8,17 @@
  * - pdflib.pdf, page 1: Standard-14 fonts, not embedded (Helvetica, Times),
  *   a wrapped paragraph drawn line by line, a coloured line;
  *   page 2: an embedded Unicode face (Type0, Identity-H CID font).
- * - chromium.pdf: Chromium's `page.pdf()` (serif, sans, two columns);
- *   chromium-a4.pdf: a ragged Arial paragraph whose wrapped lines end alike.
+ * - pdflib.pdf, page 3: a ragged paragraph whose two wrapped lines end at
+ *   the same place by chance (it must not read as justified), and a really
+ *   justified one set with word spacing (`Tw`, spaces are code 32).
+ * - chromium.pdf: Chromium's `page.pdf()` (serif, sans, two columns).
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, setWordSpacing } from "pdf-lib";
 import process from "node:process";
 import { chromium } from "@playwright/test";
 
@@ -71,6 +73,39 @@ async function pdflib() {
     11,
     380,
   ).forEach((l, i) => p2.drawText(l, { x: 60, y: 735 - i * 14, size: 11, font: uni }));
+  // Page 3. A ragged paragraph: line 2 chosen (deterministically) to end where line 1 does.
+  const p3 = doc.addPage([595, 842]);
+  const line1 = "Premier paragraphe du rapport, sur plusieurs lignes pour vérifier le reflux";
+  const w1 = helv.widthOfTextAtSize(line1, 11);
+  const pool =
+    "du texte modifié dans sa zone et sa largeur d'origine avec encore quelques mots pour faire trois lignes bien complètes ici".split(
+      " ",
+    );
+  let line2 = "";
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let tries = 0; tries < 200000 && !line2; tries++) {
+    let cand = "";
+    while (helv.widthOfTextAtSize(cand, 11) < w1 - 0.3)
+      cand = cand ? `${cand} ${pool[Math.floor(rnd() * pool.length)]}` : pool[Math.floor(rnd() * pool.length)];
+    if (Math.abs(helv.widthOfTextAtSize(cand, 11) - w1) < 0.3) line2 = cand;
+  }
+  [line1, line2, "complètes, enfin."].forEach((l, i) =>
+    p3.drawText(l, { x: 60, y: 770 - i * 14, size: 11, font: helv }),
+  );
+  // A really justified paragraph: each wrapped line stretched with Tw.
+  const jw = 400;
+  const jtext =
+    "Ce paragraphe est réellement justifié : ses lignes sont étirées par l'espacement des mots, " +
+    "comme le fait un traitement de texte, de sorte que chacune atteint exactement la marge droite.";
+  const jl = wrap(times, jtext, 12, jw);
+  jl.forEach((l, i) => {
+    const gaps = (l.match(/ /g) ?? []).length;
+    const tw = i < jl.length - 1 && gaps ? (jw - times.widthOfTextAtSize(l, 12)) / gaps : 0;
+    p3.pushOperators(setWordSpacing(tw));
+    p3.drawText(l, { x: 90, y: 680 - i * 15, size: 12, font: times });
+  });
+  p3.pushOperators(setWordSpacing(0));
   writeFileSync(join(OUT, "pdflib.pdf"), await doc.save());
 }
 
@@ -86,12 +121,6 @@ async function chrome() {
       <p style="margin:0">Colonne droite, qui ne doit jamais être touchée quand on modifie la colonne gauche du document.</p>
     </div></body></html>`);
   writeFileSync(join(OUT, "chromium.pdf"), await page.pdf({ width: "595px", height: "420px" }));
-  // A ragged paragraph whose two wrapped lines happen to end at the same place (it once read as justified).
-  await page.setContent(`<html><body style="font-family:Arial,sans-serif;margin:40px">
-    <h1 style="font-size:22px;margin:0 0 6px">Rapport annuel 2025</h1>
-    <p style="font-size:12px;line-height:1.4;margin:0 0 12px">Premier paragraphe du rapport, sur plusieurs lignes pour vérifier le reflux du texte modifié dans sa zone et sa largeur d'origine, avec encore quelques mots pour faire trois lignes complètes.</p>
-    <p style="font-size:12px;line-height:1.4;margin:0">Second paragraphe, plus court.</p></body></html>`);
-  writeFileSync(join(OUT, "chromium-a4.pdf"), await page.pdf({ format: "A4" }));
   await browser.close();
 }
 

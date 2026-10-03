@@ -680,10 +680,7 @@ function gapStretch(block: TextBlock, pg: readonly PageGlyph[]): (number | null)
     const l: TextLine = block.lines[i];
     const fs = l.fontSize || 10;
     const inLine = pg
-      .filter(
-        (q) =>
-          Math.abs(q.y - l.origin.y) < fs * 0.3 && q.x >= l.rect.x - 0.5 && q.x <= l.rect.x + l.rect.w + 0.5,
-      )
+      .filter((q) => Math.abs(q.y - l.origin.y) < fs * 0.3 && q.x >= l.rect.x - 0.5 && q.x <= l.rect.x + l.rect.w + 0.5)
       .sort((a, b) => a.x - b.x);
     const ratios: number[] = [];
     let inkEnd = -Infinity;

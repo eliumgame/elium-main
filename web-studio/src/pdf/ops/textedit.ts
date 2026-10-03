@@ -686,12 +686,29 @@ export async function applyTextEdits(
       return name ? { font, res: name, key: `n:${st.fontResource}` } : null;
     };
     const natives = spans.map((s) => nativeOf(s.style));
+    const lacks = (p: Piece) => {
+      const nf = natives[p.span];
+      return !nf || nf.font.encode(p.text) === null;
+    };
+    // The space between two substituted words goes with them: « Fin ajoutée. » stays one
+    // string in one face (a face change splits the extracted text).
+    const forced = new Set<Piece>();
+    rawToks.forEach((t, i) => {
+      if (t.kind !== "space") return;
+      const prev = rawToks[i - 1];
+      const next = rawToks[i + 1];
+      if (prev?.kind !== "word" || next?.kind !== "word") return;
+      const a = prev.pieces[prev.pieces.length - 1];
+      const b = next.pieces[0];
+      if (!lacks(a) || !lacks(b)) return;
+      for (const p of t.pieces) if (p.span === a.span && p.span === b.span) forced.add(p);
+    });
+    const subbed = (p: Piece) => forced.has(p) || lacks(p);
     const needSub = spans.map(() => "");
     for (const t of rawToks) {
       for (const p of t.pieces) {
         if (t.kind === "nl") continue;
-        const nf = natives[p.span];
-        if (!nf || nf.font.encode(p.text) === null) needSub[p.span] += p.text;
+        if (subbed(p)) needSub[p.span] += p.text;
       }
     }
     const subs = await Promise.all(
@@ -720,7 +737,7 @@ export async function applyTextEdits(
         const size = st.fontSize > 0 ? st.fontSize : 11;
         const common = { size, color: st.color || "#000000", underline: !!st.underline, strike: !!st.strike };
         const nf = natives[p.span];
-        const bytes = nf ? nf.font.encode(p.text) : null;
+        const bytes = nf && !forced.has(p) ? nf.font.encode(p.text) : null;
         if (nf && bytes) {
           frags.push({
             ...common,

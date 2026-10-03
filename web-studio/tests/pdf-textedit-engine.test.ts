@@ -22,7 +22,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(
  * Form XObject. Every detected paragraph of every page is edited.
  */
 
-const FIXTURES = ["letter", "slides", "form-xobject", "pdflib", "chromium", "chromium-a4"] as const;
+const FIXTURES = ["letter", "slides", "form-xobject", "pdflib", "chromium"] as const;
 const bytesOf = (name: string) => new Uint8Array(readFileSync(`tests/fixtures/textedit/${name}.pdf`));
 
 const sources = new Map<string, { bytes: Uint8Array; engine: PdfEngine }>();
@@ -527,70 +527,109 @@ describe("text edit engine — underline", () => {
 });
 
 describe("text edit engine — justified or not", () => {
-  /** The show operators drawn after the page's original content (the rewritten paragraph). */
-  async function newShows(bytes: Uint8Array): Promise<{ ops: string[]; tw: number[] }> {
+  /** The operators drawn by the rewritten paragraph (after the engine's `0 Tc` reset). */
+  async function newOps(bytes: Uint8Array): Promise<{ shows: string[]; tw: number[] }> {
     const { PDFDocument } = await import("pdf-lib");
     const { parseContentStream } = await import("../src/pdf/core/contentstream");
     const { readPageContentBytes } = await import("../src/pdf/ops/content");
     const doc = await PDFDocument.load(bytes);
     const ops = parseContentStream(readPageContentBytes(doc.getPage(0)));
-    // Ours start at the last `0 Tc` reset.
-    const from = ops.map((o) => o.op).lastIndexOf("Tc");
-    const tail = ops.slice(from);
+    const tail = ops.slice(ops.map((o) => o.op).lastIndexOf("Tc"));
     return {
-      ops: tail.filter((o) => ["Tj", "TJ"].includes(o.op)).map((o) => o.op),
+      shows: tail.filter((o) => o.op === "Tj" || o.op === "TJ").map((o) => o.op),
       tw: tail.filter((o) => o.op === "Tw").map((o) => (o.args[0]?.t === "num" ? o.args[0].v : NaN)),
     };
   }
 
-  /** pdf.js' items of the page, as strings, for the lines of `b`. */
-  async function itemsIn(bytes: Uint8Array, b: TextBlock, below = 2): Promise<string[]> {
+  /** pdf.js' text items of the (one-page) output lying on the lines of `b` (and `extra` lines below). */
+  async function itemsOn(bytes: Uint8Array, b: TextBlock, extra = 1): Promise<string[]> {
     const engine = await PdfEngine.open(bytes.slice());
-    const page = await engine.page(0);
-    const vp = page.getViewport({ scale: 1, rotation: 0 });
+    const vp = (await engine.page(0)).getViewport({ scale: 1, rotation: 0 });
     const tc = await engine.text(0);
-    const items = (tc.items as { str?: string; transform?: number[] }[]).filter((i) => i.str?.trim() && i.transform);
-    return items
+    return (tc.items as { str?: string; transform?: number[] }[])
       .filter((i) => {
-        const y = vp.transform[3] * i.transform![5] + vp.transform[5];
-        return y > b.rect.y && y < b.rect.y + b.rect.h + below * b.leading;
+        if (!i.str?.trim() || !i.transform) return false;
+        const y = vp.transform[3] * i.transform[5] + vp.transform[5];
+        return y > b.rect.y && y < b.rect.y + b.rect.h + extra * b.leading;
       })
       .map((i) => i.str!);
   }
 
-  it("a ragged paragraph whose wrapped lines end alike stays left, and reads one clean string per line", async () => {
-    const { bytes } = await open("chromium-a4");
-    const b = (await blocksOf("chromium-a4", 0)).find((x) => x.text.startsWith("Premier paragraphe"))!;
-    expect(b.lines.length).toBe(3);
-    expect(b.text).not.toContain("\n");
-    expect(b.align).toBe("left");
-    const spans = appended(b).map((s, i, a) => (i === a.length - 1 ? { ...s, text: s.text.replace(/ AJOUT$/, " Fin ajoutée.") } : s));
-    const r = await rewrittenPage(bytes, null, 0, [editOf(b, spans)]);
-    const items = await itemsIn(r.bytes, b);
-    // No word-by-word items: each line one string, single spaces.
+  const singleSpaces = (items: string[]) => {
     for (const s of items) expect(s, JSON.stringify(items)).not.toMatch(/\s{2,}/);
-    expect(items.join(" ").replace(/\s+/g, " ")).toContain("complètes. Fin ajoutée.");
-    expect(items.length).toBeLessThanOrEqual(4);
-    const shows = await newShows(r.bytes);
-    expect(shows.tw.every((v) => v === 0)).toBe(true);
+  };
+
+  it("a ragged paragraph whose wrapped lines end alike stays left, and reads one clean string per line", async () => {
+    const { bytes } = await open("pdflib");
+    const b = (await blocksOf("pdflib", 2)).find((x) => x.text.startsWith("Premier paragraphe"))!;
+    expect(b.lines.length).toBe(3);
+    // Lines 1 and 2 end at the same place (what made it read as justified)…
+    expect(Math.abs(b.lines[0].rect.x + b.lines[0].rect.w - (b.lines[1].rect.x + b.lines[1].rect.w))).toBeLessThan(1);
+    expect(b.text).not.toContain("\n");
+    // …but its word gaps are natural spaces: left-aligned.
+    expect(b.align).toBe("left");
+    const spans = [{ ...b.spans![0], text: b.text + " Fin ajoutée." }];
+    const r = await rewrittenPage(bytes, null, 2, [editOf(b, spans)]);
+    const items = await itemsOn(r.bytes, b);
+    singleSpaces(items);
+    expect(
+      items.some((i) => i.includes("enfin. Fin ajoutée.")),
+      JSON.stringify(items),
+    ).toBe(true);
+    // One string per line, no word-by-word pieces.
+    expect(items.length).toBeLessThanOrEqual(b.lines.length + 1);
+    const { shows, tw } = await newOps(r.bytes);
+    expect(shows.length).toBeLessThanOrEqual(b.lines.length + 1);
+    expect(tw.every((v) => v === 0)).toBe(true);
   });
 
-  it("a really justified LibreOffice paragraph stays justified, set with Tw, and extracts clean", async () => {
+  it("words typed in letters the subset font lacks stay one string with single spaces (one face, spaces included)", async () => {
+    const { bytes } = await open("chromium");
+    const b = (await blocksOf("chromium", 0)).find((x) => x.text.startsWith("Premier paragraphe"))!;
+    const spans = [{ ...b.spans![0], text: b.text + " Fin JWQ ajoutée." }];
+    const r = await rewrittenPage(bytes, null, 0, [editOf(b, spans)]);
+    const items = await itemsOn(r.bytes, b, 2);
+    singleSpaces(items);
+    (await import("node:fs")).writeFileSync("/tmp/items.json", JSON.stringify(items));
+    // One item (a face change would cut it into « Fin » « JWQ » « ajoutée. »).
+    expect(
+      items.some((i) => i.includes("Fin JWQ ajoutée.")),
+      JSON.stringify(items),
+    ).toBe(true);
+  });
+
+  it("a really justified paragraph (spaces are code 32) is set with Tw: one show per line, clean text", async () => {
+    const { bytes } = await open("pdflib");
+    const b = (await blocksOf("pdflib", 2)).find((x) => x.text.startsWith("Ce paragraphe est réellement"))!;
+    expect(b.align).toBe("justify");
+    const r = await rewrittenPage(bytes, null, 2, [editOf(b, appended(b))]);
+    const { shows, tw } = await newOps(r.bytes);
+    expect(shows.every((o) => o === "Tj")).toBe(true);
+    expect(tw.some((v) => v > 0.1)).toBe(true);
+    // Reset for the last line (and anything after).
+    expect(tw[tw.length - 1]).toBe(0);
+    const items = await itemsOn(r.bytes, b, 2);
+    singleSpaces(items);
+    expect(NORM(items.join(""))).toBe(NORM(b.text + " AJOUT"));
+    const after = await lookAt(r.bytes);
+    const lines = after.lines.filter((l) => l.origin.y > b.rect.y && l.origin.y < b.rect.y + b.rect.h + 2 * b.leading);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines.slice(0, -1)) expect(Math.abs(l.rect.x + l.rect.w - (b.rect.x + b.rect.w))).toBeLessThan(1.5);
+  });
+
+  it("a justified LibreOffice paragraph (its subset font's space is not code 32): one TJ per line, clean text", async () => {
     const { bytes } = await open("letter");
     const b = (await blocksOf("letter", 0)).find((x) => x.text.startsWith("Le présent"))!;
     expect(b.align).toBe("justify");
     const r = await rewrittenPage(bytes, null, 0, [editOf(b, appended(b))]);
-    const shows = await newShows(r.bytes);
-    // One show per line, word spacing for the stretched ones, back to 0 for the last.
-    expect(shows.ops.length).toBeLessThanOrEqual(b.lines.length + 1);
-    expect(shows.tw.some((v) => v > 0.1)).toBe(true);
-    expect(shows.tw[shows.tw.length - 1]).toBe(0);
-    const items = await itemsIn(r.bytes, b);
-    for (const s of items) expect(s, JSON.stringify(items)).not.toMatch(/\s{2,}/);
+    const { shows } = await newOps(r.bytes);
+    // Lines in the paragraph's font; « AJOUT » (capitals the subset lacks) in a substitute: a few more shows.
+    expect(shows.length).toBeLessThanOrEqual(b.lines.length + 3);
+    const items = await itemsOn(r.bytes, b, 0);
+    singleSpaces(items);
     expect(NORM(items.join(""))).toBe(NORM(b.text + " AJOUT"));
-    // Justified lines still reach the right edge.
     const after = await lookAt(r.bytes);
-    const lines = after.lines.filter((l) => l.origin.y > b.rect.y && l.origin.y < b.rect.y + b.rect.h + 2 * b.leading);
+    const lines = after.lines.filter((l) => l.origin.y > b.rect.y && l.origin.y < b.rect.y + b.rect.h + 2);
     for (const l of lines.slice(0, -1)) expect(Math.abs(l.rect.x + l.rect.w - (b.rect.x + b.rect.w))).toBeLessThan(1.5);
   });
 
@@ -598,18 +637,13 @@ describe("text edit engine — justified or not", () => {
     const { bytes } = await open("pdflib");
     const b = (await blocksOf("pdflib", 1)).find((x) => x.text.startsWith("Ce paragraphe"))!;
     const r = await rewrittenPage(bytes, null, 1, [editOf(b, b.spans!, { align: "justify" })]);
-    const engine = await PdfEngine.open(r.bytes.slice());
-    const page = await engine.page(0);
-    const vp = page.getViewport({ scale: 1, rotation: 0 });
-    const tc = await engine.text(0);
-    const items = (tc.items as { str?: string; transform?: number[] }[]).filter((i) => {
-      if (!i.str?.trim() || !i.transform) return false;
-      const y = vp.transform[3] * i.transform[5] + vp.transform[5];
-      return y > b.rect.y && y < b.rect.y + b.rect.h + 2;
-    });
-    for (const i of items) expect(i.str, JSON.stringify(items.map((x) => x.str))).not.toMatch(/\s{2,}/);
-    expect(NORM(items.map((i) => i.str).join(""))).toBe(NORM(b.text));
-    const lines = (await lookAt(r.bytes)).lines.filter((l) => l.origin.y > b.rect.y && l.origin.y < b.rect.y + b.rect.h + 2);
+    const items = await itemsOn(r.bytes, b, 0);
+    singleSpaces(items);
+    expect(NORM(items.join(""))).toBe(NORM(b.text));
+    expect((await newOps(r.bytes)).shows.length).toBe(b.lines.length);
+    const lines = (await lookAt(r.bytes)).lines.filter(
+      (l) => l.origin.y > b.rect.y && l.origin.y < b.rect.y + b.rect.h + 2,
+    );
     expect(lines.length).toBe(b.lines.length);
     for (const l of lines.slice(0, -1)) expect(Math.abs(l.rect.x + l.rect.w - (b.rect.x + b.rect.w))).toBeLessThan(1.5);
   });

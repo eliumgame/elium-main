@@ -22,6 +22,7 @@ import { EliumCryptoEngine } from "../crypto/elium-crypto";
 import {
   encryptForRecipients,
   decryptAsRecipient,
+  decryptWithAnyKey,
   recipientFingerprint,
   type RecipientKeypair,
 } from "../crypto/recipients";
@@ -79,6 +80,8 @@ export interface WriteOptions {
   recipients?: string[];
   /** The reader's recipient keypair, to open a multi-recipient file. */
   recipientKey?: RecipientKeypair;
+  /** Plusieurs clés de réception (active + retirées) : la première qui figure dans l'enveloppe est utilisée. */
+  recipientKeys?: RecipientKeypair[];
 }
 
 // When metadata encryption is on, the sensitive fields ride inside the encrypted
@@ -404,8 +407,11 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
   if (manifest.protection.encrypted) {
     let payloadBytes: Uint8Array;
     if (useRecipients) {
-      if (!opts.recipientKey) throw new EliumRecipientKeyRequired();
-      payloadBytes = await decryptAsRecipient(contentBytes, opts.recipientKey);
+      const keys = opts.recipientKeys?.length ? opts.recipientKeys : opts.recipientKey ? [opts.recipientKey] : [];
+      if (!keys.length) throw new EliumRecipientKeyRequired();
+      // Clés du trousseau : active d'abord, puis RETIRÉES (rotation) — un document
+      // chiffré avant une rotation reste lisible (cf. `kid` de l'enveloppe).
+      payloadBytes = keys.length === 1 ? await decryptAsRecipient(contentBytes, keys[0]) : await decryptWithAnyKey(contentBytes, keys);
     } else {
       if (!opts.password && !opts.keyfile) throw new EliumPasswordRequired();
       const { payload } = await EliumCryptoEngine.decodeContainer(

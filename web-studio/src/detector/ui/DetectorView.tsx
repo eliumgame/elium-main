@@ -11,6 +11,7 @@ import { ArrowLeft, Eye, ExternalLink, FileText, Loader2, UploadCloud } from "lu
 import { Alert, Badge, Button, EmptyState, Field } from "../../ui/components";
 import { Tabs } from "../../ui/components";
 import { useDialogs } from "../../ui/dialogs";
+import { reportError } from "../../ui/crash-log";
 import type {
   AnalysisProgress,
   AnalysisReport,
@@ -39,6 +40,10 @@ import {
   sortedFindings,
 } from "../reportPresentation";
 import { exportReportAsDocx, exportReportAsPdf } from "../report/exportReport";
+import { formatDateTime } from "../format";
+import BatchPanel from "./BatchPanel";
+import TrustPanel from "./TrustPanel";
+import { filterSupported } from "../batch";
 import DocumentPreview from "./DocumentPreview";
 import "./DetectorView.css";
 
@@ -64,7 +69,23 @@ function saveDisabledSignals(set: Set<string>): void {
   }
 }
 
-type Phase = "upload" | "reading" | "ready" | "analyzing" | "report";
+type Phase = "upload" | "reading" | "ready" | "analyzing" | "report" | "batch";
+
+/** Parcourt récursivement un dossier déposé (API webkitGetAsEntry). */
+async function readEntryFiles(entry: FileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve, reject) => (entry as FileSystemFileEntry).file((f) => resolve([f]), reject));
+  }
+  if (!entry.isDirectory) return [];
+  const reader = (entry as FileSystemDirectoryEntry).createReader();
+  const out: File[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+    if (!batch.length) break;
+    for (const child of batch) out.push(...(await readEntryFiles(child)));
+  }
+  return out;
+}
 
 interface LoadFailure {
   tone: "danger" | "warning";
@@ -98,6 +119,8 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [activeTab, setActiveTab] = useState("texte");
   const [isDragOver, setIsDragOver] = useState(false);
+  const [batch, setBatch] = useState<{ files: File[]; ignored: number } | null>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const [plagiarismEnabled, setPlagiarismEnabled] = useState(false);
   const [searchProvider, setSearchProvider] = useState<"serper" | "bing">(() =>
@@ -193,6 +216,44 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
   function onFileChosen(file: File | undefined) {
     if (!file) return;
     void attemptLoad(file);
+  }
+
+  /** Un seul fichier : analyse détaillée ; plusieurs (ou un dossier) : mode lot. */
+  function onFilesChosen(list: File[]) {
+    if (list.length === 1) return onFileChosen(list[0]);
+    const { files, ignored } = filterSupported(list);
+    if (!files.length) {
+      setLoadError({
+        tone: "warning",
+        title: "Aucun fichier pris en charge",
+        message: "Formats acceptés : .elium, .docx, .pdf, .png, .jpg, .webp.",
+      });
+      return;
+    }
+    setLoadError(null);
+    setBatch({ files, ignored });
+    setPhase("batch");
+  }
+
+  async function onDropEvent(dt: DataTransfer) {
+    try {
+      const entries = Array.from(dt.items ?? [])
+        .map((i) => i.webkitGetAsEntry?.())
+        .filter((e): e is FileSystemEntry => !!e);
+      if (entries.some((e) => e.isDirectory)) {
+        const nested = await Promise.all(entries.map(readEntryFiles));
+        return onFilesChosen(nested.flat());
+      }
+    } catch (err) {
+      reportError("detector.drop", err);
+      setLoadError({
+        tone: "danger",
+        title: "Impossible de lire le dossier déposé",
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    onFilesChosen(Array.from(dt.files));
   }
 
   function buildPlagiarismOption() {
@@ -320,7 +381,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
               onDrop={(e) => {
                 e.preventDefault();
                 setIsDragOver(false);
-                onFileChosen(e.dataTransfer.files?.[0]);
+                void onDropEvent(e.dataTransfer);
               }}
             >
               <div className="det-dropzone__card">
@@ -334,22 +395,57 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 </p>
                 <div className="det-dropzone__actions">
                   <Button variant="primary" onClick={() => fileInputRef.current?.click()}>
-                    Choisir un fichier…
+                    Choisir un ou plusieurs fichiers…
+                  </Button>
+                  <Button variant="outline" onClick={() => folderInputRef.current?.click()}>
+                    Analyser un dossier…
                   </Button>
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".elium,.docx,.pdf,.png,.jpg,.jpeg,.webp"
+                  multiple
                   className="visually-hidden"
                   onChange={(e) => {
-                    onFileChosen(e.target.files?.[0]);
+                    onFilesChosen(Array.from(e.target.files ?? []));
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  // @ts-expect-error attribut non standard mais pris en charge par Chromium/WebView2
+                  webkitdirectory=""
+                  className="visually-hidden"
+                  aria-label="Choisir un dossier à analyser"
+                  onChange={(e) => {
+                    onFilesChosen(Array.from(e.target.files ?? []));
                     e.target.value = "";
                   }}
                 />
               </div>
             </div>
           </div>
+        )}
+
+        {phase === "upload" && (
+          <details className="det-trust-wrap">
+            <summary>Racines de confiance C2PA</summary>
+            <TrustPanel />
+          </details>
+        )}
+
+        {phase === "batch" && batch && (
+          <BatchPanel
+            files={batch.files}
+            ignored={batch.ignored}
+            disabledSignals={disabledSignals}
+            onBack={() => {
+              setBatch(null);
+              setPhase("upload");
+            }}
+          />
         )}
 
         {phase === "reading" && (
@@ -492,7 +588,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 <div className="det-score__meta">
                   <Badge accent={confidenceAccent(report.confidence)}>Confiance : {report.confidence}</Badge>
                   <span className="det-score__date">
-                    Généré le {new Date(report.generatedAt).toLocaleString("fr-FR")}
+                    Généré le {formatDateTime(report.generatedAt)}
                   </span>
                 </div>
                 <p className="det-score__confidence-note">{confidenceExplanation(report.confidence)}</p>
@@ -613,8 +709,8 @@ function MetadataList({ meta }: { meta: DocumentMetadata }) {
   if (meta.author) rows.push(["Auteur", meta.author]);
   if (meta.creator) rows.push(["Application", meta.creator]);
   if (meta.producer) rows.push(["Producteur", meta.producer]);
-  if (meta.createdAt) rows.push(["Créé le", new Date(meta.createdAt).toLocaleString("fr-FR")]);
-  if (meta.modifiedAt) rows.push(["Modifié le", new Date(meta.modifiedAt).toLocaleString("fr-FR")]);
+  if (meta.createdAt) rows.push(["Créé le", formatDateTime(meta.createdAt)]);
+  if (meta.modifiedAt) rows.push(["Modifié le", formatDateTime(meta.modifiedAt)]);
   if (meta.editingMinutes != null) rows.push(["Temps d'édition cumulé", `${meta.editingMinutes} min`]);
   if (meta.revisionCount != null) rows.push(["Révisions", String(meta.revisionCount)]);
   if (meta.pageCount != null) rows.push(["Pages", String(meta.pageCount)]);

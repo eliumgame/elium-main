@@ -26,6 +26,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import updater
 from build_common import compute_code_hash, repo_root
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -64,8 +65,14 @@ def main() -> int:
     parser.add_argument("--commit", default="", help="SHA du commit publié (pour l'auto-update serveur VPS).")
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--exe")
-    parser.add_argument("--web")
+    parser.add_argument("--web", help="archive COMPLÈTE de l'interface (clients anciens)")
+    parser.add_argument("--web-core", help="archive légère de l'interface, sans assets lourds (split_web.py)")
+    parser.add_argument("--assets", help="pack d'assets lourds assets-<hash>.zip (installer/split_web.py)")
     parser.add_argument("--msi")
+    parser.add_argument("--msi-user", help="MSI par utilisateur (sans droits administrateur)")
+    parser.add_argument("--key-id", default=updater.UPDATE_PUBLIC_KEY_ID,
+                        help="identifiant de la clé de signature (champ keyId du manifeste ; rotation de clés)")
+    parser.add_argument("--channel", default="", help="stable | beta (informatif ; déduit de la version si vide)")
     parser.add_argument("--out", default=".")
     parser.add_argument("--notes", default="")
     parser.add_argument(
@@ -95,7 +102,11 @@ def main() -> int:
             print(f"  [warn] changelog illisible ({exc}) : manifeste sans notes détaillées")
 
     artifacts: dict[str, dict] = {}
-    for kind, value in (("exe", args.exe), ("web", args.web), ("msi", args.msi)):
+    paths: dict[str, Path] = {}
+    for kind, value in (
+        ("exe", args.exe), ("web", args.web), ("webCore", args.web_core),
+        ("assets", args.assets), ("msi", args.msi), ("msiUser", args.msi_user),
+    ):
         if not value:
             continue
         p = Path(value)
@@ -103,13 +114,35 @@ def main() -> int:
             print(f"  [warn] artefact {kind} introuvable : {p}")
             continue
         artifacts[kind] = _artifact(p, args.repo, tag)
+        paths[kind] = p
         print(f"  [ok]   {kind}: {p.name} ({artifacts[kind]['size']} o)")
 
     if not artifacts:
         raise SystemExit("Aucun artefact valide fourni.")
 
+    # Empreintes d'arborescence, DANS la charge signée : le client les recalcule sur le
+    # dossier web réellement servi à CHAQUE lancement (voir updater._verify_overlay).
+    if "webCore" in paths and "assets" in paths:
+        artifacts["assets"]["treeHash"] = updater.tree_hash_zips(paths["assets"])
+        union = updater.tree_hash_zips(paths["webCore"], paths["assets"])
+        artifacts["webCore"]["treeHash"] = union
+        if "web" in paths:
+            full = updater.tree_hash_zips(paths["web"])
+            if full != union:
+                raise SystemExit("web.zip (complet) != web-core + assets : découpe incohérente, publication refusée.")
+            artifacts["web"]["treeHash"] = full
+    elif "web" in paths:
+        artifacts["web"]["treeHash"] = updater.tree_hash_zips(paths["web"])
+    elif "webCore" in paths or "assets" in paths:
+        raise SystemExit("--web-core et --assets vont ensemble (et --web complet pour les clients anciens).")
+
+    channel = args.channel or ("beta" if "-" in version else "stable")
     manifest = {
         "version": version,
+        # Identifiant de la clé de signature (rotation : le client choisit la clé
+        # dans sa liste embarquée ; un identifiant inconnu est refusé).
+        "keyId": args.key_id,
+        "channel": channel,
         # SHA du commit publié : consommé par l'auto-update du Drive VPS
         # (install.sh self-update) pour se déployer sur le commit EXACT signé,
         # sans faire confiance à une ref git mutable. Champ additif : le client

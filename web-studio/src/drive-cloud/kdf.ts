@@ -14,6 +14,7 @@
  */
 import { EliumCryptoEngine } from "../crypto/elium-crypto";
 import { toHex, fromHex } from "../format/canonical";
+import { KDF_PROFILES } from "../crypto/kdf-profiles";
 
 export interface KdfParams {
   alg: "argon2id";
@@ -22,7 +23,8 @@ export interface KdfParams {
   p: number;
 }
 
-export const DEFAULT_KDF_PARAMS: KdfParams = { alg: "argon2id", t: 3, m: 262144, p: 4 };
+/** Profil « account » (cf. crypto/kdf-profiles.ts pour la justification). */
+export const DEFAULT_KDF_PARAMS: KdfParams = { alg: "argon2id", ...KDF_PROFILES.account };
 
 const enc = new TextEncoder();
 const buf = (u: Uint8Array): BufferSource => u as unknown as BufferSource;

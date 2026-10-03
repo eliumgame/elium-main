@@ -66,6 +66,8 @@ export interface ContentEditLayerProps {
   onBlocks?: (pageId: string, blocks: TextBlock[]) => void;
   /** The paragraph being typed in (its original glyphs are hidden), or null. */
   onEditing?: (info: EditingInfo | null) => void;
+  /** « Reconnaître le texte » on a page without any (a scan): Acrobat offers the OCR right there. */
+  onOcr?: () => void;
 }
 
 /** What is being edited: a detected paragraph, or text added in Elium. */
@@ -536,19 +538,18 @@ function ContentEditLayer(p: ContentEditLayerProps) {
   };
 
   /** Typing with a style chosen beforehand: the characters get it. */
-  const onBeforeInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const ev = e.nativeEvent as InputEvent;
+  const onBeforeInput = (ev: InputEvent) => {
     const root = editor.current;
     const s = sessionRef.current;
     if (!root || !s) return;
     if (ev.inputType === "insertParagraph") {
-      e.preventDefault();
+      ev.preventDefault();
       document.execCommand("insertLineBreak");
       return;
     }
     const pend = pending.current;
     if (ev.inputType === "insertText" && ev.data && pend) {
-      e.preventDefault();
+      ev.preventDefault();
       const sel = selectionOffsets(root) ?? lastSel.current ?? { start: 0, end: 0 };
       const fb = fallbackFor(s);
       let spans = readSpans(root, fb);
@@ -563,6 +564,19 @@ function ContentEditLayer(p: ContentEditLayerProps) {
       syncFormat();
     }
   };
+
+  // React's onBeforeInput is not the browser's `beforeinput` (no inputType): listened to directly.
+  const beforeInput = useRef(onBeforeInput);
+  beforeInput.current = onBeforeInput;
+  useEffect(() => {
+    const root = editor.current;
+    if (!session || !root) return;
+    const handler = (ev: Event) => beforeInput.current(ev as InputEvent);
+    root.addEventListener("beforeinput", handler);
+    return () => root.removeEventListener("beforeinput", handler);
+    // The editor element is the same for the whole session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.item.key]);
 
   const onInput = () => {
     const root = editor.current;
@@ -748,7 +762,6 @@ function ContentEditLayer(p: ContentEditLayerProps) {
             suppressContentEditableWarning
             spellCheck={false}
             style={editorStyle}
-            onBeforeInput={onBeforeInput}
             onInput={onInput}
             onPaste={(e) => {
               e.preventDefault();
@@ -850,7 +863,12 @@ function ContentEditLayer(p: ContentEditLayerProps) {
 
       {!blocks.length && !p.edits.some((e) => e.isNew) && !p.adding && (
         <div className="pdfx-editlayer__empty">
-          Aucun texte modifiable détecté sur cette page (document scanné ?). Lancez l'OCR pour le rendre éditable.
+          <span>Aucun texte modifiable sur cette page : c'est peut-être un scan.</span>
+          {p.onOcr && (
+            <button type="button" className="pdfx-editlayer__ocr" onClick={() => cb.current.onOcr?.()}>
+              Reconnaître le texte (OCR)
+            </button>
+          )}
         </div>
       )}
     </div>

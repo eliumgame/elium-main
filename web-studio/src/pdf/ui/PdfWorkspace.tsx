@@ -5676,6 +5676,7 @@ export default function PdfWorkspace({
             adding={addingText}
             formatHost={formatHost}
             onEditing={setEditingText}
+            onOcr={() => void command("ocr")}
             onAdded={() => setAddingText(false)}
             onBeginChange={checkpoint}
             onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}

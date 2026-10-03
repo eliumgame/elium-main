@@ -2126,7 +2126,19 @@
   pointer-events: auto;
 }
 .pdfx-editlayer > .pdfx-editlayer__empty {
-  pointer-events: none;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pdfx-editlayer__ocr {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--x-accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 /* Pictures of the page content. */

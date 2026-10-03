@@ -156,6 +156,37 @@ test.describe("PDF — modifier le texte, sur la page", () => {
     expect(problems).toEqual([]);
   });
 
+  test("style choisi sans sélection : il s'applique à ce qu'on tape ensuite (gras, taille)", async ({
+    page,
+    context,
+  }) => {
+    const problems = health(page);
+    await open(page, await chromePdf(await context.newPage()));
+    await page.getByRole("button", { name: "Modifier le texte" }).first().click();
+    await page.getByRole("button", { name: /Modifier : Second paragraphe/ }).click();
+    const editor = page.locator(".pdfx-editblock__editor");
+    await expect(editor).toBeVisible();
+    await page.keyboard.press("Control+End");
+    await page.getByRole("button", { name: "Gras" }).click();
+    await expect(page.getByRole("button", { name: "Gras" })).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.type(" EN GRAS");
+    const spans = await editor.evaluate((el) =>
+      Array.from(el.querySelectorAll("span")).map((s) => [s.textContent, (s as HTMLElement).style.fontWeight]),
+    );
+    expect(spans.at(-1)).toEqual([" EN GRAS", "700"]);
+    expect(spans[0]![1]).toBe("400");
+    // A size typed in the panel applies to the selection only.
+    await page.keyboard.press("Shift+Home");
+    const size = page.getByLabel("Taille");
+    await size.fill("14");
+    await size.press("Enter");
+    const sizes = await editor.evaluate((el) =>
+      Array.from(el.querySelectorAll("span")).map((s) => (s as HTMLElement).style.fontSize),
+    );
+    expect(new Set(sizes).size).toBeGreaterThan(1);
+    expect(problems).toEqual([]);
+  });
+
   test("un clic sans rien changer n'ajoute ni modification ni étape d'annulation", async ({ page, context }) => {
     const problems = health(page);
     await open(page, await chromePdf(await context.newPage()));

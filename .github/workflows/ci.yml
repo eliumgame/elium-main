@@ -72,7 +72,9 @@ jobs:
       run: npm run test:browser
     - name: Audit dépendances de production
       working-directory: ./web-studio
-      run: npm audit --omit=dev --audit-level=high
+      # Même exigence que `npm audit --audit-level=high`, sauf les exceptions datées et
+      # justifiées de scripts/audit-gate.mjs (node-forge : aucun correctif publié).
+      run: node scripts/audit-gate.mjs
 
   server-checks:
     runs-on: ubuntu-latest

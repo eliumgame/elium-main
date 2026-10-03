@@ -70,6 +70,8 @@ import { importToDoc } from "./format/importers";
 import { fontResources, syncEmbeddedFonts } from "./format/embedded-fonts";
 import { embeddableFonts, registerEmbeddedFonts } from "./ui/fonts";
 import { docToDocx, docxToDoc } from "./format/docx";
+import { reportError } from "./ui/crash-log";
+import { fetchLauncherFile, watchLauncherInbox } from "./desktop/launcher-bridge";
 import { putDriveDoc, reencryptDriveVault } from "./format/drive-store";
 import { putDraft, getDraft, resolveDraft, type DraftContent } from "./format/drafts-store";
 import { reencryptParapheurVault } from "./format/parapheur-store";
@@ -314,7 +316,7 @@ export default function App() {
       try {
         await reencryptParapheurVault(undefined, { password: pwd });
       } catch (e) {
-        await reencryptDriveVault({ password: pwd }, undefined).catch(() => {});
+        await reencryptDriveVault({ password: pwd }, undefined).catch((err) => reportError("vault-rollback", err));
         throw e;
       }
       await setVaultPassword(pwd);
@@ -342,7 +344,7 @@ export default function App() {
       try {
         await reencryptParapheurVault(vaultSecret, { password: newPwd });
       } catch (e) {
-        await reencryptDriveVault({ password: newPwd }, vaultSecret).catch(() => {});
+        await reencryptDriveVault({ password: newPwd }, vaultSecret).catch((err) => reportError("vault-rollback", err));
         throw e;
       }
       await setVaultPassword(newPwd);
@@ -372,7 +374,7 @@ export default function App() {
       try {
         await reencryptParapheurVault(vaultSecret, undefined);
       } catch (e) {
-        await reencryptDriveVault(undefined, vaultSecret).catch(() => {});
+        await reencryptDriveVault(undefined, vaultSecret).catch((err) => reportError("vault-rollback", err));
         throw e;
       }
       await removeVaultConfig();
@@ -735,17 +737,27 @@ export default function App() {
     openedFromDisk.current = true;
     (async () => {
       try {
-        const r = await fetch("/__open__");
-        if (!r.ok) return;
-        const name = decodeURIComponent(r.headers.get("X-Elium-Name") ?? "document.elium");
-        const bytes = await r.arrayBuffer();
+        const f = await fetchLauncherFile();
+        if (!f) return;
         window.history.replaceState(null, "", window.location.pathname);
-        await onOpen(new File([bytes], name));
+        await onOpen(new File([f.bytes], f.name));
       } catch {
         /* launcher absent (mode dev) : ignorer */
       }
     })();
   }, [onOpen]);
+
+  // Elium déjà ouvert + double-clic sur un autre .elium : le 2e lancement confie
+  // son fichier à CETTE fenêtre (cf. desktop/launcher-bridge.ts).
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  useEffect(
+    () =>
+      watchLauncherInbox(async (f) => {
+        await onOpenRef.current(new File([f.bytes], f.name));
+      }),
+    [],
+  );
 
   // --- Studio actions -----------------------------------------------------
 

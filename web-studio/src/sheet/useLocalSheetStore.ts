@@ -8,7 +8,7 @@
  * recopie) délèguent aux fonctions PURES de `./structural`, partagées avec le
  * Tableur collaboratif — un seul comportement, testé une seule fois.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUndoable } from "../ui/useUndoable";
 import {
   emptyWorkbook,
@@ -35,6 +35,7 @@ import { toggleMerge as toggleMergePure } from "./merges";
 import { renameSheetRefs, indexToCol } from "./formula";
 import { loadWorkbook, saveWorkbook } from "./sheet-store";
 import type { SheetStore } from "./store";
+import { reportError } from "../ui/crash-log";
 
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
 
@@ -56,6 +57,8 @@ function computeInitialWorkbook(): Workbook {
 export interface LocalSheetStore extends SheetStore {
   /** Référence vive du classeur (pour les handlers d'export qui lisent la dernière valeur). */
   wb: Workbook;
+  /** Message si la sauvegarde locale n'a pas pu être lue (l'autosauvegarde est alors suspendue). */
+  loadError?: string;
 }
 
 export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
@@ -76,19 +79,26 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   // comme le chargement d'une sauvegarde réelle, pour ne jamais rendre ce
   // premier dimensionnement annulable via Ctrl+Z (ce ne serait pas une
   // édition de l'utilisateur, seulement l'état initial de la page).
+  // Si la lecture ÉCHOUE (IndexedDB indisponible, base corrompue…), on ne doit
+  // surtout pas laisser l'autosauvegarde écraser la sauvegarde existante avec le
+  // classeur vierge : on suspend l'écriture et on remonte l'erreur (cf.
+  // SheetView). Même garde que la store des présentations.
+  const [loadError, setLoadError] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (initial) return;
     loadWorkbook()
       .then((w) => reset(w ?? computeInitialWorkbook()))
-      .catch(() => {});
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Autosauvegarde débouncée à chaque changement du classeur.
   useEffect(() => {
-    if (initial) return;
-    const t = setTimeout(() => void saveWorkbook(wb), 300);
+    if (initial || loadError) return;
+    const t = setTimeout(() => {
+      saveWorkbook(wb).catch((err) => reportError("sheet-autosave", err));
+    }, 300);
     return () => clearTimeout(t);
-  }, [wb, initial]);
+  }, [wb, initial, loadError]);
 
   const wbRef = useRef(wb);
   wbRef.current = wb;
@@ -259,6 +269,7 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
 
   return {
     wb,
+    loadError,
     active: wb.active,
     canWrite: true,
     collaborative: false,

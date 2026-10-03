@@ -21,7 +21,9 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
+import uuid
 import webbrowser
 from functools import partial
 from html import escape as _html_escape
@@ -540,6 +542,197 @@ def _request_restart() -> bool:
     return True
 
 
+# --------------------------------------------------------------------------- #
+# Instance unique + transmission de fichiers (double-clic sur un .elium pendant
+# qu'Elium est déjà ouvert).
+#
+# Avant : un 2e lancement démarrait un 2e serveur et ouvrait une 2e fenêtre sur
+# le MÊME profil Edge ; Edge confiait alors l'URL à la fenêtre existante et le
+# nouveau processus se terminait aussitôt — son serveur s'arrêtait avec lui et
+# le fichier n'était jamais ouvert. Maintenant : un mutex système garantit UNE
+# instance ; un 2e lancement dépose le fichier dans une boîte aux lettres
+# (%LOCALAPPDATA%\Elium\inbox), amène la fenêtre existante au premier plan et
+# se termine. L'instance en cours consomme la boîte, et la page l'apprend via
+# /__open_seq__.
+# --------------------------------------------------------------------------- #
+_MUTEX_NAME = "Local\\EliumDesktopSingleInstance"
+_MAX_OPEN_BYTES = 256 * 1024 * 1024
+_mutex_handle = None
+_instance_lock_file = None
+
+
+def _data_dir() -> Path:
+    base = Path(os.environ.get("LocalAppData") or Path.home()) / "Elium"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _inbox_dir() -> Path:
+    d = _data_dir() / "inbox"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def acquire_single_instance() -> bool:
+    """True si CE processus est (désormais) l'instance principale.
+
+    En cas de doute (API indisponible), renvoie True : mieux vaut deux instances
+    qu'une application qui ne démarre pas."""
+    global _mutex_handle, _instance_lock_file
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateMutexW.restype = ctypes.c_void_p
+            k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            handle = k32.CreateMutexW(None, False, _MUTEX_NAME)
+            if not handle:
+                return True
+            if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+                k32.CloseHandle(handle)
+                return False
+            _mutex_handle = handle
+            return True
+        import fcntl  # POSIX
+
+        f = open(_data_dir() / "instance.lock", "w")  # noqa: SIM115 — gardé ouvert toute la vie du process
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.close()
+            return False
+        _instance_lock_file = f
+        return True
+    except Exception as e:
+        _log_launcher(f"acquire_single_instance: indisponible ({e})")
+        return True
+
+
+def release_single_instance() -> None:
+    """Libère le verrou (avant de relancer l'application pour une mise à jour)."""
+    global _mutex_handle, _instance_lock_file
+    try:
+        if _mutex_handle is not None and os.name == "nt":
+            import ctypes
+
+            k32 = ctypes.WinDLL("kernel32")
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            k32.CloseHandle(_mutex_handle)
+        if _instance_lock_file is not None:
+            _instance_lock_file.close()
+    except Exception as e:
+        _log_launcher(f"release_single_instance: {e}")
+    _mutex_handle = None
+    _instance_lock_file = None
+
+
+def _focus_existing_window() -> bool:
+    """Amène la fenêtre Elium existante au premier plan (Windows). True si trouvée."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32")
+        found: list[int] = []
+        enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def _cb(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            cls = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(hwnd, cls, 64)
+            if cls.value != "Chrome_WidgetWin_1":  # Edge/Chrome — pas l'Explorateur
+                return True
+            n = user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            if buf.value.startswith("Elium"):
+                found.append(hwnd)
+            return True
+
+        user32.EnumWindows(enum_proc(_cb), 0)
+        if not found:
+            return False
+        hwnd = found[0]
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception as e:
+        _log_launcher(f"_focus_existing_window: {e}")
+        return False
+
+
+def forward_to_running_instance(file_path: "str | None") -> bool:
+    """Confie `file_path` (s'il y en a un) à l'instance déjà ouverte et la met au
+    premier plan. True si la demande a été prise en charge — le 2e lancement peut
+    alors se terminer ; False pour démarrer normalement (instance figée/absente)."""
+    if file_path:
+        try:
+            src = Path(file_path)
+            if src.stat().st_size > _MAX_OPEN_BYTES:
+                return False
+            tmp = _inbox_dir() / f"{uuid.uuid4().hex}__{urllib.parse.quote(src.name)}.tmp"
+            tmp.write_bytes(src.read_bytes())
+            final = tmp.with_suffix(".open")
+            tmp.rename(final)
+        except OSError as e:
+            _log_launcher(f"forward_to_running_instance: dépôt impossible ({e})")
+            return False
+        # L'instance principale doit consommer le fichier rapidement ; sinon elle
+        # est figée : on retire notre dépôt et on démarre normalement.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not final.exists():
+                break
+            time.sleep(0.1)
+        else:
+            final.unlink(missing_ok=True)
+            return False
+    return _focus_existing_window() or bool(file_path)
+
+
+def _consume_inbox_once() -> None:
+    """Charge dans le serveur chaque fichier déposé par un 2e lancement."""
+    for f in sorted(_inbox_dir().glob("*.open")):
+        try:
+            name = urllib.parse.unquote(f.stem.split("__", 1)[1])
+            data = f.read_bytes()
+            f.unlink()
+        except (OSError, IndexError) as e:
+            _log_launcher(f"inbox: fichier ignoré ({e})")
+            f.unlink(missing_ok=True)
+            continue
+        QuietHandler.opened_file = (name, data)
+        QuietHandler.open_seq += 1
+
+
+def start_inbox_watcher() -> None:
+    def loop():
+        while True:
+            try:
+                _consume_inbox_once()
+            except Exception as e:
+                _log_launcher(f"inbox watcher: {e}")
+            time.sleep(0.4)
+
+    # Fichiers restés d'une session précédente : jamais rouverts à l'aveugle.
+    for stale in _inbox_dir().glob("*"):
+        stale.unlink(missing_ok=True)
+    threading.Thread(target=loop, daemon=True, name="elium-inbox").start()
+
+
+def _is_local_host(host: "str | None", port: int) -> bool:
+    """Le Host d'une requête GET sensible doit être celui de CE serveur loopback
+    (anti DNS-rebinding : une page tierce dont le nom pointe vers 127.0.0.1 ne
+    peut plus lire /__open__)."""
+    return (host or "") in (f"127.0.0.1:{port}", f"localhost:{port}")
+
+
 def find_free_port(start: int = 3000, end: int = 3100) -> int:
     """Trouve un port libre dans la plage donnée."""
     for port in range(start, end):
@@ -697,8 +890,10 @@ CSP_DIRECTIVES: "tuple[str, ...]" = (
     # ICC de pdf.js) SANS ouvrir l'eval() de chaînes. Sans lui, une WebView
     # Chromium récente bloque WebAssembly.compile() sous default-src 'self'.
     "script-src 'self' 'wasm-unsafe-eval'",
-    "style-src 'self' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    # Polices embarquées dans l'application (web-studio/public/fonts) : aucune
+    # origine réseau, l'appli reste 100 % hors ligne.
+    "style-src 'self'",
+    "font-src 'self'",
     # data: → images de signature / tampons / pages-images insérées gardées en
     # data: URL dans le document (aperçus des dialogues <img src="data:…">) ;
     # blob: → aperçus d'images choisies par l'utilisateur (createObjectURL).
@@ -730,6 +925,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
     # (nom de fichier, contenu) du .elium passé en argument, servi sur /__open__.
     opened_file: "tuple[str, bytes] | None" = None
+    # Incrémenté à chaque fichier reçu d'un 2e lancement ; la page l'interroge.
+    open_seq: int = 0
 
     # Types fixés ici, pas laissés à `mimetypes` : sous Windows il lit le
     # registre, où un logiciel tiers peut avoir déclaré « .js » en text/plain.
@@ -764,8 +961,17 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         clean = self.path.split("?", 1)[0]
-        if clean == "/__open__":
-            self._serve_opened_file()
+        if clean in ("/__open__", "/__open_seq__"):
+            if not _is_local_host(self.headers.get("Host"), self.server.server_address[1]):
+                self.send_error(403, "Hôte non autorisé")
+                return
+            if clean == "/__open_seq__":
+                self._serve_bytes(
+                    json.dumps({"seq": QuietHandler.open_seq}).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+            else:
+                self._serve_opened_file()
             return
         if clean == "/__update__":
             self._serve_update_status()
@@ -1026,6 +1232,16 @@ def main():
         except Exception as e:
             _log_launcher(f"main: run_pending_handoff() a échoué ({e})")
 
+    # ELIUM_NO_BROWSER=1 : mode serveur seul (tests, CI, usage avancé).
+    headless = os.environ.get("ELIUM_NO_BROWSER") == "1"
+
+    # Instance unique : un 2e lancement (ex. double-clic sur un .elium) confie son
+    # fichier à la fenêtre déjà ouverte au lieu de démarrer un 2e serveur.
+    if not headless and not acquire_single_instance():
+        arg = sys.argv[1] if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]) else None
+        if forward_to_running_instance(arg):
+            return
+
     web_dir = current_web_dir()
     global _port_fallback_used
     port, _port_fallback_used = resolve_port()
@@ -1051,8 +1267,8 @@ def main():
         except Exception as e:
             _log_launcher(f"main: démarrage des vérifications de mise à jour en échec ({e})")
 
-    # ELIUM_NO_BROWSER=1 : mode serveur seul (tests, CI, usage avancé).
-    headless = os.environ.get("ELIUM_NO_BROWSER") == "1"
+    if not headless:
+        start_inbox_watcher()
 
     global _browser_proc, _fallback_event
 
@@ -1094,6 +1310,7 @@ def _maybe_relaunch() -> None:
     soit le nouvel exe en attente (màj), soit — s'il n'y en a pas (ex. juste un
     changement de port) — l'exe COURANT, pour que « Redémarrer » fonctionne dans
     les deux cas avec un seul et même bouton côté interface."""
+    release_single_instance()  # sinon le nouveau processus se croirait un 2e lancement
     if not _restart_requested:
         return
     relaunched = False

@@ -349,10 +349,11 @@ def test_csp_allows_local_data_schemes_only():
         assert not any(t.startswith("http") or t == "*" for t in d[name]), name
 
 
-def test_csp_style_and_font_sources_unchanged():
+def test_csp_style_and_font_sources_are_local_only():
     d = _csp_directives()
-    assert d["style-src"] == ["'self'", "https://fonts.googleapis.com"]
-    assert d["font-src"] == ["'self'", "https://fonts.gstatic.com"]
+    # Polices embarquées (web-studio/public/fonts) : plus aucune origine réseau.
+    assert d["style-src"] == ["'self'"]
+    assert d["font-src"] == ["'self'"]
 
 
 def test_every_response_carries_the_csp(monkeypatch):
@@ -610,3 +611,93 @@ def test_tsa_relay_body_read_times_out_on_a_short_body(monkeypatch):
     finally:
         server_end.close()
         client_end.close()
+
+
+# Instance unique : boîte aux lettres + Host des routes /__open__*
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def isolated_appdata(tmp_path, monkeypatch):
+    monkeypatch.setenv("LocalAppData", str(tmp_path))
+    monkeypatch.setattr(elium_launcher.QuietHandler, "opened_file", None)
+    monkeypatch.setattr(elium_launcher.QuietHandler, "open_seq", 0)
+    return tmp_path
+
+
+def test_is_local_host_accepts_only_this_server():
+    assert elium_launcher._is_local_host("127.0.0.1:3000", 3000)
+    assert elium_launcher._is_local_host("localhost:3000", 3000)
+    assert not elium_launcher._is_local_host("evil.example:3000", 3000)
+    assert not elium_launcher._is_local_host("127.0.0.1:3001", 3000)
+    assert not elium_launcher._is_local_host(None, 3000)
+
+
+def test_inbox_file_is_loaded_and_sequence_bumped(isolated_appdata, tmp_path):
+    src = tmp_path / "Mon contrat é.elium"
+    src.write_bytes(b"payload-bytes")
+    inbox = elium_launcher._inbox_dir()
+    # Ce que fait forward_to_running_instance, sans attendre ni focaliser une fenêtre.
+    name = "abc123__" + elium_launcher.urllib.parse.quote(src.name) + ".open"
+    (inbox / name).write_bytes(src.read_bytes())
+
+    elium_launcher._consume_inbox_once()
+
+    assert elium_launcher.QuietHandler.opened_file == ("Mon contrat é.elium", b"payload-bytes")
+    assert elium_launcher.QuietHandler.open_seq == 1
+    assert list(inbox.glob("*.open")) == []  # consommé
+
+
+def test_inbox_ignores_malformed_names(isolated_appdata):
+    inbox = elium_launcher._inbox_dir()
+    (inbox / "sans-separateur.open").write_bytes(b"x")
+    elium_launcher._consume_inbox_once()
+    assert elium_launcher.QuietHandler.opened_file is None
+    assert elium_launcher.QuietHandler.open_seq == 0
+    assert list(inbox.glob("*.open")) == []  # nettoyé, pas rejoué en boucle
+
+
+def test_forward_gives_up_when_primary_never_consumes(isolated_appdata, tmp_path, monkeypatch):
+    """Instance principale figée : le 2e lancement ne doit pas disparaître en
+    silence — il retire son dépôt et laisse l'appelant démarrer normalement."""
+    src = tmp_path / "doc.elium"
+    src.write_bytes(b"x")
+    ticks = iter(range(0, 1000))
+    monkeypatch.setattr(elium_launcher.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(elium_launcher.time, "sleep", lambda _s: None)
+    assert elium_launcher.forward_to_running_instance(str(src)) is False
+    assert list(elium_launcher._inbox_dir().glob("*.open")) == []
+
+
+def test_forward_succeeds_when_primary_consumes(isolated_appdata, tmp_path, monkeypatch):
+    src = tmp_path / "doc.elium"
+    src.write_bytes(b"hello")
+    monkeypatch.setattr(elium_launcher, "_focus_existing_window", lambda: True)
+    real_sleep = elium_launcher.time.sleep
+
+    def consume_then_sleep(s):
+        elium_launcher._consume_inbox_once()  # l'instance principale réagit
+        real_sleep(0)
+
+    monkeypatch.setattr(elium_launcher.time, "sleep", consume_then_sleep)
+    assert elium_launcher.forward_to_running_instance(str(src)) is True
+    assert elium_launcher.QuietHandler.opened_file == ("doc.elium", b"hello")
+
+
+def test_single_instance_second_acquire_is_refused():
+    """Deux acquisitions dans deux processus : seule la 1re réussit."""
+    import subprocess
+
+    code = (
+        f"import sys; sys.path.insert(0, r'{_INSTALLER}'); import elium_launcher as e; "
+        "print(e.acquire_single_instance(), flush=True); import time; time.sleep(3)"
+    )
+    first = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)  # noqa: S603
+    try:
+        assert first.stdout.readline().strip() == "True"
+        second = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", code.replace("time.sleep(3)", "pass")],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert second.stdout.strip() == "False"
+    finally:
+        first.kill()

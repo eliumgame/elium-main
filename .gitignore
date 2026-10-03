@@ -70,3 +70,5 @@ latest.json.sig
 # Tests jetables (relectures, diagnostics) — jamais versionnés
 web-studio/tests/zz-*
 web-studio/tests/pdf-zz-*
+# Généré par scripts/gen-fonts.mjs (npm run gen:assets)
+web-studio/public/fonts/

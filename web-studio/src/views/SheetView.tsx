@@ -5,6 +5,7 @@
  * surface d'édition est le composant partagé, si bien que le Tableur local reste
  * en phase, à l'identique, avec le Tableur collaboratif Drive.
  */
+import { useEffect } from "react";
 import { Download, Save } from "lucide-react";
 import { useLocalSheetStore } from "../sheet/useLocalSheetStore";
 import SheetEditor from "../sheet/SheetEditor";
@@ -29,6 +30,19 @@ export default function SheetView({
 }) {
   const dialogs = useDialogs();
   const store = useLocalSheetStore(initial);
+
+  // La sauvegarde locale n'a pas pu être lue : l'éditeur démarre sur un classeur
+  // vierge et l'autosauvegarde est suspendue pour ne pas écraser l'existant.
+  useEffect(() => {
+    if (!store.loadError) return;
+    void dialogs.alert({
+      title: "Classeur autosauvegardé illisible",
+      message: `${store.loadError}
+
+L'éditeur démarre sur un classeur vierge. La sauvegarde automatique existante n'a PAS été effacée et l'autosauvegarde est suspendue pour cette session : exportez votre travail, puis rechargez Elium.`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.loadError]);
 
   const exportCsv = () => {
     const wb = store.wb;

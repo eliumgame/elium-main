@@ -1,15 +1,35 @@
 /*
- * Elium offline service worker — hand-rolled runtime caching (no build step).
- * The app is local-first (no backend for documents), so once the shell and its
- * hashed assets are cached, Elium runs fully offline. Strategy:
- *   - navigations : network-first, fall back to the cached shell (index.html)
- *   - same-origin GET assets : stale-while-revalidate (cache-first + refresh)
- *   - cross-origin (e.g. Google Fonts) : left to the browser
+ * Elium offline service worker.
+ * Elium est hors-ligne d'abord : une fois installé, tout fonctionne sans réseau.
+ *
+ * `scripts/gen-precache.mjs` (lancé après `vite build`) remplace les deux
+ * marqueurs ci-dessous par la liste réelle des fichiers de dist/ et par un
+ * identifiant de build. Deux niveaux de précache :
+ *   - CORE  : le shell et tous les chunks JS/CSS → mis en cache à l'installation
+ *             (l'application est utilisable hors-ligne dès que le SW est actif) ;
+ *   - HEAVY : polices, modèles OCR, cœur WASM → mis en cache à l'activation, en
+ *             tâche de fond, sans bloquer le démarrage.
+ * Navigations : réseau d'abord, repli sur le shell. Assets : cache d'abord.
+ * Le cross-origin n'est jamais touché.
  */
-const CACHE = "elium-cache-v1";
+const BUILD = "__BUILD_ID__";
+const CACHE = "elium-cache-" + BUILD;
+const CORE = /*__PRECACHE_CORE__*/ [];
+const HEAVY = /*__PRECACHE_HEAVY__*/ [];
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
+async function warm(urls) {
+  const cache = await caches.open(CACHE);
+  await Promise.allSettled(
+    urls.map(async (u) => {
+      if (await cache.match(u)) return;
+      const res = await fetch(u, { cache: "reload" });
+      if (res && res.ok) await cache.put(u, res);
+    }),
+  );
+}
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(warm(["/index.html", ...CORE]).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
@@ -18,6 +38,7 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
       await self.clients.claim();
+      await warm(HEAVY);
     })(),
   );
 });
@@ -28,6 +49,8 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // don't touch cross-origin
+  // Endpoints dynamiques du lanceur de bureau (/__update__, /__open__ …) : jamais en cache.
+  if (url.pathname.startsWith("/__")) return;
 
   if (req.mode === "navigate") {
     event.respondWith(
@@ -51,11 +74,14 @@ self.addEventListener("fetch", (event) => {
       const cache = await caches.open(CACHE);
       const cached = await cache.match(req);
       if (cached) {
-        fetch(req)
-          .then((res) => {
-            if (res && res.ok) cache.put(req, res.clone());
-          })
-          .catch(() => {});
+        // Les fichiers hashés sont immuables ; les autres sont rafraîchis en tâche de fond.
+        if (!/\/assets\//.test(url.pathname) && !/\/(fonts|tesseract|tessdata|pdfjs)\//.test(url.pathname)) {
+          fetch(req)
+            .then((res) => {
+              if (res && res.ok) cache.put(req, res.clone());
+            })
+            .catch(() => {});
+        }
         return cached;
       }
       try {

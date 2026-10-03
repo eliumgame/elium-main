@@ -10,28 +10,64 @@
  * fonts are embedded exactly and render live via the FontFace API.
  */
 
+import catalog from "./font-catalog.json";
+
+type BundledCategory = "sans" | "serif" | "mono" | "display" | "hand";
+interface BundledFont {
+  id: string;
+  name: string;
+  category: BundledCategory;
+}
+const METRIC_SUBSTITUTES = new Set(["Arimo", "Tinos", "Cousine", "Carlito", "Caladea", "Gelasio"]);
+
 export interface FontDef {
   name: string; // display name + key
   css: string; // CSS font stack for the editors
   pdf: "helvetica" | "times" | "courier"; // closest standard family for PDF export
 }
 
-export const BUILTIN_FONTS: FontDef[] = [
-  { name: "Arial", css: "Arial, Helvetica, sans-serif", pdf: "helvetica" },
-  { name: "Helvetica", css: "Helvetica, Arial, sans-serif", pdf: "helvetica" },
-  { name: "Inter", css: "Inter, system-ui, sans-serif", pdf: "helvetica" },
-  { name: "Calibri", css: "Calibri, Candara, Segoe, sans-serif", pdf: "helvetica" },
-  { name: "Verdana", css: "Verdana, Geneva, sans-serif", pdf: "helvetica" },
-  { name: "Tahoma", css: "Tahoma, Geneva, sans-serif", pdf: "helvetica" },
-  { name: "Trebuchet MS", css: "'Trebuchet MS', Helvetica, sans-serif", pdf: "helvetica" },
-  { name: "Comic Sans MS", css: "'Comic Sans MS', cursive", pdf: "helvetica" },
-  { name: "Impact", css: "Impact, Charcoal, sans-serif", pdf: "helvetica" },
-  { name: "Times New Roman", css: "'Times New Roman', Times, serif", pdf: "times" },
-  { name: "Georgia", css: "Georgia, 'Times New Roman', serif", pdf: "times" },
-  { name: "Garamond", css: "Garamond, 'Times New Roman', serif", pdf: "times" },
-  { name: "Cambria", css: "Cambria, Georgia, serif", pdf: "times" },
-  { name: "Courier New", css: "'Courier New', Courier, monospace", pdf: "courier" },
+/**
+ * Familles système courantes. Chaque pile se termine par un équivalent
+ * EMBARQUÉ de même métrique (Arimo≈Arial, Carlito≈Calibri, Tinos≈Times,
+ * Caladea≈Cambria, Cousine≈Courier, Gelasio≈Georgia) : sur un poste sans la
+ * police système (Linux, macOS sans Office…), la mise en page ne bouge pas.
+ */
+const SYSTEM_FONTS: FontDef[] = [
+  { name: "Arial", css: "Arial, Arimo, Helvetica, sans-serif", pdf: "helvetica" },
+  { name: "Helvetica", css: "Helvetica, Arimo, Arial, sans-serif", pdf: "helvetica" },
+  { name: "Calibri", css: "Calibri, Carlito, Candara, Segoe, sans-serif", pdf: "helvetica" },
+  { name: "Verdana", css: "Verdana, Geneva, 'DM Sans', sans-serif", pdf: "helvetica" },
+  { name: "Tahoma", css: "Tahoma, Geneva, 'Open Sans', sans-serif", pdf: "helvetica" },
+  { name: "Trebuchet MS", css: "'Trebuchet MS', 'Fira Sans', Helvetica, sans-serif", pdf: "helvetica" },
+  { name: "Comic Sans MS", css: "'Comic Sans MS', Kalam, cursive", pdf: "helvetica" },
+  { name: "Impact", css: "Impact, Charcoal, Anton, sans-serif", pdf: "helvetica" },
+  { name: "Times New Roman", css: "'Times New Roman', Tinos, Times, serif", pdf: "times" },
+  { name: "Georgia", css: "Georgia, Gelasio, 'Times New Roman', serif", pdf: "times" },
+  { name: "Garamond", css: "Garamond, 'EB Garamond', 'Times New Roman', serif", pdf: "times" },
+  { name: "Cambria", css: "Cambria, Caladea, Georgia, serif", pdf: "times" },
+  { name: "Courier New", css: "'Courier New', Cousine, Courier, monospace", pdf: "courier" },
 ];
+
+const GENERIC: Record<BundledCategory, { stack: string; pdf: FontDef["pdf"] }> = {
+  sans: { stack: "sans-serif", pdf: "helvetica" },
+  serif: { stack: "serif", pdf: "times" },
+  mono: { stack: "monospace", pdf: "courier" },
+  display: { stack: "sans-serif", pdf: "helvetica" },
+  hand: { stack: "cursive", pdf: "helvetica" },
+};
+
+/** Polices embarquées dans l'application (voir scripts/gen-fonts.mjs). */
+const BUNDLED_FONTS: FontDef[] = (catalog as BundledFont[])
+  // Arimo/Tinos/Cousine/Carlito/Caladea/Gelasio servent de substituts métriques
+  // aux polices système ci-dessus ; les lister aussi serait un doublon.
+  .filter((f) => !METRIC_SUBSTITUTES.has(f.name))
+  .map((f) => ({
+    name: f.name,
+    css: `'${f.name}', ${GENERIC[f.category].stack}`,
+    pdf: GENERIC[f.category].pdf,
+  }));
+
+export const BUILTIN_FONTS: FontDef[] = [...SYSTEM_FONTS, ...BUNDLED_FONTS];
 
 export const DEFAULT_FONT = BUILTIN_FONTS[0].name;
 

@@ -1,0 +1,402 @@
+[
+ {
+  "id": "inter",
+  "name": "Inter",
+  "category": "sans",
+  "weights": [
+   300,
+   400,
+   500,
+   600,
+   700,
+   800
+  ],
+  "ext": true
+ },
+ {
+  "id": "roboto",
+  "name": "Roboto",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "open-sans",
+  "name": "Open Sans",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "lato",
+  "name": "Lato",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "montserrat",
+  "name": "Montserrat",
+  "category": "sans"
+ },
+ {
+  "id": "poppins",
+  "name": "Poppins",
+  "category": "sans"
+ },
+ {
+  "id": "source-sans-3",
+  "name": "Source Sans 3",
+  "category": "sans"
+ },
+ {
+  "id": "nunito",
+  "name": "Nunito",
+  "category": "sans"
+ },
+ {
+  "id": "raleway",
+  "name": "Raleway",
+  "category": "sans"
+ },
+ {
+  "id": "work-sans",
+  "name": "Work Sans",
+  "category": "sans"
+ },
+ {
+  "id": "dm-sans",
+  "name": "DM Sans",
+  "category": "sans"
+ },
+ {
+  "id": "fira-sans",
+  "name": "Fira Sans",
+  "category": "sans"
+ },
+ {
+  "id": "noto-sans",
+  "name": "Noto Sans",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "ubuntu",
+  "name": "Ubuntu",
+  "category": "sans"
+ },
+ {
+  "id": "pt-sans",
+  "name": "PT Sans",
+  "category": "sans"
+ },
+ {
+  "id": "karla",
+  "name": "Karla",
+  "category": "sans"
+ },
+ {
+  "id": "rubik",
+  "name": "Rubik",
+  "category": "sans"
+ },
+ {
+  "id": "barlow",
+  "name": "Barlow",
+  "category": "sans"
+ },
+ {
+  "id": "cabin",
+  "name": "Cabin",
+  "category": "sans"
+ },
+ {
+  "id": "libre-franklin",
+  "name": "Libre Franklin",
+  "category": "sans"
+ },
+ {
+  "id": "josefin-sans",
+  "name": "Josefin Sans",
+  "category": "sans"
+ },
+ {
+  "id": "archivo",
+  "name": "Archivo",
+  "category": "sans"
+ },
+ {
+  "id": "manrope",
+  "name": "Manrope",
+  "category": "sans"
+ },
+ {
+  "id": "space-grotesk",
+  "name": "Space Grotesk",
+  "category": "sans"
+ },
+ {
+  "id": "outfit",
+  "name": "Outfit",
+  "category": "sans"
+ },
+ {
+  "id": "lexend",
+  "name": "Lexend",
+  "category": "sans"
+ },
+ {
+  "id": "quicksand",
+  "name": "Quicksand",
+  "category": "sans"
+ },
+ {
+  "id": "comfortaa",
+  "name": "Comfortaa",
+  "category": "sans"
+ },
+ {
+  "id": "ibm-plex-sans",
+  "name": "IBM Plex Sans",
+  "category": "sans"
+ },
+ {
+  "id": "atkinson-hyperlegible",
+  "name": "Atkinson Hyperlegible",
+  "category": "sans"
+ },
+ {
+  "id": "opendyslexic",
+  "name": "OpenDyslexic",
+  "category": "sans"
+ },
+ {
+  "id": "arimo",
+  "name": "Arimo",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "carlito",
+  "name": "Carlito",
+  "category": "sans",
+  "ext": true
+ },
+ {
+  "id": "tinos",
+  "name": "Tinos",
+  "category": "serif",
+  "ext": true
+ },
+ {
+  "id": "caladea",
+  "name": "Caladea",
+  "category": "serif",
+  "ext": true
+ },
+ {
+  "id": "gelasio",
+  "name": "Gelasio",
+  "category": "serif",
+  "ext": true
+ },
+ {
+  "id": "cousine",
+  "name": "Cousine",
+  "category": "mono",
+  "ext": true
+ },
+ {
+  "id": "playfair-display",
+  "name": "Playfair Display",
+  "category": "serif"
+ },
+ {
+  "id": "merriweather",
+  "name": "Merriweather",
+  "category": "serif"
+ },
+ {
+  "id": "lora",
+  "name": "Lora",
+  "category": "serif"
+ },
+ {
+  "id": "pt-serif",
+  "name": "PT Serif",
+  "category": "serif"
+ },
+ {
+  "id": "libre-baskerville",
+  "name": "Libre Baskerville",
+  "category": "serif"
+ },
+ {
+  "id": "eb-garamond",
+  "name": "EB Garamond",
+  "category": "serif"
+ },
+ {
+  "id": "crimson-text",
+  "name": "Crimson Text",
+  "category": "serif"
+ },
+ {
+  "id": "cormorant-garamond",
+  "name": "Cormorant Garamond",
+  "category": "serif"
+ },
+ {
+  "id": "noto-serif",
+  "name": "Noto Serif",
+  "category": "serif",
+  "ext": true
+ },
+ {
+  "id": "source-serif-4",
+  "name": "Source Serif 4",
+  "category": "serif"
+ },
+ {
+  "id": "roboto-slab",
+  "name": "Roboto Slab",
+  "category": "serif"
+ },
+ {
+  "id": "bitter",
+  "name": "Bitter",
+  "category": "serif"
+ },
+ {
+  "id": "ibm-plex-serif",
+  "name": "IBM Plex Serif",
+  "category": "serif"
+ },
+ {
+  "id": "alegreya",
+  "name": "Alegreya",
+  "category": "serif"
+ },
+ {
+  "id": "spectral",
+  "name": "Spectral",
+  "category": "serif"
+ },
+ {
+  "id": "vollkorn",
+  "name": "Vollkorn",
+  "category": "serif"
+ },
+ {
+  "id": "cardo",
+  "name": "Cardo",
+  "category": "serif"
+ },
+ {
+  "id": "old-standard-tt",
+  "name": "Old Standard TT",
+  "category": "serif"
+ },
+ {
+  "id": "fira-code",
+  "name": "Fira Code",
+  "category": "mono"
+ },
+ {
+  "id": "jetbrains-mono",
+  "name": "JetBrains Mono",
+  "category": "mono"
+ },
+ {
+  "id": "source-code-pro",
+  "name": "Source Code Pro",
+  "category": "mono"
+ },
+ {
+  "id": "roboto-mono",
+  "name": "Roboto Mono",
+  "category": "mono"
+ },
+ {
+  "id": "ibm-plex-mono",
+  "name": "IBM Plex Mono",
+  "category": "mono"
+ },
+ {
+  "id": "courier-prime",
+  "name": "Courier Prime",
+  "category": "mono"
+ },
+ {
+  "id": "oswald",
+  "name": "Oswald",
+  "category": "display"
+ },
+ {
+  "id": "bebas-neue",
+  "name": "Bebas Neue",
+  "category": "display"
+ },
+ {
+  "id": "anton",
+  "name": "Anton",
+  "category": "display"
+ },
+ {
+  "id": "abril-fatface",
+  "name": "Abril Fatface",
+  "category": "display"
+ },
+ {
+  "id": "lobster",
+  "name": "Lobster",
+  "category": "display"
+ },
+ {
+  "id": "special-elite",
+  "name": "Special Elite",
+  "category": "display"
+ },
+ {
+  "id": "caveat",
+  "name": "Caveat",
+  "category": "hand"
+ },
+ {
+  "id": "pacifico",
+  "name": "Pacifico",
+  "category": "hand"
+ },
+ {
+  "id": "dancing-script",
+  "name": "Dancing Script",
+  "category": "hand"
+ },
+ {
+  "id": "permanent-marker",
+  "name": "Permanent Marker",
+  "category": "hand"
+ },
+ {
+  "id": "shadows-into-light",
+  "name": "Shadows Into Light",
+  "category": "hand"
+ },
+ {
+  "id": "amatic-sc",
+  "name": "Amatic SC",
+  "category": "hand"
+ },
+ {
+  "id": "great-vibes",
+  "name": "Great Vibes",
+  "category": "hand"
+ },
+ {
+  "id": "sacramento",
+  "name": "Sacramento",
+  "category": "hand"
+ },
+ {
+  "id": "kalam",
+  "name": "Kalam",
+  "category": "hand"
+ }
+]

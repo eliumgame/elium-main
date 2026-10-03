@@ -35,15 +35,37 @@ function parseXml(bytes: Uint8Array | undefined): Document | null {
   return new DOMParser().parseFromString(strFromU8(bytes), "application/xml");
 }
 
+/** Décode les échappements OOXML `_xHHHH_` (ex. `_x000D_`) ; `_x005F_` désigne un « _ » littéral. */
+export function decodeOoxmlEscapes(s: string): string {
+  if (!s.includes("_x")) return s;
+  return s.replace(/_x([0-9A-Fa-f]{4})_/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
+}
+
 function textOf(el: Element): string {
-  // Concatenate every <t> descendant (handles rich-text runs); else textContent.
+  // Concatenate every <t> descendant (handles rich-text runs) EXCEPT the
+  // phonetic guide (<rPh>, furigana) which Excel stores next to the real text;
+  // else textContent.
   const ts = el.getElementsByTagName("t");
   if (ts.length) {
     let s = "";
-    for (let i = 0; i < ts.length; i++) s += ts[i].textContent ?? "";
-    return s;
+    for (let i = 0; i < ts.length; i++) {
+      let inPhonetic = false;
+      for (let p: Element | null = ts[i].parentElement; p && p !== el; p = p.parentElement) {
+        if (p.localName === "rPh") {
+          inPhonetic = true;
+          break;
+        }
+      }
+      if (!inPhonetic) s += ts[i].textContent ?? "";
+    }
+    return decodeOoxmlEscapes(s);
   }
-  return el.textContent ?? "";
+  return decodeOoxmlEscapes(el.textContent ?? "");
+}
+
+/** Excel >= 2010 écrit les fonctions récentes avec un préfixe de compatibilité (`_xlfn.`, `_xlws.`) : on le retire. */
+export function stripXlfnPrefixes(formula: string): string {
+  return formula.replace(/\b_xlfn\.(?:_xlws\.)?|\b_xlws\./g, "");
 }
 
 function parseSharedStrings(zip: Record<string, Uint8Array>): string[] {
@@ -251,6 +273,7 @@ interface ParsedStyles {
   numFmts: Map<number, string>;
   dxfs: ParsedDxf[];
   theme: string[];
+  date1904?: boolean;
 }
 
 // The subset of ECMA-376 built-in numFmt codes (§18.8.30) common enough to
@@ -906,7 +929,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
     }
     const f = c.getElementsByTagName("f")[0];
     if (f && f.textContent) {
-      sh.cells[upref] = "=" + f.textContent;
+      sh.cells[upref] = "=" + stripXlfnPrefixes(f.textContent);
       continue;
     }
     if (f && f.getAttribute("t") === "shared" && pos) {
@@ -920,7 +943,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
         const dCol = pos.col - master.col;
         const dRow = pos.row - master.row;
         const shifted = rewriteRefs(master.formula, (col, row) => ({ col: col + dCol, row: row + dRow }), true);
-        sh.cells[upref] = "=" + shifted;
+        sh.cells[upref] = "=" + stripXlfnPrefixes(shifted);
         continue;
       }
     }
@@ -939,8 +962,19 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
       sh.cells[upref] = shared[idx] ?? "";
     } else if (t === "str") {
       sh.cells[upref] = textOf(c);
+    } else if (t === "b") {
+      sh.cells[upref] = v.textContent.trim() === "1" ? "TRUE" : "FALSE";
+    } else if (t === "e") {
+      sh.cells[upref] = v.textContent.trim();
     } else {
-      sh.cells[upref] = v.textContent;
+      let val = v.textContent;
+      // Classeur en base 1904 (Mac historique) : on ramène les dates à la base 1900.
+      if (ps.date1904 && sAttr) {
+        const fmt = styles[upref]?.fmt;
+        const n = Number(val);
+        if ((fmt === "date" || fmt === "datetime") && Number.isFinite(n)) val = String(n + 1462);
+      }
+      sh.cells[upref] = val;
     }
   }
   sh.cols = maxCol + 1;
@@ -969,12 +1003,21 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
 function parseDefinedNames(wb: Document | null): NamedRange[] {
   if (!wb) return [];
   const out: NamedRange[] = [];
+  const seen = new Set<string>();
   const els = wb.getElementsByTagName("definedName");
-  for (let i = 0; i < els.length; i++) {
-    const name = els[i].getAttribute("name");
-    const ref = els[i].textContent?.trim();
-    // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, …) — not user-facing.
-    if (name && ref && !name.startsWith("_xlnm")) out.push({ name, ref });
+  // Deux passes : les noms de portée classeur d'abord, puis les noms locaux à
+  // une feuille qui ne font pas doublon (notre modèle n'a qu'une portée).
+  for (const local of [false, true]) {
+    for (let i = 0; i < els.length; i++) {
+      const isLocal = els[i].hasAttribute("localSheetId");
+      if (isLocal !== local) continue;
+      const name = els[i].getAttribute("name");
+      const ref = els[i].textContent?.trim();
+      // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, ...) — not user-facing.
+      if (!name || !ref || name.startsWith("_xlnm") || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      out.push({ name, ref });
+    }
   }
   return out;
 }
@@ -986,6 +1029,7 @@ export function importXlsx(bytes: Uint8Array): Workbook {
   const ps = parseStylesXml(zip, theme);
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
   const wb = parseXml(zip["xl/workbook.xml"]);
+  ps.date1904 = wb?.getElementsByTagName("workbookPr")[0]?.getAttribute("date1904") === "1";
 
   const withSheetExtras = (path: string, sh: SheetData, doc: Document | null): SheetData => {
     if (!doc) return sh;

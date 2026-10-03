@@ -27,7 +27,7 @@ export function masterToPhrase(master: Uint8Array): string {
 export function normalizePhrase(input: string): string[] {
   return input
     .toLowerCase()
-    .replace(/[0-9]+[.):\-]?/g, " ")
+    .replace(/[0-9]+[.):-]?/g, " ")
     .split(/[^a-z]+/)
     .filter(Boolean);
 }

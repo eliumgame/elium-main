@@ -1310,60 +1310,6 @@
   background: rgba(79, 140, 255, 0.1);
   border-color: var(--x-accent-line);
 }
-.pdfx-editblock.is-changed .pdfx-editblock__hit {
-  background: rgba(74, 222, 128, 0.12);
-  border-color: rgba(34, 197, 94, 0.55);
-}
-.pdfx-editblock.is-active {
-  z-index: 2;
-}
-.pdfx-editblock__input {
-  width: 100%;
-  height: 100%;
-  border: 1.5px solid var(--x-accent);
-  border-radius: 3px;
-  background: #fff;
-  color: #0f172a;
-  padding: 2px 3px;
-  resize: none;
-  outline: none;
-  box-shadow: var(--x-shadow-pop);
-}
-.pdfx-editblock__badge {
-  position: absolute;
-  top: -9px;
-  left: 4px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--el-success);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-}
-.pdfx-editblock__tools {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  display: flex;
-  gap: 4px;
-  z-index: 3;
-}
-.pdfx-editblock__tools button {
-  height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--x-chrome);
-  color: var(--x-chrome-text);
-  font-size: 11px;
-  cursor: pointer;
-  box-shadow: var(--x-shadow-pop);
-}
-.pdfx-editblock__tools button:hover {
-  background: var(--x-chrome-3);
-}
 .pdfx-editlayer__empty {
   position: absolute;
   left: 50%;
@@ -2054,68 +2000,117 @@
 .pdfx-editlayer.is-adding {
   cursor: text;
 }
-.pdfx-editblock__bar {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 8px;
-  background: var(--x-chrome);
-  color: var(--x-chrome-text);
-  box-shadow: var(--x-shadow-pop);
-  z-index: 4;
-  white-space: nowrap;
+/* « Modifier le texte » : le texte se modifie sur la page, sans fenêtre ; la mise en forme est dans le panneau « Format du texte ». */
+.pdfx-editblock__hit:hover,
+.pdfx-editblock.is-edited .pdfx-editblock__hit:hover {
+  background: rgba(79, 140, 255, 0.1);
+  border-color: var(--x-accent-line);
 }
-.pdfx-editblock__bar button,
-.pdfx-editblock__bar select,
-.pdfx-editblock__bar input {
-  height: 24px;
+.pdfx-editblock.is-active {
+  z-index: 3;
+  outline: 1.5px solid var(--x-accent);
+  outline-offset: 2px;
+}
+.pdfx-editblock__mask {
+  pointer-events: none;
+  z-index: 2;
+  filter: var(--pdfx-page-filter);
+}
+.pdfx-editblock__editor {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
   border: 0;
+  background: transparent;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  min-height: 1em;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  font-kerning: normal;
+}
+.pdfx-editblock__editor ::selection,
+.pdfx-editblock__editor::selection {
+  background: rgba(79, 140, 255, 0.35);
+}
+/* Frame edges move the box; the small squares change its width (Acrobat's handles). */
+.pdfx-editblock__edge {
+  position: absolute;
+  z-index: 1;
+  cursor: move;
+}
+.pdfx-editblock__edge--n,
+.pdfx-editblock__edge--s {
+  left: 0;
+  right: 0;
+  height: 7px;
+}
+.pdfx-editblock__edge--n {
+  top: -6px;
+}
+.pdfx-editblock__edge--s {
+  bottom: -6px;
+}
+.pdfx-editblock__edge--w,
+.pdfx-editblock__edge--e {
+  top: 0;
+  bottom: 0;
+  width: 7px;
+}
+.pdfx-editblock__edge--w {
+  left: -6px;
+}
+.pdfx-editblock__edge--e {
+  right: -6px;
+}
+.pdfx-editblock__handle {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  border: 1.5px solid var(--x-accent);
+  background: #fff;
+  cursor: ew-resize;
+}
+.pdfx-editblock__handle--w {
+  left: -6px;
+}
+.pdfx-editblock__handle--e {
+  right: -6px;
+}
+
+/* Panneau « Format du texte » (même habillage que l'Inspecteur). */
+.pdfx-fmt__group {
+  display: inline-flex;
+  gap: 2px;
+}
+.pdfx-fmt__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--x-line);
   border-radius: 5px;
   background: transparent;
   color: inherit;
-  font-size: 11px;
-}
-.pdfx-editblock__bar button {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
   cursor: pointer;
 }
-.pdfx-editblock__bar button:hover,
-.pdfx-editblock__bar button.is-on {
-  background: var(--x-chrome-3);
+.pdfx-fmt__btn:hover {
+  background: var(--x-panel-2);
 }
-.pdfx-editblock__bar select {
-  max-width: 130px;
-  background: var(--x-chrome-3);
-}
-.pdfx-editblock__bar input[type="number"] {
-  width: 48px;
-  background: var(--x-chrome-3);
-  padding: 0 4px;
-}
-.pdfx-editblock__bar input[type="color"] {
-  width: 26px;
-  padding: 0;
-}
-.pdfx-editblock__grip {
-  cursor: move !important;
-}
-.pdfx-editblock__width {
-  position: absolute;
-  top: 50%;
-  right: -5px;
-  width: 8px;
-  height: 18px;
-  margin-top: -9px;
-  border-radius: 3px;
+.pdfx-fmt__btn.is-on {
   background: var(--x-accent);
-  cursor: ew-resize;
+  border-color: var(--x-accent);
+  color: #fff;
+}
+.pdfx-fmt__btn.is-mixed {
+  border-style: dashed;
 }
 
 /* « Modifier le texte » lets clicks through outside its paragraphs, down to the pictures. */
@@ -3460,4 +3455,20 @@
 .pdfx-thumb:focus-visible {
   outline: 2px solid var(--x-accent);
   outline-offset: 2px;
+}
+
+/* The format panel is the dock's only child: the dock itself takes no space. */
+.pdfx-formatdock {
+  display: contents;
+}
+.pdfx-fmt__hint {
+  margin: 0;
+  padding: 14px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--x-text-mute, var(--el-text-muted));
+}
+/* The idle panel gives way to the real one. */
+.pdfx-formatdock:has(.pdfx-fmt:not(.pdfx-fmt--idle)) .pdfx-fmt--idle {
+  display: none;
 }

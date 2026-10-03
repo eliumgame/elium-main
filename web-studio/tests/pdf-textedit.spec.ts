@@ -67,7 +67,14 @@ test.describe("PDF — modifier le texte", () => {
     await expect(left).toBeVisible();
     await expect(page.getByRole("button", { name: /Modifier : Colonne droite/ })).toBeVisible();
     await left.click();
-    await page.locator(".pdfx-editblock__input").fill("Colonne gauche réécrite — Łódź.");
+    const editor = page.locator(".pdfx-editblock__editor");
+    // Edited in place: a text box on the page, not a form field, with the format panel on the side.
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    await expect(page.locator("textarea.pdfx-editblock__input")).toHaveCount(0);
+    await expect(page.getByLabel("Format du texte").last()).toBeVisible();
+    await editor.fill("Colonne gauche réécrite — Łódź.");
+    // Bold applies to the selection (all of it here).
+    await page.keyboard.press("Control+a");
     await page.getByRole("button", { name: "Gras" }).click();
     await page.getByRole("button", { name: "Centrer" }).click();
     // Move the box 60 px down with its grip.
@@ -76,7 +83,7 @@ test.describe("PDF — modifier le texte", () => {
     await page.mouse.down();
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2 + 60, { steps: 5 });
     await page.mouse.up();
-    await page.locator(".pdfx-editblock__input").click();
+    await editor.click();
     await page.keyboard.press("Control+Enter");
     await expect(page.locator("img.pdfx-editpreview__raster")).toHaveCount(1);
 
@@ -110,7 +117,7 @@ test.describe("PDF — modifier le texte", () => {
     await page.getByRole("button", { name: "Ajouter du texte" }).click();
     const layer = (await page.locator(".pdfx-editlayer").first().boundingBox())!;
     await page.mouse.click(layer.x + layer.width * 0.1, layer.y + 380);
-    await page.locator(".pdfx-editblock__input").fill("Texte ajouté — Ελλάδα");
+    await page.locator(".pdfx-editblock__editor").fill("Texte ajouté — Ελλάδα");
     await page.keyboard.press("Control+Enter");
     const out = await save(page);
     const items = await textItems(out);

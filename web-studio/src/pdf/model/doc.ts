@@ -604,7 +604,9 @@ export function filterComments(
 
 export function upsertContentEdit(state: PdfState, edit: ContentEdit): PdfState {
   const i = state.contentEdits.findIndex((e) => e.pageId === edit.pageId && e.blockKey === edit.blockKey);
-  const unchanged = !edit.deleted && edit.text === edit.original;
+  // Same text, and no restyling, moving or other setting: nothing left of the edit.
+  const unchanged =
+    !edit.deleted && edit.text === edit.original && !edit.spans && !edit.restyled && (!edit.placement || !!edit.isNew);
   if (i < 0) {
     return unchanged ? state : { ...state, contentEdits: [...state.contentEdits, edit] };
   }

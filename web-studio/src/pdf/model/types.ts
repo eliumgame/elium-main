@@ -397,6 +397,11 @@ export interface TextSpanStyle {
   fontResource?: string | null;
   /** Elium family closest to the original face (what the editor shows and what substitutes it). */
   fontFamily?: string;
+  /**
+   * The PDF font's own name (BaseFont without the subset prefix: "Georgia-Bold", "ArialMT"). The
+   * editor tries that family first, so the text looks like the page when the font is installed.
+   */
+  fontName?: string;
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;

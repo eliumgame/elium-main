@@ -166,7 +166,7 @@ import {
 import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
-import ContentEditLayer from "./ContentEditLayer";
+import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
 import ImageEditLayer from "./ImageEditLayer";
 import { loadPdfPrefs, rememberToolStyle, savePdfPrefs, styleSubset, toolStyle } from "./prefs";
@@ -496,6 +496,10 @@ export default function PdfWorkspace({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
   const [inspector, setInspector] = useState(true);
+  /** Where the « Format du texte » panel is drawn (by the text editor, through a portal). */
+  const [formatHost, setFormatHost] = useState<HTMLElement | null>(null);
+  /** The paragraph being typed in: its original glyphs are left out of the page's preview meanwhile. */
+  const [editingText, setEditingText] = useState<EditingInfo | null>(null);
   /** Mode lecture (Ctrl+H): the document alone, without ribbon, panels or status bar. */
   const [reading, setReading] = useState(false);
   /** « Rechercher des outils » (Ctrl+Maj+P) is open. */
@@ -2000,7 +2004,10 @@ export default function PdfWorkspace({
       }
     };
     for (const a of state.annots) scan(a.fontFamily);
-    for (const e of state.contentEdits) scan(e.fontFamily);
+    for (const e of state.contentEdits) {
+      scan(e.fontFamily);
+      for (const sp of e.spans ?? []) scan(sp.style.fontFamily);
+    }
     return fonts;
   };
 
@@ -5638,6 +5645,7 @@ export default function PdfWorkspace({
           maskColor={themeDef.canvas}
           source={source}
           from={page.from}
+          editing={editingText && editingText.pageId === page.id ? editingText : null}
         />
         {mode === "editText" && (
           <ImageEditLayer
@@ -5666,6 +5674,8 @@ export default function PdfWorkspace({
             scale={scale}
             edits={pageEdits}
             adding={addingText}
+            formatHost={formatHost}
+            onEditing={setEditingText}
             onAdded={() => setAddingText(false)}
             onBeginChange={checkpoint}
             onCommit={(edit: ContentEdit) => setState((s) => D.upsertContentEdit(s, edit))}
@@ -6377,6 +6387,21 @@ export default function PdfWorkspace({
           </div>
         )}
 
+        {/* « Modifier le texte »: the format panel of the paragraph being edited lands here. */}
+        {mode === "editText" && (
+          <div className="pdfx-formatdock" ref={setFormatHost}>
+            {/* Always there in this mode, so the pages do not change size when a paragraph is opened. */}
+            <aside className="pdfx-inspector pdfx-fmt pdfx-fmt--idle" aria-label="Format du texte">
+              <header className="pdfx-inspector__head">
+                <span className="pdfx-inspector__title">Format du texte</span>
+              </header>
+              <p className="pdfx-fmt__hint">
+                Cliquez sur un paragraphe pour le modifier directement sur la page. Police, taille, style, couleur et
+                alignement apparaissent ici.
+              </p>
+            </aside>
+          </div>
+        )}
         {inspector && selection.length > 0 && mode === "view" && (
           <Inspector
             selection={selection}

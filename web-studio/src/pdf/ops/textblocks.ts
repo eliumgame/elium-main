@@ -120,7 +120,8 @@ const MAX_DEPTH = 8;
 function streamOps(s: unknown): Op[] | null {
   try {
     if (s instanceof PDFRawStream) return parseContentStream(decodePDFRawStream(s).decode());
-    if (s instanceof PDFStream) return parseContentStream((s as unknown as { getContents(): Uint8Array }).getContents());
+    if (s instanceof PDFStream)
+      return parseContentStream((s as unknown as { getContents(): Uint8Array }).getContents());
   } catch {
     /* unreadable */
   }
@@ -158,7 +159,11 @@ const nums = (a: unknown): number[] =>
 function colorSpaceOf(cs: unknown, depth = 0): ColorSpaceLike | null {
   if (depth > 4) return null;
   const gray: ColorSpaceLike = { n: 1, toRgb: (c) => ({ r: c[0] ?? 0, g: c[0] ?? 0, b: c[0] ?? 0 }), initial: [0] };
-  const rgb: ColorSpaceLike = { n: 3, toRgb: (c) => ({ r: c[0] ?? 0, g: c[1] ?? 0, b: c[2] ?? 0 }), initial: [0, 0, 0] };
+  const rgb: ColorSpaceLike = {
+    n: 3,
+    toRgb: (c) => ({ r: c[0] ?? 0, g: c[1] ?? 0, b: c[2] ?? 0 }),
+    initial: [0, 0, 0],
+  };
   const cmyk: ColorSpaceLike = {
     n: 4,
     toRgb: (c) => cmykToRgb(c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 1),
@@ -187,7 +192,11 @@ function colorSpaceOf(cs: unknown, depth = 0): ColorSpaceLike | null {
       return rgb;
     case "Lab":
       // L* alone, as a grey: good enough to tell dark text from light.
-      return { n: 3, toRgb: (c) => ({ r: (c[0] ?? 0) / 100, g: (c[0] ?? 0) / 100, b: (c[0] ?? 0) / 100 }), initial: [0, 0, 0] };
+      return {
+        n: 3,
+        toRgb: (c) => ({ r: (c[0] ?? 0) / 100, g: (c[0] ?? 0) / 100, b: (c[0] ?? 0) / 100 }),
+        initial: [0, 0, 0],
+      };
     case "Separation":
     case "DeviceN": {
       const names = cs.lookup(1);
@@ -296,7 +305,10 @@ function formResources(xo: PDFRawStream | PDFStream, inherited: PDFDict | null):
 }
 
 /** A named XObject of a resource dictionary, with its reference. */
-export function xobjectOf(resources: PDFDict | null, name: string): { stream: PDFRawStream; ref: PDFRef | null } | null {
+export function xobjectOf(
+  resources: PDFDict | null,
+  name: string,
+): { stream: PDFRawStream; ref: PDFRef | null } | null {
   const dict = resources?.lookup(PDFName.of("XObject"));
   if (!(dict instanceof PDFDict)) return null;
   const raw = dict.get(PDFName.of(name));
@@ -331,6 +343,19 @@ export async function scanPage(page: PDFPage): Promise<PageScan> {
     depth: number,
   ) => {
     const forms: { name: string; at: number; ctm: Mat; state: TextState }[] = [];
+    // One font under several names (pdf-lib names it anew at each drawText): one name for all.
+    const alias = new Map<string, string>();
+    const fontDict = res?.lookup(PDFName.of("Font"));
+    if (fontDict instanceof PDFDict) {
+      const firstOf = new Map<string, string>();
+      for (const [k, v] of fontDict.entries()) {
+        const name = k.asString().slice(1);
+        if (!(v instanceof PDFRef)) continue;
+        const first = firstOf.get(v.toString());
+        if (first) alias.set(name, first);
+        else firstOf.set(v.toString(), name);
+      }
+    }
     const shows = walkText(scope.ops, widthFnFor(scope.fonts), start, {
       colorSpace: colorSpaces(res),
       initial,
@@ -354,7 +379,8 @@ export async function scanPage(page: PDFPage): Promise<PageScan> {
         tj,
       );
       const fill = rgbHex(show.state.fill);
-      const fontKey = show.state.font ? (scope.path ? `${scope.path}/${show.state.font}` : show.state.font) : null;
+      const fname = show.state.font ? (alias.get(show.state.font) ?? show.state.font) : null;
+      const fontKey = fname ? (scope.path ? `${scope.path}/${fname}` : fname) : null;
       // Unit vectors of text space, scaled to the page (the glyph boxes span -0.22 … 0.84 em).
       for (const g of boxes) {
         const [bl, br, , tl] = g.corners;
@@ -407,7 +433,14 @@ export async function scanPage(page: PDFPage): Promise<PageScan> {
         children: [],
       };
       scope.children.push(child);
-      await visit(child, inner, mul(formMatrix(xo.stream.dict), f.ctm), f.state, new Set([...seen, xo.stream]), depth + 1);
+      await visit(
+        child,
+        inner,
+        mul(formMatrix(xo.stream.dict), f.ctm),
+        f.state,
+        new Set([...seen, xo.stream]),
+        depth + 1,
+      );
     }
   };
 
@@ -623,37 +656,80 @@ function styleBlocks(blocks: TextBlock[], scan: PageScan, toPage: (x: number, y:
     const { text, spans } = joinBlock(block.lines, soft, (li, k) => perLine[li][k], sameStyle);
     block.text = text;
     block.spans = spans;
-    if (block.align === "left" && looksJustified(block, pg)) block.align = "justify";
+    const level = Math.abs(block.lines[0].angle) < 0.01;
+    if (level && (block.align === "left" || block.align === "justify")) {
+      const wrapped = (block.soft ?? []).some(Boolean);
+      const byGaps = wrapped ? justifiedByGaps(block, pg) : false;
+      if (block.align === "justify" && byGaps === false) block.align = "left";
+      else if (block.align === "left" && byGaps === true && flushRight(block)) block.align = "justify";
+    }
   }
 }
 
 /**
- * A two-line paragraph (or one whose ragged right fooled the geometric guess)
- * set justified: its wrapped lines are wider than their glyphs and spaces.
+ * How much the word gaps of each wrapped line are stretched: the mean gap
+ * between words over the natural width of the space there (1 for text set
+ * ragged, clearly more — and varying from line to line — for justified text).
+ * null for a line where no gap could be measured.
  */
-function looksJustified(block: TextBlock, pg: readonly PageGlyph[]): boolean {
+function gapStretch(block: TextBlock, pg: readonly PageGlyph[]): (number | null)[] {
   const soft = block.soft ?? [];
-  if (!soft.some(Boolean)) return false;
-  const right = Math.max(...block.lines.map((l) => l.rect.x + l.rect.w));
-  let stretched = 0;
+  const out: (number | null)[] = [];
   for (let i = 0; i < soft.length; i++) {
     if (!soft[i]) continue;
     const l: TextLine = block.lines[i];
-    if (right - (l.rect.x + l.rect.w) > Math.max(1, l.fontSize * 0.15)) return false;
-    const inLine = pg.filter(
-      (q) =>
-        Math.abs(q.y - l.origin.y) < l.fontSize * 0.3 &&
-        q.x >= l.rect.x - 0.5 &&
-        q.x + q.adv <= l.rect.x + l.rect.w + 0.5 &&
-        q.g.text.trim(),
-    );
-    if (!inLine.length) return false;
-    const ink = inLine.reduce((s, q) => s + q.g.natural, 0);
-    const spaces = (l.text.trim().match(/\s+/g) ?? []).length;
-    const excess = l.rect.w - ink - spaces * l.fontSize * 0.28;
-    if (excess > Math.max(1.5, spaces * 0.4)) stretched++;
+    const fs = l.fontSize || 10;
+    const inLine = pg
+      .filter(
+        (q) =>
+          Math.abs(q.y - l.origin.y) < fs * 0.3 && q.x >= l.rect.x - 0.5 && q.x <= l.rect.x + l.rect.w + 0.5,
+      )
+      .sort((a, b) => a.x - b.x);
+    const ratios: number[] = [];
+    let inkEnd = -Infinity;
+    let spaceNatural = 0;
+    let spaces = 0;
+    for (const q of inLine) {
+      if (!q.g.text.trim()) {
+        spaceNatural += q.g.natural;
+        spaces++;
+        continue;
+      }
+      if (inkEnd > -Infinity) {
+        const gap = q.x - inkEnd;
+        if (spaces || gap > fs * 0.15) {
+          const nat = spaceNatural > 0 ? spaceNatural : fs * 0.278 * Math.max(1, spaces);
+          ratios.push(gap / nat);
+        }
+      }
+      inkEnd = q.x + q.adv;
+      spaceNatural = 0;
+      spaces = 0;
+    }
+    out.push(ratios.length ? ratios.reduce((s, r) => s + r, 0) / ratios.length : null);
   }
-  return stretched > 0;
+  return out;
+}
+
+/**
+ * Justified or not, from the word gaps: justified lines have stretched gaps
+ * (more than 6 % off the natural space); a ragged paragraph whose wrapped
+ * lines happen to end at the same place does not. `null`: cannot tell.
+ */
+function justifiedByGaps(block: TextBlock, pg: readonly PageGlyph[]): boolean | null {
+  const stretch = gapStretch(block, pg).filter((r): r is number => r !== null);
+  if (!stretch.length) return null;
+  return stretch.some((r) => Math.abs(r - 1) > 0.06);
+}
+
+/** Every wrapped line ends at the paragraph's right edge. */
+function flushRight(block: TextBlock): boolean {
+  const soft = block.soft ?? [];
+  const right = Math.max(...block.lines.map((l) => l.rect.x + l.rect.w));
+  return soft.every((s, i) => {
+    const l = block.lines[i];
+    return !s || right - (l.rect.x + l.rect.w) <= Math.max(1, l.fontSize * 0.15);
+  });
 }
 
 const blockCache = new WeakMap<Uint8Array, Map<number, Promise<TextBlock[]>>>();

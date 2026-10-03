@@ -166,13 +166,7 @@ function locate(
   const kept: ScannedGlyph[] = [];
   for (const seg of segments(cands)) {
     const text = NORM(seg.glyphs.map((g) => g.text).join(""));
-    if (
-      !orig ||
-      !text ||
-      orig.includes(text) ||
-      unknownShare(seg.glyphs) > 0.3 ||
-      coverage(text, orig) >= 0.8
-    ) {
+    if (!orig || !text || orig.includes(text) || unknownShare(seg.glyphs) > 0.3 || coverage(text, orig) >= 0.8) {
       kept.push(...seg.glyphs);
     }
   }
@@ -217,8 +211,8 @@ function decorationsOf(glyphs: readonly ScannedGlyph[], rules: readonly ScannedR
 // ---------------------------------------------------------------------------
 
 type Face =
-  | { native: true; font: FontMetrics; res: string; key: string }
-  | { native: false; font: PDFFont; res: string; key: string };
+  | { native: true; font: FontMetrics; res: string; key: string; wide: boolean }
+  | { native: false; font: PDFFont; res: string; key: string; wide: boolean };
 
 interface Frag {
   text: string;
@@ -246,7 +240,10 @@ interface LaidRun {
   x: number;
   y: number;
   width: number;
-  bytes: Uint8Array[];
+  /** Glyph bytes, and (justified lines in a 2-byte font) extra advances in points after a space. */
+  parts: (Uint8Array | number)[];
+  /** Word spacing (`Tw`, points) of a justified line in a single-byte font whose space is code 32. */
+  tw: number;
 }
 
 /** Width of a native string, from the font's own metrics. */
@@ -296,7 +293,7 @@ function layout(
   indent: { first: number; rest: number },
   leading: number,
 ): LaidRun[] {
-  const EPS = 0.5;
+  const EPS = 0.1;
   interface Line {
     items: Tok[];
     width: number;
@@ -354,20 +351,25 @@ function layout(
     while (items.length && items[items.length - 1].kind === "space") items = items.slice(0, -1);
     const lw = items.reduce((s, t) => s + t.width, 0);
     const room = box.w - ind;
-    let x =
-      align === "center"
-        ? box.x + ind + (room - lw) / 2
-        : align === "right"
-          ? box.x + box.w - lw
-          : box.x + ind;
+    let x = align === "center" ? box.x + ind + (room - lw) / 2 : align === "right" ? box.x + box.w - lw : box.x + ind;
     let extra = 0;
     if (align === "justify" && !line.paraEnd) {
       const gaps = items.filter((t, i) => t.kind === "space" && i > 0).length;
       if (gaps > 0 && room > lw) extra = (room - lw) / gaps;
     }
     const y = box.baseline - li * leading;
+    // Justified: by word spacing (`Tw`) when every space of the line is a single-byte code 32 —
+    // one string per line, extracted with single spaces; else by an advance after each space
+    // inside one TJ (2-byte fonts, where `Tw` does not apply).
+    const spaceFrags = items.filter((t) => t.kind === "space").flatMap((t) => t.frags);
+    const byTw =
+      extra > 0 &&
+      spaceFrags.every((f) => !f.face.wide && f.bytes.length === [...f.text].length && f.bytes.every((b) => b === 32));
     for (const t of items) {
       for (const f of t.frags) {
+        const spaces = t.kind === "space" && byTw ? f.bytes.length : 0;
+        const tw = byTw ? extra : 0;
+        const w = f.width + spaces * extra;
         const last = out[out.length - 1];
         const contiguous =
           last &&
@@ -376,20 +378,55 @@ function layout(
           last.color === f.color &&
           last.underline === f.underline &&
           last.strike === f.strike &&
+          Math.abs(last.tw - tw) < 1e-9 &&
           Math.abs(last.y - y) < 1e-6 &&
           Math.abs(last.x + last.width - x) < 1e-6;
         if (contiguous) {
-          last.bytes.push(f.bytes);
-          last.width += f.width;
+          last.parts.push(f.bytes);
+          last.width += w;
         } else {
-          out.push({ ...f, x, y, bytes: [f.bytes] });
+          out.push({ ...f, x, y, width: w, parts: [f.bytes], tw });
         }
-        x += f.width;
+        x += w;
       }
-      if (t.kind === "space") x += extra;
+      if (t.kind === "space" && extra > 0 && !byTw) {
+        const last = out[out.length - 1];
+        if (last) {
+          last.parts.push(extra);
+          last.width += extra;
+        }
+        x += extra;
+      }
     }
   });
   return out;
+}
+
+/** The show operator of a laid-out run: one string, or a TJ with the advances after its spaces. */
+function showOp(r: LaidRun): Op {
+  const items: Operand[] = [];
+  let pending: Uint8Array[] = [];
+  const flush = () => {
+    if (!pending.length) return;
+    const total = pending.reduce((s, b) => s + b.length, 0);
+    const all = new Uint8Array(total);
+    let at = 0;
+    for (const b of pending) {
+      all.set(b, at);
+      at += b.length;
+    }
+    items.push({ t: "hex", v: all });
+    pending = [];
+  };
+  for (const p of r.parts) {
+    if (typeof p === "number") {
+      flush();
+      items.push({ t: "num", v: round((-p * 1000) / r.size, 3) });
+    } else pending.push(p);
+  }
+  flush();
+  if (items.length === 1 && items[0].t === "hex") return { op: "Tj", args: items };
+  return { op: "TJ", args: [{ t: "arr", v: items }] };
 }
 
 /** A word cut into pieces no wider than `max` (at least one character each). */
@@ -434,7 +471,6 @@ function sliceBytes(f: Frag, text: string): Uint8Array {
 // ---------------------------------------------------------------------------
 // Applying edits
 // ---------------------------------------------------------------------------
-
 
 function rgbOperands(hex: string): Operand[] {
   const c = hexToRgb(hex);
@@ -632,7 +668,8 @@ export async function applyTextEdits(
       const last = rawToks[rawToks.length - 1];
       const prevCh = i > 0 ? chars[i - 1].ch : "";
       // A word may break after its hyphen ("auto-" | "entrepreneur").
-      const afterHyphen = kind === "word" && /[-‐]/.test(prevCh) && /\p{L}/u.test(ch) && i > 1 && /\p{L}/u.test(chars[i - 2].ch);
+      const afterHyphen =
+        kind === "word" && /[-‐]/.test(prevCh) && /\p{L}/u.test(ch) && i > 1 && /\p{L}/u.test(chars[i - 2].ch);
       if (last && last.kind === kind && kind !== "nl" && !afterHyphen) {
         const lp = last.pieces[last.pieces.length - 1];
         if (lp.span === span) lp.text += ch;
@@ -660,7 +697,12 @@ export async function applyTextEdits(
     const subs = await Promise.all(
       spans.map(async (s, i) => {
         if (!needSub[i]) return null;
-        const got = await fontBook.forText(s.style.fontFamily ?? edit.fontFamily, !!s.style.bold, !!s.style.italic, needSub[i]);
+        const got = await fontBook.forText(
+          s.style.fontFamily ?? edit.fontFamily,
+          !!s.style.bold,
+          !!s.style.italic,
+          needSub[i],
+        );
         if (got.missing) report.missing.push(got.missing);
         return { font: got.font, unicode: got.unicode, res: res.fontName(got.font) };
       }),
@@ -684,7 +726,7 @@ export async function applyTextEdits(
             ...common,
             text: p.text,
             bytes,
-            face: { native: true, font: nf.font, res: nf.res, key: nf.key },
+            face: { native: true, font: nf.font, res: nf.res, key: nf.key, wide: nf.font.codeBytes === 2 },
             width: nativeWidth(nf.font, bytes, size),
           });
           continue;
@@ -698,7 +740,7 @@ export async function applyTextEdits(
           ...common,
           text,
           bytes: hexBytes(sub.font, text),
-          face: { native: false, font: sub.font, res: sub.res, key: `s:${sub.res}` },
+          face: { native: false, font: sub.font, res: sub.res, key: `s:${sub.res}`, wide: sub.unicode },
           width: subWidth(sub.font, text, size),
         });
       }
@@ -736,8 +778,20 @@ export async function applyTextEdits(
       const size0 = top!.reduce((s, g) => s + g.size, 0) / top!.length;
       const ratio = size0 > 0 && Math.abs(firstSize - size0) > 0.05 ? firstSize / size0 : 1;
       const baseline = topY - (topY - base0) * ratio + delta.y;
+      // Wrap where the original wrapped, in the units the layout measures in: the producer's
+      // glyph positions may be a little wider (spacing) or narrower (kerning) than the widths.
       const natural = resized ? 0 : naturalWidth(glyphs, axes(first).d);
-      box = { x: x0 + delta.x, w, wrap: Math.max(w, natural + 0.05), baseline };
+      const ink = glyphs.filter((g) => g.text.trim() && g.natural > 0);
+      const drawn = ink.reduce((sum, g) => sum + Math.hypot(g.ax, g.ay), 0);
+      const nat = ink.reduce((sum, g) => sum + g.natural, 0);
+      const k = !resized && nat > 0 && drawn > 0 ? Math.min(1.05, Math.max(0.95, drawn / nat)) : 1;
+      box = { x: x0 + delta.x, w, wrap: Math.max(w / k, natural + 0.05), baseline };
+      // A paragraph none of whose lines wrapped (one line, an address) may grow into the
+      // free space beside it, as far as the page's text goes: it does not wrap at its own width.
+      const lineCount = new Set(segments(glyphs).map((sg) => sg.line)).size;
+      if (!rotated && !edit.placement && lineCount <= (edit.original ?? "").split("\n").length) {
+        box = grown(box, edit.align, rectPdf, glyphs, scan, frame, firstSize);
+      }
     } else {
       box = { x: target.x, w: target.w, wrap: target.w, baseline: target.y + target.h - firstSize * 0.84 };
     }
@@ -751,9 +805,17 @@ export async function applyTextEdits(
     const ops: Op[] = [{ op: "q", args: [] }];
     if (M) ops.push({ op: "cm", args: M.map(num) });
     ops.push({ op: "BT", args: [] });
-    if (invisible) ops.push({ op: "Tr", args: [num(3)] });
+    // The text state the original content may have left set (spacing, scaling, rise) does not apply.
+    ops.push(
+      { op: "Tc", args: [num(0)] },
+      { op: "Tw", args: [num(0)] },
+      { op: "Tz", args: [num(100)] },
+      { op: "Ts", args: [num(0)] },
+      { op: "Tr", args: [num(invisible ? 3 : 0)] },
+    );
     let curFont = "";
     let curColor = "";
+    let curTw = 0;
     for (const r of runs) {
       const fk = `${r.face.res}@${r.size}`;
       if (fk !== curFont) {
@@ -764,15 +826,12 @@ export async function applyTextEdits(
         ops.push({ op: "rg", args: rgbOperands(r.color) });
         curColor = r.color;
       }
-      ops.push({ op: "Tm", args: [1, 0, 0, 1, r.x, r.y].map(num) });
-      const total = r.bytes.reduce((s, b) => s + b.length, 0);
-      const all = new Uint8Array(total);
-      let at = 0;
-      for (const b of r.bytes) {
-        all.set(b, at);
-        at += b.length;
+      if (r.tw !== curTw) {
+        ops.push({ op: "Tw", args: [num(r.tw)] });
+        curTw = r.tw;
       }
-      ops.push({ op: "Tj", args: [{ t: "hex", v: all }] });
+      ops.push({ op: "Tm", args: [1, 0, 0, 1, r.x, r.y].map(num) });
+      ops.push(showOp(r));
     }
     ops.push({ op: "ET", args: [] });
     for (const r of runs) {
@@ -855,6 +914,56 @@ export async function applyTextEdits(
   return report;
 }
 
+/** Extent of the page's level text, and its glyphs by row (cached per scan). */
+const extents = new WeakMap<PageScan, { x0: number; x1: number }>();
+
+/**
+ * `box` widened into the free space on its line(s): up to the next text on
+ * the same lines (a table cell, the other column) or the edge of the page's
+ * text — to the right for left-aligned text, to the left for right-aligned
+ * text, both ways for centred text.
+ */
+function grown(
+  box: LayoutBox,
+  align: ContentEdit["align"],
+  rect: { x: number; y: number; w: number; h: number },
+  own: readonly ScannedGlyph[],
+  scan: PageScan,
+  frame: PageFrame,
+  size: number,
+): LayoutBox {
+  let ext = extents.get(scan);
+  if (!ext) {
+    const level = scan.glyphs.filter((g) => Math.abs(g.ux) < 0.01 * g.size && g.uy > 0 && g.text.trim());
+    ext = level.length
+      ? { x0: Math.min(...level.map((g) => g.x)), x1: Math.max(...level.map((g) => g.x + g.ax)) }
+      : { x0: frame.box.x, x1: frame.box.x + frame.box.width };
+    extents.set(scan, ext);
+  }
+  const mine = new Set(own);
+  const gap = size * 0.5;
+  let right = Math.min(ext.x1, frame.box.x + frame.box.width);
+  let left = Math.max(ext.x0, frame.box.x);
+  const x1 = box.x + box.w;
+  for (const g of scan.glyphs) {
+    if (mine.has(g) || !g.text.trim()) continue;
+    const cy = g.y + g.uy * 0.3;
+    if (cy < rect.y - 1 || cy > rect.y + rect.h + 1) continue;
+    if (g.x >= x1 - 0.5) right = Math.min(right, g.x - gap);
+    else if (g.x + g.ax <= box.x + 0.5) left = Math.max(left, g.x + g.ax + gap);
+  }
+  if (align === "right") {
+    const nx = Math.min(box.x, left);
+    return { ...box, x: nx, w: x1 - nx, wrap: Math.max(box.wrap, x1 - nx) };
+  }
+  if (align === "center") {
+    const cx = box.x + box.w / 2;
+    const half = Math.max(box.w / 2, Math.min(cx - left, right - cx));
+    return { ...box, x: cx - half, w: half * 2, wrap: Math.max(box.wrap, half * 2) };
+  }
+  return { ...box, wrap: Math.max(box.wrap, right - box.x) };
+}
+
 function findScope(s: TextScope, path: string): TextScope | null {
   if (s.path === path) return s;
   for (const c of s.children) {
@@ -926,7 +1035,18 @@ function removeGlyphs(s: TextScope, opIndex: number, op: Op, gone: ReadonlySet<n
   const font = state.font ? s.fonts.get(state.font) : undefined;
   const { codes, tj } = analyseShow(op, font);
   if (!codes.length) return null;
-  const boxes = glyphBoxes(codes, font, state.size, state.charSpacing, state.wordSpacing, state.hScale, state.rise, [1, 0, 0, 1, 0, 0], [1, 0, 0, 1, 0, 0], tj);
+  const boxes = glyphBoxes(
+    codes,
+    font,
+    state.size,
+    state.charSpacing,
+    state.wordSpacing,
+    state.hScale,
+    state.rise,
+    [1, 0, 0, 1, 0, 0],
+    [1, 0, 0, 1, 0, 0],
+    tj,
+  );
   const denom = state.size * state.hScale || 1;
   const items: Operand[] = [];
   let run: number[] = [];

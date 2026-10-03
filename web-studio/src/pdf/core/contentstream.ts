@@ -596,7 +596,11 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 /** CMYK 0..1 → RGB 0..1 (the naive conversion viewers use without a profile). */
 export function cmykToRgb(c: number, m: number, y: number, k: number): { r: number; g: number; b: number } {
-  return { r: (1 - clamp01(c)) * (1 - clamp01(k)), g: (1 - clamp01(m)) * (1 - clamp01(k)), b: (1 - clamp01(y)) * (1 - clamp01(k)) };
+  return {
+    r: (1 - clamp01(c)) * (1 - clamp01(k)),
+    g: (1 - clamp01(m)) * (1 - clamp01(k)),
+    b: (1 - clamp01(y)) * (1 - clamp01(k)),
+  };
 }
 
 const DEVICE_SPACES: Record<string, ColorSpaceLike> = {
@@ -610,7 +614,13 @@ DEVICE_SPACES.CMYK = DEVICE_SPACES.DeviceCMYK;
 
 /** A space guessed from a component count alone (no resources to look the name up in). */
 function spaceByCount(n: number): ColorSpaceLike | null {
-  return n === 1 ? DEVICE_SPACES.DeviceGray : n === 3 ? DEVICE_SPACES.DeviceRGB : n === 4 ? DEVICE_SPACES.DeviceCMYK : null;
+  return n === 1
+    ? DEVICE_SPACES.DeviceGray
+    : n === 3
+      ? DEVICE_SPACES.DeviceRGB
+      : n === 4
+        ? DEVICE_SPACES.DeviceCMYK
+        : null;
 }
 
 /**

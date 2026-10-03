@@ -342,17 +342,11 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
       const angleOk = Math.abs(normalizeAngle(l.angle - prev.angle)) < 0.05;
       const styleOk = l.bold === b.lines.every((x) => x.bold) || b.lines.length === 0;
       // A numbered / bulleted line starting elsewhere than the block: another list (or a list after text).
-      const listOk = !LIST_START.test(l.text.trim()) || Math.abs(l.rect.x - b.lines[0].rect.x) <= l.fontSize * 0.5;
-      if (
-        sizeOk &&
-        firstGapOk &&
-        leadingOk &&
-        overlapOk &&
-        angleOk &&
-        styleOk &&
-        listOk &&
-        overlap > bestOverlap
-      ) {
+      const listOk =
+        (!LIST_START.test(l.text.trim()) || Math.abs(l.rect.x - b.lines[0].rect.x) <= l.fontSize * 0.5) &&
+        // Bullets drawn apart from their text stay a column of their own.
+        isMarker(l) === b.lines.every(isMarker);
+      if (sizeOk && firstGapOk && leadingOk && overlapOk && angleOk && styleOk && listOk && overlap > bestOverlap) {
         best = b;
         bestOverlap = overlap;
       }
@@ -375,7 +369,7 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
   // Lines that wrapped (not the last of their block) tell where a column ends.
   const wrapped = done.flatMap((b) => b.lines.slice(0, -1));
   const markers = lines.filter(isMarker);
-  const blocks = done.map((b, i) => blockOf(b.lines, `B${i}`, columnRight(b.lines, wrapped), markers));
+  const blocks = done.map((b, i) => blockOf(b.lines, `B${i}`, columnRight(b.lines, wrapped, lines), markers));
   // A line alone: centred or flush right when it sits so in the page's text area.
   if (wrapped.length) {
     const left = Math.min(...lines.map((l) => l.rect.x));
@@ -396,8 +390,7 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
 function isMarker(l: TextLine): boolean {
   const t = l.text.trim();
   return (
-    t.length <= 4 &&
-    /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]|[\uE000-\uF8FF]|\(?\d{1,3}[.)]|\(?[a-zA-Z][.)]|[ivxIVX]{1,4}[.)])$/.test(t)
+    t.length <= 4 && /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]|[\uE000-\uF8FF]|\(?\d{1,3}[.)]|\(?[a-zA-Z][.)]|[ivxIVX]{1,4}[.)])$/.test(t)
   );
 }
 
@@ -406,7 +399,7 @@ function isMarker(l: TextLine): boolean {
  * furthest a wrapped line starting at the block's left edge reaches (a letter's
  * address block is as wide as the body text under it, not as its own longest line).
  */
-function columnRight(lines: readonly TextLine[], wrapped: readonly TextLine[]): number {
+function columnRight(lines: readonly TextLine[], wrapped: readonly TextLine[], all: readonly TextLine[]): number {
   const left = Math.min(...lines.map((l) => l.rect.x));
   const own = Math.max(...lines.map((l) => l.rect.x + l.rect.w));
   const em = median(lines.map((l) => l.fontSize)) || 10;
@@ -416,11 +409,20 @@ function columnRight(lines: readonly TextLine[], wrapped: readonly TextLine[]): 
     if (Math.abs(normalizeAngle(l.angle - lines[0].angle)) > 0.05) continue;
     best = Math.max(best, l.rect.x + l.rect.w);
   }
+  // …but not past text standing to its right on the same lines (the next column, a table cell).
+  const top = Math.min(...lines.map((l) => l.origin.y)) - em * 0.5;
+  const bottom = Math.max(...lines.map((l) => l.origin.y)) + em * 0.5;
+  for (const o of all) {
+    if (lines.includes(o) || o.origin.y < top || o.origin.y > bottom) continue;
+    if (o.rect.x < own - 1) continue;
+    // Bounded on the right: the block's own widest line is the best guess of its column.
+    return own;
+  }
   return best;
 }
 
 /** Characters a list item starts with: the line before it ends there. */
-const LIST_START = /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]\s|\(?\d{1,3}[.)]\s|\(?[a-zA-Z][.)]\s|[ivxIVX]{1,4}[.)]\s)/;
+const LIST_START = /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]\s|\(?\d{1,3}[.)]\s|\(?[a-z][.)]\s|[ivx]{1,4}[.)]\s)/;
 
 /**
  * For each break between two lines of a block: true when it is SOFT (the line
@@ -552,8 +554,13 @@ function blockOf(
   const gaps: number[] = [];
   for (let i = 1; i < cur.length; i++) gaps.push(cur[i].origin.y - cur[i - 1].origin.y);
   const fontSize = median(cur.map((l) => l.fontSize));
-  const align = guessAlign(cur, rect);
-  const soft = softBreaks(cur, align, colRight, markers);
+  // Turned text: its geometry is read along its own direction.
+  const turned = Math.abs(normalizeAngle(cur[0].angle)) > 0.01;
+  const geo = turned ? cur.map(alongLine) : cur;
+  const geoLeft = Math.min(...geo.map((l) => l.rect.x));
+  const geoRect = turned ? rectOfPoints(geo.flatMap((l) => quadFromRect(l.rect))) : rect;
+  const align = guessAlign(geo, geoRect);
+  const soft = softBreaks(geo, align, turned ? undefined : colRight, turned ? [] : markers);
   const { text, spans } = joinBlock(cur, soft, runStyleAt(cur), sameStyle);
   return {
     key,
@@ -568,8 +575,32 @@ function blockOf(
     italic: cur.every((l) => l.italic),
     spans,
     soft,
-    indent: align === "left" || align === "justify" ? indentOf(cur, soft, rect.x) : { first: 0, rest: 0 },
+    indent: align === "left" || align === "justify" ? indentOf(geo, soft, geoLeft) : { first: 0, rest: 0 },
   };
+}
+
+/**
+ * A turned line seen in its own frame: x along the writing direction, y
+ * across it (y down), so alignment, wrapping and indents read as for level text.
+ */
+function alongLine(l: TextLine): TextLine {
+  const r0 = l.runs[0];
+  const dir = r0.dir;
+  const down = { x: -r0.up.x, y: -r0.up.y };
+  const a = (p: Pt) => p.x * dir.x + p.y * dir.y;
+  const b = (p: Pt) => p.x * down.x + p.y * down.y;
+  const x0 = Math.min(...l.runs.map((r) => a(r.origin)));
+  const last = l.runs[l.runs.length - 1];
+  const x1 = Math.max(...l.runs.map((r) => a(r.origin) + (r === last ? trimmedLen(r) : r.width)));
+  const y = b(r0.origin);
+  const rect = { x: x0, y: y - l.fontSize * ASCENT, w: Math.max(0, x1 - x0), h: l.fontSize * (ASCENT + DESCENT) };
+  return { ...l, rect, quad: quadFromRect(rect), origin: { x: x0, y } };
+}
+
+/** A run's advance without its trailing blanks. */
+function trimmedLen(r: TextRun): number {
+  const trail = r.str.length - r.str.trimEnd().length;
+  return trail ? r.width - Math.min(r.width * 0.9, trail * SPACE_EM * r.fontSize) : r.width;
 }
 
 /** Two span styles that set text the same way. */

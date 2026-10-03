@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Trash2, Upload, MonitorSmartphone, Type } from "lucide-react";
+import { Trash2, Upload, MonitorSmartphone, Type, Globe, Download, Loader2 } from "lucide-react";
 import { Modal, Button, Alert, Badge } from "../ui/components";
 import { useDialogs } from "../ui/dialogs";
 import { BUILTIN_FONTS, fontCss } from "../ui/fonts";
@@ -17,6 +17,7 @@ import {
   type UserFont,
 } from "../ui/font-library";
 import { reportError } from "../ui/crash-log";
+import { downloadFamily, loadCatalog, OfflineError, type OnlineFont } from "../ui/font-online";
 
 const SAMPLE = "Portez ce vieux whisky au juge blond qui fume — 0123456789";
 
@@ -57,6 +58,10 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
   const [filter, setFilter] = useState("");
   const [showBundled, setShowBundled] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [online, setOnline] = useState<{ fonts: OnlineFont[]; stale: boolean } | null>(null);
+  const [onlineQuery, setOnlineQuery] = useState("");
+  const [onlineCategory, setOnlineCategory] = useState("");
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     listUserFonts()
@@ -127,6 +132,53 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const openOnline = async () => {
+    const ok = await dialogs.confirm({
+      title: "Parcourir les polices en ligne",
+      message:
+        "Cette fonction se connecte à Internet (api.fontsource.org et cdn.jsdelivr.net) pour lister et télécharger des polices libres (Google Fonts). Seul le nom de la police demandée est transmis ; vos documents ne quittent jamais l'appareil. Continuer ?",
+      confirmLabel: "Se connecter",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      setOnline(await loadCatalog());
+    } catch (e) {
+      await dialogs.alert({
+        title: "Catalogue indisponible",
+        message: e instanceof OfflineError ? e.message : `Impossible de charger le catalogue : ${e instanceof Error ? e.message : e}`,
+      });
+      if (!(e instanceof OfflineError)) reportError("fonts-catalog", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const download = async (f: OnlineFont) => {
+    setDownloading(f.id);
+    try {
+      setOutcome(await importFonts(await downloadFamily(f)));
+    } catch (e) {
+      await dialogs.alert({
+        title: "Téléchargement impossible",
+        message: e instanceof Error ? e.message : String(e),
+      });
+      if (!(e instanceof OfflineError)) reportError("fonts-download", e);
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const bundledNames = useMemo(() => new Set(BUILTIN_FONTS.map((f) => f.name.toLowerCase())), []);
+  const installedNames = useMemo(() => new Set(fonts.map((f) => f.name.toLowerCase())), [fonts]);
+  const categories = useMemo(() => [...new Set((online?.fonts ?? []).map((f) => f.category))].sort(), [online]);
+  const onlineShown = useMemo(() => {
+    const q = onlineQuery.trim().toLowerCase();
+    return (online?.fonts ?? [])
+      .filter((f) => (!q || f.family.toLowerCase().includes(q)) && (!onlineCategory || f.category === onlineCategory))
+      .slice(0, 80);
+  }, [online, onlineQuery, onlineCategory]);
+
   const bundled = useMemo(
     () => BUILTIN_FONTS.filter((f) => f.name.toLowerCase().includes(filter.toLowerCase())),
     [filter],
@@ -165,6 +217,9 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
               <Button size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>
                 <Upload size={15} /> Choisir des fichiers…
               </Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={openOnline}>
+                <Globe size={15} /> Télécharger en ligne…
+              </Button>
               {canQuerySystemFonts() && (
                 <Button size="sm" variant="outline" disabled={busy} onClick={openSystem}>
                   <MonitorSmartphone size={15} /> Polices installées sur l'ordinateur…
@@ -189,6 +244,77 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
           </Alert>
           {outcome && <OutcomeAlert outcome={outcome} />}
         </section>
+
+        {online && (
+          <section className="settings__section">
+            <h3 className="settings__title">
+              <Globe size={15} /> Polices en ligne ({online.fonts.length})
+            </h3>
+            {online.stale && (
+              <Alert tone="warning" title="Hors connexion">
+                Catalogue enregistré lors d'une précédente connexion : les téléchargements nécessitent Internet.
+              </Alert>
+            )}
+            <div className="settings__row">
+              <input
+                className="input"
+                placeholder="Rechercher une police…"
+                value={onlineQuery}
+                onChange={(e) => setOnlineQuery(e.target.value)}
+                aria-label="Rechercher une police en ligne"
+              />
+              <select
+                className="input"
+                value={onlineCategory}
+                onChange={(e) => setOnlineCategory(e.target.value)}
+                aria-label="Catégorie"
+              >
+                <option value="">Toutes les catégories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <Button size="sm" variant="ghost" onClick={() => setOnline(null)}>
+                Fermer
+              </Button>
+            </div>
+            <ul className="fontlist fontlist--cards">
+              {onlineShown.map((f) => {
+                const have = bundledNames.has(f.family.toLowerCase()) || installedNames.has(f.family.toLowerCase());
+                return (
+                  <li key={f.id} className="fontcard">
+                    <div className="fontcard__head">
+                      <strong>{f.family}</strong>
+                      <span className="muted">
+                        {f.category} · {f.weights.length} graisse(s) · {f.license}
+                      </span>
+                      {have ? (
+                        <Badge accent="success">Déjà disponible</Badge>
+                      ) : (
+                        <Button size="sm" variant="outline" disabled={downloading !== null} onClick={() => download(f)}>
+                          {downloading === f.id ? (
+                            <>
+                              <Loader2 size={14} className="spin" /> Téléchargement…
+                            </>
+                          ) : (
+                            <>
+                              <Download size={14} /> Télécharger
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {online.fonts.length > onlineShown.length && (
+              <p className="muted">Affinez la recherche pour voir les autres polices.</p>
+            )}
+          </section>
+        )}
 
         {system && (
           <section className="settings__section">

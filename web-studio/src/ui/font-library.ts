@@ -24,7 +24,7 @@ export interface UserFont {
   filename: string;
   size: number;
   addedAt: string;
-  source: "fichier" | "système";
+  source: "fichier" | "système" | "en ligne";
 }
 
 interface StoredFont extends UserFont {

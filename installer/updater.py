@@ -1066,6 +1066,7 @@ def apply_web_update(
     _overlay_memo.pop(version, None)
     _prune_old_web(keep={version, current_version()})
     _prune_assets()
+    sync_arp_version(version if is_newer(version, current_version()) else current_version())
     _log(f"apply_web_update: interface {version} installée")
     return True
 
@@ -1367,12 +1368,54 @@ def consume_fallback_notice() -> dict[str, Any] | None:
     return notice
 
 
+ARP_PER_USER_NAME = "Elium (installation utilisateur)"
+
+
+def sync_arp_version(version: str | None = None) -> bool:
+    """Recopie la version RÉELLEMENT active dans « Applications installées » (variante MSI PAR
+    UTILISATEUR uniquement : son entrée vit sous HKCU, que l'application peut écrire sans droits
+    administrateur). L'entrée de la variante « machine » (HKLM) n'est pas modifiable sans élévation :
+    elle garde la version de l'installeur, la version active est affichée dans l'application.
+    Best-effort, ne lève jamais ; renvoie True si une entrée a été mise à jour."""
+    if os.name != "nt" or os.environ.get("ELIUM_NO_ARP_SYNC") == "1":
+        return False
+    version = version or effective_version()
+    try:
+        import winreg  # noqa: PLC0415 — Windows uniquement
+        root = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+        updated = False
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, root) as parent:
+            index = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(parent, index)
+                except OSError:
+                    break
+                index += 1
+                try:
+                    with winreg.OpenKey(parent, name, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as sub:
+                        display, _ = winreg.QueryValueEx(sub, "DisplayName")
+                        if display != ARP_PER_USER_NAME:
+                            continue
+                        current, _ = winreg.QueryValueEx(sub, "DisplayVersion")
+                        if current != version:
+                            winreg.SetValueEx(sub, "DisplayVersion", 0, winreg.REG_SZ, version)
+                            updated = True
+                except OSError:
+                    continue
+        return updated
+    except Exception as exc:  # noqa: BLE001 — cosmétique : jamais bloquant
+        _log(f"sync_arp_version: {exc}")
+        return False
+
+
 def startup_checks() -> None:
     """À l'initialisation du lanceur : repart de verdicts neufs et prépare l'annonce d'un repli éventuel."""
     reset_verification_cache()
     notice = consume_fallback_notice()
     if notice:
         _status["fallback"] = notice
+    sync_arp_version()
 
 
 def run_pending_handoff() -> None:

@@ -66,6 +66,8 @@ def env(tmp_path, monkeypatch):
         raise urllib.error.URLError("réseau coupé (test)")
 
     monkeypatch.setattr(updater, "_urlopen_conditional", _no_network)
+    # Pas de thread de détection en arrière-plan (set_channel en lance un) : tests déterministes.
+    monkeypatch.setattr(updater, "start_background_check", lambda: None)
     updater._pending_manifest = None
     updater._last_check_monotonic = 0.0
     updater._last_check_error = None
@@ -478,6 +480,23 @@ def test_list_releases_hides_prereleases_on_stable_only(env, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
+def _only_example(fake):
+    """urlopen simulé UNIQUEMENT pour https://example.invalid : des threads d'arrière-plan
+    laissés par d'autres tests peuvent appeler le vrai urlopen pendant qu'il est remplacé
+    (sans ce filtre, leurs requêtes polluent les comptes de ces tests)."""
+    import urllib.request as _ur
+
+    real = _ur.urlopen
+
+    def wrapper(req, timeout=None):
+        url = getattr(req, "full_url", str(req))
+        if url.startswith("https://example.invalid"):
+            return fake(req, timeout)
+        return real(req, timeout=timeout)
+
+    return wrapper
+
+
 class _Resp:
     def __init__(self, body: bytes, status=200, headers=None, fail_after: int | None = None):
         self._body, self.status, self.headers = body, status, headers or {}
@@ -515,7 +534,7 @@ def test_download_resumes_with_range_and_verifies_full_hash(env, monkeypatch, tm
         return _Resp(payload[start:], status=206,
                      headers={"Content-Range": f"bytes {start}-{len(payload) - 1}/{len(payload)}"})
 
-    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", _only_example(fake))
     dest = tmp_path / "a.bin"
     assert updater._download_verified(art, dest) is True
     assert dest.read_bytes() == payload
@@ -536,7 +555,7 @@ def test_resume_survives_across_separate_attempts(env, monkeypatch, tmp_path):
         return _Resp(payload[start:], status=206,
                      headers={"Content-Range": f"bytes {start}-{len(payload) - 1}/{len(payload)}"})
 
-    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", _only_example(fake))
     assert updater._download_verified(art, dest) is True
     assert seen == ["bytes=100000-"] and dest.read_bytes() == payload
 
@@ -546,7 +565,8 @@ def test_server_ignoring_range_restarts_from_zero(env, monkeypatch, tmp_path):
     art = {"url": "https://example.invalid/a.bin", "sha256": _sha(payload), "size": len(payload)}
     dest = tmp_path / "a.bin"
     dest.with_suffix(".bin.part").write_bytes(b"garbage-partial")
-    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout=None: _Resp(payload, status=200))
+    monkeypatch.setattr(updater.urllib.request, "urlopen",
+                        _only_example(lambda req, timeout=None: _Resp(payload, status=200)))
     assert updater._download_verified(art, dest) is True
     assert dest.read_bytes() == payload
 
@@ -567,7 +587,7 @@ def test_corrupted_resumed_download_retries_from_scratch_then_verifies(env, monk
                          headers={"Content-Range": f"bytes {start}-{len(payload) - 1}/{len(payload)}"})
         return _Resp(payload)
 
-    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", _only_example(fake))
     assert updater._download_verified(art, dest) is True
     assert dest.read_bytes() == payload and reqs == ["bytes=50000-", None]
 
@@ -585,7 +605,7 @@ def test_range_not_satisfiable_restarts(env, monkeypatch, tmp_path):
             raise urllib.error.HTTPError(req.full_url, 416, "Range Not Satisfiable", {}, None)
         return _Resp(payload)
 
-    monkeypatch.setattr(updater.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(updater.urllib.request, "urlopen", _only_example(fake))
     assert updater._download_verified(art, dest) is True and n["i"] == 2
 
 

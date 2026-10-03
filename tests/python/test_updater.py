@@ -573,6 +573,8 @@ def test_on_navigation_clears_stale_ready(env, monkeypatch):
     monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
     updater.check_and_apply()
     assert updater.get_status()["state"] == "web-ready"
+    # Pas de thread de détection laissé en vie (il polluerait les tests suivants).
+    monkeypatch.setattr(updater, "start_background_check", lambda: None)
 
     updater.on_navigation()   # simule le reload après clic « Recharger »
     assert updater.get_status()["state"] in ("idle", "up-to-date")

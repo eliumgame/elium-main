@@ -1543,6 +1543,8 @@ def start_bundle_update(path: Path) -> dict[str, Any]:
     if os.environ.get("ELIUM_NO_UPDATE") == "1":
         return _publish("disabled")
     if _status.get("state") == "downloading":
+        if Path(path).parent == data_dir() / "tmp":
+            _safe_unlink(Path(path))
         return get_status()
 
     def run() -> None:

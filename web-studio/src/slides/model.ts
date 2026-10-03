@@ -128,6 +128,8 @@ export interface Slide {
   elements?: SlideElement[];
   background?: string; // slide background (hex/gradient css), overrides theme
   anims?: SlideAnim[]; // element animations
+  /** Diapositive masquée : ignorée en diaporama/présentateur, conservée dans l'éditeur et l'export. */
+  hidden?: boolean;
 }
 
 export interface Deck {

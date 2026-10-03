@@ -11,18 +11,15 @@
  * the AST). The parse/eval split lets IFERROR/IFNA run a sub-expression inside
  * a try/catch and swallow its error instead of failing the whole formula.
  *
- * Scope limitation — no dynamic arrays: every formula produces exactly one
- * CellValue for its own cell (there is no "spilling" of a result across
- * neighbouring cells). Excel's UNIQUE/SORT/FILTER are inherently
- * multi-cell-output functions, so implementing them faithfully would need a
- * spill engine (tracking which cells a formula owns, re-spilling on
- * recalculation, #SPILL! collision errors) — out of scope here; deliberately
- * deferred rather than added as a lookalike that returns only one value of
- * the result set (which would be actively misleading). LAMBDA is deferred
- * for the same reason of scope, plus it needs closures over named parameters
- * in the formula language itself. XLOOKUP above is a single-result lookup so
- * it fits the existing scalar model fine.
+ * Dynamic arrays: an expression may evaluate to a matrix (ranges, A1:A3*2,
+ * SEQUENCE, FILTER, SORT, UNIQUE, TEXTSPLIT, VSTACK, MAP/REDUCE/SCAN/BYROW…).
+ * When createCalc is given a cell enumerator (4th argument) the result SPILLS
+ * over the neighbouring empty cells; an occupied target yields #SPILL!.
+ * LET / LAMBDA (direct call, via LET, or passed to MAP…) are supported through
+ * a scope carried by the resolver. Matrix functions live in formula-dyn.ts.
  */
+import { DYN_FUNCS, ARRAY_RETURNING, dynFunction, isMat, toMat, type Matrix } from "./formula-dyn";
+
 export type CellError = { error: string };
 export type CellValue = number | string | boolean | CellError;
 
@@ -36,7 +33,7 @@ export function isError(v: CellValue): v is CellError {
   return typeof v === "object" && v !== null && "error" in v;
 }
 
-class FormulaError extends Error {}
+export class FormulaError extends Error {}
 
 // --- A1 reference helpers -------------------------------------------------
 
@@ -317,7 +314,7 @@ export function applyNamedRanges(formula: string, resolve: (name: string) => str
 
 // --- Coercion -------------------------------------------------------------
 
-function toNumber(v: CellValue): number {
+export function toNumber(v: CellValue): number {
   if (isError(v)) throw new FormulaError(v.error);
   if (typeof v === "number") return v;
   if (typeof v === "boolean") return v ? 1 : 0;
@@ -411,7 +408,12 @@ function tokenize(src: string): Tok[] {
       i++;
       continue;
     } // FR argument separator
-    if ("+-*/(),:=<>!".includes(c)) {
+    if (c === "#" && toks.length && toks[toks.length - 1].t === "id" && i > 0 && /[A-Za-z0-9$]/.test(src[i - 1]) && !/[A-Za-z]/.test(src[i + 1] ?? "")) {
+      toks.push({ t: "op", v: "#" }); // A1# : plage débordée
+      i++;
+      continue;
+    }
+    if ("+-*/(),:=<>!&^%".includes(c)) {
       toks.push({ t: "op", v: c });
       i++;
       continue;
@@ -438,9 +440,13 @@ type Node =
   | { k: "bool"; v: boolean }
   | { k: "ref"; v: string; sheet?: string } // normalized: uppercase, $ stripped; sheet = cross-sheet qualifier
   | { k: "range"; a: string; b: string; sheet?: string } // A1:B2 (uppercase); sheet = cross-sheet qualifier
+  | { k: "name"; v: string } // identifiant libre (variable LET / paramètre LAMBDA / nom de fonction passé en valeur)
+  | { k: "spill"; v: string; sheet?: string } // A1# : plage débordée depuis A1
   | { k: "neg"; e: Node }
-  | { k: "bin"; op: string; l: Node; r: Node } // + - * / and comparisons
-  | { k: "call"; name: string; args: Node[] };
+  | { k: "pct"; e: Node } // postfixe %
+  | { k: "bin"; op: string; l: Node; r: Node } // + - * / ^ & et comparaisons
+  | { k: "call"; name: string; args: Node[] }
+  | { k: "invoke"; fn: Node; args: Node[] }; // LAMBDA(x,x+1)(3)
 
 const COMPARE_OPS = ["=", "<>", "<", ">", "<=", ">="];
 
@@ -460,6 +466,10 @@ class Parser {
     const t = this.next();
     if (!t || t.t !== "op" || t.v !== v) throw new FormulaError("#ERR");
   }
+  private isOp(v: string, at = this.p): boolean {
+    const t = this.toks[at];
+    return !!t && t.t === "op" && t.v === v;
+  }
 
   parse(): Node {
     const n = this.comparison();
@@ -469,11 +479,20 @@ class Parser {
 
   // A single (non-chained) comparison, lowest precedence.
   private comparison(): Node {
-    let n = this.additive();
+    let n = this.concat();
     const t = this.peek();
     if (t && t.t === "op" && COMPARE_OPS.includes(t.v)) {
       this.next();
-      n = { k: "bin", op: t.v, l: n, r: this.additive() };
+      n = { k: "bin", op: t.v, l: n, r: this.concat() };
+    }
+    return n;
+  }
+
+  private concat(): Node {
+    let n = this.additive();
+    while (this.isOp("&")) {
+      this.next();
+      n = { k: "bin", op: "&", l: n, r: this.additive() };
     }
     return n;
   }
@@ -491,13 +510,23 @@ class Parser {
   }
 
   private multiplicative(): Node {
-    let n = this.unary();
+    let n = this.power();
     for (;;) {
       const t = this.peek();
       if (t && t.t === "op" && (t.v === "*" || t.v === "/")) {
         this.next();
-        n = { k: "bin", op: t.v, l: n, r: this.unary() };
+        n = { k: "bin", op: t.v, l: n, r: this.power() };
       } else break;
+    }
+    return n;
+  }
+
+  // Comme Excel : la négation unaire lie plus fort que ^ (-2^2 = 4).
+  private power(): Node {
+    let n = this.unary();
+    while (this.isOp("^")) {
+      this.next();
+      n = { k: "bin", op: "^", l: n, r: this.unary() };
     }
     return n;
   }
@@ -508,7 +537,27 @@ class Parser {
       this.next();
       return { k: "neg", e: this.unary() };
     }
-    return this.primary();
+    if (t && t.t === "op" && t.v === "+") {
+      this.next();
+      return this.unary();
+    }
+    return this.postfix();
+  }
+
+  private postfix(): Node {
+    let n = this.primary();
+    for (;;) {
+      if (this.isOp("%")) {
+        this.next();
+        n = { k: "pct", e: n };
+      } else if (this.isOp("#") && n.k === "ref") {
+        this.next();
+        n = { k: "spill", v: n.v, sheet: n.sheet };
+      } else if (this.isOp("(") && (n.k === "call" || n.k === "invoke")) {
+        n = { k: "invoke", fn: n, args: this.callArgs() };
+      } else break;
+    }
+    return n;
   }
 
   private primary(): Node {
@@ -528,63 +577,21 @@ class Parser {
       if (nx && nx.t === "op" && nx.v === "!") return this.qualifiedRef(t.v); // Feuille2!A1
       const up = t.v.toUpperCase();
       // cell ref ($ anchors don't affect resolution, so strip them here)
-      if (REF_RE.test(up)) return { k: "ref", v: up.replace(/\$/g, "") };
+      if (REF_RE.test(up)) return this.maybeRange({ k: "ref", v: up.replace(/\$/g, "") }, undefined);
       // bare name (TRUE/FALSE)
       if (up === "TRUE") return { k: "bool", v: true };
       if (up === "FALSE") return { k: "bool", v: false };
-      throw new FormulaError("#NAME");
+      // variable LET/LAMBDA ou nom de fonction : résolu à l'évaluation (#NAME sinon)
+      return { k: "name", v: up };
     }
     throw new FormulaError("#ERR");
   }
 
-  /** Parse `Sheet!A1` once the sheet name has been consumed. */
-  private qualifiedRef(sheet: string): Node {
-    this.eatOp("!");
-    const t = this.next();
-    if (!t || t.t !== "id" || !REF_RE.test(t.v.toUpperCase())) throw new FormulaError("#ERR");
-    return { k: "ref", v: t.v.toUpperCase().replace(/\$/g, ""), sheet };
-  }
-
-  /** Collect function args; an arg may be a range A1:B2. */
-  private funcCall(name: string): Node {
-    this.eatOp("(");
-    const args: Node[] = [];
-    if (!(this.peek()?.t === "op" && this.peek()?.v === ")")) {
-      for (;;) {
-        args.push(this.argument());
-        const t = this.peek();
-        if (t && t.t === "op" && t.v === ",") {
-          this.next();
-          continue;
-        }
-        break;
-      }
-    }
-    this.eatOp(")");
-    return { k: "call", name, args };
-  }
-
-  private argument(): Node {
-    // range? [Sheet '!'] IDENT ':' IDENT where both are cell refs
-    const q = this.peek();
-    let base = 0;
-    let sheet: string | undefined;
+  /** `A1` suivi de `:B2` → nœud plage. */
+  private maybeRange(first: { k: "ref"; v: string }, sheet: string | undefined): Node {
+    const colon = this.toks[this.p];
+    const end = this.toks[this.p + 1];
     if (
-      q &&
-      (q.t === "sheet" || q.t === "id") &&
-      this.toks[this.p + 1]?.t === "op" &&
-      this.toks[this.p + 1]?.v === "!"
-    ) {
-      sheet = q.v;
-      base = 2; // skip the qualifier (Sheet '!') when probing for a range
-    }
-    const a = this.toks[this.p + base];
-    const colon = this.toks[this.p + base + 1];
-    const end = this.toks[this.p + base + 2];
-    if (
-      a &&
-      a.t === "id" &&
-      REF_RE.test(a.v.toUpperCase()) &&
       colon &&
       colon.t === "op" &&
       colon.v === ":" &&
@@ -592,11 +599,40 @@ class Parser {
       end.t === "id" &&
       REF_RE.test(end.v.toUpperCase())
     ) {
-      this.p += base + 3;
-      return { k: "range", a: a.v.toUpperCase(), b: end.v.toUpperCase(), sheet };
+      this.p += 2;
+      return { k: "range", a: first.v, b: end.v.toUpperCase().replace(/\$/g, ""), sheet };
     }
-    // not a range — let the expression grammar handle it (incl. a single Sheet!A1)
-    return this.comparison();
+    return sheet === undefined ? first : { ...first, sheet };
+  }
+
+  /** Parse `Sheet!A1` / `Sheet!A1:B2` once the sheet name has been consumed. */
+  private qualifiedRef(sheet: string): Node {
+    this.eatOp("!");
+    const t = this.next();
+    if (!t || t.t !== "id" || !REF_RE.test(t.v.toUpperCase())) throw new FormulaError("#ERR");
+    return this.maybeRange({ k: "ref", v: t.v.toUpperCase().replace(/\$/g, "") }, sheet);
+  }
+
+  private funcCall(name: string): Node {
+    return { k: "call", name, args: this.callArgs() };
+  }
+
+  /** `( arg , arg … )` ; un argument peut être une plage, une expression, une lambda… */
+  private callArgs(): Node[] {
+    this.eatOp("(");
+    const args: Node[] = [];
+    if (!this.isOp(")")) {
+      for (;;) {
+        args.push(this.comparison());
+        if (this.isOp(",")) {
+          this.next();
+          continue;
+        }
+        break;
+      }
+    }
+    this.eatOp(")");
+    return args;
   }
 }
 
@@ -604,17 +640,55 @@ function parseFormula(toks: Tok[]): Node {
   return new Parser(toks).parse();
 }
 
+// --- Valeurs tableau / lambda ----------------------------------------------
+
+type Scope = Map<string, Val>;
+interface LambdaVal {
+  lam: { params: string[]; body: Node | null; builtin?: string; scope?: Scope };
+}
+type Val = CellValue | Matrix | LambdaVal;
+const isLam = (v: Val): v is LambdaVal => typeof v === "object" && v !== null && "lam" in v;
+
+/** Fonctions scalaires appliquées élément par élément quand un argument est un tableau. */
+const LIFT = new Set([
+  "ABS", "SQRT", "POWER", "EXP", "LN", "LOG", "MOD", "INT", "SIGN", "ROUND", "ROUNDUP", "ROUNDDOWN", "CEILING", "FLOOR",
+  "IF", "NOT", "UPPER", "LOWER", "TRIM", "LEN", "LEFT", "RIGHT", "MID", "SUBSTITUTE", "TEXT", "YEAR", "MONTH", "DAY", "DATE",
+]);
+/** Opérations de haut niveau qui rendent un tableau (hors DYN_FUNCS). */
+const HIGHER_ORDER = new Set(["LET", "LAMBDA", "MAP", "REDUCE", "SCAN", "BYROW", "BYCOL", "MAKEARRAY"]);
+
+let lambdaDepth = 0;
+const MAX_LAMBDA_DEPTH = 200;
+
 // --- Evaluator (walks the AST) ---------------------------------------------
 
 // `sheet` is the cross-sheet qualifier (null = the current/local sheet).
-type Resolve = (ref: string, sheet: string | null) => CellValue;
+// `scope` : variables LET / paramètres LAMBDA ; `spill` : plage débordée d'une ancre.
+type Resolve = ((ref: string, sheet: string | null) => CellValue) & {
+  scope?: Scope;
+  spill?: (ref: string, sheet: string | null) => CellValue[][] | null;
+};
+
+function bindScope(resolve: Resolve, scope: Scope): Resolve {
+  const f = ((r: string, s: string | null) => resolve(r, s)) as Resolve;
+  f.scope = scope;
+  f.spill = resolve.spill;
+  return f;
+}
+
+const errVal = (e: unknown): CellError => ({ error: e instanceof FormulaError && e.message ? e.message : "#ERR" });
+const collapse = (v: Val): CellValue => {
+  if (isMat(v)) return v.m[0][0];
+  if (isLam(v)) throw new FormulaError("#CALC");
+  return v;
+};
 
 const IS_FUNCS = new Set(["ISBLANK", "ISNUMBER", "ISTEXT", "ISERROR"]);
 
 /** Functions whose arguments must NOT be eagerly evaluated (they decide which
  * sub-expressions to run, and may swallow errors, or need the raw AST — a cell
  * reference's own coordinates for OFFSET, a resolver call for INDIRECT). */
-function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | undefined {
+function evalGuarded(name: string, args: Node[], resolve: Resolve): Val | undefined {
   if (IS_FUNCS.has(name)) {
     // A compound argument (e.g. ISERROR(1/0)) may throw while evaluating —
     // exactly what these functions exist to detect, so it must NOT tear down
@@ -623,7 +697,7 @@ function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | 
     try {
       v = args[0] ? evaluate(args[0], resolve) : "";
     } catch (e) {
-      v = { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
+      v = errVal(e);
     }
     if (name === "ISERROR") return isError(v);
     if (name === "ISBLANK") return v === "";
@@ -653,7 +727,7 @@ function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | 
       dRows = args[1] ? Math.trunc(toNumber(evaluate(args[1], resolve))) : 0;
       dCols = args[2] ? Math.trunc(toNumber(evaluate(args[2], resolve))) : 0;
     } catch (e) {
-      return { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
+      return errVal(e);
     }
     const col = pos.col + dCols,
       row = pos.row + dRows;
@@ -663,19 +737,32 @@ function evalGuarded(name: string, args: Node[], resolve: Resolve): CellValue | 
   if (name !== "IFERROR" && name !== "IFNA") return undefined;
   // IFNA only intercepts #N/A; IFERROR intercepts any error.
   const wanted = name === "IFNA" ? "#N/A" : null;
-  let v: CellValue;
+  const hit = (v: CellValue): boolean => isError(v) && (wanted === null || v.error === wanted);
+  let v: Val;
   try {
-    v = args[0] ? evaluate(args[0], resolve) : "";
+    v = args[0] ? evalV(args[0], resolve) : "";
   } catch (e) {
-    v = { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
+    v = errVal(e);
   }
-  if (isError(v) && (wanted === null || v.error === wanted)) {
-    return args[1] ? evaluate(args[1], resolve) : "";
-  }
+  const fallback = (): CellValue => (args[1] ? collapse(evalV(args[1], resolve)) : "");
+  if (isMat(v)) return { m: v.m.map((row) => row.map((x) => (hit(x) ? fallback() : x))) };
+  if (isLam(v)) return v;
+  if (hit(v)) return args[1] ? evalV(args[1], resolve) : "";
   return v;
 }
 
+/** Évalue un nœud en valeur SCALAIRE (un tableau est réduit à sa première cellule). */
 function evaluate(node: Node, resolve: Resolve): CellValue {
+  return collapse(evalV(node, resolve));
+}
+
+const known = (): Set<string> => {
+  if (!KNOWN_FUNCS) KNOWN_FUNCS = new Set([...FUNCTIONS.map((f) => f.name), ...DYN_FUNCS, ...HIGHER_ORDER]);
+  return KNOWN_FUNCS;
+};
+let KNOWN_FUNCS: Set<string> | null = null;
+
+function evalV(node: Node, resolve: Resolve): Val {
   switch (node.k) {
     case "num":
       return node.v;
@@ -683,44 +770,102 @@ function evaluate(node: Node, resolve: Resolve): CellValue {
       return node.v;
     case "bool":
       return node.v;
-    case "ref":
+    case "ref": {
+      const sv = resolve.scope?.get(node.v);
+      if (sv !== undefined) return sv;
       return resolve(node.v, node.sheet ?? null);
+    }
+    case "name": {
+      const sv = resolve.scope?.get(node.v);
+      if (sv !== undefined) return sv;
+      if (known().has(node.v)) return { lam: { params: [], body: null, builtin: node.v } };
+      throw new FormulaError("#NAME");
+    }
     case "range": {
-      // A range only reaches here when used in scalar position (e.g. as a
-      // direct IFERROR argument): collapse to its first cell.
-      const refs = expandRange(node.a, node.b);
-      return refs.length ? resolve(refs[0], node.sheet ?? null) : { error: "#REF" };
+      const pa = parseRef(node.a);
+      const pb = parseRef(node.b);
+      if (!pa || !pb) throw new FormulaError("#REF");
+      const r0 = Math.min(pa.row, pb.row),
+        r1 = Math.max(pa.row, pb.row),
+        c0 = Math.min(pa.col, pb.col),
+        c1 = Math.max(pa.col, pb.col);
+      const m: CellValue[][] = [];
+      for (let r = r0; r <= r1; r++) {
+        const row: CellValue[] = [];
+        for (let c = c0; c <= c1; c++) row.push(resolve(indexToCol(c) + (r + 1), node.sheet ?? null));
+        m.push(row);
+      }
+      return { m };
+    }
+    case "spill": {
+      const m = resolve.spill?.(node.v, node.sheet ?? null);
+      if (!m) throw new FormulaError("#REF");
+      return { m };
     }
     case "neg":
-      return -toNumber(evaluate(node.e, resolve));
-    case "bin":
-      return evalBin(node.op, node.l, node.r, resolve);
-    case "call": {
-      const guarded = evalGuarded(node.name, node.args, resolve);
-      if (guarded !== undefined) return guarded;
-      // Eager path: evaluate every arg (ranges expand to value lists + shape).
-      const args: CellValue[][] = [];
-      const shapes: (RangeShape | null)[] = [];
-      for (const a of node.args) {
-        if (a.k === "range") {
-          const pa = parseRef(a.a)!;
-          const pb = parseRef(a.b)!;
-          args.push(expandRange(a.a, a.b).map((r) => resolve(r, a.sheet ?? null)));
-          shapes.push({ rows: Math.abs(pa.row - pb.row) + 1, cols: Math.abs(pa.col - pb.col) + 1 });
-        } else {
-          args.push([evaluate(a, resolve)]);
-          shapes.push(null);
-        }
-      }
-      return applyFunction(node.name, args, shapes);
+      return mapVal(evalV(node.e, resolve), (x) => -toNumber(x));
+    case "pct":
+      return mapVal(evalV(node.e, resolve), (x) => toNumber(x) / 100);
+    case "bin": {
+      const l = evalV(node.l, resolve);
+      const r = evalV(node.r, resolve);
+      return binV(node.op, l, r);
     }
+    case "invoke": {
+      const f = evalV(node.fn, resolve);
+      if (!isLam(f)) throw new FormulaError("#VALUE");
+      return invoke(f, node.args.map((a) => evalV(a, resolve)), resolve);
+    }
+    case "call":
+      return evalCall(node.name, node.args, resolve);
   }
 }
 
-function evalBin(op: string, ln: Node, rn: Node, resolve: Resolve): CellValue {
+function mapVal(v: Val, f: (x: CellValue) => CellValue): Val {
+  if (isLam(v)) throw new FormulaError("#CALC");
+  if (!isMat(v)) return f(v);
+  return {
+    m: v.m.map((row) =>
+      row.map((x) => {
+        try {
+          return f(x);
+        } catch (e) {
+          return errVal(e);
+        }
+      }),
+    ),
+  };
+}
+
+function binV(op: string, l: Val, r: Val): Val {
+  if (isLam(l) || isLam(r)) throw new FormulaError("#CALC");
+  if (!isMat(l) && !isMat(r)) return binScalar(op, l, r);
+  const A = toMat(l);
+  const B = toMat(r);
+  const rows = Math.max(A.m.length, B.m.length);
+  const cols = Math.max(A.m[0].length, B.m[0].length);
+  const at = (M: Matrix, i: number, j: number): CellValue => {
+    const rr = M.m.length === 1 ? 0 : i;
+    const cc = M.m[0].length === 1 ? 0 : j;
+    return rr < M.m.length && cc < M.m[0].length ? M.m[rr][cc] : { error: "#N/A" };
+  };
+  const m: CellValue[][] = [];
+  for (let i = 0; i < rows; i++) {
+    const row: CellValue[] = [];
+    for (let j = 0; j < cols; j++) {
+      try {
+        row.push(binScalar(op, at(A, i, j), at(B, i, j)));
+      } catch (e) {
+        row.push(errVal(e));
+      }
+    }
+    m.push(row);
+  }
+  return { m };
+}
+
+function binScalar(op: string, left: CellValue, right: CellValue): CellValue {
   if (COMPARE_OPS.includes(op)) {
-    const left = evaluate(ln, resolve);
-    const right = evaluate(rn, resolve);
     if (isError(left)) return left;
     if (isError(right)) return right;
     // Numeric comparison when both sides are numeric, else string comparison.
@@ -744,9 +889,15 @@ function evalBin(op: string, ln: Node, rn: Node, resolve: Resolve): CellValue {
         return a >= b; // ">="
     }
   }
+  if (op === "&") {
+    if (isError(left)) throw new FormulaError(left.error);
+    if (isError(right)) throw new FormulaError(right.error);
+    const s = (v: CellValue) => (typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v));
+    return s(left) + s(right);
+  }
   // Arithmetic: both operands coerced to number (an error operand throws).
-  const l = toNumber(evaluate(ln, resolve));
-  const r = toNumber(evaluate(rn, resolve));
+  const l = toNumber(left);
+  const r = toNumber(right);
   switch (op) {
     case "+":
       return l + r;
@@ -754,9 +905,208 @@ function evalBin(op: string, ln: Node, rn: Node, resolve: Resolve): CellValue {
       return l - r;
     case "*":
       return l * r;
+    case "^": {
+      const p = Math.pow(l, r);
+      if (Number.isNaN(p)) throw new FormulaError("#NUM");
+      return p;
+    }
     default: // "/"
       if (r === 0) throw new FormulaError("#DIV/0");
       return l / r;
+  }
+}
+
+/** Applique une fonction à des valeurs déjà évaluées (chemin « eager »). */
+function callEager(name: string, vals: Val[]): Val {
+  for (const v of vals) if (isLam(v)) throw new FormulaError("#VALUE");
+  const cv = vals as (CellValue | Matrix)[];
+  if (DYN_FUNCS.has(name)) return dynFunction(name, cv);
+  if (LIFT.has(name) && cv.some(isMat)) {
+    const rows = Math.max(...cv.map((v) => (isMat(v) ? v.m.length : 1)));
+    const cols = Math.max(...cv.map((v) => (isMat(v) ? v.m[0].length : 1)));
+    const at = (v: CellValue | Matrix, i: number, j: number): CellValue =>
+      !isMat(v) ? v : (v.m.length === 1 ? v.m[0] : v.m[i])?.[v.m[0].length === 1 ? 0 : j] ?? { error: "#N/A" };
+    const m: CellValue[][] = [];
+    for (let i = 0; i < rows; i++) {
+      const row: CellValue[] = [];
+      for (let j = 0; j < cols; j++) {
+        try {
+          row.push(applyFunction(name, cv.map((v) => [at(v, i, j)]), cv.map(() => null)));
+        } catch (e) {
+          row.push(errVal(e));
+        }
+      }
+      m.push(row);
+    }
+    return { m };
+  }
+  const args: CellValue[][] = [];
+  const shapes: (RangeShape | null)[] = [];
+  for (const v of cv) {
+    if (isMat(v)) {
+      args.push(v.m.flat());
+      shapes.push({ rows: v.m.length, cols: v.m[0].length });
+    } else {
+      args.push([v]);
+      shapes.push(null);
+    }
+  }
+  return applyFunction(name, args, shapes);
+}
+
+function invoke(f: LambdaVal, vals: Val[], resolve: Resolve): Val {
+  const lam = f.lam;
+  if (lam.builtin) return callEager(lam.builtin, vals);
+  if (!lam.body) throw new FormulaError("#CALC");
+  if (vals.length < lam.params.length) throw new FormulaError("#VALUE");
+  if (lambdaDepth >= MAX_LAMBDA_DEPTH) throw new FormulaError("#NUM");
+  const scope: Scope = new Map(lam.scope ?? []);
+  lam.params.forEach((p, i) => scope.set(p, vals[i]));
+  lambdaDepth++;
+  try {
+    return evalV(lam.body, bindScope(resolve, scope));
+  } finally {
+    lambdaDepth--;
+  }
+}
+
+const matArg = (v: Val): Matrix => {
+  if (isLam(v)) throw new FormulaError("#VALUE");
+  return toMat(v);
+};
+const lamArg = (v: Val): LambdaVal => {
+  if (!isLam(v)) throw new FormulaError("#VALUE");
+  return v;
+};
+const cell = (v: Val): CellValue => {
+  try {
+    return collapse(v);
+  } catch (e) {
+    return errVal(e);
+  }
+};
+
+function evalCall(name: string, args: Node[], resolve: Resolve): Val {
+  const bound = resolve.scope?.get(name);
+  if (bound !== undefined && isLam(bound)) return invoke(bound, args.map((a) => evalV(a, resolve)), resolve);
+  switch (name) {
+    case "LET": {
+      if (args.length < 3 || args.length % 2 === 0) throw new FormulaError("#VALUE");
+      let scope: Scope = new Map(resolve.scope ?? []);
+      for (let i = 0; i < args.length - 1; i += 2) {
+        const nm = args[i];
+        if (nm.k !== "name" && nm.k !== "ref") throw new FormulaError("#VALUE");
+        const v = evalV(args[i + 1], bindScope(resolve, scope));
+        scope = new Map(scope).set(nm.v, v);
+      }
+      return evalV(args[args.length - 1], bindScope(resolve, scope));
+    }
+    case "LAMBDA": {
+      if (!args.length) throw new FormulaError("#VALUE");
+      const params = args.slice(0, -1).map((p) => {
+        if (p.k !== "name" && p.k !== "ref") throw new FormulaError("#VALUE");
+        return p.v;
+      });
+      return { lam: { params, body: args[args.length - 1], scope: resolve.scope } };
+    }
+    case "MAP": {
+      if (args.length < 2) throw new FormulaError("#VALUE");
+      const arrs = args.slice(0, -1).map((a) => matArg(evalV(a, resolve)));
+      const fn = lamArg(evalV(args[args.length - 1], resolve));
+      const R = arrs[0].m.length;
+      const C = arrs[0].m[0].length;
+      return {
+        m: Array.from({ length: R }, (_, i) =>
+          Array.from({ length: C }, (_, j) => {
+            try {
+              return cell(invoke(fn, arrs.map((a) => a.m[i]?.[j] ?? { error: "#N/A" }), resolve));
+            } catch (e) {
+              return errVal(e);
+            }
+          }),
+        ),
+      };
+    }
+    case "REDUCE":
+    case "SCAN": {
+      if (args.length < 2) throw new FormulaError("#VALUE");
+      const hasInit = args.length >= 3;
+      const arr = matArg(evalV(args[hasInit ? 1 : 0], resolve));
+      const fn = lamArg(evalV(args[args.length - 1], resolve));
+      const flat = arr.m.flat();
+      let acc: Val = hasInit ? evalV(args[0], resolve) : flat[0];
+      const start = hasInit ? 0 : 1;
+      const trail: CellValue[] = hasInit ? [] : [cell(acc)];
+      for (let i = start; i < flat.length; i++) {
+        acc = invoke(fn, [acc, flat[i]], resolve);
+        if (name === "SCAN") trail.push(cell(acc));
+      }
+      if (name === "REDUCE") return acc;
+      const C = arr.m[0].length;
+      return { m: arr.m.map((_, i) => trail.slice(i * C, i * C + C)) };
+    }
+    case "BYROW":
+    case "BYCOL": {
+      if (args.length !== 2) throw new FormulaError("#VALUE");
+      const arr = matArg(evalV(args[0], resolve));
+      const fn = lamArg(evalV(args[1], resolve));
+      const slices: Matrix[] =
+        name === "BYROW" ? arr.m.map((r) => ({ m: [r] })) : arr.m[0].map((_, j) => ({ m: arr.m.map((r) => [r[j]]) }));
+      const out = slices.map((s) => {
+        try {
+          return cell(invoke(fn, [s], resolve));
+        } catch (e) {
+          return errVal(e);
+        }
+      });
+      return name === "BYROW" ? { m: out.map((v) => [v]) } : { m: [out] };
+    }
+    case "MAKEARRAY": {
+      if (args.length !== 3) throw new FormulaError("#VALUE");
+      const R = Math.trunc(toNumber(evaluate(args[0], resolve)));
+      const C = Math.trunc(toNumber(evaluate(args[1], resolve)));
+      if (R < 1 || C < 1) throw new FormulaError("#VALUE");
+      if (R * C > 1_000_000) throw new FormulaError("#NUM");
+      const fn = lamArg(evalV(args[2], resolve));
+      return {
+        m: Array.from({ length: R }, (_, i) =>
+          Array.from({ length: C }, (_, j) => {
+            try {
+              return cell(invoke(fn, [i + 1, j + 1], resolve));
+            } catch (e) {
+              return errVal(e);
+            }
+          }),
+        ),
+      };
+    }
+  }
+  const guarded = evalGuarded(name, args, resolve);
+  if (guarded !== undefined) return guarded;
+  return callEager(
+    name,
+    args.map((a) => evalV(a, resolve)),
+  );
+}
+
+/** Le résultat du nœud peut-il être un tableau (donc déborder) ? Analyse purement syntaxique. */
+function producesArray(n: Node): boolean {
+  switch (n.k) {
+    case "range":
+    case "spill":
+    case "invoke":
+      return true;
+    case "neg":
+    case "pct":
+      return producesArray(n.e);
+    case "bin":
+      return producesArray(n.l) || producesArray(n.r);
+    case "call":
+      if (ARRAY_RETURNING.has(n.name) || HIGHER_ORDER.has(n.name)) return true;
+      if (LIFT.has(n.name) || n.name === "IFERROR" || n.name === "IFNA") return n.args.some(producesArray);
+      return !known().has(n.name); // appel d'une lambda liée par LET
+    default:
+      return false;
   }
 }
 
@@ -797,7 +1147,7 @@ function s0(args: CellValue[][], i = 0): string {
   if (v == null || isError(v)) return "";
   return typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v);
 }
-function truthy(v: CellValue | undefined): boolean {
+export function truthy(v: CellValue | undefined): boolean {
   if (v == null) return false;
   if (isError(v)) throw new FormulaError(v.error);
   if (typeof v === "boolean") return v;
@@ -825,7 +1175,7 @@ function matchCriterion(value: CellValue, crit: CellValue): boolean {
 }
 
 /** Case-insensitive loose equality used by lookups (numeric when both numeric). */
-function looseEq(a: CellValue, b: CellValue): boolean {
+export function looseEq(a: CellValue, b: CellValue): boolean {
   if (isError(a) || isError(b)) return false;
   const an = typeof a === "number" ? a : Number(a);
   const bn = typeof b === "number" ? b : Number(b);
@@ -834,7 +1184,7 @@ function looseEq(a: CellValue, b: CellValue): boolean {
 }
 
 /** Ordered comparison (numeric when both numeric, else case-insensitive text). */
-function cmpVals(a: CellValue, b: CellValue): number {
+export function cmpVals(a: CellValue, b: CellValue): number {
   const an = typeof a === "number" ? a : Number(a);
   const bn = typeof b === "number" ? b : Number(b);
   if (a !== "" && b !== "" && !Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
@@ -1420,6 +1770,39 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "PMT", sig: "PMT(taux; npm; va; [vc]; [type])", desc: "Mensualité d'un emprunt", cat: "Finance" },
   { name: "NPV", sig: "NPV(taux; val1; val2; …)", desc: "Valeur actuelle nette", cat: "Finance" },
   { name: "IRR", sig: "IRR(plage; [estimation])", desc: "Taux de rentabilité interne", cat: "Finance" },
+  // --- Tableaux dynamiques (résultat qui déborde sur les cellules voisines ; #SPILL! si occupées) ---
+  { name: "SEQUENCE", sig: "SEQUENCE(lignes; [colonnes]; [début]; [pas])", desc: "Suite de nombres en tableau", cat: "Tableaux" },
+  { name: "RANDARRAY", sig: "RANDARRAY([lignes]; [colonnes]; [min]; [max]; [entiers])", desc: "Tableau de nombres aléatoires", cat: "Tableaux" },
+  { name: "UNIQUE", sig: "UNIQUE(tableau; [par_colonne]; [exactement_une_fois])", desc: "Valeurs distinctes", cat: "Tableaux" },
+  { name: "SORT", sig: "SORT(tableau; [index]; [ordre]; [par_colonne])", desc: "Trie un tableau", cat: "Tableaux" },
+  { name: "SORTBY", sig: "SORTBY(tableau; clé1; [ordre1]; …)", desc: "Trie selon d'autres plages", cat: "Tableaux" },
+  { name: "FILTER", sig: "FILTER(tableau; condition; [si_vide])", desc: "Filtre selon une condition", cat: "Tableaux" },
+  { name: "TRANSPOSE", sig: "TRANSPOSE(tableau)", desc: "Échange lignes et colonnes", cat: "Tableaux" },
+  { name: "TEXTSPLIT", sig: "TEXTSPLIT(texte; sép_col; [sép_ligne]; [ignorer_vides])", desc: "Découpe un texte en tableau", cat: "Tableaux" },
+  { name: "CHOOSECOLS", sig: "CHOOSECOLS(tableau; col1; …)", desc: "Extrait des colonnes", cat: "Tableaux" },
+  { name: "CHOOSEROWS", sig: "CHOOSEROWS(tableau; lig1; …)", desc: "Extrait des lignes", cat: "Tableaux" },
+  { name: "TAKE", sig: "TAKE(tableau; lignes; [colonnes])", desc: "Garde les premières/dernières lignes ou colonnes", cat: "Tableaux" },
+  { name: "DROP", sig: "DROP(tableau; lignes; [colonnes])", desc: "Retire les premières/dernières lignes ou colonnes", cat: "Tableaux" },
+  { name: "VSTACK", sig: "VSTACK(tab1; tab2; …)", desc: "Empile verticalement", cat: "Tableaux" },
+  { name: "HSTACK", sig: "HSTACK(tab1; tab2; …)", desc: "Juxtapose horizontalement", cat: "Tableaux" },
+  { name: "WRAPROWS", sig: "WRAPROWS(vecteur; n; [complément])", desc: "Renvoie à la ligne tous les n éléments", cat: "Tableaux" },
+  { name: "WRAPCOLS", sig: "WRAPCOLS(vecteur; n; [complément])", desc: "Renvoie à la colonne tous les n éléments", cat: "Tableaux" },
+  { name: "TOCOL", sig: "TOCOL(tableau; [ignorer]; [par_colonne])", desc: "Aplatit en une colonne", cat: "Tableaux" },
+  { name: "TOROW", sig: "TOROW(tableau; [ignorer]; [par_colonne])", desc: "Aplatit en une ligne", cat: "Tableaux" },
+  { name: "EXPAND", sig: "EXPAND(tableau; lignes; [colonnes]; [complément])", desc: "Agrandit un tableau", cat: "Tableaux" },
+  { name: "XMATCH", sig: "XMATCH(valeur; tableau; [corresp]; [recherche])", desc: "Position d'une valeur (exacte, approchée, joker)", cat: "Recherche" },
+  { name: "SUMPRODUCT", sig: "SUMPRODUCT(tab1; tab2; …)", desc: "Somme des produits", cat: "Maths" },
+  { name: "ROWS", sig: "ROWS(tableau)", desc: "Nombre de lignes", cat: "Recherche" },
+  { name: "COLUMNS", sig: "COLUMNS(tableau)", desc: "Nombre de colonnes", cat: "Recherche" },
+  { name: "MMULT", sig: "MMULT(tab1; tab2)", desc: "Produit matriciel", cat: "Maths" },
+  { name: "LET", sig: "LET(nom1; valeur1; …; calcul)", desc: "Nomme des résultats intermédiaires", cat: "Logique" },
+  { name: "LAMBDA", sig: "LAMBDA(param1; …; calcul)", desc: "Fonction personnalisée (appel direct ou via LET)", cat: "Logique" },
+  { name: "MAP", sig: "MAP(tableau; LAMBDA(x; …))", desc: "Applique une lambda à chaque élément", cat: "Tableaux" },
+  { name: "REDUCE", sig: "REDUCE([init]; tableau; LAMBDA(acc; x; …))", desc: "Réduit un tableau en une valeur", cat: "Tableaux" },
+  { name: "SCAN", sig: "SCAN([init]; tableau; LAMBDA(acc; x; …))", desc: "Cumul intermédiaire d'un tableau", cat: "Tableaux" },
+  { name: "BYROW", sig: "BYROW(tableau; LAMBDA(ligne; …))", desc: "Une valeur par ligne", cat: "Tableaux" },
+  { name: "BYCOL", sig: "BYCOL(tableau; LAMBDA(col; …))", desc: "Une valeur par colonne", cat: "Tableaux" },
+  { name: "MAKEARRAY", sig: "MAKEARRAY(lignes; colonnes; LAMBDA(i; j; …))", desc: "Construit un tableau par formule", cat: "Tableaux" },
 ];
 
 // --- Public API -----------------------------------------------------------
@@ -1448,36 +1831,123 @@ export function createCalc(
   getRaw: (ref: string) => string | undefined,
   cross?: CrossSheet,
   names?: (name: string) => string | undefined,
+  /**
+   * Énumère les adresses non vides d'une feuille (null = feuille active). Fourni, il active le
+   * DÉBORDEMENT (spill) des formules tableau : les cellules vides recouvertes par un résultat
+   * matriciel prennent leurs valeurs, ou l'ancre affiche #SPILL! si une cellule est occupée.
+   */
+  refsOf?: (ctx: string | null) => Iterable<string>,
 ) {
   const cache = new Map<string, CellValue>();
   const visiting = new Set<string>();
+  const parsed = new Map<string, Node>();
+  // Débordement : ctx → (cellule → valeur) ; ancre (ctx + ref) → matrice complète.
+  const spillCells = new Map<string, Map<string, { v: CellValue; anchor: string }>>();
+  const spillRegions = new Map<string, CellValue[][]>();
+  const spillReady = new Set<string>();
 
   const rawIn = (ctx: string | null, ref: string): string | undefined =>
     ctx === null ? getRaw(ref) : cross?.getSheetRaw(ctx, ref);
 
+  const bodyOf = (raw: string): string => (names ? applyNamedRanges(raw.slice(1), names) : raw.slice(1));
+  function astOf(raw: string): Node {
+    const body = bodyOf(raw);
+    let n = parsed.get(body);
+    if (!n) {
+      n = parseFormula(tokenize(body));
+      parsed.set(body, n);
+    }
+    return n;
+  }
+
+  function ensureSpills(ctx: string | null): void {
+    if (!refsOf) return;
+    const k = ctx ?? "";
+    if (spillReady.has(k)) return;
+    spillReady.add(k);
+    const candidates: { ref: string; col: number; row: number }[] = [];
+    for (const ref of refsOf(ctx)) {
+      const raw = rawIn(ctx, ref);
+      if (!raw || raw[0] !== "=") continue;
+      const p = parseRef(ref.toUpperCase());
+      if (!p) continue;
+      try {
+        if (!producesArray(astOf(raw))) continue;
+      } catch {
+        continue;
+      }
+      candidates.push({ ref: ref.toUpperCase(), ...p });
+    }
+    candidates.sort((a, b) => a.row - b.row || a.col - b.col);
+    for (const c of candidates) valueOf(ctx, c.ref);
+  }
+
+  function registerSpill(ctx: string | null, ref: string, m: CellValue[][]): CellValue {
+    const anchor = parseRef(ref.toUpperCase());
+    if (!anchor) return { error: "#REF" };
+    const k = ctx ?? "";
+    const owned = spillCells.get(k) ?? new Map();
+    const rows = m.length;
+    const cols = m[0].length;
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        if (i === 0 && j === 0) continue;
+        const r = indexToCol(anchor.col + j) + (anchor.row + i + 1);
+        const raw = rawIn(ctx, r);
+        if ((raw != null && raw !== "") || owned.has(r)) return { error: "#SPILL!" };
+      }
+    }
+    for (let i = 0; i < rows; i++)
+      for (let j = 0; j < cols; j++) {
+        if (i === 0 && j === 0) continue;
+        owned.set(indexToCol(anchor.col + j) + (anchor.row + i + 1), { v: m[i][j], anchor: ref.toUpperCase() });
+      }
+    spillCells.set(k, owned);
+    spillRegions.set(k + " " + ref.toUpperCase(), m);
+    return m[0][0];
+  }
+
   function valueOf(ctx: string | null, ref: string): CellValue {
-    const key = (ctx ?? "") + " " + ref;
+    const raw = rawIn(ctx, ref);
+    if (raw == null || raw === "") {
+      if (!refsOf) return "";
+      ensureSpills(ctx);
+      return spillCells.get(ctx ?? "")?.get(ref)?.v ?? "";
+    }
+    const key = (ctx ?? "") + " " + ref;
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
     if (visiting.has(key)) return { error: "#CYCLE" };
     visiting.add(key);
-    const v = evalRaw(rawIn(ctx, ref), ctx);
+    const v = evalRaw(raw, ctx, ref);
     visiting.delete(key);
     cache.set(key, v);
     return v;
   }
 
-  function evalRaw(raw: string | undefined, ctx: string | null): CellValue {
-    if (raw == null || raw === "") return "";
+  function evalRaw(raw: string, ctx: string | null, ref: string): CellValue {
     if (raw[0] === "=") {
       try {
-        const resolve: Resolve = (ref, sheet) => {
-          if (sheet === null) return valueOf(ctx, ref); // local → same sheet
+        const resolve: Resolve = ((r: string, sheet: string | null) => {
+          if (sheet === null) return valueOf(ctx, r); // local → same sheet
           if (!cross || !cross.hasSheet(sheet)) return { error: "#REF" };
-          return valueOf(sheet, ref); // qualified → named sheet
+          return valueOf(sheet, r); // qualified → named sheet
+        }) as Resolve;
+        resolve.spill = (r, sheet) => {
+          const c2 = sheet === null ? ctx : cross?.hasSheet(sheet) ? sheet : undefined;
+          if (c2 === undefined) return null;
+          const first = valueOf(c2, r);
+          const region = spillRegions.get((c2 ?? "") + " " + r.toUpperCase());
+          if (region) return region;
+          return isError(first) ? null : [[first]];
         };
-        const body = names ? applyNamedRanges(raw.slice(1), names) : raw.slice(1);
-        return evaluate(parseFormula(tokenize(body)), resolve);
+        const v = evalV(astOf(raw), resolve);
+        if (isLam(v)) return { error: "#CALC" };
+        if (isMat(v)) {
+          if (v.m.length === 1 && v.m[0].length === 1) return v.m[0][0];
+          return refsOf ? registerSpill(ctx, ref, v.m) : v.m[0][0];
+        }
+        return v;
       } catch (e) {
         return { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
       }
@@ -1494,5 +1964,12 @@ export function createCalc(
     return v;
   }
 
-  return { valueOf: (ref: string) => valueOf(null, ref), display };
+  /** Ancre du débordement qui recouvre `ref` (feuille active), ou null. */
+  function spillAnchor(ref: string): string | null {
+    if (!refsOf) return null;
+    ensureSpills(null);
+    return spillCells.get("")?.get(ref)?.anchor ?? null;
+  }
+
+  return { valueOf: (ref: string) => valueOf(null, ref), display, spillAnchor };
 }

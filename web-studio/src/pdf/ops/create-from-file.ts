@@ -389,9 +389,10 @@ export function sheetToHtml(wb: Workbook, index: number): { html: string; width:
     (ref) => sheet.cells[ref],
     { getSheetRaw: (name, ref) => byName[name]?.cells[ref], hasSheet: (name) => name in byName },
     names.size ? (name: string) => names.get(name) : undefined,
+    (ctx) => Object.keys((ctx === null ? sheet : byName[ctx])?.cells ?? {}),
   );
   const shown = (ref: string): { text: string; value: CellValue } => {
-    if (sheet.cells[ref] == null || sheet.cells[ref] === "") return { text: "", value: "" };
+    if ((sheet.cells[ref] == null || sheet.cells[ref] === "") && calc.spillAnchor(ref) === null) return { text: "", value: "" };
     const value = calc.valueOf(ref);
     return { text: formatValue(value, sheet.styles?.[ref]?.fmt, calc.display(ref)), value };
   };

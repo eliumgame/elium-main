@@ -213,8 +213,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       (ref) => cur?.cells[ref],
       { getSheetRaw: (name, ref) => byName[name]?.cells[ref], hasSheet: (name) => name in byName },
       nameMap.size ? (name: string) => nameMap.get(name) : undefined,
+      // Énumération des cellules non vides : active le débordement des formules tableau.
+      (ctx) => Object.keys((ctx === null ? cur : byName[ctx])?.cells ?? {}),
     );
   }, [wb, active]);
+  // Une cellule vide recouverte par un résultat matriciel (spill) affiche sa valeur calculée.
+  const hasValue = (ref: string): boolean => sheet?.cells[ref] != null || calc.spillAnchor(ref) !== null;
 
   const activeRef = cellRef(sel.c, sel.r);
   const r0 = Math.min(anchor.r, sel.r),
@@ -230,7 +234,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   const cellDisplay = (ref: string): string =>
-    sheet?.cells[ref] != null ? formatValue(calc.valueOf(ref), sheet.styles?.[ref]?.fmt, calc.display(ref)) : "";
+    hasValue(ref) ? formatValue(calc.valueOf(ref), sheet?.styles?.[ref]?.fmt, calc.display(ref)) : "";
 
   // Source unique de vérité pour « cette ligne est-elle visible sous le filtre ? »
   const rowVisible = (r: number) => filterRowVisible(sheet?.filter, (c, rr) => cellDisplay(cellRef(c, rr)), r);
@@ -239,7 +243,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     () =>
       buildCondFormatter(
         sheet?.condFormats,
-        (c, r) => (sheet?.cells[cellRef(c, r)] != null ? calc.valueOf(cellRef(c, r)) : ""),
+        (c, r) => (hasValue(cellRef(c, r)) ? calc.valueOf(cellRef(c, r)) : ""),
         (c, r) => cellDisplay(cellRef(c, r)),
       ),
     [sheet, calc], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1195,7 +1199,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           </td>
                         );
                       }
-                      const val = sheet.cells[ref] != null ? calc.valueOf(ref) : "";
+                      const val = hasValue(ref) ? calc.valueOf(ref) : "";
                       const numeric = typeof val === "number";
                       const invalid = validator(c, r);
                       const peer = collaborative ? peerByKey.get(`${active}:${ref}`) : undefined;

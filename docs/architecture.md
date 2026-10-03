@@ -6,11 +6,10 @@
 > **utilisateur final** (celle affichée dans l'application), voir
 > `web-studio/src/docs/documentation.ts` — ce fichier-ci ne la duplique pas.
 
-## 1. Vue d'ensemble des cinq sous-projets
+## 1. Vue d'ensemble des quatre sous-projets
 
-Le dépôt regroupe cinq sous-projets. Quatre sont actifs et livrés ; le
-cinquième (`desktop/`) est un legacy conservé pour référence historique (voir
-§4).
+Le dépôt regroupe quatre sous-projets, tous actifs et livrés. (L'ancienne
+application PySide6 `desktop/` a été supprimée : voir §4.)
 
 - **`src/elium/`** — cœur Python : CLI (`src/elium/cli/`), lecture/écriture du
   format conteneur `.elium` (`src/elium/format/`, et lecture du conteneur
@@ -36,9 +35,7 @@ cinquième (`desktop/`) est un legacy conservé pour référence historique (voi
 - **`installer/`** — packaging Windows : exécutable PyInstaller
   (`elium_launcher.py`) et paquet MSI (WiX, `elium.wxs`), avec auto-mise à
   jour signée Ed25519. Construit l'app livrée à partir de `web-studio/` (build
-  statique embarqué) et de `src/elium/` (cœur Python embarqué), pas depuis
-  `desktop/`.
-- **`desktop/`** — legacy, voir §4.
+  statique embarqué) et de `src/elium/` (cœur Python embarqué).
 
 Schéma textuel des communications :
 
@@ -160,27 +157,12 @@ EXISTS` / `ADD COLUMN IF NOT EXISTS`) :
    chaînée (filtre + tri sur `(org_id, id)`) — l'index précédent
    (`org_id, created_at DESC`) ne le servait pas.
 
-## 4. Statut de `desktop/` — legacy, une fois pour toutes
+## 4. L'ancienne application `desktop/` (PySide6) a été supprimée
 
-`desktop/src/app.py` est une **ancienne application de bureau PySide6**
-(fenêtre Qt native avec onglets, ~500 lignes), antérieure à l'architecture
-actuelle. Elle est :
-
-- **legacy et non maintenue** : elle n'est plus mise à jour en parallèle des
-  fonctionnalités du format `.elium` ou du Drive Cloud ;
-- **non testée** : aucun test automatisé ne la couvre ;
-- **exclue du pipeline de release réel** : c'est `installer/build.bat` +
-  `elium.spec` (ce que `.github/workflows/release.yml` exécute) qui construit
-  l'application effectivement livrée aux utilisateurs finaux à partir de
-  `web-studio/` (build statique) et de `src/elium/` (cœur Python embarqué) —
-  ce pipeline exclut explicitement `desktop/`. Les scripts racine
-  `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` ont été réalignés sur ce
-  même flux (ils ne lancent/ne construisent plus l'ancienne app PySide6) ;
-  `build_exe.bat` délègue désormais à `installer/build.bat`.
-
-Conséquence pratique pour un contributeur : ne jamais se fier au code de
-`desktop/` pour comprendre le comportement de l'application distribuée, ni
-pour évaluer l'état d'une fonctionnalité. Le vrai client est `web-studio/`,
-packagé par `installer/`. Ce paragraphe est la référence à citer partout
-ailleurs dans le dépôt (issues, revues, autres docs) plutôt que de reformuler
-le statut de `desktop/` à chaque fois.
+`desktop/src/app.py` était une ancienne application de bureau PySide6, antérieure à
+l'architecture actuelle, non maintenue et non testée ; elle a été supprimée du dépôt
+avec son `Elium.spec` racine et l'extra `desktop` de `pyproject.toml`. L'application
+Windows livrée est construite par `installer/build.bat` + `installer/elium.spec`
+(`.github/workflows/release.yml`) à partir de `web-studio/` (build statique) et de
+`src/elium/` (cœur Python embarqué). Les scripts racine `Elium.wizard.bat`, `dev.bat` et
+`build_exe.bat` s'appuient sur ce même flux (`build_exe.bat` délègue à `installer/build.bat`).

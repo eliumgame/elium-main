@@ -941,6 +941,10 @@ def _log_launcher(message: str) -> None:
 
 def get_web_dir() -> Path:
     """Retourne le chemin du dossier web-studio buildé."""
+    # Surcharge explicite (tests de fumée, CI) : sert ce dossier au lieu du web embarqué.
+    override = os.environ.get("ELIUM_WEB_DIR")
+    if override and Path(override).is_dir():
+        return Path(override)
     # 1) Bundle PyInstaller onefile/onedir : le Web Studio est embarqué sous _MEIPASS/web
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:

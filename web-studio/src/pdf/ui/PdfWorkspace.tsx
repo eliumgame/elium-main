@@ -5675,6 +5675,7 @@ export default function PdfWorkspace({
             edits={pageEdits}
             adding={addingText}
             formatHost={formatHost}
+            source={source}
             onEditing={setEditingText}
             onOcr={() => void command("ocr")}
             onAdded={() => setAddingText(false)}

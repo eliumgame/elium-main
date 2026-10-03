@@ -58,6 +58,8 @@ export interface ContentEditLayerProps {
   edits: ContentEdit[];
   /** « Ajouter du texte » armed: the next click on the page places new text. */
   adding?: boolean;
+  /** The document the page comes from: the engine reads colours, fonts and paragraph structure from it. */
+  source?: { bytes: Uint8Array; password?: string | null } | null;
   /** Where the « Format du texte » panel goes (a node in the workspace, to the right of the pages). */
   formatHost?: HTMLElement | null;
   onAdded?: () => void;
@@ -103,7 +105,15 @@ const DEFAULT_STYLE: TextSpanStyle = { fontFamily: "Arial", fontSize: 12, color:
 const FAMILIES = () => [...BUILTIN_FONTS.map((f) => f.name), ...customFontNames()];
 
 /** The page's paragraphs (the engine's reading of the text and its styles). */
-async function loadBlocks(engine: PdfEngine, from: number): Promise<TextBlock[]> {
+async function loadBlocks(
+  engine: PdfEngine,
+  from: number,
+  source: ContentEditLayerProps["source"],
+): Promise<TextBlock[]> {
+  if (source) {
+    const { readTextBlocks } = await import("../ops/textblocks");
+    return readTextBlocks(engine, source, from);
+  }
   const page = await engine.page(from);
   const vp = page.getViewport({ scale: 1, rotation: 0 });
   const [tc, fonts] = await Promise.all([engine.text(from), engine.fonts(from)]);
@@ -220,7 +230,7 @@ function ContentEditLayer(p: ContentEditLayerProps) {
     }
     let cancelled = false;
     (async () => {
-      const grouped = await loadBlocks(p.engine, p.from!);
+      const grouped = await loadBlocks(p.engine, p.from!, p.source);
       if (cancelled) return;
       setBlocks(grouped);
       cb.current.onBlocks?.(p.pageId, grouped);
@@ -228,12 +238,14 @@ function ContentEditLayer(p: ContentEditLayerProps) {
     return () => {
       cancelled = true;
     };
-  }, [p.engine, p.from, p.pageId]);
+  }, [p.engine, p.from, p.pageId, p.source?.bytes]);
 
   const byKey = useMemo(() => new Map(p.edits.map((e) => [e.blockKey, e])), [p.edits]);
 
   const items: Item[] = useMemo(() => {
-    const out: Item[] = (blocks ?? []).map((b) => ({
+    // Bullets and rules drawn as text (a column of symbols) are not paragraphs to edit.
+    const editable = (blocks ?? []).filter((b) => /[\p{L}\p{N}]/u.test(b.text));
+    const out: Item[] = editable.map((b) => ({
       key: b.key,
       rect: b.rect,
       text: b.text,
@@ -667,6 +679,8 @@ function ContentEditLayer(p: ContentEditLayerProps) {
 
   // The active box: its top-left corner in view pixels, turned with the page so text reads along the
   // page's own direction. The editor's first baseline sits on the original one.
+  const oneLine = !!session?.item.block && session.item.block.lines.length === 1;
+  const grows = oneLine && session?.align === "left";
   let wrapStyle: React.CSSProperties | undefined;
   let maskStyle: React.CSSProperties | undefined;
   if (session) {
@@ -676,15 +690,39 @@ function ContentEditLayer(p: ContentEditLayerProps) {
       topPs = it.baseline.y + (session.placement.y - it.rect.y) - baselineOff / p.scale;
     }
     const corner = psToView({ x: session.placement.x, y: topPs }, p.size, p.rotation);
-    wrapStyle = {
-      position: "absolute",
-      left: corner.x * p.scale,
-      top: corner.y * p.scale,
-      width: session.placement.w * p.scale,
-      transformOrigin: "0 0",
-      transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
-      visibility: baselineOff === null ? "hidden" : "visible",
-    };
+    // Text that is itself slanted on the page (a tilted label): the editor is tilted around the start of
+    // its first baseline, and as long as the longest line (the block's box is the slanted lines' bounds).
+    const angle = it.block?.lines[0]?.angle ?? 0;
+    const tilted = Math.abs(angle) > 0.017 && baselineOff !== null && !!it.baseline;
+    if (tilted && it.baseline) {
+      const a = psToView(
+        { x: it.baseline.x + (session.placement.x - it.rect.x), y: it.baseline.y + (session.placement.y - it.rect.y) },
+        p.size,
+        p.rotation,
+      );
+      const len = Math.max(...it.block!.lines.map((l) => l.runs.reduce((n, r) => n + r.width, 0)));
+      wrapStyle = {
+        position: "absolute",
+        left: a.x * p.scale,
+        top: a.y * p.scale - baselineOff!,
+        width: len * p.scale,
+        transformOrigin: `0px ${baselineOff}px`,
+        transform: `rotate(${p.rotation + (angle * 180) / Math.PI}deg)`,
+        visibility: "visible",
+      };
+    } else
+      wrapStyle = {
+        position: "absolute",
+        left: corner.x * p.scale,
+        top: corner.y * p.scale,
+        // A one-line text (a title, a label) grows as you type instead of wrapping, like Acrobat's.
+        ...(grows
+          ? { minWidth: session.placement.w * p.scale, width: "max-content" }
+          : { width: session.placement.w * p.scale }),
+        transformOrigin: "0 0",
+        transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
+        visibility: baselineOff === null ? "hidden" : "visible",
+      };
     if (mask && it.block) {
       const o = view(it.rect);
       const pad = 1.5 * p.scale;
@@ -706,6 +744,7 @@ function ContentEditLayer(p: ContentEditLayerProps) {
         fontSize: dom.fontSize * p.scale,
         lineHeight: `${lineHeightPx}px`,
         textAlign: session.align,
+        whiteSpace: oneLine ? "pre" : undefined,
         paddingLeft: indent ? indent.rest * p.scale : 0,
         textIndent: indent ? (indent.first - indent.rest) * p.scale : 0,
       }

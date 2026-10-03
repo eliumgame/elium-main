@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Pt, Rect, Rotation, Size } from "../core/coords";
-import { psToView, rectFromView, rectToView, viewToPs } from "../core/coords";
+import { psToView, rectToView, viewToPs } from "../core/coords";
 import type { PdfEngine } from "../core/engine";
 import { buildRuns, groupBlocks, groupLines, type TextBlock } from "../core/text";
 import type { ContentEdit, TextIndent, TextSpan, TextSpanStyle } from "../model/types";
@@ -430,7 +430,6 @@ function ContentEditLayer(p: ContentEditLayerProps) {
 
   const open = (it: Item, click?: Pt) => {
     const edit = byKey.get(it.key);
-    cb.current.onBeginChange();
     const spans = edit?.spans?.length ? edit.spans : edit ? spansOfEdit(edit) : it.spans;
     const dom = dominantStyle(spans, { ...DEFAULT_STYLE, fontSize: it.fontSize || 12 });
     const leading = edit?.leading ?? it.leading;
@@ -477,7 +476,12 @@ function ContentEditLayer(p: ContentEditLayerProps) {
       const lines = Math.max(1, text.split("\n").length);
       const placement =
         moved || !it.block ? { ...s.placement, h: Math.max(s.placement.h, lines * leading) } : undefined;
-      const faceChanged = spans.some((sp) => sp.style.fontResource === null);
+      // Legacy flag (blocks without spans): the faces in use are no longer the original ones.
+      const faces = (list: TextSpan[]) =>
+        [...new Set(list.map((sp) => `${sp.style.fontFamily}|${!!sp.style.bold}|${!!sp.style.italic}`))].sort().join();
+      const faceChanged = !!it.block && text !== "" && faces(spans) !== faces(it.spans);
+      // One undo step per paragraph edit, and none for a click that changed nothing.
+      if (changed || existing) cb.current.onBeginChange();
       cb.current.onCommit({
         id: existing?.id ?? newId("ce"),
         pageId: p.pageId,
@@ -574,31 +578,27 @@ function ContentEditLayer(p: ContentEditLayerProps) {
     scheduleSync();
   };
 
-  /** Drag the active box by its frame (move) or its side handles (width), in screen space through the rotation. */
+  /** Drag the active box by its frame (move) or its side handles (width), the pointer's travel read in page space. */
   const drag = (e: React.PointerEvent, mode: "move" | "left" | "right") => {
     const s = sessionRef.current;
     if (!s) return;
     e.preventDefault();
     e.stopPropagation();
-    const start = local(e);
+    const start = viewToPs(local(e), p.size, p.rotation);
     const origin = s.placement;
     const onMove = (ev: PointerEvent) => {
-      const now = local(ev);
-      if (mode === "move") {
-        const a = viewToPs(start, p.size, p.rotation);
-        const b = viewToPs(now, p.size, p.rotation);
-        setSession((cur) =>
-          cur ? { ...cur, placement: { ...origin, x: origin.x + b.x - a.x, y: origin.y + b.y - a.y } } : cur,
-        );
-      } else {
-        const v = rectToView(origin, p.size, p.rotation);
-        const dx = now.x - start.x;
-        const next =
-          mode === "right"
-            ? { ...v, w: Math.max(12, v.w + dx) }
-            : { ...v, x: v.x + Math.min(dx, v.w - 12), w: Math.max(12, v.w - dx) };
-        setSession((cur) => (cur ? { ...cur, placement: rectFromView(next, p.size, p.rotation) } : cur));
+      const now = viewToPs(local(ev), p.size, p.rotation);
+      const dx = now.x - start.x;
+      const dy = now.y - start.y;
+      const minW = 12;
+      let next: Rect;
+      if (mode === "move") next = { ...origin, x: origin.x + dx, y: origin.y + dy };
+      else if (mode === "right") next = { ...origin, w: Math.max(minW, origin.w + dx) };
+      else {
+        const shift = Math.min(dx, origin.w - minW);
+        next = { ...origin, x: origin.x + shift, w: origin.w - shift };
       }
+      setSession((cur) => (cur ? { ...cur, placement: next } : cur));
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -624,7 +624,6 @@ function ContentEditLayer(p: ContentEditLayerProps) {
       align: "left",
       block: null,
     };
-    cb.current.onBeginChange();
     cb.current.onAdded?.();
     setBaselineOff(null);
     setSession({ item: it, initial: [], placement: it.rect, align: "left", lineSpacing: 1.25 });
@@ -652,24 +651,24 @@ function ContentEditLayer(p: ContentEditLayerProps) {
 
   const shown = session ? items.filter((i) => i.key !== session.item.key) : items;
 
-  // The active box, in view pixels. The editor's first baseline sits on the original one.
+  // The active box: its top-left corner in view pixels, turned with the page so text reads along the
+  // page's own direction. The editor's first baseline sits on the original one.
   let wrapStyle: React.CSSProperties | undefined;
   let maskStyle: React.CSSProperties | undefined;
   if (session) {
-    const v = view(session.placement);
-    let top = v.top;
     const it = session.item;
-    if (baselineOff !== null && it.baseline && p.rotation === 0) {
-      const dx = session.placement.x - it.rect.x;
-      const dy = session.placement.y - it.rect.y;
-      const b = psToView({ x: it.baseline.x + dx, y: it.baseline.y + dy }, p.size, p.rotation);
-      top = b.y * p.scale - baselineOff;
+    let topPs = session.placement.y;
+    if (baselineOff !== null && it.baseline) {
+      topPs = it.baseline.y + (session.placement.y - it.rect.y) - baselineOff / p.scale;
     }
+    const corner = psToView({ x: session.placement.x, y: topPs }, p.size, p.rotation);
     wrapStyle = {
       position: "absolute",
-      left: v.left,
-      top,
-      width: v.width,
+      left: corner.x * p.scale,
+      top: corner.y * p.scale,
+      width: session.placement.w * p.scale,
+      transformOrigin: "0 0",
+      transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
       visibility: baselineOff === null ? "hidden" : "visible",
     };
     if (mask && it.block) {

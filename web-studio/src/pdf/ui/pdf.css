@@ -2001,6 +2001,10 @@
   cursor: text;
 }
 /* « Modifier le texte » : le texte se modifie sur la page, sans fenêtre ; la mise en forme est dans le panneau « Format du texte ». */
+/* Every paragraph is outlined faintly, as in Acrobat's « Modifier le PDF ». */
+.pdfx-editblock__hit {
+  border: 1px solid rgba(79, 140, 255, 0.28);
+}
 .pdfx-editblock__hit:hover,
 .pdfx-editblock.is-edited .pdfx-editblock__hit:hover {
   background: rgba(79, 140, 255, 0.1);

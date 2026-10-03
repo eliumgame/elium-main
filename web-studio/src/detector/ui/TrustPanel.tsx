@@ -70,6 +70,7 @@ export default function TrustPanel() {
         ref={input}
         type="file"
         multiple
+        aria-label="Fichiers de certificats à importer"
         accept=".pem,.cer,.crt,.der"
         className="visually-hidden"
         onChange={(e) => {

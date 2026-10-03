@@ -245,6 +245,7 @@ import { CombineDialog, type CombineItem } from "./CombineDialog";
 import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
 import { reportError } from "../../ui/crash-log";
+import { announce } from "../../ui/announce";
 
 type DialogId =
   | null
@@ -1592,6 +1593,19 @@ export default function PdfWorkspace({
     else if (a.kind === "named") runNamedAction(a.name);
     else toast("info", a.label, "Cette action est conservée dans le fichier, mais Elium ne l'exécute pas.");
   };
+
+  // Lecteurs d'écran : annonce la page lue (une fois le défilement posé, pas à chaque image).
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = currentStore.subscribe(() => {
+      clearTimeout(t);
+      t = setTimeout(() => announce(`Page ${currentStore.get()} sur ${pages.length}`), 400);
+    });
+    return () => {
+      off();
+      clearTimeout(t);
+    };
+  }, [currentStore, pages.length]);
 
   const onCurrentChange = useCallback((current: number) => currentStore.set(current), [currentStore]);
   // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.

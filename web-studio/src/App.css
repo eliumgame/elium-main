@@ -4171,7 +4171,8 @@
 }
 .sheet-grid-wrap:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--primary-100);
+  /* Anneau de focus contrasté (>= 3:1) : l'ancien liseré --primary-100 était quasi invisible. */
+  box-shadow: inset 0 0 0 2px var(--el-focus-ring);
 }
 
 /* Ruban du tableur : ex-`.sheet-format`, remplacé par le ruban partagé

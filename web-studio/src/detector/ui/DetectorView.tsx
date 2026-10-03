@@ -406,6 +406,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                   type="file"
                   accept=".elium,.docx,.pdf,.png,.jpg,.jpeg,.webp"
                   multiple
+                  aria-label="Choisir un ou plusieurs fichiers à analyser"
                   className="visually-hidden"
                   onChange={(e) => {
                     onFilesChosen(Array.from(e.target.files ?? []));

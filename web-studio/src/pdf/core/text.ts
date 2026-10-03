@@ -13,7 +13,7 @@ import { pdfjs } from "./pdfjs";
 import type { Matrix, Pt, Quad, Rect, Rotation, Size } from "./coords";
 import { quadFromRect, rectFromView, rectOfPoints } from "./coords";
 import type { FontFacts, TextContentLike, TextItemLike } from "./engine";
-import type { TextIndent, TextSpan } from "../model/types";
+import type { TextIndent, TextSpan, TextSpanStyle } from "../model/types";
 
 /** One text-showing operation, placed in page space. */
 export interface TextRun {
@@ -33,6 +33,8 @@ export interface TextRun {
   /** Unit vector from the baseline toward the ascender, page space. */
   up: Pt;
   fontName?: string;
+  /** The real font's BaseFont, subset prefix stripped (« Georgia-Bold »), when pdf.js told it. */
+  baseFont?: string;
   fontFamily?: string;
   bold: boolean;
   italic: boolean;
@@ -82,6 +84,8 @@ export interface TextBlock {
   spans?: TextSpan[];
   /** Line starts of the paragraph (first-line indent / hanging indent), points from `rect.x`. */
   indent?: TextIndent;
+  /** For each break between `lines[i]` and `lines[i + 1]`: true when the line merely wrapped (soft). */
+  soft?: boolean[];
 }
 
 /** Fraction of the em box above/below the baseline a markup quad should cover. */
@@ -135,6 +139,7 @@ export function buildRuns(
       dir,
       up,
       fontName: it.fontName,
+      baseFont: facts?.name ? facts.name.replace(/^[A-Z]{6}\+/, "") : undefined,
       fontFamily: familyOf(facts?.name, style?.fontFamily),
       bold: facts ? facts.bold : /bold|black|heavy|semibold/i.test(fontName),
       italic: facts ? facts.italic : /italic|oblique/i.test(fontName),
@@ -200,7 +205,8 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
     const text = group.map((r) => r.str).join("");
     if (!text.trim()) return;
     const visible = group.filter((r) => r.str.trim());
-    const pts = group.flatMap((r) => r.quad);
+    // A trailing space of the last run is no ink: the line ends at its last glyph.
+    const pts = group.flatMap((r, i) => (i === group.length - 1 ? trimmedQuad(r) : r.quad));
     const rect = rectOfPoints(pts);
     const first = group[0];
     const fontSize = median(visible.map((r) => r.fontSize));
@@ -275,6 +281,20 @@ export function groupLines(runs: readonly TextRun[], items?: readonly TextItemLi
   return lines;
 }
 
+/** Width of a space, in em, for trimming trailing blanks (Arial 0.278, Times 0.25, Calibri 0.226). */
+const SPACE_EM = 0.26;
+
+/** A run's quad without its trailing white space. */
+function trimmedQuad(r: TextRun): Quad {
+  const trail = r.str.length - r.str.trimEnd().length;
+  if (!trail) return r.quad;
+  const cut = Math.min(r.width * 0.9, trail * SPACE_EM * r.fontSize);
+  const [tl, tr, br, bl] = r.quad;
+  const dx = r.dir.x * cut;
+  const dy = r.dir.y * cut;
+  return [tl, { x: tr.x - dx, y: tr.y - dy }, { x: br.x - dx, y: br.y - dy }, bl];
+}
+
 /** Gap (in em) beyond which two runs on one baseline are separate lines. */
 const GAP_EM = 1.0;
 
@@ -321,7 +341,18 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
       const overlapOk = overlap > Math.min(l.rect.w, prev.rect.w) * 0.35;
       const angleOk = Math.abs(normalizeAngle(l.angle - prev.angle)) < 0.05;
       const styleOk = l.bold === b.lines.every((x) => x.bold) || b.lines.length === 0;
-      if (sizeOk && firstGapOk && leadingOk && overlapOk && angleOk && styleOk && overlap > bestOverlap) {
+      // A numbered / bulleted line starting elsewhere than the block: another list (or a list after text).
+      const listOk = !LIST_START.test(l.text.trim()) || Math.abs(l.rect.x - b.lines[0].rect.x) <= l.fontSize * 0.5;
+      if (
+        sizeOk &&
+        firstGapOk &&
+        leadingOk &&
+        overlapOk &&
+        angleOk &&
+        styleOk &&
+        listOk &&
+        overlap > bestOverlap
+      ) {
         best = b;
         bestOverlap = overlap;
       }
@@ -341,10 +372,172 @@ export function groupBlocks(lines: readonly TextLine[]): TextBlock[] {
   // Reading order: top to bottom, then left to right (the left column first
   // when two blocks start on the same baseline).
   done.sort((a, b) => a.lines[0].origin.y - b.lines[0].origin.y || a.lines[0].origin.x - b.lines[0].origin.x);
-  return done.map((b, i) => blockOf(b.lines, `B${i}`));
+  // Lines that wrapped (not the last of their block) tell where a column ends.
+  const wrapped = done.flatMap((b) => b.lines.slice(0, -1));
+  const markers = lines.filter(isMarker);
+  const blocks = done.map((b, i) => blockOf(b.lines, `B${i}`, columnRight(b.lines, wrapped), markers));
+  // A line alone: centred or flush right when it sits so in the page's text area.
+  if (wrapped.length) {
+    const left = Math.min(...lines.map((l) => l.rect.x));
+    const right = Math.max(...wrapped.map((l) => l.rect.x + l.rect.w));
+    for (const b of blocks) {
+      if (b.lines.length !== 1 || Math.abs(b.lines[0].angle) > 0.01) continue;
+      const tol = Math.max(1.5, b.fontSize * 0.15);
+      const r = b.rect.x + b.rect.w;
+      if (Math.abs(r - right) < tol && b.rect.x > left + b.fontSize * 3) b.align = "right";
+      else if (Math.abs(b.rect.x + b.rect.w / 2 - (left + right) / 2) < tol && b.rect.x > left + b.fontSize)
+        b.align = "center";
+    }
+  }
+  return blocks;
 }
 
-function blockOf(cur: readonly TextLine[], key: string): TextBlock {
+/** A list marker standing alone on its baseline: a bullet, « 1. », « a) ». */
+function isMarker(l: TextLine): boolean {
+  const t = l.text.trim();
+  return (
+    t.length <= 4 &&
+    /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]|[\uE000-\uF8FF]|\(?\d{1,3}[.)]|\(?[a-zA-Z][.)]|[ivxIVX]{1,4}[.)])$/.test(t)
+  );
+}
+
+/**
+ * The right edge of the column a block sits in, as far as the page tells: the
+ * furthest a wrapped line starting at the block's left edge reaches (a letter's
+ * address block is as wide as the body text under it, not as its own longest line).
+ */
+function columnRight(lines: readonly TextLine[], wrapped: readonly TextLine[]): number {
+  const left = Math.min(...lines.map((l) => l.rect.x));
+  const own = Math.max(...lines.map((l) => l.rect.x + l.rect.w));
+  const em = median(lines.map((l) => l.fontSize)) || 10;
+  let best = own;
+  for (const l of wrapped) {
+    if (Math.abs(l.rect.x - left) > Math.max(2, em * 0.25)) continue;
+    if (Math.abs(normalizeAngle(l.angle - lines[0].angle)) > 0.05) continue;
+    best = Math.max(best, l.rect.x + l.rect.w);
+  }
+  return best;
+}
+
+/** Characters a list item starts with: the line before it ends there. */
+const LIST_START = /^(?:[•◦▪▫■□●○‣⁃∙·*–—-]\s|\(?\d{1,3}[.)]\s|\(?[a-zA-Z][.)]\s|[ivxIVX]{1,4}[.)]\s)/;
+
+/**
+ * For each break between two lines of a block: true when it is SOFT (the line
+ * merely wrapped: a greedy wrap at the paragraph's width would have broken
+ * there), false when it is HARD (a short line: an address, a poem, the end of
+ * a list item). `columnRight` is where the column ends (defaults to the
+ * block's own furthest line end).
+ */
+export function softBreaks(
+  lines: readonly TextLine[],
+  align: TextBlock["align"],
+  columnRightEdge?: number,
+  /** Bullets / numbers drawn apart from the text: a line with one just before it starts a list item. */
+  markers: readonly TextLine[] = [],
+): boolean[] {
+  const out: boolean[] = [];
+  if (lines.length < 2) return out;
+  const right = (l: TextLine) => l.rect.x + l.rect.w;
+  const widest = Math.max(...lines.map((l) => l.rect.w));
+  const colRight = Math.max(columnRightEdge ?? 0, ...lines.map(right));
+  // One word per line (a table column, a list of names): nothing wrapped.
+  if (lines.every((l) => !/\s/.test(l.text.trim()))) return lines.slice(1).map(() => false);
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    const nextText = next.text.trim();
+    const em = cur.fontSize || 10;
+    const marked = markers.some(
+      (m) =>
+        m !== next &&
+        Math.abs(m.origin.y - next.origin.y) < em * 0.3 &&
+        m.rect.x + m.rect.w <= next.rect.x + 1 &&
+        next.rect.x - (m.rect.x + m.rect.w) < em * 4,
+    );
+    if (!nextText || !cur.text.trim() || LIST_START.test(nextText) || marked) {
+      out.push(false);
+      continue;
+    }
+    // Width of the next line's first word, from that line's average character width.
+    const avg = next.rect.w / Math.max(1, nextText.length);
+    const firstWord = nextText.split(/\s+/)[0];
+    const need = SPACE_EM * em + firstWord.length * avg;
+    const tol = Math.max(1, avg * 0.6);
+    let soft: boolean;
+    if (align === "center" || align === "right") soft = cur.rect.w + need >= widest - tol;
+    else soft = right(cur) + need >= colRight - tol;
+    out.push(soft);
+  }
+  return out;
+}
+
+/** A stretch of a block's text in one style, as `joinBlock` builds it. */
+export interface Piece<S> {
+  text: string;
+  style: S;
+}
+
+/**
+ * A block's text with soft breaks joined (one space, none after a hyphen that
+ * splits a word) and hard breaks kept as `\n`, cut into stretches of one
+ * style. `styleAt(line, char)` gives the style of a character of `line.text`;
+ * `same` tells two styles apart. The joint takes the style of what precedes it.
+ */
+export function joinBlock<S>(
+  lines: readonly TextLine[],
+  soft: readonly boolean[],
+  styleAt: (line: number, char: number) => S,
+  same: (a: S, b: S) => boolean,
+): { text: string; spans: Piece<S>[] } {
+  const spans: Piece<S>[] = [];
+  let text = "";
+  const push = (ch: string, style: S) => {
+    text += ch;
+    const last = spans[spans.length - 1];
+    if (last && same(last.style, style)) last.text += ch;
+    else spans.push({ text: ch, style });
+  };
+  lines.forEach((line, li) => {
+    const raw = line.text;
+    let from = 0;
+    let to = raw.length;
+    while (from < to && /\s/.test(raw[from])) from++;
+    while (to > from && /\s/.test(raw[to - 1])) to--;
+    let lastStyle: S | null = null;
+    for (let k = from; k < to; k++) {
+      const st = styleAt(li, k);
+      push(raw[k], st);
+      lastStyle = st;
+    }
+    if (li + 1 >= lines.length) return;
+    const style = lastStyle ?? styleAt(li, Math.max(0, raw.length - 1));
+    if (soft[li]) {
+      const next = lines[li + 1].text.trimStart();
+      const hyphen = /\p{L}-$/u.test(raw.slice(from, to)) && /^\p{Ll}/u.test(next);
+      if (!hyphen) push(" ", style);
+    } else push("\n", style);
+  });
+  return { text, spans };
+}
+
+/** Line starts of a block (first line, wrapped lines), points from its left edge. */
+export function indentOf(lines: readonly TextLine[], soft: readonly boolean[], left: number): TextIndent {
+  if (!lines.length) return { first: 0, rest: 0 };
+  const first = Math.max(0, lines[0].rect.x - left);
+  const cont: number[] = [];
+  for (let i = 0; i + 1 < lines.length; i++) if (soft[i]) cont.push(lines[i + 1].rect.x - left);
+  const rest = cont.length ? Math.max(0, median(cont)) : lines.length > 1 ? 0 : first;
+  const r = (v: number) => Math.round(v * 100) / 100;
+  return { first: r(first), rest: r(rest) };
+}
+
+function blockOf(
+  cur: readonly TextLine[],
+  key: string,
+  colRight?: number,
+  markers: readonly TextLine[] = [],
+): TextBlock {
   const rect = cur.reduce<Rect | null>((acc, l) => {
     if (!acc) return { ...l.rect };
     const x = Math.min(acc.x, l.rect.x);
@@ -359,17 +552,71 @@ function blockOf(cur: readonly TextLine[], key: string): TextBlock {
   const gaps: number[] = [];
   for (let i = 1; i < cur.length; i++) gaps.push(cur[i].origin.y - cur[i - 1].origin.y);
   const fontSize = median(cur.map((l) => l.fontSize));
+  const align = guessAlign(cur, rect);
+  const soft = softBreaks(cur, align, colRight, markers);
+  const { text, spans } = joinBlock(cur, soft, runStyleAt(cur), sameStyle);
   return {
     key,
     lines: cur.slice(),
     rect,
-    text: cur.map((l) => l.text).join("\n"),
+    text,
     fontSize,
     leading: gaps.length ? median(gaps) : fontSize * 1.2,
-    align: guessAlign(cur, rect),
+    align,
     fontFamily: cur[0].fontFamily,
     bold: cur.every((l) => l.bold),
     italic: cur.every((l) => l.italic),
+    spans,
+    soft,
+    indent: align === "left" || align === "justify" ? indentOf(cur, soft, rect.x) : { first: 0, rest: 0 },
+  };
+}
+
+/** Two span styles that set text the same way. */
+export function sameStyle(a: TextSpanStyle, b: TextSpanStyle): boolean {
+  return (
+    (a.fontResource ?? null) === (b.fontResource ?? null) &&
+    (a.fontName ?? "") === (b.fontName ?? "") &&
+    a.fontFamily === b.fontFamily &&
+    !!a.bold === !!b.bold &&
+    !!a.italic === !!b.italic &&
+    !!a.underline === !!b.underline &&
+    !!a.strike === !!b.strike &&
+    Math.abs(a.fontSize - b.fontSize) < 0.01 &&
+    a.color.toLowerCase() === b.color.toLowerCase()
+  );
+}
+
+/** The run (index in `line.runs`) and offset in it of each character of `line.text`. */
+export function charRuns(line: TextLine): { run: number; at: number }[] {
+  const out: { run: number; at: number }[] = [];
+  line.runs.forEach((r, ri) => {
+    for (let k = 0; k < r.str.length; k++) out.push({ run: ri, at: k });
+  });
+  return out;
+}
+
+/** Styles from what pdf.js knows of each run (no colour, no font resource: those are in the content stream). */
+function runStyleAt(lines: readonly TextLine[]): (line: number, char: number) => TextSpanStyle {
+  const maps = lines.map(charRuns);
+  const cache = new Map<TextRun, TextSpanStyle>();
+  return (li, k) => {
+    const line = lines[li];
+    const run = line.runs[maps[li][k]?.run ?? 0];
+    let st = cache.get(run);
+    if (!st) {
+      st = {
+        fontResource: null,
+        ...(run.baseFont ? { fontName: run.baseFont } : {}),
+        fontFamily: run.fontFamily,
+        bold: run.bold,
+        italic: run.italic,
+        fontSize: Math.round(run.fontSize * 100) / 100,
+        color: "#000000",
+      };
+      cache.set(run, st);
+    }
+    return st;
   };
 }
 

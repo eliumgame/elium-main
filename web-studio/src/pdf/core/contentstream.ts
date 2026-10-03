@@ -536,7 +536,7 @@ export interface TextState {
   fill: { r: number; g: number; b: number };
 }
 
-const initialTextState = (): TextState => ({
+export const initialTextState = (): TextState => ({
   font: null,
   size: 0,
   charSpacing: 0,
@@ -574,6 +574,45 @@ export interface ShowOp {
 /** Callback that measures a string's advance, in 1/1000 em, for the active font. */
 export type WidthFn = (font: string | null, bytes: Uint8Array) => { widths: number[]; codes: number[] };
 
+/** A colour space as `walkText` needs it: its component count and a conversion to RGB 0..1. */
+export interface ColorSpaceLike {
+  n: number;
+  toRgb(comps: readonly number[]): { r: number; g: number; b: number };
+  /** The colour a `cs` selecting this space sets (black for the device spaces, full tint for a separation). */
+  initial?: readonly number[];
+}
+
+/** Options of `walkText`, all optional (the plain walk is what it always was). */
+export interface WalkTextOptions {
+  /** Colour spaces of the resources in force, by name (`/Cs1 cs`); device spaces are built in. */
+  colorSpace?: (name: string) => ColorSpaceLike | null;
+  /** The text / graphics state in force when the operators start (a form inherits its caller's). */
+  initial?: TextState;
+  /** Every `Do`, with the CTM and the state in force (to walk into form XObjects). */
+  onDo?: (opIndex: number, name: string, ctm: Mat, state: TextState) => void;
+}
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** CMYK 0..1 → RGB 0..1 (the naive conversion viewers use without a profile). */
+export function cmykToRgb(c: number, m: number, y: number, k: number): { r: number; g: number; b: number } {
+  return { r: (1 - clamp01(c)) * (1 - clamp01(k)), g: (1 - clamp01(m)) * (1 - clamp01(k)), b: (1 - clamp01(y)) * (1 - clamp01(k)) };
+}
+
+const DEVICE_SPACES: Record<string, ColorSpaceLike> = {
+  DeviceGray: { n: 1, toRgb: (c) => ({ r: c[0] ?? 0, g: c[0] ?? 0, b: c[0] ?? 0 }), initial: [0] },
+  DeviceRGB: { n: 3, toRgb: (c) => ({ r: c[0] ?? 0, g: c[1] ?? 0, b: c[2] ?? 0 }), initial: [0, 0, 0] },
+  DeviceCMYK: { n: 4, toRgb: (c) => cmykToRgb(c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 1), initial: [0, 0, 0, 1] },
+};
+DEVICE_SPACES.G = DEVICE_SPACES.DeviceGray;
+DEVICE_SPACES.RGB = DEVICE_SPACES.DeviceRGB;
+DEVICE_SPACES.CMYK = DEVICE_SPACES.DeviceCMYK;
+
+/** A space guessed from a component count alone (no resources to look the name up in). */
+function spaceByCount(n: number): ColorSpaceLike | null {
+  return n === 1 ? DEVICE_SPACES.DeviceGray : n === 3 ? DEVICE_SPACES.DeviceRGB : n === 4 ? DEVICE_SPACES.DeviceCMYK : null;
+}
+
 /**
  * Walk the operator list, tracking the graphics + text state, and report every
  * text-showing operator with its position. `measure` supplies per-glyph widths
@@ -581,16 +620,27 @@ export type WidthFn = (font: string | null, bytes: Uint8Array) => { widths: numb
  * are still correct at the *start* of each operator, which is enough to locate
  * an operator inside a rectangle.
  */
-export function walkText(ops: readonly Op[], measure?: WidthFn, start: Mat = IDENTITY): ShowOp[] {
+export function walkText(
+  ops: readonly Op[],
+  measure?: WidthFn,
+  start: Mat = IDENTITY,
+  options: WalkTextOptions = {},
+): ShowOp[] {
   const out: ShowOp[] = [];
   let ctm: Mat = start;
   const ctmStack: Mat[] = [];
-  let gs = initialTextState();
+  let gs: TextState = options.initial ? { ...options.initial } : initialTextState();
   const gsStack: TextState[] = [];
   let tm: Mat = IDENTITY;
   let tlm: Mat = IDENTITY;
+  /** The non-stroking colour space in force (null: guessed from the component count). */
+  let space: ColorSpaceLike | null = null;
+  const spaceStack: (ColorSpaceLike | null)[] = [];
 
   const num = (o: Operand | undefined): number => (o && o.t === "num" ? o.v : 0);
+  const setFill = (c: { r: number; g: number; b: number }) => {
+    gs = { ...gs, fill: { r: clamp01(c.r), g: clamp01(c.g), b: clamp01(c.b) } };
+  };
 
   const advanceFor = (bytes: Uint8Array, tjAdjust: number): { adv: number } => {
     let adv = 0;
@@ -613,10 +663,12 @@ export function walkText(ops: readonly Op[], measure?: WidthFn, start: Mat = IDE
       case "q":
         ctmStack.push(ctm);
         gsStack.push({ ...gs });
+        spaceStack.push(space);
         break;
       case "Q":
         ctm = ctmStack.pop() ?? start;
-        gs = gsStack.pop() ?? initialTextState();
+        gs = gsStack.pop() ?? (options.initial ? { ...options.initial } : initialTextState());
+        space = spaceStack.length ? spaceStack.pop()! : null;
         break;
       case "cm":
         ctm = mul([num(args[0]), num(args[1]), num(args[2]), num(args[3]), num(args[4]), num(args[5])], ctm);
@@ -648,30 +700,37 @@ export function walkText(ops: readonly Op[], measure?: WidthFn, start: Mat = IDE
       case "Tr":
         gs = { ...gs, renderMode: num(args[0]) };
         break;
-      case "g": {
-        const v = num(args[0]);
-        gs = { ...gs, fill: { r: v, g: v, b: v } };
+      case "g":
+        space = DEVICE_SPACES.DeviceGray;
+        setFill(space.toRgb([num(args[0])]));
         break;
-      }
       case "rg":
-        gs = { ...gs, fill: { r: num(args[0]), g: num(args[1]), b: num(args[2]) } };
+        space = DEVICE_SPACES.DeviceRGB;
+        setFill(space.toRgb([num(args[0]), num(args[1]), num(args[2])]));
         break;
-      case "k": {
-        const [c, m, y, kk] = [num(args[0]), num(args[1]), num(args[2]), num(args[3])];
-        gs = { ...gs, fill: { r: (1 - c) * (1 - kk), g: (1 - m) * (1 - kk), b: (1 - y) * (1 - kk) } };
+      case "k":
+        space = DEVICE_SPACES.DeviceCMYK;
+        setFill(space.toRgb([num(args[0]), num(args[1]), num(args[2]), num(args[3])]));
+        break;
+      case "cs": {
+        const name = args[0]?.t === "name" ? args[0].v : "";
+        space = DEVICE_SPACES[name] ?? options.colorSpace?.(name) ?? null;
+        if (space?.initial) setFill(space.toRgb(space.initial));
+        else if (!space || name === "Pattern") setFill({ r: 0, g: 0, b: 0 });
         break;
       }
       case "sc":
       case "scn": {
         const comps = args.filter((o): o is Extract<Operand, { t: "num" }> => o.t === "num").map((o) => o.v);
-        if (comps.length === 1) gs = { ...gs, fill: { r: comps[0], g: comps[0], b: comps[0] } };
-        else if (comps.length === 3) gs = { ...gs, fill: { r: comps[0], g: comps[1], b: comps[2] } };
-        else if (comps.length === 4) {
-          const [c, m, y, kk] = comps;
-          gs = { ...gs, fill: { r: (1 - c) * (1 - kk), g: (1 - m) * (1 - kk), b: (1 - y) * (1 - kk) } };
-        }
+        // A pattern fill (`/P0 scn`): its colour is not a flat one; black is the best guess.
+        if (args.some((o) => o.t === "name") && !comps.length) break;
+        const cs = space && space.n === comps.length ? space : spaceByCount(comps.length);
+        if (cs) setFill(cs.toRgb(comps));
         break;
       }
+      case "Do":
+        if (options.onDo && args[0]?.t === "name") options.onDo(i, args[0].v, ctm, { ...gs });
+        break;
       case "Td":
         tlm = mul([1, 0, 0, 1, num(args[0]), num(args[1])], tlm);
         tm = tlm;

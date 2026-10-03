@@ -8,8 +8,9 @@
  * `FontBook`), so what the screen shows is what the file will hold — same
  * face, same wrapping, same substitutions.
  *
- * The source is parsed (and decrypted) once per document and kept; each
- * preview copies one page out of it, which leaves it untouched.
+ * The source is parsed (and decrypted) once per document and kept, and so is
+ * the scan of each page's text (operators, fonts, forms); each preview copies
+ * one page out of it, which leaves it untouched.
  */
 
 import { PDFDocument } from "pdf-lib";
@@ -18,30 +19,9 @@ import type { ContentEdit, ImageEdit } from "../model/types";
 import { pageFrame } from "./annots-pdf";
 import { FontBook } from "./fonts";
 import { ImageBank } from "./images";
-import { openCrypt } from "./security";
 import { copyPagesMapped } from "./organize";
 import { applyImageEdits, applyTextEdits, pagePlacements } from "./textedit";
-
-const sources = new WeakMap<Uint8Array, Promise<PDFDocument>>();
-
-function sourceDoc(bytes: Uint8Array, password: string | null | undefined): Promise<PDFDocument> {
-  let p = sources.get(bytes);
-  if (!p) {
-    p = (async () => {
-      const doc = await PDFDocument.load(bytes, {
-        ignoreEncryption: true,
-        throwOnInvalidObject: false,
-        updateMetadata: false,
-      });
-      const crypt = openCrypt(doc, password ?? "");
-      if (crypt) await crypt.decryptDocument(doc, bytes);
-      return doc;
-    })();
-    p.catch(() => sources.delete(bytes));
-    sources.set(bytes, p);
-  }
-  return p;
-}
+import { cachedScan, sourceDoc } from "./textblocks";
 
 export interface PreviewResult {
   /** A one-page PDF: the source page with its edits applied. */
@@ -61,12 +41,14 @@ export async function rewrittenPage(
   imageEdits: readonly ImageEdit[] = [],
 ): Promise<PreviewResult> {
   const src = await sourceDoc(source, password);
+  // The source page's operators and fonts, read once: the copy below has the same.
+  const scan = edits.length ? await cachedScan(src, pageIndex) : undefined;
   const out = await PDFDocument.create({ updateMetadata: false });
   const [page] = copyPagesMapped(out, src, [pageIndex]);
   out.addPage(page);
   // Same order as the save: text first, then pictures.
   const r = edits.length
-    ? await applyTextEdits(out, page, edits, pageFrame(page), new FontBook(out))
+    ? await applyTextEdits(out, page, edits, pageFrame(page), new FontBook(out), { scan })
     : { missing: [] as string[], skipped: 0 };
   if (imageEdits.length) {
     const bank = new ImageBank(out);

@@ -991,16 +991,39 @@ def _configured_port() -> "int | None":
     return port if isinstance(port, int) and 1024 <= port <= 65535 else None
 
 
+def _last_port() -> "int | None":
+    port = _load_launcher_config().get("last_port")
+    return port if isinstance(port, int) and 1024 <= port <= 65535 else None
+
+
 def resolve_port() -> tuple[int, bool]:
     """Port à utiliser pour ce lancement + indicateur « repli utilisé » (le port
-    choisi par l'utilisateur était occupé, un autre a été pris à la place)."""
+    voulu était occupé, un autre a été pris à la place).
+
+    Les données locales (documents, clés, réglages : IndexedDB / localStorage) sont
+    rangées PAR ORIGINE, port compris : changer de port rend tout invisible. Le port
+    doit donc rester STABLE d'un lancement à l'autre :
+      1. le port épinglé par l'utilisateur (Réglages) s'il est libre ;
+      2. sinon le port du tout premier lancement (`last_port`), mémorisé ;
+      3. seulement s'il est occupé : repli sur un port libre, SANS écraser `last_port`
+         (on revient à l'origine habituelle dès qu'elle se libère)."""
     chosen = _configured_port()
     if chosen is not None:
         if _is_port_free(chosen):
             return chosen, False
         _log_launcher(f"port configuré {chosen} occupé — repli automatique")
         return find_free_port(*PORT_RANGE), True
-    return find_free_port(*PORT_RANGE), False
+    last = _last_port()
+    if last is not None:
+        if _is_port_free(last):
+            return last, False
+        _log_launcher(f"port habituel {last} occupé — repli automatique (données de l'origine habituelle à part)")
+        return find_free_port(*PORT_RANGE), True
+    port = find_free_port(*PORT_RANGE)
+    cfg = _load_launcher_config()
+    cfg["last_port"] = port
+    _save_launcher_config(cfg)
+    return port, False
 
 
 def scan_ports(count: int = 12) -> list[dict]:

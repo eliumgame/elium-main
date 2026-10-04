@@ -821,3 +821,27 @@ def test_set_port_endpoint_allows_pinning_the_port_this_server_already_holds(iso
         elium_launcher.QuietHandler._handle_set_port(handler)
         assert json.loads(handler.wfile.written) == {"ok": True, "port": own_port}
         assert elium_launcher._configured_port() == own_port
+
+
+def test_first_launch_remembers_its_port_so_the_origin_stays_stable(isolated_config):
+    """IndexedDB/localStorage sont rangés par origine (port compris) : sans port
+    mémorisé, un 3000 pris un jour par un autre outil rendait tous les documents
+    et les clés invisibles."""
+    first, _ = elium_launcher.resolve_port()
+    assert elium_launcher._last_port() == first
+    assert elium_launcher._configured_port() is None  # ce n'est PAS un épinglage utilisateur
+    again, fallback_used = elium_launcher.resolve_port()
+    assert again == first
+    assert fallback_used is False
+
+
+def test_remembered_port_busy_falls_back_without_overwriting_it(isolated_config):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        busy_port = busy.getsockname()[1]
+        elium_launcher._save_launcher_config({"last_port": busy_port})
+        port, fallback_used = elium_launcher.resolve_port()
+        assert port != busy_port
+        assert fallback_used is True
+    assert elium_launcher._last_port() == busy_port  # on reviendra à l'origine habituelle

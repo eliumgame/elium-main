@@ -5480,7 +5480,8 @@
     right: 0;
     top: 0;
     bottom: 0;
-    width: 280px;
+    width: min(340px, 88vw);
+    max-width: none;
     box-shadow: var(--el-elev-4, -8px 0 24px rgba(15, 23, 42, 0.12));
     z-index: 5;
   }
@@ -6001,4 +6002,20 @@
 .inspector input[type="checkbox"],
 .inspector input[type="radio"] {
   accent-color: var(--primary);
+}
+
+/* Aperçus de styles : toujours sur une « feuille » claire — les styles portent leurs propres couleurs
+   (texte sombre), illisibles sur le fond sombre du thème. */
+:root {
+  --doc-paper: #ffffff;
+  --doc-paper-ink: #0f172a;
+}
+.stylemgr__sample,
+.stylemgr__preview {
+  background: var(--doc-paper);
+  color: var(--doc-paper-ink);
+}
+.stylemgr__sample {
+  padding: 3px 8px;
+  border-radius: 4px;
 }

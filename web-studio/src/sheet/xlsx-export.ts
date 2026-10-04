@@ -432,6 +432,12 @@ function dataValidationXml(rules: DataValidation[] | undefined): string {
     .map((v) => {
       const sqref = rangeRef(v.c0, v.r0, v.c1, v.r1);
       const allowBlank = v.allowBlank === false ? 0 : 1;
+      if (v.type === "list" && v.listRef) {
+        return (
+          `<dataValidation type="list" allowBlank="${allowBlank}" showInputMessage="1" showErrorMessage="1" sqref="${sqref}">` +
+          `<formula1>${xe(v.listRef)}</formula1></dataValidation>`
+        );
+      }
       if (v.type === "list") {
         const items = (v.list ?? []).map((s) => s.replace(/"/g, "'")).join(",");
         return (

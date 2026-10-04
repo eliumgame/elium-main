@@ -128,6 +128,8 @@ export interface DataValidation {
   v1?: string; // threshold / lower bound
   v2?: string; // upper bound (between / notBetween)
   list?: string[]; // allowed values (type = "list")
+  /** Plage source de la liste (« Feuille2!A1:A10 » ou « A1:A10 ») : si présente, les valeurs sont relues à chaque usage. */
+  listRef?: string;
   allowBlank?: boolean; // empty cells pass (default true)
 }
 

@@ -12,6 +12,7 @@ import { unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
 import { readChartOptions } from "./chart-ooxml";
 import { mergePrint, readPrintElements, readPrintNames } from "./xlsx-print";
+import { readListRange } from "./validation";
 import {
   emptySheet,
   newId,
@@ -731,7 +732,8 @@ function parseValidations(doc: Document, sheetName: string, cells: Record<string
             .map((s) => s.trim())
             .filter(Boolean)
         : resolveListRange(raw, sheetName, cells);
-      if (list.length) out.push({ ...base, type: "list", list });
+      const isRange = !raw.startsWith('"') && /^['A-Za-z0-9_$ ]*!?\$?[A-Za-z]+\$?\d+(:\$?[A-Za-z]+\$?\d+)?$/.test(raw.trim());
+      if (list.length || isRange) out.push({ ...base, type: "list", list, ...(isRange ? { listRef: raw.trim().replace(/\$/g, "") } : {}) });
       continue;
     }
     const vType: ValidationType | undefined =
@@ -1100,6 +1102,22 @@ export function importXlsx(bytes: Uint8Array): Workbook {
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
+  // Listes de validation liées à une plage : on ne garde que celles dont la feuille cible existe, et on relit leurs valeurs.
+  {
+    const tmp: Workbook = { sheets, active: 0 };
+    sheets.forEach((sh, i) => {
+      if (!sh.validations?.some((v) => v.listRef)) return;
+      const kept = sh.validations
+        .filter((v) => {
+          if (!v.listRef) return true;
+          const bang = v.listRef.lastIndexOf("!");
+          const name = bang >= 0 ? v.listRef.slice(0, bang).trim().replace(/^'|'$/g, "").replace(/''/g, "'") : sh.name;
+          return sheets.some((x) => x.name === name);
+        })
+        .map((v) => (v.listRef ? { ...v, list: readListRange(tmp, v.listRef, sh.name) } : v));
+      sheets[i] = { ...sh, ...(kept.length ? { validations: kept } : { validations: undefined }) };
+    });
+  }
   if (wb) {
     // Zone d'impression et titres à imprimer : noms définis locaux à une feuille.
     const els = wb.getElementsByTagName("definedName");

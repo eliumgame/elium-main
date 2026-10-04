@@ -69,7 +69,7 @@ import NamedRangesModal from "./NamedRangesModal";
 import PivotModal from "./PivotModal";
 import type { PivotConfig } from "./pivot";
 import { buildCondFormatter } from "./condformat";
-import { buildValidator, validationAt } from "./validation";
+import { buildValidator, validationAt, withLiveLists } from "./validation";
 import { isCovered, spanAt } from "./merges";
 import { rowVisible as filterRowVisible } from "./filter";
 import { importXlsx } from "./xlsx-import";
@@ -269,9 +269,14 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       ),
     [sheet, calc], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // Les listes déroulantes liées à une plage (listRef) sont relues dans le classeur à chaque changement.
+  const liveValidations = useMemo(
+    () => withLiveLists(sheet?.validations, wb, sheet?.name ?? ""),
+    [sheet?.validations, wb, sheet?.name],
+  );
   const validator = useMemo(
-    () => buildValidator(sheet?.validations, (c, r) => sheet?.cells[cellRef(c, r)] ?? ""),
-    [sheet],
+    () => buildValidator(liveValidations, (c, r) => sheet?.cells[cellRef(c, r)] ?? ""),
+    [sheet, liveValidations], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // --- largeurs de colonnes / hauteurs de ligne & volets figés --------------
@@ -1325,7 +1330,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           const st = sheet.styles?.[ref];
                           const isActive = sel.c === c && sel.r === r;
                           if (isActive && editing) {
-                            const dv = validationAt(sheet.validations, c, r);
+                            const dv = validationAt(liveValidations, c, r);
                             const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
                             return (
                               <td

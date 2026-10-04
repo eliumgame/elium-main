@@ -3962,6 +3962,52 @@ export default function PdfWorkspace({
 
   const [pdfaProblems, setPdfaProblems] = useState<string[] | null>(null);
   const [a11yRules, setA11yRules] = useState<AccessibilityRule[] | null>(null);
+  const [a11yFigures, setA11yFigures] = useState<{ page: number; index: number; alt: string }[]>([]);
+
+  /**
+   * Tags the document (structure tree, language, title) or updates the alternate text of its
+   * figures. Like OCR, the result is an update of the source and the session goes on with it.
+   */
+  const tagAndAdopt = async (o: { lang?: string; title?: string; alts?: Map<string, string> }) => {
+    if (!bytesRef.current || !engine) return;
+    const id = toast("progress", o.alts ? "Enregistrement des textes de remplacement…" : "Balisage du document…");
+    try {
+      const { tagDocument, setFigureAlts } = await import("../ops/tagging");
+      let summary = "";
+      const res = await savePdf({
+        source: bytesRef.current,
+        state: { ...emptyState(), pages: D.pagesFromSource(engine.pageCount) },
+        options: { password: passwordRef.current ?? "", author, fileName },
+        security: null,
+        transform: async (doc) => {
+          if (o.alts) {
+            summary = `${setFigureAlts(doc, o.alts)} texte(s) de remplacement enregistré(s).`;
+          } else {
+            const r = tagDocument(doc, { lang: o.lang ?? "fr-FR", title: o.title });
+            summary = r.tagged
+              ? `${r.paragraphs} paragraphe(s) et ${r.figures} figure(s) balisés.`
+              : (r.notes[0] ?? "Aucun balisage nécessaire.");
+          }
+        },
+      });
+      dismissToast(id);
+      await adoptDerived(
+        res.bytes,
+        {
+          changes: [o.alts ? "textes de remplacement modifiés" : "document balisé (accessibilité)"],
+          forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+        },
+        res.report.mode === "incremental",
+        state,
+      );
+      toast("success", o.alts ? "Textes enregistrés" : "Balisage terminé", summary);
+      void runAccessibilityCheck(state);
+    } catch (e) {
+      dismissToast(id);
+      reportError("pdf.tagging", e);
+      toast("danger", "Le balisage a échoué.", e instanceof Error ? e.message : undefined);
+    }
+  };
 
   /** « Vérification de l'accessibilité » of the document as it would be saved. */
   const runAccessibilityCheck = async (st: PdfState = state) => {
@@ -3976,7 +4022,10 @@ export default function PdfWorkspace({
       // The text of the pages as they are now (source text per page, in the document's current order).
       const source = engine ? await engine.allText() : [];
       const texts = st.pages.filter((p) => !p.skipped).map((p) => (p.from != null ? (source[p.from] ?? "") : ""));
-      setA11yRules(checkAccessibility(await PDFDocument.load(bytes, { updateMetadata: false }), texts));
+      const checked = await PDFDocument.load(bytes, { updateMetadata: false });
+      setA11yRules(checkAccessibility(checked, texts));
+      const { listFigures } = await import("../ops/tagging");
+      setA11yFigures(listFigures(checked));
     } catch {
       setA11yRules([]);
     }
@@ -6723,6 +6772,9 @@ export default function PdfWorkspace({
           rules={a11yRules}
           title={state.metadata.title ?? ""}
           language={state.metadata.language ?? ""}
+          figures={a11yFigures}
+          onTag={({ title, language }) => void tagAndAdopt({ lang: language, title })}
+          onAlts={(alts) => void tagAndAdopt({ alts })}
           onFix={async ({ title, language }) => {
             // The file's own initial view, with the title shown in the window.
             const view = state.initialView ?? (engine ? await engine.initialView() : undefined);

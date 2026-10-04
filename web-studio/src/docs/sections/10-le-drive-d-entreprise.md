@@ -106,7 +106,7 @@ La co-édition utilise des CRDT **Yjs** pour Documents, Tableur et Présentation
 
 Authentification et invitation par lien, explorateur chiffré, partage, rôles et permissions, membres, équipes, versions, corbeille, journal d'audit, pages publiques (ouverture d'un lien, signature). Onglet **Sécurité** (mot de passe, 2FA, clés d'accès, suppression du compte), onglet **SSO et SCIM**, onglet **Recouvrement**.
 
-### Limites connues
+### Limites connues du Drive
 
 - **Aucune interface** pour lister ou révoquer ses sessions : les routes existent (`GET` et `DELETE /api/users/me/sessions`), l'écran non.
 - La co-édition n'existe pas pour les PDF.

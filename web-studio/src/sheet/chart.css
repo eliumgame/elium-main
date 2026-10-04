@@ -1,0 +1,48 @@
+.chart-grid {
+  stroke: var(--border, #e2e8f0);
+  stroke-width: 0.6;
+}
+.chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text, #0f172a);
+}
+.chart-axis-title {
+  font-size: 9px;
+  fill: var(--text-muted, #64748b);
+}
+.chart-value {
+  font-size: 8px;
+  fill: var(--text, #0f172a);
+}
+.chartopt {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 10px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.chartopt label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chartopt__check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+.chartopt__series {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+}
+.chartopt__row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 3px 0;
+}

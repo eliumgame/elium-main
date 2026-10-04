@@ -52,6 +52,7 @@ import { useDialogs } from "../ui/dialogs";
 import { createCalc, indexToCol, isError, quoteSheetName, FUNCTIONS } from "./formula";
 import { formatValue, NUM_FORMATS } from "./format";
 import SheetChart from "./SheetChart";
+import ChartOptionsPanel, { CHART_TYPE_LABELS } from "./ChartOptionsPanel";
 import CondFormatModal from "./CondFormatModal";
 import ValidationModal from "./ValidationModal";
 import NamedRangesModal from "./NamedRangesModal";
@@ -708,6 +709,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     }));
     return { labels, series };
   };
+  const [chartOptId, setChartOptId] = useState<string | null>(null);
   const addChart = () => store.setChart(active, { id: newId("chart"), type: "bar", c0, r0, c1, r1 });
   const setChartType = (id: string, type: ChartType) => {
     const existing = sheet?.charts?.find((c) => c.id === id);
@@ -1298,10 +1300,20 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                     disabled={!canWrite}
                     onChange={(e) => setChartType(ch.id, e.target.value as ChartType)}
                   >
-                    <option value="bar">Barres</option>
-                    <option value="line">Lignes</option>
-                    <option value="pie">Secteurs</option>
+                    {(Object.keys(CHART_TYPE_LABELS) as ChartType[]).map((t) => (
+                      <option key={t} value={t}>
+                        {CHART_TYPE_LABELS[t]}
+                      </option>
+                    ))}
                   </select>
+                  <button
+                    className="eb eb--sm eb--ghost"
+                    title="Options du graphique"
+                    aria-expanded={chartOptId === ch.id}
+                    onClick={() => setChartOptId(chartOptId === ch.id ? null : ch.id)}
+                  >
+                    Options
+                  </button>
                   <span className="sheet-chart__range">
                     {cellRef(ch.c0, ch.r0)}:{cellRef(ch.c1, ch.r1)}
                   </span>
@@ -1315,7 +1327,15 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                     </button>
                   )}
                 </div>
-                <SheetChart type={ch.type} labels={labels} series={series} />
+                {chartOptId === ch.id && (
+                  <ChartOptionsPanel
+                    spec={ch}
+                    seriesLabels={series.map((x) => x.label)}
+                    disabled={!canWrite}
+                    onChange={(next) => store.setChart(active, next)}
+                  />
+                )}
+                <SheetChart type={ch.type} labels={labels} series={series} title={ch.title} opts={ch.opts} />
               </div>
             );
           })}

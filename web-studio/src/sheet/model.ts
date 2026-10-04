@@ -31,7 +31,37 @@ export interface CellStyle {
   border?: CellBorder;
 }
 
-export type ChartType = "bar" | "line" | "pie";
+export type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "combo";
+
+export type ChartGrouping = "clustered" | "stacked" | "percent";
+export type ChartLegendPos = "none" | "top" | "bottom" | "right";
+export type ChartAxisFormat = "general" | "int" | "decimal" | "percent" | "currency";
+export interface ChartTrendline {
+  type: "linear" | "poly" | "avg";
+  order?: number; // poly : 2 à 6
+  period?: number; // avg : moyenne mobile sur n points
+  series?: number; // indice de la série (défaut 0)
+}
+/** Options avancées d'un graphique (toutes facultatives ; défaut = rendu historique). */
+export interface ChartOptions {
+  grouping?: ChartGrouping; // barres/aires : groupées, empilées, empilées 100 %
+  horizontal?: boolean; // barres horizontales
+  legend?: ChartLegendPos;
+  dataLabels?: boolean;
+  xTitle?: string;
+  yTitle?: string;
+  y2Title?: string;
+  yMin?: number;
+  yMax?: number;
+  yFormat?: ChartAxisFormat;
+  trendline?: ChartTrendline;
+  /** Type de chaque série d'un graphique « combo » (barres + courbes). */
+  seriesTypes?: ("bar" | "line")[];
+  /** Indices des séries portées par l'axe secondaire (combo). */
+  secondary?: number[];
+  smooth?: boolean;
+  colors?: string[];
+}
 
 export interface ChartSpec {
   id: string;
@@ -41,6 +71,7 @@ export interface ChartSpec {
   c1: number;
   r1: number; // source range
   title?: string;
+  opts?: ChartOptions;
 }
 
 export type CondOp =

@@ -10,6 +10,7 @@
  */
 import { unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
+import { readChartOptions } from "./chart-ooxml";
 import {
   emptySheet,
   newId,
@@ -24,7 +25,6 @@ import {
   type ValidationType,
   type MergeRect,
   type ChartSpec,
-  type ChartType,
   type BorderSide,
   type BorderStyle,
   type NamedRange,
@@ -756,7 +756,7 @@ function parseValidations(doc: Document, sheetName: string, cells: Record<string
 // ── native charts (DrawingML, via the sheet's drawing relationship) ────────
 
 /** Every `<c:cat>`/`<c:val>` cell-range formula in the chart, in document order (one `<c:val>` per series). */
-function allFormulaRefs(doc: Document, tag: "cat" | "val"): string[] {
+function allFormulaRefs(doc: Document, tag: "cat" | "val" | "xVal" | "yVal"): string[] {
   const els = doc.getElementsByTagName(`c:${tag}`);
   const out: string[] = [];
   for (let i = 0; i < els.length; i++) {
@@ -782,12 +782,6 @@ function chartTitle(doc: Document): string | undefined {
   const v = doc.getElementsByTagName("c:tx")[0]?.getElementsByTagName("c:v")[0]?.textContent;
   return v?.trim() ? v : undefined;
 }
-function chartKind(doc: Document): ChartType {
-  if (doc.getElementsByTagName("c:pieChart").length) return "pie";
-  if (doc.getElementsByTagName("c:lineChart").length) return "line";
-  return "bar";
-}
-
 /**
  * Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's
  * `chartXml`). Reads EVERY `<c:val>` (one per `<c:ser>`, i.e. every series, not
@@ -796,8 +790,8 @@ function chartKind(doc: Document): ChartType {
  * column immediately followed by one contiguous column per series.
  */
 function parseChartSpec(doc: Document): ChartSpec | null {
-  const catRefs = allFormulaRefs(doc, "cat");
-  const valRefs = allFormulaRefs(doc, "val");
+  const catRefs = allFormulaRefs(doc, "cat").length ? allFormulaRefs(doc, "cat") : allFormulaRefs(doc, "xVal");
+  const valRefs = allFormulaRefs(doc, "val").length ? allFormulaRefs(doc, "val") : allFormulaRefs(doc, "yVal");
   const cat = catRefs[0] ? parseRangeRef(catRefs[0]) : null;
   const vals = valRefs.map(parseRangeRef).filter((v): v is NonNullable<typeof v> => v !== null);
   if (!vals.length && !cat) return null; // pure literal chart (no cell refs) — can't recover a source range
@@ -811,7 +805,14 @@ function parseChartSpec(doc: Document): ChartSpec | null {
     r1: Math.max(...rowsOf.map((v) => v.r1)),
   };
   const title = chartTitle(doc);
-  return { id: newId("chart"), type: chartKind(doc), ...rect, ...(title ? { title } : {}) };
+  const read = readChartOptions(doc);
+  return {
+    id: newId("chart"),
+    type: read.type,
+    ...rect,
+    ...(title ? { title } : {}),
+    ...(read.opts ? { opts: read.opts } : {}),
+  };
 }
 
 /**

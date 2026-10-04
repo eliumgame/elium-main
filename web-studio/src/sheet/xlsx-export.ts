@@ -29,6 +29,7 @@
 import { zipSync, strToU8 } from "fflate";
 import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
+import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
 import type {
   Workbook,
   SheetData,
@@ -49,6 +50,7 @@ const CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types";
 const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"; // rel types base
 const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+// (le XML d'un graphique est produit par chart-ooxml.ts)
 const XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
 
 const xe = escapeXmlText;
@@ -482,60 +484,19 @@ function chartValueCols(chart: ChartSpec): number[] {
 function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
   const oneCol = chart.c0 === chart.c1;
   const valCols = chartValueCols(chart);
-  const catRef = oneCol ? null : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
-  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
-  const AX_CAT = 111111111,
-    AX_VAL = 222222222;
-
-  /** One `<c:ser>` per value column — series 0 is named after the chart title
-   * (kept exactly as before for the single-series case), later ones after
-   * their column letter, so the legend can tell them apart. */
-  const seriesXml = (lineMarkers: boolean): string =>
-    valCols
-      .map((col, i) => {
-        const valRef = `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`;
-        const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-        const name = i === 0 ? chart.title : `Colonne ${colLetters(col)}`;
-        const head = `<c:idx val="${i}"/><c:order val="${i}"/>${name ? `<c:tx><c:v>${xe(name)}</c:v></c:tx>` : ""}`;
-        const marker = lineMarkers ? `<c:marker><c:symbol val="circle"/></c:marker>` : "";
-        const smooth = lineMarkers ? `<c:smooth val="0"/>` : "";
-        return `<c:ser>${head}${marker}${catXml}${valXml}${smooth}</c:ser>`;
-      })
-      .join("");
-
-  const axes =
-    `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
-    `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
-
-  let plot: string;
-  if (chart.type === "pie") {
-    // Pie charts vary colour BY POINT, not by series, and Excel doesn't give
-    // multiple pie series a meaningful rendering — only the first value column
-    // is charted (unchanged single-series behaviour for this chart type).
-    const valRef = `${sheetNameQuoted}!${absRangeRef(valCols[0]!, chart.r0, chart.r1)}`;
-    const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-    const head = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
-    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${head}${catXml}${valXml}</c:ser></c:pieChart>`;
-  } else if (chart.type === "line") {
-    plot =
-      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${seriesXml(true)}` +
-      `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
-  } else {
-    plot =
-      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${seriesXml(false)}` +
-      `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
-  }
-
-  const title = chart.title
-    ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${xe(chart.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
-    : `<c:autoTitleDeleted val="1"/>`;
-
-  return (
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<c:chartSpace xmlns:c="${C_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">` +
-    `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>` +
-    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`
-  );
+  const catRef = oneCol ? undefined : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
+  const n = chart.r1 - chart.r0 + 1;
+  // One `<c:ser>` per value column — series 0 is named after the chart title (kept as before for the
+  // single-series case), later ones after their column letter, so the legend can tell them apart.
+  // A pie charts only the first column.
+  const cols = chart.type === "pie" ? valCols.slice(0, 1) : valCols;
+  const series: OoxmlSeries[] = cols.map((col, i) => ({
+    name: i === 0 ? chart.title : `Colonne ${colLetters(col)}`,
+    catRef,
+    valRef: `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`,
+    ...(chart.type === "scatter" ? (catRef ? { xRef: catRef } : { xvals: Array.from({ length: n }, (_, k) => k + 1) }) : {}),
+  }));
+  return chartSpaceXml({ type: chart.type, title: chart.title, opts: chart.opts, series });
 }
 
 /** xl/drawings/drawingN.xml — one graphicFrame per chart, stacked below `baseRow`. */

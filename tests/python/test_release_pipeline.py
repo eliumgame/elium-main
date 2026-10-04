@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -223,7 +224,9 @@ def test_gen_manifest_embeds_signed_image_digests_and_rejects_bad_refs(tmp_path,
         gen_manifest.main()
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash absent")
+# Sous Windows, `bash` peut être le lanceur WSL (chemins Windows illisibles, aucune distribution) :
+# la syntaxe de install.sh est vérifiée par le job Linux « shellcheck » de la CI.
+@pytest.mark.skipif(shutil.which("bash") is None or sys.platform == "win32", reason="bash absent ou Windows")
 def test_install_sh_parses():
     r = subprocess.run(["bash", "-n", str(ROOT / "install.sh")], capture_output=True, text=True)  # noqa: S603, S607
     assert r.returncode == 0, r.stderr

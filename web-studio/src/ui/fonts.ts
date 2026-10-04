@@ -78,8 +78,37 @@ const customFonts = new Map<string, Uint8Array>();
 /** Original filename per family, so the package keeps the real extension. */
 const customFontFiles = new Map<string, string>();
 
+// Les sélecteurs de police (tous modules) se rafraîchissent quand la liste change.
+const fontListeners = new Set<() => void>();
+let fontsVersion = 0;
+function bumpFonts(): void {
+  fontsVersion++;
+  fontListeners.forEach((l) => l());
+}
+export function subscribeFonts(cb: () => void): () => void {
+  fontListeners.add(cb);
+  return () => fontListeners.delete(cb);
+}
+/** Change à chaque ajout/retrait de police importée (pour useSyncExternalStore). */
+export function getFontsVersion(): number {
+  return fontsVersion;
+}
+
+/** Retire une police importée du registre (l'écran et les exports ne la proposent plus). */
+export function unregisterCustomFont(name: string): void {
+  if (!customFonts.delete(name)) return;
+  customFontFiles.delete(name);
+  const doc = (globalThis as unknown as { document?: Document }).document;
+  const set = doc?.fonts as (FontFaceSet & { forEach?: (cb: (f: FontFace) => void) => void }) | undefined;
+  set?.forEach?.((f) => {
+    if (f.family.replace(/['"]/g, "") === name) set.delete(f);
+  });
+  bumpFonts();
+}
+
 export function registerCustomFont(name: string, bytes: Uint8Array, filename?: string): void {
   customFonts.set(name, bytes);
+  bumpFonts();
   // Default to .ttf only when the caller has no filename to offer.
   customFontFiles.set(name, filename ?? `${name}.ttf`);
   try {

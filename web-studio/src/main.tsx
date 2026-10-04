@@ -5,12 +5,14 @@ import { DialogsProvider } from "./ui/dialogs";
 import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
+import { loadUserFonts } from "./ui/font-library";
 import "./index.css";
 import "./App.css";
 import "./ui/workspace.css";
 
 applyTheme(getTheme());
 installGlobalCrashHandlers();
+void loadUserFonts(); // polices personnelles conservées → registre → sélecteurs
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

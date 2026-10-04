@@ -92,10 +92,12 @@ import { figureTableTitle } from "./captions";
 import { FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, CODE_LANGUAGES } from "./typography";
 import { isSuggesting } from "./TrackChanges";
 import { useDialogs } from "../ui/dialogs";
-import { customFontNames, registerCustomFont, fontCss } from "../ui/fonts";
+import { customFontNames, fontCss } from "../ui/fonts";
+import { importFontFiles } from "../ui/font-library";
+import { useFontsVersion } from "../ui/useFonts";
 import { LIST_SCHEMES, schemeById } from "./listSchemes";
 import { clampColumns } from "./wordExtensions";
-import { FONT_ACCEPT, fontNameFromFilename } from "../format/embedded-fonts";
+import { FONT_ACCEPT } from "../format/embedded-fonts";
 import { CASE_LABELS } from "./charFormat";
 import { resolveStyle, styleCss } from "./styles";
 import { styleRegistry } from "./styleExtension";
@@ -387,7 +389,8 @@ export default function Toolbar({
   onOpenShapeFormat,
   collab,
 }: ToolbarProps) {
-  const { prompt } = useDialogs();
+  const { prompt, alert } = useDialogs();
+  const fontsVersion = useFontsVersion();
   const fontInputRef = useRef<HTMLInputElement>(null);
   const [fontTick, setFontTick] = useState(0);
   const [tab, setTab] = useState<RibbonTab>("home");
@@ -421,15 +424,21 @@ export default function Toolbar({
 
   const importFont = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
+      const files = e.target.files ? Array.from(e.target.files) : [];
       e.target.value = "";
-      if (!f || !editor) return;
-      const name = fontNameFromFilename(f.name);
-      registerCustomFont(name, new Uint8Array(await f.arrayBuffer()), f.name);
+      if (!files.length || !editor) return;
+      const out = await importFontFiles(files);
       setFontTick((t) => t + 1);
-      editor.chain().focus().setFontFamily(fontCss(name)).run();
+      if (out.added[0]) editor.chain().focus().setFontFamily(fontCss(out.added[0])).run();
+      else if (out.duplicates[0]) editor.chain().focus().setFontFamily(fontCss(out.duplicates[0])).run();
+      if (out.rejected.length) {
+        await alert({
+          title: "Police non importée",
+          message: out.rejected.map((r) => `${r.file} — ${r.reason}`).join("\n"),
+        });
+      }
     },
-    [editor],
+    [editor, alert],
   );
 
   const setLink = useCallback(async () => {
@@ -643,7 +652,7 @@ export default function Toolbar({
               <>
                 <Group title="Police">
                   <select
-                    key={`ff-${fontTick}`}
+                    key={`ff-${fontTick}-${fontsVersion}`}
                     className="elx-select elx-select--font"
                     title="Police"
                     aria-label="Police"
@@ -672,7 +681,7 @@ export default function Toolbar({
                   >
                     <Type size={16} />
                   </Cmd>
-                  <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} hidden onChange={importFont} />
+                  <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} multiple hidden onChange={importFont} />
                   <select
                     className="elx-select elx-select--size"
                     title="Taille"

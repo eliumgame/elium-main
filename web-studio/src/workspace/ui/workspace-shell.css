@@ -969,3 +969,90 @@
   align-items: center;
   gap: 6px;
 }
+
+/* ======================================================================
+   Polissage (4.10.x) : alignement du ruban, accueil, mobile, réglages
+   ====================================================================== */
+
+/* Titres de groupes du ruban sur UNE même ligne de base : les groupes sont étirés
+   à la hauteur du plus haut, le titre se colle en bas au lieu de suivre son contenu. */
+.pdfx-group__title,
+.elx-group__title {
+  margin-top: auto;
+}
+
+/* Lanceur d'applications : 4 tuiles = 2×2 (pas 3 + une orpheline), 4 de front quand la place le permet. */
+.home .app-launcher {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+/* Liste de contrôle des clés : les icônes ne doivent ni se comprimer ni flotter au-dessus du texte. */
+.keyring__checklist li svg {
+  flex: none;
+  margin-top: 2px;
+}
+.keyring__idle {
+  white-space: nowrap;
+}
+
+/* Réglages : fenêtre de hauteur constante (elle sautait d'une catégorie à l'autre) ; seul le contenu défile. */
+.settings-shell {
+  height: min(540px, 66vh);
+}
+.settings-shell > :last-child {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+@media (max-width: 720px) {
+  .settings-shell {
+    height: auto;
+    max-height: 68vh;
+    overflow-y: auto;
+  }
+  .settings-shell > :last-child {
+    overflow-y: visible;
+    padding-right: 0;
+  }
+}
+
+/* Accueil sur écran étroit : rien ne doit dépasser la largeur de l'écran. */
+.ws-topsearch,
+.ws-topsearch input {
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .home__top {
+    flex-wrap: wrap;
+  }
+  .ws-topsearch {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
+    margin: 0;
+  }
+  .ws-side {
+    position: static;
+  }
+  /* La barre latérale devient une rangée de puces défilante au lieu d'une colonne pleine hauteur. */
+  .ws-side__nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ws-side__item {
+    width: auto;
+    padding: 6px 12px;
+    border: 1px solid var(--el-border);
+    border-radius: 999px;
+  }
+}
+@media (max-width: 480px) {
+  .home .app-launcher {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .home h1,
+  .home__hero h1 {
+    overflow-wrap: anywhere;
+  }
+}

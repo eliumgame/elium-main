@@ -72,6 +72,28 @@ Notes importantes sur cet enchaînement :
 | `updater.py` | Module client d'auto-update, embarqué dans l'exe. Vérifie GitHub Releases, télécharge et vérifie (signature Ed25519 avec la clé publique embarquée, puis sha256 par artefact) avant d'appliquer une mise à jour (overlay web léger dans `%LOCALAPPDATA%`, ou nouvel exe complet via handoff). Tout échec de vérification jette l'artefact sans jamais crasher l'app. |
 | `verify_release.py` | Health-check post-publication, lancé uniquement par `.github/workflows/release.yml` juste après `gh release create`. Réutilise `updater.fetch_manifest_for()` pour retélécharger le manifeste + chaque artefact publié et revérifier signature/sha256/disponibilité, avec reprises pour absorber la propagation CDN. Ne modifie et ne supprime jamais rien. |
 
+## Phase D — mises à jour durcies, installeurs, pipeline
+
+Fichiers ajoutés : `split_web.py` (web-core + pack d'assets + archive complète historique),
+`make_update_bundle.py` (paquet hors ligne `.eliumupdate`), `smoke_test.py` (test de l'exe gelé en CI).
+`gen_manifest.py` accepte `--web-core --assets --msi-user --key-id --server-image --web-image`.
+
+- **Rotation de la clé de mise à jour** : `updater.UPDATE_PUBLIC_KEY_HEX` (id `k1`) + `UPDATE_EXTRA_PUBLIC_KEYS`
+  (`{id: hex}`) ; le manifeste porte `keyId`. Procédure : (1) release signée par k1 qui ajoute k2 à la liste ;
+  (2) une fois la base migrée, signer avec `--key-id k2` (secret CI remplacé) ; (3) retirer k1 plus tard.
+  `install.sh` (miroir bash) ne connaît que la clé primaire : l'auto-update VPS doit rester signée par elle
+  (ou `install.sh` mis à jour d'abord).
+- **Canaux** : `stable` (release « latest ») / `beta` (préversions `X.Y.Z-rc1`, publiées en préversion GitHub).
+- **MSI** : `elium.wxs` compile en deux produits (`-dScope=perMachine|perUser`, UpgradeCode distincts) ;
+  `build_msi.bat` produit `Elium-X.Y.Z-Setup.msi` et `Elium-User-X.Y.Z.msi`. Non testés en installation réelle ici
+  (compilation + validation ICE seulement). La version « Applications installées » de la variante machine reste
+  celle de l'installeur (HKLM non modifiable sans élévation) ; celle de la variante utilisateur est resynchronisée.
+- **PyInstaller reste en one-file** : le handoff télécharge UN fichier `Elium.exe` dans `%LOCALAPPDATA%\Elium\bin`,
+  et l'extraction à chaque lancement dans `%TEMP%` n'est pas corrigée. Un layout one-dir exigerait un
+  paquet de mise à jour par dossier, l'inventaire des fichiers dans le MSI et deux builds (base one-dir + exe de
+  handoff) : trop risqué sans test d'installation réel.
+- **Authenticode** : crochet `SIGN_CERT` / `SIGN_CERT_PASSWORD` dans `release.yml`, ignoré sans certificat.
+
 ## Architecture : `elium_launcher.py`
 
 `installer/elium_launcher.py` est le point d'entrée shippé dans `Elium.exe` : il sert

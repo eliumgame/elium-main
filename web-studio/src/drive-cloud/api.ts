@@ -19,7 +19,7 @@ import type {
   RecoveryAdmin,
   RecoveryNode,
 } from "./types";
-import type { RegistrationPayload } from "./account";
+import type { RegistrationPayload, PasswordChange } from "./account";
 import type { WrappedKey } from "./node-crypto";
 
 export class ApiError extends Error {
@@ -243,6 +243,10 @@ export class DriveApi {
       body: { email, challengeId, signature },
       auth: false,
     });
+  }
+  /** Authenticated: re-wrap the key bundle under a new password (see account.buildPasswordChange). */
+  changePassword(body: { challengeId: string } & PasswordChange["request"]) {
+    return this.json<{ ok: true } & Tokens>("POST", "/auth/change-password", { body });
   }
   /** Third step when MFA is enabled: prove the TOTP / backup code. */
   loginMfa(mfaToken: string, code: string) {

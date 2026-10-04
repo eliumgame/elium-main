@@ -20,6 +20,9 @@ export interface Tokens {
 export interface LoginResult extends Tokens {
   user: PublicUser;
   keyBundle: KeyBundle;
+  /** Présents pour une connexion SSO (pas d'étape prelogin) : paramètres publics de la passphrase de clés. */
+  kdfSalt?: string;
+  kdfParams?: Record<string, unknown>;
 }
 
 /** Returned by /login when MFA is enabled: the password passed, prove factor 2. */

@@ -35,6 +35,7 @@ import {
   type SlideMaster,
 } from "./model";
 import { defaultMaster } from "./master";
+import { mimeFromExt } from "./media";
 
 const PRST_TO_KIND: Record<string, ShapeKind> = {
   rect: "rect",
@@ -565,10 +566,43 @@ function phOf(block: string): { type?: string; idx?: string } | null {
   return { type: attr(ph[1]!, "type"), idx: attr(ph[1]!, "idx") };
 }
 
+/** Audio/vidéo d'une image PowerPoint (`a:videoFile`/`a:audioFile` + `p14:media`) → élément média embarqué. */
+function parseMediaPic(block: string, pc: ParseCtx, g: Geom): SlideElement | null {
+  const m = /<a:(video|audio)File\b[^>]*\br:link="([^"]+)"/.exec(block);
+  if (!m) return null;
+  const embed = /<p14:media\b[^>]*\br:embed="([^"]+)"/.exec(block)?.[1];
+  const target = pc.rels.get(embed ?? m[2]!) ?? pc.rels.get(m[2]!);
+  if (!target) return null;
+  const path = resolveMedia(target);
+  const bytes = pc.media[path];
+  if (!bytes) return null;
+  const ext = path.split(".").pop() ?? "";
+  const mime = mimeFromExt(ext);
+  const st = /<p14:trim\b[^>]*\bst="(\d+)"/.exec(block)?.[1];
+  const end = /<p14:trim\b[^>]*\bend="(\d+)"/.exec(block)?.[1];
+  const name = attr(/<p:cNvPr\b[^>]*>/.exec(block)?.[0] ?? "", "descr") || undefined;
+  return el(
+    {
+      type: "media",
+      media: {
+        kind: m[1] as "audio" | "video",
+        src: `data:${mime};base64,${base64(bytes)}`,
+        mime,
+        ...(name ? { name } : {}),
+        ...(st ? { trimStart: Number(st) / 1000 } : {}),
+        ...(end ? { trimEnd: Number(end) / 1000 } : {}),
+      },
+    },
+    g,
+  );
+}
+
 function parsePic(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
   const rId = attr(/<a:blip\b[^>]*\/?>/.exec(block)?.[0] ?? "", "r:embed") ?? attr(block, "r:embed");
   const ph = phOf(block);
   const g = geomOf(block, pc.cx, pc.cy, tf, ph ? resolvePh(ph.type, ph.idx, pc.inherit).xf : undefined);
+  const mediaEl = parseMediaPic(block, pc, g);
+  if (mediaEl) return mediaEl;
   let src: string | undefined;
   if (rId) {
     const target = pc.rels.get(rId);

@@ -11,6 +11,7 @@
 import { zipSync, strToU8 } from "fflate";
 import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData, SlideMaster, SlideLayoutDef, PlaceholderKind } from "./model";
 import { defaultMaster, isPromptOnly, SLIDE_NUMBER_TOKEN } from "./master";
+import { mediaExt, mimeFromExt } from "./media";
 import { bodyHtmlOf } from "./model";
 import { escapeXmlText } from "../format/xml-text";
 
@@ -398,6 +399,33 @@ function elementXml(
     );
   }
 
+  if (el.type === "media" && el.media) {
+    const mm = el.media;
+    const m = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(mm.src);
+    if (!m) return null;
+    const bin = atob(m[2]!);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const { ext } = mediaExt(mm.mime || m[1]!);
+    const name = `media${media.length + 1}.${ext}`;
+    media.push({ name, bytes });
+    const link = addSlideRel(`../media/${name}`, mm.kind === "video" ? T.video : T.audio);
+    const embed = addSlideRel(`../media/${name}`, T.msMedia);
+    const poster = addImage(POSTER_PNG, media);
+    if (!poster) return null;
+    const trim =
+      (mm.trimStart && mm.trimStart > 0) || (mm.trimEnd && mm.trimEnd > 0)
+        ? `<p14:trim${mm.trimStart ? ` st="${Math.round(mm.trimStart * 1000)}"` : ""}${mm.trimEnd ? ` end="${Math.round(mm.trimEnd * 1000)}"` : ""}/>`
+        : "";
+    return (
+      `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${mm.kind === "video" ? "Vidéo" : "Audio"} ${id}" descr="${xmlEsc(mm.name ?? "")}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>` +
+      `<p:nvPr><a:${mm.kind}File r:link="${link}"/><p:extLst><p:ext uri="{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}">` +
+      `<p14:media xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" r:embed="${embed}">${trim}</p14:media></p:ext></p:extLst></p:nvPr></p:nvPicPr>` +
+      `<p:blipFill><a:blip r:embed="${poster}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+      `<p:spPr>${xfrm(x, y, w, h, rot)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
+    );
+  }
+
   if (el.type === "table" && el.table) {
     const tb = el.table;
     const sz = Math.max(100, Math.round((el.fontSize ?? 18) * 75));
@@ -635,6 +663,14 @@ function slideXml(
 let _slideRels: { rId: string; target: string; type: string }[] = [];
 // Chart parts collected across the whole deck (global names chart1.xml, …).
 let _charts: { name: string; xml: string }[] = [];
+/** Vignette d'affiche d'un média (PNG 1×1 sombre, étirée) : PowerPoint exige une image d'aperçu. */
+const POSTER_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+function addSlideRel(target: string, type: string): string {
+  const rId = `rId${_slideRels.length + 2}`; // rId1 est la disposition
+  _slideRels.push({ rId, target, type });
+  return rId;
+}
 function addImage(dataUrl: string, media: { name: string; bytes: Uint8Array }[]): string | null {
   const dec = dataUrlToBytes(dataUrl);
   if (!dec) return null;
@@ -715,6 +751,9 @@ const T = {
   theme: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
   image: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
   chart: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+  video: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video",
+  audio: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio",
+  msMedia: "http://schemas.microsoft.com/office/2007/relationships/media",
   notesSlide: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide",
   notesMaster: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster",
 };
@@ -970,6 +1009,10 @@ export function deckToPptx(deck: Deck): Uint8Array {
         `<Override PartName="/ppt/charts/${c.name}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
     ),
   ].join("");
+  const mediaDefaults = [...new Set(media.map((m) => m.name.split(".").pop()!.toLowerCase()))]
+    .filter((e) => !["png", "jpeg", "jpg", "gif"].includes(e))
+    .map((e) => `<Default Extension="${e}" ContentType="${mimeFromExt(e)}"/>`)
+    .join("");
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT}">` +
       `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
@@ -977,6 +1020,7 @@ export function deckToPptx(deck: Deck): Uint8Array {
       `<Default Extension="png" ContentType="image/png"/>` +
       `<Default Extension="jpeg" ContentType="image/jpeg"/>` +
       `<Default Extension="gif" ContentType="image/gif"/>` +
+      mediaDefaults +
       overrides +
       `</Types>`,
   );

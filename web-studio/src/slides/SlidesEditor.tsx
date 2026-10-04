@@ -102,6 +102,15 @@ import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
 import MasterEditor from "./MasterEditor";
+import {
+  MEDIA_ACCEPT,
+  clampTrim,
+  formatTime,
+  mediaKindOf,
+  newMediaElement,
+  playbackSrc,
+  validateMediaFile,
+} from "./media";
 import { applyLayout, defaultMaster, resetSlide } from "./master";
 import { firstPlayableFrom, nextPlayable } from "./sections";
 import type { DeckPeer, DeckStore } from "./store";
@@ -209,6 +218,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [stageRef, scale] = useScale();
   const imgRef = useRef<HTMLInputElement>(null);
   const pptxRef = useRef<HTMLInputElement>(null);
+  const mediaRef = useRef<HTMLInputElement>(null);
 
   const active = deck.slides[activeIdx];
   const withEl = (sl: Slide): Slide => ({ ...sl, elements: sl.elements ?? elementsOf(sl) });
@@ -282,6 +292,26 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     if (!file) return;
     const rd = new FileReader();
     rd.onload = () => addEl(newImageElement(rd.result as string));
+    rd.readAsDataURL(file);
+  };
+  const onMedia = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const problem = validateMediaFile(file);
+    if (problem) {
+      void dialogs.alert({ title: "Média non inséré", message: problem });
+      return;
+    }
+    const rd = new FileReader();
+    rd.onerror = () => void dialogs.alert({ title: "Média non inséré", message: "Le fichier n'a pas pu être lu." });
+    rd.onload = () => {
+      const src = String(rd.result);
+      const mime = file.type || (/^data:([^;]+);/.exec(src)?.[1] ?? "");
+      const kind = mediaKindOf(mime, file.name);
+      if (!kind) return;
+      addEl(newMediaElement({ kind, src, mime, name: file.name }));
+    };
     rd.readAsDataURL(file);
   };
   const onImportPptx = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -717,6 +747,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const isShape = sel?.type === "shape";
   const isTable = sel?.type === "table";
   const isChart = sel?.type === "chart";
+  const isMedia = sel?.type === "media" && !!sel.media;
   const peers = store.presence?.peers;
   // Grouped once per render instead of re-filtering `peers` inside the per-slide
   // rail loop below (was O(slides × peers) per render).
@@ -882,6 +913,21 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <ImageIcon size={15} /> Image
           </button>
           <input ref={imgRef} type="file" accept="image/*" hidden onChange={onImage} />
+          <button
+            className="eb eb--sm eb--ghost"
+            title="Insérer un son ou une vidéo (embarqué, lisible hors ligne)"
+            onClick={() => mediaRef.current?.click()}
+          >
+            <MonitorPlay size={15} /> Média
+          </button>
+          <input
+            ref={mediaRef}
+            type="file"
+            accept={MEDIA_ACCEPT}
+            hidden
+            onChange={onMedia}
+            aria-label="Fichier audio ou vidéo"
+          />
           <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTableElement())}>
             <TableIcon size={15} /> Tableau
           </button>
@@ -1099,6 +1145,64 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               </button>
               <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
             </>
+          )}
+          {isMedia && (
+            <div className="sv-media-bar" role="group" aria-label="Options du média">
+              {sel!.media!.kind === "video" ? (
+                <video className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+              ) : (
+                <audio className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+              )}
+              <label>
+                Début (s)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sel!.media!.trimStart ?? 0}
+                  onChange={(e) =>
+                    store.updateEl(sel!.id, {
+                      media: { ...sel!.media!, ...clampTrim(Number(e.target.value), sel!.media!.trimEnd) },
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Fin (s, 0 = jusqu'à la fin)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sel!.media!.trimEnd ?? 0}
+                  onChange={(e) =>
+                    store.updateEl(sel!.id, {
+                      media: { ...sel!.media!, ...clampTrim(sel!.media!.trimStart, Number(e.target.value)) },
+                    })
+                  }
+                />
+              </label>
+              <label className="sv-media-bar__check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.media!.autoplay}
+                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, autoplay: e.target.checked } })}
+                />
+                Lecture automatique
+              </label>
+              <label className="sv-media-bar__check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.media!.loop}
+                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, loop: e.target.checked } })}
+                />
+                Boucle
+              </label>
+              <span className="sv-anim-hint">
+                Lecture : {formatTime(sel!.media!.trimStart ?? 0)}
+                {sel!.media!.trimEnd ? ` → ${formatTime(sel!.media!.trimEnd)}` : " → fin"}. Au clic sur le lecteur en
+                diaporama, sauf lecture automatique.
+              </span>
+            </div>
           )}
           {isChart && sel!.chart && (
             <div className="sv-menu">
@@ -1657,6 +1761,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         reveal={reveal}
                         scale={presentScale}
                         slideNumber={presentIdx + 1}
+                        playMedia
                       />
                     )}
                   </div>

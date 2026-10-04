@@ -6,6 +6,7 @@
  * edited in place; smart guides snap to the slide centre, edges and a light grid.
  */
 import "./master.css";
+import { playbackSrc } from "./media";
 import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
@@ -146,6 +147,8 @@ export interface SlideCanvasProps {
   reveal?: RevealState;
   /** Numéro de cette diapositive (remplace le jeton ‹#› des espaces réservés « numéro »). */
   slideNumber?: number;
+  /** Projection : les médias sont lisibles (et démarrent seuls si « lecture automatique »). */
+  playMedia?: boolean;
 }
 
 /** A table cell — mirrors the text element's focus-guarded contentEditable so
@@ -177,17 +180,48 @@ function TableCell({
   );
 }
 
+/** Audio/vidéo : lecteur en projection, vignette partout ailleurs (miniatures, éditeur). */
+function MediaView({ m, play }: { m: NonNullable<SlideElement["media"]>; play: boolean }) {
+  const ref = useRef<HTMLMediaElement>(null);
+  if (!play)
+    return (
+      <div className="ce-media-ph" role="img" aria-label={`${m.kind === "video" ? "Vidéo" : "Audio"}${m.name ? ` : ${m.name}` : ""}`}>
+        <span aria-hidden="true">{m.kind === "video" ? "▶" : "♪"}</span>
+        <span className="ce-media-ph__name">{m.name ?? (m.kind === "video" ? "Vidéo" : "Audio")}</span>
+      </div>
+    );
+  const common = {
+    ref: ref as never,
+    src: playbackSrc(m),
+    controls: true,
+    loop: !!m.loop,
+    autoPlay: !!m.autoplay,
+    preload: "auto" as const,
+    onClick: (e: React.MouseEvent) => e.stopPropagation(), // un clic sur le lecteur ne fait pas avancer le diaporama
+    onTimeUpdate: () => {
+      const el = ref.current;
+      if (el && m.trimEnd && m.trimEnd > 0 && el.currentTime >= m.trimEnd) {
+        if (m.loop) el.currentTime = m.trimStart ?? 0;
+        else el.pause();
+      }
+    },
+  };
+  return m.kind === "video" ? <video className="ce-media" {...common} /> : <audio className="ce-media ce-media--audio" {...common} />;
+}
+
 /** Renders one element (read-only or as part of the editable surface). */
 function ElementView({
   el,
   scale,
   slideNumber,
+  playMedia,
   editing,
   onEditInput,
   onCellEdit,
 }: {
   el: SlideElement;
   slideNumber?: number;
+  playMedia?: boolean;
   scale: number;
   editing: boolean;
   onEditInput?: (html: string) => void;
@@ -218,6 +252,9 @@ function ElementView({
     ) : (
       <div className="ce-imgph">Image</div>
     );
+  }
+  if (el.type === "media" && el.media) {
+    return <MediaView m={el.media} play={!!playMedia} />;
   }
   if (el.type === "table" && el.table) {
     return (
@@ -296,6 +333,7 @@ export default function SlideCanvas({
   onCanvasContext,
   reveal,
   slideNumber,
+  playMedia,
 }: SlideCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -617,6 +655,7 @@ export default function SlideCanvas({
             <ElementView
               el={elm}
               slideNumber={slideNumber}
+              playMedia={playMedia}
               scale={scale}
               editing={editing}
               onEditInput={(html) => onChange?.(elm.id, { html }, false)}

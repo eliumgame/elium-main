@@ -102,6 +102,7 @@ import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
 import MasterEditor from "./MasterEditor";
+import HandoutsDialog from "./HandoutsDialog";
 import {
   TABLE_STYLES,
   deleteCol as tDeleteCol,
@@ -222,6 +223,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [masterOpen, setMasterOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -853,6 +855,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             </button>
           </>
         )}
+        <button
+          className="eb eb--sm eb--outline"
+          title="Imprimer : documents (1 à 9 par page), pages de notes, export PDF"
+          onClick={() => setPrintOpen(true)}
+        >
+          <Copy size={14} /> Imprimer
+        </button>
         {canWrite && (
           <button
             className="eb eb--sm eb--outline"
@@ -1811,6 +1820,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           />
         </Modal>
       )}
+      {printOpen && <HandoutsDialog deck={deck} title={chrome.title} onClose={() => setPrintOpen(false)} />}
       {masterOpen && (
         <MasterEditor master={deck.master} onApply={(m) => store.applyMaster(m)} onClose={() => setMasterOpen(false)} />
       )}

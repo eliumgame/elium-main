@@ -29,7 +29,12 @@ import {
   type ElementType,
   type ChartData,
   type ChartKind,
+  type LayoutPlaceholder,
+  type PlaceholderKind,
+  type SlideLayoutDef,
+  type SlideMaster,
 } from "./model";
+import { defaultMaster } from "./master";
 
 const PRST_TO_KIND: Record<string, ShapeKind> = {
   rect: "rect",
@@ -314,6 +319,15 @@ function parseLevels(xml: string, theme: ThemeCtx): Record<number, LevelStyle> {
   }
   return out;
 }
+
+/** Nature d'un espace réservé PPTX dans notre modèle (null = date, image de diapo… : non reproduit). */
+const phKindOf = (t: string | undefined): PlaceholderKind | null => {
+  if (t === "ctrTitle" || t === "title") return "title";
+  if (t === "ftr") return "footer";
+  if (t === "sldNum") return "slideNumber";
+  if (t === "dt" || t === "sldImg") return null;
+  return "body";
+};
 
 const normPhType = (t: string | undefined): string => {
   if (t === "ctrTitle" || t === "title") return "title";
@@ -614,10 +628,12 @@ function parseSp(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
     if (!html) return null;
     const algn = attr(/<a:pPr\b[^>]*>/.exec(block)?.[0] ?? "", "algn") ?? levels[0]?.algn;
     const anchor = attr(bodyPr?.[1] ?? "", "anchor") ?? rph?.anchor;
+    const phKind = ph ? phKindOf(ph.type) : null;
     return el(
       {
         type: "text",
         html,
+        ...(phKind ? { ph: phKind } : {}),
         fontSize: szToPx(baseSz, fontScale),
         ...(color ? { color } : {}),
         align: algn === "ctr" ? "center" : algn === "r" ? "right" : "left",
@@ -955,6 +971,71 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
     return ctx;
   };
 
+  // --- Masque et dispositions (premier masque du fichier) -----------------------
+  const firstSlideRels = slidePaths.length ? text(relsOf(slidePaths[0]!)) : undefined;
+  const firstLayoutTarget = firstSlideRels ? relOfType(firstSlideRels, "/slideLayout") : undefined;
+  const firstLayoutPath = firstLayoutTarget && slidePaths[0] ? resolveFrom(slidePaths[0], firstLayoutTarget) : undefined;
+  const masterRelTarget = firstLayoutPath ? relOfType(text(relsOf(firstLayoutPath)), "/slideMaster") : undefined;
+  const masterPartPath = firstLayoutPath && masterRelTarget ? resolveFrom(firstLayoutPath, masterRelTarget) : undefined;
+  let master: SlideMaster | undefined;
+  const layoutIdByPath = new Map<string, string>();
+  if (masterPartPath && text(masterPartPath)) {
+    const mRels = text(relsOf(masterPartPath)) ?? "";
+    const layoutPaths = [...mRels.matchAll(/<Relationship\b([^>]*)\/?>/g)]
+      .filter((m) => (attr(m[1]!, "Type") ?? "").endsWith("/slideLayout"))
+      .map((m) => resolveFrom(masterPartPath, attr(m[1]!, "Target") ?? ""));
+    const themeT = relOfType(mRels, "/theme");
+    const themeXml = text(themeT ? resolveFrom(masterPartPath, themeT) : undefined) ?? "";
+    const th = parseTheme(themeXml, text(masterPartPath));
+    const latin = (tag: string) => attr(new RegExp(`<a:${tag}>\\s*<a:latin\\b([^>]*)`).exec(themeXml)?.[0] ?? "", "typeface") ?? undefined;
+    const base = defaultMaster();
+    const hexOf = (k: string, d: string) => (th.scheme[k] ? `#${th.scheme[k]}` : d);
+    const layouts: SlideLayoutDef[] = [];
+    layoutPaths.forEach((lp, i) => {
+      const xml = text(lp);
+      if (!xml) return;
+      const ic = inheritFor(lp);
+      const placeholders: LayoutPlaceholder[] = [];
+      const counts: Record<string, number> = {};
+      for (const p of ic.layoutPhs) {
+        const kind = phKindOf(p.type);
+        if (!kind) continue;
+        const r = resolvePh(p.type, p.idx, ic);
+        const xf = r.xf;
+        if (!xf) continue;
+        counts[kind] = (counts[kind] ?? 0) + 1;
+        const lvl0 = r.levels[0];
+        placeholders.push({
+          id: `${kind}${counts[kind]}`,
+          kind,
+          x: round1((xf.x / cx) * 100),
+          y: round1((xf.y / cy) * 100),
+          w: round1((xf.w / cx) * 100),
+          h: round1((xf.h / cy) * 100),
+          fontSize: szToPx(lvl0?.sz ?? (kind === "title" ? 4400 : 2400), 1),
+          align: lvl0?.algn === "ctr" ? "center" : lvl0?.algn === "r" ? "right" : "left",
+          valign: r.anchor === "ctr" ? "middle" : r.anchor === "b" ? "bottom" : "top",
+        });
+      }
+      const name = /<p:cSld\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] ?? `Disposition ${i + 1}`;
+      const id = `lay-imp-${i + 1}`;
+      layoutIdByPath.set(lp, id);
+      layouts.push({ id, name: unescapeXml(name), placeholders });
+    });
+    if (layouts.length)
+      master = {
+        ...base,
+        name: attr(/<a:theme\b[^>]*>/.exec(themeXml)?.[0] ?? "", "name") ?? base.name,
+        fontHeading: latin("majorFont") ?? base.fontHeading,
+        fontBody: latin("minorFont") ?? base.fontBody,
+        colorTitle: hexOf("tx2", base.colorTitle),
+        colorBody: hexOf("tx1", base.colorBody),
+        colorAccent: hexOf("accent1", base.colorAccent),
+        background: hexOf("bg1", base.background),
+        layouts,
+      };
+  }
+
   const slides: Slide[] = [];
   slidePaths.forEach((path) => {
     const xml = text(path);
@@ -981,6 +1062,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
       return "";
     })();
     const sld = /<p:sld\b([^>]*)>/.exec(xml)?.[1] ?? "";
+    const layoutFull = layoutTarget ? resolveFrom(path, layoutTarget) : undefined;
+    const layoutId = layoutFull ? layoutIdByPath.get(layoutFull) : undefined;
     slides.push({
       id: newSlideId(),
       title: titleEl,
@@ -991,12 +1074,13 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
       ...(bg ? { background: bg } : {}),
       ...(notes ? { notes } : {}),
       ...(attr(sld, "show") === "0" ? { hidden: true } : {}),
+      ...(layoutId ? { layoutId } : {}),
     });
   });
 
   if (!slides.length)
     slides.push({ id: newSlideId(), title: "", body: "", bodyHtml: "", layout: "blank", elements: [] });
-  return { slides, active: 0, theme: "light", transition: "fade" };
+  return { slides, active: 0, theme: "light", transition: "fade", ...(master ? { master } : {}) };
 }
 
 /** Convenience wrapper for a File from an <input type="file">. */

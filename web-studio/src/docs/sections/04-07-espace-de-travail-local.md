@@ -1,28 +1,119 @@
 ### Espace de travail local
 
-L'accueil est un **espace de travail unique** : un catalogue de TOUS vos éléments locaux — documents `.elium`, tableurs, présentations et PDF — quel que soit le magasin qui en garde le contenu. Le catalogue ne contient que des métadonnées (titre, dossier, étiquettes, favori, dates, taille) ; le contenu reste dans les bases par type (`elium-drive`, `elium-sheets`, `elium-slides`, `elium-pdfs`).
+L'accueil est un **espace de travail unique**. Il liste tous vos éléments locaux :
+documents `.elium`, tableurs, présentations et PDF. Le catalogue ne garde que des
+informations (titre, dossier, étiquettes, favori, dates, taille). Le contenu est
+rangé dans des bases séparées par type, dans le stockage de l'application.
 
-- **Bibliothèque** : dossiers imbriqués, étiquettes, favoris, renommer / déplacer / dupliquer, affichage en grille ou en liste, tri, filtres par type, **sélection multiple** (clic, Ctrl/⌘, Maj, cases à cocher) et **glisser-déposer** vers un dossier (barre latérale, fil d'Ariane ou carte de dossier).
-- **Plusieurs classeurs et présentations** : chaque tableur / présentation est un élément distinct, autosauvegardé sous son identifiant. Un nouvel élément resté vierge n'est pas enregistré (pas d'éléments vides). L'ancien classeur / l'ancienne présentation unique (« current ») est **importé comme premier élément**, sans copie ni perte (déplacement atomique) ; un contenu jamais modifié est simplement retiré.
-- **PDF** : un PDF déposé ou importé rejoint la bibliothèque ; « Enregistrer » dans le module PDF réécrit le PDF dans la bibliothèque (destination d'enregistrement interne), comme il écrit dans un fichier ou dans le Drive.
-- **Corbeille** : tout « Supprimer » passe par la corbeille (**30 jours**), avec restauration. Supprimer un dossier emporte son contenu ; le restaurer le ramène. « Vider la corbeille » et « Supprimer définitivement » demandent confirmation et effacent aussi brouillons, versions et circuit Parapheur du document. Les éléments dépassant 30 jours sont purgés au démarrage.
-- **Coffre local** : avec le coffre actif, titres, étiquettes, noms de dossiers, classeurs, présentations, PDF et index de recherche sont chiffrés au repos. Activer, changer ou désactiver le coffre rechiffre tous les magasins de façon coordonnée, avec retour arrière si l'un échoue. Réinitialiser un coffre dont le mot de passe est perdu supprime aussi ces contenus (irrécupérables).
-- **Migrations IndexedDB** : chaque base locale a un schéma versionné (`format/idb-migrate.ts`, `format/db-specs.ts`) : étapes ordonnées, idempotentes, jamais destructives ; une étape qui réécrit des données est précédée d'une sauvegarde dans `elium-backups` (2 conservées par base). Une base plus récente que le build s'ouvre telle quelle.
+### Bibliothèque
 
-#### Recherche dans tout l'espace
+- Dossiers imbriqués, étiquettes, favoris.
+- Renommer, déplacer, dupliquer.
+- Affichage en grille ou en liste, tri, filtres par type.
+- **Sélection multiple** : clic, Ctrl, Maj, cases à cocher.
+- **Glisser-déposer** vers un dossier (barre latérale, fil d'Ariane ou carte de dossier).
+- Chaque tableur et chaque présentation est un élément distinct. Un élément resté vierge n'est pas enregistré.
+- Un PDF déposé ou importé rejoint la bibliothèque.
 
-Raccourci **Ctrl/⌘+Maj+F**, champ de l'en-tête ou palette de commandes. Recherche plein texte (titres + contenu extrait de chaque type : documents, cellules, diapositives et notes, texte des PDF) insensible à la casse et aux accents, tous les mots exigés, préfixes acceptés, résultats classés et **surlignés**, avec filtres par type, dossier (sous-dossiers inclus), étiquette et période. L'index est **incrémental** (seuls les éléments modifiés sont relus, par petits morceaux en tâche de fond) et persisté. Avec le coffre local il est chiffré en un seul enregistrement et jamais écrit en clair ; les éléments protégés ne sont indexés que coffre déverrouillé. Un document chiffré par son **propre** mot de passe n'est pas lisible en arrière-plan : seul son titre est indexé.
+### Corbeille
 
-**Rechercher / remplacer dans tous les documents** : on analyse les `.elium` non chiffrés, on voit chaque occurrence (avec son contexte, même à cheval sur du gras), on coche celles à remplacer, on applique, puis on peut **annuler** (l'original de chaque document est conservé, chiffré si le coffre est actif ; 3 opérations annulables). Un document modifié depuis l'analyse n'est jamais écrasé. Les documents **signés ou scellés** sont décochés par défaut : les modifier invalide les signatures et retire le sceau.
+Tout « Supprimer » passe par la corbeille, **30 jours**, avec restauration. Le
+nombre de jours restants est affiché. Supprimer un dossier emporte son contenu ;
+le restaurer le ramène. Les éléments de plus de 30 jours sont purgés au démarrage.
 
-#### Récents, récupération et fermeture anormale
+« Vider la corbeille » et « Supprimer définitivement » demandent confirmation.
+Ils effacent aussi les brouillons et les versions locales du document.
 
-L'accueil affiche les éléments récents (nombre réglable). Au démarrage, Elium détecte une **fermeture anormale** (plantage, processus tué) et affiche les brouillons récupérables avec aperçu, date et taille : **Récupérer**, télécharger en `.docx` ou supprimer. Un brouillon est supprimé automatiquement dès que le document est enregistré ; ceux qui correspondent à un document déjà enregistré sont signalés. Les PDF dont des modifications n'ont pas été enregistrées sont listés avec un bouton « Rouvrir » quand le fichier d'origine est connu.
+### Recherche dans tout l'espace
 
-#### Sauvegarde et restauration (`.elium-workspace`)
+Ouvrez-la avec **Ctrl+Maj+F**, le champ de l'en-tête ou la palette de commandes.
 
-Réglages → Espace de travail. Export de tout l'espace (éléments, dossiers, étiquettes, favoris, corbeille, préférences) dans une archive zip, **facultativement chiffrée par mot de passe** (conteneur Elium Argon2id + AES-256-GCM). L'identité de signature, la clé de réception, le carnet de confiance et les sceaux épinglés n'y entrent **que sur demande explicite**. Avec le coffre actif, l'archive contient les données déchiffrées : sans mot de passe d'archive elle est lisible par quiconque la détient (une confirmation l'explique). Non inclus : historique de versions locales, circuits Parapheur (ils voyagent dans les `.elium`) et brouillons. La restauration montre le contenu avant d'agir et propose, pour les éléments déjà présents, **garder les deux / remplacer / ignorer**. Un rappel de sauvegarde (7, 14 ou 30 jours) peut être activé.
+| Point | Comportement |
+|---|---|
+| Ce qui est indexé | Titre et texte : documents, cellules texte des tableurs (formules ignorées), diapositives (titres, corps, notes, tableaux, titres de graphiques), texte des PDF |
+| Plafond | 200 000 caractères par élément |
+| Casse et accents | Ignorés |
+| Syntaxe | Aucune syntaxe spéciale (pas de guillemets, pas de OR, pas de `-mot`) |
+| Mots | **Tous** les mots sont exigés |
+| Correspondance | Par **sous-chaîne** : « cont » trouve « contrat » |
+| Classement | Bonus si la phrase exacte est présente |
+| Résultats | 200 au maximum, avec surlignage. Au-delà, affinez la recherche |
+| Filtres | Type, dossier, étiquette, « Modifié depuis », « Modifié jusqu'au » |
 
-#### Ouvrir et enregistrer en place
+L'index est **incrémental** : seuls les éléments modifiés sont relus, en tâche de
+fond. Il est conservé. Avec le coffre local, il est chiffré. Un élément pas encore
+indexé est trouvé par son titre et ses étiquettes. Un `.elium` chiffré par son
+propre mot de passe, ou un PDF protégé, n'est indexé que par son titre. Les
+éléments verrouillés sont exclus.
 
-Dans l'application de bureau (Edge `--app`) et les navigateurs Chromium, « **Ouvrir…** » (Ctrl/⌘+O) et « **Enregistrer** » utilisent l'API File System Access : le fichier choisi est **réécrit sur place**, sa poignée est conservée (IndexedDB) pour les enregistrements suivants, et la permission est redemandée au clic si le navigateur l'a retirée. « **Enregistrer sous…** » (Ctrl/⌘+Maj+S) choisit un nouvel emplacement. L'emplacement est demandé AVANT le chiffrement (geste utilisateur exigé). Sans cette API (Firefox, Safari), repli sur le téléchargement. La PWA installée déclare `file_handlers` : un double-clic sur un `.elium` l'ouvre (`launchQueue`) ; le pont du lanceur de bureau (`/__open__`) reste actif.
+Réglages, Espace de travail, **Reconstruire l'index** repart de zéro.
+
+### Rechercher et remplacer dans les documents
+
+Accessible par « Rechercher / remplacer dans les documents ».
+
+1. Saisissez **Rechercher** et **Remplacer par**. Options : « Respecter la casse », « Mot entier ». Le texte est **littéral** (pas d'expression régulière).
+2. **Analyser** : Elium liste chaque occurrence avec son contexte.
+3. Cochez ce qui doit changer, puis **Remplacer**.
+4. Vous pouvez **annuler** : les trois dernières opérations sont conservées.
+
+Il ne s'applique qu'aux `.elium`. Les documents chiffrés sont signalés « Chiffré :
+non analysable ». Les documents **signés** ou **scellés** sont décochés par
+défaut : les modifier invalide les signatures. Un document modifié depuis l'analyse
+n'est jamais écrasé.
+
+### Récents et récupération après arrêt anormal
+
+L'accueil affiche les éléments récents (de 4 à 24, réglable). Au démarrage,
+Elium détecte une fermeture anormale (plantage, processus arrêté). Il affiche
+alors « Elium ne s'est pas fermé correctement » avec les brouillons récupérables.
+
+| Bouton | Effet |
+|---|---|
+| Récupérer | Rouvre le brouillon |
+| Télécharger en .docx | Exporte le brouillon |
+| Supprimer le brouillon, Tout supprimer | Efface |
+| Rouvrir | Pour un PDF modifié non enregistré, quand le fichier d'origine est connu |
+| Masquer | Ferme l'avis |
+
+Un brouillon chiffré s'affiche sans aperçu et demande son mot de passe. Les
+brouillons restent jusqu'à ce que vous les supprimiez ou les enregistriez.
+
+### Coffre local
+
+Optionnel. Avec le coffre actif, les titres, étiquettes, dossiers, tableurs,
+présentations, PDF et l'index de recherche sont chiffrés au repos, avec un mot de
+passe séparé. Activer, changer ou désactiver le coffre rechiffre tous les magasins,
+avec retour arrière si l'un échoue. **Un mot de passe de coffre perdu est
+irrécupérable** : le réinitialiser supprime aussi ces contenus.
+
+### Sauvegarde et restauration `.elium-workspace`
+
+**Réglages, Espace de travail.** Une archive zip contient les éléments, dossiers,
+étiquettes, favoris, corbeille et réglages.
+
+| Réglages sauvegardés | `elium_prefs`, raccourcis, langue, thème, correcteur, commandes récentes |
+|---|---|
+| Sur demande seulement | Identité de signature, clé de réception, carnet de confiance, sceaux épinglés |
+| Jamais | Historique de versions locales, circuits Parapheur (ils sont dans les `.elium`), brouillons, racines de confiance C2PA et réglages du Détecteur |
+
+- Le **mot de passe d'archive** est facultatif (Argon2id + AES-256-GCM). Sans lui, le fichier est lisible par quiconque le détient. Avec le coffre actif, l'archive contient les données **déchiffrées** : Elium vous avertit.
+- La **restauration** montre le contenu avant d'agir. Pour un élément déjà présent : « Garder les deux », « Remplacer par la version de la sauvegarde » ou « Ignorer ».
+- Un **rappel de sauvegarde** (7, 14 ou 30 jours) peut être activé.
+- Limites de lecture : 256 Mo par entrée, 50 000 entrées.
+
+### Ouvrir et enregistrer en place
+
+Dans l'application de bureau et les navigateurs Chromium, **Ouvrir…** (Ctrl+O) et
+**Enregistrer** (Ctrl+S) utilisent l'API d'accès aux fichiers. Le fichier est
+**réécrit sur place**, sa poignée est conservée et la permission est redemandée
+si besoin. **Enregistrer sous…** est Ctrl+Maj+S. Sans cette API (Firefox, Safari),
+Elium télécharge le fichier.
+
+### Limites connues de l'espace de travail
+
+- Tout est **local à ce profil** et à son adresse (voir Dépannage et FAQ : changement de port). Aucune synchronisation entre PC.
+- La recherche n'a pas de syntaxe avancée et plafonne à 200 résultats.
+- Le remplacement en lot ne traite pas les tableurs et les PDF.
+- La sauvegarde ne contient pas l'historique de versions locales.
+- Un mot de passe de coffre ou d'archive perdu ne se récupère pas.

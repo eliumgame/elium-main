@@ -1,13 +1,108 @@
 ### Détecteur
 
-Outil d'assistance à la relecture qui analyse un document (`.elium`/.docx/.pdf) ou une image seule (PNG/JPEG/WebP) à la recherche d'**indices statistiques et documentaires** — pas un modèle d'IA entraîné, pas un verdict : régularité stylistique du texte (longueur de phrase/paragraphe, tournures clichées, amorces répétées, tiret cadratin, densité de listes), incohérences de mise en forme, métadonnées suspectes (révisions, temps d'édition, dates), marqueurs de provenance dans les images, plus une recherche de plagiat optionnelle sur le web. Chaque signal cite la valeur mesurée et son seuil ; le rapport affiche toujours un score indicatif (0-100) et un disclaimer rappelant qu'il ne s'agit jamais d'une preuve.
+Le Détecteur est une **aide à la relecture**. Il analyse un fichier et signale des
+**indices**. Il ne rend jamais de verdict : le score de 0 à 100 est indicatif, et
+le rapport rappelle toujours qu'il n'est pas une preuve.
 
-**Seuils non calibrés sur corpus réel** : les signaux « texte » utilisent des seuils documentés dans le code (coefficient de variation, occurrences pour 1000 mots…), pas calibrés sur un corpus réel de textes humains variés. Un document administratif ou technique français très structuré (listes nombreuses, tournures figées, jargon répétitif) peut donc déclencher des faux positifs sur ces signaux ; un préréglage « style administratif/technique » et un avertissement dédié sont proposés dans les réglages de sensibilité pour ce cas précis.
+Formats acceptés : `.elium`, `.docx`, `.pdf`, `.png`, `.jpg`, `.webp`. Les fichiers
+protégés par mot de passe ne sont pas analysés.
 
-**Provenance C2PA des images (vérifiée)** : le manifeste C2PA est réellement analysé — boîtes JUMBF (JPEG APP11 y compris fragmenté, PNG `caBX`, WebP `C2PA`, MP4), CBOR, assertions `c2pa.actions` (`digitalSourceType`, dont `trainedAlgorithmicMedia`), signature COSE_Sign1 (ES256/384/512, PS256/384/512, EdDSA), chaîne de certificats X.509, **liaison forte** `c2pa.hash.data` contre les octets réels de l'image et empreintes des assertions. Quatre issues, pondérées différemment dans le score : **valide et émetteur reconnu** (poids fort), **signature valide mais émetteur non reconnu** (poids moyen — n'importe qui peut signer avec son propre certificat), **invalide** (image ou manifeste altéré : indice faible, une retouche légitime sans re-signature donne le même résultat), **non vérifiable** (retour à la simple recherche de chaîne, signalée comme provenance déclarée non authentifiée). Aucune liste de confiance n'est embarquée : importez vos racines (.pem/.cer/.crt) dans « Racines de confiance C2PA » ; elles sont conservées sur l'appareil. Limites : révocation et horodatage non vérifiés (hors ligne), `c2pa.hash.bmff` non vérifié, usages de clé non contrôlés, interopérabilité à confirmer sur un corpus de fichiers réels. L'absence de manifeste reste une **vérification non concluante**, jamais une preuve d'authenticité.
+### Ce qui est analysé
 
-**Analyse par lot** : déposez plusieurs fichiers ou un dossier ; chacun est analysé isolément (un fichier protégé ou illisible n'arrête pas le lot) et les résultats s'affichent dans un tableau exportable en CSV (Excel français, protégé contre l'injection de formule) ou JSON (rapports complets).
+| Famille | Exemples d'indices |
+|---|---|
+| Texte | Régularité des phrases et des paragraphes, tournures répétées, amorces répétées, tiret cadratin, densité de listes |
+| Mise en forme | Incohérences de styles |
+| Métadonnées | Révisions, temps d'édition, dates |
+| Images | Marqueurs de provenance, justificatifs C2PA |
+| Plagiat (optionnel) | Voir plus bas |
 
-**OCR PDF** : la reconnaissance utilise un pool de workers dimensionné au matériel (1 à 4), ignore les pages blanches et celles qui contiennent déjà du texte, accepte des plages de pages (« 1-5, 20-30 »), affiche sa progression et reste annulable ; une exécution interrompue conserve les pages déjà reconnues et **reprend** là où elle s'est arrêtée. **Caviardage vérifié** : avant l'enregistrement, le texte sous chaque zone noire est relevé ; après écriture, le fichier produit est relu et une alerte bloquante signale tout texte encore lisible (sinon « aucune donnée sous le noir » est confirmé). Fichier protégé par mot de passe : vérification non faite, et dite. Une image contenant du texte n'est pas lue. **Marques en lot** : depuis l'écran d'ouverture du PDF, « Bates / en-têtes en lot » applique numérotation Bates (continue d'un fichier au suivant), en-têtes, pieds de page et filigrane à plusieurs PDF ; résultat en archive .zip avec un registre CSV (fichier, pages, premier et dernier numéro). **Accessibilité PDF (PDF/UA, bases)** : « Vérification de l'accessibilité » propose de baliser le document — chaque objet texte devient un paragraphe et chaque image une figure, dans l'ordre du flux de contenu, avec arbre de structure, langue et titre — puis d'éditer les textes de remplacement des images. Limites : ordre de lecture à vérifier, titres/listes/tableaux non détectés, contenu graphique non marqué comme artefact, annotations et formulaires non rattachés ; un document déjà balisé n'est jamais re-balisé. **PDF/A-2b** : la conversion ajoute un contrôle indépendant au rapport des points non conformes. **Accessibilité de la suite** : annonces lecteur d'écran (cellule active du Tableur, page lue du PDF, élément sélectionné d'une diapositive), anneau de focus contrasté, diapositives pilotables au clavier (Tab entre éléments, flèches pour déplacer, Alt + flèches pour redimensionner, Entrée pour éditer, Suppr pour supprimer), scans axe-core étendus, gardes de performance (`tests/perf-guards.test.ts`).
+Chaque indice cite la valeur mesurée et son seuil. Les seuils du texte **ne sont
+pas calibrés sur un corpus réel**. Un document administratif ou technique très
+structuré peut donc déclencher de faux positifs.
 
-**Plagiat (optionnel)** : envoie un échantillon d'extraits distinctifs (jusqu'à 60 passages, jamais le document entier) à un moteur de recherche web public (Serper ou Bing) configuré avec la clé API de l'utilisateur, comparé aux courts extraits (snippets) tronqués renvoyés. Recherche web publique uniquement — aucune base académique n'est consultée — et ne remplace pas un outil de détection de plagiat dédié : une correspondance trouvée est un indice à vérifier soi-même, une absence de correspondance ne prouve rien.
+### Réglages de sensibilité
+
+« Réglages de sensibilité » permet de **désactiver des signaux un par un**. Le choix
+est mémorisé sur l'appareil. Le bouton « Appliquer le préréglage style
+administratif/technique » coupe les signaux les plus sensibles à ce type de
+texte. Il n'y a pas de curseur de seuil.
+
+### Aperçu annoté
+
+Le rapport propose « Aperçu du document » : les passages repérés sont soulignés en
+rouge. L'aperçu charge 400 paragraphes à la fois (boutons « Charger les
+paragraphes précédents » et « suivants »). Depuis un indice, « Voir dans le
+document » y amène.
+
+### Vérification C2PA des images
+
+C2PA est un standard de justificatifs de contenu : un manifeste signé indique
+qui a produit une image et comment. Elium **vérifie réellement** ce manifeste :
+
+- lecture des boîtes JUMBF et du CBOR (JPEG, PNG, WebP) ;
+- signature COSE (ES256, ES384, ES512, PS256, PS384, PS512, EdDSA) ;
+- chaîne de certificats X.509 ;
+- liaison de la signature aux octets réels de l'image (`c2pa.hash.data`) et empreintes des assertions ;
+- mention d'une génération par IA (`trainedAlgorithmicMedia`) lue dans les actions.
+
+Pour un `.docx`, un `.pdf` ou un `.elium`, seules les images **incorporées** sont
+vérifiées.
+
+| Issue | Sens | Poids dans le score |
+|---|---|---|
+| Valide, émetteur reconnu | Signature correcte, racine dans votre liste de confiance | Fort |
+| Valide, émetteur non reconnu | Signature correcte, mais n'importe qui peut signer avec son certificat | Moyen |
+| Invalide | Image ou manifeste altéré. Une retouche légitime non re-signée donne le même résultat | Faible |
+| Non vérifiable | Manifeste illisible ou incomplet | Signalé comme provenance non authentifiée |
+| Absent | Aucun manifeste | **Non concluant**, jamais une preuve d'authenticité |
+
+#### Liste de confiance importable
+
+**Aucune racine n'est embarquée.** Importez les vôtres : « Racines de confiance
+C2PA », bouton « Importer des racines… ». Formats `.pem`, `.cer`, `.crt`, `.der`.
+La confiance repose sur l'empreinte SHA-256 du certificat. Le bouton « Retirer la
+racine… » supprime une entrée. Sans racine, toute signature valide est « émetteur
+non reconnu ».
+
+La liste est conservée dans le stockage de l'application. Elle n'est **pas**
+incluse dans la sauvegarde `.elium-workspace`.
+
+### Analyse par lot
+
+« Choisir un ou plusieurs fichiers… » ou « Analyser un dossier… ». Chaque fichier
+est analysé seul : un fichier illisible n'arrête pas le lot. Le traitement est
+séquentiel et annulable.
+
+Le tableau montre Fichier, Statut, Score global, Confiance, Principaux constats,
+C2PA. Exports : **CSV** (séparateur « ; », protégé contre l'injection de formule)
+et **JSON**.
+
+> Le lot **n'exécute pas** la recherche de plagiat.
+
+### Rapport
+
+Pour un fichier : « Exporter en .docx » ou « Exporter en PDF » (impression du
+navigateur). Le rapport contient le score, les constats, le plagiat s'il a été
+lancé et une section « Document analysé (annoté) ». Cette section reproduit le
+texte, les titres et les listes, pas la mise en forme d'origine.
+
+### Recherche de plagiat (optionnelle)
+
+Case « Vérifier aussi le plagiat sur le web ». Choisissez un moteur (Serper ou
+Bing) et saisissez **votre** clé API. Elium envoie jusqu'à 60 extraits
+distinctifs, jamais le document entier, et compare les résultats à de courts
+extraits. Aucune base académique n'est consultée.
+
+- La clé API est stockée **en clair** dans le stockage de l'application.
+- Une absence de correspondance ne prouve rien.
+
+### Limites connues du Détecteur
+
+- **Plagiat bloqué dans l'application de bureau.** La politique de sécurité du lanceur autorise les connexions vers l'application elle-même uniquement. Les requêtes vers Serper et Bing y sont refusées : chaque passage échoue. L'interface ne prévient pas. Le plagiat n'est utilisable que dans une version web servie sans cette politique, et à condition que le moteur accepte les appels depuis le navigateur (non vérifié).
+- Ce sont des indices statistiques, pas un modèle d'IA entraîné et pas un verdict.
+- Seuils non calibrés : faux positifs possibles sur les textes administratifs.
+- Révocation des certificats, horodatage RFC 3161, usages de clé et `c2pa.hash.bmff` ne sont **pas** vérifiés.
+- La vidéo n'est pas acceptée à l'import : seuls les formats listés plus haut le sont.
+- L'absence de manifeste C2PA est non concluante.
+- Les réglages de sensibilité et les racines de confiance ne voyagent pas avec les sauvegardes.

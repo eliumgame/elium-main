@@ -1,0 +1,7 @@
+# Environnement de TEST / lint / audit du CI (matrice Python 3.9 -> 3.13).
+-r runtime.in
+pytest>=7.0
+pytest-cov
+ruff
+pip-audit
+cyclonedx-bom

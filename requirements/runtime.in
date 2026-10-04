@@ -1,0 +1,3 @@
+# Dépendances d'EXÉCUTION de l'application (miroir de [project].dependencies de pyproject.toml).
+cryptography>=41.0.0
+argon2-cffi>=23.1.0

@@ -6,21 +6,33 @@ updates:
   - package-ecosystem: npm
     directory: /web-studio
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 3
     groups:
       minor-and-patch:
         update-types: [minor, patch]
   - package-ecosystem: npm
     directory: /server
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 3
     groups:
       minor-and-patch:
         update-types: [minor, patch]
   - package-ecosystem: pip
     directory: /requirements
     schedule: { interval: weekly }
-    open-pull-requests-limit: 5
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 3
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
@@ -30,9 +42,21 @@ updates:
   - package-ecosystem: docker
     directory: /server
     schedule: { interval: weekly }
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /web-studio
     schedule: { interval: weekly }
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    # Les montées de version MAJEURES (TypeScript 7, Vite 8, Node 26…) cassent le build : on les traite à la main.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

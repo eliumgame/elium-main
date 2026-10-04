@@ -19,7 +19,7 @@ Chaque module a sa rubrique avec ses fonctions et ses **limites connues**.
 
 ### Principes communs
 
-- **Un fichier, un format** : Documents, Tableur et Présentations enregistrent en `.elium`. Le fichier peut être chiffré, signé et scellé. Le PDF garde son format d'origine dans la bibliothèque et peut être exporté.
+- **Un fichier, un format** : Documents, Tableur et Présentations enregistrent en `.elium`. Le fichier peut être chiffré, signé et scellé. Le PDF reste un PDF standard, ou s'enregistre en `.elium`.
 - **Enregistrement automatique** : un brouillon est conservé dans l'application. Les classeurs et les présentations s'enregistrent en continu. Pour un fichier sur disque, utilisez Ctrl+S.
 - **Import et export** : DOCX, XLSX, PPTX et PDF s'importent et s'exportent sans service en ligne.
 - **Palette de commandes** : Ctrl+K liste les actions du module affiché. Ctrl+Maj+P ouvre la palette globale.

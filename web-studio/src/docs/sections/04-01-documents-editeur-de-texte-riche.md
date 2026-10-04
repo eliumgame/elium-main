@@ -34,7 +34,7 @@ Facture, Courrier, Fiche technique, CV, Lettre de motivation, Compte rendu de
 réunion, Mémo, Procès-verbal, Devis. Seuls le Compte rendu et le Procès-verbal
 ont une mise en page propre (en-tête ou pied, numéros de page).
 
-### Graphiques
+### Graphiques dans un document
 
 **Insertion, Éléments** : le bouton « Insérer un graphique ». Un clic sur un
 graphique existant le rouvre (« Modifier le graphique »).

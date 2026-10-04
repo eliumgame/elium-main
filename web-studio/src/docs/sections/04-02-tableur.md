@@ -27,7 +27,7 @@ résultat débordé.
 Une fonction ordinaire appliquée à une plage se propage sur le résultat. Un
 tableau est limité à 1 000 000 de cellules, sinon `#NUM`.
 
-### Graphiques
+### Graphiques du classeur
 
 Ruban : « Insérer un graphique (depuis la sélection) ».
 

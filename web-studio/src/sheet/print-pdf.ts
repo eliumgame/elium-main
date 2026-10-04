@@ -24,7 +24,12 @@ export async function printPagesHtml(
   const size = pageSizePx(setup);
   const m = setup.margins;
   const pages = plan.pages.map((pg) => {
-    const t = sheetToHtml(wb, index, { rows: pg.rows, cols: pg.cols, gridlines: setup.gridlines, headings: setup.headings });
+    const t = sheetToHtml(wb, index, {
+      rows: pg.rows,
+      cols: pg.cols,
+      gridlines: setup.gridlines,
+      headings: setup.headings,
+    });
     const ctx = { page: pg.index, pages: plan.pages.length, sheet: sheet.name };
     const head = expandHeaderFooter(setup.header, ctx);
     const foot = expandHeaderFooter(setup.footer, ctx);
@@ -60,7 +65,11 @@ export async function sheetToPdf(
     lang: "fr",
     css: built.css,
     body: built.pages.join(""),
-    page: { width: built.width * PX_PT, height: built.height * PX_PT, margin: { top: 0, right: 0, bottom: 0, left: 0 } },
+    page: {
+      width: built.width * PX_PT,
+      height: built.height * PX_PT,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    },
     creator: "Elium — Excel",
   };
   const rendered = await renderHtmlSource(source, { onProgress });

@@ -118,7 +118,7 @@
   height: 34px;
   max-width: 220px;
 }
-.sv-media-bar input[type=number] {
+.sv-media-bar input[type="number"] {
   width: 64px;
 }
 .sv-media-bar label {

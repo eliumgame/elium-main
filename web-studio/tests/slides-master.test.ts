@@ -16,13 +16,35 @@ import {
 } from "../src/slides/master";
 import type { Deck, Slide } from "../src/slides/model";
 
-const slide = (els: Slide["elements"] = []): Slide => ({ id: "s", title: "", body: "", layout: "blank", elements: els });
-const txt = (id: string, html: string, extra = {}) => ({ id, type: "text" as const, x: 1, y: 1, w: 10, h: 10, html, ...extra });
+const slide = (els: Slide["elements"] = []): Slide => ({
+  id: "s",
+  title: "",
+  body: "",
+  layout: "blank",
+  elements: els,
+});
+const txt = (id: string, html: string, extra = {}) => ({
+  id,
+  type: "text" as const,
+  x: 1,
+  y: 1,
+  w: 10,
+  h: 10,
+  html,
+  ...extra,
+});
 
 describe("masque par défaut", () => {
   it("six dispositions avec pied de page et numéro", () => {
     const m = defaultMaster();
-    expect(m.layouts.map((l) => l.name)).toEqual(["Diapositive de titre", "Titre et contenu", "En-tête de section", "Deux contenus", "Titre seul", "Vierge"]);
+    expect(m.layouts.map((l) => l.name)).toEqual([
+      "Diapositive de titre",
+      "Titre et contenu",
+      "En-tête de section",
+      "Deux contenus",
+      "Titre seul",
+      "Vierge",
+    ]);
     expect(m.layouts.every((l) => l.placeholders.some((p) => p.kind === "slideNumber"))).toBe(true);
   });
 });
@@ -36,11 +58,18 @@ describe("appliquer une disposition", () => {
     const t = s.elements!.find((e) => e.ph === "title")!;
     expect(t.fontFamily).toBe("Calibri Light");
     expect(t.html).toContain(PLACEHOLDER_PROMPT.title);
-    expect(applyLayout(slide(), { ...m, footerText: "Confidentiel" }, "lay-contenu").elements!.some((e) => e.ph === "footer" && e.html!.includes("Confidentiel"))).toBe(true);
+    expect(
+      applyLayout(slide(), { ...m, footerText: "Confidentiel" }, "lay-contenu").elements!.some(
+        (e) => e.ph === "footer" && e.html!.includes("Confidentiel"),
+      ),
+    ).toBe(true);
   });
   it("conserve le contenu saisi en changeant de disposition, déplace/restyle l'espace réservé", () => {
     const a = applyLayout(slide(), m, "lay-contenu");
-    const filled: Slide = { ...a, elements: a.elements!.map((e) => (e.ph === "title" ? { ...e, html: "<p>Mon titre</p>" } : e)) };
+    const filled: Slide = {
+      ...a,
+      elements: a.elements!.map((e) => (e.ph === "title" ? { ...e, html: "<p>Mon titre</p>" } : e)),
+    };
     const b = applyLayout(filled, m, "lay-titre");
     const t = b.elements!.find((e) => e.ph === "title")!;
     expect(t.html).toBe("<p>Mon titre</p>");
@@ -50,7 +79,10 @@ describe("appliquer une disposition", () => {
   });
   it("espaces réservés en trop : vides retirés, remplis conservés comme éléments ordinaires ; éléments libres intacts", () => {
     const a = applyLayout(slide([txt("free", "<p>libre</p>")]), m, "lay-deux");
-    const withBody2 = { ...a, elements: a.elements!.map((e) => (e.ph === "body" ? { ...e, html: "<p>rempli</p>" } : e)) };
+    const withBody2 = {
+      ...a,
+      elements: a.elements!.map((e) => (e.ph === "body" ? { ...e, html: "<p>rempli</p>" } : e)),
+    };
     const c = applyLayout(withBody2, m, "lay-vierge");
     expect(c.elements!.some((e) => e.ph === "body")).toBe(false);
     expect(c.elements!.some((e) => e.html === "<p>rempli</p>" && !e.ph)).toBe(true);
@@ -67,7 +99,10 @@ describe("réinitialiser et propager", () => {
   const m = defaultMaster();
   it("« Réinitialiser » remet géométrie et style, garde le texte", () => {
     const a = applyLayout(slide(), m, "lay-contenu");
-    const moved: Slide = { ...a, elements: a.elements!.map((e) => (e.ph === "title" ? { ...e, x: 50, y: 50, fontSize: 12, html: "<p>X</p>" } : e)) };
+    const moved: Slide = {
+      ...a,
+      elements: a.elements!.map((e) => (e.ph === "title" ? { ...e, x: 50, y: 50, fontSize: 12, html: "<p>X</p>" } : e)),
+    };
     const r = resetSlide(moved, m);
     const t = r.elements!.find((e) => e.ph === "title")!;
     expect([t.x, t.y, t.fontSize, t.html]).toEqual([7, 6, 40, "<p>X</p>"]);

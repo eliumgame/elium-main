@@ -18,7 +18,8 @@ export interface Cell {
 }
 
 /** Fusion dont la cellule d'ancrage est (r,c). */
-export const mergeAt = (t: TableData, r: number, c: number): TableMerge | undefined => t.merges?.find((m) => m.r === r && m.c === c);
+export const mergeAt = (t: TableData, r: number, c: number): TableMerge | undefined =>
+  t.merges?.find((m) => m.r === r && m.c === c);
 
 /** La cellule (r,c) est-elle masquée par une fusion qui démarre ailleurs ? */
 export function isCovered(t: TableData, r: number, c: number): boolean {
@@ -30,7 +31,8 @@ export function mergeContaining(t: TableData, r: number, c: number): TableMerge 
   return t.merges?.find((m) => r >= m.r && r < m.r + m.rs && c >= m.c && c < m.c + m.cs);
 }
 
-const overlaps = (a: TableMerge, b: TableMerge): boolean => a.r < b.r + b.rs && b.r < a.r + a.rs && a.c < b.c + b.cs && b.c < a.c + a.cs;
+const overlaps = (a: TableMerge, b: TableMerge): boolean =>
+  a.r < b.r + b.rs && b.r < a.r + a.rs && a.c < b.c + b.cs && b.c < a.c + a.cs;
 
 /**
  * Fusionne le rectangle (de r0,c0 à r1,c1, inclus). Le texte des cellules couvertes est ajouté à l'ancre
@@ -46,7 +48,7 @@ export function mergeCells(t: TableData, a: Cell, b: Cell): TableData {
   const rect: TableMerge = { r: r0, c: c0, rs: r1 - r0 + 1, cs: c1 - c0 + 1 };
   // étend le rectangle pour contenir entièrement les fusions qu'il touche
   let grown = rect;
-  for (let again = true; again; ) {
+  for (let again = true; again;) {
     again = false;
     for (const m of t.merges ?? []) {
       if (!overlaps(grown, m)) continue;
@@ -87,9 +89,15 @@ const clip = (merges: TableMerge[]): TableMerge[] => merges.filter((m) => m.rs >
 export function insertRow(t: TableData, at: number): TableData {
   const i = Math.max(0, Math.min(t.rows, at));
   const cells = t.cells.map((r) => r.slice());
-  cells.splice(i, 0, Array.from({ length: t.cols }, () => ""));
+  cells.splice(
+    i,
+    0,
+    Array.from({ length: t.cols }, () => ""),
+  );
   const merges = clip(
-    (t.merges ?? []).map((m) => (m.r >= i ? { ...m, r: m.r + 1 } : m.r < i && i < m.r + m.rs ? { ...m, rs: m.rs + 1 } : m)),
+    (t.merges ?? []).map((m) =>
+      m.r >= i ? { ...m, r: m.r + 1 } : m.r < i && i < m.r + m.rs ? { ...m, rs: m.rs + 1 } : m,
+    ),
   );
   return { ...t, rows: t.rows + 1, cells, ...(merges.length ? { merges } : { merges: undefined }) };
 }
@@ -117,7 +125,9 @@ export function insertCol(t: TableData, at: number): TableData {
     return r;
   });
   const merges = clip(
-    (t.merges ?? []).map((m) => (m.c >= i ? { ...m, c: m.c + 1 } : m.c < i && i < m.c + m.cs ? { ...m, cs: m.cs + 1 } : m)),
+    (t.merges ?? []).map((m) =>
+      m.c >= i ? { ...m, c: m.c + 1 } : m.c < i && i < m.c + m.cs ? { ...m, cs: m.cs + 1 } : m,
+    ),
   );
   return { ...t, cols: t.cols + 1, cells, ...(merges.length ? { merges } : { merges: undefined }) };
 }

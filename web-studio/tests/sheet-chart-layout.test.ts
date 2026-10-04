@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { layoutChart, linearFit, niceTicks, polyFit, stackBounds, trendPoints, formatAxis } from "../src/sheet/chart-layout";
+import {
+  layoutChart,
+  linearFit,
+  niceTicks,
+  polyFit,
+  stackBounds,
+  trendPoints,
+  formatAxis,
+} from "../src/sheet/chart-layout";
 
 const S = [
   { label: "A", values: [1, 2, 3, 4] },
@@ -34,11 +42,21 @@ describe("tendances", () => {
   });
   it("régression polynomiale d'ordre 2 retrouve y = x²", () => {
     const xs = [0, 1, 2, 3, 4];
-    const c = polyFit(xs, xs.map((x) => x * x), 2);
+    const c = polyFit(
+      xs,
+      xs.map((x) => x * x),
+      2,
+    );
     expect(c[0]).toBeCloseTo(0, 5);
     expect(c[1]).toBeCloseTo(0, 5);
     expect(c[2]).toBeCloseTo(1, 5);
-    expect(trendPoints(xs, xs.map((x) => x * x), { type: "poly", order: 2 })[4]![1]).toBeCloseTo(16);
+    expect(
+      trendPoints(
+        xs,
+        xs.map((x) => x * x),
+        { type: "poly", order: 2 },
+      )[4]![1],
+    ).toBeCloseTo(16);
     expect(trendPoints([0, 1], [1, 2], { type: "poly", order: 3 })).toEqual([]);
   });
   it("moyenne mobile", () => {
@@ -65,16 +83,27 @@ describe("mise en page", () => {
     expect(layoutChart({ type: "bar", labels: [], series: [{ label: "x", values: [] }] }).empty).toBe(true);
   });
   it("secteurs : une part par valeur non nulle ; étiquettes en %", () => {
-    const l = layoutChart({ type: "pie", labels: L, series: [{ label: "s", values: [1, 1, 0, 2] }], opts: { dataLabels: true } });
+    const l = layoutChart({
+      type: "pie",
+      labels: L,
+      series: [{ label: "s", values: [1, 1, 0, 2] }],
+      opts: { dataLabels: true },
+    });
     expect(count(l, "path")).toBe(3);
-    expect(l.prims.filter((p) => p.k === "text" && p.cls === "value").map((p) => (p as { text: string }).text)).toEqual(["25 %", "25 %", "50 %"]);
+    expect(l.prims.filter((p) => p.k === "text" && p.cls === "value").map((p) => (p as { text: string }).text)).toEqual(
+      ["25 %", "25 %", "50 %"],
+    );
   });
   it("aire empilée : un tracé par série, borne haute = somme", () => {
     const l = layoutChart({ type: "area", labels: L, series: S, opts: { grouping: "stacked" } });
     expect(count(l, "path")).toBe(2);
   });
   it("nuage de points : un cercle par point, abscisses numériques", () => {
-    const l = layoutChart({ type: "scatter", labels: ["1", "2", "4", "8"], series: [{ label: "y", values: [1, 4, 9, 20] }] });
+    const l = layoutChart({
+      type: "scatter",
+      labels: ["1", "2", "4", "8"],
+      series: [{ label: "y", values: [1, 4, 9, 20] }],
+    });
     expect(count(l, "circle")).toBe(4);
     const xs = l.prims.filter((p) => p.k === "circle").map((p) => (p as { cx: number }).cx);
     expect(xs[1]! - xs[0]!).toBeLessThan(xs[3]! - xs[2]!); // 1→2 plus court que 4→8

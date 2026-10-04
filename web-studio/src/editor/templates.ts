@@ -221,7 +221,9 @@ export const TEMPLATES: Template[] = [
         p(text("Votre annonce a retenu toute mon attention car …")),
         p(text("Mon expérience de … m'a permis de …")),
         p(text("Je serais ravi(e) de vous rencontrer pour échanger sur ma candidature.")),
-        p(text("Dans l'attente, je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.")),
+        p(
+          text("Dans l'attente, je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées."),
+        ),
         p(text("Prénom NOM")),
       ),
     }),

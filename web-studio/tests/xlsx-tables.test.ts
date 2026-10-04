@@ -38,7 +38,10 @@ describe("XLSX réel — tableaux nommés", () => {
     expect(sh.tables![0]).toMatchObject({ name: "Tableau1", c0: 0, r0: 0, c1: 3, r1: 3, totals: true, banded: true });
   });
   it("les références structurées [#This Row] se calculent", () => {
-    const c = createCalc((r) => sh.cells[r], undefined, undefined, undefined, { tables: tableDefs(wb.sheets), sheet: sh.name });
+    const c = createCalc((r) => sh.cells[r], undefined, undefined, undefined, {
+      tables: tableDefs(wb.sheets),
+      sheet: sh.name,
+    });
     expect(c.valueOf("D2")).toBe(20);
     expect(c.valueOf("D3")).toBe(12);
   });
@@ -52,7 +55,18 @@ describe("XLSX — aller-retour des tableaux et formules récentes", () => {
         name: "S",
         rows: 6,
         cols: 4,
-        cells: { A1: "Nom", B1: "Prix", A2: "x", B2: "5", A3: "y", B3: "7", D1: "=Tab[@Prix]", D2: "=SUM(Tab[Prix])", D3: "=XLOOKUP(1,A1:A2,B1:B2)", D4: '=FILTER(A2:B3,B2:B3>5)' },
+        cells: {
+          A1: "Nom",
+          B1: "Prix",
+          A2: "x",
+          B2: "5",
+          A3: "y",
+          B3: "7",
+          D1: "=Tab[@Prix]",
+          D2: "=SUM(Tab[Prix])",
+          D3: "=XLOOKUP(1,A1:A2,B1:B2)",
+          D4: "=FILTER(A2:B3,B2:B3>5)",
+        },
         tables: [{ id: "t1", name: "Tab", c0: 0, r0: 0, c1: 1, r1: 2, banded: false }],
       },
     ],

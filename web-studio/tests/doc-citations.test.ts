@@ -80,24 +80,48 @@ describe("citations courantes", () => {
 
 describe("références complètes", () => {
   it("APA livre / article / site", () => {
-    expect(partsToText(formatReference(book, "apa"))).toBe("Dupont, M.-C. & Martin, P. (2020). L'économie du savoir (2e éd.). Presses Universitaires.");
-    expect(partsToText(formatReference(article, "apa"))).toBe("Bernard, L. (2019). Cryptographie et vie privée. Revue de sécurité, 12(3), 45–67. https://doi.org/10.1000/xyz123");
+    expect(partsToText(formatReference(book, "apa"))).toBe(
+      "Dupont, M.-C. & Martin, P. (2020). L'économie du savoir (2e éd.). Presses Universitaires.",
+    );
+    expect(partsToText(formatReference(article, "apa"))).toBe(
+      "Bernard, L. (2019). Cryptographie et vie privée. Revue de sécurité, 12(3), 45–67. https://doi.org/10.1000/xyz123",
+    );
     expect(partsToText(formatReference(web, "apa"))).toBe("Guide du RGPD. (2022). CNIL. https://cnil.fr/guide");
   });
   it("APA : l'italique porte le titre du livre et la revue + volume", () => {
-    expect(formatReference(book, "apa").filter((p) => p.i).map((p) => p.t)).toEqual(["L'économie du savoir"]);
-    expect(formatReference(article, "apa").filter((p) => p.i).map((p) => p.t)).toEqual(["Revue de sécurité", "12"]);
+    expect(
+      formatReference(book, "apa")
+        .filter((p) => p.i)
+        .map((p) => p.t),
+    ).toEqual(["L'économie du savoir"]);
+    expect(
+      formatReference(article, "apa")
+        .filter((p) => p.i)
+        .map((p) => p.t),
+    ).toEqual(["Revue de sécurité", "12"]);
     expect(partsToHtml(formatReference(article, "apa"))).toContain("<i>Revue de sécurité</i>");
   });
   it("MLA livre / article / site", () => {
-    expect(partsToText(formatReference(book, "mla"))).toBe("Dupont, Marie-Claire, et Paul Martin. L'économie du savoir. 2e éd., Presses Universitaires, 2020.");
-    expect(partsToText(formatReference(article, "mla"))).toBe("Bernard, Luc. « Cryptographie et vie privée ». Revue de sécurité, vol. 12, no 3, 2019, p. 45–67. https://doi.org/10.1000/xyz123.");
-    expect(partsToText(formatReference(web, "mla"))).toBe("« Guide du RGPD ». CNIL, 2022, https://cnil.fr/guide. Consulté le 5 mars 2026.");
+    expect(partsToText(formatReference(book, "mla"))).toBe(
+      "Dupont, Marie-Claire, et Paul Martin. L'économie du savoir. 2e éd., Presses Universitaires, 2020.",
+    );
+    expect(partsToText(formatReference(article, "mla"))).toBe(
+      "Bernard, Luc. « Cryptographie et vie privée ». Revue de sécurité, vol. 12, no 3, 2019, p. 45–67. https://doi.org/10.1000/xyz123.",
+    );
+    expect(partsToText(formatReference(web, "mla"))).toBe(
+      "« Guide du RGPD ». CNIL, 2022, https://cnil.fr/guide. Consulté le 5 mars 2026.",
+    );
   });
   it("ISO 690 livre / article / site", () => {
-    expect(partsToText(formatReference(book, "iso690"))).toBe("DUPONT, Marie-Claire ; MARTIN, Paul. L'économie du savoir. 2e éd. Paris : Presses Universitaires, 2020.");
-    expect(partsToText(formatReference(article, "iso690"))).toBe("BERNARD, Luc. Cryptographie et vie privée. Revue de sécurité, 2019, vol. 12, n° 3, p. 45–67. https://doi.org/10.1000/xyz123");
-    expect(partsToText(formatReference(web, "iso690"))).toBe("Guide du RGPD [en ligne]. CNIL, 2022 [consulté le 5 mars 2026]. Disponible à l'adresse : https://cnil.fr/guide");
+    expect(partsToText(formatReference(book, "iso690"))).toBe(
+      "DUPONT, Marie-Claire ; MARTIN, Paul. L'économie du savoir. 2e éd. Paris : Presses Universitaires, 2020.",
+    );
+    expect(partsToText(formatReference(article, "iso690"))).toBe(
+      "BERNARD, Luc. Cryptographie et vie privée. Revue de sécurité, 2019, vol. 12, n° 3, p. 45–67. https://doi.org/10.1000/xyz123",
+    );
+    expect(partsToText(formatReference(web, "iso690"))).toBe(
+      "Guide du RGPD [en ligne]. CNIL, 2022 [consulté le 5 mars 2026]. Disponible à l'adresse : https://cnil.fr/guide",
+    );
   });
 });
 
@@ -105,7 +129,13 @@ describe("bibliographie", () => {
   const doc = {
     type: "doc",
     content: [
-      { type: "paragraph", content: [{ type: "citation", attrs: { source: article } }, { type: "citation", attrs: { source: book } }] },
+      {
+        type: "paragraph",
+        content: [
+          { type: "citation", attrs: { source: article } },
+          { type: "citation", attrs: { source: book } },
+        ],
+      },
       { type: "paragraph", content: [{ type: "citation", attrs: { source: article } }] },
     ],
   };
@@ -113,7 +143,9 @@ describe("bibliographie", () => {
     expect(collectSources(doc).map((s) => s.key)).toEqual(["k2", "k1"]);
   });
   it("tri alphabétique par nom du premier auteur", () => {
-    expect(sortSources([article, book, web]).map((s) => s.key)).toEqual(["k2", "k1", "k3"].sort((a, b) => ({ k2: 0, k1: 1, k3: 2 })[a]! - ({ k2: 0, k1: 1, k3: 2 })[b]!));
+    expect(sortSources([article, book, web]).map((s) => s.key)).toEqual(
+      ["k2", "k1", "k3"].sort((a, b) => ({ k2: 0, k1: 1, k3: 2 })[a]! - { k2: 0, k1: 1, k3: 2 }[b]!),
+    );
     expect(buildBibliography([book, article], "apa")).toHaveLength(2);
     expect(partsToText(buildBibliography([book, article], "apa")[0]!).startsWith("Bernard")).toBe(true);
   });

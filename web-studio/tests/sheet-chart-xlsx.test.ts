@@ -6,7 +6,13 @@ import { unzipSync, strFromU8 } from "fflate";
 import { workbookToXlsx } from "../src/sheet/xlsx-export";
 import { importXlsx } from "../src/sheet/xlsx-import";
 import { chartSpaceXml } from "../src/sheet/chart-ooxml";
-import { newYSheet, reconcileSheet, sheetSnapshot, setChart, type YSheets } from "../src/drive-cloud/collab-sheet-model";
+import {
+  newYSheet,
+  reconcileSheet,
+  sheetSnapshot,
+  setChart,
+  type YSheets,
+} from "../src/drive-cloud/collab-sheet-model";
 import type { ChartSpec, Workbook } from "../src/sheet/model";
 
 const wbWith = (chart: Omit<ChartSpec, "id">): Workbook => ({
@@ -16,7 +22,20 @@ const wbWith = (chart: Omit<ChartSpec, "id">): Workbook => ({
       name: "Données",
       rows: 8,
       cols: 4,
-      cells: { A1: "Mois", B1: "Ventes", C1: "Marge", A2: "Jan", B2: "10", C2: "3", A3: "Fév", B3: "20", C3: "5", A4: "Mar", B4: "15", C4: "4" },
+      cells: {
+        A1: "Mois",
+        B1: "Ventes",
+        C1: "Marge",
+        A2: "Jan",
+        B2: "10",
+        C2: "3",
+        A3: "Fév",
+        B3: "20",
+        C3: "5",
+        A4: "Mar",
+        B4: "15",
+        C4: "4",
+      },
       charts: [{ id: "c1", ...chart }],
     },
   ],
@@ -26,7 +45,14 @@ const base = { c0: 0, r0: 0, c1: 2, r1: 3 };
 
 describe("graphiques riches — XLSX (DrawingML)", () => {
   it("empilé 100 %, barres horizontales, titres d'axes, bornes, format, légende, étiquettes", () => {
-    const opts = { grouping: "percent" as const, horizontal: true, xTitle: "Mois", yTitle: "Part", legend: "right" as const, dataLabels: true };
+    const opts = {
+      grouping: "percent" as const,
+      horizontal: true,
+      xTitle: "Mois",
+      yTitle: "Part",
+      legend: "right" as const,
+      dataLabels: true,
+    };
     const back = trip({ type: "bar", ...base, title: "Ventes", opts });
     expect(back.type).toBe("bar");
     expect(back.title).toBe("Ventes");
@@ -37,7 +63,10 @@ describe("graphiques riches — XLSX (DrawingML)", () => {
     expect(back.opts).toEqual({ yMin: 0, yMax: 50, yFormat: "currency", smooth: true });
   });
   it("aire empilée et nuage de points", () => {
-    expect(trip({ type: "area", ...base, opts: { grouping: "stacked" } })).toMatchObject({ type: "area", opts: { grouping: "stacked" } });
+    expect(trip({ type: "area", ...base, opts: { grouping: "stacked" } })).toMatchObject({
+      type: "area",
+      opts: { grouping: "stacked" },
+    });
     const sc = trip({ type: "scatter", ...base });
     expect(sc.type).toBe("scatter");
     expect([sc.c0, sc.c1, sc.r0, sc.r1]).toEqual([0, 2, 0, 3]);
@@ -49,15 +78,30 @@ describe("graphiques riches — XLSX (DrawingML)", () => {
     expect(back.opts).toEqual(opts);
   });
   it("courbes de tendance : linéaire, polynomiale, moyenne mobile", () => {
-    expect(trip({ type: "line", ...base, opts: { trendline: { type: "linear" } } }).opts?.trendline).toEqual({ type: "linear" });
-    expect(trip({ type: "line", ...base, opts: { trendline: { type: "poly", order: 3 } } }).opts?.trendline).toEqual({ type: "poly", order: 3 });
-    expect(trip({ type: "line", ...base, opts: { trendline: { type: "avg", period: 2, series: 1 } } }).opts?.trendline).toEqual({ type: "avg", period: 2, series: 1 });
+    expect(trip({ type: "line", ...base, opts: { trendline: { type: "linear" } } }).opts?.trendline).toEqual({
+      type: "linear",
+    });
+    expect(trip({ type: "line", ...base, opts: { trendline: { type: "poly", order: 3 } } }).opts?.trendline).toEqual({
+      type: "poly",
+      order: 3,
+    });
+    expect(
+      trip({ type: "line", ...base, opts: { trendline: { type: "avg", period: 2, series: 1 } } }).opts?.trendline,
+    ).toEqual({ type: "avg", period: 2, series: 1 });
   });
   it("sans option : aucune clé opts (rendu historique inchangé)", () => {
     expect(trip({ type: "bar", ...base }).opts).toBeUndefined();
   });
   it("le XML écrit contient de vraies balises Excel (barChart, areaChart, scatterChart, trendline, valAx secondaire)", () => {
-    const zip = unzipSync(workbookToXlsx(wbWith({ type: "combo", ...base, opts: { seriesTypes: ["bar", "line"], secondary: [1], trendline: { type: "linear" } } })));
+    const zip = unzipSync(
+      workbookToXlsx(
+        wbWith({
+          type: "combo",
+          ...base,
+          opts: { seriesTypes: ["bar", "line"], secondary: [1], trendline: { type: "linear" } },
+        }),
+      ),
+    );
     const xml = strFromU8(zip["xl/charts/chart1.xml"]!);
     expect(xml).toContain("<c:barChart>");
     expect(xml).toContain("<c:lineChart>");
@@ -79,7 +123,12 @@ describe("graphiques riches — CRDT", () => {
     const sheets = ydoc.getArray("sheets") as unknown as YSheets;
     ydoc.transact(() => sheets.push([newYSheet("F")]));
     const ys = sheets.get(0);
-    const spec: ChartSpec = { id: "ch", type: "combo", ...base, opts: { seriesTypes: ["bar", "line"], secondary: [1], trendline: { type: "poly", order: 2 }, yTitle: "€" } };
+    const spec: ChartSpec = {
+      id: "ch",
+      type: "combo",
+      ...base,
+      opts: { seriesTypes: ["bar", "line"], secondary: [1], trendline: { type: "poly", order: 2 }, yTitle: "€" },
+    };
     setChart(ydoc, ys, spec);
     expect(sheetSnapshot(ys).charts).toEqual([spec]);
     // un second poste reconcilie vers une cible : le graphique modifié est repris tel quel

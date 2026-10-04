@@ -33,9 +33,15 @@ export function readListRange(wb: Workbook, listRef: string, currentSheet: strin
 }
 
 /** Règles de liste dont les valeurs viennent d'une plage : la liste est relue dans le classeur courant. */
-export function withLiveLists(rules: DataValidation[] | undefined, wb: Workbook, currentSheet: string): DataValidation[] | undefined {
+export function withLiveLists(
+  rules: DataValidation[] | undefined,
+  wb: Workbook,
+  currentSheet: string,
+): DataValidation[] | undefined {
   if (!rules?.some((r) => r.type === "list" && r.listRef)) return rules;
-  return rules.map((r) => (r.type === "list" && r.listRef ? { ...r, list: readListRange(wb, r.listRef, currentSheet) } : r));
+  return rules.map((r) =>
+    r.type === "list" && r.listRef ? { ...r, list: readListRange(wb, r.listRef, currentSheet) } : r,
+  );
 }
 
 export function inValidation(v: DataValidation, c: number, r: number): boolean {

@@ -49,7 +49,9 @@ export const DYN_FUNCS = new Set([
 ]);
 
 /** Fonctions dont le résultat peut être un tableau (déclenche la détection de débordement). */
-export const ARRAY_RETURNING = new Set([...DYN_FUNCS].filter((n) => !["XMATCH", "SUMPRODUCT", "ROWS", "COLUMNS"].includes(n)));
+export const ARRAY_RETURNING = new Set(
+  [...DYN_FUNCS].filter((n) => !["XMATCH", "SUMPRODUCT", "ROWS", "COLUMNS"].includes(n)),
+);
 
 function num(v: CellValue | Matrix | undefined, dflt: number): number {
   if (v === undefined) return dflt;
@@ -88,7 +90,9 @@ export function transpose(a: Matrix): Matrix {
 }
 
 const rowKey = (row: CellValue[]): string =>
-  row.map((v) => (isError(v) ? `e:${v.error}` : typeof v === "number" ? `n:${v}` : `s:${String(v).toLowerCase()}`)).join("\u0001");
+  row
+    .map((v) => (isError(v) ? `e:${v.error}` : typeof v === "number" ? `n:${v}` : `s:${String(v).toLowerCase()}`))
+    .join("\u0001");
 
 function uniqueRows(a: Matrix, exactlyOnce: boolean): CellValue[][] {
   const counts = new Map<string, number>();
@@ -247,7 +251,8 @@ export function drop(a: Matrix, r: number | undefined, c: number | undefined): M
 export function vstack(parts: Matrix[]): Matrix {
   const w = Math.max(...parts.map(colsOf));
   const rows: CellValue[][] = [];
-  for (const p of parts) for (const r of p.m) rows.push(Array.from({ length: w }, (_, j) => (j < r.length ? r[j] : NA)));
+  for (const p of parts)
+    for (const r of p.m) rows.push(Array.from({ length: w }, (_, j) => (j < r.length ? r[j] : NA)));
   guardSize(rows.length, w);
   return { m: rows };
 }
@@ -275,7 +280,9 @@ export function wrapRows(a: Matrix, count: number, pad: CellValue): Matrix {
   const flat = a.m.flat();
   if (count < 1) throw new FormulaError("#NUM");
   const rows = Math.ceil(flat.length / count);
-  return grid(rows, Math.min(count, flat.length) || 1, (i, j) => (i * count + j < flat.length ? flat[i * count + j] : pad));
+  return grid(rows, Math.min(count, flat.length) || 1, (i, j) =>
+    i * count + j < flat.length ? flat[i * count + j] : pad,
+  );
 }
 export function wrapCols(a: Matrix, count: number, pad: CellValue): Matrix {
   return transpose(wrapRows(a, count, pad));
@@ -293,7 +300,9 @@ export function sequence(r: number, c: number, start: number, step: number): Mat
 export function randArray(r: number, c: number, min: number, max: number, whole: boolean): Matrix {
   if (min > max) throw new FormulaError("#VALUE");
   return grid(r, c, () =>
-    whole ? Math.floor(Math.random() * (Math.floor(max) - Math.ceil(min) + 1)) + Math.ceil(min) : min + Math.random() * (max - min),
+    whole
+      ? Math.floor(Math.random() * (Math.floor(max) - Math.ceil(min) + 1)) + Math.ceil(min)
+      : min + Math.random() * (max - min),
   );
 }
 
@@ -303,7 +312,18 @@ export function xmatch(key: CellValue, a: Matrix, matchMode: number, searchMode:
   const idx = flat.map((_, i) => i);
   if (searchMode === -1) idx.reverse();
   const isWild = matchMode === 2;
-  const wildRe = isWild && typeof key === "string" ? new RegExp("^" + key.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i") : null;
+  const wildRe =
+    isWild && typeof key === "string"
+      ? new RegExp(
+          "^" +
+            key
+              .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+              .replace(/\*/g, ".*")
+              .replace(/\?/g, ".") +
+            "$",
+          "i",
+        )
+      : null;
   if (searchMode === 2 || searchMode === -2) {
     // recherche binaire : tableau supposé trié (croissant pour 2, décroissant pour -2)
     let lo = 0;
@@ -352,7 +372,11 @@ export function mmult(a: Matrix, b: Matrix): Matrix {
 }
 
 const delims = (v: CellValue | Matrix | undefined): string[] =>
-  v === undefined ? [] : toMat(v).m.flat().map((x) => (isError(x) ? "" : String(x)));
+  v === undefined
+    ? []
+    : toMat(v)
+        .m.flat()
+        .map((x) => (isError(x) ? "" : String(x)));
 
 /** Point d'entrée : args déjà évalués (scalaires ou matrices). */
 export function dynFunction(name: string, a: (CellValue | Matrix)[]): CellValue | Matrix {
@@ -384,7 +408,8 @@ export function dynFunction(name: string, a: (CellValue | Matrix)[]): CellValue 
       return transpose(arr(0));
     case "TEXTSPLIT": {
       const t = scalar(0);
-      if (t === undefined || isError(t)) throw new FormulaError(isError(t as CellValue) ? (t as { error: string }).error : "#VALUE");
+      if (t === undefined || isError(t))
+        throw new FormulaError(isError(t as CellValue) ? (t as { error: string }).error : "#VALUE");
       return textSplit(String(t), delims(a[1]), delims(a[2]), bool(a[3], false), int(a[4], 0) === 1, scalar(5) ?? NA);
     }
     case "CHOOSECOLS":
@@ -392,9 +417,17 @@ export function dynFunction(name: string, a: (CellValue | Matrix)[]): CellValue 
     case "CHOOSEROWS":
       return chooseRows(arr(0), a.slice(1));
     case "TAKE":
-      return take(arr(0), a[1] === undefined || scalar(1) === "" ? undefined : int(a[1], 0), a[2] === undefined ? undefined : int(a[2], 0));
+      return take(
+        arr(0),
+        a[1] === undefined || scalar(1) === "" ? undefined : int(a[1], 0),
+        a[2] === undefined ? undefined : int(a[2], 0),
+      );
     case "DROP":
-      return drop(arr(0), a[1] === undefined || scalar(1) === "" ? undefined : int(a[1], 0), a[2] === undefined ? undefined : int(a[2], 0));
+      return drop(
+        arr(0),
+        a[1] === undefined || scalar(1) === "" ? undefined : int(a[1], 0),
+        a[2] === undefined ? undefined : int(a[2], 0),
+      );
     case "VSTACK":
       return vstack(a.map((_, i) => arr(i)));
     case "HSTACK":
@@ -426,7 +459,16 @@ export function dynFunction(name: string, a: (CellValue | Matrix)[]): CellValue 
           for (const x of ms) {
             const v = x.m[i][j];
             if (isError(v)) throw new FormulaError(v.error);
-            p *= typeof v === "number" ? v : typeof v === "boolean" ? (v ? 1 : 0) : Number.isNaN(Number(v)) || v === "" ? 0 : Number(v);
+            p *=
+              typeof v === "number"
+                ? v
+                : typeof v === "boolean"
+                  ? v
+                    ? 1
+                    : 0
+                  : Number.isNaN(Number(v)) || v === ""
+                    ? 0
+                    : Number(v);
           }
           total += p;
         }

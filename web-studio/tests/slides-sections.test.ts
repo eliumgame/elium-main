@@ -16,7 +16,14 @@ import {
 import { slideToY, yToSlide } from "../src/drive-cloud/collab-slides-crdt";
 import type { Slide, SlideSection } from "../src/slides/model";
 
-const mk = (id: string, extra: Partial<Slide> = {}): Slide => ({ id, title: id, body: "", layout: "blank", elements: [], ...extra });
+const mk = (id: string, extra: Partial<Slide> = {}): Slide => ({
+  id,
+  title: id,
+  body: "",
+  layout: "blank",
+  elements: [],
+  ...extra,
+});
 const ids = (s: Slide[]) => s.map((x) => x.id).join(",");
 const deck = () => ["a", "b", "c", "d", "e", "f"].map((i) => mk(i));
 const secs = (): SlideSection[] => [
@@ -32,7 +39,11 @@ describe("sections", () => {
       [null, 0, 1],
       ["Corps", 2, 5],
     ]);
-    expect(sectionRanges(deck(), secs()).map((x) => [x.from, x.to])).toEqual([[0, 1], [2, 3], [4, 5]]);
+    expect(sectionRanges(deck(), secs()).map((x) => [x.from, x.to])).toEqual([
+      [0, 1],
+      [2, 3],
+      [4, 5],
+    ]);
   });
   it("ajoute, remplace et supprime une section", () => {
     let s = addSectionAt(deck(), [], 3, "  Annexes ");
@@ -61,7 +72,10 @@ describe("réordonnancement", () => {
     expect(r.sections.find((x) => x.id === "s2")!.startSlideId).toBe("d");
   });
   it("une section réduite à une seule diapositive la suit", () => {
-    const only: SlideSection[] = [{ id: "s", name: "Seule", startSlideId: "b" }, { id: "t", name: "Suite", startSlideId: "c" }];
+    const only: SlideSection[] = [
+      { id: "s", name: "Seule", startSlideId: "b" },
+      { id: "t", name: "Suite", startSlideId: "c" },
+    ];
     const r = reorderSlide(deck(), only, 1, 4);
     expect(r.sections.find((x) => x.id === "s")!.startSlideId).toBe("b");
     expect(ids(r.slides)).toBe("a,c,d,e,b,f");
@@ -118,7 +132,14 @@ describe("CRDT : champs de la trieuse", () => {
           y: 0,
           w: 10,
           h: 10,
-          media: { kind: "video", src: "data:video/mp4;base64,AAAA", mime: "video/mp4", trimStart: 1.5, trimEnd: 9, autoplay: true },
+          media: {
+            kind: "video",
+            src: "data:video/mp4;base64,AAAA",
+            mime: "video/mp4",
+            trimStart: 1.5,
+            trimEnd: 9,
+            autoplay: true,
+          },
         },
         { id: "e3", type: "diagram", x: 0, y: 0, w: 10, h: 10, diagram: { kind: "cycle", outline: "A\nB\nC" } },
         {
@@ -128,7 +149,17 @@ describe("CRDT : champs de la trieuse", () => {
           y: 0,
           w: 10,
           h: 10,
-          table: { rows: 2, cols: 2, cells: [["a", "b"], ["c", ""]], merges: [{ r: 0, c: 0, rs: 1, cs: 2 }], style: "grid", firstCol: true },
+          table: {
+            rows: 2,
+            cols: 2,
+            cells: [
+              ["a", "b"],
+              ["c", ""],
+            ],
+            merges: [{ r: 0, c: 0, rs: 1, cs: 2 }],
+            style: "grid",
+            firstCol: true,
+          },
         },
       ],
     });

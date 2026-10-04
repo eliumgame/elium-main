@@ -314,7 +314,12 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       arr.insert(to, [slideToY(list[from]!)]);
       if (currentSections()) deckMap.set("sections", r.sections);
     });
-    setActiveState(Math.max(0, r.slides.findIndex((s) => s.id === activeId)));
+    setActiveState(
+      Math.max(
+        0,
+        r.slides.findIndex((s) => s.id === activeId),
+      ),
+    );
   };
   const moveSlide = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -335,7 +340,12 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       arr.push(ordered.map(slideToY));
       if (currentSections()) deckMap.set("sections", normalizeSections(ordered, currentSections()));
     });
-    setActiveState(Math.max(0, ordered.findIndex((s) => s.id === activeId)));
+    setActiveState(
+      Math.max(
+        0,
+        ordered.findIndex((s) => s.id === activeId),
+      ),
+    );
   };
   const replaceSlideAt = (i: number, slide: Slide) => {
     if (!writable) return;

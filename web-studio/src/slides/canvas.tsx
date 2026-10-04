@@ -189,7 +189,17 @@ function TableCell({
 }
 
 /** Diagramme SmartArt : recalculé depuis son plan à chaque rendu (toujours modifiable). */
-export function DiagramView({ d, scale, w, h }: { d: NonNullable<SlideElement["diagram"]>; scale: number; w: number; h: number }) {
+export function DiagramView({
+  d,
+  scale,
+  w,
+  h,
+}: {
+  d: NonNullable<SlideElement["diagram"]>;
+  scale: number;
+  w: number;
+  h: number;
+}) {
   const lay = layoutDiagram(d.kind, d.outline, d.colors);
   const byId = new Map<number, DNode>(lay.nodes.map((n) => [n.id, n]));
   const boxW = (w / 100) * REF_W;
@@ -209,7 +219,11 @@ export function DiagramView({ d, scale, w, h }: { d: NonNullable<SlideElement["d
     return `M${a.x + a.w / 2},${a.y + a.h / 2} L${b.x + b.w / 2},${b.y + b.h / 2}`;
   };
   return (
-    <div className="ce-diagram" role="img" aria-label={`Diagramme (${lay.nodes.length} éléments) : ${lay.nodes.map((n) => n.text).join(", ")}`}>
+    <div
+      className="ce-diagram"
+      role="img"
+      aria-label={`Diagramme (${lay.nodes.length} éléments) : ${lay.nodes.map((n) => n.text).join(", ")}`}
+    >
       <svg className="ce-diagram__edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <marker id="dg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -218,14 +232,31 @@ export function DiagramView({ d, scale, w, h }: { d: NonNullable<SlideElement["d
         </defs>
         {lay.edges.map((e, i) => {
           const p = edgePath(e);
-          return p ? <path key={i} d={p} fill="none" stroke="#64748b" strokeWidth={2} vectorEffect="non-scaling-stroke" markerEnd={e.kind === "arrow" ? "url(#dg-arrow)" : undefined} /> : null;
+          return p ? (
+            <path
+              key={i}
+              d={p}
+              fill="none"
+              stroke="#64748b"
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+              markerEnd={e.kind === "arrow" ? "url(#dg-arrow)" : undefined}
+            />
+          ) : null;
         })}
       </svg>
       {lay.nodes.map((n) => (
         <div
           key={n.id}
           className={`ce-diagram__node ${n.round ? "is-round" : ""}`}
-          style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%`, background: n.color, fontSize: nodeFontPx(n, boxH, boxW) * scale }}
+          style={{
+            left: `${n.x}%`,
+            top: `${n.y}%`,
+            width: `${n.w}%`,
+            height: `${n.h}%`,
+            background: n.color,
+            fontSize: nodeFontPx(n, boxH, boxW) * scale,
+          }}
         >
           <span>{n.text}</span>
         </div>
@@ -239,7 +270,11 @@ function MediaView({ m, play }: { m: NonNullable<SlideElement["media"]>; play: b
   const ref = useRef<HTMLMediaElement>(null);
   if (!play)
     return (
-      <div className="ce-media-ph" role="img" aria-label={`${m.kind === "video" ? "Vidéo" : "Audio"}${m.name ? ` : ${m.name}` : ""}`}>
+      <div
+        className="ce-media-ph"
+        role="img"
+        aria-label={`${m.kind === "video" ? "Vidéo" : "Audio"}${m.name ? ` : ${m.name}` : ""}`}
+      >
         <span aria-hidden="true">{m.kind === "video" ? "▶" : "♪"}</span>
         <span className="ce-media-ph__name">{m.name ?? (m.kind === "video" ? "Vidéo" : "Audio")}</span>
       </div>
@@ -260,7 +295,11 @@ function MediaView({ m, play }: { m: NonNullable<SlideElement["media"]>; play: b
       }
     },
   };
-  return m.kind === "video" ? <video className="ce-media" {...common} /> : <audio className="ce-media ce-media--audio" {...common} />;
+  return m.kind === "video" ? (
+    <video className="ce-media" {...common} />
+  ) : (
+    <audio className="ce-media ce-media--audio" {...common} />
+  );
 }
 
 /** Renders one element (read-only or as part of the editable surface). */

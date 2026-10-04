@@ -20,7 +20,16 @@ describe("opérateurs & ^ % et plages en position scalaire", () => {
     expect(v({ A1: "=50%" }, "A1")).toBe(0.5);
   });
   it("SUMPRODUCT et SUM d'un produit de plages", () => {
-    const c = { A1: "1", A2: "2", A3: "3", B1: "4", B2: "5", B3: "6", C1: "=SUMPRODUCT(A1:A3,B1:B3)", C2: "=SUM(A1:A3*B1:B3)" };
+    const c = {
+      A1: "1",
+      A2: "2",
+      A3: "3",
+      B1: "4",
+      B2: "5",
+      B3: "6",
+      C1: "=SUMPRODUCT(A1:A3,B1:B3)",
+      C2: "=SUM(A1:A3*B1:B3)",
+    };
     expect(v(c, "C1")).toBe(32);
     expect(v(c, "C2")).toBe(32);
   });
@@ -81,8 +90,15 @@ describe("fonctions tableau", () => {
     expect([d(c, "H1"), d(c, "H2"), d(c, "H3"), d(c, "H4")]).toEqual(["a", "c", "b", "a"]);
   });
   it("FILTER avec condition et valeur par défaut", () => {
-    const c = { ...data, D1: '=FILTER(A1:B4,B1:B4>1)', G1: '=FILTER(A1:A4,B1:B4>9,"rien")' };
-    expect([d(c, "D1"), d(c, "E1"), d(c, "D2"), d(c, "E2"), d(c, "D3"), d(c, "E3")]).toEqual(["b", "2", "c", "3", "a", "4"]);
+    const c = { ...data, D1: "=FILTER(A1:B4,B1:B4>1)", G1: '=FILTER(A1:A4,B1:B4>9,"rien")' };
+    expect([d(c, "D1"), d(c, "E1"), d(c, "D2"), d(c, "E2"), d(c, "D3"), d(c, "E3")]).toEqual([
+      "b",
+      "2",
+      "c",
+      "3",
+      "a",
+      "4",
+    ]);
     expect(d(c, "G1")).toBe("rien");
     expect(v({ ...data, D1: "=FILTER(A1:A4,B1:B4>9)" }, "D1")).toEqual({ error: "#CALC" });
   });
@@ -110,7 +126,7 @@ describe("fonctions tableau", () => {
     const c = { A1: "=WRAPROWS(SEQUENCE(5),2,0)" };
     expect([d(c, "A1"), d(c, "B1"), d(c, "A3"), d(c, "B3")]).toEqual(["1", "2", "5", "0"]);
     expect(d({ A1: "=TOCOL(SEQUENCE(2,2))" }, "A4")).toBe("4");
-    expect(d({ A1: "=EXPAND(SEQUENCE(1,1),2,2,\"x\")" }, "B2")).toBe("x");
+    expect(d({ A1: '=EXPAND(SEQUENCE(1,1),2,2,"x")' }, "B2")).toBe("x");
   });
   it("XMATCH : exact, approché et dernier-vers-premier", () => {
     const c = { A1: "10", A2: "20", A3: "30", A4: "20" };

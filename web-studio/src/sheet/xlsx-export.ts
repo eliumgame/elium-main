@@ -503,7 +503,11 @@ function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
     name: i === 0 ? chart.title : `Colonne ${colLetters(col)}`,
     catRef,
     valRef: `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`,
-    ...(chart.type === "scatter" ? (catRef ? { xRef: catRef } : { xvals: Array.from({ length: n }, (_, k) => k + 1) }) : {}),
+    ...(chart.type === "scatter"
+      ? catRef
+        ? { xRef: catRef }
+        : { xvals: Array.from({ length: n }, (_, k) => k + 1) }
+      : {}),
   }));
   return chartSpaceXml({ type: chart.type, title: chart.title, opts: chart.opts, series });
 }
@@ -536,7 +540,13 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
 /** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
 const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
 
-function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false, tableRIds: string[] = []): string {
+function sheetXml(
+  sheet: SheetData,
+  styles: StyleTable,
+  hasDrawing: boolean,
+  literal = false,
+  tableRIds: string[] = [],
+): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
@@ -585,7 +595,9 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
     dataValidationXml(sheet.validations) +
     printXml(sheet.print) +
     (hasDrawing ? `<drawing r:id="rId1"/>` : "") +
-    (tableRIds.length ? `<tableParts count="${tableRIds.length}">${tableRIds.map((id) => `<tablePart r:id="${id}"/>`).join("")}</tableParts>` : "") +
+    (tableRIds.length
+      ? `<tableParts count="${tableRIds.length}">${tableRIds.map((id) => `<tablePart r:id="${id}"/>`).join("")}</tableParts>`
+      : "") +
     `</worksheet>`
   );
 }
@@ -610,7 +622,8 @@ function sanitizeNames(sheets: SheetData[]): string[] {
 /** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
 function definedNamesBlock(names: NamedRange[] | undefined, extra = ""): string {
   if ((!names || !names.length) && !extra) return "";
-  const body = (names ?? []).map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("") + extra;
+  const body =
+    (names ?? []).map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("") + extra;
   return `<definedNames>${body}</definedNames>`;
 }
 
@@ -673,7 +686,13 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     const relBase = (charts.length ? 1 : 0) + (notesXml ? 1 : 0);
     const sheetTables = (sheet.tables ?? []).map((t, k) => ({ t, rId: `rId${relBase + k + 1}`, n: ++tableCounter }));
     files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(
-      sheetXml(sheet, styles, charts.length > 0, opts.literalText, sheetTables.map((x) => x.rId)),
+      sheetXml(
+        sheet,
+        styles,
+        charts.length > 0,
+        opts.literalText,
+        sheetTables.map((x) => x.rId),
+      ),
     );
 
     const sheetRels: { id: string; type: string; target: string }[] = [];
@@ -706,7 +725,9 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
           `</table>`,
       );
       sheetRels.push({ id: rId, type: `${REL}/table`, target: `../tables/table${n}.xml` });
-      tableParts.push(`<Override PartName="/xl/tables/table${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
+      tableParts.push(
+        `<Override PartName="/xl/tables/table${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`,
+      );
     }
     if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
   });

@@ -4,7 +4,8 @@
  */
 import type { ChartLayout } from "./chart-layout";
 
-const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const esc = (t: string): string =>
+  t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f1 = (n: number): string => String(Math.round(n * 10) / 10);
 const SIZES = { label: 9, legend: 8, title: 11, "axis-title": 9, value: 8 } as const;
 

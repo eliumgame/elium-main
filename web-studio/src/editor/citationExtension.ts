@@ -28,7 +28,12 @@ declare module "@tiptap/core" {
   }
 }
 
-type PMNodeLike = { type: { name: string }; attrs: Record<string, unknown>; descendants: (cb: (n: PMNodeLike, pos: number) => void) => void; toJSON: () => never };
+type PMNodeLike = {
+  type: { name: string };
+  attrs: Record<string, unknown>;
+  descendants: (cb: (n: PMNodeLike, pos: number) => void) => void;
+  toJSON: () => never;
+};
 
 export const Citation = Node.create({
   name: "citation",
@@ -94,7 +99,10 @@ export const Citation = Node.create({
       insertCitation:
         (source, page, style) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs: { source, page, text: formatCitation(source, style, page) } }),
+          commands.insertContent({
+            type: this.name,
+            attrs: { source, page, text: formatCitation(source, style, page) },
+          }),
       insertBibliography:
         (style) =>
         ({ chain, editor }) => {
@@ -158,7 +166,13 @@ export const Bibliography = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    return ["section", mergeAttributes(HTMLAttributes, { "data-bibliography": JSON.stringify({ style: node.attrs.style, entries: node.attrs.entries }), class: "elium-bibliography" })];
+    return [
+      "section",
+      mergeAttributes(HTMLAttributes, {
+        "data-bibliography": JSON.stringify({ style: node.attrs.style, entries: node.attrs.entries }),
+        class: "elium-bibliography",
+      }),
+    ];
   },
 
   addNodeView() {

@@ -1139,12 +1139,18 @@ export async function exportProofReport(file: EliumFile, verdicts: Record<string
   downloadBlob(`${file.manifest.title || "document"}-preuve.json`, "application/json", JSON.stringify(report, null, 2));
 }
 
-
 /** Repli texte d'un graphique (Markdown / texte brut) : titre puis tableau des données. */
 function chartAsTable(d: ReturnType<typeof chartDataOf>, md: boolean): string {
   const head = ["", ...d.series.map((s) => s.label)];
   const rows = d.labels.map((l, i) => [l, ...d.series.map((s) => String(s.values[i] ?? ""))]);
   const title = d.title ? (md ? `**${d.title}**\n\n` : `${d.title}\n`) : "";
   if (!md) return title + [head, ...rows].map((r) => r.join("\t")).join("\n");
-  return title + [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
+  return (
+    title +
+    [
+      `| ${head.join(" | ")} |`,
+      `| ${head.map(() => "---").join(" | ")} |`,
+      ...rows.map((r) => `| ${r.join(" | ")} |`),
+    ].join("\n")
+  );
 }

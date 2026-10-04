@@ -6,7 +6,8 @@
 import { indexToCol, parseRef } from "./formula";
 import { PAPER_XLSX, normalizePrint, type PaperName, type PrintSetup } from "./print";
 
-const xe = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const xe = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const inch = (mm: number): string => (Math.round((mm / 25.4) * 1000) / 1000).toString();
 
 /** `{page}` → `&P`, etc. ; le « & » littéral est doublé. */
@@ -72,13 +73,16 @@ export function printDefinedNames(sheetIndex: number, sheetName: string, p: Prin
   const parts: string[] = [];
   if (p.repeatCols) parts.push(`${q(sheetName)}!$${indexToCol(p.repeatCols.c0)}:$${indexToCol(p.repeatCols.c1)}`);
   if (p.repeatRows) parts.push(`${q(sheetName)}!$${p.repeatRows.r0 + 1}:$${p.repeatRows.r1 + 1}`);
-  if (parts.length) out += `<definedName name="_xlnm.Print_Titles" localSheetId="${sheetIndex}">${xe(parts.join(","))}</definedName>`;
+  if (parts.length)
+    out += `<definedName name="_xlnm.Print_Titles" localSheetId="${sheetIndex}">${xe(parts.join(","))}</definedName>`;
   return out;
 }
 
 // ---- lecture -----------------------------------------------------------------
 
-const PAPER_FROM: Record<number, PaperName> = Object.fromEntries(Object.entries(PAPER_XLSX).map(([k, v]) => [v, k as PaperName]));
+const PAPER_FROM: Record<number, PaperName> = Object.fromEntries(
+  Object.entries(PAPER_XLSX).map(([k, v]) => [v, k as PaperName]),
+);
 
 /** Lit les éléments d'impression d'une feuille (null si la feuille n'en porte aucun). */
 export function readPrintElements(doc: Document): Partial<PrintSetup> | null {
@@ -117,7 +121,8 @@ export function readPrintElements(doc: Document): Partial<PrintSetup> | null {
   const ftr = one("oddFooter")?.textContent;
   if (hdr) out.header = hfFromExcel(hdr);
   if (ftr) out.footer = hfFromExcel(ftr);
-  const ids = (list: Element[]) => list.map((b) => Number(b.getAttribute("id")) - 1).filter((n) => Number.isInteger(n) && n >= 0);
+  const ids = (list: Element[]) =>
+    list.map((b) => Number(b.getAttribute("id")) - 1).filter((n) => Number.isInteger(n) && n >= 0);
   if (rb.length) out.rowBreaks = ids(rb);
   if (cb.length) out.colBreaks = ids(cb);
   return out;
@@ -130,7 +135,16 @@ export function readPrintNames(text: string, kind: "area" | "titles"): Partial<P
     const [a, b] = (parts[0] ?? "").split(":");
     const pa = a ? parseRef(a) : null;
     const pb = b ? parseRef(b) : pa;
-    return pa && pb ? { area: { c0: Math.min(pa.col, pb.col), r0: Math.min(pa.row, pb.row), c1: Math.max(pa.col, pb.col), r1: Math.max(pa.row, pb.row) } } : {};
+    return pa && pb
+      ? {
+          area: {
+            c0: Math.min(pa.col, pb.col),
+            r0: Math.min(pa.row, pb.row),
+            c1: Math.max(pa.col, pb.col),
+            r1: Math.max(pa.row, pb.row),
+          },
+        }
+      : {};
   }
   const out: Partial<PrintSetup> = {};
   for (const p of parts) {

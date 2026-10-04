@@ -50,4 +50,3 @@ export function chartSvg(d: DocChartData): string {
   });
   return layoutToSvg(lay, d.title || "Graphique");
 }
-

@@ -1,9 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { A4_PX, DEFAULT_HANDOUT, expandTokens, notesLines, pageSize, perPageOf, planHandouts, slotsFor, type HandoutMode } from "../src/slides/handouts-layout";
+import {
+  A4_PX,
+  DEFAULT_HANDOUT,
+  expandTokens,
+  notesLines,
+  pageSize,
+  perPageOf,
+  planHandouts,
+  slotsFor,
+  type HandoutMode,
+} from "../src/slides/handouts-layout";
 import type { Slide } from "../src/slides/model";
 
 const slides = (n: number, hidden: number[] = []): Slide[] =>
-  Array.from({ length: n }, (_, i) => ({ id: `s${i}`, title: "", body: "", layout: "blank" as const, ...(hidden.includes(i) ? { hidden: true } : {}), notes: i === 0 ? "Un\n\n  Deux  " : "" }));
+  Array.from({ length: n }, (_, i) => ({
+    id: `s${i}`,
+    title: "",
+    body: "",
+    layout: "blank" as const,
+    ...(hidden.includes(i) ? { hidden: true } : {}),
+    notes: i === 0 ? "Un\n\n  Deux  " : "",
+  }));
 
 describe("mosaïques de documents", () => {
   const modes: HandoutMode[] = [1, 2, 3, 4, 6, 9, "notes"];
@@ -46,7 +63,10 @@ describe("plan de pages", () => {
   it("masquées exclues par défaut, incluses sur demande ; dernière page partielle", () => {
     const p = planHandouts(slides(7, [2]), { ...DEFAULT_HANDOUT, mode: 4 });
     expect(p.keep).toEqual([0, 1, 3, 4, 5, 6]);
-    expect(p.pages.map((x) => x.slideIndexes)).toEqual([[0, 1, 3, 4], [5, 6]]);
+    expect(p.pages.map((x) => x.slideIndexes)).toEqual([
+      [0, 1, 3, 4],
+      [5, 6],
+    ]);
     expect(planHandouts(slides(7, [2]), { ...DEFAULT_HANDOUT, mode: 4, includeHidden: true }).keep).toHaveLength(7);
     expect(planHandouts(slides(3), { ...DEFAULT_HANDOUT, mode: "notes" }).pages).toHaveLength(3);
     expect(planHandouts([], DEFAULT_HANDOUT).pages).toEqual([]);

@@ -14,19 +14,41 @@ export interface ChartSeries {
 
 export type Prim =
   | { k: "rect"; x: number; y: number; w: number; h: number; fill: string; rx?: number }
-  | { k: "line"; x1: number; y1: number; x2: number; y2: number; cls: "axis" | "grid" | "trend"; stroke?: string; dash?: boolean }
+  | {
+      k: "line";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      cls: "axis" | "grid" | "trend";
+      stroke?: string;
+      dash?: boolean;
+    }
   | { k: "poly"; pts: [number, number][]; stroke: string; w: number; dash?: boolean }
   | { k: "path"; d: string; fill: string; opacity?: number }
   | { k: "circle"; cx: number; cy: number; r: number; fill: string }
-  | { k: "text"; x: number; y: number; text: string; anchor: "start" | "middle" | "end"; cls: "label" | "legend" | "title" | "axis-title" | "value"; rotate?: number };
+  | {
+      k: "text";
+      x: number;
+      y: number;
+      text: string;
+      anchor: "start" | "middle" | "end";
+      cls: "label" | "legend" | "title" | "axis-title" | "value";
+      rotate?: number;
+    };
 
 export const PALETTE = ["#1d4ed8", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#dc2626", "#3b82f6", "#15803d"];
 
 // --- Outils numériques ------------------------------------------------------
 
 /** Graduation « lisible » : pas de 1/2/5 × 10^n, bornes alignées. */
-export function niceTicks(min: number, max: number, target = 5): { min: number; max: number; step: number; ticks: number[] } {
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1, step: 0.25, ticks: [0, 0.25, 0.5, 0.75, 1] };
+export function niceTicks(
+  min: number,
+  max: number,
+  target = 5,
+): { min: number; max: number; step: number; ticks: number[] } {
+  if (!Number.isFinite(min) || !Number.isFinite(max))
+    return { min: 0, max: 1, step: 0.25, ticks: [0, 0.25, 0.5, 0.75, 1] };
   if (min === max) {
     if (min === 0) max = 1;
     else {
@@ -179,14 +201,19 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
   const prims: Prim[] = [];
   if (first.length === 0) return { width: W, height: H0, prims, empty: true };
 
-  const legendPos = o.legend ?? (series.length > 1 || inp.type === "pie" ? (inp.type === "pie" ? "none" : "bottom") : "none");
+  const legendPos =
+    o.legend ?? (series.length > 1 || inp.type === "pie" ? (inp.type === "pie" ? "none" : "bottom") : "none");
   const legendLabels = inp.type === "pie" ? inp.labels : series.map((s) => s.label);
   const titleH = inp.title ? 18 : 0;
   const xTitleH = o.xTitle ? 14 : 0;
   const legendRowH = 14;
   const legendRight = legendPos === "right" ? 88 : 0;
-  const legendBottomH = legendPos === "bottom" ? legendRowH * Math.ceil(legendLabels.length / Math.max(1, Math.floor((W - 20) / 92))) + 2 : 0;
-  const legendTopH = legendPos === "top" ? legendRowH * Math.ceil(legendLabels.length / Math.max(1, Math.floor((W - 20) / 92))) + 2 : 0;
+  const legendBottomH =
+    legendPos === "bottom"
+      ? legendRowH * Math.ceil(legendLabels.length / Math.max(1, Math.floor((W - 20) / 92))) + 2
+      : 0;
+  const legendTopH =
+    legendPos === "top" ? legendRowH * Math.ceil(legendLabels.length / Math.max(1, Math.floor((W - 20) / 92))) + 2 : 0;
   const H = H0 + legendBottomH + legendTopH + titleH + xTitleH;
 
   if (inp.title) prims.push({ k: "text", x: W / 2, y: 13, text: trunc(inp.title, 48), anchor: "middle", cls: "title" });
@@ -198,9 +225,21 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
       const col = i % perRow;
       const row = Math.floor(i / perRow);
       const lx = legendPos === "right" ? W - legendRight + 6 : 10 + col * 92;
-      const ly = legendPos === "right" ? titleH + 14 + row * legendRowH : legendPos === "top" ? titleH + 4 + row * legendRowH : H - legendBottomH + 2 + row * legendRowH;
+      const ly =
+        legendPos === "right"
+          ? titleH + 14 + row * legendRowH
+          : legendPos === "top"
+            ? titleH + 4 + row * legendRowH
+            : H - legendBottomH + 2 + row * legendRowH;
       prims.push({ k: "rect", x: lx, y: ly, w: 8, h: 8, fill: colorOf(i), rx: 1 });
-      prims.push({ k: "text", x: lx + 12, y: ly + 8, text: trunc(lab, legendPos === "right" ? 12 : 12), anchor: "start", cls: "legend" });
+      prims.push({
+        k: "text",
+        x: lx + 12,
+        y: ly + 8,
+        text: trunc(lab, legendPos === "right" ? 12 : 12),
+        anchor: "start",
+        cls: "legend",
+      });
     });
   };
 
@@ -229,7 +268,14 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
       prims.push({ k: "path", d, fill: colorOf(i) });
       if (o.dataLabels) {
         const mid = (a0 + a1) / 2;
-        prims.push({ k: "text", x: cx + rad * 0.65 * Math.cos(mid), y: cy + rad * 0.65 * Math.sin(mid) + 3, text: `${Math.round(frac * 100)} %`, anchor: "middle", cls: "value" });
+        prims.push({
+          k: "text",
+          x: cx + rad * 0.65 * Math.cos(mid),
+          y: cy + rad * 0.65 * Math.sin(mid) + 3,
+          text: `${Math.round(frac * 100)} %`,
+          anchor: "middle",
+          cls: "value",
+        });
       }
     });
     if (legendPos === "none" && o.legend === undefined) {
@@ -244,14 +290,28 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
   const stackedMode = o.grouping === "stacked" || o.grouping === "percent";
   const percent = o.grouping === "percent";
   const seriesKind = (si: number): "bar" | "line" | "area" | "scatter" =>
-    inp.type === "combo" ? (o.seriesTypes?.[si] ?? (si === 0 ? "bar" : "line")) : inp.type === "bar" ? "bar" : inp.type === "area" ? "area" : inp.type === "scatter" ? "scatter" : "line";
+    inp.type === "combo"
+      ? (o.seriesTypes?.[si] ?? (si === 0 ? "bar" : "line"))
+      : inp.type === "bar"
+        ? "bar"
+        : inp.type === "area"
+          ? "area"
+          : inp.type === "scatter"
+            ? "scatter"
+            : "line";
   const onSecondary = (si: number) => inp.type === "combo" && !!o.secondary?.includes(si);
   const primary = series.map((_, i) => i).filter((i) => !onSecondary(i));
   const secondary = series.map((_, i) => i).filter(onSecondary);
 
   // bornes de l'axe primaire
   const stackable = primary.filter((i) => seriesKind(i) === "bar" || seriesKind(i) === "area");
-  const stackBnds = stackedMode && stackable.length ? stackBounds(stackable.map((i) => series[i]!), percent) : null;
+  const stackBnds =
+    stackedMode && stackable.length
+      ? stackBounds(
+          stackable.map((i) => series[i]!),
+          percent,
+        )
+      : null;
   const rangeOf = (idx: number[], useStack: boolean): { min: number; max: number } => {
     let mn = 0;
     let mx = 0;
@@ -299,11 +359,12 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
   const xAxis = xIsNumeric ? niceTicks(xMin, xMax) : null;
   const xPix = (x: number): number => {
     if (xIsNumeric && xAxis) return left + ((x - xAxis.min) / (xAxis.max - xAxis.min || 1)) * plotW;
-    if (scatter || inp.type === "line" || inp.type === "area") return left + (n === 1 ? plotW / 2 : (x / (n - 1)) * plotW);
+    if (scatter || inp.type === "line" || inp.type === "area")
+      return left + (n === 1 ? plotW / 2 : (x / (n - 1)) * plotW);
     return left + (x + 0.5) * (plotW / n);
   };
   const slotW = plotW / n;
-  const usesBands = !scatter && series.some((_, si) => seriesKind(si) === "bar") ;
+  const usesBands = !scatter && series.some((_, si) => seriesKind(si) === "bar");
   const xPos = (i: number): number => {
     if (xIsNumeric) return xPix(xs[i]!);
     if (usesBands) return left + (i + 0.5) * slotW;
@@ -317,25 +378,94 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
     if (horizPlot) {
       const x = left + ((t - yMin) / (yMax - yMin || 1)) * plotW;
       prims.push({ k: "line", x1: x, y1: top, x2: x, y2: bottom, cls: "grid" });
-      prims.push({ k: "text", x, y: bottom + 11, text: formatAxis(percent ? t : t, percent ? "percent" : o.yFormat, yAxis.step), anchor: "middle", cls: "label" });
+      prims.push({
+        k: "text",
+        x,
+        y: bottom + 11,
+        text: formatAxis(percent ? t : t, percent ? "percent" : o.yFormat, yAxis.step),
+        anchor: "middle",
+        cls: "label",
+      });
     } else {
       const y = yPix(t);
       prims.push({ k: "line", x1: left, y1: y, x2: W - right, y2: y, cls: t === 0 ? "axis" : "grid" });
-      prims.push({ k: "text", x: left - 4, y: y + 3, text: formatAxis(t, percent ? "percent" : o.yFormat, yAxis.step), anchor: "end", cls: "label" });
+      prims.push({
+        k: "text",
+        x: left - 4,
+        y: y + 3,
+        text: formatAxis(t, percent ? "percent" : o.yFormat, yAxis.step),
+        anchor: "end",
+        cls: "label",
+      });
     }
   });
   if (y2Axis)
-    y2Axis.ticks.forEach((t) => prims.push({ k: "text", x: W - right + 4, y: y2Pix(t) + 3, text: formatAxis(t, undefined, y2Axis.step), anchor: "start", cls: "label" }));
+    y2Axis.ticks.forEach((t) =>
+      prims.push({
+        k: "text",
+        x: W - right + 4,
+        y: y2Pix(t) + 3,
+        text: formatAxis(t, undefined, y2Axis.step),
+        anchor: "start",
+        cls: "label",
+      }),
+    );
   if (xAxis && !horizPlot)
-    xAxis.ticks.forEach((t) => prims.push({ k: "text", x: xPix(t), y: bottom + 11, text: formatAxis(t, undefined, xAxis.step), anchor: "middle", cls: "label" }));
+    xAxis.ticks.forEach((t) =>
+      prims.push({
+        k: "text",
+        x: xPix(t),
+        y: bottom + 11,
+        text: formatAxis(t, undefined, xAxis.step),
+        anchor: "middle",
+        cls: "label",
+      }),
+    );
   if (!xIsNumeric && !horizPlot)
-    inp.labels.forEach((l, i) => prims.push({ k: "text", x: xPos(i), y: bottom + 11, text: trunc(String(l), Math.max(3, Math.floor(slotW / 5))), anchor: "middle", cls: "label" }));
+    inp.labels.forEach((l, i) =>
+      prims.push({
+        k: "text",
+        x: xPos(i),
+        y: bottom + 11,
+        text: trunc(String(l), Math.max(3, Math.floor(slotW / 5))),
+        anchor: "middle",
+        cls: "label",
+      }),
+    );
   if (!xIsNumeric && horizPlot)
-    inp.labels.forEach((l, i) => prims.push({ k: "text", x: left - 4, y: top + (i + 0.5) * (plotH / n) + 3, text: trunc(String(l), 6), anchor: "end", cls: "label" }));
+    inp.labels.forEach((l, i) =>
+      prims.push({
+        k: "text",
+        x: left - 4,
+        y: top + (i + 0.5) * (plotH / n) + 3,
+        text: trunc(String(l), 6),
+        anchor: "end",
+        cls: "label",
+      }),
+    );
 
-  if (o.xTitle) prims.push({ k: "text", x: left + plotW / 2, y: bottom + 24, text: o.xTitle, anchor: "middle", cls: "axis-title" });
-  if (o.yTitle) prims.push({ k: "text", x: 9, y: top + plotH / 2, text: o.yTitle, anchor: "middle", cls: "axis-title", rotate: -90 });
-  if (o.y2Title && y2Axis) prims.push({ k: "text", x: W - legendRight - 6, y: top + plotH / 2, text: o.y2Title, anchor: "middle", cls: "axis-title", rotate: 90 });
+  if (o.xTitle)
+    prims.push({ k: "text", x: left + plotW / 2, y: bottom + 24, text: o.xTitle, anchor: "middle", cls: "axis-title" });
+  if (o.yTitle)
+    prims.push({
+      k: "text",
+      x: 9,
+      y: top + plotH / 2,
+      text: o.yTitle,
+      anchor: "middle",
+      cls: "axis-title",
+      rotate: -90,
+    });
+  if (o.y2Title && y2Axis)
+    prims.push({
+      k: "text",
+      x: W - legendRight - 6,
+      y: top + plotH / 2,
+      text: o.y2Title,
+      anchor: "middle",
+      cls: "axis-title",
+      rotate: 90,
+    });
 
   // séries
   const barSeries = series.map((_, i) => i).filter((i) => seriesKind(i) === "bar");
@@ -358,39 +488,82 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
           const by = top + i * band + (band - gw) / 2 + idxInGroup * (gw / count);
           const x0 = left + ((b.lo - yMin) / (yMax - yMin || 1)) * plotW;
           const x1 = left + ((b.hi - yMin) / (yMax - yMin || 1)) * plotW;
-          prims.push({ k: "rect", x: Math.min(x0, x1), y: by, w: Math.max(1, Math.abs(x1 - x0)), h: bw, fill: color, rx: 2 });
+          prims.push({
+            k: "rect",
+            x: Math.min(x0, x1),
+            y: by,
+            w: Math.max(1, Math.abs(x1 - x0)),
+            h: bw,
+            fill: color,
+            rx: 2,
+          });
         } else {
           const gw = slotW * 0.7;
           const bw = (gw / count) * 0.85;
           const bx = left + i * slotW + (slotW - gw) / 2 + idxInGroup * (gw / count) + (gw / count - bw) / 2;
           const yTop = yp(b.hi);
           const yBot = yp(b.lo);
-          prims.push({ k: "rect", x: bx, y: Math.min(yTop, yBot), w: bw, h: Math.max(1, Math.abs(yBot - yTop)), fill: color, rx: 2 });
-          if (o.dataLabels) prims.push({ k: "text", x: bx + bw / 2, y: Math.min(yTop, yBot) - 3, text: percent ? `${Math.round((b.hi - b.lo) * 100)} %` : formatAxis(v, o.yFormat, 0), anchor: "middle", cls: "value" });
+          prims.push({
+            k: "rect",
+            x: bx,
+            y: Math.min(yTop, yBot),
+            w: bw,
+            h: Math.max(1, Math.abs(yBot - yTop)),
+            fill: color,
+            rx: 2,
+          });
+          if (o.dataLabels)
+            prims.push({
+              k: "text",
+              x: bx + bw / 2,
+              y: Math.min(yTop, yBot) - 3,
+              text: percent ? `${Math.round((b.hi - b.lo) * 100)} %` : formatAxis(v, o.yFormat, 0),
+              anchor: "middle",
+              cls: "value",
+            });
         }
       });
     } else if (kind === "area") {
       const stacked = stackedMode && stackBnds && stackable.includes(si);
       const bnds = stacked ? stackBnds![stackable.indexOf(si)]! : se.values.map((v) => ({ lo: 0, hi: v }));
       const topPts = bnds.map((b, i) => `${xPos(i).toFixed(1)},${yp(b.hi).toFixed(1)}`);
-      const botPts = bnds
-        .map((b, i) => `${xPos(i).toFixed(1)},${yp(b.lo).toFixed(1)}`)
-        .reverse();
+      const botPts = bnds.map((b, i) => `${xPos(i).toFixed(1)},${yp(b.lo).toFixed(1)}`).reverse();
       prims.push({ k: "path", d: `M${topPts.join(" L")} L${botPts.join(" L")} Z`, fill: color, opacity: 0.55 });
-      prims.push({ k: "poly", pts: bnds.map((b, i) => [xPos(i), yp(b.hi)] as [number, number]), stroke: color, w: 1.5 });
+      prims.push({
+        k: "poly",
+        pts: bnds.map((b, i) => [xPos(i), yp(b.hi)] as [number, number]),
+        stroke: color,
+        w: 1.5,
+      });
     } else if (kind === "line") {
       const pts = se.values.map((v, i) => [xPos(i), yp(v)] as [number, number]);
       prims.push({ k: "poly", pts: o.smooth ? smoothPts(pts) : pts, stroke: color, w: 2 });
       pts.forEach(([cx, cy], i) => {
         prims.push({ k: "circle", cx, cy, r: 2.5, fill: color });
-        if (o.dataLabels) prims.push({ k: "text", x: cx, y: cy - 5, text: formatAxis(se.values[i]!, o.yFormat, 0), anchor: "middle", cls: "value" });
+        if (o.dataLabels)
+          prims.push({
+            k: "text",
+            x: cx,
+            y: cy - 5,
+            text: formatAxis(se.values[i]!, o.yFormat, 0),
+            anchor: "middle",
+            cls: "value",
+          });
       });
     } else {
       se.values.forEach((v, i) => {
         const cx = xPos(i);
         const cy = yp(v);
         prims.push({ k: "circle", cx, cy, r: 3.2, fill: color });
-        if (o.dataLabels) prims.push({ k: "text", x: cx + 5, y: cy - 4, text: formatAxis(v, o.yFormat, 0), anchor: "start", cls: "value" });
+        if (o.dataLabels)
+          prims.push({
+            k: "text",
+            x: cx + 5,
+            y: cy - 4,
+            text: formatAxis(v, o.yFormat, 0),
+            anchor: "start",
+            cls: "value",
+          });
       });
     }
   });

@@ -19,7 +19,18 @@ import {
 
 export const SLIDE_NUMBER_TOKEN = "‹#›";
 
-const ph = (id: string, kind: PlaceholderKind, x: number, y: number, w: number, h: number, fontSize: number, align: LayoutPlaceholder["align"], valign: LayoutPlaceholder["valign"], bold = false): LayoutPlaceholder => ({
+const ph = (
+  id: string,
+  kind: PlaceholderKind,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fontSize: number,
+  align: LayoutPlaceholder["align"],
+  valign: LayoutPlaceholder["valign"],
+  bold = false,
+): LayoutPlaceholder => ({
   id,
   kind,
   x,
@@ -36,11 +47,52 @@ const number = (): LayoutPlaceholder => ph("num", "slideNumber", 88, 92, 6, 5, 1
 
 export function defaultMaster(): SlideMaster {
   const layouts: SlideLayoutDef[] = [
-    { id: "lay-titre", name: "Diapositive de titre", placeholders: [ph("t", "title", 8, 30, 84, 22, 54, "center", "bottom", true), ph("b", "body", 12, 54, 76, 14, 26, "center", "top"), footer(), number()] },
-    { id: "lay-contenu", name: "Titre et contenu", placeholders: [ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true), ph("b", "body", 7, 24, 86, 66, 24, "left", "top"), footer(), number()] },
-    { id: "lay-section", name: "En-tête de section", placeholders: [ph("t", "title", 8, 36, 84, 24, 46, "left", "bottom", true), ph("b", "body", 8, 62, 84, 14, 24, "left", "top"), footer(), number()] },
-    { id: "lay-deux", name: "Deux contenus", placeholders: [ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true), ph("b1", "body", 7, 24, 41, 66, 22, "left", "top"), ph("b2", "body", 52, 24, 41, 66, 22, "left", "top"), footer(), number()] },
-    { id: "lay-titre-seul", name: "Titre seul", placeholders: [ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true), footer(), number()] },
+    {
+      id: "lay-titre",
+      name: "Diapositive de titre",
+      placeholders: [
+        ph("t", "title", 8, 30, 84, 22, 54, "center", "bottom", true),
+        ph("b", "body", 12, 54, 76, 14, 26, "center", "top"),
+        footer(),
+        number(),
+      ],
+    },
+    {
+      id: "lay-contenu",
+      name: "Titre et contenu",
+      placeholders: [
+        ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true),
+        ph("b", "body", 7, 24, 86, 66, 24, "left", "top"),
+        footer(),
+        number(),
+      ],
+    },
+    {
+      id: "lay-section",
+      name: "En-tête de section",
+      placeholders: [
+        ph("t", "title", 8, 36, 84, 24, 46, "left", "bottom", true),
+        ph("b", "body", 8, 62, 84, 14, 24, "left", "top"),
+        footer(),
+        number(),
+      ],
+    },
+    {
+      id: "lay-deux",
+      name: "Deux contenus",
+      placeholders: [
+        ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true),
+        ph("b1", "body", 7, 24, 41, 66, 22, "left", "top"),
+        ph("b2", "body", 52, 24, 41, 66, 22, "left", "top"),
+        footer(),
+        number(),
+      ],
+    },
+    {
+      id: "lay-titre-seul",
+      name: "Titre seul",
+      placeholders: [ph("t", "title", 7, 6, 86, 15, 40, "left", "middle", true), footer(), number()],
+    },
     { id: "lay-vierge", name: "Vierge", placeholders: [footer(), number()] },
   ];
   return {
@@ -65,7 +117,8 @@ export const PLACEHOLDER_PROMPT: Record<PlaceholderKind, string> = {
   slideNumber: SLIDE_NUMBER_TOKEN,
 };
 
-const layoutOf = (m: SlideMaster, id: string | undefined): SlideLayoutDef | undefined => m.layouts.find((l) => l.id === id);
+const layoutOf = (m: SlideMaster, id: string | undefined): SlideLayoutDef | undefined =>
+  m.layouts.find((l) => l.id === id);
 
 /** Style de texte d'un espace réservé, déduit du masque (polices, couleurs) et de la disposition. */
 export function placeholderStyle(m: SlideMaster, p: LayoutPlaceholder): Partial<SlideElement> {
@@ -79,11 +132,17 @@ export function placeholderStyle(m: SlideMaster, p: LayoutPlaceholder): Partial<
   };
 }
 
-const stripTags = (h: string | undefined): string => (h ?? "").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
-const isEmptyPh = (e: SlideElement): boolean => !stripTags(e.html) || stripTags(e.html) === PLACEHOLDER_PROMPT[e.ph ?? "body"];
+const stripTags = (h: string | undefined): string =>
+  (h ?? "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+const isEmptyPh = (e: SlideElement): boolean =>
+  !stripTags(e.html) || stripTags(e.html) === PLACEHOLDER_PROMPT[e.ph ?? "body"];
 
 /** Espace réservé encore vide (texte d'invite seulement) : visible dans l'éditeur, jamais projeté ni exporté. */
-export const isPromptOnly = (e: SlideElement): boolean => !!e.ph && e.type === "text" && isEmptyPh(e) && e.ph !== "slideNumber" && e.ph !== "footer";
+export const isPromptOnly = (e: SlideElement): boolean =>
+  !!e.ph && e.type === "text" && isEmptyPh(e) && e.ph !== "slideNumber" && e.ph !== "footer";
 
 /** Élément texte neuf pour un espace réservé. */
 function newPlaceholderElement(m: SlideMaster, p: LayoutPlaceholder): SlideElement | null {
@@ -164,19 +223,40 @@ export function applyMasterToDeck(deck: Deck, m: SlideMaster): Deck {
 }
 
 /** Disposition la plus proche d'un type PPTX (`title`, `obj`, `secHead`, `twoObj`, `titleOnly`, `blank`…). */
-export function layoutIdForPptxType(m: SlideMaster, type: string | undefined, name: string | undefined): string | undefined {
+export function layoutIdForPptxType(
+  m: SlideMaster,
+  type: string | undefined,
+  name: string | undefined,
+): string | undefined {
   const byName = m.layouts.find((l) => l.name.toLowerCase() === (name ?? "").toLowerCase());
   if (byName) return byName.id;
-  const want: Record<string, string> = { title: "lay-titre", obj: "lay-contenu", tx: "lay-contenu", secHead: "lay-section", twoObj: "lay-deux", titleOnly: "lay-titre-seul", blank: "lay-vierge" };
+  const want: Record<string, string> = {
+    title: "lay-titre",
+    obj: "lay-contenu",
+    tx: "lay-contenu",
+    secHead: "lay-section",
+    twoObj: "lay-deux",
+    titleOnly: "lay-titre-seul",
+    blank: "lay-vierge",
+  };
   return m.layouts.find((l) => l.id === want[type ?? ""])?.id;
 }
 
 // --- Édition du masque (fonctions pures utilisées par l'éditeur) ---------------
 
-export function updatePlaceholder(m: SlideMaster, layoutId: string, phId: string, patch: Partial<LayoutPlaceholder>): SlideMaster {
+export function updatePlaceholder(
+  m: SlideMaster,
+  layoutId: string,
+  phId: string,
+  patch: Partial<LayoutPlaceholder>,
+): SlideMaster {
   return {
     ...m,
-    layouts: m.layouts.map((l) => (l.id === layoutId ? { ...l, placeholders: l.placeholders.map((p) => (p.id === phId ? clampPh({ ...p, ...patch }) : p)) } : l)),
+    layouts: m.layouts.map((l) =>
+      l.id === layoutId
+        ? { ...l, placeholders: l.placeholders.map((p) => (p.id === phId ? clampPh({ ...p, ...patch }) : p)) }
+        : l,
+    ),
   };
 }
 const clampPh = (p: LayoutPlaceholder): LayoutPlaceholder => {
@@ -204,12 +284,27 @@ export function addPlaceholder(m: SlideMaster, layoutId: string, kind: Placehold
   };
 }
 export function removePlaceholder(m: SlideMaster, layoutId: string, phId: string): SlideMaster {
-  return { ...m, layouts: m.layouts.map((l) => (l.id === layoutId ? { ...l, placeholders: l.placeholders.filter((p) => p.id !== phId) } : l)) };
+  return {
+    ...m,
+    layouts: m.layouts.map((l) =>
+      l.id === layoutId ? { ...l, placeholders: l.placeholders.filter((p) => p.id !== phId) } : l,
+    ),
+  };
 }
 export function addLayout(m: SlideMaster, name: string): SlideMaster {
   let n = 1;
   while (m.layouts.some((l) => l.id === `lay-perso-${n}`)) n++;
-  return { ...m, layouts: [...m.layouts, { id: `lay-perso-${n}`, name: name.trim() || `Disposition ${m.layouts.length + 1}`, placeholders: [footer(), number()] }] };
+  return {
+    ...m,
+    layouts: [
+      ...m.layouts,
+      {
+        id: `lay-perso-${n}`,
+        name: name.trim() || `Disposition ${m.layouts.length + 1}`,
+        placeholders: [footer(), number()],
+      },
+    ],
+  };
 }
 export function removeLayout(m: SlideMaster, layoutId: string): SlideMaster {
   return m.layouts.length <= 1 ? m : { ...m, layouts: m.layouts.filter((l) => l.id !== layoutId) };

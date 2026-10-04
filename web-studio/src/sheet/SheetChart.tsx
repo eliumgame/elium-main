@@ -7,7 +7,17 @@ export type ChartSeriesData = ChartSeries;
 function renderPrim(p: Prim, i: number) {
   switch (p.k) {
     case "rect":
-      return <rect key={i} x={+p.x.toFixed(1)} y={+p.y.toFixed(1)} width={+p.w.toFixed(1)} height={+p.h.toFixed(1)} rx={p.rx} fill={p.fill} />;
+      return (
+        <rect
+          key={i}
+          x={+p.x.toFixed(1)}
+          y={+p.y.toFixed(1)}
+          width={+p.w.toFixed(1)}
+          height={+p.h.toFixed(1)}
+          rx={p.rx}
+          fill={p.fill}
+        />
+      );
     case "line":
       return (
         <line
@@ -42,7 +52,17 @@ function renderPrim(p: Prim, i: number) {
           x={+p.x.toFixed(1)}
           y={+p.y.toFixed(1)}
           textAnchor={p.anchor}
-          className={p.cls === "legend" ? "chart-legend-label" : p.cls === "title" ? "chart-title" : p.cls === "axis-title" ? "chart-axis-title" : p.cls === "value" ? "chart-value" : "chart-label"}
+          className={
+            p.cls === "legend"
+              ? "chart-legend-label"
+              : p.cls === "title"
+                ? "chart-title"
+                : p.cls === "axis-title"
+                  ? "chart-axis-title"
+                  : p.cls === "value"
+                    ? "chart-value"
+                    : "chart-label"
+          }
           transform={p.rotate ? `rotate(${p.rotate} ${p.x.toFixed(1)} ${p.y.toFixed(1)})` : undefined}
         >
           {p.text}

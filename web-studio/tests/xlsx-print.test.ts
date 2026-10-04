@@ -35,13 +35,19 @@ describe("impression — XLSX", () => {
     const sheet = strFromU8(zip["xl/worksheets/sheet1.xml"]!);
     expect(sheet).toContain('<pageSetUpPr fitToPage="1"/>');
     expect(sheet).toContain('<printOptions headings="1" gridLines="1"/>');
-    expect(sheet).toContain('paperSize="8" orientation="landscape" fitToWidth="1" fitToHeight="0" pageOrder="overThenDown"');
+    expect(sheet).toContain(
+      'paperSize="8" orientation="landscape" fitToWidth="1" fitToHeight="0" pageOrder="overThenDown"',
+    );
     expect(sheet).toContain('<brk id="10" max="16383" man="1"/>');
     expect(sheet).toContain("<oddFooter>&amp;CPage &amp;P sur &amp;N</oddFooter>");
     const wb = strFromU8(zip["xl/workbook.xml"]!);
-    expect(wb).toContain('<definedName name="_xlnm.Print_Area" localSheetId="0">\'Rapport 1\'!$A$1:$D$30</definedName>');
+    expect(wb).toContain(
+      '<definedName name="_xlnm.Print_Area" localSheetId="0">\'Rapport 1\'!$A$1:$D$30</definedName>',
+    );
     expect(wb).toContain("_xlnm.Print_Titles");
-    expect(wb).toContain("'Rapport 1'!$A:$A,'Rapport 1'!$1:$2".replace("$A:$A,'Rapport 1'!$1:$2", "$A:$A,'Rapport 1'!$1:$2"));
+    expect(wb).toContain(
+      "'Rapport 1'!$A:$A,'Rapport 1'!$1:$2".replace("$A:$A,'Rapport 1'!$1:$2", "$A:$A,'Rapport 1'!$1:$2"),
+    );
   });
   it("aller-retour complet", () => {
     const back = importXlsx(bytes).sheets[0]!.print!;

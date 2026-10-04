@@ -57,7 +57,10 @@ describe("graphique de document", () => {
     expect(strFromU8(zip["word/document.xml"]!)).toContain("<c:chart ");
   });
   it("DOCX aller-retour : données, type, titre, options et taille conservés", async () => {
-    const f = await createEliumFile({ title: "G", doc: docOf(chart({ chartType: "combo", opts: { seriesTypes: ["bar", "line"], secondary: [1], y2Title: "%" } })) });
+    const f = await createEliumFile({
+      title: "G",
+      doc: docOf(chart({ chartType: "combo", opts: { seriesTypes: ["bar", "line"], secondary: [1], y2Title: "%" } })),
+    });
     const back = find(docxToDoc(docToDocx(f)).doc, "docChart")!;
     expect(back).toBeTruthy();
     const d = chartDataOf(back.attrs);
@@ -75,7 +78,14 @@ describe("graphique de document", () => {
   it("nuage de points avec abscisses numériques", async () => {
     const f = await createEliumFile({
       title: "G",
-      doc: docOf(chart({ chartType: "scatter", opts: null, labels: ["1", "2", "4"], series: [{ label: "y", values: [1, 4, 16] }] })),
+      doc: docOf(
+        chart({
+          chartType: "scatter",
+          opts: null,
+          labels: ["1", "2", "4"],
+          series: [{ label: "y", values: [1, 4, 16] }],
+        }),
+      ),
     });
     const xml = strFromU8(unzipSync(docToDocx(f))["word/charts/chart1.xml"]!);
     expect(xml).toContain("<c:scatterChart>");

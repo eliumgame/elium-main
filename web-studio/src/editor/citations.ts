@@ -71,7 +71,12 @@ const initials = (first: string): string =>
   first
     .split(/[\s]+/)
     .filter(Boolean)
-    .map((p) => p.split("-").map((q) => `${q[0]!.toUpperCase()}.`).join("-"))
+    .map((p) =>
+      p
+        .split("-")
+        .map((q) => `${q[0]!.toUpperCase()}.`)
+        .join("-"),
+    )
     .join(" ");
 
 const trimDot = (s: string): string => s.replace(/[.\s]+$/, "");
@@ -80,7 +85,12 @@ const endDot = (s: string): string => (/[.!?…]$/.test(s) ? s : `${s}.`);
 /** Clé stable d'une source (nom + année + début du titre). */
 export function makeSourceKey(s: Pick<BibSource, "authors" | "year" | "title">): string {
   const a = parseAuthors(s.authors)[0]?.last ?? s.title.split(/\s+/)[0] ?? "src";
-  const slug = (x: string) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const slug = (x: string) =>
+    x
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
   return `${slug(a)}${s.year ?? ""}${slug(s.title).slice(0, 6)}`;
 }
 
@@ -109,10 +119,24 @@ const frDate = (iso: string | undefined): string => {
   if (!iso) return "";
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return iso;
-  const mois = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+  const mois = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+  ];
   return `${Number(m[3])} ${mois[Number(m[2]) - 1] ?? ""} ${m[1]}`;
 };
-const link = (s: BibSource): string => (s.doi ? `https://doi.org/${s.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//, "")}` : (s.url ?? ""));
+const link = (s: BibSource): string =>
+  s.doi ? `https://doi.org/${s.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//, "")}` : (s.url ?? "");
 const pageRange = (p: string | undefined): string => (p ? p.replace(/\s*[-–—]\s*/, "–") : "");
 
 /** Référence complète pour la bibliographie, en segments (italique pour titres d'ouvrages/revues). */
@@ -127,10 +151,16 @@ export function formatReference(src: BibSource, style: CitationStyle): RefPart[]
 
   if (style === "apa") {
     const names = au.map((a) => (a.first ? `${a.last}, ${initials(a.first)}` : a.last));
-    const who = names.length <= 1 ? (names[0] ?? "") : names.length === 2 ? `${names[0]} & ${names[1]}` : `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
+    const who =
+      names.length <= 1
+        ? (names[0] ?? "")
+        : names.length === 2
+          ? `${names[0]} & ${names[1]}`
+          : `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
     if (who) push(`${trimDot(who)}. `);
     // Sans auteur, le titre passe devant la date (règle APA) pour les ouvrages et sites.
-    const titleFirst = !who && (src.type === "web" || src.type === "book" || src.type === "report" || src.type === "thesis");
+    const titleFirst =
+      !who && (src.type === "web" || src.type === "book" || src.type === "report" || src.type === "thesis");
     if (titleFirst) {
       push(trimDot(src.title), true);
       push(". ");
@@ -187,13 +217,22 @@ export function formatReference(src: BibSource, style: CitationStyle): RefPart[]
       case "article":
         push(`« ${trimDot(src.title)} ». `);
         push(src.container ?? "", true);
-        push([src.volume ? `, vol. ${src.volume}` : "", src.issue ? `, no ${src.issue}` : "", `, ${year}`, src.pages ? `, p. ${pageRange(src.pages)}` : ""].join(""));
+        push(
+          [
+            src.volume ? `, vol. ${src.volume}` : "",
+            src.issue ? `, no ${src.issue}` : "",
+            `, ${year}`,
+            src.pages ? `, p. ${pageRange(src.pages)}` : "",
+          ].join(""),
+        );
         push(". ");
         break;
       case "chapter":
         push(`« ${trimDot(src.title)} ». `);
         push(src.container ?? "", true);
-        push(`${src.publisher ? `, ${src.publisher}` : ""}, ${year}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `);
+        push(
+          `${src.publisher ? `, ${src.publisher}` : ""}, ${year}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `,
+        );
         break;
       case "web":
         push(`« ${trimDot(src.title)} ». `);
@@ -204,7 +243,9 @@ export function formatReference(src: BibSource, style: CitationStyle): RefPart[]
       default:
         push(trimDot(src.title), true);
         push(". ");
-        push(`${[src.edition, src.publisher].filter(Boolean).join(", ")}${src.publisher || src.edition ? ", " : ""}${year}. `);
+        push(
+          `${[src.edition, src.publisher].filter(Boolean).join(", ")}${src.publisher || src.edition ? ", " : ""}${year}. `,
+        );
     }
     push(url ? `${url}.` : "");
     return trimParts(out);
@@ -218,12 +259,16 @@ export function formatReference(src: BibSource, style: CitationStyle): RefPart[]
     case "article":
       push(`${endDot(src.title)} `);
       push(src.container ?? "", true);
-      push(`, ${year}${src.volume ? `, vol. ${src.volume}` : ""}${src.issue ? `, n° ${src.issue}` : ""}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `);
+      push(
+        `, ${year}${src.volume ? `, vol. ${src.volume}` : ""}${src.issue ? `, n° ${src.issue}` : ""}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `,
+      );
       break;
     case "chapter":
       push(`${endDot(src.title)} In : `);
       push(src.container ?? "", true);
-      push(`. ${src.place ? `${src.place} : ` : ""}${src.publisher ? `${src.publisher}, ` : ""}${year}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `);
+      push(
+        `. ${src.place ? `${src.place} : ` : ""}${src.publisher ? `${src.publisher}, ` : ""}${year}${src.pages ? `, p. ${pageRange(src.pages)}` : ""}. `,
+      );
       break;
     case "web":
       push(trimDot(src.title), true);
@@ -255,7 +300,8 @@ function trimParts(parts: RefPart[]): RefPart[] {
 export const partsToText = (parts: RefPart[]): string => parts.map((p) => p.t).join("");
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-export const partsToHtml = (parts: RefPart[]): string => parts.map((p) => (p.i ? `<i>${esc(p.t)}</i>` : esc(p.t))).join("");
+export const partsToHtml = (parts: RefPart[]): string =>
+  parts.map((p) => (p.i ? `<i>${esc(p.t)}</i>` : esc(p.t))).join("");
 
 /** Tri alphabétique des sources (nom du premier auteur, puis année, puis titre). */
 export function sortSources(list: BibSource[]): BibSource[] {
@@ -263,12 +309,20 @@ export function sortSources(list: BibSource[]): BibSource[] {
   return list.slice().sort((a, b) => {
     const an = norm(parseAuthors(a.authors)[0]?.last ?? a.title);
     const bn = norm(parseAuthors(b.authors)[0]?.last ?? b.title);
-    return an.localeCompare(bn, "fr") || (a.year ?? "").localeCompare(b.year ?? "") || norm(a.title).localeCompare(norm(b.title), "fr");
+    return (
+      an.localeCompare(bn, "fr") ||
+      (a.year ?? "").localeCompare(b.year ?? "") ||
+      norm(a.title).localeCompare(norm(b.title), "fr")
+    );
   });
 }
 
 /** Sources citées dans un document JSON ProseMirror, dédoublonnées, dans l'ordre d'apparition. */
-export function collectSources(doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] }): BibSource[] {
+export function collectSources(doc: {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: unknown[];
+}): BibSource[] {
   const seen = new Map<string, BibSource>();
   const walk = (n: { type: string; attrs?: Record<string, unknown>; content?: unknown[] }) => {
     if (n.type === "citation") {
@@ -298,7 +352,10 @@ export function validateSource(s: BibSource): string[] {
 }
 
 /** Vrai si une citation ou une bibliographie ne correspond plus au style / aux sources (pur, sur le JSON). */
-export function bibliographyStale(doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] }, style: CitationStyle): boolean {
+export function bibliographyStale(
+  doc: { type: string; attrs?: Record<string, unknown>; content?: unknown[] },
+  style: CitationStyle,
+): boolean {
   const sources = collectSources(doc);
   const entries = JSON.stringify(buildBibliography(sources, style));
   let stale = false;

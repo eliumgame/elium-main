@@ -7,8 +7,28 @@
 import { structuredForFile } from "./tables";
 
 const XLFN = new Set([
-  "CONCAT", "TEXTJOIN", "IFS", "SWITCH", "XLOOKUP", "XMATCH", "UNIQUE", "SEQUENCE", "RANDARRAY", "SORTBY", "TEXTSPLIT",
-  "TAKE", "DROP", "VSTACK", "HSTACK", "CHOOSECOLS", "CHOOSEROWS", "WRAPROWS", "WRAPCOLS", "TOCOL", "TOROW", "EXPAND",
+  "CONCAT",
+  "TEXTJOIN",
+  "IFS",
+  "SWITCH",
+  "XLOOKUP",
+  "XMATCH",
+  "UNIQUE",
+  "SEQUENCE",
+  "RANDARRAY",
+  "SORTBY",
+  "TEXTSPLIT",
+  "TAKE",
+  "DROP",
+  "VSTACK",
+  "HSTACK",
+  "CHOOSECOLS",
+  "CHOOSEROWS",
+  "WRAPROWS",
+  "WRAPCOLS",
+  "TOCOL",
+  "TOROW",
+  "EXPAND",
 ]);
 const XLFN_WS = new Set(["FILTER", "SORT"]);
 

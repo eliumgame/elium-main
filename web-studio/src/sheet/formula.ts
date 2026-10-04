@@ -409,7 +409,14 @@ function tokenize(src: string): Tok[] {
       i++;
       continue;
     } // FR argument separator
-    if (c === "#" && toks.length && toks[toks.length - 1].t === "id" && i > 0 && /[A-Za-z0-9$]/.test(src[i - 1]) && !/[A-Za-z]/.test(src[i + 1] ?? "")) {
+    if (
+      c === "#" &&
+      toks.length &&
+      toks[toks.length - 1].t === "id" &&
+      i > 0 &&
+      /[A-Za-z0-9$]/.test(src[i - 1]) &&
+      !/[A-Za-z]/.test(src[i + 1] ?? "")
+    ) {
       toks.push({ t: "op", v: "#" }); // A1# : plage débordée
       i++;
       continue;
@@ -592,14 +599,7 @@ class Parser {
   private maybeRange(first: { k: "ref"; v: string }, sheet: string | undefined): Node {
     const colon = this.toks[this.p];
     const end = this.toks[this.p + 1];
-    if (
-      colon &&
-      colon.t === "op" &&
-      colon.v === ":" &&
-      end &&
-      end.t === "id" &&
-      REF_RE.test(end.v.toUpperCase())
-    ) {
+    if (colon && colon.t === "op" && colon.v === ":" && end && end.t === "id" && REF_RE.test(end.v.toUpperCase())) {
       this.p += 2;
       return { k: "range", a: first.v, b: end.v.toUpperCase().replace(/\$/g, ""), sheet };
     }
@@ -652,8 +652,35 @@ const isLam = (v: Val): v is LambdaVal => typeof v === "object" && v !== null &&
 
 /** Fonctions scalaires appliquées élément par élément quand un argument est un tableau. */
 const LIFT = new Set([
-  "ABS", "SQRT", "POWER", "EXP", "LN", "LOG", "MOD", "INT", "SIGN", "ROUND", "ROUNDUP", "ROUNDDOWN", "CEILING", "FLOOR",
-  "IF", "NOT", "UPPER", "LOWER", "TRIM", "LEN", "LEFT", "RIGHT", "MID", "SUBSTITUTE", "TEXT", "YEAR", "MONTH", "DAY", "DATE",
+  "ABS",
+  "SQRT",
+  "POWER",
+  "EXP",
+  "LN",
+  "LOG",
+  "MOD",
+  "INT",
+  "SIGN",
+  "ROUND",
+  "ROUNDUP",
+  "ROUNDDOWN",
+  "CEILING",
+  "FLOOR",
+  "IF",
+  "NOT",
+  "UPPER",
+  "LOWER",
+  "TRIM",
+  "LEN",
+  "LEFT",
+  "RIGHT",
+  "MID",
+  "SUBSTITUTE",
+  "TEXT",
+  "YEAR",
+  "MONTH",
+  "DAY",
+  "DATE",
 ]);
 /** Opérations de haut niveau qui rendent un tableau (hors DYN_FUNCS). */
 const HIGHER_ORDER = new Set(["LET", "LAMBDA", "MAP", "REDUCE", "SCAN", "BYROW", "BYCOL", "MAKEARRAY"]);
@@ -815,7 +842,11 @@ function evalV(node: Node, resolve: Resolve): Val {
     case "invoke": {
       const f = evalV(node.fn, resolve);
       if (!isLam(f)) throw new FormulaError("#VALUE");
-      return invoke(f, node.args.map((a) => evalV(a, resolve)), resolve);
+      return invoke(
+        f,
+        node.args.map((a) => evalV(a, resolve)),
+        resolve,
+      );
     }
     case "call":
       return evalCall(node.name, node.args, resolve);
@@ -926,13 +957,19 @@ function callEager(name: string, vals: Val[]): Val {
     const rows = Math.max(...cv.map((v) => (isMat(v) ? v.m.length : 1)));
     const cols = Math.max(...cv.map((v) => (isMat(v) ? v.m[0].length : 1)));
     const at = (v: CellValue | Matrix, i: number, j: number): CellValue =>
-      !isMat(v) ? v : (v.m.length === 1 ? v.m[0] : v.m[i])?.[v.m[0].length === 1 ? 0 : j] ?? { error: "#N/A" };
+      !isMat(v) ? v : ((v.m.length === 1 ? v.m[0] : v.m[i])?.[v.m[0].length === 1 ? 0 : j] ?? { error: "#N/A" });
     const m: CellValue[][] = [];
     for (let i = 0; i < rows; i++) {
       const row: CellValue[] = [];
       for (let j = 0; j < cols; j++) {
         try {
-          row.push(applyFunction(name, cv.map((v) => [at(v, i, j)]), cv.map(() => null)));
+          row.push(
+            applyFunction(
+              name,
+              cv.map((v) => [at(v, i, j)]),
+              cv.map(() => null),
+            ),
+          );
         } catch (e) {
           row.push(errVal(e));
         }
@@ -989,7 +1026,12 @@ const cell = (v: Val): CellValue => {
 
 function evalCall(name: string, args: Node[], resolve: Resolve): Val {
   const bound = resolve.scope?.get(name);
-  if (bound !== undefined && isLam(bound)) return invoke(bound, args.map((a) => evalV(a, resolve)), resolve);
+  if (bound !== undefined && isLam(bound))
+    return invoke(
+      bound,
+      args.map((a) => evalV(a, resolve)),
+      resolve,
+    );
   switch (name) {
     case "LET": {
       if (args.length < 3 || args.length % 2 === 0) throw new FormulaError("#VALUE");
@@ -1020,7 +1062,13 @@ function evalCall(name: string, args: Node[], resolve: Resolve): Val {
         m: Array.from({ length: R }, (_, i) =>
           Array.from({ length: C }, (_, j) => {
             try {
-              return cell(invoke(fn, arrs.map((a) => a.m[i]?.[j] ?? { error: "#N/A" }), resolve));
+              return cell(
+                invoke(
+                  fn,
+                  arrs.map((a) => a.m[i]?.[j] ?? { error: "#N/A" }),
+                  resolve,
+                ),
+              );
             } catch (e) {
               return errVal(e);
             }
@@ -1772,38 +1820,108 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "NPV", sig: "NPV(taux; val1; val2; …)", desc: "Valeur actuelle nette", cat: "Finance" },
   { name: "IRR", sig: "IRR(plage; [estimation])", desc: "Taux de rentabilité interne", cat: "Finance" },
   // --- Tableaux dynamiques (résultat qui déborde sur les cellules voisines ; #SPILL! si occupées) ---
-  { name: "SEQUENCE", sig: "SEQUENCE(lignes; [colonnes]; [début]; [pas])", desc: "Suite de nombres en tableau", cat: "Tableaux" },
-  { name: "RANDARRAY", sig: "RANDARRAY([lignes]; [colonnes]; [min]; [max]; [entiers])", desc: "Tableau de nombres aléatoires", cat: "Tableaux" },
-  { name: "UNIQUE", sig: "UNIQUE(tableau; [par_colonne]; [exactement_une_fois])", desc: "Valeurs distinctes", cat: "Tableaux" },
+  {
+    name: "SEQUENCE",
+    sig: "SEQUENCE(lignes; [colonnes]; [début]; [pas])",
+    desc: "Suite de nombres en tableau",
+    cat: "Tableaux",
+  },
+  {
+    name: "RANDARRAY",
+    sig: "RANDARRAY([lignes]; [colonnes]; [min]; [max]; [entiers])",
+    desc: "Tableau de nombres aléatoires",
+    cat: "Tableaux",
+  },
+  {
+    name: "UNIQUE",
+    sig: "UNIQUE(tableau; [par_colonne]; [exactement_une_fois])",
+    desc: "Valeurs distinctes",
+    cat: "Tableaux",
+  },
   { name: "SORT", sig: "SORT(tableau; [index]; [ordre]; [par_colonne])", desc: "Trie un tableau", cat: "Tableaux" },
   { name: "SORTBY", sig: "SORTBY(tableau; clé1; [ordre1]; …)", desc: "Trie selon d'autres plages", cat: "Tableaux" },
   { name: "FILTER", sig: "FILTER(tableau; condition; [si_vide])", desc: "Filtre selon une condition", cat: "Tableaux" },
   { name: "TRANSPOSE", sig: "TRANSPOSE(tableau)", desc: "Échange lignes et colonnes", cat: "Tableaux" },
-  { name: "TEXTSPLIT", sig: "TEXTSPLIT(texte; sép_col; [sép_ligne]; [ignorer_vides])", desc: "Découpe un texte en tableau", cat: "Tableaux" },
+  {
+    name: "TEXTSPLIT",
+    sig: "TEXTSPLIT(texte; sép_col; [sép_ligne]; [ignorer_vides])",
+    desc: "Découpe un texte en tableau",
+    cat: "Tableaux",
+  },
   { name: "CHOOSECOLS", sig: "CHOOSECOLS(tableau; col1; …)", desc: "Extrait des colonnes", cat: "Tableaux" },
   { name: "CHOOSEROWS", sig: "CHOOSEROWS(tableau; lig1; …)", desc: "Extrait des lignes", cat: "Tableaux" },
-  { name: "TAKE", sig: "TAKE(tableau; lignes; [colonnes])", desc: "Garde les premières/dernières lignes ou colonnes", cat: "Tableaux" },
-  { name: "DROP", sig: "DROP(tableau; lignes; [colonnes])", desc: "Retire les premières/dernières lignes ou colonnes", cat: "Tableaux" },
+  {
+    name: "TAKE",
+    sig: "TAKE(tableau; lignes; [colonnes])",
+    desc: "Garde les premières/dernières lignes ou colonnes",
+    cat: "Tableaux",
+  },
+  {
+    name: "DROP",
+    sig: "DROP(tableau; lignes; [colonnes])",
+    desc: "Retire les premières/dernières lignes ou colonnes",
+    cat: "Tableaux",
+  },
   { name: "VSTACK", sig: "VSTACK(tab1; tab2; …)", desc: "Empile verticalement", cat: "Tableaux" },
   { name: "HSTACK", sig: "HSTACK(tab1; tab2; …)", desc: "Juxtapose horizontalement", cat: "Tableaux" },
-  { name: "WRAPROWS", sig: "WRAPROWS(vecteur; n; [complément])", desc: "Renvoie à la ligne tous les n éléments", cat: "Tableaux" },
-  { name: "WRAPCOLS", sig: "WRAPCOLS(vecteur; n; [complément])", desc: "Renvoie à la colonne tous les n éléments", cat: "Tableaux" },
+  {
+    name: "WRAPROWS",
+    sig: "WRAPROWS(vecteur; n; [complément])",
+    desc: "Renvoie à la ligne tous les n éléments",
+    cat: "Tableaux",
+  },
+  {
+    name: "WRAPCOLS",
+    sig: "WRAPCOLS(vecteur; n; [complément])",
+    desc: "Renvoie à la colonne tous les n éléments",
+    cat: "Tableaux",
+  },
   { name: "TOCOL", sig: "TOCOL(tableau; [ignorer]; [par_colonne])", desc: "Aplatit en une colonne", cat: "Tableaux" },
   { name: "TOROW", sig: "TOROW(tableau; [ignorer]; [par_colonne])", desc: "Aplatit en une ligne", cat: "Tableaux" },
-  { name: "EXPAND", sig: "EXPAND(tableau; lignes; [colonnes]; [complément])", desc: "Agrandit un tableau", cat: "Tableaux" },
-  { name: "XMATCH", sig: "XMATCH(valeur; tableau; [corresp]; [recherche])", desc: "Position d'une valeur (exacte, approchée, joker)", cat: "Recherche" },
+  {
+    name: "EXPAND",
+    sig: "EXPAND(tableau; lignes; [colonnes]; [complément])",
+    desc: "Agrandit un tableau",
+    cat: "Tableaux",
+  },
+  {
+    name: "XMATCH",
+    sig: "XMATCH(valeur; tableau; [corresp]; [recherche])",
+    desc: "Position d'une valeur (exacte, approchée, joker)",
+    cat: "Recherche",
+  },
   { name: "SUMPRODUCT", sig: "SUMPRODUCT(tab1; tab2; …)", desc: "Somme des produits", cat: "Maths" },
   { name: "ROWS", sig: "ROWS(tableau)", desc: "Nombre de lignes", cat: "Recherche" },
   { name: "COLUMNS", sig: "COLUMNS(tableau)", desc: "Nombre de colonnes", cat: "Recherche" },
   { name: "MMULT", sig: "MMULT(tab1; tab2)", desc: "Produit matriciel", cat: "Maths" },
   { name: "LET", sig: "LET(nom1; valeur1; …; calcul)", desc: "Nomme des résultats intermédiaires", cat: "Logique" },
-  { name: "LAMBDA", sig: "LAMBDA(param1; …; calcul)", desc: "Fonction personnalisée (appel direct ou via LET)", cat: "Logique" },
+  {
+    name: "LAMBDA",
+    sig: "LAMBDA(param1; …; calcul)",
+    desc: "Fonction personnalisée (appel direct ou via LET)",
+    cat: "Logique",
+  },
   { name: "MAP", sig: "MAP(tableau; LAMBDA(x; …))", desc: "Applique une lambda à chaque élément", cat: "Tableaux" },
-  { name: "REDUCE", sig: "REDUCE([init]; tableau; LAMBDA(acc; x; …))", desc: "Réduit un tableau en une valeur", cat: "Tableaux" },
-  { name: "SCAN", sig: "SCAN([init]; tableau; LAMBDA(acc; x; …))", desc: "Cumul intermédiaire d'un tableau", cat: "Tableaux" },
+  {
+    name: "REDUCE",
+    sig: "REDUCE([init]; tableau; LAMBDA(acc; x; …))",
+    desc: "Réduit un tableau en une valeur",
+    cat: "Tableaux",
+  },
+  {
+    name: "SCAN",
+    sig: "SCAN([init]; tableau; LAMBDA(acc; x; …))",
+    desc: "Cumul intermédiaire d'un tableau",
+    cat: "Tableaux",
+  },
   { name: "BYROW", sig: "BYROW(tableau; LAMBDA(ligne; …))", desc: "Une valeur par ligne", cat: "Tableaux" },
   { name: "BYCOL", sig: "BYCOL(tableau; LAMBDA(col; …))", desc: "Une valeur par colonne", cat: "Tableaux" },
-  { name: "MAKEARRAY", sig: "MAKEARRAY(lignes; colonnes; LAMBDA(i; j; …))", desc: "Construit un tableau par formule", cat: "Tableaux" },
+  {
+    name: "MAKEARRAY",
+    sig: "MAKEARRAY(lignes; colonnes; LAMBDA(i; j; …))",
+    desc: "Construit un tableau par formule",
+    cat: "Tableaux",
+  },
 ];
 
 // --- Public API -----------------------------------------------------------

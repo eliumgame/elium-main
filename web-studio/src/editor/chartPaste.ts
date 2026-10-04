@@ -42,7 +42,10 @@ export function parseTsvToChart(text: string): PastedChart | null {
   for (let c = firstData; c < width; c++) {
     const values = body.map((r) => num(r[c]) ?? 0);
     if (!body.some((r) => num(r[c]) !== null)) continue;
-    series.push({ label: hasHeader ? (rows[0]![c] ?? "").trim() || `Série ${series.length + 1}` : `Série ${series.length + 1}`, values });
+    series.push({
+      label: hasHeader ? (rows[0]![c] ?? "").trim() || `Série ${series.length + 1}` : `Série ${series.length + 1}`,
+      values,
+    });
   }
   if (!series.length) return null;
   const labels = body.map((r, i) => (labelCol === 0 ? (r[0] ?? "").trim() || String(i + 1) : String(i + 1)));

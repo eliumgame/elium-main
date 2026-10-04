@@ -164,7 +164,9 @@ describe("PPTX réel — placeholders hérités de la disposition / du masque", 
     expect(b.fontSize).toBe(Math.round(37.33 * 0.925)); // 28 pt × 92,5 %
     expect(b.html).toContain("<ul>");
     // le niveau 2 (24 pt) est plus petit que la base (28 pt) : taille relative en em
-    expect(b.html).toMatch(/<li><b>Premier<\/b><br>suite<ul><li><span style="font-size:0\.857em">Sous-point<\/span><\/li><\/ul><\/li>/);
+    expect(b.html).toMatch(
+      /<li><b>Premier<\/b><br>suite<ul><li><span style="font-size:0\.857em">Sous-point<\/span><\/li><\/ul><\/li>/,
+    );
     expect(b.html).toContain("<p>Sans puce</p>");
     expect(b.html).toContain("Page 2");
   });
@@ -192,7 +194,7 @@ describe("PPTX réel — couleurs de thème, groupes, AlternateContent, notes, m
   it("importe les notes du présentateur (sans l'image ni le numéro)", () => {
     expect(s2.notes).toBe("Penser à citer la source.\nDeuxième ligne");
   });
-  it("importe l'état masqué (show=\"0\")", () => {
+  it('importe l\'état masqué (show="0")', () => {
     expect(s2.hidden).toBe(true);
     expect(deck.slides[0]!.hidden).toBeFalsy();
   });

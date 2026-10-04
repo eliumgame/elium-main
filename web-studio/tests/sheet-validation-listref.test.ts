@@ -8,7 +8,13 @@ import type { Workbook } from "../src/sheet/model";
 const wb = (): Workbook => ({
   active: 0,
   sheets: [
-    { name: "Saisie", rows: 5, cols: 3, cells: {}, validations: [{ id: "v", c0: 0, r0: 0, c1: 0, r1: 4, type: "list", list: [], listRef: "Listes!A1:A3" }] },
+    {
+      name: "Saisie",
+      rows: 5,
+      cols: 3,
+      cells: {},
+      validations: [{ id: "v", c0: 0, r0: 0, c1: 0, r1: 4, type: "list", list: [], listRef: "Listes!A1:A3" }],
+    },
     { name: "Listes", rows: 5, cols: 2, cells: { A1: "Oui", A2: "Non", A3: "Peut-être", A4: "ignoré" } },
   ],
 });

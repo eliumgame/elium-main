@@ -6,7 +6,16 @@ import { docToHtml } from "../src/export/exporters";
 describe("galerie de modèles", () => {
   it("propose les modèles attendus, avec identifiants uniques", () => {
     const ids = TEMPLATES.map((t) => t.id);
-    for (const want of ["cv", "lettre-motivation", "rapport", "facture", "compte-rendu", "memo", "proces-verbal", "devis"])
+    for (const want of [
+      "cv",
+      "lettre-motivation",
+      "rapport",
+      "facture",
+      "compte-rendu",
+      "memo",
+      "proces-verbal",
+      "devis",
+    ])
       expect(ids).toContain(want);
     expect(new Set(ids).size).toBe(ids.length);
   });

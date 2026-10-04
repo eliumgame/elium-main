@@ -26,7 +26,11 @@ export interface DedupeOptions {
 }
 
 /** Supprime les lignes en double d'une plage (les suivantes disparaissent, la plage se referme vers le haut). */
-export function removeDuplicates(sheet: SheetData, rect: Rect, opts: DedupeOptions): { sheet: SheetData; removed: number } {
+export function removeDuplicates(
+  sheet: SheetData,
+  rect: Rect,
+  opts: DedupeOptions,
+): { sheet: SheetData; removed: number } {
   const keyCols = opts.cols?.length ? opts.cols : Array.from({ length: rect.c1 - rect.c0 + 1 }, (_, i) => rect.c0 + i);
   const first = rect.r0 + (opts.hasHeader ? 1 : 0);
   const norm = (v: string | undefined): string => (opts.caseSensitive ? (v ?? "") : (v ?? "").toLowerCase()).trim();
@@ -118,7 +122,8 @@ export function splitText(text: string, o: SplitOptions): string[] {
         parts.push(cur);
         cur = "";
         i += d.length;
-        if (o.mergeConsecutive) while (delims.some((x) => text.startsWith(x, i))) i += delims.find((x) => text.startsWith(x, i))!.length;
+        if (o.mergeConsecutive)
+          while (delims.some((x) => text.startsWith(x, i))) i += delims.find((x) => text.startsWith(x, i))!.length;
         continue;
       }
     }
@@ -223,7 +228,9 @@ export function replaceAll(wb: Workbook, o: FindOptions): { wb: Workbook; count:
       if (!o.regex) return repl;
       // Remplacement avec groupes : $1, $&, $$
       const groups = args.slice(1, -2).map((g) => (typeof g === "string" ? g : ""));
-      return repl.replace(/\$(\d+|&|\$)/g, (_m, t: string) => (t === "$" ? "$" : t === "&" ? String(args[0]) : (groups[Number(t) - 1] ?? "")));
+      return repl.replace(/\$(\d+|&|\$)/g, (_m, t: string) =>
+        t === "$" ? "$" : t === "&" ? String(args[0]) : (groups[Number(t) - 1] ?? ""),
+      );
     });
     if (out !== raw) next[s]!.cells[r] = out;
   });

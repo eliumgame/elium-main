@@ -14,7 +14,13 @@ const wb = (): Workbook => {
 
 describe("impression — pages HTML", () => {
   it("une page par bloc, titres répétés, en-tête/pied développés, quadrillage et numéros", async () => {
-    const r = (await printPagesHtml(wb(), 0, { repeatRows: { r0: 0, r1: 0 }, header: "{feuille}", footer: "Page {page}/{pages}", gridlines: true, headings: true }))!;
+    const r = (await printPagesHtml(wb(), 0, {
+      repeatRows: { r0: 0, r1: 0 },
+      header: "{feuille}",
+      footer: "Page {page}/{pages}",
+      gridlines: true,
+      headings: true,
+    }))!;
     expect(r.count).toBeGreaterThan(2);
     expect(r.pages).toHaveLength(r.count);
     expect(r.pages[1]).toContain("Montant"); // ligne de titres répétée sur la 2e page

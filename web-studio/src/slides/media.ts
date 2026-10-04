@@ -9,9 +9,21 @@ import { newElementId, type MediaData, type SlideElement } from "./model";
 export const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
 
 const VIDEO = new Set(["video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/x-m4v"]);
-const AUDIO = new Set(["audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/webm", "audio/ogg", "audio/flac"]);
+const AUDIO = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
+  "audio/ogg",
+  "audio/flac",
+]);
 
-export const MEDIA_ACCEPT = "audio/*,video/mp4,video/webm,video/ogg,.mp4,.m4v,.webm,.ogv,.mp3,.m4a,.wav,.ogg,.aac,.flac";
+export const MEDIA_ACCEPT =
+  "audio/*,video/mp4,video/webm,video/ogg,.mp4,.m4v,.webm,.ogv,.mp3,.m4a,.wav,.ogg,.aac,.flac";
 
 export function mediaKindOf(mime: string, filename = ""): "audio" | "video" | null {
   const m = mime.toLowerCase();
@@ -28,8 +40,10 @@ export function mediaKindOf(mime: string, filename = ""): "audio" | "video" | nu
 
 /** Erreur lisible (français) si le fichier ne peut pas être inséré, sinon null. */
 export function validateMediaFile(file: { name: string; type: string; size: number }): string | null {
-  if (!mediaKindOf(file.type, file.name)) return "Format non pris en charge : choisissez un fichier audio (MP3, M4A, WAV, OGG) ou vidéo (MP4, WebM).";
-  if (file.size > MAX_MEDIA_BYTES) return `Fichier trop volumineux (${Math.round(file.size / 1048576)} Mo) : la limite est de ${Math.round(MAX_MEDIA_BYTES / 1048576)} Mo pour rester utilisable hors ligne et chiffré.`;
+  if (!mediaKindOf(file.type, file.name))
+    return "Format non pris en charge : choisissez un fichier audio (MP3, M4A, WAV, OGG) ou vidéo (MP4, WebM).";
+  if (file.size > MAX_MEDIA_BYTES)
+    return `Fichier trop volumineux (${Math.round(file.size / 1048576)} Mo) : la limite est de ${Math.round(MAX_MEDIA_BYTES / 1048576)} Mo pour rester utilisable hors ligne et chiffré.`;
   if (file.size === 0) return "Le fichier est vide.";
   return null;
 }
@@ -50,7 +64,11 @@ export function newMediaElement(m: MediaData): SlideElement {
 }
 
 /** Rogne en restant cohérent : début ≥ 0, fin 0 (= jusqu'à la fin) ou > début, bornée par la durée connue. */
-export function clampTrim(start: number | undefined, end: number | undefined, duration?: number): { trimStart: number; trimEnd: number } {
+export function clampTrim(
+  start: number | undefined,
+  end: number | undefined,
+  duration?: number,
+): { trimStart: number; trimEnd: number } {
   const dur = duration && Number.isFinite(duration) && duration > 0 ? duration : Infinity;
   let s = Number.isFinite(start) ? Math.max(0, start as number) : 0;
   let e = Number.isFinite(end) ? Math.max(0, end as number) : 0;

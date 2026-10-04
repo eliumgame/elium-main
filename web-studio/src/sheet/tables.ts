@@ -107,10 +107,22 @@ export function resolveStructured(t: TableDef, inner: string, row: number | null
  * où s'évalue la formule (les tableaux d'une autre feuille sont qualifiés `'Feuille'!`),
  * `row` = ligne (0-based) de la cellule, pour `[@Col]` / `[#This Row]`.
  */
-export function expandStructuredRefs(formula: string, tables: TableDef[], currentSheet: string, row: number | null): string {
-  if (!tables.length || !formula.includes("[") && !tables.some((t) => formula.toLowerCase().includes(t.name.toLowerCase()))) return formula;
+export function expandStructuredRefs(
+  formula: string,
+  tables: TableDef[],
+  currentSheet: string,
+  row: number | null,
+): string {
+  if (
+    !tables.length ||
+    (!formula.includes("[") && !tables.some((t) => formula.toLowerCase().includes(t.name.toLowerCase())))
+  )
+    return formula;
   const byName = new Map(tables.map((t) => [t.name.toLowerCase(), t]));
-  const qual = (t: TableDef, ref: string) => (t.sheet === currentSheet ? ref : `${/^[A-Za-z0-9_]+$/.test(t.sheet) ? t.sheet : `'${t.sheet.replace(/'/g, "''")}'`}!${ref}`);
+  const qual = (t: TableDef, ref: string) =>
+    t.sheet === currentSheet
+      ? ref
+      : `${/^[A-Za-z0-9_]+$/.test(t.sheet) ? t.sheet : `'${t.sheet.replace(/'/g, "''")}'`}!${ref}`;
   let out = "";
   let i = 0;
   while (i < formula.length) {
@@ -182,9 +194,11 @@ export function structuredForFile(formula: string): string {
 const NAME_RE = /^[A-Za-z_\\][A-Za-z0-9_.]*$/;
 export function validTableName(name: string, existing: string[], self?: string): string | null {
   if (!name.trim()) return "Le nom du tableau est obligatoire.";
-  if (!NAME_RE.test(name)) return "Le nom doit commencer par une lettre et ne contenir que lettres, chiffres, « _ » et « . ».";
+  if (!NAME_RE.test(name))
+    return "Le nom doit commencer par une lettre et ne contenir que lettres, chiffres, « _ » et « . ».";
   if (/^[A-Za-z]{1,3}\d+$/.test(name) || /^[rc]$/i.test(name)) return "Ce nom ressemble à une référence de cellule.";
-  if (existing.some((n) => n.toLowerCase() === name.toLowerCase() && n.toLowerCase() !== (self ?? "").toLowerCase())) return "Un tableau porte déjà ce nom.";
+  if (existing.some((n) => n.toLowerCase() === name.toLowerCase() && n.toLowerCase() !== (self ?? "").toLowerCase()))
+    return "Un tableau porte déjà ce nom.";
   return null;
 }
 
@@ -194,7 +208,12 @@ export function nextTableName(existing: string[]): string {
 }
 
 /** Crée un tableau sur une plage (la première ligne = en-têtes) ; les en-têtes vides reçoivent « ColonneN ». */
-export function addTable(sheet: SheetData, rect: { c0: number; r0: number; c1: number; r1: number }, allNames: string[], name?: string): SheetData {
+export function addTable(
+  sheet: SheetData,
+  rect: { c0: number; r0: number; c1: number; r1: number },
+  allNames: string[],
+  name?: string,
+): SheetData {
   if (rect.r1 <= rect.r0) return sheet;
   const cells = { ...sheet.cells };
   const seen = new Set<string>();
@@ -217,7 +236,11 @@ export function removeTable(sheet: SheetData, id: string): SheetData {
 }
 
 /** Style visuel d'une cellule d'un tableau : en-tête et lignes alternées (null = hors tableau). */
-export function tableCellLook(sheet: SheetData, c: number, r: number): { header?: boolean; band?: boolean; color: string } | null {
+export function tableCellLook(
+  sheet: SheetData,
+  c: number,
+  r: number,
+): { header?: boolean; band?: boolean; color: string } | null {
   for (const t of sheet.tables ?? []) {
     if (c < t.c0 || c > t.c1 || r < t.r0 || r > t.r1) continue;
     const color = t.color ?? "#2563eb";

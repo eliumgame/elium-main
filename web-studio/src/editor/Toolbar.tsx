@@ -1101,10 +1101,16 @@ export default function Toolbar({
                   <Cmd title="Insérer une équation" onClick={() => onOpenEquation?.()}>
                     <FunctionSquare size={17} />
                   </Cmd>
-                  <Cmd title="Insérer un graphique (données modifiables, exporté en graphique Word)" onClick={() => onOpenChart?.()}>
+                  <Cmd
+                    title="Insérer un graphique (données modifiables, exporté en graphique Word)"
+                    onClick={() => onOpenChart?.()}
+                  >
                     <BarChart3 size={17} />
                   </Cmd>
-                  <Cmd title="Sources, citations et bibliographie (APA, MLA, ISO 690)" onClick={() => onOpenSources?.()}>
+                  <Cmd
+                    title="Sources, citations et bibliographie (APA, MLA, ISO 690)"
+                    onClick={() => onOpenSources?.()}
+                  >
                     <BookMarked size={17} />
                   </Cmd>
                 </Group>

@@ -80,7 +80,9 @@ export default function SheetView({
       { tables: tableDefs(wb.sheets), sheet: sheet.name },
     );
     const cellDisplay = (ref: string) =>
-      sheet.cells[ref] != null || c.spillAnchor(ref) !== null ?formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref)) : "";
+      sheet.cells[ref] != null || c.spillAnchor(ref) !== null
+        ? formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref))
+        : "";
     const rowVis = (r: number) => filterRowVisible(sheet.filter, (col, rr) => cellDisplay(cellRef(col, rr)), r);
     const lines: string[] = [];
     for (let r = 0; r < sheet.rows; r++) {

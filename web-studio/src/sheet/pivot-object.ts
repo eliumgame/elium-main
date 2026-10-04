@@ -70,7 +70,11 @@ export function dateGroupLabel(v: string | number | boolean | null, by: DateGrou
 }
 
 /** Évalue la formule d'un champ calculé pour une ligne ; null si non numérique. */
-export function evalCalcField(formula: string, headers: string[], row: (string | number | boolean | null)[]): number | null {
+export function evalCalcField(
+  formula: string,
+  headers: string[],
+  row: (string | number | boolean | null)[],
+): number | null {
   const body = formula.trim().replace(/^=/, "");
   let bad = false;
   const expr = body.replace(/\[([^\]]+)\]/g, (_m, name: string) => {
@@ -95,7 +99,10 @@ export function sourceHeaders(headers: string[], calc?: CalcField[]): string[] {
 }
 
 /** Lit la plage source en valeurs calculées (le moteur de formules du classeur). */
-export function readSource(wb: Workbook, src: PivotObject["source"]): { headers: string[]; rows: (string | number | boolean | null)[][] } | null {
+export function readSource(
+  wb: Workbook,
+  src: PivotObject["source"],
+): { headers: string[]; rows: (string | number | boolean | null)[][] } | null {
   const idx = wb.sheets.findIndex((s) => s.name === src.sheet);
   const sheet = wb.sheets[idx];
   if (!sheet) return null;
@@ -140,12 +147,14 @@ export function buildPivot(wb: Workbook, p: PivotObject, sheetName: string): Piv
     const out = r.slice();
     for (const f of p.calcFields ?? []) {
       const v = evalCalcField(f.formula, src.headers, r);
-      if (v === null && r.some((x) => x !== null)) warnings.push(`Champ calculé « ${f.name} » : formule invalide ou valeurs non numériques.`);
+      if (v === null && r.some((x) => x !== null))
+        warnings.push(`Champ calculé « ${f.name} » : formule invalide ou valeurs non numériques.`);
       out.push(v);
     }
     return out;
   });
-  const find = (name: string | null): number => (name === null ? -1 : headers.findIndex((h) => h.trim().toLowerCase() === name.trim().toLowerCase()));
+  const find = (name: string | null): number =>
+    name === null ? -1 : headers.findIndex((h) => h.trim().toLowerCase() === name.trim().toLowerCase());
   const ri = find(p.rowField);
   const ci = find(p.colField);
   const vi = find(p.valueField);
@@ -154,14 +163,21 @@ export function buildPivot(wb: Workbook, p: PivotObject, sheetName: string): Piv
   if (p.colField !== null && ci < 0) return { error: `Champ colonne « ${p.colField} » introuvable dans la source.` };
   const grouped = rows.map((r) => {
     const g = r.slice();
-    if (p.rowDateGroup && p.rowDateGroup !== "none") g[ri] = dateGroupLabel(r[ri] ?? null, p.rowDateGroup) ?? r[ri] ?? null;
-    if (ci >= 0 && p.colDateGroup && p.colDateGroup !== "none") g[ci] = dateGroupLabel(r[ci] ?? null, p.colDateGroup) ?? r[ci] ?? null;
+    if (p.rowDateGroup && p.rowDateGroup !== "none")
+      g[ri] = dateGroupLabel(r[ri] ?? null, p.rowDateGroup) ?? r[ri] ?? null;
+    if (ci >= 0 && p.colDateGroup && p.colDateGroup !== "none")
+      g[ci] = dateGroupLabel(r[ci] ?? null, p.colDateGroup) ?? r[ci] ?? null;
     return g;
   });
   const cfg: PivotConfig = { rowField: ri, colField: ci >= 0 ? ci : null, valueField: vi, agg: p.agg };
   const res = computePivot({ headers, rows: grouped }, cfg);
   if (p.sort && p.sort !== "none") {
-    const order = res.rowLabels.map((_, i) => i).sort((a, b) => res.rowLabels[a]!.localeCompare(res.rowLabels[b]!, "fr", { numeric: true }) * (p.sort === "desc" ? -1 : 1));
+    const order = res.rowLabels
+      .map((_, i) => i)
+      .sort(
+        (a, b) =>
+          res.rowLabels[a]!.localeCompare(res.rowLabels[b]!, "fr", { numeric: true }) * (p.sort === "desc" ? -1 : 1),
+      );
     res.rowLabels = order.map((i) => res.rowLabels[i]!);
     res.matrix = order.map((i) => res.matrix[i]!);
     res.rowTotals = order.map((i) => res.rowTotals[i]!);
@@ -170,7 +186,12 @@ export function buildPivot(wb: Workbook, p: PivotObject, sheetName: string): Piv
 }
 
 /** Nouvelle définition à partir de la sélection (première ligne = en-têtes). */
-export function newPivotObject(sheetName: string, rect: { c0: number; r0: number; c1: number; r1: number }, headers: string[], cfg: PivotConfig): PivotObject {
+export function newPivotObject(
+  sheetName: string,
+  rect: { c0: number; r0: number; c1: number; r1: number },
+  headers: string[],
+  cfg: PivotConfig,
+): PivotObject {
   const h = sourceHeaders(headers);
   return {
     id: newId("pivot"),
@@ -185,7 +206,14 @@ export function newPivotObject(sheetName: string, rect: { c0: number; r0: number
 
 /** Remplace le contenu d'une feuille pivot par un résultat recalculé en gardant la définition et les largeurs de colonnes. */
 export function applyPivotResult(old: SheetData, built: SheetData, p: PivotObject): SheetData {
-  return { ...old, cells: built.cells, styles: built.styles, rows: Math.max(built.rows, 20), cols: Math.max(built.cols, 8), pivot: p };
+  return {
+    ...old,
+    cells: built.cells,
+    styles: built.styles,
+    rows: Math.max(built.rows, 20),
+    cols: Math.max(built.cols, 8),
+    pivot: p,
+  };
 }
 
 /** Le résultat actuel de la feuille est-il différent d'un recalcul ? (sert à signaler « à actualiser ») */

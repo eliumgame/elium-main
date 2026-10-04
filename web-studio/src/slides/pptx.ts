@@ -9,7 +9,18 @@
  * PowerPoint, LibreOffice Impress and Google Slides.
  */
 import { zipSync, strToU8 } from "fflate";
-import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData, SlideMaster, SlideLayoutDef, PlaceholderKind } from "./model";
+import type {
+  Deck,
+  Slide,
+  Shape,
+  SlideElement,
+  SlideTheme,
+  ShapeKind,
+  ChartData,
+  SlideMaster,
+  SlideLayoutDef,
+  PlaceholderKind,
+} from "./model";
 import { defaultMaster, isPromptOnly, SLIDE_NUMBER_TOKEN } from "./master";
 import { mediaExt, mimeFromExt } from "./media";
 import { layoutDiagram, nodeFontPx } from "./diagram";
@@ -503,7 +514,15 @@ function elementXml(
             const head = hasHeader && r === 0;
             const bold = head || (tb.firstCol && c === 0);
             const band = style === "banded" && !head && (r - (hasHeader ? 1 : 0)) % 2 === 1;
-            const fill = head ? (style === "accent" ? "2563EB" : style === "plain" ? "" : "E2E8F0") : band ? "F1F5F9" : "";
+            const fill = head
+              ? style === "accent"
+                ? "2563EB"
+                : style === "plain"
+                  ? ""
+                  : "E2E8F0"
+              : band
+                ? "F1F5F9"
+                : "";
             const txtColor = head && style === "accent" ? "FFFFFF" : color;
             const borders = style === "grid" ? line("lnL") + line("lnR") + line("lnT") + line("lnB") : "";
             const tcPr = `<a:tcPr anchor="ctr">${borders}${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ""}</a:tcPr>`;
@@ -578,7 +597,9 @@ function elementXml(
   const paras = htmlToParagraphs(el.html ?? "");
   if (!paras.length) return null;
   const font = el.fontFamily;
-  let body = paras.map((p) => bodyParagraph(p.html, sz, color, { bullet: p.bullet, align: algn, lvl: p.lvl, font })).join("");
+  let body = paras
+    .map((p) => bodyParagraph(p.html, sz, color, { bullet: p.bullet, align: algn, lvl: p.lvl, font }))
+    .join("");
   if (el.ph === "slideNumber") {
     // Vrai champ « numéro de diapositive » : PowerPoint le renumérote tout seul.
     body = `<a:p><a:pPr algn="${algn}"/><a:fld id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" type="slidenum"><a:rPr lang="fr-FR" sz="${sz}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${SLIDE_NUMBER_TOKEN}</a:t></a:fld></a:p>`;
@@ -861,10 +882,30 @@ const ALIGN = { left: "l", center: "ctr", right: "r" } as const;
 const ANCHOR = { top: "t", middle: "ctr", bottom: "b" } as const;
 
 /** Espace réservé d'une disposition ou du masque (forme avec <p:ph> et style de liste). */
-function layoutPhXml(p: { kind: PlaceholderKind; x: number; y: number; w: number; h: number; fontSize: number; align: "left" | "center" | "right"; valign: "top" | "middle" | "bottom"; bold?: boolean }, id: number, bodyIdx: number, prompt: string): string {
+function layoutPhXml(
+  p: {
+    kind: PlaceholderKind;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    fontSize: number;
+    align: "left" | "center" | "right";
+    valign: "top" | "middle" | "bottom";
+    bold?: boolean;
+  },
+  id: number,
+  bodyIdx: number,
+  prompt: string,
+): string {
   const sz = Math.round(p.fontSize * 75);
-  const name = { title: "Titre", body: "Contenu", footer: "Pied de page", slideNumber: "Numéro de diapositive" }[p.kind];
-  const text = p.kind === "slideNumber" ? `<a:fld id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" type="slidenum"><a:rPr lang="fr-FR"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="fr-FR"/><a:t>${xmlEsc(prompt)}</a:t></a:r>`;
+  const name = { title: "Titre", body: "Contenu", footer: "Pied de page", slideNumber: "Numéro de diapositive" }[
+    p.kind
+  ];
+  const text =
+    p.kind === "slideNumber"
+      ? `<a:fld id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}" type="slidenum"><a:rPr lang="fr-FR"/><a:t>‹#›</a:t></a:fld>`
+      : `<a:r><a:rPr lang="fr-FR"/><a:t>${xmlEsc(prompt)}</a:t></a:r>`;
   return (
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr>${phTag(p.kind, bodyIdx)}</p:nvPr></p:nvSpPr>` +
     `<p:spPr>${xfrm(ex(p.x, CX), ex(p.y, CY), ex(p.w, CX), ex(p.h, CY))}</p:spPr>` +
@@ -873,14 +914,22 @@ function layoutPhXml(p: { kind: PlaceholderKind; x: number; y: number; w: number
 }
 
 const pickPh = (m: SlideMaster, kind: PlaceholderKind) =>
-  m.layouts.find((l) => l.id === "lay-contenu")?.placeholders.find((p) => p.kind === kind) ?? m.layouts.flatMap((l) => l.placeholders).find((p) => p.kind === kind);
+  m.layouts.find((l) => l.id === "lay-contenu")?.placeholders.find((p) => p.kind === kind) ??
+  m.layouts.flatMap((l) => l.placeholders).find((p) => p.kind === kind);
 
 function masterXml(m: SlideMaster, layoutCount: number): string {
   const kinds: PlaceholderKind[] = ["title", "body", "footer", "slideNumber"];
   const shapes = kinds
     .map((k, i) => {
       const p = pickPh(m, k);
-      return p ? layoutPhXml(p, i + 2, 1, k === "title" ? "Modifiez le style du titre" : k === "body" ? "Modifiez les styles du texte du masque" : "") : "";
+      return p
+        ? layoutPhXml(
+            p,
+            i + 2,
+            1,
+            k === "title" ? "Modifiez le style du titre" : k === "body" ? "Modifiez les styles du texte du masque" : "",
+          )
+        : "";
     })
     .join("");
   const t = pickPh(m, "title");
@@ -888,9 +937,15 @@ function masterXml(m: SlideMaster, layoutCount: number): string {
   const tsz = Math.round((t?.fontSize ?? 40) * 75);
   const bsz = (b?.fontSize ?? 24) * 75;
   const lvls = [0, 1, 2, 3, 4]
-    .map((i) => `<a:lvl${i + 1}pPr marL="${285750 * (i + 1)}" indent="-285750" algn="l"><a:buFont typeface="Arial"/><a:buChar char="•"/><a:defRPr sz="${Math.round(bsz * 0.88 ** i)}"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl${i + 1}pPr>`)
+    .map(
+      (i) =>
+        `<a:lvl${i + 1}pPr marL="${285750 * (i + 1)}" indent="-285750" algn="l"><a:buFont typeface="Arial"/><a:buChar char="•"/><a:defRPr sz="${Math.round(bsz * 0.88 ** i)}"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl${i + 1}pPr>`,
+    )
     .join("");
-  const ids = Array.from({ length: layoutCount }, (_, i) => `<p:sldLayoutId id="${2147483649 + i}" r:id="rId${i + 1}"/>`).join("");
+  const ids = Array.from(
+    { length: layoutCount },
+    (_, i) => `<p:sldLayoutId id="${2147483649 + i}" r:id="rId${i + 1}"/>`,
+  ).join("");
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<p:sldMaster xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}"><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>` +
@@ -902,14 +957,30 @@ function masterXml(m: SlideMaster, layoutCount: number): string {
   );
 }
 
-const LAYOUT_TYPE: Record<string, string> = { "lay-titre": "title", "lay-contenu": "obj", "lay-section": "secHead", "lay-deux": "twoObj", "lay-titre-seul": "titleOnly", "lay-vierge": "blank" };
+const LAYOUT_TYPE: Record<string, string> = {
+  "lay-titre": "title",
+  "lay-contenu": "obj",
+  "lay-section": "secHead",
+  "lay-deux": "twoObj",
+  "lay-titre-seul": "titleOnly",
+  "lay-vierge": "blank",
+};
 
 function layoutXml(l: SlideLayoutDef): string {
   let bodyN = 0;
   const shapes = l.placeholders
     .map((p, i) => {
       if (p.kind === "body") bodyN++;
-      return layoutPhXml(p, i + 2, Math.max(1, bodyN), p.kind === "title" ? "Cliquez pour modifier le titre" : p.kind === "body" ? "Cliquez pour modifier le texte" : "");
+      return layoutPhXml(
+        p,
+        i + 2,
+        Math.max(1, bodyN),
+        p.kind === "title"
+          ? "Cliquez pour modifier le titre"
+          : p.kind === "body"
+            ? "Cliquez pour modifier le texte"
+            : "",
+      );
     })
     .join("");
   const type = LAYOUT_TYPE[l.id];
@@ -955,7 +1026,10 @@ export function deckToPptx(deck: Deck): Uint8Array {
   const n = deck.slides.length;
   const master = deck.master ?? defaultMaster();
   const layouts = master.layouts;
-  const blankIdx = Math.max(0, layouts.findIndex((l) => l.id === "lay-vierge"));
+  const blankIdx = Math.max(
+    0,
+    layouts.findIndex((l) => l.id === "lay-vierge"),
+  );
   const layoutIndexOf = (slide: Slide): number => {
     const i = layouts.findIndex((l) => l.id === slide.layoutId);
     return i >= 0 ? i : blankIdx;
@@ -973,7 +1047,11 @@ export function deckToPptx(deck: Deck): Uint8Array {
     ];
     if (slide.notes && slide.notes.trim()) {
       notesSlides.push({ slide: i + 1, text: slide.notes });
-      rels.push({ id: `rId${rels.length + 1}`, type: T.notesSlide, target: `../notesSlides/notesSlide${notesSlides.length}.xml` });
+      rels.push({
+        id: `rId${rels.length + 1}`,
+        type: T.notesSlide,
+        target: `../notesSlides/notesSlide${notesSlides.length}.xml`,
+      });
     }
     files[`ppt/slides/_rels/slide${i + 1}.xml.rels`] = strToU8(RELS(rels));
   });
@@ -1024,7 +1102,11 @@ export function deckToPptx(deck: Deck): Uint8Array {
   files["ppt/slideMasters/slideMaster1.xml"] = strToU8(masterXml(master, layouts.length));
   files["ppt/slideMasters/_rels/slideMaster1.xml.rels"] = strToU8(
     RELS([
-      ...layouts.map((_, i) => ({ id: `rId${i + 1}`, type: T.slideLayout, target: `../slideLayouts/slideLayout${i + 1}.xml` })),
+      ...layouts.map((_, i) => ({
+        id: `rId${i + 1}`,
+        type: T.slideLayout,
+        target: `../slideLayouts/slideLayout${i + 1}.xml`,
+      })),
       { id: `rId${layouts.length + 1}`, type: T.theme, target: "../theme/theme1.xml" },
     ]),
   );
@@ -1037,7 +1119,9 @@ export function deckToPptx(deck: Deck): Uint8Array {
   files["ppt/theme/theme1.xml"] = strToU8(themeXml(master));
   if (hasNotes) {
     files["ppt/notesMasters/notesMaster1.xml"] = strToU8(notesMasterXml());
-    files["ppt/notesMasters/_rels/notesMaster1.xml.rels"] = strToU8(RELS([{ id: "rId1", type: T.theme, target: "../theme/theme2.xml" }]));
+    files["ppt/notesMasters/_rels/notesMaster1.xml.rels"] = strToU8(
+      RELS([{ id: "rId1", type: T.theme, target: "../theme/theme2.xml" }]),
+    );
     files["ppt/theme/theme2.xml"] = strToU8(themeXml(master));
   }
 

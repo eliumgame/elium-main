@@ -86,8 +86,6 @@ const PRST_TO_KIND: Record<string, ShapeKind> = {
   sun: "star",
 };
 
-
-
 const attr = (xml: string, name: string): string | undefined => {
   const m = new RegExp(`\\b${name}="([^"]*)"`).exec(xml);
   return m ? m[1] : undefined;
@@ -162,13 +160,23 @@ function childBlocks(xml: string): { tag: string; block: string }[] {
   return out;
 }
 
-
-
 // ── couleurs de thème ───────────────────────────────────────────────────────
 
 type Rgb = [number, number, number];
-const hex2rgb = (h: string): Rgb => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-const rgb2hex = (c: Rgb): string => "#" + c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+const hex2rgb = (h: string): Rgb => [
+  parseInt(h.slice(0, 2), 16),
+  parseInt(h.slice(2, 4), 16),
+  parseInt(h.slice(4, 6), 16),
+];
+const rgb2hex = (c: Rgb): string =>
+  "#" +
+  c
+    .map((v) =>
+      Math.max(0, Math.min(255, Math.round(v)))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("");
 
 function rgbToHsl([r0, g0, b0]: Rgb): [number, number, number] {
   const r = r0 / 255,
@@ -228,7 +236,20 @@ function parseTheme(themeXml: string | undefined, masterXml: string | undefined)
   const scheme: Record<string, string> = {};
   const slot: Record<string, string> = {};
   const cs = /<a:clrScheme\b[^>]*>([\s\S]*?)<\/a:clrScheme>/.exec(themeXml ?? "")?.[1] ?? "";
-  for (const name of ["dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"]) {
+  for (const name of [
+    "dk1",
+    "lt1",
+    "dk2",
+    "lt2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "hlink",
+    "folHlink",
+  ]) {
     const block = new RegExp(`<a:${name}\\b[^>]*>([\\s\\S]*?)</a:${name}>`).exec(cs)?.[1] ?? "";
     const srgb = /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(block)?.[1];
     const sys = /<a:sysClr\b[^>]*\blastClr="([0-9A-Fa-f]{6})"/.exec(block)?.[1];
@@ -237,7 +258,20 @@ function parseTheme(themeXml: string | undefined, masterXml: string | undefined)
   }
   const clrMap = /<p:clrMap\b([^>]*)\/?>/.exec(masterXml ?? "")?.[1] ?? "";
   const map: Record<string, string> = { bg1: "lt1", tx1: "dk1", bg2: "lt2", tx2: "dk2" };
-  for (const k of ["bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"]) {
+  for (const k of [
+    "bg1",
+    "tx1",
+    "bg2",
+    "tx2",
+    "accent1",
+    "accent2",
+    "accent3",
+    "accent4",
+    "accent5",
+    "accent6",
+    "hlink",
+    "folHlink",
+  ]) {
     const v = attr(clrMap, k);
     if (v) map[k] = v;
   }
@@ -254,7 +288,8 @@ function colorIn(xml: string, theme: ThemeCtx = NO_THEME): string | undefined {
   const inner = m[3] ?? "";
   let base: string | undefined;
   if (kind === "srgbClr") base = attr(m[2]!, "val")?.toLowerCase();
-  else if (kind === "sysClr") base = (attr(m[2]!, "lastClr") ?? (attr(m[2]!, "val") === "window" ? "ffffff" : "000000")).toLowerCase();
+  else if (kind === "sysClr")
+    base = (attr(m[2]!, "lastClr") ?? (attr(m[2]!, "val") === "window" ? "ffffff" : "000000")).toLowerCase();
   else {
     const name = attr(m[2]!, "val") ?? "";
     base = theme.scheme[name];
@@ -372,7 +407,11 @@ interface InheritCtx {
   theme: ThemeCtx;
   layoutPhs: PhShape[];
   masterPhs: PhShape[];
-  masterStyles: { title: Record<number, LevelStyle>; body: Record<number, LevelStyle>; other: Record<number, LevelStyle> };
+  masterStyles: {
+    title: Record<number, LevelStyle>;
+    body: Record<number, LevelStyle>;
+    other: Record<number, LevelStyle>;
+  };
   bg?: string;
 }
 
@@ -389,7 +428,8 @@ function resolvePh(type: string | undefined, idx: string | undefined, ic: Inheri
     (idx !== undefined ? ic.layoutPhs.find((p) => p.idx === idx) : undefined) ??
     ic.layoutPhs.find((p) => normPhType(p.type) === group && (p.idx === undefined || idx === undefined));
   const masterPh = ic.masterPhs.find((p) => normPhType(p.type) === group);
-  const base = group === "title" ? ic.masterStyles.title : group === "body" ? ic.masterStyles.body : ic.masterStyles.other;
+  const base =
+    group === "title" ? ic.masterStyles.title : group === "body" ? ic.masterStyles.body : ic.masterStyles.other;
   return {
     xf: layoutPh?.xf ?? masterPh?.xf,
     anchor: layoutPh?.anchor ?? masterPh?.anchor,
@@ -486,7 +526,9 @@ interface TextCtx {
 function paragraphInner(p: string, tc: TextCtx, lvl: number): string {
   const ls = tc.levels[lvl] ?? tc.levels[0] ?? {};
   let inner = "";
-  for (const m of p.matchAll(/<a:r>([\s\S]*?)<\/a:r>|<a:br\b[^>]*?(?:\/>|>[\s\S]*?<\/a:br>)|<a:fld\b[^>]*>([\s\S]*?)<\/a:fld>/g)) {
+  for (const m of p.matchAll(
+    /<a:r>([\s\S]*?)<\/a:r>|<a:br\b[^>]*?(?:\/>|>[\s\S]*?<\/a:br>)|<a:fld\b[^>]*>([\s\S]*?)<\/a:fld>/g,
+  )) {
     if (m[0]!.startsWith("<a:br")) {
       inner += "<br>";
       continue;
@@ -501,7 +543,8 @@ function paragraphInner(p: string, tc: TextCtx, lvl: number): string {
     const sz = attr(rAttrs, "sz") !== undefined ? num(attr(rAttrs, "sz")) : ls.sz;
     const styles: string[] = [];
     if (col && col !== tc.elColor) styles.push(`color:${col}`);
-    if (sz && tc.baseSz && Math.abs(sz - tc.baseSz) > 1) styles.push(`font-size:${Math.round((sz / tc.baseSz) * 1000) / 1000}em`);
+    if (sz && tc.baseSz && Math.abs(sz - tc.baseSz) > 1)
+      styles.push(`font-size:${Math.round((sz / tc.baseSz) * 1000) / 1000}em`);
     if (styles.length) piece = `<span style="${styles.join(";")}">${piece}</span>`;
     if (/\bu="sng"/.test(rAttrs)) piece = `<u>${piece}</u>`;
     if (/\bi="1"/.test(rAttrs)) piece = `<i>${piece}</i>`;
@@ -647,7 +690,8 @@ function parseSp(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
   const textLike = prst === "rect" && !hasFill && !hasLine && !styleFill && !styleLine && (hasText(block) || !!ph);
 
   const bodyPr = /<a:bodyPr\b([^>]*?)(?:\/>|>([\s\S]*?)<\/a:bodyPr>)/.exec(block);
-  const fontScale = num(attr(/<a:normAutofit\b([^>]*)/.exec(bodyPr?.[2] ?? "")?.[1] ?? "", "fontScale"), 100000) / 100000;
+  const fontScale =
+    num(attr(/<a:normAutofit\b([^>]*)/.exec(bodyPr?.[2] ?? "")?.[1] ?? "", "fontScale"), 100000) / 100000;
 
   if (textLike) {
     if (!hasText(block)) return null; // placeholder vide : rien à projeter
@@ -688,7 +732,10 @@ function parseSp(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
   else fill = "#bfdbfe";
   const ln = /<a:ln\b([^>]*)>([\s\S]*?)<\/a:ln>/.exec(spPr);
   const strokeW = ln ? Math.round(num(attr(ln[1]!, "w")) / 12700) : 2;
-  const stroke = (ln && !/<a:noFill\/>/.test(ln[2]!) && colorIn(ln[2]!, theme)) || (styleLine && colorIn(styleLine[2]!, theme)) || "#2563eb";
+  const stroke =
+    (ln && !/<a:noFill\/>/.test(ln[2]!) && colorIn(ln[2]!, theme)) ||
+    (styleLine && colorIn(styleLine[2]!, theme)) ||
+    "#2563eb";
   const adj = num(attr(/<a:gd\b[^>]*name="adj"[^>]*>/.exec(spPr)?.[0] ?? "", "fmla")?.replace(/^val\s+/, ""));
   const radius = kind === "roundRect" && adj ? Math.round(adj / 1000) : undefined;
   // a shape may carry a centered text label
@@ -698,7 +745,8 @@ function parseSp(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
     .trim();
   const fontRef = /<a:fontRef\b[^>]*>([\s\S]*?)<\/a:fontRef>/.exec(style)?.[1];
   const labelColor =
-    colorIn(/<a:rPr\b[^>]*>([\s\S]*?)<\/a:rPr>/.exec(block)?.[0] ?? "", theme) ?? (fontRef ? colorIn(fontRef, theme) : undefined);
+    colorIn(/<a:rPr\b[^>]*>([\s\S]*?)<\/a:rPr>/.exec(block)?.[0] ?? "", theme) ??
+    (fontRef ? colorIn(fontRef, theme) : undefined);
   const t: ElementType = "shape";
   return el(
     {
@@ -778,8 +826,6 @@ function parseChart(xml: string): { data: ChartData | null; unsupportedLabel?: s
   if (!labels.length && !values.length) return { data: null };
   return { data: { kind, labels, values, ...(title ? { title } : {}) } };
 }
-
-
 
 function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
   const g = geomOf(block, pc.cx, pc.cy, tf);
@@ -983,7 +1029,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
       }
     : undefined;
   const zip = unzipSync(bytes);
-  const text = (path: string | undefined): string | undefined => (path && zip[path] ? strFromU8(zip[path]!) : undefined);
+  const text = (path: string | undefined): string | undefined =>
+    path && zip[path] ? strFromU8(zip[path]!) : undefined;
 
   const pres = text("ppt/presentation.xml") ?? "";
   const sldSz = /<p:sldSz\b([^>]*)\/?>/.exec(pres)?.[1] ?? "";
@@ -1011,7 +1058,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
     const themeTarget = masterPath ? relOfType(text(relsOf(masterPath)), "/theme") : undefined;
     const themeXml = text(themeTarget && masterPath ? resolveFrom(masterPath, themeTarget) : undefined);
     const theme = parseTheme(themeXml, masterXml);
-    const styleBlock = (tag: string) => new RegExp(`<p:${tag}>([\\s\\S]*?)</p:${tag}>`).exec(masterXml ?? "")?.[1] ?? "";
+    const styleBlock = (tag: string) =>
+      new RegExp(`<p:${tag}>([\\s\\S]*?)</p:${tag}>`).exec(masterXml ?? "")?.[1] ?? "";
     const ctx: InheritCtx = {
       theme,
       layoutPhs: parsePlaceholders(layoutXml, theme),
@@ -1030,7 +1078,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
   // --- Masque et dispositions (premier masque du fichier) -----------------------
   const firstSlideRels = slidePaths.length ? text(relsOf(slidePaths[0]!)) : undefined;
   const firstLayoutTarget = firstSlideRels ? relOfType(firstSlideRels, "/slideLayout") : undefined;
-  const firstLayoutPath = firstLayoutTarget && slidePaths[0] ? resolveFrom(slidePaths[0], firstLayoutTarget) : undefined;
+  const firstLayoutPath =
+    firstLayoutTarget && slidePaths[0] ? resolveFrom(slidePaths[0], firstLayoutTarget) : undefined;
   const masterRelTarget = firstLayoutPath ? relOfType(text(relsOf(firstLayoutPath)), "/slideMaster") : undefined;
   const masterPartPath = firstLayoutPath && masterRelTarget ? resolveFrom(firstLayoutPath, masterRelTarget) : undefined;
   let master: SlideMaster | undefined;
@@ -1043,7 +1092,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
     const themeT = relOfType(mRels, "/theme");
     const themeXml = text(themeT ? resolveFrom(masterPartPath, themeT) : undefined) ?? "";
     const th = parseTheme(themeXml, text(masterPartPath));
-    const latin = (tag: string) => attr(new RegExp(`<a:${tag}>\\s*<a:latin\\b([^>]*)`).exec(themeXml)?.[0] ?? "", "typeface") ?? undefined;
+    const latin = (tag: string) =>
+      attr(new RegExp(`<a:${tag}>\\s*<a:latin\\b([^>]*)`).exec(themeXml)?.[0] ?? "", "typeface") ?? undefined;
     const base = defaultMaster();
     const hexOf = (k: string, d: string) => (th.scheme[k] ? `#${th.scheme[k]}` : d);
     const layouts: SlideLayoutDef[] = [];

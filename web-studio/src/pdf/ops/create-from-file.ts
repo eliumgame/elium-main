@@ -399,7 +399,8 @@ export function sheetToHtml(
     { tables: tableDefs(wb.sheets), sheet: sheet.name },
   );
   const shown = (ref: string): { text: string; value: CellValue } => {
-    if ((sheet.cells[ref] == null || sheet.cells[ref] === "") && calc.spillAnchor(ref) === null) return { text: "", value: "" };
+    if ((sheet.cells[ref] == null || sheet.cells[ref] === "") && calc.spillAnchor(ref) === null)
+      return { text: "", value: "" };
     const value = calc.valueOf(ref);
     return { text: formatValue(value, sheet.styles?.[ref]?.fmt, calc.display(ref)), value };
   };
@@ -419,9 +420,7 @@ export function sheetToHtml(
   const width = widths.reduce((a, b) => a + b, 0) + headW;
   const rows: string[] = [];
   if (sel?.headings)
-    rows.push(
-      `<tr class="xs-head"><td></td>${colList.map((c) => `<td>${indexToCol(c)}</td>`).join("")}</tr>`,
-    );
+    rows.push(`<tr class="xs-head"><td></td>${colList.map((c) => `<td>${indexToCol(c)}</td>`).join("")}</tr>`);
   for (const r of rowList) {
     const h = sheet.rowHeights?.[r] ?? SHEET_ROW_PX;
     const cells: string[] = sel?.headings ? [`<td class="xs-head">${r + 1}</td>`] : [];
@@ -467,7 +466,9 @@ export function sheetToHtml(
     }
     rows.push(`<tr style="height:${h}px">${cells.join("")}</tr>`);
   }
-  const cols = (headW ? [`<col style="width:${headW}px">`] : []).concat(widths.map((w) => `<col style="width:${w}px">`)).join("");
+  const cols = (headW ? [`<col style="width:${headW}px">`] : [])
+    .concat(widths.map((w) => `<col style="width:${w}px">`))
+    .join("");
   const html = `<table class="xs-t${sel?.gridlines ? " xs-grid" : ""}" style="width:${width}px"><colgroup>${cols}</colgroup><tbody>${rows.join("")}</tbody></table>`;
   return { html, width };
 }

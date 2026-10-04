@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRINT, expandHeaderFooter, normalizePrint, paginate, toggleColBreak, toggleRowBreak, usedArea } from "../src/sheet/print";
+import {
+  DEFAULT_PRINT,
+  expandHeaderFooter,
+  normalizePrint,
+  paginate,
+  toggleColBreak,
+  toggleRowBreak,
+  usedArea,
+} from "../src/sheet/print";
 import type { SheetData } from "../src/sheet/model";
 
 const sheetOf = (rows: number, cols: number, extra: Partial<SheetData> = {}): SheetData => {
@@ -11,7 +19,12 @@ const sheetOf = (rows: number, cols: number, extra: Partial<SheetData> = {}): Sh
 
 describe("normalisation", () => {
   it("valeurs par défaut et bornes", () => {
-    const n = normalizePrint({ paper: "Zzz" as never, scale: 9999, margins: { top: -4, right: 500, bottom: 1, left: 2 }, rowBreaks: [5, 5, -1, 2.5, 1] });
+    const n = normalizePrint({
+      paper: "Zzz" as never,
+      scale: 9999,
+      margins: { top: -4, right: 500, bottom: 1, left: 2 },
+      rowBreaks: [5, 5, -1, 2.5, 1],
+    });
     expect(n.paper).toBe("A4");
     expect(n.scale).toBe(400);
     expect(n.margins).toMatchObject({ top: 0, right: 60 });
@@ -63,9 +76,19 @@ describe("pagination", () => {
     expect(p.rowBreakAfter.has(3)).toBe(true);
     expect(p.colBreakAfter.has(1)).toBe(true);
     // « down » : colonnes A-B (haut, bas) puis C-D
-    expect(p.pages.map((pg) => [pg.cols[0], pg.rows[0]])).toEqual([[0, 0], [0, 4], [2, 0], [2, 4]]);
+    expect(p.pages.map((pg) => [pg.cols[0], pg.rows[0]])).toEqual([
+      [0, 0],
+      [0, 4],
+      [2, 0],
+      [2, 4],
+    ]);
     const over = paginate(s, { rowBreaks: [3], colBreaks: [1], order: "over" });
-    expect(over.pages.map((pg) => [pg.cols[0], pg.rows[0]])).toEqual([[0, 0], [2, 0], [0, 4], [2, 4]]);
+    expect(over.pages.map((pg) => [pg.cols[0], pg.rows[0]])).toEqual([
+      [0, 0],
+      [2, 0],
+      [0, 4],
+      [2, 4],
+    ]);
   });
   it("zone d'impression et lignes masquées par un filtre", () => {
     const s = sheetOf(10, 4);
@@ -87,8 +110,12 @@ describe("outils", () => {
     expect(toggleColBreak(a, 2).colBreaks).toEqual([2]);
   });
   it("en-têtes et pieds de page", () => {
-    expect(expandHeaderFooter("{feuille} — p. {page}/{pages}", { page: 2, pages: 5, sheet: "Ventes" })).toBe("Ventes — p. 2/5");
+    expect(expandHeaderFooter("{feuille} — p. {page}/{pages}", { page: 2, pages: 5, sheet: "Ventes" })).toBe(
+      "Ventes — p. 2/5",
+    );
     expect(expandHeaderFooter(undefined, { page: 1, pages: 1, sheet: "x" })).toBe("");
-    expect(expandHeaderFooter("{date}", { page: 1, pages: 1, sheet: "x", date: new Date(2026, 2, 5) })).toBe("05/03/2026");
+    expect(expandHeaderFooter("{date}", { page: 1, pages: 1, sheet: "x", date: new Date(2026, 2, 5) })).toBe(
+      "05/03/2026",
+    );
   });
 });

@@ -177,11 +177,18 @@ export default function SlideSorter({
                               className="icon-btn"
                               title="Commencer une section ici"
                               aria-label="Commencer une section ici"
-                              onClick={() => setSections(addSectionAt(deck.slides, deck.sections, i, "Nouvelle section"))}
+                              onClick={() =>
+                                setSections(addSectionAt(deck.slides, deck.sections, i, "Nouvelle section"))
+                              }
                             >
                               <FolderPlus size={14} />
                             </button>
-                            <button className="icon-btn" title="Dupliquer" aria-label="Dupliquer" onClick={() => store.duplicateSlide(i)}>
+                            <button
+                              className="icon-btn"
+                              title="Dupliquer"
+                              aria-label="Dupliquer"
+                              onClick={() => store.duplicateSlide(i)}
+                            >
                               <Copy size={14} />
                             </button>
                             <button

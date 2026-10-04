@@ -732,8 +732,10 @@ function parseValidations(doc: Document, sheetName: string, cells: Record<string
             .map((s) => s.trim())
             .filter(Boolean)
         : resolveListRange(raw, sheetName, cells);
-      const isRange = !raw.startsWith('"') && /^['A-Za-z0-9_$ ]*!?\$?[A-Za-z]+\$?\d+(:\$?[A-Za-z]+\$?\d+)?$/.test(raw.trim());
-      if (list.length || isRange) out.push({ ...base, type: "list", list, ...(isRange ? { listRef: raw.trim().replace(/\$/g, "") } : {}) });
+      const isRange =
+        !raw.startsWith('"') && /^['A-Za-z0-9_$ ]*!?\$?[A-Za-z]+\$?\d+(:\$?[A-Za-z]+\$?\d+)?$/.test(raw.trim());
+      if (list.length || isRange)
+        out.push({ ...base, type: "list", list, ...(isRange ? { listRef: raw.trim().replace(/\$/g, "") } : {}) });
       continue;
     }
     const vType: ValidationType | undefined =

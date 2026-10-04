@@ -42,20 +42,44 @@ export default function ChartModal({
     setData((d) => {
       if (c < 0) return { ...d, labels: d.labels.map((l, i) => (i === r ? v : l)) };
       const n = Number(v.replace(",", "."));
-      return { ...d, series: d.series.map((s, k) => (k === c ? { ...s, values: s.values.map((x, i) => (i === r ? (Number.isFinite(n) ? n : 0) : x)) } : s)) };
+      return {
+        ...d,
+        series: d.series.map((s, k) =>
+          k === c ? { ...s, values: s.values.map((x, i) => (i === r ? (Number.isFinite(n) ? n : 0) : x)) } : s,
+        ),
+      };
     });
-  const addRow = () => setData((d) => ({ ...d, labels: [...d.labels, `L${d.labels.length + 1}`], series: d.series.map((s) => ({ ...s, values: [...s.values, 0] })) }));
+  const addRow = () =>
+    setData((d) => ({
+      ...d,
+      labels: [...d.labels, `L${d.labels.length + 1}`],
+      series: d.series.map((s) => ({ ...s, values: [...s.values, 0] })),
+    }));
   const delRow = () =>
-    setData((d) => (d.labels.length <= 1 ? d : { ...d, labels: d.labels.slice(0, -1), series: d.series.map((s) => ({ ...s, values: s.values.slice(0, -1) })) }));
+    setData((d) =>
+      d.labels.length <= 1
+        ? d
+        : {
+            ...d,
+            labels: d.labels.slice(0, -1),
+            series: d.series.map((s) => ({ ...s, values: s.values.slice(0, -1) })),
+          },
+    );
   const addCol = () =>
-    setData((d) => ({ ...d, series: [...d.series, { label: `Série ${d.series.length + 1}`, values: d.labels.map(() => 0) }] }));
+    setData((d) => ({
+      ...d,
+      series: [...d.series, { label: `Série ${d.series.length + 1}`, values: d.labels.map(() => 0) }],
+    }));
   const delCol = () => setData((d) => (d.series.length <= 1 ? d : { ...d, series: d.series.slice(0, -1) }));
-  const renameSeries = (c: number, label: string) => setData((d) => ({ ...d, series: d.series.map((s, k) => (k === c ? { ...s, label } : s)) }));
+  const renameSeries = (c: number, label: string) =>
+    setData((d) => ({ ...d, series: d.series.map((s, k) => (k === c ? { ...s, label } : s)) }));
 
   const applyPaste = () => {
     const r = parseTsvToChart(paste);
     if (!r) {
-      setPasteError("Collez des cellules copiées depuis le Tableur : une ligne d'en-têtes, une colonne de libellés et au moins une colonne de nombres.");
+      setPasteError(
+        "Collez des cellules copiées depuis le Tableur : une ligne d'en-têtes, une colonne de libellés et au moins une colonne de nombres.",
+      );
       return;
     }
     setPasteError("");
@@ -85,7 +109,11 @@ export default function ChartModal({
     >
       <div className="settings">
         <section className="settings__section">
-          <ChartOptionsPanel spec={spec} seriesLabels={data.series.map((s) => s.label)} onChange={(n) => setData((d) => ({ ...d, chartType: n.type, title: n.title ?? "", opts: n.opts }))} />
+          <ChartOptionsPanel
+            spec={spec}
+            seriesLabels={data.series.map((s) => s.label)}
+            onChange={(n) => setData((d) => ({ ...d, chartType: n.type, title: n.title ?? "", opts: n.opts }))}
+          />
         </section>
         <section className="settings__section">
           <Field label="Données">
@@ -96,7 +124,11 @@ export default function ChartModal({
                     <th />
                     {data.series.map((s, c) => (
                       <th key={c}>
-                        <input aria-label={`Nom de la série ${c + 1}`} value={s.label} onChange={(e) => renameSeries(c, e.target.value)} />
+                        <input
+                          aria-label={`Nom de la série ${c + 1}`}
+                          value={s.label}
+                          onChange={(e) => renameSeries(c, e.target.value)}
+                        />
                       </th>
                     ))}
                   </tr>
@@ -105,11 +137,20 @@ export default function ChartModal({
                   {data.labels.map((l, r) => (
                     <tr key={r}>
                       <th>
-                        <input aria-label={`Libellé de la ligne ${r + 1}`} value={l} onChange={(e) => setCell(r, -1, e.target.value)} />
+                        <input
+                          aria-label={`Libellé de la ligne ${r + 1}`}
+                          value={l}
+                          onChange={(e) => setCell(r, -1, e.target.value)}
+                        />
                       </th>
                       {data.series.map((s, c) => (
                         <td key={c}>
-                          <input aria-label={`Valeur ${l} / ${s.label}`} inputMode="decimal" value={s.values[r] ?? 0} onChange={(e) => setCell(r, c, e.target.value)} />
+                          <input
+                            aria-label={`Valeur ${l} / ${s.label}`}
+                            inputMode="decimal"
+                            value={s.values[r] ?? 0}
+                            onChange={(e) => setCell(r, c, e.target.value)}
+                          />
                         </td>
                       ))}
                     </tr>
@@ -143,7 +184,11 @@ export default function ChartModal({
             <Button variant="ghost" onClick={applyPaste} disabled={!paste.trim()}>
               Utiliser ces données
             </Button>
-            {pasteError && <div role="alert" className="settings__error">{pasteError}</div>}
+            {pasteError && (
+              <div role="alert" className="settings__error">
+                {pasteError}
+              </div>
+            )}
           </Field>
         </section>
         <section className="settings__section">

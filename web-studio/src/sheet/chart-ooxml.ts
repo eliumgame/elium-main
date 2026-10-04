@@ -11,7 +11,8 @@ export const C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 export const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 export const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-const xe = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const xe = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export interface OoxmlSeries {
   name?: string;
@@ -70,7 +71,15 @@ export function chartSpaceXml(inp: ChartXmlInput): string {
   const series = inp.series;
   const type = inp.type;
   const kindOf = (i: number): "bar" | "line" | "area" | "scatter" =>
-    type === "combo" ? (o.seriesTypes?.[i] ?? (i === 0 ? "bar" : "line")) : type === "bar" ? "bar" : type === "area" ? "area" : type === "scatter" ? "scatter" : "line";
+    type === "combo"
+      ? (o.seriesTypes?.[i] ?? (i === 0 ? "bar" : "line"))
+      : type === "bar"
+        ? "bar"
+        : type === "area"
+          ? "area"
+          : type === "scatter"
+            ? "scatter"
+            : "line";
   const secondary = (i: number) => type === "combo" && !!o.secondary?.includes(i);
   const grouping = o.grouping === "stacked" ? "stacked" : o.grouping === "percent" ? "percentStacked" : "clustered";
   const trend = o.trendline;
@@ -110,7 +119,8 @@ export function chartSpaceXml(inp: ChartXmlInput): string {
   let plot = "";
   let axes = "";
   const horizontal = !!o.horizontal && (type === "bar" || type === "combo");
-  const fmt = o.yFormat && o.yFormat !== "general" ? `<c:numFmt formatCode="${xe(FMT_CODE[o.yFormat])}" sourceLinked="0"/>` : "";
+  const fmt =
+    o.yFormat && o.yFormat !== "general" ? `<c:numFmt formatCode="${xe(FMT_CODE[o.yFormat])}" sourceLinked="0"/>` : "";
   const scaling = `<c:scaling><c:orientation val="minMax"/>${o.yMax !== undefined ? `<c:max val="${o.yMax}"/>` : ""}${o.yMin !== undefined ? `<c:min val="${o.yMin}"/>` : ""}</c:scaling>`;
   const grid = `<c:majorGridlines/>`;
 
@@ -140,7 +150,8 @@ export function chartSpaceXml(inp: ChartXmlInput): string {
         const axIds = `<c:axId val="${ax[0]}"/><c:axId val="${ax[1]}"/>`;
         if (g.kind === "bar")
           return `<c:barChart><c:barDir val="${horizontal ? "bar" : "col"}"/><c:grouping val="${grouping}"/><c:varyColors val="0"/>${sers}${dLbls(!!o.dataLabels)}<c:gapWidth val="150"/>${grouping !== "clustered" ? '<c:overlap val="100"/>' : ""}${axIds}</c:barChart>`;
-        if (g.kind === "area") return `<c:areaChart><c:grouping val="${grouping === "clustered" ? "standard" : grouping}"/><c:varyColors val="0"/>${sers}${dLbls(!!o.dataLabels)}${axIds}</c:areaChart>`;
+        if (g.kind === "area")
+          return `<c:areaChart><c:grouping val="${grouping === "clustered" ? "standard" : grouping}"/><c:varyColors val="0"/>${sers}${dLbls(!!o.dataLabels)}${axIds}</c:areaChart>`;
         return `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${sers}${dLbls(!!o.dataLabels)}<c:marker val="1"/>${axIds}</c:lineChart>`;
       })
       .join("");
@@ -155,10 +166,11 @@ export function chartSpaceXml(inp: ChartXmlInput): string {
   }
 
   const legendPos = o.legend ?? (type === "pie" || series.length > 1 ? "bottom" : "none");
-  const legend = legendPos === "none" ? "" : `<c:legend><c:legendPos val="${legendPos === "top" ? "t" : legendPos === "right" ? "r" : "b"}"/><c:overlay val="0"/></c:legend>`;
-  const title = inp.title
-    ? `${richTitle(inp.title)}<c:autoTitleDeleted val="0"/>`
-    : `<c:autoTitleDeleted val="1"/>`;
+  const legend =
+    legendPos === "none"
+      ? ""
+      : `<c:legend><c:legendPos val="${legendPos === "top" ? "t" : legendPos === "right" ? "r" : "b"}"/><c:overlay val="0"/></c:legend>`;
+  const title = inp.title ? `${richTitle(inp.title)}<c:autoTitleDeleted val="0"/>` : `<c:autoTitleDeleted val="1"/>`;
 
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -224,13 +236,18 @@ export function readChartOptions(doc: Document): ReadChart {
   // combiné : type par série (ordre des séries), axe secondaire = groupe dont les axId diffèrent du premier
   if (type === "combo" && plot) {
     const groups = Array.from(plot.children).filter((c) => /^c:(bar|line|area)Chart$/.test(c.tagName));
-    const firstAx = byTag(groups[0]!, "c:axId").map((a) => a.getAttribute("val")).join(",");
+    const firstAx = byTag(groups[0]!, "c:axId")
+      .map((a) => a.getAttribute("val"))
+      .join(",");
     const types: ("bar" | "line")[] = [];
     const sec: number[] = [];
     let idx = 0;
     for (const g of groups) {
       const kind = g.tagName === "c:barChart" ? "bar" : "line";
-      const isSec = byTag(g, "c:axId").map((a) => a.getAttribute("val")).join(",") !== firstAx;
+      const isSec =
+        byTag(g, "c:axId")
+          .map((a) => a.getAttribute("val"))
+          .join(",") !== firstAx;
       for (let k = 0; k < byTag(g, "c:ser").length; k++) {
         types[idx] = kind;
         if (isSec) sec.push(idx);
@@ -252,8 +269,10 @@ export function readChartOptions(doc: Document): ReadChart {
   // axes
   const catAxes = byTag(doc, "c:catAx");
   const valAxes = byTag(doc, "c:valAx");
-  const primaryVal = type === "scatter" ? valAxes.find((a) => attrVal(byTag(a, "c:axPos")[0]) === "l") ?? valAxes[1] : valAxes[0];
-  const xAxis = type === "scatter" ? valAxes.find((a) => attrVal(byTag(a, "c:axPos")[0]) === "b") ?? valAxes[0] : catAxes[0];
+  const primaryVal =
+    type === "scatter" ? (valAxes.find((a) => attrVal(byTag(a, "c:axPos")[0]) === "l") ?? valAxes[1]) : valAxes[0];
+  const xAxis =
+    type === "scatter" ? (valAxes.find((a) => attrVal(byTag(a, "c:axPos")[0]) === "b") ?? valAxes[0]) : catAxes[0];
   const xt = titleText(xAxis ? byTag(xAxis, "c:title")[0] : null);
   if (xt) o.xTitle = xt;
   const yt = titleText(primaryVal ? byTag(primaryVal, "c:title")[0] : null);
@@ -294,5 +313,10 @@ export function readChartOptions(doc: Document): ReadChart {
   const defLegend = type === "pie" || sers.length > 1 ? "bottom" : "none";
   if (clean.legend === defLegend) delete clean.legend;
   void chart;
-  return { type, title: titleText(byTag(doc, "c:title").find((t) => t.parentElement?.tagName === "c:chart") ?? null), opts: Object.keys(clean).length ? clean : undefined, seriesCount: sers.length };
+  return {
+    type,
+    title: titleText(byTag(doc, "c:title").find((t) => t.parentElement?.tagName === "c:chart") ?? null),
+    opts: Object.keys(clean).length ? clean : undefined,
+    seriesCount: sers.length,
+  };
 }

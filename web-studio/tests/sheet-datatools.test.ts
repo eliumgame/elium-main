@@ -2,14 +2,41 @@ import { describe, it, expect } from "vitest";
 import { buildPattern, findAll, removeDuplicates, replaceAll, splitText, textToColumns } from "../src/sheet/datatools";
 import type { SheetData, Workbook } from "../src/sheet/model";
 
-const sheet = (cells: Record<string, string>, extra: Partial<SheetData> = {}): SheetData => ({ name: "F", rows: 20, cols: 6, cells, ...extra });
+const sheet = (cells: Record<string, string>, extra: Partial<SheetData> = {}): SheetData => ({
+  name: "F",
+  rows: 20,
+  cols: 6,
+  cells,
+  ...extra,
+});
 
 describe("suppression des doublons", () => {
-  const s = sheet({ A1: "Nom", B1: "Ville", A2: "Ana", B2: "Paris", A3: "ana", B3: "paris", A4: "Bob", B4: "Lyon", A5: "Ana", B5: "Nice", A6: "Bob", B6: "Lyon" });
+  const s = sheet({
+    A1: "Nom",
+    B1: "Ville",
+    A2: "Ana",
+    B2: "Paris",
+    A3: "ana",
+    B3: "paris",
+    A4: "Bob",
+    B4: "Lyon",
+    A5: "Ana",
+    B5: "Nice",
+    A6: "Bob",
+    B6: "Lyon",
+  });
   it("sur toutes les colonnes, insensible à la casse, en-tête conservé", () => {
     const r = removeDuplicates(s, { c0: 0, r0: 0, c1: 1, r1: 5 }, { hasHeader: true });
     expect(r.removed).toBe(2);
-    expect(r.sheet.cells).toMatchObject({ A1: "Nom", A2: "Ana", B2: "Paris", A3: "Bob", B3: "Lyon", A4: "Ana", B4: "Nice" });
+    expect(r.sheet.cells).toMatchObject({
+      A1: "Nom",
+      A2: "Ana",
+      B2: "Paris",
+      A3: "Bob",
+      B3: "Lyon",
+      A4: "Ana",
+      B4: "Nice",
+    });
     expect(r.sheet.cells.A5).toBeUndefined();
     expect(r.sheet.cells.A6).toBeUndefined();
   });
@@ -21,7 +48,9 @@ describe("suppression des doublons", () => {
     expect(r.sheet.cells.A4).toBeUndefined();
   });
   it("sensible à la casse ; sans doublon : feuille inchangée", () => {
-    expect(removeDuplicates(s, { c0: 0, r0: 1, c1: 0, r1: 2 }, { hasHeader: false, caseSensitive: true }).removed).toBe(0);
+    expect(removeDuplicates(s, { c0: 0, r0: 1, c1: 0, r1: 2 }, { hasHeader: false, caseSensitive: true }).removed).toBe(
+      0,
+    );
     const same = sheet({ A1: "a", A2: "b" });
     const r = removeDuplicates(same, { c0: 0, r0: 0, c1: 0, r1: 1 }, { hasHeader: false });
     expect(r.sheet).toBe(same);
@@ -56,7 +85,10 @@ describe("texte en colonnes", () => {
 describe("rechercher / remplacer", () => {
   const wb: Workbook = {
     active: 0,
-    sheets: [sheet({ A1: "Chat noir", A2: "chat", B1: "=CONCAT(\"chat\",A1)", A3: "Chien" }), { ...sheet({ A1: "un CHAT", B2: "12" }), name: "G" }],
+    sheets: [
+      sheet({ A1: "Chat noir", A2: "chat", B1: '=CONCAT("chat",A1)', A3: "Chien" }),
+      { ...sheet({ A1: "un CHAT", B2: "12" }), name: "G" },
+    ],
   };
   it("recherche littérale, insensible à la casse, sur toutes les feuilles, valeurs seulement", () => {
     const r = findAll(wb, { find: "chat" }) as { matches: { sheet: number; ref: string }[] };
@@ -65,11 +97,16 @@ describe("rechercher / remplacer", () => {
   it("formules incluses, feuille unique, cellule entière, casse", () => {
     expect((findAll(wb, { find: "chat", inFormulas: true }) as { matches: unknown[] }).matches).toHaveLength(4);
     expect((findAll(wb, { find: "chat", sheet: 1 }) as { matches: unknown[] }).matches).toHaveLength(1);
-    expect((findAll(wb, { find: "chat", wholeCell: true }) as { matches: { ref: string }[] }).matches.map((m) => m.ref)).toEqual(["A2"]);
+    expect(
+      (findAll(wb, { find: "chat", wholeCell: true }) as { matches: { ref: string }[] }).matches.map((m) => m.ref),
+    ).toEqual(["A2"]);
     expect((findAll(wb, { find: "chat", caseSensitive: true }) as { matches: unknown[] }).matches).toHaveLength(1);
   });
   it("regex avec groupes capturés et $&", () => {
-    const r = replaceAll(wb, { find: "(\\w+) (\\w+)", replace: "$2 $1", regex: true, sheet: 0 }) as { wb: Workbook; count: number };
+    const r = replaceAll(wb, { find: "(\\w+) (\\w+)", replace: "$2 $1", regex: true, sheet: 0 }) as {
+      wb: Workbook;
+      count: number;
+    };
     expect(r.count).toBe(1);
     expect(r.wb.sheets[0]!.cells.A1).toBe("noir Chat");
     expect(r.wb.sheets[1]!.cells.A1).toBe("un CHAT");

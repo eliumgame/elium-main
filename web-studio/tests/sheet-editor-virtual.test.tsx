@@ -17,7 +17,10 @@ beforeEach(() => {
   };
 });
 
-const BIG: Workbook = { active: 0, sheets: [{ name: "F", rows: 100_000, cols: 6, cells: { A1: "x", A50000: "milieu" } }] };
+const BIG: Workbook = {
+  active: 0,
+  sheets: [{ name: "F", rows: 100_000, cols: 6, cells: { A1: "x", A50000: "milieu" } }],
+};
 
 function Harness() {
   const store = useLocalSheetStore(BIG);

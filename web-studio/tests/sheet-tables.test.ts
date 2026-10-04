@@ -1,13 +1,36 @@
 import { describe, it, expect } from "vitest";
 import { createCalc } from "../src/sheet/formula";
-import { addTable, expandStructuredRefs, nextTableName, removeTable, structuredForFile, tableCellLook, tableDefs, validTableName } from "../src/sheet/tables";
+import {
+  addTable,
+  expandStructuredRefs,
+  nextTableName,
+  removeTable,
+  structuredForFile,
+  tableCellLook,
+  tableDefs,
+  validTableName,
+} from "../src/sheet/tables";
 import type { SheetData } from "../src/sheet/model";
 
 const base = (): SheetData => ({
   name: "Ventes",
   rows: 10,
   cols: 5,
-  cells: { A1: "Produit", B1: "Prix", C1: "Qté", D1: "Total", A2: "Pomme", B2: "2", C2: "10", A3: "Poire", B3: "3", C3: "4", A4: "Kiwi", B4: "1", C4: "7" },
+  cells: {
+    A1: "Produit",
+    B1: "Prix",
+    C1: "Qté",
+    D1: "Total",
+    A2: "Pomme",
+    B2: "2",
+    C2: "10",
+    A3: "Poire",
+    B3: "3",
+    C3: "4",
+    A4: "Kiwi",
+    B4: "1",
+    C4: "7",
+  },
 });
 const withTable = (): SheetData => addTable(base(), { c0: 0, r0: 0, c1: 3, r1: 3 }, [], "Tab");
 const defs = (s: SheetData) => tableDefs([s]);
@@ -58,10 +81,16 @@ describe("calcul avec tableaux", () => {
   it("tableau d'une autre feuille", () => {
     const a = withTable();
     const b: SheetData = { name: "Synthèse", rows: 5, cols: 3, cells: { A1: "=SUM(Tab[Prix])" } };
-    const c = createCalc((r) => b.cells[r], { getSheetRaw: (n, r) => (n === "Ventes" ? a.cells[r] : undefined), hasSheet: (n) => n === "Ventes" }, undefined, undefined, {
-      tables: tableDefs([a, b]),
-      sheet: "Synthèse",
-    });
+    const c = createCalc(
+      (r) => b.cells[r],
+      { getSheetRaw: (n, r) => (n === "Ventes" ? a.cells[r] : undefined), hasSheet: (n) => n === "Ventes" },
+      undefined,
+      undefined,
+      {
+        tables: tableDefs([a, b]),
+        sheet: "Synthèse",
+      },
+    );
     expect(c.valueOf("A1")).toBe(6);
   });
 });
@@ -76,7 +105,11 @@ describe("gestion", () => {
     expect(nextTableName(["Tableau1", "tableau2"])).toBe("Tableau3");
   });
   it("création : en-têtes vides/dupliqués corrigés ; suppression", () => {
-    const s = addTable({ ...base(), cells: { ...base().cells, B1: "", C1: "Prix" } }, { c0: 0, r0: 0, c1: 2, r1: 3 }, []);
+    const s = addTable(
+      { ...base(), cells: { ...base().cells, B1: "", C1: "Prix" } },
+      { c0: 0, r0: 0, c1: 2, r1: 3 },
+      [],
+    );
     expect(s.cells.B1).toBe("Colonne2");
     expect(s.cells.C1).toBe("Prix");
     expect(s.tables![0]!.name).toBe("Tableau1");

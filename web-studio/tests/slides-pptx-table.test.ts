@@ -20,7 +20,15 @@ const base: TableData = {
 };
 const deckOf = (t: TableData): Deck => ({
   active: 0,
-  slides: [{ id: "s", title: "", body: "", layout: "blank", elements: [{ id: "t", type: "table", x: 5, y: 5, w: 80, h: 50, table: t, fontSize: 18 }] }],
+  slides: [
+    {
+      id: "s",
+      title: "",
+      body: "",
+      layout: "blank",
+      elements: [{ id: "t", type: "table", x: 5, y: 5, w: 80, h: 50, table: t, fontSize: 18 }],
+    },
+  ],
 });
 
 describe("PPTX — tableaux fusionnés et stylés", () => {
@@ -56,7 +64,8 @@ describe("PPTX — tableaux fusionnés et stylés", () => {
     expect(grid).not.toContain("bandRow");
     const accent = strFromU8(unzipSync(deckToPptx(deckOf({ ...base, style: "accent" })))["ppt/slides/slide1.xml"]!);
     expect(accent).toContain('<a:srgbClr val="2563EB"/>');
-    const plain = importPptx(deckToPptx(deckOf({ ...base, style: "plain", headerRow: false }))).slides[0]!.elements![0]!.table!;
+    const plain = importPptx(deckToPptx(deckOf({ ...base, style: "plain", headerRow: false }))).slides[0]!.elements![0]!
+      .table!;
     expect(plain.style).toBe("plain");
     expect(plain.headerRow).toBe(false);
   });

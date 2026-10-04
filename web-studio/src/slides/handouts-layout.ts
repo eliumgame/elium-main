@@ -57,7 +57,15 @@ export function slotsFor(mode: HandoutMode, size: PageSize = A4_PX): Slot[] {
   if (mode === "notes") {
     const w = Math.min(usableW, 560);
     const h = w / RATIO;
-    return [{ x: left + (usableW - w) / 2, y: top, w, h, note: { x: left, y: top + h + 28, w: usableW, h: usableH - h - 28 } }];
+    return [
+      {
+        x: left + (usableW - w) / 2,
+        y: top,
+        w,
+        h,
+        note: { x: left, y: top + h + 28, w: usableW, h: usableH - h - 28 },
+      },
+    ];
   }
   if (mode === 1) {
     const w = Math.min(usableW, usableH * RATIO);
@@ -94,7 +102,8 @@ export function slotsFor(mode: HandoutMode, size: PageSize = A4_PX): Slot[] {
   const gx = (usableW - cols * w) / (cols + 1);
   const gy = (usableH - rows * h) / (rows + 1);
   const out: Slot[] = [];
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.push({ x: left + gx + c * (w + gx), y: top + gy + r * (h + gy), w, h });
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) out.push({ x: left + gx + c * (w + gx), y: top + gy + r * (h + gy), w, h });
   return out;
 }
 
@@ -115,7 +124,10 @@ export function planHandouts(slides: Slide[], o: HandoutOptions): { keep: number
 }
 
 /** Remplace {titre}, {date}, {page}, {pages}. */
-export function expandTokens(tpl: string | undefined, ctx: { title: string; page: number; pages: number; date?: Date }): string {
+export function expandTokens(
+  tpl: string | undefined,
+  ctx: { title: string; page: number; pages: number; date?: Date },
+): string {
   if (!tpl) return "";
   return tpl
     .replace(/\{titre\}/gi, ctx.title)

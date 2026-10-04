@@ -142,7 +142,14 @@ export function pageSizePx(setup: PrintSetup): { w: number; h: number } {
 }
 
 /** Découpe un axe : liste d'indices en blocs selon la taille disponible et les sauts manuels. */
-function chunk(indices: number[], size: (i: number) => number, avail: number, breaks: Set<number>, repeatSize: number, repeat: number[]): number[][] {
+function chunk(
+  indices: number[],
+  size: (i: number) => number,
+  avail: number,
+  breaks: Set<number>,
+  repeatSize: number,
+  repeat: number[],
+): number[][] {
   const out: number[][] = [];
   let cur: number[] = [];
   let used = 0;
@@ -168,7 +175,11 @@ function chunk(indices: number[], size: (i: number) => number, avail: number, br
   return out.map((b, k) => (k === 0 ? b : [...repeat.filter((r) => !b.includes(r)), ...b]));
 }
 
-export function paginate(sheet: SheetData, setupIn: Partial<PrintSetup> | undefined, opts: { hidden?: (r: number) => boolean } = {}): PrintPlan {
+export function paginate(
+  sheet: SheetData,
+  setupIn: Partial<PrintSetup> | undefined,
+  opts: { hidden?: (r: number) => boolean } = {},
+): PrintPlan {
   const setup = normalizePrint(setupIn);
   const area = setup.area ?? usedArea(sheet);
   const page = pageSizePx(setup);
@@ -195,8 +206,22 @@ export function paginate(sheet: SheetData, setupIn: Partial<PrintSetup> | undefi
   const rc = setup.repeatCols;
   const repRows = rr ? rows.filter((r) => r >= rr.r0 && r <= rr.r1) : [];
   const repCols = rc ? cols.filter((c) => c >= rc.c0 && c <= rc.c1) : [];
-  const rowBlocks = chunk(rows, rowH, availH, new Set(setup.rowBreaks ?? []), repRows.reduce((a, r) => a + rowH(r), 0), repRows);
-  const colBlocks = chunk(cols, colW, availW, new Set(setup.colBreaks ?? []), repCols.reduce((a, c) => a + colW(c), 0), repCols);
+  const rowBlocks = chunk(
+    rows,
+    rowH,
+    availH,
+    new Set(setup.rowBreaks ?? []),
+    repRows.reduce((a, r) => a + rowH(r), 0),
+    repRows,
+  );
+  const colBlocks = chunk(
+    cols,
+    colW,
+    availW,
+    new Set(setup.colBreaks ?? []),
+    repCols.reduce((a, c) => a + colW(c), 0),
+    repCols,
+  );
 
   const pages: PrintPage[] = [];
   const push = (rb: number[], cb: number[]) => pages.push({ rows: rb, cols: cb, index: pages.length + 1 });
@@ -208,7 +233,10 @@ export function paginate(sheet: SheetData, setupIn: Partial<PrintSetup> | undefi
 }
 
 /** En-tête / pied de page : substitue {page}, {pages}, {feuille}, {date}. */
-export function expandHeaderFooter(text: string | undefined, ctx: { page: number; pages: number; sheet: string; date?: Date }): string {
+export function expandHeaderFooter(
+  text: string | undefined,
+  ctx: { page: number; pages: number; sheet: string; date?: Date },
+): string {
   if (!text) return "";
   const d = ctx.date ?? new Date();
   return text

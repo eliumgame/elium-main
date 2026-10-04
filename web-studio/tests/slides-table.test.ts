@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { cellClass, deleteCol, deleteRow, insertCol, insertRow, isCovered, mergeAt, mergeCells, mergeContaining, tableFromTsv, unmergeAt, validMerges } from "../src/slides/table";
+import {
+  cellClass,
+  deleteCol,
+  deleteRow,
+  insertCol,
+  insertRow,
+  isCovered,
+  mergeAt,
+  mergeCells,
+  mergeContaining,
+  tableFromTsv,
+  unmergeAt,
+  validMerges,
+} from "../src/slides/table";
 import type { TableData } from "../src/slides/model";
 
 const t3 = (): TableData => ({

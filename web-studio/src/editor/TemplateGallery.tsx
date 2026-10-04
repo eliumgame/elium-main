@@ -9,7 +9,14 @@ import { docToHtml } from "../export/exporters";
 import "./template-gallery.css";
 
 const ALL = "Tous" as const;
-const CATEGORIES: (TemplateCategory | typeof ALL)[] = [ALL, "Général", "Courrier", "Professionnel", "Réunion", "Finance"];
+const CATEGORIES: (TemplateCategory | typeof ALL)[] = [
+  ALL,
+  "Général",
+  "Courrier",
+  "Professionnel",
+  "Réunion",
+  "Finance",
+];
 
 /** HTML d'aperçu d'un modèle (rendu une seule fois par modèle). */
 export function templatePreviewHtml(tpl: Template): string {
@@ -38,7 +45,12 @@ export default function TemplateGallery({ onPick }: { onPick: (tpl: Template) =>
       </div>
       <div className="tplgal__grid">
         {shown.map((t) => (
-          <button key={t.id} className="tplgal__card" onClick={() => onPick(t)} aria-label={`Nouveau depuis le modèle ${t.label}`}>
+          <button
+            key={t.id}
+            className="tplgal__card"
+            onClick={() => onPick(t)}
+            aria-label={`Nouveau depuis le modèle ${t.label}`}
+          >
             <div className="tplgal__preview" aria-hidden="true">
               <div className="tplgal__page" dangerouslySetInnerHTML={{ __html: previews.get(t.id) ?? "" }} />
             </div>

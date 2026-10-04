@@ -37,7 +37,17 @@ import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornament
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
 import { chartDataOf } from "../editor/chartData";
-import { backgroundXml, borderFromOoxml, displayBackgroundXml, lineNumberingFromOoxml, lnNumTypeXml, normalizeBackground, normalizeBorder, normalizeLineNumbering, pgBordersXml } from "../editor/pageDecor";
+import {
+  backgroundXml,
+  borderFromOoxml,
+  displayBackgroundXml,
+  lineNumberingFromOoxml,
+  lnNumTypeXml,
+  normalizeBackground,
+  normalizeBorder,
+  normalizeLineNumbering,
+  pgBordersXml,
+} from "../editor/pageDecor";
 import { BIBLIOGRAPHY_TITLES, type CitationStyle, type RefPart } from "../editor/citations";
 import { chartSpaceXml, readChartOptions, C_NS as CHART_NS } from "../sheet/chart-ooxml";
 import { readChartData } from "../sheet/chart-read";
@@ -861,10 +871,19 @@ function blockXml(
           type: d.chartType,
           title: d.title || undefined,
           opts: d.opts,
-          series: d.series.map((se) => ({ name: se.label, cats: d.labels, vals: se.values, ...(numericX ? { xvals: xNums } : {}) })),
+          series: d.series.map((se) => ({
+            name: se.label,
+            cats: d.labels,
+            vals: se.values,
+            ...(numericX ? { xvals: xNums } : {}),
+          })),
         }),
       });
-      const rId = addRel(ctx, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart", `charts/${name}`);
+      const rId = addRel(
+        ctx,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+        `charts/${name}`,
+      );
       const cx = Math.round((d.widthMm ?? 150) * 36000);
       const cy = Math.round((d.heightMm ?? 90) * 36000);
       const did = ctx.drawingId++;
@@ -1001,7 +1020,8 @@ function indexXml(ctx: WriteCtx): string {
 function tableXml(table: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[]): string {
   const rows = table.content ?? [];
   // Largeur de grille : colonnes occupées par ligne (colspan compris) + cellules couvertes par un rowspan.
-  const widthOf = (row: ProseMirrorNode) => (row.content ?? []).reduce((a, c) => a + (Number(c.attrs?.colspan ?? 1) || 1), 0);
+  const widthOf = (row: ProseMirrorNode) =>
+    (row.content ?? []).reduce((a, c) => a + (Number(c.attrs?.colspan ?? 1) || 1), 0);
   const cols = Math.max(1, ...rows.map(widthOf), ...rows.map((r) => (r.content ?? []).length));
   const grid = `<w:tblGrid>${Array.from({ length: cols }, () => '<w:gridCol w:w="2400"/>').join("")}</w:tblGrid>`;
   // Fusion verticale : une cellule à rowspan > 1 écrit « restart », les lignes suivantes des cellules « continue ».
@@ -1288,8 +1308,13 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
 <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${ctx.charts
-    .map((c) => `<Override PartName="/word/charts/${c.name}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`)
-    .join("")}${hasHeader ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}${hasFooter ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
+    .map(
+      (c) =>
+        `<Override PartName="/word/charts/${c.name}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
+    )
+    .join(
+      "",
+    )}${hasHeader ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}${hasFooter ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1918,7 +1943,8 @@ function paragraphNode(
         })),
       )
     : [];
-  const hLevel = /^Heading(\d)$/i.exec(style)?.[1] ?? /^Titre(\d)$/i.exec(style)?.[1] ?? (sty.headingLevel(style) || undefined);
+  const hLevel =
+    /^Heading(\d)$/i.exec(style)?.[1] ?? /^Titre(\d)$/i.exec(style)?.[1] ?? (sty.headingLevel(style) || undefined);
   const headingMatch = hLevel ? ["", String(hLevel)] : null;
   // Base run props inherited by every run: doc defaults, plus the paragraph
   // style's rPr for BODY paragraphs only — headings render their own weight/size
@@ -1957,7 +1983,11 @@ function paragraphNode(
 }
 
 /** Un graphique DrawingML (`c:chart`) relu en nœud `docChart` ; nécessite DOMParser (navigateur / jsdom). */
-function chartFromParagraph(p: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>): ProseMirrorNode | null {
+function chartFromParagraph(
+  p: XmlEl,
+  rels: Record<string, string>,
+  zip: Record<string, Uint8Array>,
+): ProseMirrorNode | null {
   const ref = firstDescendant(p, "c:chart");
   if (!ref || typeof DOMParser === "undefined") return null;
   const target = rels[ref.attrs["r:id"] ?? ""];
@@ -2386,14 +2416,19 @@ function headerFooterText(xml: string): { text: string; pageNumber: boolean } {
       if (depth > 0 && inResult && /\b(PAGE|NUMPAGES)\b/i.test(instr)) continue;
       text += runText(r);
     }
-    for (const fs of descendants(p, "w:fldSimple")) if (/\b(PAGE|NUMPAGES)\b/i.test(fs.attrs["w:instr"] ?? "")) pageNumber = true;
+    for (const fs of descendants(p, "w:fldSimple"))
+      if (/\b(PAGE|NUMPAGES)\b/i.test(fs.attrs["w:instr"] ?? "")) pageNumber = true;
     if (text.trim()) lines.push(text.trim());
   }
   return { text: lines.join(" — "), pageNumber };
 }
 
 /** Réglages de page lus sur le `w:sectPr` final : format, orientation, marges, en-tête, pied de page, numéros. */
-function readPage(zip: Record<string, Uint8Array>, rels: Record<string, string>, sectPr: XmlEl | undefined): Partial<PageSettings> {
+function readPage(
+  zip: Record<string, Uint8Array>,
+  rels: Record<string, string>,
+  sectPr: XmlEl | undefined,
+): Partial<PageSettings> {
   if (!sectPr) return {};
   const page: Partial<PageSettings> = {};
   const pgSz = firstChild(sectPr, "w:pgSz");
@@ -2433,11 +2468,15 @@ function readPage(zip: Record<string, Uint8Array>, rels: Record<string, string>,
   const pgB = firstChild(sectPr, "w:pgBorders");
   const bTop = pgB ? firstChild(pgB, "w:top") : undefined;
   const border = borderFromOoxml(
-    bTop ? { val: bTop.attrs["w:val"], sz: bTop.attrs["w:sz"], space: bTop.attrs["w:space"], color: bTop.attrs["w:color"] } : undefined,
+    bTop
+      ? { val: bTop.attrs["w:val"], sz: bTop.attrs["w:sz"], space: bTop.attrs["w:space"], color: bTop.attrs["w:color"] }
+      : undefined,
   );
   if (border) page.pageBorder = border;
   const ln = firstChild(sectPr, "w:lnNumType");
-  const lines = lineNumberingFromOoxml(ln ? { countBy: ln.attrs["w:countBy"], restart: ln.attrs["w:restart"] } : undefined);
+  const lines = lineNumberingFromOoxml(
+    ln ? { countBy: ln.attrs["w:countBy"], restart: ln.attrs["w:restart"] } : undefined,
+  );
   if (lines) page.lineNumbers = lines;
   const hd = part("header");
   if (hd?.text) page.header = hd.text;

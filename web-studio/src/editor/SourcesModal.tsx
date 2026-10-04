@@ -70,7 +70,9 @@ export default function SourcesModal({ editor, onClose }: { editor: Editor; onCl
     setLibrary(next);
     if (!saveLibrary(next)) {
       reportError("sources", new Error("Bibliothèque de sources non enregistrée"));
-      setNotice("La source est utilisable dans ce document, mais n'a pas pu être mémorisée dans votre bibliothèque (stockage du navigateur indisponible).");
+      setNotice(
+        "La source est utilisable dans ce document, mais n'a pas pu être mémorisée dans votre bibliothèque (stockage du navigateur indisponible).",
+      );
     } else setNotice("");
     setSelKey(src.key);
     setDraft(null);
@@ -103,7 +105,11 @@ export default function SourcesModal({ editor, onClose }: { editor: Editor; onCl
       <div className="settings">
         <section className="settings__section">
           <Field label="Style de citation">
-            <select className="settings__input" value={style} onChange={(e) => changeStyle(e.target.value as CitationStyle)}>
+            <select
+              className="settings__input"
+              value={style}
+              onChange={(e) => changeStyle(e.target.value as CitationStyle)}
+            >
               {(Object.keys(STYLE_LABELS) as CitationStyle[]).map((k) => (
                 <option key={k} value={k}>
                   {STYLE_LABELS[k]}
@@ -181,7 +187,11 @@ export default function SourcesModal({ editor, onClose }: { editor: Editor; onCl
         {draft && (
           <section className="settings__section sources__form" aria-label="Édition d'une source">
             <Field label="Type">
-              <select className="settings__input" value={draft.type} onChange={(e) => set("type", e.target.value as SourceType)}>
+              <select
+                className="settings__input"
+                value={draft.type}
+                onChange={(e) => set("type", e.target.value as SourceType)}
+              >
                 {(Object.keys(SOURCE_TYPE_LABELS) as SourceType[]).map((k) => (
                   <option key={k} value={k}>
                     {SOURCE_TYPE_LABELS[k]}
@@ -190,45 +200,81 @@ export default function SourcesModal({ editor, onClose }: { editor: Editor; onCl
               </select>
             </Field>
             <Field label="Auteurs (« Nom, Prénom » séparés par « ; »)">
-              <input className="settings__input" value={draft.authors} onChange={(e) => set("authors", e.target.value)} />
+              <input
+                className="settings__input"
+                value={draft.authors}
+                onChange={(e) => set("authors", e.target.value)}
+              />
             </Field>
             <Field label="Titre">
               <input className="settings__input" value={draft.title} onChange={(e) => set("title", e.target.value)} />
             </Field>
             <Field label="Année">
-              <input className="settings__input" value={draft.year ?? ""} onChange={(e) => set("year", e.target.value)} />
+              <input
+                className="settings__input"
+                value={draft.year ?? ""}
+                onChange={(e) => set("year", e.target.value)}
+              />
             </Field>
             {(t === "article" || t === "chapter" || t === "web") && (
               <Field label={t === "article" ? "Revue" : t === "web" ? "Site web" : "Ouvrage"}>
-                <input className="settings__input" value={draft.container ?? ""} onChange={(e) => set("container", e.target.value)} />
+                <input
+                  className="settings__input"
+                  value={draft.container ?? ""}
+                  onChange={(e) => set("container", e.target.value)}
+                />
               </Field>
             )}
             {t !== "article" && t !== "web" && (
               <>
                 <Field label="Éditeur">
-                  <input className="settings__input" value={draft.publisher ?? ""} onChange={(e) => set("publisher", e.target.value)} />
+                  <input
+                    className="settings__input"
+                    value={draft.publisher ?? ""}
+                    onChange={(e) => set("publisher", e.target.value)}
+                  />
                 </Field>
                 <Field label="Lieu d'édition">
-                  <input className="settings__input" value={draft.place ?? ""} onChange={(e) => set("place", e.target.value)} />
+                  <input
+                    className="settings__input"
+                    value={draft.place ?? ""}
+                    onChange={(e) => set("place", e.target.value)}
+                  />
                 </Field>
                 <Field label="Édition">
-                  <input className="settings__input" value={draft.edition ?? ""} onChange={(e) => set("edition", e.target.value)} />
+                  <input
+                    className="settings__input"
+                    value={draft.edition ?? ""}
+                    onChange={(e) => set("edition", e.target.value)}
+                  />
                 </Field>
               </>
             )}
             {t === "article" && (
               <>
                 <Field label="Volume">
-                  <input className="settings__input" value={draft.volume ?? ""} onChange={(e) => set("volume", e.target.value)} />
+                  <input
+                    className="settings__input"
+                    value={draft.volume ?? ""}
+                    onChange={(e) => set("volume", e.target.value)}
+                  />
                 </Field>
                 <Field label="Numéro">
-                  <input className="settings__input" value={draft.issue ?? ""} onChange={(e) => set("issue", e.target.value)} />
+                  <input
+                    className="settings__input"
+                    value={draft.issue ?? ""}
+                    onChange={(e) => set("issue", e.target.value)}
+                  />
                 </Field>
               </>
             )}
             {(t === "article" || t === "chapter") && (
               <Field label="Pages (ex. 45-67)">
-                <input className="settings__input" value={draft.pages ?? ""} onChange={(e) => set("pages", e.target.value)} />
+                <input
+                  className="settings__input"
+                  value={draft.pages ?? ""}
+                  onChange={(e) => set("pages", e.target.value)}
+                />
               </Field>
             )}
             <Field label="Adresse (URL)">
@@ -239,7 +285,12 @@ export default function SourcesModal({ editor, onClose }: { editor: Editor; onCl
             </Field>
             {t === "web" && (
               <Field label="Date de consultation">
-                <input className="settings__input" type="date" value={draft.accessed ?? ""} onChange={(e) => set("accessed", e.target.value)} />
+                <input
+                  className="settings__input"
+                  type="date"
+                  value={draft.accessed ?? ""}
+                  onChange={(e) => set("accessed", e.target.value)}
+                />
               </Field>
             )}
             {errors.length > 0 && (

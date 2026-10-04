@@ -1,7 +1,14 @@
 /** Calques de la feuille : bordures de page (une par page) et numéros de ligne dans la marge. */
 import { useEffect, useState, type RefObject } from "react";
 import type { Editor } from "@tiptap/react";
-import { borderCss, groupLineTops, lineNumberLabels, type LineLabel, type LineNumbering, type PageBorder } from "./pageDecor";
+import {
+  borderCss,
+  groupLineTops,
+  lineNumberLabels,
+  type LineLabel,
+  type LineNumbering,
+  type PageBorder,
+} from "./pageDecor";
 
 interface PageBox {
   top: number;
@@ -10,7 +17,15 @@ interface PageBox {
 
 const MM_PX = 96 / 25.4;
 
-export function PageBorders({ border, pages, widthMm }: { border: PageBorder; pages: PageBox[] | null; widthMm: number }) {
+export function PageBorders({
+  border,
+  pages,
+  widthMm,
+}: {
+  border: PageBorder;
+  pages: PageBox[] | null;
+  widthMm: number;
+}) {
   const css = borderCss(border);
   const off = border.offsetMm * MM_PX;
   const boxes: PageBox[] = pages?.length ? pages : [{ top: 0, height: 0 }];

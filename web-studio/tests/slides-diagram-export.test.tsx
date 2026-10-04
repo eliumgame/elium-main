@@ -24,7 +24,15 @@ beforeEach(() => {
 
 const deckWith = (kind: "process" | "cycle" | "hierarchy" | "list", outline: string): Deck => ({
   active: 0,
-  slides: [{ id: "s", title: "", body: "", layout: "blank", elements: [{ id: "d", type: "diagram", x: 10, y: 10, w: 80, h: 60, diagram: { kind, outline } }] }],
+  slides: [
+    {
+      id: "s",
+      title: "",
+      body: "",
+      layout: "blank",
+      elements: [{ id: "d", type: "diagram", x: 10, y: 10, w: 80, h: 60, diagram: { kind, outline } }],
+    },
+  ],
 });
 
 describe("diagrammes — export PPTX et CRDT", () => {
@@ -41,7 +49,9 @@ describe("diagrammes — export PPTX et CRDT", () => {
     expect((hier.match(/<p:cxnSp>/g) ?? []).length).toBe(6);
   });
   it("ids de formes uniques dans la diapositive", () => {
-    const xml = strFromU8(unzipSync(deckToPptx(deckWith("hierarchy", "R\n  a\n    x\n    y\n  b")))["ppt/slides/slide1.xml"]!);
+    const xml = strFromU8(
+      unzipSync(deckToPptx(deckWith("hierarchy", "R\n  a\n    x\n    y\n  b")))["ppt/slides/slide1.xml"]!,
+    );
     const ids = [...xml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => m[1]);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -86,6 +96,8 @@ describe("SlidesEditor — diagramme", () => {
     const dlg2 = screen.getByRole("dialog");
     fireEvent.change(within(dlg2).getByLabelText("Plan du diagramme"), { target: { value: "Seul" } });
     await userEvent.click(within(dlg2).getByText("Mettre à jour"));
-    expect(storeRef.current!.deck.slides[0]!.elements!.find((e) => e.type === "diagram")!.diagram!.outline).toBe("Seul");
+    expect(storeRef.current!.deck.slides[0]!.elements!.find((e) => e.type === "diagram")!.diagram!.outline).toBe(
+      "Seul",
+    );
   });
 });

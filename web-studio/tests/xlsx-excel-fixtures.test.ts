@@ -33,7 +33,13 @@ describe("XLSX réel — typage des cellules", () => {
   </sheetData></worksheet>`;
   const s2 = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>5</v></c></row></sheetData></worksheet>`;
   const wb = importXlsx(
-    pkg({ "xl/workbook.xml": WB(), "xl/_rels/workbook.xml.rels": RELS, "xl/sharedStrings.xml": sst, "xl/worksheets/sheet1.xml": s1, "xl/worksheets/sheet2.xml": s2 }),
+    pkg({
+      "xl/workbook.xml": WB(),
+      "xl/_rels/workbook.xml.rels": RELS,
+      "xl/sharedStrings.xml": sst,
+      "xl/worksheets/sheet1.xml": s1,
+      "xl/worksheets/sheet2.xml": s2,
+    }),
   );
   const c = wb.sheets[0]!.cells;
   it("texte riche : concatène les runs sans le texte phonétique", () => {
@@ -70,7 +76,14 @@ describe("XLSX réel — classeur", () => {
       <definedName name="Plage">Données!$A$1:$B$2</definedName>
       <definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Données!$A$1:$B$2</definedName>
     </definedNames>`;
-    const wb = importXlsx(pkg({ "xl/workbook.xml": WB(extra), "xl/_rels/workbook.xml.rels": RELS, "xl/worksheets/sheet1.xml": s, "xl/worksheets/sheet2.xml": s }));
+    const wb = importXlsx(
+      pkg({
+        "xl/workbook.xml": WB(extra),
+        "xl/_rels/workbook.xml.rels": RELS,
+        "xl/worksheets/sheet1.xml": s,
+        "xl/worksheets/sheet2.xml": s,
+      }),
+    );
     const names = wb.names ?? [];
     expect(names.filter((n) => n.name === "Taux")).toEqual([{ name: "Taux", ref: "Données!$A$1" }]);
     expect(names.some((n) => n.name === "Plage")).toBe(true);

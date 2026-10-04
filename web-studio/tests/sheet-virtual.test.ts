@@ -1,11 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { expandForMerges, pageJump, rowAt, rowOffsets, scrollTopToReveal, spacers, windowFor } from "../src/sheet/virtual";
+import {
+  expandForMerges,
+  pageJump,
+  rowAt,
+  rowOffsets,
+  scrollTopToReveal,
+  spacers,
+  windowFor,
+} from "../src/sheet/virtual";
 
 const uniform = (rows: number, h = 28) => rowOffsets(rows, () => h);
 
 describe("virtualisation des lignes", () => {
   it("décalages cumulés, lignes masquées sans hauteur, hauteurs variables", () => {
-    const o = rowOffsets(5, (r) => (r === 2 ? 50 : 28), (r) => r === 1);
+    const o = rowOffsets(
+      5,
+      (r) => (r === 2 ? 50 : 28),
+      (r) => r === 1,
+    );
     expect(Array.from(o)).toEqual([0, 28, 28, 78, 106, 134]);
     expect(rowAt(o, 0)).toBe(0);
     expect(rowAt(o, 28)).toBe(2); // la ligne 1 est masquée
@@ -27,7 +39,13 @@ describe("virtualisation des lignes", () => {
     expect(windowFor(o, 0, 500).start).toBe(0);
     const w = windowFor(o, 28 * 1000, 500);
     expect(w.end).toBe(1000);
-    expect(windowFor(rowOffsets(0, () => 28), 0, 500)).toEqual({ start: 0, end: 0 });
+    expect(
+      windowFor(
+        rowOffsets(0, () => 28),
+        0,
+        500,
+      ),
+    ).toEqual({ start: 0, end: 0 });
   });
   it("lignes figées : l'espacement du haut ne les compte pas", () => {
     const o = uniform(1000);
@@ -36,7 +54,10 @@ describe("virtualisation des lignes", () => {
     expect(sp.top + 2 * 28 + (w.end - w.start) * 28 + sp.bottom).toBe(1000 * 28);
   });
   it("une fusion verticale à cheval sur la fenêtre est incluse en entier", () => {
-    const w = expandForMerges({ start: 10, end: 20 }, [{ c0: 0, r0: 5, c1: 1, r1: 12 }, { c0: 0, r0: 18, c1: 0, r1: 25 }]);
+    const w = expandForMerges({ start: 10, end: 20 }, [
+      { c0: 0, r0: 5, c1: 1, r1: 12 },
+      { c0: 0, r0: 18, c1: 0, r1: 25 },
+    ]);
     expect(w).toEqual({ start: 5, end: 26 });
     expect(expandForMerges({ start: 10, end: 20 }, undefined)).toEqual({ start: 10, end: 20 });
   });

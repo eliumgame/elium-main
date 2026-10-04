@@ -29,7 +29,8 @@ const NUMBERING = `
 `;
 
 const p = (inner: string, ppr = "") => `<w:p>${ppr ? `<w:pPr>${ppr}</w:pPr>` : ""}${inner}</w:p>`;
-const r = (text: string, rpr = "") => `<w:r>${rpr ? `<w:rPr>${rpr}</w:rPr>` : ""}<w:t xml:space="preserve">${text}</w:t></w:r>`;
+const r = (text: string, rpr = "") =>
+  `<w:r>${rpr ? `<w:rPr>${rpr}</w:rPr>` : ""}<w:t xml:space="preserve">${text}</w:t></w:r>`;
 
 function textOf(n: ProseMirrorNode): string {
   return n.text ?? (n.content ?? []).map(textOf).join("");
@@ -71,9 +72,18 @@ describe("DOCX Word réel — listes", () => {
     styles: STYLES,
     numbering: NUMBERING,
     body:
-      p(r("Puce A"), `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`) +
-      p(r("Sous-puce"), `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr>`) +
-      p(r("Puce B"), `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`) +
+      p(
+        r("Puce A"),
+        `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`,
+      ) +
+      p(
+        r("Sous-puce"),
+        `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr>`,
+      ) +
+      p(
+        r("Puce B"),
+        `<w:pStyle w:val="Paragraphedeliste"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`,
+      ) +
       p(r("Intermède")) +
       p(r("Étape 1"), `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>`) +
       p(r("Étape 2"), `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>`) +
@@ -166,7 +176,10 @@ describe("DOCX Word réel — contenu enveloppé, suivi des modifications, comme
 describe("DOCX Word réel — mise en page, en-têtes et pieds de page", () => {
   const d = imp({
     header: p(r("Société Exemple — Confidentiel")),
-    footer: p(r("Page ") + `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${r("1")}<w:r><w:fldChar w:fldCharType="end"/></w:r>`),
+    footer: p(
+      r("Page ") +
+        `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${r("1")}<w:r><w:fldChar w:fldCharType="end"/></w:r>`,
+    ),
     sectPr: `<w:sectPr><w:headerReference w:type="default" r:id="rIdHd"/><w:footerReference w:type="default" r:id="rIdFt"/><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1134" w:right="851" w:bottom="1134" w:left="851" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>`,
     body: p(r("Corps")),
   });
@@ -185,7 +198,13 @@ describe("DOCX — aller-retour page, en-tête/pied et fusions", () => {
     const f = await createEliumFile({
       title: "RT",
       doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Corps" }] }] },
-      page: { header: "En-tête société", footer: "Pied confidentiel", showPageNumbers: true, orientation: "landscape", margins: { top: 20, right: 15, bottom: 20, left: 15 } },
+      page: {
+        header: "En-tête société",
+        footer: "Pied confidentiel",
+        showPageNumbers: true,
+        orientation: "landscape",
+        margins: { top: 20, right: 15, bottom: 20, left: 15 },
+      },
     });
     const back = docxToDoc(docToDocx(f));
     expect(back.page?.header).toBe("En-tête société");
@@ -199,7 +218,11 @@ describe("DOCX — aller-retour page, en-tête/pied et fusions", () => {
     const { docToDocx } = await import("../src/format/docx");
     const { createEliumFile } = await import("../src/format/document");
     const { unzipSync } = await import("fflate");
-    const f = await createEliumFile({ title: "RT", doc: { type: "doc", content: [{ type: "paragraph" }] }, page: { showPageNumbers: false } });
+    const f = await createEliumFile({
+      title: "RT",
+      doc: { type: "doc", content: [{ type: "paragraph" }] },
+      page: { showPageNumbers: false },
+    });
     const zip = unzipSync(docToDocx(f));
     expect(zip["word/footer1.xml"]).toBeUndefined();
     expect(zip["word/header1.xml"]).toBeUndefined();
@@ -208,7 +231,11 @@ describe("DOCX — aller-retour page, en-tête/pied et fusions", () => {
     const { docToDocx } = await import("../src/format/docx");
     const { createEliumFile } = await import("../src/format/document");
     const para = (x: string) => ({ type: "paragraph", content: [{ type: "text", text: x }] });
-    const td = (x: string, attrs: Record<string, unknown> = {}, type = "tableCell") => ({ type, attrs, content: [para(x)] });
+    const td = (x: string, attrs: Record<string, unknown> = {}, type = "tableCell") => ({
+      type,
+      attrs,
+      content: [para(x)],
+    });
     const table = {
       type: "table",
       content: [

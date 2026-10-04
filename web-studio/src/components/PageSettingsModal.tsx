@@ -227,7 +227,9 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
                 <select
                   className="settings__input"
                   value={page.pageBorder.style}
-                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, style: e.target.value as PageBorder["style"] } })}
+                  onChange={(e) =>
+                    onUpdate({ pageBorder: { ...page.pageBorder!, style: e.target.value as PageBorder["style"] } })
+                  }
                 >
                   <option value="solid">Trait plein</option>
                   <option value="double">Double</option>
@@ -243,7 +245,9 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
                   max={12}
                   step={0.25}
                   value={page.pageBorder.widthPt}
-                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, widthPt: Number(e.target.value) || 1 } })}
+                  onChange={(e) =>
+                    onUpdate({ pageBorder: { ...page.pageBorder!, widthPt: Number(e.target.value) || 1 } })
+                  }
                 />
               </Field>
               <Field label="Couleur">
@@ -261,7 +265,9 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
                   min={2}
                   max={30}
                   value={page.pageBorder.offsetMm}
-                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, offsetMm: Number(e.target.value) || 10 } })}
+                  onChange={(e) =>
+                    onUpdate({ pageBorder: { ...page.pageBorder!, offsetMm: Number(e.target.value) || 10 } })
+                  }
                 />
               </Field>
             </div>
@@ -280,7 +286,9 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
                 <select
                   className="settings__input"
                   value={page.lineNumbers.mode}
-                  onChange={(e) => onUpdate({ lineNumbers: { ...page.lineNumbers!, mode: e.target.value as "continuous" | "page" } })}
+                  onChange={(e) =>
+                    onUpdate({ lineNumbers: { ...page.lineNumbers!, mode: e.target.value as "continuous" | "page" } })
+                  }
                 >
                   <option value="continuous">Continue</option>
                   <option value="page">Redémarrer à chaque page</option>
@@ -293,7 +301,11 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
                   min={1}
                   max={100}
                   value={page.lineNumbers.step}
-                  onChange={(e) => onUpdate({ lineNumbers: { ...page.lineNumbers!, step: Math.max(1, Math.round(Number(e.target.value) || 1)) } })}
+                  onChange={(e) =>
+                    onUpdate({
+                      lineNumbers: { ...page.lineNumbers!, step: Math.max(1, Math.round(Number(e.target.value) || 1)) },
+                    })
+                  }
                 />
               </Field>
             </div>

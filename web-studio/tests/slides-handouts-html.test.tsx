@@ -12,7 +12,10 @@ const slide = (i: number, extra: Partial<Slide> = {}): Slide => ({
   elements: [{ id: `e${i}`, type: "text", x: 10, y: 10, w: 60, h: 20, html: `<p>Titre ${i}</p>` }],
   ...extra,
 });
-const deck = (): Deck => ({ active: 0, slides: [slide(1, { notes: "Dire bonjour" }), slide(2, { hidden: true }), slide(3), slide(4), slide(5)] });
+const deck = (): Deck => ({
+  active: 0,
+  slides: [slide(1, { notes: "Dire bonjour" }), slide(2, { hidden: true }), slide(3), slide(4), slide(5)],
+});
 
 describe("documents et pages de notes — HTML des pages", () => {
   it("4 par page : diapositives masquées exclues, miniatures mises à l'échelle, numéros, pied de page développé", async () => {

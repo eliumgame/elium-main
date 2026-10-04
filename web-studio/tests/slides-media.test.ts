@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { MAX_MEDIA_BYTES, clampTrim, formatTime, mediaExt, mediaKindOf, mimeFromExt, newMediaElement, playbackSrc, validateMediaFile } from "../src/slides/media";
+import {
+  MAX_MEDIA_BYTES,
+  clampTrim,
+  formatTime,
+  mediaExt,
+  mediaKindOf,
+  mimeFromExt,
+  newMediaElement,
+  playbackSrc,
+  validateMediaFile,
+} from "../src/slides/media";
 
 describe("médias de présentation", () => {
   it("type par MIME, puis par extension quand le MIME est absent", () => {
@@ -11,8 +21,12 @@ describe("médias de présentation", () => {
   });
   it("validation : format, taille, fichier vide", () => {
     expect(validateMediaFile({ name: "a.mp4", type: "video/mp4", size: 1000 })).toBeNull();
-    expect(validateMediaFile({ name: "a.pdf", type: "application/pdf", size: 10 })).toMatch(/Format non pris en charge/);
-    expect(validateMediaFile({ name: "a.mp4", type: "video/mp4", size: MAX_MEDIA_BYTES + 1 })).toMatch(/trop volumineux/);
+    expect(validateMediaFile({ name: "a.pdf", type: "application/pdf", size: 10 })).toMatch(
+      /Format non pris en charge/,
+    );
+    expect(validateMediaFile({ name: "a.mp4", type: "video/mp4", size: MAX_MEDIA_BYTES + 1 })).toMatch(
+      /trop volumineux/,
+    );
     expect(validateMediaFile({ name: "a.mp3", type: "audio/mpeg", size: 0 })).toMatch(/vide/);
   });
   it("rognage cohérent", () => {

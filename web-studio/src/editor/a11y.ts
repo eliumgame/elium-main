@@ -77,13 +77,29 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-const VAGUE_LINKS = new Set(["ici", "cliquez ici", "cliquer ici", "lien", "ce lien", "en savoir plus", "plus", "voir", "click here", "here"]);
+const VAGUE_LINKS = new Set([
+  "ici",
+  "cliquez ici",
+  "cliquer ici",
+  "lien",
+  "ce lien",
+  "en savoir plus",
+  "plus",
+  "voir",
+  "click here",
+  "here",
+]);
 
 export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string } = {}): A11yIssue[] {
   const issues: A11yIssue[] = [];
   const root = doc as PM;
   if (opts.title !== undefined && !opts.title.trim())
-    issues.push({ rule: "doc-title", severity: "warning", message: "Le document n'a pas de titre (propriétés du document).", pos: -1 });
+    issues.push({
+      rule: "doc-title",
+      severity: "warning",
+      message: "Le document n'a pas de titre (propriétés du document).",
+      pos: -1,
+    });
 
   let lastLevel = 0;
   let sawH1 = false;
@@ -105,14 +121,19 @@ export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string 
       case "image":
       case "figure": {
         const alt = String((node.attrs as Record<string, unknown> | undefined)?.alt ?? "").trim();
-        if (!alt)
-          issues.push({ rule: "image-alt", severity: "error", message: "Image sans texte alternatif.", pos });
+        if (!alt) issues.push({ rule: "image-alt", severity: "error", message: "Image sans texte alternatif.", pos });
         break;
       }
       case "heading": {
         const level = Number((node.attrs as Record<string, unknown> | undefined)?.level) || 1;
         const t = textOf(node).trim();
-        if (!t) issues.push({ rule: "heading-empty", severity: "error", message: "Titre vide (les lecteurs d'écran l'annoncent sans texte).", pos });
+        if (!t)
+          issues.push({
+            rule: "heading-empty",
+            severity: "error",
+            message: "Titre vide (les lecteurs d'écran l'annoncent sans texte).",
+            pos,
+          });
         if (level === 1) sawH1 = true;
         if (lastLevel && level > lastLevel + 1)
           issues.push({
@@ -122,7 +143,12 @@ export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string 
             pos,
           });
         if (!lastLevel && level > 1)
-          issues.push({ rule: "heading-order", severity: "warning", message: `Le premier titre est de niveau ${level} au lieu de 1.`, pos });
+          issues.push({
+            rule: "heading-order",
+            severity: "warning",
+            message: `Le premier titre est de niveau ${level} au lieu de 1.`,
+            pos,
+          });
         lastLevel = level;
         break;
       }
@@ -130,7 +156,12 @@ export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string 
         const rows = (node.content as PM[] | undefined) ?? [];
         const first = (rows[0]?.content as PM[] | undefined) ?? [];
         if (!first.length || !first.every((c) => c.type === "tableHeader"))
-          issues.push({ rule: "table-header", severity: "error", message: "Tableau sans ligne d'en-tête : la première ligne doit être un en-tête.", pos });
+          issues.push({
+            rule: "table-header",
+            severity: "error",
+            message: "Tableau sans ligne d'en-tête : la première ligne doit être un en-tête.",
+            pos,
+          });
         break;
       }
       default:
@@ -163,8 +194,13 @@ export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string 
       const link = marks.find((m) => m.type === "link");
       if (link) {
         const t = (node.text ?? "").trim().toLowerCase();
-        if (VAGUE_LINKS.has(t) || /^https?:\/\//.test(t) && t.length > 60)
-          issues.push({ rule: "link-text", severity: "warning", message: `Texte de lien peu explicite : « ${node.text} ».`, pos });
+        if (VAGUE_LINKS.has(t) || (/^https?:\/\//.test(t) && t.length > 60))
+          issues.push({
+            rule: "link-text",
+            severity: "warning",
+            message: `Texte de lien peu explicite : « ${node.text} ».`,
+            pos,
+          });
       }
       return;
     }
@@ -183,7 +219,13 @@ export function checkAccessibility(doc: ProseMirrorNode, opts: { title?: string 
   }
   flushEmpty();
   const hasHeadings = lastLevel > 0;
-  if (hasHeadings && !sawH1) issues.push({ rule: "no-title", severity: "warning", message: "Le document a des titres mais aucun titre de niveau 1.", pos: -1 });
+  if (hasHeadings && !sawH1)
+    issues.push({
+      rule: "no-title",
+      severity: "warning",
+      message: "Le document a des titres mais aucun titre de niveau 1.",
+      pos: -1,
+    });
   return issues;
 }
 

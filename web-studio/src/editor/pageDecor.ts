@@ -34,7 +34,8 @@ export function normalizeBackground(v: unknown): string | undefined {
 export function normalizeBorder(v: unknown): PageBorder | undefined {
   if (!v || typeof v !== "object") return undefined;
   const b = v as Partial<PageBorder>;
-  const style: PageBorderStyle = b.style === "double" || b.style === "dashed" || b.style === "dotted" ? b.style : "solid";
+  const style: PageBorderStyle =
+    b.style === "double" || b.style === "dashed" || b.style === "dotted" ? b.style : "solid";
   return {
     style,
     widthPt: clamp(b.widthPt, 0.25, 12, DEFAULT_BORDER.widthPt),
@@ -101,8 +102,18 @@ export function groupLineTops(rectTops: number[], tolerance = 3): number[] {
 // --- OOXML ------------------------------------------------------------------
 
 const hexNoHash = (c: string): string => c.replace(/^#/, "").toUpperCase();
-const BORDER_VAL: Record<PageBorderStyle, string> = { solid: "single", double: "double", dashed: "dashed", dotted: "dotted" };
-const VAL_BORDER: Record<string, PageBorderStyle> = { single: "solid", double: "double", dashed: "dashed", dotted: "dotted" };
+const BORDER_VAL: Record<PageBorderStyle, string> = {
+  solid: "single",
+  double: "double",
+  dashed: "dashed",
+  dotted: "dotted",
+};
+const VAL_BORDER: Record<string, PageBorderStyle> = {
+  single: "solid",
+  double: "double",
+  dashed: "dashed",
+  dotted: "dotted",
+};
 
 /** `w:background` (enfant direct de `w:document`, avant `w:body`). */
 export function backgroundXml(color: string | undefined): string {
@@ -117,7 +128,8 @@ export function pgBordersXml(b: PageBorder | undefined): string {
   if (!b) return "";
   const sz = Math.round(Math.min(96, Math.max(2, b.widthPt * 8))); // huitièmes de point
   const space = Math.round(Math.min(31, b.offsetMm * 2.83465)); // points
-  const side = (n: string) => `<w:${n} w:val="${BORDER_VAL[b.style]}" w:sz="${sz}" w:space="${space}" w:color="${hexNoHash(b.color)}"/>`;
+  const side = (n: string) =>
+    `<w:${n} w:val="${BORDER_VAL[b.style]}" w:sz="${sz}" w:space="${space}" w:color="${hexNoHash(b.color)}"/>`;
   return `<w:pgBorders w:offsetFrom="page">${side("top")}${side("left")}${side("bottom")}${side("right")}</w:pgBorders>`;
 }
 /** `w:lnNumType`. */
@@ -126,7 +138,9 @@ export function lnNumTypeXml(l: LineNumbering | undefined): string {
 }
 
 /** Lecture inverse depuis des attributs déjà extraits (utilisée par l'import DOCX). */
-export function borderFromOoxml(top: { val?: string; sz?: string; space?: string; color?: string } | undefined): PageBorder | undefined {
+export function borderFromOoxml(
+  top: { val?: string; sz?: string; space?: string; color?: string } | undefined,
+): PageBorder | undefined {
   if (!top?.val || top.val === "nil" || top.val === "none") return undefined;
   return normalizeBorder({
     style: VAL_BORDER[top.val] ?? "solid",
@@ -135,7 +149,12 @@ export function borderFromOoxml(top: { val?: string; sz?: string; space?: string
     offsetMm: (Number(top.space) || 24) / 2.83465,
   });
 }
-export function lineNumberingFromOoxml(a: { countBy?: string; restart?: string } | undefined): LineNumbering | undefined {
+export function lineNumberingFromOoxml(
+  a: { countBy?: string; restart?: string } | undefined,
+): LineNumbering | undefined {
   if (!a) return undefined;
-  return normalizeLineNumbering({ mode: a.restart === "newPage" ? "page" : "continuous", step: Number(a.countBy) || 1 });
+  return normalizeLineNumbering({
+    mode: a.restart === "newPage" ? "page" : "continuous",
+    step: Number(a.countBy) || 1,
+  });
 }

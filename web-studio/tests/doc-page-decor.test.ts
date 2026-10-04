@@ -2,18 +2,33 @@ import { describe, it, expect } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
 import { docToDocx, docxToDoc } from "../src/format/docx";
 import { createEliumFile } from "../src/format/document";
-import { groupLineTops, lineNumberLabels, normalizeBackground, normalizeBorder, pgBordersXml, lnNumTypeXml } from "../src/editor/pageDecor";
+import {
+  groupLineTops,
+  lineNumberLabels,
+  normalizeBackground,
+  normalizeBorder,
+  pgBordersXml,
+  lnNumTypeXml,
+} from "../src/editor/pageDecor";
 
 describe("apparence de la page", () => {
   it("normalisation défensive", () => {
     expect(normalizeBackground("#ABCDEF")).toBe("#abcdef");
     expect(normalizeBackground("rouge")).toBeUndefined();
-    expect(normalizeBorder({ style: "zigzag", widthPt: 99, color: "x", offsetMm: 0 })).toEqual({ style: "solid", widthPt: 12, color: "#1e293b", offsetMm: 2 });
+    expect(normalizeBorder({ style: "zigzag", widthPt: 99, color: "x", offsetMm: 0 })).toEqual({
+      style: "solid",
+      widthPt: 12,
+      color: "#1e293b",
+      offsetMm: 2,
+    });
     expect(normalizeBorder(null)).toBeUndefined();
   });
   it("numéros de ligne : continu, par page, pas", () => {
     const tops = [10, 30, 50, 110, 130];
-    const pages = [{ top: 0, height: 100 }, { top: 100, height: 100 }];
+    const pages = [
+      { top: 0, height: 100 },
+      { top: 100, height: 100 },
+    ];
     expect(lineNumberLabels(tops, pages, { mode: "continuous", step: 1 }).map((l) => l.n)).toEqual([1, 2, 3, 4, 5]);
     expect(lineNumberLabels(tops, pages, { mode: "page", step: 1 }).map((l) => l.n)).toEqual([1, 2, 3, 1, 2]);
     expect(lineNumberLabels(tops, null, { mode: "continuous", step: 2 }).map((l) => l.n)).toEqual([2, 4]);
@@ -29,7 +44,11 @@ describe("apparence de la page", () => {
     const f = await createEliumFile({
       title: "P",
       doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "x" }] }] },
-      page: { background: "#fff7e0", pageBorder: { style: "dashed", widthPt: 2, color: "#aa0000", offsetMm: 8 }, lineNumbers: { mode: "page", step: 5 } },
+      page: {
+        background: "#fff7e0",
+        pageBorder: { style: "dashed", widthPt: 2, color: "#aa0000", offsetMm: 8 },
+        lineNumbers: { mode: "page", step: 5 },
+      },
     });
     const bytes = docToDocx(f);
     const xml = strFromU8(unzipSync(bytes)["word/document.xml"]!);

@@ -4,10 +4,24 @@ import { docToDocx } from "../src/format/docx";
 import { createEliumFile, createDocumentModel } from "../src/format/document";
 import { docToHtml, docToMarkdown, docToText } from "../src/export/exporters";
 import { bibliographyStale, buildBibliography, formatCitation, type BibSource } from "../src/editor/citations";
-import { loadLibrary, mergeSources, removeSource, saveLibrary, upsertSource, type KeyValueStorage } from "../src/editor/sourceLibrary";
+import {
+  loadLibrary,
+  mergeSources,
+  removeSource,
+  saveLibrary,
+  upsertSource,
+  type KeyValueStorage,
+} from "../src/editor/sourceLibrary";
 import type { ProseMirrorNode } from "../src/format/types";
 
-const src: BibSource = { key: "d2020", type: "book", authors: "Dupont, Marie", title: "Le savoir", year: "2020", publisher: "PUF" };
+const src: BibSource = {
+  key: "d2020",
+  type: "book",
+  authors: "Dupont, Marie",
+  title: "Le savoir",
+  year: "2020",
+  publisher: "PUF",
+};
 const mkDoc = (style: "apa" | "mla", stale = false): ProseMirrorNode => ({
   type: "doc",
   content: [
@@ -15,7 +29,10 @@ const mkDoc = (style: "apa" | "mla", stale = false): ProseMirrorNode => ({
       type: "paragraph",
       content: [
         { type: "text", text: "Comme le dit " },
-        { type: "citation", attrs: { source: src, page: "12", text: stale ? "(ancien)" : formatCitation(src, style, "12") } },
+        {
+          type: "citation",
+          attrs: { source: src, page: "12", text: stale ? "(ancien)" : formatCitation(src, style, "12") },
+        },
       ],
     },
     { type: "bibliography", attrs: { style, entries: buildBibliography([src], style) } },
@@ -65,7 +82,12 @@ describe("bibliothèque de sources", () => {
   it("stockage absent, bloqué ou corrompu : jamais d'exception", () => {
     expect(loadLibrary(null)).toEqual([]);
     expect(saveLibrary([src], null)).toBe(false);
-    const broken: KeyValueStorage = { getItem: () => "{pas du json", setItem: () => { throw new Error("quota"); } };
+    const broken: KeyValueStorage = {
+      getItem: () => "{pas du json",
+      setItem: () => {
+        throw new Error("quota");
+      },
+    };
     expect(loadLibrary(broken)).toEqual([]);
     expect(saveLibrary([src], broken)).toBe(false);
     const junk = memory();
@@ -74,6 +96,9 @@ describe("bibliothèque de sources", () => {
   });
   it("fusion : les sources du document priment, sans doublon", () => {
     const other = { ...src, key: "x", title: "Autre" };
-    expect(mergeSources([src], [{ ...src, title: "Ancien" }, other]).map((s) => s.title)).toEqual(["Le savoir", "Autre"]);
+    expect(mergeSources([src], [{ ...src, title: "Ancien" }, other]).map((s) => s.title)).toEqual([
+      "Le savoir",
+      "Autre",
+    ]);
   });
 });

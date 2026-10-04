@@ -10,10 +10,16 @@ const rules = (d: ProseMirrorNode, o = {}) => checkAccessibility(d, o).map((i) =
 
 describe("vérificateur d'accessibilité", () => {
   it("document propre : aucun constat", () => {
-    expect(checkAccessibility(doc(h(1, "Titre"), p(t("Texte")), h(2, "Section"), p(t("Suite"))), { title: "Mon doc" })).toEqual([]);
+    expect(
+      checkAccessibility(doc(h(1, "Titre"), p(t("Texte")), h(2, "Section"), p(t("Suite"))), { title: "Mon doc" }),
+    ).toEqual([]);
   });
   it("image sans alt (image et figure)", () => {
-    const d = doc(h(1, "T"), { type: "image", attrs: { src: "x", alt: "" } }, { type: "figure", attrs: { src: "y", alt: "Un graphique" } });
+    const d = doc(
+      h(1, "T"),
+      { type: "image", attrs: { src: "x", alt: "" } },
+      { type: "figure", attrs: { src: "y", alt: "Un graphique" } },
+    );
     const r = checkAccessibility(d);
     expect(r.filter((i) => i.rule === "image-alt")).toHaveLength(1);
     expect(r[0]!.severity).toBe("error");
@@ -39,11 +45,21 @@ describe("vérificateur d'accessibilité", () => {
     const ok = doc(h(1, "T"), p(t("foncé", [{ type: "textStyle", attrs: { color: "#222222" } }])));
     expect(rules(ok)).toEqual([]);
     // un surlignage foncé rend le texte clair lisible
-    const onDark = doc(h(1, "T"), p(t("blanc", [{ type: "textStyle", attrs: { color: "#ffffff" } }, { type: "highlight", attrs: { color: "#000000" } }])));
+    const onDark = doc(
+      h(1, "T"),
+      p(
+        t("blanc", [
+          { type: "textStyle", attrs: { color: "#ffffff" } },
+          { type: "highlight", attrs: { color: "#000000" } },
+        ]),
+      ),
+    );
     expect(rules(onDark)).toEqual([]);
   });
   it("liens peu explicites et paragraphes vides répétés", () => {
-    expect(rules(doc(h(1, "T"), p(t("cliquez ici", [{ type: "link", attrs: { href: "https://a.fr" } }]))))).toContain("link-text");
+    expect(rules(doc(h(1, "T"), p(t("cliquez ici", [{ type: "link", attrs: { href: "https://a.fr" } }]))))).toContain(
+      "link-text",
+    );
     expect(rules(doc(h(1, "T"), p(), p(), p(), p(t("fin"))))).toContain("empty-paragraphs");
     expect(rules(doc(h(1, "T"), p(), p(t("fin"))))).toEqual([]);
   });

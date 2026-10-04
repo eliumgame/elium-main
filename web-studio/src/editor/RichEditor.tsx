@@ -632,7 +632,9 @@ export default function RichEditor({
                             top: `${p.top}px`,
                             height: `${p.height}px`,
                             width: `${g.widthMm}mm`,
-                            ...(normalizeBackground(page.background) ? { background: normalizeBackground(page.background) } : {}),
+                            ...(normalizeBackground(page.background)
+                              ? { background: normalizeBackground(page.background) }
+                              : {}),
                             left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
                           }}
                         />
@@ -655,7 +657,11 @@ export default function RichEditor({
                   />
                 )}
                 {normalizeBorder(page.pageBorder) && (
-                  <PageBorders border={normalizeBorder(page.pageBorder)!} pages={plan?.pages ?? null} widthMm={pageWidthMm} />
+                  <PageBorders
+                    border={normalizeBorder(page.pageBorder)!}
+                    pages={plan?.pages ?? null}
+                    widthMm={pageWidthMm}
+                  />
                 )}
                 {editor && normalizeLineNumbering(page.lineNumbers) && (
                   <LineNumbers
@@ -743,7 +749,12 @@ export default function RichEditor({
       {editor && dialog === "chart" && <ChartModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "sources" && <SourcesModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && chartEdit && (
-        <ChartModal editor={editor} editingPos={chartEdit.pos} initial={chartEdit.data} onClose={() => setChartEdit(null)} />
+        <ChartModal
+          editor={editor}
+          editingPos={chartEdit.pos}
+          initial={chartEdit.data}
+          onClose={() => setChartEdit(null)}
+        />
       )}
       {dialog === "theme" && (
         <ThemeModal

@@ -24,7 +24,10 @@ export function parseOutline(text: string): OutlineNode[] {
     let level = 0;
     for (const ch of indentMatch) level += ch === "\t" ? 1 : 0.5;
     level = Math.floor(level);
-    const label = raw.trim().replace(/^[-*•]\s*/, "").trim();
+    const label = raw
+      .trim()
+      .replace(/^[-*•]\s*/, "")
+      .trim();
     if (!label) continue;
     // niveau au plus un cran sous le parent courant
     level = Math.min(level, stack.length);
@@ -88,12 +91,32 @@ export function layoutDiagram(kind: DiagramKind, outline: string, colors?: strin
     const top = 8;
     let prev: DNode | null = null;
     roots.forEach((r, i) => {
-      const main = add({ text: r.text, level: 0, x: i * (w + gap), y: top, w, h: hMain, color: colorOf(i), round: false });
+      const main = add({
+        text: r.text,
+        level: 0,
+        x: i * (w + gap),
+        y: top,
+        w,
+        h: hMain,
+        color: colorOf(i),
+        round: false,
+      });
       if (prev) edges.push({ from: prev.id, to: main.id, kind: "arrow" });
       prev = main;
       const kids = r.children;
       const kh = kids.length ? clamp((100 - top - hMain - 10 - 4 * (kids.length - 1)) / kids.length, 8, 16) : 0;
-      kids.forEach((k, j) => add({ text: k.text, level: 1, x: i * (w + gap) + w * 0.08, y: top + hMain + 8 + j * (kh + 4), w: w * 0.84, h: kh, color: colorOf(i), round: false }));
+      kids.forEach((k, j) =>
+        add({
+          text: k.text,
+          level: 1,
+          x: i * (w + gap) + w * 0.08,
+          y: top + hMain + 8 + j * (kh + 4),
+          w: w * 0.84,
+          h: kh,
+          color: colorOf(i),
+          round: false,
+        }),
+      );
     });
   } else if (kind === "list") {
     const rows = roots.reduce((a, r) => a + 1 + r.children.length, 0);
@@ -118,7 +141,16 @@ export function layoutDiagram(kind: DiagramKind, outline: string, colors?: strin
     const ry = 50 - nh / 2;
     const placed = roots.map((r, i) => {
       const a = (2 * Math.PI * i) / n - Math.PI / 2;
-      return add({ text: r.text, level: 0, x: cx + rx * Math.cos(a) - nw / 2, y: cy + ry * Math.sin(a) - nh / 2, w: nw, h: nh, color: colorOf(i), round: true });
+      return add({
+        text: r.text,
+        level: 0,
+        x: cx + rx * Math.cos(a) - nw / 2,
+        y: cy + ry * Math.sin(a) - nh / 2,
+        w: nw,
+        h: nh,
+        color: colorOf(i),
+        round: true,
+      });
     });
     if (n > 1) placed.forEach((p, i) => edges.push({ from: p.id, to: placed[(i + 1) % n]!.id, kind: "arrow" }));
   } else {
@@ -138,7 +170,16 @@ export function layoutDiagram(kind: DiagramKind, outline: string, colors?: strin
       if (n.children.length) {
         const start = leafIdx;
         // le parent est créé d'abord (ordre stable des ids), puis recentré une fois ses enfants placés
-        const holder: DNode = add({ text: n.text, level: lvl, x: 0, y: lvl * (rowH + rowGap), w: nodeW, h: rowH, color: colorOf(topColor), round: false });
+        const holder: DNode = add({
+          text: n.text,
+          level: lvl,
+          x: 0,
+          y: lvl * (rowH + rowGap),
+          w: nodeW,
+          h: rowH,
+          color: colorOf(topColor),
+          round: false,
+        });
         for (const c of n.children) kidsPlaced.push(place(c, lvl + 1, topColor, holder));
         const end = leafIdx;
         cxn = ((start + end) / 2) * slotW;
@@ -148,7 +189,16 @@ export function layoutDiagram(kind: DiagramKind, outline: string, colors?: strin
       }
       cxn = (leafIdx + 0.5) * slotW;
       leafIdx++;
-      const leaf = add({ text: n.text, level: lvl, x: clamp(cxn - nodeW / 2, 0, 100 - nodeW), y: lvl * (rowH + rowGap), w: nodeW, h: rowH, color: colorOf(topColor), round: false });
+      const leaf = add({
+        text: n.text,
+        level: lvl,
+        x: clamp(cxn - nodeW / 2, 0, 100 - nodeW),
+        y: lvl * (rowH + rowGap),
+        w: nodeW,
+        h: rowH,
+        color: colorOf(topColor),
+        round: false,
+      });
       if (parent) edges.push({ from: parent.id, to: leaf.id, kind: "line" });
       return leaf;
     };

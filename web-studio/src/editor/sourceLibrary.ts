@@ -22,7 +22,10 @@ const defaultStorage = (): KeyValueStorage | null => {
 };
 
 const isSource = (x: unknown): x is BibSource =>
-  !!x && typeof x === "object" && typeof (x as BibSource).key === "string" && typeof (x as BibSource).title === "string";
+  !!x &&
+  typeof x === "object" &&
+  typeof (x as BibSource).key === "string" &&
+  typeof (x as BibSource).title === "string";
 
 export function loadLibrary(storage: KeyValueStorage | null = defaultStorage()): BibSource[] {
   if (!storage) return [];

@@ -311,10 +311,12 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
     if (target.filter && target.filter.query) ys.set("filter", { ...target.filter });
     else ys.delete("filter");
     if (target.print) {
-      if (JSON.stringify(ys.get("print")) !== JSON.stringify(target.print)) ys.set("print", JSON.parse(JSON.stringify(target.print)));
+      if (JSON.stringify(ys.get("print")) !== JSON.stringify(target.print))
+        ys.set("print", JSON.parse(JSON.stringify(target.print)));
     } else ys.delete("print");
     if (target.pivot) {
-      if (JSON.stringify(ys.get("pivot")) !== JSON.stringify(target.pivot)) ys.set("pivot", JSON.parse(JSON.stringify(target.pivot)));
+      if (JSON.stringify(ys.get("pivot")) !== JSON.stringify(target.pivot))
+        ys.set("pivot", JSON.parse(JSON.stringify(target.pivot)));
     } else ys.delete("pivot");
   });
 }

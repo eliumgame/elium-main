@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_OUTLINE, layoutDiagram, nodeCount, nodeFontPx, outlineToText, parseOutline } from "../src/slides/diagram";
+import {
+  DEFAULT_OUTLINE,
+  layoutDiagram,
+  nodeCount,
+  nodeFontPx,
+  outlineToText,
+  parseOutline,
+} from "../src/slides/diagram";
 
 const inside = (x: number, w: number) => x >= -0.01 && x + w <= 100.01;
 
@@ -61,7 +68,8 @@ describe("mise en page des diagrammes", () => {
     for (const n of l.nodes) expect(inside(n.x, n.w)).toBe(true);
     // les feuilles ne se chevauchent pas
     const leaves = l.nodes.filter((n) => n.level === 2).sort((a, b) => a.x - b.x);
-    for (let i = 1; i < leaves.length; i++) expect(leaves[i]!.x).toBeGreaterThanOrEqual(leaves[i - 1]!.x + leaves[i - 1]!.w - 0.01);
+    for (let i = 1; i < leaves.length; i++)
+      expect(leaves[i]!.x).toBeGreaterThanOrEqual(leaves[i - 1]!.x + leaves[i - 1]!.w - 0.01);
   });
   it("plusieurs arbres côte à côte ; plan vide : rien", () => {
     expect(layoutDiagram("hierarchy", "A\n  a\nB\n  b").nodes).toHaveLength(4);

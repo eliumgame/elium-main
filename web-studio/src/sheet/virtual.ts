@@ -8,7 +8,11 @@
 import type { MergeRect } from "./model";
 
 /** Décalages verticaux cumulés : offsets[r] = position du haut de la ligne r ; offsets[rows] = hauteur totale. */
-export function rowOffsets(rows: number, heightOf: (r: number) => number, hidden?: (r: number) => boolean): Float64Array {
+export function rowOffsets(
+  rows: number,
+  heightOf: (r: number) => number,
+  hidden?: (r: number) => boolean,
+): Float64Array {
   const out = new Float64Array(rows + 1);
   let acc = 0;
   for (let r = 0; r < rows; r++) {

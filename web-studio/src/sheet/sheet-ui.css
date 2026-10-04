@@ -1,0 +1,471 @@
+/* ==========================================================================
+   Tableur — responsive, cibles tactiles, dialogues (refonte visuelle 4.12)
+   --------------------------------------------------------------------------
+   Le Tableur est un conteneur `editor` (`.sheet-app`) : toutes les règles de
+   repli jugent sur SA largeur, pas sur celle de la fenêtre (il peut vivre dans
+   une modale Drive). Aucune couleur codée ici : tout passe par `--x-*`/`--el-*`.
+   ========================================================================== */
+
+/* Barre du haut : le titre cède la place (ellipse) au lieu de couper les boutons. */
+.sheet-bar {
+  min-width: 0;
+  position: relative;
+}
+.sheet-bar__title {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sheet-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.sheet-bar .eb--sm {
+  min-height: 32px;
+  white-space: nowrap;
+}
+.sheet-bar .icon-btn {
+  min-width: 32px;
+  min-height: 32px;
+}
+.sheet-bar__more {
+  display: none;
+  position: relative;
+}
+.sheet-bar__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+.sheet-bar__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--el-surface);
+  border: 1px solid var(--el-border);
+  border-radius: var(--x-radius-sm);
+  box-shadow: var(--x-shadow-pop);
+}
+.sheet-bar__pop .eb {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 38px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--el-text);
+}
+.sheet-bar__pop .eb:hover {
+  background: var(--el-surface-3);
+}
+@container editor (max-width: 900px) {
+  .sheet-bar__actions {
+    display: none;
+  }
+  .sheet-bar__more {
+    display: block;
+  }
+  .sheet-bar__home-label {
+    display: none;
+  }
+}
+@container editor (max-width: 480px) {
+  .sheet-bar {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  .sheet-bar__more-label {
+    display: none;
+  }
+}
+
+/* Le ruban du Tableur défile (chevrons) au lieu de masquer les groupes avancés :
+   sans cela, mise en forme conditionnelle / validation / plages nommées / tableau
+   croisé devenaient INACCESSIBLES sous 700 px. */
+.sheet-app .elx-ribbon__body .elx-group--optional {
+  display: flex;
+}
+.sheet-app .elx-ribbon__body {
+  min-height: 64px;
+}
+.sheet-app .elx-ribbon__body > .elx-group {
+  flex-shrink: 0;
+}
+.sheet-app .elx-ribbon__nudge {
+  width: 28px;
+  height: 44px;
+}
+
+/* Pastilles de couleur : une vraie pastille cerclée, et non deux carrés noirs
+   superposés. Le sélecteur natif est vidé de son cadre intérieur. */
+.elx-colorbtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--x-chrome-mute);
+  background: var(--x-chrome);
+  padding: 2px;
+}
+.elx-colorbtn input {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: block;
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.elx-colorbtn input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.elx-colorbtn input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 4px;
+}
+.elx-colorbtn input::-moz-color-swatch {
+  border: 0;
+  border-radius: 4px;
+}
+.sheet-app .elx-field {
+  gap: 4px;
+  min-height: 34px;
+}
+
+/* Feuilles : onglets et barre du bas assez grands pour le doigt. */
+.sheet-tabs {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.sheet-tab {
+  min-height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sheet-tab.is-active {
+  background: var(--el-primary-100);
+  color: var(--el-primary-text);
+}
+.sheet-formula__ref {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sheet-formula__input {
+  min-height: 32px;
+  min-width: 0;
+}
+
+/* Bas de grille : le vide sous la dernière ligne devient une invitation. */
+.sheet-grow {
+  position: sticky;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  padding: 12px;
+}
+.sheet-grow .elx-mini {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+.sheet-grid-wrap {
+  background: var(--el-surface-2);
+  touch-action: pan-x pan-y;
+}
+
+/* Graphiques : sous la grille, plafonnés pour ne pas la manger. */
+.sheet-charts {
+  max-height: min(340px, 45cqh);
+  overflow-y: auto;
+}
+.sheet-chart__head .tool-select,
+.sheet-chart__head .eb,
+.sheet-chart__head .icon-btn {
+  min-height: 30px;
+}
+.sheet-chart__head .icon-btn {
+  min-width: 30px;
+}
+.sheet-filter-chip {
+  color: var(--x-accent-ink);
+  min-height: 28px;
+}
+.sheet-filter-chip__close {
+  width: 24px;
+  height: 24px;
+}
+.sheet-filter-chip__close:hover {
+  background: var(--x-accent-soft);
+}
+
+/* Tableau croisé en volet : sous 1100 px il passe en TIROIR par-dessus la grille. */
+.sheet-main {
+  position: relative;
+}
+.pivotpanel__stale {
+  background: color-mix(in srgb, var(--x-warn) 16%, transparent);
+  color: var(--x-warn);
+  border: 1px solid color-mix(in srgb, var(--x-warn) 40%, transparent);
+}
+@container editor (max-width: 1100px) {
+  .sheet-main > .pivotpanel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    width: min(340px, 92%);
+    box-shadow: var(--x-shadow-pop);
+  }
+}
+
+/* Contrôles des dialogues, volets et options de graphique : jamais de contrôle
+   natif nu. Mêmes proportions que `.elx-input`, hauteur 32 px. */
+.sheet-modal
+  :is(input, select, textarea):not([type="checkbox"], [type="radio"], [type="color"], [type="range"], [type="file"]),
+.chartopt :is(input, select, textarea):not([type="checkbox"], [type="radio"], [type="color"], [type="range"]),
+.pivotpanel :is(input, select, textarea):not([type="checkbox"], [type="radio"], [type="color"], [type="range"]) {
+  min-height: 32px;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel);
+  color: var(--x-text);
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.sheet-modal :is(input, select, textarea):focus,
+.chartopt :is(input, select, textarea):focus,
+.pivotpanel :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--x-accent);
+  box-shadow: var(--el-ring);
+}
+.sheet-modal :is(input, select, textarea):disabled,
+.chartopt :is(input, select, textarea):disabled {
+  opacity: 0.55;
+}
+.sheet-modal input[type="checkbox"],
+.sheet-modal input[type="radio"],
+.chartopt input[type="checkbox"],
+.pivotpanel input[type="checkbox"] {
+  accent-color: var(--x-accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+}
+.sheet-modal input[type="color"],
+.chartopt input[type="color"] {
+  width: 40px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel);
+  cursor: pointer;
+}
+.sheet-modal input[type="range"],
+.chartopt input[type="range"] {
+  accent-color: var(--x-accent);
+  min-height: 28px;
+}
+.sheet-modal label:has(> input[type="checkbox"]),
+.sheet-modal label:has(> input[type="radio"]),
+.chartopt label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--x-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sheet-modal .dcx-field {
+  gap: 5px;
+  margin-top: 8px;
+}
+.sheet-modal .dcx-field > :is(input, select, textarea) {
+  width: 100%;
+}
+.sheet-modal fieldset {
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+}
+.sheet-modal legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--x-mute);
+}
+.sheet-modal .dtools__cols {
+  gap: 8px 16px;
+  align-items: flex-end;
+}
+.sheet-modal .dtools__cols label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--x-soft);
+}
+.sheet-modal .dtools__opts {
+  gap: 2px;
+}
+.sheet-modal .dtools__actions,
+.sheet-modal .dtools__tabs {
+  flex-wrap: wrap;
+}
+.sheet-modal .dtools__list {
+  max-height: min(220px, 30vh);
+  border: 1px solid var(--x-line);
+  border-radius: var(--x-radius-sm);
+  background: var(--x-panel-2);
+}
+.sheet-modal .dtools__list li {
+  padding: 6px 10px;
+  min-height: 28px;
+}
+.sheet-modal .dtools__txt {
+  color: var(--x-mute);
+}
+.sheet-modal .dtools__err {
+  color: var(--x-danger);
+}
+.sheet-modal .elx-mini,
+.pivotpanel .elx-mini,
+.pivotpanel .icon-btn {
+  min-height: 30px;
+}
+.sheet-modal .elx-mini {
+  padding: 0 12px;
+  font-size: 12.5px;
+  height: auto;
+}
+.sheet-modal .elx-icon {
+  width: 32px;
+  height: 32px;
+}
+.sheet-modal .dcx-modal__head h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sheet-modal .elx-empty {
+  padding: 14px 10px;
+}
+.chartopt {
+  background: var(--x-panel-2);
+  color: var(--x-text);
+  border-color: var(--x-line);
+}
+.chartopt label {
+  color: var(--x-soft);
+}
+.chartopt__series {
+  border-color: var(--x-line);
+}
+.pivotpanel,
+.pivotpanel__calc {
+  border-color: var(--x-line);
+}
+
+/* Boîtes de dialogue du Tableur : plein écran sous 720 px, pied collé en bas. */
+.sheet-modal-overlay .sheet-modal {
+  max-height: min(90vh, 900px);
+}
+.sheet-modal .dcx-modal__foot {
+  position: sticky;
+  bottom: -20px;
+  margin-bottom: -20px;
+  padding-bottom: 20px;
+  background: var(--x-panel);
+  flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .sheet-modal-overlay {
+    padding: 0;
+    place-items: stretch;
+  }
+  .sheet-modal-overlay .sheet-modal {
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding: 14px;
+  }
+  .sheet-modal .dcx-modal__foot {
+    bottom: -14px;
+    margin-bottom: -14px;
+    padding-bottom: 14px;
+  }
+  .sheet-modal .dcx-fieldrow,
+  .sheet-modal .dcx-inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sheet-modal .dcx-inline > *,
+  .sheet-modal .dcx-fieldrow > * {
+    min-width: 0;
+    width: 100%;
+  }
+  .sheet-modal .dtools__cols {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sheet-modal .dtools__cols input {
+    width: 100% !important;
+  }
+  .sheet-modal .dcx-modal__foot > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .chartopt {
+    grid-template-columns: 1fr;
+  }
+  .sheet-chart {
+    width: min(300px, calc(100vw - 56px));
+  }
+}
+
+/* Écrans tactiles : poignées de redimensionnement plus larges, cibles plus grandes. */
+@media (pointer: coarse) {
+  .sheet-grid thead th .col-resize {
+    width: 18px;
+    right: -9px;
+  }
+  .sheet-grid .sheet-rowhead .row-resize {
+    height: 18px;
+    bottom: -9px;
+  }
+  .sheet-app .elx-cmd {
+    min-width: 40px;
+    height: 40px;
+  }
+  .sheet-fill-handle {
+    width: 14px;
+    height: 14px;
+  }
+}

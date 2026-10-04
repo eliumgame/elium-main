@@ -6,6 +6,7 @@
  * component, not a bolted-on one.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 export interface MenuAction {
   label: string;
@@ -103,10 +104,51 @@ export function ToolbarPopover({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Le popover est rendu dans <body> en position fixe : les barres d'outils
+  // défilent horizontalement (overflow-x: auto => overflow-y aussi) et rognaient
+  // sinon tout panneau ouvert dessous. On le recale sous le conteneur `.sv-menu`
+  // du déclencheur, à gauche ou à droite selon la variante, borné à l'écran.
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const right = !!className && className.includes("sv-menu__pop--right");
+  useLayoutEffect(() => {
+    const place = () => {
+      const host = anchorRef.current?.parentElement;
+      const pop = ref.current;
+      if (!host || !pop) return;
+      const r = host.getBoundingClientRect();
+      const w = pop.offsetWidth;
+      const pad = 8;
+      let left = right ? r.right - w : r.left;
+      left = Math.max(pad, Math.min(left, window.innerWidth - w - pad));
+      const top = r.bottom + 4;
+      setPos({ left, top, maxHeight: Math.max(160, window.innerHeight - top - pad) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [right]);
+
   return (
-    <div ref={ref} className={className} role={role} aria-label={ariaLabel}>
-      {children}
-    </div>
+    <>
+      <span ref={anchorRef} className="sv-menu__anchor" aria-hidden="true" />
+      {createPortal(
+        <div
+          ref={ref}
+          className={`${className ?? ""} sv-menu__pop--fixed`}
+          role={role}
+          aria-label={ariaLabel}
+          style={pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxHeight } : { left: -9999, top: 0 }}
+        >
+          {children}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

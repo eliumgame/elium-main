@@ -55,10 +55,10 @@ export default function MasterEditor({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button variant="ghost" onClick={() => setM(defaultMaster())}>
+          <Button variant="outline" onClick={() => setM(defaultMaster())}>
             Rétablir le masque par défaut
           </Button>
           <Button
@@ -77,7 +77,11 @@ export default function MasterEditor({
           <h3>Thème</h3>
           <label>
             Police des titres
-            <select value={m.fontHeading} onChange={(e) => setM({ ...m, fontHeading: e.target.value })}>
+            <select
+              className="settings__select"
+              value={m.fontHeading}
+              onChange={(e) => setM({ ...m, fontHeading: e.target.value })}
+            >
               {[...new Set([m.fontHeading, ...fonts])].map((f) => (
                 <option key={f}>{f}</option>
               ))}
@@ -85,7 +89,11 @@ export default function MasterEditor({
           </label>
           <label>
             Police du texte
-            <select value={m.fontBody} onChange={(e) => setM({ ...m, fontBody: e.target.value })}>
+            <select
+              className="settings__select"
+              value={m.fontBody}
+              onChange={(e) => setM({ ...m, fontBody: e.target.value })}
+            >
               {[...new Set([m.fontBody, ...fonts])].map((f) => (
                 <option key={f}>{f}</option>
               ))}
@@ -112,6 +120,7 @@ export default function MasterEditor({
           <label>
             Texte du pied de page
             <input
+              className="input"
               value={m.footerText}
               onChange={(e) => setM({ ...m, footerText: e.target.value })}
               placeholder="(aucun)"
@@ -142,11 +151,12 @@ export default function MasterEditor({
             ))}
           </ul>
           <div className="mastered__row">
-            <Button variant="ghost" onClick={() => setM((x) => addLayout(x, "Nouvelle disposition"))}>
+            <Button variant="outline" size="sm" onClick={() => setM((x) => addLayout(x, "Nouvelle disposition"))}>
               + Disposition
             </Button>
             <Button
-              variant="ghost"
+              variant="outline"
+              size="sm"
               disabled={m.layouts.length <= 1}
               onClick={() => {
                 const next = removeLayout(m, layout.id);
@@ -162,7 +172,11 @@ export default function MasterEditor({
         <section className="mastered__edit" aria-label="Disposition sélectionnée">
           <label>
             Nom
-            <input value={layout.name} onChange={(e) => setM((x) => renameLayout(x, layout.id, e.target.value))} />
+            <input
+              className="input"
+              value={layout.name}
+              onChange={(e) => setM((x) => renameLayout(x, layout.id, e.target.value))}
+            />
           </label>
           <div className="mastered__preview" aria-hidden="true" style={{ background: m.background }}>
             {layout.placeholders.map((p) => (
@@ -182,61 +196,66 @@ export default function MasterEditor({
               </div>
             ))}
           </div>
-          <table className="mastered__table">
-            <thead>
-              <tr>
-                <th>Espace</th>
-                <th>X %</th>
-                <th>Y %</th>
-                <th>L %</th>
-                <th>H %</th>
-                <th>Taille</th>
-                <th>Align.</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {layout.placeholders.map((p) => (
-                <tr key={p.id}>
-                  <td>{KIND_LABEL[p.kind]}</td>
-                  {(["x", "y", "w", "h", "fontSize"] as const).map((k) => (
-                    <td key={k}>
-                      <input
-                        aria-label={`${KIND_LABEL[p.kind]} ${k}`}
-                        type="number"
-                        value={p[k]}
-                        step={k === "fontSize" ? 1 : 0.5}
-                        onChange={(e) => upd(p.id, { [k]: num(e.target.value) })}
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    <select
-                      aria-label={`${KIND_LABEL[p.kind]} alignement`}
-                      value={p.align}
-                      onChange={(e) => upd(p.id, { align: e.target.value as LayoutPlaceholder["align"] })}
-                    >
-                      <option value="left">Gauche</option>
-                      <option value="center">Centré</option>
-                      <option value="right">Droite</option>
-                    </select>
-                  </td>
-                  <td>
-                    <button
-                      className="icon-btn"
-                      aria-label={`Retirer ${KIND_LABEL[p.kind]}`}
-                      onClick={() => setM((x) => removePlaceholder(x, layout.id, p.id))}
-                    >
-                      ×
-                    </button>
-                  </td>
+          <div className="mastered__tablewrap">
+            <table className="mastered__table">
+              <thead>
+                <tr>
+                  <th>Espace</th>
+                  <th>X %</th>
+                  <th>Y %</th>
+                  <th>L %</th>
+                  <th>H %</th>
+                  <th>Taille</th>
+                  <th>Align.</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {layout.placeholders.map((p) => (
+                  <tr key={p.id}>
+                    <td>{KIND_LABEL[p.kind]}</td>
+                    {(["x", "y", "w", "h", "fontSize"] as const).map((k) => (
+                      <td key={k}>
+                        <input
+                          className="input mastered__num"
+                          aria-label={`${KIND_LABEL[p.kind]} ${k}`}
+                          type="number"
+                          value={p[k]}
+                          step={k === "fontSize" ? 1 : 0.5}
+                          onChange={(e) => upd(p.id, { [k]: num(e.target.value) })}
+                        />
+                      </td>
+                    ))}
+                    <td>
+                      <select
+                        className="settings__select"
+                        aria-label={`${KIND_LABEL[p.kind]} alignement`}
+                        value={p.align}
+                        onChange={(e) => upd(p.id, { align: e.target.value as LayoutPlaceholder["align"] })}
+                      >
+                        <option value="left">Gauche</option>
+                        <option value="center">Centré</option>
+                        <option value="right">Droite</option>
+                      </select>
+                    </td>
+                    <td>
+                      <button
+                        className="icon-btn icon-btn--danger"
+                        title={`Retirer ${KIND_LABEL[p.kind]}`}
+                        aria-label={`Retirer ${KIND_LABEL[p.kind]}`}
+                        onClick={() => setM((x) => removePlaceholder(x, layout.id, p.id))}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="mastered__row">
             {(["title", "body", "footer", "slideNumber"] as PlaceholderKind[]).map((k) => (
-              <Button key={k} variant="ghost" onClick={() => setM((x) => addPlaceholder(x, layout.id, k))}>
+              <Button key={k} variant="outline" size="sm" onClick={() => setM((x) => addPlaceholder(x, layout.id, k))}>
                 + {KIND_LABEL[k]}
               </Button>
             ))}

@@ -25,7 +25,7 @@ export default function DiagramDialog({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
           <Button
@@ -45,6 +45,7 @@ export default function DiagramDialog({
           <label className="dgdlg__field">
             Type
             <select
+              className="settings__select"
               value={kind}
               onChange={(e) => {
                 const k = e.target.value as DiagramKind;
@@ -63,6 +64,7 @@ export default function DiagramDialog({
           <label className="dgdlg__field">
             Plan (une ligne par élément ; retrait de 2 espaces = sous-élément)
             <textarea
+              className="input dgdlg__outline"
               rows={10}
               value={outline}
               onChange={(e) => setOutline(e.target.value)}

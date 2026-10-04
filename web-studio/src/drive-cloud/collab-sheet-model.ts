@@ -44,6 +44,7 @@ import type {
   ChartSpec,
   SheetTable,
   PrintSetup,
+  PivotObject,
   CondRule,
   DataValidation,
   MergeRect,
@@ -132,6 +133,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   const freeze = ys.get("freeze") as { rows: number; cols: number } | undefined;
   const filter = ys.get("filter") as { col: number; query: string } | undefined;
   const print = ys.get("print") as PrintSetup | undefined;
+  const pivot = ys.get("pivot") as PivotObject | undefined;
 
   const out: SheetData = {
     name: String(ys.get("name") ?? "Feuille"),
@@ -151,6 +153,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   if (freeze && (freeze.rows > 0 || freeze.cols > 0)) out.freeze = { ...freeze };
   if (filter && filter.query) out.filter = { ...filter };
   if (print) out.print = JSON.parse(JSON.stringify(print)) as PrintSetup;
+  if (pivot) out.pivot = JSON.parse(JSON.stringify(pivot)) as PivotObject;
   return out;
 }
 
@@ -310,6 +313,9 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
     if (target.print) {
       if (JSON.stringify(ys.get("print")) !== JSON.stringify(target.print)) ys.set("print", JSON.parse(JSON.stringify(target.print)));
     } else ys.delete("print");
+    if (target.pivot) {
+      if (JSON.stringify(ys.get("pivot")) !== JSON.stringify(target.pivot)) ys.set("pivot", JSON.parse(JSON.stringify(target.pivot)));
+    } else ys.delete("pivot");
   });
 }
 

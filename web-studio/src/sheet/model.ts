@@ -1,6 +1,8 @@
 /** Spreadsheet workbook model (in-memory; persisted locally via sheet-store). */
 import type { PrintSetup } from "./print";
+import type { PivotObject } from "./pivot-object";
 export type { PrintSetup } from "./print";
+export type { PivotObject } from "./pivot-object";
 // "custom" preserves an Excel format code our fixed categories can't represent
 // (e.g. "mm:ss", a currency other than EUR, a custom accounting format): the
 // RAW code round-trips (see CellStyle.customFmt) even though on-screen
@@ -169,6 +171,7 @@ export interface SheetData {
   notes?: Record<string, string>; // "A1" -> cell comment text (Excel's classic "notes", not threaded comments)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling
   tables?: SheetTable[]; // tableaux nommés (références structurées Tableau1[Colonne])
+  pivot?: PivotObject; // cette feuille est un tableau croisé dynamique persistant (définition + résultat)
   print?: PrintSetup; // mise en page d'impression (zone, titres répétés, sauts de page, échelle…)
 }
 

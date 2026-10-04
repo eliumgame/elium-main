@@ -57,6 +57,8 @@ import { formatValue, NUM_FORMATS } from "./format";
 import SheetChart from "./SheetChart";
 import DataToolsModal from "./DataToolsModal";
 import PrintDialog from "./PrintDialog";
+import PivotPanel from "./PivotPanel";
+import { buildPivot, newPivotObject, applyPivotResult } from "./pivot-object";
 import { paginate } from "./print";
 import { tableDefs, tableCellLook } from "./tables";
 import ChartOptionsPanel, { CHART_TYPE_LABELS } from "./ChartOptionsPanel";
@@ -65,7 +67,7 @@ import CondFormatModal from "./CondFormatModal";
 import ValidationModal from "./ValidationModal";
 import NamedRangesModal from "./NamedRangesModal";
 import PivotModal from "./PivotModal";
-import { computePivot, pivotToSheet, type PivotConfig, type PivotInput } from "./pivot";
+import type { PivotConfig } from "./pivot";
 import { buildCondFormatter } from "./condformat";
 import { buildValidator, validationAt } from "./validation";
 import { isCovered, spanAt } from "./merges";
@@ -191,6 +193,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [namesOpen, setNamesOpen] = useState(false);
   const [pivotOpen, setPivotOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [pivotPanelOpen, setPivotPanelOpen] = useState(true);
   const [breakPreview, setBreakPreview] = useState(false);
   const [dataToolsOpen, setDataToolsOpen] = useState<null | "find" | "dedupe" | "split">(null);
   const fontsVersion = useFontsVersion();
@@ -831,18 +834,6 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     for (let c = c0; c <= c1; c++) h.push(calc.display(cellRef(c, r0)));
     return h;
   };
-  const buildPivotInput = (): PivotInput => {
-    const rows: (string | number | boolean | null)[][] = [];
-    for (let r = r0 + 1; r <= r1; r++) {
-      const row: (string | number | boolean | null)[] = [];
-      for (let c = c0; c <= c1; c++) {
-        const v = calc.valueOf(cellRef(c, r));
-        row.push(isError(v) ? null : (v as string | number | boolean));
-      }
-      rows.push(row);
-    }
-    return { headers: pivotHeaders(), rows };
-  };
   const uniqueSheetName = (base: string): string => {
     const names = new Set(wb.sheets.map((s) => s.name));
     if (!names.has(base)) return base;
@@ -851,13 +842,21 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     return `${base} ${i}`;
   };
   const createPivot = (cfg: PivotConfig) => {
-    if (!store.addSheetFromData) return;
-    const data = pivotToSheet(computePivot(buildPivotInput(), cfg), uniqueSheetName("TCD"));
+    if (!store.addSheetFromData || !sheet) return;
+    const obj = newPivotObject(sheet.name, { c0, r0, c1, r1 }, pivotHeaders(), cfg);
+    const name = uniqueSheetName("TCD");
+    const built = buildPivot(wb, obj, name);
+    if ("error" in built) {
+      void dialogs.alert({ title: "Tableau croisé dynamique", message: built.error });
+      return;
+    }
+    const data = applyPivotResult(built.sheet, built.sheet, obj);
     const idx = store.addSheetFromData(data);
     setPivotOpen(false);
     store.setActive(idx);
     setSel({ c: 0, r: 0 });
     setAnchor({ c: 0, r: 0 });
+    setPivotPanelOpen(true);
   };
 
   const rangeLabel = `${cellRef(c0, r0)}:${cellRef(c1, r1)}`;
@@ -1093,6 +1092,14 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 active={!!sheet?.filter}
                 onClick={applyFilter}
               />
+              {sheet?.pivot && (
+                <Cmd
+                  icon={<TableProperties size={15} />}
+                  title="Volet du tableau croisé dynamique"
+                  active={pivotPanelOpen}
+                  onClick={() => setPivotPanelOpen((v) => !v)}
+                />
+              )}
               <Cmd
                 icon={<Printer size={15} />}
                 title="Mise en page et impression (PDF)"
@@ -1233,220 +1240,229 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         />
       </div>
 
-      <div
-        className="sheet-grid-wrap"
-        ref={gridRef}
-        tabIndex={0}
-        onKeyDown={onGridKeyDown}
-        onPaste={onPaste}
-        onScroll={(e) => {
-          const t = e.currentTarget.scrollTop;
-          requestAnimationFrame(() => setScrollTop(t));
-        }}
-        role="grid"
-        aria-label="Grille de la feuille de calcul"
-        aria-rowcount={(sheet?.rows ?? 0) + 1}
-        aria-colcount={(sheet?.cols ?? 0) + 1}
-        aria-multiselectable="true"
-        aria-activedescendant={editing ? undefined : `${gridId}-${sel.c}-${sel.r}`}
-      >
-        {sheet && (
-          <table className="sheet-grid" role="presentation">
-            <colgroup>
-              <col style={{ width: ROWHEAD_W }} />
-              {Array.from({ length: sheet.cols }, (_, c) => (
-                <col key={c} style={{ width: shownWidth(c) }} />
-              ))}
-            </colgroup>
-            <thead role="rowgroup">
-              <tr role="row" aria-rowindex={1}>
-                <th
-                  className="sheet-corner"
-                  role="columnheader"
-                  aria-colindex={1}
-                  style={fz ? { zIndex: 7 } : undefined}
-                >
-                  <span className="sr-only">Angle du quadrillage</span>
-                </th>
+      <div className="sheet-main">
+        <div
+          className="sheet-grid-wrap"
+          ref={gridRef}
+          tabIndex={0}
+          onKeyDown={onGridKeyDown}
+          onPaste={onPaste}
+          onScroll={(e) => {
+            const t = e.currentTarget.scrollTop;
+            requestAnimationFrame(() => setScrollTop(t));
+          }}
+          role="grid"
+          aria-label="Grille de la feuille de calcul"
+          aria-rowcount={(sheet?.rows ?? 0) + 1}
+          aria-colcount={(sheet?.cols ?? 0) + 1}
+          aria-multiselectable="true"
+          aria-activedescendant={editing ? undefined : `${gridId}-${sel.c}-${sel.r}`}
+        >
+          {sheet && (
+            <table className="sheet-grid" role="presentation">
+              <colgroup>
+                <col style={{ width: ROWHEAD_W }} />
                 {Array.from({ length: sheet.cols }, (_, c) => (
-                  <th
-                    key={c}
-                    role="columnheader"
-                    aria-colindex={c + 2}
-                    className={c >= c0 && c <= c1 ? "is-hl" : ""}
-                    style={stickyStyle(c, -1)}
-                  >
-                    {indexToCol(c)}
-                    <span className="col-resize" onMouseDown={(e) => startResize(c, e)} title="Redimensionner" />
-                  </th>
+                  <col key={c} style={{ width: shownWidth(c) }} />
                 ))}
-              </tr>
-            </thead>
-            <tbody role="rowgroup">
-              {rowList.map((r, idx) => {
-                const rh = shownRowHeight(r);
-                const heightStyle = rh === ROW_H ? undefined : rh;
-                const prev = idx > 0 ? rowList[idx - 1]! : -1;
-                // Espacement du haut : inséré entre les lignes figées et la fenêtre défilante.
-                const gapBefore =
-                  r >= frozenRows && (prev < frozenRows ? idx === rowList.findIndex((x) => x >= frozenRows) : false);
-                return (
-                  <Fragment key={r}>
-                    {gapBefore && rowGap.top > 0 && (
-                      <tr aria-hidden="true" className="sheet-vspacer" style={{ height: rowGap.top }}>
-                        <td colSpan={sheet.cols + 1} style={{ padding: 0, border: 0, height: rowGap.top }} />
-                      </tr>
-                    )}
-                    <tr role="row" aria-rowindex={r + 2} style={heightStyle ? { height: heightStyle } : undefined}>
-                      <th
-                        role="rowheader"
-                        className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`}
-                        style={rowheadStyle(r)}
-                      >
-                        {r + 1}
-                        <span className="row-resize" onMouseDown={(e) => startRowResize(r, e)} title="Redimensionner" />
-                      </th>
-                      {Array.from({ length: sheet.cols }, (_, c) => {
-                        const ref = cellRef(c, r);
-                        if (isCovered(sheet.merges, c, r)) return null; // masquée par une fusion
-                        const span = spanAt(sheet.merges, c, r);
-                        const st = sheet.styles?.[ref];
-                        const isActive = sel.c === c && sel.r === r;
-                        if (isActive && editing) {
-                          const dv = validationAt(sheet.validations, c, r);
-                          const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
+              </colgroup>
+              <thead role="rowgroup">
+                <tr role="row" aria-rowindex={1}>
+                  <th
+                    className="sheet-corner"
+                    role="columnheader"
+                    aria-colindex={1}
+                    style={fz ? { zIndex: 7 } : undefined}
+                  >
+                    <span className="sr-only">Angle du quadrillage</span>
+                  </th>
+                  {Array.from({ length: sheet.cols }, (_, c) => (
+                    <th
+                      key={c}
+                      role="columnheader"
+                      aria-colindex={c + 2}
+                      className={c >= c0 && c <= c1 ? "is-hl" : ""}
+                      style={stickyStyle(c, -1)}
+                    >
+                      {indexToCol(c)}
+                      <span className="col-resize" onMouseDown={(e) => startResize(c, e)} title="Redimensionner" />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody role="rowgroup">
+                {rowList.map((r, idx) => {
+                  const rh = shownRowHeight(r);
+                  const heightStyle = rh === ROW_H ? undefined : rh;
+                  const prev = idx > 0 ? rowList[idx - 1]! : -1;
+                  // Espacement du haut : inséré entre les lignes figées et la fenêtre défilante.
+                  const gapBefore =
+                    r >= frozenRows && (prev < frozenRows ? idx === rowList.findIndex((x) => x >= frozenRows) : false);
+                  return (
+                    <Fragment key={r}>
+                      {gapBefore && rowGap.top > 0 && (
+                        <tr aria-hidden="true" className="sheet-vspacer" style={{ height: rowGap.top }}>
+                          <td colSpan={sheet.cols + 1} style={{ padding: 0, border: 0, height: rowGap.top }} />
+                        </tr>
+                      )}
+                      <tr role="row" aria-rowindex={r + 2} style={heightStyle ? { height: heightStyle } : undefined}>
+                        <th
+                          role="rowheader"
+                          className={`sheet-rowhead ${r >= r0 && r <= r1 ? "is-hl" : ""}`}
+                          style={rowheadStyle(r)}
+                        >
+                          {r + 1}
+                          <span
+                            className="row-resize"
+                            onMouseDown={(e) => startRowResize(r, e)}
+                            title="Redimensionner"
+                          />
+                        </th>
+                        {Array.from({ length: sheet.cols }, (_, c) => {
+                          const ref = cellRef(c, r);
+                          if (isCovered(sheet.merges, c, r)) return null; // masquée par une fusion
+                          const span = spanAt(sheet.merges, c, r);
+                          const st = sheet.styles?.[ref];
+                          const isActive = sel.c === c && sel.r === r;
+                          if (isActive && editing) {
+                            const dv = validationAt(sheet.validations, c, r);
+                            const listId = dv?.type === "list" && dv.list?.length ? `dv-list-${c}-${r}` : undefined;
+                            return (
+                              <td
+                                key={c}
+                                role="gridcell"
+                                id={`${gridId}-${c}-${r}`}
+                                aria-colindex={c + 2}
+                                aria-selected
+                                className="is-selected"
+                                style={{ ...stickyStyle(c, r), ...(heightStyle ? { height: heightStyle } : {}) }}
+                                colSpan={span?.colSpan}
+                                rowSpan={span?.rowSpan}
+                              >
+                                <input
+                                  className="sheet-cell-input"
+                                  autoFocus
+                                  value={draft}
+                                  list={listId}
+                                  onChange={(e) => setDraft(e.target.value)}
+                                  onKeyDown={onEditKeyDown}
+                                  onFocus={(e) => e.target.select()}
+                                  onBlur={commitEdit}
+                                  onPaste={onPaste}
+                                />
+                                {listId && (
+                                  <datalist id={listId}>
+                                    {dv!.list!.map((opt) => (
+                                      <option key={opt} value={opt} />
+                                    ))}
+                                  </datalist>
+                                )}
+                              </td>
+                            );
+                          }
+                          const val = hasValue(ref) ? calc.valueOf(ref) : "";
+                          const numeric = typeof val === "number";
+                          const invalid = validator(c, r);
+                          const peer = collaborative ? peerByKey.get(`${active}:${ref}`) : undefined;
+                          const cls = [
+                            inSel(c, r) ? (isActive ? "is-selected" : "is-range") : "",
+                            inFill(c, r) ? "is-fill" : "",
+                            isError(val) ? "is-err" : "",
+                            numeric && !st?.align ? "is-num" : "",
+                            invalid ? "is-invalid" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ");
+                          const showHandle = canWrite && c === c1 && r === r1 && !editing;
+                          const cf = condFmt(c, r);
+                          const look = tableCellLook(sheet, c, r);
+                          const outOfArea =
+                            !!printPlan &&
+                            (c < printPlan.area.c0 ||
+                              c > printPlan.area.c1 ||
+                              r < printPlan.area.r0 ||
+                              r > printPlan.area.r1);
+                          const cellStyle: React.CSSProperties = {
+                            fontWeight: cf.fontWeight ?? (st?.bold || look?.header ? 700 : undefined),
+                            fontStyle: st?.italic ? "italic" : undefined,
+                            textAlign: st?.align,
+                            color: cf.color ?? st?.color ?? (look?.header ? "#ffffff" : undefined),
+                            background:
+                              cf.background ??
+                              st?.fill ??
+                              (look?.header ? look.color : look?.band ? `${look.color}1f` : undefined),
+                            fontFamily: st?.fontFamily ? fontCss(st.fontFamily) : undefined,
+                            fontSize: st?.fontSize ? `${st.fontSize}px` : undefined,
+                            borderTop: borderCss(st?.border?.top),
+                            borderRight: borderCss(st?.border?.right),
+                            borderBottom: borderCss(st?.border?.bottom),
+                            borderLeft: borderCss(st?.border?.left),
+                            height: heightStyle,
+                            ...stickyStyle(c, r),
+                          };
+                          // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).
+                          if (printPlan) {
+                            if (outOfArea) cellStyle.opacity = 0.4;
+                            if (printPlan.rowBreakAfter.has(r)) cellStyle.borderBottom = "2px dashed #2563eb";
+                            if (printPlan.colBreakAfter.has(c)) cellStyle.borderRight = "2px dashed #2563eb";
+                          }
+                          if (peer)
+                            cellStyle.boxShadow = `inset 0 0 0 2px ${peer.color}${cellStyle.boxShadow ? ", " + cellStyle.boxShadow : ""}`;
                           return (
                             <td
                               key={c}
                               role="gridcell"
                               id={`${gridId}-${c}-${r}`}
                               aria-colindex={c + 2}
-                              aria-selected
-                              className="is-selected"
-                              style={{ ...stickyStyle(c, r), ...(heightStyle ? { height: heightStyle } : {}) }}
+                              aria-selected={inSel(c, r)}
+                              aria-invalid={invalid ? true : undefined}
+                              className={cls}
+                              style={cellStyle}
+                              title={invalid ?? (peer ? `${peer.name} est ici` : undefined)}
                               colSpan={span?.colSpan}
                               rowSpan={span?.rowSpan}
+                              onMouseDown={(e) => {
+                                selectCell(c, r, e.shiftKey);
+                                dragging.current = true;
+                                gridRef.current?.focus();
+                              }}
+                              onMouseEnter={() => {
+                                if (fillSrcRef.current) {
+                                  fillToRef.current = { c, r };
+                                  setFillTo({ c, r });
+                                } else if (dragging.current) setSel({ c, r });
+                              }}
+                              onDoubleClick={() => {
+                                selectCell(c, r);
+                                startEdit();
+                              }}
                             >
-                              <input
-                                className="sheet-cell-input"
-                                autoFocus
-                                value={draft}
-                                list={listId}
-                                onChange={(e) => setDraft(e.target.value)}
-                                onKeyDown={onEditKeyDown}
-                                onFocus={(e) => e.target.select()}
-                                onBlur={commitEdit}
-                                onPaste={onPaste}
-                              />
-                              {listId && (
-                                <datalist id={listId}>
-                                  {dv!.list!.map((opt) => (
-                                    <option key={opt} value={opt} />
-                                  ))}
-                                </datalist>
+                              {cellDisplay(ref)}
+                              {showHandle && (
+                                <span
+                                  className="sheet-fill-handle"
+                                  onMouseDown={startFill}
+                                  title="Recopier (poignée de remplissage)"
+                                />
                               )}
                             </td>
                           );
-                        }
-                        const val = hasValue(ref) ? calc.valueOf(ref) : "";
-                        const numeric = typeof val === "number";
-                        const invalid = validator(c, r);
-                        const peer = collaborative ? peerByKey.get(`${active}:${ref}`) : undefined;
-                        const cls = [
-                          inSel(c, r) ? (isActive ? "is-selected" : "is-range") : "",
-                          inFill(c, r) ? "is-fill" : "",
-                          isError(val) ? "is-err" : "",
-                          numeric && !st?.align ? "is-num" : "",
-                          invalid ? "is-invalid" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ");
-                        const showHandle = canWrite && c === c1 && r === r1 && !editing;
-                        const cf = condFmt(c, r);
-                        const look = tableCellLook(sheet, c, r);
-                        const outOfArea =
-                          !!printPlan &&
-                          (c < printPlan.area.c0 ||
-                            c > printPlan.area.c1 ||
-                            r < printPlan.area.r0 ||
-                            r > printPlan.area.r1);
-                        const cellStyle: React.CSSProperties = {
-                          fontWeight: cf.fontWeight ?? (st?.bold || look?.header ? 700 : undefined),
-                          fontStyle: st?.italic ? "italic" : undefined,
-                          textAlign: st?.align,
-                          color: cf.color ?? st?.color ?? (look?.header ? "#ffffff" : undefined),
-                          background:
-                            cf.background ??
-                            st?.fill ??
-                            (look?.header ? look.color : look?.band ? `${look.color}1f` : undefined),
-                          fontFamily: st?.fontFamily ? fontCss(st.fontFamily) : undefined,
-                          fontSize: st?.fontSize ? `${st.fontSize}px` : undefined,
-                          borderTop: borderCss(st?.border?.top),
-                          borderRight: borderCss(st?.border?.right),
-                          borderBottom: borderCss(st?.border?.bottom),
-                          borderLeft: borderCss(st?.border?.left),
-                          height: heightStyle,
-                          ...stickyStyle(c, r),
-                        };
-                        // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).
-                        if (printPlan) {
-                          if (outOfArea) cellStyle.opacity = 0.4;
-                          if (printPlan.rowBreakAfter.has(r)) cellStyle.borderBottom = "2px dashed #2563eb";
-                          if (printPlan.colBreakAfter.has(c)) cellStyle.borderRight = "2px dashed #2563eb";
-                        }
-                        if (peer)
-                          cellStyle.boxShadow = `inset 0 0 0 2px ${peer.color}${cellStyle.boxShadow ? ", " + cellStyle.boxShadow : ""}`;
-                        return (
-                          <td
-                            key={c}
-                            role="gridcell"
-                            id={`${gridId}-${c}-${r}`}
-                            aria-colindex={c + 2}
-                            aria-selected={inSel(c, r)}
-                            aria-invalid={invalid ? true : undefined}
-                            className={cls}
-                            style={cellStyle}
-                            title={invalid ?? (peer ? `${peer.name} est ici` : undefined)}
-                            colSpan={span?.colSpan}
-                            rowSpan={span?.rowSpan}
-                            onMouseDown={(e) => {
-                              selectCell(c, r, e.shiftKey);
-                              dragging.current = true;
-                              gridRef.current?.focus();
-                            }}
-                            onMouseEnter={() => {
-                              if (fillSrcRef.current) {
-                                fillToRef.current = { c, r };
-                                setFillTo({ c, r });
-                              } else if (dragging.current) setSel({ c, r });
-                            }}
-                            onDoubleClick={() => {
-                              selectCell(c, r);
-                              startEdit();
-                            }}
-                          >
-                            {cellDisplay(ref)}
-                            {showHandle && (
-                              <span
-                                className="sheet-fill-handle"
-                                onMouseDown={startFill}
-                                title="Recopier (poignée de remplissage)"
-                              />
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  </Fragment>
-                );
-              })}
-              {rowGap.bottom > 0 && (
-                <tr aria-hidden="true" className="sheet-vspacer" style={{ height: rowGap.bottom }}>
-                  <td colSpan={sheet.cols + 1} style={{ padding: 0, border: 0, height: rowGap.bottom }} />
-                </tr>
-              )}
-            </tbody>
-          </table>
+                        })}
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+                {rowGap.bottom > 0 && (
+                  <tr aria-hidden="true" className="sheet-vspacer" style={{ height: rowGap.bottom }}>
+                    <td colSpan={sheet.cols + 1} style={{ padding: 0, border: 0, height: rowGap.bottom }} />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {sheet?.pivot && pivotPanelOpen && (
+          <PivotPanel store={store} active={active} onClose={() => setPivotPanelOpen(false)} />
         )}
       </div>
 

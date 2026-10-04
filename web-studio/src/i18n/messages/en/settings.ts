@@ -225,7 +225,8 @@ export const enSettings: Record<keyof typeof frSettings, string> = {
   "port.unavailable_title": "Setting available in the desktop app",
   "port.unavailable_body":
     "The listening port belongs to the local server of the Elium desktop app. In a browser, an installed web app or in development there is no local server to configure.",
-  "port.state_auto": "Elium listens on port {port}, picked automatically at each launch in the {from}-{to} range.",
+  "port.state_auto":
+    "Elium listens on port {port}, picked automatically on first launch and then kept between launches ({from}-{to} range).",
   "port.state_pinned": "Elium listens on port {port}, pinned in your settings.",
   "port.state_fallback":
     "The preferred port {wanted} was busy at startup: port {port} is used this time (preference kept).",
@@ -240,7 +241,7 @@ export const enSettings: Record<keyof typeof frSettings, string> = {
   "port.custom_placeholder": "e.g. 8080",
   "port.apply": "Save",
   "port.back_to_auto": "Back to automatic",
-  "port.auto_hint": "Elium will pick a free port in the automatic range at each launch",
+  "port.auto_hint": "Elium keeps the port picked on first launch (another free port is only used if that one is busy)",
   "port.err_empty": "Enter a port number.",
   "port.err_nan": "A port is a whole number (digits only).",
   "port.err_range": "The port must be between {min} and {max}.",
@@ -253,6 +254,8 @@ export const enSettings: Record<keyof typeof frSettings, string> = {
   "port.saved_auto": "Preference saved: automatic",
   "port.saved_port": "Preference saved: port {port}",
   "port.effective_next": "Takes effect the next time Elium starts.",
+  "port.data_warning":
+    "Careful: your local documents, keys and settings are stored per address (port included). After changing the port they will not appear until you restore a backup: export your workspace first (Settings › Workspace), then restore it after the restart.",
   "port.restart_now": "Restart now",
   "updates.beta": "beta",
   "updates.check_now": "Check now",

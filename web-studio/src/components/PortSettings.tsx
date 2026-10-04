@@ -182,6 +182,8 @@ export default function PortSettings() {
           t("port.outside_auto", { from: AUTO_RANGE[0], to: AUTO_RANGE[1] })}
       </p>
 
+      <Alert tone="warning">{t("port.data_warning")}</Alert>
+
       {error && (
         <Alert tone="danger" title={t("port.err_title")}>
           {error}

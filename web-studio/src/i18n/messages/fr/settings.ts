@@ -226,7 +226,7 @@ export const frSettings = {
   "port.unavailable_body":
     "Le port d'écoute est celui du serveur local de l'application de bureau Elium. Dans un navigateur, une application web installée ou en développement, il n'y a pas de serveur local à régler.",
   "port.state_auto":
-    "Elium écoute sur le port {port}, choisi automatiquement à chaque lancement dans la plage {from}-{to}.",
+    "Elium écoute sur le port {port}, retenu automatiquement au premier lancement puis conservé d'un lancement à l'autre (plage {from}-{to}).",
   "port.state_pinned": "Elium écoute sur le port {port}, épinglé dans vos réglages.",
   "port.state_fallback":
     "Le port préféré {wanted} était occupé au démarrage : le port {port} est utilisé cette fois (préférence conservée).",
@@ -241,7 +241,8 @@ export const frSettings = {
   "port.custom_placeholder": "ex. 8080",
   "port.apply": "Enregistrer",
   "port.back_to_auto": "Revenir à automatique",
-  "port.auto_hint": "Elium choisira un port libre dans la plage automatique à chaque lancement",
+  "port.auto_hint":
+    "Elium conservera le port retenu au premier lancement (un autre port libre n'est pris que si celui-ci est occupé)",
   "port.err_empty": "Saisissez un numéro de port.",
   "port.err_nan": "Un port est un nombre entier (chiffres uniquement).",
   "port.err_range": "Le port doit être compris entre {min} et {max}.",
@@ -254,6 +255,8 @@ export const frSettings = {
   "port.saved_auto": "Préférence enregistrée : automatique",
   "port.saved_port": "Préférence enregistrée : port {port}",
   "port.effective_next": "Effectif au prochain démarrage d'Elium.",
+  "port.data_warning":
+    "Attention : vos documents, clés et réglages locaux sont rangés par adresse (port compris). Après un changement de port, ils n'apparaîtront plus tant que vous n'aurez pas restauré une sauvegarde : exportez d'abord votre espace de travail (Réglages › Espace de travail), puis restaurez-le après le redémarrage.",
   "port.restart_now": "Redémarrer maintenant",
   "updates.beta": "bêta",
   "updates.check_now": "Vérifier maintenant",

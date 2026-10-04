@@ -55,7 +55,9 @@ const ALTERNATIVES = [
 // vérificateur d'accessibilité. Les parties lourdes (PDF, handouts, impression)
 // restent chargées à la demande par import() ; le reste vit dans les chunks de
 // chaque module (Tableur, Présentations, éditeur).
-const TOTAL_JS_BUDGET_BYTES = 6_800_000;
+// 6,8 Mo → 7,0 Mo : documentation intégrée réécrite pour la 4.10 (~230 Ko de Markdown dans
+// le chunk DocumentationView, chargé seulement à l'ouverture de la page Documentation).
+const TOTAL_JS_BUDGET_BYTES = 7_000_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

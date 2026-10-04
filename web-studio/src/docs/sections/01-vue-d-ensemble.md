@@ -1,73 +1,63 @@
 ## Vue d'ensemble
 
-Elium est une **suite bureautique et un Drive d'entreprise chiffrés**, conçus
-_local-first_ et _zéro-connaissance_, articulés autour d'un **format de fichier
-`.elium`** portable, signable et scellé. Ce n'est pas un simple conteneur
-chiffré : c'est un écosystème documentaire complet pour **rédiger, calculer,
-présenter, annoter des PDF, signer, protéger et vérifier** des documents, puis
-les enregistrer dans un fichier `.elium` portable et vérifiable.
+Elium est une suite bureautique et un Drive d'entreprise chiffrés. L'idée
+centrale : **vos documents restent chez vous**. Par défaut, rien n'est envoyé en
+ligne.
 
-Le positionnement d'Elium est celui d'une **alternative chiffrée de bout en bout
-à Google Workspace / Microsoft 365**, où le serveur ne voit **jamais** le contenu
-en clair. Par défaut, aucun document n'est envoyé en ligne.
+Elium existe en deux produits. Ils partagent le même format `.elium`, le même
+moteur de signatures et les mêmes éditeurs.
 
-Concrètement, Elium se décline en **deux produits** qui partagent le même format
-`.elium`, les mêmes primitives cryptographiques, le même moteur de signatures et
-les mêmes éditeurs.
+| Produit | Ce que c'est | Où il tourne | Compte requis |
+|---|---|---|---|
+| **Suite bureautique locale** | Documents, Tableur, Présentations, PDF, Détecteur, Parapheur, espace de travail | Votre PC (Windows : MSI ou exe ; sinon navigateur) | Non |
+| **Drive d'entreprise** | Stockage, partage et co-édition temps réel, multi-utilisateurs, zéro-connaissance | Un serveur que vous hébergez (VPS Linux, ou PC avec Docker) | Oui, créé sur votre serveur |
 
-| Produit | Ce que c'est | Où ça tourne |
-|---|---|---|
-| **Suite bureautique locale** | Documents, Tableur, Présentations, PDF, Drive local et Parapheur — 100 % hors-ligne, chiffrés/signés par document | Le **PC** de l'utilisateur (MSI Windows ou navigateur) |
-| **Drive d'entreprise** | Plateforme web multi-utilisateurs, zéro-connaissance : stockage, partage, co-édition temps réel, rôles et permissions | Un **serveur que vous hébergez** (VPS Linux, ou PC via Docker) |
+> L'application de bureau **n'embarque aucun serveur**. Le Drive est un service à
+> part que vous hébergez. L'application s'y connecte avec son adresse
+> (bouton **Serveur** de l'écran de connexion du Drive). Sans serveur configuré,
+> la carte Drive affiche « Serveur Drive injoignable ».
 
-Une règle **dual-plateforme** gouverne le produit : toute fonctionnalité livrée
-existe des **deux** côtés (local et collaboratif).
+### Les modules de la suite locale
 
-```
-   SUITE LOCALE (PC)                     DRIVE ENTREPRISE (serveur auto-hébergé)
- ┌────────────────────┐   HTTPS  /api   ┌──────────────────────────────────────────────┐
- │  Elium.exe (MSI)   │───────────────► │   Caddy(TLS) ─► web (SPA) + api (Fastify)     │
- │  ou navigateur     │◄─────────────── │      api ─► Postgres (méta + clés emballées)  │
- │  Documents·Tableur │   (chiffré)     │          └► blobs (contenu chiffré : fs/S3)    │
- │  Présentations·PDF │                 └──────────────────────────────────────────────┘
- └────────────────────┘                   Zéro-connaissance : jamais de clair côté serveur.
-     100 % local
-```
+Depuis l'accueil, vous accédez à ces modules.
 
-**Point essentiel** : l'application de bureau **n'embarque aucun serveur**
-(c'est la suite *locale*). Le **Drive d'entreprise** est un service que **vous
-hébergez** et auquel l'app se connecte via son URL (bouton « Serveur » de l'écran
-de connexion). Sans serveur configuré, la carte Drive affiche « Serveur Drive
-injoignable ».
+| Module | Rôle |
+|---|---|
+| **Documents** | Éditeur de texte riche : mise en page, styles, tableaux, graphiques, citations, suivi des modifications. Import et export DOCX |
+| **Tableur** | Feuilles de calcul, formules, graphiques, tableaux croisés dynamiques. Import et export XLSX |
+| **Présentations** | Diapositives, masques, animations, mode présentateur. Import et export PPTX |
+| **PDF** | Lecture, annotation, édition de texte, formulaires, caviardage, OCR, signature |
+| **Détecteur** | Analyse un fichier pour repérer des signaux de rédaction par IA, des anomalies, et vérifie les justificatifs de contenu C2PA |
+| **Parapheur** | Circuit de signatures ordonné, joint au document |
+| **Espace de travail** | Bibliothèque locale : dossiers, étiquettes, corbeille, recherche plein texte, sauvegarde |
+| **Réglages** | Langue, thème, polices, raccourcis, port, mises à jour, données locales |
 
-### Organisation du dépôt
+Le **Drive d'entreprise** a aussi sa carte sur l'accueil. Voir les sections qui lui sont consacrées.
 
-```
-elium-main/
-├── src/elium/            Cœur Python (core, crypto, format, cli)
-│   ├── core/             Conteneur chiffré v3 (primitive de chiffrement héritée)
-│   ├── crypto/           Argon2id · AES-256-GCM · ChaCha20-Poly1305 · Ed25519 · HMAC
-│   ├── format/           Format documentaire v4 : package, manifeste, journal, profils, preuve
-│   └── cli/              CLI (create/open hérités + doc-create/doc-open/doc-verify/doc-sign)
-├── web-studio/           App web React/TypeScript — suite bureautique + client Drive
-│   └── src/
-│       ├── format/       Lecture/écriture .elium, JSON canonique, journal, profils
-│       ├── crypto/       Moteur crypto (WebCrypto + @noble/*), coffre local
-│       ├── sign/         Elium Sign : signatures visuelles, preuve et sceau Ed25519
-│       ├── editor/       Éditeur riche TipTap (barre d'outils, pagination, suivi)
-│       ├── sheet/        Tableur (formules, XLSX/CSV, mise en forme conditionnelle)
-│       ├── slides/       Présentations (canvas, animations, PPTX, présentateur)
-│       ├── pdf/          PDF (lecteur, annotation, formulaires AcroForm, fusion/division)
-│       ├── drive-cloud/  Client Drive entreprise (SDK, provider CRDT chiffré, UI)
-│       ├── panels/ views/ Inspecteur + écrans (Home, Studio, Sheet, Slides, PDF, Drive)
-│       └── ui/           Design system
-├── server/               Drive entreprise (Fastify + PostgreSQL)
-│   └── src/              routes, rbac, db, collab (relais Yjs), storage, middleware
-├── deploy/               Caddyfile + guide opérateur
-├── installer/            build exe (PyInstaller) + MSI (WiX) + updater client
-├── docker-compose.yml    Pile Drive : db · api · minio · web · caddy
-├── install.sh            Installateur/configurateur unique (suite et Drive)
-└── tests/                Tests Python + interop
-```
+### Ce qui reste sur votre machine
 
----
+- Vos documents, dans le stockage du navigateur intégré à l'application (base IndexedDB), ou dans les fichiers `.elium` que vous enregistrez.
+- Le chiffrement et les signatures : ils se font localement, dans l'application.
+- Les polices, le moteur PDF, l'OCR et les dictionnaires : ils sont livrés avec l'application.
+
+Deux fonctions peuvent contacter Internet, **uniquement si vous les demandez** :
+
+| Fonction | Ce qui sort |
+|---|---|
+| Recherche de plagiat du Détecteur | Des extraits du texte analysé, vers Serper ou Bing avec votre propre clé API. La politique de sécurité de l'application de bureau bloque ces connexions (voir Limites connues du Détecteur) |
+| Catalogue de polices en ligne (Fontsource) | L'adresse du catalogue ou du fichier demandé, via le relais de l'application de bureau |
+
+Les mises à jour interrogent GitHub pour chercher une nouvelle version signée. Aucun document n'est envoyé. Vous pouvez les couper (voir Mises à jour automatiques).
+
+### Les deux modes de lancement
+
+| Mode | Description |
+|---|---|
+| **Application de bureau** (Windows) | `Elium.exe` démarre un petit serveur sur `127.0.0.1` et ouvre une fenêtre dédiée. Mises à jour automatiques, association des fichiers `.elium`, instance unique |
+| **Navigateur** | L'interface web seule (PWA installable). Mêmes éditeurs. Pas de mises à jour automatiques ni de réglage de port : le navigateur gère le cache |
+
+### Limites connues de la suite locale
+
+- L'application de bureau n'existe que pour **Windows**. Sur les autres systèmes, utilisez la version web.
+- Le mode hors-ligne ne couvre pas le Drive d'entreprise : il demande une connexion à votre serveur.
+- Aucune synchronisation automatique entre deux PC en mode local. Pour déplacer vos données, utilisez la sauvegarde `.elium-workspace` (section Espace de travail local).

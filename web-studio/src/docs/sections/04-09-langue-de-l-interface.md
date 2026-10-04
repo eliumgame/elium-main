@@ -1,7 +1,25 @@
 ### Langue de l'interface
 
-Réglages → Général → Langue : **français** (source de vérité) et **anglais**, appliquée immédiatement et mémorisée. Le cadre `src/i18n/` est sans dépendance : catalogues typés `messages/fr/*.ts` et `messages/en/*.ts`, fonctions `t()`, `tn()` (pluriels `_one` / `_other` selon `Intl.PluralRules`) et formats `fmt.*` (dates, nombres, tailles, durées relatives via `Intl`). Les dates ne codent plus « fr-FR » en dur dans l'accueil, l'espace de travail, les réglages, le Détecteur et les panneaux : elles suivent la langue active (`localeTag()`).
+**Réglages, Général, Langue** : **français** (par défaut) ou **anglais**. Le
+choix s'applique tout de suite et est mémorisé. Les dates, nombres et tailles
+suivent la langue choisie (par exemple « Mo » en français, « MB » en anglais).
 
-**Périmètre traduit** : accueil, espace de travail, corbeille, recherche, récupération, réglages, palette, dialogues, menus, mises à jour, écran de plantage, coffre. Les éditeurs et modules (Documents, Tableur, Présentations, PDF, Drive, Détecteur) sont traduits **progressivement** : ils restent en français. **Convention** pour traduire un module : (1) ajouter les chaînes dans `messages/fr/<zone>.ts` avec une clé `zone.sous_zone.nom` en snake_case ; (2) les reprendre dans `messages/en/<zone>.ts` (le compilateur refuse une clé manquante) ; (3) remplacer le texte par `t("zone.cle")` (ou `useI18n()` dans un composant) ; (4) pour un pluriel, déclarer `cle_one` et `cle_other` et appeler `tn("cle", n)`. Le test `tests/i18n.test.ts` échoue si une clé du français manque à l'anglais, si un pluriel est incomplet ou si les paramètres `{x}` diffèrent.
+#### Ce qui est traduit
 
----
+| Traduit | Reste en français |
+|---|---|
+| Accueil, bibliothèque, corbeille, recherche, récupération, Réglages, palette de commandes, boîtes de dialogue, mises à jour, écran de plantage, coffre | Les éditeurs et les modules : Documents, Tableur (ruban), Présentations, PDF, Détecteur, Drive, gestionnaire de polices, cette documentation |
+
+Les éditeurs sont traduits progressivement. Une chaîne qui manque en anglais
+s'affiche en français, jamais vide.
+
+#### Pour les contributeurs
+
+Les textes sont dans `web-studio/src/i18n/messages/fr` et `en`. Le français est la
+référence : un test échoue si une clé manque en anglais. Voir « Contribution et
+développement ».
+
+### Limites connues de la langue
+
+- Seuls le français et l'anglais existent.
+- La documentation et la plupart des éditeurs ne sont pas traduits.

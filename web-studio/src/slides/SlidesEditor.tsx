@@ -1808,7 +1808,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <h3 className="sv-settings__label">
                 <Palette size={14} /> Fond de cette diapo
               </h3>
-              <button className="eb eb--sm eb--ghost" onClick={() => applyBg(undefined)}>
+              <button className="eb eb--sm eb--outline" onClick={() => applyBg(undefined)}>
                 Aucun (thème)
               </button>
               <div className="sv-bg-label">Couleur unie</div>
@@ -1876,7 +1876,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           onClose={() => setTsvOpen(false)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setTsvOpen(false)}>
+              <Button variant="outline" onClick={() => setTsvOpen(false)}>
                 Annuler
               </Button>
               <Button onClick={applyTsv}>Utiliser ces données</Button>
@@ -1945,7 +1945,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           const atStart = nextPlayable(deck.slides, presentIdx, -1) === null && presentStep === 0;
           const atEnd = nextPlayable(deck.slides, presentIdx, 1) === null && presentStep >= steps;
           const presentScale =
-            (typeof window !== "undefined" ? (Math.min(window.innerWidth * 0.9, 1100) * 9) / 16 : 620) / REF_H;
+            (typeof window !== "undefined"
+              ? (Math.min(window.innerWidth * 0.92, 1100, window.innerHeight * 0.92 * (16 / 9)) * 9) / 16
+              : 620) / REF_H;
           const morphing = morphFrom != null && !!deck.slides[morphFrom];
           return (
             <div className="present-overlay">

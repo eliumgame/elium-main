@@ -25,7 +25,7 @@ export default function DiagramDialog({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
           <Button

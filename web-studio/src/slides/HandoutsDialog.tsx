@@ -52,7 +52,7 @@ export default function HandoutsDialog({ deck, title, onClose }: { deck: Deck; t
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
           <Button onClick={run} disabled={!!busy || plan.pages.length === 0}>
@@ -67,10 +67,10 @@ export default function HandoutsDialog({ deck, title, onClose }: { deck: Deck; t
             {plan.keep.length} diapositive{plan.keep.length > 1 ? "s" : ""} → {plan.pages.length} page
             {plan.pages.length > 1 ? "s" : ""}
           </p>
-          <label className="settings__row">
-            Mise en page
+          <label className="field">
+            <span className="field__label">Mise en page</span>
             <select
-              className="settings__input"
+              className="settings__select"
               value={String(o.mode)}
               onChange={(e) =>
                 set({ mode: e.target.value === "notes" ? "notes" : (Number(e.target.value) as HandoutMode) })
@@ -84,10 +84,10 @@ export default function HandoutsDialog({ deck, title, onClose }: { deck: Deck; t
             </select>
           </label>
           {o.mode !== "notes" && (
-            <label className="settings__row">
-              Orientation
+            <label className="field">
+              <span className="field__label">Orientation</span>
               <select
-                className="settings__input"
+                className="settings__select"
                 value={o.orientation ?? "portrait"}
                 onChange={(e) => set({ orientation: e.target.value as "portrait" | "landscape" })}
               >
@@ -108,21 +108,17 @@ export default function HandoutsDialog({ deck, title, onClose }: { deck: Deck; t
             <input type="checkbox" checked={o.frame} onChange={(e) => set({ frame: e.target.checked })} />
             <span>Cadre autour des diapositives</span>
           </label>
-          <label className="settings__row">
-            En-tête ({"{titre}"}, {"{date}"})
-            <input
-              className="settings__input"
-              value={o.header ?? ""}
-              onChange={(e) => set({ header: e.target.value })}
-            />
+          <label className="field">
+            <span className="field__label">
+              En-tête ({"{titre}"}, {"{date}"})
+            </span>
+            <input className="input" value={o.header ?? ""} onChange={(e) => set({ header: e.target.value })} />
           </label>
-          <label className="settings__row">
-            Pied de page ({"{page}"}, {"{pages}"})
-            <input
-              className="settings__input"
-              value={o.footer ?? ""}
-              onChange={(e) => set({ footer: e.target.value })}
-            />
+          <label className="field">
+            <span className="field__label">
+              Pied de page ({"{page}"}, {"{pages}"})
+            </span>
+            <input className="input" value={o.footer ?? ""} onChange={(e) => set({ footer: e.target.value })} />
           </label>
         </section>
       </div>

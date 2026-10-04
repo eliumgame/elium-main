@@ -1,12 +1,16 @@
 /* --- Trieuse de diapositives ------------------------------------------------ */
 .sorter {
   position: relative;
-  height: min(72vh, 760px);
+  /* Hauteur au contenu (plus de grand vide pour 1-2 diapos), bornée à la fenêtre ;
+     en plein écran mobile la Modal lui donne tout l'espace restant. */
+  min-height: 300px;
+  max-height: calc(92vh - 150px);
   display: flex;
   flex-direction: column;
   background: var(--surface, #fff);
 }
 .sorter__bar {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -19,6 +23,7 @@
 }
 .sorter__hint {
   flex: 1;
+  min-width: 0;
   color: var(--text-muted, #64748b);
   font-size: 12px;
 }
@@ -64,12 +69,12 @@
   font-size: 12px;
 }
 .sorter__grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 14px;
 }
 .sorter__item {
-  width: 200px;
+  min-width: 0;
   border-radius: 8px;
   padding: 4px;
   border: 2px solid transparent;
@@ -116,7 +121,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 200px;
   min-height: 112px;
   border: 2px dashed var(--border);
   border-radius: 8px;

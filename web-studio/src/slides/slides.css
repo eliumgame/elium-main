@@ -651,8 +651,8 @@
   padding: 8px;
 }
 .sv-gallery-pop--shapes {
-  grid-template-columns: repeat(4, 1fr);
-  width: 212px;
+  grid-template-columns: repeat(4, 68px);
+  width: auto;
 }
 .sv-gallery-pop--charts {
   grid-template-columns: repeat(3, 1fr);
@@ -1097,6 +1097,13 @@
 }
 
 /* --- Presenter ------------------------------------------------------------ */
+.present-stage .sv-present-canvas {
+  /* Même largeur que le calcul de `presentScale` (SlidesEditor) : 92 % de la
+     fenêtre, 1100 px au plus, et jamais plus haut que l'écran. Avant : 1180 px
+     dans une scène de 1100 px (décalée de 40 px à droite, texte trop petit). */
+  width: min(100%, calc(92vh * 16 / 9));
+  margin-inline: auto;
+}
 .sv-present-canvas {
   position: relative;
   width: min(92vw, 1180px);
@@ -1481,7 +1488,6 @@
   font-weight: 700;
   color: var(--text-soft);
 }
-.sv-theme-row,
 .sv-pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -1525,4 +1531,29 @@
 /* Contenu de la Trieuse : les en-têtes de section restent lisibles en dark */
 .sorter__sechead {
   color: var(--text);
+}
+
+.slides-app .eb svg,
+.slides-app .icon-btn svg {
+  flex: none;
+}
+.sv-settings__section > .eb {
+  align-self: flex-start;
+}
+/* Champs numériques / cases de la barre contextuelle (fusion de cellules, média…) */
+.slides-app .sv-toolbar :is(.sv-tbl-merge, .sv-media-bar) input[type="number"] {
+  height: 28px;
+  padding: 0 4px;
+  background: var(--x-chrome);
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius-sm);
+  color: var(--x-chrome-text);
+  font-size: 12.5px;
+}
+.sv-toolbar input[type="checkbox"] {
+  accent-color: var(--x-accent);
+}
+.sv-toolbar .sv-media-bar,
+.sv-toolbar .sv-media-bar label {
+  color: var(--x-chrome-soft);
 }

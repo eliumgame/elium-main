@@ -55,10 +55,10 @@ export default function MasterEditor({
       wide
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button variant="ghost" onClick={() => setM(defaultMaster())}>
+          <Button variant="outline" onClick={() => setM(defaultMaster())}>
             Rétablir le masque par défaut
           </Button>
           <Button

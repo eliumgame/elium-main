@@ -30,7 +30,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
 
-  <?define Version = "4.10.0" ?>
+  <?define Version = "4.10.1" ?>
   <?define Publisher = "Elium Authors" ?>
   <?define AppUrl = "https://github.com/eliumgame/elium-main" ?>
 

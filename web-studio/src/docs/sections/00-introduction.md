@@ -1,6 +1,6 @@
 # Documentation d'Elium
 
-> **Version courante : 4.10.0.** Cette page est la documentation officielle
+> **Version courante : 4.10.1.** Cette page est la documentation officielle
 > d'Elium. Elle est installée avec l'application : vous la lisez donc hors
 > connexion, dans la version exacte que vous utilisez.
 

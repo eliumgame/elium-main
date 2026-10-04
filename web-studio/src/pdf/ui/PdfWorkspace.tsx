@@ -1357,7 +1357,6 @@ export default function PdfWorkspace({
     const next = clamp(fitScale(view.zoomMode, box, viewport, { twoUp }), MIN_SCALE, fitCap);
     setView((v) => (v.zoomMode === "custom" || Math.abs(v.scale - next) <= 0.002 ? v : { ...v, scale: next }));
     // `fitNonce`: an explicit request re-fits even when the mode is unchanged.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.zoomMode, view.mode, viewport, pages, sizeOf, rotationOf, fitNonce]);
   useEffect(() => {
     applyFit();

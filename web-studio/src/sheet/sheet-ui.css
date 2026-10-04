@@ -168,21 +168,19 @@
   min-width: 0;
 }
 
-/* Bas de grille : le vide sous la dernière ligne devient une invitation. */
-.sheet-grow {
-  position: sticky;
-  left: 0;
+/* Agrandir la feuille : à droite de la barre d'onglets. */
+.sheet-tabs__grow {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: max-content;
-  max-width: 100%;
-  padding: 12px;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
 }
-.sheet-grow .elx-mini {
-  height: 32px;
-  padding: 0 12px;
+.sheet-tabs__grow .elx-mini {
+  height: 30px;
+  padding: 0 10px;
   font-size: 12.5px;
+  white-space: nowrap;
 }
 .sheet-grid-wrap {
   background: var(--el-surface-2);

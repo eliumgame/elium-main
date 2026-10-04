@@ -1555,16 +1555,6 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
               </tbody>
             </table>
           )}
-          {canWrite && store.growSheet && sheet && (
-            <div className="sheet-grow">
-              <button className="elx-mini" onClick={() => store.growSheet!(active, "rows", 10)}>
-                <Plus size={13} /> Ajouter 10 lignes
-              </button>
-              <button className="elx-mini" onClick={() => store.growSheet!(active, "cols", 4)}>
-                <Plus size={13} /> Ajouter 4 colonnes
-              </button>
-            </div>
-          )}
         </div>
         {sheet?.pivot && pivotPanelOpen && (
           <PivotPanel store={store} active={active} onClose={() => setPivotPanelOpen(false)} />
@@ -1649,6 +1639,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
           <button className="sheet-tab sheet-tab--add" onClick={removeActiveSheet} title="Supprimer la feuille">
             <Trash2 size={14} />
           </button>
+        )}
+        {canWrite && store.growSheet && (
+          <span className="sheet-tabs__grow">
+            <button className="elx-mini" onClick={() => store.growSheet!(active, "rows", 10)} title="Ajouter 10 lignes">
+              <Plus size={13} /> 10 lignes
+            </button>
+            <button className="elx-mini" onClick={() => store.growSheet!(active, "cols", 4)} title="Ajouter 4 colonnes">
+              <Plus size={13} /> 4 colonnes
+            </button>
+          </span>
         )}
       </div>
 

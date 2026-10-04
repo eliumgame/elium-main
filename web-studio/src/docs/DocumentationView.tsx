@@ -8,7 +8,7 @@
  * les jetons `--el-*` de la charte.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Home, Search, BookOpen, ChevronRight } from "lucide-react";
+import { Home, Search, BookOpen, ChevronRight, ListTree, X } from "lucide-react";
 import { DOCUMENTATION_MD } from "./documentation";
 import "./documentation.css";
 
@@ -41,10 +41,12 @@ function inline(text: string, key: string): ReactNode[] {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const t = m[0];
+    // Gras / italique : leur contenu est rendu récursivement (un `code` à
+    // l'intérieur d'un **gras** ne doit pas garder ses accents graves).
     if (t.startsWith("`")) out.push(<code key={key + i}>{t.slice(1, -1)}</code>);
-    else if (t.startsWith("**")) out.push(<strong key={key + i}>{t.slice(2, -2)}</strong>);
-    else if (t.startsWith("*")) out.push(<em key={key + i}>{t.slice(1, -1)}</em>);
-    else if (t.startsWith("_")) out.push(<em key={key + i}>{t.slice(1, -1)}</em>);
+    else if (t.startsWith("**")) out.push(<strong key={key + i}>{inline(t.slice(2, -2), `${key}${i}s`)}</strong>);
+    else if (t.startsWith("*")) out.push(<em key={key + i}>{inline(t.slice(1, -1), `${key}${i}e`)}</em>);
+    else if (t.startsWith("_")) out.push(<em key={key + i}>{inline(t.slice(1, -1), `${key}${i}e`)}</em>);
     else {
       const lm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!;
       const href = lm[2]!;
@@ -60,6 +62,14 @@ function inline(text: string, key: string): ReactNode[] {
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** Texte brut d'un titre pour le sommaire : sans accents graves ni marqueurs. */
+function plain(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+?)\*\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 }
 
 interface Parsed {
@@ -96,7 +106,7 @@ function parseMarkdown(md: string): Parsed {
       const level = h[1]!.length;
       const text = h[2]!.trim();
       const id = slug(text);
-      if (level === 2 || level === 3) toc.push({ id, text, level });
+      if (level === 2 || level === 3) toc.push({ id, text: plain(text), level });
       const Tag = `h${Math.min(level, 4)}` as "h1" | "h2" | "h3" | "h4";
       blocks.push(
         <Tag key={key()} id={id} className={`doc-h doc-h${level}`}>
@@ -264,6 +274,8 @@ export default function DocumentationView({ onHome }: { onHome: () => void }) {
   const { blocks, toc } = useMemo(() => parseMarkdown(DOCUMENTATION_MD), []);
   const [q, setQ] = useState("");
   const [activeId, setActiveId] = useState("");
+  // Sous 860 px le sommaire devient un tiroir (ouvert depuis la barre du haut).
+  const [drawer, setDrawer] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Arbre du sommaire : chaque H2 porte ses H3 (repliés sauf section active).
@@ -285,6 +297,7 @@ export default function DocumentationView({ onHome }: { onHome: () => void }) {
   const jump = (id: string) => {
     bodyRef.current?.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
     setActiveId(id);
+    setDrawer(false);
   };
 
   // Scroll-spy : surligne (et déplie) la section réellement à l'écran.
@@ -306,6 +319,15 @@ export default function DocumentationView({ onHome }: { onHome: () => void }) {
     return () => body.removeEventListener("scroll", onScroll);
   }, [blocks]);
 
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawer(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer]);
+
   const docTitle = useMemo(() => (/^#\s+(.*)$/m.exec(DOCUMENTATION_MD)?.[1] ?? "Documentation Elium").trim(), []);
   useEffect(() => {
     document.title = `${docTitle} — Elium`;
@@ -313,9 +335,33 @@ export default function DocumentationView({ onHome }: { onHome: () => void }) {
 
   return (
     <div className="doc-page">
-      <aside className="doc-toc">
+      <div className="doc-topbar">
+        <button
+          type="button"
+          className="eb eb--sm eb--outline"
+          aria-expanded={drawer}
+          aria-controls="doc-toc"
+          onClick={() => setDrawer(true)}
+        >
+          <ListTree size={15} /> Sommaire
+        </button>
+        <span className="doc-topbar__title">Documentation</span>
+        <button type="button" className="eb eb--sm eb--ghost" onClick={onHome}>
+          <Home size={15} /> Accueil
+        </button>
+      </div>
+      {drawer && <div className="doc-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
+      <aside id="doc-toc" className={`doc-toc ${drawer ? "is-open" : ""}`} aria-label="Sommaire">
         <div className="doc-toc__brand">
           <BookOpen size={18} /> <span>Documentation</span>
+          <button
+            type="button"
+            className="eb eb--sm eb--ghost doc-toc__close"
+            aria-label="Fermer le sommaire"
+            onClick={() => setDrawer(false)}
+          >
+            <X size={16} />
+          </button>
         </div>
         <label className="doc-search">
           <Search size={15} />

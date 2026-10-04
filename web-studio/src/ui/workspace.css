@@ -3537,14 +3537,36 @@
 
 /* Gestionnaire de polices */
 .fontdrop {
-  border: 1.5px dashed var(--el-border, #cbd5e1);
-  border-radius: var(--el-radius-lg, 12px);
+  border: 1.5px dashed var(--el-border-strong);
+  border-radius: var(--el-radius-lg);
   padding: 14px 16px;
   margin-bottom: 10px;
 }
 .fontdrop--over {
-  border-color: var(--el-primary, #1d4ed8);
-  background: var(--el-primary-50, #eff6ff);
+  border-color: var(--el-primary);
+  background: var(--el-primary-50);
+}
+.fontdrop {
+  background: var(--el-surface-2);
+  padding: 16px;
+}
+.fontdrop__text {
+  margin: 0 0 14px;
+  line-height: 1.55;
+}
+/* Trois actions de même gabarit : la principale en plein, les autres en
+   contour ; elles se répartissent la largeur au lieu de se casser en deux
+   lignes inégales. */
+.fontdrop__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+.fontdrop__actions .eb {
+  justify-content: center;
+  min-height: 34px;
+  white-space: normal;
+  text-align: center;
 }
 .fontlist {
   max-height: 240px;
@@ -3564,7 +3586,7 @@
 }
 .fontcard {
   padding: 8px 2px;
-  border-bottom: 1px solid var(--el-border, #e2e8f0);
+  border-bottom: 1px solid var(--el-border);
 }
 .fontcard__head {
   display: flex;

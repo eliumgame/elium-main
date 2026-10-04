@@ -186,10 +186,11 @@
   flex-shrink: 0;
   margin-top: 1px;
 }
+/* « info » = bleu de marque (le cyan sortait de la palette Elium). */
 .alert--info {
-  background: var(--info-bg);
-  color: var(--info);
-  border-color: var(--info);
+  background: var(--el-primary-50);
+  color: var(--el-primary-text);
+  border-color: color-mix(in srgb, var(--el-primary) 38%, transparent);
 }
 .alert--success {
   background: var(--success-bg);

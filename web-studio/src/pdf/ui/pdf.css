@@ -514,7 +514,7 @@
      quand la barre de défilement apparaît (pas de saut du centrage, zoom
      « Largeur » stable). */
   scrollbar-gutter: stable;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-color: color-mix(in srgb, var(--x-chrome-text) 30%, transparent) transparent;
   /* Taille indépendante du contenu : sans cela, une page plus large que la
      fenêtre élargissait le canevas, donc le zoom « Largeur », donc la page…
      (boucle qui menait à 1000 % sur mixed-geometry.pdf). */
@@ -533,13 +533,13 @@
   height: 12px;
 }
 .pdfx-canvas::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--x-chrome-text) 28%, transparent);
   border-radius: 6px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 .pdfx-canvas::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: color-mix(in srgb, var(--x-chrome-text) 42%, transparent);
   background-clip: content-box;
 }
 
@@ -1394,7 +1394,7 @@
     transform var(--el-motion-fast);
 }
 .pdfx-org__cell:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--x-accent-soft);
 }
 .pdfx-org__cell.is-selected {
   border-color: var(--x-accent);
@@ -3338,7 +3338,7 @@
   border-color: var(--x-accent-line);
 }
 .pdfx-ctxmenu .pdfx-menu__item.is-danger {
-  color: #fca5a5;
+  color: var(--x-danger);
 }
 .pdfx-ctxmenu__noicon {
   width: 14px;
@@ -3358,7 +3358,7 @@
   background: var(--x-chrome-2);
 }
 .pdfx-zoombox:focus-within {
-  border-color: #93c5fd;
+  border-color: var(--x-accent);
 }
 .pdfx-zoombox__input {
   width: 64px;
@@ -3420,7 +3420,7 @@
   left: 6px;
   z-index: 80;
   padding: 6px 12px;
-  border: 2px solid #93c5fd;
+  border: 2px solid var(--x-accent);
   border-radius: var(--x-radius-sm);
   background: var(--x-chrome);
   color: var(--x-chrome-text);
@@ -3455,7 +3455,7 @@
   padding: 6px 12px;
   border: 1px solid var(--x-chrome-line);
   border-radius: 999px;
-  background: rgba(27, 31, 39, 0.85);
+  background: color-mix(in srgb, var(--x-chrome) 88%, transparent);
   color: var(--x-chrome-text);
   font-size: 12px;
   cursor: pointer;

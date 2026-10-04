@@ -909,7 +909,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         {canWrite && store.replaceWorkbook && (
           <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={onImportFile} />
         )}
-        <div className="sheet-bar__more">
+        <div
+          className="sheet-bar__more"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setMoreOpen(false);
+          }}
+        >
           <button
             type="button"
             className="eb eb--sm eb--outline sheet-bar__more-btn"
@@ -930,9 +935,6 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 role="menu"
                 aria-label="Plus d'actions"
                 onClick={() => setMoreOpen(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setMoreOpen(false);
-                }}
               >
                 {canWrite && store.replaceWorkbook && (
                   <button

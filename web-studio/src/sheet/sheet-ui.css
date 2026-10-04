@@ -469,3 +469,57 @@
     height: 14px;
   }
 }
+
+/* Volet du tableau croisé : champs calculés aérés, bouton « Actualiser » toujours visible. */
+.pivotpanel__calc {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px 10px;
+  gap: 8px;
+}
+.pivotpanel__calc legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--x-mute);
+}
+.pivotpanel__calc li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pivotpanel .elx-mini {
+  height: auto;
+  padding: 0 12px;
+  font-size: 12.5px;
+  justify-content: center;
+}
+.pivotpanel__actions {
+  position: sticky;
+  bottom: -10px;
+  margin: 0 -12px -10px;
+  padding: 10px 12px;
+  background: var(--el-surface);
+  border-top: 1px solid var(--x-line);
+}
+.pivotpanel .dcx-field {
+  gap: 4px;
+}
+.pivotpanel .dcx-field > select {
+  width: 100%;
+}
+
+/* Un graphique dont on règle les options s'élargit : le panneau d'options a besoin de colonnes. */
+.sheet-chart:has(.chartopt) {
+  width: min(760px, 100%);
+}
+.sheet-chart .chart-svg {
+  max-height: 300px;
+}
+.sheet-modal textarea {
+  min-height: 72px;
+}

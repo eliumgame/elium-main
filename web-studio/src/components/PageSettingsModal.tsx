@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Modal, Button, Field } from "../ui/components";
 import type { PageSettings } from "../format/types";
+import { DEFAULT_BORDER, DEFAULT_LINE_NUMBERING, normalizeBackground, type PageBorder } from "../editor/pageDecor";
 import {
   DEFAULT_CUSTOM_MM,
   MAX_PAGE_MM,
@@ -195,6 +196,108 @@ export default function PageSettingsModal({ page, onUpdate, onClose }: PageSetti
             />
             <span>Afficher les numéros de page (à l'impression / export PDF)</span>
           </label>
+        </section>
+
+        <section className="settings__section">
+          <h3 className="settings__title">Apparence de la page</h3>
+          <Field label="Couleur de fond">
+            <div className="checkbox-row">
+              <input
+                type="color"
+                aria-label="Couleur de fond de la page"
+                value={normalizeBackground(page.background) ?? "#ffffff"}
+                onChange={(e) => onUpdate({ background: e.target.value })}
+              />
+              <Button variant="ghost" onClick={() => onUpdate({ background: undefined })} disabled={!page.background}>
+                Aucune
+              </Button>
+            </div>
+          </Field>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={!!page.pageBorder}
+              onChange={(e) => onUpdate({ pageBorder: e.target.checked ? { ...DEFAULT_BORDER } : undefined })}
+            />
+            <span>Bordure de page</span>
+          </label>
+          {page.pageBorder && (
+            <div className="settings__grid">
+              <Field label="Style">
+                <select
+                  className="settings__input"
+                  value={page.pageBorder.style}
+                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, style: e.target.value as PageBorder["style"] } })}
+                >
+                  <option value="solid">Trait plein</option>
+                  <option value="double">Double</option>
+                  <option value="dashed">Tirets</option>
+                  <option value="dotted">Pointillés</option>
+                </select>
+              </Field>
+              <Field label="Épaisseur (pt)">
+                <input
+                  className="settings__input"
+                  type="number"
+                  min={0.25}
+                  max={12}
+                  step={0.25}
+                  value={page.pageBorder.widthPt}
+                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, widthPt: Number(e.target.value) || 1 } })}
+                />
+              </Field>
+              <Field label="Couleur">
+                <input
+                  type="color"
+                  aria-label="Couleur de la bordure"
+                  value={page.pageBorder.color}
+                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, color: e.target.value } })}
+                />
+              </Field>
+              <Field label="Distance du bord (mm)">
+                <input
+                  className="settings__input"
+                  type="number"
+                  min={2}
+                  max={30}
+                  value={page.pageBorder.offsetMm}
+                  onChange={(e) => onUpdate({ pageBorder: { ...page.pageBorder!, offsetMm: Number(e.target.value) || 10 } })}
+                />
+              </Field>
+            </div>
+          )}
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={!!page.lineNumbers}
+              onChange={(e) => onUpdate({ lineNumbers: e.target.checked ? { ...DEFAULT_LINE_NUMBERING } : undefined })}
+            />
+            <span>Numéroter les lignes</span>
+          </label>
+          {page.lineNumbers && (
+            <div className="settings__grid">
+              <Field label="Numérotation">
+                <select
+                  className="settings__input"
+                  value={page.lineNumbers.mode}
+                  onChange={(e) => onUpdate({ lineNumbers: { ...page.lineNumbers!, mode: e.target.value as "continuous" | "page" } })}
+                >
+                  <option value="continuous">Continue</option>
+                  <option value="page">Redémarrer à chaque page</option>
+                </select>
+              </Field>
+              <Field label="Afficher un numéro toutes les">
+                <input
+                  className="settings__input"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={page.lineNumbers.step}
+                  onChange={(e) => onUpdate({ lineNumbers: { ...page.lineNumbers!, step: Math.max(1, Math.round(Number(e.target.value) || 1)) } })}
+                />
+              </Field>
+            </div>
+          )}
         </section>
 
         <section className="settings__section">

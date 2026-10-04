@@ -67,6 +67,12 @@ export interface PageSettings {
    * antérieurs : `normalizeGrid(undefined)` rend les valeurs par défaut.
    */
   grid?: GridSettings;
+  /** Couleur de fond de la page (#rrggbb). */
+  background?: string;
+  /** Bordure de page (voir editor/pageDecor.ts). */
+  pageBorder?: { style: "solid" | "double" | "dashed" | "dotted"; widthPt: number; color: string; offsetMm: number };
+  /** Numérotation des lignes (voir editor/pageDecor.ts). */
+  lineNumbers?: { mode: "continuous" | "page"; step: number };
 }
 
 /**

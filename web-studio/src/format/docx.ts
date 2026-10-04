@@ -37,6 +37,7 @@ import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornament
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
 import { chartDataOf } from "../editor/chartData";
+import { backgroundXml, borderFromOoxml, displayBackgroundXml, lineNumberingFromOoxml, lnNumTypeXml, normalizeBackground, normalizeBorder, normalizeLineNumbering, pgBordersXml } from "../editor/pageDecor";
 import { BIBLIOGRAPHY_TITLES, type CitationStyle, type RefPart } from "../editor/citations";
 import { chartSpaceXml, readChartOptions, C_NS as CHART_NS } from "../sheet/chart-ooxml";
 import { readChartData } from "../sheet/chart-read";
@@ -1084,6 +1085,7 @@ function settingsXml(page: PageSettings | undefined): string {
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     `<w:settings ${NS}>` +
     '<w:zoom w:percent="100"/>' +
+    displayBackgroundXml(normalizeBackground(page?.background)) +
     '<w:defaultTabStop w:val="709"/>' +
     gridSettingsXml(grid) +
     '<w:characterSpacingControl w:val="compressPunctuation"/>' +
@@ -1121,6 +1123,8 @@ function sectPrBody(
     type +
     `<w:pgSz w:w="${pw}" w:h="${ph}"${landscape ? ' w:orient="landscape"' : ""}/>` +
     `<w:pgMar w:top="${tw(mg.top)}" w:right="${tw(mg.right)}" w:bottom="${tw(mg.bottom)}" w:left="${tw(mg.left)}" w:header="709" w:footer="709" w:gutter="0"/>` +
+    pgBordersXml(normalizeBorder(page?.pageBorder)) +
+    lnNumTypeXml(normalizeLineNumbering(page?.lineNumbers)) +
     pgNum
   );
 }
@@ -1245,7 +1249,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
   // Page setup of the LAST section (format/orientation/margins/numbering).
   const sectPr = sectPrFor("");
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document ${NS}><w:body>${titleP}${bodyInner}${notesXml}${sectPr}</w:body></w:document>`;
+<w:document ${NS}>${backgroundXml(normalizeBackground(page?.background))}<w:body>${titleP}${bodyInner}${notesXml}${sectPr}</w:body></w:document>`;
 
   // Les parties de notes sont déclarées avant les autres relations, pour que
   // leurs rId restent stables d'un export à l'autre.
@@ -2426,6 +2430,15 @@ function readPage(zip: Record<string, Uint8Array>, rels: Record<string, string>,
     const raw = zip[path];
     return raw ? headerFooterText(strFromU8(raw)) : null;
   };
+  const pgB = firstChild(sectPr, "w:pgBorders");
+  const bTop = pgB ? firstChild(pgB, "w:top") : undefined;
+  const border = borderFromOoxml(
+    bTop ? { val: bTop.attrs["w:val"], sz: bTop.attrs["w:sz"], space: bTop.attrs["w:space"], color: bTop.attrs["w:color"] } : undefined,
+  );
+  if (border) page.pageBorder = border;
+  const ln = firstChild(sectPr, "w:lnNumType");
+  const lines = lineNumberingFromOoxml(ln ? { countBy: ln.attrs["w:countBy"], restart: ln.attrs["w:restart"] } : undefined);
+  if (lines) page.lineNumbers = lines;
   const hd = part("header");
   if (hd?.text) page.header = hd.text;
   const ft = part("footer");
@@ -2574,6 +2587,9 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
 
   const finalSect = body ? children(body, "w:sectPr")[0] : undefined;
   const page = readPage(zip, rels, finalSect);
+  const bgColor = firstDescendant(root, "w:background")?.attrs["w:color"];
+  const bgNorm = bgColor && /^[0-9a-f]{6}$/i.test(bgColor) ? normalizeBackground(`#${bgColor}`) : undefined;
+  if (bgNorm && bgNorm !== "#ffffff") page.background = bgNorm;
   return {
     title,
     doc: { type: "doc", content: content.length ? content : [{ type: "paragraph" }] },

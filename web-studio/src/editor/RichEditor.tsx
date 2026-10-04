@@ -34,6 +34,9 @@ import { onEquationEditRequest, type EquationEditRequest } from "./equationExten
 import { onChartEditRequest, type ChartEditRequest } from "./chartExtension";
 import ChartModal from "./ChartModal";
 import SourcesModal from "./SourcesModal";
+import "./page-decor.css";
+import { PageBorders, LineNumbers } from "./PageDecorLayers";
+import { normalizeBackground, normalizeBorder, normalizeLineNumbering } from "./pageDecor";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -607,6 +610,10 @@ export default function RichEditor({
                     watermarkCss(documentModel.watermark as never, pageWidthMm, pageHeightMm) || undefined,
                   backgroundRepeat: "repeat-y",
                   backgroundPosition: "top center",
+                  // Couleur de fond de la page (réglage de page) ; sections mixtes : portée par chaque feuille.
+                  ...(normalizeBackground(page.background) && !mixedGeometry
+                    ? { backgroundColor: normalizeBackground(page.background) }
+                    : {}),
                 }}
               >
                 {/* Mixed sections: the container is transparent and each page is drawn
@@ -625,6 +632,7 @@ export default function RichEditor({
                             top: `${p.top}px`,
                             height: `${p.height}px`,
                             width: `${g.widthMm}mm`,
+                            ...(normalizeBackground(page.background) ? { background: normalizeBackground(page.background) } : {}),
                             left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
                           }}
                         />
@@ -644,6 +652,19 @@ export default function RichEditor({
                       backgroundPosition: gridLayer.backgroundPosition,
                       backgroundSize: gridLayer.backgroundSize,
                     }}
+                  />
+                )}
+                {normalizeBorder(page.pageBorder) && (
+                  <PageBorders border={normalizeBorder(page.pageBorder)!} pages={plan?.pages ?? null} widthMm={pageWidthMm} />
+                )}
+                {editor && normalizeLineNumbering(page.lineNumbers) && (
+                  <LineNumbers
+                    editor={editor}
+                    pageRef={pageRef}
+                    cfg={normalizeLineNumbering(page.lineNumbers)!}
+                    pages={plan?.pages ?? null}
+                    zoom={zoom}
+                    marginLeftPx={baseMargins.left * CSS_PX_PER_MM}
                   />
                 )}
                 {/* Header/footer of the FIRST section (the sheet the reader starts on);

@@ -1,0 +1,32 @@
+.elium-pageborders {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+.elium-pageborder {
+  position: absolute;
+  box-sizing: border-box;
+}
+.elium-linenos {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.elium-lineno {
+  position: absolute;
+  width: 26px;
+  text-align: right;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-muted, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
+@media print {
+  .elium-linenos {
+    display: block;
+  }
+}

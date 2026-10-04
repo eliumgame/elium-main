@@ -242,6 +242,7 @@ import {
   type ZoomMode,
 } from "./state";
 import { CombineDialog, type CombineItem } from "./CombineDialog";
+import { BatchMarksDialog } from "./BatchMarksDialog";
 import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
 import { reportError } from "../../ui/crash-log";
@@ -268,6 +269,7 @@ type DialogId =
   | "compare"
   | "insert"
   | "combine"
+  | "batchMarks"
   | "redactSearch"
   | "identities"
   | "initials"
@@ -5295,6 +5297,9 @@ export default function PdfWorkspace({
               <button className="eb eb--outline eb--md" onClick={() => setDialog("combine")} disabled={loading}>
                 Combiner des fichiers
               </button>
+              <button className="eb eb--outline eb--md" onClick={() => setDialog("batchMarks")} disabled={loading}>
+                Bates / en-têtes en lot
+              </button>
               <button className="eb eb--outline eb--md" onClick={() => void createFromClipboard()} disabled={loading}>
                 Depuis le presse-papiers
               </button>
@@ -5380,6 +5385,7 @@ export default function PdfWorkspace({
         {dialog === "combine" && (
           <CombineDialog onClose={() => setDialog(null)} onConfirm={(items, o) => void combineFiles(items, o)} />
         )}
+        {dialog === "batchMarks" && <BatchMarksDialog onClose={() => setDialog(null)} />}
       </div>
     );
   }

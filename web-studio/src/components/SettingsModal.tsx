@@ -1,4 +1,5 @@
 import { useState } from "react";
+import FontManager from "./FontManager";
 import {
   Sun,
   Moon,
@@ -12,6 +13,7 @@ import {
   Unlock,
   UserPlus,
   BookUser,
+  Type,
 } from "lucide-react";
 import { Modal, Button, Field, Alert, Badge } from "../ui/components";
 import type { Theme } from "../ui/theme";
@@ -46,6 +48,7 @@ export interface SettingsProps {
 
 export default function SettingsModal(p: SettingsProps) {
   const { confirm } = useDialogs();
+  const [fontsOpen, setFontsOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newKey, setNewKey] = useState("");
   const canAdd = /^[0-9a-fA-F]{64}$/.test(newKey.trim());
@@ -56,6 +59,9 @@ export default function SettingsModal(p: SettingsProps) {
     setNewName("");
     setNewKey("");
   };
+
+  // Une seule fenêtre modale à la fois (piège de focus) : le gestionnaire remplace les réglages le temps de l'utiliser.
+  if (fontsOpen) return <FontManager onClose={() => setFontsOpen(false)} />;
 
   return (
     <Modal title="Paramètres" onClose={p.onClose} footer={<Button onClick={p.onClose}>Fermer</Button>}>
@@ -228,6 +234,21 @@ export default function SettingsModal(p: SettingsProps) {
               </Button>
             </div>
           )}
+        </section>
+
+        <section className="settings__section">
+          <h3 className="settings__title">
+            <Type size={15} /> Polices
+          </h3>
+          <p className="muted">
+            Ajoutez vos propres polices (TTF, OTF, WOFF, WOFF2) ou celles installées sur cet ordinateur : elles sont conservées
+            et proposées dans tous les sélecteurs de police.
+          </p>
+          <div className="settings__row">
+            <Button variant="outline" size="sm" onClick={() => setFontsOpen(true)}>
+              <Type size={14} /> Gérer les polices…
+            </Button>
+          </div>
         </section>
 
         <section className="settings__section">

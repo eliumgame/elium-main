@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useFontsVersion } from "../../ui/useFonts";
 import {
   DYNAMIC_STAMPS,
   STANDARD_STAMPS,
@@ -353,6 +354,7 @@ function Swatches({
 }
 
 export default function Ribbon(p: RibbonProps) {
+  useFontsVersion(); // re-rend quand une police personnelle est ajoutée/retirée
   const fontRef = useRef<HTMLSelectElement>(null);
   const T = (tool: Tool) => () => p.onTool(tool);
   const C = (id: string) => () => p.onCommand(id);

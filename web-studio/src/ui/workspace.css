@@ -3533,3 +3533,50 @@
     height: 30px;
   }
 }
+
+/* Gestionnaire de polices */
+.fontdrop {
+  border: 1.5px dashed var(--el-border, #cbd5e1);
+  border-radius: var(--el-radius-lg, 12px);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.fontdrop--over {
+  border-color: var(--el-primary, #1d4ed8);
+  background: var(--el-primary-50, #eff6ff);
+}
+.fontlist {
+  max-height: 240px;
+  overflow: auto;
+  margin: 8px 0;
+}
+.fontlist--cards {
+  list-style: none;
+  padding: 0;
+  max-height: 360px;
+}
+.fontlist__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 2px;
+}
+.fontcard {
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--el-border, #e2e8f0);
+}
+.fontcard__head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.fontcard__head strong {
+  flex: 1;
+  min-width: 0;
+}
+.fontcard__sample {
+  font-size: 18px;
+  line-height: 1.35;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}

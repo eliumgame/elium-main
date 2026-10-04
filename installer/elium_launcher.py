@@ -588,6 +588,93 @@ def _tsa_forward(url: str, body: bytes) -> bytes:
     return _tsa_send(target, body)
 
 
+# --------------------------------------------------------------------------- #
+# Relais « polices en ligne » (OPTIONNEL, déclenché par l'utilisateur dans le
+# Gestionnaire de polices). La CSP interdit à la page tout accès réseau externe
+# (connect-src 'self') : le lanceur télécharge à sa place, mais UNIQUEMENT sur
+# une liste blanche fermée (catalogue Fontsource + son CDN), en https, sans
+# suivre de redirection, vers une IP publique vérifiée, avec une taille bornée.
+# --------------------------------------------------------------------------- #
+_FONT_HOSTS = {
+    "api.fontsource.org": ("/v1/fonts",),
+    "cdn.jsdelivr.net": ("/fontsource/fonts/",),
+}
+_FONT_EXTENSIONS = (".woff2", ".woff", ".ttf", ".otf")
+_FONT_MAX_BYTES = 25 * 1024 * 1024
+_FONT_TIMEOUT_S = 20
+_FONT_RATE_MAX_CALLS = 40
+_font_rate_hits: "list[float]" = []
+
+
+def _font_url_allowed(url: str) -> bool:
+    """True si `url` est exactement un endpoint de catalogue ou un fichier de police
+    de la liste blanche (https, hôte fixe, pas d'identifiants, de port ni de requête)."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    if parts.scheme != "https" or port is not None or parts.username or parts.password:
+        return False
+    if parts.query or parts.fragment or "\\" in url:
+        return False
+    prefixes = _FONT_HOSTS.get(parts.hostname or "")
+    path = parts.path
+    if not prefixes or any(seg in ("..", ".") for seg in path.split("/")):
+        return False
+    if not any(path.startswith(p) for p in prefixes):
+        return False
+    if parts.hostname == "cdn.jsdelivr.net" and not path.lower().endswith(_FONT_EXTENSIONS):
+        return False
+    return True
+
+
+def _font_fetch(url: str) -> "tuple[bytes, str]":
+    """GET borné d'une URL déjà validée par _font_url_allowed. Renvoie (octets, type)."""
+    import http.client
+    import ssl
+
+    if not _font_url_allowed(url):
+        raise ValueError("adresse non autorisée")
+    problem, target = _tsa_resolve(url)  # IP publique vérifiée, résolue une seule fois
+    if problem or target is None:
+        raise ValueError(problem or "cible invalide")
+    _scheme, host, port, path, ip = target
+    sock = socket.create_connection((ip, port), timeout=_FONT_TIMEOUT_S)
+    try:
+        sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+    except BaseException:
+        sock.close()
+        raise
+    conn = http.client.HTTPSConnection(host, port, timeout=_FONT_TIMEOUT_S)
+    conn.sock = sock
+    try:
+        conn.request("GET", path, headers={"User-Agent": "Elium", "Accept": "*/*"})
+        res = conn.getresponse()
+        if res.status != 200:  # redirections comprises : jamais suivies
+            raise ValueError(f"HTTP {res.status}")
+        data = res.read(_FONT_MAX_BYTES + 1)
+        ctype = res.getheader("Content-Type") or "application/octet-stream"
+    finally:
+        conn.close()
+    if len(data) > _FONT_MAX_BYTES:
+        raise ValueError("fichier trop volumineux")
+    return data, ctype
+
+
+def _font_rate_limited() -> bool:
+    import time as _time
+
+    now = _time.monotonic()
+    with _rate_limit_lock:
+        while _font_rate_hits and now - _font_rate_hits[0] > _RATE_LIMIT_WINDOW_S:
+            _font_rate_hits.pop(0)
+        if len(_font_rate_hits) >= _FONT_RATE_MAX_CALLS:
+            return True
+        _font_rate_hits.append(now)
+        return False
+
+
 def _rate_limited() -> bool:
     import time as _time
 
@@ -1180,10 +1267,17 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         ):
             self.send_error(403, "Requête non autorisée (jeton de session ou origine invalide)")
             return
+        clean = self.path.split("?", 1)[0]
+        if clean == "/__fetch_font__":
+            # Limiteur dédié : télécharger une famille enchaîne plusieurs requêtes.
+            if _font_rate_limited():
+                self.send_error(429, "Trop de requêtes — patientez quelques secondes")
+                return
+            self._handle_font_relay()
+            return
         if _rate_limited():
             self.send_error(429, "Trop de requêtes — patientez quelques secondes")
             return
-        clean = self.path.split("?", 1)[0]
         if clean == "/__ports__/set":
             self._handle_set_port()
             return
@@ -1357,6 +1451,36 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             dest.unlink(missing_ok=True)
             status = {"state": "error"}
         self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+
+    def _handle_font_relay(self) -> None:
+        """POST {"url": …} → octets du catalogue / de la police (liste blanche fermée)."""
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if not 0 < length <= 2048:
+            self.send_error(400, "Demande invalide")
+            return
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(_FONT_TIMEOUT_S)
+        try:
+            body = self.rfile.read(length)
+            url = json.loads(body).get("url", "")
+        except (OSError, ValueError, AttributeError):
+            self.send_error(400, "Demande invalide")
+            return
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if not isinstance(url, str) or not _font_url_allowed(url):
+            self.send_error(403, "Adresse non autorisée")
+            return
+        try:
+            data, ctype = _font_fetch(url)
+        except Exception as e:  # réseau, HTTP, taille
+            _log_launcher(f"POST /__fetch_font__: {e}")
+            self.send_error(502, "Téléchargement impossible (hors ligne ?)")
+            return
+        self._serve_bytes(data, ctype)
 
     def _handle_set_port(self) -> None:
         """Épingle un port pour les PROCHAINS lancements (le serveur déjà lié sur

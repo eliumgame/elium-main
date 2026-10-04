@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFontsVersion } from "../ui/useFonts";
 import type { Editor } from "@tiptap/react";
 import { Modal, Button, Field } from "../ui/components";
 import { FONT_FAMILIES, FONT_SIZES } from "./typography";
@@ -16,6 +17,7 @@ const CASES: CaseMode[] = ["sentence", "lower", "upper", "title", "toggle"];
  * which matches how the ribbon behaves everywhere else in the app.
  */
 export default function FontDialog({ editor, onClose }: { editor: Editor; onClose: () => void }) {
+  useFontsVersion(); // re-rend quand une police personnelle est ajoutée/retirée
   // Re-read attributes after each command so the controls and preview stay live.
   const [tick, setTick] = useState(0);
   const bump = () => setTick((t) => t + 1);

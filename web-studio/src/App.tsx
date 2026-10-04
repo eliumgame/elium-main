@@ -226,6 +226,7 @@ export default function App() {
       "elium-parapheur",
       "elium-drafts",
       "elium-vault",
+      "elium-fonts",
     ]) {
       try {
         indexedDB.deleteDatabase(db);

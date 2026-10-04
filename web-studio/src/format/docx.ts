@@ -27,7 +27,7 @@ import { abstractNumXml, matchSchemeId, schemeById, type ListScheme } from "../e
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
 import { buildIndexJson } from "../editor/indexing";
 import { normalizeKind, splitSections, type SectionBreakKind } from "../editor/sections";
-import { formatSizeMm } from "./pageSizes";
+import { formatSizeMm, PAGE_SIZES_MM } from "./pageSizes";
 import { fontResources } from "./embedded-fonts";
 import { mergeStyles, stylesXml } from "../editor/styles";
 import { collectCaptionsJson, figureTableInstr, figureTableTitle, seqInstr } from "../editor/captions";
@@ -949,23 +949,45 @@ function indexXml(ctx: WriteCtx): string {
 
 function tableXml(table: ProseMirrorNode, ctx: WriteCtx, headings: { level: number; text: string }[]): string {
   const rows = table.content ?? [];
-  const cols = Math.max(1, ...rows.map((r) => (r.content ?? []).length));
+  // Largeur de grille : colonnes occupées par ligne (colspan compris) + cellules couvertes par un rowspan.
+  const widthOf = (row: ProseMirrorNode) => (row.content ?? []).reduce((a, c) => a + (Number(c.attrs?.colspan ?? 1) || 1), 0);
+  const cols = Math.max(1, ...rows.map(widthOf), ...rows.map((r) => (r.content ?? []).length));
   const grid = `<w:tblGrid>${Array.from({ length: cols }, () => '<w:gridCol w:w="2400"/>').join("")}</w:tblGrid>`;
+  // Fusion verticale : une cellule à rowspan > 1 écrit « restart », les lignes suivantes des cellules « continue ».
+  const pending: number[] = [];
+  const pendingSpan: number[] = [];
   const body = rows
     .map((row) => {
-      const cells = (row.content ?? [])
-        .map((cell) => {
-          const inner = (cell.content ?? []).map((c) => blockXml(c, ctx, headings)).join("") || "<w:p/>";
-          const span = Number(cell.attrs?.colspan ?? 1);
-          // L'alignement vertical de la cellule ; « top » est le défaut OOXML et
-          // n'a donc pas besoin d'être écrit.
-          const tcPr =
-            `<w:tcPr><w:tcW w:w="2400" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}` +
-            `${vAlignXml(cell.attrs?.vAlign)}</w:tcPr>`;
-          return `<w:tc>${tcPr}${inner}</w:tc>`;
-        })
-        .join("");
-      return `<w:tr>${cells}</w:tr>`;
+      let col = 0;
+      let out = "";
+      const flushPending = () => {
+        while ((pending[col] ?? 0) > 0) {
+          const sp = pendingSpan[col] ?? 1;
+          out += `<w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/>${sp > 1 ? `<w:gridSpan w:val="${sp}"/>` : ""}<w:vMerge/></w:tcPr><w:p/></w:tc>`;
+          for (let k = 0; k < sp; k++) pending[col + k] = (pending[col + k] ?? 1) - 1;
+          col += sp;
+        }
+      };
+      for (const cell of row.content ?? []) {
+        flushPending();
+        const inner = (cell.content ?? []).map((c) => blockXml(c, ctx, headings)).join("") || "<w:p/>";
+        const span = Math.max(1, Number(cell.attrs?.colspan ?? 1) || 1);
+        const rs = Math.max(1, Number(cell.attrs?.rowspan ?? 1) || 1);
+        if (rs > 1)
+          for (let k = 0; k < span; k++) {
+            pending[col + k] = rs - 1;
+            pendingSpan[col + k] = span;
+          }
+        // L'alignement vertical de la cellule ; « top » est le défaut OOXML et
+        // n'a donc pas besoin d'être écrit.
+        const tcPr =
+          `<w:tcPr><w:tcW w:w="2400" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ""}` +
+          `${rs > 1 ? '<w:vMerge w:val="restart"/>' : ""}${vAlignXml(cell.attrs?.vAlign)}</w:tcPr>`;
+        out += `<w:tc>${tcPr}${inner}</w:tc>`;
+        col += span;
+      }
+      flushPending();
+      return `<w:tr>${out}</w:tr>`;
     })
     .join("");
   // Filets, ajustement et bandes viennent du style du tableau — et `w:tblLook`
@@ -1108,11 +1130,18 @@ export function docToDocx(file: EliumFile): Uint8Array {
   // dans un EN-TÊTE. C'est ce qui le fait apparaître sur toutes les pages.
   const mark = normalizeWatermark(file.document.watermark);
   const markVml = watermarkVml(mark);
-  const headerId = markVml ? `rId${ctx.relCount++}` : "";
+  const headerText = (page?.header ?? "").trim();
+  const footerText = (page?.footer ?? "").trim();
+  const hasHeader = !!markVml || !!headerText;
+  const hasFooter = !!footerText || !!page?.showPageNumbers;
+  const headerId = hasHeader ? `rId${ctx.relCount++}` : "";
+  const footerId = hasFooter ? `rId${ctx.relCount++}` : "";
 
   // Sans `w:headerReference`, la partie d'en-tête existe mais Word ne l'affiche
   // sur aucune page : le filigrane serait dans le fichier et invisible.
-  const headerRef = headerId ? `<w:headerReference w:type="default" r:id="${headerId}"/>` : "";
+  const headerRef =
+    (headerId ? `<w:headerReference w:type="default" r:id="${headerId}"/>` : "") +
+    (footerId ? `<w:footerReference w:type="default" r:id="${footerId}"/>` : "");
 
   // Déclaré une fois : le format de numérotation de chaque famille présente,
   // pour que Word affiche les mêmes marqueurs que l'écran (romains minuscules
@@ -1169,9 +1198,13 @@ export function docToDocx(file: EliumFile): Uint8Array {
 
   // Les parties de notes sont déclarées avant les autres relations, pour que
   // leurs rId restent stables d'un export à l'autre.
-  const headerRel = markVml
-    ? `<Relationship Id="${headerId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
-    : "";
+  const headerRel =
+    (hasHeader
+      ? `<Relationship Id="${headerId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
+      : "") +
+    (hasFooter
+      ? `<Relationship Id="${footerId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>`
+      : "");
 
   const noteRels =
     (footnotes.length ? notesRelXml("footnote", `rId${ctx.relCount++}`) : "") +
@@ -1199,7 +1232,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${markVml ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
+<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${hasHeader ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}${hasFooter ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1226,11 +1259,26 @@ export function docToDocx(file: EliumFile): Uint8Array {
     "word/settings.xml": strToU8(settingsXml(page)),
     "word/_rels/document.xml.rels": strToU8(documentRels),
   };
-  if (markVml) {
+  if (hasHeader) {
     // Le VML vit dans son propre espace de noms : sans les déclarations `v:` et
     // `o:`, Word rejette la partie.
+    const headP = headerText
+      ? `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">${xmlEsc(headerText)}</w:t></w:r></w:p>`
+      : "";
     files["word/header1.xml"] = strToU8(
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + `<w:hdr ${NS}>` + `${markVml}</w:hdr>`,
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+        `<w:hdr ${NS}>${headP}${markVml || (headerText ? "" : "<w:p/>")}</w:hdr>`,
+    );
+  }
+  if (hasFooter) {
+    const footText = footerText
+      ? `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">${xmlEsc(footerText)}</w:t></w:r></w:p>`
+      : "";
+    const footNum = page?.showPageNumbers
+      ? `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>${fieldXml(" PAGE ", "1")}</w:p>`
+      : "";
+    files["word/footer1.xml"] = strToU8(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + `<w:ftr ${NS}>${footText}${footNum}</w:ftr>`,
     );
   }
 
@@ -1514,6 +1562,10 @@ function propsToMarks(p: RunProps): { type: string; attrs?: Record<string, unkno
 interface StyleResolver {
   docDefaults: RunProps;
   styleProps: (styleId: string | undefined) => RunProps;
+  /** Niveau de titre (1-9) d'un style, par nom (« heading 2 », « Titre 1 », « Title »), par outlineLvl ou par héritage ; 0 = pas un titre. */
+  headingLevel: (styleId: string | undefined) => number;
+  /** Numérotation portée par le STYLE (liste à puces/numérotée définie dans le style), héritée via basedOn. */
+  numPrOf: (styleId: string | undefined) => { numId: string; ilvl: number } | null;
 }
 
 function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
@@ -1521,6 +1573,9 @@ function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
   const docDefaults: RunProps = {};
   const rprById = new Map<string, RunProps>();
   const basedOn = new Map<string, string>();
+  const names = new Map<string, string>();
+  const outline = new Map<string, number>();
+  const stNum = new Map<string, { numId: string; ilvl: number }>();
   if (raw) {
     const root = parseXml(strFromU8(raw));
     const dd = firstDescendant(root, "w:docDefaults");
@@ -1531,8 +1586,40 @@ function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
       rprById.set(id, parseRunProps(firstChild(st, "w:rPr")));
       const base = firstChild(st, "w:basedOn")?.attrs["w:val"];
       if (base) basedOn.set(id, base);
+      const nm = firstChild(st, "w:name")?.attrs["w:val"];
+      if (nm) names.set(id, nm.toLowerCase());
+      const sppr = firstChild(st, "w:pPr");
+      const ol = sppr ? firstChild(sppr, "w:outlineLvl")?.attrs["w:val"] : undefined;
+      if (ol !== undefined && Number.isFinite(Number(ol))) outline.set(id, Number(ol));
+      const snp = sppr ? firstChild(sppr, "w:numPr") : undefined;
+      const snId = snp ? firstChild(snp, "w:numId")?.attrs["w:val"] : undefined;
+      if (snp && snId !== undefined)
+        stNum.set(id, { numId: snId, ilvl: Math.max(0, Number(firstChild(snp, "w:ilvl")?.attrs["w:val"] ?? 0) || 0) });
     }
   }
+  const chain = (id: string | undefined): string[] => {
+    const out: string[] = [];
+    for (let cur = id; cur && !out.includes(cur) && out.length < 20; cur = basedOn.get(cur)) out.push(cur);
+    return out;
+  };
+  const headingLevel = (id: string | undefined): number => {
+    for (const sid of chain(id)) {
+      const nm = names.get(sid) ?? "";
+      const m = /^(?:heading|titre) ?(\d)$/.exec(nm) ?? /^(?:heading|titre)(\d)$/i.exec(sid);
+      if (m) return Math.min(9, Number(m[1]));
+      if (nm === "title" || nm === "titre") return 1;
+      const ol = outline.get(sid);
+      if (ol !== undefined) return ol >= 0 && ol <= 8 ? ol + 1 : 0;
+    }
+    return 0;
+  };
+  const numPrOf = (id: string | undefined): { numId: string; ilvl: number } | null => {
+    for (const sid of chain(id)) {
+      const n = stNum.get(sid);
+      if (n) return n.numId === "0" ? null : n;
+    }
+    return null;
+  };
   const cache = new Map<string, RunProps>();
   const resolve = (id: string, seen: Set<string>): RunProps => {
     const cached = cache.get(id);
@@ -1544,7 +1631,7 @@ function buildStyleResolver(zip: Record<string, Uint8Array>): StyleResolver {
     cache.set(id, merged);
     return merged;
   };
-  return { docDefaults, styleProps: (id) => (id ? resolve(id, new Set()) : {}) };
+  return { docDefaults, styleProps: (id) => (id ? resolve(id, new Set()) : {}), headingLevel, numPrOf };
 }
 
 /** `word/comments.xml`, parsed once per import and cached on the zip object
@@ -1770,7 +1857,8 @@ function paragraphNode(
         })),
       )
     : [];
-  const headingMatch = /^Heading(\d)$/i.exec(style) || /^Titre(\d)$/i.exec(style);
+  const hLevel = /^Heading(\d)$/i.exec(style)?.[1] ?? /^Titre(\d)$/i.exec(style)?.[1] ?? (sty.headingLevel(style) || undefined);
+  const headingMatch = hLevel ? ["", String(hLevel)] : null;
   // Base run props inherited by every run: doc defaults, plus the paragraph
   // style's rPr for BODY paragraphs only — headings render their own weight/size
   // via the heading node, so inheriting the heading style's bold/size as marks
@@ -2022,17 +2110,56 @@ function tableNode(
   zip: Record<string, Uint8Array>,
   sty: StyleResolver,
 ): ProseMirrorNode {
-  const rows = children(tbl, "w:tr").map((tr, rowIdx) => ({
-    type: "tableRow",
-    content: children(tr, "w:tc").map((tc) => {
-      const span = Number(firstDescendant(tc, "w:gridSpan")?.attrs["w:val"] ?? 1);
+  interface Cell {
+    col: number;
+    span: number;
+    vm: "restart" | "cont" | null;
+    node: ProseMirrorNode;
+    rowspan: number;
+    drop: boolean;
+  }
+  const trs = children(tbl, "w:tr");
+  const grid: Cell[][] = trs.map((tr, rowIdx) => {
+    const isHead = rowIdx === 0 || !!(firstChild(tr, "w:trPr") && firstChild(firstChild(tr, "w:trPr")!, "w:tblHeader"));
+    let col = 0;
+    return children(tr, "w:tc").map((tc) => {
+      const tcPr = firstChild(tc, "w:tcPr");
+      const span = Math.max(1, Number(firstChild(tcPr ?? tc, "w:gridSpan")?.attrs["w:val"] ?? 1) || 1);
+      const vmEl = tcPr ? firstChild(tcPr, "w:vMerge") : undefined;
+      const vm = vmEl ? (vmEl.attrs["w:val"] === "restart" ? "restart" : "cont") : null;
       const cellBlocks = children(tc, "w:p").flatMap((p) => paragraphNode(p, rels, zip, sty));
-      return {
-        type: rowIdx === 0 ? "tableHeader" : "tableCell",
-        attrs: span > 1 ? { colspan: span } : {},
-        content: cellBlocks.length ? cellBlocks : [{ type: "paragraph" }],
-      } as ProseMirrorNode;
-    }),
+      const cell: Cell = {
+        col,
+        span,
+        vm,
+        rowspan: 1,
+        drop: vm === "cont",
+        node: {
+          type: isHead ? "tableHeader" : "tableCell",
+          attrs: span > 1 ? { colspan: span } : {},
+          content: cellBlocks.length ? cellBlocks : [{ type: "paragraph" }],
+        } as ProseMirrorNode,
+      };
+      col += span;
+      return cell;
+    });
+  });
+  // Fusion verticale : une cellule « restart » couvre les « cont » situées dessous dans la même colonne.
+  grid.forEach((row, r) => {
+    for (const cell of row) {
+      if (cell.vm !== "restart") continue;
+      let n = 1;
+      for (let k = r + 1; k < grid.length; k++) {
+        const below = grid[k]!.find((c) => c.col === cell.col && c.vm === "cont");
+        if (!below) break;
+        n++;
+      }
+      if (n > 1) cell.node.attrs = { ...(cell.node.attrs ?? {}), rowspan: n };
+    }
+  });
+  const rows = grid.map((row) => ({
+    type: "tableRow",
+    content: row.filter((c) => !c.drop).map((c) => c.node),
   }));
   return { type: "table", content: rows };
 }
@@ -2114,8 +2241,113 @@ function readSectPr(sectPr: XmlEl): ReadSectPr {
   };
 }
 
-/** Parse a .docx byte array into a title + ProseMirror document node. */
-export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorNode } {
+/**
+ * Aplatit les enveloppes que Word ajoute autour du contenu et que le lecteur ne sait pas traverser :
+ * contrôles de contenu (w:sdt), balises actives (w:smartTag, w:customXml), et mc:AlternateContent
+ * (on garde mc:Choice, jamais le repli, qui décrirait le même objet en double).
+ */
+export function normalizeWordXml(xml: string): string {
+  return xml
+    .replace(/(<\/mc:Choice>)\s*<mc:Fallback\b[\s\S]*?<\/mc:Fallback>/g, "$1")
+    .replace(/<\/?mc:(?:AlternateContent|Choice)\b[^>]*>/g, "")
+    .replace(/<w:sdtPr\b[\s\S]*?<\/w:sdtPr>|<w:sdtEndPr\b[\s\S]*?<\/w:sdtEndPr>|<w:sdtPr\b[^>]*\/>/g, "")
+    .replace(/<\/?w:(?:sdt|sdtContent|smartTag|customXml)\b[^>]*>/g, "");
+}
+
+/** Texte d'un en-tête/pied de page, sans le résultat des champs PAGE/NUMPAGES ; signale la présence d'un numéro de page. */
+function headerFooterText(xml: string): { text: string; pageNumber: boolean } {
+  const root = parseXml(normalizeWordXml(xml));
+  let pageNumber = false;
+  const lines: string[] = [];
+  for (const p of descendants(root, "w:p")) {
+    let text = "";
+    let depth = 0;
+    let instr = "";
+    let inResult = false;
+    const skip = new Set<XmlEl>();
+    for (const fs of descendants(p, "w:fldSimple"))
+      if (/\b(PAGE|NUMPAGES)\b/i.test(fs.attrs["w:instr"] ?? "")) for (const r of descendants(fs, "w:r")) skip.add(r);
+    for (const r of descendants(p, "w:r")) {
+      if (skip.has(r)) continue;
+      const fc = firstChild(r, "w:fldChar")?.attrs["w:fldCharType"];
+      if (fc === "begin") {
+        depth++;
+        instr = "";
+        inResult = false;
+        continue;
+      }
+      if (fc === "separate") {
+        inResult = true;
+        if (/\b(PAGE|NUMPAGES)\b/i.test(instr)) pageNumber = true;
+        continue;
+      }
+      if (fc === "end") {
+        depth = Math.max(0, depth - 1);
+        inResult = false;
+        continue;
+      }
+      const it = firstChild(r, "w:instrText");
+      if (it) {
+        instr += te(it);
+        continue;
+      }
+      if (depth > 0 && inResult && /\b(PAGE|NUMPAGES)\b/i.test(instr)) continue;
+      text += runText(r);
+    }
+    for (const fs of descendants(p, "w:fldSimple")) if (/\b(PAGE|NUMPAGES)\b/i.test(fs.attrs["w:instr"] ?? "")) pageNumber = true;
+    if (text.trim()) lines.push(text.trim());
+  }
+  return { text: lines.join(" — "), pageNumber };
+}
+
+/** Réglages de page lus sur le `w:sectPr` final : format, orientation, marges, en-tête, pied de page, numéros. */
+function readPage(zip: Record<string, Uint8Array>, rels: Record<string, string>, sectPr: XmlEl | undefined): Partial<PageSettings> {
+  if (!sectPr) return {};
+  const page: Partial<PageSettings> = {};
+  const pgSz = firstChild(sectPr, "w:pgSz");
+  if (pgSz) {
+    const wMm = Number(pgSz.attrs["w:w"]) / 56.6929;
+    const hMm = Number(pgSz.attrs["w:h"]) / 56.6929;
+    const landscape = pgSz.attrs["w:orient"] === "landscape" || wMm > hMm;
+    if (Number.isFinite(wMm) && Number.isFinite(hMm) && wMm > 0 && hMm > 0) {
+      const pw = Math.min(wMm, hMm);
+      const ph = Math.max(wMm, hMm);
+      const hit = (Object.entries(PAGE_SIZES_MM) as [PageSettings["format"], { width: number; height: number }][]).find(
+        ([, d]) => Math.abs(d.width - pw) < 2 && Math.abs(d.height - ph) < 2,
+      );
+      if (hit) page.format = hit[0];
+      else {
+        page.format = "Custom";
+        page.customWidthMm = Math.round(pw);
+        page.customHeightMm = Math.round(ph);
+      }
+      page.orientation = landscape ? "landscape" : "portrait";
+    }
+  }
+  const pgMar = firstChild(sectPr, "w:pgMar");
+  if (pgMar) {
+    const mm = (k: string) => Math.round((Number(pgMar.attrs[k]) / 56.6929) * 10) / 10;
+    const m = { top: mm("w:top"), right: mm("w:right"), bottom: mm("w:bottom"), left: mm("w:left") };
+    if (Object.values(m).every((v) => Number.isFinite(v))) page.margins = m;
+  }
+  const part = (kind: "header" | "footer"): { text: string; pageNumber: boolean } | null => {
+    const ref = children(sectPr, `w:${kind}Reference`).find((r) => (r.attrs["w:type"] ?? "default") === "default");
+    const target = ref ? rels[ref.attrs["r:id"] ?? ""] : undefined;
+    if (!target) return null;
+    const path = target.startsWith("/") ? target.slice(1) : `word/${target.replace(/^\.\//, "")}`;
+    const raw = zip[path];
+    return raw ? headerFooterText(strFromU8(raw)) : null;
+  };
+  const hd = part("header");
+  if (hd?.text) page.header = hd.text;
+  const ft = part("footer");
+  if (ft?.text) page.footer = ft.text;
+  if (hd?.pageNumber || ft?.pageNumber) page.showPageNumbers = true;
+  return page;
+}
+
+/** Parse a .docx byte array into a title + ProseMirror document node (+ réglages de page). */
+export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorNode; page?: Partial<PageSettings> } {
   const zip = unzipSync(bytes);
   const docRaw = zip["word/document.xml"];
   if (!docRaw) throw new Error("Fichier .docx invalide : word/document.xml introuvable.");
@@ -2123,7 +2355,7 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
   const rels = relTargets(zip);
   const numFmt = parseNumbering(zip);
   const sty = buildStyleResolver(zip);
-  const root = parseXml(strFromU8(docRaw));
+  const root = parseXml(normalizeWordXml(strFromU8(docRaw)));
   const body = firstDescendant(root, "w:body");
   const content: ProseMirrorNode[] = [];
 
@@ -2198,11 +2430,18 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
         const ppr = firstChild(c, "w:pPr");
         const sectPr = ppr ? firstChild(ppr, "w:sectPr") : undefined;
         const numPr = ppr ? firstChild(ppr, "w:numPr") : undefined;
-        const numId = numPr ? firstChild(numPr, "w:numId")?.attrs["w:val"] : undefined;
+        const directId = numPr ? firstChild(numPr, "w:numId")?.attrs["w:val"] : undefined;
+        // Une liste peut être définie par le STYLE du paragraphe (« Liste à puces »), sans numPr direct.
+        const viaStyle =
+          directId === undefined && ppr ? sty.numPrOf(firstChild(ppr, "w:pStyle")?.attrs["w:val"]) : null;
+        const numId = directId !== undefined ? (directId === "0" ? undefined : directId) : viaStyle?.numId;
 
-        if (numId && numPr) {
+        if (numId) {
           const def = numFmt[numId] ?? { kind: "bullet" as const, scheme: null };
-          const level = Math.max(0, Math.min(8, Number(firstChild(numPr, "w:ilvl")?.attrs["w:val"] ?? 0) || 0));
+          const level = Math.max(
+            0,
+            Math.min(8, Number(numPr ? firstChild(numPr, "w:ilvl")?.attrs["w:val"] : viaStyle?.ilvl) || 0),
+          );
           const para = paragraphNode(c, rels, zip, sty).find((n) => n.type === "paragraph" || n.type === "heading") ?? {
             type: "paragraph",
           };
@@ -2245,5 +2484,11 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
       "";
   }
 
-  return { title, doc: { type: "doc", content: content.length ? content : [{ type: "paragraph" }] } };
+  const finalSect = body ? children(body, "w:sectPr")[0] : undefined;
+  const page = readPage(zip, rels, finalSect);
+  return {
+    title,
+    doc: { type: "doc", content: content.length ? content : [{ type: "paragraph" }] },
+    ...(Object.keys(page).length ? { page } : {}),
+  };
 }

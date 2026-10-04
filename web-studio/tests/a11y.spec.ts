@@ -215,4 +215,48 @@ test.describe("Accessibilité — navigation clavier des éditeurs canevas", () 
     await expect(pages).toBeFocused();
     await expectNoSeriousViolations(page, "PDF (focus clavier sur les pages)");
   });
+
+  test("Présentations : Tab sélectionne un élément, les flèches le déplacent, annonce vocale", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Présentations" }).click();
+    const canvas = page.locator(".slide-cv.is-editable").first();
+    await expect(canvas).toBeVisible();
+    await canvas.focus();
+    await page.keyboard.press("Tab");
+    const selected = page.locator(".slide-cv .ce.is-selected").first();
+    await expect(selected).toBeVisible();
+    await expect(page.locator('.elx-announcer[aria-live="polite"]')).toContainText(/sur \d+/);
+    const before = await selected.evaluate((el) => (el as HTMLElement).style.left);
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => selected.evaluate((el) => (el as HTMLElement).style.left)).not.toBe(before);
+  });
+});
+
+test.describe("Détecteur — analyse par lot (rendu réel)", () => {
+  // PNG 1×1 valide : suffit pour traverser tout le pipeline d'ingestion et d'analyse d'image.
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  test("plusieurs fichiers : tableau de résultats, ligne en erreur isolée, export CSV", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Détecteur/ }).click();
+    await page.setInputFiles('input[type="file"][multiple]', [
+      { name: "a.png", mimeType: "image/png", buffer: PNG },
+      { name: "b.png", mimeType: "image/png", buffer: PNG },
+      { name: "c.docx", mimeType: "application/octet-stream", buffer: Buffer.from("pas un docx") },
+    ]);
+    const table = page.getByRole("table", { name: "Résultats de l'analyse par lot" });
+    await expect(table).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("3 fichier(s) traité(s)", { timeout: 30_000 });
+    await expect(table.getByRole("row")).toHaveCount(4); // en-tête + 3 lignes
+    await expect(table.getByRole("rowheader", { name: "a.png" })).toBeVisible();
+    // Le fichier illisible est signalé sur sa ligne sans arrêter le lot.
+    await expect(table.getByRole("row", { name: /c\.docx/ })).toContainText(/Erreur|Format/);
+    const saved = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Exporter CSV" }).click();
+    expect((await saved).suggestedFilename()).toMatch(/^Detecteur-lot-.*\.csv$/);
+    await expectNoSeriousViolations(page, "Détecteur (lot)");
+  });
 });

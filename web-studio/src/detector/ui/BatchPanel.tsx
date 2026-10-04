@@ -50,14 +50,23 @@ export default function BatchPanel({
       disabledSignals,
       signal: ctl.signal,
       load: (f) => loadDocumentModel(f),
-      onRow: (row) => setRows((prev) => [...prev, row]),
+      onRow: (row) => {
+        // Un lot abandonné (démontage, nouvelle sélection) ne doit plus écrire dans l'écran.
+        if (controller.current === ctl) setRows((prev) => [...prev, row]);
+      },
     })
       .catch((err) => {
+        if (controller.current !== ctl) return;
         reportError("detector.batch", err);
         setFailure(err instanceof Error ? err.message : String(err));
       })
-      .finally(() => setDone(true));
-    return () => ctl.abort();
+      .finally(() => {
+        if (controller.current === ctl) setDone(true);
+      });
+    return () => {
+      ctl.abort();
+      if (controller.current === ctl) controller.current = null;
+    };
     // Le lot ne se relance que si la sélection de fichiers change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files]);

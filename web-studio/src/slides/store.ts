@@ -57,6 +57,10 @@ export interface DeckStore {
   patchSlideAt(i: number, patch: Partial<Slide>): void;
   /** Move slide `from` so it ends at index `to` (drag & drop in the sorter). Keeps section anchors coherent. */
   reorderSlide(from: number, to: number): void;
+  /** Replace the whole slide at index `i` (apply a layout, reset…): one undo step; keeps its position. */
+  replaceSlideAt(i: number, slide: Slide): void;
+  /** Set the deck master and re-apply it to every slide linked to a layout (one undo step). */
+  applyMaster(master: import("./model").SlideMaster): void;
   /** Replace the slide list wholesale after a bulk reorder (move a whole section). */
   setSlideOrder(ids: string[]): void;
 

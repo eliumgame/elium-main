@@ -160,6 +160,7 @@ export default function SlideSorter({
                             elements={s.elements ?? elementsOf(s)}
                             theme={theme}
                             scale={THUMB_W / (REF_H * (16 / 9))}
+                            slideNumber={i + 1}
                           />
                         </button>
                         {canWrite && (

@@ -25,6 +25,7 @@ import {
   type SlideTheme,
   type SlideTransition,
 } from "../slides/model";
+import { applyMasterToDeck } from "../slides/master";
 import {
   cloneSlide,
   normalizeSections,
@@ -336,6 +337,29 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     });
     setActiveState(Math.max(0, ordered.findIndex((s) => s.id === activeId)));
   };
+  const replaceSlideAt = (i: number, slide: Slide) => {
+    if (!writable) return;
+    const arr = ySlides();
+    if (i < 0 || i >= arr.length) return;
+    ydoc.transact(() => {
+      arr.delete(i, 1);
+      arr.insert(i, [slideToY({ ...slide, id: slide.id })]);
+    });
+  };
+  const applyMaster = (m: SlideMaster) => {
+    if (!writable) return;
+    const arr = ySlides();
+    const list = arr.toArray().map(yToSlide);
+    const next = applyMasterToDeck({ slides: list, active: 0 }, m);
+    ydoc.transact(() => {
+      deckMap.set("master", m);
+      next.slides.forEach((sl, i) => {
+        if (sl === list[i]) return;
+        arr.delete(i, 1);
+        arr.insert(i, [slideToY(sl)]);
+      });
+    });
+  };
   const patchSlideAt = (i: number, patch: Partial<Slide>) => {
     if (!writable) return;
     const m = slideAt(i);
@@ -380,6 +404,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     duplicateSlide,
     patchSlide,
     patchSlideAt,
+    replaceSlideAt,
+    applyMaster,
     reorderSlide,
     setSlideOrder,
     updateEl,

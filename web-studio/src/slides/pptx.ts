@@ -10,7 +10,7 @@
  */
 import { zipSync, strToU8 } from "fflate";
 import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData, SlideMaster, SlideLayoutDef, PlaceholderKind } from "./model";
-import { defaultMaster, SLIDE_NUMBER_TOKEN } from "./master";
+import { defaultMaster, isPromptOnly, SLIDE_NUMBER_TOKEN } from "./master";
 import { bodyHtmlOf } from "./model";
 import { escapeXmlText } from "../format/xml-text";
 
@@ -507,6 +507,7 @@ function slideXml(
     const bg = bgHex(slide.background) ?? colors.bg;
     let bodyN = 0;
     for (const el of slide.elements) {
+      if (isPromptOnly(el)) continue; // espace réservé jamais rempli : pas de texte d'invite dans le fichier
       if (el.ph === "body") bodyN++;
       const xml = elementXml(el, id, colors, media, Math.max(1, bodyN));
       if (xml) {

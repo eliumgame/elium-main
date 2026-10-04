@@ -15,8 +15,10 @@ import {
   type Deck,
   type Slide,
   type SlideElement,
+  type SlideMaster,
 } from "./model";
 import { loadDeck, saveDeck } from "./deck-store";
+import { applyMasterToDeck } from "./master";
 import { reorderSlide as reorderSlideList, removeSlideKeepingSections, cloneSlide, normalizeSections } from "./sections";
 import type { VaultSecret } from "../crypto/local-vault";
 import type { DeckStore } from "./store";
@@ -173,6 +175,14 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): Lo
       slides[i] = { ...slides[i]!, ...patch };
       return { ...d, slides };
     });
+  const replaceSlideAt = (i: number, slide: Slide) =>
+    set((d) => {
+      if (!d.slides[i]) return d;
+      const slides = d.slides.slice();
+      slides[i] = withElements(slide);
+      return { ...d, slides };
+    });
+  const applyMaster = (master: SlideMaster) => set((d) => applyMasterToDeck(d, master));
   const reorderSlide = (from: number, to: number) =>
     set((d) => {
       const activeId = d.slides[d.active]?.id;
@@ -215,6 +225,8 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): Lo
     duplicateSlide,
     patchSlide,
     patchSlideAt,
+    replaceSlideAt,
+    applyMaster,
     reorderSlide,
     setSlideOrder,
     updateEl,

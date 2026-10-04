@@ -5,6 +5,8 @@
  * elements can be selected, moved, resized (8 handles), rotated, and text can be
  * edited in place; smart guides snap to the slide centre, edges and a light grid.
  */
+import "./master.css";
+import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
 import type { RevealState } from "./playback";
@@ -142,6 +144,8 @@ export interface SlideCanvasProps {
   onCanvasContext?: (e: React.MouseEvent) => void;
   /** Presenter playback: hides not-yet-revealed elements, animates entering ones. */
   reveal?: RevealState;
+  /** Numéro de cette diapositive (remplace le jeton ‹#› des espaces réservés « numéro »). */
+  slideNumber?: number;
 }
 
 /** A table cell — mirrors the text element's focus-guarded contentEditable so
@@ -177,11 +181,13 @@ function TableCell({
 function ElementView({
   el,
   scale,
+  slideNumber,
   editing,
   onEditInput,
   onCellEdit,
 }: {
   el: SlideElement;
+  slideNumber?: number;
   scale: number;
   editing: boolean;
   onEditInput?: (html: string) => void;
@@ -267,7 +273,13 @@ function ElementView({
       />
     );
   }
-  return <div className="ce-text" style={style} dangerouslySetInnerHTML={{ __html: el.html ?? "" }} />;
+  return (
+    <div
+      className={`ce-text${isPromptOnly(el) ? " ce-text--prompt" : ""}`}
+      style={style}
+      dangerouslySetInnerHTML={{ __html: withSlideNumber(el.html, slideNumber) }}
+    />
+  );
 }
 
 export default function SlideCanvas({
@@ -283,6 +295,7 @@ export default function SlideCanvas({
   onElementContext,
   onCanvasContext,
   reveal,
+  slideNumber,
 }: SlideCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -560,7 +573,7 @@ export default function SlideCanvas({
         }
       }}
     >
-      {elements.map((elm) => {
+      {(editable ? elements : elements.filter((e) => !isPromptOnly(e))).map((elm) => {
         const selected = editable && selSet.has(elm.id);
         const editing = editingId === elm.id;
         const hidden = reveal?.hidden.has(elm.id) ?? false;
@@ -603,6 +616,7 @@ export default function SlideCanvas({
           >
             <ElementView
               el={elm}
+              slideNumber={slideNumber}
               scale={scale}
               editing={editing}
               onEditInput={(html) => onChange?.(elm.id, { html }, false)}

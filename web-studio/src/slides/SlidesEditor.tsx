@@ -101,6 +101,8 @@ import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
+import MasterEditor from "./MasterEditor";
+import { applyLayout, defaultMaster, resetSlide } from "./master";
 import { firstPlayableFrom, nextPlayable } from "./sections";
 import type { DeckPeer, DeckStore } from "./store";
 import "./slides.css";
@@ -200,6 +202,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [hasClipboard, setHasClipboard] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [masterOpen, setMasterOpen] = useState(false);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -208,6 +211,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const pptxRef = useRef<HTMLInputElement>(null);
 
   const active = deck.slides[activeIdx];
+  const withEl = (sl: Slide): Slide => ({ ...sl, elements: sl.elements ?? elementsOf(sl) });
   const elements = active ? (active.elements ?? elementsOf(active)) : [];
   const selId = selIds.length ? selIds[selIds.length - 1]! : null; // primary = last selected (drives the format toolbar)
   const sel = elements.find((e) => e.id === selId) ?? null;
@@ -750,6 +754,47 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         )}
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
+        {canWrite && active && (
+          <>
+            <select
+              className="tool-select tool-select--sm"
+              aria-label="Disposition de la diapositive"
+              title="Disposition de la diapositive (espaces réservés du masque)"
+              value={active.layoutId ?? ""}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                store.replaceSlideAt(
+                  activeIdx,
+                  applyLayout(withEl(active), deck.master ?? defaultMaster(), e.target.value),
+                );
+              }}
+            >
+              <option value="">Disposition…</option>
+              {(deck.master ?? defaultMaster()).layouts.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="eb eb--sm eb--outline"
+              title="Réinitialiser la diapositive (replace les espaces réservés selon sa disposition)"
+              disabled={!active.layoutId}
+              onClick={() =>
+                store.replaceSlideAt(activeIdx, resetSlide(withEl(active), deck.master ?? defaultMaster()))
+              }
+            >
+              Réinitialiser
+            </button>
+            <button
+              className="eb eb--sm eb--outline"
+              title="Modifier le masque et les dispositions"
+              onClick={() => setMasterOpen(true)}
+            >
+              <LayoutTemplate size={14} /> Masque
+            </button>
+          </>
+        )}
         {canWrite && (
           <button
             className="eb eb--sm eb--outline"
@@ -1300,7 +1345,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                   <span className="slide-thumb__num">{i + 1}</span>
                   {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
                   <span className="sv-thumb__canvas">
-                    <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={90 / REF_H} />
+                    <SlideCanvas
+                      slide={s}
+                      elements={s.elements ?? elementsOf(s)}
+                      theme={theme}
+                      scale={90 / REF_H}
+                      slideNumber={i + 1}
+                    />
                   </span>
                   {here.map((p, k) => (
                     <span key={k} className="dc-slides__peerdot" style={{ background: p.color }} title={p.name} />
@@ -1402,6 +1453,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 elements={elements}
                 theme={theme}
                 scale={scale}
+                slideNumber={activeIdx + 1}
                 editable={canWrite}
                 selectedIds={selIds}
                 onSelectionChange={setSelIds}
@@ -1545,6 +1597,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         </Modal>
       )}
 
+      {masterOpen && (
+        <MasterEditor master={deck.master} onApply={(m) => store.applyMaster(m)} onClose={() => setMasterOpen(false)} />
+      )}
       {managerOpen && (
         <Modal
           title="Trieuse de diapositives"
@@ -1595,7 +1650,14 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         onDone={() => setMorphFrom(null)}
                       />
                     ) : (
-                      <SlideCanvas slide={cur} elements={curEls} theme={theme} reveal={reveal} scale={presentScale} />
+                      <SlideCanvas
+                        slide={cur}
+                        elements={curEls}
+                        theme={theme}
+                        reveal={reveal}
+                        scale={presentScale}
+                        slideNumber={presentIdx + 1}
+                      />
                     )}
                   </div>
                 )}

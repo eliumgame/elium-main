@@ -82,6 +82,9 @@ export function placeholderStyle(m: SlideMaster, p: LayoutPlaceholder): Partial<
 const stripTags = (h: string | undefined): string => (h ?? "").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
 const isEmptyPh = (e: SlideElement): boolean => !stripTags(e.html) || stripTags(e.html) === PLACEHOLDER_PROMPT[e.ph ?? "body"];
 
+/** Espace réservé encore vide (texte d'invite seulement) : visible dans l'éditeur, jamais projeté ni exporté. */
+export const isPromptOnly = (e: SlideElement): boolean => !!e.ph && e.type === "text" && isEmptyPh(e) && e.ph !== "slideNumber" && e.ph !== "footer";
+
 /** Élément texte neuf pour un espace réservé. */
 function newPlaceholderElement(m: SlideMaster, p: LayoutPlaceholder): SlideElement | null {
   let html: string;

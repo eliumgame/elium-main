@@ -1105,3 +1105,424 @@
   border-radius: 6px;
   overflow: hidden;
 }
+
+/* ============================================================================
+   Refonte visuelle : chrome aligné sur le ruban des autres modules + responsive
+   --------------------------------------------------------------------------
+   La barre de titre et la barre d'insertion reprennent les hauteurs, boutons
+   (`.elx-cmd`/`.eb`) et séparateurs de `src/ui/workspace.css` via les jetons
+   `--x-*` (qui suivent le thème clair/sombre). Le conteneur `.sv-shell` porte
+   `container-type: inline-size` : les repliements jugent sur la place réelle
+   (fenêtre ou carte Drive), pas sur la fenêtre. Il est volontairement SÉPARÉ de
+   la racine `.slides-app` : l'isolation de mise en page d'un conteneur piège les
+   enfants `position: fixed` (diaporama, modales) dans la boîte du conteneur.
+   ========================================================================== */
+.sv-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  container: slides / inline-size;
+}
+
+/* --- Barres -------------------------------------------------------------- */
+.slides-app .sheet-bar.sv-topbar {
+  flex: none;
+  height: 46px;
+  padding: 0 10px;
+  gap: 6px;
+  min-width: 0;
+  background: var(--x-chrome);
+  border-bottom: 1px solid var(--x-chrome-line);
+  box-shadow: none;
+  color: var(--x-chrome-text);
+}
+.sv-topbar__title {
+  min-width: 0;
+  max-width: 260px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--x-chrome-text);
+}
+.sv-topbar > * {
+  flex-shrink: 0;
+}
+.sv-topbar > .sv-topbar__title {
+  flex-shrink: 1;
+}
+.sv-topbar > .sv-topbar__scroll {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: stretch;
+}
+.sv-toolbar-wrap {
+  flex: none;
+  background: var(--x-chrome-2);
+  border-bottom: 1px solid var(--x-chrome-line);
+}
+
+/* Bande défilante (chevrons : `.elx-ribbon__*` de workspace.css) */
+.sv-hs__body {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sv-hs__body::-webkit-scrollbar {
+  display: none;
+}
+.sv-hs__body > * {
+  flex: none;
+}
+.sv-topbar__body {
+  height: 100%;
+}
+.sv-topbar__body > :first-child {
+  margin-left: auto;
+}
+.sv-hs .elx-ribbon__nudge {
+  height: 28px;
+}
+.sv-topbar__scroll::before {
+  background: linear-gradient(90deg, var(--x-chrome), transparent);
+}
+.sv-topbar__scroll::after {
+  background: linear-gradient(270deg, var(--x-chrome), transparent);
+}
+.sv-toolbar-wrap .sv-toolbar {
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px 10px;
+  min-height: 42px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+/* Boutons : mêmes gabarits que `.elx-cmd` (28 px, rayon --x-radius-sm) */
+.slides-app :is(.sv-topbar, .sv-toolbar) .eb {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12.5px;
+  border-radius: var(--x-radius-sm);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .eb--ghost {
+  color: var(--x-chrome-soft);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .eb--outline {
+  color: var(--x-chrome-text);
+  background: transparent;
+  border: 1px solid var(--x-chrome-line);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) :is(.eb--ghost, .eb--outline):hover:not(:disabled) {
+  background: var(--x-chrome-3);
+  color: var(--x-chrome-text);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .eb--primary {
+  border: 1px solid transparent;
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .eb:disabled {
+  opacity: 0.4;
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .icon-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: var(--x-radius-sm);
+  color: var(--x-chrome-soft);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .icon-btn:hover:not(:disabled) {
+  background: var(--x-chrome-3);
+  color: var(--x-chrome-text);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .icon-btn--danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .icon-btn.is-active {
+  background: var(--x-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--x-accent-line);
+  color: var(--x-accent-ink);
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) :is(.eb, .icon-btn):focus-visible {
+  outline: 2px solid var(--x-accent);
+  outline-offset: 1px;
+}
+.slides-app :is(.sv-topbar, .sv-toolbar) .tool-select,
+.slides-app .sv-toolbar .input {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  background: var(--x-chrome);
+  border: 1px solid var(--x-chrome-line);
+  border-radius: var(--x-radius-sm);
+  color: var(--x-chrome-text);
+  box-shadow: none;
+}
+/* « Disposi » / « Dispos » : le sélecteur de disposition prend la place qu'il lui faut */
+.sv-topbar .tool-select--sm {
+  max-width: 190px;
+}
+.sv-toolbar .tool-select--sm {
+  max-width: 120px;
+}
+.sv-toolbar .tool-select {
+  max-width: 150px;
+}
+.slides-app .sv-toolbar .sv-num {
+  width: 58px;
+  max-width: 58px;
+  padding: 0 4px;
+}
+.slides-app .sv-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--x-chrome-line);
+}
+.sv-toolbar .tool-color {
+  height: 28px;
+  color: var(--x-chrome-soft);
+  font-size: 12.5px;
+}
+.sv-toolbar .tool-color:hover {
+  background: var(--x-chrome-3);
+}
+.sv-toolbar .sv-tbl-field,
+.sv-toolbar .sv-tbl-check {
+  color: var(--x-chrome-soft);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* Popovers : rendus dans <body> en position fixe (voir ToolbarPopover) */
+.sv-menu__anchor {
+  display: none;
+}
+.sv-menu__pop.sv-menu__pop--fixed {
+  position: fixed;
+  right: auto;
+  overflow-y: auto;
+  z-index: var(--el-z-dropdown, 1000);
+}
+
+/* --- Colonne des diapositives ------------------------------------------- */
+.sv-railwrap {
+  display: contents;
+}
+.sv-rail-toggle {
+  display: none;
+}
+.sv-add-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 0 6px;
+}
+.sv-add-row .eb,
+.sv-add-row .sv-menu {
+  min-width: 0;
+}
+.sv-add-row .sv-menu .eb {
+  width: 100%;
+}
+.sv-add-row .eb {
+  width: 100%;
+  min-height: 30px;
+  font-size: 12.5px;
+  padding: 0 8px;
+}
+
+.sv-chev {
+  transition: transform var(--el-motion-fast, 0.15s) var(--el-ease-standard, ease);
+  transform: rotate(-90deg);
+}
+.sv-chev.is-open {
+  transform: none;
+}
+.sv-notes-toggle {
+  align-self: center;
+  width: 100%;
+  max-width: min(100%, calc((100vh - 240px) * 16 / 9));
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.sv-notes-toggle:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.sv-stage {
+  justify-content: safe center;
+}
+
+/* --- Repli : 1100 px (colonne -> bande), 720 px (libellés), 560 px --------- */
+@container slides (max-width: 1100px) {
+  .slides-body {
+    flex-direction: column;
+  }
+  .sv-railwrap {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    min-width: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .sv-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-align: left;
+  }
+  .sv-rail-toggle:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  .slides-rail {
+    width: auto;
+    flex-direction: row;
+    align-items: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    padding: 4px 12px 10px;
+    gap: 10px;
+  }
+  .slides-rail.is-collapsed {
+    display: none;
+  }
+  .slides-rail .slide-thumb {
+    flex: none;
+    width: 210px;
+  }
+  .sv-add-row {
+    flex: none;
+    width: 190px;
+    padding: 0;
+    align-content: start;
+  }
+  .sv-stage {
+    padding: 14px;
+  }
+}
+@container slides (max-width: 720px) {
+  .sv-topbar .sv-lbl {
+    display: none;
+  }
+  .slides-app .sv-topbar .eb {
+    padding: 0 8px;
+  }
+  .sv-hint {
+    display: none;
+  }
+  .sv-stage {
+    padding: 10px;
+    gap: 8px;
+  }
+}
+@container slides (max-width: 560px) {
+  .sv-topbar__title {
+    display: none;
+  }
+}
+/* Densité compacte : cibles tactiles de 28 px conservées, 24 px au minimum */
+@media (max-height: 520px) {
+  .slides-app .sheet-bar.sv-topbar {
+    height: 40px;
+  }
+}
+
+/* --- Dialogues du module -------------------------------------------------- */
+.sv-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.sv-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sv-settings__section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.sv-settings__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+.sv-theme-row,
+.sv-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sv-pill {
+  min-height: 30px;
+  padding: 0 14px;
+}
+.sv-bg-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sv-bg-swatches .sv-swatch,
+.sv-settings .sv-swatch {
+  width: 28px;
+  height: 28px;
+}
+.sv-bg-grad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sv-bg-grad .sv-num,
+.sv-settings .input.sv-num {
+  width: 84px;
+}
+.sv-settings input[type="color"],
+.sv-bg-grad input[type="color"] {
+  width: 38px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+/* Contenu de la Trieuse : les en-têtes de section restent lisibles en dark */
+.sorter__sechead {
+  color: var(--text);
+}

@@ -5,7 +5,7 @@
  * ce composant ne fait que piloter le DeckStore (local ou collaboratif).
  */
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, Trash2 } from "lucide-react";
 import "./sorter.css";
 import SlideCanvas from "./canvas";
 import { elementsOf, REF_H, type SlideTheme } from "./model";
@@ -64,15 +64,11 @@ export default function SlideSorter({
   return (
     <div className="sorter" role="dialog" aria-label="Trieuse de diapositives">
       <div className="sorter__bar">
-        <strong>Trieuse de diapositives</strong>
         <span className="sorter__count">
           {deck.slides.length} diapositive{deck.slides.length > 1 ? "s" : ""}
           {hidden ? ` · ${hidden} masquée${hidden > 1 ? "s" : ""}` : ""}
         </span>
         <span className="sorter__hint">Glissez une miniature (ou un titre de section) pour la déplacer.</span>
-        <button className="icon-btn" onClick={onClose} title="Fermer la trieuse" aria-label="Fermer la trieuse">
-          <X size={16} />
-        </button>
       </div>
       <div className="sorter__body">
         {ranges.map((range, ri) => {

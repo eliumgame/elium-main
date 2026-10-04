@@ -111,6 +111,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
 
       {request?.kind === "prompt" && (
         <Modal
+          compact
           title={request.opts.title}
           onClose={() => settle(null)}
           footer={
@@ -158,6 +159,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
 
       {request?.kind === "confirm" && (
         <Modal
+          compact
           title={request.opts.title}
           onClose={() => settle(false)}
           footer={
@@ -181,6 +183,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
 
       {request?.kind === "alert" && (
         <Modal
+          compact
           title={request.opts.title}
           onClose={() => settle()}
           footer={

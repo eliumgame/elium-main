@@ -69,6 +69,7 @@ import {
   ArrowDown,
   Settings2,
   GalleryVerticalEnd,
+  ChevronDown,
 } from "lucide-react";
 import { allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { Modal, Button } from "../ui/components";
@@ -101,6 +102,7 @@ import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
+import HScroll from "./HScroll";
 import MasterEditor from "./MasterEditor";
 import HandoutsDialog from "./HandoutsDialog";
 import DiagramDialog from "./DiagramDialog";
@@ -223,6 +225,10 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [hasClipboard, setHasClipboard] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  // Étroit : la colonne des miniatures devient une bande repliable et les notes
+  // de l'orateur se replient (ouverts par défaut seulement sur grand écran).
+  const [railOpen, setRailOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 640);
+  const [notesOpen, setNotesOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 720);
   const [masterOpen, setMasterOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [diagramDlg, setDiagramDlg] = useState<null | "new" | "edit">(null);
@@ -794,902 +800,957 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
   return (
     <div className={`slides-app ${chrome.variant === "modal" ? "slides-app--modal" : ""}`}>
-      {/* Top bar */}
-      <div className="sheet-bar" role="region" aria-label="Barre de titre des présentations">
-        {chrome.onHome && (
-          <button className="eb eb--sm eb--ghost" onClick={chrome.onHome}>
-            <Home size={16} /> Accueil
-          </button>
-        )}
-        <span className="sheet-bar__title">
-          {chrome.titleIcon ?? <Presentation size={16} />} {chrome.title}
-        </span>
-        {store.undo && store.redo && (
-          <>
-            <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={store.undo} disabled={!store.canUndo}>
-              <Undo2 size={16} />
+      <div className="sv-shell">
+        {/* Top bar */}
+        <div className="sheet-bar sv-topbar" role="region" aria-label="Barre de titre des présentations">
+          {chrome.onHome && (
+            <button className="eb eb--sm eb--ghost" title="Retour à l'accueil" onClick={chrome.onHome}>
+              <Home size={16} /> <span className="sv-lbl">Accueil</span>
             </button>
-            <button className="icon-btn" title="Rétablir (Ctrl+Y)" onClick={store.redo} disabled={!store.canRedo}>
-              <Redo2 size={16} />
-            </button>
-          </>
-        )}
-        <div className="sheet-bar__spacer" />
-        {chrome.statusNode}
-        {canWrite && active && (
-          <>
-            <select
-              className="tool-select tool-select--sm"
-              aria-label="Disposition de la diapositive"
-              title="Disposition de la diapositive (espaces réservés du masque)"
-              value={active.layoutId ?? ""}
-              onChange={(e) => {
-                if (!e.target.value) return;
-                store.replaceSlideAt(
-                  activeIdx,
-                  applyLayout(withEl(active), deck.master ?? defaultMaster(), e.target.value),
-                );
-              }}
-            >
-              <option value="">Disposition…</option>
-              {(deck.master ?? defaultMaster()).layouts.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="eb eb--sm eb--outline"
-              title="Réinitialiser la diapositive (replace les espaces réservés selon sa disposition)"
-              disabled={!active.layoutId}
-              onClick={() =>
-                store.replaceSlideAt(activeIdx, resetSlide(withEl(active), deck.master ?? defaultMaster()))
-              }
-            >
-              Réinitialiser
-            </button>
-            <button
-              className="eb eb--sm eb--outline"
-              title="Modifier le masque et les dispositions"
-              onClick={() => setMasterOpen(true)}
-            >
-              <LayoutTemplate size={14} /> Masque
-            </button>
-          </>
-        )}
-        <button
-          className="eb eb--sm eb--outline"
-          title="Imprimer : documents (1 à 9 par page), pages de notes, export PDF"
-          onClick={() => setPrintOpen(true)}
-        >
-          <Copy size={14} /> Imprimer
-        </button>
-        {canWrite && (
-          <button
-            className="eb eb--sm eb--outline"
-            title="Réglages de la présentation"
-            onClick={() => {
-              closePopovers();
-              setSettingsOpen(true);
-            }}
-          >
-            <Settings2 size={14} /> Réglages
-          </button>
-        )}
-        {canWrite && store.replaceDeck && (
-          <>
-            <button
-              className="eb eb--sm eb--outline"
-              title="Importer un PowerPoint (.pptx)"
-              onClick={() => pptxRef.current?.click()}
-            >
-              <Upload size={14} /> Importer
-            </button>
-            <input
-              ref={pptxRef}
-              type="file"
-              accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-              hidden
-              onChange={onImportPptx}
-            />
-          </>
-        )}
-        {chrome.headerActions}
-        <button
-          className="icon-btn"
-          title="Vue présentateur (2ᵉ écran : notes + minuteur + aperçu)"
-          onClick={openPresenter}
-        >
-          <MonitorPlay size={16} />
-        </button>
-        <button className="eb eb--sm eb--primary" onClick={startPresent}>
-          <Play size={14} /> Présenter
-        </button>
-        {chrome.onClose && (
-          <button className="icon-btn" title="Fermer" onClick={chrome.onClose}>
-            <X size={18} />
-          </button>
-        )}
-      </div>
-
-      {/* Insert / element toolbar */}
-      {canWrite && (
-        <div className="sv-toolbar">
-          <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTextElement())}>
-            <Type size={15} /> Texte
-          </button>
-          <div className="sv-menu">
-            <button ref={shapeMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setShapeMenu((v) => !v)}>
-              <Square size={15} /> Forme ▾
-            </button>
-            {shapeMenu && (
-              <ToolbarPopover
-                className="sv-menu__pop sv-gallery-pop sv-gallery-pop--shapes"
-                ariaLabel="Formes"
-                onClose={() => setShapeMenu(false)}
-                triggerRef={shapeMenuBtnRef}
-              >
-                {SHAPES.map((s) => (
-                  <button
-                    key={s.kind}
-                    className="sv-gallery-item"
-                    role="menuitem"
-                    title={s.label}
-                    onClick={() => {
-                      addEl(newShapeElement(s.kind));
-                      setShapeMenu(false);
-                    }}
-                  >
-                    <span className="sv-gallery-icon">{s.icon}</span>
-                    <span className="sv-gallery-label">{s.label}</span>
-                  </button>
-                ))}
-              </ToolbarPopover>
-            )}
-          </div>
-          <button className="eb eb--sm eb--ghost" onClick={() => imgRef.current?.click()}>
-            <ImageIcon size={15} /> Image
-          </button>
-          <input ref={imgRef} type="file" accept="image/*" hidden onChange={onImage} />
-          <button
-            className="eb eb--sm eb--ghost"
-            title="Insérer un diagramme (processus, cycle, hiérarchie, liste) depuis un plan"
-            onClick={() => setDiagramDlg("new")}
-          >
-            <Group size={15} /> Diagramme
-          </button>
-          <button
-            className="eb eb--sm eb--ghost"
-            title="Insérer un son ou une vidéo (embarqué, lisible hors ligne)"
-            onClick={() => mediaRef.current?.click()}
-          >
-            <MonitorPlay size={15} /> Média
-          </button>
-          <input
-            ref={mediaRef}
-            type="file"
-            accept={MEDIA_ACCEPT}
-            hidden
-            onChange={onMedia}
-            aria-label="Fichier audio ou vidéo"
-          />
-          <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTableElement())}>
-            <TableIcon size={15} /> Tableau
-          </button>
-          <div className="sv-menu">
-            <button ref={chartInsMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setChartInsMenu((v) => !v)}>
-              <BarChart3 size={15} /> Graphique ▾
-            </button>
-            {chartInsMenu && (
-              <ToolbarPopover
-                className="sv-menu__pop sv-gallery-pop sv-gallery-pop--charts"
-                ariaLabel="Types de graphique"
-                onClose={() => setChartInsMenu(false)}
-                triggerRef={chartInsMenuBtnRef}
-              >
-                {CHART_KINDS.map((c) => (
-                  <button
-                    key={c.kind}
-                    className="sv-gallery-item"
-                    role="menuitem"
-                    title={c.label}
-                    onClick={() => {
-                      addEl(newChartElement(c.kind));
-                      setChartInsMenu(false);
-                    }}
-                  >
-                    <span className="sv-gallery-icon">{c.icon}</span>
-                    <span className="sv-gallery-label">{c.label}</span>
-                  </button>
-                ))}
-              </ToolbarPopover>
-            )}
-          </div>
-          <span className="sv-sep" />
-
-          {/* Text formatting (act on the focused contentEditable) */}
-          {isText && (
+          )}
+          <span className="sheet-bar__title sv-topbar__title">
+            {chrome.titleIcon ?? <Presentation size={16} />} {chrome.title}
+          </span>
+          {store.undo && store.redo && (
             <>
-              <select
-                className="tool-select"
-                title="Police"
-                aria-label="Police"
-                value={sel!.fontFamily ?? DEFAULT_FONT}
-                onChange={(e) => store.updateEl(sel!.id, { fontFamily: e.target.value })}
-                style={{ maxWidth: 130 }}
-              >
-                {allFontNames().map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input sv-num"
-                type="number"
-                min={6}
-                max={200}
-                title="Taille"
-                aria-label="Taille de police"
-                value={Math.round(sel!.fontSize ?? 24)}
-                onChange={(e) => store.updateEl(sel!.id, { fontSize: Number(e.target.value) })}
-              />
-              <button
-                className="icon-btn"
-                title="Gras"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  cmd("bold");
-                }}
-              >
-                <Bold size={15} />
+              <button className="icon-btn" title="Annuler (Ctrl+Z)" onClick={store.undo} disabled={!store.canUndo}>
+                <Undo2 size={16} />
               </button>
-              <button
-                className="icon-btn"
-                title="Italique"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  cmd("italic");
-                }}
-              >
-                <Italic size={15} />
-              </button>
-              <button
-                className="icon-btn"
-                title="Souligné"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  cmd("underline");
-                }}
-              >
-                <Underline size={15} />
-              </button>
-              <button
-                className="icon-btn"
-                title="Liste à puces"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  cmd("insertUnorderedList");
-                }}
-              >
-                <List size={15} />
-              </button>
-              <button
-                className="icon-btn"
-                title="Liste numérotée"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  cmd("insertOrderedList");
-                }}
-              >
-                <ListOrdered size={15} />
-              </button>
-              <div className="sv-menu">
-                <button
-                  ref={colorMenuBtnRef}
-                  className="icon-btn"
-                  title="Couleur du texte"
-                  onClick={() => setColorMenu((v) => !v)}
-                >
-                  <Baseline size={15} />
-                </button>
-                {colorMenu && (
-                  <ToolbarPopover
-                    className="sv-menu__pop sv-colors"
-                    ariaLabel="Couleur du texte"
-                    onClose={() => setColorMenu(false)}
-                    triggerRef={colorMenuBtnRef}
-                  >
-                    {TEXT_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        className={`sv-swatch ${sel!.color === c ? "is-active" : ""}`}
-                        role="menuitem"
-                        title={c}
-                        style={{ background: c }}
-                        onClick={() => {
-                          store.updateEl(sel!.id, { color: c });
-                          setColorMenu(false);
-                        }}
-                      />
-                    ))}
-                  </ToolbarPopover>
-                )}
-              </div>
-              <button
-                className="icon-btn"
-                title="Aligner à gauche"
-                onClick={() => store.updateEl(sel!.id, { align: "left" })}
-              >
-                <AlignLeft size={15} />
-              </button>
-              <button className="icon-btn" title="Centrer" onClick={() => store.updateEl(sel!.id, { align: "center" })}>
-                <AlignCenter size={15} />
-              </button>
-              <button
-                className="icon-btn"
-                title="Aligner à droite"
-                onClick={() => store.updateEl(sel!.id, { align: "right" })}
-              >
-                <AlignRight size={15} />
+              <button className="icon-btn" title="Rétablir (Ctrl+Y)" onClick={store.redo} disabled={!store.canRedo}>
+                <Redo2 size={16} />
               </button>
             </>
           )}
-          {isShape && (
-            <>
-              <label className="tool-color" title="Remplissage">
-                <span>Fond</span>
-                <input
-                  type="color"
-                  value={sel!.fill === "transparent" ? "#ffffff" : (sel!.fill ?? "#bfdbfe")}
-                  onChange={(e) => store.updateEl(sel!.id, { fill: e.target.value })}
-                />
-              </label>
-              <button className="eb eb--sm eb--ghost" onClick={() => store.updateEl(sel!.id, { fill: "transparent" })}>
-                Sans fond
-              </button>
-              <label className="tool-color" title="Contour">
-                <span>Trait</span>
-                <input
-                  type="color"
-                  value={sel!.stroke ?? "#2563eb"}
-                  onChange={(e) => store.updateEl(sel!.id, { stroke: e.target.value })}
-                />
-              </label>
-              <input
-                className="input sv-num"
-                type="number"
-                min={0}
-                max={20}
-                title="Épaisseur"
-                aria-label="Épaisseur du trait"
-                value={sel!.strokeWidth ?? 2}
-                onChange={(e) => store.updateEl(sel!.id, { strokeWidth: Number(e.target.value) })}
-              />
-              <input
-                className="input sv-shape-text"
-                placeholder="Texte"
-                value={sel!.text ?? ""}
-                onChange={(e) => store.updateEl(sel!.id, { text: e.target.value })}
-              />
-            </>
-          )}
-          {isTable && (
-            <>
-              <button className="eb eb--sm eb--ghost" title="Ajouter une ligne" onClick={addRow}>
-                <PlusIcon size={13} /> Ligne
-              </button>
-              <button className="eb eb--sm eb--ghost" title="Supprimer la dernière ligne" onClick={delRow}>
-                <MinusIcon size={13} /> Ligne
-              </button>
-              <button className="eb eb--sm eb--ghost" title="Ajouter une colonne" onClick={addCol}>
-                <PlusIcon size={13} /> Col.
-              </button>
-              <button className="eb eb--sm eb--ghost" title="Supprimer la dernière colonne" onClick={delCol}>
-                <MinusIcon size={13} /> Col.
-              </button>
-              <label className="sv-tbl-field">
-                Style
+          <HScroll className="sv-topbar__scroll" bodyClassName="sv-topbar__body">
+            {chrome.statusNode}
+            {canWrite && active && (
+              <>
                 <select
                   className="tool-select tool-select--sm"
-                  value={sel!.table!.style ?? "banded"}
-                  onChange={(e) =>
-                    setTable({ ...sel!.table!, style: e.target.value as NonNullable<SlideElement["table"]>["style"] })
-                  }
+                  aria-label="Disposition de la diapositive"
+                  title="Disposition de la diapositive (espaces réservés du masque)"
+                  value={active.layoutId ?? ""}
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    store.replaceSlideAt(
+                      activeIdx,
+                      applyLayout(withEl(active), deck.master ?? defaultMaster(), e.target.value),
+                    );
+                  }}
                 >
-                  {TABLE_STYLES.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
+                  <option value="">Disposition…</option>
+                  {(deck.master ?? defaultMaster()).layouts.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="sv-tbl-check">
-                <input
-                  type="checkbox"
-                  checked={sel!.table!.headerRow !== false}
-                  onChange={(e) => setTable({ ...sel!.table!, headerRow: e.target.checked })}
-                />{" "}
-                En-tête
-              </label>
-              <label className="sv-tbl-check">
-                <input
-                  type="checkbox"
-                  checked={!!sel!.table!.firstCol}
-                  onChange={(e) => setTable({ ...sel!.table!, firstCol: e.target.checked })}
-                />{" "}
-                1re colonne
-              </label>
-              <span className="sv-tbl-merge" role="group" aria-label="Fusionner des cellules">
-                {(["r0", "c0", "r1", "c1"] as const).map((k, i) => (
-                  <input
-                    key={k}
-                    type="number"
-                    min={1}
-                    aria-label={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
-                    title={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
-                    value={mergeRange[k]}
-                    onChange={(e) => setMergeRange({ ...mergeRange, [k]: Math.max(1, Number(e.target.value) || 1) })}
-                  />
-                ))}
-                <button className="eb eb--sm eb--ghost" onClick={doMerge}>
-                  Fusionner
+                <button
+                  className="eb eb--sm eb--outline"
+                  title="Réinitialiser la diapositive (replace les espaces réservés selon sa disposition)"
+                  disabled={!active.layoutId}
+                  onClick={() =>
+                    store.replaceSlideAt(activeIdx, resetSlide(withEl(active), deck.master ?? defaultMaster()))
+                  }
+                >
+                  Réinitialiser
                 </button>
-                <button className="eb eb--sm eb--ghost" onClick={doUnmerge}>
-                  Séparer
+                <button
+                  className="eb eb--sm eb--outline"
+                  title="Modifier le masque et les dispositions"
+                  onClick={() => setMasterOpen(true)}
+                >
+                  <LayoutTemplate size={14} /> Masque
                 </button>
-              </span>
+              </>
+            )}
+            <button
+              className="eb eb--sm eb--outline"
+              title="Imprimer : documents (1 à 9 par page), pages de notes, export PDF"
+              onClick={() => setPrintOpen(true)}
+            >
+              <Copy size={14} /> Imprimer
+            </button>
+            {canWrite && (
               <button
-                className="eb eb--sm eb--ghost"
-                title="Remplacer le contenu par une plage copiée depuis le Tableur"
-                onClick={() => setTsvOpen(true)}
+                className="eb eb--sm eb--outline"
+                title="Réglages de la présentation"
+                onClick={() => {
+                  closePopovers();
+                  setSettingsOpen(true);
+                }}
               >
-                Coller du Tableur
+                <Settings2 size={14} /> Réglages
               </button>
-              <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
-            </>
-          )}
-          {sel?.type === "diagram" && (
-            <button className="eb eb--sm eb--ghost" onClick={() => setDiagramDlg("edit")}>
-              Modifier le diagramme
+            )}
+            {canWrite && store.replaceDeck && (
+              <>
+                <button
+                  className="eb eb--sm eb--outline"
+                  title="Importer un PowerPoint (.pptx)"
+                  onClick={() => pptxRef.current?.click()}
+                >
+                  <Upload size={14} /> Importer
+                </button>
+                <input
+                  ref={pptxRef}
+                  type="file"
+                  accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  hidden
+                  onChange={onImportPptx}
+                />
+              </>
+            )}
+            {chrome.headerActions}
+          </HScroll>
+          <button
+            className="icon-btn"
+            title="Vue présentateur (2ᵉ écran : notes + minuteur + aperçu)"
+            aria-label="Vue présentateur"
+            onClick={openPresenter}
+          >
+            <MonitorPlay size={16} />
+          </button>
+          <button className="eb eb--sm eb--primary" title="Présenter (plein écran)" onClick={startPresent}>
+            <Play size={14} /> <span className="sv-lbl">Présenter</span>
+          </button>
+          {chrome.onClose && (
+            <button className="icon-btn" title="Fermer" onClick={chrome.onClose}>
+              <X size={18} />
             </button>
           )}
-          {isMedia && (
-            <div className="sv-media-bar" role="group" aria-label="Options du média">
-              {sel!.media!.kind === "video" ? (
-                <video className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
-              ) : (
-                <audio className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
-              )}
-              <label>
-                Début (s)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={sel!.media!.trimStart ?? 0}
-                  onChange={(e) =>
-                    store.updateEl(sel!.id, {
-                      media: { ...sel!.media!, ...clampTrim(Number(e.target.value), sel!.media!.trimEnd) },
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Fin (s, 0 = jusqu'à la fin)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={sel!.media!.trimEnd ?? 0}
-                  onChange={(e) =>
-                    store.updateEl(sel!.id, {
-                      media: { ...sel!.media!, ...clampTrim(sel!.media!.trimStart, Number(e.target.value)) },
-                    })
-                  }
-                />
-              </label>
-              <label className="sv-media-bar__check">
-                <input
-                  type="checkbox"
-                  checked={!!sel!.media!.autoplay}
-                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, autoplay: e.target.checked } })}
-                />
-                Lecture automatique
-              </label>
-              <label className="sv-media-bar__check">
-                <input
-                  type="checkbox"
-                  checked={!!sel!.media!.loop}
-                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, loop: e.target.checked } })}
-                />
-                Boucle
-              </label>
-              <span className="sv-anim-hint">
-                Lecture : {formatTime(sel!.media!.trimStart ?? 0)}
-                {sel!.media!.trimEnd ? ` → ${formatTime(sel!.media!.trimEnd)}` : " → fin"}. Au clic sur le lecteur en
-                diaporama, sauf lecture automatique.
-              </span>
-            </div>
-          )}
-          {isChart && sel!.chart && (
+        </div>
+
+        {/* Insert / element toolbar */}
+        {canWrite && (
+          <HScroll className="sv-toolbar-wrap" bodyClassName="sv-toolbar">
+            <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTextElement())}>
+              <Type size={15} /> Texte
+            </button>
             <div className="sv-menu">
-              <button ref={chartMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setChartMenu((v) => !v)}>
-                <BarChart3 size={14} /> Données ▾
+              <button ref={shapeMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setShapeMenu((v) => !v)}>
+                <Square size={15} /> Forme ▾
               </button>
-              {chartMenu && (
+              {shapeMenu && (
                 <ToolbarPopover
-                  className="sv-menu__pop sv-chart-pop"
-                  role="dialog"
-                  ariaLabel="Données du graphique"
-                  onClose={() => setChartMenu(false)}
-                  triggerRef={chartMenuBtnRef}
+                  className="sv-menu__pop sv-gallery-pop sv-gallery-pop--shapes"
+                  ariaLabel="Formes"
+                  onClose={() => setShapeMenu(false)}
+                  triggerRef={shapeMenuBtnRef}
                 >
-                  <label className="sv-anim-row">
-                    <span>Type</span>
-                    <select
-                      className="input"
-                      value={sel!.chart.kind}
-                      onChange={(e) => setChart({ kind: e.target.value as ChartKind })}
+                  {SHAPES.map((s) => (
+                    <button
+                      key={s.kind}
+                      className="sv-gallery-item"
+                      role="menuitem"
+                      title={s.label}
+                      onClick={() => {
+                        addEl(newShapeElement(s.kind));
+                        setShapeMenu(false);
+                      }}
                     >
-                      <option value="bar">Barres</option>
-                      <option value="line">Courbe</option>
-                      <option value="pie">Camembert</option>
-                    </select>
-                  </label>
-                  <div className="sv-chart-points">
-                    {sel!.chart.labels.map((lb, i) => (
-                      <div key={i} className="sv-chart-row">
-                        <input
-                          className="input"
-                          value={lb}
-                          placeholder="Libellé"
-                          onChange={(e) => setPoint(i, e.target.value, sel!.chart!.values[i] ?? 0)}
+                      <span className="sv-gallery-icon">{s.icon}</span>
+                      <span className="sv-gallery-label">{s.label}</span>
+                    </button>
+                  ))}
+                </ToolbarPopover>
+              )}
+            </div>
+            <button className="eb eb--sm eb--ghost" onClick={() => imgRef.current?.click()}>
+              <ImageIcon size={15} /> Image
+            </button>
+            <input ref={imgRef} type="file" accept="image/*" hidden onChange={onImage} />
+            <button
+              className="eb eb--sm eb--ghost"
+              title="Insérer un diagramme (processus, cycle, hiérarchie, liste) depuis un plan"
+              onClick={() => setDiagramDlg("new")}
+            >
+              <Group size={15} /> Diagramme
+            </button>
+            <button
+              className="eb eb--sm eb--ghost"
+              title="Insérer un son ou une vidéo (embarqué, lisible hors ligne)"
+              onClick={() => mediaRef.current?.click()}
+            >
+              <MonitorPlay size={15} /> Média
+            </button>
+            <input
+              ref={mediaRef}
+              type="file"
+              accept={MEDIA_ACCEPT}
+              hidden
+              onChange={onMedia}
+              aria-label="Fichier audio ou vidéo"
+            />
+            <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTableElement())}>
+              <TableIcon size={15} /> Tableau
+            </button>
+            <div className="sv-menu">
+              <button
+                ref={chartInsMenuBtnRef}
+                className="eb eb--sm eb--ghost"
+                onClick={() => setChartInsMenu((v) => !v)}
+              >
+                <BarChart3 size={15} /> Graphique ▾
+              </button>
+              {chartInsMenu && (
+                <ToolbarPopover
+                  className="sv-menu__pop sv-gallery-pop sv-gallery-pop--charts"
+                  ariaLabel="Types de graphique"
+                  onClose={() => setChartInsMenu(false)}
+                  triggerRef={chartInsMenuBtnRef}
+                >
+                  {CHART_KINDS.map((c) => (
+                    <button
+                      key={c.kind}
+                      className="sv-gallery-item"
+                      role="menuitem"
+                      title={c.label}
+                      onClick={() => {
+                        addEl(newChartElement(c.kind));
+                        setChartInsMenu(false);
+                      }}
+                    >
+                      <span className="sv-gallery-icon">{c.icon}</span>
+                      <span className="sv-gallery-label">{c.label}</span>
+                    </button>
+                  ))}
+                </ToolbarPopover>
+              )}
+            </div>
+            <span className="sv-sep" />
+
+            {/* Text formatting (act on the focused contentEditable) */}
+            {isText && (
+              <>
+                <select
+                  className="tool-select"
+                  title="Police"
+                  aria-label="Police"
+                  value={sel!.fontFamily ?? DEFAULT_FONT}
+                  onChange={(e) => store.updateEl(sel!.id, { fontFamily: e.target.value })}
+                  style={{ maxWidth: 130 }}
+                >
+                  {allFontNames().map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input sv-num"
+                  type="number"
+                  min={6}
+                  max={200}
+                  title="Taille"
+                  aria-label="Taille de police"
+                  value={Math.round(sel!.fontSize ?? 24)}
+                  onChange={(e) => store.updateEl(sel!.id, { fontSize: Number(e.target.value) })}
+                />
+                <button
+                  className="icon-btn"
+                  title="Gras"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    cmd("bold");
+                  }}
+                >
+                  <Bold size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Italique"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    cmd("italic");
+                  }}
+                >
+                  <Italic size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Souligné"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    cmd("underline");
+                  }}
+                >
+                  <Underline size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Liste à puces"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    cmd("insertUnorderedList");
+                  }}
+                >
+                  <List size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Liste numérotée"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    cmd("insertOrderedList");
+                  }}
+                >
+                  <ListOrdered size={15} />
+                </button>
+                <div className="sv-menu">
+                  <button
+                    ref={colorMenuBtnRef}
+                    className="icon-btn"
+                    title="Couleur du texte"
+                    onClick={() => setColorMenu((v) => !v)}
+                  >
+                    <Baseline size={15} />
+                  </button>
+                  {colorMenu && (
+                    <ToolbarPopover
+                      className="sv-menu__pop sv-colors"
+                      ariaLabel="Couleur du texte"
+                      onClose={() => setColorMenu(false)}
+                      triggerRef={colorMenuBtnRef}
+                    >
+                      {TEXT_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          className={`sv-swatch ${sel!.color === c ? "is-active" : ""}`}
+                          role="menuitem"
+                          title={c}
+                          style={{ background: c }}
+                          onClick={() => {
+                            store.updateEl(sel!.id, { color: c });
+                            setColorMenu(false);
+                          }}
                         />
-                        <input
-                          className="input sv-num"
-                          type="number"
-                          value={sel!.chart!.values[i] ?? 0}
-                          onChange={(e) => setPoint(i, sel!.chart!.labels[i] ?? "", Number(e.target.value))}
+                      ))}
+                    </ToolbarPopover>
+                  )}
+                </div>
+                <button
+                  className="icon-btn"
+                  title="Aligner à gauche"
+                  onClick={() => store.updateEl(sel!.id, { align: "left" })}
+                >
+                  <AlignLeft size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Centrer"
+                  onClick={() => store.updateEl(sel!.id, { align: "center" })}
+                >
+                  <AlignCenter size={15} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Aligner à droite"
+                  onClick={() => store.updateEl(sel!.id, { align: "right" })}
+                >
+                  <AlignRight size={15} />
+                </button>
+              </>
+            )}
+            {isShape && (
+              <>
+                <label className="tool-color" title="Remplissage">
+                  <span>Fond</span>
+                  <input
+                    type="color"
+                    value={sel!.fill === "transparent" ? "#ffffff" : (sel!.fill ?? "#bfdbfe")}
+                    onChange={(e) => store.updateEl(sel!.id, { fill: e.target.value })}
+                  />
+                </label>
+                <button
+                  className="eb eb--sm eb--ghost"
+                  onClick={() => store.updateEl(sel!.id, { fill: "transparent" })}
+                >
+                  Sans fond
+                </button>
+                <label className="tool-color" title="Contour">
+                  <span>Trait</span>
+                  <input
+                    type="color"
+                    value={sel!.stroke ?? "#2563eb"}
+                    onChange={(e) => store.updateEl(sel!.id, { stroke: e.target.value })}
+                  />
+                </label>
+                <input
+                  className="input sv-num"
+                  type="number"
+                  min={0}
+                  max={20}
+                  title="Épaisseur"
+                  aria-label="Épaisseur du trait"
+                  value={sel!.strokeWidth ?? 2}
+                  onChange={(e) => store.updateEl(sel!.id, { strokeWidth: Number(e.target.value) })}
+                />
+                <input
+                  className="input sv-shape-text"
+                  placeholder="Texte"
+                  value={sel!.text ?? ""}
+                  onChange={(e) => store.updateEl(sel!.id, { text: e.target.value })}
+                />
+              </>
+            )}
+            {isTable && (
+              <>
+                <button className="eb eb--sm eb--ghost" title="Ajouter une ligne" onClick={addRow}>
+                  <PlusIcon size={13} /> Ligne
+                </button>
+                <button className="eb eb--sm eb--ghost" title="Supprimer la dernière ligne" onClick={delRow}>
+                  <MinusIcon size={13} /> Ligne
+                </button>
+                <button className="eb eb--sm eb--ghost" title="Ajouter une colonne" onClick={addCol}>
+                  <PlusIcon size={13} /> Col.
+                </button>
+                <button className="eb eb--sm eb--ghost" title="Supprimer la dernière colonne" onClick={delCol}>
+                  <MinusIcon size={13} /> Col.
+                </button>
+                <label className="sv-tbl-field">
+                  Style
+                  <select
+                    className="tool-select tool-select--sm"
+                    value={sel!.table!.style ?? "banded"}
+                    onChange={(e) =>
+                      setTable({ ...sel!.table!, style: e.target.value as NonNullable<SlideElement["table"]>["style"] })
+                    }
+                  >
+                    {TABLE_STYLES.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="sv-tbl-check">
+                  <input
+                    type="checkbox"
+                    checked={sel!.table!.headerRow !== false}
+                    onChange={(e) => setTable({ ...sel!.table!, headerRow: e.target.checked })}
+                  />{" "}
+                  En-tête
+                </label>
+                <label className="sv-tbl-check">
+                  <input
+                    type="checkbox"
+                    checked={!!sel!.table!.firstCol}
+                    onChange={(e) => setTable({ ...sel!.table!, firstCol: e.target.checked })}
+                  />{" "}
+                  1re colonne
+                </label>
+                <span className="sv-tbl-merge" role="group" aria-label="Fusionner des cellules">
+                  {(["r0", "c0", "r1", "c1"] as const).map((k, i) => (
+                    <input
+                      key={k}
+                      type="number"
+                      min={1}
+                      aria-label={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                      title={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                      value={mergeRange[k]}
+                      onChange={(e) => setMergeRange({ ...mergeRange, [k]: Math.max(1, Number(e.target.value) || 1) })}
+                    />
+                  ))}
+                  <button className="eb eb--sm eb--ghost" onClick={doMerge}>
+                    Fusionner
+                  </button>
+                  <button className="eb eb--sm eb--ghost" onClick={doUnmerge}>
+                    Séparer
+                  </button>
+                </span>
+                <button
+                  className="eb eb--sm eb--ghost"
+                  title="Remplacer le contenu par une plage copiée depuis le Tableur"
+                  onClick={() => setTsvOpen(true)}
+                >
+                  Coller du Tableur
+                </button>
+                <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
+              </>
+            )}
+            {sel?.type === "diagram" && (
+              <button className="eb eb--sm eb--ghost" onClick={() => setDiagramDlg("edit")}>
+                Modifier le diagramme
+              </button>
+            )}
+            {isMedia && (
+              <div className="sv-media-bar" role="group" aria-label="Options du média">
+                {sel!.media!.kind === "video" ? (
+                  <video className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+                ) : (
+                  <audio className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+                )}
+                <label>
+                  Début (s)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={sel!.media!.trimStart ?? 0}
+                    onChange={(e) =>
+                      store.updateEl(sel!.id, {
+                        media: { ...sel!.media!, ...clampTrim(Number(e.target.value), sel!.media!.trimEnd) },
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Fin (s, 0 = jusqu'à la fin)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={sel!.media!.trimEnd ?? 0}
+                    onChange={(e) =>
+                      store.updateEl(sel!.id, {
+                        media: { ...sel!.media!, ...clampTrim(sel!.media!.trimStart, Number(e.target.value)) },
+                      })
+                    }
+                  />
+                </label>
+                <label className="sv-media-bar__check">
+                  <input
+                    type="checkbox"
+                    checked={!!sel!.media!.autoplay}
+                    onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, autoplay: e.target.checked } })}
+                  />
+                  Lecture automatique
+                </label>
+                <label className="sv-media-bar__check">
+                  <input
+                    type="checkbox"
+                    checked={!!sel!.media!.loop}
+                    onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, loop: e.target.checked } })}
+                  />
+                  Boucle
+                </label>
+                <span className="sv-anim-hint">
+                  Lecture : {formatTime(sel!.media!.trimStart ?? 0)}
+                  {sel!.media!.trimEnd ? ` → ${formatTime(sel!.media!.trimEnd)}` : " → fin"}. Au clic sur le lecteur en
+                  diaporama, sauf lecture automatique.
+                </span>
+              </div>
+            )}
+            {isChart && sel!.chart && (
+              <div className="sv-menu">
+                <button ref={chartMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setChartMenu((v) => !v)}>
+                  <BarChart3 size={14} /> Données ▾
+                </button>
+                {chartMenu && (
+                  <ToolbarPopover
+                    className="sv-menu__pop sv-chart-pop"
+                    role="dialog"
+                    ariaLabel="Données du graphique"
+                    onClose={() => setChartMenu(false)}
+                    triggerRef={chartMenuBtnRef}
+                  >
+                    <label className="sv-anim-row">
+                      <span>Type</span>
+                      <select
+                        className="input"
+                        value={sel!.chart.kind}
+                        onChange={(e) => setChart({ kind: e.target.value as ChartKind })}
+                      >
+                        <option value="bar">Barres</option>
+                        <option value="line">Courbe</option>
+                        <option value="pie">Camembert</option>
+                      </select>
+                    </label>
+                    <div className="sv-chart-points">
+                      {sel!.chart.labels.map((lb, i) => (
+                        <div key={i} className="sv-chart-row">
+                          <input
+                            className="input"
+                            value={lb}
+                            placeholder="Libellé"
+                            onChange={(e) => setPoint(i, e.target.value, sel!.chart!.values[i] ?? 0)}
+                          />
+                          <input
+                            className="input sv-num"
+                            type="number"
+                            value={sel!.chart!.values[i] ?? 0}
+                            onChange={(e) => setPoint(i, sel!.chart!.labels[i] ?? "", Number(e.target.value))}
+                          />
+                          <button
+                            className="icon-btn icon-btn--danger"
+                            title="Retirer le point"
+                            onClick={() => delPoint(i)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="eb eb--sm eb--outline" onClick={addPoint}>
+                      <PlusIcon size={13} /> Point
+                    </button>
+                  </ToolbarPopover>
+                )}
+              </div>
+            )}
+
+            {sel && (
+              <>
+                <span className="sv-sep" />
+                <button className="icon-btn" title="Aligner à gauche de la diapo" onClick={() => alignSlide("l")}>
+                  <AlignStartVertical size={15} />
+                </button>
+                <button className="icon-btn" title="Centrer horizontalement" onClick={() => alignSlide("c")}>
+                  <AlignCenterVertical size={15} />
+                </button>
+                <button className="icon-btn" title="Aligner à droite de la diapo" onClick={() => alignSlide("r")}>
+                  <AlignEndVertical size={15} />
+                </button>
+                <button className="icon-btn" title="Aligner en haut" onClick={() => alignSlide("t")}>
+                  <AlignStartHorizontal size={15} />
+                </button>
+                <button className="icon-btn" title="Centrer verticalement" onClick={() => alignSlide("m")}>
+                  <AlignCenterHorizontal size={15} />
+                </button>
+                <button className="icon-btn" title="Aligner en bas" onClick={() => alignSlide("b")}>
+                  <AlignEndHorizontal size={15} />
+                </button>
+                <span className="sv-sep" />
+                <button
+                  className="icon-btn"
+                  title="Pivoter (+15°)"
+                  onClick={() => store.updateEl(sel.id, { rotation: ((sel.rotation ?? 0) + 15) % 360 })}
+                >
+                  <RotateCw size={15} />
+                </button>
+                <button className="icon-btn" title="Premier plan" onClick={() => store.reorderEl(sel.id, "front")}>
+                  <BringToFront size={15} />
+                </button>
+                <button className="icon-btn" title="Arrière-plan" onClick={() => store.reorderEl(sel.id, "back")}>
+                  <SendToBack size={15} />
+                </button>
+                <span className="sv-sep" />
+                <div className="sv-menu">
+                  <button
+                    ref={animMenuBtnRef}
+                    className={`icon-btn ${animOf(sel.id) ? "is-active" : ""}`}
+                    title="Animation d'entrée"
+                    onClick={() => setAnimMenu((v) => !v)}
+                  >
+                    <Sparkles size={15} />
+                  </button>
+                  {animMenu && (
+                    <ToolbarPopover
+                      className="sv-menu__pop sv-anim-pop"
+                      role="dialog"
+                      ariaLabel="Animation d'entrée"
+                      onClose={() => setAnimMenu(false)}
+                      triggerRef={animMenuBtnRef}
+                    >
+                      {(() => {
+                        const a = animOf(sel.id);
+                        if (!a)
+                          return (
+                            <button className="eb eb--sm eb--outline" onClick={() => upsertAnim(sel.id, {})}>
+                              <Sparkles size={13} /> Ajouter une animation
+                            </button>
+                          );
+                        return (
+                          <>
+                            <label className="sv-anim-row">
+                              <span>Effet</span>
+                              <select
+                                className="input"
+                                value={a.effect}
+                                onChange={(e) => upsertAnim(sel.id, { effect: e.target.value as AnimEffect })}
+                              >
+                                {ANIM_EFFECTS.map((x) => (
+                                  <option key={x.value} value={x.value}>
+                                    {x.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="sv-anim-row">
+                              <span>Ordre</span>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                max={50}
+                                value={a.order}
+                                onChange={(e) => upsertAnim(sel.id, { order: Number(e.target.value) })}
+                              />
+                            </label>
+                            <label className="sv-anim-row">
+                              <span>Déclencheur</span>
+                              <select
+                                className="input"
+                                value={a.trigger ?? "onClick"}
+                                onChange={(e) =>
+                                  upsertAnim(sel.id, { trigger: e.target.value as import("./model").AnimTrigger })
+                                }
+                              >
+                                {ANIM_TRIGGERS.map((x) => (
+                                  <option key={x.value} value={x.value}>
+                                    {x.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="sv-anim-row">
+                              <span>Durée (ms)</span>
+                              <input
+                                className="input"
+                                type="number"
+                                min={100}
+                                max={5000}
+                                step={50}
+                                value={a.durationMs ?? 500}
+                                onChange={(e) => upsertAnim(sel.id, { durationMs: Number(e.target.value) })}
+                              />
+                            </label>
+                            <label className="sv-anim-row">
+                              <span>Délai (ms)</span>
+                              <input
+                                className="input"
+                                type="number"
+                                min={0}
+                                max={10000}
+                                step={50}
+                                value={a.delayMs ?? 0}
+                                onChange={(e) => upsertAnim(sel.id, { delayMs: Number(e.target.value) })}
+                              />
+                            </label>
+                            <div className="sv-anim-hint">
+                              Ordre = séquence de lecture · « au clic » attend un clic, « avec/après la précédente »
+                              partagent son clic
+                            </div>
+                            <button
+                              className="eb eb--sm eb--ghost"
+                              onClick={() => {
+                                removeAnim(sel.id);
+                                setAnimMenu(false);
+                              }}
+                            >
+                              <Trash2 size={13} /> Retirer l'animation
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </ToolbarPopover>
+                  )}
+                </div>
+                {canGroup && (
+                  <button className="icon-btn" title="Grouper (Ctrl+G)" onClick={groupSelection}>
+                    <Group size={15} />
+                  </button>
+                )}
+                {canUngroup && (
+                  <button className="icon-btn" title="Dégrouper (Ctrl+Maj+G)" onClick={ungroupSelection}>
+                    <Ungroup size={15} />
+                  </button>
+                )}
+                <button className="icon-btn" title="Dupliquer (Ctrl+D)" onClick={duplicateSelection}>
+                  <Copy size={15} />
+                </button>
+                <button className="icon-btn icon-btn--danger" title="Supprimer (Suppr)" onClick={removeSelection}>
+                  <Trash2 size={15} />
+                </button>
+              </>
+            )}
+          </HScroll>
+        )}
+
+        <div className="slides-body">
+          {/* Rail */}
+          <div className="sv-railwrap">
+            <button
+              type="button"
+              className="sv-rail-toggle"
+              aria-expanded={railOpen}
+              title={railOpen ? "Replier les miniatures" : "Afficher les miniatures"}
+              onClick={() => setRailOpen((v) => !v)}
+            >
+              <GalleryVerticalEnd size={14} /> Diapositives ({deck.slides.length}){" "}
+              <ChevronDown size={14} className={railOpen ? "sv-chev is-open" : "sv-chev"} />
+            </button>
+            <aside className={`slides-rail${railOpen ? "" : " is-collapsed"}`}>
+              {deck.slides.map((s, i) => {
+                const here = peersBySlide.get(i) ?? EMPTY_PEERS;
+                return (
+                  <div
+                    key={s.id}
+                    className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}
+                    onContextMenu={(e) => {
+                      if (!canWrite) return;
+                      e.preventDefault();
+                      onSlideContext(e, i);
+                    }}
+                  >
+                    <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
+                      <span className="slide-thumb__num">{i + 1}</span>
+                      {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
+                      <span className="sv-thumb__canvas">
+                        <SlideCanvas
+                          slide={s}
+                          elements={s.elements ?? elementsOf(s)}
+                          theme={theme}
+                          scale={90 / REF_H}
+                          slideNumber={i + 1}
                         />
+                      </span>
+                      {here.map((p, k) => (
+                        <span key={k} className="dc-slides__peerdot" style={{ background: p.color }} title={p.name} />
+                      ))}
+                    </button>
+                    {canWrite && (
+                      <div className="slide-thumb__actions">
+                        <button
+                          className="icon-btn"
+                          title="Monter"
+                          onClick={() => store.moveSlide(i, -1)}
+                          disabled={i === 0}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          className="icon-btn"
+                          title="Descendre"
+                          onClick={() => store.moveSlide(i, 1)}
+                          disabled={i === deck.slides.length - 1}
+                        >
+                          ▼
+                        </button>
+                        <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
+                          <Copy size={13} />
+                        </button>
                         <button
                           className="icon-btn icon-btn--danger"
-                          title="Retirer le point"
-                          onClick={() => delPoint(i)}
+                          title="Supprimer"
+                          onClick={() => store.removeSlide(i)}
+                          disabled={deck.slides.length <= 1}
                         >
                           <Trash2 size={13} />
                         </button>
                       </div>
-                    ))}
+                    )}
                   </div>
-                  <button className="eb eb--sm eb--outline" onClick={addPoint}>
-                    <PlusIcon size={13} /> Point
-                  </button>
-                </ToolbarPopover>
-              )}
-            </div>
-          )}
-
-          {sel && (
-            <>
-              <span className="sv-sep" />
-              <button className="icon-btn" title="Aligner à gauche de la diapo" onClick={() => alignSlide("l")}>
-                <AlignStartVertical size={15} />
-              </button>
-              <button className="icon-btn" title="Centrer horizontalement" onClick={() => alignSlide("c")}>
-                <AlignCenterVertical size={15} />
-              </button>
-              <button className="icon-btn" title="Aligner à droite de la diapo" onClick={() => alignSlide("r")}>
-                <AlignEndVertical size={15} />
-              </button>
-              <button className="icon-btn" title="Aligner en haut" onClick={() => alignSlide("t")}>
-                <AlignStartHorizontal size={15} />
-              </button>
-              <button className="icon-btn" title="Centrer verticalement" onClick={() => alignSlide("m")}>
-                <AlignCenterHorizontal size={15} />
-              </button>
-              <button className="icon-btn" title="Aligner en bas" onClick={() => alignSlide("b")}>
-                <AlignEndHorizontal size={15} />
-              </button>
-              <span className="sv-sep" />
-              <button
-                className="icon-btn"
-                title="Pivoter (+15°)"
-                onClick={() => store.updateEl(sel.id, { rotation: ((sel.rotation ?? 0) + 15) % 360 })}
-              >
-                <RotateCw size={15} />
-              </button>
-              <button className="icon-btn" title="Premier plan" onClick={() => store.reorderEl(sel.id, "front")}>
-                <BringToFront size={15} />
-              </button>
-              <button className="icon-btn" title="Arrière-plan" onClick={() => store.reorderEl(sel.id, "back")}>
-                <SendToBack size={15} />
-              </button>
-              <span className="sv-sep" />
-              <div className="sv-menu">
-                <button
-                  ref={animMenuBtnRef}
-                  className={`icon-btn ${animOf(sel.id) ? "is-active" : ""}`}
-                  title="Animation d'entrée"
-                  onClick={() => setAnimMenu((v) => !v)}
-                >
-                  <Sparkles size={15} />
-                </button>
-                {animMenu && (
-                  <ToolbarPopover
-                    className="sv-menu__pop sv-anim-pop"
-                    role="dialog"
-                    ariaLabel="Animation d'entrée"
-                    onClose={() => setAnimMenu(false)}
-                    triggerRef={animMenuBtnRef}
+                );
+              })}
+              {canWrite && (
+                <div className="sv-add-row">
+                  <button
+                    className="eb eb--sm eb--outline"
+                    title="Nouvelle diapositive"
+                    onClick={() => store.addSlide(false)}
                   >
-                    {(() => {
-                      const a = animOf(sel.id);
-                      if (!a)
-                        return (
-                          <button className="eb eb--sm eb--outline" onClick={() => upsertAnim(sel.id, {})}>
-                            <Sparkles size={13} /> Ajouter une animation
-                          </button>
-                        );
-                      return (
-                        <>
-                          <label className="sv-anim-row">
-                            <span>Effet</span>
-                            <select
-                              className="input"
-                              value={a.effect}
-                              onChange={(e) => upsertAnim(sel.id, { effect: e.target.value as AnimEffect })}
-                            >
-                              {ANIM_EFFECTS.map((x) => (
-                                <option key={x.value} value={x.value}>
-                                  {x.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="sv-anim-row">
-                            <span>Ordre</span>
-                            <input
-                              className="input"
-                              type="number"
-                              min={0}
-                              max={50}
-                              value={a.order}
-                              onChange={(e) => upsertAnim(sel.id, { order: Number(e.target.value) })}
-                            />
-                          </label>
-                          <label className="sv-anim-row">
-                            <span>Déclencheur</span>
-                            <select
-                              className="input"
-                              value={a.trigger ?? "onClick"}
-                              onChange={(e) =>
-                                upsertAnim(sel.id, { trigger: e.target.value as import("./model").AnimTrigger })
-                              }
-                            >
-                              {ANIM_TRIGGERS.map((x) => (
-                                <option key={x.value} value={x.value}>
-                                  {x.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="sv-anim-row">
-                            <span>Durée (ms)</span>
-                            <input
-                              className="input"
-                              type="number"
-                              min={100}
-                              max={5000}
-                              step={50}
-                              value={a.durationMs ?? 500}
-                              onChange={(e) => upsertAnim(sel.id, { durationMs: Number(e.target.value) })}
-                            />
-                          </label>
-                          <label className="sv-anim-row">
-                            <span>Délai (ms)</span>
-                            <input
-                              className="input"
-                              type="number"
-                              min={0}
-                              max={10000}
-                              step={50}
-                              value={a.delayMs ?? 0}
-                              onChange={(e) => upsertAnim(sel.id, { delayMs: Number(e.target.value) })}
-                            />
-                          </label>
-                          <div className="sv-anim-hint">
-                            Ordre = séquence de lecture · « au clic » attend un clic, « avec/après la précédente »
-                            partagent son clic
-                          </div>
+                    <Plus size={13} /> Diapo
+                  </button>
+                  <button
+                    className="eb eb--sm eb--outline"
+                    title="Nouvelle diapositive vierge"
+                    onClick={() => store.addSlide(true)}
+                  >
+                    <LayoutTemplate size={13} /> Vierge
+                  </button>
+                  <div className="sv-menu">
+                    <button
+                      ref={tplMenuBtnRef}
+                      className="eb eb--sm eb--outline"
+                      title="Modèles de diapositive"
+                      onClick={() => setTplMenu((v) => !v)}
+                    >
+                      <LayoutGrid size={13} /> Modèles ▾
+                    </button>
+                    {tplMenu && (
+                      <ToolbarPopover
+                        className="sv-menu__pop sv-tpl-pop"
+                        ariaLabel="Modèles de diapositive"
+                        onClose={() => setTplMenu(false)}
+                        triggerRef={tplMenuBtnRef}
+                      >
+                        {SLIDE_TEMPLATES.map((tpl) => (
                           <button
-                            className="eb eb--sm eb--ghost"
+                            key={tpl.id}
+                            className="sv-tpl-item"
+                            role="menuitem"
                             onClick={() => {
-                              removeAnim(sel.id);
-                              setAnimMenu(false);
+                              addTemplate(tpl);
+                              setTplMenu(false);
                             }}
                           >
-                            <Trash2 size={13} /> Retirer l'animation
+                            <span
+                              className="sv-tpl-preview"
+                              style={
+                                tpl.background
+                                  ? {
+                                      backgroundImage: tpl.background.startsWith("linear") ? tpl.background : undefined,
+                                      background: tpl.background.startsWith("linear") ? undefined : tpl.background,
+                                    }
+                                  : undefined
+                              }
+                            />
+                            <span className="sv-tpl-item__label">{tpl.label}</span>
                           </button>
-                        </>
-                      );
-                    })()}
-                  </ToolbarPopover>
-                )}
-              </div>
-              {canGroup && (
-                <button className="icon-btn" title="Grouper (Ctrl+G)" onClick={groupSelection}>
-                  <Group size={15} />
-                </button>
-              )}
-              {canUngroup && (
-                <button className="icon-btn" title="Dégrouper (Ctrl+Maj+G)" onClick={ungroupSelection}>
-                  <Ungroup size={15} />
-                </button>
-              )}
-              <button className="icon-btn" title="Dupliquer (Ctrl+D)" onClick={duplicateSelection}>
-                <Copy size={15} />
-              </button>
-              <button className="icon-btn icon-btn--danger" title="Supprimer (Suppr)" onClick={removeSelection}>
-                <Trash2 size={15} />
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      <div className="slides-body">
-        {/* Rail */}
-        <aside className="slides-rail">
-          {deck.slides.map((s, i) => {
-            const here = peersBySlide.get(i) ?? EMPTY_PEERS;
-            return (
-              <div
-                key={s.id}
-                className={`slide-thumb ${i === activeIdx ? "is-active" : ""}`}
-                onContextMenu={(e) => {
-                  if (!canWrite) return;
-                  e.preventDefault();
-                  onSlideContext(e, i);
-                }}
-              >
-                <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
-                  <span className="slide-thumb__num">{i + 1}</span>
-                  {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
-                  <span className="sv-thumb__canvas">
-                    <SlideCanvas
-                      slide={s}
-                      elements={s.elements ?? elementsOf(s)}
-                      theme={theme}
-                      scale={90 / REF_H}
-                      slideNumber={i + 1}
-                    />
-                  </span>
-                  {here.map((p, k) => (
-                    <span key={k} className="dc-slides__peerdot" style={{ background: p.color }} title={p.name} />
-                  ))}
-                </button>
-                {canWrite && (
-                  <div className="slide-thumb__actions">
-                    <button
-                      className="icon-btn"
-                      title="Monter"
-                      onClick={() => store.moveSlide(i, -1)}
-                      disabled={i === 0}
-                    >
-                      ▲
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title="Descendre"
-                      onClick={() => store.moveSlide(i, 1)}
-                      disabled={i === deck.slides.length - 1}
-                    >
-                      ▼
-                    </button>
-                    <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
-                      <Copy size={13} />
-                    </button>
-                    <button
-                      className="icon-btn icon-btn--danger"
-                      title="Supprimer"
-                      onClick={() => store.removeSlide(i)}
-                      disabled={deck.slides.length <= 1}
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                        ))}
+                      </ToolbarPopover>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-          {canWrite && (
-            <div className="sv-add-row">
-              <button className="eb eb--sm eb--outline" onClick={() => store.addSlide(false)}>
-                <Plus size={13} /> Diapo
-              </button>
-              <button className="eb eb--sm eb--ghost" onClick={() => store.addSlide(true)}>
-                <LayoutTemplate size={13} /> Vierge
-              </button>
-              <div className="sv-menu">
-                <button ref={tplMenuBtnRef} className="eb eb--sm eb--ghost" onClick={() => setTplMenu((v) => !v)}>
-                  <LayoutGrid size={13} /> Modèles ▾
-                </button>
-                {tplMenu && (
-                  <ToolbarPopover
-                    className="sv-menu__pop sv-tpl-pop"
-                    ariaLabel="Modèles de diapositive"
-                    onClose={() => setTplMenu(false)}
-                    triggerRef={tplMenuBtnRef}
+                  <button
+                    className="eb eb--sm eb--outline"
+                    title="Trieuse de diapositives"
+                    onClick={() => setManagerOpen(true)}
                   >
-                    {SLIDE_TEMPLATES.map((tpl) => (
-                      <button
-                        key={tpl.id}
-                        className="sv-tpl-item"
-                        role="menuitem"
-                        onClick={() => {
-                          addTemplate(tpl);
-                          setTplMenu(false);
-                        }}
-                      >
-                        <span
-                          className="sv-tpl-preview"
-                          style={
-                            tpl.background
-                              ? {
-                                  backgroundImage: tpl.background.startsWith("linear") ? tpl.background : undefined,
-                                  background: tpl.background.startsWith("linear") ? undefined : tpl.background,
-                                }
-                              : undefined
-                          }
-                        />
-                        <span className="sv-tpl-item__label">{tpl.label}</span>
-                      </button>
-                    ))}
-                  </ToolbarPopover>
-                )}
-              </div>
-              <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>
-                <GalleryVerticalEnd size={13} /> Trieuse
-              </button>
-            </div>
-          )}
-        </aside>
+                    <GalleryVerticalEnd size={13} /> Trieuse
+                  </button>
+                </div>
+              )}
+            </aside>
+          </div>
 
-        {/* Stage */}
-        <main className="sv-stage">
-          <div className="sv-canvas-wrap" ref={stageRef}>
-            {active && (
-              <SlideCanvas
-                slide={active}
-                elements={elements}
-                theme={theme}
-                scale={scale}
-                slideNumber={activeIdx + 1}
-                editable={canWrite}
-                selectedIds={selIds}
-                onSelectionChange={setSelIds}
-                onChange={(id, patch, commit) => store.updateEl(id, patch, commit)}
-                onBeginChange={store.beginChange}
-                onElementContext={onElementContext}
-                onCanvasContext={onCanvasContext}
+          {/* Stage */}
+          <main className="sv-stage">
+            <div className="sv-canvas-wrap" ref={stageRef}>
+              {active && (
+                <SlideCanvas
+                  slide={active}
+                  elements={elements}
+                  theme={theme}
+                  scale={scale}
+                  slideNumber={activeIdx + 1}
+                  editable={canWrite}
+                  selectedIds={selIds}
+                  onSelectionChange={setSelIds}
+                  onChange={(id, patch, commit) => store.updateEl(id, patch, commit)}
+                  onBeginChange={store.beginChange}
+                  onElementContext={onElementContext}
+                  onCanvasContext={onCanvasContext}
+                />
+              )}
+            </div>
+            <div className="sv-hint">
+              Cliquez (Maj = multi-sélection) · glissez pour un cadre de sélection · double-cliquez un texte pour
+              l'éditer · Ctrl+C/V/D, Ctrl+G groupe · poignées (Maj = proportionnel)
+            </div>
+            <button
+              type="button"
+              className="sv-notes-toggle"
+              aria-expanded={notesOpen}
+              onClick={() => setNotesOpen((v) => !v)}
+            >
+              <ChevronDown size={14} className={notesOpen ? "sv-chev is-open" : "sv-chev"} /> Notes de l'orateur
+            </button>
+            {notesOpen && (
+              <textarea
+                className="input sv-notes"
+                rows={2}
+                aria-label="Notes de l'orateur"
+                placeholder="Notes de l'orateur (privées — visibles seulement par vous)"
+                value={active?.notes ?? ""}
+                readOnly={!canWrite}
+                onFocus={store.beginChange}
+                onChange={(e) => store.patchSlide({ notes: e.target.value })}
               />
             )}
-          </div>
-          <div className="sv-hint">
-            Cliquez (Maj = multi-sélection) · glissez pour un cadre de sélection · double-cliquez un texte pour l'éditer
-            · Ctrl+C/V/D, Ctrl+G groupe · poignées (Maj = proportionnel)
-          </div>
-          <textarea
-            className="input sv-notes"
-            rows={2}
-            placeholder="Notes de l'orateur (privées — visibles seulement par vous)"
-            value={active?.notes ?? ""}
-            readOnly={!canWrite}
-            onFocus={store.beginChange}
-            onChange={(e) => store.patchSlide({ notes: e.target.value })}
-          />
-        </main>
+          </main>
+        </div>
       </div>
 
       {ctxMenu?.kind === "element" && sel && (

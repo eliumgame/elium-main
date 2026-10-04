@@ -59,12 +59,15 @@ export function Modal({
   children,
   footer,
   wide,
+  compact,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  /** Petite boîte (confirmation, saisie d'une ligne) : reste centrée sur mobile au lieu de passer en plein écran. */
+  compact?: boolean;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -119,7 +122,7 @@ export function Modal({
     <div className="modal-overlay" onClick={onClose}>
       <div
         ref={cardRef}
-        className={`modal-card ${wide ? "modal-card--wide" : ""}`}
+        className={`modal-card ${wide ? "modal-card--wide" : ""} ${compact ? "modal-card--compact" : ""}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

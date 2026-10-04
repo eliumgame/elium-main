@@ -31,7 +31,6 @@ import ShortcutsSection from "./settings/ShortcutsSection";
 import { ClearDataSection, CrashLogSection } from "./settings/PrivacySection";
 import {
   IdentitySection,
-  RecipientSection,
   TrustSection,
   VaultSection,
   type SecurityProps,
@@ -161,8 +160,6 @@ export default function SettingsModal(p: SettingsProps) {
         return ws ? <IndexSection bridge={ws} /> : unavailable(id);
       case "sec_identity":
         return <IdentitySection {...security} />;
-      case "sec_recipient":
-        return <RecipientSection {...security} />;
       case "sec_trust":
         return <TrustSection {...security} />;
       case "sec_vault":

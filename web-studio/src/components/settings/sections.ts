@@ -52,7 +52,6 @@ export type SectionId =
   | "ws_trash"
   | "ws_index"
   | "sec_identity"
-  | "sec_recipient"
   | "sec_trust"
   | "sec_vault"
   | "upd_versions"
@@ -113,12 +112,6 @@ export const SECTIONS: SectionMeta[] = [
     category: "security",
     titleKey: "settings.sec.sec_identity",
     keywordsKey: "settings.kw.sec_identity",
-  },
-  {
-    id: "sec_recipient",
-    category: "security",
-    titleKey: "settings.sec.sec_recipient",
-    keywordsKey: "settings.kw.sec_recipient",
   },
   { id: "sec_trust", category: "security", titleKey: "settings.sec.sec_trust", keywordsKey: "settings.kw.sec_trust" },
   { id: "sec_vault", category: "security", titleKey: "settings.sec.sec_vault", keywordsKey: "settings.kw.sec_vault" },

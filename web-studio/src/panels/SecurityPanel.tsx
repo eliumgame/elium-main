@@ -4,16 +4,15 @@ import { PROFILE_ORDER, PROFILES } from "../format/profiles";
 import { copyText } from "../sign/identity-store";
 import { fingerprintWords } from "../sign/safety-words";
 import type { Studio } from "../studio/types";
+import KeyringPanel from "../components/KeyringPanel";
+import RecipientPicker from "../components/RecipientPicker";
 
-const HEX_KEY = /^[0-9a-fA-F]{130}$/; // P-256 uncompressed point = 65 bytes = 130 hex
 
 export default function SecurityPanel({ studio }: { studio: Studio }) {
   const current = studio.file.manifest.profile;
   const expiresAt = studio.file.manifest.accessExpiresAt;
   const expiryDate = expiresAt ? expiresAt.slice(0, 10) : "";
   const expired = !!expiresAt && Date.now() > Date.parse(expiresAt);
-  const recipientText = studio.recipients.join("\n");
-  const invalidRecipients = studio.recipients.filter((r) => !HEX_KEY.test(r));
 
   return (
     <div className="panel">
@@ -111,70 +110,34 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
               <Users size={15} /> Destinataires (sans mot de passe)
             </h2>
             <p className="muted">
-              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé. Collez
-              leurs clés publiques (une par ligne). Si renseigné, le mot de passe n'est pas demandé.
+              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé. Choisissez
+              leurs clés depuis votre carnet de confiance. Si un destinataire est choisi, le mot de passe n'est pas
+              demandé.
             </p>
-            <Field label="Clés publiques de réception (P-256, hex)">
-              <textarea
-                className="settings__input"
-                rows={3}
-                disabled={!studio.editable}
-                value={recipientText}
-                placeholder="04a1b2…"
-                spellCheck={false}
-                onChange={(e) =>
-                  studio.setRecipients(
-                    e.target.value
-                      .split(/\s+/)
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  )
-                }
-              />
-            </Field>
-            {invalidRecipients.length > 0 && (
-              <p className="muted">
-                ⚠ {invalidRecipients.length} clé(s) au format invalide (130 caractères hexadécimaux attendus).
-              </p>
-            )}
+            <RecipientPicker studio={studio} />
           </section>
         </>
       )}
 
       <section className="panel-section">
         <h2 className="panel-title">
-          <Users size={15} /> Votre clé de réception
+          <Users size={15} /> Mes clés
         </h2>
-        {studio.recipientPublic ? (
+        {studio.recipientPublic && (
           <>
             <p className="muted">Partagez cette clé publique pour recevoir des documents chiffrés à votre intention.</p>
-            <div className="keyline">
-              <span className="keyline__label">Empreinte</span>
-              <code className="keyline__value">{studio.recipientPublic.fingerprint}</code>
-            </div>
             <div className="keyline">
               <span className="keyline__label">Mots de vérification</span>
               <code className="keyline__value">{fingerprintWords(studio.recipientPublic.fingerprint)}</code>
             </div>
-            <div className="settings__row" style={{ marginTop: 6 }}>
+            <div className="settings__row" style={{ marginTop: 6, marginBottom: 10 }}>
               <Button variant="outline" size="sm" onClick={() => void copyText(studio.recipientPublic!.publicHex)}>
                 <Copy size={14} /> Copier ma clé publique
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => studio.forgetRecipientKey()}>
-                Oublier
-              </Button>
             </div>
           </>
-        ) : (
-          <>
-            <p className="muted">
-              Aucune clé de réception. Générez-en une pour qu'on puisse vous envoyer des documents chiffrés.
-            </p>
-            <Button variant="outline" size="sm" onClick={() => void studio.generateRecipientKey()}>
-              <Users size={14} /> Générer ma clé de réception
-            </Button>
-          </>
         )}
+        <KeyringPanel compact />
       </section>
       <Alert tone="info">
         Un <b>.elium</b> non chiffré n'est pas confidentiel. Voir <code>la Documentation</code> pour les limites.

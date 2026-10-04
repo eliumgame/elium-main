@@ -187,6 +187,20 @@ UPDATE_CSS = """
 .elium-upd-notes::-webkit-scrollbar-thumb {
   background: var(--el-border-strong, #cbd5e1); border-radius: 999px;
 }
+.elium-upd-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--el-border, #e2e8f0);
+  font-size: 12px; color: var(--el-text-muted, #586675);
+}
+.elium-upd-sel {
+  font: inherit; color: var(--el-text, #0f172a); background: var(--el-surface, #fff);
+  border: 1px solid var(--el-border, #e2e8f0); border-radius: var(--el-radius-md, 8px); padding: 2px 6px;
+}
+.elium-upd-link {
+  background: none; border: 0; cursor: pointer; font: inherit; padding: 0;
+  color: var(--el-primary, #1d4ed8); text-decoration: underline;
+}
+.elium-upd-link:disabled { opacity: .6; cursor: default; }
 .elium-upd-spin {
   width: 22px; height: 22px; flex: none;
   border: 2.5px solid var(--el-surface-3, #f1f5f9);
@@ -207,8 +221,8 @@ UPDATE_CSS = """
 
 UPDATE_JS = """
 (function () {
-  var card, badge, spin, title, sub, track, bar, btn, later, more, notes;
-  var dismissed = false, expanded = false, notesKey = '';
+  var card, badge, spin, title, sub, track, bar, btn, later, more, notes, foot, chanSel, fileBtn, fileIn, fbMsg;
+  var dismissed = false, expanded = false, notesKey = '', fbDismissed = false;
   function build() {
     card = document.createElement('div'); card.id = 'elium-upd';
     var head = document.createElement('div'); head.className = 'elium-upd-head';
@@ -228,18 +242,44 @@ UPDATE_JS = """
     notes = document.createElement('div'); notes.className = 'elium-upd-notes';
     more = document.createElement('button'); more.className = 'elium-upd-more';
     more.onclick = function () { expanded = !expanded; syncNotes(); };
+    // Pied de carte : canal de mise à jour (stable/bêta) + mise à jour depuis un fichier
+    // hors ligne (.eliumupdate, vérifié par signature comme une mise à jour en ligne).
+    foot = document.createElement('div'); foot.className = 'elium-upd-foot'; foot.style.display = 'none';
+    var chanWrap = document.createElement('label'); chanWrap.className = 'elium-upd-chan';
+    chanWrap.appendChild(document.createTextNode('Canal : '));
+    chanSel = document.createElement('select'); chanSel.className = 'elium-upd-sel';
+    chanSel.setAttribute('aria-label', 'Canal de mise à jour');
+    [['stable', 'Stable'], ['beta', 'Bêta (préversions)']].forEach(function (o) {
+      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; chanSel.appendChild(op);
+    });
+    chanSel.onchange = function () { post('/__update__/channel?name=' + encodeURIComponent(chanSel.value)); };
+    chanWrap.appendChild(chanSel);
+    fileBtn = document.createElement('button'); fileBtn.className = 'elium-upd-link'; fileBtn.type = 'button';
+    fileBtn.textContent = 'Mettre à jour depuis un fichier…';
+    fileIn = document.createElement('input'); fileIn.type = 'file'; fileIn.accept = '.eliumupdate';
+    fileIn.style.display = 'none';
+    fileBtn.onclick = function () { fileIn.click(); };
+    fileIn.onchange = function () {
+      var f = fileIn.files && fileIn.files[0];
+      if (!f) return;
+      fileBtn.disabled = true;
+      post('/__update__/bundle', f).then(function () { fileBtn.disabled = false; fileIn.value = ''; });
+    };
+    foot.appendChild(chanWrap); foot.appendChild(fileBtn); foot.appendChild(fileIn);
     card.appendChild(head); card.appendChild(track); card.appendChild(more);
-    card.appendChild(notes); card.appendChild(btn); card.appendChild(later);
+    card.appendChild(notes); card.appendChild(btn); card.appendChild(later); card.appendChild(foot);
     document.body.appendChild(card);
   }
-  function post(path) {
+  function post(path, body) {
     // Jeton anti-CSRF relu depuis la balise <meta> injectée dans CE document
     // (jamais un script inline, cf. _serve_index_with_banner côté serveur) —
     // relu à chaque appel plutôt que mis en cache, pour ne dépendre d'aucun
     // ordre d'exécution avec l'injection de la balise.
     var meta = document.querySelector('meta[name="elium-token"]');
     var token = meta ? meta.getAttribute('content') : '';
-    return fetch(path, { method: 'POST', headers: { 'X-Elium-Token': token } })
+    var init = { method: 'POST', headers: { 'X-Elium-Token': token } };
+    if (body) init.body = body;
+    return fetch(path, init)
       .then(function (r) { return r.json(); }).catch(function () {});
   }
   // Après un redémarrage exe : l'ancien process meurt puis le nouveau reprend le
@@ -265,7 +305,7 @@ UPDATE_JS = """
   function syncNotes() {
     more.classList.toggle('open', expanded);
     notes.classList.toggle('open', expanded);
-    more.firstChild.nodeValue = expanded ? 'Masquer les nouveautes ' : 'Voir les nouveautes ';
+    more.firstChild.nodeValue = expanded ? 'Masquer les nouveautés ' : 'Voir les nouveautés ';
   }
   // On ne reconstruit la liste que si la charge a REELLEMENT change : la carte
   // interroge le statut toutes les 2 s, et rebatir a chaque tour arracherait le
@@ -295,7 +335,7 @@ UPDATE_JS = """
       total += items.length;
     });
     var chev = document.createElement('span'); chev.className = 'chev'; chev.textContent = '\\u25BC';
-    more.replaceChildren(document.createTextNode('Voir les nouveautes '), chev);
+    more.replaceChildren(document.createTextNode('Voir les nouveautés '), chev);
     more.classList.toggle('on', total > 0);
     if (!total) expanded = false;
     syncNotes();
@@ -308,47 +348,77 @@ UPDATE_JS = """
     // Les nouveautes restent affichees de la detection jusqu'a l'ecran « prete » :
     // c'est la meme mise a jour, l'utilisateur ne doit pas les perdre en route.
     fillNotes(st.releases);
+    var showFoot = false;
+    // Retour automatique à la version embarquée après des plantages au démarrage : annoncé
+    // une fois, tant qu'aucune autre mise à jour n'occupe la carte.
+    var busy = (s === 'available' || s === 'downloading' || s === 'web-ready' || s === 'exe-ready');
+    if (st.channel) chanSel.value = st.channel;
+    if (st.fallback && !fbDismissed && !busy) {
+      card.classList.add('err'); badge.style.display = '';
+      set('\\u21A9\\uFE0F', 'Retour à la version précédente',
+        'La version ' + (st.fallback.version || '') + ' n\\u2019a pas démarré correctement : ' +
+        'Elium a rétabli la version ' + (st.fallback.base || 'intégrée') + '.');
+      btn.textContent = 'Compris'; btn.disabled = false;
+      btn.onclick = function () { fbDismissed = true; card.classList.remove('show'); };
+      card.classList.add('show');
+      btn.style.display = ''; later.style.display = 'none'; track.style.display = 'none';
+      spin.style.display = 'none'; foot.style.display = 'none';
+      return;
+    }
     if (s === 'available') {
       if (dismissed) { card.classList.remove('show'); return; }
       badge.style.display = '';
-      // Le resume (« 3 versions, 12 nouveautes ») dit d'emblee l'ampleur de ce
-      // qui arrive ; a defaut on retombe sur le simple numero de version.
-      set('\\u{1F504}', 'Mise a jour disponible', 'Version ' + (st.version || '') +
+      // Le résumé (« 3 versions, 12 nouveautés ») dit d'emblée l'ampleur de ce
+      // qui arrive ; à défaut on retombe sur le simple numéro de version.
+      set('\\u{1F504}', 'Mise à jour disponible', 'Version ' + (st.version || '') +
         (st.summary ? ' \\u2014 ' + st.summary : ' \\u2014 installez-la en un clic'));
-      btn.textContent = 'Mettre a jour'; btn.disabled = false; showBtn = true; showLater = true;
+      btn.textContent = 'Mettre à jour'; btn.disabled = false; showBtn = true; showLater = true; showFoot = true;
       btn.onclick = function () { btn.disabled = true; post('/__update__/start'); };
     } else if (s === 'downloading') {
       badge.style.display = 'none'; showSpin = true; showTrack = true;
       var p = st.progress || 0;
-      set('', 'Telechargement de la mise a jour...', p > 0 ? (p + ' %') : 'Preparation...');
+      set('', 'Téléchargement de la mise à jour…', p > 0 ? (p + ' %') : 'Préparation…');
       if (p > 0) { bar.classList.remove('indet'); bar.style.width = p + '%'; }
       else { bar.classList.add('indet'); }
     } else if (s === 'web-ready') {
       card.classList.add('ready'); badge.style.display = '';
-      set('\\u2705', 'Mise a jour prete !', 'Rechargez pour utiliser la version ' + (st.version || ''));
+      set('\\u2705', 'Mise à jour prête !', 'Rechargez pour utiliser la version ' + (st.version || ''));
       btn.textContent = 'Recharger maintenant'; btn.disabled = false; showBtn = true;
       btn.onclick = function () { location.reload(); };
     } else if (s === 'exe-ready') {
       card.classList.add('ready'); badge.style.display = '';
-      set('\\u2705', 'Mise a jour prete !', 'Redemarrez Elium pour terminer');
-      btn.textContent = 'Redemarrer Elium'; btn.disabled = false; showBtn = true;
+      set('\\u2705', 'Mise à jour prête !', 'Redémarrez Elium pour terminer');
+      btn.textContent = 'Redémarrer Elium'; btn.disabled = false; showBtn = true;
       btn.onclick = function () {
-        btn.disabled = true; set('\\u2705', 'Redemarrage...', '');
+        btn.disabled = true; set('\\u2705', 'Redémarrage…', '');
         post('/__update__/restart').then(waitForServerThenReload);
+      };
+    } else if (s === 'check-failed') {
+      // Hors ligne = situation NORMALE d'une application local-first : pas de carte (le pied
+      // de page de l'accueil l'indique). Les autres causes (quota, signature…) méritent d'être vues.
+      if (st.reason === 'offline' || dismissed) { card.classList.remove('show'); return; }
+      card.classList.add('err'); badge.style.display = '';
+      set('\\u26A0\\uFE0F', 'Vérification impossible',
+        st.message || 'La recherche de mise à jour n\\u2019a pas pu aboutir.');
+      btn.textContent = 'Réessayer'; btn.disabled = false; showBtn = true; showLater = true; showFoot = true;
+      btn.onclick = function () {
+        btn.disabled = true;
+        post('/__update__/check').then(function () { btn.disabled = false; });
       };
     } else if (s === 'error') {
       card.classList.add('err'); badge.style.display = '';
-      set('\\u26A0\\uFE0F', 'Echec de la mise a jour', 'Verifiez votre connexion, puis reessayez');
-      btn.textContent = 'Reessayer'; btn.disabled = false; showBtn = true; showLater = true;
+      set('\\u26A0\\uFE0F', 'Échec de la mise à jour', st.message || 'Vérifiez votre connexion, puis réessayez');
+      btn.textContent = 'Réessayer'; btn.disabled = false; showBtn = true; showLater = true; showFoot = true;
       btn.onclick = function () { btn.disabled = true; post('/__update__/start'); };
     }
     var visible = (s === 'available' || s === 'downloading' || s === 'web-ready' ||
-                   s === 'exe-ready' || s === 'error');
+                   s === 'exe-ready' || s === 'error' || (s === 'check-failed' && !dismissed));
     card.classList.toggle('show', visible);
     btn.style.display = showBtn ? '' : 'none';
     later.style.display = showLater ? '' : 'none';
     track.style.display = showTrack ? '' : 'none';
     spin.style.display = showSpin ? '' : 'none';
+    foot.style.display = showFoot ? '' : 'none';
   }
   function poll() {
     fetch('/__update__').then(function (r) { return r.json(); }).then(render).catch(function () {});
@@ -406,6 +476,11 @@ _RATE_LIMIT_MAX_CALLS = 6
 _rate_limit_hits: "list[float]" = []
 _rate_limit_lock = threading.Lock()
 
+
+# Corps maximal accepté par POST /__ports__/set ({"port": 3000} tient en une vingtaine d'octets).
+_MAX_SET_PORT_BODY = 1024
+# Paquet de mise à jour hors ligne déposé via la carte : même borne qu'un artefact (updater).
+_MAX_BUNDLE_UPLOAD = 420 * 1024 * 1024
 
 _TSA_MAX_REQUEST = 8 * 1024
 _TSA_MAX_REPLY = 64 * 1024
@@ -813,6 +888,42 @@ def start_inbox_watcher() -> None:
     threading.Thread(target=loop, daemon=True, name="elium-inbox").start()
 
 
+_boot_ok_marked = False
+
+
+def _note_page_served() -> None:
+    """Première page réellement servie = le démarrage a abouti : on le signale à la garde
+    anti boucle de plantage de l'updater (sans quoi N démarrages ratés d'un exe mis à jour
+    le font abandonner au profit de la version embarquée)."""
+    global _boot_ok_marked
+    if _boot_ok_marked or updater is None:
+        return
+    _boot_ok_marked = True
+    try:
+        updater.mark_boot_ok()
+    except Exception as e:
+        _log_launcher(f"mark_boot_ok: {e}")
+
+
+def _extract_update_bundle_arg(argv: "list[str]") -> "tuple[list[str], str | None]":
+    """Sépare un éventuel paquet `.eliumupdate` des arguments (`Elium.exe fichier.eliumupdate`
+    ou `Elium.exe --apply-update fichier`) : il s'applique AVANT le démarrage, il ne doit pas
+    être pris pour un document `.elium` à ouvrir. Renvoie (arguments restants, chemin ou None)."""
+    rest: list[str] = []
+    bundle: str | None = None
+    it = iter(argv)
+    for a in it:
+        if a == "--apply-update":
+            nxt = next(it, None)
+            if nxt:
+                bundle = nxt
+        elif a.lower().endswith(".eliumupdate") and os.path.isfile(a):
+            bundle = a
+        else:
+            rest.append(a)
+    return rest, bundle
+
+
 def _is_local_host(host: "str | None", port: int) -> bool:
     """Le Host d'une requête GET sensible doit être celui de CE serveur loopback
     (anti DNS-rebinding : une page tierce dont le nom pointe vers 127.0.0.1 ne
@@ -917,6 +1028,10 @@ def _log_launcher(message: str) -> None:
 
 def get_web_dir() -> Path:
     """Retourne le chemin du dossier web-studio buildé."""
+    # Surcharge explicite (tests de fumée, CI) : sert ce dossier au lieu du web embarqué.
+    override = os.environ.get("ELIUM_WEB_DIR")
+    if override and Path(override).is_dir():
+        return Path(override)
     # 1) Bundle PyInstaller onefile/onedir : le Web Studio est embarqué sous _MEIPASS/web
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
@@ -1007,6 +1122,64 @@ CSP_DIRECTIVES: "tuple[str, ...]" = (
 CONTENT_SECURITY_POLICY = "; ".join(CSP_DIRECTIVES)
 
 
+# --- Magasin de clés du système (Windows DPAPI, optionnel) -----------------------
+# Ne remplace rien : le web ajoute cette couche SEULEMENT si l'utilisateur active
+# « Protéger avec Windows ». Les données restent déchiffrables uniquement par CE
+# compte Windows sur CETTE machine (CryptProtectData, portée utilisateur courant).
+_KEYSTORE_MAX = 4096
+_KEYSTORE_ENTROPY = b"elium-keystore/v1"
+
+
+def keystore_available() -> bool:
+    return sys.platform == "win32"
+
+
+def _dpapi_call(data: bytes, protect: bool) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    def blob(b: bytes) -> "tuple[DATA_BLOB, object]":
+        buf = ctypes.create_string_buffer(b, len(b))
+        return DATA_BLOB(len(b), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), buf
+
+    crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    src, _keep1 = blob(data)
+    ent, _keep2 = blob(_KEYSTORE_ENTROPY)
+    out = DATA_BLOB()
+    CRYPTPROTECT_UI_FORBIDDEN = 0x1
+    if protect:
+        ok = crypt32.CryptProtectData(
+            ctypes.byref(src), "Elium", ctypes.byref(ent), None, None, CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(out)
+        )
+    else:
+        ok = crypt32.CryptUnprotectData(
+            ctypes.byref(src), None, ctypes.byref(ent), None, None, CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(out)
+        )
+    if not ok:
+        raise OSError(f"DPAPI a échoué (code {ctypes.GetLastError()})")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        kernel32.LocalFree(ctypes.cast(out.pbData, ctypes.c_void_p))
+
+
+def keystore_wrap(data: bytes) -> bytes:
+    if not keystore_available():
+        raise OSError("DPAPI indisponible")
+    return _dpapi_call(data, True)
+
+
+def keystore_unwrap(data: bytes) -> bytes:
+    if not keystore_available():
+        raise OSError("DPAPI indisponible")
+    return _dpapi_call(data, False)
+
+
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Serveur HTTP silencieux pour le Web Studio (+ fichier ouvert via Explorer)."""
 
@@ -1037,6 +1210,15 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         """Supprime les logs HTTP pour un fonctionnement silencieux."""
         pass
 
+    def send_error(self, code, message=None, explain=None):
+        """Le message de statut HTTP voyage en latin-1 : un tiret cadratin ou tout autre
+        caractère hors latin-1 ferait lever UnicodeEncodeError (réponse 429 « Trop de
+        requêtes — … » jamais envoyée). On assainit donc le message ; le corps HTML, lui,
+        reste en UTF-8."""
+        if message:
+            message = message.encode("latin-1", "replace").decode("latin-1")
+        super().send_error(code, message, explain)
+
     def end_headers(self):
         # Headers de sécurité
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -1048,10 +1230,15 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         clean = self.path.split("?", 1)[0]
+        # Anti DNS-rebinding sur TOUTES les routes internes /__* (état de mise à jour,
+        # versions, ports, fichier ouvert…) : une page tierce dont le nom pointe vers
+        # 127.0.0.1 enverrait un Host étranger et ne doit rien pouvoir lire.
+        if clean.startswith("/__") and not _is_local_host(
+            self.headers.get("Host"), self.server.server_address[1]
+        ):
+            self.send_error(403, "Hôte non autorisé")
+            return
         if clean in ("/__open__", "/__open_seq__"):
-            if not _is_local_host(self.headers.get("Host"), self.server.server_address[1]):
-                self.send_error(403, "Hôte non autorisé")
-                return
             if clean == "/__open_seq__":
                 self._serve_bytes(
                     json.dumps({"seq": QuietHandler.open_seq}).encode("utf-8"),
@@ -1155,6 +1342,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if clean == "/__tsa__":
             self._handle_tsa_relay()
             return
+        if clean in ("/__keystore__/wrap", "/__keystore__/unwrap"):
+            self._handle_keystore(clean.rsplit("/", 1)[1])
+            return
         if clean == "/__update__/start":
             status = {"state": "idle"}
             if updater is not None:
@@ -1163,6 +1353,32 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception as e:
                     _log_launcher(f"POST /__update__/start: start_update() a échoué ({e})")
             self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__update__/check":
+            # Vérification manuelle (« Vérifier maintenant ») : synchrone et courte — un
+            # échec réseau est borné par les délais de l'updater, le cache ETag/backoff
+            # protège le quota GitHub.
+            status = {"state": "idle"}
+            if updater is not None:
+                try:
+                    status = updater.check_only()
+                except Exception as e:
+                    _log_launcher(f"POST /__update__/check: check_only() a échoué ({e})")
+            self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__update__/channel":
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            name = (qs.get("name", [""])[0] or "").strip().lower()
+            status = {"state": "idle"}
+            if updater is not None:
+                try:
+                    status = updater.set_channel(name)
+                except Exception as e:
+                    _log_launcher(f"POST /__update__/channel: set_channel({name!r}) a échoué ({e})")
+            self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if clean == "/__update__/bundle":
+            self._handle_bundle_upload()
             return
         if clean == "/__update__/restart":
             ok = _request_restart()
@@ -1196,6 +1412,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         except OSError:
             self.send_error(404, "index.html introuvable")
             return
+        _note_page_served()
         tag = (
             _token_meta_tag()
             + b'<link rel="stylesheet" href="/__elium_update.css">'
@@ -1248,6 +1465,88 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         self._serve_bytes(reply, "application/timestamp-reply")
 
+    def _handle_keystore(self, op: str) -> None:
+        """Couche OPTIONNELLE de protection par le magasin du système : enveloppe
+        (`wrap`) / ouvre (`unwrap`) un petit secret avec Windows DPAPI (portée
+        utilisateur courant). Corps et réponse = octets bruts. 501 hors Windows."""
+        if not keystore_available():
+            self.send_error(501, "Magasin de clés du système indisponible sur cette plateforme")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if not 0 < length <= _KEYSTORE_MAX:
+            self.send_error(400, "Demande invalide")
+            return
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(5)
+        try:
+            body = self.rfile.read(length)
+        except OSError:
+            body = b""
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if len(body) != length:
+            self.close_connection = True
+            self.send_error(400, "Demande invalide")
+            return
+        try:
+            out = keystore_wrap(body) if op == "wrap" else keystore_unwrap(body)
+        except Exception as e:  # DPAPI : autre utilisateur / blob corrompu
+            _log_launcher(f"POST /__keystore__/{op}: {e}")
+            self.send_error(422, "Opération refusée par le magasin du système")
+            return
+        self._serve_bytes(out, "application/octet-stream")
+
+    def _handle_bundle_upload(self) -> None:
+        """Reçoit un paquet `.eliumupdate` choisi par l'utilisateur (carte « Mettre à jour depuis
+        un fichier »), le dépose dans le dossier de travail de l'updater puis lance sa
+        vérification/installation EN TÂCHE DE FOND — la signature est contrôlée par l'updater
+        exactement comme pour une mise à jour en ligne ; ce relais ne fait confiance à rien."""
+        if updater is None:
+            self.send_error(503, "Mise à jour indisponible")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if not (0 < length <= _MAX_BUNDLE_UPLOAD):
+            self.close_connection = True
+            self.send_error(413 if length > 0 else 400, "Paquet de mise à jour invalide ou trop volumineux")
+            return
+        tmp_dir = updater.data_dir() / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        dest = tmp_dir / f"incoming-{uuid.uuid4().hex}{updater.BUNDLE_EXTENSION}"
+        remaining = length
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(60)
+        try:
+            with open(dest, "wb") as out:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    remaining -= len(chunk)
+        except OSError as e:
+            _log_launcher(f"POST /__update__/bundle: réception interrompue ({e})")
+            remaining = -1
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if remaining != 0:
+            dest.unlink(missing_ok=True)
+            self.close_connection = True
+            self.send_error(400, "Paquet incomplet")
+            return
+        try:
+            status = updater.start_bundle_update(dest)
+        except Exception as e:
+            _log_launcher(f"POST /__update__/bundle: start_bundle_update() a échoué ({e})")
+            dest.unlink(missing_ok=True)
+            status = {"state": "error"}
+        self._serve_bytes(json.dumps(status).encode("utf-8"), "application/json; charset=utf-8")
+
     def _handle_font_relay(self) -> None:
         """POST {"url": …} → octets du catalogue / de la police (liste blanche fermée)."""
         try:
@@ -1283,9 +1582,15 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         CE process ne peut pas migrer à chaud sans couper la session en cours)."""
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
+            if length > _MAX_SET_PORT_BODY:  # un corps de quelques octets suffit : on ne lit pas plus
+                self.close_connection = True
+                self.send_error(413, "Corps de requête trop volumineux")
+                return
             body = self.rfile.read(length) if length > 0 else b"{}"
             payload = json.loads(body or b"{}")
         except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
             payload = {}
         raw_port = payload.get("port")
         # `None`/absent = « revenir à l'automatique » (efface la préférence).
@@ -1348,6 +1653,17 @@ def main():
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
+    # Mise à jour depuis un fichier (Explorateur : double-clic sur un .eliumupdate, ou
+    # `Elium.exe --apply-update fichier`) : appliquée AVANT le handoff, pour qu'un exe
+    # complet qu'elle dépose soit remis en main dès ce lancement.
+    sys.argv[1:], bundle_path = _extract_update_bundle_arg(sys.argv[1:])
+    if bundle_path and updater is not None:
+        try:
+            result = updater.apply_update_bundle(Path(bundle_path))
+            _log_launcher(f"main: paquet {Path(bundle_path).name} -> {result.get('state')}")
+        except Exception as e:
+            _log_launcher(f"main: application du paquet hors ligne en échec ({e})")
+
     # Handoff : si un lanceur plus récent a été téléchargé, on le relance et on quitte.
     if updater is not None:
         try:
@@ -1356,6 +1672,10 @@ def main():
             raise
         except Exception as e:
             _log_launcher(f"main: run_pending_handoff() a échoué ({e})")
+        try:
+            updater.startup_checks()  # verdicts d'intégrité neufs + annonce d'un repli éventuel
+        except Exception as e:
+            _log_launcher(f"main: startup_checks() a échoué ({e})")
 
     # ELIUM_NO_BROWSER=1 : mode serveur seul (tests, CI, usage avancé).
     headless = os.environ.get("ELIUM_NO_BROWSER") == "1"

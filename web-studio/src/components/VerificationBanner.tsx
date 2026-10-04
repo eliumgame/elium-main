@@ -5,6 +5,7 @@ import type { Studio } from "../studio/types";
 import type { SignatureVerdict } from "../format/types";
 import { profileExpectsSeal } from "../format/profiles";
 import { fingerprintWords } from "../sign/safety-words";
+import { describeKeyState } from "../sign/trust-book";
 
 /** Read-only summary shown at the top of the viewer. */
 export default function VerificationBanner({ studio }: { studio: Studio }) {
@@ -48,8 +49,11 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
   // rassurant : on dégrade en avertissement.
   const missingSeal = profileExpectsSeal(file.manifest.profile) && !sealed && !integrity?.unchecked;
 
-  const overallBad = integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged;
-  const overallWarn = sigModified || unverifiedTrust || expired || missingSeal;
+  // Révocation / expiration de la clé du sceau (carnet), à côté de l'état TOFU.
+  const sealKeyState = sealed ? describeKeyState(sealPin?.keyState) : null;
+
+  const overallBad = integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged || sealKeyState?.severity === "danger";
+  const overallWarn = sigModified || unverifiedTrust || expired || missingSeal || !!sealKeyState;
 
   const tone = overallBad ? "danger" : overallWarn ? "warning" : "success";
   const icon = overallBad ? <ShieldAlert size={18} /> : overallWarn ? <Shield size={18} /> : <ShieldCheck size={18} />;
@@ -98,6 +102,7 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
                 ? ` · scellé par ${sealAttribution}`
                 : " · sceau valide (clé non vérifiée)")}
           {sealPin?.status === "pinned" && !sealKeyChanged && !sealAttribution && " · clé du sceau reconnue"}
+          {sealKeyState && ` · ${sealKeyState.text}`}
           {expired && ` · accès expiré le ${new Date(expiresAt!).toLocaleDateString()}`}
           {unverifiedTrust && !overallBad && " · clé non vérifiée (ajoutez-la au carnet de confiance)"}
         </span>

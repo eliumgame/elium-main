@@ -5,13 +5,14 @@
  * pour que la fusion soit un simple remplacement de fichier.
  */
 import { useState } from "react";
-import { BookUser, Copy, Download, KeyRound, Lock, ShieldCheck, Trash2, Unlock, Upload, UserPlus } from "lucide-react";
+import { BookUser, Copy, KeyRound, Lock, ShieldCheck, Trash2, Unlock, UserPlus } from "lucide-react";
 import { Alert, Badge, Button, Field } from "../../ui/components";
 import { useI18n } from "../../i18n";
 import type { EliumIdentity } from "../../sign/keys";
 import type { TrustedContact } from "../../sign/trust-book";
 import { fingerprintWords } from "../../sign/safety-words";
 import type { RecipientPublic } from "../../crypto/recipient-key-store";
+import KeyringPanel from "../KeyringPanel";
 import { SectionCard } from "./parts";
 
 export interface SecurityProps {
@@ -38,86 +39,12 @@ export interface SecurityProps {
   onDisableVault: () => void;
 }
 
-export function IdentitySection(p: SecurityProps) {
-  const { t } = useI18n();
+/** « Mes clés » : le trousseau unifié (identité, clé de réception, sauvegardes) — composant isolé de la phase Elium Keys. */
+export function IdentitySection(_p: SecurityProps) {
+  void _p;
   return (
-    <SectionCard id="sec_identity" titleKey="settings.sec.sec_identity" icon={<ShieldCheck size={15} />}>
-      {p.identity ? (
-        <div className="keyline">
-          <span className="keyline__label">
-            {t("security.fingerprint")} <Badge accent="success">Ed25519</Badge>
-          </span>
-          <code className="keyline__value">{p.identity.fingerprint}</code>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={t("security.copy_fingerprint")}
-            onClick={() => p.onCopy(p.identity!.fingerprint, t("security.fingerprint_copied"))}
-          >
-            <Copy size={14} />
-          </Button>
-        </div>
-      ) : (
-        <p className="muted">{t("security.no_identity")}</p>
-      )}
-      <div className="settings__row">
-        <Button variant="outline" size="sm" onClick={p.onRegenerateIdentity}>
-          <KeyRound size={15} /> {p.identity ? t("security.regenerate") : t("security.generate")}
-        </Button>
-        {p.identity && (
-          <Button variant="outline" size="sm" onClick={p.onBackupIdentity}>
-            <Download size={15} /> {t("security.backup_key")}
-          </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={p.onImportIdentity}>
-          <Upload size={15} /> {t("security.import_key")}
-        </Button>
-        {p.identity && (
-          <Button variant="ghost" size="sm" onClick={p.onForgetIdentity}>
-            {t("security.forget_identity")}
-          </Button>
-        )}
-      </div>
-      <p className="muted" style={{ marginTop: 6 }}>
-        {t("security.identity_note")}
-      </p>
-    </SectionCard>
-  );
-}
-
-export function RecipientSection(p: SecurityProps) {
-  const { t } = useI18n();
-  return (
-    <SectionCard id="sec_recipient" titleKey="settings.sec.sec_recipient" icon={<KeyRound size={15} />}>
-      <p className="muted">{t("security.recipient_body")}</p>
-      {p.recipientPublic ? (
-        <div className="keyline">
-          <span className="keyline__label">{t("security.recipient_fingerprint")}</span>
-          <code className="keyline__value">{p.recipientPublic.fingerprint}</code>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={t("security.copy_fingerprint")}
-            onClick={() => p.onCopy(p.recipientPublic!.fingerprint, t("security.fingerprint_copied"))}
-          >
-            <Copy size={14} />
-          </Button>
-        </div>
-      ) : (
-        <p className="muted">{t("security.recipient_none")}</p>
-      )}
-      <div className="settings__row">
-        {p.onGenerateRecipientKey && (
-          <Button variant="outline" size="sm" onClick={p.onGenerateRecipientKey}>
-            <KeyRound size={15} /> {p.recipientPublic ? t("security.regenerate") : t("security.recipient_generate")}
-          </Button>
-        )}
-        {p.recipientPublic && p.onForgetRecipientKey && (
-          <Button variant="ghost" size="sm" onClick={p.onForgetRecipientKey}>
-            {t("security.recipient_forget")}
-          </Button>
-        )}
-      </div>
+    <SectionCard id="sec_identity" titleKey="settings.sec.sec_identity" icon={<KeyRound size={15} />}>
+      <KeyringPanel compact />
     </SectionCard>
   );
 }

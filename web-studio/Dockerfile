@@ -1,9 +1,9 @@
 # --- Elium Web Studio — static SPA image (multi-stage) ---------------------
-# Pin deliberately; bump via a reviewed PR
-FROM node:20.17-alpine AS build
+# Bases épinglées par DIGEST (tag conservé pour la lisibilité ; mises à jour par dependabot).
+FROM node:20.17-alpine@sha256:2d07db07a2df6830718ae2a47db6fedce6745f5bcd174c398f2acdda90a11c03 AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
 # VITE_API_BASE is baked at build time (the app talks to the same origin's /api
 # by default; override for split deployments).
@@ -11,12 +11,11 @@ ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
-# Pin deliberately; bump via a reviewed PR
-FROM caddy:2.8-alpine AS runtime
-# Stays root deliberately: Caddy needs cap_net_bind_service to bind :80, and
-# this stage only ever serves this image's own static build with no secrets —
-# an acceptable trade-off for a static file server.
-# Serve the built SPA with history-API fallback.
+FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17 AS runtime
+# Ne tourne PLUS en root : le serveur statique écoute sur 8080 (port > 1024, aucune capacité
+# nécessaire) ; le caddy de bordure (docker-compose) fait le 80/443. Caddy écrit son état dans /tmp.
 COPY --from=build /app/dist /usr/share/caddy
-RUN printf ':80 {\n\troot * /usr/share/caddy\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
-EXPOSE 80
+RUN printf '{\n\tauto_https off\n\tadmin off\n}\n:8080 {\n\troot * /usr/share/caddy\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+ENV XDG_DATA_HOME=/tmp/caddy-data XDG_CONFIG_HOME=/tmp/caddy-config
+USER 1000:1000
+EXPOSE 8080

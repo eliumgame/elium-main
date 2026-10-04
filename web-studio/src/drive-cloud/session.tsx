@@ -7,7 +7,14 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DriveApi, ApiError } from "./api";
-import { buildRegistration, prepareLogin, unlockAccount, signLoginChallenge, type AccountKeys } from "./account";
+import {
+  buildRegistration,
+  buildPasswordChange,
+  prepareLogin,
+  unlockAccount,
+  signLoginChallenge,
+  type AccountKeys,
+} from "./account";
 import { generateRecipientKeypair, encryptForRecipients } from "../crypto/recipients";
 import { fromHex } from "../format/canonical";
 import {
@@ -78,6 +85,8 @@ export interface DriveSession {
   /** Active le déverrouillage par clé d'accès pour la passkey `credentialId`
    *  (issue de l'enrôlement). Renvoie false si l'authentificateur n'a pas PRF. */
   enrollPasskeyUnlock: (credentialId: string | null) => Promise<boolean>;
+  /** Change le mot de passe (ré-enveloppe le paquet de clés, révoque les autres sessions). */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   /** Désactive (oublie localement) le déverrouillage par clé d'accès. */
   disablePasskeyUnlock: () => void;
   /** Vrai si une clé d'accès peut déverrouiller la session actuellement verrouillée. */
@@ -519,6 +528,53 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  // Changement de mot de passe / passphrase de clés : ré-enveloppe le MÊME paquet
+  // de clés sous la nouvelle passphrase (sel neuf), fait tourner la clé
+  // d'authentification, révoque les autres sessions. Une enveloppe passkey (PRF)
+  // contenait l'ANCIENNE masterKey : on l'oublie (à ré-enrôler).
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const snap = snapshotRef.current;
+      if (!snap || !keys || !user) throw new Error("Session verrouillée : déverrouillez d'abord.");
+      setBusy(true);
+      setError(null);
+      try {
+        const { challengeId, challenge } = await api.loginInit(user.email);
+        const change = await buildPasswordChange({
+          email: user.email,
+          currentPassword,
+          currentKdfSalt: snap.kdfSalt,
+          currentKdfParams: snap.kdfParams,
+          challenge,
+          keys,
+          newPassword,
+        });
+        const res = await api.changePassword({ challengeId, ...change.request });
+        api.setTokens({
+          accessToken: res.accessToken,
+          accessTokenExpiresAt: res.accessTokenExpiresAt,
+          refreshToken: res.refreshToken,
+        });
+        masterKeyRef.current = change.newMasterKey;
+        snapshotRef.current = {
+          user: snap.user,
+          keyBundle: change.request.newKeyBundle,
+          kdfSalt: change.request.newKdfSalt,
+          kdfParams: change.request.newKdfParams,
+        };
+        persist({ snapshot: snapshotRef.current });
+        removePrfRecord(user.email);
+        setPrfTick((t) => t + 1);
+      } catch (e) {
+        setError(messageOf(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, keys, user, persist],
+  );
+
   const disablePasskeyUnlock = useCallback(() => {
     if (user) removePrfRecord(user.email);
     else if (lockedEmail) removePrfRecord(lockedEmail);
@@ -614,6 +670,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     unlock,
     unlockWithPasskey,
     enrollPasskeyUnlock,
+    changePassword,
     disablePasskeyUnlock,
     passkeyUnlockAvailable,
     passkeyUnlockEnabled,

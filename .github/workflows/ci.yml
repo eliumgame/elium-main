@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# Droits minimaux par défaut (lecture du dépôt uniquement) ; aucun job de CI n'écrit.
+permissions:
+  contents: read
+
 jobs:
   python-tests:
     runs-on: ubuntu-latest
@@ -13,39 +17,65 @@ jobs:
       matrix:
         python-version: ['3.9', '3.11', '3.12', '3.13']
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install dependencies (verrou à hashes)
       run: |
         python -m pip install --upgrade pip
-        pip install .[dev]
+        # requirements/dev.txt : versions ET hashes figés (uv pip compile --universal --generate-hashes).
+        pip install --require-hashes -r requirements/dev.txt
+        echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
     - name: Lint with ruff
-      run: |
-        pip install ruff
-        ruff check src/ tests/ installer/ security/
+      run: ruff check src/ tests/ installer/ security/ scripts/
     - name: Run Pytest with coverage
       run: |
         pytest tests/python -v --cov=elium --cov-report=term-missing
+    - name: Audit des dépendances Python (pip-audit, exceptions datées)
+      # Même principe que l'audit npm : toute faille connue bloque, sauf les exceptions DATÉES et
+      # justifiées de scripts/pip_audit_gate.py.
+      run: python scripts/pip_audit_gate.py requirements/dev.txt
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+    - name: Syntaxe + shellcheck (install.sh, logique de déploiement non testable unitairement)
+      run: |
+        bash -n install.sh
+        # shellcheck est préinstallé sur les runners ubuntu-latest.
+        shellcheck --severity=warning install.sh
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+    - name: docker compose config (secrets obligatoires, interpolation valide)
+      run: |
+        # Doit ÉCHOUER sans secrets (fail fast) ...
+        if docker compose config >/dev/null 2>&1; then echo "::error::docker compose accepte une config SANS secrets"; exit 1; fi
+        # ... et réussir avec.
+        POSTGRES_PASSWORD=x TOKEN_SECRET=y CORS_ORIGINS=http://localhost S3_SECRET_KEY=z REDIS_PASSWORD=w docker compose config >/dev/null
 
   web-studio-build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
       with:
         node-version-file: '.node-version'
     - name: Set up Python (tests d'interop Python <-> Web)
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
       with:
         python-version: '3.12'
     - name: Install elium (Python) pour l'interop
       run: |
         python -m pip install --upgrade pip
-        pip install -e .
+        pip install --require-hashes -r requirements/runtime.txt
+        echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
     - name: Install dependencies
       working-directory: ./web-studio
       run: npm ci
@@ -79,9 +109,9 @@ jobs:
   server-checks:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
       with:
         node-version-file: '.node-version'
     - name: Install dependencies
@@ -116,7 +146,7 @@ jobs:
     # source de flakiness, vendoriser le .deb ou passer par Docker plutôt que de
     # redevenir non bloquant.
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Installer libicu60 (dép. runtime du Postgres embarqué)
       run: |
         curl -fsSL -o /tmp/libicu60.deb \
@@ -125,7 +155,7 @@ jobs:
           http://archive.ubuntu.com/ubuntu/pool/main/i/icu/libicu60_60.2-3ubuntu3_amd64.deb
         sudo dpkg -i /tmp/libicu60.deb || sudo apt-get -f install -y
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
       with:
         node-version-file: '.node-version'
     - name: Install server dependencies

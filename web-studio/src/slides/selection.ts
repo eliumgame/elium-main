@@ -133,3 +133,71 @@ export function cloneElements(els: SlideElement[], mkId: () => string, dx: numbe
     return clone;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Keyboard access (selection / move / resize) and screen-reader descriptions
+// ---------------------------------------------------------------------------
+
+const TYPE_LABEL: Record<SlideElement["type"], string> = {
+  text: "Texte",
+  shape: "Forme",
+  image: "Image",
+  table: "Tableau",
+  chart: "Graphique",
+};
+
+const plainText = (html: string) =>
+  html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** « Texte 2 sur 5 : Bonjour » — what a screen reader says when an element is selected. */
+export function describeElement(el: SlideElement, index: number, total: number): string {
+  let detail = "";
+  if (el.type === "text") detail = plainText(el.html ?? "");
+  else if (el.type === "shape") detail = [el.shape, el.text].filter(Boolean).join(" — ");
+  else if (el.type === "table" && el.table) detail = `${el.table.rows} lignes, ${el.table.cols} colonnes`;
+  else if (el.type === "chart" && el.chart) detail = el.chart.title ?? el.chart.kind;
+  if (detail.length > 80) detail = `${detail.slice(0, 80)}…`;
+  const locked = el.locked ? " (verrouillé)" : "";
+  return `${TYPE_LABEL[el.type]} ${index + 1} sur ${total}${detail ? ` : ${detail}` : ""}${locked}`;
+}
+
+/**
+ * The patch a key press applies to an element: arrows move by 1 % (Shift: 5 %),
+ * Alt + arrows resize by the same step. Null when the key does nothing or the
+ * element is locked. Results stay inside the canvas (position 0..100, minimum size 2 %).
+ */
+export function keyboardPatch(
+  el: SlideElement,
+  key: string,
+  shift: boolean,
+  alt: boolean,
+): Partial<SlideElement> | null {
+  if (el.locked) return null;
+  const step = shift ? 5 : 1;
+  const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+  const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+  if (!dx && !dy) return null;
+  if (alt) {
+    return { w: r1(clamp(el.w + dx, 2, 100 - el.x)), h: r1(clamp(el.h + dy, 2, 100 - el.y)) };
+  }
+  return { x: r1(clamp(el.x + dx, 0, 100 - el.w)), y: r1(clamp(el.y + dy, 0, 100 - el.h)) };
+}
+
+/**
+ * Tab / Shift+Tab inside the canvas: the next element in stacking order, or null
+ * past either end (focus then leaves the canvas as usual).
+ */
+export function nextElementId(
+  elements: SlideElement[],
+  current: string | undefined,
+  backwards: boolean,
+): string | null {
+  if (!elements.length) return null;
+  const at = current ? elements.findIndex((e) => e.id === current) : -1;
+  const next = at < 0 ? (backwards ? elements.length - 1 : 0) : at + (backwards ? -1 : 1);
+  return next >= 0 && next < elements.length ? elements[next]!.id : null;
+}

@@ -12,6 +12,7 @@
  */
 
 import type { SavedSignature } from "../ops/sign";
+import { reportError } from "../../ui/crash-log";
 
 import { openMigrated } from "../../format/idb-migrate";
 import { PDF_IDS_SPEC } from "../../format/db-specs";
@@ -114,11 +115,11 @@ export async function listSavedMarks(): Promise<SavedSignature[]> {
 }
 
 export async function saveMark(mark: SavedSignature): Promise<void> {
-  await run(MARKS, "readwrite", (s) => s.put(mark)).catch(() => {});
+  await run(MARKS, "readwrite", (s) => s.put(mark)).catch((e) => reportError("pdf.marks.save", e));
 }
 
 export async function removeMark(id: string): Promise<void> {
-  await run(MARKS, "readwrite", (s) => s.delete(id)).catch(() => {});
+  await run(MARKS, "readwrite", (s) => s.delete(id)).catch((e) => reportError("pdf.marks.remove", e));
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

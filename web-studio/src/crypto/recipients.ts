@@ -35,6 +35,9 @@ export interface RecipientKeypair {
 }
 
 interface RecipientEntry {
+  /** Identifiant court de la clé (16 premiers hex de `fpr`), additif et optionnel : une clé
+   *  tournée reste retrouvable parmi les clés retirées du trousseau. */
+  kid?: string;
   fpr: string;
   epk: string;
   nonce: string;
@@ -214,8 +217,10 @@ export async function encryptForRecipients(
       ),
     );
     const epk = new Uint8Array(await subtle().exportKey("raw", eph.publicKey));
+    const fpr = await recipientFingerprint(pubHex);
     recipients.push({
-      fpr: await recipientFingerprint(pubHex),
+      kid: recipientKid(fpr),
+      fpr,
       epk: toHex(epk),
       nonce: toHex(nonce),
       wrap: toHex(wrapped),
@@ -232,6 +237,36 @@ export async function encryptForRecipients(
     recipients,
   };
   return new TextEncoder().encode(JSON.stringify(env));
+}
+
+/** `kid` d'une clé de réception : 16 premiers caractères de son empreinte. */
+export function recipientKid(fingerprint: string): string {
+  return fingerprint.slice(0, 16);
+}
+
+/** `kid` des destinataires d'une enveloppe (déduit de `fpr` pour les anciennes enveloppes sans `kid`). */
+export function listRecipientKids(blob: Uint8Array): string[] {
+  const env = JSON.parse(new TextDecoder().decode(blob)) as RecipientEnvelope;
+  return (env.recipients ?? []).map((r) => r.kid ?? recipientKid(r.fpr));
+}
+
+/**
+ * Déchiffre avec la première clé du lot qui figure dans l'enveloppe : la clé
+ * active d'abord, puis les clés RETIRÉES (rotation) — un document chiffré avant
+ * une rotation reste lisible.
+ */
+export async function decryptWithAnyKey(blob: Uint8Array, keypairs: RecipientKeypair[]): Promise<Uint8Array> {
+  const kids = new Set(listRecipientKids(blob));
+  let last: unknown = new Error("Aucune clé de destinataire ne permet de déchiffrer ce document.");
+  for (const kp of keypairs) {
+    if (!kids.has(recipientKid(await recipientFingerprint(kp.publicHex)))) continue;
+    try {
+      return await decryptAsRecipient(blob, kp);
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last;
 }
 
 export function listRecipientFingerprints(blob: Uint8Array): string[] {

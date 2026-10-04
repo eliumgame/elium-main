@@ -54,9 +54,9 @@ if not exist "%VENV%\Scripts\python.exe" (
 )
 set "VPY=%VENV%\Scripts\python.exe"
 
-echo [*] Installation des dependances (elium + PyInstaller)...
+echo [*] Installation des dependances (verrou a hashes, PyInstaller epingle)...
 "%VPY%" -m pip install --upgrade pip >nul 2>&1
-"%VPY%" -m pip install -e "%ROOT%" pyinstaller==6.21.0
+"%VPY%" -m pip install --require-hashes -r "%ROOT%\requirements\build.txt"
 if !errorlevel! neq 0 (
     echo [ERREUR] Echec de l'installation des dependances Python.
     pause
@@ -69,7 +69,7 @@ echo     [OK] Environnement Python pret.
 :: -------------------------------------------------------
 echo [*] Build du Web Studio (npm)...
 cd /d "%ROOT%\web-studio"
-call npm install
+call npm ci
 call npm run build
 if !errorlevel! neq 0 (
     echo [ERREUR] Le build du Web Studio a echoue.

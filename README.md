@@ -14,7 +14,7 @@ zéro-connaissance avec co-édition temps réel.
 
 ## Architecture
 
-Le dépôt regroupe cinq sous-projets :
+Le dépôt regroupe quatre sous-projets :
 
 - **`src/elium/`** — cœur Python : CLI, format conteneur `.elium` (et lecture du
   conteneur legacy v3), primitives crypto (Argon2id, AES-256-GCM/ChaCha20-Poly1305,
@@ -27,13 +27,6 @@ Le dépôt regroupe cinq sous-projets :
 - **`installer/`** — packaging Windows : exécutable via PyInstaller
   (`elium_launcher.py`) et paquet MSI (WiX, `elium.wxs`), avec auto-mise à jour
   signée Ed25519. Voir [installer/README.md](installer/README.md).
-- **`desktop/`** — ⚠️ **legacy, non maintenue et non testée**. Ancienne application
-  PySide6. Le vrai pipeline de release (`installer/build.bat` + `elium.spec`,
-  ce que `release.yml` exécute) construit l'app livrée depuis `web-studio/` +
-  `installer/` et exclut explicitement `desktop/`. Les scripts racine
-  `Elium.wizard.bat`, `dev.bat` et `build_exe.bat` ont été réalignés sur ce
-  vrai flux (ils ne lancent/ne construisent plus l'ancienne app PySide6). Ne
-  t'y fie pas pour comprendre l'application distribuée aux utilisateurs finaux.
 
 ## Installation
 

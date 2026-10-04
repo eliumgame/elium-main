@@ -14,7 +14,8 @@
  * plaintext.
  */
 
-import { argon2id } from "hash-wasm";
+import { EliumCryptoEngine } from "./elium-crypto";
+import { KDF_PROFILES } from "./kdf-profiles";
 
 export interface VaultSecret {
   password?: string;
@@ -24,9 +25,9 @@ export interface VaultSecret {
 // Paramètres Argon2id pour ce cache LOCAL : plus légers que la clé maîtresse d'un
 // document (les brouillons/versions se sauvent souvent, ça doit rester rapide),
 // mais bien supérieurs à PBKDF2-100k. ~19 Mo, 2 passes.
-const A2_ITERATIONS = 2;
-const A2_MEMORY_KIB = 19_456;
-const A2_PARALLELISM = 1;
+const A2_ITERATIONS = KDF_PROFILES["local-cache"].t;
+const A2_MEMORY_KIB = KDF_PROFILES["local-cache"].m;
+const A2_PARALLELISM = KDF_PROFILES["local-cache"].p;
 
 /** True when there is an actual secret to encrypt with (non-empty password and/or a keyfile). */
 export function hasVaultSecret(secret?: VaultSecret): secret is VaultSecret {
@@ -60,15 +61,10 @@ async function secretString(secret: VaultSecret): Promise<string> {
 
 /** Dérivation ACTUELLE : Argon2id → clé AES-256-GCM. */
 async function deriveKeyArgon2(secret: string, salt: Uint8Array): Promise<CryptoKey> {
-  const raw = await argon2id({
-    password: secret,
-    salt,
-    iterations: A2_ITERATIONS,
-    memorySize: A2_MEMORY_KIB,
-    parallelism: A2_PARALLELISM,
-    hashLength: 32,
-    outputType: "binary",
-  });
+  // Via le moteur : exécute Argon2id dans le Worker (argon2-worker.ts) avec repli
+  // sur le thread principal — même octets, mais l'UI ne gèle plus pendant la
+  // dérivation. Le secret est déjà « mot de passe|KF|sha256(keyfile) ».
+  const raw = await EliumCryptoEngine.deriveMasterKey(secret, salt, A2_ITERATIONS, A2_MEMORY_KIB, A2_PARALLELISM);
   return crypto.subtle.importKey("raw", raw as unknown as BufferSource, { name: "AES-GCM", length: 256 }, false, [
     "encrypt",
     "decrypt",

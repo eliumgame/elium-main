@@ -3488,3 +3488,7 @@
 .pdfx-formatdock:has(.pdfx-fmt:not(.pdfx-fmt--idle)) .pdfx-fmt--idle {
   display: none;
 }
+
+.pdfx-batch { display: flex; flex-direction: column; gap: 12px; }
+.pdfx-batch__group { border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: 8px; padding: 8px 12px; display: grid; gap: 6px; }
+.pdfx-batch__field { display: grid; gap: 2px; font-size: 12px; }

@@ -126,8 +126,10 @@ def encrypt_for_recipients(
         epk = eph.public_key().public_bytes(
             serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
         )
+        fpr = recipient_fingerprint(pub_hex)
         recipients.append({
-            "fpr": recipient_fingerprint(pub_hex),
+            "kid": recipient_kid(fpr),
+            "fpr": fpr,
             "epk": epk.hex(),
             "nonce": wrap_nonce.hex(),
             "wrap": wrapped.hex(),
@@ -144,6 +146,30 @@ def encrypt_for_recipients(
     if cascade_nonce is not None:
         envelope["cascadeNonce"] = cascade_nonce.hex()
     return json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def recipient_kid(fingerprint: str) -> str:
+    """Identifiant court d'une clé de réception : 16 premiers hex de son empreinte."""
+    return fingerprint[:16]
+
+
+def list_recipient_kids(blob: bytes) -> list[str]:
+    env = json.loads(blob)
+    return [r.get("kid") or recipient_kid(r["fpr"]) for r in env.get("recipients", [])]
+
+
+def decrypt_with_any_key(blob: bytes, private_hexes: list[str]) -> bytes:
+    """Essaie chaque clé privée (active puis retirées) présente dans l'enveloppe."""
+    kids = set(list_recipient_kids(blob))
+    last: Exception | None = None
+    for priv in private_hexes:
+        if recipient_kid(recipient_fingerprint(public_from_private(priv))) not in kids:
+            continue
+        try:
+            return decrypt_as_recipient(blob, priv)
+        except EliumSecurityError as e:
+            last = e
+    raise EliumSecurityError("Aucune clé de destinataire ne permet de déchiffrer ce document.") from last
 
 
 def list_recipient_fingerprints(blob: bytes) -> list[str]:

@@ -116,7 +116,8 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
     // ".pdf" dans sa description, donc un match par sous-chaîne insensible à
     // la casse ("PDF") matcherait les deux boutons (strict mode violation).
     await page.getByRole("button", { name: /^PDF/ }).click();
-    await expect(page.getByRole("heading", { name: "Ouvrir un PDF" })).toBeVisible();
+    // Le lecteur PDF est chargé à la demande : première compilation lente en dev.
+    await expect(page.getByRole("heading", { name: "Ouvrir un PDF" })).toBeVisible({ timeout: 25_000 });
     await expectNoSeriousViolations(page, "PDF (écran d'ouverture)");
   });
 
@@ -129,6 +130,21 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
     await page.setInputFiles('input[type="file"][accept*="pdf"]', path.join(__dirname, "fixtures", "minimal.pdf"));
     await expect(page.locator(".pdfx-canvas")).toBeVisible();
     await expectNoSeriousViolations(page, "PDF (espace de travail chargé)");
+  });
+
+  test("Détecteur — écran de dépôt", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Détecteur/ }).click();
+    await expect(page.getByRole("heading", { name: "Détecteur", level: 1 })).toBeVisible();
+    await expectNoSeriousViolations(page, "Détecteur (dépôt)");
+  });
+
+  test("Détecteur — gestion des racines de confiance C2PA", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Détecteur/ }).click();
+    await page.locator("summary", { hasText: "Racines de confiance C2PA" }).click();
+    await expect(page.getByRole("heading", { name: "Racines de confiance C2PA" })).toBeVisible();
+    await expectNoSeriousViolations(page, "Détecteur (racines de confiance)");
   });
 
   test("Drive (non connecté)", async ({ page }) => {
@@ -161,5 +177,86 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
     await page.getByRole("checkbox", { name: /Placer ma signature/ }).click();
     await expect(page.getByAltText("Page 1 du document à signer")).toBeVisible();
     await expectNoSeriousViolations(page, "Signature à distance (placement)");
+  });
+});
+
+test.describe("Accessibilité — navigation clavier des éditeurs canevas", () => {
+  test("Tableur : les flèches déplacent la cellule active et l'annoncent", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Tableur" }).click();
+    const grid = page.getByLabel("Grille de la feuille de calcul");
+    await expect(grid).toBeVisible();
+    await grid.focus();
+    const ref = page.locator(".sheet-formula__ref");
+    await expect(ref).toHaveText("A1");
+    await page.keyboard.press("ArrowDown");
+    // Le focus clavier est visible : un anneau (ombre ou contour) est bien dessiné.
+    const ring = await grid.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return `${cs.outlineStyle}|${cs.boxShadow}`;
+    });
+    expect(ring).not.toBe("none|none");
+    await page.keyboard.press("ArrowRight");
+    await expect(ref).toHaveText("B2");
+    // Saisie au clavier + annonce par la région aria-live partagée.
+    await page.keyboard.type("42");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ArrowUp");
+    await expect(page.locator('.elx-announcer[aria-live="polite"]')).toContainText(/Cellule B\d/);
+  });
+
+  test("PDF : la zone des pages est atteignable au clavier", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^PDF/ }).click();
+    await page.setInputFiles('input[type="file"][accept*="pdf"]', path.join(__dirname, "fixtures", "minimal.pdf"));
+    const pages = page.getByRole("main", { name: "Pages du document" });
+    await expect(pages).toBeVisible();
+    await pages.focus();
+    await expect(pages).toBeFocused();
+    await expectNoSeriousViolations(page, "PDF (focus clavier sur les pages)");
+  });
+
+  test("Présentations : Tab sélectionne un élément, les flèches le déplacent, annonce vocale", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Présentations" }).click();
+    const canvas = page.locator(".slide-cv.is-editable").first();
+    await expect(canvas).toBeVisible();
+    await canvas.focus();
+    await page.keyboard.press("Tab");
+    const selected = page.locator(".slide-cv .ce.is-selected").first();
+    await expect(selected).toBeVisible();
+    await expect(page.locator('.elx-announcer[aria-live="polite"]')).toContainText(/sur \d+/);
+    const before = await selected.evaluate((el) => (el as HTMLElement).style.left);
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => selected.evaluate((el) => (el as HTMLElement).style.left)).not.toBe(before);
+  });
+});
+
+test.describe("Détecteur — analyse par lot (rendu réel)", () => {
+  // PNG 1×1 valide : suffit pour traverser tout le pipeline d'ingestion et d'analyse d'image.
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  test("plusieurs fichiers : tableau de résultats, ligne en erreur isolée, export CSV", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Détecteur/ }).click();
+    await page.setInputFiles('input[type="file"][multiple]', [
+      { name: "a.png", mimeType: "image/png", buffer: PNG },
+      { name: "b.png", mimeType: "image/png", buffer: PNG },
+      { name: "c.docx", mimeType: "application/octet-stream", buffer: Buffer.from("pas un docx") },
+    ]);
+    const table = page.getByRole("table", { name: "Résultats de l'analyse par lot" });
+    await expect(table).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("3 fichier(s) traité(s)", { timeout: 30_000 });
+    await expect(table.getByRole("row")).toHaveCount(4); // en-tête + 3 lignes
+    await expect(table.getByRole("rowheader", { name: "a.png" })).toBeVisible();
+    // Le fichier illisible est signalé sur sa ligne sans arrêter le lot.
+    await expect(table.getByRole("row", { name: /c\.docx/ })).toContainText(/Erreur|Format/);
+    const saved = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Exporter CSV" }).click();
+    expect((await saved).suggestedFilename()).toMatch(/^Detecteur-lot-.*\.csv$/);
+    await expectNoSeriousViolations(page, "Détecteur (lot)");
   });
 });

@@ -8,16 +8,43 @@
 	email {$ACME_EMAIL}
 }
 
+# En-têtes de sécurité communs (HSTS n'a de sens qu'en HTTPS : Caddy l'ignore côté HTTP clair
+# pour les navigateurs, et le domaine de production est toujours en HTTPS automatique).
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Même politique que l'application de bureau (installer/elium_launcher.py), plus le WebSocket
+		# de collaboration de CETTE origine et l'interdiction d'être mis en cadre.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' data: blob: wss://{host}; media-src 'self' data: blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		-Server
+	}
+}
+
 {$SITE_ADDRESS::80} {
 	encode zstd gzip
+	import security_headers
 
 	# API + WebSocket collaboration relay -> the api service.
+	# Corps de requête plafonné (contenus chiffrés : volumineux mais bornés). Le débit par
+	# client est limité côté API (limiteur partagé via Redis, server/src/collab/backplane.ts) :
+	# Caddy standard n'embarque pas de module de limitation de débit.
 	handle /api/* {
+		request_body {
+			max_size 256MB
+		}
 		reverse_proxy api:8787
 	}
 
-	# Everything else -> the static web app (SPA).
+	# Everything else -> the static web app (SPA) : corps de requête minuscule.
 	handle {
-		reverse_proxy web:80
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy web:8080
 	}
 }

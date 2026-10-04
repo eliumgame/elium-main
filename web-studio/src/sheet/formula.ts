@@ -1486,7 +1486,49 @@ export function createCalc(
     return raw.trim() !== "" && !Number.isNaN(n) ? n : raw;
   }
 
+  /**
+   * Evaluates the uncached formula dependencies of `ref` BEFORE `ref` itself,
+   * deepest first, with an explicit stack: a running-total column (`=B1+A2`
+   * down thousands of rows) would otherwise recurse once per row and overflow
+   * the JS stack (#ERR). Each cell then finds its dependencies cached, so the
+   * real recursion stays shallow. Local references only; cycles are left to
+   * `valueOf` (the `visited` set just keeps this walk finite).
+   */
+  const LOCAL_REF = /(?<![A-Za-z0-9_!'.])\$?([A-Z]{1,3})\$?(\d+)(?![A-Za-z0-9_(])/g;
+  function warmDependencies(ref: string): void {
+    const raw0 = rawIn(null, ref);
+    if (!raw0 || raw0[0] !== "=" || cache.has("^@" + ref)) return;
+    const visited = new Set<string>([ref]);
+    const stack: { ref: string; deps: string[]; next: number }[] = [];
+    const open = (r: string) => {
+      const raw = rawIn(null, r);
+      const deps: string[] = [];
+      if (raw && raw[0] === "=") {
+        for (const m of raw.matchAll(LOCAL_REF)) {
+          const d = m[1]! + m[2]!;
+          if (!visited.has(d) && !cache.has("^@" + d)) deps.push(d);
+        }
+      }
+      stack.push({ ref: r, deps, next: 0 });
+    };
+    open(ref);
+    while (stack.length) {
+      const top = stack[stack.length - 1]!;
+      if (top.next < top.deps.length) {
+        const d = top.deps[top.next++]!;
+        if (visited.has(d)) continue;
+        visited.add(d);
+        const raw = rawIn(null, d);
+        if (raw && raw[0] === "=") open(d);
+        continue;
+      }
+      stack.pop();
+      if (stack.length) valueOf(null, top.ref); // dependencies are cached: shallow
+    }
+  }
+
   function display(ref: string): string {
+    warmDependencies(ref);
     const v = valueOf(null, ref);
     if (isError(v)) return v.error;
     if (typeof v === "boolean") return v ? "VRAI" : "FAUX";
@@ -1494,5 +1536,11 @@ export function createCalc(
     return v;
   }
 
-  return { valueOf: (ref: string) => valueOf(null, ref), display };
+  return {
+    valueOf: (ref: string) => {
+      warmDependencies(ref);
+      return valueOf(null, ref);
+    },
+    display,
+  };
 }

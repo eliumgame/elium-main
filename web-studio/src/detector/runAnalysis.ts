@@ -7,6 +7,7 @@
  * Seul l'appelant (l'UI) horodate : ce module n'appelle jamais Date.now().
  */
 import { analyzeFormattingSignals } from "./formattingSignals";
+import { verifyImagesC2pa } from "./c2pa/images";
 import { analyzeImageSignals } from "./imageSignals";
 import { analyzeMetadataSignals } from "./metadataSignals";
 import { runPlagiarismScan } from "./plagiarism/runPlagiarismScan";
@@ -68,7 +69,7 @@ export async function runAnalysis(model: DocumentModel, opts: RunAnalysisOptions
   throwIfAborted(signal);
   const imageTotal = model.images.length || 1;
   onProgress?.({ stage: "image", processed: 0, total: imageTotal });
-  const image = withoutDisabled(analyzeImageSignals(model.images, model.metadata), disabledSignals);
+  const image = withoutDisabled(analyzeImageSignals(model.images, model.metadata, await verifyImagesC2pa(model.images, signal)), disabledSignals);
   onProgress?.({ stage: "image", processed: imageTotal, total: imageTotal });
   await yieldToMain();
 

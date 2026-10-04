@@ -224,6 +224,8 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
       p256_public_hex: string;
       fingerprint: string;
       key_bundle: unknown;
+      kdf_salt: string;
+      kdf_params: unknown;
       status: string;
       sso_subject: string | null;
       membership_status: string;
@@ -247,6 +249,8 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     const session = await issueSession(row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(b.orgId, row.id, "auth.sso.login", "user", row.id, {}, req.ip);
     // The client unlocks this bundle with the user's passphrase (zero-knowledge).
-    return { user: userDto(row), keyBundle: row.key_bundle, ...session };
+    // kdfSalt/kdfParams are public (also served by /prelogin): an SSO login has no
+    // prelogin step, yet the client needs them to derive the key-passphrase masterKey.
+    return { user: userDto(row), keyBundle: row.key_bundle, kdfSalt: row.kdf_salt, kdfParams: row.kdf_params, ...session };
   });
 }

@@ -34,6 +34,8 @@ comme n'importe quel logiciel de bureau.
    | Fichier | Ce que c'est |
    |---|---|
    | `Elium-<version>-Setup.msi` | Installateur classique Windows : copie l'application dans `Program Files`, crée les raccourcis Bureau/Menu Démarrer, associe les fichiers `.elium`, et ajoute une entrée de désinstallation propre dans « Applications ». **Recommandé pour un usage courant.** |
+   | `Elium-User-<version>.msi` | Même application, **sans droits administrateur** : installée dans votre profil (`%LOCALAPPDATA%\Programs\Elium`), raccourcis et associations de fichiers pour votre compte seulement. N'installez pas à la fois cette variante et la précédente. |
+   | `Elium-update-<version>.eliumupdate` | Paquet de **mise à jour hors ligne** signé : à choisir dans la carte de mise à jour (« Mettre à jour depuis un fichier… ») ou par double-clic, sans connexion. |
    | `Elium.exe` | Exécutable autonome (« portable ») : aucune installation, aucun droit administrateur requis — on double-clique et l'application démarre directement depuis le dossier où il se trouve (clé USB, dossier partagé…). Pas de raccourcis, pas d'association de fichiers, pas de désinstalleur : à supprimer soi-même pour « désinstaller ». |
 
 Aucune compilation n'est nécessaire : ce sont des binaires déjà construits,
@@ -172,3 +174,51 @@ bash install.sh suite   # nécessite Node.js 20+ — construit puis ouvre http:/
 Cette suite fonctionne alors entièrement en local sur ce poste (aucune
 donnée envoyée nulle part) ; elle ne remplace pas le Drive d'entreprise, qui
 nécessite `bash install.sh drive`.
+
+
+---
+
+## 3. Exploitation du Drive : secrets, mises à jour, sauvegardes
+
+### Secrets obligatoires
+
+Plus aucun mot de passe par défaut : `docker compose` refuse de démarrer si `POSTGRES_PASSWORD`,
+`TOKEN_SECRET`, `S3_SECRET_KEY`, `REDIS_PASSWORD` ou `CORS_ORIGINS` manque dans `.env`.
+`bash install.sh drive` génère et conserve tous les secrets. Redis est protégé par mot de passe.
+**Pile déployée avant cette version** : lancez une fois `bash install.sh update` (il ajoute
+`REDIS_PASSWORD` à `.env`) ; une auto-update lancée par un *ancien* `install.sh` échouerait sinon au
+démarrage et reviendrait automatiquement en arrière.
+
+### Mises à jour automatiques (`bash install.sh auto-update on`)
+
+- Le manifeste signé (Ed25519) porte les références **par digest** des images `server` et `web`
+  construites et signées (cosign) par le workflow de publication : le VPS les **tire**
+  (`ghcr.io/…@sha256:…`) au lieu de construire. Rendez les paquets GHCR **publics** (Packages ▸
+  Package settings) pour que le VPS puisse les tirer sans identifiants. Sans digest dans le manifeste
+  (anciennes releases), le serveur construit sur place comme avant.
+- Si `cosign` est installé, la signature des images est vérifiée en plus.
+- **Sauvegarde obligatoire** : le dump de la base (avec la version de schéma) est pris *avant* toute
+  modification ; s'il échoue, la mise à jour est **abandonnée**. En cas d'échec du health-check, le code
+  revient en arrière **et la base est restaurée** depuis ce dump si des migrations avaient tourné.
+- Le service systemd ne s'exécute plus en root : propriétaire du dépôt (ou compte dédié
+  `elium-update`), membre du groupe `docker` (équivalent root sur la machine : à savoir), avec
+  `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`…
+- L'auto-update requiert un clone **git**.
+
+### Installer depuis une archive de release (sans git)
+
+1. Téléchargez l'archive source du tag sur la page des releases (`Source code (tar.gz)`) et
+   décompressez-la.
+2. `bash install.sh drive --domain drive.exemple.fr --email vous@exemple.fr`.
+3. Mises à jour : décompressez l'archive de la version suivante par-dessus (en conservant `.env` et
+   `backups/`) puis `bash install.sh update`. L'auto-update n'est pas disponible sans git.
+
+### Sauvegardes hors machine et exercice de restauration
+
+- Dans `.env` : `BACKUP_RCLONE_REMOTE=<remote>:<chemin>` (remote rclone : S3, SFTP, B2…, idéalement
+  `rclone crypt`). `bash install.sh backup` y copie base + blobs (déjà chiffrés E2E).
+- **Exercice de restauration (à faire avant d'en avoir besoin)** : sur une machine vide, installez Docker
+  et clonez le dépôt, copiez votre `.env`, installez rclone avec le même remote, puis
+  `bash install.sh drive --yes` (démarre une pile vide) et `bash install.sh restore <horodatage>` : la
+  sauvegarde est récupérée du remote si elle n'existe pas en local. Vérifiez la connexion et l'ouverture
+  d'un fichier, puis supprimez la machine d'essai.

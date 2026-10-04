@@ -33,6 +33,7 @@
  * interromprait l'analyse du document entier.
  */
 import { unzlibSync } from "fflate";
+import type { C2paReport } from "./c2pa/verify";
 import type { DocumentMetadata, Finding, ImageModel, SignalSeverity } from "./types";
 
 const KNOWN_AI_GENERATORS = [
@@ -652,17 +653,85 @@ function buildPdfNonJpegSkippedFinding(skippedCount: number): Finding {
   };
 }
 
-export function analyzeImageSignals(images: ImageModel[], metadata?: DocumentMetadata): Finding[] {
+/** Constats issus d'un manifeste C2PA réellement analysé (signature, chaîne, liaison). */
+function c2paVerifiedFindings(image: ImageModel, r: C2paReport): Finding[] {
+  const out: Finding[] = [];
+  const who = r.issuer ? ` par « ${r.issuer} »` : "";
+  const evidence = r.digitalSourceTypes.join(", ") || undefined;
+  const limits =
+    " Révocation des certificats et horodatage non vérifiés (analyse hors ligne) ; la confiance dépend de la liste de racines importées dans ce détecteur.";
+  if (r.status === "invalid") {
+    out.push(
+      makeFinding(
+        image,
+        "image_c2pa_invalid",
+        "Manifeste C2PA invalide : altéré ou falsifié",
+        `Cette image embarque un manifeste C2PA dont la vérification cryptographique échoue : ${r.problems.join(" ")} Un manifeste invalide ne prouve ni l'authenticité ni la génération par IA ; il indique seulement que l'image ou son manifeste a été modifié après signature (retouche légitime sans re-signature comprise).`,
+        "faible",
+        0.15,
+        r.problems[0],
+      ),
+    );
+    return out;
+  }
+  if (r.status !== "valid_trusted" && r.status !== "valid_untrusted") return out;
+  const trusted = r.status === "valid_trusted";
+  if (r.declaresAi) {
+    out.push(
+      makeFinding(
+        image,
+        "image_c2pa_ai_source",
+        trusted
+          ? "Provenance C2PA vérifiée : contenu déclaré généré par IA"
+          : "Provenance C2PA : signature valide, émetteur non reconnu, contenu déclaré IA",
+        trusted
+          ? `Le manifeste C2PA de cette image est signé${who}, la signature, la chaîne de certificats et la liaison au contenu sont valides, et la racine figure dans votre liste de confiance. Il déclare un contenu produit ou composé par un algorithme entraîné (${evidence}).${limits}`
+          : `Le manifeste C2PA de cette image est cryptographiquement valide (signature${who}, chaîne, liaison au contenu) mais l'émetteur n'est pas dans votre liste de racines de confiance : n'importe qui peut signer un manifeste avec son propre certificat. Il déclare un contenu produit ou composé par un algorithme entraîné (${evidence}). Importez les racines C2PA officielles pour une vérification complète.${limits}`,
+        trusted ? "eleve" : "moyen",
+        trusted ? 0.9 : 0.6,
+        evidence,
+      ),
+    );
+  } else {
+    out.push(
+      makeFinding(
+        image,
+        "image_c2pa_verified_provenance",
+        trusted
+          ? "Provenance C2PA vérifiée, sans déclaration IA"
+          : "Provenance C2PA signée (émetteur non reconnu), sans déclaration IA",
+        `Cette image embarque un manifeste C2PA valide${who} qui ne déclare pas de génération par IA${r.actions.length ? ` (actions : ${r.actions.join(", ")})` : ""}. Informatif : cela n'écarte pas toute manipulation non déclarée.${limits}`,
+        "info",
+        0,
+        r.claimGenerator,
+      ),
+    );
+  }
+  return out;
+}
+
+export function analyzeImageSignals(
+  images: ImageModel[],
+  metadata?: DocumentMetadata,
+  c2paReports?: ReadonlyMap<number, C2paReport>,
+): Finding[] {
   const findings: Finding[] = [];
   let checkableCount = 0;
   let declaredCount = 0;
   for (const image of images) {
     try {
-      const perImage = analyzeOneImage(image);
+      let perImage = analyzeOneImage(image);
+      const report = c2paReports?.get(image.index);
+      const analysed = !!report && report.status !== "absent" && report.status !== "unverified";
+      if (analysed) {
+        // Le manifeste a été réellement vérifié : il remplace la détection par octets bruts.
+        perImage = perImage.filter((f) => f.signal !== "image_c2pa_ai_source");
+        perImage.push(...c2paVerifiedFindings(image, report));
+      }
       findings.push(...perImage);
       if (isC2paCheckable(image.bytes)) {
         checkableCount++;
-        if (perImage.some((f) => f.signal === "image_c2pa_ai_source")) declaredCount++;
+        if (analysed || perImage.some((f) => f.signal === "image_c2pa_ai_source")) declaredCount++;
       }
     } catch {
       // Malformed/truncated image bytes: skip this image, keep analyzing the rest.

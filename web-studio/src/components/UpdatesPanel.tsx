@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Button } from "../ui/components";
 import { useI18n } from "../i18n";
 import { eliumToken, reloadWhenServerBack } from "../settings/launcher";
+import { reportError } from "../ui/crash-log";
+import { CHECK_FAILED_KEYS } from "../views/VersionFooter";
 import PortSettings from "./PortSettings";
 
 interface VersionInfo {
@@ -17,11 +19,15 @@ interface VersionInfo {
   base?: string | null;
   latest: string | null;
   upToDate: boolean;
+  checkFailed?: string | null;
+  checkMessage?: string;
+  channel?: "stable" | "beta" | null;
 }
 interface Release {
   version: string;
   date: string;
   name: string;
+  prerelease?: boolean;
   installed: boolean;
   canRollback: boolean;
 }
@@ -88,16 +94,27 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
     );
   }
 
+  const run = async (url: string, failKey: "updates.rollback_failed" | "updates.undo_failed") => {
+    try {
+      const r = await post(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      reportError("version.operation", e);
+      setBusy(false);
+      setStatus(null);
+      setErr(t(failKey));
+    }
+  };
   const rollback = async (version: string) => {
     setErr(null);
     setBusy(true);
     setStatus({ state: "downloading", version, progress: 0 });
-    await post(`/__rollback__?version=${encodeURIComponent(version)}`).catch(() => undefined);
+    await run(`/__rollback__?version=${encodeURIComponent(version)}`, "updates.rollback_failed");
   };
   const undo = async () => {
     setErr(null);
     setBusy(true);
-    await post("/__rollback__/undo").catch(() => undefined);
+    await run("/__rollback__/undo", "updates.undo_failed");
   };
   const restart = async () => {
     await post("/__update__/restart").catch(() => undefined);
@@ -123,7 +140,9 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
         <div>
           <dt>{t("updates.status")}</dt>
           <dd>
-            {info.upToDate ? (
+            {info.checkFailed ? (
+              <Badge accent="warning">{t(CHECK_FAILED_KEYS[info.checkFailed] ?? "updates.check_failed.unavailable")}</Badge>
+            ) : info.upToDate ? (
               <Badge accent="success">{t("updates.up_to_date")}</Badge>
             ) : (
               <Badge accent="warning">{t("updates.available")}</Badge>
@@ -132,7 +151,7 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
         </div>
         <div>
           <dt>{t("updates.channel")}</dt>
-          <dd>{t("updates.channel_stable")}</dd>
+          <dd>{info.channel === "beta" ? t("updates.channel_beta") : t("updates.channel_stable")}</dd>
         </div>
       </dl>
       <p className="muted">{t("updates.signed_note")}</p>
@@ -178,6 +197,7 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
                   {r.installed && (
                     <span className="badge badge--success vm__badge">{t("updates.installed_badge")}</span>
                   )}
+                  {r.prerelease && <span className="badge vm__badge">{t("updates.prerelease")}</span>}
                 </span>
                 <span className="vm__date">{r.date}</span>
                 {r.installed ? (

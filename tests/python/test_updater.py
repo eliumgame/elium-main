@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -84,11 +85,23 @@ def env(tmp_path, monkeypatch):
     # déterministe, même si le build a déjà stampé un vrai BUILD_CODE_HASH
     # (cas du CI de release, qui stampe avant de lancer pytest).
     monkeypatch.setattr(updater, "BUILD_CODE_HASH", updater._CODE_HASH_PLACEHOLDER)
+    monkeypatch.delenv("ELIUM_UPDATE_CHANNEL", raising=False)
+
+    # Jamais de vrai réseau dans ces tests : l'API GitHub est injoignable par défaut
+    # (les tests qui en ont besoin la remplacent).
+    def _no_network(url, etag, max_bytes):
+        raise urllib.error.URLError("réseau coupé (test)")
+
+    monkeypatch.setattr(updater, "_urlopen_conditional", _no_network)
     updater._pending_manifest = None
     updater._last_check_monotonic = 0.0
+    updater._last_check_error = None
+    updater._consecutive_check_failures = 0
+    updater.reset_verification_cache()
     # repart d'un statut propre
     updater._status.clear()
-    updater._status.update({"state": "idle", "version": None, "kind": None, "progress": 0})
+    updater._status.update({"state": "idle", "version": None, "kind": None, "progress": 0,
+                            "reason": None, "message": ""})
     return tmp_path
 
 
@@ -406,10 +419,15 @@ def test_fetch_manifest_resolves_via_single_release_api_call(env, monkeypatch):
 
     calls: list[str] = []
 
+    def fake_api(url, etag, max_bytes):
+        calls.append(url)
+        assert url == updater._GITHUB_API_LATEST_RELEASE
+        return 200, release_payload, {"etag": 'W/"abc"'}
+
+    monkeypatch.setattr(updater, "_urlopen_conditional", fake_api)
+
     def fake_http_get(url: str, max_bytes: int) -> bytes:
         calls.append(url)
-        if url == updater._GITHUB_API_LATEST_RELEASE:
-            return release_payload
         if url == pinned_manifest_url:
             return raw
         if url == pinned_sig_url:
@@ -433,9 +451,12 @@ def test_fetch_manifest_missing_assets_in_release(env, monkeypatch):
     monkeypatch.delenv("ELIUM_UPDATE_MANIFEST_URL", raising=False)
     # La release existe mais ne porte pas (encore ?) les deux fichiers attendus.
     release_payload = json.dumps({"tag_name": "v9.9.9", "assets": []}).encode("utf-8")
-    monkeypatch.setattr(updater, "_http_get", lambda url, max_bytes: release_payload)
+    monkeypatch.setattr(updater, "_urlopen_conditional",
+                        lambda url, etag, max_bytes: (200, release_payload, {}))
 
     assert updater.fetch_manifest() is None
+    assert updater._last_check_error is not None
+    assert updater._last_check_error.reason == "unavailable"
 
 
 def test_fetch_manifest_override_env_bypasses_release_resolution(env, monkeypatch):
@@ -490,7 +511,10 @@ def test_invalid_signature_blocks_update(env, monkeypatch):
 
     status = updater.check_and_apply()
 
-    assert status["state"] == "up-to-date"        # manifeste rejeté -> pas de màj
+    # Manifeste rejeté : ce n'est PAS « à jour » mais une vérification impossible,
+    # avec la cause (signature invalide) distincte de hors ligne / quota.
+    assert status["state"] == "check-failed"
+    assert status["reason"] == "invalid-signature"
     assert updater.active_web_dir() is None
 
 
@@ -549,6 +573,8 @@ def test_on_navigation_clears_stale_ready(env, monkeypatch):
     monkeypatch.setenv("ELIUM_UPDATE_MANIFEST_URL", manifest_path.as_uri())
     updater.check_and_apply()
     assert updater.get_status()["state"] == "web-ready"
+    # Pas de thread de détection laissé en vie (il polluerait les tests suivants).
+    monkeypatch.setattr(updater, "start_background_check", lambda: None)
 
     updater.on_navigation()   # simule le reload après clic « Recharger »
     assert updater.get_status()["state"] in ("idle", "up-to-date")

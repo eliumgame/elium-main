@@ -17,6 +17,7 @@ import * as ed from "@noble/ed25519";
 import { hashes } from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { KDF_PROFILES } from "./kdf-profiles";
 
 hashes.sha512 = sha512;
 // @ts-ignore
@@ -34,7 +35,7 @@ const SIGNATURE_SIZE = 64;
 /** Paramètres Argon2id par DÉFAUT à l'écriture (les fichiers existants gardent
  *  les leurs, écrits dans l'en-tête). Doit rester dans les bornes du décodage
  *  (m ∈ [8192, 262144], t ∈ [1,6], p ∈ [1,16]) et miroir Python (primitives.py). */
-const ARGON2_WRITE = { t: 3, m: 65536, p: 1 } as const;
+const ARGON2_WRITE = KDF_PROFILES.document;
 
 const te = new TextEncoder();
 const td = new TextDecoder("utf-8");

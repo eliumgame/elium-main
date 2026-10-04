@@ -13,6 +13,7 @@ import { eliumToken, reloadWhenServerBack } from "../settings/launcher";
 import { reportError } from "../ui/crash-log";
 import { CHECK_FAILED_KEYS } from "../views/VersionFooter";
 import PortSettings from "./PortSettings";
+import { launcherJson } from "../desktop/launcher-bridge";
 
 interface VersionInfo {
   installed: string | null;
@@ -51,13 +52,11 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
 
   useEffect(() => {
     let alive = true;
-    fetch("/__version__", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: VersionInfo | null) => alive && setInfo(j && j.installed ? j : null))
+    launcherJson<VersionInfo>("/__version__", { cache: "no-store" })
+      .then((j) => alive && setInfo(j && j.installed ? j : null))
       .catch(() => alive && setInfo(null));
-    fetch("/__releases__")
-      .then((r) => (r.ok ? r.json() : { releases: [] }))
-      .then((j: { releases?: Release[] }) => alive && setReleases(j.releases ?? []))
+    launcherJson<{ releases?: Release[] }>("/__releases__")
+      .then((j) => alive && setReleases(j?.releases ?? []))
       .catch(() => alive && setReleases([]));
     return () => {
       alive = false;
@@ -68,9 +67,8 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
   useEffect(() => {
     if (!busy) return;
     const id = setInterval(() => {
-      fetch("/__update__")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((s: UpdStatus | null) => {
+      launcherJson<UpdStatus>("/__update__")
+        .then((s) => {
           if (!s) return;
           setStatus(s);
           if (s.state === "web-ready" || s.state === "exe-ready") clearInterval(id);

@@ -83,14 +83,14 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
 
   test("Document — choix du niveau de protection", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Documents" }).click();
+    await page.getByRole("button", { name: /^Documents? Éditeur/ }).click();
     await expect(page.getByRole("dialog", { name: "Comment protéger ce document ?" })).toBeVisible();
     await expectNoSeriousViolations(page, "Document (choix du niveau de protection)");
   });
 
   test("Document", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Documents" }).click();
+    await page.getByRole("button", { name: /^Documents? Éditeur/ }).click();
     await page.getByRole("button", { name: "Simple" }).click();
     await expect(page.locator(".elx-ribbon")).toBeVisible();
     await expectNoSeriousViolations(page, "Document");
@@ -105,7 +105,7 @@ test.describe("Accessibilité (axe-core) — vues clés", () => {
 
   test("Présentations", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Présentations" }).click();
+    await page.getByRole("button", { name: /^Présentations? Diapositives/ }).click();
     await expect(page.locator(".sv-stage")).toBeVisible();
     await expectNoSeriousViolations(page, "Présentations");
   });
@@ -218,7 +218,7 @@ test.describe("Accessibilité — navigation clavier des éditeurs canevas", () 
 
   test("Présentations : Tab sélectionne un élément, les flèches le déplacent, annonce vocale", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Présentations" }).click();
+    await page.getByRole("button", { name: /^Présentations? Diapositives/ }).click();
     const canvas = page.locator(".slide-cv.is-editable").first();
     await expect(canvas).toBeVisible();
     await canvas.focus();
@@ -242,7 +242,7 @@ test.describe("Détecteur — analyse par lot (rendu réel)", () => {
   test("plusieurs fichiers : tableau de résultats, ligne en erreur isolée, export CSV", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: /^Détecteur/ }).click();
-    await page.setInputFiles('input[type="file"][multiple]', [
+    await page.getByLabel("Choisir un ou plusieurs fichiers à analyser").setInputFiles([
       { name: "a.png", mimeType: "image/png", buffer: PNG },
       { name: "b.png", mimeType: "image/png", buffer: PNG },
       { name: "c.docx", mimeType: "application/octet-stream", buffer: Buffer.from("pas un docx") },

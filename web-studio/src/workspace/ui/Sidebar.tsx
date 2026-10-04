@@ -190,13 +190,13 @@ export default function Sidebar(p: SidebarProps) {
           <FolderPlus size={15} />
         </button>
       </div>
-      <ul className="ws-tree" role="tree" aria-label={t("workspace.folders")}>
-        {p.folders.some((f) => !f.trashedAt) ? (
-          renderFolders(null, 0)
-        ) : (
-          <li className="ws-side__empty">{t("workspace.folders_empty")}</li>
-        )}
-      </ul>
+      {p.folders.some((f) => !f.trashedAt) ? (
+        <ul className="ws-tree" role="tree" aria-label={t("workspace.folders")}>
+          {renderFolders(null, 0)}
+        </ul>
+      ) : (
+        <p className="ws-side__empty">{t("workspace.folders_empty")}</p>
+      )}
 
       {p.tags.length > 0 && (
         <>

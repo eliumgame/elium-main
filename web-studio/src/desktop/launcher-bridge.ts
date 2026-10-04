@@ -55,3 +55,15 @@ export function watchLauncherInbox(onFile: (f: LauncherFile) => void | Promise<v
     if (timer) clearTimeout(timer);
   };
 }
+
+/**
+ * GET d'un endpoint JSON du lanceur (`/__version__`, `/__update__`…). Renvoie
+ * null — sans bruit — quand il n'y a pas de lanceur : en dev ou en PWA le
+ * serveur répond par la page d'accueil (HTML), qu'il ne faut pas traiter comme
+ * une erreur ni tenter de parser.
+ */
+export async function launcherJson<T>(url: string, init?: RequestInit): Promise<T | null> {
+  const r = await fetch(url, init);
+  if (!r.ok || !(r.headers.get("content-type") ?? "").includes("json")) return null;
+  return (await r.json()) as T;
+}

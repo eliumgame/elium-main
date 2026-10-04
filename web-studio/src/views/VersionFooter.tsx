@@ -10,6 +10,7 @@ import { useI18n, type MessageKey } from "../i18n";
 import { reportError } from "../ui/crash-log";
 import { eliumToken } from "../settings/launcher";
 import UpdatesPanel from "../components/UpdatesPanel";
+import { launcherJson } from "../desktop/launcher-bridge";
 
 interface VersionInfo {
   installed: string | null;
@@ -36,9 +37,8 @@ export default function VersionFooter() {
   const [checking, setChecking] = useState(false);
 
   const load = () =>
-    fetch("/__version__")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: VersionInfo | null) => {
+    launcherJson<VersionInfo>("/__version__")
+      .then((j) => {
         if (j && j.installed) setInfo(j);
       })
       .catch((e) => reportError("version.info", e));

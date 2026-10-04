@@ -74,7 +74,12 @@ describe("perf — Tableur : 100 000 lignes", () => {
 describe("perf — Présentations : 300 diapositives", () => {
   it("export .pptx de 300 diapositives sous 15 s", () => {
     const deck: Deck = emptyDeck();
-    deck.slides = Array.from({ length: 300 }, (_, i) => ({ ...emptySlide("title-content"), id: `s${i}`, title: `Diapo ${i + 1}`, body: "Un\nDeux\nTrois" }));
+    deck.slides = Array.from({ length: 300 }, (_, i) => ({
+      ...emptySlide("title-content"),
+      id: `s${i}`,
+      title: `Diapo ${i + 1}`,
+      body: "Un\nDeux\nTrois",
+    }));
     const { ms, value } = timed("deckToPptx 300", () => deckToPptx(deck));
     expect(value.length).toBeGreaterThan(1000);
     expect(ms).toBeLessThan(15000);

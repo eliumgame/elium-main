@@ -2,6 +2,7 @@ import { Alert } from "../ui/components";
 import { Info } from "lucide-react";
 import { profileOf } from "../format/profiles";
 import type { Studio } from "../studio/types";
+import { localeTag } from "../i18n";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -27,8 +28,8 @@ export default function InfoPanel({ studio }: { studio: Studio }) {
         <Row label="Profil" value={def.label} />
         <Row label="Format" value={`elium v${m.formatVersion}`} />
         <Row label="Langue" value={m.language} />
-        <Row label="Créé le" value={new Date(m.createdAt).toLocaleString("fr-FR")} />
-        <Row label="Modifié le" value={new Date(m.modifiedAt).toLocaleString("fr-FR")} />
+        <Row label="Créé le" value={new Date(m.createdAt).toLocaleString(localeTag())} />
+        <Row label="Modifié le" value={new Date(m.modifiedAt).toLocaleString(localeTag())} />
         <Row label="Ressources" value={m.features.resources} />
         <Row
           label="Intégrité"

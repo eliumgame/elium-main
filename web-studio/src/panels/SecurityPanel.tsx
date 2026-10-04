@@ -7,7 +7,6 @@ import type { Studio } from "../studio/types";
 import KeyringPanel from "../components/KeyringPanel";
 import RecipientPicker from "../components/RecipientPicker";
 
-
 export default function SecurityPanel({ studio }: { studio: Studio }) {
   const current = studio.file.manifest.profile;
   const expiresAt = studio.file.manifest.accessExpiresAt;
@@ -110,9 +109,9 @@ export default function SecurityPanel({ studio }: { studio: Studio }) {
               <Users size={15} /> Destinataires (sans mot de passe)
             </h2>
             <p className="muted">
-              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé. Choisissez
-              leurs clés depuis votre carnet de confiance. Si un destinataire est choisi, le mot de passe n'est pas
-              demandé.
+              Chiffrez pour des destinataires : chacun ouvre avec SA clé de réception, sans mot de passe partagé.
+              Choisissez leurs clés depuis votre carnet de confiance. Si un destinataire est choisi, le mot de passe
+              n'est pas demandé.
             </p>
             <RecipientPicker studio={studio} />
           </section>

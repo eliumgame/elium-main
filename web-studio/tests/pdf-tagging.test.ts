@@ -24,7 +24,8 @@ async function sample(): Promise<PDFDocument> {
   return PDFDocument.load(await doc.save(), { updateMetadata: false });
 }
 
-const status = (rules: ReturnType<typeof checkAccessibility>, rule: string) => rules.find((r) => r.rule === rule)?.status;
+const status = (rules: ReturnType<typeof checkAccessibility>, rule: string) =>
+  rules.find((r) => r.rule === rule)?.status;
 
 describe("balisage PDF/UA", () => {
   it("crée l'arbre de structure, la langue, le titre et le ParentTree", async () => {

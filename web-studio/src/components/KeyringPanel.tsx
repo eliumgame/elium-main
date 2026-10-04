@@ -146,12 +146,24 @@ export default function KeyringPanel({ compact = false }: { compact?: boolean })
                   <Badge accent={m.backupTone}>{m.backupLabel}</Badge>
                   <span className="muted">{m.protectionLabel}</span>
                 </div>
-                {m.successionLabel && <p className="muted keyring__succ">{m.successionLabel} — certificat vérifiable</p>}
+                {m.successionLabel && (
+                  <p className="muted keyring__succ">{m.successionLabel} — certificat vérifiable</p>
+                )}
                 <div className="keyring__actions">
-                  <Button variant="outline" size="sm" disabled={!m.can.export} onClick={() => void k.exportBackup([e.id])}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!m.can.export}
+                    onClick={() => void k.exportBackup([e.id])}
+                  >
                     <Download size={13} /> Exporter
                   </Button>
-                  <Button variant="ghost" size="sm" aria-label={`Copier la clé publique de ${e.label}`} onClick={() => void copyPublic(e.publicHex)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Copier la clé publique de ${e.label}`}
+                    onClick={() => void copyPublic(e.publicHex)}
+                  >
                     <Copy size={13} /> Clé publique
                   </Button>
                   {m.can.rotate && (
@@ -177,7 +189,12 @@ export default function KeyringPanel({ compact = false }: { compact?: boolean })
                       <ShieldAlert size={13} /> Révoquer
                     </Button>
                   )}
-                  <Button variant="ghost" size="sm" aria-label={`Supprimer ${e.label}`} onClick={() => void k.removeKey(e.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Supprimer ${e.label}`}
+                    onClick={() => void k.removeKey(e.id)}
+                  >
                     <Trash2 size={13} /> Supprimer
                   </Button>
                 </div>
@@ -269,14 +286,23 @@ export default function KeyringPanel({ compact = false }: { compact?: boolean })
           <Fingerprint size={14} /> Clés d'accès (passkeys)
         </h5>
         {!k.passkeySupported && (
-          <p className="muted">Clés d'accès non disponibles sur ce navigateur — le mot de passe reste le moyen de déverrouillage.</p>
+          <p className="muted">
+            Clés d'accès non disponibles sur ce navigateur — le mot de passe reste le moyen de déverrouillage.
+          </p>
         )}
         {k.master?.passkeys.length ? (
           <ul className="keyring__passkeys">
             {k.master.passkeys.map((p) => (
               <li key={p.credentialId}>
                 <span>
-                  <strong>{p.label}</strong> <Badge>{p.kind === "platform" ? "Appareil" : p.kind === "cross-platform" ? "Clé de sécurité" : "Clé d'accès"}</Badge>{" "}
+                  <strong>{p.label}</strong>{" "}
+                  <Badge>
+                    {p.kind === "platform"
+                      ? "Appareil"
+                      : p.kind === "cross-platform"
+                        ? "Clé de sécurité"
+                        : "Clé d'accès"}
+                  </Badge>{" "}
                   <span className="muted">enrôlée le {new Date(p.createdAt).toLocaleDateString("fr-FR")}</span>
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => void k.removePasskey(p.credentialId)}>
@@ -286,7 +312,11 @@ export default function KeyringPanel({ compact = false }: { compact?: boolean })
             ))}
           </ul>
         ) : (
-          k.passkeySupported && <p className="muted">Aucune clé d'accès enrôlée. Vous pouvez en ajouter plusieurs (appareil + clé de sécurité).</p>
+          k.passkeySupported && (
+            <p className="muted">
+              Aucune clé d'accès enrôlée. Vous pouvez en ajouter plusieurs (appareil + clé de sécurité).
+            </p>
+          )
         )}
         {k.passkeySupported && (
           <div className="keyring__enroll">

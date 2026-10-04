@@ -1,0 +1,150 @@
+/** Français — coque de l'application : démarrage, coffre, enregistrement, accueil, récupération, pied de page, plantage. */
+export const frShell = {
+  "app.busy": "Traitement en cours…",
+  "app.data_cleared": "Données locales effacées",
+  "app.loading_sheet": "Chargement du Tableur…",
+  "app.loading_slides": "Chargement des Présentations…",
+  "app.loading_pdf": "Chargement du lecteur PDF…",
+  "app.loading_drive": "Chargement du Drive entreprise…",
+  "app.loading_docs": "Chargement de la documentation…",
+  "app.loading_detector": "Chargement du Détecteur…",
+  "app.loading_editor": "Chargement de l'éditeur…",
+
+  "vault.gate_title": "Coffre local verrouillé",
+  "vault.gate_body":
+    "Ce poste a un coffre local configuré pour protéger la bibliothèque, le Parapheur et l'espace de travail. Déverrouillez-le pour continuer.",
+  "vault.gate_unlock": "Déverrouiller",
+  "vault.gate_forgot": "Mot de passe oublié ?",
+  "vault.unlock_title": "Déverrouiller le coffre local",
+  "vault.wrong_password": "Mot de passe du coffre local incorrect.",
+  "vault.create_title": "Créer le mot de passe du coffre local",
+  "vault.new_title": "Nouveau mot de passe du coffre local",
+  "vault.password_hint":
+    "4 caractères minimum. S'applique à toute la bibliothèque, à l'espace de travail et au Parapheur (pas à un document précis). Sans lui, ils sont irrécupérables.",
+  "vault.enabled": "Coffre local activé — bibliothèque, espace de travail et Parapheur chiffrés sur ce poste",
+  "vault.changed": "Mot de passe du coffre local modifié",
+  "vault.disable_title": "Désactiver le coffre local ?",
+  "vault.disable_body":
+    "La bibliothèque, l'espace de travail et le Parapheur redeviendront non chiffrés sur cet ordinateur. Les fichiers .elium déjà enregistrés sur le disque ne sont pas affectés.",
+  "vault.disable_confirm": "Désactiver",
+  "vault.disabled": "Coffre local désactivé",
+  "vault.reset_title": "Réinitialiser le coffre local ?",
+  "vault.reset_body":
+    "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque, les classeurs, présentations et PDF de l'espace de travail et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés.",
+  "vault.reset_confirm": "Réinitialiser",
+  "vault.reset_done": "Coffre local réinitialisé",
+
+  "save.how_recipients": " pour {n} destinataire(s)",
+  "save.how_keyfile": " et fichier-clé",
+  "save.done": "Document enregistré{how} (.elium)",
+  "save.done_sealed": "Document enregistré et scellé{how} (.elium)",
+  "save.done_disk": "Enregistré dans « {name} »{how}",
+  "save.done_disk_sealed": "Enregistré et scellé dans « {name} »{how}",
+
+  "pdf.library_label": "{name} (espace de travail)",
+
+  "recovery.title": "Récupération automatique",
+  "recovery.intro":
+    "Brouillons enregistrés automatiquement pendant l'édition, jamais perdus en cas de fermeture. Ils restent ici jusqu'à ce que vous les supprimiez ou qu'ils soient enregistrés.",
+  "recovery.crash_title": "Elium ne s'est pas fermé correctement",
+  "recovery.crash_body":
+    "Des modifications non enregistrées ont peut-être été interrompues. Voici ce qui peut être récupéré.",
+  "recovery.crash_body_since":
+    "La session ouverte le {date} s'est arrêtée brutalement. Voici ce qui peut être récupéré.",
+  "recovery.dismiss": "Masquer",
+  "recovery.clear_all": "Tout supprimer",
+  "recovery.clear_title": "Vider les brouillons",
+  "recovery.clear_body_one":
+    "Supprimer définitivement ce brouillon auto-enregistré ? Les documents déjà exportés en .elium ne sont pas concernés.",
+  "recovery.clear_body_other":
+    "Supprimer définitivement les {n} brouillons auto-enregistrés ? Les documents déjà exportés en .elium ne sont pas concernés.",
+  "recovery.clear_saved": "Nettoyer",
+  "recovery.delete": "Supprimer le brouillon",
+  "recovery.delete_title": "Supprimer le brouillon",
+  "recovery.delete_body": "Supprimer définitivement ce brouillon auto-enregistré ?",
+  "recovery.download_docx": "Télécharger en .docx",
+  "recovery.last_session": "Dernière session",
+  "recovery.protected": "Protégé",
+  "recovery.protected_hint": "Brouillon chiffré — mot de passe requis pour l'ouvrir",
+  "recovery.preview_hidden": "Aperçu masqué (brouillon chiffré)",
+  "recovery.legacy": "Ancien format — non chiffré",
+  "recovery.legacy_hint":
+    "Enregistré avant la mise à jour de sécurité du 2026-07-02 : si le document d'origine était protégé par mot de passe, ce brouillon en contient une copie NON chiffrée. Supprimez-le si besoin.",
+  "recovery.recover": "Récupérer",
+  "recovery.reopen": "Rouvrir",
+  "recovery.pdf_hint": "Rouvrez ce fichier PDF : Elium proposera de restaurer ses modifications.",
+  "recovery.pdf_reopen_hint": "Le fichier d'origine est connu : rouvrez-le pour restaurer ses modifications.",
+  "recovery.permission_denied": "Accès au fichier refusé : rouvrez le PDF depuis Ouvrir.",
+  "recovery.show_less": "Afficher moins",
+  "recovery.show_more_one": "Afficher l'autre brouillon",
+  "recovery.show_more_other": "Afficher les {n} autres brouillons",
+  "recovery.saved_note_one": "{n} brouillon correspond à un document déjà enregistré.",
+  "recovery.saved_note_other": "{n} brouillons correspondent à des documents déjà enregistrés.",
+  "recovery.wrong_password": "Mot de passe incorrect — impossible de déchiffrer ce brouillon.",
+
+  "home.title": "Votre espace de travail documentaire",
+  "home.subtitle":
+    "Documents, tableurs, présentations et PDF — chiffrés, signés et scellés, 100 % en local, au format .elium.",
+  "home.badge.proof": "Preuve cryptographique",
+  "home.badge.encryption": "Chiffrement à la demande",
+  "home.badge.signatures": "Signatures placées librement",
+  "home.create": "Créer",
+  "home.app.docs": "Éditeur de texte riche",
+  "home.app.sheets": "Feuilles de calcul & formules",
+  "home.app.slides": "Diapositives & présentateur",
+  "home.app.pdf": "Lire, annoter & éditer des PDF",
+  "home.new": "Nouveau",
+  "home.see_all": "Tout voir",
+  "home.recent_empty": "Vos éléments récents apparaîtront ici.",
+  "home.drive.title": "Drive entreprise chiffré",
+  "home.drive.desc":
+    "Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, rôles & permissions détaillés.",
+  "home.drive.meta": "Multi-utilisateurs",
+  "home.detector.title": "Détecteur",
+  "home.detector.desc":
+    "Analyse un document (.elium, .docx, .pdf) à la recherche de signaux de rédaction par IA, d'anomalies de mise en forme/métadonnées/images — et, en option, de plagiat sur le web.",
+  "home.open": "Ouvrir",
+  "home.drop_title": "Glissez un fichier .elium ou un PDF, ou cliquez pour parcourir",
+  "home.drop_hint": "Importez aussi .docx, .txt, .md ou .html — les PDF rejoignent votre espace de travail",
+  "home.templates": "Modèles de documents",
+  "home.search_placeholder": "Rechercher dans tout l'espace…",
+  "home.palette": "Palette de commandes",
+  "home.open_file": "Ouvrir un fichier…",
+  "home.docs": "Documentation",
+  "home.settings": "Paramètres",
+  "workspace.move_invalid": "Un dossier ne peut pas être déplacé dans lui-même ni dans l'un de ses sous-dossiers.",
+
+  "footer.tagline":
+    "Traitement 100 % local · aucune donnée envoyée en ligne sans action explicite · conforme RGPD par conception",
+  "footer.manage_versions": "Gérer les versions",
+  "footer.versions_title": "Versions d'Elium",
+
+  "boundary.title": "Elium a rencontré un problème",
+  "boundary.body":
+    "Vos documents ne sont pas perdus : les sauvegardes automatiques sont conservées sur cet appareil et seront proposées à la réouverture.",
+  "boundary.reload": "Recharger Elium",
+  "boundary.copy_log": "Copier le journal d'incidents",
+  "boundary.log_copied": "Journal copié ✓",
+  "boundary.clear_reload": "Effacer le journal et recharger",
+
+  "dialogs.cancel": "Annuler",
+  "dialogs.validate": "Valider",
+  "dialogs.confirm": "Confirmer",
+  "dialogs.ok": "OK",
+  "dialogs.close": "Fermer",
+
+  "sheet.load_error_title": "Classeur autosauvegardé illisible",
+  "sheet.load_error_body":
+    "{error}\n\nL'éditeur démarre sur un classeur vierge. La sauvegarde automatique existante n'a PAS été effacée et l'autosauvegarde est suspendue pour cette session : exportez votre travail, puis rechargez Elium.",
+  "sheet.save_elium_title": "Enregistrer en .elium",
+  "sheet.save_elium_label": "Nom du classeur",
+  "sheet.default_name": "Classeur",
+  "sheet.export_csv": "Exporter en CSV",
+  "sheet.export_xlsx": "Exporter en XLSX",
+  "slides.load_error_title": "Présentation autosauvegardée illisible",
+  "slides.load_error_body":
+    "{error}\n\nL'éditeur démarre sur une présentation vierge. La sauvegarde automatique chiffrée n'a PAS été effacée — réactivez le coffre avec le bon mot de passe pour la récupérer.",
+  "slides.save_elium_label": "Nom de la présentation",
+  "slides.export": "Exporter",
+  "slides.format_elium": "Format .elium…",
+} as const;

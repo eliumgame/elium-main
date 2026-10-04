@@ -83,7 +83,11 @@ export async function analyzeOne(file: File, opts: BatchOptions): Promise<BatchR
   } catch (err) {
     if (opts.signal?.aborted) return { fileName, status: "annule", detail: "Analyse annulée" };
     if (err instanceof EliumPasswordRequired || err instanceof PdfPasswordRequired)
-      return { fileName, status: "protege", detail: "Document protégé par mot de passe : à analyser individuellement." };
+      return {
+        fileName,
+        status: "protege",
+        detail: "Document protégé par mot de passe : à analyser individuellement.",
+      };
     if (err instanceof EliumRecipientKeyRequired)
       return { fileName, status: "protege", detail: "Document chiffré pour des destinataires." };
     const message = err instanceof Error ? err.message : String(err);
@@ -111,7 +115,20 @@ export async function runBatch(files: File[], opts: BatchOptions): Promise<Batch
   return rows;
 }
 
-const COLUMNS = ["Fichier", "Statut", "Score global", "Confiance", "Texte", "Mise en forme", "Métadonnées", "Images", "Constats", "Principaux constats", "C2PA", "Détail"];
+const COLUMNS = [
+  "Fichier",
+  "Statut",
+  "Score global",
+  "Confiance",
+  "Texte",
+  "Mise en forme",
+  "Métadonnées",
+  "Images",
+  "Constats",
+  "Principaux constats",
+  "C2PA",
+  "Détail",
+];
 
 function csvCell(v: string | number | undefined): string {
   const s = v === undefined ? "" : String(v);

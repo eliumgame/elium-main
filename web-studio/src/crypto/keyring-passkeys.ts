@@ -28,7 +28,11 @@ export interface PrfEvaluation {
 export interface PrfAuthenticator {
   supported(): boolean;
   /** Crée une passkey ; retourne son identifiant ou null si l'utilisateur annule. */
-  create(opts: { rpId: string; userName: string; label: string }): Promise<{ credentialId: string; kind: PasskeySlot["kind"] } | null>;
+  create(opts: {
+    rpId: string;
+    userName: string;
+    label: string;
+  }): Promise<{ credentialId: string; kind: PasskeySlot["kind"] } | null>;
   /** Évalue PRF avec l'une des clés `allow` (ou toute clé découvrable si vide). Null si PRF indisponible. */
   evaluate(opts: { rpId: string; allow: string[]; saltHex: string }): Promise<PrfEvaluation | null>;
 }
@@ -120,7 +124,8 @@ const buf = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
 
 export function createWebAuthnPrfAuthenticator(): PrfAuthenticator {
   return {
-    supported: () => typeof window !== "undefined" && typeof window.PublicKeyCredential !== "undefined" && !!navigator.credentials,
+    supported: () =>
+      typeof window !== "undefined" && typeof window.PublicKeyCredential !== "undefined" && !!navigator.credentials,
     async create({ rpId, userName, label }) {
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       const cred = (await navigator.credentials.create({
@@ -159,7 +164,8 @@ export function createWebAuthnPrfAuthenticator(): PrfAuthenticator {
       if (allow.length) publicKey.allowCredentials = allow.map((id) => ({ id: buf(unb64url(id)), type: "public-key" }));
       const assertion = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
       if (!assertion) return null;
-      const first = (assertion.getClientExtensionResults() as { prf?: { results?: { first?: ArrayBuffer } } }).prf?.results?.first;
+      const first = (assertion.getClientExtensionResults() as { prf?: { results?: { first?: ArrayBuffer } } }).prf
+        ?.results?.first;
       if (!first) return null;
       return { prfOutput: new Uint8Array(first), credentialId: b64url(new Uint8Array(assertion.rawId)) };
     },

@@ -41,11 +41,16 @@ export async function buildBackup(
   if (entries.length === 0) throw new KeyringError("Aucune clé à sauvegarder.");
   const keys = entries.map((e) => {
     const privateHex = session.getPrivate(e.id);
-    if (!privateHex) throw new KeyringError(`La clé « ${e.label} » est verrouillée : déverrouillez le trousseau d'abord.`);
+    if (!privateHex)
+      throw new KeyringError(`La clé « ${e.label} » est verrouillée : déverrouillez le trousseau d'abord.`);
     return { meta: toBundleMeta(e), privateHex };
   });
   const file = await buildKeyBundle(keys, bundlePassword, session.getMaster() ?? undefined);
-  await markBackedUp(store, entries.map((e) => e.id), now);
+  await markBackedUp(
+    store,
+    entries.map((e) => e.id),
+    now,
+  );
   return file;
 }
 
@@ -71,8 +76,14 @@ export async function importOpenedBundle(
   let masterInstalled = false;
   let useDerived = false;
   if (opened.master && !record) {
-    const maxEd = Math.max(-1, ...opened.keys.filter((k) => k.meta.type === "identity-ed25519").map((k) => k.meta.derivationIndex ?? -1));
-    const maxP = Math.max(-1, ...opened.keys.filter((k) => k.meta.type === "recipient-p256").map((k) => k.meta.derivationIndex ?? -1));
+    const maxEd = Math.max(
+      -1,
+      ...opened.keys.filter((k) => k.meta.type === "identity-ed25519").map((k) => k.meta.derivationIndex ?? -1),
+    );
+    const maxP = Math.max(
+      -1,
+      ...opened.keys.filter((k) => k.meta.type === "recipient-p256").map((k) => k.meta.derivationIndex ?? -1),
+    );
     await installMaster(store, opened.master, password, { ed: maxEd + 1, p256: maxP + 1 });
     masterInstalled = true;
     useDerived = true;

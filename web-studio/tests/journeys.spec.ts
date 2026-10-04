@@ -25,7 +25,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * (profil standard, non chiffré) pour obtenir le document vierge par défaut.
  */
 async function createBlankDocument(page: Page) {
-  await page.getByRole("button", { name: "Documents" }).click();
+  await page.getByRole("button", { name: /^Documents? Éditeur/ }).click();
   await page.getByRole("button", { name: /Simple/ }).click();
   await expect(page.locator(".elx-ribbon")).toBeVisible();
 }
@@ -47,6 +47,17 @@ function trackPageHealth(page: Page) {
     },
   };
 }
+
+test.beforeEach(async ({ page }) => {
+  // Chromium expose l'API File System Access : « Enregistrer » ouvrirait alors un sélecteur de fichier
+  // natif, que Playwright ne pilote pas. Les parcours testent le repli par téléchargement (navigateurs
+  // sans l'API, PWA) ; l'écriture en place est couverte par les tests unitaires de planSave.
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    delete w.showSaveFilePicker;
+    delete w.showOpenFilePicker;
+  });
+});
 
 test.describe("Parcours utilisateur — gestes réels", () => {
   test("Documents — création, renommage et saisie de texte", async ({ page }) => {
@@ -176,7 +187,7 @@ test.describe("Parcours utilisateur — gestes réels", () => {
   test("Présentations — ouverture sans erreur", async ({ page }) => {
     const health = trackPageHealth(page);
     await page.goto("/");
-    await page.getByRole("button", { name: "Présentations" }).click();
+    await page.getByRole("button", { name: /^Présentations? Diapositives/ }).click();
     await expect(page.locator(".sv-stage")).toBeVisible();
     await expect(page.getByRole("button", { name: "Annuler (Ctrl+Z)" })).toBeVisible();
     health.assertClean("Présentations");

@@ -1609,7 +1609,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if not (1024 <= wanted <= 65535):
             self.send_error(400, "Le port doit être compris entre 1024 et 65535")
             return
-        if not _is_port_free(wanted):
+        # Épingler le port que CE serveur occupe déjà est légitime (il le garde au prochain démarrage).
+        if wanted != self.server.server_address[1] and not _is_port_free(wanted):
             self._serve_bytes(
                 json.dumps({"ok": False, "error": "port-busy"}).encode("utf-8"),
                 "application/json; charset=utf-8",

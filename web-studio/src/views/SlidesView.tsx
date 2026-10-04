@@ -3,24 +3,30 @@
  * It supplies the local backend (useLocalDeckStore: undo/redo + IndexedDB) and
  * the local-only chrome (Accueil, PPTX/.elium export). The whole editing surface
  * is the shared component, so it stays in lockstep with the Drive collaborative
- * editor.
+ * editor. Each deck is a workspace item (`session`).
  */
-import { useEffect, useRef, useState } from "react";
-import { Download, FileDown, Save } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, FileDown, Pencil, Save } from "lucide-react";
 import { elementsOf, type Deck } from "../slides/model";
 import { useLocalDeckStore } from "../slides/useLocalDeckStore";
 import SlidesEditor from "../slides/SlidesEditor";
 import { ToolbarPopover } from "../slides/ActionMenu";
 import { useDialogs } from "../ui/dialogs";
+import { useI18n } from "../i18n";
 import { deckToPptx } from "../slides/pptx";
 import { downloadBlob } from "../export/exporters";
 import type { VaultSecret } from "../crypto/local-vault";
+import { useRegisterCommands, type AppCommand } from "../commands/registry";
+import { useItemSync, type ItemSession } from "../workspace/useItemSync";
+import type { WorkspaceApi } from "../workspace/useWorkspace";
 
 export default function SlidesView({
   onHome,
   initial,
   onExportElium,
   vaultSecret,
+  session,
+  workspace,
 }: {
   onHome: () => void;
   initial?: Deck;
@@ -28,9 +34,17 @@ export default function SlidesView({
   /** App-wide local vault secret (see crypto/local-vault.ts). When set, the
    *  IndexedDB autosave of this deck is encrypted at rest instead of plaintext. */
   vaultSecret?: VaultSecret;
+  session?: ItemSession;
+  workspace: WorkspaceApi;
 }) {
+  const { t } = useI18n();
   const dialogs = useDialogs();
-  const store = useLocalDeckStore(initial, vaultSecret);
+  const sync = useItemSync(workspace, session, "slides");
+  const store = useLocalDeckStore(
+    initial,
+    vaultSecret,
+    session ? { id: session.id, isNew: session.isNew, onSaved: sync.onSaved } : undefined,
+  );
   const [exportMenu, setExportMenu] = useState(false);
   const exportMenuBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -42,8 +56,8 @@ export default function SlidesView({
   useEffect(() => {
     if (!store.loadError) return;
     void dialogs.alert({
-      title: "Présentation autosauvegardée illisible",
-      message: `${store.loadError}\n\nL'éditeur démarre sur une présentation vierge. La sauvegarde automatique chiffrée n'a PAS été effacée — réactivez le coffre avec le bon mot de passe pour la récupérer.`,
+      title: t("slides.load_error_title"),
+      message: t("slides.load_error_body", { error: store.loadError }),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.loadError]);
@@ -52,11 +66,12 @@ export default function SlidesView({
     const active = store.deck.slides[store.active];
     const els = active ? (active.elements ?? elementsOf(active)) : [];
     const suggested =
-      (els.find((e) => e.type === "text")?.html || "Présentation").replace(/<[^>]+>/g, "").slice(0, 60) ||
-      "Présentation";
+      sync.title ||
+      (els.find((e) => e.type === "text")?.html || t("kind.slides")).replace(/<[^>]+>/g, "").slice(0, 60) ||
+      t("kind.slides");
     const title = await dialogs.prompt({
-      title: "Enregistrer en .elium",
-      label: "Nom de la présentation",
+      title: t("sheet.save_elium_title"),
+      label: t("slides.save_elium_label"),
       defaultValue: suggested,
     });
     if (title === null) return;
@@ -65,55 +80,138 @@ export default function SlidesView({
   const exportPptx = () => {
     const bytes = deckToPptx(store.deck);
     downloadBlob(
-      "presentation.pptx",
+      `${sync.title || "presentation"}.pptx`,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       bytes,
     );
   };
 
+  const storeRef = useRef(store);
+  storeRef.current = store;
+  const latest = useRef({ exportPptx, saveElium });
+  latest.current = { exportPptx, saveElium };
+  const actions = useMemo<AppCommand[]>(
+    () => [
+      {
+        id: "slides.undo",
+        label: t("slides.cmd.undo"),
+        group: "module",
+        hint: "Ctrl+Z",
+        run: () => storeRef.current.undo?.(),
+      },
+      {
+        id: "slides.redo",
+        label: t("slides.cmd.redo"),
+        group: "module",
+        hint: "Ctrl+Y",
+        run: () => storeRef.current.redo?.(),
+      },
+      {
+        id: "slides.add",
+        label: t("slides.cmd.add_slide"),
+        group: "module",
+        keywords: "diapositive slide",
+        run: () => storeRef.current.addSlide(),
+      },
+      {
+        id: "slides.add_blank",
+        label: t("slides.cmd.add_blank"),
+        group: "module",
+        run: () => storeRef.current.addSlide(true),
+      },
+      {
+        id: "slides.duplicate",
+        label: t("slides.cmd.duplicate"),
+        group: "module",
+        run: () => storeRef.current.duplicateSlide(storeRef.current.active),
+      },
+      {
+        id: "slides.remove",
+        label: t("slides.cmd.remove"),
+        group: "module",
+        run: () => storeRef.current.removeSlide(storeRef.current.active),
+      },
+      {
+        id: "slides.pptx",
+        label: t("slides.cmd.export_pptx"),
+        group: "file",
+        keywords: "powerpoint",
+        run: () => latest.current.exportPptx(),
+      },
+      {
+        id: "slides.elium",
+        label: t("slides.cmd.save_elium"),
+        group: "file",
+        shortcutId: "save",
+        keywords: "enregistrer",
+        run: () => void latest.current.saveElium(),
+      },
+      ...(session
+        ? [
+            {
+              id: "slides.rename",
+              label: t("slides.cmd.rename"),
+              group: "module" as const,
+              run: () => void sync.rename(),
+            },
+          ]
+        : []),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t, session, sync.title],
+  );
+  useRegisterCommands("slides", actions);
+
   return (
     <SlidesEditor
       store={store}
       chrome={{
-        title: "Présentations",
+        title: sync.title ? `${t("kind.slides")} — ${sync.title}` : t("kind.slides"),
         onHome,
         headerActions: (
-          <div className="sv-menu">
-            <button ref={exportMenuBtnRef} className="eb eb--sm eb--outline" onClick={() => setExportMenu((v) => !v)}>
-              <Download size={14} /> Exporter ▾
-            </button>
-            {exportMenu && (
-              <ToolbarPopover
-                className="sv-menu__pop sv-menu__pop--right sv-export-pop"
-                ariaLabel="Exporter"
-                onClose={() => setExportMenu(false)}
-                triggerRef={exportMenuBtnRef}
-              >
-                <button
-                  className="sv-menu__item"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenu(false);
-                    exportPptx();
-                  }}
-                >
-                  <FileDown size={15} />
-                  <span>PowerPoint (.pptx)</span>
-                </button>
-                <button
-                  className="sv-menu__item"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenu(false);
-                    saveElium();
-                  }}
-                >
-                  <Save size={15} />
-                  <span>Format .elium…</span>
-                </button>
-              </ToolbarPopover>
+          <>
+            {session && (
+              <button className="eb eb--sm eb--ghost" onClick={() => void sync.rename()} title={t("common.rename")}>
+                <Pencil size={14} /> {t("common.rename")}
+              </button>
             )}
-          </div>
+            <div className="sv-menu">
+              <button ref={exportMenuBtnRef} className="eb eb--sm eb--outline" onClick={() => setExportMenu((v) => !v)}>
+                <Download size={14} /> {t("slides.export")} ▾
+              </button>
+              {exportMenu && (
+                <ToolbarPopover
+                  className="sv-menu__pop sv-menu__pop--right sv-export-pop"
+                  ariaLabel={t("slides.export")}
+                  onClose={() => setExportMenu(false)}
+                  triggerRef={exportMenuBtnRef}
+                >
+                  <button
+                    className="sv-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      setExportMenu(false);
+                      exportPptx();
+                    }}
+                  >
+                    <FileDown size={15} />
+                    <span>PowerPoint (.pptx)</span>
+                  </button>
+                  <button
+                    className="sv-menu__item"
+                    role="menuitem"
+                    onClick={() => {
+                      setExportMenu(false);
+                      saveElium();
+                    }}
+                  >
+                    <Save size={15} />
+                    <span>{t("slides.format_elium")}</span>
+                  </button>
+                </ToolbarPopover>
+              )}
+            </div>
+          </>
         ),
       }}
     />

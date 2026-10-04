@@ -22,6 +22,8 @@ import { applyMasterToDeck } from "./master";
 import { reorderSlide as reorderSlideList, removeSlideKeepingSections, cloneSlide, normalizeSections } from "./sections";
 import type { VaultSecret } from "../crypto/local-vault";
 import type { DeckStore } from "./store";
+import { reportError } from "../ui/crash-log";
+import { isDeckPristine } from "../workspace/pristine";
 
 const migrate = (d: Deck): Deck => ({ ...d, slides: d.slides.map(withElements) });
 
@@ -37,7 +39,19 @@ export interface LocalDeckStore extends DeckStore {
   loadError?: string;
 }
 
-export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): LocalDeckStore {
+/** Persistance d'une présentation de l'espace de travail (voir SheetPersist). Sans elle : la présentation historique « current ». */
+export interface DeckPersist {
+  id: string;
+  /** Nouvel élément : une présentation restée vierge n'est pas enregistrée. */
+  isNew?: boolean;
+  onSaved?: (deck: Deck, size: number) => void;
+}
+
+export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, persist?: DeckPersist): LocalDeckStore {
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  const persistId = persist?.id;
+  const savedOnce = useRef(false);
   const {
     value: deck,
     set,
@@ -61,12 +75,12 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): Lo
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (initial) return;
-    loadDeck(vaultSecret)
+    loadDeck(vaultSecret, persistId)
       .then((d) => {
         if (d) reset(migrate(d));
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initial, persistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced autosave + save on unmount — both skipped while `loadError` is
   // set (see above): the in-memory deck is a blank placeholder in that case,
@@ -87,15 +101,28 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret): Lo
   loadErrorRef.current = loadError;
   useEffect(() => {
     if (initial || loadError) return;
-    const t = setTimeout(() => void saveDeck(deck, secretRef.current), 400);
+    const t = setTimeout(() => void persistDeck(deck), 400);
     return () => clearTimeout(t);
   }, [deck, initial, loadError]);
   useEffect(
     () => () => {
-      if (!initial && !loadErrorRef.current) void saveDeck(deckRef.current, secretRef.current);
+      if (!initial && !loadErrorRef.current) void persistDeck(deckRef.current);
     },
     [initial],
   ); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Enregistre la présentation (sauf nouvel élément resté vierge) puis prévient l'espace de travail. */
+  async function persistDeck(d: Deck): Promise<void> {
+    const p = persistRef.current;
+    if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return;
+    try {
+      await saveDeck(d, secretRef.current, p?.id);
+      savedOnce.current = true;
+      p?.onSaved?.(d, JSON.stringify(d).length);
+    } catch (err) {
+      reportError("deck-autosave", err);
+    }
+  }
 
   // --- element mutations on the active slide ---
   const setEls = (mut: (els: SlideElement[]) => SlideElement[], commit: boolean) => {

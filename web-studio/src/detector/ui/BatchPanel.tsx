@@ -136,10 +136,20 @@ export default function BatchPanel({
                 <th scope="row">{r.fileName}</th>
                 <td>{STATUS_LABEL[r.status]}</td>
                 <td>
-                  {r.overallScore === undefined ? "—" : <Badge accent={scoreAccent(r.overallScore)}>{r.overallScore} / 100</Badge>}
+                  {r.overallScore === undefined ? (
+                    "—"
+                  ) : (
+                    <Badge accent={scoreAccent(r.overallScore)}>{r.overallScore} / 100</Badge>
+                  )}
                 </td>
                 <td>{r.confidence ?? "—"}</td>
-                <td>{r.status === "ok" ? (r.topFindings?.length ? r.topFindings.join(" · ") : "Aucun signal notable") : r.detail}</td>
+                <td>
+                  {r.status === "ok"
+                    ? r.topFindings?.length
+                      ? r.topFindings.join(" · ")
+                      : "Aucun signal notable"
+                    : r.detail}
+                </td>
                 <td>{r.c2pa ?? "—"}</td>
               </tr>
             ))}

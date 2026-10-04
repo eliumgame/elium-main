@@ -69,7 +69,10 @@ export async function runAnalysis(model: DocumentModel, opts: RunAnalysisOptions
   throwIfAborted(signal);
   const imageTotal = model.images.length || 1;
   onProgress?.({ stage: "image", processed: 0, total: imageTotal });
-  const image = withoutDisabled(analyzeImageSignals(model.images, model.metadata, await verifyImagesC2pa(model.images, signal)), disabledSignals);
+  const image = withoutDisabled(
+    analyzeImageSignals(model.images, model.metadata, await verifyImagesC2pa(model.images, signal)),
+    disabledSignals,
+  );
   onProgress?.({ stage: "image", processed: imageTotal, total: imageTotal });
   await yieldToMain();
 

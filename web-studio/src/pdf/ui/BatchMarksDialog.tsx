@@ -72,7 +72,11 @@ export function BatchMarksDialog({ onClose }: { onClose: () => void }) {
     <fieldset className="pdfx-batch__group">
       <legend>
         <label>
-          <input type="checkbox" checked={spec[key].enabled} onChange={(e) => patch(key, { enabled: e.target.checked })} />{" "}
+          <input
+            type="checkbox"
+            checked={spec[key].enabled}
+            onChange={(e) => patch(key, { enabled: e.target.checked })}
+          />{" "}
           {label}
         </label>
       </legend>
@@ -177,11 +181,19 @@ export function BatchMarksDialog({ onClose }: { onClose: () => void }) {
           </legend>
           <label className="pdfx-batch__field">
             Préfixe
-            <input className="input" value={spec.bates.prefix} onChange={(e) => patch("bates", { prefix: e.target.value })} />
+            <input
+              className="input"
+              value={spec.bates.prefix}
+              onChange={(e) => patch("bates", { prefix: e.target.value })}
+            />
           </label>
           <label className="pdfx-batch__field">
             Suffixe
-            <input className="input" value={spec.bates.suffix} onChange={(e) => patch("bates", { suffix: e.target.value })} />
+            <input
+              className="input"
+              value={spec.bates.suffix}
+              onChange={(e) => patch("bates", { suffix: e.target.value })}
+            />
           </label>
           <label className="pdfx-batch__field">
             Début

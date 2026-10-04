@@ -18,9 +18,9 @@
  */
 import { encryptAtRest, decryptAtRest } from "../crypto/local-vault";
 
-const DB_NAME = "elium-vault";
+import { openMigrated } from "./idb-migrate";
+import { VAULT_SPEC } from "./db-specs";
 const STORE = "config";
-const DB_VERSION = 1;
 const CONFIG_KEY = "config";
 const CANARY = "elium-vault-v1";
 
@@ -30,15 +30,7 @@ interface VaultConfig {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(VAULT_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

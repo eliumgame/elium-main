@@ -91,7 +91,6 @@ export const DEFAULT_OCR: OcrOptions = {
   skipPagesWithText: true,
 };
 
-
 /**
  * Workers to run in parallel: one per spare core (the page is rasterised on the
  * main thread meanwhile), at most 4 (each holds a language model, ~100 MB), and

@@ -21,7 +21,8 @@ import { downloadFamily, loadCatalog, OfflineError, type OnlineFont } from "../u
 
 const SAMPLE = "Portez ce vieux whisky au juge blond qui fume — 0123456789";
 
-const fmtSize = (n: number) => (n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
+const fmtSize = (n: number) =>
+  n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`;
 
 function OutcomeAlert({ outcome }: { outcome: ImportOutcome }) {
   const { added, duplicates, rejected } = outcome;
@@ -109,7 +110,8 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
     const chosen = system.filter((f) => picked.has(f.fullName));
     await run(async () => {
       const inputs = [];
-      for (const f of chosen) inputs.push({ filename: `${f.fullName}.ttf`, bytes: await f.load(), source: "système" as const });
+      for (const f of chosen)
+        inputs.push({ filename: `${f.fullName}.ttf`, bytes: await f.load(), source: "système" as const });
       return importFonts(inputs);
     });
     setSystem(null);
@@ -146,7 +148,10 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
     } catch (e) {
       await dialogs.alert({
         title: "Catalogue indisponible",
-        message: e instanceof OfflineError ? e.message : `Impossible de charger le catalogue : ${e instanceof Error ? e.message : e}`,
+        message:
+          e instanceof OfflineError
+            ? e.message
+            : `Impossible de charger le catalogue : ${e instanceof Error ? e.message : e}`,
       });
       if (!(e instanceof OfflineError)) reportError("fonts-catalog", e);
     } finally {
@@ -209,9 +214,9 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
             }}
           >
             <p className="muted">
-              Glissez ici des fichiers <code>.ttf</code>, <code>.otf</code>, <code>.woff</code> ou <code>.woff2</code>, ou
-              choisissez-les. Chaque police reste disponible après redémarrage et apparaît dans les sélecteurs de police
-              des Documents, du Tableur, des Présentations et du PDF.
+              Glissez ici des fichiers <code>.ttf</code>, <code>.otf</code>, <code>.woff</code> ou <code>.woff2</code>,
+              ou choisissez-les. Chaque police reste disponible après redémarrage et apparaît dans les sélecteurs de
+              police des Documents, du Tableur, des Présentations et du PDF.
             </p>
             <div className="settings__row">
               <Button size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>

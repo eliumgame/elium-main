@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { splitSecret, combineShares, parseShare, shareFileName, gfMul, gfInv, ShamirError, type Share } from "../src/crypto/shamir";
+import {
+  splitSecret,
+  combineShares,
+  parseShare,
+  shareFileName,
+  gfMul,
+  gfInv,
+  ShamirError,
+  type Share,
+} from "../src/crypto/shamir";
 import {
   masterToPhrase,
   phraseToMaster,
@@ -121,7 +130,8 @@ describe("phrase de récupération 24 mots", () => {
     expect(() => phraseToMaster([...words.slice(0, 23), "zzzzzz"].join(" "))).toThrow(/inconnu/);
     const swapped = [...words];
     [swapped[0], swapped[1]] = [swapped[1], swapped[0]];
-    if (swapped.join(" ") !== words.join(" ")) expect(() => phraseToMaster(swapped.join(" "))).toThrow(RecoveryPhraseError);
+    if (swapped.join(" ") !== words.join(" "))
+      expect(() => phraseToMaster(swapped.join(" "))).toThrow(RecoveryPhraseError);
     expect(() => masterToPhrase(new Uint8Array(16))).toThrow(RecoveryPhraseError);
   });
 

@@ -63,7 +63,9 @@ describe("C2PA : manifeste valide", () => {
   });
 
   it("ne déclare pas d'IA pour une source de capture caméra", async () => {
-    const fx = await buildC2paFixture({ digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture" });
+    const fx = await buildC2paFixture({
+      digitalSourceType: "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture",
+    });
     const r = await verifyC2pa(fx.bytes, { anchors: [] });
     expect(r.status).toBe("valid_untrusted");
     expect(r.declaresAi).toBe(false);

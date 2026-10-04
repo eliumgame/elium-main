@@ -33,9 +33,14 @@ jobs:
     - name: Run Pytest with coverage
       run: |
         pytest tests/python -v --cov=elium --cov-report=term-missing
-    - name: Audit des dépendances Python (pip-audit, exceptions datées)
-      # Même principe que l'audit npm : toute faille connue bloque, sauf les exceptions DATÉES et
-      # justifiées de scripts/pip_audit_gate.py.
+    - name: Audit des dépendances Python EMBARQUÉES (pip-audit, exceptions datées)
+      # Même principe que l'audit npm : toute faille connue des dépendances d'exécution (ce qui est
+      # réellement livré) bloque, sauf les exceptions DATÉES et justifiées de scripts/pip_audit_gate.py.
+      run: python scripts/pip_audit_gate.py requirements/runtime.txt
+    - name: Audit des outils de développement (informatif)
+      # Outils de test/lint (pytest, pip, filelock…) : jamais livrés. On les signale sans bloquer ;
+      # les relever est l'affaire de Dependabot / d'une recompilation du verrou.
+      continue-on-error: true
       run: python scripts/pip_audit_gate.py requirements/dev.txt
 
   shellcheck:

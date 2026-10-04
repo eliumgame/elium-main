@@ -353,8 +353,7 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
 
   // 1. Hachages des assertions référencées par le claim.
   const refs = (mapGet(active.claim, "assertions") ?? mapGet(active.claim, "created_assertions")) as
-    | CborValue[]
-    | undefined;
+    CborValue[] | undefined;
   if (Array.isArray(refs)) {
     let ok = true;
     for (const ref of refs) {
@@ -396,14 +395,21 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
       if (!expected) throw new Error("empreinte absente");
       const got = hashBytes(alg, withoutExclusions(bytes, ex));
       report.bindingValid = eq(got, expected);
-      if (!report.bindingValid) invalid.push("Les pixels/octets de l'image ne correspondent plus à la signature : fichier modifié après signature.");
+      if (!report.bindingValid)
+        invalid.push(
+          "Les pixels/octets de l'image ne correspondent plus à la signature : fichier modifié après signature.",
+        );
     } catch (e) {
       report.warnings.push(`Liaison au contenu non vérifiable : ${e instanceof Error ? e.message : "erreur"}.`);
     }
   } else if (active.assertions.some((a) => /^c2pa\.hash\.(bmff|boxes|collection)/.test(a.label))) {
-    report.warnings.push("Liaison au contenu (c2pa.hash.bmff/boxes) non vérifiée par cette version : seule c2pa.hash.data l'est.");
+    report.warnings.push(
+      "Liaison au contenu (c2pa.hash.bmff/boxes) non vérifiée par cette version : seule c2pa.hash.data l'est.",
+    );
   } else {
-    report.warnings.push("Aucune assertion de liaison au contenu (c2pa.hash.data) : l'intégrité de l'image n'est pas garantie.");
+    report.warnings.push(
+      "Aucune assertion de liaison au contenu (c2pa.hash.data) : l'intégrité de l'image n'est pas garantie.",
+    );
   }
 
   // 3. Signature COSE sur le claim.
@@ -420,7 +426,9 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
     try {
       chainCerts = cose.chain.map((c) => parseCertificate(c));
     } catch (e) {
-      report.problems.push(`Chaîne de certificats illisible : ${e instanceof DerError ? e.message : "X.509 invalide"}.`);
+      report.problems.push(
+        `Chaîne de certificats illisible : ${e instanceof DerError ? e.message : "X.509 invalide"}.`,
+      );
     }
     if (!alg) report.problems.push(`Algorithme de signature non pris en charge (${report.algorithm}).`);
     else if (!chainCerts.length) report.problems.push("Aucun certificat (x5chain) dans la signature.");
@@ -432,7 +440,8 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
       } catch (e) {
         report.problems.push(`Vérification de signature impossible : ${e instanceof Error ? e.message : "erreur"}.`);
       }
-      if (report.signatureValid === false) invalid.push("La signature ne correspond pas au manifeste (altéré ou falsifié).");
+      if (report.signatureValid === false)
+        invalid.push("La signature ne correspond pas au manifeste (altéré ou falsifié).");
     }
   }
 

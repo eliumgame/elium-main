@@ -30,7 +30,10 @@ describe("marques en lot", () => {
       { name: "a.pdf", bytes: await pdf(3) },
       { name: "b.pdf", bytes: await pdf(2) },
     ];
-    const outs = await applyMarksToFiles(inputs, spec({ footer: { ...DEFAULT_BATCH_MARKS.footer, enabled: true, right: "{bates}" } }));
+    const outs = await applyMarksToFiles(
+      inputs,
+      spec({ footer: { ...DEFAULT_BATCH_MARKS.footer, enabled: true, right: "{bates}" } }),
+    );
     expect(outs.map((o) => o.error)).toEqual([undefined, undefined]);
     expect(outs[0]!.bates).toEqual({ first: "ABC-0001", last: "ABC-0003" });
     expect(outs[1]!.bates).toEqual({ first: "ABC-0004", last: "ABC-0005" });

@@ -14,9 +14,9 @@
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 import type { ParapheurParty, PartyStatus } from "./types";
 
-const DB_NAME = "elium-parapheur";
+import { openMigrated } from "./idb-migrate";
+import { PARAPHEUR_SPEC } from "./db-specs";
 const STORE = "workflows";
-const DB_VERSION = 1;
 
 // Type canonique du circuit (défini dans format/types.ts car il voyage désormais
 // dans le .elium). `Party` reste un alias pour la compatibilité des imports.
@@ -52,15 +52,7 @@ export function workflowStatus(parties: Party[]): "draft" | "in_progress" | "com
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "docKey" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(PARAPHEUR_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

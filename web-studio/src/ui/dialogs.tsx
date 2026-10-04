@@ -7,6 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Modal, Button, Field } from "./components";
+import { useI18n } from "../i18n";
 
 export interface PromptOptions {
   title: string;
@@ -54,6 +55,7 @@ export function useDialogs(): DialogsApi {
 }
 
 export function DialogsProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n(); // libellés par défaut dans la langue active
   const [request, setRequest] = useState<Request | null>(null);
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
@@ -114,10 +116,10 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
           footer={
             <>
               <Button variant="ghost" onClick={() => settle(null)}>
-                Annuler
+                {t("dialogs.cancel")}
               </Button>
               <Button variant="primary" onClick={() => settle(value)}>
-                {request.opts.confirmLabel ?? "Valider"}
+                {request.opts.confirmLabel ?? t("dialogs.validate")}
               </Button>
             </>
           }
@@ -161,10 +163,10 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
           footer={
             <>
               <Button variant="ghost" onClick={() => settle(false)}>
-                {request.opts.cancelLabel ?? "Annuler"}
+                {request.opts.cancelLabel ?? t("dialogs.cancel")}
               </Button>
               <Button variant={request.opts.danger ? "danger" : "primary"} onClick={() => settle(true)}>
-                {request.opts.confirmLabel ?? "Confirmer"}
+                {request.opts.confirmLabel ?? t("dialogs.confirm")}
               </Button>
             </>
           }
@@ -183,7 +185,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
           onClose={() => settle()}
           footer={
             <Button variant="primary" onClick={() => settle()}>
-              {request.opts.confirmLabel ?? "OK"}
+              {request.opts.confirmLabel ?? t("dialogs.ok")}
             </Button>
           }
         >

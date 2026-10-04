@@ -185,7 +185,7 @@ export async function trustContact(
     kind,
     ...(notes ? { notes } : {}),
     ...(expiresAt ? { expiresAt } : {}),
-    ...(opts.verifiedAt ?? existing?.verifiedAt ? { verifiedAt: opts.verifiedAt ?? existing?.verifiedAt } : {}),
+    ...((opts.verifiedAt ?? existing?.verifiedAt) ? { verifiedAt: opts.verifiedAt ?? existing?.verifiedAt } : {}),
   };
   const next = upsertContact(readRaw(), contact);
   writeRaw(next);
@@ -266,7 +266,9 @@ export function keyTrustState(
 const fmtDate = (iso: string) => iso.slice(0, 10);
 
 /** Message d'affichage (FR) + gravité pour un état de clé, ou null si rien à signaler. */
-export function describeKeyState(s: KeyTrustState | undefined): { severity: "danger" | "warning"; text: string } | null {
+export function describeKeyState(
+  s: KeyTrustState | undefined,
+): { severity: "danger" | "warning"; text: string } | null {
   if (!s) return null;
   if (s.revoked) {
     const d = fmtDate(s.revoked.revokedAt);

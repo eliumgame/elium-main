@@ -84,6 +84,8 @@ export interface Studio {
   selectSignature(id: string | null): void;
   onDocChange(doc: ProseMirrorNode): void;
   save(): Promise<void>;
+  /** « Enregistrer sous… » : choisir un nouvel emplacement (ou télécharger une copie si le navigateur ne sait pas écrire). */
+  saveAs(): Promise<void>;
   exportAs(kind: ExportKind): Promise<void>;
   goHome(): void;
   toViewer(): void;

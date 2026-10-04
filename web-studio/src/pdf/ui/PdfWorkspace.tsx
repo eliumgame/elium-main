@@ -163,7 +163,14 @@ import {
   type AnnotExtras,
   type RawAnnotation,
 } from "../ops/import-annots";
-import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage, type OcrPageResult, OcrCancelled } from "../ops/ocr";
+import {
+  recognise,
+  writeOcrLayer,
+  hasLocalModels,
+  type OcrLanguage,
+  type OcrPageResult,
+  OcrCancelled,
+} from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
@@ -2324,7 +2331,9 @@ export default function PdfWorkspace({
       let redactionLeak = false;
       if (redactedPhrases.length) {
         if (security && security !== "remove") {
-          redactionReport = ["Fichier protégé par mot de passe : la vérification « aucune donnée sous le noir » n'a pas pu être faite."];
+          redactionReport = [
+            "Fichier protégé par mot de passe : la vérification « aucune donnée sous le noir » n'a pas pu être faite.",
+          ];
         } else {
           try {
             const [{ verifySavedFile }, { describeVerification }] = await Promise.all([
@@ -2336,7 +2345,9 @@ export default function PdfWorkspace({
             redactionReport = describeVerification(verdict);
           } catch (e) {
             reportError("pdf.redaction.verify", e);
-            redactionReport = ["La vérification du caviardage n'a pas pu être faite : contrôlez le fichier visuellement."];
+            redactionReport = [
+              "La vérification du caviardage n'a pas pu être faite : contrôlez le fichier visuellement.",
+            ];
           }
         }
       }
@@ -2464,7 +2475,8 @@ export default function PdfWorkspace({
       confirmLabel: "Abandonner les modifications",
       cancelLabel: "Annuler",
     });
-    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
+    if (ok && sourceKeyRef.current)
+      void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
     return ok;
   };
 
@@ -7056,9 +7068,7 @@ export default function PdfWorkspace({
             } catch (e) {
               setOcrRunning(false);
               if (e instanceof OcrCancelled) {
-                const kept = new Map(
-                  ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : [],
-                );
+                const kept = new Map(ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : []);
                 for (const r of e.partial) if (r.words.length) kept.set(r.page, r);
                 if (bytesRef.current && kept.size) {
                   ocrPartial.current = { bytes: bytesRef.current, pages: kept };

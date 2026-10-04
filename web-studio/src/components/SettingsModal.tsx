@@ -1,25 +1,45 @@
-import { useState } from "react";
+/**
+ * Réglages : fenêtre à navigation latérale par catégories (Général, Apparence,
+ * Édition, Polices, Raccourcis, Espace de travail, Sécurité & clés, Mises à jour,
+ * Confidentialité & données, À propos) avec une recherche qui retrouve une
+ * section par son nom ou un synonyme. Chaque section est un composant à part
+ * (components/settings/) ; les sections « Sécurité & clés » sont isolées dans
+ * SecuritySection.tsx.
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 import FontManager from "./FontManager";
-import {
-  Sun,
-  Moon,
-  KeyRound,
-  Trash2,
-  ShieldCheck,
-  Copy,
-  Lock,
-  Unlock,
-  UserPlus,
-  BookUser,
-  Type,
-} from "lucide-react";
-import { Modal, Button, Field, Alert, Badge } from "../ui/components";
+import { Modal, Button } from "../ui/components";
 import type { Theme } from "../ui/theme";
 import type { EliumIdentity } from "../sign/keys";
 import type { TrustedContact } from "../sign/trust-book";
-import { fingerprintWords } from "../sign/safety-words";
-import { useDialogs } from "../ui/dialogs";
-import KeyringPanel from "./KeyringPanel";
+import type { RecipientPublic } from "../crypto/recipient-key-store";
+import { useI18n } from "../i18n";
+import { CATEGORIES, SECTIONS, searchSections, sectionsOf, type CategoryId, type SectionId } from "./settings/sections";
+import {
+  AboutSection,
+  DensitySection,
+  EditAutosaveSection,
+  EditDefaultsSection,
+  EditSpellSection,
+  FontsSection,
+  LanguageSection,
+  StartupSection,
+  ThemeSection,
+} from "./settings/BasicSections";
+import ShortcutsSection from "./settings/ShortcutsSection";
+import { ClearDataSection, CrashLogSection } from "./settings/PrivacySection";
+import { IdentitySection, TrustSection, VaultSection, type SecurityProps } from "./settings/SecuritySection";
+import {
+  BackupSection,
+  IndexSection,
+  RestoreSection,
+  TrashSettingsSection,
+  type WorkspaceSettingsBridge,
+} from "./settings/WorkspaceSection";
+import UpdatesPanel from "./UpdatesPanel";
+import PortSettings from "./PortSettings";
+import { SectionCard } from "./settings/parts";
 
 export interface SettingsProps {
   theme: Theme;
@@ -43,201 +63,198 @@ export interface SettingsProps {
   onEnableVault: () => void;
   onChangeVaultPassword: () => void;
   onDisableVault: () => void;
+  // --- Ajouts de l'espace de travail (tous optionnels) ---
+  recipientPublic?: RecipientPublic | null;
+  onGenerateRecipientKey?: () => void;
+  onForgetRecipientKey?: () => void;
+  /** Pont vers l'espace de travail (sauvegarde, corbeille, index). Absent : la catégorie reste visible mais inactive. */
+  workspace?: WorkspaceSettingsBridge;
+  onOpenDocumentation?: () => void;
+  /** Ouvre directement une catégorie / une section (ex. depuis la palette de commandes). */
+  initialCategory?: CategoryId;
+  initialSection?: SectionId;
 }
 
 export default function SettingsModal(p: SettingsProps) {
-  const { confirm } = useDialogs();
+  const { t } = useI18n();
+  const [category, setCategory] = useState<CategoryId>(
+    p.initialCategory ??
+      (p.initialSection ? SECTIONS.find((s) => s.id === p.initialSection)?.category : undefined) ??
+      "general",
+  );
+  const [query, setQuery] = useState("");
   const [fontsOpen, setFontsOpen] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newKey, setNewKey] = useState("");
-  const canAdd = /^[0-9a-fA-F]{64}$/.test(newKey.trim());
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  const addContact = async () => {
-    if (!canAdd) return;
-    await p.onTrustContact(newName.trim() || "Sans nom", newKey.trim());
-    setNewName("");
-    setNewKey("");
-  };
+  const matches = useMemo(() => searchSections(query, t), [query, t]);
+  const searching = query.trim() !== "";
+
+  // Section demandée à l'ouverture : on la fait défiler dans la vue.
+  useEffect(() => {
+    if (!p.initialSection) return;
+    document.getElementById(`settings-${p.initialSection}`)?.scrollIntoView({ block: "start" });
+  }, [p.initialSection]);
 
   // Une seule fenêtre modale à la fois (piège de focus) : le gestionnaire remplace les réglages le temps de l'utiliser.
   if (fontsOpen) return <FontManager onClose={() => setFontsOpen(false)} />;
 
+  const security: SecurityProps = {
+    identity: p.identity,
+    trustBook: p.trustBook,
+    onTrustContact: p.onTrustContact,
+    onUntrustContact: p.onUntrustContact,
+    onRegenerateIdentity: p.onRegenerateIdentity,
+    onForgetIdentity: p.onForgetIdentity,
+    onBackupIdentity: p.onBackupIdentity,
+    onImportIdentity: p.onImportIdentity,
+    onCopy: p.onCopy,
+    recipientPublic: p.recipientPublic,
+    onGenerateRecipientKey: p.onGenerateRecipientKey,
+    onForgetRecipientKey: p.onForgetRecipientKey,
+    vaultEnabled: p.vaultEnabled,
+    busy: p.busy,
+    onEnableVault: p.onEnableVault,
+    onChangeVaultPassword: p.onChangeVaultPassword,
+    onDisableVault: p.onDisableVault,
+  };
+
+  const unavailable = (id: SectionId) => (
+    <SectionCard id={id} titleKey={SECTIONS.find((s) => s.id === id)!.titleKey}>
+      <p className="muted">{t("settings.unavailable_here")}</p>
+    </SectionCard>
+  );
+
+  const render = (id: SectionId): React.ReactNode => {
+    const ws = p.workspace;
+    switch (id) {
+      case "language":
+        return <LanguageSection />;
+      case "startup":
+        return <StartupSection />;
+      case "theme":
+        return <ThemeSection theme={p.theme} onSetTheme={p.onSetTheme} />;
+      case "density":
+        return <DensitySection />;
+      case "edit_defaults":
+        return <EditDefaultsSection />;
+      case "edit_autosave":
+        return <EditAutosaveSection />;
+      case "edit_spell":
+        return <EditSpellSection />;
+      case "fonts_manager":
+        return <FontsSection onOpenManager={() => setFontsOpen(true)} />;
+      case "shortcuts_list":
+        return <ShortcutsSection />;
+      case "ws_backup":
+        return ws ? <BackupSection bridge={ws} /> : unavailable(id);
+      case "ws_restore":
+        return ws ? <RestoreSection bridge={ws} /> : unavailable(id);
+      case "ws_trash":
+        return ws ? <TrashSettingsSection bridge={ws} /> : unavailable(id);
+      case "ws_index":
+        return ws ? <IndexSection bridge={ws} /> : unavailable(id);
+      case "sec_identity":
+        return <IdentitySection {...security} />;
+      case "sec_trust":
+        return <TrustSection {...security} />;
+      case "sec_vault":
+        return <VaultSection {...security} />;
+      case "upd_versions":
+        return (
+          <SectionCard id={id} titleKey="settings.sec.upd_versions">
+            <UpdatesPanel withPort={false} />
+          </SectionCard>
+        );
+      case "upd_port":
+        return (
+          <SectionCard id={id} titleKey="settings.sec.upd_port">
+            <PortSettings />
+          </SectionCard>
+        );
+      case "priv_clear":
+        return <ClearDataSection onClearStorage={p.onClearStorage} />;
+      case "priv_log":
+        return <CrashLogSection onCopied={(m) => p.workspace?.notify(m)} />;
+      case "about_app":
+        return <AboutSection onOpenDocumentation={() => (p.onOpenDocumentation ?? (() => undefined))()} />;
+    }
+  };
+
+  const catLabel = (id: CategoryId) => t(CATEGORIES.find((c) => c.id === id)!.labelKey);
+
   return (
-    <Modal title="Paramètres" onClose={p.onClose} footer={<Button onClick={p.onClose}>Fermer</Button>}>
-      <div className="settings">
-        <section className="settings__section">
-          <h3 className="settings__title">Apparence</h3>
-          <div className="theme-seg" role="group" aria-label="Thème">
-            <Button
-              variant={p.theme === "light" ? "primary" : "outline"}
-              size="sm"
-              onClick={() => p.onSetTheme("light")}
-            >
-              <Sun size={15} /> Clair
-            </Button>
-            <Button variant={p.theme === "dark" ? "primary" : "outline"} size="sm" onClick={() => p.onSetTheme("dark")}>
-              <Moon size={15} /> Sombre
-            </Button>
+    <Modal
+      title={t("settings.title")}
+      wide
+      onClose={p.onClose}
+      footer={<Button onClick={p.onClose}>{t("common.close")}</Button>}
+    >
+      <div className="settings-shell">
+        <div className="settings-shell__side">
+          <div className="settings-shell__search">
+            <Search size={15} aria-hidden />
+            <input
+              type="search"
+              value={query}
+              placeholder={t("settings.search_placeholder")}
+              aria-label={t("settings.search_placeholder")}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button type="button" className="icon-btn" aria-label={t("search.clear")} onClick={() => setQuery("")}>
+                <X size={14} />
+              </button>
+            )}
           </div>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">Langue</h3>
-          <select className="settings__select" defaultValue="fr" aria-label="Langue de l'interface">
-            <option value="fr">Français</option>
-            <option value="en" disabled>
-              English (bientôt)
-            </option>
-          </select>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">
-            <KeyRound size={15} /> Mes clés
-          </h3>
-          <KeyringPanel compact />
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">
-            <BookUser size={15} /> Carnet de clés de confiance
-          </h3>
-          <p className="muted">
-            Nommez les clés publiques des signataires que vous connaissez. Une signature ou un sceau dont la clé figure
-            ici est attribué à ce nom (« signé par… ») au lieu d'un simple « clé non vérifiée ». Comparez l'empreinte
-            par un canal de confiance avant d'approuver.
-          </p>
-
-          {p.trustBook.length === 0 ? (
-            <p className="muted">Aucune clé de confiance enregistrée.</p>
-          ) : (
-            <ul className="trust-list">
-              {p.trustBook.map((c) => (
-                <li key={c.publicKeyHex} className="trust-list__item">
-                  <div className="trust-list__main">
-                    <span className="trust-list__name">
-                      <ShieldCheck size={13} /> {c.name}
-                    </span>
-                    <code className="trust-list__words">{fingerprintWords(c.fingerprint)}</code>
-                  </div>
-                  <div className="trust-list__actions">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Copier l'empreinte"
-                      onClick={() => p.onCopy(c.fingerprint, "Empreinte copiée")}
-                    >
-                      <Copy size={13} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Retirer ${c.name}`}
-                      onClick={() => p.onUntrustContact(c.publicKeyHex)}
-                    >
-                      <Trash2 size={13} />
-                    </Button>
-                  </div>
+          <nav aria-label={t("settings.categories")}>
+            <ul className="settings-shell__nav">
+              {CATEGORIES.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={`settings-shell__item ${!searching && category === c.id ? "is-active" : ""}`}
+                    aria-current={!searching && category === c.id ? "page" : undefined}
+                    onClick={() => {
+                      setQuery("");
+                      setCategory(c.id);
+                      contentRef.current?.scrollTo({ top: 0 });
+                    }}
+                  >
+                    {t(c.labelKey)}
+                  </button>
                 </li>
               ))}
             </ul>
-          )}
-
-          <div className="trust-add">
-            <Field label="Nom">
-              <input
-                className="settings__input"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="ex. Alice Martin"
-                spellCheck={false}
-              />
-            </Field>
-            <Field label="Clé publique du signataire (Ed25519, 64 hex)">
-              <input
-                className="settings__input"
-                value={newKey}
-                onChange={(e) => setNewKey(e.target.value.trim())}
-                placeholder="ex. 96dc0e0d…"
-                spellCheck={false}
-              />
-            </Field>
-            <Button variant="outline" size="sm" disabled={!canAdd} onClick={() => void addContact()}>
-              <UserPlus size={14} /> Ajouter au carnet
-            </Button>
-            {newKey && !canAdd && <p className="muted">⚠ Format invalide (64 caractères hexadécimaux attendus).</p>}
-          </div>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">{p.vaultEnabled ? <Lock size={15} /> : <Unlock size={15} />} Coffre local</h3>
-          <p className="muted">
-            Chiffre la bibliothèque « Récents » et le Parapheur dans ce navigateur avec un mot de passe séparé de celui
-            de vos documents. Optionnel — sans lui, ces deux index restent lisibles localement comme aujourd'hui.
-          </p>
-          {p.vaultEnabled ? (
-            <div className="settings__row">
-              <Badge accent="success">
-                <Lock size={12} /> Actif
-              </Badge>
-              <Button variant="outline" size="sm" disabled={p.busy} onClick={p.onChangeVaultPassword}>
-                Changer le mot de passe
-              </Button>
-              <Button variant="ghost" size="sm" disabled={p.busy} onClick={p.onDisableVault}>
-                Désactiver
-              </Button>
-            </div>
+          </nav>
+        </div>
+        <div
+          className="settings settings-shell__content"
+          ref={contentRef}
+          role="region"
+          aria-label={searching ? t("settings.search_results") : catLabel(category)}
+        >
+          {searching ? (
+            matches.length === 0 ? (
+              <p className="muted" role="status">
+                {t("settings.search_none", { query })}
+              </p>
+            ) : (
+              matches.map((s) => (
+                <div key={s.id}>
+                  <p className="settings-shell__crumb">{catLabel(s.category)}</p>
+                  {render(s.id)}
+                </div>
+              ))
+            )
           ) : (
-            <div className="settings__row">
-              <Button variant="outline" size="sm" disabled={p.busy} onClick={p.onEnableVault}>
-                <Lock size={14} /> Activer le coffre local
-              </Button>
-            </div>
+            <>
+              <h2 className="settings-shell__heading">{catLabel(category)}</h2>
+              {sectionsOf(category).map((s) => (
+                <div key={s.id}>{render(s.id)}</div>
+              ))}
+            </>
           )}
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">
-            <Type size={15} /> Polices
-          </h3>
-          <p className="muted">
-            Ajoutez vos propres polices (TTF, OTF, WOFF, WOFF2) ou celles installées sur cet ordinateur : elles sont conservées
-            et proposées dans tous les sélecteurs de police.
-          </p>
-          <div className="settings__row">
-            <Button variant="outline" size="sm" onClick={() => setFontsOpen(true)}>
-              <Type size={14} /> Gérer les polices…
-            </Button>
-          </div>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__title">Données locales</h3>
-          <Alert tone="warning" title="Stockage navigateur">
-            Identité chiffrée, carnet de clés de confiance et thème sont stockés dans ce navigateur uniquement. Aucune
-            donnée n'est envoyée en ligne.
-          </Alert>
-          <div className="settings__row" style={{ marginTop: 8 }}>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={async () => {
-                if (
-                  await confirm({
-                    title: "Effacer les données locales",
-                    message: "Effacer l'identité, le carnet de clés de confiance et les préférences de ce navigateur ?",
-                    danger: true,
-                    confirmLabel: "Effacer",
-                  })
-                ) {
-                  p.onClearStorage();
-                }
-              }}
-            >
-              <Trash2 size={15} /> Effacer les données locales
-            </Button>
-          </div>
-        </section>
+        </div>
       </div>
     </Modal>
   );

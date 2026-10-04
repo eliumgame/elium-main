@@ -52,7 +52,8 @@ export default function VerificationBanner({ studio }: { studio: Studio }) {
   // Révocation / expiration de la clé du sceau (carnet), à côté de l'état TOFU.
   const sealKeyState = sealed ? describeKeyState(sealPin?.keyState) : null;
 
-  const overallBad = integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged || sealKeyState?.severity === "danger";
+  const overallBad =
+    integrityBad || sigBad || journalBad || sealBroken || sealKeyChanged || sealKeyState?.severity === "danger";
   const overallWarn = sigModified || unverifiedTrust || expired || missingSeal || !!sealKeyState;
 
   const tone = overallBad ? "danger" : overallWarn ? "warning" : "success";

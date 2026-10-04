@@ -116,7 +116,8 @@ export function createIdbStore(factory: IDBFactory = indexedDB): KeyringStore {
         reject(req.error ?? new Error("Impossible d'ouvrir le trousseau (IndexedDB)."));
       };
     }));
-  const tx = async (store: string, mode: IDBTransactionMode) => (await open()).transaction(store, mode).objectStore(store);
+  const tx = async (store: string, mode: IDBTransactionMode) =>
+    (await open()).transaction(store, mode).objectStore(store);
   return {
     getAll: async () => idbRequest((await tx(KEYS_STORE, "readonly")).getAll()) as Promise<KeyEntry[]>,
     put: async (e) => void (await idbRequest((await tx(KEYS_STORE, "readwrite")).put(e))),
@@ -150,7 +151,9 @@ export function activeEntry(entries: KeyEntry[], type: KeyType, now: number = Da
 export function decryptCandidates(entries: KeyEntry[]): KeyEntry[] {
   return entries
     .filter((e) => e.type === "recipient-p256")
-    .sort((a, b) => Number(b.status === "active") - Number(a.status === "active") || b.createdAt.localeCompare(a.createdAt));
+    .sort(
+      (a, b) => Number(b.status === "active") - Number(a.status === "active") || b.createdAt.localeCompare(a.createdAt),
+    );
 }
 
 export function toBundleMeta(e: KeyEntry): BundleKeyMeta {
@@ -217,7 +220,11 @@ const isHex = (v: unknown, n?: number): v is string =>
  * second exemplaire de la clé chiffrée) tant que l'utilisateur ne supprime pas la
  * clé depuis « Mes clés ». Retourne le nombre de clés ajoutées.
  */
-export async function migrateLegacy(store: KeyringStore, legacy: LegacyStorage, now: Date = new Date()): Promise<number> {
+export async function migrateLegacy(
+  store: KeyringStore,
+  legacy: LegacyStorage,
+  now: Date = new Date(),
+): Promise<number> {
   const existing = new Set((await store.getAll()).map((e) => e.id));
   let added = 0;
 
@@ -278,9 +285,15 @@ export async function migrateLegacy(store: KeyringStore, legacy: LegacyStorage, 
  * démarrage synchrone de l'app (état initial) et un retour arrière restent
  * possibles. Ne contient que des blobs chiffrés / des clés publiques.
  */
-export async function mirrorLegacy(store: KeyringStore, legacy: LegacyStorage, now: number = Date.now()): Promise<void> {
+export async function mirrorLegacy(
+  store: KeyringStore,
+  legacy: LegacyStorage,
+  now: number = Date.now(),
+): Promise<void> {
   const entries = await store.getAll();
-  const id = activeEntry(entries, "identity-ed25519", now) ?? entries.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
+  const id =
+    activeEntry(entries, "identity-ed25519", now) ??
+    entries.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
   if (id) {
     legacy.setItem(
       LEGACY_IDENTITY_KEY,
@@ -360,7 +373,10 @@ export async function unwrapMasterWithPassword(wrap: string, password: string): 
 }
 
 /** Crée le secret maître (aléatoire) s'il n'existe pas ; retourne le secret en clair. */
-export async function createMaster(store: KeyringStore, password: string): Promise<{ master: Uint8Array; record: MasterRecord }> {
+export async function createMaster(
+  store: KeyringStore,
+  password: string,
+): Promise<{ master: Uint8Array; record: MasterRecord }> {
   if (await getMasterRecord(store)) throw new KeyringError("Le trousseau possède déjà un secret maître.");
   const master = crypto.getRandomValues(new Uint8Array(32));
   const record: MasterRecord = {
@@ -491,8 +507,14 @@ export async function rotateIdentityKey(
   opts: NewKeyOptions = {},
   now: Date = new Date(),
 ): Promise<{ entry: KeyEntry; privateKeyHex: string; succession: SuccessionCert }> {
-  if (old.entry.type !== "identity-ed25519") throw new KeyringError("Seule une identité de signature peut être tournée ici.");
-  const created = await generateIdentityKey(store, master, { label: opts.label ?? old.entry.label, expiresAt: opts.expiresAt }, now);
+  if (old.entry.type !== "identity-ed25519")
+    throw new KeyringError("Seule une identité de signature peut être tournée ici.");
+  const created = await generateIdentityKey(
+    store,
+    master,
+    { label: opts.label ?? old.entry.label, expiresAt: opts.expiresAt },
+    now,
+  );
   const succession = await createSuccession({
     oldPrivateKeyHex: old.privateKeyHex,
     oldPublicKeyHex: old.entry.publicHex,
@@ -515,7 +537,12 @@ export async function rotateRecipientKey(
   now: Date = new Date(),
 ): Promise<{ entry: KeyEntry; privateHex: string }> {
   if (old.type !== "recipient-p256") throw new KeyringError("Seule une clé de réception peut être tournée ici.");
-  const created = await generateRecipientKey(store, master, { label: opts.label ?? old.label, expiresAt: opts.expiresAt }, now);
+  const created = await generateRecipientKey(
+    store,
+    master,
+    { label: opts.label ?? old.label, expiresAt: opts.expiresAt },
+    now,
+  );
   await store.put({ ...old, status: "retired", retiredAt: now.toISOString() });
   return created;
 }

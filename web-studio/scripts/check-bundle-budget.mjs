@@ -43,7 +43,12 @@ const ALTERNATIVES = [
 // demande par import() : OCR hors ligne, PDF/A, exports Word/Excel/PowerPoint,
 // création depuis Office/HTML, signatures PAdES, comparaison, impression,
 // palette et menus contextuels.
-const TOTAL_JS_BUDGET_BYTES = 6_200_000;
+// 6,2 Mo → 6,6 Mo : refonte hors-ligne (4.10) — espace de travail local
+// (catalogue, recherche, sauvegarde), i18n fr/en, trousseau de clés, Détecteur
+// C2PA, balisage PDF/UA. À RÉDUIRE : le bundle principal (index-*.js) a doublé
+// (~385 Ko → ~800 Ko) — repérer ce qui y est chargé en statique et le passer en
+// import() dynamique.
+const TOTAL_JS_BUDGET_BYTES = 6_600_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

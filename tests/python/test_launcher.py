@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import socket
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -267,6 +268,8 @@ def _make_set_port_handler(payload: dict):
             self.rfile = _FakeRfile(body)
             self.wfile = _FakeWfile()
             self.error_code = None
+            # Le port qu'occupe CE serveur (épingler son propre port reste permis).
+            self.server = types.SimpleNamespace(server_address=("127.0.0.1", 3000))
 
         def send_error(self, code, _message=""):
             self.error_code = code
@@ -804,3 +807,17 @@ def test_font_relay_maps_network_failure_to_502(monkeypatch):
 
     out = _font_relay_call(monkeypatch, b'{"url": "https://api.fontsource.org/v1/fonts"}', fetch=fail)
     assert out == {"error": 502}
+
+
+def test_set_port_endpoint_allows_pinning_the_port_this_server_already_holds(isolated_config):
+    """Le port courant est occupé (par ce serveur lui-même) : l'épingler pour le
+    prochain démarrage doit rester possible, pas répondre « occupé »."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as own:
+        own.bind(("127.0.0.1", 0))
+        own.listen(1)
+        own_port = own.getsockname()[1]
+        handler = _make_set_port_handler({"port": own_port})
+        handler.server.server_address = ("127.0.0.1", own_port)
+        elium_launcher.QuietHandler._handle_set_port(handler)
+        assert json.loads(handler.wfile.written) == {"ok": True, "port": own_port}
+        assert elium_launcher._configured_port() == own_port

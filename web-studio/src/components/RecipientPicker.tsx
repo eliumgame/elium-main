@@ -45,7 +45,9 @@ export default function RecipientPicker({ studio }: { studio: Studio }) {
                   <strong>{c.name}</strong> <span className="rpicker__words">{c.words}</span>
                 </span>
               </label>
-              <Badge accent={c.level === "verified" || c.level === "org-attested" ? "success" : "neutral"}>{c.levelLabel}</Badge>
+              <Badge accent={c.level === "verified" || c.level === "org-attested" ? "success" : "neutral"}>
+                {c.levelLabel}
+              </Badge>
               {c.blockedReason && <Badge accent="danger">{c.blockedReason}</Badge>}
               {!c.blockedReason && c.warning && <Badge accent="warning">{c.warning}</Badge>}
             </li>
@@ -93,7 +95,10 @@ function AddRecipientModal({ studio, onClose }: { studio: Studio; onClose: () =>
   }, [k, valid]);
 
   const add = async (verified: boolean) => {
-    await studio.trustContact(name.trim() || "Sans nom", k, { kind: "recipient", level: verified ? "verified" : "unverified" });
+    await studio.trustContact(name.trim() || "Sans nom", k, {
+      kind: "recipient",
+      level: verified ? "verified" : "unverified",
+    });
     studio.setRecipients([...studio.recipients.filter((r) => r !== k), k]);
     onClose();
   };
@@ -118,10 +123,21 @@ function AddRecipientModal({ studio, onClose }: { studio: Studio; onClose: () =>
     >
       <div className="settings">
         <Field label="Nom">
-          <input className="settings__input" value={name} onChange={(e) => setName(e.target.value)} placeholder="ex. Alice Martin" />
+          <input
+            className="settings__input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ex. Alice Martin"
+          />
         </Field>
         <Field label="Clé publique de réception (P-256, 130 hex)" hint="Collée ou scannée depuis le correspondant">
-          <input className="settings__input" value={key} onChange={(e) => setKey(e.target.value.trim())} spellCheck={false} placeholder="04a1b2…" />
+          <input
+            className="settings__input"
+            value={key}
+            onChange={(e) => setKey(e.target.value.trim())}
+            spellCheck={false}
+            placeholder="04a1b2…"
+          />
         </Field>
         {key && !valid && <p className="muted">⚠ Format invalide (130 caractères hexadécimaux commençant par 04).</p>}
         {valid && (

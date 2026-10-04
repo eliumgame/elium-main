@@ -53,9 +53,9 @@ export default function ChangePasswordSection() {
         <KeyRound size={16} /> Mot de passe et clés
       </h3>
       <p className="muted">
-        Changer le mot de passe ré-enveloppe vos clés privées sous la nouvelle passphrase (le serveur n'en voit rien). Vos
-        autres sessions seront déconnectées ; le déverrouillage par clé d'accès devra être réactivé. En connexion SSO,
-        c'est ici que vous définissez la passphrase de vos clés.
+        Changer le mot de passe ré-enveloppe vos clés privées sous la nouvelle passphrase (le serveur n'en voit rien).
+        Vos autres sessions seront déconnectées ; le déverrouillage par clé d'accès devra être réactivé. En connexion
+        SSO, c'est ici que vous définissez la passphrase de vos clés.
       </p>
       <form
         onSubmit={(e) => {
@@ -64,14 +64,39 @@ export default function ChangePasswordSection() {
         }}
         className="dc-chpw"
       >
-        <input type="password" autoComplete="current-password" placeholder="Mot de passe actuel" aria-label="Mot de passe actuel" value={current} onChange={(e) => setCurrent(e.target.value)} />
-        <input type="password" autoComplete="new-password" placeholder="Nouveau mot de passe (8 caractères min.)" aria-label="Nouveau mot de passe" value={next} onChange={(e) => setNext(e.target.value)} />
-        <input type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" aria-label="Confirmer le nouveau mot de passe" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Mot de passe actuel"
+          aria-label="Mot de passe actuel"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Nouveau mot de passe (8 caractères min.)"
+          aria-label="Nouveau mot de passe"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Confirmer le nouveau mot de passe"
+          aria-label="Confirmer le nouveau mot de passe"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
         <button type="submit" className="elx-mini elx-mini--primary" disabled={busy}>
           {busy ? "Changement…" : "Changer le mot de passe"}
         </button>
       </form>
-      {err && <p role="alert" className="dc-security__unlock-msg">{err}</p>}
+      {err && (
+        <p role="alert" className="dc-security__unlock-msg">
+          {err}
+        </p>
+      )}
       {done && (
         <p role="status" className="dc-security__unlock-msg muted">
           <Check size={13} /> Mot de passe changé : vos clés sont ré-enveloppées.

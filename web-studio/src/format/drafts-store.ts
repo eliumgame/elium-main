@@ -17,9 +17,9 @@
 import type { EliumProfile, PageSettings, ProseMirrorNode } from "./types";
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 
-const DB_NAME = "elium-drafts";
+import { openMigrated } from "./idb-migrate";
+import { DRAFTS_SPEC } from "./db-specs";
 const STORE = "drafts";
-const DB_VERSION = 1;
 
 export interface DraftContent {
   doc: ProseMirrorNode;
@@ -37,6 +37,8 @@ export interface DraftDoc {
   page?: PageSettings; // plaintext page settings — only when NOT protected
   docx?: Uint8Array; // ready-to-use Word export — only when NOT protected
   enc?: string; // base64 salt+iv+ciphertext of { doc, page } — only when protected
+  /** Aperçu d'une ligne du début du texte — seulement quand le brouillon n'est PAS chiffré. */
+  preview?: string;
 }
 
 /**
@@ -50,17 +52,7 @@ export interface DraftDoc {
 export type DraftEntry = Omit<DraftDoc, "doc" | "page" | "docx" | "enc"> & { legacy: boolean };
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openMigrated(DRAFTS_SPEC);
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -92,6 +84,8 @@ export async function buildDraftRecord(input: {
   doc: ProseMirrorNode;
   page: PageSettings;
   docx?: Uint8Array;
+  /** Aperçu du texte (ignoré pour un brouillon chiffré : il ne doit rien révéler). */
+  preview?: string;
   secret?: VaultSecret;
 }): Promise<DraftDoc> {
   if (!hasVaultSecret(input.secret)) {
@@ -104,6 +98,7 @@ export async function buildDraftRecord(input: {
       doc: input.doc,
       page: input.page,
       docx: input.docx,
+      preview: input.preview,
       size: input.docx?.length ?? 0,
     };
   }

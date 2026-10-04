@@ -293,7 +293,8 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
 
   const ensureIdentityPrivate = useCallback(async (): Promise<string | null> => {
     const all = await store.getAll();
-    const id = activeEntry(all, "identity-ed25519") ?? all.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
+    const id =
+      activeEntry(all, "identity-ed25519") ?? all.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
     if (!id) {
       depsRef.current.notify("Aucune identité de signature : générez-en une dans « Mes clés ».");
       return null;
@@ -756,13 +757,20 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
   // --- Valeurs dérivées ------------------------------------------------------------------
 
   const identity = useMemo<EliumIdentity | null>(() => {
-    const id = activeEntry(entries, "identity-ed25519") ?? entries.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
+    const id =
+      activeEntry(entries, "identity-ed25519") ??
+      entries.find((e) => e.type === "identity-ed25519" && e.status !== "revoked");
     if (!id) {
       if (loaded) return null;
       // Avant la fin du chargement IndexedDB : état initial synchrone depuis le stockage historique.
       try {
-        const raw = JSON.parse(localStorage.getItem("elium_identity") ?? "null") as { publicKeyHex?: string; fingerprint?: string } | null;
-        return raw?.publicKeyHex && raw.fingerprint ? { publicKeyHex: raw.publicKeyHex, fingerprint: raw.fingerprint } : null;
+        const raw = JSON.parse(localStorage.getItem("elium_identity") ?? "null") as {
+          publicKeyHex?: string;
+          fingerprint?: string;
+        } | null;
+        return raw?.publicKeyHex && raw.fingerprint
+          ? { publicKeyHex: raw.publicKeyHex, fingerprint: raw.fingerprint }
+          : null;
       } catch {
         return null;
       }
@@ -778,7 +786,10 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
     if (!r) {
       if (loaded) return null;
       try {
-        const raw = JSON.parse(localStorage.getItem("elium_recipient_key") ?? "null") as { publicHex?: string; fingerprint?: string } | null;
+        const raw = JSON.parse(localStorage.getItem("elium_recipient_key") ?? "null") as {
+          publicHex?: string;
+          fingerprint?: string;
+        } | null;
         return raw?.publicHex && raw.fingerprint ? { publicHex: raw.publicHex, fingerprint: raw.fingerprint } : null;
       } catch {
         return null;
@@ -818,7 +829,9 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
           if (!(await getMasterRecord(store)) && !(await ensureMaster())) return false;
           await setOsProtection(store, os, on);
           await refresh();
-          depsRef.current.notify(on ? "Trousseau protégé par Windows (en plus du mot de passe)" : "Protection Windows retirée");
+          depsRef.current.notify(
+            on ? "Trousseau protégé par Windows (en plus du mot de passe)" : "Protection Windows retirée",
+          );
           return true;
         } catch (e) {
           fail("keyring.os", e);
@@ -855,7 +868,21 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       unlockWithPasskey: unlockWithPasskeyAction,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loaded, entries, master, checklist, tick, idleMinutes, identity, recipientPublic, auth, session, store, os, osAvailable],
+    [
+      loaded,
+      entries,
+      master,
+      checklist,
+      tick,
+      idleMinutes,
+      identity,
+      recipientPublic,
+      auth,
+      session,
+      store,
+      os,
+      osAvailable,
+    ],
   );
 }
 

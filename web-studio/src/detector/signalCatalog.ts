@@ -200,7 +200,8 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
     id: "image_c2pa_verified_provenance",
     category: "image",
     label: "Provenance C2PA signée sans déclaration IA (informatif)",
-    description: "Manifeste C2PA valide qui ne déclare pas de génération par IA. N'écarte pas une manipulation non déclarée.",
+    description:
+      "Manifeste C2PA valide qui ne déclare pas de génération par IA. N'écarte pas une manipulation non déclarée.",
     affectsScore: false,
     appliesTo: hasC2paCapableImage,
   },

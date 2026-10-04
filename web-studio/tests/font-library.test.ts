@@ -18,7 +18,8 @@ function buildTtf(names: Record<number, string>, sfnt: "ttf" | "otf" = "ttf"): U
   const nameLen = 6 + entries.length * 12 + stringsLen;
   const out = new Uint8Array(12 + 16 + nameLen);
   const dv = new DataView(out.buffer);
-  if (sfnt === "otf") out.set([0x4f, 0x54, 0x54, 0x4f]); // OTTO
+  if (sfnt === "otf")
+    out.set([0x4f, 0x54, 0x54, 0x4f]); // OTTO
   else dv.setUint32(0, 0x00010000);
   dv.setUint16(4, 1); // numTables
   const nameOff = 28;
@@ -70,9 +71,12 @@ describe("readFontMeta / fontDisplayName", () => {
   });
 
   it("retombe sur le nom du fichier quand la table name est absente ou la police WOFF", () => {
-    expect(fontDisplayName(readFontMeta(new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0, 0, 0, 0, 0, 0, 0, 0])), "Mon_Beau-Titre.woff2")).toBe(
-      "Mon Beau-Titre",
-    );
+    expect(
+      fontDisplayName(
+        readFontMeta(new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0, 0, 0, 0, 0, 0, 0, 0])),
+        "Mon_Beau-Titre.woff2",
+      ),
+    ).toBe("Mon Beau-Titre");
   });
 
   it("ne plante pas sur un fichier tronqué", () => {

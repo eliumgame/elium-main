@@ -183,7 +183,8 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
       ["sign"],
     );
     leafSpki = new Uint8Array(await subtle.exportKey("spki", kp.publicKey));
-    signClaim = async (d) => new Uint8Array(await subtle.sign({ name: "RSA-PSS", saltLength: 32 }, kp.privateKey, buf(d)));
+    signClaim = async (d) =>
+      new Uint8Array(await subtle.sign({ name: "RSA-PSS", saltLength: 32 }, kp.privateKey, buf(d)));
   } else {
     const priv = ed.utils.randomSecretKey();
     const pub = await ed.getPublicKeyAsync(priv);
@@ -196,7 +197,12 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
     M([
       [
         "actions",
-        [M([["action", "c2pa.created"], ["digitalSourceType", dst]])],
+        [
+          M([
+            ["action", "c2pa.created"],
+            ["digitalSourceType", dst],
+          ]),
+        ],
       ],
     ]),
   );
@@ -213,7 +219,15 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
     const without = concatBytes([stub.subarray(0, exclStart), stub.subarray(exclStart + exclLen)]);
     const dataBoxFixed = encodeCbor(
       M([
-        ["exclusions", [M([["start", exclStart], ["length", exclLen]])]],
+        [
+          "exclusions",
+          [
+            M([
+              ["start", exclStart],
+              ["length", exclLen],
+            ]),
+          ],
+        ],
         ["alg", "sha256"],
         ["hash", sha256(without)],
         ["name", "jumbf manifest"],
@@ -223,7 +237,10 @@ export async function buildC2paFixture(opts: FixtureOptions = {}): Promise<Fixtu
 
     const assertionsSuper = superBox(UUID, "c2pa.assertions", actionsBox, hashDataBox);
     const ref = (label: string, node: Uint8Array) =>
-      M([["url", `self#jumbf=c2pa.assertions/${label}`], ["hash", sha256(node.subarray(8))]]);
+      M([
+        ["url", `self#jumbf=c2pa.assertions/${label}`],
+        ["hash", sha256(node.subarray(8))],
+      ]);
     const claim = encodeCbor(
       M([
         ["claim_generator", opts.claimGenerator ?? "Elium-Test/1.0"],

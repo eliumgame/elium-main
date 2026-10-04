@@ -83,9 +83,7 @@ const HEX = /^[0-9a-f]+$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const P256_PUB = /^04[0-9a-f]{128}$/;
 
-export type ParsedKeyFile =
-  | { version: 1; stored: StoredIdentity }
-  | { version: 2; bundle: EliumKeyFileV2 };
+export type ParsedKeyFile = { version: 1; stored: StoredIdentity } | { version: 2; bundle: EliumKeyFileV2 };
 
 /** Lit n'importe quelle version de `.eliumkey` (v1 : identité seule ; v2 : trousseau). */
 export function parseAnyKeyFile(text: string): ParsedKeyFile {
@@ -261,7 +259,9 @@ export async function openKeyBundle(file: EliumKeyFileV2, password: string): Pro
     head.kdf.p !== file.kdf.p ||
     head.crypto?.cipher !== file.cipher
   ) {
-    throw new EliumKeyFileError("Sauvegarde incohérente : les paramètres KDF/chiffrement ne correspondent pas au conteneur.");
+    throw new EliumKeyFileError(
+      "Sauvegarde incohérente : les paramètres KDF/chiffrement ne correspondent pas au conteneur.",
+    );
   }
   let payload: Uint8Array;
   try {

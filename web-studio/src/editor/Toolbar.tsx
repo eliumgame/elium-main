@@ -166,6 +166,7 @@ interface ToolbarProps {
   onOpenCaption?: () => void;
   onOpenSymbol?: () => void;
   onOpenEquation?: () => void;
+  onOpenChart?: () => void;
   onOpenTheme?: () => void;
   /** Volet du correcteur. */
   proofingOpen?: boolean;
@@ -379,6 +380,7 @@ export default function Toolbar({
   onOpenCaption,
   onOpenSymbol,
   onOpenEquation,
+  onOpenChart,
   onOpenTheme,
   onOpenWatermark,
   rulerVisible,
@@ -1095,6 +1097,9 @@ export default function Toolbar({
                   </Cmd>
                   <Cmd title="Insérer une équation" onClick={() => onOpenEquation?.()}>
                     <FunctionSquare size={17} />
+                  </Cmd>
+                  <Cmd title="Insérer un graphique (données modifiables, exporté en graphique Word)" onClick={() => onOpenChart?.()}>
+                    <BarChart3 size={17} />
                   </Cmd>
                 </Group>
                 <Group title="Ornements" optional>

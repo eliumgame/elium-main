@@ -31,6 +31,8 @@ import SymbolModal from "./SymbolModal";
 import ThemeModal from "./ThemeModal";
 import EquationModal from "./EquationModal";
 import { onEquationEditRequest, type EquationEditRequest } from "./equationExtension";
+import { onChartEditRequest, type ChartEditRequest } from "./chartExtension";
+import ChartModal from "./ChartModal";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -223,6 +225,8 @@ export default function RichEditor({
   // equationExtension.ts).
   const [equationEdit, setEquationEdit] = useState<EquationEditRequest | null>(null);
   useEffect(() => onEquationEditRequest(setEquationEdit), []);
+  const [chartEdit, setChartEdit] = useState<ChartEditRequest | null>(null);
+  useEffect(() => onChartEditRequest(setChartEdit), []);
 
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
@@ -261,6 +265,7 @@ export default function RichEditor({
     | "caption"
     | "symbol"
     | "equation"
+    | "chart"
     | "theme"
     | "watermark"
     | "grid"
@@ -512,6 +517,7 @@ export default function RichEditor({
           onOpenCaption={() => setDialog("caption")}
           onOpenSymbol={() => setDialog("symbol")}
           onOpenEquation={() => setDialog("equation")}
+          onOpenChart={() => setDialog("chart")}
           onOpenTheme={() => setDialog("theme")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
@@ -710,6 +716,10 @@ export default function RichEditor({
       {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "equation" && <EquationModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "chart" && <ChartModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && chartEdit && (
+        <ChartModal editor={editor} editingPos={chartEdit.pos} initial={chartEdit.data} onClose={() => setChartEdit(null)} />
+      )}
       {dialog === "theme" && (
         <ThemeModal
           activeTheme={documentModel.theme}

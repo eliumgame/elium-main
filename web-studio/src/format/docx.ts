@@ -36,6 +36,9 @@ import { normalizeStops, stopsFromAttrs, tabsXml } from "../editor/tabs";
 import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornaments";
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
+import { chartDataOf } from "../editor/chartData";
+import { chartSpaceXml, readChartOptions, C_NS as CHART_NS } from "../sheet/chart-ooxml";
+import { readChartData } from "../sheet/chart-read";
 import { clampAdj, dashFromOoxml, defaultAdj, emuToMm, kindFromPrst, shapeDef, shapeXml } from "../editor/shapes";
 import { gridSettingsXml } from "../editor/grid";
 import {
@@ -268,6 +271,8 @@ interface WriteCtx {
   comments: CommentEntry[];
   /** Elium comment mark id -> allocated `w:id`, so each thread is only added once. */
   commentDocxId: Map<string, number>;
+  /** Graphiques de document : parties word/charts/chartN.xml à écrire. */
+  charts: { name: string; xml: string }[];
   /** Une zone de texte a été écrite : le `v:shapetype` doit être déclaré. */
   needsTextBoxType?: boolean;
   /** Identifiants uniques des formes de zone de texte. */
@@ -824,6 +829,31 @@ function blockXml(
         : "";
       return imgP + capP;
     }
+    case "docChart": {
+      const d = chartDataOf(node.attrs);
+      const name = `chart${ctx.charts.length + 1}.xml`;
+      const xNums = d.labels.map((l) => Number(String(l).replace(",", ".")));
+      const numericX = d.chartType === "scatter" && xNums.every((v) => Number.isFinite(v));
+      ctx.charts.push({
+        name,
+        xml: chartSpaceXml({
+          type: d.chartType,
+          title: d.title || undefined,
+          opts: d.opts,
+          series: d.series.map((se) => ({ name: se.label, cats: d.labels, vals: se.values, ...(numericX ? { xvals: xNums } : {}) })),
+        }),
+      });
+      const rId = addRel(ctx, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart", `charts/${name}`);
+      const cx = Math.round((d.widthMm ?? 150) * 36000);
+      const cy = Math.round((d.heightMm ?? 90) * 36000);
+      const did = ctx.drawingId++;
+      return (
+        `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
+        `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${did}" name="Graphique ${did}" descr="${xmlEsc(d.title || "Graphique")}"/>` +
+        `<a:graphic><a:graphicData uri="${CHART_NS}"><c:chart xmlns:c="${CHART_NS}" r:id="${rId}"/></a:graphicData></a:graphic>` +
+        `</wp:inline></w:drawing></w:r></w:p>`
+      );
+    }
     case "table":
       // bookmarkStart/End are valid block-level siblings, so the anchor can sit
       // right before the table without inserting an empty paragraph.
@@ -1085,6 +1115,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
     drawingId: 1,
     changeId: 0,
     comments: [],
+    charts: [],
     commentDocxId: new Map(),
     numIds: new Map(),
     abstracts: [],
@@ -1232,7 +1263,9 @@ export function docToDocx(file: EliumFile): Uint8Array {
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${hasHeader ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}${hasFooter ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
+<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>${footnotes.length ? notesContentTypeXml("footnote") : ""}${endnotes.length ? notesContentTypeXml("endnote") : ""}${ctx.comments.length ? commentsContentTypeXml() : ""}${ctx.charts
+    .map((c) => `<Override PartName="/word/charts/${c.name}" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`)
+    .join("")}${hasHeader ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}${hasFooter ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`;
 
@@ -1291,6 +1324,7 @@ export function docToDocx(file: EliumFile): Uint8Array {
   if (ctx.comments.length) files[COMMENTS_PART] = strToU8(commentsPartXml(ctx.comments));
 
   for (const [name, bytes] of Object.entries(ctx.media)) files[`word/media/${name}`] = bytes;
+  for (const c of ctx.charts) files[`word/charts/${c.name}`] = strToU8(c.xml);
 
   // Embedded typefaces: a real `fontTable.xml` plus one obfuscated font part per
   // family, so Word renders the document in its own fonts on a machine that does
@@ -1843,6 +1877,9 @@ function paragraphNode(
   // Une forme ou une zone de texte prend la place du paragraphe qui la porte.
   const floating = floatingFromParagraph(p, rels, zip, sty);
   if (floating) return [floating];
+  // Un graphique (c:chart) devient un nœud « graphique » avec ses données.
+  const chart = chartFromParagraph(p, rels, zip);
+  if (chart) return [chart];
 
   const ppr = firstChild(p, "w:pPr");
   const style = ppr ? (firstChild(ppr, "w:pStyle")?.attrs["w:val"] ?? "") : "";
@@ -1893,6 +1930,37 @@ function paragraphNode(
   }
   if (pageBreak) out.push({ type: "pageBreak" });
   return out;
+}
+
+/** Un graphique DrawingML (`c:chart`) relu en nœud `docChart` ; nécessite DOMParser (navigateur / jsdom). */
+function chartFromParagraph(p: XmlEl, rels: Record<string, string>, zip: Record<string, Uint8Array>): ProseMirrorNode | null {
+  const ref = firstDescendant(p, "c:chart");
+  if (!ref || typeof DOMParser === "undefined") return null;
+  const target = rels[ref.attrs["r:id"] ?? ""];
+  if (!target) return null;
+  const raw = zip[target.startsWith("/") ? target.slice(1) : `word/${target.replace(/^\.\//, "")}`];
+  if (!raw) return null;
+  try {
+    const doc = new DOMParser().parseFromString(strFromU8(raw), "application/xml");
+    const read = readChartOptions(doc);
+    const data = readChartData(doc);
+    if (!data.series.length) return null;
+    const ext = firstDescendant(p, "wp:extent");
+    return {
+      type: "docChart",
+      attrs: {
+        chartType: read.type,
+        title: read.title ?? "",
+        labels: data.labels,
+        series: data.series,
+        opts: read.opts ?? null,
+        widthMm: Math.round(emuToMm(ext?.attrs["cx"]) || 150),
+        heightMm: Math.round(emuToMm(ext?.attrs["cy"]) || 90),
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 // --- Relecture des objets flottants (formes, zones de texte) ---------------

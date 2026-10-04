@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,6 +69,10 @@ def main() -> int:
     parser.add_argument("--web", help="archive COMPLÈTE de l'interface (clients anciens)")
     parser.add_argument("--web-core", help="archive légère de l'interface, sans assets lourds (split_web.py)")
     parser.add_argument("--assets", help="pack d'assets lourds assets-<hash>.zip (installer/split_web.py)")
+    parser.add_argument("--server-image", default="",
+                        help="référence ghcr.io/…@sha256:… de l'image du serveur Drive (auto-update VPS)")
+    parser.add_argument("--web-image", default="",
+                        help="référence ghcr.io/…@sha256:… de l'image web du Drive (auto-update VPS)")
     parser.add_argument("--msi")
     parser.add_argument("--msi-user", help="MSI par utilisateur (sans droits administrateur)")
     parser.add_argument("--key-id", default=updater.UPDATE_PUBLIC_KEY_ID,
@@ -137,6 +142,10 @@ def main() -> int:
         raise SystemExit("--web-core et --assets vont ensemble (et --web complet pour les clients anciens).")
 
     channel = args.channel or ("beta" if "-" in version else "stable")
+    image_re = re.compile(r"^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")
+    for label, ref in (("--server-image", args.server_image), ("--web-image", args.web_image)):
+        if ref and not image_re.match(ref):
+            raise SystemExit(f"{label} invalide (attendu ghcr.io/…@sha256:<64 hex>) : {ref!r}")
     manifest = {
         "version": version,
         # Identifiant de la clé de signature (rotation : le client choisit la clé
@@ -152,6 +161,11 @@ def main() -> int:
         "pubDate": datetime.now(timezone.utc).isoformat(),
         "codeHash": compute_code_hash(repo_root()),
         "notes": args.notes,
+        # Images du Drive serveur, épinglées par DIGEST et signées avec le reste du manifeste :
+        # install.sh auto-update tire exactement ces images (plus de construction sur le VPS).
+        # Champs plats (une ligne chacun) : lus par un simple sed côté shell.
+        **({"serverImage": args.server_image} if args.server_image else {}),
+        **({"webImage": args.web_image} if args.web_image else {}),
         # Nouveautés de CETTE version, et historique par version. La carte de
         # mise à jour n'affiche ainsi pas seulement la dernière release mais tout
         # ce que l'utilisateur n'a pas encore. Les deux champs sont DANS la charge

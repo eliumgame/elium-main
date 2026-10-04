@@ -328,6 +328,14 @@ def previous_tag(current_tag: str = "", cwd: str | None = None) -> str:
     return ""
 
 
+def render_notes_markdown(version: str, changes: Iterable[str]) -> str:
+    """Corps Markdown de la GitHub Release : les MÊMES nouveautés que la carte de mise à jour
+    (une seule source — plus de `--generate-notes` divergent)."""
+    items = [c for c in changes if str(c).strip()]
+    body = "\n".join(f"- {c}" for c in items) if items else "- Améliorations et corrections diverses."
+    return f"## Elium {version}\n\n{body}\n"
+
+
 def _main(argv: list[str] | None = None) -> int:
     import argparse
     import json
@@ -339,6 +347,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", default="", help="Date de publication (AAAA-MM-JJ) ; aujourd'hui par défaut.")
     parser.add_argument("--prev-manifest", default="", help="latest.json déjà publié, pour empiler l'historique.")
     parser.add_argument("--keep", type=int, default=20)
+    parser.add_argument("--notes-md", default="",
+                        help="Écrit aussi le corps Markdown de la GitHub Release (source unique des notes).")
     parser.add_argument("--out", default="", help="Fichier de sortie ; stdout par défaut.")
     args = parser.parse_args(argv)
 
@@ -363,6 +373,8 @@ def _main(argv: list[str] | None = None) -> int:
         "changes": entry["changes"],
         "history": merge_history([entry], previous, keep=args.keep),
     }
+    if args.notes_md:
+        Path(args.notes_md).write_text(render_notes_markdown(version, entry["changes"]), encoding="utf-8")
     text = json.dumps(payload, indent=2, ensure_ascii=False)
     if args.out:
         out_path = Path(args.out)

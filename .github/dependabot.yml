@@ -1,0 +1,38 @@
+# Mises à jour de dépendances proposées automatiquement (PR relues, jamais fusionnées seules).
+# Les verrous à hashes Python (requirements/*.txt) sont régénérés avec :
+#   uv pip compile requirements/dev.in --universal --python-version 3.9 --generate-hashes -o requirements/dev.txt
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /web-studio
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /server
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /requirements
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /server
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /web-studio
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }

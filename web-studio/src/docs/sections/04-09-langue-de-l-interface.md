@@ -1,0 +1,7 @@
+### 4.9 Langue de l'interface
+
+Réglages → Général → Langue : **français** (source de vérité) et **anglais**, appliquée immédiatement et mémorisée. Le cadre `src/i18n/` est sans dépendance : catalogues typés `messages/fr/*.ts` et `messages/en/*.ts`, fonctions `t()`, `tn()` (pluriels `_one` / `_other` selon `Intl.PluralRules`) et formats `fmt.*` (dates, nombres, tailles, durées relatives via `Intl`). Les dates ne codent plus « fr-FR » en dur dans l'accueil, l'espace de travail, les réglages, le Détecteur et les panneaux : elles suivent la langue active (`localeTag()`).
+
+**Périmètre traduit** : accueil, espace de travail, corbeille, recherche, récupération, réglages, palette, dialogues, menus, mises à jour, écran de plantage, coffre. Les éditeurs et modules (Documents, Tableur, Présentations, PDF, Drive, Détecteur) sont traduits **progressivement** : ils restent en français. **Convention** pour traduire un module : (1) ajouter les chaînes dans `messages/fr/<zone>.ts` avec une clé `zone.sous_zone.nom` en snake_case ; (2) les reprendre dans `messages/en/<zone>.ts` (le compilateur refuse une clé manquante) ; (3) remplacer le texte par `t("zone.cle")` (ou `useI18n()` dans un composant) ; (4) pour un pluriel, déclarer `cle_one` et `cle_other` et appeler `tn("cle", n)`. Le test `tests/i18n.test.ts` échoue si une clé du français manque à l'anglais, si un pluriel est incomplet ou si les paramètres `{x}` diffèrent.
+
+---

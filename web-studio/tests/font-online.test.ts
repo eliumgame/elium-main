@@ -4,8 +4,22 @@ import { parseCatalog, planVariants, variantName } from "../src/ui/font-online";
 describe("parseCatalog", () => {
   it("garde les champs utiles, trie par nom et ignore les entrées invalides", () => {
     const out = parseCatalog([
-      { id: "zilla", family: "Zilla Slab", weights: [400, 700], styles: ["normal"], category: "serif", license: "OFL-1.1" },
-      { id: "abel", family: "Abel", weights: [400], styles: ["normal", "italic"], defSubset: "latin", category: "sans-serif" },
+      {
+        id: "zilla",
+        family: "Zilla Slab",
+        weights: [400, 700],
+        styles: ["normal"],
+        category: "serif",
+        license: "OFL-1.1",
+      },
+      {
+        id: "abel",
+        family: "Abel",
+        weights: [400],
+        styles: ["normal", "italic"],
+        defSubset: "latin",
+        category: "sans-serif",
+      },
       { id: "broken" },
       { id: "noweights", family: "X", weights: [] },
       null,
@@ -60,7 +74,10 @@ describe("planVariants", () => {
   it("retombe sur la graisse la plus proche de 400 quand ni 400 ni 700 n'existent", () => {
     const detail = {
       family: "Thin One",
-      variants: { "100": { normal: { latin: face("t", "latin", 100, "normal") } }, "300": { normal: { latin: face("t", "latin", 300, "normal") } } },
+      variants: {
+        "100": { normal: { latin: face("t", "latin", 100, "normal") } },
+        "300": { normal: { latin: face("t", "latin", 300, "normal") } },
+      },
     };
     expect(planVariants(detail).map((v) => v.name)).toEqual(["Thin One Light"]);
   });

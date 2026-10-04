@@ -48,8 +48,19 @@ function machine(opts: { secret?: VaultSecret; local?: Record<string, string> } 
   const items = memoryKv<ItemRecord>();
   const folders = memoryKv<FolderRecord>();
   const secretRef = { current: opts.secret };
-  const catalog = new Catalog({ items, folders, getSecret: () => secretRef.current, now: () => T, newId: () => "f-new" });
-  const contents: Record<ContentStoreId, ReturnType<typeof memIO>> = { drive: memIO(), sheets: memIO(), slides: memIO(), pdfs: memIO() };
+  const catalog = new Catalog({
+    items,
+    folders,
+    getSecret: () => secretRef.current,
+    now: () => T,
+    newId: () => "f-new",
+  });
+  const contents: Record<ContentStoreId, ReturnType<typeof memIO>> = {
+    drive: memIO(),
+    sheets: memIO(),
+    slides: memIO(),
+    pdfs: memIO(),
+  };
   const store = new Map<string, string>(Object.entries(opts.local ?? {}));
   const deps: BackupDeps = {
     catalog,
@@ -79,7 +90,13 @@ const item = (id: string, over: Partial<WorkItem> = {}): WorkItem => ({
 });
 
 async function seed(m: ReturnType<typeof machine>) {
-  await m.catalog.putFolder({ id: "f1", parentId: null, name: "Compta", createdAt: T, vaultProtected: !!m.secretRef.current });
+  await m.catalog.putFolder({
+    id: "f1",
+    parentId: null,
+    name: "Compta",
+    createdAt: T,
+    vaultProtected: !!m.secretRef.current,
+  });
   await m.catalog.upsertItems([
     item("d1", { folderId: "f1", starred: true }),
     item("s1", { kind: "sheet", contentStore: "sheets", title: "Budget" }),
@@ -141,7 +158,10 @@ describe("sauvegarde : aller-retour complet", () => {
     expect(back.manifest.includesSecrets).toBe(true);
     expect(back.snapshot.secrets["elium_identity"]).toContain("SECRET-BLOB");
     const b = machine();
-    await restoreSnapshot(b.deps, back.snapshot, planBackupRestore([], [], back.snapshot, "skip"), { applySettings: false, applySecrets: true });
+    await restoreSnapshot(b.deps, back.snapshot, planBackupRestore([], [], back.snapshot, "skip"), {
+      applySettings: false,
+      applySecrets: true,
+    });
     expect(b.store.get("elium_identity")).toContain("SECRET-BLOB");
     expect(b.store.has("elium_theme")).toBe(false); // réglages non demandés : non appliqués
     expect(SECRET_KEYS).toContain("elium_identity");
@@ -168,8 +188,13 @@ describe("sauvegarde : aller-retour complet", () => {
     const file = await packBackup(snap, { includeSecrets: false });
     const b = machine({ secret: { password: "coffre-b" } });
     const { snapshot } = await openBackup(file);
-    await restoreSnapshot(b.deps, snapshot, planBackupRestore([], [], snapshot, "keep_both"), { applySettings: false, applySecrets: false });
-    const raw = (await (b.catalog as unknown as { deps: { items: ReturnType<typeof memoryKv<ItemRecord>> } }).deps.items.getAll())[0]!;
+    await restoreSnapshot(b.deps, snapshot, planBackupRestore([], [], snapshot, "keep_both"), {
+      applySettings: false,
+      applySecrets: false,
+    });
+    const raw = (
+      await (b.catalog as unknown as { deps: { items: ReturnType<typeof memoryKv<ItemRecord>> } }).deps.items.getAll()
+    )[0]!;
     expect(raw.vaultProtected).toBe(true);
     expect(raw.title).toBeUndefined(); // chiffré par le coffre de la machine de destination
     expect((await b.catalog.getItem("d1"))!.title).toBe("Titre d1");
@@ -187,7 +212,9 @@ describe("restauration : conflits", () => {
   async function conflictWorld() {
     const a = machine();
     await seed(a);
-    const snapshot = decodeBackup(encodeBackup(await collectSnapshot(a.deps, { includeSecrets: false }), { includeSecrets: false })).snapshot;
+    const snapshot = decodeBackup(
+      encodeBackup(await collectSnapshot(a.deps, { includeSecrets: false }), { includeSecrets: false }),
+    ).snapshot;
     const b = machine();
     await b.catalog.putFolder({ id: "f1", parentId: null, name: "Dossier local", createdAt: T, vaultProtected: false });
     await b.catalog.upsertItem(item("d1", { title: "Version locale", folderId: "f1" }));
@@ -197,7 +224,7 @@ describe("restauration : conflits", () => {
 
   it("ignorer : l'existant n'est pas touché", async () => {
     const { snapshot, b } = await conflictWorld();
-    const local = (await b.catalog.load());
+    const local = await b.catalog.load();
     const plan = planBackupRestore(local.items, local.folders, snapshot, "skip");
     expect(plan.counts).toMatchObject({ conflicts: 1, skip: 1, add: 3 });
     await restoreSnapshot(b.deps, snapshot, plan, { applySettings: false, applySecrets: false });
@@ -250,7 +277,10 @@ describe("restauration : conflits", () => {
       if (it.id === "s1") throw new Error("quota dépassé");
       return realWrite(it, bytes);
     };
-    const r = await restoreSnapshot(c.deps, snapshot, planBackupRestore([], [], snapshot, "skip"), { applySettings: false, applySecrets: false });
+    const r = await restoreSnapshot(c.deps, snapshot, planBackupRestore([], [], snapshot, "skip"), {
+      applySettings: false,
+      applySecrets: false,
+    });
     expect(r.errors).toEqual([{ title: "Budget", message: "quota dépassé" }]);
     expect(r.added).toBe(3);
   });
@@ -277,10 +307,16 @@ describe("validation de l'archive", () => {
       "catalog.json": strToU8(
         JSON.stringify({
           folders: [{ id: "f", name: "ok" }, { name: "sans id" }],
-          items: [{ id: "a", title: "ok", kind: "doc", contentStore: "drive" }, { id: "b", title: "x", kind: "pirate", contentStore: "drive" }, 42],
+          items: [
+            { id: "a", title: "ok", kind: "doc", contentStore: "drive" },
+            { id: "b", title: "x", kind: "pirate", contentStore: "drive" },
+            42,
+          ],
         }),
       ),
-      "settings.json": strToU8(JSON.stringify({ elium_theme: "dark", elium_identity: "NE DOIT PAS PASSER", autre: "x" })),
+      "settings.json": strToU8(
+        JSON.stringify({ elium_theme: "dark", elium_identity: "NE DOIT PAS PASSER", autre: "x" }),
+      ),
       "content/drive/a": new Uint8Array([1]),
       "content/drive/../../evil": new Uint8Array([2]),
     });

@@ -3021,7 +3021,9 @@ export function AccessibilityDialog({
                 })}
                 <button
                   className="eb eb--outline eb--sm"
-                  onClick={() => onAlts(new Map(figures.map((f) => [`${f.page}:${f.index}`, alts[`${f.page}:${f.index}`] ?? f.alt])))}
+                  onClick={() =>
+                    onAlts(new Map(figures.map((f) => [`${f.page}:${f.index}`, alts[`${f.page}:${f.index}`] ?? f.alt])))
+                  }
                 >
                   Enregistrer les textes de remplacement
                 </button>

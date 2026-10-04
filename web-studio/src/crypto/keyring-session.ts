@@ -138,7 +138,8 @@ export class KeyringSession {
     this.master = new Uint8Array(master);
     const unlocked: string[] = [];
     for (const e of entries) {
-      if (e.protection === "derived" && e.derivationIndex !== undefined && (await this.deriveInto(e))) unlocked.push(e.id);
+      if (e.protection === "derived" && e.derivationIndex !== undefined && (await this.deriveInto(e)))
+        unlocked.push(e.id);
     }
     this.touch();
     this.listeners.forEach((cb) => cb());
@@ -168,7 +169,8 @@ export class KeyringSession {
     if (master) {
       this.master = master;
       for (const e of entries) {
-        if (e.protection === "derived" && e.derivationIndex !== undefined && (await this.deriveInto(e))) unlocked.push(e.id);
+        if (e.protection === "derived" && e.derivationIndex !== undefined && (await this.deriveInto(e)))
+          unlocked.push(e.id);
       }
     }
     for (const e of entries) {

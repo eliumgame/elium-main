@@ -588,9 +588,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 </div>
                 <div className="det-score__meta">
                   <Badge accent={confidenceAccent(report.confidence)}>Confiance : {report.confidence}</Badge>
-                  <span className="det-score__date">
-                    Généré le {formatDateTime(report.generatedAt)}
-                  </span>
+                  <span className="det-score__date">Généré le {formatDateTime(report.generatedAt)}</span>
                 </div>
                 <p className="det-score__confidence-note">{confidenceExplanation(report.confidence)}</p>
               </div>

@@ -31,7 +31,12 @@ import { changeKeyringPassword } from "../src/crypto/keyring-password";
 import { generateIdentity } from "../src/sign/keys";
 import { encryptPrivateKey } from "../src/sign/identity-store";
 import { verifySuccession } from "../src/sign/succession";
-import { generateRecipientKeypair, recipientFingerprint, encryptForRecipients, decryptWithAnyKey } from "../src/crypto/recipients";
+import {
+  generateRecipientKeypair,
+  recipientFingerprint,
+  encryptForRecipients,
+  decryptWithAnyKey,
+} from "../src/crypto/recipients";
 import { buildKeyBundle, openKeyBundle } from "../src/crypto/keyfile-v2";
 
 function fakeStorage(init: Record<string, string> = {}): LegacyStorage & { dump(): Record<string, string> } {
@@ -161,7 +166,9 @@ describe("statuts, expiration, suppression", () => {
     await store.put(mk());
     expect((await retireKey(store, "aaaaaaaaaaaaaaaa")).status).toBe("retired");
     expect((await reactivateKey(store, "aaaaaaaaaaaaaaaa")).status).toBe("active");
-    expect((await setKeyExpiry(store, "aaaaaaaaaaaaaaaa", "2030-01-01T00:00:00Z")).expiresAt).toBe("2030-01-01T00:00:00Z");
+    expect((await setKeyExpiry(store, "aaaaaaaaaaaaaaaa", "2030-01-01T00:00:00Z")).expiresAt).toBe(
+      "2030-01-01T00:00:00Z",
+    );
     expect((await setKeyExpiry(store, "aaaaaaaaaaaaaaaa", null)).expiresAt).toBeUndefined();
     expect((await revokeKey(store, "aaaaaaaaaaaaaaaa")).status).toBe("revoked");
     await expect(reactivateKey(store, "aaaaaaaaaaaaaaaa")).rejects.toThrow(KeyringError);
@@ -172,13 +179,16 @@ describe("statuts, expiration, suppression", () => {
     const rec = { v: 1 as const, createdAt: "x", passkeys: [], nextIndex: { ed: 0, p256: 0 } };
     expect(recoveryChecklist([e], rec).score).toBe(0);
     expect(recoveryChecklist([{ ...e, backedUpAt: "t" }], { ...rec, phraseVerifiedAt: "t" }).score).toBe(2);
-    const full = recoveryChecklist(
-      [{ ...e, backedUpAt: "t" }],
-      { ...rec, phraseVerifiedAt: "t", passkeys: [{} as never] },
-    );
+    const full = recoveryChecklist([{ ...e, backedUpAt: "t" }], {
+      ...rec,
+      phraseVerifiedAt: "t",
+      passkeys: [{} as never],
+    });
     expect(full).toMatchObject({ backupDone: true, phraseVerified: true, passkeyEnrolled: true, score: 3 });
     // Une clé révoquée n'empêche pas « sauvegarde faite ».
-    expect(recoveryChecklist([{ ...e, backedUpAt: "t" }, mk({ id: "2", status: "revoked" })], rec).backupDone).toBe(true);
+    expect(recoveryChecklist([{ ...e, backedUpAt: "t" }, mk({ id: "2", status: "revoked" })], rec).backupDone).toBe(
+      true,
+    );
   });
 });
 
@@ -301,7 +311,12 @@ describe("session : un seul mot de passe, verrouillage", () => {
     expect(s.unlocked).toBe(false);
     expect(s.getMaster()).toBeNull();
     // idle = 0 : jamais de minuterie
-    const never = new KeyringSession({ idleMinutes: 0, setTimer: () => { throw new Error("pas de minuterie"); } });
+    const never = new KeyringSession({
+      idleMinutes: 0,
+      setTimer: () => {
+        throw new Error("pas de minuterie");
+      },
+    });
     await never.unlockWithMaster(await store.getAll(), master);
     expect(never.unlocked).toBe(true);
   }, 30000);

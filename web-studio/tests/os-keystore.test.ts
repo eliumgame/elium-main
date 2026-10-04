@@ -56,10 +56,16 @@ describe("couche Windows — trousseau", () => {
     const s = new KeyringSession({ idleMinutes: 0 });
     await s.unlockWithPassword(store, "pw", os);
     expect(Array.from(s.getMaster()!)).toEqual(Array.from(master));
-    await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "faux", os)).rejects.toThrow(KeyringError);
+    await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "faux", os)).rejects.toThrow(
+      KeyringError,
+    );
     // Sans lanceur (navigateur) ou autre compte : message dédié, pas « mauvais mot de passe ».
-    await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "pw", null)).rejects.toThrow(/protégé par Windows/);
-    await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "pw", fakeOs({ failUnwrap: true }))).rejects.toThrow();
+    await expect(new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "pw", null)).rejects.toThrow(
+      /protégé par Windows/,
+    );
+    await expect(
+      new KeyringSession({ idleMinutes: 0 }).unlockWithPassword(store, "pw", fakeOs({ failUnwrap: true })),
+    ).rejects.toThrow();
 
     // Le changement de mot de passe conserve la couche.
     await changeKeyringPassword(store, "pw", "pw2", os);

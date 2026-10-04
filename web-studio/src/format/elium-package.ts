@@ -411,7 +411,10 @@ export async function readEliumPackage(blob: Uint8Array, opts: WriteOptions = {}
       if (!keys.length) throw new EliumRecipientKeyRequired();
       // Clés du trousseau : active d'abord, puis RETIRÉES (rotation) — un document
       // chiffré avant une rotation reste lisible (cf. `kid` de l'enveloppe).
-      payloadBytes = keys.length === 1 ? await decryptAsRecipient(contentBytes, keys[0]) : await decryptWithAnyKey(contentBytes, keys);
+      payloadBytes =
+        keys.length === 1
+          ? await decryptAsRecipient(contentBytes, keys[0])
+          : await decryptWithAnyKey(contentBytes, keys);
     } else {
       if (!opts.password && !opts.keyfile) throw new EliumPasswordRequired();
       const { payload } = await EliumCryptoEngine.decodeContainer(

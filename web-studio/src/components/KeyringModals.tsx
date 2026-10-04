@@ -185,10 +185,24 @@ export function SharesModal({ onClose }: { onClose: () => void }) {
               différent (coffre, proche, clé USB).
             </Alert>
             <Field label="Parts nécessaires (k)">
-              <input className="settings__input" type="number" min={2} max={nn} value={kk} onChange={(e) => setKk(Number(e.target.value))} />
+              <input
+                className="settings__input"
+                type="number"
+                min={2}
+                max={nn}
+                value={kk}
+                onChange={(e) => setKk(Number(e.target.value))}
+              />
             </Field>
             <Field label={`Parts à créer (n, maximum ${MAX_SHARES})`}>
-              <input className="settings__input" type="number" min={kk} max={MAX_SHARES} value={nn} onChange={(e) => setNn(Number(e.target.value))} />
+              <input
+                className="settings__input"
+                type="number"
+                min={kk}
+                max={MAX_SHARES}
+                value={nn}
+                onChange={(e) => setNn(Number(e.target.value))}
+              />
             </Field>
             {!valid && <p className="muted">Il faut 2 ≤ k ≤ n ≤ {MAX_SHARES}.</p>}
           </>
@@ -244,7 +258,15 @@ export function RestoreModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Restaurer le trousseau" onClose={onClose} footer={<Button variant="ghost" onClick={onClose}>Fermer</Button>}>
+    <Modal
+      title="Restaurer le trousseau"
+      onClose={onClose}
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          Fermer
+        </Button>
+      }
+    >
       <div className="settings">
         <Tabs
           tabs={[
@@ -293,7 +315,14 @@ export function RestoreModal({ onClose }: { onClose: () => void }) {
             <Button variant="outline" size="sm" onClick={() => shareRef.current?.click()}>
               Ajouter des parts…
             </Button>
-            <input ref={shareRef} type="file" accept=".eliumshare,application/json" multiple hidden onChange={(e) => void addShares(e.target.files)} />
+            <input
+              ref={shareRef}
+              type="file"
+              accept=".eliumshare,application/json"
+              multiple
+              hidden
+              onChange={(e) => void addShares(e.target.files)}
+            />
             {shares.length > 0 && (
               <p>
                 {shares.length} part(s) chargée(s) — {shares[0].k} requise(s).
@@ -331,7 +360,11 @@ export function RestoreModal({ onClose }: { onClose: () => void }) {
             />
           </>
         )}
-        {err && <Alert tone="danger" title="Erreur">{err}</Alert>}
+        {err && (
+          <Alert tone="danger" title="Erreur">
+            {err}
+          </Alert>
+        )}
       </div>
     </Modal>
   );

@@ -30,7 +30,9 @@ export default function TrustPanel() {
       commit([...anchors, ...added.filter((a) => !known.has(a.fingerprint))]);
     } catch (err) {
       reportError("detector.trust.import", err);
-      setError("Fichier de certificats illisible : fournissez un certificat X.509 au format PEM ou DER (.pem, .cer, .crt).");
+      setError(
+        "Fichier de certificats illisible : fournissez un certificat X.509 au format PEM ou DER (.pem, .cer, .crt).",
+      );
     }
   };
 
@@ -48,7 +50,9 @@ export default function TrustPanel() {
         </Alert>
       )}
       <ul>
-        {anchors.length === 0 && <li>Aucune racine importée : toute signature valide sera « émetteur non reconnu ».</li>}
+        {anchors.length === 0 && (
+          <li>Aucune racine importée : toute signature valide sera « émetteur non reconnu ».</li>
+        )}
         {anchors.map((a) => (
           <li key={a.fingerprint}>
             <strong>{a.name}</strong> <code title={a.fingerprint}>{a.fingerprint.slice(0, 16)}…</code>{" "}

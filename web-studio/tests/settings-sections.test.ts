@@ -23,7 +23,16 @@ describe("plan des réglages", () => {
 
   it("les dix catégories demandées sont présentes", () => {
     expect(CATEGORIES.map((c) => c.id)).toEqual([
-      "general", "appearance", "editing", "fonts", "shortcuts", "workspace", "security", "updates", "privacy", "about",
+      "general",
+      "appearance",
+      "editing",
+      "fonts",
+      "shortcuts",
+      "workspace",
+      "security",
+      "updates",
+      "privacy",
+      "about",
     ]);
   });
 });
@@ -33,7 +42,9 @@ describe("recherche dans les réglages", () => {
     expect(searchSections("port", trFr)[0]!.id).toBe("upd_port");
     expect(searchSections("POLICES", trFr).map((s) => s.id)).toContain("fonts_manager");
     expect(searchSections("coffre", trFr)[0]!.id).toBe("sec_vault");
-    expect(searchSections("sauvegarde", trFr).map((s) => s.id)).toEqual(expect.arrayContaining(["ws_backup", "ws_restore"]));
+    expect(searchSections("sauvegarde", trFr).map((s) => s.id)).toEqual(
+      expect.arrayContaining(["ws_backup", "ws_restore"]),
+    );
     expect(searchSections("francais", trFr).map((s) => s.id)).toContain("language"); // « français » sans accent
   });
 

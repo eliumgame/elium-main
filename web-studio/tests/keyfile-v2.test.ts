@@ -109,9 +109,9 @@ describe(".eliumkey v2 (TypeScript)", () => {
     expect(() => parseKeyBundle(mut((o) => ((o.kdf as Record<string, unknown>).m = 10 ** 9)))).toThrow(
       EliumKeyFileError,
     );
-    expect(() =>
-      parseKeyBundle(mut((o) => ((o.keys as Record<string, unknown>[])[0].suite = "rsa/1"))),
-    ).toThrow(EliumKeyFileError);
+    expect(() => parseKeyBundle(mut((o) => ((o.keys as Record<string, unknown>[])[0].suite = "rsa/1")))).toThrow(
+      EliumKeyFileError,
+    );
     expect(() => parseKeyBundle(mut((o) => ((o.keys as Record<string, unknown>[])[0].type = "x")))).toThrow(
       EliumKeyFileError,
     );
@@ -153,7 +153,12 @@ describe("certificat de succession", () => {
 // --- Interop Python -----------------------------------------------------------
 
 const WINDOWS_VENV_PYTHON = join(__dirname, "..", "..", ".venv", "Scripts", "python.exe");
-const PYTHON_EXEC = [process.env.PYTHON, existsSync(WINDOWS_VENV_PYTHON) ? WINDOWS_VENV_PYTHON : undefined, "python3", "python"]
+const PYTHON_EXEC = [
+  process.env.PYTHON,
+  existsSync(WINDOWS_VENV_PYTHON) ? WINDOWS_VENV_PYTHON : undefined,
+  "python3",
+  "python",
+]
   .filter((c): c is string => Boolean(c))
   .find((c) => spawnSync(c, ["--version"], { stdio: "ignore" }).status === 0);
 const env = { ...process.env, PYTHONPATH: join(__dirname, "..", "..", "src"), PYTHONIOENCODING: "utf-8" };
@@ -191,7 +196,11 @@ describe.skipIf(!PYTHON_EXEC)(".eliumkey v2 — interop Python <-> Web", () => {
     const master = new Uint8Array(32).fill(7);
     const file = await buildKeyBundle(keys, "interop-pw", master);
     const out = JSON.parse(
-      execFileSync(PYTHON_EXEC!, ["-c", PY_OPEN, "interop-pw"], { input: JSON.stringify(file), env, encoding: "utf-8" }),
+      execFileSync(PYTHON_EXEC!, ["-c", PY_OPEN, "interop-pw"], {
+        input: JSON.stringify(file),
+        env,
+        encoding: "utf-8",
+      }),
     );
     expect(out.keys.map((k: { privateHex: string }) => k.privateHex)).toEqual(keys.map((k) => k.privateHex));
     expect(out.master).toBe(toHex(master));
@@ -219,10 +228,14 @@ describe.skipIf(!PYTHON_EXEC)(".eliumkey v2 — interop Python <-> Web", () => {
     const a = await generateIdentity();
     const b = await generateIdentity();
     const pyCert = JSON.parse(
-      execFileSync(PYTHON_EXEC!, ["-c", PY_SUCCESSION, "create", a.privateKeyHex!, b.privateKeyHex!, "2026-10-03T00:00:00Z"], {
-        env,
-        encoding: "utf-8",
-      }),
+      execFileSync(
+        PYTHON_EXEC!,
+        ["-c", PY_SUCCESSION, "create", a.privateKeyHex!, b.privateKeyHex!, "2026-10-03T00:00:00Z"],
+        {
+          env,
+          encoding: "utf-8",
+        },
+      ),
     );
     expect(pyCert.oldPublicKeyHex).toBe(a.publicKeyHex);
     expect(await verifySuccession(pyCert)).toBe(true);
@@ -235,7 +248,11 @@ describe.skipIf(!PYTHON_EXEC)(".eliumkey v2 — interop Python <-> Web", () => {
       issuedAt: "2026-10-03T00:00:00Z",
     });
     const verdict = JSON.parse(
-      execFileSync(PYTHON_EXEC!, ["-c", PY_SUCCESSION, "verify"], { input: JSON.stringify(tsCert), env, encoding: "utf-8" }),
+      execFileSync(PYTHON_EXEC!, ["-c", PY_SUCCESSION, "verify"], {
+        input: JSON.stringify(tsCert),
+        env,
+        encoding: "utf-8",
+      }),
     );
     expect(verdict.ok).toBe(true);
     // fromHex importé pour garder le test honnête sur la longueur des signatures.

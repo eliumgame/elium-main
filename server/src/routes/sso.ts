@@ -251,6 +251,12 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     // The client unlocks this bundle with the user's passphrase (zero-knowledge).
     // kdfSalt/kdfParams are public (also served by /prelogin): an SSO login has no
     // prelogin step, yet the client needs them to derive the key-passphrase masterKey.
-    return { user: userDto(row), keyBundle: row.key_bundle, kdfSalt: row.kdf_salt, kdfParams: row.kdf_params, ...session };
+    return {
+      user: userDto(row),
+      keyBundle: row.key_bundle,
+      kdfSalt: row.kdf_salt,
+      kdfParams: row.kdf_params,
+      ...session,
+    };
   });
 }

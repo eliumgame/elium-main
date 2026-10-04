@@ -174,7 +174,8 @@ function fromMp4(bytes: Uint8Array): Uint8Array | undefined {
 
 export function detectContainer(bytes: Uint8Array): ContainerKind | undefined {
   if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8) return "jpeg";
-  if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "png";
+  if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
+    return "png";
   if (bytes.length > 12 && ascii4(bytes, 0) === "RIFF" && ascii4(bytes, 8) === "WEBP") return "webp";
   if (bytes.length > 12 && ascii4(bytes, 4) === "ftyp") return "mp4";
   return undefined;

@@ -625,10 +625,13 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       `SELECT email, auth_sign_public_hex FROM users WHERE id = $1 AND status = 'active'`,
       [user.id],
     );
-    const ch = await queryOne<{ id: string; user_id: string; nonce: string; expires_at: string; used_at: string | null }>(
-      `SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`,
-      [b.challengeId],
-    );
+    const ch = await queryOne<{
+      id: string;
+      user_id: string;
+      nonce: string;
+      expires_at: string;
+      used_at: string | null;
+    }>(`SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`, [b.challengeId]);
     // Single use, whatever the outcome.
     if (ch) await query(`UPDATE login_challenges SET used_at = now() WHERE id = $1`, [b.challengeId]);
     if (

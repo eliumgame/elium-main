@@ -44,11 +44,7 @@ export function recipientCandidates(
         level,
         levelLabel: TRUST_LEVEL_LABELS[level],
         words: fingerprintWords(c.fingerprint),
-        ...(st.revoked
-          ? { blockedReason: "clé révoquée" }
-          : st.expired
-            ? { blockedReason: "clé expirée" }
-            : {}),
+        ...(st.revoked ? { blockedReason: "clé révoquée" } : st.expired ? { blockedReason: "clé expirée" } : {}),
         ...(level === "unverified" ? { warning: "empreinte jamais vérifiée" } : {}),
       };
     })

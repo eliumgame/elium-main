@@ -16,7 +16,7 @@ describe("analyse par lot", () => {
       generatedAt: "2026-01-01T00:00:00Z",
       load: async (f) => {
         if (f.name === "=cmd.pdf") throw new PdfPasswordRequired(false);
-        if (f.name === "bad.docx") throw new Error("corrompu ; \"x\"");
+        if (f.name === "bad.docx") throw new Error('corrompu ; "x"');
         return model("Un texte simple.");
       },
     });

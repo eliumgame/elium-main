@@ -100,13 +100,18 @@ export function readFontMeta(bytes: Uint8Array): FontMeta | null {
  * virgules (il finit dans une pile CSS), borné, jamais vide.
  */
 export function cleanFontName(raw: string): string {
-  const name = raw.replace(/["'`\\;{}<>]/g, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  const name = raw
+    .replace(/["'`\\;{}<>]/g, "")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return name.slice(0, 64) || "Police importée";
 }
 
 /** Nom à utiliser pour un fichier : celui de la police si lisible, sinon le nom du fichier. */
 export function fontDisplayName(meta: FontMeta | null, filename: string): string {
   const fromFile = filename.replace(/\.(ttf|otf|ttc|woff2?)$/i, "").replace(/[_]+/g, " ");
-  const fromFont = meta?.fullName ?? (meta?.family ? [meta.family, meta.subfamily].filter(Boolean).join(" ") : undefined);
+  const fromFont =
+    meta?.fullName ?? (meta?.family ? [meta.family, meta.subfamily].filter(Boolean).join(" ") : undefined);
   return cleanFontName(fromFont ?? fromFile);
 }

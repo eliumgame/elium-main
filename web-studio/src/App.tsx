@@ -1702,9 +1702,9 @@ export default function App() {
         // opening an eliumkey-protected doc) or recipient encryption is already
         // enough, so editing + re-saving such a file must not nag for a password.
         // Le fichier-clé est purgé au verrouillage du trousseau : un document qui l'exige
-      // le redemande, au lieu de se ré-enregistrer silencieusement sans ce 2e facteur.
-      const keyfileLost = !!file.manifest.protection.keyfileRequired && !keyfileRef.current;
-      if (encrypted && !useRecipients && ((!pwd && !keyfileRef.current) || keyfileLost)) {
+        // le redemande, au lieu de se ré-enregistrer silencieusement sans ce 2e facteur.
+        const keyfileLost = !!file.manifest.protection.keyfileRequired && !keyfileRef.current;
+        if (encrypted && !useRecipients && ((!pwd && !keyfileRef.current) || keyfileLost)) {
           const got = await askSecret("Protéger le document (mot de passe et/ou fichier-clé)", "set", true);
           if (!got) return;
           pwd = got.password;

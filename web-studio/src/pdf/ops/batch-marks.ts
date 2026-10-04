@@ -117,9 +117,7 @@ export function batesRegister(inputs: readonly BatchInput[], outputs: readonly B
   const lines = ["Fichier;Fichier produit;Pages;Premier numéro;Dernier numéro;Remarque"];
   outputs.forEach((o, i) =>
     lines.push(
-      [inputs[i]?.name, o.error ? "" : o.name, o.pages, o.bates?.first, o.bates?.last, o.error]
-        .map(cell)
-        .join(";"),
+      [inputs[i]?.name, o.error ? "" : o.name, o.pages, o.bates?.first, o.bates?.last, o.error].map(cell).join(";"),
     ),
   );
   return "﻿" + lines.join("\r\n") + "\r\n";

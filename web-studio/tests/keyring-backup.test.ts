@@ -46,7 +46,9 @@ describe("sauvegarde .eliumkey v2 du trousseau", () => {
     const s2 = new KeyringSession({ idleMinutes: 0 });
     await s2.unlockWithPassword(fresh, "nouveau-pw");
     const priv = s2.getPrivate(f.rc.entry.id)!;
-    expect(new TextDecoder().decode(await decryptWithAnyKey(blob, [{ privateHex: priv, publicHex: f.rc.entry.publicHex }]))).toBe("coucou");
+    expect(
+      new TextDecoder().decode(await decryptWithAnyKey(blob, [{ privateHex: priv, publicHex: f.rc.entry.publicHex }])),
+    ).toBe("coucou");
     const sig = await signMessage("m", s2.getPrivate(f.ed.entry.id)!);
     expect(await verifyMessage(sig, "m", f.ed.entry.publicHex)).toBe(true);
     // Ré-importer le même fichier ne duplique rien.

@@ -36,7 +36,9 @@ describe("Mes clés — modèle de ligne", () => {
     const base = { backupDone: false, phraseVerified: false, passkeyEnrolled: false, sharesExported: false, score: 0 };
     expect(checklistSummary(base).tone).toBe("danger");
     expect(checklistSummary({ ...base, backupDone: true, score: 1 }).tone).toBe("warning");
-    expect(checklistSummary({ ...base, backupDone: true, phraseVerified: true, passkeyEnrolled: true, score: 3 }).tone).toBe("success");
+    expect(
+      checklistSummary({ ...base, backupDone: true, phraseVerified: true, passkeyEnrolled: true, score: 3 }).tone,
+    ).toBe("success");
     expect(checklistItems(base).map((i) => i.id)).toEqual(["backup", "phrase", "passkey"]);
   });
 });
@@ -44,10 +46,24 @@ describe("Mes clés — modèle de ligne", () => {
 describe("sélecteur de destinataires", () => {
   const pk = (c: string) => "04" + c.repeat(128 / c.length);
   const contacts: TrustedContact[] = [
-    { name: "Zoé", publicKeyHex: pk("b"), fingerprint: "b".repeat(64), addedAt: "t", kind: "recipient", level: "verified" },
+    {
+      name: "Zoé",
+      publicKeyHex: pk("b"),
+      fingerprint: "b".repeat(64),
+      addedAt: "t",
+      kind: "recipient",
+      level: "verified",
+    },
     { name: "Alice", publicKeyHex: pk("c"), fingerprint: "c".repeat(64), addedAt: "t", kind: "recipient" },
     { name: "Bob signataire", publicKeyHex: "d".repeat(64), fingerprint: "d".repeat(64), addedAt: "t" },
-    { name: "Eve", publicKeyHex: pk("e"), fingerprint: "e".repeat(64), addedAt: "t", kind: "recipient", expiresAt: "2026-01-01T00:00:00Z" },
+    {
+      name: "Eve",
+      publicKeyHex: pk("e"),
+      fingerprint: "e".repeat(64),
+      addedAt: "t",
+      kind: "recipient",
+      expiresAt: "2026-01-01T00:00:00Z",
+    },
   ];
   const revs: Revocation[] = [{ publicKeyHex: pk("b"), revokedAt: "2026-02-01T00:00:00Z", reason: "compromised" }];
   const now = Date.parse("2026-06-01T00:00:00Z");

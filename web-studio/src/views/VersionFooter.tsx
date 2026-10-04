@@ -50,7 +50,9 @@ export default function VersionFooter() {
   /** Vérification manuelle. */
   const checkNow = async () => {
     setChecking(true);
-    await fetch("/__update__/check", { method: "POST", headers: { "X-Elium-Token": eliumToken() } }).catch(() => undefined);
+    await fetch("/__update__/check", { method: "POST", headers: { "X-Elium-Token": eliumToken() } }).catch(
+      () => undefined,
+    );
     await load();
     setChecking(false);
   };
@@ -85,7 +87,13 @@ export default function VersionFooter() {
         </span>
       )}
       {open && (
-        <div className="vm__overlay" role="dialog" aria-modal="true" aria-label={t("footer.versions_title")} onClick={() => setOpen(false)}>
+        <div
+          className="vm__overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("footer.versions_title")}
+          onClick={() => setOpen(false)}
+        >
           <div className="vm__panel" onClick={(e) => e.stopPropagation()}>
             <div className="vm__head">
               <h2 className="vm__title">{t("footer.versions_title")}</h2>

@@ -53,7 +53,10 @@ export interface PhraseChallenge {
   positions: number[];
 }
 
-export function makePhraseChallenge(count = 4, random: (max: number) => number = (m) => crypto.getRandomValues(new Uint32Array(1))[0] % m): PhraseChallenge {
+export function makePhraseChallenge(
+  count = 4,
+  random: (max: number) => number = (m) => crypto.getRandomValues(new Uint32Array(1))[0] % m,
+): PhraseChallenge {
   const set = new Set<number>();
   while (set.size < Math.min(count, 24)) set.add(random(24) + 1);
   return { positions: [...set].sort((a, b) => a - b) };

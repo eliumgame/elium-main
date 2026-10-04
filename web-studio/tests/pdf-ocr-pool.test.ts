@@ -24,7 +24,13 @@ describe("OCR : détection des pages blanches", () => {
   it("une page blanche (ou presque) est ignorée, une page de texte non", () => {
     const w = 800;
     const h = 1000;
-    expect(isBlankPixels(page(w, h, () => {}), w, h)).toBe(true);
+    expect(
+      isBlankPixels(
+        page(w, h, () => {}),
+        w,
+        h,
+      ),
+    ).toBe(true);
     const text = page(w, h, (set) => {
       for (let y = 100; y < 900; y += 20) for (let x = 80; x < 700; x++) for (let k = 0; k < 4; k++) set(x, y + k);
     });

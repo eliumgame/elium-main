@@ -73,7 +73,9 @@ export function keyRowModel(e: KeyEntry, now: number = Date.now()): KeyRowModel 
     backupTone: e.backedUpAt ? "success" : "warning",
     expiryLabel,
     expiryTone,
-    successionLabel: e.succession ? `Succède à ${e.succession.oldPublicKeyHex.slice(0, 12)}… (${fmt(e.succession.issuedAt)})` : null,
+    successionLabel: e.succession
+      ? `Succède à ${e.succession.oldPublicKeyHex.slice(0, 12)}… (${fmt(e.succession.issuedAt)})`
+      : null,
     protectionLabel: e.protection === "derived" ? "Dérivée du secret maître" : "Protégée par son mot de passe",
     can: {
       rotate: e.status === "active" && e.type !== "contact",
@@ -118,6 +120,10 @@ export function checklistItems(c: RecoveryChecklist): ChecklistItem[] {
 
 export function checklistSummary(c: RecoveryChecklist): { tone: Tone; text: string } {
   if (c.score === 3) return { tone: "success", text: "Récupération prête : vous ne perdrez pas vos clés." };
-  if (c.score === 0) return { tone: "danger", text: "Aucune protection contre la perte : une réinitialisation du navigateur détruirait vos clés." };
+  if (c.score === 0)
+    return {
+      tone: "danger",
+      text: "Aucune protection contre la perte : une réinitialisation du navigateur détruirait vos clés.",
+    };
   return { tone: "warning", text: `Récupération partielle (${c.score}/3) : terminez la préparation.` };
 }

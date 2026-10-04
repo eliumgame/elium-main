@@ -27,7 +27,10 @@ function sessionToken(): string | null {
 }
 
 /** Client du lanceur. `fetchImpl`/`token` injectables pour les tests. */
-export function createLauncherKeystore(fetchImpl: FetchLike = (i, o) => fetch(i, o), token: string | null = sessionToken()): OsKeystore | null {
+export function createLauncherKeystore(
+  fetchImpl: FetchLike = (i, o) => fetch(i, o),
+  token: string | null = sessionToken(),
+): OsKeystore | null {
   if (!token) return null; // pas de lanceur (jeton absent)
   const call = async (op: "wrap" | "unwrap", hex: string): Promise<string> => {
     const r = await fetchImpl(`/__keystore__/${op}`, {

@@ -18,7 +18,10 @@ import { fuzzyMatch, pushRecent, rankCommands } from "../src/commands/fuzzy";
 import { CommandRegistry } from "../src/commands/registry";
 import { DEFAULT_PREFS, backupReminderDue, sanitizePrefs } from "../src/settings/prefs";
 
-const ev = (key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) => ({
+const ev = (
+  key: string,
+  mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {},
+) => ({
   key,
   ctrlKey: false,
   metaKey: false,
@@ -129,7 +132,9 @@ describe("registre de commandes", () => {
     const r = new CommandRegistry();
     const seen: number[] = [];
     r.subscribe(() => seen.push(r.list().length));
-    const un1 = r.register("doc", [{ id: "save", label: "Enregistrer", group: "module", shortcutId: "save", run: () => {} }]);
+    const un1 = r.register("doc", [
+      { id: "save", label: "Enregistrer", group: "module", shortcutId: "save", run: () => {} },
+    ]);
     r.register("nav", [{ id: "home", label: "Accueil", group: "nav", run: () => {} }]);
     expect(r.list().map((c) => c.id)).toEqual(["save", "home"]);
     expect(r.forShortcut("save")?.id).toBe("save");
@@ -142,7 +147,9 @@ describe("registre de commandes", () => {
 
   it("une commande désactivée ne répond pas à son raccourci", () => {
     const r = new CommandRegistry();
-    r.register("doc", [{ id: "save", label: "Enregistrer", group: "module", shortcutId: "save", disabled: true, run: () => {} }]);
+    r.register("doc", [
+      { id: "save", label: "Enregistrer", group: "module", shortcutId: "save", disabled: true, run: () => {} },
+    ]);
     expect(r.forShortcut("save")).toBeUndefined();
   });
 });
@@ -150,7 +157,15 @@ describe("registre de commandes", () => {
 describe("préférences", () => {
   it("borne les valeurs et retombe sur le défaut", () => {
     expect(sanitizePrefs(null)).toEqual(DEFAULT_PREFS);
-    expect(sanitizePrefs({ recentCount: 500, autosaveSeconds: 0, density: "énorme", startupView: "library", defaultFontSize: 5 })).toMatchObject({
+    expect(
+      sanitizePrefs({
+        recentCount: 500,
+        autosaveSeconds: 0,
+        density: "énorme",
+        startupView: "library",
+        defaultFontSize: 5,
+      }),
+    ).toMatchObject({
       recentCount: 24,
       autosaveSeconds: 1,
       density: "comfortable",
@@ -171,6 +186,12 @@ describe("préférences", () => {
     expect(backupReminderDue(base, now, true)).toBe(true); // jamais sauvegardé
     expect(backupReminderDue({ ...base, lastBackupAt: "2026-10-05T00:00:00Z" }, now, true)).toBe(false);
     expect(backupReminderDue({ ...base, lastBackupAt: "2026-10-01T00:00:00Z" }, now, true)).toBe(true);
-    expect(backupReminderDue({ ...base, lastBackupAt: "2026-10-01T00:00:00Z", backupSnoozedUntil: "2026-10-11T00:00:00Z" }, now, true)).toBe(false);
+    expect(
+      backupReminderDue(
+        { ...base, lastBackupAt: "2026-10-01T00:00:00Z", backupSnoozedUntil: "2026-10-11T00:00:00Z" },
+        now,
+        true,
+      ),
+    ).toBe(false);
   });
 });

@@ -45,12 +45,17 @@ export function verifyRedaction(pageTexts: readonly string[], redactedTexts: rea
 /** Lignes du rapport affiché à l'utilisateur. */
 export function describeVerification(v: RedactionVerification): string[] {
   const lines: string[] = [];
-  if (v.ok) lines.push(`Aucune donnée sous le noir : ${v.checked} texte(s) caviardé(s) introuvable(s) dans le fichier enregistré.`);
+  if (v.ok)
+    lines.push(
+      `Aucune donnée sous le noir : ${v.checked} texte(s) caviardé(s) introuvable(s) dans le fichier enregistré.`,
+    );
   for (const l of v.leaks) {
     lines.push(`ATTENTION : « ${l.text} » reste lisible (page${l.pages.length > 1 ? "s" : ""} ${l.pages.join(", ")}).`);
   }
   if (v.skipped.length) {
-    lines.push(`${v.skipped.length} texte(s) trop court(s) pour être vérifié(s) automatiquement : contrôle visuel conseillé.`);
+    lines.push(
+      `${v.skipped.length} texte(s) trop court(s) pour être vérifié(s) automatiquement : contrôle visuel conseillé.`,
+    );
   }
   lines.push("Cette vérification porte sur le texte du fichier ; une image contenant du texte n'est pas lue.");
   return lines;

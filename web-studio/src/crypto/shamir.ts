@@ -149,7 +149,8 @@ export async function combineShares(shares: Share[]): Promise<Uint8Array> {
   if (shares.length === 0) throw new ShamirError("Aucune part fournie.");
   const ref = shares[0];
   for (const s of shares) {
-    if (s.format !== SHARE_FORMAT || s.version !== SHARE_VERSION) throw new ShamirError("Format de part non pris en charge.");
+    if (s.format !== SHARE_FORMAT || s.version !== SHARE_VERSION)
+      throw new ShamirError("Format de part non pris en charge.");
     if (s.setId !== ref.setId || s.k !== ref.k || s.n !== ref.n || s.check !== ref.check) {
       throw new ShamirError("Ces parts ne proviennent pas du même partage.");
     }
@@ -185,8 +186,10 @@ export function parseShare(text: string): Share {
   }
   if (!o || o.format !== SHARE_FORMAT) throw new ShamirError("Ce fichier n'est pas une part Elium (.eliumshare).");
   if (o.version !== SHARE_VERSION) throw new ShamirError(`Version de part non prise en charge (${String(o.version)}).`);
-  const int = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
-  const hex = (v: unknown, even = true) => typeof v === "string" && /^[0-9a-f]*$/.test(v) && (!even || v.length % 2 === 0);
+  const int = (v: unknown, lo: number, hi: number) =>
+    typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
+  const hex = (v: unknown, even = true) =>
+    typeof v === "string" && /^[0-9a-f]*$/.test(v) && (!even || v.length % 2 === 0);
   if (
     !int(o.k, 2, MAX_SHARES) ||
     !int(o.n, 2, MAX_SHARES) ||

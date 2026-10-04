@@ -22,7 +22,7 @@
 #   --local             déploiement local sans TLS (SITE_ADDRESS=:80)
 #   --email <email>     e-mail ACME (recommandé en prod)
 #   --storage fs|s3     backend de blobs (défaut fs ; s3 = MinIO intégré)
-#   --quota-gb <n>      quota de stockage par organisation, en Go (défaut illimité)
+#   --quota-gb <n>      (obsolète, ignoré) le quota se règle par organisation dans le Drive
 #   --port <n>          port HTTP local en mode --local (défaut 80)
 #   --yes               ne pose aucune question (automatisation/CI)
 #   --dry-run           génère .env et s'arrête avant `docker compose up`
@@ -136,8 +136,7 @@ set_env_var() {
 
 # Attend que l'API réponde /api/health (jusqu'à ~60 s). Renvoie 0 si saine.
 wait_health() {
-  local i
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     if curl -fsS "http://localhost:8787/api/health" >/dev/null 2>&1 \
        || $DC exec -T api wget -qO- http://localhost:8787/api/health >/dev/null 2>&1; then
       return 0
@@ -288,7 +287,7 @@ prompt() {
 
 # --- Arguments --------------------------------------------------------------
 CMD="${1:-menu}"; [ $# -gt 0 ] && shift || true
-DOMAIN=""; LOCAL=0; EMAIL=""; STORAGE="fs"; QUOTA_GB=""; HTTP_PORT="80"
+DOMAIN=""; LOCAL=0; EMAIL=""; STORAGE="fs"; HTTP_PORT="80"
 ASSUME_YES=0; DRY_RUN=0; ARG1=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -296,7 +295,7 @@ while [ $# -gt 0 ]; do
     --local) LOCAL=1; shift ;;
     --email) EMAIL="${2:-}"; shift 2 ;;
     --storage) STORAGE="${2:-fs}"; shift 2 ;;
-    --quota-gb) QUOTA_GB="${2:-}"; shift 2 ;;
+    --quota-gb) warn "--quota-gb est obsolète et ignoré : le quota se règle par organisation (PATCH /orgs/:id/quota, ou l'interface d'administration du Drive)."; shift 2 ;;
     --port) HTTP_PORT="${2:-80}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -406,8 +405,8 @@ deploy_drive() {
 
   # Santé
   info "Vérification de l'état de l'API…"
-  local i healthy=0
-  for i in $(seq 1 30); do
+  local healthy=0
+  for _ in $(seq 1 30); do
     if curl -fsS "http://localhost:8787/api/health" >/dev/null 2>&1 \
        || $DC exec -T api wget -qO- http://localhost:8787/api/health >/dev/null 2>&1; then
       healthy=1; break

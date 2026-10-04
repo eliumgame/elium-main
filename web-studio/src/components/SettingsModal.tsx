@@ -29,12 +29,7 @@ import {
 } from "./settings/BasicSections";
 import ShortcutsSection from "./settings/ShortcutsSection";
 import { ClearDataSection, CrashLogSection } from "./settings/PrivacySection";
-import {
-  IdentitySection,
-  TrustSection,
-  VaultSection,
-  type SecurityProps,
-} from "./settings/SecuritySection";
+import { IdentitySection, TrustSection, VaultSection, type SecurityProps } from "./settings/SecuritySection";
 import {
   BackupSection,
   IndexSection,

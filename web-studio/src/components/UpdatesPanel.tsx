@@ -141,7 +141,9 @@ export default function UpdatesPanel({ withPort = true }: { withPort?: boolean }
           <dt>{t("updates.status")}</dt>
           <dd>
             {info.checkFailed ? (
-              <Badge accent="warning">{t(CHECK_FAILED_KEYS[info.checkFailed] ?? "updates.check_failed.unavailable")}</Badge>
+              <Badge accent="warning">
+                {t(CHECK_FAILED_KEYS[info.checkFailed] ?? "updates.check_failed.unavailable")}
+              </Badge>
             ) : info.upToDate ? (
               <Badge accent="success">{t("updates.up_to_date")}</Badge>
             ) : (

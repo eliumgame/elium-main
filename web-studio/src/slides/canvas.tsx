@@ -7,6 +7,7 @@
  */
 import "./master.css";
 import { playbackSrc } from "./media";
+import { cellClass, isCovered, mergeAt } from "./table";
 import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
@@ -155,12 +156,16 @@ export interface SlideCanvasProps {
  *  typing never resets the caret while remote/state updates flow in. */
 function TableCell({
   value,
-  head,
+  cls,
+  rowSpan,
+  colSpan,
   editing,
   onChange,
 }: {
   value: string;
-  head: boolean;
+  cls: string;
+  rowSpan?: number;
+  colSpan?: number;
   editing: boolean;
   onChange: (t: string) => void;
 }) {
@@ -172,7 +177,9 @@ function TableCell({
   return (
     <td
       ref={ref}
-      className={`ce-td ${head ? "ce-td--head" : ""}`}
+      className={`ce-td ${cls}`}
+      rowSpan={rowSpan}
+      colSpan={colSpan}
       contentEditable={editing}
       suppressContentEditableWarning
       onInput={editing ? (e) => onChange((e.currentTarget as HTMLElement).innerText) : undefined}
@@ -262,15 +269,22 @@ function ElementView({
         <tbody>
           {el.table.cells.map((row, r) => (
             <tr key={r}>
-              {row.map((cell, c) => (
-                <TableCell
-                  key={c}
-                  value={cell}
-                  head={r === 0}
-                  editing={editing}
-                  onChange={(t) => onCellEdit?.(r, c, t)}
-                />
-              ))}
+              {row.map((cell, c) => {
+                const t = el.table!;
+                if (isCovered(t, r, c)) return null; // masquée par une fusion
+                const m = mergeAt(t, r, c);
+                return (
+                  <TableCell
+                    key={c}
+                    value={cell}
+                    cls={cellClass(t, r, c)}
+                    rowSpan={m && m.rs > 1 ? m.rs : undefined}
+                    colSpan={m && m.cs > 1 ? m.cs : undefined}
+                    editing={editing}
+                    onChange={(txt) => onCellEdit?.(r, c, txt)}
+                  />
+                );
+              })}
             </tr>
           ))}
         </tbody>

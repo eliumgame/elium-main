@@ -799,11 +799,16 @@ function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | 
   }
   if (!/<a:tbl\b/.test(block)) return null; // SmartArt / OLE → skip (degrade)
   const trs = [...block.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)].map((m) => m[1]!);
-  const cells = trs.map((tr) =>
-    [...tr.matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g)].map((m) =>
-      [...m[1]!.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((x) => unescapeXml(x[1]!)).join(""),
-    ),
+  const merges: { r: number; c: number; rs: number; cs: number }[] = [];
+  const cells = trs.map((tr, r) =>
+    [...tr.matchAll(/<a:tc\b([^>]*)>([\s\S]*?)<\/a:tc>/g)].map((m, c) => {
+      const cs = num(attr(m[1]!, "gridSpan"), 1);
+      const rs = num(attr(m[1]!, "rowSpan"), 1);
+      if (cs > 1 || rs > 1) merges.push({ r, c, rs, cs });
+      return [...m[2]!.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((x) => unescapeXml(x[1]!)).join("");
+    }),
   );
+  const tblPr = /<a:tblPr\b([^>]*)\/?>/.exec(block)?.[1] ?? "";
   const rows = cells.length;
   const cols = cells.reduce((m, r) => Math.max(m, r.length), 0);
   if (!rows || !cols) return null;
@@ -814,7 +819,24 @@ function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | 
   });
   const sz = Math.round(num(attr(/<a:rPr\b[^>]*>/.exec(block)?.[0] ?? "", "sz"), 18 * 75) / 75) || 18;
   const color = colorIn(block, pc.inherit.theme) ?? "#0f172a";
-  return el({ type: "table", table: { rows, cols, cells: norm }, fontSize: sz, color }, g);
+  const validMerges = merges.filter((m) => m.r + m.rs <= rows && m.c + m.cs <= cols);
+  return el(
+    {
+      type: "table",
+      table: {
+        rows,
+        cols,
+        cells: norm,
+        ...(validMerges.length ? { merges: validMerges } : {}),
+        style: /\bbandRow="1"/.test(tblPr) ? "banded" : "plain",
+        headerRow: /\bfirstRow="1"/.test(tblPr) || !tblPr,
+        ...(/\bfirstCol="1"/.test(tblPr) ? { firstCol: true } : {}),
+      },
+      fontSize: sz,
+      color,
+    },
+    g,
+  );
 }
 
 function parseSpTree(spTreeXml: string, pc: ParseCtx, tf: Tf = IDENTITY, groupId?: string): SlideElement[] {

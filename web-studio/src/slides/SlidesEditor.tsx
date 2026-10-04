@@ -103,6 +103,16 @@ import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
 import MasterEditor from "./MasterEditor";
 import {
+  TABLE_STYLES,
+  deleteCol as tDeleteCol,
+  deleteRow as tDeleteRow,
+  insertCol as tInsertCol,
+  insertRow as tInsertRow,
+  mergeCells,
+  tableFromTsv,
+  unmergeAt,
+} from "./table";
+import {
   MEDIA_ACCEPT,
   clampTrim,
   formatTime,
@@ -355,30 +365,47 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     store.patchSlide({ anims: (active?.anims ?? []).filter((a) => a.elementId !== id) }, true);
 
   // --- table + chart element editing ---
-  const patchTable = (
-    mut: (
-      cells: string[][],
-      t: NonNullable<SlideElement["table"]>,
-    ) => { rows: number; cols: number; cells: string[][] },
-  ) => {
+  // Les opérations passent par slides/table.ts : les fusions, le style et les options du tableau restent cohérents.
+  const setTable = (next: NonNullable<SlideElement["table"]>) => sel && store.updateEl(sel.id, { table: next }, true);
+  const addRow = () => sel?.table && setTable(tInsertRow(sel.table, sel.table.rows));
+  const delRow = () => sel?.table && setTable(tDeleteRow(sel.table, sel.table.rows - 1));
+  const addCol = () => sel?.table && setTable(tInsertCol(sel.table, sel.table.cols));
+  const delCol = () => sel?.table && setTable(tDeleteCol(sel.table, sel.table.cols - 1));
+  // plage de fusion saisie (1-based) dans la barre d'outils
+  const [mergeRange, setMergeRange] = useState({ r0: 1, c0: 1, r1: 2, c1: 2 });
+  const doMerge = () => {
     if (!sel?.table) return;
-    const t = sel.table;
-    const next = mut(
-      t.cells.map((r) => r.slice()),
-      t,
+    const next = mergeCells(
+      sel.table,
+      { r: mergeRange.r0 - 1, c: mergeRange.c0 - 1 },
+      { r: mergeRange.r1 - 1, c: mergeRange.c1 - 1 },
     );
-    store.updateEl(sel.id, { table: next }, true);
+    if (next === sel.table) {
+      void dialogs.alert({
+        title: "Fusion impossible",
+        message: "Indiquez une plage d'au moins deux cellules située dans le tableau.",
+      });
+      return;
+    }
+    setTable(next);
   };
-  const addRow = () =>
-    patchTable((cells, t) => ({ rows: t.rows + 1, cols: t.cols, cells: [...cells, Array(t.cols).fill("")] }));
-  const delRow = () =>
-    patchTable((cells, t) => (t.rows <= 1 ? t : { rows: t.rows - 1, cols: t.cols, cells: cells.slice(0, -1) }));
-  const addCol = () =>
-    patchTable((cells, t) => ({ rows: t.rows, cols: t.cols + 1, cells: cells.map((r) => [...r, ""]) }));
-  const delCol = () =>
-    patchTable((cells, t) =>
-      t.cols <= 1 ? t : { rows: t.rows, cols: t.cols - 1, cells: cells.map((r) => r.slice(0, -1)) },
-    );
+  const doUnmerge = () => sel?.table && setTable(unmergeAt(sel.table, mergeRange.r0 - 1, mergeRange.c0 - 1));
+  const [tsvOpen, setTsvOpen] = useState(false);
+  const [tsvText, setTsvText] = useState("");
+  const applyTsv = () => {
+    const t = tableFromTsv(tsvText);
+    if (!t) {
+      void dialogs.alert({
+        title: "Collage vide",
+        message: "Copiez une plage de cellules dans le Tableur, puis collez-la ici.",
+      });
+      return;
+    }
+    if (sel?.table) setTable({ ...t, style: sel.table.style ?? t.style });
+    else addEl({ ...newTableElement(), table: t });
+    setTsvOpen(false);
+    setTsvText("");
+  };
 
   const setChart = (patch: Partial<ChartData>) => {
     if (!sel?.chart) return;
@@ -1143,6 +1170,64 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <button className="eb eb--sm eb--ghost" title="Supprimer la dernière colonne" onClick={delCol}>
                 <MinusIcon size={13} /> Col.
               </button>
+              <label className="sv-tbl-field">
+                Style
+                <select
+                  className="tool-select tool-select--sm"
+                  value={sel!.table!.style ?? "banded"}
+                  onChange={(e) =>
+                    setTable({ ...sel!.table!, style: e.target.value as NonNullable<SlideElement["table"]>["style"] })
+                  }
+                >
+                  {TABLE_STYLES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="sv-tbl-check">
+                <input
+                  type="checkbox"
+                  checked={sel!.table!.headerRow !== false}
+                  onChange={(e) => setTable({ ...sel!.table!, headerRow: e.target.checked })}
+                />{" "}
+                En-tête
+              </label>
+              <label className="sv-tbl-check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.table!.firstCol}
+                  onChange={(e) => setTable({ ...sel!.table!, firstCol: e.target.checked })}
+                />{" "}
+                1re colonne
+              </label>
+              <span className="sv-tbl-merge" role="group" aria-label="Fusionner des cellules">
+                {(["r0", "c0", "r1", "c1"] as const).map((k, i) => (
+                  <input
+                    key={k}
+                    type="number"
+                    min={1}
+                    aria-label={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                    title={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                    value={mergeRange[k]}
+                    onChange={(e) => setMergeRange({ ...mergeRange, [k]: Math.max(1, Number(e.target.value) || 1) })}
+                  />
+                ))}
+                <button className="eb eb--sm eb--ghost" onClick={doMerge}>
+                  Fusionner
+                </button>
+                <button className="eb eb--sm eb--ghost" onClick={doUnmerge}>
+                  Séparer
+                </button>
+              </span>
+              <button
+                className="eb eb--sm eb--ghost"
+                title="Remplacer le contenu par une plage copiée depuis le Tableur"
+                onClick={() => setTsvOpen(true)}
+              >
+                Coller du Tableur
+              </button>
               <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
             </>
           )}
@@ -1701,6 +1786,31 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         </Modal>
       )}
 
+      {tsvOpen && (
+        <Modal
+          title="Coller une plage du Tableur"
+          onClose={() => setTsvOpen(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setTsvOpen(false)}>
+                Annuler
+              </Button>
+              <Button onClick={applyTsv}>Utiliser ces données</Button>
+            </>
+          }
+        >
+          <textarea
+            className="settings__input"
+            rows={8}
+            autoFocus
+            aria-label="Cellules copiées depuis le Tableur"
+            placeholder="Copiez des cellules dans le Tableur (Ctrl+C) puis collez-les ici (Ctrl+V)."
+            value={tsvText}
+            onChange={(e) => setTsvText(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </Modal>
+      )}
       {masterOpen && (
         <MasterEditor master={deck.master} onApply={(m) => store.applyMaster(m)} onClose={() => setMasterOpen(false)} />
       )}

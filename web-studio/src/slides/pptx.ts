@@ -433,13 +433,29 @@ function elementXml(
     const colW = Math.round(w / Math.max(1, tb.cols));
     const rowH = Math.round(h / Math.max(1, tb.rows));
     const grid = Array.from({ length: tb.cols }, () => `<a:gridCol w="${colW}"/>`).join("");
+    const style = tb.style ?? "banded";
+    const hasHeader = tb.headerRow !== false;
+    const line = (tag: string) => `<a:${tag} w="12700"><a:solidFill><a:srgbClr val="94A3B8"/></a:solidFill></a:${tag}>`;
     const rows = tb.cells
       .map((row, r) => {
         const cells = row
-          .map(
-            (cell) =>
-              `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="l"/><a:r><a:rPr lang="fr-FR" sz="${sz}"${r === 0 ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xmlEsc(cell)}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>`,
-          )
+          .map((cell, c) => {
+            const m = tb.merges?.find((x) => r >= x.r && r < x.r + x.rs && c >= x.c && c < x.c + x.cs);
+            const anchor = m && m.r === r && m.c === c ? m : undefined;
+            const flags =
+              (anchor && anchor.cs > 1 ? ` gridSpan="${anchor.cs}"` : "") +
+              (anchor && anchor.rs > 1 ? ` rowSpan="${anchor.rs}"` : "") +
+              (m && !anchor && c > m.c ? ' hMerge="1"' : "") +
+              (m && !anchor && r > m.r ? ' vMerge="1"' : "");
+            const head = hasHeader && r === 0;
+            const bold = head || (tb.firstCol && c === 0);
+            const band = style === "banded" && !head && (r - (hasHeader ? 1 : 0)) % 2 === 1;
+            const fill = head ? (style === "accent" ? "2563EB" : style === "plain" ? "" : "E2E8F0") : band ? "F1F5F9" : "";
+            const txtColor = head && style === "accent" ? "FFFFFF" : color;
+            const borders = style === "grid" ? line("lnL") + line("lnR") + line("lnT") + line("lnB") : "";
+            const tcPr = `<a:tcPr anchor="ctr">${borders}${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ""}</a:tcPr>`;
+            return `<a:tc${flags}><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="l"/><a:r><a:rPr lang="fr-FR" sz="${sz}"${bold ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${txtColor}"/></a:solidFill></a:rPr><a:t>${xmlEsc(cell)}</a:t></a:r></a:p></a:txBody>${tcPr}</a:tc>`;
+          })
           .join("");
         return `<a:tr h="${rowH}">${cells}</a:tr>`;
       })
@@ -448,7 +464,7 @@ function elementXml(
       `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Tableau ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>` +
       `<p:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></p:xfrm>` +
       `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">` +
-      `<a:tbl><a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>${grid}</a:tblGrid>${rows}</a:tbl>` +
+      `<a:tbl><a:tblPr${hasHeader ? ' firstRow="1"' : ""}${style === "banded" ? ' bandRow="1"' : ""}${tb.firstCol ? ' firstCol="1"' : ""}/><a:tblGrid>${grid}</a:tblGrid>${rows}</a:tbl>` +
       `</a:graphicData></a:graphic></p:graphicFrame>`
     );
   }

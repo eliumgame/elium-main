@@ -130,3 +130,32 @@
   align-items: center;
   gap: 4px;
 }
+
+.ce-td--band {
+  background: rgba(148, 163, 184, 0.12);
+}
+.ce-td--firstcol {
+  font-weight: 700;
+}
+.ce-td--grid {
+  border-width: 1.5px;
+}
+.ce-td--accent.ce-td--head {
+  background: var(--primary, #2563eb);
+  color: #fff;
+}
+.sv-tbl-field,
+.sv-tbl-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.sv-tbl-merge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.sv-tbl-merge input {
+  width: 42px;
+}

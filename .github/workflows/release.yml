@@ -198,7 +198,7 @@ jobs:
           python -m pip install --upgrade pip
           # requirements/build.txt : versions ET hashes figés (uv pip compile --generate-hashes).
           pip install --require-hashes -r requirements/build.txt
-          echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> "$GITHUB_ENV"
 
       - name: Stamper la version + le code hash
         run: python installer/stamp_version.py "$env:VER"

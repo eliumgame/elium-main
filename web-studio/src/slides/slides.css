@@ -833,6 +833,11 @@
 .slide-cv.is-editable {
   cursor: default;
 }
+/* Accès clavier : anneau de focus visible quand le canevas a le focus. */
+.slide-cv.is-editable:focus-visible {
+  outline: 2px solid var(--el-focus-ring);
+  outline-offset: -2px;
+}
 .ce {
   position: absolute;
   box-sizing: border-box;

@@ -106,7 +106,7 @@ describe("detector — catalogue de signaux synchronisé avec les moteurs", () =
     ]) {
       expect(ids, `${expected} absent du catalogue`).toContain(expected);
     }
-    expect(SIGNAL_CATALOG.length).toBe(23);
+    expect(SIGNAL_CATALOG.length).toBe(25);
   });
 });
 

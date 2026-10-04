@@ -5,7 +5,8 @@
  * (/__version__, /__releases__, /__rollback__, /__update__) : dans le navigateur
  * ou en dev ils répondent 404, et le composant se replie sur le simple bandeau.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { reportError } from "../ui/crash-log";
 
 interface VersionInfo {
   installed: string | null;
@@ -100,7 +101,7 @@ export default function VersionFooter() {
       .then((j: VersionInfo | null) => {
         if (j && j.installed) setInfo(j);
       })
-      .catch(() => {});
+      .catch((e) => reportError("version.info", e));
 
   useEffect(() => {
     void load();
@@ -150,12 +151,16 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<UpdStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const pollErrorLogged = useRef(false);
 
   useEffect(() => {
     fetch("/__releases__")
       .then((r) => (r.ok ? r.json() : { releases: [] }))
       .then((j: { releases?: Release[] }) => setReleases(j.releases ?? []))
-      .catch(() => setReleases([]));
+      .catch((e) => {
+        reportError("version.releases", e);
+        setReleases([]);
+      });
   }, []);
 
   // Suit la progression d'un rollback/undo en cours.
@@ -175,7 +180,13 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
             setErr(s.notes || "L'opération a échoué.");
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          // Une coupure passagère pendant le redémarrage est normale : on journalise une seule fois.
+          if (!pollErrorLogged.current) {
+            pollErrorLogged.current = true;
+            reportError("version.poll", e);
+          }
+        });
     }, 1000);
     return () => clearInterval(id);
   }, [busy]);
@@ -184,25 +195,42 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
     setErr(null);
     setBusy(true);
     setStatus({ state: "downloading", version, progress: 0 });
-    await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, {
-      method: "POST",
-      headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    try {
+      const r = await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken() },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      reportError("version.rollback", e);
+      setBusy(false);
+      setStatus(null);
+      setErr("Impossible de lancer le retour à cette version. Réessayez ou redémarrez Elium.");
+    }
   };
   const undo = async () => {
     setErr(null);
     setBusy(true);
-    await fetch("/__rollback__/undo", {
-      method: "POST",
-      headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    try {
+      const r = await fetch("/__rollback__/undo", {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken() },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      reportError("version.undo", e);
+      setBusy(false);
+      setErr("Impossible d'annuler la dernière mise à jour. Réessayez ou redémarrez Elium.");
+    }
   };
   const reload = () => window.location.reload();
   const restart = async () => {
     await fetch("/__update__/restart", {
       method: "POST",
       headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    }).catch(() => {
+      // Attendu : le serveur se ferme pendant la réponse. waitForServerThenReload() prend le relais.
+    });
     waitForServerThenReload();
   };
 
@@ -454,7 +482,9 @@ function PortSettings() {
     await fetch("/__update__/restart", {
       method: "POST",
       headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    }).catch(() => {
+      // Attendu : le serveur se ferme pendant la réponse (le redémarrage est confirmé par le rechargement).
+    });
   };
 
   return (

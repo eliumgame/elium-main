@@ -91,19 +91,24 @@ export interface PageText {
 }
 
 /** Extract every page's text, grouped into lines and paragraphs. */
+/** One page's laid-out text (0-based index). */
+export async function extractPageLayout(engine: PdfEngine, i: number): Promise<PageText> {
+  const page = await engine.page(i);
+  const vp = page.getViewport({ scale: 1, rotation: 0 });
+  const [tc, fonts] = await Promise.all([engine.text(i), engine.fonts(i)]);
+  // Real fonts: bold / italic survive into the Word export.
+  const runs = buildRuns(tc, vp.transform as unknown as number[], fonts);
+  const lines = groupLines(runs, tc.items);
+  return { page: i, lines, blocks: groupBlocks(lines) };
+}
+
 export async function extractLayout(
   engine: PdfEngine,
   onProgress?: (done: number, total: number) => void,
 ): Promise<PageText[]> {
   const out: PageText[] = [];
   for (let i = 0; i < engine.pageCount; i++) {
-    const page = await engine.page(i);
-    const vp = page.getViewport({ scale: 1, rotation: 0 });
-    const [tc, fonts] = await Promise.all([engine.text(i), engine.fonts(i)]);
-    // Real fonts: bold / italic survive into the Word export.
-    const runs = buildRuns(tc, vp.transform as unknown as number[], fonts);
-    const lines = groupLines(runs, tc.items);
-    out.push({ page: i, lines, blocks: groupBlocks(lines) });
+    out.push(await extractPageLayout(engine, i));
     onProgress?.(i + 1, engine.pageCount);
   }
   return out;

@@ -163,7 +163,7 @@ import {
   type AnnotExtras,
   type RawAnnotation,
 } from "../ops/import-annots";
-import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
+import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage, type OcrPageResult, OcrCancelled } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
@@ -242,8 +242,11 @@ import {
   type ZoomMode,
 } from "./state";
 import { CombineDialog, type CombineItem } from "./CombineDialog";
+import { BatchMarksDialog } from "./BatchMarksDialog";
 import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
+import { reportError } from "../../ui/crash-log";
+import { announce } from "../../ui/announce";
 
 type DialogId =
   | null
@@ -266,6 +269,7 @@ type DialogId =
   | "compare"
   | "insert"
   | "combine"
+  | "batchMarks"
   | "redactSearch"
   | "identities"
   | "initials"
@@ -572,6 +576,9 @@ export default function PdfWorkspace({
   );
   const [localModels, setLocalModels] = useState(false);
   const ocrAbort = useRef<AbortController | null>(null);
+  /** Pages recognised by an interrupted run (of THIS file's bytes): the next run resumes from them. */
+  const ocrPartial = useRef<{ bytes: Uint8Array; pages: Map<number, OcrPageResult> } | null>(null);
+  const [ocrResumable, setOcrResumable] = useState(0);
   const [hasForm, setHasForm] = useState(false);
   /** Tint the form fields (Acrobat's « Surligner les champs »), remembered per browser. */
   const [fieldHighlight, setFieldHighlight] = useState(() => {
@@ -826,7 +833,7 @@ export default function PdfWorkspace({
           };
           sourceSignedRef.current = derived.signedKept && sourceSignedRef.current;
           // Its drafts are filed under the new source: the old one goes.
-          if (previousSourceKey) void deletePdfDraft(previousSourceKey).catch(() => {});
+          if (previousSourceKey) void deletePdfDraft(previousSourceKey).catch((e) => reportError("pdf.workspace", e));
         } else {
           // A new document: its own destination, nothing saved yet — or the
           // file just rewritten by a save, which the session now continues on.
@@ -871,7 +878,7 @@ export default function PdfWorkspace({
             .then((d) => {
               if (gen === shownGeneration.current) diskRef.current = d;
             })
-            .catch(() => {});
+            .catch((e) => reportError("pdf.workspace", e));
           void sourceKey(recovered.disk).then((k) => {
             if (gen === shownGeneration.current) diskKeyRef.current = k;
           });
@@ -946,7 +953,7 @@ export default function PdfWorkspace({
                   : s,
             );
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
         void next.attachments().then((a) => gen === shownGeneration.current && setAttachments(a));
         void next.layers().then((l) => gen === shownGeneration.current && setLayers(l));
         setFileLabels(null);
@@ -970,12 +977,12 @@ export default function PdfWorkspace({
             setFileView(iv);
             if (!restore && !derived && !rebased) applyInitialViewRef.current(iv);
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
         // Let the first page paint before competing for the pdf.js worker.
         setTimeout(() => {
           if (gen !== shownGeneration.current) return;
-          if (!restore) void importExistingMarkup(next, sourcePages, gen).catch(() => {});
-          else if (!derived) void snapshotMarkup(next, sourcePages, gen).catch(() => {});
+          if (!restore) void importExistingMarkup(next, sourcePages, gen).catch((e) => reportError("pdf.workspace", e));
+          else if (!derived) void snapshotMarkup(next, sourcePages, gen).catch((e) => reportError("pdf.workspace", e));
         }, 250);
         // Unsaved edits of this very file from an earlier session (crash,
         // closed window) are offered back.
@@ -995,7 +1002,7 @@ export default function PdfWorkspace({
             });
             if (gen !== shownGeneration.current) return;
             if (!ok) {
-              await deletePdfDraft(draft.id).catch(() => {});
+              await deletePdfDraft(draft.id).catch((e) => reportError("pdf.workspace", e));
               return;
             }
             try {
@@ -1004,7 +1011,7 @@ export default function PdfWorkspace({
                 reset(recoveredState);
                 markClean.current = false;
                 setSavedVersion(-1);
-                void snapshotMarkup(next, recoveredState.pages, gen).catch(() => {});
+                void snapshotMarkup(next, recoveredState.pages, gen).catch((e) => reportError("pdf.workspace", e));
               } else {
                 // This file was saved into by the session (or the session was
                 // recomposed): rebuild it on the source it applies to, with
@@ -1020,7 +1027,7 @@ export default function PdfWorkspace({
               toast("danger", "Restauration impossible", err instanceof Error ? err.message : undefined);
             }
           })
-          .catch(() => {});
+          .catch((e) => reportError("pdf.workspace", e));
       } catch (e) {
         // A newer file was picked meanwhile: this one's failure is moot.
         if (gen !== openGeneration.current) return;
@@ -1224,7 +1231,7 @@ export default function PdfWorkspace({
           }
           await putPdfDraft(draft);
         })
-        .catch(() => {});
+        .catch((e) => reportError("pdf.workspace", e));
     }, 1500);
     return () => clearTimeout(timer);
   }, [engine, dirty, state, fileName, vaultSecret]);
@@ -1235,7 +1242,7 @@ export default function PdfWorkspace({
     let alive = true;
     void listPdfDrafts()
       .then((list) => alive && setDrafts(list))
-      .catch(() => {});
+      .catch((e) => reportError("pdf.workspace", e));
     return () => {
       alive = false;
     };
@@ -1591,6 +1598,19 @@ export default function PdfWorkspace({
     else if (a.kind === "named") runNamedAction(a.name);
     else toast("info", a.label, "Cette action est conservée dans le fichier, mais Elium ne l'exécute pas.");
   };
+
+  // Lecteurs d'écran : annonce la page lue (une fois le défilement posé, pas à chaque image).
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = currentStore.subscribe(() => {
+      clearTimeout(t);
+      t = setTimeout(() => announce(`Page ${currentStore.get()} sur ${pages.length}`), 400);
+    });
+    return () => {
+      off();
+      clearTimeout(t);
+    };
+  }, [currentStore, pages.length]);
 
   const onCurrentChange = useCallback((current: number) => currentStore.set(current), [currentStore]);
   // Ctrl+wheel (handled by PageStack, about the pointer) settled on a zoom.
@@ -2242,6 +2262,23 @@ export default function PdfWorkspace({
     }
     if (marks && opts.applyRedactions && redactHiddenInfo.current && !opts.sanitise)
       opts.hiddenInfo = redactHiddenInfo.current;
+    // Text under the black boxes, read BEFORE it is destroyed, to check afterwards that it is gone.
+    let redactedPhrases: string[] = [];
+    if (marks && opts.applyRedactions) {
+      try {
+        const { collectRedactedPhrases } = await import("../ops/redaction-check");
+        redactedPhrases = await collectRedactedPhrases(
+          engine,
+          st.annots.flatMap((a) => {
+            if (a.kind !== "redact") return [];
+            const from = st.pages.find((p) => p.id === a.pageId)?.from;
+            return from == null ? [] : [{ page: from, rect: a.rect }];
+          }),
+        );
+      } catch (e) {
+        reportError("pdf.redaction.collect", e);
+      }
+    }
     await engine.infoReady;
     // Signed as the file this save builds on is — not as the source once was
     // (a full rewrite already removed the signature from the file saved into).
@@ -2283,6 +2320,26 @@ export default function PdfWorkspace({
         mode: how.mode ?? "auto",
       });
       await dest.write(res.bytes);
+      let redactionReport: string[] | null = null;
+      let redactionLeak = false;
+      if (redactedPhrases.length) {
+        if (security && security !== "remove") {
+          redactionReport = ["Fichier protégé par mot de passe : la vérification « aucune donnée sous le noir » n'a pas pu être faite."];
+        } else {
+          try {
+            const [{ verifySavedFile }, { describeVerification }] = await Promise.all([
+              import("../ops/redaction-check"),
+              import("../ops/redaction-verify"),
+            ]);
+            const verdict = await verifySavedFile(res.bytes, redactedPhrases, (b) => PdfEngine.open(b));
+            redactionLeak = !verdict.ok;
+            redactionReport = describeVerification(verdict);
+          } catch (e) {
+            reportError("pdf.redaction.verify", e);
+            redactionReport = ["La vérification du caviardage n'a pas pu être faite : contrôlez le fichier visuellement."];
+          }
+        }
+      }
       const notes: string[] = [];
       // The session goes on from the file just written when that file
       // replaced everything (no earlier revision kept): the original — e.g.
@@ -2313,7 +2370,7 @@ export default function PdfWorkspace({
         setSecurityDirty(false);
         setEverSaved(true);
         const key = sourceKeyRef.current;
-        if (key) void deletePdfDraft(key).catch(() => {});
+        if (key) void deletePdfDraft(key).catch((e) => reportError("pdf.workspace", e));
         sourceStoredRef.current = null;
       }
       dismissToast(id);
@@ -2330,6 +2387,16 @@ export default function PdfWorkspace({
         });
       }
       await reportSave(res.report, dest, signed ? res.bytes : null, notes);
+      if (redactionReport) {
+        if (redactionLeak) {
+          await dialogs.alert({
+            title: "Des données caviardées sont encore lisibles",
+            message: redactionReport.join("\n"),
+          });
+        } else {
+          toast("success", "Caviardage vérifié", redactionReport[0]);
+        }
+      }
       // The Signatures panel judges the file as saved: judge it again.
       if (sigView.list?.length) void refreshSignatures();
       return true;
@@ -2397,7 +2464,7 @@ export default function PdfWorkspace({
       confirmLabel: "Abandonner les modifications",
       cancelLabel: "Annuler",
     });
-    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
+    if (ok && sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
     return ok;
   };
 
@@ -2851,7 +2918,7 @@ export default function PdfWorkspace({
     // The whole session (source + edits) is now kept in the .elium — but the
     // PDF file itself is not updated: Ctrl+S still writes it.
     setEliumVersion(ver);
-    if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch(() => {});
+    if (sourceKeyRef.current) void deletePdfDraft(sourceKeyRef.current).catch((e) => reportError("pdf.workspace", e));
     sourceStoredRef.current = null;
     toast(
       "success",
@@ -3895,6 +3962,52 @@ export default function PdfWorkspace({
 
   const [pdfaProblems, setPdfaProblems] = useState<string[] | null>(null);
   const [a11yRules, setA11yRules] = useState<AccessibilityRule[] | null>(null);
+  const [a11yFigures, setA11yFigures] = useState<{ page: number; index: number; alt: string }[]>([]);
+
+  /**
+   * Tags the document (structure tree, language, title) or updates the alternate text of its
+   * figures. Like OCR, the result is an update of the source and the session goes on with it.
+   */
+  const tagAndAdopt = async (o: { lang?: string; title?: string; alts?: Map<string, string> }) => {
+    if (!bytesRef.current || !engine) return;
+    const id = toast("progress", o.alts ? "Enregistrement des textes de remplacement…" : "Balisage du document…");
+    try {
+      const { tagDocument, setFigureAlts } = await import("../ops/tagging");
+      let summary = "";
+      const res = await savePdf({
+        source: bytesRef.current,
+        state: { ...emptyState(), pages: D.pagesFromSource(engine.pageCount) },
+        options: { password: passwordRef.current ?? "", author, fileName },
+        security: null,
+        transform: async (doc) => {
+          if (o.alts) {
+            summary = `${setFigureAlts(doc, o.alts)} texte(s) de remplacement enregistré(s).`;
+          } else {
+            const r = tagDocument(doc, { lang: o.lang ?? "fr-FR", title: o.title });
+            summary = r.tagged
+              ? `${r.paragraphs} paragraphe(s) et ${r.figures} figure(s) balisés.`
+              : (r.notes[0] ?? "Aucun balisage nécessaire.");
+          }
+        },
+      });
+      dismissToast(id);
+      await adoptDerived(
+        res.bytes,
+        {
+          changes: [o.alts ? "textes de remplacement modifiés" : "document balisé (accessibilité)"],
+          forceFull: res.report.mode === "full" ? res.report.fullReasons : [],
+        },
+        res.report.mode === "incremental",
+        state,
+      );
+      toast("success", o.alts ? "Textes enregistrés" : "Balisage terminé", summary);
+      void runAccessibilityCheck(state);
+    } catch (e) {
+      dismissToast(id);
+      reportError("pdf.tagging", e);
+      toast("danger", "Le balisage a échoué.", e instanceof Error ? e.message : undefined);
+    }
+  };
 
   /** « Vérification de l'accessibilité » of the document as it would be saved. */
   const runAccessibilityCheck = async (st: PdfState = state) => {
@@ -3909,7 +4022,10 @@ export default function PdfWorkspace({
       // The text of the pages as they are now (source text per page, in the document's current order).
       const source = engine ? await engine.allText() : [];
       const texts = st.pages.filter((p) => !p.skipped).map((p) => (p.from != null ? (source[p.from] ?? "") : ""));
-      setA11yRules(checkAccessibility(await PDFDocument.load(bytes, { updateMetadata: false }), texts));
+      const checked = await PDFDocument.load(bytes, { updateMetadata: false });
+      setA11yRules(checkAccessibility(checked, texts));
+      const { listFigures } = await import("../ops/tagging");
+      setA11yFigures(listFigures(checked));
     } catch {
       setA11yRules([]);
     }
@@ -3945,7 +4061,7 @@ export default function PdfWorkspace({
     const id = toast("progress", "Conversion PDF/A…");
     try {
       if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
-      const [{ PDFDocument }, { convertToPdfA }, { pdfjsAssetUrls }] = await Promise.all([
+      const [{ PDFDocument }, { convertToPdfA, checkPdfA }, { pdfjsAssetUrls }] = await Promise.all([
         import("pdf-lib"),
         import("../ops/pdfa"),
         import("../core/assets"),
@@ -3959,6 +4075,8 @@ export default function PdfWorkspace({
             .catch(() => null)
         : null;
       const report = await convertToPdfA(doc, { part, cmykProfile: icc ? new Uint8Array(icc) : null });
+      // Independent check of the converted document: what the validator still finds is reported too.
+      for (const problem of checkPdfA(doc)) if (!report.remaining.includes(problem)) report.remaining.push(problem);
       await dest.write(await doc.save({ useObjectStreams: false }));
       dismissToast(id);
       await dialogs.alert({
@@ -4346,7 +4464,7 @@ export default function PdfWorkspace({
       }
       out.sort((a, b) => a.page - b.page);
       if (!cancelled) setRequiredLeft(out);
-    })().catch(() => {});
+    })().catch((e) => reportError("pdf.workspace", e));
     return () => {
       cancelled = true;
     };
@@ -5233,6 +5351,9 @@ export default function PdfWorkspace({
               <button className="eb eb--outline eb--md" onClick={() => setDialog("combine")} disabled={loading}>
                 Combiner des fichiers
               </button>
+              <button className="eb eb--outline eb--md" onClick={() => setDialog("batchMarks")} disabled={loading}>
+                Bates / en-têtes en lot
+              </button>
               <button className="eb eb--outline eb--md" onClick={() => void createFromClipboard()} disabled={loading}>
                 Depuis le presse-papiers
               </button>
@@ -5264,7 +5385,7 @@ export default function PdfWorkspace({
                         title="Oublier ces modifications"
                         aria-label={`Oublier les modifications de ${d.name}`}
                         onClick={() => {
-                          void deletePdfDraft(d.id).catch(() => {});
+                          void deletePdfDraft(d.id).catch((e) => reportError("pdf.workspace", e));
                           setDrafts((v) => v.filter((x) => x.id !== d.id));
                         }}
                       >
@@ -5318,6 +5439,7 @@ export default function PdfWorkspace({
         {dialog === "combine" && (
           <CombineDialog onClose={() => setDialog(null)} onConfirm={(items, o) => void combineFiles(items, o)} />
         )}
+        {dialog === "batchMarks" && <BatchMarksDialog onClose={() => setDialog(null)} />}
       </div>
     );
   }
@@ -6652,6 +6774,9 @@ export default function PdfWorkspace({
           rules={a11yRules}
           title={state.metadata.title ?? ""}
           language={state.metadata.language ?? ""}
+          figures={a11yFigures}
+          onTag={({ title, language }) => void tagAndAdopt({ lang: language, title })}
+          onAlts={(alts) => void tagAndAdopt({ alts })}
           onFix={async ({ title, language }) => {
             // The file's own initial view, with the title shown in the window.
             const view = state.initialView ?? (engine ? await engine.initialView() : undefined);
@@ -6838,6 +6963,11 @@ export default function PdfWorkspace({
           localModels={localModels}
           running={ocrRunning}
           progress={ocrProgress}
+          resumable={ocrResumable}
+          onDiscardResume={() => {
+            ocrPartial.current = null;
+            setOcrResumable(0);
+          }}
           onCancel={() => {
             ocrAbort.current?.abort();
             setOcrRunning(false);
@@ -6870,7 +7000,10 @@ export default function PdfWorkspace({
                 skipPagesWithText: v.skipPagesWithText,
                 signal: abort.signal,
                 onProgress: setOcrProgress,
+                resume: ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : undefined,
               });
+              ocrPartial.current = null;
+              setOcrResumable(0);
               const words = results.reduce((n, r) => n + r.words.length, 0);
               const suspects = results.reduce((n, r) => n + r.words.filter((w) => w.suspect).length, 0);
               if (!words) {
@@ -6922,8 +7055,22 @@ export default function PdfWorkspace({
               );
             } catch (e) {
               setOcrRunning(false);
-              if (e instanceof Error && e.name === "OcrCancelled") {
-                toast("info", "Reconnaissance interrompue", "Le document n'a pas été modifié.");
+              if (e instanceof OcrCancelled) {
+                const kept = new Map(
+                  ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : [],
+                );
+                for (const r of e.partial) if (r.words.length) kept.set(r.page, r);
+                if (bytesRef.current && kept.size) {
+                  ocrPartial.current = { bytes: bytesRef.current, pages: kept };
+                  setOcrResumable(kept.size);
+                }
+                toast(
+                  "info",
+                  "Reconnaissance interrompue",
+                  kept.size
+                    ? `Le document n'a pas été modifié. ${kept.size} page(s) déjà reconnue(s) sont conservées : relancez pour reprendre.`
+                    : "Le document n'a pas été modifié.",
+                );
                 return;
               }
               toast("danger", "La reconnaissance a échoué.", e instanceof Error ? e.message : undefined);

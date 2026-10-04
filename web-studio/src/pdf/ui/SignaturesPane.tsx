@@ -103,6 +103,10 @@ function Details({ v, p }: { v: PadesVerification; p: SignaturesPaneProps }) {
         </ul>
       )}
       <p>{trustText}</p>
+      <p className="muted">
+        La révocation du certificat n'est pas vérifiée (hors ligne) : une signature « approuvée » peut venir d'un
+        certificat révoqué depuis.
+      </p>
       {!v.certValidAtSigning && (
         <p className="pdfx-sig__bad">Le certificat n'était pas valide à la date de signature.</p>
       )}

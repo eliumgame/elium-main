@@ -5,6 +5,7 @@ import { DialogsProvider } from "./ui/dialogs";
 import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
+import { installA11yEnhancers } from "./ui/a11y-enhancers";
 import { loadUserFonts } from "./ui/font-library";
 import "./index.css";
 import "./App.css";
@@ -12,6 +13,7 @@ import "./ui/workspace.css";
 
 applyTheme(getTheme());
 installGlobalCrashHandlers();
+installA11yEnhancers();
 void loadUserFonts(); // polices personnelles conservées → registre → sélecteurs
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

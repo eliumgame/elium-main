@@ -72,14 +72,14 @@ export default function SheetModal({
 
   return (
     <div
-      className="dcx-modal-overlay"
+      className="dcx-modal-overlay sheet-modal-overlay"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         ref={cardRef}
-        className={`dcx-modal ${wide ? "dcx-modal--wide" : ""}`}
+        className={`dcx-modal sheet-modal ${wide ? "dcx-modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

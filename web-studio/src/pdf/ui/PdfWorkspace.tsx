@@ -30,6 +30,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  MoreHorizontal,
 } from "lucide-react";
 import { downloadBlob } from "../../export/exporters";
 import { useDialogs } from "../../ui/dialogs";
@@ -252,6 +253,7 @@ import { CombineDialog, type CombineItem } from "./CombineDialog";
 import { BatchMarksDialog } from "./BatchMarksDialog";
 import type { HiddenInfoOptions } from "../ops/redact";
 import "./pdf.css";
+import "./pdf-ui.css";
 import { reportError } from "../../ui/crash-log";
 import { announce } from "../../ui/announce";
 
@@ -499,7 +501,10 @@ export default function PdfWorkspace({
     initial: FieldProps;
   } | null>(null);
   const [tab, setTab] = useState<RibbonTab>("home");
-  const [panel, setPanel] = useState<SidePanel | null>("thumbnails");
+  const [panel, setPanel] = useState<SidePanel | null>(
+    // Étroit : le volet passe en tiroir par-dessus le document, il ne s'ouvre donc pas de lui-même.
+    typeof window !== "undefined" && window.innerWidth < 860 ? null : "thumbnails",
+  );
   const [tool, setTool] = useState<Tool>("textSelect");
   const [style, setStyle] = useState(DEFAULT_STYLE);
   const [sticky, setSticky] = useState(false);
@@ -515,6 +520,7 @@ export default function PdfWorkspace({
   const [reading, setReading] = useState(false);
   /** « Rechercher des outils » (Ctrl+Maj+P) is open. */
   const [palette, setPalette] = useState(false);
+  const [topMore, setTopMore] = useState(false);
   /** Acrobat's « Raccourcis à une touche » (V, T, H, R…): on unless turned off. */
   const [singleKeys, setSingleKeys] = useState(() => loadPdfPrefs().singleKeys !== false);
   /** The open context menu. */
@@ -1345,10 +1351,12 @@ export default function PdfWorkspace({
     const size = sizeOf(page);
     const box = rotationOf(page) % 180 === 0 ? size : { w: size.h, h: size.w };
     const twoUp = view.mode === "facing" || view.mode === "facingContinuous";
-    const next = clamp(fitScale(view.zoomMode, box, viewport, { twoUp }), MIN_SCALE, MAX_SCALE);
+    // Ouverture / redimensionnement : l'ajustement automatique plafonne à 200 % (une page de 71 mm
+    // s'ouvrait à 387 %). Une demande explicite (« Largeur », « Page entière ») n'est pas plafonnée.
+    const fitCap = fitNonce === 0 ? 2 * ZOOM_UNIT : MAX_SCALE;
+    const next = clamp(fitScale(view.zoomMode, box, viewport, { twoUp }), MIN_SCALE, fitCap);
     setView((v) => (v.zoomMode === "custom" || Math.abs(v.scale - next) <= 0.002 ? v : { ...v, scale: next }));
     // `fitNonce`: an explicit request re-fits even when the mode is unchanged.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.zoomMode, view.mode, viewport, pages, sizeOf, rotationOf, fitNonce]);
   useEffect(() => {
     applyFit();
@@ -6106,6 +6114,55 @@ export default function PdfWorkspace({
           >
             <Maximize2 size={16} />
           </button>
+        </div>
+
+        {/* Étroit : les actions secondaires (outils, zoom ±, plein écran) se replient ici. */}
+        <div
+          className="pdfx-topbar__more"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setTopMore(false);
+          }}
+        >
+          <button
+            type="button"
+            className={`pdfx-topbtn ${topMore ? "is-on" : ""}`}
+            onClick={() => setTopMore((v) => !v)}
+            title="Plus d'actions"
+            aria-label="Plus d'actions"
+            aria-haspopup="menu"
+            aria-expanded={topMore}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {topMore && (
+            <>
+              <div className="pdfx-topbar__scrim" onClick={() => setTopMore(false)} aria-hidden="true" />
+              <div
+                className="pdfx-menu pdfx-menu--right"
+                role="menu"
+                aria-label="Plus d'actions"
+                onClick={() => setTopMore(false)}
+              >
+                <button type="button" role="menuitem" className="pdfx-menu__item" onClick={() => setPalette(true)}>
+                  <Command size={14} aria-hidden /> Rechercher des outils
+                </button>
+                <button type="button" role="menuitem" className="pdfx-menu__item" onClick={() => zoomStep(-1)}>
+                  <ZoomOut size={14} aria-hidden /> Zoom arrière
+                </button>
+                <button type="button" role="menuitem" className="pdfx-menu__item" onClick={() => zoomStep(1)}>
+                  <ZoomIn size={14} aria-hidden /> Zoom avant
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="pdfx-menu__item"
+                  onClick={() => void command("fullscreen")}
+                >
+                  <Maximize2 size={14} aria-hidden /> Plein écran
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
 

@@ -35,6 +35,7 @@
   --x-danger: #f87171;
   --x-warn: #fbbf24;
   --x-ok: #4ade80;
+  --x-violet: #c4b5fd;
 
   /* --- aire de lecture : suit le thème de l'app -------------------------- */
   --x-desk: #4a4f5a;
@@ -205,18 +206,18 @@
 }
 .pdfx-badge--lock,
 .elx-badge--lock {
-  background: rgba(167, 139, 250, 0.18);
-  color: #c4b5fd;
+  background: color-mix(in srgb, var(--x-violet) 18%, transparent);
+  color: var(--x-violet);
 }
 .pdfx-badge--seal,
 .elx-badge--seal {
-  background: rgba(74, 222, 128, 0.16);
-  color: #86efac;
+  background: color-mix(in srgb, var(--x-ok) 16%, transparent);
+  color: var(--x-ok);
 }
 .pdfx-badge--warn,
 .elx-badge--warn {
-  background: rgba(251, 191, 36, 0.16);
-  color: #fcd34d;
+  background: color-mix(in srgb, var(--x-warn) 16%, transparent);
+  color: var(--x-warn);
 }
 
 .pdfx-find,
@@ -521,8 +522,8 @@
 }
 .pdfx-cmd.is-danger:hover:not(:disabled),
 .elx-cmd.is-danger:hover:not(:disabled) {
-  background: rgba(248, 113, 113, 0.16);
-  color: #fca5a5;
+  background: color-mix(in srgb, var(--x-danger) 16%, transparent);
+  color: var(--x-danger);
 }
 .pdfx-cmd:disabled,
 .elx-cmd:disabled {
@@ -581,7 +582,7 @@
 }
 .pdfx-swatch.is-active,
 .elx-swatch.is-active {
-  border-color: #fff;
+  border-color: var(--x-chrome-text);
   box-shadow: 0 0 0 2px var(--x-accent);
 }
 
@@ -832,7 +833,7 @@
 .shapegal__filter.is-active {
   background: var(--x-accent-soft);
   border-color: var(--x-accent-line);
-  color: #fff;
+  color: var(--x-accent-ink);
 }
 .shapegal__body {
   max-height: 46vh;
@@ -1503,7 +1504,7 @@
 .elx-bar {
   height: 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--x-chrome-3);
   overflow: hidden;
   margin-top: 3px;
 }
@@ -1555,7 +1556,7 @@
   text-align: center;
   border: 2px dashed var(--x-chrome-line);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--x-chrome-2);
   color: var(--x-chrome-text);
   transition: all var(--el-motion-base) var(--el-ease-standard);
 }
@@ -1568,7 +1569,7 @@
   margin: 0 auto 18px;
   border-radius: 20px;
   background: var(--x-accent-soft);
-  color: #9ec2ff;
+  color: var(--x-accent-ink);
 }
 .pdfx-dropzone h1,
 .elx-dropzone h1 {
@@ -3450,7 +3451,7 @@
   cursor: pointer;
   border: 1px solid var(--x-chrome-line);
   border-radius: var(--x-radius-sm, 6px);
-  background: var(--x-chrome-1, #fff);
+  background: var(--x-chrome);
   color: var(--x-chrome-soft);
   box-shadow: var(--x-shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.12));
 }
@@ -3637,6 +3638,7 @@
   --x-danger: #b91c1c;
   --x-warn: #92400e;
   --x-ok: #15803d;
+  --x-violet: #6d28d9;
   --x-desk: #e3e8f0;
   --x-shadow-page: 0 1px 2px rgba(15, 23, 42, 0.12), 0 8px 22px rgba(15, 23, 42, 0.1);
 }
@@ -3690,4 +3692,22 @@
   .elx-ribbon--docs .elx-ribbon__body .elx-group--optional {
     display: flex;
   }
+}
+
+/* Anneau de focus du chrome : le chrome est clair en thème clair, le bleu pâle
+   (#93c5fd) n'y atteignait que ~1,8:1. L'accent plein dépasse 3:1 sur les deux. */
+:root:not([data-theme="dark"])
+  :is(
+    .pdfx-topbar,
+    .elx-topbar,
+    .pdfx-ribbon,
+    .elx-ribbon,
+    .pdfx-rail,
+    .elx-rail,
+    .pdfx-status,
+    .elx-status,
+    .pdfx-menu,
+    .elx-menu
+  ) {
+  --el-focus-ring: var(--x-accent);
 }

@@ -46,7 +46,12 @@ import {
   TableProperties,
   Grid3x3,
   Eraser,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
 } from "lucide-react";
+import { useRibbonScroll } from "../ui/useRibbonScroll";
+import { useFixedPopovers } from "../ui/useFixedPopovers";
 import { fontCss, allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { importFontFiles } from "../ui/font-library";
 import { useFontsVersion } from "../ui/useFonts";
@@ -90,6 +95,7 @@ import {
 } from "./model";
 import type { Rect } from "./structural";
 import type { SheetStore, SheetEditorChrome, SheetPeer } from "./store";
+import "./sheet-ui.css";
 
 type Pos = { c: number; r: number };
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
@@ -196,6 +202,10 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [pivotPanelOpen, setPivotPanelOpen] = useState(true);
   const [breakPreview, setBreakPreview] = useState(false);
   const [dataToolsOpen, setDataToolsOpen] = useState<null | "find" | "dedupe" | "split">(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const { ref: ribbonRef, edges: ribbonEdges, nudge: ribbonNudge } = useRibbonScroll();
+  const ribbonRoot = useRef<HTMLDivElement>(null);
+  useFixedPopovers(ribbonRoot);
   const fontsVersion = useFontsVersion();
   const [fontTick, setFontTick] = useState(0);
 
@@ -871,17 +881,24 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       {/* Barre supérieure */}
       <div className="sheet-bar" role="region" aria-label="Barre de titre du tableur">
         {chrome.onHome && (
-          <button className="eb eb--sm eb--ghost" onClick={chrome.onHome} title="Accueil">
-            <Home size={16} /> Accueil
+          <button
+            className="eb eb--sm eb--ghost sheet-bar__home"
+            onClick={chrome.onHome}
+            title="Accueil"
+            aria-label="Accueil"
+          >
+            <Home size={16} /> <span className="sheet-bar__home-label">Accueil</span>
           </button>
         )}
-        <span className="sheet-bar__title">
+        <span className="sheet-bar__title" title={chrome.title}>
           {chrome.titleIcon ?? <Table2 size={16} />} {chrome.title}
         </span>
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
-        {canWrite && store.replaceWorkbook && (
-          <>
+        {/* Actions secondaires : en ligne sur grand écran, repliées dans « Plus » sous 860 px
+            (le menu rend les mêmes actions — un seul des deux est affiché, par CSS). */}
+        <div className="sheet-bar__actions">
+          {canWrite && store.replaceWorkbook && (
             <button
               className="eb eb--sm eb--outline"
               onClick={() => fileRef.current?.click()}
@@ -889,10 +906,54 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
             >
               <Upload size={14} /> Importer
             </button>
-            <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={onImportFile} />
-          </>
+          )}
+          {chrome.headerActions}
+        </div>
+        {canWrite && store.replaceWorkbook && (
+          <input ref={fileRef} type="file" accept=".xlsx,.csv" hidden onChange={onImportFile} />
         )}
-        {chrome.headerActions}
+        <div
+          className="sheet-bar__more"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setMoreOpen(false);
+          }}
+        >
+          <button
+            type="button"
+            className="eb eb--sm eb--outline sheet-bar__more-btn"
+            title="Plus d'actions"
+            aria-label="Plus d'actions"
+            aria-haspopup="true"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
+          >
+            <MoreHorizontal size={16} />
+            <span className="sheet-bar__more-label">Plus</span>
+          </button>
+          {moreOpen && (
+            <>
+              <div className="sheet-bar__scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+              <div
+                className="sheet-bar__pop"
+                role="menu"
+                aria-label="Plus d'actions"
+                onClick={() => setMoreOpen(false)}
+              >
+                {canWrite && store.replaceWorkbook && (
+                  <button
+                    className="eb eb--sm eb--ghost"
+                    role="menuitem"
+                    onClick={() => fileRef.current?.click()}
+                    title="Importer un classeur XLSX/CSV"
+                  >
+                    <Upload size={14} /> Importer
+                  </button>
+                )}
+                {chrome.headerActions}
+              </div>
+            </>
+          )}
+        </div>
         {chrome.onClose && (
           <button className="icon-btn" title="Fermer" onClick={chrome.onClose}>
             <X size={18} />
@@ -902,315 +963,344 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
       {/* Barre de mise en forme (masquée en lecture seule) */}
       {canWrite && (
-        <div className="elx-ribbon" role="region" aria-label="Barre de mise en forme">
-          <div className="elx-ribbon__body">
-            {store.undo && store.redo && (
-              <Group title="Édition">
+        <div className="elx-ribbon" ref={ribbonRoot} role="region" aria-label="Barre de mise en forme">
+          {/* Le ruban défile quand il ne tient pas : chevrons + dégradés disent de quel côté il reste des commandes. */}
+          <div
+            className={`elx-ribbon__scroller${ribbonEdges.left ? " has-left" : ""}${ribbonEdges.right ? " has-right" : ""}`}
+          >
+            {ribbonEdges.left && (
+              <button
+                type="button"
+                className="elx-ribbon__nudge elx-ribbon__nudge--left"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => ribbonNudge(-1)}
+                title="Commandes précédentes"
+                aria-label="Commandes précédentes"
+              >
+                <ChevronLeft size={15} />
+              </button>
+            )}
+            {ribbonEdges.right && (
+              <button
+                type="button"
+                className="elx-ribbon__nudge elx-ribbon__nudge--right"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => ribbonNudge(1)}
+                title="Commandes suivantes"
+                aria-label="Commandes suivantes"
+              >
+                <ChevronRight size={15} />
+              </button>
+            )}
+            <div className="elx-ribbon__body" ref={ribbonRef}>
+              {store.undo && store.redo && (
+                <Group title="Édition">
+                  <Cmd
+                    icon={<Undo2 size={15} />}
+                    title="Annuler (Ctrl+Z)"
+                    onClick={store.undo}
+                    disabled={!store.canUndo}
+                  />
+                  <Cmd
+                    icon={<Redo2 size={15} />}
+                    title="Rétablir (Ctrl+Y)"
+                    onClick={store.redo}
+                    disabled={!store.canRedo}
+                  />
+                </Group>
+              )}
+
+              <Group title="Formules">
+                <div className="elx-drop">
+                  <Cmd
+                    icon={<Sigma size={15} />}
+                    title="Bibliothèque de formules"
+                    active={fxOpen}
+                    onClick={() => setFxOpen((v) => !v)}
+                  />
+                  {fxOpen && (
+                    <div className="elx-menu elx-menu--wide">
+                      {["Maths", "Statistiques", "Recherche", "Logique", "Texte", "Date"].map((cat) => (
+                        <div key={cat}>
+                          <div className="elx-menu__title">{cat}</div>
+                          {FUNCTIONS.filter((f) => f.cat === cat).map((f) => (
+                            <button
+                              key={f.name}
+                              className="elx-menu__item"
+                              onClick={() => insertFn(f.name)}
+                              title={f.desc}
+                            >
+                              <span className="fx-item__body">
+                                <span className="fx-item__sig">{f.sig}</span>
+                                <span className="fx-item__desc">{f.desc}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Group>
+
+              <Group title="Police">
+                <select
+                  key={`ff-${fontTick}-${fontsVersion}`}
+                  className="elx-select elx-select--font"
+                  title="Police"
+                  aria-label="Police"
+                  value={activeStyle.fontFamily ?? DEFAULT_FONT}
+                  onChange={(e) => applyStyle({ fontFamily: e.target.value })}
+                >
+                  {allFontNames().map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
                 <Cmd
-                  icon={<Undo2 size={15} />}
-                  title="Annuler (Ctrl+Z)"
-                  onClick={store.undo}
-                  disabled={!store.canUndo}
+                  icon={<Type size={15} />}
+                  title="Importer une police (.ttf/.otf)"
+                  onClick={() => fontInputRef.current?.click()}
                 />
+                <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} multiple hidden onChange={importFont} />
+                <select
+                  className="elx-select elx-select--size"
+                  title="Taille de police"
+                  aria-label="Taille de police"
+                  value={activeStyle.fontSize ?? 13}
+                  onChange={(e) => applyStyle({ fontSize: Number(e.target.value) })}
+                >
+                  {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32].map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Group>
+
+              <Group title="Caractère">
+                <Cmd icon={<Bold size={15} />} title="Gras" active={activeStyle.bold} onClick={() => toggle("bold")} />
                 <Cmd
-                  icon={<Redo2 size={15} />}
-                  title="Rétablir (Ctrl+Y)"
-                  onClick={store.redo}
-                  disabled={!store.canRedo}
+                  icon={<Italic size={15} />}
+                  title="Italique"
+                  active={activeStyle.italic}
+                  onClick={() => toggle("italic")}
                 />
               </Group>
-            )}
 
-            <Group title="Formules">
-              <div className="elx-drop">
+              <Group title="Alignement">
                 <Cmd
-                  icon={<Sigma size={15} />}
-                  title="Bibliothèque de formules"
-                  active={fxOpen}
-                  onClick={() => setFxOpen((v) => !v)}
+                  icon={<AlignLeft size={15} />}
+                  title="Aligner à gauche"
+                  active={activeStyle.align === "left"}
+                  onClick={() => applyStyle({ align: "left" })}
                 />
-                {fxOpen && (
-                  <div className="elx-menu elx-menu--wide">
-                    {["Maths", "Statistiques", "Recherche", "Logique", "Texte", "Date"].map((cat) => (
-                      <div key={cat}>
-                        <div className="elx-menu__title">{cat}</div>
-                        {FUNCTIONS.filter((f) => f.cat === cat).map((f) => (
-                          <button
-                            key={f.name}
-                            className="elx-menu__item"
-                            onClick={() => insertFn(f.name)}
-                            title={f.desc}
-                          >
-                            <span className="fx-item__body">
-                              <span className="fx-item__sig">{f.sig}</span>
-                              <span className="fx-item__desc">{f.desc}</span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
+                <Cmd
+                  icon={<AlignCenter size={15} />}
+                  title="Centrer"
+                  active={activeStyle.align === "center"}
+                  onClick={() => applyStyle({ align: "center" })}
+                />
+                <Cmd
+                  icon={<AlignRight size={15} />}
+                  title="Aligner à droite"
+                  active={activeStyle.align === "right"}
+                  onClick={() => applyStyle({ align: "right" })}
+                />
+              </Group>
+
+              <Group title="Couleurs">
+                <label className="elx-field" title="Couleur du texte">
+                  <Baseline size={15} />
+                  <span className="elx-colorbtn">
+                    <input
+                      type="color"
+                      value={activeStyle.color ?? "#0f172a"}
+                      onChange={(e) => applyStyle({ color: e.target.value })}
+                    />
+                  </span>
+                </label>
+                <label className="elx-field" title="Couleur de remplissage">
+                  <PaintBucket size={15} />
+                  <span className="elx-colorbtn">
+                    <input
+                      type="color"
+                      value={activeStyle.fill ?? "#ffffff"}
+                      onChange={(e) => applyStyle({ fill: e.target.value })}
+                    />
+                  </span>
+                </label>
+              </Group>
+
+              <Group title="Nombre">
+                <select
+                  className="elx-select"
+                  title="Format des nombres"
+                  aria-label="Format des nombres"
+                  value={activeStyle.fmt ?? "general"}
+                  onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })}
+                >
+                  {NUM_FORMATS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </Group>
+
+              <Group title="Lignes & colonnes">
+                <Cmd icon={<Plus size={15} />} title="Insérer une ligne" onClick={insertRow} />
+                <Cmd icon={<Minus size={15} />} title="Supprimer la ligne" onClick={deleteRow} />
+                <Cmd
+                  icon={<Plus size={15} style={{ transform: "rotate(90deg)" }} />}
+                  title="Insérer une colonne"
+                  onClick={insertCol}
+                />
+                <Cmd
+                  icon={<Minus size={15} style={{ transform: "rotate(90deg)" }} />}
+                  title="Supprimer la colonne"
+                  onClick={deleteCol}
+                />
+              </Group>
+
+              <Group title="Données">
+                <Cmd
+                  icon={<BarChart3 size={15} />}
+                  title="Insérer un graphique (depuis la sélection)"
+                  onClick={addChart}
+                />
+                <Cmd
+                  icon={<ArrowUpNarrowWide size={15} />}
+                  title="Trier croissant (colonne active)"
+                  onClick={() => sortRange(1)}
+                />
+                <Cmd
+                  icon={<ArrowDownNarrowWide size={15} />}
+                  title="Trier décroissant (colonne active)"
+                  onClick={() => sortRange(-1)}
+                />
+                <Cmd
+                  icon={<Filter size={15} />}
+                  title="Filtrer (colonne active)"
+                  active={!!sheet?.filter}
+                  onClick={applyFilter}
+                />
+                {sheet?.pivot && (
+                  <Cmd
+                    icon={<TableProperties size={15} />}
+                    title="Volet du tableau croisé dynamique"
+                    active={pivotPanelOpen}
+                    onClick={() => setPivotPanelOpen((v) => !v)}
+                  />
                 )}
-              </div>
-            </Group>
+                <Cmd
+                  icon={<Printer size={15} />}
+                  title="Mise en page et impression (PDF)"
+                  onClick={() => setPrintOpen(true)}
+                />
+                <Cmd
+                  icon={<SplitSquareVertical size={15} />}
+                  title="Aperçu des sauts de page"
+                  active={breakPreview}
+                  onClick={() => setBreakPreview((v) => !v)}
+                />
+                <Cmd
+                  icon={<Search size={15} />}
+                  title="Outils de données : rechercher/remplacer (regex), doublons, texte en colonnes"
+                  onClick={() => setDataToolsOpen("find")}
+                />
+              </Group>
 
-            <Group title="Police">
-              <select
-                key={`ff-${fontTick}-${fontsVersion}`}
-                className="elx-select elx-select--font"
-                title="Police"
-                aria-label="Police"
-                value={activeStyle.fontFamily ?? DEFAULT_FONT}
-                onChange={(e) => applyStyle({ fontFamily: e.target.value })}
-              >
-                {allFontNames().map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              <Cmd
-                icon={<Type size={15} />}
-                title="Importer une police (.ttf/.otf)"
-                onClick={() => fontInputRef.current?.click()}
-              />
-              <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} multiple hidden onChange={importFont} />
-              <select
-                className="elx-select elx-select--size"
-                title="Taille de police"
-                aria-label="Taille de police"
-                value={activeStyle.fontSize ?? 13}
-                onChange={(e) => applyStyle({ fontSize: Number(e.target.value) })}
-              >
-                {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </Group>
-
-            <Group title="Caractère">
-              <Cmd icon={<Bold size={15} />} title="Gras" active={activeStyle.bold} onClick={() => toggle("bold")} />
-              <Cmd
-                icon={<Italic size={15} />}
-                title="Italique"
-                active={activeStyle.italic}
-                onClick={() => toggle("italic")}
-              />
-            </Group>
-
-            <Group title="Alignement">
-              <Cmd
-                icon={<AlignLeft size={15} />}
-                title="Aligner à gauche"
-                active={activeStyle.align === "left"}
-                onClick={() => applyStyle({ align: "left" })}
-              />
-              <Cmd
-                icon={<AlignCenter size={15} />}
-                title="Centrer"
-                active={activeStyle.align === "center"}
-                onClick={() => applyStyle({ align: "center" })}
-              />
-              <Cmd
-                icon={<AlignRight size={15} />}
-                title="Aligner à droite"
-                active={activeStyle.align === "right"}
-                onClick={() => applyStyle({ align: "right" })}
-              />
-            </Group>
-
-            <Group title="Couleurs">
-              <label className="elx-field" title="Couleur du texte">
-                <Baseline size={15} />
-                <span className="elx-colorbtn">
-                  <input
-                    type="color"
-                    value={activeStyle.color ?? "#0f172a"}
-                    onChange={(e) => applyStyle({ color: e.target.value })}
+              <Group title="Affichage">
+                <div className="elx-drop">
+                  <Cmd
+                    icon={<Snowflake size={15} />}
+                    title="Figer les volets"
+                    active={!!fz}
+                    onClick={() => setFreezeOpen((v) => !v)}
                   />
-                </span>
-              </label>
-              <label className="elx-field" title="Couleur de remplissage">
-                <PaintBucket size={15} />
-                <span className="elx-colorbtn">
-                  <input
-                    type="color"
-                    value={activeStyle.fill ?? "#ffffff"}
-                    onChange={(e) => applyStyle({ fill: e.target.value })}
-                  />
-                </span>
-              </label>
-            </Group>
+                  {freezeOpen && (
+                    <div className="elx-menu">
+                      <button className="elx-menu__item" onClick={() => setFreeze(sel.r + 1, fz?.cols ?? 0)}>
+                        Figer jusqu'à la ligne {sel.r + 1}
+                      </button>
+                      <button className="elx-menu__item" onClick={() => setFreeze(fz?.rows ?? 0, sel.c + 1)}>
+                        Figer jusqu'à la colonne {indexToCol(sel.c)}
+                      </button>
+                      <button className="elx-menu__item" onClick={() => setFreeze(sel.r + 1, sel.c + 1)}>
+                        Figer lignes + colonnes (sélection)
+                      </button>
+                      <button className="elx-menu__item" onClick={() => setFreeze(0, 0)} disabled={!fz}>
+                        Libérer les volets
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </Group>
 
-            <Group title="Nombre">
-              <select
-                className="elx-select"
-                title="Format des nombres"
-                aria-label="Format des nombres"
-                value={activeStyle.fmt ?? "general"}
-                onChange={(e) => applyStyle({ fmt: e.target.value as NumFmt })}
-              >
-                {NUM_FORMATS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </Group>
-
-            <Group title="Lignes & colonnes">
-              <Cmd icon={<Plus size={15} />} title="Insérer une ligne" onClick={insertRow} />
-              <Cmd icon={<Minus size={15} />} title="Supprimer la ligne" onClick={deleteRow} />
-              <Cmd
-                icon={<Plus size={15} style={{ transform: "rotate(90deg)" }} />}
-                title="Insérer une colonne"
-                onClick={insertCol}
-              />
-              <Cmd
-                icon={<Minus size={15} style={{ transform: "rotate(90deg)" }} />}
-                title="Supprimer la colonne"
-                onClick={deleteCol}
-              />
-            </Group>
-
-            <Group title="Données">
-              <Cmd
-                icon={<BarChart3 size={15} />}
-                title="Insérer un graphique (depuis la sélection)"
-                onClick={addChart}
-              />
-              <Cmd
-                icon={<ArrowUpNarrowWide size={15} />}
-                title="Trier croissant (colonne active)"
-                onClick={() => sortRange(1)}
-              />
-              <Cmd
-                icon={<ArrowDownNarrowWide size={15} />}
-                title="Trier décroissant (colonne active)"
-                onClick={() => sortRange(-1)}
-              />
-              <Cmd
-                icon={<Filter size={15} />}
-                title="Filtrer (colonne active)"
-                active={!!sheet?.filter}
-                onClick={applyFilter}
-              />
-              {sheet?.pivot && (
+              <Group title="Règles avancées" optional>
+                <Cmd
+                  icon={<Palette size={15} />}
+                  title="Mise en forme conditionnelle"
+                  active={(sheet?.condFormats?.length ?? 0) > 0}
+                  onClick={() => setCondOpen(true)}
+                />
+                <Cmd
+                  icon={<ListChecks size={15} />}
+                  title="Validation des données"
+                  active={(sheet?.validations?.length ?? 0) > 0}
+                  onClick={() => setValidationOpen(true)}
+                />
+                <Cmd
+                  icon={<Tag size={15} />}
+                  title="Plages nommées"
+                  active={(wb.names?.length ?? 0) > 0}
+                  onClick={() => setNamesOpen(true)}
+                />
                 <Cmd
                   icon={<TableProperties size={15} />}
-                  title="Volet du tableau croisé dynamique"
-                  active={pivotPanelOpen}
-                  onClick={() => setPivotPanelOpen((v) => !v)}
-                />
-              )}
-              <Cmd
-                icon={<Printer size={15} />}
-                title="Mise en page et impression (PDF)"
-                onClick={() => setPrintOpen(true)}
-              />
-              <Cmd
-                icon={<SplitSquareVertical size={15} />}
-                title="Aperçu des sauts de page"
-                active={breakPreview}
-                onClick={() => setBreakPreview((v) => !v)}
-              />
-              <Cmd
-                icon={<Search size={15} />}
-                title="Outils de données : rechercher/remplacer (regex), doublons, texte en colonnes"
-                onClick={() => setDataToolsOpen("find")}
-              />
-            </Group>
-
-            <Group title="Affichage">
-              <div className="elx-drop">
-                <Cmd
-                  icon={<Snowflake size={15} />}
-                  title="Figer les volets"
-                  active={!!fz}
-                  onClick={() => setFreezeOpen((v) => !v)}
-                />
-                {freezeOpen && (
-                  <div className="elx-menu">
-                    <button className="elx-menu__item" onClick={() => setFreeze(sel.r + 1, fz?.cols ?? 0)}>
-                      Figer jusqu'à la ligne {sel.r + 1}
-                    </button>
-                    <button className="elx-menu__item" onClick={() => setFreeze(fz?.rows ?? 0, sel.c + 1)}>
-                      Figer jusqu'à la colonne {indexToCol(sel.c)}
-                    </button>
-                    <button className="elx-menu__item" onClick={() => setFreeze(sel.r + 1, sel.c + 1)}>
-                      Figer lignes + colonnes (sélection)
-                    </button>
-                    <button className="elx-menu__item" onClick={() => setFreeze(0, 0)} disabled={!fz}>
-                      Libérer les volets
-                    </button>
-                  </div>
-                )}
-              </div>
-            </Group>
-
-            <Group title="Règles avancées" optional>
-              <Cmd
-                icon={<Palette size={15} />}
-                title="Mise en forme conditionnelle"
-                active={(sheet?.condFormats?.length ?? 0) > 0}
-                onClick={() => setCondOpen(true)}
-              />
-              <Cmd
-                icon={<ListChecks size={15} />}
-                title="Validation des données"
-                active={(sheet?.validations?.length ?? 0) > 0}
-                onClick={() => setValidationOpen(true)}
-              />
-              <Cmd
-                icon={<Tag size={15} />}
-                title="Plages nommées"
-                active={(wb.names?.length ?? 0) > 0}
-                onClick={() => setNamesOpen(true)}
-              />
-              <Cmd
-                icon={<TableProperties size={15} />}
-                title="Tableau croisé dynamique"
-                onClick={() => setPivotOpen(true)}
-              />
-            </Group>
-
-            <Group title="Cellules">
-              <Cmd
-                icon={<Combine size={15} />}
-                title="Fusionner / annuler la fusion des cellules sélectionnées"
-                onClick={() => store.toggleMerge(active, selRect)}
-              />
-              <Cmd icon={<Grid3x3 size={15} />} title="Quadriller (toutes les bordures)" onClick={setBorderAll} />
-              <Cmd icon={<Eraser size={15} />} title="Supprimer les bordures" onClick={clearBorder} />
-            </Group>
-
-            {store.growSheet && (
-              <Group title="Agrandir" optional>
-                <Cmd
-                  icon={<Plus size={13} />}
-                  label="Lignes"
-                  title="Ajouter des lignes"
-                  onClick={() => store.growSheet!(active, "rows", 10)}
-                />
-                <Cmd
-                  icon={<Plus size={13} />}
-                  label="Colonnes"
-                  title="Ajouter des colonnes"
-                  onClick={() => store.growSheet!(active, "cols", 4)}
+                  title="Tableau croisé dynamique"
+                  onClick={() => setPivotOpen(true)}
                 />
               </Group>
-            )}
 
-            {sheet?.filter && (
-              <span className="sheet-filter-chip">
-                Filtre : {indexToCol(sheet.filter.col)} ⊃ «&nbsp;{sheet.filter.query}&nbsp;»
-                <button className="sheet-filter-chip__close" title="Retirer le filtre" onClick={clearFilter}>
-                  <X size={13} />
-                </button>
-              </span>
-            )}
+              <Group title="Cellules">
+                <Cmd
+                  icon={<Combine size={15} />}
+                  title="Fusionner / annuler la fusion des cellules sélectionnées"
+                  onClick={() => store.toggleMerge(active, selRect)}
+                />
+                <Cmd icon={<Grid3x3 size={15} />} title="Quadriller (toutes les bordures)" onClick={setBorderAll} />
+                <Cmd icon={<Eraser size={15} />} title="Supprimer les bordures" onClick={clearBorder} />
+              </Group>
+
+              {store.growSheet && (
+                <Group title="Agrandir" optional>
+                  <Cmd
+                    icon={<Plus size={13} />}
+                    label="Lignes"
+                    title="Ajouter des lignes"
+                    onClick={() => store.growSheet!(active, "rows", 10)}
+                  />
+                  <Cmd
+                    icon={<Plus size={13} />}
+                    label="Colonnes"
+                    title="Ajouter des colonnes"
+                    onClick={() => store.growSheet!(active, "cols", 4)}
+                  />
+                </Group>
+              )}
+
+              {sheet?.filter && (
+                <span className="sheet-filter-chip">
+                  Filtre : {indexToCol(sheet.filter.col)} ⊃ «&nbsp;{sheet.filter.query}&nbsp;»
+                  <button className="sheet-filter-chip__close" title="Retirer le filtre" onClick={clearFilter}>
+                    <X size={13} />
+                  </button>
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1549,6 +1639,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
           <button className="sheet-tab sheet-tab--add" onClick={removeActiveSheet} title="Supprimer la feuille">
             <Trash2 size={14} />
           </button>
+        )}
+        {canWrite && store.growSheet && (
+          <span className="sheet-tabs__grow">
+            <button className="elx-mini" onClick={() => store.growSheet!(active, "rows", 10)} title="Ajouter 10 lignes">
+              <Plus size={13} /> 10 lignes
+            </button>
+            <button className="elx-mini" onClick={() => store.growSheet!(active, "cols", 4)} title="Ajouter 4 colonnes">
+              <Plus size={13} /> 4 colonnes
+            </button>
+          </span>
         )}
       </div>
 

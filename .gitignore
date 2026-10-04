@@ -71,3 +71,6 @@ web-studio/tests/zz-*
 web-studio/tests/pdf-zz-*
 # Généré par scripts/gen-fonts.mjs (npm run gen:assets)
 web-studio/public/fonts/
+
+# Atlas de captures (audit visuel, jetable)
+web-studio/atlas-out/

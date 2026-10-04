@@ -30,6 +30,7 @@
 
   --x-accent: #4f8cff;
   --x-accent-soft: rgba(79, 140, 255, 0.16);
+  --x-accent-ink: #d6e5ff; /* texte/icône sur --x-accent-soft */
   --x-accent-line: rgba(79, 140, 255, 0.5);
   --x-danger: #f87171;
   --x-warn: #fbbf24;
@@ -181,7 +182,7 @@
 .pdfx-topbtn.is-on,
 .elx-topbtn.is-on {
   background: var(--x-accent-soft);
-  color: #cfe0ff;
+  color: var(--x-accent-ink);
   border-color: var(--x-accent-line);
 }
 .pdfx-topbtn:focus-visible,
@@ -516,7 +517,7 @@
 .elx-cmd.is-active {
   background: var(--x-accent-soft);
   border-color: var(--x-accent-line);
-  color: #d6e5ff;
+  color: var(--x-accent-ink);
 }
 .pdfx-cmd.is-danger:hover:not(:disabled),
 .elx-cmd.is-danger:hover:not(:disabled) {
@@ -773,7 +774,7 @@
 .elx-menu__item.is-active {
   background: var(--x-accent-soft);
   border-color: var(--x-accent-line);
-  color: #fff;
+  color: var(--x-accent-ink);
 }
 .pdfx-menu__item:disabled,
 .elx-menu__item:disabled {
@@ -966,7 +967,7 @@
 .pdfx-rail__btn.is-active,
 .elx-rail__btn.is-active {
   background: var(--x-accent-soft);
-  color: #cfe0ff;
+  color: var(--x-accent-ink);
 }
 .pdfx-rail__btn.is-active::before,
 .elx-rail__btn.is-active::before {
@@ -3579,4 +3580,33 @@
   line-height: 1.35;
   margin-top: 4px;
   overflow-wrap: anywhere;
+}
+
+/* ==========================================================================
+   Le chrome SUIT le thème (refonte 4.11)
+   --------------------------------------------------------------------------
+   Avant : un chrome sombre constant dans les deux thèmes, donc des rubans bleu
+   nuit sur un fond clair et, en thème sombre, une page de la même teinte que le
+   ruban. Désormais : ruban clair en thème clair, sombre en thème sombre. Les
+   valeurs sombres d'origine restent celles du bloc `:root` ci-dessus.
+   ========================================================================== */
+:root:not([data-theme="dark"]),
+:root:not([data-theme="dark"]) .pdfx,
+:root:not([data-theme="dark"]) .elx {
+  --x-chrome: #ffffff;
+  --x-chrome-2: #f5f7fb;
+  --x-chrome-3: #e9eef6;
+  --x-chrome-line: #d9e0ea;
+  --x-chrome-text: #0f172a;
+  --x-chrome-soft: #3b475c;
+  --x-chrome-mute: #566176;
+  --x-accent: #1d4ed8;
+  --x-accent-soft: rgba(29, 78, 216, 0.1);
+  --x-accent-ink: #1e40af;
+  --x-accent-line: rgba(29, 78, 216, 0.45);
+  --x-danger: #b91c1c;
+  --x-warn: #92400e;
+  --x-ok: #15803d;
+  --x-desk: #e3e8f0;
+  --x-shadow-page: 0 1px 2px rgba(15, 23, 42, 0.12), 0 8px 22px rgba(15, 23, 42, 0.1);
 }

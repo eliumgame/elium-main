@@ -1056,3 +1056,14 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Thème sombre : la feuille doit se détacher du bureau (elle avait la même teinte). */
+:root[data-theme="dark"] .editor-scroll {
+  background: #090c12;
+}
+:root[data-theme="dark"] .elium-page:not(.elium-page--stacked) {
+  background: #1b2232;
+  box-shadow:
+    0 0 0 1px #2b3550,
+    0 14px 34px rgba(0, 0, 0, 0.55);
+}

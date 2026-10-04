@@ -48,7 +48,14 @@ const ALTERNATIVES = [
 // C2PA, balisage PDF/UA. À RÉDUIRE : le bundle principal (index-*.js) a doublé
 // (~385 Ko → ~800 Ko) — repérer ce qui y est chargé en statique et le passer en
 // import() dynamique.
-const TOTAL_JS_BUDGET_BYTES = 6_600_000;
+// 6,6 Mo → 6,8 Mo : phase E2 (Documents / Tableur / Présentations) — moteur de
+// tableaux dynamiques (LET/LAMBDA/spill), graphiques riches (mise en page pure +
+// DrawingML), impression du Tableur, TCD persistant, tables nommées, masque et
+// dispositions, médias, diagrammes, handouts, galerie de modèles, citations,
+// vérificateur d'accessibilité. Les parties lourdes (PDF, handouts, impression)
+// restent chargées à la demande par import() ; le reste vit dans les chunks de
+// chaque module (Tableur, Présentations, éditeur).
+const TOTAL_JS_BUDGET_BYTES = 6_800_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

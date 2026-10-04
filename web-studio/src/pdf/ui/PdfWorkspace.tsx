@@ -2257,6 +2257,23 @@ export default function PdfWorkspace({
     }
     if (marks && opts.applyRedactions && redactHiddenInfo.current && !opts.sanitise)
       opts.hiddenInfo = redactHiddenInfo.current;
+    // Text under the black boxes, read BEFORE it is destroyed, to check afterwards that it is gone.
+    let redactedPhrases: string[] = [];
+    if (marks && opts.applyRedactions) {
+      try {
+        const { collectRedactedPhrases } = await import("../ops/redaction-check");
+        redactedPhrases = await collectRedactedPhrases(
+          engine,
+          st.annots.flatMap((a) => {
+            if (a.kind !== "redact") return [];
+            const from = st.pages.find((p) => p.id === a.pageId)?.from;
+            return from == null ? [] : [{ page: from, rect: a.rect }];
+          }),
+        );
+      } catch (e) {
+        reportError("pdf.redaction.collect", e);
+      }
+    }
     await engine.infoReady;
     // Signed as the file this save builds on is — not as the source once was
     // (a full rewrite already removed the signature from the file saved into).
@@ -2298,6 +2315,26 @@ export default function PdfWorkspace({
         mode: how.mode ?? "auto",
       });
       await dest.write(res.bytes);
+      let redactionReport: string[] | null = null;
+      let redactionLeak = false;
+      if (redactedPhrases.length) {
+        if (security && security !== "remove") {
+          redactionReport = ["Fichier protégé par mot de passe : la vérification « aucune donnée sous le noir » n'a pas pu être faite."];
+        } else {
+          try {
+            const [{ verifySavedFile }, { describeVerification }] = await Promise.all([
+              import("../ops/redaction-check"),
+              import("../ops/redaction-verify"),
+            ]);
+            const verdict = await verifySavedFile(res.bytes, redactedPhrases, (b) => PdfEngine.open(b));
+            redactionLeak = !verdict.ok;
+            redactionReport = describeVerification(verdict);
+          } catch (e) {
+            reportError("pdf.redaction.verify", e);
+            redactionReport = ["La vérification du caviardage n'a pas pu être faite : contrôlez le fichier visuellement."];
+          }
+        }
+      }
       const notes: string[] = [];
       // The session goes on from the file just written when that file
       // replaced everything (no earlier revision kept): the original — e.g.
@@ -2345,6 +2382,16 @@ export default function PdfWorkspace({
         });
       }
       await reportSave(res.report, dest, signed ? res.bytes : null, notes);
+      if (redactionReport) {
+        if (redactionLeak) {
+          await dialogs.alert({
+            title: "Des données caviardées sont encore lisibles",
+            message: redactionReport.join("\n"),
+          });
+        } else {
+          toast("success", "Caviardage vérifié", redactionReport[0]);
+        }
+      }
       // The Signatures panel judges the file as saved: judge it again.
       if (sigView.list?.length) void refreshSignatures();
       return true;

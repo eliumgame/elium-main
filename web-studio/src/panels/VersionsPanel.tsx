@@ -8,6 +8,7 @@ import { profileOf } from "../format/profiles";
 import { hasVaultSecret } from "../crypto/local-vault";
 import type { Studio } from "../studio/types";
 import { useDialogs } from "../ui/dialogs";
+import { localeTag } from "../i18n";
 
 /**
  * Version history panel: manual snapshots of the document stored locally
@@ -150,7 +151,7 @@ export default function VersionsPanel({ studio, editor }: { studio: Studio; edit
             <li key={v.id} className="version-item">
               <div className="version-item__main">
                 <span className="version-item__label">{v.label}</span>
-                <span className="version-item__date">{new Date(v.ts).toLocaleString("fr-FR")}</span>
+                <span className="version-item__date">{new Date(v.ts).toLocaleString(localeTag())}</span>
               </div>
               <div className="version-item__actions">
                 {studio.editable && (

@@ -28,6 +28,10 @@ export interface SearchApi {
   /** Version de l'index : change quand des éléments sont (ré)indexés, pour relancer l'affichage. */
   version: number;
   search: (query: string, filters: SearchFilters) => SearchResult[];
+  /** Nombre d'éléments actuellement indexés. */
+  indexedCount: number;
+  /** Vide l'index et le reconstruit entièrement. */
+  rebuild: () => void;
 }
 
 export function useSearch(opts: {
@@ -100,5 +104,17 @@ export function useSearch(opts: {
     [index, opts.items, opts.folders, version],
   );
 
-  return { progress, version, search };
+  const rebuild = useCallback(() => {
+    void (async () => {
+      try {
+        await indexer.reset();
+        await indexer.sync(itemsRef.current);
+        setVersion((v) => v + 1);
+      } catch (e) {
+        reportError("search-rebuild", e);
+      }
+    })();
+  }, [indexer]);
+
+  return { progress, version, search, indexedCount: index.size, rebuild };
 }

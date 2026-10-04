@@ -40,6 +40,7 @@ import {
 } from "../reportPresentation";
 import { exportReportAsDocx, exportReportAsPdf } from "../report/exportReport";
 import DocumentPreview from "./DocumentPreview";
+import { localeTag } from "../../i18n";
 import "./DetectorView.css";
 
 const DISABLED_SIGNALS_KEY = "elium-detector-disabled-signals";
@@ -492,7 +493,7 @@ export default function DetectorView({ onHome }: { onHome: () => void }) {
                 <div className="det-score__meta">
                   <Badge accent={confidenceAccent(report.confidence)}>Confiance : {report.confidence}</Badge>
                   <span className="det-score__date">
-                    Généré le {new Date(report.generatedAt).toLocaleString("fr-FR")}
+                    Généré le {new Date(report.generatedAt).toLocaleString(localeTag())}
                   </span>
                 </div>
                 <p className="det-score__confidence-note">{confidenceExplanation(report.confidence)}</p>
@@ -613,8 +614,8 @@ function MetadataList({ meta }: { meta: DocumentMetadata }) {
   if (meta.author) rows.push(["Auteur", meta.author]);
   if (meta.creator) rows.push(["Application", meta.creator]);
   if (meta.producer) rows.push(["Producteur", meta.producer]);
-  if (meta.createdAt) rows.push(["Créé le", new Date(meta.createdAt).toLocaleString("fr-FR")]);
-  if (meta.modifiedAt) rows.push(["Modifié le", new Date(meta.modifiedAt).toLocaleString("fr-FR")]);
+  if (meta.createdAt) rows.push(["Créé le", new Date(meta.createdAt).toLocaleString(localeTag())]);
+  if (meta.modifiedAt) rows.push(["Modifié le", new Date(meta.modifiedAt).toLocaleString(localeTag())]);
   if (meta.editingMinutes != null) rows.push(["Temps d'édition cumulé", `${meta.editingMinutes} min`]);
   if (meta.revisionCount != null) rows.push(["Révisions", String(meta.revisionCount)]);
   if (meta.pageCount != null) rows.push(["Pages", String(meta.pageCount)]);

@@ -267,9 +267,8 @@ describe("indexation incrémentale", () => {
   it("une synchronisation interrompue garde ce qui était fait et le persiste à la suivante", async () => {
     const store = memoryKv<IndexRecord>();
     const index = new SearchIndex();
-    let indexerRef: SearchIndexer;
     let n = 0;
-    indexerRef = new SearchIndexer({
+    const indexerRef: SearchIndexer = new SearchIndexer({
       store,
       index,
       getSecret: () => undefined,

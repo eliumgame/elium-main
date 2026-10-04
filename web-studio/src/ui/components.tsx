@@ -1,6 +1,7 @@
 /** Elium design-system primitives: Button, Badge, Modal, Alert, Tabs, fields. */
 import { useEffect, useId, useRef } from "react";
 import { X, Info, CheckCircle2, AlertTriangle, ShieldAlert } from "lucide-react";
+import { t } from "../i18n";
 
 type Accent = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -129,7 +130,7 @@ export function Modal({
           <h2 className="modal-title" id={titleId}>
             {title}
           </h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+          <button className="icon-btn" onClick={onClose} aria-label={t("dialogs.close")}>
             <X size={18} />
           </button>
         </div>

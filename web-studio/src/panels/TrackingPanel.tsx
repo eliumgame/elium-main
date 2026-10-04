@@ -2,6 +2,7 @@ import { Alert, Badge, EmptyState } from "../ui/components";
 import { History, ShieldCheck, ShieldAlert } from "lucide-react";
 import { eventLabel } from "../format/journal";
 import type { Studio } from "../studio/types";
+import { localeTag } from "../i18n";
 
 export default function TrackingPanel({ studio }: { studio: Studio }) {
   const { file, journalVerdict } = studio;
@@ -42,7 +43,7 @@ export default function TrackingPanel({ studio }: { studio: Studio }) {
                 <div className="timeline__body">
                   <div className="timeline__label">{eventLabel(e.type)}</div>
                   <div className="timeline__meta">
-                    {new Date(e.at).toLocaleString("fr-FR")}
+                    {new Date(e.at).toLocaleString(localeTag())}
                     {e.actor?.name ? ` · ${e.actor.name}` : ""}
                     {e.actor?.fingerprint ? ` · ${e.actor.fingerprint.slice(0, 10)}…` : ""}
                   </div>

@@ -9,8 +9,11 @@ import { loadUserFonts } from "./ui/font-library";
 import "./index.css";
 import "./App.css";
 import "./ui/workspace.css";
+import "./workspace/ui/workspace-shell.css";
+import { applyPrefsToDocument, getPrefs } from "./settings/prefs";
 
 applyTheme(getTheme());
+applyPrefsToDocument(getPrefs());
 installGlobalCrashHandlers();
 void loadUserFonts(); // polices personnelles conservées → registre → sélecteurs
 

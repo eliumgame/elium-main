@@ -5,8 +5,14 @@
  */
 import { frWorkspace } from "./messages/fr/workspace";
 import { enWorkspace } from "./messages/en/workspace";
+import { frShell } from "./messages/fr/shell";
+import { enShell } from "./messages/en/shell";
+import { frSettings } from "./messages/fr/settings";
+import { enSettings } from "./messages/en/settings";
+import { frCommands } from "./messages/fr/commands";
+import { enCommands } from "./messages/en/commands";
 
-export const fr = { ...frWorkspace } as const;
+export const fr = { ...frWorkspace, ...frShell, ...frSettings, ...frCommands } as const;
 
 export type MessageKey = keyof typeof fr;
 
@@ -15,6 +21,6 @@ export type PluralKey = {
   [K in MessageKey]: K extends `${infer B}_other` ? B : never;
 }[MessageKey];
 
-export const en: Record<MessageKey, string> = { ...enWorkspace };
+export const en: Record<MessageKey, string> = { ...enWorkspace, ...enShell, ...enSettings, ...enCommands };
 
 export const catalogs: Record<"fr" | "en", Record<string, string>> = { fr, en };

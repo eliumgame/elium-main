@@ -23,6 +23,10 @@ import { LEGACY_DECK_ID, deckStore } from "../slides/deck-store";
 import type { Workbook } from "../sheet/model";
 import type { Deck } from "../slides/model";
 import { Catalog } from "./catalog";
+import { reencryptDriveVault } from "../format/drive-store";
+import { reencryptParapheurVault } from "../format/parapheur-store";
+import type { VaultParticipant } from "./vault-sync";
+import type { ContentIO } from "./backup-io";
 import { idbKv } from "./kv";
 import { isDeckPristine, isWorkbookPristine } from "./pristine";
 import { pdfStore } from "./pdf-store";
@@ -89,6 +93,54 @@ export function createContentApis(): Record<"drive" | "sheets" | "slides" | "pdf
       info: (id) => pdfStore.info(id),
       remove: (ids) => pdfStore.removeMany(ids),
       copy: (a, b) => pdfStore.copy(a, b),
+    },
+  };
+}
+
+/** Lecture/écriture BRUTE du contenu de chaque élément (sauvegarde et restauration). */
+export function createContentIO(
+  getSecret: () => VaultSecret | undefined,
+): Record<"drive" | "sheets" | "slides" | "pdfs", ContentIO> {
+  const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+  const parse = <T>(b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)) as T;
+  return {
+    drive: {
+      async read(item) {
+        return (await getDriveDoc(item.id, getSecret()))?.bytes;
+      },
+      async write(item, bytes) {
+        await putDriveDoc(
+          {
+            id: item.id,
+            title: item.title,
+            profile: item.profile ?? "standard",
+            savedAt: item.modifiedAt,
+            size: bytes.length,
+            bytes,
+          },
+          getSecret(),
+        );
+      },
+    },
+    sheets: {
+      async read(item) {
+        const wb = await sheetStore.load(item.id, getSecret());
+        return wb ? json(wb) : undefined;
+      },
+      write: (item, bytes) => sheetStore.save(item.id, parse<Workbook>(bytes), getSecret(), item.modifiedAt),
+    },
+    slides: {
+      async read(item) {
+        const d = await deckStore.load(item.id, getSecret());
+        return d ? json(d) : undefined;
+      },
+      write: (item, bytes) => deckStore.save(item.id, parse<Deck>(bytes), getSecret(), item.modifiedAt),
+    },
+    pdfs: {
+      async read(item) {
+        return (await pdfStore.get(item.id, getSecret()))?.bytes;
+      },
+      write: (item, bytes) => pdfStore.put({ id: item.id, name: item.title, bytes }, getSecret(), item.modifiedAt),
     },
   };
 }
@@ -189,4 +241,16 @@ export function createWorkspaceService(
     },
   });
   return { catalog, service };
+}
+
+/** Tous les magasins à rechiffrer quand le coffre change (ordre : contenus d'abord, catalogue en dernier). */
+export function vaultParticipants(catalog: Catalog): VaultParticipant[] {
+  return [
+    { name: "bibliothèque", reencrypt: reencryptDriveVault },
+    { name: "Parapheur", reencrypt: reencryptParapheurVault },
+    { name: "classeurs", reencrypt: (a, b) => sheetStore.reencrypt(a, b) },
+    { name: "présentations", reencrypt: (a, b) => deckStore.reencrypt(a, b) },
+    { name: "PDF", reencrypt: (a, b) => pdfStore.reencrypt(a, b) },
+    { name: "catalogue", reencrypt: (a, b) => catalog.reencrypt(a, b) },
+  ];
 }

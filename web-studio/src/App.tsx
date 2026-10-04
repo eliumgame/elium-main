@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Lock, Loader2 } from "lucide-react";
 import { Button } from "./ui/components";
 import HomeView from "./views/HomeView";
@@ -24,6 +24,40 @@ import IdentityBackupModal from "./components/IdentityBackupModal";
 import IdentityImportModal from "./components/IdentityImportModal";
 import { getTheme, setTheme as persistTheme, type Theme } from "./ui/theme";
 import { useDialogs } from "./ui/dialogs";
+import { t, tn, useI18n } from "./i18n";
+import { getPrefs, usePrefs } from "./settings/prefs";
+import { isCapturingShortcut, shortcutFor, useBindings } from "./settings/shortcuts";
+import { commandRegistry, useRegisterCommands, type AppCommand } from "./commands/registry";
+import type { WorkspaceSettingsBridge } from "./components/settings/WorkspaceSection";
+import { setLocale, getLocale } from "./i18n";
+import CommandPalette from "./components/CommandPalette";
+import type { CategoryId, SectionId } from "./components/settings/sections";
+import type { ShellView } from "./workspace/ui/Sidebar";
+import { useWorkspace } from "./workspace/useWorkspace";
+import { useSearch } from "./workspace/useSearch";
+import { currentSession } from "./workspace/session";
+import { reencryptAll } from "./workspace/vault-sync";
+import { vaultParticipants } from "./workspace/content";
+import { createReplaceDeps } from "./workspace/replace-io";
+import { importPdf, isPdfFile, libraryDestination } from "./workspace/pdf-library";
+import { pdfStore } from "./workspace/pdf-store";
+import { docText } from "./workspace/search/text";
+import { previewOf } from "./workspace/recovery";
+import {
+  consumeLaunchQueue,
+  ensurePermission,
+  fsAccessSupported,
+  pickFileToOpen,
+  pickSaveHandle,
+  permissionOf,
+  planSave,
+  recallHandle,
+  rememberHandle,
+  writeToHandle,
+  type FsFileHandle,
+  type PickedFile,
+} from "./workspace/fs-access";
+import { getDriveDoc } from "./format/drive-store";
 import {
   createEliumFile,
   setProfile,
@@ -72,9 +106,8 @@ import { embeddableFonts, registerEmbeddedFonts } from "./ui/fonts";
 import { docToDocx, docxToDoc } from "./format/docx";
 import { reportError } from "./ui/crash-log";
 import { fetchLauncherFile, watchLauncherInbox } from "./desktop/launcher-bridge";
-import { putDriveDoc, reencryptDriveVault } from "./format/drive-store";
-import { putDraft, getDraft, resolveDraft, type DraftContent } from "./format/drafts-store";
-import { reencryptParapheurVault } from "./format/parapheur-store";
+import { putDriveDoc } from "./format/drive-store";
+import { putDraft, getDraft, resolveDraft, deleteDraft, type DraftContent } from "./format/drafts-store";
 import { isVaultConfigured, setVaultPassword, verifyVaultPassword, removeVaultConfig } from "./format/vault-store";
 import { hasVaultSecret, type VaultSecret } from "./crypto/local-vault";
 import { generateIdentity as genId, type EliumIdentity } from "./sign/keys";
@@ -104,6 +137,9 @@ import type {
   EliumWatermark,
 } from "./format/types";
 import type { ExportKind, Studio, StudioMode } from "./studio/types";
+import type { ItemSession } from "./workspace/useItemSync";
+import type { WorkItem } from "./workspace/types";
+import type { SaveDestination } from "./pdf/core/destination";
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -136,7 +172,7 @@ function Toast({ tone, message, onClose }: { tone: "danger" | "success"; message
   return (
     <div className={`toast toast--${tone}`} role="status">
       <span>{message}</span>
-      <button className="icon-btn" onClick={onClose} aria-label="Fermer">
+      <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
         <X size={14} />
       </button>
     </div>
@@ -169,6 +205,25 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  useI18n(); // la langue active redessine toute l'application
+  const prefs = usePrefs();
+  const bindings = useBindings();
+  const sessionInfo = useMemo(() => currentSession(), []);
+  // Espace de travail : vue active, recherche, élément ouvert dans un éditeur natif, PDF de la bibliothèque.
+  const [view, setView] = useState<ShellView>(() =>
+    getPrefs().startupView === "library" ? "library" : getPrefs().startupView === "recent" ? "recent" : "home",
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeItem, setActiveItem] = useState<(ItemSession & { kind: "sheet" | "slides" }) | null>(null);
+  const [pdfSource, setPdfSource] = useState<{ bytes: Uint8Array; name: string; destination: SaveDestination } | null>(
+    null,
+  );
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<{ category?: CategoryId; section?: SectionId } | undefined>(
+    undefined,
+  );
+  /** Fichier du disque lié au document ouvert (« Enregistrer » le réécrit en place). */
+  const docHandleRef = useRef<FsFileHandle | undefined>(undefined);
 
   // The private key is NEVER kept in clear at rest. localStorage holds only the
   // public key, fingerprint, and an Argon2id/AES-GCM-encrypted private key blob.
@@ -214,6 +269,15 @@ export default function App() {
     localStorage.removeItem("elium_trust_book");
     localStorage.removeItem("elium_theme");
     localStorage.removeItem("elium_seal_pins");
+    for (const k of [
+      "elium_prefs",
+      "elium_shortcuts",
+      "elium_locale",
+      "elium_session",
+      "elium_view_mode",
+      "elium_recent_commands",
+    ])
+      localStorage.removeItem(k);
     forgetRecipientKey();
     setRecipientPublic(null);
     // Also purge the IndexedDB stores (Drive library, app autosaves, version
@@ -227,6 +291,10 @@ export default function App() {
       "elium-drafts",
       "elium-vault",
       "elium-fonts",
+      "elium-pdfs",
+      "elium-pdf-recovery",
+      "elium-workspace",
+      "elium-backups",
     ]) {
       try {
         indexedDB.deleteDatabase(db);
@@ -241,7 +309,7 @@ export default function App() {
     vaultPromptedRef.current = false;
     setVaultSecret(undefined);
     setVaultState("none");
-    setToast("Données locales effacées");
+    setToast(t("app.data_cleared"));
   }, []);
 
   const [pw, setPw] = useState<{
@@ -277,11 +345,29 @@ export default function App() {
     isVaultConfigured().then((configured) => setVaultState(configured ? "locked" : "none"));
   }, []);
 
+  // Espace de travail local (catalogue, recherche) : démarre quand le coffre est résolu (aucun / déverrouillé).
+  const vaultSecretRef = useRef(vaultSecret);
+  vaultSecretRef.current = vaultSecret;
+  const ws = useWorkspace({
+    vaultSecret,
+    enabled: vaultState === "none" || vaultState === "unlocked",
+    onError: (m) => setError(m),
+  });
+  const search = useSearch({ items: ws.items, folders: ws.folders, vaultSecret, enabled: ws.ready });
+  const replaceDeps = useMemo(
+    () =>
+      createReplaceDeps(
+        () => vaultSecretRef.current,
+        (id, size, savedAt) => ws.catalog.patchItems([id], { size, modifiedAt: savedAt }),
+      ),
+    [ws.catalog],
+  );
+
   const unlockVault = useCallback(async () => {
-    const pwd = await askPassword("Déverrouiller le coffre local", "enter");
+    const pwd = await askPassword(t("vault.unlock_title"), "enter");
     if (pwd === null) return;
     if (!(await verifyVaultPassword(pwd))) {
-      setError("Mot de passe du coffre local incorrect.");
+      setError(t("vault.wrong_password"));
       return;
     }
     setVaultSecret({ password: pwd });
@@ -305,89 +391,62 @@ export default function App() {
   // leaves the vault exactly as it was — never half-migrated.
   const enableVault = useCallback(async () => {
     if (busy) return;
-    const pwd = await askPassword(
-      "Créer le mot de passe du coffre local",
-      "set",
-      "4 caractères minimum. S'applique à toute la bibliothèque et au Parapheur (pas à un document précis). Sans lui, ils sont irrécupérables.",
-    );
+    const pwd = await askPassword(t("vault.create_title"), "set", t("vault.password_hint"));
     if (!pwd) return;
     setBusy(true);
     try {
-      await reencryptDriveVault(undefined, { password: pwd });
-      try {
-        await reencryptParapheurVault(undefined, { password: pwd });
-      } catch (e) {
-        await reencryptDriveVault({ password: pwd }, undefined).catch((err) => reportError("vault-rollback", err));
-        throw e;
-      }
+      await reencryptAll(vaultParticipants(ws.catalog), undefined, { password: pwd });
       await setVaultPassword(pwd);
       setVaultSecret({ password: pwd });
       setVaultState("unlocked");
-      setToast("Coffre local activé — bibliothèque et Parapheur chiffrés sur ce poste");
+      setToast(t("vault.enabled"));
     } catch (e) {
       setError(msg(e));
     } finally {
       setBusy(false);
     }
-  }, [busy, askPassword]);
+  }, [busy, askPassword, ws.catalog]);
 
   const changeVaultPassword = useCallback(async () => {
     if (busy || !hasVaultSecret(vaultSecret)) return;
-    const newPwd = await askPassword(
-      "Nouveau mot de passe du coffre local",
-      "set",
-      "4 caractères minimum. S'applique à toute la bibliothèque et au Parapheur (pas à un document précis). Sans lui, ils sont irrécupérables.",
-    );
+    const newPwd = await askPassword(t("vault.new_title"), "set", t("vault.password_hint"));
     if (!newPwd) return;
     setBusy(true);
     try {
-      await reencryptDriveVault(vaultSecret, { password: newPwd });
-      try {
-        await reencryptParapheurVault(vaultSecret, { password: newPwd });
-      } catch (e) {
-        await reencryptDriveVault({ password: newPwd }, vaultSecret).catch((err) => reportError("vault-rollback", err));
-        throw e;
-      }
+      await reencryptAll(vaultParticipants(ws.catalog), vaultSecret, { password: newPwd });
       await setVaultPassword(newPwd);
       setVaultSecret({ password: newPwd });
-      setToast("Mot de passe du coffre local modifié");
+      setToast(t("vault.changed"));
     } catch (e) {
       setError(msg(e));
     } finally {
       setBusy(false);
     }
-  }, [busy, vaultSecret, askPassword]);
+  }, [busy, vaultSecret, askPassword, ws.catalog]);
 
   const disableVault = useCallback(async () => {
     if (busy || !hasVaultSecret(vaultSecret)) return;
     if (
       !(await dialogs.confirm({
-        title: "Désactiver le coffre local ?",
-        message:
-          "La bibliothèque et le Parapheur redeviendront non chiffrés sur cet ordinateur. Les fichiers .elium déjà enregistrés sur le disque ne sont pas affectés.",
-        confirmLabel: "Désactiver",
+        title: t("vault.disable_title"),
+        message: t("vault.disable_body"),
+        confirmLabel: t("vault.disable_confirm"),
       }))
     )
       return;
     setBusy(true);
     try {
-      await reencryptDriveVault(vaultSecret, undefined);
-      try {
-        await reencryptParapheurVault(vaultSecret, undefined);
-      } catch (e) {
-        await reencryptDriveVault(undefined, vaultSecret).catch((err) => reportError("vault-rollback", err));
-        throw e;
-      }
+      await reencryptAll(vaultParticipants(ws.catalog), vaultSecret, undefined);
       await removeVaultConfig();
       setVaultSecret(undefined);
       setVaultState("none");
-      setToast("Coffre local désactivé");
+      setToast(t("vault.disabled"));
     } catch (e) {
       setError(msg(e));
     } finally {
       setBusy(false);
     }
-  }, [busy, vaultSecret, dialogs]);
+  }, [busy, vaultSecret, dialogs, ws.catalog]);
 
   // "Forgot vault password": zero-knowledge means it can't be recovered — the
   // only way forward is to drop the locally-cached Drive/Parapheur data (the
@@ -395,11 +454,10 @@ export default function App() {
   const resetVault = useCallback(async () => {
     if (
       !(await dialogs.confirm({
-        title: "Réinitialiser le coffre local ?",
-        message:
-          "Le mot de passe du coffre ne peut pas être récupéré. Cette action supprime la bibliothèque « Récents » et les circuits Parapheur stockés sur ce poste — vos fichiers .elium sur le disque ne sont pas affectés.",
+        title: t("vault.reset_title"),
+        message: t("vault.reset_body"),
         danger: true,
-        confirmLabel: "Réinitialiser",
+        confirmLabel: t("vault.reset_confirm"),
       }))
     )
       return;
@@ -407,7 +465,15 @@ export default function App() {
     // lingering connection) instead of firing IDBOpenDBRequest and moving on —
     // otherwise the UI could claim "reset" while the databases still exist.
     await Promise.all(
-      ["elium-drive", "elium-parapheur", "elium-vault"].map(
+      [
+        "elium-drive",
+        "elium-parapheur",
+        "elium-vault",
+        "elium-sheets",
+        "elium-slides",
+        "elium-pdfs",
+        "elium-workspace",
+      ].map(
         (name) =>
           new Promise<void>((resolve) => {
             const req = indexedDB.deleteDatabase(name);
@@ -420,7 +486,7 @@ export default function App() {
     vaultPromptedRef.current = false;
     setVaultSecret(undefined);
     setVaultState("none");
-    setToast("Coffre local réinitialisé");
+    setToast(t("vault.reset_done"));
   }, [dialogs]);
 
   // Tracking journal — read-time events (opened / export / signature.validated)
@@ -557,6 +623,24 @@ export default function App() {
     async (tpl: Template, profile: EliumProfile = "standard") => {
       const { title, doc } = tpl.build();
       const f = await createEliumFile({ title, profile, doc });
+      // Préférences d'édition : police / taille par défaut des NOUVEAUX documents (style « Normal »).
+      const { defaultFont, defaultFontSize } = getPrefs();
+      if (defaultFont || defaultFontSize) {
+        const normal = {
+          id: "Normal",
+          name: "Normal",
+          kind: "paragraph" as const,
+          block: { type: "paragraph" as const },
+          builtIn: true,
+          quick: true,
+          char: {
+            ...(defaultFont ? { fontFamily: defaultFont } : {}),
+            ...(defaultFontSize ? { fontSize: defaultFontSize } : {}),
+          },
+        };
+        f.document.styles = [...(f.document.styles ?? []).filter((s) => s.id !== "Normal"), normal];
+      }
+      docHandleRef.current = undefined;
       setPassword("");
       await loadFile(f, { contentIntact: true, unchecked: true });
       setMode("studio");
@@ -586,8 +670,9 @@ export default function App() {
   );
 
   const onOpen = useCallback(
-    async (uploaded: File) => {
+    async (uploaded: File, extra?: { title?: string; handle?: FsFileHandle }) => {
       setBusy(true);
+      docHandleRef.current = undefined;
       try {
         // Import Word .docx as a new editable document (binary).
         const ext = uploaded.name.toLowerCase().split(".").pop() ?? "";
@@ -646,12 +731,20 @@ export default function App() {
             result = await readEliumPackage(bytes, { password: pwd, keyfile: got.keyfile });
           } else throw e;
         }
+        if (extra?.title) result.file.manifest.title = extra.title; // un renommage de la bibliothèque prime sur le titre interne
+        // « Enregistrer » réécrira ce fichier du disque (ou celui lié à ce document lors d'un enregistrement précédent).
+        if (extra?.handle && ext === "elium") {
+          docHandleRef.current = extra.handle;
+          void rememberHandle(docKeyOf(result.file.manifest), extra.handle);
+        }
         // Route spreadsheet/presentation .elium files to their app (marker node).
         const first = result.file.document.doc?.content?.[0];
         if (first && (first.type === "eliumSheet" || first.type === "eliumSlides" || first.type === "eliumPdf")) {
           try {
             const kind = first.type === "eliumSheet" ? "sheet" : first.type === "eliumSlides" ? "slides" : "pdf";
             setAppView({ kind, data: JSON.parse(String(first.attrs?.data ?? "null")) });
+            setActiveItem(null);
+            setPdfSource(null);
             setAppKey((k) => k + 1);
             setMode(kind);
             return;
@@ -677,9 +770,9 @@ export default function App() {
    * when cancelled or failed (the PDF workspace only then marks its session saved).
    */
   const exportAppElium = useCallback(
-    async (kind: "sheet" | "slides" | "pdf", data: unknown, title: string): Promise<boolean> => {
+    async (kind: "sheet" | "slides" | "pdf", data: unknown, title: string, mirror = true): Promise<boolean> => {
       try {
-        const label = kind === "sheet" ? "Classeur" : kind === "slides" ? "Présentation" : "Document PDF";
+        const label = kind === "sheet" ? t("kind.sheet") : kind === "slides" ? t("kind.slides") : t("kind.pdf");
         const wantEnc = await dialogs.confirm({
           title: "Protéger le fichier ?",
           message:
@@ -704,20 +797,34 @@ export default function App() {
           sealPrivateKeyHex: sealKey,
         });
         downloadBlob(`${f.manifest.title}.elium`, "application/x-elium", bytes);
-        try {
-          await putDriveDoc(
-            {
-              id: docKeyOf(f.manifest),
-              title: f.manifest.title,
-              profile: f.manifest.profile,
-              savedAt: new Date().toISOString(),
-              size: bytes.length,
-              bytes,
-            },
-            vaultSecret,
-          );
-        } catch {
-          /* drive best-effort */
+        // Un élément de l'espace de travail vit déjà dans la bibliothèque : pas de doublon. Seuls les fichiers ouverts du disque sont recopiés.
+        if (mirror) {
+          try {
+            await putDriveDoc(
+              {
+                id: docKeyOf(f.manifest),
+                title: f.manifest.title,
+                profile: f.manifest.profile,
+                savedAt: new Date().toISOString(),
+                size: bytes.length,
+                bytes,
+              },
+              vaultSecret,
+            );
+            await ws.registerSaved(
+              {
+                id: docKeyOf(f.manifest),
+                kind,
+                contentStore: "drive",
+                title: f.manifest.title,
+                size: bytes.length,
+                profile: f.manifest.profile,
+              },
+              { updateTitle: true },
+            );
+          } catch (e) {
+            reportError("library-mirror", e);
+          }
         }
         setToast(`${label} enregistré (.elium${secret ? ", chiffré" : ""}${sealKey ? ", scellé" : ""})`);
         return true;
@@ -726,7 +833,7 @@ export default function App() {
         return false;
       }
     },
-    [identity, ensurePrivateKey, askSecret, dialogs, vaultSecret],
+    [identity, ensurePrivateKey, askSecret, dialogs, vaultSecret, ws],
   );
 
   // Fichier .elium ouvert depuis l'Explorateur Windows : le launcher local le
@@ -759,6 +866,396 @@ export default function App() {
       }),
     [],
   );
+
+  // --- Espace de travail : ouvrir un élément, importer, raccourcis, commandes -------------------
+  const openPdfRecord = useCallback(
+    (id: string, name: string, bytes: Uint8Array) => {
+      setPdfSource({
+        bytes,
+        name,
+        destination: libraryDestination({
+          id,
+          name,
+          label: t("pdf.library_label", { name }),
+          getSecret: () => vaultSecretRef.current,
+          onSaved: (size) => void ws.registerSaved({ id, kind: "pdf", size }),
+        }),
+      });
+      setActiveItem(null);
+      setAppView(null);
+      setAppKey((k) => k + 1);
+      setMode("pdf");
+    },
+    [ws],
+  );
+
+  const openItem = useCallback(
+    async (item: WorkItem) => {
+      try {
+        if (item.locked) return;
+        if (item.contentStore === "drive") {
+          const doc = await getDriveDoc(item.id, vaultSecretRef.current);
+          if (!doc) {
+            void ws.refresh();
+            return;
+          }
+          ws.touchOpened(item.id);
+          await onOpenRef.current(
+            new File([doc.bytes as unknown as BlobPart], `${item.title || "document"}.elium`, {
+              type: "application/x-elium",
+            }),
+            { title: item.title },
+          );
+          return;
+        }
+        ws.touchOpened(item.id);
+        if (item.contentStore === "pdfs") {
+          const rec = await pdfStore.get(item.id, vaultSecretRef.current);
+          if (!rec) {
+            void ws.refresh();
+            return;
+          }
+          openPdfRecord(item.id, rec.name, rec.bytes);
+          return;
+        }
+        setPdfSource(null);
+        setAppView(null);
+        setActiveItem({
+          kind: item.kind === "sheet" ? "sheet" : "slides",
+          id: item.id,
+          isNew: false,
+          title: item.title,
+        });
+        setAppKey((k) => k + 1);
+        setMode(item.kind === "sheet" ? "sheet" : "slides");
+      } catch (e) {
+        reportError("open-item", e);
+        setError(`${t("search.open_failed")} : ${msg(e)}`);
+      }
+    },
+    [ws, openPdfRecord],
+  );
+
+  const startNew = useCallback(
+    (kind: "sheet" | "slides") => {
+      setAppView(null);
+      setPdfSource(null);
+      setActiveItem({ kind, id: ws.service.newItemId(), isNew: true, title: "" });
+      setAppKey((k) => k + 1);
+      setMode(kind);
+    },
+    [ws],
+  );
+  const startNewPdf = useCallback(() => {
+    setAppView(null);
+    setActiveItem(null);
+    setPdfSource(null);
+    setAppKey((k) => k + 1);
+    setMode("pdf");
+  }, []);
+
+  const openSettings = useCallback((target?: { category?: CategoryId; section?: SectionId }) => {
+    setSettingsTarget(target);
+    setSettingsOpen(true);
+  }, []);
+
+  /** Ouvre ce que l'utilisateur dépose ou choisit : PDF → bibliothèque, sauvegarde d'espace → Réglages, le reste → l'éditeur adapté. */
+  const openPicked = useCallback(
+    async (files: PickedFile[]) => {
+      try {
+        const pdfs = files.filter((f) => isPdfFile(f.file));
+        const backups = files.filter((f) => /\.elium-workspace$/i.test(f.file.name));
+        const rest = files.filter((f) => !pdfs.includes(f) && !backups.includes(f));
+        let last: { id: string; bytes: Uint8Array; name: string } | undefined;
+        for (const f of pdfs) last = await importPdf(ws, f.file, () => vaultSecretRef.current);
+        if (pdfs.length > 0 && rest.length === 0 && backups.length === 0) {
+          if (pdfs.length === 1 && last) openPdfRecord(last.id, last.name, last.bytes);
+          else setToast(tn("workspace.import_done", pdfs.length));
+          return;
+        }
+        if (backups.length > 0) {
+          setToast(t("backup.use_restore"));
+          openSettings({ category: "workspace", section: "ws_restore" });
+          return;
+        }
+        if (rest[0]) await onOpenRef.current(rest[0].file, { handle: rest[0].handle });
+      } catch (e) {
+        reportError("open-picked", e);
+        setError(msg(e));
+      }
+    },
+    [ws, openPdfRecord, openSettings],
+  );
+  const openPickedRef = useRef(openPicked);
+  openPickedRef.current = openPicked;
+  const appFileInputRef = useRef<HTMLInputElement>(null);
+
+  /** « Ouvrir… » avec le sélecteur natif quand il existe (renvoie false : l'appelant utilise un <input type=file>). */
+  const pickNative = useCallback(async (): Promise<boolean> => {
+    if (!fsAccessSupported()) return false;
+    try {
+      const picked = await pickFileToOpen();
+      if (picked) await openPickedRef.current([picked]);
+    } catch (e) {
+      reportError("open-picker", e);
+      setError(msg(e));
+    }
+    return true;
+  }, []);
+
+  // PWA installée : double-clic sur un .elium dans l'explorateur (file_handlers + launchQueue).
+  useEffect(() => {
+    consumeLaunchQueue(
+      (picked) => openPickedRef.current([picked]),
+      (e) => reportError("launch-queue", e),
+    );
+  }, []);
+
+  const goView = useCallback(
+    (v: ShellView) => {
+      if (v === "library") ws.setCurrentFolderId(null);
+      setView(v);
+      setMode("home");
+    },
+    [ws],
+  );
+  const goSearch = useCallback((q: string) => {
+    setSearchQuery(q);
+    setView("search");
+    setMode("home");
+  }, []);
+  const [newDocSignal, setNewDocSignal] = useState(0);
+
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  // Raccourcis globaux (personnalisables dans Réglages). Phase de capture : ils passent avant ceux de l'éditeur.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || isCapturingShortcut()) return;
+      const id = shortcutFor(e, bindings);
+      if (!id) return;
+      const take = () => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
+      switch (id) {
+        case "palette":
+          if (modeRef.current === "pdf") return; // le module PDF a sa propre palette sur ce raccourci
+          take();
+          setPaletteOpen((v) => !v);
+          return;
+        case "paletteGlobal":
+          take();
+          setPaletteOpen((v) => !v);
+          return;
+        case "searchWorkspace":
+          take();
+          goSearch("");
+          return;
+        case "settings":
+          take();
+          openSettings();
+          return;
+        case "goHome":
+          take();
+          setMode("home");
+          return;
+        case "newDocument":
+          take();
+          setMode("home");
+          setView("home");
+          setNewDocSignal((n) => n + 1);
+          return;
+        case "newSpreadsheet":
+          take();
+          startNew("sheet");
+          return;
+        case "newPresentation":
+          take();
+          startNew("slides");
+          return;
+        case "openFile":
+          take();
+          void pickNative().then((handled) => {
+            if (!handled) appFileInputRef.current?.click();
+          });
+          return;
+        case "save":
+        case "saveAs": {
+          take(); // jamais la boîte « Enregistrer la page sous » du navigateur
+          const cmd = commandRegistry.forShortcut(id);
+          if (cmd) cmd.run();
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [bindings, goSearch, openSettings, startNew, pickNative]);
+
+  // Commandes globales : navigation, espace de travail, réglages.
+  const globalCommands = useMemo<AppCommand[]>(() => {
+    return [
+      {
+        id: "nav.home",
+        label: t("cmd.go_home"),
+        group: "nav",
+        shortcutId: "goHome",
+        keywords: "accueil",
+        run: () => setMode("home"),
+      },
+      {
+        id: "nav.library",
+        label: t("cmd.go_library"),
+        group: "nav",
+        keywords: "mes documents dossiers",
+        run: () => goView("library"),
+      },
+      {
+        id: "nav.starred",
+        label: t("cmd.go_starred"),
+        group: "nav",
+        keywords: "favoris étoile",
+        run: () => goView("starred"),
+      },
+      { id: "nav.recent", label: t("cmd.go_recent"), group: "nav", run: () => goView("recent") },
+      {
+        id: "nav.trash",
+        label: t("cmd.go_trash"),
+        group: "nav",
+        keywords: "supprimés poubelle",
+        run: () => goView("trash"),
+      },
+      {
+        id: "nav.search",
+        label: t("cmd.search_workspace"),
+        group: "workspace",
+        shortcutId: "searchWorkspace",
+        keywords: "chercher trouver remplacer",
+        run: () => goSearch(""),
+      },
+      {
+        id: "nav.docs",
+        label: t("cmd.go_docs"),
+        group: "nav",
+        keywords: "aide documentation manuel",
+        run: () => setMode("documentation"),
+      },
+      {
+        id: "nav.detector",
+        label: t("cmd.go_detector"),
+        group: "nav",
+        keywords: "ia plagiat",
+        run: () => setMode("detector"),
+      },
+      {
+        id: "nav.drive",
+        label: t("cmd.go_drive"),
+        group: "nav",
+        keywords: "cloud entreprise",
+        run: () => setMode("drive-cloud"),
+      },
+      {
+        id: "ws.new_doc",
+        label: t("cmd.new_doc"),
+        group: "workspace",
+        shortcutId: "newDocument",
+        keywords: "nouveau créer",
+        run: () => {
+          setMode("home");
+          setView("home");
+          setNewDocSignal((n) => n + 1);
+        },
+      },
+      {
+        id: "ws.new_sheet",
+        label: t("cmd.new_sheet"),
+        group: "workspace",
+        shortcutId: "newSpreadsheet",
+        keywords: "nouveau créer excel",
+        run: () => startNew("sheet"),
+      },
+      {
+        id: "ws.new_slides",
+        label: t("cmd.new_slides"),
+        group: "workspace",
+        shortcutId: "newPresentation",
+        keywords: "nouveau créer powerpoint diaporama",
+        run: () => startNew("slides"),
+      },
+      { id: "ws.new_pdf", label: t("cmd.new_pdf"), group: "workspace", keywords: "nouveau ouvrir", run: startNewPdf },
+      {
+        id: "file.open",
+        label: t("cmd.open_file"),
+        group: "file",
+        shortcutId: "openFile",
+        keywords: "importer parcourir",
+        run: () =>
+          void pickNative().then((h) => {
+            if (!h) appFileInputRef.current?.click();
+          }),
+      },
+      {
+        id: "ws.backup",
+        label: t("cmd.backup"),
+        group: "workspace",
+        keywords: "exporter sauvegarde",
+        run: () => openSettings({ category: "workspace", section: "ws_backup" }),
+      },
+      {
+        id: "ws.restore",
+        label: t("cmd.restore"),
+        group: "workspace",
+        keywords: "importer restaurer",
+        run: () => openSettings({ category: "workspace", section: "ws_restore" }),
+      },
+      {
+        id: "set.open",
+        label: t("cmd.settings"),
+        group: "settings",
+        shortcutId: "settings",
+        keywords: "préférences options",
+        run: () => openSettings(),
+      },
+      {
+        id: "set.shortcuts",
+        label: t("cmd.settings_shortcuts"),
+        group: "settings",
+        keywords: "clavier raccourcis",
+        run: () => openSettings({ category: "shortcuts" }),
+      },
+      {
+        id: "set.fonts",
+        label: t("cmd.settings_fonts"),
+        group: "settings",
+        keywords: "police typographie",
+        run: () => openSettings({ category: "fonts" }),
+      },
+      {
+        id: "set.port",
+        label: t("cmd.settings_port"),
+        group: "settings",
+        keywords: "réseau serveur local",
+        run: () => openSettings({ category: "updates", section: "upd_port" }),
+      },
+      {
+        id: "set.theme",
+        label: t("cmd.toggle_theme"),
+        group: "settings",
+        keywords: "sombre clair",
+        run: () => setTheme(theme === "dark" ? "light" : "dark"),
+      },
+      {
+        id: "set.lang",
+        label: getLocale() === "fr" ? t("cmd.lang_en") : t("cmd.lang_fr"),
+        group: "settings",
+        keywords: "langue english français",
+        run: () => setLocale(getLocale() === "fr" ? "en" : "fr"),
+      },
+    ];
+  }, [goView, goSearch, startNew, startNewPdf, pickNative, openSettings, setTheme, theme]);
+  useRegisterCommands("global", globalCommands);
 
   // --- Studio actions -----------------------------------------------------
 
@@ -1129,16 +1626,18 @@ export default function App() {
             doc: snapshot.document.doc,
             page: snapshot.document.page,
             docx: needsSecret ? undefined : docToDocx(snapshot),
+            preview: needsSecret ? undefined : previewOf(docText(snapshot.document.doc)),
             secret: needsSecret ? secret : undefined,
           });
           lastDraftJson.current = docJson;
-        } catch {
-          /* autosave is best-effort; never interrupt editing */
+        } catch (e) {
+          // L'enregistrement automatique ne doit jamais interrompre la frappe — mais l'échec est journalisé, pas avalé.
+          reportError("draft-autosave", e);
         }
       })();
-    }, 2500);
+    }, getPrefs().autosaveSeconds * 1000);
     return () => window.clearTimeout(handle);
-  }, [file, mode, password]);
+  }, [file, mode, password, prefs.autosaveSeconds]);
 
   // Restore a document from an auto-saved draft. Prompts for the password/keyfile
   // first when the draft is protected, and recreates the document with its
@@ -1158,12 +1657,13 @@ export default function App() {
         try {
           content = await resolveDraft(d, secret);
         } catch {
-          setError("Mot de passe incorrect — impossible de déchiffrer ce brouillon.");
+          setError(t("recovery.wrong_password"));
           return;
         }
         const f = await createEliumFile({ title: d.title, profile: d.profile, doc: content.doc });
         f.manifest.docId = d.id; // reuse the stored draft's key so further autosaves update the same record
         f.document.page = content.page;
+        docHandleRef.current = undefined;
         lastDraftJson.current = JSON.stringify({ t: d.title, d: content.doc });
         setPassword(secret?.password ?? "");
         keyfileRef.current = secret?.keyfile;
@@ -1214,74 +1714,132 @@ export default function App() {
     [askSecret],
   );
 
-  const save = useCallback(async () => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const encrypted = profileOf(file.manifest.profile).encrypted;
-      const useRecipients = encrypted && recipients.length > 0;
-      let pwd = password;
-      // Only prompt for a credential when we have NONE: a keyfile (e.g. from
-      // opening an eliumkey-protected doc) or recipient encryption is already
-      // enough, so editing + re-saving such a file must not nag for a password.
-      if (encrypted && !useRecipients && !pwd && !keyfileRef.current) {
-        const got = await askSecret("Protéger le document (mot de passe et/ou fichier-clé)", "set", true);
-        if (!got) return;
-        pwd = got.password;
-        setPassword(got.password);
-        keyfileRef.current = got.keyfile;
-      }
-      // Flush the queued session events (opened / export / signature.validated)
-      // and one document.modified into the journal, THEN seal — so the seal covers
-      // the new journal. Queuing (rather than logging live) keeps a viewed sealed
-      // document's seal intact until this save re-anchors it.
-      const f1 = await recordSave(file, pendingJournalRef.current);
-      pendingJournalRef.current = [];
-      // Carry the binaries of any imported font the text actually uses, so the
-      // document renders in its own typefaces on a machine that lacks them.
-      const f2 = await syncEmbeddedFonts(f1, embeddableFonts());
-      // Seal the file with the user's identity (tamper-evidence anchor) when available.
-      let sealKey: string | undefined;
-      if (identity) sealKey = (await ensurePrivateKey()) ?? undefined;
-      const bytes = await writeEliumPackage(f2, {
-        password: useRecipients ? undefined : pwd || undefined,
-        keyfile: useRecipients ? undefined : keyfileRef.current,
-        recipients: useRecipients ? recipients : undefined,
-        sealPrivateKeyHex: sealKey,
-        encryptMetadata: !!f2.manifest.protection.metadataEncrypted,
-      });
-      setFile(f2);
-      downloadBlob(`${f2.manifest.title || "document"}.elium`, "application/x-elium", bytes);
-      // Mirror into the local Drive library (best-effort, this browser only).
+  /**
+   * Enregistrer / Enregistrer sous. Le fichier cible est choisi AVANT tout calcul
+   * long (chiffrement Argon2) : les navigateurs n'autorisent le sélecteur et la
+   * demande de permission que dans le geste de l'utilisateur. Sans API fichier,
+   * repli sur le téléchargement d'une copie.
+   */
+  const saveDoc = useCallback(
+    async (forcePick: boolean) => {
+      if (!file) return;
+      const key = docKeyOf(file.manifest);
+      let handle: FsFileHandle | undefined;
+      let target: "disk" | "download" = "download";
       try {
-        await putDriveDoc(
-          {
-            id: docKeyOf(f2.manifest),
-            title: f2.manifest.title || "Document",
-            profile: f2.manifest.profile,
-            savedAt: new Date().toISOString(),
-            size: bytes.length,
-            bytes,
-          },
-          vaultSecret,
-        );
-      } catch {
-        /* la bibliothèque locale est best-effort */
+        handle = docHandleRef.current ?? (await recallHandle(key));
+        const plan = planSave({
+          supported: fsAccessSupported(),
+          hasHandle: !!handle,
+          permission: handle ? await permissionOf(handle) : "unknown",
+          forcePick,
+        });
+        if (plan.kind === "request_then_write" && handle && !(await ensurePermission(handle))) {
+          handle = (await pickSaveHandle(file.manifest.title)) ?? undefined;
+          if (!handle) return;
+        } else if (plan.kind === "pick") {
+          handle = (await pickSaveHandle(file.manifest.title)) ?? undefined;
+          if (!handle) return; // annulé
+        }
+        if (plan.kind !== "download") target = "disk";
+      } catch (e) {
+        reportError("save-target", e);
+        setError(msg(e));
+        return;
       }
-      await recompute(f2);
-      if (sealKey) setSealVerdict("valid");
-      const how = useRecipients
-        ? ` pour ${recipients.length} destinataire(s)`
-        : keyfileRef.current
-          ? " et fichier-clé"
-          : "";
-      setToast(sealKey ? `Document enregistré et scellé${how} (.elium)` : `Document enregistré${how} (.elium)`);
-    } catch (e) {
-      setError(msg(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [askSecret, file, password, recompute, identity, ensurePrivateKey, recipients, vaultSecret]);
+      setBusy(true);
+      try {
+        const encrypted = profileOf(file.manifest.profile).encrypted;
+        const useRecipients = encrypted && recipients.length > 0;
+        let pwd = password;
+        // Only prompt for a credential when we have NONE: a keyfile (e.g. from
+        // opening an eliumkey-protected doc) or recipient encryption is already
+        // enough, so editing + re-saving such a file must not nag for a password.
+        if (encrypted && !useRecipients && !pwd && !keyfileRef.current) {
+          const got = await askSecret("Protéger le document (mot de passe et/ou fichier-clé)", "set", true);
+          if (!got) return;
+          pwd = got.password;
+          setPassword(got.password);
+          keyfileRef.current = got.keyfile;
+        }
+        // Flush the queued session events (opened / export / signature.validated)
+        // and one document.modified into the journal, THEN seal — so the seal covers
+        // the new journal. Queuing (rather than logging live) keeps a viewed sealed
+        // document's seal intact until this save re-anchors it.
+        const f1 = await recordSave(file, pendingJournalRef.current);
+        pendingJournalRef.current = [];
+        // Carry the binaries of any imported font the text actually uses, so the
+        // document renders in its own typefaces on a machine that lacks them.
+        const f2 = await syncEmbeddedFonts(f1, embeddableFonts());
+        // Seal the file with the user's identity (tamper-evidence anchor) when available.
+        let sealKey: string | undefined;
+        if (identity) sealKey = (await ensurePrivateKey()) ?? undefined;
+        const bytes = await writeEliumPackage(f2, {
+          password: useRecipients ? undefined : pwd || undefined,
+          keyfile: useRecipients ? undefined : keyfileRef.current,
+          recipients: useRecipients ? recipients : undefined,
+          sealPrivateKeyHex: sealKey,
+          encryptMetadata: !!f2.manifest.protection.metadataEncrypted,
+        });
+        setFile(f2);
+        if (target === "disk" && handle) {
+          await writeToHandle(handle, bytes);
+          docHandleRef.current = handle;
+          await rememberHandle(docKeyOf(f2.manifest), handle);
+        } else {
+          downloadBlob(`${f2.manifest.title || "document"}.elium`, "application/x-elium", bytes);
+        }
+        // Mirror into the local library (this browser only) and the workspace catalog.
+        try {
+          await putDriveDoc(
+            {
+              id: docKeyOf(f2.manifest),
+              title: f2.manifest.title || "Document",
+              profile: f2.manifest.profile,
+              savedAt: new Date().toISOString(),
+              size: bytes.length,
+              bytes,
+            },
+            vaultSecret,
+          );
+          await ws.registerSaved(
+            {
+              id: docKeyOf(f2.manifest),
+              kind: "doc",
+              title: f2.manifest.title || undefined,
+              size: bytes.length,
+              profile: f2.manifest.profile,
+            },
+            { updateTitle: true },
+          );
+          // Le contenu est maintenant dans la bibliothèque : le brouillon de récupération n'a plus lieu d'être.
+          await deleteDraft(docKeyOf(f2.manifest)).catch((e) => reportError("draft-cleanup", e));
+          lastDraftJson.current = "";
+        } catch (e) {
+          reportError("library-mirror", e);
+        }
+        await recompute(f2);
+        if (sealKey) setSealVerdict("valid");
+        const how = useRecipients
+          ? t("save.how_recipients", { n: recipients.length })
+          : keyfileRef.current
+            ? t("save.how_keyfile")
+            : "";
+        setToast(
+          target === "disk" && handle
+            ? t(sealKey ? "save.done_disk_sealed" : "save.done_disk", { name: handle.name, how })
+            : t(sealKey ? "save.done_sealed" : "save.done", { how }),
+        );
+      } catch (e) {
+        setError(msg(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [askSecret, file, password, recompute, identity, ensurePrivateKey, recipients, vaultSecret, ws],
+  );
+  const save = useCallback(() => saveDoc(false), [saveDoc]);
+  const saveAs = useCallback(() => saveDoc(true), [saveDoc]);
 
   const exportAs = useCallback(
     async (kind: ExportKind) => {
@@ -1367,6 +1925,7 @@ export default function App() {
         setParapheur,
         onDocChange,
         save,
+        saveAs,
         exportAs,
         goHome,
         toViewer,
@@ -1375,6 +1934,53 @@ export default function App() {
         openSettings: () => setSettingsOpen(true),
       }
     : null;
+
+  const settingsBridge: WorkspaceSettingsBridge = {
+    ws,
+    getSecret: () => vaultSecretRef.current,
+    vaultActive: vaultState === "unlocked",
+    notify: setToast,
+    onSettingsRestored: () => {
+      void dialogs
+        .confirm({
+          title: t("backup.reload_title"),
+          message: t("backup.reload_body"),
+          confirmLabel: t("backup.reload_now"),
+        })
+        .then((ok) => ok && window.location.reload());
+    },
+    rebuildIndex: search.rebuild,
+    indexProgress: search.progress,
+    indexedCount: search.indexedCount,
+  };
+
+  /** Rouvre un fichier PDF dont un brouillon de récupération garde la poignée (le module PDF propose alors de restaurer). */
+  const reopenPdfDraft = async (id: string) => {
+    try {
+      const { getPdfDraft } = await import("./pdf/model/recovery");
+      const d = await getPdfDraft(id);
+      const handle = d?.handle;
+      if (!handle) return;
+      if (!(await ensurePermission(handle, "readwrite"))) {
+        setError(t("recovery.permission_denied"));
+        return;
+      }
+      const file = await handle.getFile();
+      const { fileDestination } = await import("./pdf/core/destination");
+      setPdfSource({
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        name: file.name,
+        destination: fileDestination(handle),
+      });
+      setActiveItem(null);
+      setAppView(null);
+      setAppKey((k) => k + 1);
+      setMode("pdf");
+    } catch (e) {
+      reportError("pdf-draft-reopen", e);
+      setError(msg(e));
+    }
+  };
 
   // The presenter window (?presenter=1) is a standalone speaker screen driven
   // entirely by BroadcastChannel from the main window — no vault, server or deck.
@@ -1470,93 +2076,111 @@ export default function App() {
         <div className="vault-gate">
           <div className="vault-gate__card">
             <Lock size={28} />
-            <h1>Coffre local verrouillé</h1>
-            <p>
-              Ce poste a un coffre local configuré pour protéger la bibliothèque et le Parapheur. Déverrouillez-le pour
-              continuer.
-            </p>
-            <Button onClick={() => void unlockVault()}>Déverrouiller</Button>
+            <h1>{t("vault.gate_title")}</h1>
+            <p>{t("vault.gate_body")}</p>
+            <Button onClick={() => void unlockVault()}>{t("vault.gate_unlock")}</Button>
             <button type="button" className="vault-gate__forgot" onClick={() => void resetVault()}>
-              Mot de passe oublié ?
+              {t("vault.gate_forgot")}
             </button>
           </div>
         </div>
       ) : mode === "sheet" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement du Tableur…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_sheet")}</div>}>
           <SheetView
             key={`sheet-${appKey}`}
             onHome={() => setMode("home")}
             initial={appView?.kind === "sheet" ? (appView.data as Workbook) : undefined}
-            onExportElium={(data, title) => exportAppElium("sheet", data, title)}
+            onExportElium={(data, title) => exportAppElium("sheet", data, title, !activeItem)}
+            session={activeItem?.kind === "sheet" ? activeItem : undefined}
+            workspace={ws}
+            vaultSecret={vaultSecret}
           />
         </Suspense>
       ) : mode === "slides" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement des Présentations…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_slides")}</div>}>
           <SlidesView
             key={`slides-${appKey}`}
             onHome={() => setMode("home")}
             initial={appView?.kind === "slides" ? (appView.data as Deck) : undefined}
-            onExportElium={(data, title) => exportAppElium("slides", data, title)}
+            onExportElium={(data, title) => exportAppElium("slides", data, title, !activeItem)}
             vaultSecret={vaultSecret}
+            session={activeItem?.kind === "slides" ? activeItem : undefined}
+            workspace={ws}
           />
         </Suspense>
       ) : mode === "pdf" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement du lecteur PDF…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_pdf")}</div>}>
           <PdfView
             key={`pdf-${appKey}`}
             onHome={() => setMode("home")}
             initial={appView?.kind === "pdf" ? (appView.data as PdfFile) : undefined}
-            onExportElium={(data, title) => exportAppElium("pdf", data, title)}
+            onExportElium={(data, title) => exportAppElium("pdf", data, title, !pdfSource)}
             vaultSecret={vaultSecret}
+            source={pdfSource ?? undefined}
           />
         </Suspense>
       ) : mode === "drive-cloud" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement du Drive entreprise…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_drive")}</div>}>
           <DriveCloudView onHome={() => setMode("home")} />
         </Suspense>
       ) : mode === "documentation" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement de la documentation…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_docs")}</div>}>
           <DocumentationView onHome={() => setMode("home")} />
         </Suspense>
       ) : mode === "detector" ? (
-        <Suspense fallback={<div className="pdf-loading">Chargement du Détecteur…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_detector")}</div>}>
           <DetectorView onHome={() => setMode("home")} />
         </Suspense>
       ) : mode === "home" || !studio ? (
         <HomeView
+          ws={ws}
+          search={search}
+          replaceDeps={replaceDeps}
+          view={view}
+          onView={setView}
+          searchQuery={searchQuery}
+          onSearchQuery={setSearchQuery}
           onCreate={onCreate}
-          onOpen={onOpen}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onNewSheet={() => {
-            setAppView(null);
-            setAppKey((k) => k + 1);
-            setMode("sheet");
-          }}
-          onNewSlides={() => {
-            setAppView(null);
-            setAppKey((k) => k + 1);
-            setMode("slides");
-          }}
-          onNewPdf={() => {
-            setAppView(null);
-            setAppKey((k) => k + 1);
-            setMode("pdf");
-          }}
+          onOpenPicked={(files) => void openPicked(files)}
+          onPickNative={pickNative}
+          onOpenItem={(item) => void openItem(item)}
+          onOpenSettings={(target) =>
+            openSettings(target as { category?: CategoryId; section?: SectionId } | undefined)
+          }
+          onNewSheet={() => startNew("sheet")}
+          onNewSlides={() => startNew("slides")}
+          onNewPdf={startNewPdf}
           onOpenDriveCloud={() => setMode("drive-cloud")}
           onOpenDocumentation={() => setMode("documentation")}
           onOpenDetector={() => setMode("detector")}
+          onOpenPalette={() => setPaletteOpen(true)}
           onRecoverDraft={recoverDraft}
           onDownloadDraft={downloadDraft}
-          vaultSecret={vaultSecret}
+          onReopenPdfDraft={(id) => void reopenPdfDraft(id)}
+          uncleanExit={sessionInfo.uncleanExit}
+          previousStartedAt={sessionInfo.previousStartedAt}
+          notify={setToast}
+          newDocSignal={newDocSignal}
         />
       ) : (
-        <Suspense fallback={<div className="pdf-loading">Chargement de l'éditeur…</div>}>
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_editor")}</div>}>
           <StudioView key={`${editorKey}-${editable}`} studio={studio} />
         </Suspense>
       )}
 
       {settingsOpen && (
         <SettingsModal
+          key={`${settingsTarget?.category ?? ""}-${settingsTarget?.section ?? ""}`}
+          initialCategory={settingsTarget?.category}
+          initialSection={settingsTarget?.section}
+          recipientPublic={recipientPublic}
+          onGenerateRecipientKey={() => void generateRecipientKey()}
+          onForgetRecipientKey={forgetMyRecipientKey}
+          onOpenDocumentation={() => {
+            setSettingsOpen(false);
+            setMode("documentation");
+          }}
+          workspace={settingsBridge}
           theme={theme}
           onSetTheme={setTheme}
           identity={identity}
@@ -1569,7 +2193,10 @@ export default function App() {
           onImportIdentity={() => setImportOpen(true)}
           onCopy={copyWithToast}
           onClearStorage={clearLocalStorage}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsTarget(undefined);
+          }}
           vaultEnabled={vaultState === "unlocked"}
           busy={busy}
           onEnableVault={enableVault}
@@ -1625,6 +2252,27 @@ export default function App() {
         />
       )}
 
+      {paletteOpen && (
+        <CommandPalette
+          items={ws.items}
+          onOpenItem={(item) => void openItem(item)}
+          onSearchWorkspace={goSearch}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      <input
+        ref={appFileInputRef}
+        type="file"
+        hidden
+        multiple
+        aria-hidden
+        tabIndex={-1}
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void openPicked(files.map((file) => ({ file })));
+          e.target.value = "";
+        }}
+      />
       {error && <Toast tone="danger" message={error} onClose={() => setError(null)} />}
       {toast && <Toast tone="success" message={toast} onClose={() => setToast(null)} />}
       {/* Le mot de passe est validé et sa boîte de dialogue se referme AVANT que
@@ -1632,7 +2280,7 @@ export default function App() {
           les ~200 ms qui suivent ne montrent rien du tout. */}
       {busy && (
         <div className="busy-indicator" role="status" aria-live="polite">
-          <Loader2 size={14} className="icon-spin" /> Traitement en cours…
+          <Loader2 size={14} className="icon-spin" /> {t("app.busy")}
         </div>
       )}
     </div>

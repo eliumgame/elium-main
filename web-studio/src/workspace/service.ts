@@ -89,6 +89,8 @@ export interface RegisterInput {
   profile?: string;
   /** Pour un NOUVEL élément seulement. Défaut : dossier courant. */
   folderId?: string | null;
+  /** Où vit le contenu (défaut : le magasin natif du type). Un classeur exporté en .elium vit dans la bibliothèque `drive`. */
+  contentStore?: ContentStoreId;
 }
 
 export class WorkspaceService {
@@ -117,7 +119,7 @@ export class WorkspaceService {
    * (un renommage de l'utilisateur ne doit jamais être écrasé par l'éditeur).
    */
   async registerSaved(input: RegisterInput, options: { updateTitle?: boolean } = {}): Promise<WorkItem> {
-    const store = storeOfKind(input.kind);
+    const store = input.contentStore ?? storeOfKind(input.kind);
     const existing = await this.d.catalog.getItem(input.id);
     const now = this.iso();
     if (existing) {

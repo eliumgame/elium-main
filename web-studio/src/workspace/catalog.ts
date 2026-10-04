@@ -219,6 +219,11 @@ export class Catalog {
     return folder;
   }
 
+  /** Écrit un dossier existant tel quel (restauration d'une sauvegarde). */
+  async putFolder(folder: WorkFolder): Promise<void> {
+    await this.deps.folders.put(await sealFolder(folder, this.deps.getSecret()));
+  }
+
   async renameFolder(id: string, name: string): Promise<void> {
     const rec = await this.deps.folders.get(id);
     if (!rec) return;

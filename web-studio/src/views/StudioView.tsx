@@ -5,7 +5,7 @@ import RichEditor from "../editor/RichEditor";
 import InspectorPanel from "../panels/InspectorPanel";
 import VerificationBanner from "../components/VerificationBanner";
 import PageSettingsModal from "../components/PageSettingsModal";
-import CommandPalette from "../components/CommandPalette";
+import { useStudioCommands } from "../commands/useStudioCommands";
 import OutlinePanel from "../editor/OutlinePanel";
 import type { Studio } from "../studio/types";
 
@@ -14,18 +14,17 @@ export default function StudioView({ studio }: { studio: Studio }) {
   // read and mutate the document alongside the editor view.
   const [editor, setEditor] = useState<Editor | null>(null);
   const [pageSettingsOpen, setPageSettingsOpen] = useState(false);
-  const [cmdkOpen, setCmdkOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const commentAuthor = studio.identity ? `Clé ${studio.identity.fingerprint.slice(0, 8)}` : "Vous";
 
-  // Keyboard shortcuts: Ctrl/Cmd+K (command palette), Ctrl/Cmd+\ (toggle inspector).
+  // Les actions du module sont déclarées dans le registre de commandes : la palette GLOBALE (Ctrl/Cmd+K, gérée par App) les liste.
+  useStudioCommands(studio, editor, () => setPageSettingsOpen(true));
+
+  // Keyboard shortcuts: Ctrl/Cmd+\ (toggle inspector).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setCmdkOpen((v) => !v);
-      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "\\") {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "\\") {
         e.preventDefault();
         if (e.shiftKey) setOutlineOpen((v) => !v);
         else setInspectorOpen((v) => !v);
@@ -89,14 +88,6 @@ export default function StudioView({ studio }: { studio: Studio }) {
           page={studio.file.document.page}
           onUpdate={studio.updatePage}
           onClose={() => setPageSettingsOpen(false)}
-        />
-      )}
-      {cmdkOpen && (
-        <CommandPalette
-          studio={studio}
-          editor={editor}
-          onOpenPageSettings={() => setPageSettingsOpen(true)}
-          onClose={() => setCmdkOpen(false)}
         />
       )}
     </div>

@@ -40,8 +40,8 @@ describe("catalogues", () => {
     }
   });
 
-  it("les clés suivent la convention zone.nom en minuscules", () => {
-    for (const k of Object.keys(fr)) expect(k).toMatch(/^[a-z0-9_]+(\.[a-z0-9_]+)+$/);
+  it("les clés suivent la convention zone.nom (snake_case ; camelCase toléré pour les identifiants de raccourcis)", () => {
+    for (const k of Object.keys(fr)) expect(k).toMatch(/^[a-z0-9_]+(\.[a-zA-Z0-9_]+)+$/);
   });
 });
 

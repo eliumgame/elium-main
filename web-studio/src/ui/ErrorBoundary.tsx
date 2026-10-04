@@ -1,5 +1,6 @@
 import * as React from "react";
 import { clearCrashLog, formatCrashLog, reportError } from "./crash-log";
+import { t } from "../i18n";
 
 interface State {
   error: Error | null;
@@ -41,24 +42,21 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
         role="alert"
         style={{ maxWidth: 560, margin: "12vh auto", padding: 24, fontFamily: "Inter, system-ui, sans-serif" }}
       >
-        <h1 style={{ fontSize: 22, marginBottom: 8 }}>Elium a rencontré un problème</h1>
-        <p style={{ marginBottom: 16, lineHeight: 1.5 }}>
-          Vos documents ne sont pas perdus : les sauvegardes automatiques sont conservées sur cet appareil et seront
-          proposées à la réouverture.
-        </p>
+        <h1 style={{ fontSize: 22, marginBottom: 8 }}>{t("boundary.title")}</h1>
+        <p style={{ marginBottom: 16, lineHeight: 1.5 }}>{t("boundary.body")}</p>
         <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, opacity: 0.75, marginBottom: 16 }}>
           {this.state.error.message}
         </pre>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => window.location.reload()}>Recharger Elium</button>
-          <button onClick={this.copy}>{this.state.copied ? "Journal copié ✓" : "Copier le journal d'incidents"}</button>
+          <button onClick={() => window.location.reload()}>{t("boundary.reload")}</button>
+          <button onClick={this.copy}>{this.state.copied ? t("boundary.log_copied") : t("boundary.copy_log")}</button>
           <button
             onClick={() => {
               clearCrashLog();
               window.location.reload();
             }}
           >
-            Effacer le journal et recharger
+            {t("boundary.clear_reload")}
           </button>
         </div>
       </div>

@@ -11,6 +11,7 @@
 import { unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
 import { readChartOptions } from "./chart-ooxml";
+import { mergePrint, readPrintElements, readPrintNames } from "./xlsx-print";
 import {
   emptySheet,
   newId,
@@ -1025,6 +1026,8 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (validations.length) sh.validations = validations;
   const filter = parseAutoFilter(doc);
   if (filter) sh.filter = filter;
+  const printEls = readPrintElements(doc);
+  if (printEls) sh.print = mergePrint(null, printEls);
 
   return sh;
 }
@@ -1097,6 +1100,17 @@ export function importXlsx(bytes: Uint8Array): Workbook {
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
+  if (wb) {
+    // Zone d'impression et titres à imprimer : noms définis locaux à une feuille.
+    const els = wb.getElementsByTagName("definedName");
+    for (let i = 0; i < els.length; i++) {
+      const n = els[i].getAttribute("name");
+      const idx = Number(els[i].getAttribute("localSheetId"));
+      if ((n !== "_xlnm.Print_Area" && n !== "_xlnm.Print_Titles") || !Number.isInteger(idx) || !sheets[idx]) continue;
+      const part = readPrintNames(els[i].textContent ?? "", n === "_xlnm.Print_Area" ? "area" : "titles");
+      sheets[idx] = { ...sheets[idx]!, print: mergePrint(sheets[idx]!.print ?? null, part) };
+    }
+  }
   const names = parseDefinedNames(wb);
   return { sheets, active: 0, ...(names.length ? { names } : {}) };
 }

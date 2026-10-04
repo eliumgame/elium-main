@@ -43,6 +43,7 @@ import type {
   CellStyle,
   ChartSpec,
   SheetTable,
+  PrintSetup,
   CondRule,
   DataValidation,
   MergeRect,
@@ -130,6 +131,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
 
   const freeze = ys.get("freeze") as { rows: number; cols: number } | undefined;
   const filter = ys.get("filter") as { col: number; query: string } | undefined;
+  const print = ys.get("print") as PrintSetup | undefined;
 
   const out: SheetData = {
     name: String(ys.get("name") ?? "Feuille"),
@@ -148,6 +150,7 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   if (tables.length) out.tables = tables;
   if (freeze && (freeze.rows > 0 || freeze.cols > 0)) out.freeze = { ...freeze };
   if (filter && filter.query) out.filter = { ...filter };
+  if (print) out.print = JSON.parse(JSON.stringify(print)) as PrintSetup;
   return out;
 }
 
@@ -304,6 +307,9 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
     else ys.delete("freeze");
     if (target.filter && target.filter.query) ys.set("filter", { ...target.filter });
     else ys.delete("filter");
+    if (target.print) {
+      if (JSON.stringify(ys.get("print")) !== JSON.stringify(target.print)) ys.set("print", JSON.parse(JSON.stringify(target.print)));
+    } else ys.delete("print");
   });
 }
 

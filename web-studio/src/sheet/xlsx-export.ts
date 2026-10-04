@@ -31,6 +31,7 @@ import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
 import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
 import { formulaForFile } from "./xlsx-formula";
+import { printDefinedNames, printXml, sheetPrXml } from "./xlsx-print";
 import { tableDefs } from "./tables";
 import type {
   Workbook,
@@ -567,6 +568,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<worksheet xmlns="${NS}" xmlns:r="${R_NS}">` +
+    sheetPrXml(sheet.print) +
     `<dimension ref="${dim}"/>` +
     sheetViewsXml(sheet.freeze) +
     colsXml(sheet.colWidths) +
@@ -575,6 +577,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
     mergeCellsXml(sheet.merges) +
     condFormattingXml(sheet.condFormats, styles) +
     dataValidationXml(sheet.validations) +
+    printXml(sheet.print) +
     (hasDrawing ? `<drawing r:id="rId1"/>` : "") +
     (tableRIds.length ? `<tableParts count="${tableRIds.length}">${tableRIds.map((id) => `<tablePart r:id="${id}"/>`).join("")}</tableParts>` : "") +
     `</worksheet>`
@@ -599,9 +602,9 @@ function sanitizeNames(sheets: SheetData[]): string[] {
 }
 
 /** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
-function definedNamesBlock(names: NamedRange[] | undefined): string {
-  if (!names || !names.length) return "";
-  const body = names.map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("");
+function definedNamesBlock(names: NamedRange[] | undefined, extra = ""): string {
+  if ((!names || !names.length) && !extra) return "";
+  const body = (names ?? []).map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("") + extra;
   return `<definedNames>${body}</definedNames>`;
 }
 
@@ -707,7 +710,8 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
   const sheetTags = names
     .map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join("");
-  const definedNamesXml = definedNamesBlock(wb.names);
+  const printNames = wb.sheets.map((sh, i) => printDefinedNames(i, names[i]!, sh.print)).join("");
+  const definedNamesXml = definedNamesBlock(wb.names, printNames);
   files["xl/workbook.xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +

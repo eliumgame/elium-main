@@ -1,4 +1,4 @@
-### 4.7 Espace de travail local
+### Espace de travail local
 
 L'accueil est un **espace de travail unique** : un catalogue de TOUS vos éléments locaux — documents `.elium`, tableurs, présentations et PDF — quel que soit le magasin qui en garde le contenu. Le catalogue ne contient que des métadonnées (titre, dossier, étiquettes, favori, dates, taille) ; le contenu reste dans les bases par type (`elium-drive`, `elium-sheets`, `elium-slides`, `elium-pdfs`).
 

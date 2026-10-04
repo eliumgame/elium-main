@@ -1,4 +1,4 @@
-### 4.2 Tableur
+### Tableur
 
 Moteur de formules `tokenize → parse (AST) → evaluate`, **~59 fonctions**,
 `IFERROR`/`IFNA`, références absolues `$A$1` et **inter-feuilles** `Feuille2!A1`

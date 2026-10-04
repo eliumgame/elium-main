@@ -1,4 +1,4 @@
-## 12. Recouvrement d'organisation
+## Recouvrement d'organisation
 
 Chaque organisation possède son **couple de clés de recouvrement**. À la création,
 le client génère ce couple et **emballe la clé privée d'org vers le créateur**

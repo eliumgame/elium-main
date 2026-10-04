@@ -1,4 +1,4 @@
-### 4.9 Évolutions Documents, Tableur et Présentations (phase E2)
+### Évolutions Documents, Tableur et Présentations (phase E2)
 
 Toutes ces fonctions existent **à l'identique dans la suite locale et dans le Drive collaboratif** (mêmes composants, mêmes codecs CRDT).
 

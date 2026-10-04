@@ -1,4 +1,4 @@
-### 4.8 Réglages, raccourcis et palette de commandes
+### Réglages, raccourcis et palette de commandes
 
 **Réglages** (Ctrl/⌘+,) : navigation par catégories avec recherche — *Général* (langue, démarrage, récents), *Apparence* (thème, densité), *Édition* (police et taille par défaut des nouveaux documents, délai des brouillons, langue du correcteur), *Polices* (gestionnaire), *Raccourcis*, *Espace de travail* (sauvegarde, restauration, corbeille, index), *Sécurité & clés* (identité, clé de réception, carnet de confiance, coffre local), *Mises à jour & version* (état, historique et retour arrière, **port de lancement**), *Confidentialité & données* (effacer les données, **journal d'incidents** local : voir, copier, vider) et *À propos*.
 

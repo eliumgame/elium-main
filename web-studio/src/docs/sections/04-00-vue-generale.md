@@ -1,1 +1,1 @@
-## 4. La suite bureautique locale
+## La suite bureautique locale

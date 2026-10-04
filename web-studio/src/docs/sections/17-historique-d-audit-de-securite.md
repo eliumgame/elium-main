@@ -1,4 +1,4 @@
-## 17. Historique d'audit de sécurité
+## Historique d'audit de sécurité
 
 Audit initial **2026-06-10** (revue de code + pentest, 11 scénarios). La
 cryptographie de chiffrement était solide, mais les garanties d'**intégrité /

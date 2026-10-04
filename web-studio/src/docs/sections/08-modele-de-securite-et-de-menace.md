@@ -1,4 +1,4 @@
-## 8. Modèle de sécurité et de menace
+## Modèle de sécurité et de menace
 
 **Actifs protégés** : confidentialité (profils chiffrés), intégrité (ancrée par le
 sceau), authenticité d'auteur (preuve Ed25519 optionnelle).

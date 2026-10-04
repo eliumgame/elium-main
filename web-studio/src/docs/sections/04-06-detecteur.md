@@ -1,4 +1,4 @@
-### 4.6 Détecteur
+### Détecteur
 
 Outil d'assistance à la relecture qui analyse un document (`.elium`/.docx/.pdf) ou une image seule (PNG/JPEG/WebP) à la recherche d'**indices statistiques et documentaires** — pas un modèle d'IA entraîné, pas un verdict : régularité stylistique du texte (longueur de phrase/paragraphe, tournures clichées, amorces répétées, tiret cadratin, densité de listes), incohérences de mise en forme, métadonnées suspectes (révisions, temps d'édition, dates), marqueurs de provenance dans les images, plus une recherche de plagiat optionnelle sur le web. Chaque signal cite la valeur mesurée et son seuil ; le rapport affiche toujours un score indicatif (0-100) et un disclaimer rappelant qu'il ne s'agit jamais d'une preuve.
 

@@ -1,6 +1,6 @@
-## 19. Annexes
+## Annexes
 
-### 19.1 Référence de configuration (Drive `.env`)
+### Référence de configuration (Drive `.env`)
 
 | Variable | Rôle | Défaut |
 |---|---|---|
@@ -24,7 +24,7 @@ distance renvoyé par `POST /api/links/:token/sign`), `S3_ENDPOINT`, `S3_REGION`
 (`MAX_COLLAB_MESSAGE_BYTES`, `MAX_COLLAB_MESSAGES_PER_SEC`,
 `MAX_COLLAB_CONNECTIONS_PER_USER`).
 
-### 19.2 Glossaire express
+### Glossaire express
 
 - **Zéro-connaissance** : le serveur ne détient jamais de clé ni de contenu en
   clair ; il ne voit que du chiffré et des métadonnées d'autorisation.
@@ -37,6 +37,6 @@ distance renvoyé par `POST /api/links/:token/sign`), `S3_ENDPOINT`, `S3_REGION`
 - **PRF (WebAuthn)** : extension permettant à une passkey de dériver un secret
   stable servant à déverrouiller localement la clé maître.
 
-### 19.3 Licence
+### Licence
 
 MIT.

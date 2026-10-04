@@ -1,4 +1,4 @@
-## 1. Vue d'ensemble
+## Vue d'ensemble
 
 Elium est une **suite bureautique et un Drive d'entreprise chiffrés**, conçus
 _local-first_ et _zéro-connaissance_, articulés autour d'un **format de fichier
@@ -40,7 +40,7 @@ hébergez** et auquel l'app se connecte via son URL (bouton « Serveur » de l'�
 de connexion). Sans serveur configuré, la carte Drive affiche « Serveur Drive
 injoignable ».
 
-### 1.1 Organisation du dépôt
+### Organisation du dépôt
 
 ```
 elium-main/

@@ -1,21 +1,21 @@
-## 9. Signatures — Elium Sign
+## Signatures — Elium Sign
 
 Elium Sign repose sur **deux couches volontairement séparées**.
 
-### 9.1 Signature visuelle (toujours)
+### Signature visuelle (toujours)
 
 Dessin, texte tapé, image, tampon (Approuvé / Validé / …), initiales, QR code, ou
 mixte ; placement libre (déplacement, redimensionnement, rotation, z-index, ancrage
 page) en **% de page** (donc portable). Seule, **elle n'est pas une preuve**
 (copiable) — c'est une marque d'intention.
 
-### 9.2 Preuve cryptographique (optionnelle, niveau « avancé »)
+### Preuve cryptographique (optionnelle, niveau « avancé »)
 
 Empreinte du contenu `SHA-256(canonicalJSON(document))`, signature **Ed25519** sur
 `{v, signatureId, signedContentHash, signer, signedAt}`, empreinte de clé publique,
 horodatage **local** (non qualifié).
 
-### 9.3 Statuts (toujours recalculés à l'ouverture, jamais lus tels quels)
+### Statuts (toujours recalculés à l'ouverture, jamais lus tels quels)
 
 | Statut | Signification |
 |---|---|
@@ -32,7 +32,7 @@ s'établit hors bande (empreinte) ou par épinglage TOFU.
 > retirer une signature et reconstruire le paquet. Pour une non-répudiation forte,
 > utilisez `locked` ou `secure_max` **et** vérifiez la clé publique du signataire.
 
-### 9.4 Signature à distance par lien
+### Signature à distance par lien
 
 Un signataire **sans compte Elium** peut signer via un lien transmis hors bande
 (courriel, message) : il ouvre une page dédiée (`SignLinkView`), le document est

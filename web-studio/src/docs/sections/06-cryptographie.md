@@ -1,6 +1,6 @@
-## 6. Cryptographie
+## Cryptographie
 
-### 6.1 Principe : la sécurité dépend du profil
+### Principe : la sécurité dépend du profil
 
 Les protections sont **optionnelles**. Les profils `standard`/`signed`/`tracked`/
 `locked` laissent le contenu **non chiffré** (portable mais pas confidentiel ;
@@ -8,7 +8,7 @@ Les protections sont **optionnelles**. Les profils `standard`/`signed`/`tracked`
 confidentialité). Les profils `protected`/`encrypted`/`secure_max` chiffrent le
 corps.
 
-### 6.2 Primitives (zéro crypto maison)
+### Primitives (zéro crypto maison)
 
 - **KDF** : Argon2id (t=3, m=256 MiB, p=4 par défaut) — résistant GPU/ASIC.
 - **Chiffrement authentifié** : AES-256-GCM, + **cascade ChaCha20-Poly1305** pour
@@ -24,7 +24,7 @@ corps.
 Aucune primitive « maison » : uniquement `cryptography` et `argon2-cffi` (Python),
 et `@noble/*`, `hash-wasm`, WebCrypto (Web).
 
-### 6.3 Le sceau de document (ancrage anti-altération)
+### Le sceau de document (ancrage anti-altération)
 
 Le sceau est une signature **Ed25519** de l'auteur sur un condensé canonique qui
 lie *ensemble* un sous-ensemble du manifeste, `sha256(signatures)` et
@@ -54,14 +54,14 @@ Vitest).
 > `result.seal.verdict !== "broken"` elle-même. Les interfaces livrées (CLI, Web
 > Studio) affichent le verdict sans bloquer l'ouverture.
 
-### 6.4 Chiffrement optionnel des métadonnées
+### Chiffrement optionnel des métadonnées
 
 Sur un profil chiffré, l'option « Chiffrer aussi les métadonnées » déplace
 titre/signataires/journal dans une enveloppe AEAD *à l'intérieur* du conteneur
 chiffré ; les entrées ZIP en clair sont caviardées. **Opt-in** : par défaut, les
 métadonnées restent en clair pour permettre de lister/rechercher sans ouvrir.
 
-### 6.5 Stockage des clés
+### Stockage des clés
 
 La clé privée Ed25519 du Web Studio n'est **jamais** en clair : elle est chiffrée
 au repos (Argon2id + AES-256-GCM) sous un mot de passe utilisateur, et n'existe en
@@ -69,7 +69,7 @@ clair qu'en mémoire après déverrouillage explicite. `localStorage` ne contien
 la clé publique, l'empreinte et le blob chiffré. Les mots de passe ne sont jamais
 écrits dans le `.elium`.
 
-### 6.6 Aucun recouvrement local (zéro-connaissance)
+### Aucun recouvrement local (zéro-connaissance)
 
 Elium ne connaît, ne stocke ni ne transmet jamais un mot de passe ou un
 fichier-clé en clair. **La perte du mot de passe et/ou du fichier-clé d'un document
@@ -81,7 +81,7 @@ Conservez vos secrets (gestionnaire de mots de passe). *(Côté Drive d'entrepri
 le recouvrement d'organisation — §12 — est la seule voie de récupération d'accès à
 un nœud.)*
 
-### 6.7 DoS & robustesse
+### DoS & robustesse
 
 Bornes KDF **identiques** Python/Web (t≤6, m≤256 MiB, p≤16) ; décompression du
 conteneur plafonnée à 512 MiB ; **ZIP externe** plafonné (128 MiB par entrée,
@@ -91,7 +91,7 @@ lecteur ZIP est assurée côté TS (`format/elium-package.ts`) comme côté Pyth
 
 ---
 
-### 6.8 Trousseau de clés (« Mes clés »)
+### Trousseau de clés (« Mes clés »)
 
 Toutes les clés locales vivent dans **un trousseau unique** (IndexedDB `elium-keys`) : identité de signature
 **Ed25519**, clé de réception **P-256**, et le carnet de contacts. Chaque clé a un état (**active**, **retirée**,

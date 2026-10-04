@@ -1,4 +1,4 @@
-## 18. Journal des versions
+## Journal des versions
 
 > Résumé des jalons majeurs jusqu'à la version courante **4.2.13**.
 

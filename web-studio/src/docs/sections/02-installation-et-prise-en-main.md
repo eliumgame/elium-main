@@ -1,4 +1,4 @@
-## 2. Installation et prise en main
+## Installation et prise en main
 
 Le point d'entrée unique est **`install.sh`**, à la racine du dépôt.
 
@@ -16,7 +16,7 @@ Options de la commande `drive` : `--domain <fqdn>` · `--local` · `--email <acm
 > Sous **Windows**, lancez `install.sh` via **Git Bash** ou **WSL**. Pour la
 > seule suite bureautique, préférez le **MSI**.
 
-### 2.1 Suite bureautique sur un PC
+### Suite bureautique sur un PC
 
 - **Windows (recommandé)** : double-cliquez sur le **MSI** (`Elium-<version>-Setup.msi`,
   dossier `Téléchargements`, ou `installer/output/` après un build). Tout
@@ -42,7 +42,7 @@ Options de la commande `drive` : `--domain <fqdn>` · `--local` · `--email <acm
 - **Mises à jour** : une fois installée, l'app se met à jour **automatiquement**
   depuis les GitHub Releases (voir §3).
 
-### 2.2 Drive d'entreprise sur un VPS (production)
+### Drive d'entreprise sur un VPS (production)
 
 1. **DNS** : un enregistrement **A/AAAA** `drive.exemple.fr` → IP du VPS. Le
    domaine **doit** résoudre avant le lancement (`dig +short drive.exemple.fr`).
@@ -69,7 +69,7 @@ Options de la commande `drive` : `--domain <fqdn>` · `--local` · `--email <acm
 7. **App de bureau → Drive** : carte Drive → bouton **« Serveur »** →
    `https://drive.exemple.fr/api` → Enregistrer.
 
-### 2.3 Drive en local (test)
+### Drive en local (test)
 
 ```bash
 bash install.sh drive --local          # http://localhost (ou --port 8080)
@@ -85,7 +85,7 @@ docker compose up -d --build
 curl -k https://SITE_ADDRESS/api/health
 ```
 
-### 2.4 Services de la pile Drive
+### Services de la pile Drive
 
 | Service | Rôle | Exposition |
 |---|---|---|
@@ -99,7 +99,7 @@ Volumes persistants : `pgdata`, `blobs`, `caddy_data`, `caddy_config`,
 `miniodata` (profil s3). Caddy fournit **HTTPS automatique** (Let's Encrypt/ACME)
 dès que le domaine résout et que les ports 80/443 sont ouverts.
 
-### 2.5 Dépannage rapide
+### Dépannage rapide
 
 - **« Serveur Drive injoignable » / « Not Found »** : aucun serveur configuré →
   bouton **Serveur** → URL de l'API (`https://votre-domaine/api`). L'app de bureau

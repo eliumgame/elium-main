@@ -1,10 +1,10 @@
-## 3. Mises à jour automatiques
+## Mises à jour automatiques
 
 Elium applique un **modèle « push = publication »** et **une racine de confiance
 unique** (la signature Ed25519, jamais le CDN) pour maintenir à jour aussi bien
 l'application de bureau que le serveur Drive.
 
-### 3.1 Publication (mainteneur)
+### Publication (mainteneur)
 
 `git push origin master` suffit **si `__version__` a été augmenté** (`src/elium/__init__.py`) : une version déjà publiée est signalée par un avertissement, jamais silencieusement ignorée. Le workflow `.github/workflows/release.yml` s'exécute **après une CI verte** sur ce commit, en trois jobs aux privilèges séparés :
 
@@ -24,7 +24,7 @@ l'application de bureau que le serveur Drive.
    jamais committer la clé privée. Tant que ce secret est absent, `release.yml`
    s'exécute mais **ne publie pas** (run vert, sans échec).
 
-### 3.2 Application de bureau (client)
+### Application de bureau (client)
 
 `installer/updater.py`, embarqué dans l'exe : au lancement puis périodiquement,
 l'app **détecte** une mise à jour (télécharge `latest.json` + `.sig`, **vérifie
@@ -91,7 +91,7 @@ Désactivation : `ELIUM_NO_UPDATE=1`. **Rotation de clé** : publier d'abord une
 version transitoire embarquant la **nouvelle** clé publique (signée avec
 l'**ancienne**), puis, une fois largement déployée, basculer le secret CI.
 
-### 3.3 Serveur Drive (VPS)
+### Serveur Drive (VPS)
 
 Le Drive se met à jour tout seul selon le même modèle. **Activer (une fois)** :
 une invite le propose en fin de `install.sh drive` (activé par défaut en prod).

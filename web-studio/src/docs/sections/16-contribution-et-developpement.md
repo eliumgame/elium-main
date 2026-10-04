@@ -1,6 +1,6 @@
-## 16. Contribution et développement
+## Contribution et développement
 
-### 16.1 Prérequis
+### Prérequis
 
 - **Python** ≥ 3.9, **Node.js** ≥ 18, **Git**.
 
@@ -20,7 +20,7 @@ cd web-studio && npm install && cd ..
 
 Ou l'assistant Windows : `Elium.wizard.bat`.
 
-### 16.2 Tests et qualité
+### Tests et qualité
 
 | Action | Commande |
 |---|---|
@@ -42,7 +42,7 @@ commit. La CI gâte `server-checks`, `server-e2e` et le lint (ESLint 9 flat +
 Prettier sur web-studio et server ; ruff côté Python). Chaque push sur `master`
 publie une **release signée**.
 
-### 16.3 Conventions
+### Conventions
 
 - **JSON canonique** partout où une empreinte doit être reproductible Python↔TS.
   Les miroirs Python/TS doivent rester **byte-for-byte** (sceau, recipients,
@@ -59,7 +59,7 @@ publie une **release signée**.
   d'interop. Fichiers miroirs : `canonical`, `journal`, `profiles`, `package`
   (`elium-package`), `proof`.
 
-### 16.4 CLI
+### CLI
 
 ```bash
 # Créer un document .elium à partir d'un texte

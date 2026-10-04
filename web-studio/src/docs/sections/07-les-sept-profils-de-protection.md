@@ -1,4 +1,4 @@
-## 7. Les sept profils de protection
+## Les sept profils de protection
 
 Les profils sont **additifs et optionnels**. Chacun combine un sous-ensemble des
 garanties : chiffrement, mot de passe, verrouillage, suivi (journal), signatures.

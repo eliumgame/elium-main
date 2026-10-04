@@ -1,6 +1,6 @@
-## 10. Le Drive d'entreprise
+## Le Drive d'entreprise
 
-### 10.1 Backend (Node/TypeScript Fastify + PostgreSQL)
+### Backend (Node/TypeScript Fastify + PostgreSQL)
 
 - **Zéro-connaissance** : le serveur ne stocke que du **chiffré** (contenu, noms
   de fichiers, clés emballées) et des métadonnées d'autorisation. Jamais de mot de
@@ -17,7 +17,7 @@
   idempotent ; sur un S3 externe verrouillé qui interdit `CreateBucket`, un bucket
   pré-existant est simplement détecté).
 
-### 10.2 RBAC : rôles, permissions, héritage
+### RBAC : rôles, permissions, héritage
 
 - **Catalogue de 36 permissions** et **7 rôles système** clonés par organisation.
   Un rôle personnalisé est n'importe quel sous-ensemble de permissions.
@@ -28,7 +28,7 @@
 - Le partage est **profond** : un accès accordé sur un dossier est hérité par tout
   son sous-arbre.
 
-### 10.3 Partage, versions, corbeille
+### Partage, versions, corbeille
 
 - **Partage** vers un **membre**, une **équipe** ou par **lien externe** (liens
   publics chiffrés, avec page publique d'ouverture).
@@ -46,7 +46,7 @@ depuis son ouverture (par exemple par un collègue), Elium le signale et demande
 remplacer. Il n'y a pas de co-édition en temps réel des PDF. « Retour au Drive » ferme
 l'éditeur ; « Télécharger » reste disponible dans les actions du fichier.
 
-### 10.4 Co-édition temps réel chiffrée
+### Co-édition temps réel chiffrée
 
 CRDT **Yjs** pour Documents, Tableur et Présentations : curseurs colorés, présence.
 Le **relais ne voit que du chiffré** — les updates Yjs sont chiffrées côté client
@@ -61,7 +61,7 @@ locale).
 > de processus (mono-instance). La scalabilité horizontale (backplane Redis/NATS)
 > est identifiée comme un chantier à venir.
 
-### 10.5 Client (SDK + UI)
+### Client (SDK + UI)
 
 - **SDK chiffré typé** (refresh automatique des jetons), cryptographie par nœud,
   providers de co-édition.

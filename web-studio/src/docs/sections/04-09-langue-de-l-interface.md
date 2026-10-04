@@ -1,4 +1,4 @@
-### 4.9 Langue de l'interface
+### Langue de l'interface
 
 Réglages → Général → Langue : **français** (source de vérité) et **anglais**, appliquée immédiatement et mémorisée. Le cadre `src/i18n/` est sans dépendance : catalogues typés `messages/fr/*.ts` et `messages/en/*.ts`, fonctions `t()`, `tn()` (pluriels `_one` / `_other` selon `Intl.PluralRules`) et formats `fmt.*` (dates, nombres, tailles, durées relatives via `Intl`). Les dates ne codent plus « fr-FR » en dur dans l'accueil, l'espace de travail, les réglages, le Détecteur et les panneaux : elles suivent la langue active (`localeTag()`).
 

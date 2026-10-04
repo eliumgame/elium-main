@@ -1,11 +1,11 @@
-## 15. Confidentialité et RGPD
+## Confidentialité et RGPD
 
 Traitement **100 % local par défaut** : aucun document n'est envoyé en ligne sans
 action explicite. L'édition, la signature, le chiffrement, la vérification et
 l'export ont lieu sur votre poste (navigateur ou CLI). Aucune télémétrie n'est
 collectée.
 
-### 15.1 Ce qui est stocké dans un fichier `.elium`
+### Ce qui est stocké dans un fichier `.elium`
 
 | Donnée | Présence | Remarque |
 |---|---|---|
@@ -22,7 +22,7 @@ Le manifeste expose `rgpd.storedPersonalData` : la liste des catégories de donn
 personnelles **réellement** présentes dans le fichier. Le panneau **Infos** de
 l'éditeur l'affiche en clair.
 
-### 15.2 Principes RGPD appliqués
+### Principes RGPD appliqués
 
 | Principe | Mise en œuvre |
 |---|---|

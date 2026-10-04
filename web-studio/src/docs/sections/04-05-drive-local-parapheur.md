@@ -1,4 +1,4 @@
-### 4.5 Drive local & Parapheur
+### Drive local & Parapheur
 
 - **Drive local** : bibliothèque de documents `.elium` en IndexedDB, chiffrée au
   repos ; **coffre local** optionnel chiffré (mot de passe d'application séparé,

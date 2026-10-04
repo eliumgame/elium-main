@@ -1,10 +1,10 @@
-## 5. Le format `.elium`
+## Le format `.elium`
 
 **Statut : v4** — format documentaire. La v3 (conteneur binaire chiffré
 mono-fichier) reste lisible en mode *hérité* et sert de **primitive de
 chiffrement** à la v4.
 
-### 5.1 Structure de l'archive (ZIP style OPC)
+### Structure de l'archive (ZIP style OPC)
 
 ```
 document.elium (ZIP)
@@ -23,7 +23,7 @@ les profils chiffrés, **seul le corps** est chiffré ; le manifeste, le journal
 la liste des signatures restent lisibles par conception (sauf option de
 chiffrement des métadonnées, §6.4).
 
-### 5.2 Manifeste, intégrité, sceau
+### Manifeste, intégrité, sceau
 
 Le manifeste (`format`, `formatVersion:4`, `profile`, `title`, dates,
 `protection{…}`, `integrity{algorithm, contentHash}`, `features`, `rgpd`, `seal?`)
@@ -32,7 +32,7 @@ stockés : il détecte une **corruption accidentelle**, pas une altération dél
 (il vit dans le manifeste en clair, donc recalculable par un attaquant). La
 détection anti-altération est assurée par le **sceau** (§6.3).
 
-### 5.3 Modèle de document
+### Modèle de document
 
 `content/document.json` : `{ schema:"elium-doc/1", page{format, orientation,
 margins(mm), showPageNumbers}, doc{arbre ProseMirror/TipTap} }`. Nœuds :
@@ -40,7 +40,7 @@ paragraph, heading, listes/tâches, blockquote, codeBlock(language),
 horizontalRule, image, table/row/header/cell. Marques : bold, italic, underline,
 strike, code, link, highlight, textStyle(color/fontFamily/fontSize).
 
-### 5.4 Journal de suivi & JSON canonique
+### Journal de suivi & JSON canonique
 
 Le journal `tracking/journal.json` est une suite d'évènements **chaînés par hash**
 (`hash = sha256(prevHash + canonicalJSON(payload))`) — toute rupture indique une
@@ -56,7 +56,7 @@ Les événements de consultation (ouverture, export, validation de signature) so
 récursivement, séparateurs `","`/`":"`, UTF-8, clés vides omises ; les empreintes
 sont des SHA-256 sur l'UTF-8 du JSON canonique.
 
-### 5.5 Ressources adressées par contenu et `docId`
+### Ressources adressées par contenu et `docId`
 
 Les ressources (polices embarquées, images) vivent dans `resources/` nommées par
 leur `sha256`, référencées par `resources/index.json` — donc couvertes par le
@@ -65,14 +65,14 @@ du document (index local versions/Parapheur/pinning), avec repli sur `createdAt`
 pour les fichiers hérités (`docKeyOf`) ; il est hors du sous-ensemble signé du
 sceau.
 
-### 5.6 Conteneur hérité v3 (primitive de chiffrement)
+### Conteneur hérité v3 (primitive de chiffrement)
 
 ```
 Magic(6) ELIUM\x03 | HeaderLen(4 BE) | Header JSON | CiphertextLen(8 BE) |
 Ciphertext (AES-GCM ± ChaCha20) | Signature(64 Ed25519, opt.) | HMAC(32)
 ```
 
-### 5.7 Parité Python ↔ TypeScript
+### Parité Python ↔ TypeScript
 
 Le format, le sceau, les signatures et le chiffrement sont **byte-for-byte
 identiques** entre l'implémentation Python et TypeScript, prouvés par des fixtures

@@ -1,4 +1,4 @@
-### 4.3 Présentations
+### Présentations
 
 Modèle **canvas libre** : chaque diapo est une liste d'éléments (texte riche /
 forme / image) positionnés en %, avec **rotation, ordre de plan, opacité**.

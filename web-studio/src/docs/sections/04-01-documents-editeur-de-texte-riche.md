@@ -1,4 +1,4 @@
-### 4.1 Documents (éditeur de texte riche)
+### Documents (éditeur de texte riche)
 
 Moteur **TipTap v3 / ProseMirror**. Titres, listes (puces/numérotées/tâches),
 citations, blocs de code coloriés (`lowlight`), tableaux, images avec habillage

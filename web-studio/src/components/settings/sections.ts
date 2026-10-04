@@ -4,7 +4,7 @@
  * ce qui permet de la retrouver par un synonyme (« police », « mot de passe »,
  * « port »…) quelle que soit sa catégorie.
  */
-import { fuzzyMatch } from "../../commands/fuzzy";
+import { foldText, queryTerms } from "../../workspace/search/text";
 import type { MessageKey } from "../../i18n";
 
 export type CategoryId =
@@ -144,20 +144,25 @@ export function sectionsOf(category: CategoryId): SectionMeta[] {
  * `tr` traduit une clé dans la langue active.
  */
 export function searchSections(query: string, tr: (key: MessageKey) => string): SectionMeta[] {
-  const q = query.trim();
-  if (!q) return [];
-  const catLabel = new Map(CATEGORIES.map((c) => [c.id, tr(c.labelKey)]));
+  const words = queryTerms(query);
+  if (words.length === 0) return [];
+  const catLabel = new Map(CATEGORIES.map((c) => [c.id, foldText(tr(c.labelKey))]));
   const scored: { s: SectionMeta; score: number; order: number }[] = [];
   SECTIONS.forEach((s, order) => {
-    const title = fuzzyMatch(q, tr(s.titleKey));
-    const kw = fuzzyMatch(q, tr(s.keywordsKey));
-    const cat = fuzzyMatch(q, catLabel.get(s.category) ?? "");
-    const best = Math.max(
-      title ? title.score + 30 : -Infinity,
-      kw ? kw.score : -Infinity,
-      cat ? cat.score - 20 : -Infinity,
-    );
-    if (best > -Infinity) scored.push({ s, score: best, order });
+    const title = foldText(tr(s.titleKey));
+    const kw = foldText(tr(s.keywordsKey));
+    const cat = catLabel.get(s.category) ?? "";
+    let score = 0;
+    // Tous les mots doivent figurer quelque part (sous-chaîne : « port » ne doit pas trouver « typographie »).
+    for (const w of words) {
+      let best = 0;
+      if (title.includes(w)) best = title.startsWith(w) ? 100 : 80;
+      else if (kw.includes(w)) best = 40;
+      else if (cat.includes(w)) best = 20;
+      if (best === 0) return;
+      score += best;
+    }
+    scored.push({ s, score, order });
   });
   return scored.sort((a, b) => b.score - a.score || a.order - b.order).map((x) => x.s);
 }

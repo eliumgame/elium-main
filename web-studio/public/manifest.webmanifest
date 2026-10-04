@@ -14,10 +14,7 @@
   "file_handlers": [
     {
       "action": "/",
-      "accept": {
-        "application/x-elium": [".elium"],
-        "application/x-elium-workspace": [".elium-workspace"]
-      },
+      "accept": { "application/x-elium": [".elium"] },
       "launch_type": "single-client"
     }
   ],

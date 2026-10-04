@@ -68,11 +68,6 @@ function makeDeps(b: WorkspaceSettingsBridge): BackupDeps {
   };
 }
 
-const BACKUP_TYPE = {
-  description: "Sauvegarde d'espace de travail Elium",
-  accept: { "application/x-elium-workspace": [".elium-workspace"] },
-};
-
 export function BackupSection({ bridge }: { bridge: WorkspaceSettingsBridge }) {
   const { t } = useI18n();
   const { confirm, alert } = useDialogs();
@@ -115,7 +110,7 @@ export function BackupSection({ bridge }: { bridge: WorkspaceSettingsBridge }) {
           showSaveFilePicker?: (o: unknown) => Promise<import("../../workspace/fs-access").FsFileHandle>;
         };
         try {
-          const handle = await w.showSaveFilePicker!({ suggestedName: name, types: [BACKUP_TYPE] });
+          const handle = await w.showSaveFilePicker!({ suggestedName: name });
           await writeToHandle(handle, bytes, "application/x-elium-workspace");
           saved = true;
         } catch (e) {

@@ -1,4 +1,4 @@
-import { Save, Eye, Pencil, Home, Settings, Loader2, FolderOpen } from "lucide-react";
+import { Save, Eye, Pencil, Home, Settings, Loader2 } from "lucide-react";
 import { Button } from "../ui/components";
 import StatusBadges from "./StatusBadges";
 import type { Studio } from "../studio/types";
@@ -50,16 +50,6 @@ export default function TopBar({ studio }: { studio: Studio }) {
               aria-label={t("topbar.preview")}
             >
               <Eye size={16} /> <span className="eb__label">{t("topbar.preview")}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void studio.saveAs()}
-              disabled={studio.busy}
-              title={t("studio.cmd.save_as")}
-              aria-label={t("studio.cmd.save_as")}
-            >
-              <FolderOpen size={16} /> <span className="eb__label">{t("topbar.save_as")}</span>
             </Button>
             <Button
               size="sm"

@@ -270,7 +270,7 @@ jobs:
         run: |
           $wix = Join-Path $env:RUNNER_TEMP 'wix'
           New-Item -ItemType Directory -Force -Path installer/output, installer/build | Out-Null
-          python installer/make_msi_assets.py
+          # Les visuels du MSI (installer/assets/*.bmp, .rtf) sont versionnés : pas de régénération ici (elle exige Pillow).
           $targets = @{ perMachine = "installer/output/Elium-$env:VER-Setup.msi"; perUser = "installer/output/Elium-User-$env:VER.msi" }
           foreach ($scope in $targets.Keys) {
             & "$wix\candle.exe" -nologo -arch x64 "-dScope=$scope" -ext WixUtilExtension -out "installer/build/elium-$scope.wixobj" installer/elium.wxs

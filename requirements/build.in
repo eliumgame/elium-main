@@ -4,3 +4,5 @@
 -r runtime.in
 pyinstaller==6.21.0
 pytest>=7.0
+# SBOM CycloneDX des dépendances Python embarquées (étape « SBOM Python » du workflow de release).
+cyclonedx-bom

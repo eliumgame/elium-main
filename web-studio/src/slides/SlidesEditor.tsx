@@ -103,6 +103,7 @@ import MorphCanvas from "./MorphCanvas";
 import SlideSorter from "./SlideSorter";
 import MasterEditor from "./MasterEditor";
 import HandoutsDialog from "./HandoutsDialog";
+import DiagramDialog from "./DiagramDialog";
 import {
   TABLE_STYLES,
   deleteCol as tDeleteCol,
@@ -224,6 +225,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [managerOpen, setManagerOpen] = useState(false);
   const [masterOpen, setMasterOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [diagramDlg, setDiagramDlg] = useState<null | "new" | "edit">(null);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
@@ -951,6 +953,13 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           <input ref={imgRef} type="file" accept="image/*" hidden onChange={onImage} />
           <button
             className="eb eb--sm eb--ghost"
+            title="Insérer un diagramme (processus, cycle, hiérarchie, liste) depuis un plan"
+            onClick={() => setDiagramDlg("new")}
+          >
+            <Group size={15} /> Diagramme
+          </button>
+          <button
+            className="eb eb--sm eb--ghost"
             title="Insérer un son ou une vidéo (embarqué, lisible hors ligne)"
             onClick={() => mediaRef.current?.click()}
           >
@@ -1239,6 +1248,11 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               </button>
               <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
             </>
+          )}
+          {sel?.type === "diagram" && (
+            <button className="eb eb--sm eb--ghost" onClick={() => setDiagramDlg("edit")}>
+              Modifier le diagramme
+            </button>
           )}
           {isMedia && (
             <div className="sv-media-bar" role="group" aria-label="Options du média">
@@ -1819,6 +1833,27 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             style={{ width: "100%" }}
           />
         </Modal>
+      )}
+      {diagramDlg && (
+        <DiagramDialog
+          initial={diagramDlg === "edit" ? sel?.diagram : undefined}
+          onSave={(d) => {
+            if (diagramDlg === "edit" && sel) store.updateEl(sel.id, { diagram: d }, true);
+            else
+              addEl({
+                id: newElementId(),
+                type: "diagram",
+                x: 12,
+                y: 18,
+                w: 76,
+                h: 62,
+                rotation: 0,
+                opacity: 1,
+                diagram: d,
+              });
+          }}
+          onClose={() => setDiagramDlg(null)}
+        />
       )}
       {printOpen && <HandoutsDialog deck={deck} title={chrome.title} onClose={() => setPrintOpen(false)} />}
       {masterOpen && (

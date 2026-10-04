@@ -12,6 +12,7 @@ import { zipSync, strToU8 } from "fflate";
 import type { Deck, Slide, Shape, SlideElement, SlideTheme, ShapeKind, ChartData, SlideMaster, SlideLayoutDef, PlaceholderKind } from "./model";
 import { defaultMaster, isPromptOnly, SLIDE_NUMBER_TOKEN } from "./master";
 import { mediaExt, mimeFromExt } from "./media";
+import { layoutDiagram, nodeFontPx } from "./diagram";
 import { bodyHtmlOf } from "./model";
 import { escapeXmlText } from "../format/xml-text";
 
@@ -397,6 +398,58 @@ function elementXml(
       `<p:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
       `<p:spPr>${xfrm(x, y, w, h, rot)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
     );
+  }
+
+  if (el.type === "diagram" && el.diagram) {
+    // Le diagramme est exporté en vraies formes + connecteurs PowerPoint (modifiables) ; le plan reste dans le .elium.
+    const lay = layoutDiagram(el.diagram.kind, el.diagram.outline, el.diagram.colors);
+    const byId = new Map(lay.nodes.map((n) => [n.id, n]));
+    const base = 10000 + id * 100;
+    const px = (pctX: number) => ex(el.x + (pctX / 100) * el.w, CX);
+    const py = (pctY: number) => ex(el.y + (pctY / 100) * el.h, CY);
+    const out: string[] = [];
+    lay.edges.forEach((e, k) => {
+      const a = byId.get(e.from);
+      const b = byId.get(e.to);
+      if (!a || !b) return;
+      const segs: [number, number, number, number, boolean][] =
+        e.kind === "line"
+          ? (() => {
+              const x1 = a.x + a.w / 2;
+              const y1 = a.y + a.h;
+              const x2 = b.x + b.w / 2;
+              const y2 = b.y;
+              const my = (y1 + y2) / 2;
+              return [
+                [x1, y1, x1, my, false],
+                [x1, my, x2, my, false],
+                [x2, my, x2, y2, false],
+              ];
+            })()
+          : [[a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, true]];
+      segs.forEach(([x1, y1, x2, y2, arrow], s) => {
+        const X1 = px(x1);
+        const Y1 = py(y1);
+        const X2 = px(x2);
+        const Y2 = py(y2);
+        const flip = `${X2 < X1 ? ' flipH="1"' : ""}${Y2 < Y1 ? ' flipV="1"' : ""}`;
+        out.push(
+          `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${base + 50 + k * 3 + s}" name="Lien ${k + 1}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>` +
+            `<p:spPr><a:xfrm${flip}><a:off x="${Math.min(X1, X2)}" y="${Math.min(Y1, Y2)}"/><a:ext cx="${Math.abs(X2 - X1)}" cy="${Math.abs(Y2 - Y1)}"/></a:xfrm><a:prstGeom prst="line"><a:avLst/></a:prstGeom>` +
+            `<a:ln w="19050"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill>${arrow ? '<a:tailEnd type="triangle" w="med" len="med"/>' : ""}</a:ln></p:spPr></p:cxnSp>`,
+        );
+      });
+    });
+    lay.nodes.forEach((n) => {
+      const fsz = Math.round(nodeFontPx(n, (el.h / 100) * 720, (el.w / 100) * 1280) * 75);
+      out.push(
+        `<p:sp><p:nvSpPr><p:cNvPr id="${base + n.id}" name="Diagramme ${n.id + 1}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +
+          `<p:spPr>${xfrm(px(n.x), py(n.y), ex((n.w / 100) * el.w, CX), ex((n.h / 100) * el.h, CY))}<a:prstGeom prst="${n.round ? "ellipse" : "roundRect"}"><a:avLst/></a:prstGeom>` +
+          `<a:solidFill><a:srgbClr val="${hex(n.color)}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>` +
+          `<p:txBody><a:bodyPr anchor="ctr" lIns="45720" rIns="45720" tIns="22860" bIns="22860"><a:normAutofit/></a:bodyPr><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="fr-FR" sz="${Math.max(800, fsz)}" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>${xmlEsc(n.text)}</a:t></a:r></a:p></p:txBody></p:sp>`,
+      );
+    });
+    return out.join("");
   }
 
   if (el.type === "media" && el.media) {

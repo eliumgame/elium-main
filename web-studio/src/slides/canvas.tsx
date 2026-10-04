@@ -8,9 +8,10 @@
 import "./master.css";
 import { playbackSrc } from "./media";
 import { cellClass, isCovered, mergeAt } from "./table";
+import { layoutDiagram, nodeFontPx, type DEdge, type DNode } from "./diagram";
 import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
+import { REF_H, REF_W, type Slide, type SlideElement, type SlideTheme, type ShapeKind } from "./model";
 import type { RevealState } from "./playback";
 import {
   selectionAfterClick,
@@ -187,6 +188,52 @@ function TableCell({
   );
 }
 
+/** Diagramme SmartArt : recalculé depuis son plan à chaque rendu (toujours modifiable). */
+export function DiagramView({ d, scale, w, h }: { d: NonNullable<SlideElement["diagram"]>; scale: number; w: number; h: number }) {
+  const lay = layoutDiagram(d.kind, d.outline, d.colors);
+  const byId = new Map<number, DNode>(lay.nodes.map((n) => [n.id, n]));
+  const boxW = (w / 100) * REF_W;
+  const boxH = (h / 100) * REF_H;
+  const edgePath = (e: DEdge): string | null => {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (!a || !b) return null;
+    if (e.kind === "line") {
+      const x1 = a.x + a.w / 2;
+      const y1 = a.y + a.h;
+      const x2 = b.x + b.w / 2;
+      const y2 = b.y;
+      const my = (y1 + y2) / 2;
+      return `M${x1},${y1} L${x1},${my} L${x2},${my} L${x2},${y2}`;
+    }
+    return `M${a.x + a.w / 2},${a.y + a.h / 2} L${b.x + b.w / 2},${b.y + b.h / 2}`;
+  };
+  return (
+    <div className="ce-diagram" role="img" aria-label={`Diagramme (${lay.nodes.length} éléments) : ${lay.nodes.map((n) => n.text).join(", ")}`}>
+      <svg className="ce-diagram__edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <marker id="dg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#64748b" />
+          </marker>
+        </defs>
+        {lay.edges.map((e, i) => {
+          const p = edgePath(e);
+          return p ? <path key={i} d={p} fill="none" stroke="#64748b" strokeWidth={2} vectorEffect="non-scaling-stroke" markerEnd={e.kind === "arrow" ? "url(#dg-arrow)" : undefined} /> : null;
+        })}
+      </svg>
+      {lay.nodes.map((n) => (
+        <div
+          key={n.id}
+          className={`ce-diagram__node ${n.round ? "is-round" : ""}`}
+          style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%`, background: n.color, fontSize: nodeFontPx(n, boxH, boxW) * scale }}
+        >
+          <span>{n.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Audio/vidéo : lecteur en projection, vignette partout ailleurs (miniatures, éditeur). */
 function MediaView({ m, play }: { m: NonNullable<SlideElement["media"]>; play: boolean }) {
   const ref = useRef<HTMLMediaElement>(null);
@@ -259,6 +306,9 @@ function ElementView({
     ) : (
       <div className="ce-imgph">Image</div>
     );
+  }
+  if (el.type === "diagram" && el.diagram) {
+    return <DiagramView d={el.diagram} scale={scale} w={el.w} h={el.h} />;
   }
   if (el.type === "media" && el.media) {
     return <MediaView m={el.media} play={!!playMedia} />;

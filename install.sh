@@ -831,6 +831,7 @@ do_backup() {
   warn "Conservez-les sur un support chiffré. Sans les clés côté clients, elles restent illisibles (zéro-connaissance)."
 }
 
+# shellcheck disable=SC2120  # les arguments (fichier de sauvegarde) sont optionnels, lus via $1 quand fournis
 do_restore() {
   detect_compose; [ -n "$DC" ] || die "Docker Compose requis."
   local out="$SCRIPT_DIR/backups"

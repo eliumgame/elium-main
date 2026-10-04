@@ -80,6 +80,8 @@ const STRUCTURAL = new Set([
   "indexBlock",
   "tableOfFigures",
   "image",
+  "docChart",
+  "bibliography",
 ]);
 
 // =========================================================================

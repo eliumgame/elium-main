@@ -37,6 +37,7 @@ import { dropCapXml, normalizeWatermark, watermarkVml } from "../editor/ornament
 import { tablePrXml, vAlignXml } from "../editor/tableStyles";
 import { textBoxShapeType, textBoxVml } from "../editor/textBox";
 import { chartDataOf } from "../editor/chartData";
+import { BIBLIOGRAPHY_TITLES, type CitationStyle, type RefPart } from "../editor/citations";
 import { chartSpaceXml, readChartOptions, C_NS as CHART_NS } from "../sheet/chart-ooxml";
 import { readChartData } from "../sheet/chart-read";
 import { clampAdj, dashFromOoxml, defaultAdj, emuToMm, kindFromPrst, shapeDef, shapeXml } from "../editor/shapes";
@@ -581,6 +582,10 @@ function inlineItemXml(c: ProseMirrorNode, ctx: WriteCtx): string {
   if (c.type === "equation") {
     return runXml(String(c.attrs?.latex ?? ""), [{ type: "italic" }], ctx);
   }
+  // Une citation s'exporte comme son texte déjà mis en forme : « (Dupont, 2020) ».
+  if (c.type === "citation") {
+    return runXml(String(c.attrs?.text ?? ""), [], ctx);
+  }
   if (c.type === "text") {
     const marks = c.marks ?? [];
     const link = marks.find((m) => m.type === "link");
@@ -828,6 +833,21 @@ function blockXml(
         ? `<w:p>${paraProps({ align })}<w:r><w:rPr><w:i/><w:color w:val="64748b"/></w:rPr><w:t xml:space="preserve">${xmlEsc(caption)}</w:t></w:r></w:p>`
         : "";
       return imgP + capP;
+    }
+    case "bibliography": {
+      const st = (node.attrs?.style as CitationStyle) ?? "apa";
+      const entries = (node.attrs?.entries as RefPart[][]) ?? [];
+      const head = `<w:p>${paraProps({ style: "Heading2" })}<w:r><w:t xml:space="preserve">${xmlEsc(BIBLIOGRAPHY_TITLES[st])}</w:t></w:r></w:p>`;
+      // Retrait suspendu : usage des bibliographies APA/MLA.
+      const body = entries
+        .map(
+          (e) =>
+            `<w:p><w:pPr><w:ind w:left="567" w:hanging="567"/></w:pPr>${e
+              .map((part) => runXml(part.t, part.i ? [{ type: "italic" }] : [], ctx))
+              .join("")}</w:p>`,
+        )
+        .join("");
+      return head + body;
     }
     case "docChart": {
       const d = chartDataOf(node.attrs);

@@ -33,6 +33,7 @@ import EquationModal from "./EquationModal";
 import { onEquationEditRequest, type EquationEditRequest } from "./equationExtension";
 import { onChartEditRequest, type ChartEditRequest } from "./chartExtension";
 import ChartModal from "./ChartModal";
+import SourcesModal from "./SourcesModal";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -266,6 +267,7 @@ export default function RichEditor({
     | "symbol"
     | "equation"
     | "chart"
+    | "sources"
     | "theme"
     | "watermark"
     | "grid"
@@ -518,6 +520,7 @@ export default function RichEditor({
           onOpenSymbol={() => setDialog("symbol")}
           onOpenEquation={() => setDialog("equation")}
           onOpenChart={() => setDialog("chart")}
+          onOpenSources={() => setDialog("sources")}
           onOpenTheme={() => setDialog("theme")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
@@ -717,6 +720,7 @@ export default function RichEditor({
       {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "equation" && <EquationModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "chart" && <ChartModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "sources" && <SourcesModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && chartEdit && (
         <ChartModal editor={editor} editingPos={chartEdit.pos} initial={chartEdit.data} onClose={() => setChartEdit(null)} />
       )}

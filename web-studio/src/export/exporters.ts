@@ -14,6 +14,7 @@ import { buildIndexJson, type IndexGroup } from "../editor/indexing";
 import { collectTargetsJson, referenceLabel, type RefDisplay, type RefTarget } from "../editor/crossref";
 import { sectionBreakLabelFor } from "../editor/sections";
 import { chartDataOf, chartSvg } from "../editor/chartData";
+import { BIBLIOGRAPHY_TITLES, partsToHtml, partsToText, type CitationStyle, type RefPart } from "../editor/citations";
 import { pageSizeOf } from "../format/pageSizes";
 import { fontFaceCss, fontResources } from "../format/embedded-fonts";
 import {
@@ -461,6 +462,13 @@ function blockHtml(node: ProseMirrorNode, ctx: HtmlCtx): string {
       const d = chartDataOf(node.attrs);
       return `<figure class="elium-doc-chart">${chartSvg(d)}</figure>`;
     }
+    case "citation":
+      return `<span class="elium-citation">${esc(String(node.attrs?.text ?? ""))}</span>`;
+    case "bibliography": {
+      const st = (node.attrs?.style as CitationStyle) ?? "apa";
+      const entries = (node.attrs?.entries as RefPart[][]) ?? [];
+      return `<section class="elium-bibliography"><h2>${BIBLIOGRAPHY_TITLES[st]}</h2>${entries.map((e) => `<p class="elium-bibliography__entry">${partsToHtml(e)}</p>`).join("")}</section>`;
+    }
     case "figure": {
       const align = esc(String(node.attrs?.align ?? "center"));
       const w = node.attrs?.width ? safeCss(String(node.attrs.width)) : "";
@@ -690,6 +698,12 @@ function nodeMd(node: ProseMirrorNode, ctx: FlatCtx): string {
       return `\`${String(node.attrs?.latex ?? "")}\``;
     case "docChart":
       return chartAsTable(chartDataOf(node.attrs), true);
+    case "citation":
+      return String(node.attrs?.text ?? "");
+    case "bibliography": {
+      const st = (node.attrs?.style as CitationStyle) ?? "apa";
+      return `## ${BIBLIOGRAPHY_TITLES[st]}\n\n${((node.attrs?.entries as RefPart[][]) ?? []).map((e) => `- ${e.map((p) => (p.i ? `*${p.t}*` : p.t)).join("")}`).join("\n")}`;
+    }
     case "bulletList":
     case "orderedList":
       return listMd(node, ctx);
@@ -826,6 +840,12 @@ function nodeText(node: ProseMirrorNode, ctx: FlatCtx): string {
       return String(node.attrs?.latex ?? "");
     case "docChart":
       return chartAsTable(chartDataOf(node.attrs), false);
+    case "citation":
+      return String(node.attrs?.text ?? "");
+    case "bibliography": {
+      const st = (node.attrs?.style as CitationStyle) ?? "apa";
+      return `${BIBLIOGRAPHY_TITLES[st]}\n${((node.attrs?.entries as RefPart[][]) ?? []).map((e) => partsToText(e)).join("\n")}`;
+    }
     case "bulletList":
     case "orderedList":
       return listText(node, ctx);
@@ -946,6 +966,7 @@ const PRINT_CSS = `
   .elium-columns > *{break-inside:avoid-column}
   .elium-xref{color:#1d4ed8;text-decoration:none}
   .elium-mergefield{white-space:nowrap}
+  .elium-bibliography{margin-top:24px} .elium-bibliography__entry{padding-left:2em;text-indent:-2em;margin:.4em 0}
   .elium-doc-chart{margin:12px 0;text-align:center;break-inside:avoid} .elium-doc-chart svg{max-width:100%;height:auto}
   /* Repli d'export (source LaTeX, pas de rendu KaTeX) — voir editor/equationExtension.ts. */
   .elium-equation{font-family:"Cambria Math",Cambria,serif;padding:0 2px}

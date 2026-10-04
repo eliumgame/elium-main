@@ -115,9 +115,33 @@ def version_tuple(v: str) -> tuple:
     return (parts[0], parts[1], parts[2], 0 if pre else 1)
 
 
+def version_key(v: str) -> tuple:
+    """
+    Clé de TRI complète : `version_tuple` + l'ordre entre préversions.
+
+    `4.7.0-rc2` doit passer après `4.7.0-rc1` (et `rc10` après `rc2`), ce que le
+    simple drapeau « finale/préversion » de `version_tuple` ne distingue pas. Le
+    suffixe est découpé en identifiants (séparés par `.` ou `-`), eux-mêmes
+    découpés en blocs numériques/textuels ; un bloc numérique précède un bloc
+    textuel (règle semver). Une version finale a un suffixe vide, donc passe
+    après toutes ses préversions. La longueur du tuple est constante (5).
+    """
+    base = version_tuple(v)
+    s = (v or "").strip()
+    if s.lower().startswith("v"):
+        s = s[1:]
+    s = s.split("+", 1)[0]
+    _, _, pre = s.partition("-")
+    key: list = []
+    for ident in re.split(r"[.-]", pre) if pre else []:
+        for chunk in re.findall(r"\d+|\D+", ident):
+            key.append((0, int(chunk), "") if chunk.isdigit() else (1, 0, chunk.lower()))
+    return (*base, tuple(key))
+
+
 def is_newer(candidate: str, reference: str) -> bool:
     """Vrai si `candidate` est strictement postérieure à `reference`."""
-    return version_tuple(candidate) > version_tuple(reference)
+    return version_key(candidate) > version_key(reference)
 
 
 def clean_subject(message: str) -> str:
@@ -195,7 +219,7 @@ def merge_history(
         if not version:
             continue
         by_version[version] = build_entry(version, entry.get("date", ""), entry.get("changes") or [])
-    ordered = sorted(by_version.values(), key=lambda e: version_tuple(e["version"]), reverse=True)
+    ordered = sorted(by_version.values(), key=lambda e: version_key(e["version"]), reverse=True)
     return ordered[: max(0, keep)]
 
 
@@ -218,7 +242,7 @@ def changes_since(
             continue
         if not local_version or is_newer(version, local_version):
             out.append(build_entry(version, entry.get("date", ""), entry.get("changes") or []))
-    out.sort(key=lambda e: version_tuple(e["version"]), reverse=True)
+    out.sort(key=lambda e: version_key(e["version"]), reverse=True)
     return out if limit is None else out[: max(0, limit)]
 
 
@@ -304,6 +328,14 @@ def previous_tag(current_tag: str = "", cwd: str | None = None) -> str:
     return ""
 
 
+def render_notes_markdown(version: str, changes: Iterable[str]) -> str:
+    """Corps Markdown de la GitHub Release : les MÊMES nouveautés que la carte de mise à jour
+    (une seule source — plus de `--generate-notes` divergent)."""
+    items = [c for c in changes if str(c).strip()]
+    body = "\n".join(f"- {c}" for c in items) if items else "- Améliorations et corrections diverses."
+    return f"## Elium {version}\n\n{body}\n"
+
+
 def _main(argv: list[str] | None = None) -> int:
     import argparse
     import json
@@ -315,6 +347,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", default="", help="Date de publication (AAAA-MM-JJ) ; aujourd'hui par défaut.")
     parser.add_argument("--prev-manifest", default="", help="latest.json déjà publié, pour empiler l'historique.")
     parser.add_argument("--keep", type=int, default=20)
+    parser.add_argument("--notes-md", default="",
+                        help="Écrit aussi le corps Markdown de la GitHub Release (source unique des notes).")
     parser.add_argument("--out", default="", help="Fichier de sortie ; stdout par défaut.")
     args = parser.parse_args(argv)
 
@@ -339,6 +373,8 @@ def _main(argv: list[str] | None = None) -> int:
         "changes": entry["changes"],
         "history": merge_history([entry], previous, keep=args.keep),
     }
+    if args.notes_md:
+        Path(args.notes_md).write_text(render_notes_markdown(version, entry["changes"]), encoding="utf-8")
     text = json.dumps(payload, indent=2, ensure_ascii=False)
     if args.out:
         out_path = Path(args.out)

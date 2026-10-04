@@ -1,33 +1,36 @@
-name: Elium — Publication auto (push master)
+name: Elium — Publication
 
-# Modèle « dès que je push, ça se met à jour » : chaque push sur master
-# construit l'app Windows, signe le manifeste et publie une GitHub Release. Les apps
-# installées la récupèrent automatiquement. Aucun tag manuel.
+# Modèle « dès que je push, ça se met à jour » : chaque push sur master dont la CI est verte
+# construit l'app Windows, la teste (test de fumée de l'exe gelé), signe le manifeste et publie
+# une GitHub Release que les apps installées récupèrent automatiquement.
 #
-# Déclenchement — CE workflow ne démarre PLUS directement sur push : un commit qui
-# casse un test Vitest/lint/a11y/serveur mais compile aurait pu être publié et
-# auto-distribué à toute la base installée en ne passant QUE pytest. Il attend
-# désormais la fin du workflow "Elium CI" (.github/workflows/ci.yml, qui lui
-# tourne sur push comme avant) et vérifie, dans le job "gate" ci-dessous :
-#   - que c'est bien CE workflow CI référencé par son NOM ("Elium CI") qui vient
-#     de tourner (déclenchement `workflow_run`) ;
-#   - que sa conclusion est EXACTEMENT "success" (pas "failure"/"cancelled") ;
-#   - que la branche testée (`head_branch`) est bien `master` (écarte les runs CI
-#     déclenchés par une pull_request depuis une autre branche) ;
-#   - que le dépôt source du run CI est bien CE dépôt (écarte un run CI d'un fork).
-# Tout le reste du job (checkout, build, signature, publication) s'exécute alors
-# sur le SHA EXACT (`head_sha`) qui a été testé par CI — jamais un autre commit.
-# `workflow_dispatch` reste un contournement MANUEL volontaire (republication
-# d'urgence) qui ne repasse pas par ce contrôle CI — mais le gate exige quand
-# même que ce déclenchement manuel vise `master` (`github.ref ==
-# refs/heads/master`) : un lancement accidentel depuis l'UI Actions sur une
-# branche de feature ou un vieux commit est refusé, pas publié sans aucune
-# vérification.
+# Trois jobs, pour séparer les privilèges :
+#   gate     décide si on publie (CI verte sur CE commit, version, éventuel bump automatique) ;
+#   build    construit + teste (npm ci, PyInstaller, WiX) avec des droits en LECTURE seule et SANS
+#            aucun secret : un paquet npm/pip compromis n'a donc rien à voler ;
+#   publish  ne reçoit que les artefacts construits : c'est le SEUL job qui voit la clé de signature
+#            (UPDATE_SIGNING_KEY), n'exécute ni npm ni choco, et crée la release + attestation.
+#
+# Déclenchement :
+#   - workflow_run : fin du workflow « Elium CI » sur master. Le gate exige conclusion `success`,
+#     branche master et dépôt non-fork ; tout s'exécute ensuite sur le SHA EXACT testé.
+#   - workflow_dispatch (« Release » à la main) : n'est plus un contournement de la CI. Le gate exige
+#     que « Elium CI » ait réussi sur le commit visé de master. Entrées :
+#       bump        none (défaut : publie le __version__ déjà dans le code), auto (déduit des commits
+#                   conventionnels via scripts/next_version.py), patch, minor, major ;
+#       prerelease  étiquette de préversion (rc, beta…) -> X.Y.Z-rc1, publiée en « préversion »
+#                   GitHub : visible du seul canal bêta des applications.
+#     Un bump automatique crée UN commit « chore(release) » poussé sur master (le gate en a besoin
+#     pour que le tag désigne un arbre dont __version__ est exact).
 #
 # Pré-requis (une seule fois) :
 #   - Repo PUBLIC (sinon les utilisateurs ne peuvent pas télécharger les assets).
-#   - Secret de dépôt UPDATE_SIGNING_KEY = clé privée Ed25519 (fichier update-private-key.hex).
-#     Tant qu'il est absent, ce workflow s'exécute mais NE PUBLIE PAS (run vert, pas d'échec).
+#   - Secret UPDATE_SIGNING_KEY = clé privée Ed25519. Tant qu'il est absent, le workflow s'exécute
+#     mais NE PUBLIE PAS (run vert, avertissement explicite).
+#   - Optionnel (Authenticode, pas de certificat à ce jour) : secrets SIGN_CERT (pfx en base64) et
+#     SIGN_CERT_PASSWORD. Absents -> l'étape de signature de code est simplement ignorée.
+#
+# Actions épinglées par SHA de commit (le tag est conservé en commentaire).
 
 on:
   workflow_run:
@@ -35,59 +38,337 @@ on:
     types: [completed]
     branches: [master]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version : none = celle du code, auto = déduite des commits, ou patch/minor/major"
+        type: choice
+        options: [none, auto, patch, minor, major]
+        default: none
+      prerelease:
+        description: "Étiquette de préversion (rc, beta) ; vide = version finale"
+        type: string
+        default: ""
 
-permissions:
-  contents: write
-  issues: write   # crée/met à jour l'issue de suivi si le health-check post-publication échoue
+permissions: {}
+
+concurrency:
+  group: elium-release
+  cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: windows-latest
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # seulement pour pousser le commit de bump automatique
+      actions: read     # lire le résultat de « Elium CI » sur le commit visé
+    outputs:
+      ok: ${{ steps.decide.outputs.ok }}
+      sha: ${{ steps.final.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      exists: ${{ steps.version.outputs.exists }}
     steps:
-      - name: Vérifier le déclencheur (CI verte sur ce commit master, ou déclenchement manuel)
-        id: gate
+      - name: Décider (CI verte sur ce commit master ?)
+        id: decide
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          THIS_REPO: ${{ github.repository }}
+          THIS_SHA: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ github.ref }}" = "refs/heads/master" ]; then
-              echo "ok=true" >> "$GITHUB_OUTPUT"
-              echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-              echo "Déclenchement manuel (workflow_dispatch) sur master — contrôle CI volontairement contourné."
+          ok=false; sha=""
+          if [ "$EVENT" = "workflow_run" ]; then
+            if [ "$RUN_CONCLUSION" = "success" ] && [ "$RUN_BRANCH" = "master" ] && [ "$RUN_REPO" = "$THIS_REPO" ]; then
+              ok=true; sha="$RUN_SHA"
+              echo "Elium CI réussi sur master @ $sha — publication autorisée."
             else
-              echo "ok=false" >> "$GITHUB_OUTPUT"
-              echo "sha=" >> "$GITHUB_OUTPUT"
-              echo "::warning title=Publication ignorée::Déclenchement manuel (workflow_dispatch) effectué depuis '${{ github.ref_name }}', pas 'master' — le contournement d'urgence n'est autorisé que depuis master, publication refusée."
-              echo "### ⛔ Publication ignorée — workflow_dispatch doit être lancé depuis master (branche/ref sélectionnée : ${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning title=Publication ignorée::Elium CI n'est pas vert sur master pour ce commit (conclusion=$RUN_CONCLUSION, branche=$RUN_BRANCH)."
             fi
-          elif [ "${{ github.event_name }}" = "workflow_run" ] \
-            && [ "${{ github.event.workflow_run.conclusion }}" = "success" ] \
-            && [ "${{ github.event.workflow_run.head_branch }}" = "master" ] \
-            && [ "${{ github.event.workflow_run.head_repository.full_name }}" = "${{ github.repository }}" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-            echo "Elium CI réussi sur master @ ${{ github.event.workflow_run.head_sha }} — publication autorisée."
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$REF" != "refs/heads/master" ]; then
+              echo "::warning title=Publication refusée::Le déclenchement manuel doit viser master (ref=$REF)."
+            else
+              # Plus de contournement de la CI : elle doit avoir réussi sur CE commit.
+              n=$(gh run list -R "$THIS_REPO" --workflow "Elium CI" --commit "$THIS_SHA" --status success --json databaseId --jq 'length' 2>/dev/null || echo 0)
+              if [ "${n:-0}" -ge 1 ]; then
+                ok=true; sha="$THIS_SHA"
+                echo "Déclenchement manuel : Elium CI est vert sur $sha."
+              else
+                echo "::error title=Publication refusée::Elium CI n'a pas réussi sur $THIS_SHA : attendez la CI verte (ou corrigez-la) avant de publier."
+              fi
+            fi
+          fi
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != "true" ]; then echo "### ⛔ Publication ignorée — voir les avertissements du job gate" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        if: steps.decide.outputs.ok == 'true'
+        with:
+          ref: ${{ steps.decide.outputs.sha }}
+          fetch-depth: 0   # git log <tag précédent>..HEAD (changelog) et scripts/next_version.py
+
+      - name: Bump automatique de version (optionnel)
+        id: bump
+        if: steps.decide.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.bump != 'none'
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+          PRE: ${{ inputs.prerelease }}
+        run: |
+          set -e
+          ARGS=(--bump "$BUMP"); [ -n "$PRE" ] && ARGS+=(--pre "$PRE")
+          set +e
+          NEW=$(python3 scripts/next_version.py "${ARGS[@]}"); rc=$?
+          set -e
+          if [ $rc -eq 3 ]; then
+            echo "::error title=Rien à publier::aucun commit publiable (feat/fix…) depuis la dernière release. Utilisez bump=patch pour forcer."
+            exit 1
+          elif [ $rc -ne 0 ]; then exit $rc; fi
+          python3 installer/stamp_version.py "$NEW"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): v$NEW"
+          git push origin HEAD:master
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Version $NEW poussée sur master."
+
+      - name: Lire la version exacte (préversion comprise) et vérifier qu'elle n'existe pas déjà
+        id: version
+        if: steps.decide.outputs.ok == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Version = le __version__ EXACT de __init__.py, suffixe de préversion inclus
+          # (4.7.0-rc1 était auparavant tronquée en 4.7.0 et publiée sous le mauvais tag).
+          VER=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/elium/__init__.py | head -1)
+          if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::__version__ illisible : '$VER'"; exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          case "$VER" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Aucune release publiée::v${VER} existe déjà. Bumpez __version__ (installer/stamp_version.py X.Y.Z) ou lancez « Release » avec bump=auto."
+            echo "### ⚠️ Aucune release publiée — v${VER} existe déjà" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "sha=" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Publication ignorée::Elium CI n'a pas terminé en succès sur master pour ce commit (event=${{ github.event_name }}, conclusion=${{ github.event.workflow_run.conclusion }}, branche=${{ github.event.workflow_run.head_branch }})."
-            echo "### ⛔ Publication ignorée — Elium CI n'est pas vert sur ce commit master" >> "$GITHUB_STEP_SUMMARY"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.ok == 'true'
+      - name: Publier le SHA effectif (après bump éventuel)
+        id: final
+        if: steps.decide.outputs.ok == 'true'
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read   # aucun secret, aucune écriture : ce job exécute npm ci / pip / PyInstaller / WiX
+    env:
+      VER: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          # SHA exact validé par le gate ci-dessus (jamais un autre commit qui
-          # aurait pu atterrir sur master entre la fin de CI et ce run).
-          ref: ${{ steps.gate.outputs.sha }}
-          # Historique ET tags complets : installer/changelog.py dérive les
-          # nouveautés de `git log <tag précédent>..HEAD`. Un checkout
-          # superficiel (le défaut) donnerait une liste vide, donc une carte de
-          # mise à jour muette sur ce qu'elle apporte.
+          # Le SHA testé par la CI, ou le commit de bump qui le suit (voir le job gate).
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version-file: '.node-version'
+
+      - name: Installer les dépendances Python (verrou à hashes)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # requirements/build.txt : versions ET hashes figés (uv pip compile --generate-hashes).
+          pip install --require-hashes -r requirements/build.txt
+          echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
+
+      - name: Stamper la version + le code hash
+        run: python installer/stamp_version.py "$env:VER"
+
+      - name: Tests Python (garde-fou)
+        run: pytest tests/python -q
+
+      - name: Builder le Web Studio
+        working-directory: web-studio
+        run: |
+          npm ci
+          npm run build
+
+      - name: SBOM npm (CycloneDX)
+        working-directory: web-studio
+        run: npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --omit dev --output-format JSON --output-file ../sbom-npm.cdx.json
+
+      - name: SBOM Python (CycloneDX)
+        run: python -m cyclonedx_py requirements requirements/runtime.txt --of JSON -o sbom-python.cdx.json
+
+      - name: Découper l'interface (web-core + pack d'assets + archive complète)
+        run: python installer/split_web.py --dist web-studio/dist --out dist-zips
+
+      - name: Builder Elium.exe (PyInstaller one-file)
+        run: python -m PyInstaller installer/elium.spec --noconfirm --distpath installer/staging --workpath installer/build
+
+      - name: Signature de code Authenticode (optionnelle — ignorée sans certificat)
+        # Point d'accroche documenté : sans les secrets SIGN_CERT / SIGN_CERT_PASSWORD (le cas
+        # aujourd'hui), cette étape ne fait rien. Avec eux, signe Elium.exe AVANT le test de fumée
+        # et le MSI (donc avant le calcul des empreintes du manifeste, fait dans le job publish).
+        shell: pwsh
+        env:
+          SIGN_CERT: ${{ secrets.SIGN_CERT }}
+          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+        run: |
+          if (-not $env:SIGN_CERT) { Write-Host "SIGN_CERT absent : signature Authenticode ignorée."; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_CERT))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
+          & $signtool sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer/staging/Elium.exe
+          if ($LASTEXITCODE -ne 0) { throw "signtool a échoué" }
+          Remove-Item $pfx -Force
+
+      - name: Test de fumée de Elium.exe gelé (version, CSP, aucune URL externe, Host)
+        run: python installer/smoke_test.py installer/staging/Elium.exe --version "$env:VER"
+
+      - name: Installer WiX 3.14 (archive officielle, sha256 vérifié)
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'wix314-binaries.zip'
+          Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $zip
+          $expected = '6AC824E1642D6F7277D0ED7EA09411A508F6116BA6FAE0AA5F2C7DAA2FF43D31'
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $expected) { throw "sha256 de WiX inattendu : refus" }
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'wix')
+
+      - name: Builder les deux MSI (tous utilisateurs + sans droits administrateur) — BLOQUANT
+        shell: pwsh
+        run: |
+          $wix = Join-Path $env:RUNNER_TEMP 'wix'
+          New-Item -ItemType Directory -Force -Path installer/output, installer/build | Out-Null
+          python installer/make_msi_assets.py
+          $targets = @{ perMachine = "installer/output/Elium-$env:VER-Setup.msi"; perUser = "installer/output/Elium-User-$env:VER.msi" }
+          foreach ($scope in $targets.Keys) {
+            & "$wix\candle.exe" -nologo -arch x64 "-dScope=$scope" -ext WixUtilExtension -out "installer/build/elium-$scope.wixobj" installer/elium.wxs
+            if ($LASTEXITCODE -ne 0) { throw "candle a échoué ($scope)" }
+            & "$wix\light.exe" -nologo -cultures:fr-FR -ext WixUIExtension -ext WixUtilExtension -b installer -out $targets[$scope] "installer/build/elium-$scope.wixobj"
+            if ($LASTEXITCODE -ne 0) { throw "light a échoué ($scope)" }
+          }
+          foreach ($f in $targets.Values) { if (-not (Test-Path $f)) { throw "MSI manquant : $f" } }
+
+      - name: Rassembler les artefacts construits
+        shell: bash
+        run: |
+          mkdir -p out
+          cp installer/staging/Elium.exe out/
+          cp dist-zips/web.zip dist-zips/web-core.zip dist-zips/assets-*.zip out/
+          cp installer/output/*.msi out/
+          cp sbom-npm.cdx.json sbom-python.cdx.json out/
+          ls -l out
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: release-assets
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  images:
+    # Images du Drive serveur construites ICI (plus sur le VPS), poussées sur GHCR et signées
+    # (cosign keyless, identité = ce workflow). Les digests sont ensuite écrits dans le manifeste
+    # Ed25519 : l'auto-update du VPS tire EXACTEMENT ces octets.
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # signature cosign keyless
+    outputs:
+      server: ${{ steps.refs.outputs.server }}
+      web: ${{ steps.refs.outputs.web }}
+    env:
+      VER: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac  # v3
+      - name: Nom d'image en minuscules (GHCR l'exige)
+        id: name
+        shell: bash
+        run: echo "repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Construire et pousser l'image serveur
+        id: server
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: ./server
+          push: true
+          tags: ${{ steps.name.outputs.repo }}/server:${{ env.VER }}
+      - name: Construire et pousser l'image web
+        id: web
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: ./web-studio
+          push: true
+          build-args: VITE_API_BASE=/api
+          tags: ${{ steps.name.outputs.repo }}/web:${{ env.VER }}
+      - name: Signer les images par digest (cosign keyless) et exposer les références épinglées
+        id: refs
+        shell: bash
+        env:
+          REPO_IMG: ${{ steps.name.outputs.repo }}
+          SERVER_DIGEST: ${{ steps.server.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+        run: |
+          set -e
+          for d in "server:$SERVER_DIGEST" "web:$WEB_DIGEST"; do
+            n="${d%%:*}"; dg="${d#*:}"
+            [ -n "$dg" ] || { echo "::error::digest manquant pour $n"; exit 1; }
+            cosign sign --yes "$REPO_IMG/$n@$dg"
+            echo "$n=$REPO_IMG/$n@$dg" >> "$GITHUB_OUTPUT"
+          done
+
+  publish:
+    needs: [gate, build, images]
+    if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # créer la release + ses assets
+      id-token: write       # attestation de provenance (OIDC)
+      attestations: write
+      issues: write         # issue de suivi si le health-check post-publication échoue
+    env:
+      VER: ${{ needs.gate.outputs.version }}
+      PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
 
       - name: Vérifier le secret de signature
         id: guard
-        if: steps.gate.outputs.ok == 'true'
         shell: bash
         env:
           KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
@@ -99,228 +380,105 @@ jobs:
             echo "has_key=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Lire la version exacte de src/elium/__init__.py
-        if: steps.guard.outputs.has_key == 'true'
-        id: ver
-        shell: bash
-        run: |
-          # Version sémantique = le __version__ EXACT de __init__.py. Bumpez-le
-          # pour publier une nouvelle release (une re-push sans bump est un no-op,
-          # voir l'étape « Publier » ci-dessous).
-          VER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' src/elium/__init__.py | head -1)
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         if: steps.guard.outputs.has_key == 'true'
         with:
           python-version: '3.12'
 
-      - uses: actions/setup-node@v4
+      - name: Installer cryptography (verrou à hashes — seule dépendance de la signature)
+        if: steps.guard.outputs.has_key == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements/runtime.txt
+          echo "PYTHONPATH=$PWD/src" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: steps.guard.outputs.has_key == 'true'
         with:
-          node-version-file: '.node-version'
+          name: release-assets
+          path: out
 
-      - name: Installer les dépendances Python
+      - name: "Notes (source unique, changelog.py) + historique des nouveautés"
         if: steps.guard.outputs.has_key == 'true'
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          # Version epinglee (pas de drift silencieux) : certaines versions du
-          # bootloader PyInstaller ont ete associees a des pics de faux positifs
-          # antivirus (Windows Defender). Ne bumper qu'apres verification.
-          pip install -e ".[dev]" pyinstaller==6.21.0
+          set -e
+          mkdir -p dist
+          # Historique : on récupère le manifeste DÉJÀ publié pour empiler dessus. Best-effort.
+          gh release download --pattern latest.json --dir prev -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          PREV=""; [ -f prev/latest.json ] && PREV="--prev-manifest prev/latest.json"
+          # La liste des nouveautés est un CONFORT : si elle échoue, la publication reste possible.
+          python installer/changelog.py --version "$VER" --out dist/changelog.json --notes-md dist/notes.md $PREV \
+            || echo "::warning::changelog indisponible — manifeste publié sans notes détaillées"
+          [ -f dist/notes.md ] || printf '## Elium %s\n\n- Améliorations et corrections diverses.\n' "$VER" > dist/notes.md
 
-      - name: Stamper la version + le code hash
-        if: steps.guard.outputs.has_key == 'true'
-        run: python installer/stamp_version.py "${{ steps.ver.outputs.version }}"
-
-      - name: Tests Python (garde-fou)
-        if: steps.guard.outputs.has_key == 'true'
-        run: pytest tests/python -q
-
-      - name: Builder le Web Studio
-        if: steps.guard.outputs.has_key == 'true'
-        working-directory: web-studio
-        run: |
-          npm ci
-          npm run build
-
-      - name: Builder Elium.exe (PyInstaller one-file)
-        if: steps.guard.outputs.has_key == 'true'
-        run: python -m PyInstaller installer/elium.spec --noconfirm --distpath installer/staging --workpath installer/build
-
-      - name: Empaqueter web.zip
-        if: steps.guard.outputs.has_key == 'true'
-        shell: pwsh
-        run: Compress-Archive -Path web-studio/dist/* -DestinationPath web.zip -Force
-
-      - name: Builder le MSI (WiX 3 — best-effort)
-        if: steps.guard.outputs.has_key == 'true'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          choco install wixtoolset --no-progress -y
-          $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
-          if (-not (Test-Path $wix)) { $wix = Join-Path $env:WIX 'bin' }
-          New-Item -ItemType Directory -Force -Path installer/output, installer/build | Out-Null
-          & "$wix\candle.exe" -nologo -arch x64 -out installer/build/elium.wixobj installer/elium.wxs
-          & "$wix\light.exe" -nologo -cultures:fr-FR -ext WixUIExtension -ext WixUtilExtension `
-              -b installer -out "installer/output/Elium-${{ steps.ver.outputs.version }}-Setup.msi" `
-              installer/build/elium.wixobj
-
-      - name: Générer et signer le manifeste
+      - name: Générer et SIGNER le manifeste (seule étape qui voit la clé)
         if: steps.guard.outputs.has_key == 'true'
         shell: bash
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-          # Nécessaire pour relire le manifeste de la release précédente.
-          GH_TOKEN: ${{ github.token }}
+          SERVER_IMAGE: ${{ needs.images.outputs.server }}
+          WEB_IMAGE: ${{ needs.images.outputs.web }}
         run: |
           set -e
-          V="${{ steps.ver.outputs.version }}"
-          MSI="installer/output/Elium-${V}-Setup.msi"
-          # Historique des nouveautés : on récupère d'abord le manifeste DÉJÀ
-          # publié pour empiler dessus, sinon la carte de mise à jour ne pourrait
-          # annoncer que la dernière version au lieu de tout ce que l'utilisateur
-          # n'a pas encore. Best-effort : une première release n'a pas de passé.
-          gh release download --pattern latest.json --dir prev -R "$GITHUB_REPOSITORY" 2>/dev/null || true
-          PREV=""
-          if [ -f prev/latest.json ]; then PREV="--prev-manifest prev/latest.json"; fi
-          # La liste des nouveautés est un CONFORT : si elle échoue, la mise à
-          # jour doit rester publiable, seules les notes détaillées manquent.
-          # `set -e` est actif, d'où le `||` explicite — sans lui, un changelog
-          # en échec emporte toute la publication.
-          mkdir -p dist
-          python installer/changelog.py --version "$V" --out dist/changelog.json $PREV \
-            || echo "::warning::changelog indisponible — manifeste publié sans notes détaillées"
-          # SHA du commit gate ci-dessus (validé par CI, checkouté explicitement),
-          # PAS github.sha : sur un déclenchement workflow_run, github.sha désigne
-          # le HEAD de master au moment de CE run, qui peut différer (course avec
-          # un push ultérieur) du commit qui a réellement été testé.
-          ARGS=(--version "$V" --commit "${{ steps.gate.outputs.sha }}" --exe installer/staging/Elium.exe --web web.zip --out dist --notes "Elium $V")
-          if [ -f dist/changelog.json ]; then ARGS+=(--changelog-file dist/changelog.json); fi
-          if [ -f "$MSI" ]; then ARGS+=(--msi "$MSI"); fi
+          ASSETS_ZIP=$(ls out/assets-*.zip | head -1)
+          ARGS=(--version "$VER" --commit "$(git rev-parse HEAD)" --exe out/Elium.exe --web out/web.zip
+                --web-core out/web-core.zip --assets "$ASSETS_ZIP"
+                --msi "out/Elium-${VER}-Setup.msi" --msi-user "out/Elium-User-${VER}.msi"
+                --server-image "$SERVER_IMAGE" --web-image "$WEB_IMAGE"
+                --out dist --notes "Elium $VER")
+          [ -f dist/changelog.json ] && ARGS+=(--changelog-file dist/changelog.json)
           python installer/gen_manifest.py "${ARGS[@]}"
+          python installer/make_update_bundle.py --manifest dist/latest.json --artifacts-dir out --out dist
 
       - name: Publier la GitHub Release
         if: steps.guard.outputs.has_key == 'true'
         id: publish
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          V="${{ steps.ver.outputs.version }}"
-          MSI="installer/output/Elium-${V}-Setup.msi"
-          ASSETS=(installer/staging/Elium.exe web.zip dist/latest.json dist/latest.json.sig)
-          if [ -f "$MSI" ]; then ASSETS+=("$MSI"); fi
-          if gh release view "v${V}" >/dev/null 2>&1; then
-            # Avertissement et non simple notice : un job vert sans release
-            # publiée est exactement le cas qui passe inaperçu.
-            echo "::warning title=Aucune release publiée::v${V} existe déjà. Bumpez __version__ dans src/elium/__init__.py (ou lancez installer/stamp_version.py X.Y.Z) pour publier."
-            echo "### ⚠️ Aucune release publiée — v${V} existe déjà" >> "$GITHUB_STEP_SUMMARY"
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          gh release create "v${V}" "${ASSETS[@]}" \
-            --target "${{ steps.gate.outputs.sha }}" \
-            --title "Elium ${V}" \
-            --generate-notes
+          FLAGS=(); [ "$PRERELEASE" = "true" ] && FLAGS+=(--prerelease)
+          FILES=(out/Elium.exe out/web.zip out/web-core.zip out/assets-*.zip "out/Elium-${VER}-Setup.msi" "out/Elium-User-${VER}.msi"
+                 out/sbom-npm.cdx.json out/sbom-python.cdx.json dist/latest.json dist/latest.json.sig "dist/Elium-update-${VER}.eliumupdate")
+          for f in "${FILES[@]}"; do [ -f "$f" ] || { echo "::error::asset manquant : $f"; exit 1; }; done
+          gh release create "v${VER}" "${FILES[@]}" \
+            --target "$(git rev-parse HEAD)" \
+            --title "Elium ${VER}" \
+            --notes-file dist/notes.md "${FLAGS[@]}"
           echo "published=true" >> "$GITHUB_OUTPUT"
 
-      - name: Vérifier la présence du MSI (alerte si absent)
-        # L'étape WiX est en continue-on-error (best-effort, cf. son commentaire) :
-        # si elle échoue, l'asset MSI est simplement omis de la release SANS que
-        # rien ne le signale ailleurs que dans les logs de cette étape précise —
-        # contrairement au changelog manquant, qui a déjà son propre `::warning::`
-        # ci-dessus. Cette étape rend l'omission visible au même endroit (résumé du
-        # job), que la release ait été publiée ou non (no-op inclus).
-        if: steps.guard.outputs.has_key == 'true'
-        shell: bash
-        run: |
-          V="${{ steps.ver.outputs.version }}"
-          MSI="installer/output/Elium-${V}-Setup.msi"
-          if [ -f "$MSI" ]; then
-            echo "  [ok]   $MSI présent"
-          else
-            echo "::warning title=MSI absent::Le build WiX (best-effort, continue-on-error) a échoué ou n'a produit aucun installeur — v${V} est publiée SANS MSI (exe + web uniquement). Voir les logs de l'étape « Builder le MSI » ci-dessus pour la cause."
-            echo "### ⚠️ MSI absent pour v${V} — build WiX échoué, release sans installeur MSI" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - name: Attestation de provenance (SLSA) des artefacts publiés
+        if: steps.guard.outputs.has_key == 'true' && steps.publish.outputs.published == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2
+        with:
+          subject-path: |
+            out/Elium.exe
+            out/web.zip
+            out/web-core.zip
+            out/assets-*.zip
+            out/*.msi
+            dist/Elium-update-*.eliumupdate
 
-      - name: Vérifier la publication (health-check post-release)
-        # Ne tourne QUE si une release a été VRAIMENT publiée à l'étape
-        # précédente (pas sur le no-op "v${V} existe déjà").
+      - name: Vérifier la publication (health-check post-release, assets réellement publiés)
         if: steps.guard.outputs.has_key == 'true' && steps.publish.outputs.published == 'true'
         shell: bash
-        env:
-          V: ${{ steps.ver.outputs.version }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          # ------------------------------------------------------------- #
-          # Décision : PAS de rollback automatique (pas de `gh release
-          # delete`) sur un health-check en échec. Alerte visible + job en
-          # échec, décision humaine ensuite. Pourquoi :
-          #
-          #  1. Faux positifs plausibles et coûteux à masquer par un rollback
-          #     silencieux : verify_release.py retélécharge les assets à
-          #     peine publiés, une propagation CDN incomplète peut le faire
-          #     échouer sur une release en réalité saine (le même phénomène,
-          #     côté disponibilité, que la course de résolution de tag
-          #     corrigée en 4cf9654 — verify_release.py absorbe une partie du
-          #     risque avec ses propres reprises espacées, mais pas la
-          #     totalité). Supprimer automatiquement détruirait une bonne
-          #     release à cause d'un blip transitoire.
-          #  2. Risque en vol : un poste utilisateur peut avoir déjà commencé
-          #     à télécharger cette release au moment où un rollback
-          #     automatique la supprimerait — casser une mise à jour qui
-          #     aurait pu réussir est pire que la laisser en place.
-          #  3. Le design côté client absorbe déjà l'essentiel du risque d'une
-          #     release réellement cassée : signature Ed25519 + sha256
-          #     vérifiés avant toute écriture, et « le moindre échec =>
-          #     artefact jeté, l'app continue sur la version courante. Jamais
-          #     de crash. » (installer/updater.py, en-tête du module). Une
-          #     release cassée reste donc seulement non installable jusqu'à
-          #     correction — elle ne met personne en danger.
-          #  4. Une suppression automatique de release est une action
-          #     destructrice, difficile à annuler proprement (le tag redevient
-          #     réutilisable, source de confusion) et déclenchée sans
-          #     supervision humaine — le pire moment pour improviser.
-          #
-          # Donc : échec => `::warning::` explicite + step en échec (run rouge,
-          # notifications sur push) pour qu'un humain inspecte et choisisse
-          # (rollback manuel via le bouton client existant, suppression
-          # manuelle de la release, ou publication corrective) — jamais
-          # d'action automatique sur la release elle-même.
-          # ------------------------------------------------------------- #
-          if python installer/verify_release.py "$V"; then
-            echo "### ✅ Health-check post-publication OK pour v${V}" >> "$GITHUB_STEP_SUMMARY"
+          # Décision : PAS de rollback automatique (pas de `gh release delete`) sur un échec. Alerte
+          # visible + job en échec, décision humaine ensuite : une propagation CDN incomplète peut
+          # faire échouer le contrôle sur une release saine, un poste peut déjà télécharger, et la
+          # signature Ed25519 + sha256 côté client rend une release cassée inoffensive (simplement
+          # non installable). Voir installer/verify_release.py.
+          if python installer/verify_release.py "$VER"; then
+            echo "### ✅ Health-check post-publication OK pour v${VER}" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=Health-check post-publication échoué::La release v${V} a été publiée mais son manifeste/ses assets n'ont pas pu être re-vérifiés après coup (signature/sha256/disponibilité). ROLLBACK NON AUTOMATIQUE : inspectez les logs de ce job et décidez (rollback manuel, suppression manuelle, ou republication)."
-            echo "### ❌ Health-check post-publication ÉCHOUÉ pour v${V} — rollback NON automatique, décision manuelle requise" >> "$GITHUB_STEP_SUMMARY"
-
-            # ----------------------------------------------------------- #
-            # Visibilité HORS de l'onglet Actions, sans secret supplémentaire :
-            # ouvre (ou commente, si une est déjà ouverte) une issue GitHub dédiée
-            # via le GITHUB_TOKEN par défaut (permissions.issues: write ci-dessus).
-            # `gh label create --force` est idempotent : crée le label la première
-            # fois, ne fait rien d'observable les fois suivantes.
-            # ----------------------------------------------------------- #
-            gh label create "release-health-check-failed" \
-              --color "B60205" \
-              --description "Health-check post-publication d'une release Elium en échec (voir release.yml)" \
-              --force || true
+            echo "::warning title=Health-check post-publication échoué::v${VER} publiée mais non re-vérifiable (signature/sha256/disponibilité). ROLLBACK NON AUTOMATIQUE."
+            echo "### ❌ Health-check post-publication ÉCHOUÉ pour v${VER} — décision manuelle requise" >> "$GITHUB_STEP_SUMMARY"
+            gh label create "release-health-check-failed" --color "B60205" \
+              --description "Health-check post-publication d'une release Elium en échec (voir release.yml)" --force || true
             RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            BODY=$(printf '%s\n\n%s' \
-              "Le health-check post-publication a échoué pour **v${V}** (workflow release.yml, [run #${{ github.run_id }}](${RUN_URL}))." \
-              "ROLLBACK NON automatique : voir les logs du run ci-dessus pour la raison précise (signature/sha256/disponibilité), puis décider — rollback manuel via le bouton client existant, suppression manuelle de la release, ou republication corrective.")
+            BODY="Le health-check post-publication a échoué pour **v${VER}** ([run #${{ github.run_id }}](${RUN_URL})). ROLLBACK NON automatique : voir les logs, puis décider (rollback manuel, suppression manuelle, republication)."
             EXISTING=$(gh issue list --label "release-health-check-failed" --state open --json number --jq '.[0].number' 2>/dev/null || true)
-            if [ -n "$EXISTING" ]; then
-              gh issue comment "$EXISTING" --body "$BODY" || true
-            else
-              gh issue create \
-                --title "Health-check de publication en échec — v${V}" \
-                --label "release-health-check-failed" \
-                --body "$BODY" || true
-            fi
+            if [ -n "$EXISTING" ]; then gh issue comment "$EXISTING" --body "$BODY" || true
+            else gh issue create --title "Health-check de publication en échec — v${VER}" --label "release-health-check-failed" --body "$BODY" || true; fi
             exit 1
           fi

@@ -5,18 +5,31 @@ mises à jour, en vérifiant leur signature Ed25519 avant toute écriture/exécu
 Architecture « overlay LocalAppData + handoff » (voir la Documentation §Mises à jour) :
   - Le binaire installé (Program Files) est la BASE, non modifiable sans admin.
   - Toutes les màj se déposent dans %LOCALAPPDATA%\\Elium\\ (accessible sans admin) :
-      web\\<version>\\        interface React mise à jour (cas courant, léger)
-      web\\current.txt       pointeur vers la version web active
-      bin\\Elium-<version>.exe  nouveau lanceur complet (cas rare)
-      bin\\pending.json      {version, sha256} du lanceur en attente de handoff
+      web\\<version>\\               interface React mise à jour (cas courant, léger)
+      web\\<version>.manifest.json   manifeste SIGNÉ (+ .sig) ayant autorisé cette version
+      web\\current.txt              pointeur vers la version web active
+      assets\\<hash>\\               pack d'assets lourds (polices, pdf.js, OCR), partagé
+      bin\\Elium-<version>.exe       nouveau lanceur complet (cas rare)
+      bin\\Elium-<version>.manifest.json (+ .sig)   manifeste signé du lanceur
+      bin\\pending.json             {version, sha256} du lanceur en attente (indicatif)
+      boot-state.json              garde anti boucle de plantage (tentatives / « boot ok »)
+      update-settings.json         canal (stable/beta) et versions mises en quarantaine
+      update-cache.json            ETag + backoff de l'API GitHub (limite 60 req/h)
   - Le lanceur sert le web le plus récent (overlay si strictement plus récent que
-    la version embarquée) et, au démarrage, relance l'exe le plus récent (handoff).
+    la version embarquée ET vérifié) et, au démarrage, relance l'exe le plus récent
+    (handoff) s'il est vérifié.
 
 Sécurité :
   - Un manifeste `latest.json` signé (Ed25519) liste version + sha256 de chaque artefact.
-  - La signature du manifeste est vérifiée avec UPDATE_PUBLIC_KEY_HEX (embarquée, donc
-    non substituable sans remplacer l'exe lui-même). Puis chaque artefact téléchargé est
-    vérifié par son sha256 présent dans le manifeste signé.
+  - La signature du manifeste est vérifiée avec une clé de la liste embarquée (identifiant
+    `keyId` porté par le manifeste ; rotation = ajouter une clé à la liste), donc non
+    substituable sans remplacer l'exe lui-même. Chaque artefact est ensuite vérifié par son
+    sha256 présent dans le manifeste signé.
+  - Ces vérifications sont REJOUÉES AU LANCEMENT : le manifeste signé (et sa signature) est
+    conservé à côté de chaque exe / overlay web téléchargé, et on revérifie signature +
+    hash (exe) ou empreinte d'arborescence (web) avant de s'en servir. Un pointeur ou un
+    pending.json trafiqué (dossier inscriptible par l'utilisateur) ne suffit plus : au
+    moindre écart on retombe sur la version embarquée.
   - Le moindre échec => artefact jeté, l'app continue sur la version courante. Jamais de crash.
 
 Réseau : urllib (stdlib) uniquement, aucune dépendance ajoutée.
@@ -27,6 +40,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +49,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Callable
 
@@ -52,6 +67,15 @@ REPO = "eliumgame/elium-main"
 # Générée par scripts/gen_update_keypair.py ; la clé privée correspondante est le
 # secret GitHub Actions UPDATE_SIGNING_KEY. NE JAMAIS embarquer la clé privée ici.
 UPDATE_PUBLIC_KEY_HEX = "137934bb39b4e6a7de258019fc980db1024bd6f5fa47e4f38bc8468c305dbbef"
+
+# Identifiant de la clé ci-dessus (champ `keyId` du manifeste signé).
+UPDATE_PUBLIC_KEY_ID = "k1"
+
+# Clés SUPPLÉMENTAIRES acceptées (rotation) : {keyId: hex}. Procédure de rotation
+# (voir installer/README.md) : 1) publier une release signée par l'ancienne clé qui
+# AJOUTE la nouvelle ici ; 2) quand la base installée a migré, signer avec la nouvelle
+# (gen_manifest.py --key-id k2) ; 3) retirer l'ancienne dans une release ultérieure.
+UPDATE_EXTRA_PUBLIC_KEYS: dict[str, str] = {}
 
 # Empreinte des sources Python figées dans CET exe (sha256, calculé au build par
 # installer/stamp_version.py). Sert à décider web-only vs exe complet : si le manifeste
@@ -78,7 +102,14 @@ _HTTP_TIMEOUT = 15  # secondes
 _HTTP_MAX_ATTEMPTS = 3
 _HTTP_RETRY_BACKOFF_BASE = 0.5  # secondes ; doublé à chaque reprise (0.5s, 1s, ...)
 
-_USER_AGENT = "Elium-Updater/1.0"
+_USER_AGENT = "Elium-Updater/1.1"
+
+# Garde anti boucle de plantage : au-delà de ce nombre de démarrages SANS « boot ok »
+# d'un exe remis en main, on revient à la version embarquée.
+MAX_BOOT_ATTEMPTS = 3
+
+CHANNELS = ("stable", "beta")
+DEFAULT_CHANNEL = "stable"
 
 
 # --------------------------------------------------------------------------- #
@@ -100,6 +131,10 @@ def _bin_root() -> Path:
     return data_dir() / "bin"
 
 
+def _assets_root() -> Path:
+    return data_dir() / "assets"
+
+
 def _pointer_file() -> Path:
     return _web_root() / "current.txt"
 
@@ -112,6 +147,22 @@ def _log_file() -> Path:
     return data_dir() / "update.log"
 
 
+def _settings_file() -> Path:
+    return data_dir() / "update-settings.json"
+
+
+def _cache_file() -> Path:
+    return data_dir() / "update-cache.json"
+
+
+def _boot_state_file() -> Path:
+    return data_dir() / "boot-state.json"
+
+
+def _fallback_file() -> Path:
+    return data_dir() / "fallback.json"
+
+
 def _log(message: str) -> None:
     """Journalisation best-effort (l'app fenêtrée n'a pas de console)."""
     try:
@@ -120,6 +171,24 @@ def _log(message: str) -> None:
             fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
     except Exception:  # noqa: S110 — c'est LE puits de journalisation ; rien d'autre où logguer cet échec.
         pass
+
+
+def _load_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _save_json(path: Path, obj: Any) -> None:
+    """Écriture atomique best-effort (temp + remplacement)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(obj), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        _log(f"_save_json({path.name}): {exc}")
 
 
 # --------------------------------------------------------------------------- #
@@ -147,7 +216,7 @@ def _version_tuple(v: str) -> tuple:
     implémentations divergentes voudraient dire que l'interface et le
     téléchargeur ne s'accordent pas sur ce qui est « plus récent ».
     """
-    return changelog.version_tuple(v)
+    return changelog.version_key(v)
 
 
 def is_newer(remote: str, local: str) -> bool:
@@ -158,21 +227,246 @@ def is_newer(remote: str, local: str) -> bool:
 
 
 def effective_version() -> str:
-    """Version RÉELLEMENT active = max(version de l'exe, overlay web déjà appliqué).
+    """Version RÉELLEMENT active = max(version de l'exe, overlay web déjà appliqué ET vérifié).
 
     Indispensable : une màj web ne remplace que le dossier web (l'exe garde sa version).
     Comparer une nouvelle version à la seule version de l'exe re-proposerait en boucle une
-    màj web déjà installée (bug de la carte qui revient après « Recharger »).
+    màj web déjà installée (bug de la carte qui revient après « Recharger »). Un overlay
+    qui ne passe pas la vérification d'intégrité n'est PAS servi : sa version ne compte pas.
     """
     base = current_version()
-    ptr = _read_pointer()
+    ptr = _verified_pointer()
     if ptr and is_newer(ptr, base):
         return ptr
     return base
 
 
 # --------------------------------------------------------------------------- #
-# Réseau + crypto
+# Réglages persistants : canal de mise à jour, quarantaine
+# --------------------------------------------------------------------------- #
+
+def get_channel() -> str:
+    """Canal de mise à jour actif : `stable` (défaut) ou `beta` (préversions incluses)."""
+    env = (os.environ.get("ELIUM_UPDATE_CHANNEL") or "").strip().lower()
+    if env in CHANNELS:
+        return env
+    cfg = _load_json(_settings_file(), {})
+    ch = str(cfg.get("channel", DEFAULT_CHANNEL)).lower() if isinstance(cfg, dict) else DEFAULT_CHANNEL
+    return ch if ch in CHANNELS else DEFAULT_CHANNEL
+
+
+def _is_quarantined(version: str) -> bool:
+    cfg = _load_json(_settings_file(), {})
+    bad = cfg.get("quarantine", []) if isinstance(cfg, dict) else []
+    return isinstance(bad, list) and version in bad
+
+
+def _quarantine(version: str) -> None:
+    cfg = _load_json(_settings_file(), {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    bad = [str(v) for v in cfg.get("quarantine", []) if isinstance(v, str)]
+    if version not in bad:
+        bad.append(version)
+    cfg["quarantine"] = bad[-20:]
+    _save_json(_settings_file(), cfg)
+
+
+# --------------------------------------------------------------------------- #
+# Empreintes (fichier + arborescence)
+# --------------------------------------------------------------------------- #
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _tree_digest(entries: Iterable[tuple[str, str]]) -> str:
+    """Empreinte d'une arborescence = sha256 de « chemin\\0sha256\\n » triés.
+
+    Même définition côté build (installer/split_web.py, gen_manifest.py) et côté client :
+    le manifeste signé porte `treeHash`, le client le recalcule sur le dossier servi.
+    """
+    h = hashlib.sha256()
+    for rel, digest in sorted(entries):
+        h.update(f"{rel}\0{digest}\n".encode())
+    return h.hexdigest()
+
+
+def tree_hash_dir(root: Path) -> str:
+    entries: list[tuple[str, str]] = []
+    for p in root.rglob("*"):
+        if p.is_file():
+            entries.append((p.relative_to(root).as_posix(), _sha256(p)))
+    return _tree_digest(entries)
+
+
+def tree_hash_zips(*paths: Path) -> str:
+    """Empreinte d'arborescence de l'UNION des fichiers de plusieurs zips (sans extraction)."""
+    entries: list[tuple[str, str]] = []
+    for path in paths:
+        with zipfile.ZipFile(path) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                h = hashlib.sha256()
+                with zf.open(info) as fh:
+                    for block in iter(lambda: fh.read(1024 * 1024), b""):
+                        h.update(block)
+                entries.append((info.filename.replace("\\", "/"), h.hexdigest()))
+    return _tree_digest(entries)
+
+
+# --------------------------------------------------------------------------- #
+# Signature (liste de clés + keyId) et manifeste signé
+# --------------------------------------------------------------------------- #
+
+def accepted_public_keys() -> dict[str, str]:
+    """Clés de vérification acceptées : {keyId: hex}. La clé primaire + les extras de rotation."""
+    keys = dict(UPDATE_EXTRA_PUBLIC_KEYS)
+    keys[UPDATE_PUBLIC_KEY_ID] = UPDATE_PUBLIC_KEY_HEX
+    return keys
+
+
+def _check_signature(message: bytes, signature_hex: str, key_id: str | None = None) -> str:
+    """`ok` | `invalid` | `unknown-key`.
+
+    Avec `key_id` (lu dans le manifeste, AVANT vérification — il ne sert qu'à choisir
+    parmi des clés déjà de confiance) seule cette clé est essayée ; un identifiant
+    inconnu est refusé. Sans `key_id` (anciens manifestes) toutes les clés acceptées sont
+    essayées.
+    """
+    keys = accepted_public_keys()
+    if key_id:
+        if key_id not in keys:
+            return "unknown-key"
+        candidates = [keys[key_id]]
+    else:
+        candidates = list(keys.values())
+    try:
+        sig = bytes.fromhex(signature_hex.strip())
+    except ValueError:
+        return "invalid"
+    for hex_key in candidates:
+        try:
+            Ed25519PublicKey.from_public_bytes(bytes.fromhex(hex_key)).verify(sig, message)
+            return "ok"
+        except (InvalidSignature, ValueError):
+            continue
+    return "invalid"
+
+
+def _verify_signature(message: bytes, signature_hex: str, key_id: str | None = None) -> bool:
+    return _check_signature(message, signature_hex, key_id) == "ok"
+
+
+def _peek_key_id(raw: bytes) -> str | None:
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    kid = data.get("keyId") if isinstance(data, dict) else None
+    return str(kid) if kid else None
+
+
+class UpdateCheckError(Exception):
+    """Échec de vérification d'une mise à jour, avec une cause DISTINCTE.
+
+    reason : `offline` | `rate-limited` | `invalid-signature` | `unknown-key` | `unavailable`
+    """
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
+
+
+REASON_MESSAGES = {
+    "offline": "Impossible de joindre le serveur de mises à jour (hors ligne ?).",
+    "rate-limited": "Trop de vérifications récentes : réessayez dans quelques minutes.",
+    "invalid-signature": "La signature de la mise à jour est invalide : elle a été refusée par sécurité.",
+    "unknown-key": "Cette mise à jour est signée par une clé inconnue : réinstallez Elium depuis le site officiel.",
+    "unavailable": "Le service de mises à jour a répondu de façon inattendue.",
+}
+
+
+class SignedManifest(dict):
+    """Manifeste vérifié ; conserve les octets exacts + la signature pour pouvoir REVÉRIFIER au lancement."""
+
+    raw: bytes = b""
+    sig_hex: str = ""
+    key_id: str | None = None
+
+
+def _parse_signed_manifest(raw: bytes, sig_hex: str) -> SignedManifest:
+    key_id = _peek_key_id(raw)
+    verdict = _check_signature(raw, sig_hex, key_id)
+    if verdict == "unknown-key":
+        raise UpdateCheckError("unknown-key", f"keyId {key_id!r} absent de la liste embarquée")
+    if verdict != "ok":
+        raise UpdateCheckError("invalid-signature", "SIGNATURE INVALIDE — manifeste rejeté")
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise UpdateCheckError("unavailable", f"JSON invalide ({exc})") from exc
+    if not isinstance(data, dict):
+        raise UpdateCheckError("unavailable", "manifeste non objet")
+    manifest = SignedManifest(data)
+    manifest.raw = raw
+    manifest.sig_hex = sig_hex.strip()
+    manifest.key_id = key_id
+    return manifest
+
+
+def _sidecar_paths(base: Path) -> tuple[Path, Path]:
+    """(manifeste, signature) posés à côté d'un exe / dossier web : `<base>.manifest.json[.sig]`."""
+    return (base.with_name(base.name + ".manifest.json"), base.with_name(base.name + ".manifest.json.sig"))
+
+
+def _store_signed_manifest(manifest: Any, base: Path) -> bool:
+    raw = getattr(manifest, "raw", b"")
+    sig = getattr(manifest, "sig_hex", "")
+    if not raw or not sig:
+        _log("manifeste sans octets signés : impossible de le conserver pour revérification")
+        return False
+    mpath, spath = _sidecar_paths(base)
+    try:
+        mpath.parent.mkdir(parents=True, exist_ok=True)
+        mpath.write_bytes(raw)
+        spath.write_text(sig, encoding="utf-8")
+    except OSError as exc:
+        _log(f"écriture du manifeste signé échouée ({exc})")
+        return False
+    return True
+
+
+def _load_signed_manifest(base: Path) -> SignedManifest | None:
+    """Relit ET revérifie la signature du manifeste conservé à côté d'un artefact."""
+    mpath, spath = _sidecar_paths(base)
+    try:
+        raw = mpath.read_bytes()
+        sig = spath.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if len(raw) > _MAX_MANIFEST_BYTES:
+        return None
+    try:
+        return _parse_signed_manifest(raw, sig)
+    except UpdateCheckError as exc:
+        _log(f"manifeste conservé ({mpath.name}) rejeté : {exc.reason}")
+        return None
+
+
+def _remove_sidecar(base: Path) -> None:
+    for p in _sidecar_paths(base):
+        _safe_unlink(p)
+
+
+# --------------------------------------------------------------------------- #
+# Réseau
 # --------------------------------------------------------------------------- #
 
 def _urlopen_read(url: str, max_bytes: int) -> bytes:
@@ -234,34 +528,141 @@ def _http_get(url: str, max_bytes: int) -> bytes:
     raise AssertionError("_http_get: boucle de retry terminée sans retour")  # pragma: no cover
 
 
-def _verify_signature(message: bytes, signature_hex: str) -> bool:
+def _urlopen_conditional(url: str, etag: str | None, max_bytes: int) -> tuple[int, bytes, dict[str, str]]:
+    """GET d'API GitHub avec `If-None-Match`. Renvoie (statut, corps, en-têtes en minuscules).
+
+    304 (inchangé) est un SUCCÈS ici (et ne consomme pas le quota de l'API). Toute
+    autre erreur HTTP est relevée telle quelle. Isolé pour être remplaçable en test.
+    """
+    headers = {"User-Agent": _USER_AGENT, "Accept": "application/vnd.github+json"}
+    if etag:
+        headers["If-None-Match"] = etag
+    req = urllib.request.Request(url, headers=headers)  # noqa: S310
     try:
-        pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(UPDATE_PUBLIC_KEY_HEX))
-        pub.verify(bytes.fromhex(signature_hex.strip()), message)
-        return True
-    except (InvalidSignature, ValueError):
-        return False
+        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # noqa: S310
+            body = resp.read(max_bytes + 1)
+            hdrs = {str(k).lower(): str(v) for k, v in resp.headers.items()}
+            return 200, body, hdrs
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304:
+            hdrs = {str(k).lower(): str(v) for k, v in (exc.headers.items() if exc.headers else [])}
+            return 304, b"", hdrs
+        raise
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for block in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+def _reason_for_exception(exc: BaseException) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        return "rate-limited" if exc.code in (403, 429) else "unavailable"
+    if isinstance(exc, (urllib.error.URLError, http.client.HTTPException, OSError)):
+        return "offline"
+    return "unavailable"
+
+
+def _backoff_seconds(headers: Any, now: float) -> float:
+    """Délai avant de retoucher l'API après un refus de quota (Retry-After / X-RateLimit-Reset)."""
+    def _get(name: str) -> str | None:
+        try:
+            return headers.get(name) if headers else None
+        except Exception:
+            return None
+
+    wait = 900.0
+    retry_after = _get("Retry-After") or _get("retry-after")
+    reset = _get("X-RateLimit-Reset") or _get("x-ratelimit-reset")
+    try:
+        if retry_after:
+            wait = float(retry_after)
+        elif reset:
+            wait = float(reset) - now
+    except ValueError:
+        pass
+    return min(max(wait, 60.0), 3600.0)
+
+
+# Résout la release "latest" en un seul appel API atomique (voir
+# `_resolve_latest_asset_urls` ci-dessous pour la raison).
+_GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{REPO}/releases/latest"
+# Canal bêta : « latest » exclut les préversions ; on liste donc les releases récentes.
+_GITHUB_API_RELEASES_RECENT = f"https://api.github.com/repos/{REPO}/releases?per_page=15"
+
+
+def _reduce_release(r: Any) -> dict[str, Any]:
+    assets = {}
+    for a in (r.get("assets") or []) if isinstance(r, dict) else []:
+        if isinstance(a, dict) and a.get("name") and a.get("browser_download_url"):
+            assets[str(a["name"])] = str(a["browser_download_url"])
+    return {
+        "tag": str((r or {}).get("tag_name") or ""),
+        "prerelease": bool((r or {}).get("prerelease")),
+        "assets": assets,
+    }
+
+
+def _reduce_release_list(arr: Any) -> list[dict[str, Any]]:
+    if not isinstance(arr, list):
+        return []
+    return [_reduce_release(r) for r in arr if isinstance(r, dict) and not r.get("draft")]
+
+
+def _api_cached(url: str, reducer: Callable[[Any], Any]) -> Any:
+    """GET d'API GitHub avec cache ETag persistant + backoff persistant sur quota épuisé.
+
+    La limite non authentifiée est de 60 requêtes/heure/IP : un `304 Not Modified` ne la
+    consomme pas, et après un refus (403/429) on s'interdit toute nouvelle tentative
+    pendant le délai indiqué par GitHub (persisté : survit aux redémarrages).
+    """
+    now = time.time()
+    cache = _load_json(_cache_file(), {})
+    if not isinstance(cache, dict):
+        cache = {}
+    until = float(cache.get("backoffUntil") or 0)
+    if until > now:
+        raise UpdateCheckError("rate-limited", f"nouvel essai possible dans {int(until - now)} s")
+    entry = (cache.get("releases") or {}).get(url) or {}
+    etag = entry.get("etag") if entry.get("data") is not None else None
+
+    for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
+        try:
+            status, body, hdrs = _urlopen_conditional(url, etag, _MAX_RELEASES_BYTES)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in (403, 429):
+                cache["backoffUntil"] = now + _backoff_seconds(exc.headers, now)
+                _save_json(_cache_file(), cache)
+                raise UpdateCheckError("rate-limited", f"HTTP {exc.code}") from exc
+            raise UpdateCheckError("unavailable", f"HTTP {exc.code}") from exc
+        except Exception as exc:
+            if attempt < _HTTP_MAX_ATTEMPTS and _is_transient_network_error(exc):
+                time.sleep(_HTTP_RETRY_BACKOFF_BASE * (2 ** (attempt - 1)))
+                continue
+            raise UpdateCheckError(_reason_for_exception(exc), str(exc)) from exc
+    else:  # pragma: no cover - la boucle sort par break ou raise
+        raise UpdateCheckError("unavailable", "boucle de requête épuisée")
+
+    if status == 304:
+        if entry.get("data") is None:
+            raise UpdateCheckError("unavailable", "304 sans copie en cache")
+        return entry["data"]
+    if len(body) > _MAX_RELEASES_BYTES:
+        raise UpdateCheckError("unavailable", "réponse d'API trop volumineuse")
+    try:
+        data = reducer(json.loads(body))
+    except ValueError as exc:
+        raise UpdateCheckError("unavailable", f"JSON invalide ({exc})") from exc
+    releases = cache.get("releases") if isinstance(cache.get("releases"), dict) else {}
+    releases[url] = {"etag": hdrs.get("etag"), "data": data}
+    cache["releases"] = releases
+    cache.pop("backoffUntil", None)
+    _save_json(_cache_file(), cache)
+    return data
 
 
 # --------------------------------------------------------------------------- #
 # Récupération + vérification du manifeste
 # --------------------------------------------------------------------------- #
 
-# Résout la release "latest" en un seul appel API atomique (voir
-# `_resolve_latest_asset_urls` ci-dessous pour la raison).
-_GITHUB_API_LATEST_RELEASE = f"https://api.github.com/repos/{REPO}/releases/latest"
-
-
 def _resolve_latest_asset_urls() -> tuple[str, str] | None:
-    """URLs de `latest.json` et `latest.json.sig` pour LA MÊME release "latest".
+    """URLs de `latest.json` et `latest.json.sig` pour LA MÊME release.
 
     `releases/latest/download/<fichier>` (l'alias historique) redirige
     indépendamment pour CHAQUE fichier téléchargé — contrairement aux autres
@@ -271,31 +672,30 @@ def _resolve_latest_asset_urls() -> tuple[str, str] | None:
     signature n'ont pas ce luxe : c'est justement ce qui indique QUEL tag est
     le plus récent, donc il faut d'abord le résoudre via l'alias — ou, comme
     ici, un seul appel API. `fetch_manifest` appelait cet alias deux fois de
-    suite (une pour le manifeste,
-    une pour sa signature) : si une nouvelle release se publie entre les deux
-    résolutions — ou tant que le CDN n'a pas convergé sur tous ses points de
-    présence après coup — les deux requêtes peuvent aboutir sur DEUX releases
-    différentes. La signature est alors *correctement* rejetée (ce sont de vrais
-    octets non appariés, pas un faux positif du vérificateur), mais le résultat
-    observé est un rejet "SIGNATURE INVALIDE" intermittent qui n'a rien à voir
-    avec une vraie tentative de falsification — exactement le schéma vu dans
-    `update.log` (des rejets espacés de plusieurs jours, sans lien avec une
-    publication en cours, aux côtés de mises à jour qui finissent par passer).
-    Un seul appel à `/releases/latest` renvoie une release PRÉCISE avec les URLs
-    de TOUS ses assets (des liens de téléchargement épinglés à ce tag, pas
-    l'alias) : les deux fichiers proviennent alors garantis de la même release.
+    suite (une pour le manifeste, une pour sa signature) : si une nouvelle
+    release se publie entre les deux résolutions — ou tant que le CDN n'a pas
+    convergé sur tous ses points de présence après coup — les deux requêtes
+    peuvent aboutir sur DEUX releases différentes. La signature est alors
+    *correctement* rejetée, mais le résultat observé est un rejet "SIGNATURE
+    INVALIDE" intermittent qui n'a rien à voir avec une vraie falsification.
+    Un seul appel API renvoie une release PRÉCISE avec les URLs de TOUS ses
+    assets (liens épinglés à ce tag, pas l'alias) : les deux fichiers
+    proviennent alors garantis de la même release.
+
+    Canal `stable` : `/releases/latest` (GitHub exclut préversions et brouillons).
+    Canal `beta` : la plus récente des releases récentes, préversions comprises.
+    Lève `UpdateCheckError` (hors ligne / quota / réponse inattendue).
     """
-    try:
-        raw = _http_get(_GITHUB_API_LATEST_RELEASE, _MAX_RELEASES_BYTES)
-        release = json.loads(raw)
-    except Exception as exc:
-        _log(f"fetch_manifest: résolution de la release latest échouée ({exc})")
-        return None
-    assets = {
-        a.get("name"): a.get("browser_download_url")
-        for a in (release.get("assets") or [])
-        if isinstance(a, dict)
-    }
+    if get_channel() == "beta":
+        candidates = [r for r in _api_cached(_GITHUB_API_RELEASES_RECENT, _reduce_release_list)
+                      if _MANIFEST_NAME in r["assets"] and f"{_MANIFEST_NAME}.sig" in r["assets"] and r["tag"]]
+        if not candidates:
+            _log("fetch_manifest: aucune release (bêta) portant latest.json/.sig")
+            return None
+        candidates.sort(key=lambda r: _version_tuple(r["tag"]), reverse=True)
+        assets = candidates[0]["assets"]
+    else:
+        assets = _api_cached(_GITHUB_API_LATEST_RELEASE, _reduce_release)["assets"]
     manifest_url = assets.get(_MANIFEST_NAME)
     sig_url = assets.get(f"{_MANIFEST_NAME}.sig")
     if not manifest_url or not sig_url:
@@ -309,32 +709,28 @@ def _resolve_latest_asset_urls() -> tuple[str, str] | None:
 # une fenêtre de quelques centaines de ms subsiste entre l'appel API et les DEUX
 # téléchargements qui suivent — un CDN dont tous les points de présence n'ont pas
 # encore convergé après une publication très récente peut encore, rarement,
-# livrer manifeste et signature legèrement désynchronisés. observé en usage réel
-# (update.log) : des rejets "SIGNATURE INVALIDE" groupés sur de courtes fenêtres
-# plutôt qu'isolés — cohérent avec une republication rapprochée (ex. plusieurs
-# versions coup sur coup), pas avec une vraie tentative de falsification. Un
-# nouvel essai quelques centaines de ms plus tard (nouvelle résolution + nouveau
-# téléchargement) suffit à converger, sans jamais assouplir la vérification
-# elle-même : chaque tentative est vérifiée avec la même rigueur.
+# livrer manifeste et signature légèrement désynchronisés (cf. update.log : des
+# rejets "SIGNATURE INVALIDE" groupés sur de courtes fenêtres, cohérents avec une
+# republication rapprochée, pas avec une falsification). Un nouvel essai quelques
+# centaines de ms plus tard suffit à converger, sans jamais assouplir la
+# vérification elle-même : chaque tentative est vérifiée avec la même rigueur.
+# Une panne réseau (hors ligne) n'est PAS retentée ici : `_http_get` a déjà
+# épuisé ses propres reprises, et la prochaine vérification périodique prendra le relais.
 _MANIFEST_FETCH_ATTEMPTS = 3
 _MANIFEST_FETCH_BACKOFF_S = 0.7
 
+# Dernière cause d'échec de `fetch_manifest()` (None si la dernière tentative a réussi).
+_last_check_error: UpdateCheckError | None = None
 
-def fetch_manifest() -> dict[str, Any] | None:
-    """Télécharge latest.json + latest.json.sig, vérifie la signature, renvoie le dict.
 
-    Par défaut, résout la release latest UNE fois puis télécharge les deux
-    fichiers depuis CETTE même release (voir `_resolve_latest_asset_urls`).
+def fetch_manifest_ex() -> SignedManifest:
+    """Télécharge latest.json + latest.json.sig, vérifie la signature ; lève `UpdateCheckError`.
+
     `ELIUM_UPDATE_MANIFEST_URL` (tests, ou une URL épinglée manuellement)
-    court-circuite cette résolution et télécharge directement l'URL donnée
-    + `.sig`, comme avant — ce chemin n'a pas la course puisqu'il désigne déjà
-    une paire de fichiers fixe.
-
-    Réessaie en interne (silencieusement, seul l'échec final est journalisé)
-    en cas d'échec réseau OU de signature invalide — voir `_MANIFEST_FETCH_ATTEMPTS`.
+    court-circuite la résolution et télécharge directement l'URL donnée + `.sig`.
     """
     override = os.environ.get("ELIUM_UPDATE_MANIFEST_URL")
-    last_error: str | None = None
+    last: UpdateCheckError | None = None
     for attempt in range(1, _MANIFEST_FETCH_ATTEMPTS + 1):
         try:
             if override:
@@ -342,47 +738,60 @@ def fetch_manifest() -> dict[str, Any] | None:
             else:
                 resolved = _resolve_latest_asset_urls()
                 if not resolved:
-                    return None  # déjà journalisé par _resolve_latest_asset_urls
+                    raise UpdateCheckError("unavailable", "latest.json/.sig absents de la release")
                 manifest_url, sig_url = resolved
             raw = _http_get(manifest_url, _MAX_MANIFEST_BYTES)
             sig_hex = _http_get(sig_url, _MAX_MANIFEST_BYTES).decode("ascii", "ignore")
+        except UpdateCheckError:
+            raise
         except Exception as exc:
-            last_error = f"échec réseau ({exc})"
-            if attempt < _MANIFEST_FETCH_ATTEMPTS:
-                time.sleep(_MANIFEST_FETCH_BACKOFF_S * attempt)
-                continue
-            _log(f"fetch_manifest: {last_error}")
-            return None
-
-        if not _verify_signature(raw, sig_hex):
-            last_error = "SIGNATURE INVALIDE — manifeste rejeté"
-            if attempt < _MANIFEST_FETCH_ATTEMPTS:
-                time.sleep(_MANIFEST_FETCH_BACKOFF_S * attempt)
-                continue
-            _log(f"fetch_manifest: {last_error} (après {attempt} tentatives)")
-            return None
+            raise UpdateCheckError(_reason_for_exception(exc), str(exc)) from exc
 
         try:
-            return json.loads(raw)
-        except Exception as exc:
-            _log(f"fetch_manifest: JSON invalide ({exc})")
-            return None
-    return None  # inatteignable (la boucle renvoie ou journalise+renvoie à chaque tour)
+            return _parse_signed_manifest(raw, sig_hex)
+        except UpdateCheckError as exc:
+            if exc.reason == "unknown-key":
+                raise  # inutile de retenter : une autre livraison ne changera pas la clé
+            last = exc
+            if attempt < _MANIFEST_FETCH_ATTEMPTS:
+                time.sleep(_MANIFEST_FETCH_BACKOFF_S * attempt)
+                continue
+            raise UpdateCheckError(exc.reason, f"{exc.detail} (après {attempt} tentatives)") from exc
+    raise last or UpdateCheckError("unavailable")  # inatteignable
+
+
+def fetch_manifest() -> SignedManifest | None:
+    """Comme `fetch_manifest_ex` mais renvoie None en cas d'échec (cause dans `_last_check_error`)."""
+    global _last_check_error
+    try:
+        manifest = fetch_manifest_ex()
+    except UpdateCheckError as exc:
+        _last_check_error = exc
+        _log(f"fetch_manifest: {exc}")
+        return None
+    _last_check_error = None
+    return manifest
 
 
 def check_for_update() -> dict[str, Any] | None:
-    """Renvoie le manifeste (vérifié) si une version plus récente est disponible, sinon None."""
+    """Renvoie le manifeste (vérifié) si une version plus récente est disponible, sinon None.
+
+    Un None peut signifier « à jour » OU « vérification impossible » : voir
+    `_last_check_error` (None si la vérification a abouti)."""
     manifest = fetch_manifest()
     if not manifest:
         return None
     remote = str(manifest.get("version", ""))
     if not remote or not is_newer(remote, effective_version()):
         return None
+    if _is_quarantined(remote):
+        _log(f"check_for_update: {remote} en quarantaine (échec de démarrage antérieur) — ignorée")
+        return None
     return manifest
 
 
 # --------------------------------------------------------------------------- #
-# Téléchargement vérifié d'un artefact
+# Téléchargement vérifié d'un artefact (avec reprise HTTP Range)
 # --------------------------------------------------------------------------- #
 
 def _download_verified(
@@ -392,15 +801,14 @@ def _download_verified(
 ) -> bool:
     """Télécharge art['url'] en flux vers dest (progression 0-100), vérifie sha256.
 
-    Même retry borné + backoff qu'`_http_get` sur un échec réseau TRANSITOIRE
-    (voir `_is_transient_network_error`) : c'est le téléchargement le plus long
-    et le plus exposé (exe/msi/zip, potentiellement plusieurs dizaines de Mo,
-    contre quelques Ko pour le manifeste), il n'y a aucune raison qu'il soit
-    moins résilient qu'`_http_get` à un timeout/une coupure transitoire. Une
-    reprise repart de zéro (le fichier `.part` est retiré puis réécrit intégralement
-    à chaque tentative : pas de reprise partielle/Range ici). Comme dans
-    `_http_get`, une réponse trop volumineuse (`ValueError`) reste un rejet
-    définitif, jamais retentée.
+    Même retry borné + backoff qu'`_http_get` sur un échec réseau TRANSITOIRE.
+    REPRISE : sur une coupure transitoire le fichier `.part` est CONSERVÉ ; la
+    tentative suivante (ou un nouvel essai ultérieur de l'utilisateur) envoie
+    `Range: bytes=<taille>-` et ne retélécharge que le reste. Le sha256 de
+    l'ensemble (partie existante re-hachée + suite) est vérifié contre le manifeste
+    signé ; en cas d'écart sur un fichier repris, on repart de zéro. Une réponse
+    trop volumineuse (`ValueError`) ou une erreur HTTP applicative restent des rejets
+    définitifs (`.part` supprimé), jamais retentés.
     """
     url = art.get("url")
     expected = str(art.get("sha256", "")).lower()
@@ -411,26 +819,72 @@ def _download_verified(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
 
+    done = False
+    resumed = False
+    digest = hashlib.sha256()
     for attempt in range(1, _HTTP_MAX_ATTEMPTS + 1):
         digest = hashlib.sha256()
+        offset = 0
+        resumed = False
+        if tmp.exists():
+            offset = tmp.stat().st_size
+            if offset <= 0 or offset > _MAX_ARTIFACT_BYTES or (total and offset >= total):
+                _safe_unlink(tmp)
+                offset = 0
+            else:
+                with open(tmp, "rb") as old:
+                    for block in iter(lambda: old.read(1024 * 1024), b""):
+                        digest.update(block)
+        headers = {"User-Agent": _USER_AGENT}
+        if offset:
+            headers["Range"] = f"bytes={offset}-"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310 — schéma https connu / manifeste vérifié en amont.
-            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp, open(tmp, "wb") as out:  # noqa: S310
-                received = 0
-                while True:
-                    chunk = resp.read(256 * 1024)
-                    if not chunk:
-                        break
-                    received += len(chunk)
-                    if received > _MAX_ARTIFACT_BYTES:
-                        raise ValueError("artefact trop volumineux")
-                    out.write(chunk)
-                    digest.update(chunk)
-                    if on_progress and total:
-                        on_progress(min(99, int(received * 100 / total)))
-        except Exception as exc:
+            req = urllib.request.Request(url, headers=headers)  # noqa: S310 — schéma https connu / manifeste vérifié en amont.
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # noqa: S310
+                status = getattr(resp, "status", None) or getattr(resp, "code", None) or 200
+                if offset and status == 206:
+                    crange = ""
+                    try:
+                        crange = str(resp.headers.get("Content-Range") or "")
+                    except Exception:  # noqa: S110 — en-tête absent : on se fie au 206.
+                        pass
+                    if crange and not crange.startswith(f"bytes {offset}-"):
+                        raise ValueError("Content-Range inattendu pour la reprise")
+                    resumed = True
+                    mode = "ab"
+                else:
+                    if offset:  # le serveur ignore Range : on repart de zéro
+                        digest = hashlib.sha256()
+                        offset = 0
+                    mode = "wb"
+                received = offset
+                with open(tmp, mode) as out:
+                    while True:
+                        chunk = resp.read(256 * 1024)
+                        if not chunk:
+                            break
+                        received += len(chunk)
+                        if received > _MAX_ARTIFACT_BYTES:
+                            raise ValueError("artefact trop volumineux")
+                        out.write(chunk)
+                        digest.update(chunk)
+                        if on_progress and total:
+                            on_progress(min(99, int(received * 100 / total)))
+        except urllib.error.HTTPError as exc:
             _safe_unlink(tmp)
-            if attempt < _HTTP_MAX_ATTEMPTS and _is_transient_network_error(exc):
+            if exc.code == 416 and attempt < _HTTP_MAX_ATTEMPTS:
+                continue  # plage invalide (fichier changé / déjà complet) : retente depuis zéro
+            _log(f"_download_verified: échec téléchargement {url} (HTTP {exc.code})")
+            return False
+        except Exception as exc:
+            transient = _is_transient_network_error(exc)
+            try:
+                keep = transient and tmp.exists() and tmp.stat().st_size > 0
+            except OSError:
+                keep = False
+            if not keep:
+                _safe_unlink(tmp)
+            if attempt < _HTTP_MAX_ATTEMPTS and transient:
                 delay = _HTTP_RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
                 _log(
                     f"_download_verified: échec réseau transitoire ({exc}) — "
@@ -438,15 +892,22 @@ def _download_verified(
                 )
                 time.sleep(delay)
                 continue
-            _log(f"_download_verified: échec téléchargement {url} ({exc})")
+            _log(f"_download_verified: échec téléchargement {url} ({exc})"
+                 + (" — reprise possible au prochain essai" if keep else ""))
             return False
-        break  # succès : sort de la boucle de retry, poursuit vers la vérification sha256
 
-    if digest.hexdigest() != expected:
-        _log(f"_download_verified: sha256 mismatch {url} (attendu {expected})")
-        _safe_unlink(tmp)
+        if digest.hexdigest() != expected:
+            _safe_unlink(tmp)
+            if resumed and attempt < _HTTP_MAX_ATTEMPTS:
+                _log(f"_download_verified: sha256 incorrect après reprise ({url}) — reprise depuis zéro")
+                continue
+            _log(f"_download_verified: sha256 mismatch {url} (attendu {expected})")
+            return False
+        done = True
+        break
+
+    if not done:
         return False
-
     _safe_unlink(dest)
     tmp.replace(dest)
     if on_progress:
@@ -461,23 +922,101 @@ def _safe_unlink(path: Path) -> None:
         pass
 
 
+Fetcher = Callable[["dict[str, Any]", Path, "Callable[[int], None] | None"], bool]
+
+
 # --------------------------------------------------------------------------- #
-# Application des màj
+# Application des màj — web (avec pack d'assets partagé)
 # --------------------------------------------------------------------------- #
+
+def _web_artifacts(manifest: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """(artefact web à télécharger, pack d'assets éventuel).
+
+    Les manifestes récents publient `webCore` (léger) + `assets` (pack lourd, rechargé
+    seulement si son empreinte change). `web` reste l'archive COMPLÈTE historique,
+    conservée pour les clients plus anciens.
+    """
+    arts = manifest.get("artifacts", {}) or {}
+    if arts.get("webCore") and arts.get("assets"):
+        return arts["webCore"], arts["assets"]
+    return arts.get("web"), None
+
+
+def _expected_tree_hash(manifest: Any) -> str | None:
+    arts = manifest.get("artifacts", {}) or {}
+    for key in ("webCore", "web"):
+        h = (arts.get(key) or {}).get("treeHash")
+        if h:
+            return str(h).lower()
+    return None
+
+
+def _ensure_assets_pack(
+    art: dict[str, Any], fetcher: Fetcher, on_progress: Callable[[int], None] | None
+) -> Path | None:
+    """Dossier du pack d'assets (téléchargé seulement s'il n'est pas déjà en cache et intègre)."""
+    tree = str(art.get("treeHash", "")).lower()
+    if not tree:
+        _log("pack d'assets sans treeHash : refusé")
+        return None
+    final = _assets_root() / tree[:32]
+    if final.is_dir() and tree_hash_dir(final) == tree:
+        _log(f"pack d'assets {tree[:12]} déjà présent : aucun téléchargement")
+        return final
+    tmp_zip = data_dir() / "tmp" / f"assets-{tree[:32]}.zip"
+    staging = _assets_root() / f".{tree[:32]}.new"
+    try:
+        if not fetcher(art, tmp_zip, on_progress):
+            return None
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(tmp_zip) as zf:
+            _safe_extract_zip(zf, staging)
+        if tree_hash_dir(staging) != tree:
+            _log("pack d'assets : empreinte d'arborescence incorrecte — rejeté")
+            shutil.rmtree(staging, ignore_errors=True)
+            return None
+        shutil.rmtree(final, ignore_errors=True)
+        staging.replace(final)
+    except Exception as exc:
+        _log(f"pack d'assets : installation échouée ({exc})")
+        shutil.rmtree(staging, ignore_errors=True)
+        return None
+    finally:
+        _safe_unlink(tmp_zip)
+    return final
+
 
 def apply_web_update(
-    manifest: dict[str, Any],
+    manifest: Any,
     on_progress: Callable[[int], None] | None = None,
+    fetcher: Fetcher | None = None,
 ) -> bool:
-    """Télécharge et installe le paquet web dans %LOCALAPPDATA%\\Elium\\web\\<version>."""
+    """Télécharge et installe le paquet web dans %LOCALAPPDATA%\\Elium\\web\\<version>.
+
+    Avec un manifeste « scindé » : `webCore` (petit) + pack d'assets (réutilisé s'il est
+    déjà en cache) sont FUSIONNÉS dans un seul dossier servi, de sorte que le lanceur
+    n'a qu'un répertoire à connaître. Le manifeste signé est conservé à côté pour la
+    revérification au lancement.
+    """
+    fetcher = fetcher or _download_verified
     version = str(manifest["version"])
-    art = manifest.get("artifacts", {}).get("web")
-    if not art:
+    web_art, assets_art = _web_artifacts(manifest)
+    if not web_art:
         _log("apply_web_update: pas d'artefact web dans le manifeste")
         return False
+    if not getattr(manifest, "raw", b""):
+        _log("apply_web_update: manifeste non signé/non vérifié — refusé")
+        return False
+
+    assets_dir: Path | None = None
+    if assets_art:
+        assets_dir = _ensure_assets_pack(assets_art, fetcher, on_progress)
+        if assets_dir is None:
+            return False
 
     tmp_zip = data_dir() / "tmp" / f"web-{version}.zip"
-    if not _download_verified(art, tmp_zip, on_progress):
+    if not fetcher(web_art, tmp_zip, on_progress):
         return False
 
     target = _web_root() / version
@@ -492,6 +1031,14 @@ def apply_web_update(
         root = _locate_web_root(staging)
         if root is None:
             _log("apply_web_update: index.html introuvable dans le paquet web")
+            shutil.rmtree(staging, ignore_errors=True)
+            return False
+        if assets_dir is not None:
+            shutil.copytree(assets_dir, root, dirs_exist_ok=True)
+        actual_tree = tree_hash_dir(root)
+        expected_tree = _expected_tree_hash(manifest)
+        if expected_tree and actual_tree != expected_tree:
+            _log("apply_web_update: empreinte d'arborescence incorrecte — paquet rejeté")
             shutil.rmtree(staging, ignore_errors=True)
             return False
         if target.exists():
@@ -509,8 +1056,17 @@ def apply_web_update(
     finally:
         _safe_unlink(tmp_zip)
 
+    if not _store_signed_manifest(manifest, _web_root() / version):
+        return False
+    if not expected_tree:
+        # Manifeste ancien (sans treeHash signé) : on mémorise l'empreinte locale au moins
+        # pour détecter une altération/corruption ultérieure (non infalsifiable).
+        (_web_root() / f"{version}.tree").write_text(actual_tree, encoding="utf-8")
     _set_pointer(version)
+    _overlay_memo.pop(version, None)
     _prune_old_web(keep={version, current_version()})
+    _prune_assets()
+    sync_arp_version(version if is_newer(version, current_version()) else current_version())
     _log(f"apply_web_update: interface {version} installée")
     return True
 
@@ -557,15 +1113,102 @@ def _read_pointer() -> str | None:
 def _prune_old_web(keep: set[str]) -> None:
     try:
         for child in _web_root().iterdir():
-            if child.is_dir() and child.name not in keep and not child.name.startswith("."):
-                shutil.rmtree(child, ignore_errors=True)
+            if child.name.startswith(".") or child.name == _pointer_file().name:
+                continue
+            if child.is_dir():
+                if child.name not in keep:
+                    shutil.rmtree(child, ignore_errors=True)
+                    _remove_sidecar(child)
+                    _safe_unlink(child.with_name(child.name + ".tree"))
+            else:
+                # Sidecars orphelins (manifeste/signature/empreinte d'une version supprimée).
+                stem = re.sub(r"\.(manifest\.json(\.sig)?|tree)$", "", child.name)
+                if stem != child.name and not (child.parent / stem).is_dir():
+                    _safe_unlink(child)
     except OSError:
         pass
 
 
-def active_web_dir() -> str | None:
-    """Dossier web de l'overlay s'il est strictement plus récent que la version embarquée."""
+def _prune_assets() -> None:
+    """Ne garde que les packs d'assets référencés par une version web conservée."""
+    keep: set[str] = set()
+    try:
+        for child in _web_root().iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                m = _load_signed_manifest(child)
+                art = (m or {}).get("artifacts", {}).get("assets") if m else None
+                if art and art.get("treeHash"):
+                    keep.add(str(art["treeHash"]).lower()[:32])
+        for d in _assets_root().iterdir():
+            if d.is_dir() and d.name not in keep:
+                shutil.rmtree(d, ignore_errors=True)
+    except OSError:
+        pass
+
+
+# --------------------------------------------------------------------------- #
+# Vérification de l'overlay web (rejouée au lancement)
+# --------------------------------------------------------------------------- #
+
+_overlay_memo: dict[str, tuple[tuple, bool]] = {}
+
+
+def reset_verification_cache() -> None:
+    """Oublie les verdicts mémorisés : la prochaine lecture re-hache tout (appelé au lancement)."""
+    _overlay_memo.clear()
+
+
+def _mtime_ns(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
+def _verify_overlay(version: str) -> bool:
+    d = _web_root() / version
+    if not (d / "index.html").is_file():
+        return False
+    manifest = _load_signed_manifest(d)
+    if manifest is None:
+        _log(f"overlay web {version} : manifeste signé absent ou invalide — ignoré")
+        return False
+    if str(manifest.get("version", "")) != version:
+        _log(f"overlay web {version} : le manifeste signé concerne {manifest.get('version')!r} — ignoré")
+        return False
+    actual = tree_hash_dir(d)
+    expected = _expected_tree_hash(manifest)
+    if expected is None:
+        try:
+            expected = (_web_root() / f"{version}.tree").read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            expected = None
+    if not expected or actual != expected:
+        _log(f"overlay web {version} : empreinte d'arborescence incorrecte — ignoré (retour à la version embarquée)")
+        return False
+    return True
+
+
+def _overlay_ok(version: str) -> bool:
+    key = (version, _mtime_ns(_pointer_file()), _mtime_ns(_sidecar_paths(_web_root() / version)[0]))
+    hit = _overlay_memo.get(version)
+    if hit and hit[0] == key:
+        return hit[1]
+    ok = _verify_overlay(version)
+    _overlay_memo[version] = (key, ok)
+    return ok
+
+
+def _verified_pointer() -> str | None:
     version = _read_pointer()
+    if not version or not _overlay_ok(version):
+        return None
+    return version
+
+
+def active_web_dir() -> str | None:
+    """Dossier web de l'overlay s'il est strictement plus récent que la version embarquée ET vérifié."""
+    version = _verified_pointer()
     if not version:
         return None
     if not is_newer(version, current_version()):
@@ -576,19 +1219,31 @@ def active_web_dir() -> str | None:
     return None
 
 
+# --------------------------------------------------------------------------- #
+# Application des màj — exe
+# --------------------------------------------------------------------------- #
+
 def apply_exe_update(
-    manifest: dict[str, Any],
+    manifest: Any,
     on_progress: Callable[[int], None] | None = None,
+    fetcher: Fetcher | None = None,
 ) -> bool:
     """Télécharge le nouveau lanceur complet dans bin\\ ; appliqué au prochain démarrage."""
+    fetcher = fetcher or _download_verified
     version = str(manifest["version"])
     art = manifest.get("artifacts", {}).get("exe")
     if not art:
         _log("apply_exe_update: pas d'artefact exe dans le manifeste")
         return False
+    if not getattr(manifest, "raw", b""):
+        _log("apply_exe_update: manifeste non signé/non vérifié — refusé")
+        return False
 
     dest = _bin_root() / f"Elium-{version}.exe"
-    if not _download_verified(art, dest, on_progress):
+    if not fetcher(art, dest, on_progress):
+        return False
+    if not _store_signed_manifest(manifest, dest.with_suffix("")):
+        _safe_unlink(dest)
         return False
 
     try:
@@ -599,33 +1254,168 @@ def apply_exe_update(
     except OSError as exc:
         _log(f"apply_exe_update: écriture pending.json échouée ({exc})")
         return False
+    _save_json(_boot_state_file(), {"version": version, "attempts": 0, "ok": False})
+    _prune_old_exe(keep_count=2)
     _log(f"apply_exe_update: lanceur {version} prêt (handoff au prochain lancement)")
     return True
 
 
+def _exe_version_of(path: Path) -> str:
+    return path.stem[len("Elium-"):]
+
+
+def _prune_old_exe(keep_count: int = 2) -> None:
+    """Ne garde que le lanceur courant + le précédent dans bin\\ (les plus récentes versions)."""
+    try:
+        exes = sorted(_bin_root().glob("Elium-*.exe"), key=lambda p: _version_tuple(_exe_version_of(p)), reverse=True)
+    except OSError:
+        return
+    for old in exes[keep_count:]:
+        _safe_unlink(old)
+        _remove_sidecar(old.with_suffix(""))
+        _log(f"prune: ancien lanceur {old.name} supprimé")
+
+
 # --------------------------------------------------------------------------- #
-# Handoff : relancer l'exe le plus récent au démarrage
+# Handoff : relancer l'exe le plus récent au démarrage (revérifié)
 # --------------------------------------------------------------------------- #
 
 def _verified_pending_exe() -> Path | None:
-    """Chemin de l'exe en attente s'il est plus récent que nous ET valide (sha256), sinon None."""
-    try:
-        pending = json.loads(_pending_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """Chemin de l'exe en attente s'il est plus récent que nous ET authentique, sinon None.
+
+    Authentique = le manifeste SIGNÉ conservé à côté (signature revérifiée ici, au
+    lancement) annonce exactement cette version et le sha256 de CE fichier. Le
+    `pending.json` (inscriptible par l'utilisateur) n'est qu'un indice : sa valeur
+    sha256 n'est plus une source de confiance.
+    """
+    pending = _load_json(_pending_file(), None)
+    if not isinstance(pending, dict):
         return None
     version = str(pending.get("version", ""))
-    expected = str(pending.get("sha256", "")).lower()
     if not version or not is_newer(version, current_version()):
         return None  # rien de plus récent que nous
+    if _is_quarantined(version):
+        return None
     exe = _bin_root() / f"Elium-{version}.exe"
     if not exe.is_file():
         _log(f"pending exe: {exe.name} introuvable")
         return None
-    if expected and _sha256(exe) != expected:
-        _log(f"pending exe: sha256 de {version} invalide — ignoré")
+    manifest = _load_signed_manifest(exe.with_suffix(""))
+    if manifest is None or str(manifest.get("version", "")) != version:
+        _log(f"pending exe: manifeste signé de {version} absent ou invalide — ignoré")
+        return None
+    expected = str((manifest.get("artifacts", {}).get("exe") or {}).get("sha256", "")).lower()
+    if not expected or _sha256(exe) != expected:
+        _log(f"pending exe: sha256 de {version} différent de celui du manifeste signé — supprimé")
         _safe_unlink(exe)
+        _remove_sidecar(exe.with_suffix(""))
         return None
     return exe
+
+
+def _boot_state(version: str) -> dict[str, Any]:
+    st = _load_json(_boot_state_file(), None)
+    if not isinstance(st, dict) or st.get("version") != version:
+        return {"version": version, "attempts": 0, "ok": False}
+    return st
+
+
+def _fallback_to_base(version: str, reason: str) -> None:
+    """Abandonne l'exe `version` (plantages répétés) : on reste sur la version embarquée."""
+    _log(f"handoff: {version} abandonnée ({reason}) — retour à la version embarquée {current_version()}")
+    _quarantine(version)
+    _safe_unlink(_pending_file())
+    exe = _bin_root() / f"Elium-{version}.exe"
+    _safe_unlink(exe)
+    _remove_sidecar(exe.with_suffix(""))
+    _save_json(_fallback_file(), {"version": version, "reason": reason, "base": current_version(),
+                                  "at": time.strftime("%Y-%m-%d %H:%M:%S")})
+
+
+def _may_handoff(version: str) -> bool:
+    """Garde anti boucle de plantage. Compte une tentative de démarrage de `version` ; refuse
+    (et bascule sur la base) dès qu'elle a échoué MAX_BOOT_ATTEMPTS fois sans « boot ok »."""
+    st = _boot_state(version)
+    if st.get("ok"):
+        return True
+    attempts = int(st.get("attempts", 0))
+    if attempts >= MAX_BOOT_ATTEMPTS:
+        _fallback_to_base(version, f"{attempts} démarrages sans « boot ok »")
+        return False
+    st["attempts"] = attempts + 1
+    _save_json(_boot_state_file(), st)
+    return True
+
+
+def mark_boot_ok() -> None:
+    """Appelé par l'application une fois réellement démarrée (page servie) : remet à zéro le
+    compteur de plantages de CETTE version et élague les anciens lanceurs."""
+    version = current_version()
+    st = _load_json(_boot_state_file(), None)
+    # Seul le lanceur dont la version est suivie par la garde (celui qui vient d'être
+    # remis en main) enregistre son « boot ok » ; la base n'écrase jamais l'état d'un autre.
+    if isinstance(st, dict) and st.get("version") == version and not (st.get("ok") and not st.get("attempts")):
+        _save_json(_boot_state_file(), {"version": version, "attempts": 0, "ok": True})
+    _prune_old_exe(keep_count=2)
+
+
+def consume_fallback_notice() -> dict[str, Any] | None:
+    """Lit (et efface) la trace d'un retour automatique à la version embarquée, pour l'annoncer."""
+    notice = _load_json(_fallback_file(), None)
+    if not isinstance(notice, dict):
+        return None
+    _safe_unlink(_fallback_file())
+    return notice
+
+
+ARP_PER_USER_NAME = "Elium (installation utilisateur)"
+
+
+def sync_arp_version(version: str | None = None) -> bool:
+    """Recopie la version RÉELLEMENT active dans « Applications installées » (variante MSI PAR
+    UTILISATEUR uniquement : son entrée vit sous HKCU, que l'application peut écrire sans droits
+    administrateur). L'entrée de la variante « machine » (HKLM) n'est pas modifiable sans élévation :
+    elle garde la version de l'installeur, la version active est affichée dans l'application.
+    Best-effort, ne lève jamais ; renvoie True si une entrée a été mise à jour."""
+    if os.name != "nt" or os.environ.get("ELIUM_NO_ARP_SYNC") == "1":
+        return False
+    version = version or effective_version()
+    try:
+        import winreg  # noqa: PLC0415 — Windows uniquement
+        root = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+        updated = False
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, root) as parent:
+            index = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(parent, index)
+                except OSError:
+                    break
+                index += 1
+                try:
+                    with winreg.OpenKey(parent, name, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as sub:
+                        display, _ = winreg.QueryValueEx(sub, "DisplayName")
+                        if display != ARP_PER_USER_NAME:
+                            continue
+                        current, _ = winreg.QueryValueEx(sub, "DisplayVersion")
+                        if current != version:
+                            winreg.SetValueEx(sub, "DisplayVersion", 0, winreg.REG_SZ, version)
+                            updated = True
+                except OSError:
+                    continue
+        return updated
+    except Exception as exc:  # noqa: BLE001 — cosmétique : jamais bloquant
+        _log(f"sync_arp_version: {exc}")
+        return False
+
+
+def startup_checks() -> None:
+    """À l'initialisation du lanceur : repart de verdicts neufs et prépare l'annonce d'un repli éventuel."""
+    reset_verification_cache()
+    notice = consume_fallback_notice()
+    if notice:
+        _status["fallback"] = notice
+    sync_arp_version()
 
 
 def run_pending_handoff() -> None:
@@ -637,9 +1427,11 @@ def run_pending_handoff() -> None:
     exe = _verified_pending_exe()
     if exe is None:
         return
+    if not _may_handoff(_exe_version_of(exe)):
+        return
     try:
         _log(f"handoff: relance vers {exe.name}")
-        # S603 : chemin issu de notre propre répertoire de données, binaire vérifié par sha256.
+        # S603 : chemin issu de notre propre répertoire de données, binaire revérifié (signature + sha256).
         subprocess.Popen([str(exe), *sys.argv[1:]])  # noqa: S603
     except Exception as exc:
         _log(f"handoff: échec Popen ({exc})")
@@ -654,6 +1446,8 @@ def relaunch_pending_exe() -> bool:
     exe = _verified_pending_exe()
     if exe is None:
         return False
+    if not _may_handoff(_exe_version_of(exe)):
+        return False
     try:
         _log(f"relaunch: démarrage de {exe.name}")
         subprocess.Popen([str(exe), *sys.argv[1:]])  # noqa: S603
@@ -664,14 +1458,166 @@ def relaunch_pending_exe() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Mise à jour depuis un fichier (paquet hors ligne signé « .eliumupdate »)
+# --------------------------------------------------------------------------- #
+
+BUNDLE_EXTENSION = ".eliumupdate"
+_BUNDLE_MANIFEST = "latest.json"
+_BUNDLE_SIG = "latest.json.sig"
+
+
+def open_update_bundle(path: Path) -> tuple[SignedManifest, zipfile.ZipFile]:
+    """Ouvre un paquet hors ligne et vérifie la signature de son manifeste EXACTEMENT comme en ligne.
+
+    Le paquet est un zip : latest.json + latest.json.sig + les artefacts nommés par le
+    manifeste. Lève `UpdateCheckError` si le paquet est illisible ou mal signé (le
+    ZipFile ouvert est alors refermé).
+    """
+    try:
+        zf = zipfile.ZipFile(path)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise UpdateCheckError("unavailable", f"paquet illisible ({exc})") from exc
+    try:
+        for name in (_BUNDLE_MANIFEST, _BUNDLE_SIG):
+            if name not in zf.namelist():
+                raise UpdateCheckError("unavailable", f"{name} absent du paquet")
+            if zf.getinfo(name).file_size > _MAX_MANIFEST_BYTES:
+                raise UpdateCheckError("unavailable", f"{name} trop volumineux")
+        raw = zf.read(_BUNDLE_MANIFEST)
+        sig = zf.read(_BUNDLE_SIG).decode("ascii", "ignore")
+        return _parse_signed_manifest(raw, sig), zf
+    except BaseException:
+        zf.close()
+        raise
+
+
+def _bundle_fetcher(zf: zipfile.ZipFile) -> Fetcher:
+    def fetch(art: dict[str, Any], dest: Path, on_progress: Callable[[int], None] | None = None) -> bool:
+        name = str(art.get("name") or "")
+        expected = str(art.get("sha256", "")).lower()
+        if not name or not expected or name not in zf.namelist():
+            _log(f"paquet : artefact {name!r} absent")
+            return False
+        info = zf.getinfo(name)
+        if info.file_size > _MAX_ARTIFACT_BYTES or (art.get("size") and info.file_size != int(art["size"])):
+            _log(f"paquet : taille de {name!r} incohérente avec le manifeste signé")
+            return False
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        digest = hashlib.sha256()
+        done = 0
+        try:
+            with zf.open(info) as src, open(tmp, "wb") as out:
+                for block in iter(lambda: src.read(256 * 1024), b""):
+                    out.write(block)
+                    digest.update(block)
+                    done += len(block)
+                    if on_progress and info.file_size:
+                        on_progress(min(99, int(done * 100 / info.file_size)))
+        except (OSError, zipfile.BadZipFile) as exc:
+            _safe_unlink(tmp)
+            _log(f"paquet : lecture de {name!r} échouée ({exc})")
+            return False
+        if digest.hexdigest() != expected:
+            _safe_unlink(tmp)
+            _log(f"paquet : sha256 de {name!r} différent de celui du manifeste signé")
+            return False
+        _safe_unlink(dest)
+        tmp.replace(dest)
+        if on_progress:
+            on_progress(100)
+        return True
+
+    return fetch
+
+
+def apply_update_bundle(path: Path, on_progress: Callable[[int], None] | None = None) -> dict[str, Any]:
+    """Applique un paquet hors ligne : même vérifications, même installation que la voie en ligne."""
+    if os.environ.get("ELIUM_NO_UPDATE") == "1":
+        return _publish("disabled")
+    try:
+        manifest, zf = open_update_bundle(Path(path))
+    except UpdateCheckError as exc:
+        _log(f"apply_update_bundle: {exc}")
+        return _publish("error", reason=f"bundle-{exc.reason}", message=_bundle_message(exc.reason))
+    try:
+        version = str(manifest.get("version", ""))
+        if not version or not is_newer(version, effective_version()):
+            return _publish("error", version=version or None, reason="bundle-not-newer",
+                            message="Ce paquet n'est pas plus récent que la version installée.")
+        kind = "exe" if _needs_exe(manifest) else "web"
+        if kind == "exe" and not (manifest.get("artifacts") or {}).get("exe"):
+            return _publish("error", version=version, reason="bundle-incomplete",
+                            message="Le paquet ne contient pas l'application complète requise.")
+        _publish("downloading", version=version, kind=kind, progress=0)
+
+        def prog(pct: int) -> None:
+            _status["progress"] = pct
+            if on_progress:
+                on_progress(pct)
+
+        fetcher = _bundle_fetcher(zf)
+        try:
+            ok = (apply_exe_update(manifest, prog, fetcher) if kind == "exe"
+                  else apply_web_update(manifest, prog, fetcher))
+        except Exception as exc:
+            _log(f"apply_update_bundle: {exc}")
+            ok = False
+        if not ok:
+            return _publish("error", version=version, kind=kind, reason="bundle-failed",
+                            message="Le contenu du paquet est invalide ou incomplet : rien n'a été installé.")
+        _log(f"apply_update_bundle: version {version} installée depuis un fichier ({kind})")
+        releases = release_notes(manifest)
+        return _publish(f"{kind}-ready", version=version, kind=kind, progress=100,
+                        releases=releases, summary=changelog.summarize(releases))
+    finally:
+        zf.close()
+
+
+def _bundle_message(reason: str) -> str:
+    return {
+        "invalid-signature": "La signature de ce paquet est invalide : il a été refusé par sécurité.",
+        "unknown-key": "Ce paquet est signé par une clé inconnue de cette version d'Elium.",
+    }.get(reason, "Ce fichier n'est pas un paquet de mise à jour Elium valide.")
+
+
+def start_bundle_update(path: Path) -> dict[str, Any]:
+    """Lance l'application d'un paquet hors ligne en tâche de fond (bouton « Mettre à jour depuis un fichier »)."""
+    if os.environ.get("ELIUM_NO_UPDATE") == "1":
+        return _publish("disabled")
+    if _status.get("state") == "downloading":
+        if Path(path).parent == data_dir() / "tmp":
+            _safe_unlink(Path(path))
+        return get_status()
+
+    def run() -> None:
+        if not _apply_lock.acquire(blocking=False):
+            return
+        try:
+            apply_update_bundle(path)
+        finally:
+            _apply_lock.release()
+            if Path(path).parent == data_dir() / "tmp":  # copie de travail déposée par le lanceur
+                _safe_unlink(Path(path))
+
+    threading.Thread(target=run, daemon=True).start()
+    return _publish("downloading", progress=0)
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration — cycle : détection (bouton) -> téléchargement animé -> prêt
 # --------------------------------------------------------------------------- #
 
 # Statut lu par l'endpoint /__update__ (la carte web s'y adapte).
 #   state : idle | up-to-date | disabled | available | downloading
-#           | web-ready | exe-ready | error
+#           | web-ready | exe-ready | check-failed | error
+#   reason : cause précise (état check-failed : offline | rate-limited |
+#            invalid-signature | unknown-key | unavailable ; état error : bundle-*)
+#   message : phrase française explicative associée à `reason`
 #   kind  : "web" | "exe" (comment la màj s'appliquera)
 #   progress : 0-100 pendant le téléchargement
+#   channel : "stable" | "beta"
+#   fallback : {version, reason, base} si un exe a été abandonné (plantages) au dernier démarrage
 #   releases : [{version, date, changes[]}] — tout ce que l'utilisateur n'a pas
 #              encore, de la plus récente à la plus ancienne (pas seulement la
 #              dernière release), pour que la carte annonce l'ensemble des
@@ -679,22 +1625,27 @@ def relaunch_pending_exe() -> bool:
 #   summary  : « 3 versions, 12 nouveautés »
 _status: dict[str, Any] = {
     "state": "idle", "version": None, "kind": None, "progress": 0,
-    "releases": [], "summary": "", "notes": "",
+    "releases": [], "summary": "", "notes": "", "reason": None, "message": "",
 }
 _pending_manifest: dict[str, Any] | None = None
 _apply_lock = threading.Lock()
 _last_check_monotonic = 0.0  # throttle des re-vérifications (secondes monotoniques)
+_consecutive_check_failures = 0
 
 
 def get_status() -> dict[str, Any]:
-    return dict(_status)
+    st = dict(_status)
+    st["channel"] = get_channel()
+    return st
 
 
 def _publish(state: str, *, version: str | None = None,
              kind: str | None = None, progress: int = 0,
              releases: list | None = None, summary: str | None = None,
-             notes: str | None = None) -> dict[str, Any]:
-    _status.update({"state": state, "version": version, "kind": kind, "progress": progress})
+             notes: str | None = None, reason: str | None = None,
+             message: str = "") -> dict[str, Any]:
+    _status.update({"state": state, "version": version, "kind": kind, "progress": progress,
+                    "reason": reason, "message": message})
     # Les nouveautés PERSISTENT d'un état à l'autre : elles sont calculées une
     # fois à la détection, et la carte continue de les afficher pendant le
     # téléchargement puis sur l'écran « prête ».
@@ -736,8 +1687,11 @@ def _needs_exe(manifest: dict[str, Any]) -> bool:
 
 
 def check_only() -> dict[str, Any]:
-    """Détecte une màj SANS télécharger. Passe l'état à 'available' le cas échéant."""
-    global _pending_manifest
+    """Détecte une màj SANS télécharger. Passe l'état à 'available' le cas échéant.
+
+    Si la vérification ELLE-MÊME échoue (hors ligne, quota GitHub, signature invalide...),
+    l'état est `check-failed` avec la cause : ce n'est PAS « à jour »."""
+    global _pending_manifest, _consecutive_check_failures
     if os.environ.get("ELIUM_NO_UPDATE") == "1":
         return _publish("disabled")
     try:
@@ -747,10 +1701,17 @@ def check_only() -> dict[str, Any]:
         return _publish("error")
     if not manifest:
         _pending_manifest = None
+        err = _last_check_error
+        if err is not None:
+            _consecutive_check_failures += 1
+            return _publish("check-failed", reason=err.reason,
+                            message=REASON_MESSAGES.get(err.reason, REASON_MESSAGES["unavailable"]))
+        _consecutive_check_failures = 0
         return _publish("up-to-date")
+    _consecutive_check_failures = 0
     _pending_manifest = manifest
     kind = "exe" if _needs_exe(manifest) else "web"
-    _log(f"check_only: màj {manifest.get('version')} disponible ({kind})")
+    _log(f"check_only: màj {manifest.get('version')} disponible ({kind}, canal {get_channel()})")
     releases = release_notes(manifest)
     return _publish(
         "available", version=str(manifest.get("version")), kind=kind,
@@ -817,6 +1778,10 @@ def check_and_apply(on_status: Callable[[dict[str, Any]], None] | None = None) -
         _log(f"check_and_apply: {exc}")
         return _publish("error")
     if not manifest:
+        err = _last_check_error
+        if err is not None:
+            return _publish("check-failed", reason=err.reason,
+                            message=REASON_MESSAGES.get(err.reason, REASON_MESSAGES["unavailable"]))
         return _publish("up-to-date")
     status = _apply(manifest)
     if status["state"] in ("web-ready", "exe-ready") and on_status:
@@ -825,6 +1790,25 @@ def check_and_apply(on_status: Callable[[dict[str, Any]], None] | None = None) -
         except Exception as e:
             _log(f"check_and_apply: le callback on_status a échoué ({e})")
     return status
+
+
+def set_channel(name: str) -> dict[str, Any]:
+    """Change de canal (persisté) puis relance une détection : la carte reflète aussitôt le nouveau canal."""
+    global _pending_manifest
+    name = (name or "").strip().lower()
+    if name not in CHANNELS:
+        return get_status()
+    cfg = _load_json(_settings_file(), {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+    cfg["channel"] = name
+    _save_json(_settings_file(), cfg)
+    _pending_manifest = None
+    _log(f"canal de mise à jour : {name}")
+    if _status.get("state") not in ("downloading", "exe-ready"):
+        _publish("idle")
+        start_background_check()
+    return get_status()
 
 
 def start_background_check() -> None:
@@ -845,6 +1829,9 @@ def start_background_check() -> None:
 # indépendant de l'usage de l'app, corrige les deux.
 _PERIODIC_CHECK_INTERVAL_S = 30 * 60  # 30 min : largement sous la limite API GitHub non authentifiée (60/h)
 _periodic_check_started = False
+# Entre deux navigations, on ne retouche le réseau qu'au bout de ce délai de base,
+# doublé à chaque échec consécutif (plafonné) : jamais de martèlement quand on est hors ligne.
+_NAV_CHECK_INTERVAL_S = 300.0
 
 
 def start_periodic_check(interval_s: float = _PERIODIC_CHECK_INTERVAL_S) -> None:
@@ -893,15 +1880,25 @@ def version_info() -> dict[str, Any]:
     state = st.get("state")
     latest: str | None = None
     up_to_date = True
+    check_failed: str | None = None
     if state == "available" and st.get("version"):
         latest = str(st["version"])
         up_to_date = not is_newer(latest, installed)
     elif state in ("web-ready", "exe-ready") and st.get("version"):
         latest = str(st["version"])  # màj téléchargée, en attente d'application
         up_to_date = False
+    elif state == "check-failed":
+        check_failed = str(st.get("reason") or "unavailable")
     # état inconnu (idle/up-to-date/error/downloading) -> considéré à jour ;
     # la vérification d'arrière-plan met _status à jour peu après le lancement.
-    return {"installed": installed, "base": base, "latest": latest, "upToDate": up_to_date}
+    # `upToDate` reste True en `check-failed` (compat) : l'interface lit `checkFailed`
+    # pour NE PAS afficher « à jour » quand la vérification n'a pas pu avoir lieu.
+    return {
+        "installed": installed, "base": base, "latest": latest, "upToDate": up_to_date,
+        "checkFailed": check_failed,
+        "checkMessage": REASON_MESSAGES.get(check_failed or "", "") if check_failed else "",
+        "channel": st.get("channel"),
+    }
 
 
 def _manifest_url_for(version: str) -> str:
@@ -909,8 +1906,8 @@ def _manifest_url_for(version: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{v}/{_MANIFEST_NAME}"
 
 
-def fetch_manifest_for(version: str) -> dict[str, Any] | None:
-    """Comme fetch_manifest mais pour une version PRÉCISE (rollback). Signée par la même clé."""
+def fetch_manifest_for(version: str) -> SignedManifest | None:
+    """Comme fetch_manifest mais pour une version PRÉCISE (rollback). Signée par la même liste de clés."""
     url = _manifest_url_for(version)
     try:
         raw = _http_get(url, _MAX_MANIFEST_BYTES)
@@ -918,20 +1915,18 @@ def fetch_manifest_for(version: str) -> dict[str, Any] | None:
     except Exception as exc:
         _log(f"fetch_manifest_for({version}): échec réseau ({exc})")
         return None
-    if not _verify_signature(raw, sig_hex):
-        _log(f"fetch_manifest_for({version}): SIGNATURE INVALIDE — rejeté")
-        return None
     try:
-        return json.loads(raw)
-    except Exception as exc:
-        _log(f"fetch_manifest_for({version}): JSON invalide ({exc})")
+        return _parse_signed_manifest(raw, sig_hex)
+    except UpdateCheckError as exc:
+        _log(f"fetch_manifest_for({version}): {exc.reason} — rejeté")
         return None
 
 
 def list_releases() -> list[dict[str, Any]]:
-    """Versions publiées (API GitHub), plus récentes d'abord, hors brouillons/préversions.
+    """Versions publiées (API GitHub), plus récentes d'abord, hors brouillons.
 
-    Chaque entrée : {version, date, name, installed, canRollback}. `canRollback`
+    Les préversions n'apparaissent que sur le canal bêta. Chaque entrée :
+    {version, date, name, prerelease, installed, canRollback}. `canRollback`
     est faux pour les versions strictement antérieures à la version EMBARQUÉE :
     l'overlay LocalAppData ne va que vers l'avant, revenir plus bas exige de
     réinstaller le programme d'installation (MSI).
@@ -944,9 +1939,10 @@ def list_releases() -> list[dict[str, Any]]:
         return []
     base = current_version()
     installed = effective_version()
+    beta = get_channel() == "beta"
     out: list[dict[str, Any]] = []
     for r in arr if isinstance(arr, list) else []:
-        if r.get("draft") or r.get("prerelease"):
+        if r.get("draft") or (r.get("prerelease") and not beta):
             continue
         tag = str(r.get("tag_name") or "").lstrip("v")
         if not tag:
@@ -955,6 +1951,7 @@ def list_releases() -> list[dict[str, Any]]:
             "version": tag,
             "date": str(r.get("published_at") or "")[:10],
             "name": str(r.get("name") or ""),
+            "prerelease": bool(r.get("prerelease")),
             "installed": tag == installed,
             # Applicable via l'overlay uniquement si >= version de base embarquée.
             "canRollback": not is_newer(base, tag),
@@ -978,9 +1975,13 @@ def undo_last_update() -> dict[str, Any]:
     try:
         for child in _bin_root().glob("Elium-*.exe"):
             _safe_unlink(child)
+            _remove_sidecar(child.with_suffix(""))
     except OSError:
         pass
+    _safe_unlink(_boot_state_file())
     _prune_old_web(keep={current_version()})
+    _prune_assets()
+    reset_verification_cache()
     _log("undo_last_update: retour à la version de base")
     return _publish("web-ready", version=current_version(), kind="web", progress=100)
 
@@ -1037,19 +2038,21 @@ def start_rollback(version: str) -> dict[str, Any]:
 def on_navigation() -> None:
     """Appelé quand une page est (re)chargée. Corrige la boucle « Recharger » :
     après application d'une màj web, on efface un état de màj périmé pour ne pas
-    ré-afficher la carte, puis on re-vérifie (throttlé). `effective_version()` garantit
-    qu'une version déjà appliquée n'est jamais re-proposée.
-    Ne perturbe PAS un téléchargement en cours ni une màj exe prête à redémarrer."""
+    ré-afficher la carte, puis on re-vérifie (throttlé, avec backoff après échecs).
+    `effective_version()` garantit qu'une version déjà appliquée n'est jamais
+    re-proposée. Ne perturbe PAS un téléchargement en cours ni une màj exe prête
+    à redémarrer."""
     global _last_check_monotonic
     state = _status.get("state")
     if state in ("downloading", "exe-ready"):
         return
-    if state in ("web-ready", "available", "error", "up-to-date"):
+    if state in ("web-ready", "available", "error", "up-to-date", "check-failed"):
         _publish("idle")
     try:
         now = time.monotonic()
     except Exception:
         now = 0.0
-    if now - _last_check_monotonic < 30:
+    interval = _NAV_CHECK_INTERVAL_S * (2 ** min(_consecutive_check_failures, 4))
+    if now - _last_check_monotonic < interval:
         return
     start_background_check()

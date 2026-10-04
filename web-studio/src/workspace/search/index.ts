@@ -109,7 +109,12 @@ export class SearchIndex {
   search(query: string, allowed?: Set<string>, limit = 200): SearchHit[] {
     const terms = queryTerms(query);
     if (terms.length === 0) return [];
-    const phrase = terms.length > 1 ? foldText(query).replace(/[^\p{L}\p{N}]+/gu, " ").trim() : "";
+    const phrase =
+      terms.length > 1
+        ? foldText(query)
+            .replace(/[^\p{L}\p{N}]+/gu, " ")
+            .trim()
+        : "";
     const hits: SearchHit[] = [];
     for (const f of this.entries.values()) {
       if (allowed && !allowed.has(f.entry.id)) continue;

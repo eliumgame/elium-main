@@ -29,10 +29,9 @@ export function runSearch(
   folderScope?: Set<string>,
 ): SearchResult[] {
   const { includeSubfolders, folderId, ...rest } = filters;
-  const scoped = filterItems(
-    items,
-    includeSubfolders && folderId ? rest : { ...rest, folderId },
-  ).filter((i) => !i.locked && (!(includeSubfolders && folderId) || (i.folderId !== null && !!folderScope?.has(i.folderId))));
+  const scoped = filterItems(items, includeSubfolders && folderId ? rest : { ...rest, folderId }).filter(
+    (i) => !i.locked && (!(includeSubfolders && folderId) || (i.folderId !== null && !!folderScope?.has(i.folderId))),
+  );
   const byId = new Map(scoped.map((i) => [i.id, i]));
   const terms = queryTerms(query);
   if (terms.length === 0) {
@@ -50,7 +49,8 @@ export function runSearch(
   for (const item of scoped) {
     if (seen.has(item.id) || index.has(item.id)) continue;
     const hay = foldText(`${item.title} ${item.tags.join(" ")}`);
-    if (terms.every((t) => hay.includes(t))) out.push({ item, hit: { ...NO_HIT, id: item.id, score: 1, titleMatch: true } });
+    if (terms.every((t) => hay.includes(t)))
+      out.push({ item, hit: { ...NO_HIT, id: item.id, score: 1, titleMatch: true } });
   }
   return out;
 }

@@ -23,7 +23,11 @@ export interface Throttled<A extends unknown[]> {
   cancel(): void;
 }
 
-export function createThrottle<A extends unknown[]>(fn: (...args: A) => void, ms: number, timers: Timers = realTimers): Throttled<A> {
+export function createThrottle<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms: number,
+  timers: Timers = realTimers,
+): Throttled<A> {
   let last = -Infinity;
   let pending: A | null = null;
   let handle: unknown = null;

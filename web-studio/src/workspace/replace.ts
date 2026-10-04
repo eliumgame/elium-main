@@ -13,7 +13,14 @@
  * depuis l'analyse n'est jamais écrasé ; un document signé ou scellé n'est
  * touché que sur demande explicite (la modification invalide signatures et sceau).
  */
-import { decryptAtRest, decryptBytesAtRest, encryptAtRest, encryptBytesAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import {
+  decryptAtRest,
+  decryptBytesAtRest,
+  encryptAtRest,
+  encryptBytesAtRest,
+  hasVaultSecret,
+  type VaultSecret,
+} from "../crypto/local-vault";
 import type { ProseMirrorNode } from "../format/types";
 import type { KvStore } from "./kv";
 import type { WorkItem } from "./types";
@@ -125,7 +132,12 @@ function nodeAt(root: ProseMirrorNode, path: number[]): ProseMirrorNode | undefi
 }
 
 /** Copie du document avec les occurrences choisies remplacées (`selected` = identifiants de `findInDoc`). */
-export function replaceInDoc(doc: ProseMirrorNode, selected: Set<string>, replacement: string, opts: ReplaceOptions): ProseMirrorNode {
+export function replaceInDoc(
+  doc: ProseMirrorNode,
+  selected: Set<string>,
+  replacement: string,
+  opts: ReplaceOptions,
+): ProseMirrorNode {
   const out = clone(doc);
   const all = findInDoc(out, opts).filter((m) => selected.has(m.id));
   // Par bloc, de la fin vers le début : les décalages précédents restent valides.
@@ -211,7 +223,14 @@ export async function scanDocuments(
   const out: DocScan[] = [];
   let done = 0;
   for (const item of docs) {
-    const base = { itemId: item.id, title: item.title, signed: false, sealed: false, version: "", matches: [] as DocMatch[] };
+    const base = {
+      itemId: item.id,
+      title: item.title,
+      signed: false,
+      sealed: false,
+      version: "",
+      matches: [] as DocMatch[],
+    };
     try {
       const file = await deps.read(item.id);
       if (!file) {
@@ -219,7 +238,15 @@ export async function scanDocuments(
       } else {
         const parsed = await deps.parse(file.bytes);
         const matches = findInDoc(parsed.doc, opts);
-        if (matches.length) out.push({ ...base, status: "ok", signed: parsed.signed, sealed: parsed.sealed, version: file.version, matches });
+        if (matches.length)
+          out.push({
+            ...base,
+            status: "ok",
+            signed: parsed.signed,
+            sealed: parsed.sealed,
+            version: file.version,
+            matches,
+          });
       }
     } catch (e) {
       if (e instanceof EncryptedDocument) out.push({ ...base, status: "encrypted" });
@@ -290,12 +317,22 @@ export async function applyReplacements(
       const afterVersion = await deps.write(scan.itemId, bytes, scan.title);
       entries.push(
         hasVaultSecret(secret)
-          ? { itemId: scan.itemId, afterVersion, enc: await encryptAtRest({ title: scan.title }, secret), encBytes: await encryptBytesAtRest(file.bytes, secret) }
+          ? {
+              itemId: scan.itemId,
+              afterVersion,
+              enc: await encryptAtRest({ title: scan.title }, secret),
+              encBytes: await encryptBytesAtRest(file.bytes, secret),
+            }
           : { itemId: scan.itemId, afterVersion, title: scan.title, bytes: file.bytes },
       );
       replaced += before.length;
     } catch (e) {
-      skipped.push({ itemId: scan.itemId, title: scan.title, reason: "error", message: e instanceof Error ? e.message : String(e) });
+      skipped.push({
+        itemId: scan.itemId,
+        title: scan.title,
+        reason: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
   }
   if (entries.length === 0) return { batchId: null, replaced, documents: 0, skipped };
@@ -314,7 +351,10 @@ export interface UndoResult {
 }
 
 /** Annule un remplacement : restaure les originaux des documents restés tels que le remplacement les a laissés. */
-export async function undoReplacement(batchId: string, deps: Pick<ReplaceDeps, "read" | "write" | "undo" | "getSecret">): Promise<UndoResult> {
+export async function undoReplacement(
+  batchId: string,
+  deps: Pick<ReplaceDeps, "read" | "write" | "undo" | "getSecret">,
+): Promise<UndoResult> {
   const rec = await deps.undo.get(batchId);
   if (!rec) throw new Error("Cette opération ne peut plus être annulée.");
   const secret = deps.getSecret();

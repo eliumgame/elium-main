@@ -118,7 +118,10 @@ export function createLegacySlots(): LegacySlot[] {
   ];
 }
 
-export function createWorkspaceService(getSecret: () => VaultSecret | undefined, getCurrentFolder?: () => string | null) {
+export function createWorkspaceService(
+  getSecret: () => VaultSecret | undefined,
+  getCurrentFolder?: () => string | null,
+) {
   const catalog = new Catalog({
     items: idbKv<ItemRecord>(WORKSPACE_SPEC, "items"),
     folders: idbKv<FolderRecord>(WORKSPACE_SPEC, "folders"),
@@ -136,7 +139,14 @@ export function createWorkspaceService(getSecret: () => VaultSecret | undefined,
       if (!src) throw new Error("Document introuvable dans la bibliothèque.");
       const bytes = await duplicateEliumBytes(src.bytes, newId, newTitle);
       await putDriveDoc(
-        { id: newId, title: newTitle, profile: src.profile, savedAt: new Date().toISOString(), size: bytes.length, bytes },
+        {
+          id: newId,
+          title: newTitle,
+          profile: src.profile,
+          savedAt: new Date().toISOString(),
+          size: bytes.length,
+          bytes,
+        },
         secret,
       );
       return { size: bytes.length };
@@ -173,10 +183,10 @@ export function createWorkspaceService(getSecret: () => VaultSecret | undefined,
         if (it.contentStore !== "drive") continue;
         await deleteDraft(it.id).catch(() => undefined);
         await deleteWorkflow(it.id).catch(() => undefined);
-        for (const v of await listVersions(it.id).catch(() => [])) if (v.id !== undefined) await deleteVersion(v.id).catch(() => undefined);
+        for (const v of await listVersions(it.id).catch(() => []))
+          if (v.id !== undefined) await deleteVersion(v.id).catch(() => undefined);
       }
     },
   });
   return { catalog, service };
 }
-

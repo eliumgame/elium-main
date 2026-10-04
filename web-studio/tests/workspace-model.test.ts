@@ -195,7 +195,14 @@ describe("corbeille", () => {
 describe("filtres et tri", () => {
   const items = [
     item({ id: "1", title: "Budget été", kind: "sheet", tags: ["finance"], modifiedAt: "2026-09-05T08:00:00.000Z" }),
-    item({ id: "2", title: "Plan de projet", kind: "doc", starred: true, folderId: "f", modifiedAt: "2026-09-07T08:00:00.000Z" }),
+    item({
+      id: "2",
+      title: "Plan de projet",
+      kind: "doc",
+      starred: true,
+      folderId: "f",
+      modifiedAt: "2026-09-07T08:00:00.000Z",
+    }),
     item({ id: "3", title: "Réunion", kind: "slides", modifiedAt: "2026-08-01T08:00:00.000Z" }),
     item({ id: "4", title: "Vieux", trashedAt: T0 }),
   ];
@@ -222,7 +229,11 @@ describe("filtres et tri", () => {
   });
 
   it("trie par titre (naturel), date et taille, stable", () => {
-    const named = [item({ id: "a", title: "Doc 10" }), item({ id: "b", title: "Doc 2" }), item({ id: "c", title: "alpha" })];
+    const named = [
+      item({ id: "a", title: "Doc 10" }),
+      item({ id: "b", title: "Doc 2" }),
+      item({ id: "c", title: "alpha" }),
+    ];
     expect(sortItems(named, "title").map((i) => i.title)).toEqual(["alpha", "Doc 2", "Doc 10"]);
     expect(sortItems(named, "title", "desc").map((i) => i.title)).toEqual(["Doc 10", "Doc 2", "alpha"]);
     expect(sortItems(items, "modifiedAt", "desc")[0]!.id).toBe("2");

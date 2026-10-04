@@ -28,7 +28,10 @@ export const sheetStore = createJsonStore<Workbook>(idbKv<JsonRecord>(SHEETS_SPE
 });
 
 /** Charge un classeur (par défaut l'ancien classeur unique « current »). */
-export async function loadWorkbook(id: string = LEGACY_WORKBOOK_ID, secret?: VaultSecret): Promise<Workbook | undefined> {
+export async function loadWorkbook(
+  id: string = LEGACY_WORKBOOK_ID,
+  secret?: VaultSecret,
+): Promise<Workbook | undefined> {
   return sheetStore.load(id, secret);
 }
 

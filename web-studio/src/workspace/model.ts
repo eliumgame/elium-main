@@ -3,13 +3,7 @@
  * filtres, réconciliation catalogue ↔ contenus. Aucune dépendance au
  * navigateur : tout est testé dans tests/workspace-model.test.ts.
  */
-import {
-  TRASH_RETENTION_DAYS,
-  type ContentStoreId,
-  type ItemKind,
-  type WorkFolder,
-  type WorkItem,
-} from "./types";
+import { TRASH_RETENTION_DAYS, type ContentStoreId, type ItemKind, type WorkFolder, type WorkItem } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -194,8 +188,10 @@ export function planRestore(
     if (f.parentId && (!parent || (parent.trashedAt && !restoringFolders.has(parent.id)))) {
       plan.folders.get(fid)!.parentId = null;
     }
-    for (const d of folders) if (d.trashedBy === fid) plan.folders.set(d.id, { trashedAt: undefined, trashedBy: undefined });
-    for (const it of items) if (it.trashedBy === fid) plan.items.set(it.id, { trashedAt: undefined, trashedBy: undefined });
+    for (const d of folders)
+      if (d.trashedBy === fid) plan.folders.set(d.id, { trashedAt: undefined, trashedBy: undefined });
+    for (const it of items)
+      if (it.trashedBy === fid) plan.items.set(it.id, { trashedAt: undefined, trashedBy: undefined });
   }
   const aliveAfter = (folderId: string | null): boolean => {
     if (folderId === null) return true;
@@ -269,7 +265,11 @@ export interface ItemFilter {
   trashed?: boolean;
 }
 
-const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+const fold = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 
 export function filterItems(items: WorkItem[], f: ItemFilter): WorkItem[] {
   const q = f.query ? fold(f.query.trim()) : "";
@@ -327,7 +327,10 @@ export interface Reconciliation {
   untracked: { store: ContentStoreId; id: string }[];
 }
 
-export function reconcile(items: Pick<WorkItem, "id" | "contentStore">[], contentKeys: Record<ContentStoreId, string[]>): Reconciliation {
+export function reconcile(
+  items: Pick<WorkItem, "id" | "contentStore">[],
+  contentKeys: Record<ContentStoreId, string[]>,
+): Reconciliation {
   const known = new Map<ContentStoreId, Set<string>>();
   for (const it of items) known.set(it.contentStore, (known.get(it.contentStore) ?? new Set()).add(it.id));
   const orphanItemIds: string[] = [];

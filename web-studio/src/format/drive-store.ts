@@ -170,7 +170,9 @@ export async function listDriveKeys(): Promise<string[]> {
 }
 
 /** Taille et date d'un document, sans déchiffrer. */
-export async function driveDocInfo(id: string): Promise<{ size: number; updatedAt: string; vaultProtected: boolean } | undefined> {
+export async function driveDocInfo(
+  id: string,
+): Promise<{ size: number; updatedAt: string; vaultProtected: boolean } | undefined> {
   const rec = await run<DriveDoc | undefined>("readonly", (s) => s.get(id));
   return rec ? { size: rec.size, updatedAt: rec.savedAt, vaultProtected: rec.vaultProtected } : undefined;
 }

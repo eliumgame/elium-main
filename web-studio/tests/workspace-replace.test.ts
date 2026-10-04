@@ -23,11 +23,17 @@ const opts = (find: string, replace = "", extra: Partial<ReplaceOptions> = {}): 
   ...extra,
 });
 
-const text = (t: string, bold = false): ProseMirrorNode => ({ type: "text", text: t, ...(bold ? { marks: [{ type: "bold" }] } : {}) });
+const text = (t: string, bold = false): ProseMirrorNode => ({
+  type: "text",
+  text: t,
+  ...(bold ? { marks: [{ type: "bold" }] } : {}),
+});
 const para = (...kids: ProseMirrorNode[]): ProseMirrorNode => ({ type: "paragraph", content: kids });
 const doc = (...blocks: ProseMirrorNode[]): ProseMirrorNode => ({ type: "doc", content: blocks });
 const plain = (d: ProseMirrorNode): string =>
-  (d.content ?? []).map((b) => (b.content ?? []).map((c) => c.text ?? (c.type === "hardBreak" ? "\n" : "?")).join("")).join("|");
+  (d.content ?? [])
+    .map((b) => (b.content ?? []).map((c) => c.text ?? (c.type === "hardBreak" ? "\n" : "?")).join(""))
+    .join("|");
 
 describe("findInDoc", () => {
   it("trouve les occurrences avec leur contexte, sans tenir compte de la casse par défaut", () => {
@@ -119,7 +125,9 @@ describe("replaceInDoc", () => {
 
 // --- Orchestration ---------------------------------------------------------
 
-function world(docs: Record<string, { doc: ProseMirrorNode; signed?: boolean; sealed?: boolean; encrypted?: boolean }>) {
+function world(
+  docs: Record<string, { doc: ProseMirrorNode; signed?: boolean; sealed?: boolean; encrypted?: boolean }>,
+) {
   const files = new Map<string, { content: ProseMirrorNode; version: string }>();
   for (const [id, d] of Object.entries(docs)) files.set(id, { content: d.doc, version: "v0" });
   const writes: string[] = [];
@@ -175,7 +183,14 @@ describe("scanDocuments", () => {
       c: { doc: doc(para(text("Acme"))), signed: true, sealed: true },
       d: { doc: doc(para(text("Acme chiffré"))), encrypted: true },
     });
-    const items = [docItem("a"), docItem("b"), docItem("c"), docItem("d"), docItem("e", { kind: "sheet", contentStore: "sheets" }), docItem("f", { trashedAt: "2026-01-02T00:00:00.000Z" })];
+    const items = [
+      docItem("a"),
+      docItem("b"),
+      docItem("c"),
+      docItem("d"),
+      docItem("e", { kind: "sheet", contentStore: "sheets" }),
+      docItem("f", { trashedAt: "2026-01-02T00:00:00.000Z" }),
+    ];
     const scans = await scanDocuments(items, opts("acme"), w.deps);
     expect(scans.map((s) => [s.itemId, s.status, s.signed, s.sealed])).toEqual([
       ["a", "ok", false, false],

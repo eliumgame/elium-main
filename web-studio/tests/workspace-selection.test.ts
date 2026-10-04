@@ -16,7 +16,10 @@ const none = { ctrl: false, shift: false };
 describe("sélection multiple", () => {
   it("clic simple : sélection unique et ancre", () => {
     expect(clickSelect(emptySelection, "b", order, none)).toEqual({ selected: ["b"], anchor: "b" });
-    expect(clickSelect({ selected: ["a", "c"], anchor: "c" }, "d", order, none)).toEqual({ selected: ["d"], anchor: "d" });
+    expect(clickSelect({ selected: ["a", "c"], anchor: "c" }, "d", order, none)).toEqual({
+      selected: ["d"],
+      anchor: "d",
+    });
   });
 
   it("Ctrl/Cmd bascule sans toucher aux autres", () => {
@@ -42,7 +45,10 @@ describe("sélection multiple", () => {
   });
 
   it("Maj sans ancre valide retombe sur un clic simple", () => {
-    expect(clickSelect(emptySelection, "c", order, { ctrl: false, shift: true })).toEqual({ selected: ["c"], anchor: "c" });
+    expect(clickSelect(emptySelection, "c", order, { ctrl: false, shift: true })).toEqual({
+      selected: ["c"],
+      anchor: "c",
+    });
   });
 
   it("case à cocher, tout sélectionner, élagage", () => {

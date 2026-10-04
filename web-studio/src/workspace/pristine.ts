@@ -7,9 +7,11 @@ import type { Workbook } from "../sheet/model";
 import { emptyDeck, withElements, type Deck } from "../slides/model";
 
 export function isWorkbookPristine(wb: Workbook): boolean {
-  return wb.sheets.every((s) => Object.keys(s.cells).length === 0 && !(s.styles && Object.keys(s.styles).length)) &&
+  return (
+    wb.sheets.every((s) => Object.keys(s.cells).length === 0 && !(s.styles && Object.keys(s.styles).length)) &&
     wb.sheets.length <= 1 &&
-    !(wb.names && wb.names.length);
+    !(wb.names && wb.names.length)
+  );
 }
 
 /** Retire récursivement les identifiants générés (ils changent à chaque création). */

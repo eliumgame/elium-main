@@ -42,7 +42,13 @@ describe("normalisation", () => {
       type: "doc",
       content: [
         { type: "heading", content: [{ type: "text", text: "Titre" }] },
-        { type: "paragraph", content: [{ type: "text", text: "un " }, { type: "text", text: "mot", marks: [{ type: "bold" }] }] },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "un " },
+            { type: "text", text: "mot", marks: [{ type: "bold" }] },
+          ],
+        },
       ],
     };
     expect(docText(doc)).toBe("Titre\nun mot\n");
@@ -56,7 +62,9 @@ describe("normalisation", () => {
     expect(sheetText(wb)).not.toContain("SUM");
     const deck = emptyDeck();
     deck.slides[0]!.notes = "note orale";
-    deck.slides[0]!.elements = [{ id: "e", type: "text", x: 0, y: 0, w: 10, h: 10, html: "<p>Bonjour <b>monde</b></p>" }];
+    deck.slides[0]!.elements = [
+      { id: "e", type: "text", x: 0, y: 0, w: 10, h: 10, html: "<p>Bonjour <b>monde</b></p>" },
+    ];
     const txt = deckText(deck);
     expect(txt).toContain("Titre de la présentation");
     expect(txt).toContain("note orale");
@@ -71,12 +79,22 @@ describe("normalisation", () => {
 
 describe("index plein texte", () => {
   const index = new SearchIndex();
-  index.set({ id: "1", rev: "a", title: "Contrat de location", text: "Le locataire verse un loyer mensuel de 800 euros." });
+  index.set({
+    id: "1",
+    rev: "a",
+    title: "Contrat de location",
+    text: "Le locataire verse un loyer mensuel de 800 euros.",
+  });
   index.set({ id: "2", rev: "a", title: "Budget 2026", text: "Postes de dépenses : loyer, énergie, assurance." });
   index.set({ id: "3", rev: "a", title: "Notes", text: "Rien de pertinent ici." });
 
   it("exige tous les mots, sans tenir compte des accents ni de la casse", () => {
-    expect(index.search("LOYER").map((h) => h.id).sort()).toEqual(["1", "2"]);
+    expect(
+      index
+        .search("LOYER")
+        .map((h) => h.id)
+        .sort(),
+    ).toEqual(["1", "2"]);
     expect(index.search("loyer energie").map((h) => h.id)).toEqual(["2"]);
     expect(index.search("depenses")[0]!.id).toBe("2");
     expect(index.search("inexistant")).toEqual([]);
@@ -124,11 +142,24 @@ describe("index plein texte", () => {
 
 describe("extraits et plages", () => {
   it("fusionne les plages qui se touchent", () => {
-    expect(mergeRanges([[5, 8], [0, 3], [3, 4], [7, 10]])).toEqual([[0, 4], [5, 10]]);
+    expect(
+      mergeRanges([
+        [5, 8],
+        [0, 3],
+        [3, 4],
+        [7, 10],
+      ]),
+    ).toEqual([
+      [0, 4],
+      [5, 10],
+    ]);
   });
 
   it("découpe en segments surlignés sans perdre de texte", () => {
-    const segs = splitHighlight("abcdef", [[1, 3], [4, 5]]);
+    const segs = splitHighlight("abcdef", [
+      [1, 3],
+      [4, 5],
+    ]);
     expect(segs.map((s) => s.text).join("")).toBe("abcdef");
     expect(segs.filter((s) => s.mark).map((s) => s.text)).toEqual(["bc", "e"]);
   });
@@ -305,7 +336,11 @@ describe("indexation incrémentale", () => {
 
   it("ignore les éléments verrouillés et la corbeille, et expose la progression", async () => {
     const s = setup();
-    await s.indexer.sync([item({ id: "a" }), item({ id: "l", locked: true }), item({ id: "t", trashedAt: "2026-01-02T00:00:00.000Z" })]);
+    await s.indexer.sync([
+      item({ id: "a" }),
+      item({ id: "l", locked: true }),
+      item({ id: "t", trashedAt: "2026-01-02T00:00:00.000Z" }),
+    ]);
     expect(s.calls).toEqual(["a"]);
     expect(s.progress).toContain(1);
   });
@@ -318,7 +353,14 @@ describe("indexation incrémentale", () => {
 describe("recherche avec filtres", () => {
   const index = new SearchIndex();
   const items = [
-    item({ id: "1", title: "Contrat", kind: "doc", tags: ["juridique"], folderId: "f1", modifiedAt: "2026-09-01T00:00:00.000Z" }),
+    item({
+      id: "1",
+      title: "Contrat",
+      kind: "doc",
+      tags: ["juridique"],
+      folderId: "f1",
+      modifiedAt: "2026-09-01T00:00:00.000Z",
+    }),
     item({ id: "2", title: "Budget", kind: "sheet", folderId: "f2", modifiedAt: "2026-09-05T00:00:00.000Z" }),
     item({ id: "3", title: "Contrat cadre", kind: "pdf", modifiedAt: "2026-08-01T00:00:00.000Z" }),
     item({ id: "4", title: "Vieux contrat", trashedAt: "2026-09-01T00:00:00.000Z" }),
@@ -345,7 +387,13 @@ describe("recherche avec filtres", () => {
   });
 
   it("inclut les sous-dossiers sur demande", () => {
-    const r = runSearch(index, items, "résiliation", { folderId: "f1", includeSubfolders: true }, new Set(["f1", "f2"]));
+    const r = runSearch(
+      index,
+      items,
+      "résiliation",
+      { folderId: "f1", includeSubfolders: true },
+      new Set(["f1", "f2"]),
+    );
     expect(r.map((x) => x.item.id).sort()).toEqual(["1", "2"]);
   });
 

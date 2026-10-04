@@ -109,7 +109,10 @@ export async function openFolder(rec: FolderRecord, secret?: VaultSecret): Promi
 
 /** Champs d'organisation modifiables sans toucher au contenu chiffré. */
 export type PlainPatch = Partial<
-  Pick<WorkItem, "size" | "modifiedAt" | "lastOpenedAt" | "folderId" | "starred" | "profile" | "trashedAt" | "trashedBy">
+  Pick<
+    WorkItem,
+    "size" | "modifiedAt" | "lastOpenedAt" | "folderId" | "starred" | "profile" | "trashedAt" | "trashedBy"
+  >
 >;
 
 export interface CatalogDeps {
@@ -122,7 +125,9 @@ export interface CatalogDeps {
 
 const defaultNewId = () => {
   const c = globalThis.crypto;
-  return c && typeof c.randomUUID === "function" ? c.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return c && typeof c.randomUUID === "function"
+    ? c.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 function applyPlain<T>(rec: T, patch: Record<string, unknown>): T {
@@ -192,7 +197,9 @@ export class Catalog {
       ir.filter((r): r is ItemRecord => !!r).map((r) => applyPlain(r, plan.items.get(r.id) as Record<string, unknown>)),
     );
     await this.deps.folders.putMany(
-      fr.filter((r): r is FolderRecord => !!r).map((r) => applyPlain(r, plan.folders.get(r.id) as Record<string, unknown>)),
+      fr
+        .filter((r): r is FolderRecord => !!r)
+        .map((r) => applyPlain(r, plan.folders.get(r.id) as Record<string, unknown>)),
     );
   }
 
@@ -222,7 +229,9 @@ export class Catalog {
 
   async moveFolder(id: string, target: string | null): Promise<void> {
     const recs = await this.deps.folders.getAll();
-    const asFolders = recs.map((r) => ({ id: r.id, parentId: r.parentId ?? null, trashedAt: r.trashedAt }) as WorkFolder);
+    const asFolders = recs.map(
+      (r) => ({ id: r.id, parentId: r.parentId ?? null, trashedAt: r.trashedAt }) as WorkFolder,
+    );
     const check = canMoveFolder(asFolders, id, target);
     if (!check.ok) {
       throw new Error(
@@ -247,14 +256,16 @@ export class Catalog {
     const [ir, fr] = await Promise.all([this.deps.items.getAll(), this.deps.folders.getAll()]);
     const items: ItemRecord[] = [];
     for (const r of ir) {
-      if (r.vaultProtected && !hasVaultSecret(from)) throw new Error("Mot de passe du coffre requis pour rechiffrer l'espace de travail.");
+      if (r.vaultProtected && !hasVaultSecret(from))
+        throw new Error("Mot de passe du coffre requis pour rechiffrer l'espace de travail.");
       const it = await openItem(r, from);
       if (it.locked) throw new Error("Mot de passe du coffre incorrect : l'espace de travail n'a pas été rechiffré.");
       items.push(await sealItem(it, to));
     }
     const folders: FolderRecord[] = [];
     for (const r of fr) {
-      if (r.vaultProtected && !hasVaultSecret(from)) throw new Error("Mot de passe du coffre requis pour rechiffrer l'espace de travail.");
+      if (r.vaultProtected && !hasVaultSecret(from))
+        throw new Error("Mot de passe du coffre requis pour rechiffrer l'espace de travail.");
       const f = await openFolder(r, from);
       if (f.locked) throw new Error("Mot de passe du coffre incorrect : l'espace de travail n'a pas été rechiffré.");
       folders.push(await sealFolder(f, to));

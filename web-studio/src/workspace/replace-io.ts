@@ -5,7 +5,12 @@
 import type { VaultSecret } from "../crypto/local-vault";
 import { WORKSPACE_SPEC } from "../format/db-specs";
 import { getDriveDoc, putDriveDoc } from "../format/drive-store";
-import { EliumPasswordRequired, EliumRecipientKeyRequired, readEliumPackage, writeEliumPackage } from "../format/elium-package";
+import {
+  EliumPasswordRequired,
+  EliumRecipientKeyRequired,
+  readEliumPackage,
+  writeEliumPackage,
+} from "../format/elium-package";
 import { idbKv } from "./kv";
 import { EncryptedDocument, type ParsedDoc, type ReplaceDeps, type UndoRecord } from "./replace";
 
@@ -29,7 +34,8 @@ export function createReplaceDeps(
           rewrite: (doc) => writeEliumPackage({ ...file, document: { ...file.document, doc } }, {}),
         };
       } catch (e) {
-        if (e instanceof EliumPasswordRequired || e instanceof EliumRecipientKeyRequired) throw new EncryptedDocument("Document chiffré.");
+        if (e instanceof EliumPasswordRequired || e instanceof EliumRecipientKeyRequired)
+          throw new EncryptedDocument("Document chiffré.");
         throw e;
       }
     },

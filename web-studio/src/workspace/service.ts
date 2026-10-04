@@ -69,7 +69,9 @@ export interface ServiceDeps {
 
 const defaultNewId = () => {
   const c = globalThis.crypto;
-  return c && typeof c.randomUUID === "function" ? c.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return c && typeof c.randomUUID === "function"
+    ? c.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 export const DEFAULT_TITLES: Record<ItemKind, string> = {
@@ -133,7 +135,10 @@ export class WorkspaceService {
       return { ...existing, size: input.size, modifiedAt: now, trashedAt: undefined, trashedBy: undefined };
     }
     const { items, folders } = await this.d.catalog.load();
-    const folderId = this.liveFolder(folders, input.folderId === undefined ? (this.d.getCurrentFolder?.() ?? null) : input.folderId);
+    const folderId = this.liveFolder(
+      folders,
+      input.folderId === undefined ? (this.d.getCurrentFolder?.() ?? null) : input.folderId,
+    );
     const siblings = items.filter((i) => !i.trashedAt && i.folderId === folderId).map((i) => i.title);
     const item: WorkItem = {
       id: input.id,
@@ -221,7 +226,9 @@ export class WorkspaceService {
     for (const id of ids) {
       const src = items.find((i) => i.id === id);
       if (!src || src.locked) continue;
-      const siblings = [...items, ...out].filter((i) => !i.trashedAt && i.folderId === src.folderId).map((i) => i.title);
+      const siblings = [...items, ...out]
+        .filter((i) => !i.trashedAt && i.folderId === src.folderId)
+        .map((i) => i.title);
       const title = copyName(src.title, siblings);
       const newId = this.newId();
       let size = src.size;
@@ -281,7 +288,9 @@ export class WorkspaceService {
     const itemSet = new Set(sel.itemIds ?? []);
     // Supprimer un dossier de la corbeille supprime ce qui est parti avec lui.
     for (const f of folders) if (f.trashedBy && folderIds.has(f.trashedBy)) folderIds.add(f.id);
-    for (const i of items) if ((i.trashedBy && folderIds.has(i.trashedBy)) || (i.trashedAt && i.folderId && folderIds.has(i.folderId))) itemSet.add(i.id);
+    for (const i of items)
+      if ((i.trashedBy && folderIds.has(i.trashedBy)) || (i.trashedAt && i.folderId && folderIds.has(i.folderId)))
+        itemSet.add(i.id);
     await this.eraseItems(items.filter((i) => itemSet.has(i.id) && i.trashedAt));
     await this.d.catalog.removeFolders(folders.filter((f) => folderIds.has(f.id) && f.trashedAt).map((f) => f.id));
   }
@@ -359,7 +368,8 @@ export class WorkspaceService {
   async reconcile(): Promise<{ removed: number; added: number }> {
     const { items } = await this.d.catalog.load();
     const keys = {} as Record<ContentStoreId, string[]>;
-    for (const store of Object.keys(this.d.contents) as ContentStoreId[]) keys[store] = await this.d.contents[store].keys();
+    for (const store of Object.keys(this.d.contents) as ContentStoreId[])
+      keys[store] = await this.d.contents[store].keys();
     const legacy = new Set((this.d.legacySlots ?? []).map((s) => `${s.store}:${s.legacyId}`));
     const rec = reconcile(items, keys);
     // Un élément verrouillé n'est jamais retiré sur la foi d'un contenu manquant incertain : seul le contenu absent compte.

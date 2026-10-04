@@ -42,7 +42,14 @@ export async function buildPdfRecord(
   now: string,
 ): Promise<PdfRecord> {
   if (!hasVaultSecret(secret))
-    return { id: input.id, vaultProtected: false, size: input.bytes.length, updatedAt: now, name: input.name, bytes: input.bytes };
+    return {
+      id: input.id,
+      vaultProtected: false,
+      size: input.bytes.length,
+      updatedAt: now,
+      name: input.name,
+      bytes: input.bytes,
+    };
   return {
     id: input.id,
     vaultProtected: true,
@@ -67,7 +74,11 @@ export async function resolvePdfRecord(rec: PdfRecord, secret?: VaultSecret): Pr
 
 export function createPdfStore(kv: KvStore<PdfRecord>) {
   return {
-    async put(input: { id: string; name: string; bytes: Uint8Array }, secret?: VaultSecret, now = new Date().toISOString()) {
+    async put(
+      input: { id: string; name: string; bytes: Uint8Array },
+      secret?: VaultSecret,
+      now = new Date().toISOString(),
+    ) {
       await kv.put(await buildPdfRecord(input, secret, now));
     },
     async get(id: string, secret?: VaultSecret): Promise<StoredPdf | undefined> {

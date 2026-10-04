@@ -66,7 +66,13 @@ function world(opts: { secret?: VaultSecret; start?: number } = {}) {
       purged.push(...its.map((i) => i.id));
     },
     async describeUntrackedDocs(ids) {
-      return ids.map((id) => ({ id, title: `Ancien ${id}`, size: 10, savedAt: "2026-02-02T00:00:00.000Z", vaultProtected: false }));
+      return ids.map((id) => ({
+        id,
+        title: `Ancien ${id}`,
+        size: 10,
+        savedAt: "2026-02-02T00:00:00.000Z",
+        vaultProtected: false,
+      }));
     },
   });
   return {
@@ -83,7 +89,13 @@ function world(opts: { secret?: VaultSecret; start?: number } = {}) {
 describe("enregistrement dans le catalogue", () => {
   it("crée l'élément au premier enregistrement puis ne fait que le mettre à jour", async () => {
     const w = world();
-    const a = await w.service.registerSaved({ id: "d1", kind: "doc", title: "Rapport", size: 100, profile: "standard" });
+    const a = await w.service.registerSaved({
+      id: "d1",
+      kind: "doc",
+      title: "Rapport",
+      size: 100,
+      profile: "standard",
+    });
     expect(a).toMatchObject({ title: "Rapport", contentStore: "drive", folderId: null });
     w.advance(5000);
     await w.service.rename("d1", "Rapport final");
@@ -254,7 +266,10 @@ describe("réconciliation et ancien contenu « current »", () => {
     expect(r).toEqual({ removed: 1, added: 2 });
     const { items } = await w.catalog.load();
     expect(items.map((i) => i.id).sort()).toEqual(["old1", "old2"]);
-    expect(items.find((i) => i.id === "old1")).toMatchObject({ title: "Ancien old1", modifiedAt: "2026-02-02T00:00:00.000Z" });
+    expect(items.find((i) => i.id === "old1")).toMatchObject({
+      title: "Ancien old1",
+      modifiedAt: "2026-02-02T00:00:00.000Z",
+    });
     expect(await w.service.reconcile()).toEqual({ removed: 0, added: 0 }); // idempotent
   });
 
@@ -334,7 +349,7 @@ describe("coffre local : catalogue chiffré", () => {
     expect(raw.vaultProtected).toBe(true);
     expect(JSON.stringify(raw)).not.toContain("confidentiel");
     expect(raw.title).toBeUndefined();
-    expect((await w.catalog.getItem("d1"))).toMatchObject({ title: "Contrat confidentiel", tags: ["secret"] });
+    expect(await w.catalog.getItem("d1")).toMatchObject({ title: "Contrat confidentiel", tags: ["secret"] });
     w.secretRef.current = { password: "mauvais" };
     expect(await w.catalog.getItem("d1")).toMatchObject({ locked: true, title: "Élément protégé" });
     w.secretRef.current = undefined;

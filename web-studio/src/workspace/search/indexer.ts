@@ -121,7 +121,9 @@ export class SearchIndexer {
     } else {
       if (this.gone.size) await this.d.store.deleteMany([...this.gone]);
       if (this.dirty.size)
-        await this.d.store.putMany([...this.dirty.values()].map((e) => ({ id: e.id, rev: e.rev, title: e.title, text: e.text })));
+        await this.d.store.putMany(
+          [...this.dirty.values()].map((e) => ({ id: e.id, rev: e.rev, title: e.title, text: e.text })),
+        );
     }
     this.dirty.clear();
     this.gone.clear();

@@ -15,6 +15,7 @@ import {
   ArrowDown,
   Layers2,
 } from "lucide-react";
+import { useFontsVersion } from "../../ui/useFonts";
 import type { Annot, MeasureScale, ReviewStatus } from "../model/types";
 import { isMeasure, isShape, isTextContent, isTextMarkup } from "../model/types";
 import { allFontNames } from "../../ui/fonts";
@@ -71,6 +72,7 @@ const STATUS: { id: ReviewStatus; label: string }[] = [
 ];
 
 export default function Inspector(p: InspectorProps) {
+  useFontsVersion(); // re-rend quand une police personnelle est ajoutée/retirée
   const sel = p.selection;
   if (!sel.length) return null;
   const one = sel.length === 1 ? sel[0] : null;

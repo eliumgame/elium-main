@@ -4061,7 +4061,7 @@ export default function PdfWorkspace({
     const id = toast("progress", "Conversion PDF/A…");
     try {
       if (!(await dest.prepare())) throw new Error(`L'accès en écriture à « ${dest.name} » a été refusé.`);
-      const [{ PDFDocument }, { convertToPdfA }, { pdfjsAssetUrls }] = await Promise.all([
+      const [{ PDFDocument }, { convertToPdfA, checkPdfA }, { pdfjsAssetUrls }] = await Promise.all([
         import("pdf-lib"),
         import("../ops/pdfa"),
         import("../core/assets"),
@@ -4075,6 +4075,8 @@ export default function PdfWorkspace({
             .catch(() => null)
         : null;
       const report = await convertToPdfA(doc, { part, cmykProfile: icc ? new Uint8Array(icc) : null });
+      // Independent check of the converted document: what the validator still finds is reported too.
+      for (const problem of checkPdfA(doc)) if (!report.remaining.includes(problem)) report.remaining.push(problem);
       await dest.write(await doc.save({ useObjectStreams: false }));
       dismissToast(id);
       await dialogs.alert({

@@ -1,0 +1,64 @@
+.tplgal__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.tplgal__tab {
+  padding: 4px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tplgal__tab.is-active {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+}
+.tplgal__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+}
+.tplgal__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  font: inherit;
+  cursor: pointer;
+}
+.tplgal__card:hover,
+.tplgal__card:focus-visible {
+  border-color: var(--primary, #2563eb);
+}
+.tplgal__preview {
+  position: relative;
+  height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+}
+.tplgal__page {
+  width: 760px;
+  padding: 24px 32px;
+  color: #0f172a;
+  transform: scale(0.22);
+  transform-origin: top left;
+  pointer-events: none;
+}
+.tplgal__label {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.tplgal__desc {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}

@@ -22,6 +22,7 @@ import {
   ScanSearch,
 } from "lucide-react";
 import { TEMPLATES, type Template } from "../editor/templates";
+import TemplateGallery from "../editor/TemplateGallery";
 import { IMPORT_ACCEPT } from "../format/importers";
 import { listDriveDocs, getDriveDoc, deleteDriveDoc, type ResolvedDriveEntry } from "../format/drive-store";
 import { listDrafts, deleteDraft, type DraftEntry } from "../format/drafts-store";
@@ -479,14 +480,7 @@ export default function HomeView({
 
       <section className="home__section">
         <h2 className="home__section-title">Modèles de documents</h2>
-        <div className="template-grid">
-          {TEMPLATES.map((t) => (
-            <button key={t.id} className="template-card" onClick={() => setPendingTemplate(t)}>
-              <div className="template-card__label">{t.label}</div>
-              <div className="template-card__desc">{t.description}</div>
-            </button>
-          ))}
-        </div>
+        <TemplateGallery onPick={(t) => setPendingTemplate(t)} />
       </section>
 
       <VersionFooter />

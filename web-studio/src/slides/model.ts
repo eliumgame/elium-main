@@ -209,6 +209,8 @@ export interface SlideMaster {
   colorAccent: string;
   background: string;
   footerText: string;
+  /** Numéro de diapositive affiché par les dispositions qui en prévoient un. */
+  showSlideNumber?: boolean;
   layouts: SlideLayoutDef[];
 }
 

@@ -76,31 +76,48 @@ echo     [OK] Version applicative : !APPVER!
 :: -------------------------------------------------------
 if not exist "%OUTPUT%" mkdir "%OUTPUT%"
 
-echo [*] Compilation candle (x64)...
-"!WIX_BIN!\candle.exe" -nologo -arch x64 -out "%HERE%build\elium.wixobj" "%HERE%elium.wxs"
+if not exist "%HERE%build" mkdir "%HERE%build"
+
+:: Deux produits issus de la meme source (variable Scope) :
+::   perMachine -> Elium-X.Y.Z-Setup.msi  (tous les utilisateurs, Program Files, droits admin)
+::   perUser    -> Elium-User-X.Y.Z.msi   (sans droits admin, %LOCALAPPDATA%\Programs\Elium)
+:: NB : la version MSI est le coeur numerique X.Y.Z (stamp_version.py) ; le nom de fichier garde
+:: la version complete (ex. 4.7.0-rc1).
+call :build_one perMachine "%OUTPUT%\Elium-!APPVER!-Setup.msi"
+if !errorlevel! neq 0 goto :fail
+call :build_one perUser "%OUTPUT%\Elium-User-!APPVER!.msi"
+if !errorlevel! neq 0 goto :fail
+
+echo.
+echo =======================================================
+echo    MSI GENERES AVEC SUCCES !
+echo =======================================================
+echo    %OUTPUT%\Elium-!APPVER!-Setup.msi   (tous les utilisateurs)
+echo    %OUTPUT%\Elium-User-!APPVER!.msi    (sans droits administrateur)
+echo.
+if /i not "%~1"=="/nopause" pause
+exit /b 0
+
+:fail
+if /i not "%~1"=="/nopause" pause
+exit /b 1
+
+:build_one
+echo [*] Compilation candle (x64, %~1)...
+"!WIX_BIN!\candle.exe" -nologo -arch x64 -dScope=%~1 -ext WixUtilExtension -out "%HERE%build\elium-%~1.wixobj" "%HERE%elium.wxs"
 if !errorlevel! neq 0 (
-    echo [ERREUR] candle.exe a echoue.
-    if /i not "%~1"=="/nopause" pause
+    echo [ERREUR] candle.exe a echoue ^(%~1^).
     exit /b 1
 )
-
-echo [*] Edition de liens light (UI francaise)...
+echo [*] Edition de liens light (UI francaise, %~1)...
 :: NB : "%HERE%." evite que le \ final n'echappe le guillemet fermant.
 "!WIX_BIN!\light.exe" -nologo -cultures:fr-FR ^
     -ext WixUIExtension -ext WixUtilExtension ^
     -b "%HERE%." ^
-    -out "%OUTPUT%\Elium-!APPVER!-Setup.msi" "%HERE%build\elium.wixobj"
+    -out %2 "%HERE%build\elium-%~1.wixobj"
 if !errorlevel! neq 0 (
-    echo [ERREUR] light.exe a echoue.
-    if /i not "%~1"=="/nopause" pause
+    echo [ERREUR] light.exe a echoue ^(%~1^).
     exit /b 1
 )
-
-echo.
-echo =======================================================
-echo    MSI GENERE AVEC SUCCES !
-echo =======================================================
-echo    %OUTPUT%\Elium-!APPVER!-Setup.msi
-echo.
-if /i not "%~1"=="/nopause" pause
+exit /b 0
 

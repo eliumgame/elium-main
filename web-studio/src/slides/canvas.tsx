@@ -8,7 +8,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
 import type { RevealState } from "./playback";
-import { selectionAfterClick, marqueeHits, resizeGeometry, type Rect } from "./selection";
+import {
+  selectionAfterClick,
+  marqueeHits,
+  resizeGeometry,
+  describeElement,
+  keyboardPatch,
+  nextElementId,
+  type Rect,
+} from "./selection";
+import { announce } from "../ui/announce";
 import SheetChart from "../sheet/SheetChart";
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -481,11 +490,66 @@ export default function SlideCanvas({
   const baseColor = themeText(theme);
   const single = sel.length === 1;
 
+  // --- Keyboard access: Tab between elements, arrows move, Alt+arrows resize, Esc clears ---
+  const announceSelection = (id: string | undefined) => {
+    const at = id ? elements.findIndex((x) => x.id === id) : -1;
+    announce(at >= 0 ? `${describeElement(elements[at]!, at, elements.length)}, sélectionné` : "Aucune sélection");
+  };
+  const onCanvasKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Typing inside an element (or a cell) belongs to that element.
+    if (!editable || editingId || e.target !== e.currentTarget) return;
+    if (e.key === "Tab") {
+      const next = nextElementId(elements, sel[sel.length - 1], e.shiftKey);
+      if (next === null) {
+        if (sel.length) onSelectionChange?.([]); // past the last element: focus moves on
+        return;
+      }
+      e.preventDefault();
+      onSelectionChange?.([next]);
+      announceSelection(next);
+    } else if (e.key === "Escape") {
+      if (sel.length) {
+        e.preventDefault();
+        onSelectionChange?.([]);
+        announce("Sélection effacée");
+      }
+    } else if (e.key === "Enter" || e.key === "F2") {
+      const target = single ? elements.find((x) => x.id === sel[0]) : undefined;
+      if (target && (target.type === "text" || target.type === "table")) {
+        e.preventDefault();
+        setEditingId(target.id);
+        announce("Édition du texte : Échap pour terminer");
+      }
+    } else if (e.key.startsWith("Arrow") && sel.length) {
+      const targets = elements.filter((x) => selSet.has(x.id));
+      const patches = targets.map((x) => [x, keyboardPatch(x, e.key, e.shiftKey, e.altKey)] as const);
+      if (!patches.some(([, p]) => p)) return;
+      e.preventDefault();
+      onBeginChange?.();
+      for (const [x, p] of patches) if (p) onChange?.(x.id, p, true);
+      const first = targets[0]!;
+      announce(
+        e.altKey
+          ? `${Math.round(first.w)} % sur ${Math.round(first.h)} %`
+          : `Position ${Math.round(first.x)} %, ${Math.round(first.y)} %`,
+      );
+    }
+  };
+
   return (
     <div
       ref={boxRef}
       className={`slide-cv ${editable ? "is-editable" : ""}`}
       style={{ background: bg, color: baseColor }}
+      {...(editable
+        ? {
+            tabIndex: 0,
+            role: "group",
+            "aria-roledescription": "diapositive modifiable",
+            "aria-label": `Diapositive, ${elements.length} élément(s). Tab : élément suivant, flèches : déplacer, Alt + flèches : redimensionner, Entrée : modifier le texte, Suppr : supprimer.`,
+            onKeyDown: onCanvasKeyDown,
+          }
+        : {})}
       onMouseDown={(e) => {
         if (editable && e.target === e.currentTarget) beginMarquee(e);
       }}
@@ -515,6 +579,9 @@ export default function SlideCanvas({
         return (
           <div
             key={elm.id}
+            role={editable ? "group" : undefined}
+            aria-label={editable ? describeElement(elm, elements.indexOf(elm), elements.length) : undefined}
+            aria-current={selected ? "true" : undefined}
             className={`ce ce--${elm.type} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${hidden ? "sv-hidden" : ""} ${anim ? `sv-anim sv-anim--${anim.effect}` : ""}`}
             style={box}
             onMouseDown={(e) => {

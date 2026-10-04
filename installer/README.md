@@ -62,7 +62,7 @@ Notes importantes sur cet enchaînement :
 | `build_common.py` | Utilitaires partagés entre `stamp_version.py` et `gen_manifest.py` : `repo_root()` et surtout `compute_code_hash()`, l'empreinte sha256 déterministe des sources Python figées dans l'exe (sert à décider côté client si une mise à jour peut rester web-only ou exige un nouvel exe). |
 | `build.bat` | Script de build local tout-en-un : crée/vérifie le venv Python, installe les dépendances (+ PyInstaller épinglé), build le Web Studio (`npm run build`), lance PyInstaller sur `elium.spec` → `staging/Elium.exe`. |
 | `elium.spec` | Spec PyInstaller (one-file). Point d'entrée : `elium_launcher.py`. Embarque `web-studio/dist` (Web Studio pré-buildé), les modules `elium.*` nécessaires (crypto, format, cli), `updater.py`, et la ressource `version_info.txt` (VERSIONINFO Windows, stampée par `stamp_version.py`). |
-| `elium_launcher.py` | **Point d'entrée réel de l'application installée.** Lance un serveur HTTP local qui sert le Web Studio pré-buildé, puis ouvre une fenêtre navigateur dédiée (mode `--app`). Voir « Architecture » ci-dessous — ce n'est **pas** la même chose que l'app PySide6 legacy de `desktop/src/app.py`. |
+| `elium_launcher.py` | **Point d'entrée réel de l'application installée.** Lance un serveur HTTP local qui sert le Web Studio pré-buildé, puis ouvre une fenêtre navigateur dédiée (mode `--app`). Voir « Architecture » ci-dessous. |
 | `build_msi.bat` | Script de build local du MSI via WiX Toolset (localise `candle.exe`/`light.exe`, appelle `make_msi_assets.py` et `print_version.py`, compile `elium.wxs`). Nécessite que `build.bat` ait déjà produit `staging/Elium.exe`. |
 | `elium.wxs` | Source WiX (XML) de l'installeur MSI **officiel** : arborescence d'installation (Program Files), raccourcis Menu Démarrer/Bureau, association de fichiers `.elium`, `UpgradeCode` (identité produit, ne jamais changer), assistant graphique en français. |
 | `make_msi_assets.py` | Génère les ressources exigées par WixUI : `assets/license.rtf` (LICENSE convertie en RTF), `assets/msi-banner.bmp` et `assets/msi-dialog.bmp` (visuels réutilisant le dessin vectoriel de `brand/make_icons.py`). Appelé automatiquement par `build_msi.bat`. |
@@ -72,18 +72,34 @@ Notes importantes sur cet enchaînement :
 | `updater.py` | Module client d'auto-update, embarqué dans l'exe. Vérifie GitHub Releases, télécharge et vérifie (signature Ed25519 avec la clé publique embarquée, puis sha256 par artefact) avant d'appliquer une mise à jour (overlay web léger dans `%LOCALAPPDATA%`, ou nouvel exe complet via handoff). Tout échec de vérification jette l'artefact sans jamais crasher l'app. |
 | `verify_release.py` | Health-check post-publication, lancé uniquement par `.github/workflows/release.yml` juste après `gh release create`. Réutilise `updater.fetch_manifest_for()` pour retélécharger le manifeste + chaque artefact publié et revérifier signature/sha256/disponibilité, avec reprises pour absorber la propagation CDN. Ne modifie et ne supprime jamais rien. |
 
-## Architecture : `elium_launcher.py` n'est pas l'app desktop legacy
+## Phase D — mises à jour durcies, installeurs, pipeline
 
-`installer/elium_launcher.py` est le vrai point d'entrée shippé dans `Elium.exe` :
-il sert localement le Web Studio (React) pré-buildé dans `web-studio/dist` et
-ouvre une fenêtre navigateur dédiée. C'est ce code, et lui seul, qui tourne chez
-un utilisateur qui installe Elium via le MSI.
+Fichiers ajoutés : `split_web.py` (web-core + pack d'assets + archive complète historique),
+`make_update_bundle.py` (paquet hors ligne `.eliumupdate`), `smoke_test.py` (test de l'exe gelé en CI).
+`gen_manifest.py` accepte `--web-core --assets --msi-user --key-id --server-image --web-image`.
 
-Il existe par ailleurs, ailleurs dans le dépôt, une application desktop PySide6
-plus ancienne (`desktop/src/app.py`). Elle n'a **aucun rapport** avec ce dossier :
-elle n'est ni buildée, ni packagée, ni référencée par `elium.spec`,
-`build.bat` ou `elium.wxs`. Ne pas la confondre avec `elium_launcher.py` en
-lisant ce dossier.
+- **Rotation de la clé de mise à jour** : `updater.UPDATE_PUBLIC_KEY_HEX` (id `k1`) + `UPDATE_EXTRA_PUBLIC_KEYS`
+  (`{id: hex}`) ; le manifeste porte `keyId`. Procédure : (1) release signée par k1 qui ajoute k2 à la liste ;
+  (2) une fois la base migrée, signer avec `--key-id k2` (secret CI remplacé) ; (3) retirer k1 plus tard.
+  `install.sh` (miroir bash) ne connaît que la clé primaire : l'auto-update VPS doit rester signée par elle
+  (ou `install.sh` mis à jour d'abord).
+- **Canaux** : `stable` (release « latest ») / `beta` (préversions `X.Y.Z-rc1`, publiées en préversion GitHub).
+- **MSI** : `elium.wxs` compile en deux produits (`-dScope=perMachine|perUser`, UpgradeCode distincts) ;
+  `build_msi.bat` produit `Elium-X.Y.Z-Setup.msi` et `Elium-User-X.Y.Z.msi`. Non testés en installation réelle ici
+  (compilation + validation ICE seulement). La version « Applications installées » de la variante machine reste
+  celle de l'installeur (HKLM non modifiable sans élévation) ; celle de la variante utilisateur est resynchronisée.
+- **PyInstaller reste en one-file** : le handoff télécharge UN fichier `Elium.exe` dans `%LOCALAPPDATA%\Elium\bin`,
+  et l'extraction à chaque lancement dans `%TEMP%` n'est pas corrigée. Un layout one-dir exigerait un
+  paquet de mise à jour par dossier, l'inventaire des fichiers dans le MSI et deux builds (base one-dir + exe de
+  handoff) : trop risqué sans test d'installation réel.
+- **Authenticode** : crochet `SIGN_CERT` / `SIGN_CERT_PASSWORD` dans `release.yml`, ignoré sans certificat.
+
+## Architecture : `elium_launcher.py`
+
+`installer/elium_launcher.py` est le point d'entrée shippé dans `Elium.exe` : il sert
+localement le Web Studio (React) pré-buildé dans `web-studio/dist` et ouvre une fenêtre
+navigateur dédiée. C'est ce code, et lui seul, qui tourne chez un utilisateur qui installe
+Elium via le MSI. (L'ancienne application PySide6 `desktop/` a été supprimée.)
 
 ## Chemin Inno Setup supprimé
 

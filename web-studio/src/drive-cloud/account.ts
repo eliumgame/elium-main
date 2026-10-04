@@ -101,6 +101,59 @@ export async function prepareLogin(password: string, kdfSalt: string, params: Kd
   return deriveAccountSecrets(password, kdfSalt, params);
 }
 
+export interface PasswordChange {
+  /** Body of POST /auth/change-password (minus the challengeId). */
+  request: {
+    signature: string;
+    newAuthSignPublicHex: string;
+    newAuthSignProof: string;
+    newKdfSalt: string;
+    newKdfParams: KdfParams;
+    newKeyBundle: KeyBundle;
+  };
+  /** New masterKey (to keep in memory for the passkey/PRF layer). Never sent. */
+  newMasterKey: Uint8Array;
+}
+
+/**
+ * Change-password / key-passphrase flow, client side. Proves knowledge of the
+ * CURRENT password by signing the server challenge with the current auth key,
+ * then re-wraps the SAME private keys under a masterKey derived from the NEW
+ * password with a FRESH salt, and registers the new auth-sign public key. The
+ * server never sees either password nor any masterKey.
+ */
+export async function buildPasswordChange(p: {
+  email: string;
+  currentPassword: string;
+  currentKdfSalt: string;
+  currentKdfParams: KdfParams;
+  challenge: string;
+  keys: AccountKeys;
+  newPassword: string;
+  newParams?: KdfParams;
+}): Promise<PasswordChange> {
+  const current = await deriveAccountSecrets(p.currentPassword, p.currentKdfSalt, p.currentKdfParams);
+  const signature = await signMessage(p.challenge, current.authSignSeedHex);
+  const newParams = p.newParams ?? DEFAULT_KDF_PARAMS;
+  const newKdfSalt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+  const next = await deriveAccountSecrets(p.newPassword, newKdfSalt, newParams);
+  const newKeyBundle = await sealKeyBundle(next.masterKey, {
+    ed25519Priv: p.keys.identity.privateKeyHex,
+    p256Priv: p.keys.recipient.privateHex,
+  });
+  return {
+    request: {
+      signature,
+      newAuthSignPublicHex: await publicKeyHexFromPrivate(next.authSignSeedHex),
+      newAuthSignProof: await signMessage(p.email.toLowerCase(), next.authSignSeedHex),
+      newKdfSalt,
+      newKdfParams: newParams,
+      newKeyBundle,
+    },
+    newMasterKey: next.masterKey,
+  };
+}
+
 /** Sign a server login challenge with the password-derived auth key. */
 export async function signLoginChallenge(challenge: string, authSignSeedHex: string): Promise<string> {
   return signMessage(challenge, authSignSeedHex);

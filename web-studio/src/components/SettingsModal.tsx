@@ -7,8 +7,6 @@ import {
   Trash2,
   ShieldCheck,
   Copy,
-  Download,
-  Upload,
   Lock,
   Unlock,
   UserPlus,
@@ -21,6 +19,7 @@ import type { EliumIdentity } from "../sign/keys";
 import type { TrustedContact } from "../sign/trust-book";
 import { fingerprintWords } from "../sign/safety-words";
 import { useDialogs } from "../ui/dialogs";
+import KeyringPanel from "./KeyringPanel";
 
 export interface SettingsProps {
   theme: Theme;
@@ -94,48 +93,9 @@ export default function SettingsModal(p: SettingsProps) {
 
         <section className="settings__section">
           <h3 className="settings__title">
-            <ShieldCheck size={15} /> Identité de signature
+            <KeyRound size={15} /> Mes clés
           </h3>
-          {p.identity ? (
-            <div className="keyline">
-              <span className="keyline__label">
-                Empreinte <Badge accent="success">Ed25519</Badge>
-              </span>
-              <code className="keyline__value">{p.identity.fingerprint}</code>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Copier l'empreinte"
-                onClick={() => p.onCopy(p.identity!.fingerprint, "Empreinte copiée")}
-              >
-                <Copy size={14} />
-              </Button>
-            </div>
-          ) : (
-            <p className="muted">Aucune identité. Générez-en une pour signer cryptographiquement.</p>
-          )}
-          <div className="settings__row">
-            <Button variant="outline" size="sm" onClick={p.onRegenerateIdentity}>
-              <KeyRound size={15} /> {p.identity ? "Régénérer" : "Générer une identité"}
-            </Button>
-            {p.identity && (
-              <Button variant="outline" size="sm" onClick={p.onBackupIdentity}>
-                <Download size={15} /> Sauvegarder la clé
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={p.onImportIdentity}>
-              <Upload size={15} /> Importer une clé
-            </Button>
-            {p.identity && (
-              <Button variant="ghost" size="sm" onClick={p.onForgetIdentity}>
-                Oublier l'identité
-              </Button>
-            )}
-          </div>
-          <p className="muted" style={{ marginTop: 6 }}>
-            La clé privée est chiffrée au repos (Argon2id + AES-GCM) et n'existe en clair qu'après déverrouillage. Sans
-            sauvegarde (.eliumkey ou copie de la clé), elle est irrécupérable si ce navigateur est réinitialisé.
-          </p>
+          <KeyringPanel compact />
         </section>
 
         <section className="settings__section">

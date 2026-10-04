@@ -181,10 +181,27 @@ export const SIGNAL_CATALOG: SignalCatalogEntry[] = [
   {
     id: "image_c2pa_ai_source",
     category: "image",
-    label: "Provenance C2PA/IPTC déclarée IA (non authentifiée)",
+    label: "Provenance C2PA/IPTC déclarée IA",
     description:
-      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant un contenu généré/composé par IA. ATTENTION : simple recherche de sous-chaîne dans les octets bruts, ni parsing JUMBF/CBOR structuré ni vérification cryptographique de signature/certificat — une provenance déclarée, pas authentifiée, facilement falsifiable ou supprimable. Cherché en JPEG (XMP/JUMBF), PNG (chunk caBX) et WebP (XMP ou chunk RIFF C2PA).",
+      "Métadonnées C2PA/IPTC « digitalSourceType » déclarant un contenu généré/composé par IA. Un manifeste C2PA complet (JPEG APP11, PNG caBX, WebP C2PA) est analysé : signature COSE, chaîne X.509, liaison au contenu ; le poids dépend du résultat (émetteur reconnu > signature valide d'un émetteur inconnu). Sans manifeste exploitable (XMP seul, JUMBF illisible), simple recherche de chaîne dans les octets : provenance déclarée, non authentifiée, facilement falsifiable ou supprimable.",
     affectsScore: true,
+    appliesTo: hasC2paCapableImage,
+  },
+  {
+    id: "image_c2pa_invalid",
+    category: "image",
+    label: "Manifeste C2PA invalide (altéré ou falsifié)",
+    description:
+      "Le manifeste C2PA embarqué échoue à la vérification (signature, chaîne, liaison au contenu ou empreintes d'assertions). Indice faible : une retouche légitime sans re-signature produit le même résultat.",
+    affectsScore: true,
+    appliesTo: hasC2paCapableImage,
+  },
+  {
+    id: "image_c2pa_verified_provenance",
+    category: "image",
+    label: "Provenance C2PA signée sans déclaration IA (informatif)",
+    description: "Manifeste C2PA valide qui ne déclare pas de génération par IA. N'écarte pas une manipulation non déclarée.",
+    affectsScore: false,
     appliesTo: hasC2paCapableImage,
   },
   {

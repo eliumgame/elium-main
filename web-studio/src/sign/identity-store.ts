@@ -87,8 +87,13 @@ export function buildKeyFile(stored: StoredIdentity): EliumKeyFile {
   };
 }
 
-export function keyFileName(fingerprint: string): string {
-  return `identite-elium-${fingerprint.slice(0, 12)}.eliumkey`;
+/**
+ * Nom de fichier suggéré. Il ne contient PLUS aucun fragment d'empreinte : un
+ * nom de fichier fuit dans les historiques, sauvegardes cloud et pièces jointes.
+ * (Le paramètre est conservé pour compatibilité d'appel, il est ignoré.)
+ */
+export function keyFileName(_fingerprint?: string, now: Date = new Date()): string {
+  return `elium-cles-${now.toISOString().slice(0, 10)}.eliumkey`;
 }
 
 /** Valide et normalise un fichier .eliumkey (lève EliumKeyFileError sinon). */
@@ -105,6 +110,15 @@ export function parseKeyFile(text: string): StoredIdentity {
   }
   if (o.version !== KEYFILE_VERSION) {
     throw new EliumKeyFileError(`Version de sauvegarde non prise en charge (${String(o.version)}).`);
+  }
+  // Les libellés kdf/cipher étaient décoratifs : on les VALIDE (le conteneur
+  // `enc` porte les vrais paramètres, authentifiés ; ici on refuse un fichier
+  // qui annoncerait autre chose que ce que le lecteur exécutera).
+  if (o.kdf !== "argon2id") {
+    throw new EliumKeyFileError(`KDF non pris en charge dans la sauvegarde (${String(o.kdf)}).`);
+  }
+  if (o.cipher !== "aes-256-gcm") {
+    throw new EliumKeyFileError(`Chiffrement non pris en charge dans la sauvegarde (${String(o.cipher)}).`);
   }
   const publicKeyHex = (o.publicKeyHex ?? "").toLowerCase();
   const fingerprint = (o.fingerprint ?? "").toLowerCase();

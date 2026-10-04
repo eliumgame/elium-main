@@ -15,6 +15,7 @@
  * annexe est de montrer QUOI a été repéré et OÙ, pas de ré-éditer le
  * document à l'identique.
  */
+import { formatDateTime } from "../format";
 import type { ProseMirrorNode } from "../../format/types";
 import {
   CATEGORY_TITLES,
@@ -72,8 +73,8 @@ function metadataParagraphs(meta: DocumentMetadata): ProseMirrorNode[] {
   if (meta.author) rows.push(["Auteur", meta.author]);
   if (meta.creator) rows.push(["Application créatrice", meta.creator]);
   if (meta.producer) rows.push(["Producteur", meta.producer]);
-  if (meta.createdAt) rows.push(["Créé le", new Date(meta.createdAt).toLocaleString("fr-FR")]);
-  if (meta.modifiedAt) rows.push(["Modifié le", new Date(meta.modifiedAt).toLocaleString("fr-FR")]);
+  if (meta.createdAt) rows.push(["Créé le", formatDateTime(meta.createdAt)]);
+  if (meta.modifiedAt) rows.push(["Modifié le", formatDateTime(meta.modifiedAt)]);
   if (meta.editingMinutes != null) rows.push(["Temps d'édition cumulé", `${meta.editingMinutes} min`]);
   if (meta.revisionCount != null) rows.push(["Révisions", String(meta.revisionCount)]);
   if (meta.pageCount != null) rows.push(["Pages", String(meta.pageCount)]);
@@ -124,7 +125,7 @@ export function buildReportDoc(report: AnalysisReport, model: DocumentModel, fil
   const content: ProseMirrorNode[] = [];
 
   content.push(heading(1, `Rapport Détecteur — ${fileName}`));
-  content.push(paragraph(`Généré le ${new Date(report.generatedAt).toLocaleString("fr-FR")}`, { muted: true }));
+  content.push(paragraph(`Généré le ${formatDateTime(report.generatedAt)}`, { muted: true }));
   content.push(heading(2, `Score global : ${report.overallScore}/100 — Confiance : ${report.confidence}`));
   content.push(paragraph(report.disclaimer, { italic: true }));
   content.push(paragraph(confidenceExplanation(report.confidence), { muted: true }));

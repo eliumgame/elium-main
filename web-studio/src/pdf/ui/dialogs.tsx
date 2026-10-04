@@ -1291,6 +1291,8 @@ export function OcrDialog({
   localModels,
   running,
   progress,
+  resumable = 0,
+  onDiscardResume,
   onConfirm,
   onCancel,
   onClose,
@@ -1299,6 +1301,9 @@ export function OcrDialog({
   localModels: boolean;
   running: boolean;
   progress: { page: number; total: number; stage: string; ratio: number } | null;
+  /** Pages kept from an interrupted run: the next run resumes from them. */
+  resumable?: number;
+  onDiscardResume?: () => void;
   onConfirm: (v: { languages: OcrLanguage[]; dpi: number; range: string; skipPagesWithText: boolean }) => void;
   onCancel: () => void;
   onClose: () => void;
@@ -1327,7 +1332,7 @@ export function OcrDialog({
               disabled={!languages.length}
               onClick={() => onConfirm({ languages, dpi, range, skipPagesWithText: skip })}
             >
-              Lancer
+              {resumable ? "Reprendre" : "Lancer"}
             </button>
           </>
         )
@@ -1339,12 +1344,25 @@ export function OcrDialog({
           <p>
             Page {progress?.page ?? 0} / {progress?.total ?? 0} — {progress?.stage ?? "préparation"}
           </p>
+          <p className="muted" role="status" aria-live="polite">
+            {progress && progress.total
+              ? `${Math.round((progress.page / progress.total) * 100)} % des pages traitées`
+              : ""}
+          </p>
           <div className="pdfx-bar">
             <span style={{ width: `${Math.round((progress?.ratio ?? 0) * 100)}%` }} />
           </div>
         </div>
       ) : (
         <div className="pdfx-form">
+          {resumable > 0 && (
+            <p role="status" className="pdfx-form__lead">
+              {resumable} page(s) déjà reconnue(s) lors d'une exécution interrompue : elles ne seront pas refaites.{" "}
+              <button className="eb eb--ghost eb--sm" onClick={onDiscardResume}>
+                Tout recommencer
+              </button>
+            </p>
+          )}
           <p className="pdfx-form__lead">
             Ajoute un calque de texte invisible aligné sur l'image : la page reste identique, mais devient
             sélectionnable et cherchable.
@@ -2891,10 +2909,19 @@ export function AccessibilityDialog({
   rules,
   title,
   language,
+  figures = [],
+  onTag,
+  onAlts,
   onFix,
   onClose,
 }: {
   rules: import("../ops/accessibility").AccessibilityRule[] | null;
+  /** Images of the (tagged) document, with their alternate text. */
+  figures?: { page: number; index: number; alt: string }[];
+  /** Give the document a basic structure (tags). */
+  onTag?: (v: { title: string; language: string }) => void;
+  /** Save the alternate text of figures, by « page:index ». */
+  onAlts?: (alts: Map<string, string>) => void;
   title: string;
   language: string;
   /** Set the title (shown in the window) and the language. */
@@ -2903,7 +2930,9 @@ export function AccessibilityDialog({
 }) {
   const [t, setT] = useState(title);
   const [lang, setLang] = useState(language || "fr-FR");
+  const [alts, setAlts] = useState<Record<string, string>>({});
   const icon = { pass: "✓", fail: "✗", manual: "?" } as const;
+  const untagged = rules?.some((r) => r.rule === "PDF balisé" && r.status === "fail");
   const groups = rules ? [...new Set(rules.map((r) => r.category))] : [];
   const failed = rules?.filter((r) => r.status === "fail").length ?? 0;
   const manual = rules?.filter((r) => r.status === "manual").length ?? 0;
@@ -2951,6 +2980,50 @@ export function AccessibilityDialog({
                   onClick={() => onFix({ title: t.trim(), language: lang })}
                 >
                   Appliquer le titre et la langue
+                </button>
+              </fieldset>
+            )}
+            {untagged && onTag && (
+              <fieldset className="pdfx-form__set">
+                <legend>Baliser le document (PDF/UA, bases)</legend>
+                <p className="pdfx-form__note">
+                  Crée la structure logique : chaque bloc de texte devient un paragraphe et chaque image une figure,
+                  dans l'ordre du contenu. Langue et titre sont enregistrés. Titres, listes et tableaux ne sont pas
+                  détectés et l'ordre de lecture reste à vérifier.
+                </p>
+                <button
+                  className="eb eb--primary eb--sm"
+                  disabled={!t.trim()}
+                  onClick={() => onTag({ title: t.trim(), language: lang })}
+                >
+                  Baliser le document
+                </button>
+                {!t.trim() && <small> Renseignez d'abord un titre ci-dessus.</small>}
+              </fieldset>
+            )}
+            {!untagged && figures.length > 0 && onAlts && (
+              <fieldset className="pdfx-form__set">
+                <legend>Textes de remplacement des images</legend>
+                {figures.map((f) => {
+                  const key = `${f.page}:${f.index}`;
+                  return (
+                    <label key={key} className="pdfx-form__row">
+                      <span>
+                        Page {f.page + 1}, image {f.index + 1}
+                      </span>
+                      <input
+                        value={alts[key] ?? f.alt}
+                        placeholder="Décrivez l'image pour un lecteur d'écran"
+                        onChange={(e) => setAlts((v) => ({ ...v, [key]: e.target.value }))}
+                      />
+                    </label>
+                  );
+                })}
+                <button
+                  className="eb eb--outline eb--sm"
+                  onClick={() => onAlts(new Map(figures.map((f) => [`${f.page}:${f.index}`, alts[`${f.page}:${f.index}`] ?? f.alt])))}
+                >
+                  Enregistrer les textes de remplacement
                 </button>
               </fieldset>
             )}

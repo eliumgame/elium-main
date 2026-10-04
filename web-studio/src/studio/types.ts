@@ -15,7 +15,7 @@ import type { JournalVerdict } from "../format/journal";
 import type { EliumIdentity } from "../sign/keys";
 import type { SealVerdict } from "../sign/seal";
 import type { SealPinCheck } from "../sign/seal-pinning";
-import type { TrustedContact } from "../sign/trust-book";
+import type { TrustedContact, TrustOptions } from "../sign/trust-book";
 import type { RecipientPublic } from "../crypto/recipient-key-store";
 import type { SignatureDraft } from "../sign/SignatureCreator";
 import type { VaultSecret } from "../crypto/local-vault";
@@ -50,7 +50,7 @@ export interface Studio {
 
   setTitle(title: string): void;
   /** Approuver une clé (de sceau ou de preuve) sous un nom dans le carnet. */
-  trustContact(name: string, publicKeyHex: string): Promise<void>;
+  trustContact(name: string, publicKeyHex: string, opts?: TrustOptions): Promise<void>;
   /** Retirer une clé du carnet. */
   untrustContact(publicKeyHex: string): void;
   generateIdentity(): Promise<void>;

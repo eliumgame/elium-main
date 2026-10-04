@@ -5,18 +5,24 @@
  * (/__version__, /__releases__, /__rollback__, /__update__) : dans le navigateur
  * ou en dev ils répondent 404, et le composant se replie sur le simple bandeau.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { reportError } from "../ui/crash-log";
 
 interface VersionInfo {
   installed: string | null;
   base?: string | null;
   latest: string | null;
   upToDate: boolean;
+  /** Cause de l'échec de la dernière vérification (offline | rate-limited | invalid-signature | unknown-key | unavailable). */
+  checkFailed?: string | null;
+  checkMessage?: string;
+  channel?: "stable" | "beta" | null;
 }
 interface Release {
   version: string;
   date: string;
   name: string;
+  prerelease?: boolean;
   installed: boolean;
   canRollback: boolean;
 }
@@ -26,6 +32,9 @@ interface UpdStatus {
   kind?: string | null;
   progress?: number;
   notes?: string;
+  reason?: string | null;
+  message?: string;
+  channel?: "stable" | "beta";
 }
 interface PortInfo {
   current: number;
@@ -73,34 +82,59 @@ function waitForServerThenReload(): void {
   setTimeout(tryOnce, 400);
 }
 
+const CHECK_FAILED_LABEL: Record<string, string> = {
+  offline: "hors ligne, mise à jour non vérifiée",
+  "rate-limited": "vérification suspendue (trop de requêtes)",
+  "invalid-signature": "signature de mise à jour refusée",
+  "unknown-key": "mise à jour signée par une clé inconnue",
+  unavailable: "mise à jour non vérifiée",
+};
+
 export default function VersionFooter() {
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [open, setOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
+  const load = () =>
     fetch("/__version__")
       .then((r) => (r.ok ? r.json() : null))
       .then((j: VersionInfo | null) => {
-        if (alive && j && j.installed) setInfo(j);
+        if (j && j.installed) setInfo(j);
       })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+      .catch((e) => reportError("version.info", e));
+
+  useEffect(() => {
+    void load();
   }, []);
+
+  /** Vérification manuelle : ne jamais afficher « à jour » tant qu'elle n'a pas réellement abouti. */
+  const checkNow = async () => {
+    setChecking(true);
+    await fetch("/__update__/check", { method: "POST", headers: { "X-Elium-Token": eliumToken() } }).catch(() => {});
+    await load();
+    setChecking(false);
+  };
 
   return (
     <footer className="home__footer">
       <span>{TAGLINE}</span>
       {info?.installed && (
         <span className="home__version">
-          {" · "}Elium v{info.installed}{" "}
-          {info.upToDate ? (
+          {" · "}Elium v{info.installed}
+          {info.channel === "beta" ? " (bêta)" : ""}{" "}
+          {info.checkFailed ? (
+            <span className="home__version-new" title={info.checkMessage || undefined}>
+              · {CHECK_FAILED_LABEL[info.checkFailed] ?? CHECK_FAILED_LABEL.unavailable}
+            </span>
+          ) : info.upToDate ? (
             <span className="home__version-ok">· à jour</span>
           ) : (
             <span className="home__version-new">· mise à jour disponible{info.latest ? ` (v${info.latest})` : ""}</span>
           )}
+          {" · "}
+          <button type="button" className="home__version-manage" disabled={checking} onClick={() => void checkNow()}>
+            {checking ? "Vérification…" : "Vérifier maintenant"}
+          </button>
           {" · "}
           <button type="button" className="home__version-manage" onClick={() => setOpen(true)}>
             Gérer les versions
@@ -117,12 +151,16 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<UpdStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const pollErrorLogged = useRef(false);
 
   useEffect(() => {
     fetch("/__releases__")
       .then((r) => (r.ok ? r.json() : { releases: [] }))
       .then((j: { releases?: Release[] }) => setReleases(j.releases ?? []))
-      .catch(() => setReleases([]));
+      .catch((e) => {
+        reportError("version.releases", e);
+        setReleases([]);
+      });
   }, []);
 
   // Suit la progression d'un rollback/undo en cours.
@@ -142,7 +180,13 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
             setErr(s.notes || "L'opération a échoué.");
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          // Une coupure passagère pendant le redémarrage est normale : on journalise une seule fois.
+          if (!pollErrorLogged.current) {
+            pollErrorLogged.current = true;
+            reportError("version.poll", e);
+          }
+        });
     }, 1000);
     return () => clearInterval(id);
   }, [busy]);
@@ -151,25 +195,42 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
     setErr(null);
     setBusy(true);
     setStatus({ state: "downloading", version, progress: 0 });
-    await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, {
-      method: "POST",
-      headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    try {
+      const r = await fetch(`/__rollback__?version=${encodeURIComponent(version)}`, {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken() },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      reportError("version.rollback", e);
+      setBusy(false);
+      setStatus(null);
+      setErr("Impossible de lancer le retour à cette version. Réessayez ou redémarrez Elium.");
+    }
   };
   const undo = async () => {
     setErr(null);
     setBusy(true);
-    await fetch("/__rollback__/undo", {
-      method: "POST",
-      headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    try {
+      const r = await fetch("/__rollback__/undo", {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken() },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      reportError("version.undo", e);
+      setBusy(false);
+      setErr("Impossible d'annuler la dernière mise à jour. Réessayez ou redémarrez Elium.");
+    }
   };
   const reload = () => window.location.reload();
   const restart = async () => {
     await fetch("/__update__/restart", {
       method: "POST",
       headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    }).catch(() => {
+      // Attendu : le serveur se ferme pendant la réponse. waitForServerThenReload() prend le relais.
+    });
     waitForServerThenReload();
   };
 
@@ -232,6 +293,7 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
                   <span className="vm__ver">
                     v{r.version}
                     {r.installed && <span className="badge badge--success vm__badge">installée</span>}
+                    {r.prerelease && <span className="badge vm__badge">préversion</span>}
                   </span>
                   <span className="vm__date">{r.date}</span>
                   {r.installed ? (
@@ -251,11 +313,119 @@ function VersionManager({ onClose, installed }: { onClose: () => void; installed
                 </li>
               ))}
             </ul>
+            <UpdateSettings />
             <PortSettings />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Canal de mise à jour (stable / bêta) et mise à jour depuis un fichier hors ligne
+ * (`Elium-update-X.Y.Z.eliumupdate`). Le fichier est vérifié par le lanceur EXACTEMENT comme une
+ * mise à jour en ligne (signature Ed25519 du manifeste + sha256 de chaque artefact) : on peut donc
+ * l'obtenir par clé USB ou messagerie sans élargir la confiance.
+ */
+function UpdateSettings() {
+  const [channel, setChannel] = useState<"stable" | "beta">("stable");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/__update__")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: UpdStatus | null) => {
+        if (s?.channel) setChannel(s.channel);
+      })
+      .catch(() => {});
+  }, []);
+
+  const changeChannel = async (next: "stable" | "beta") => {
+    setChannel(next);
+    await fetch(`/__update__/channel?name=${next}`, {
+      method: "POST",
+      headers: { "X-Elium-Token": eliumToken() },
+    }).catch(() => {});
+    setMsg(
+      next === "beta"
+        ? "Canal bêta : les préversions seront proposées en plus des versions stables."
+        : "Canal stable : seules les versions stables sont proposées.",
+    );
+  };
+
+  const pickFile = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/__update__/bundle", {
+        method: "POST",
+        headers: { "X-Elium-Token": eliumToken() },
+        body: file,
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      // Le lanceur vérifie/installe en tâche de fond : on suit son statut.
+      for (let i = 0; i < 600; i++) {
+        await new Promise((res) => setTimeout(res, 1000));
+        const s: UpdStatus | null = await fetch("/__update__")
+          .then((x) => (x.ok ? x.json() : null))
+          .catch(() => null);
+        if (!s) continue;
+        if (s.state === "web-ready") {
+          setMsg(`Version v${s.version} installée : rechargez l'application pour l'utiliser.`);
+          break;
+        }
+        if (s.state === "exe-ready") {
+          setMsg(`Version v${s.version} installée : redémarrez Elium pour terminer.`);
+          break;
+        }
+        if (s.state === "error") {
+          setMsg(s.message || "Ce fichier n'a pas pu être appliqué.");
+          break;
+        }
+      }
+    } catch {
+      setMsg("Impossible d'envoyer ce fichier au lanceur local.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="vm__adv">
+      <summary className="vm__adv-summary">Mises à jour : canal et fichier hors ligne</summary>
+      <div className="vm__adv-body">
+        <p className="vm__lede vm__adv-lede">
+          <label>
+            Canal de mise à jour{" "}
+            <select value={channel} onChange={(e) => void changeChannel(e.target.value as "stable" | "beta")}>
+              <option value="stable">Stable (recommandé)</option>
+              <option value="beta">Bêta (préversions)</option>
+            </select>
+          </label>
+        </p>
+        <p className="vm__lede vm__adv-lede">
+          Pas de connexion ? Choisissez un paquet <code>.eliumupdate</code> reçu par ailleurs : sa signature est
+          vérifiée exactement comme celle d'une mise à jour en ligne.
+        </p>
+        <label className="eb eb--outline eb--sm">
+          {busy ? "Vérification du paquet…" : "Mettre à jour depuis un fichier…"}
+          <input
+            type="file"
+            accept=".eliumupdate"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              void pickFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {msg && <p className="vm__adv-notice">{msg}</p>}
+      </div>
+    </details>
   );
 }
 
@@ -312,7 +482,9 @@ function PortSettings() {
     await fetch("/__update__/restart", {
       method: "POST",
       headers: { "X-Elium-Token": eliumToken() },
-    }).catch(() => {});
+    }).catch(() => {
+      // Attendu : le serveur se ferme pendant la réponse (le redémarrage est confirmé par le rechargement).
+    });
   };
 
   return (

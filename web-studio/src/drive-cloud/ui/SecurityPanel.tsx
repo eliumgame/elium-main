@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useDrive } from "../session";
 import { prepareLogin, signLoginChallenge } from "../account";
+import ChangePasswordSection from "./ChangePasswordSection";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
 
@@ -490,6 +491,8 @@ export default function SecurityPanel() {
         </div>
         {unlockMsg && <p className="dc-security__unlock-msg muted">{unlockMsg}</p>}
       </div>
+
+      <ChangePasswordSection />
 
       {/* --- Zone de danger : suppression du compte (RGPD) --- */}
       <div className="dc-security__danger">

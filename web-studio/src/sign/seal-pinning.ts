@@ -20,6 +20,7 @@
  */
 
 import type { EliumManifest } from "../format/types";
+import { currentKeyTrustState, type KeyTrustState } from "./trust-book";
 
 const STORAGE_KEY = "elium_seal_pins";
 
@@ -38,6 +39,8 @@ export interface SealPinCheck {
   pinned?: SealPin;
   /** The seal key currently presented by the file (present unless "none"). */
   current?: { fingerprint: string; publicKeyHex: string };
+  /** Clé révoquée / expirée d'après le carnet (cf. trust-book.ts). */
+  keyState?: KeyTrustState;
 }
 
 function loadPins(): Record<string, SealPin> {
@@ -62,12 +65,14 @@ export function checkSealPin(manifest: EliumManifest): SealPinCheck {
   const key = pinKey(manifest);
   if (!seal || !key) return { status: "none" };
   const current = { fingerprint: seal.fingerprint, publicKeyHex: seal.publicKeyHex };
+  // Révocation / expiration : dimension distincte du TOFU, affichée à côté.
+  const keyState = currentKeyTrustState(seal.publicKeyHex);
   const pinned = loadPins()[key];
-  if (!pinned) return { status: "new", current };
+  if (!pinned) return { status: "new", current, keyState };
   if (pinned.publicKeyHex.toLowerCase() === seal.publicKeyHex.toLowerCase()) {
-    return { status: "pinned", pinned, current };
+    return { status: "pinned", pinned, current, keyState };
   }
-  return { status: "changed", pinned, current };
+  return { status: "changed", pinned, current, keyState };
 }
 
 /** Record (or refresh) the pin for this document's seal key. */

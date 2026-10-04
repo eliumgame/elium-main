@@ -96,6 +96,26 @@ const registerSchema = z.object({
   bindingProof: hex(128),
 });
 
+// Same bounds as the client decoders (core/container.py, crypto/kdf-profiles.ts).
+const kdfParamsSchema = z.object({
+  alg: z.literal("argon2id"),
+  t: z.number().int().min(1).max(6),
+  m: z.number().int().min(8192).max(262144),
+  p: z.number().int().min(1).max(16),
+});
+
+const changePasswordSchema = z.object({
+  challengeId: z.string().uuid(),
+  /** Signature of the /login/init nonce by the CURRENT auth key. */
+  signature: hex(128),
+  newAuthSignPublicHex: hex(64),
+  /** Signature over the (lower-cased) email by the NEW auth key. */
+  newAuthSignProof: hex(128),
+  newKdfSalt: z.string().min(8).max(256),
+  newKdfParams: kdfParamsSchema,
+  newKeyBundle: z.record(z.unknown()),
+});
+
 function userDto(u: {
   id: string;
   email: string;
@@ -585,6 +605,58 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       kdfParams: row.kdf_params,
       ...session,
     };
+  });
+
+  // --- Change password / key passphrase ------------------------------------
+  // Re-wraps the key bundle under a NEW masterKey and rotates the login verifier
+  // (authSignPublicHex), KDF salt and params. Zero-knowledge is preserved: the
+  // server only ever sees public keys + the opaque re-encrypted bundle.
+  //
+  // Re-authentication: the caller must prove knowledge of the CURRENT password by
+  // signing a fresh /login/init challenge with the current auth key (a stolen
+  // session alone cannot overwrite the bundle). The same route lets an SSO user
+  // set the passphrase that protects their keys independently of the IdP login.
+  // All other sessions are revoked and a fresh one is issued.
+  app.post("/change-password", { preHandler: authenticate, ...rl(10) }, async (req) => {
+    const user = requireUser(req);
+    const b = changePasswordSchema.parse(req.body);
+
+    const row = await queryOne<{ email: string; auth_sign_public_hex: string | null }>(
+      `SELECT email, auth_sign_public_hex FROM users WHERE id = $1 AND status = 'active'`,
+      [user.id],
+    );
+    const ch = await queryOne<{ id: string; user_id: string; nonce: string; expires_at: string; used_at: string | null }>(
+      `SELECT id, user_id, nonce, expires_at, used_at FROM login_challenges WHERE id = $1`,
+      [b.challengeId],
+    );
+    // Single use, whatever the outcome.
+    if (ch) await query(`UPDATE login_challenges SET used_at = now() WHERE id = $1`, [b.challengeId]);
+    if (
+      !row ||
+      !row.auth_sign_public_hex ||
+      !ch ||
+      ch.user_id !== user.id ||
+      ch.used_at ||
+      new Date(ch.expires_at).getTime() < Date.now() ||
+      !verifyEd25519(ch.nonce, b.signature, row.auth_sign_public_hex)
+    ) {
+      await audit(null, user.id, "auth.password.change_denied", "user", user.id, {}, req.ip);
+      throw unauthorized("Mot de passe actuel incorrect.");
+    }
+    if (!verifyEd25519(row.email.toLowerCase(), b.newAuthSignProof, b.newAuthSignPublicHex)) {
+      throw badRequest("Preuve de possession de la nouvelle clé d'authentification invalide.");
+    }
+
+    await query(
+      `UPDATE users
+          SET auth_sign_public_hex = $2, kdf_salt = $3, kdf_params = $4, key_bundle = $5, updated_at = now()
+        WHERE id = $1`,
+      [user.id, b.newAuthSignPublicHex, b.newKdfSalt, JSON.stringify(b.newKdfParams), JSON.stringify(b.newKeyBundle)],
+    );
+    await query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [user.id]);
+    const session = await issueSession(app, user.id, user.fingerprint, req.headers["user-agent"] ?? "", req.ip);
+    await audit(null, user.id, "auth.password.change", "user", user.id, {}, req.ip);
+    return { ok: true as const, ...session };
   });
 
   // --- Me ------------------------------------------------------------------

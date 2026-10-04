@@ -147,13 +147,72 @@ wait_health() {
   return 1
 }
 
-# Sauvegarde RAPIDE de la base avant une migration (les blobs, adressés par
-# contenu, ne sont pas touchés par une mise à jour de code). Fichier dédié
-# « preupdate » pour ne pas se mêler aux sauvegardes manuelles.
+# Dernière migration appliquée (table schema_migrations) : « version de schéma » à enregistrer
+# avant une mise à jour pour savoir, au rollback, si des migrations ont tourné. Vide si illisible.
+db_schema_version() {
+  $DC exec -T db psql -U elium -d elium -Atc \
+    "SELECT COALESCE(MAX(version), '') FROM schema_migrations" 2>/dev/null | tr -d '[:space:]' || true
+}
+
+# Sauvegarde de la base AVANT une mise à jour — OBLIGATOIRE : si elle échoue (pg_dump en erreur,
+# fichier vide, pas d'espace disque), la mise à jour est ABANDONNÉE sans rien toucher. Le dump est
+# « --clean --if-exists » : il peut être rejoué sur une base déjà migrée (rollback). Un fichier
+# .meta voisin consigne version applicative, commit et version de schéma. Chemin du dump sur stdout.
+# Fichier dédié « preupdate » pour ne pas se mêler aux sauvegardes manuelles.
 backup_db_preupdate() {
-  local ts out; ts="$(date -u '+%Y%m%d-%H%M%S')"; out="$SCRIPT_DIR/backups"
+  local ts out dump; ts="$(date -u '+%Y%m%d-%H%M%S')"; out="$SCRIPT_DIR/backups"
   mkdir -p "$out"
-  $DC exec -T db pg_dump -U elium elium 2>/dev/null | gzip > "$out/elium-db-preupdate-$ts.sql.gz"
+  dump="$out/elium-db-preupdate-$ts.sql.gz"
+  # pipefail (set -o) : l'échec de pg_dump n'est pas masqué par gzip.
+  if ! $DC exec -T db pg_dump -U elium --clean --if-exists elium 2>/dev/null | gzip > "$dump"; then
+    rm -f "$dump"; return 1
+  fi
+  # gzip d'un dump vide pèse ~20 octets : un vrai dump contient au moins la création du schéma.
+  if [ "$(gzip -dc "$dump" 2>/dev/null | wc -c)" -lt 200 ]; then rm -f "$dump"; return 1; fi
+  {
+    printf 'app_version=%s\n' "$(repo_version || true)"
+    printf 'commit=%s\n' "$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
+    printf 'schema_version=%s\n' "$(db_schema_version)"
+  } > "${dump%.sql.gz}.meta"
+  printf '%s' "$dump"
+}
+
+# Rejoue un dump `--clean` sur la base courante (api arrêtée le temps de l'opération).
+restore_db_dump() {
+  local dump="$1"
+  $DC stop api >/dev/null 2>&1 || true
+  gzip -dc "$dump" | $DC exec -T db psql -U elium -d elium -v ON_ERROR_STOP=1 >/dev/null
+}
+
+# Ajoute à .env les secrets introduits par les versions récentes (REDIS_PASSWORD) sans toucher aux
+# existants : une pile déployée avant leur introduction continue de démarrer (compose exige ces
+# secrets, il n'y a plus de valeur par défaut).
+ensure_env_secrets() {
+  [ -f "$ENV_FILE" ] || return 0
+  if [ -z "$(read_env REDIS_PASSWORD)" ]; then
+    set_env_var REDIS_PASSWORD "$(gen_secret)"
+    info "REDIS_PASSWORD généré et ajouté à .env (Redis est désormais protégé par mot de passe)."
+  fi
+  if [ -z "$(read_env CORS_ORIGINS)" ]; then
+    warn "CORS_ORIGINS absent de .env : renseignez l'origine de votre site (ex. https://drive.exemple.fr)."
+  fi
+}
+
+# Copie hors machine (rclone) : BACKUP_RCLONE_REMOTE=<remote>:<chemin> (ex. s3backup:elium-prod ou
+# sftp:/srv/backups). Les fichiers sont déjà du chiffré E2E (zéro-connaissance) ; on ne chiffre
+# pas davantage ici, mais le remote devrait l'être (rclone crypt) pour les métadonnées.
+offsite_push() {
+  local remote; remote="${BACKUP_RCLONE_REMOTE:-$(read_env BACKUP_RCLONE_REMOTE)}"
+  [ -n "$remote" ] || return 0
+  if ! command -v rclone >/dev/null 2>&1; then
+    warn "BACKUP_RCLONE_REMOTE défini mais rclone est introuvable : copie hors machine IGNORÉE."; return 1
+  fi
+  info "Copie hors machine vers $remote…"
+  if rclone copy "$SCRIPT_DIR/backups" "$remote" --include "elium-*-$1.*" >/dev/null 2>&1; then
+    ok "Sauvegarde copiée vers $remote."
+  else
+    warn "Copie hors machine ÉCHOUÉE vers $remote (la sauvegarde locale reste valide)."; return 1
+  fi
 }
 
 # Ne conserve que les 5 dernières sauvegardes pré-mise-à-jour.
@@ -163,6 +222,28 @@ prune_update_backups() {
   # shellcheck disable=SC2012
   ls -1t "$out"/elium-db-preupdate-*.sql.gz 2>/dev/null | tail -n +6 | while read -r f; do rm -f "$f"; done
   return 0
+}
+
+# Démarre la pile : avec des images SIGNÉES épinglées par digest (ELIUM_API_IMAGE / ELIUM_WEB_IMAGE
+# dans .env, écrites par l'auto-update d'après le manifeste signé) on les TIRE sans rien construire
+# sur le serveur ; sinon (premier déploiement, manifeste ancien) on construit sur place.
+compose_up_stack() {
+  local profile=(); [ "$(read_env STORAGE_DRIVER)" = "s3" ] && profile=(--profile s3)
+  if [ -n "$(read_env ELIUM_API_IMAGE)" ] && [ -n "$(read_env ELIUM_WEB_IMAGE)" ]; then
+    $DC "${profile[@]}" pull api web && $DC "${profile[@]}" up -d --no-build
+  else
+    $DC "${profile[@]}" up -d --build
+  fi
+}
+
+# Vérifie la signature cosign (keyless, identité du workflow de publication) d'une image si cosign
+# est installé ; sans cosign, le digest signé dans le manifeste Ed25519 reste la garantie.
+verify_image_cosign() {
+  local ref="$1"
+  command -v cosign >/dev/null 2>&1 || return 0
+  cosign verify "$ref" \
+    --certificate-identity-regexp "^https://github.com/${REPO_SLUG}/\\.github/workflows/release\\.yml@" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null 2>&1
 }
 
 # --- Détection Docker Compose ----------------------------------------------
@@ -280,6 +361,10 @@ deploy_drive() {
   pgpw="$(read_env POSTGRES_PASSWORD)";     [ -n "$pgpw" ]     || pgpw="$(gen_secret)"
   s3key="$(read_env S3_ACCESS_KEY)";        [ -n "$s3key" ]    || s3key="elium"
   s3secret="$(read_env S3_SECRET_KEY)";     [ -n "$s3secret" ] || s3secret="$(gen_secret)"
+  local redispw; redispw="$(read_env REDIS_PASSWORD)"; [ -n "$redispw" ] || redispw="$(gen_secret)"
+  # Réglages optionnels préservés d'un run à l'autre (images signées, copie hors machine).
+  local keep_api keep_web keep_rclone
+  keep_api="$(read_env ELIUM_API_IMAGE)"; keep_web="$(read_env ELIUM_WEB_IMAGE)"; keep_rclone="$(read_env BACKUP_RCLONE_REMOTE)"
   if [ -f "$ENV_FILE" ]; then ok "Secrets existants préservés (.env conservé)"; fi
 
   # Écriture du .env
@@ -297,6 +382,11 @@ deploy_drive() {
     echo "S3_ACCESS_KEY=$s3key"
     echo "S3_SECRET_KEY=$s3secret"
     echo "S3_BUCKET=$(read_env S3_BUCKET || true)"
+    echo "REDIS_PASSWORD=$redispw"
+    [ -n "$keep_api" ] && echo "ELIUM_API_IMAGE=$keep_api"
+    [ -n "$keep_web" ] && echo "ELIUM_WEB_IMAGE=$keep_web"
+    [ -n "$keep_rclone" ] && echo "BACKUP_RCLONE_REMOTE=$keep_rclone"
+    true
   } > "$ENV_FILE.tmp"
   # remplace la ligne bucket vide par la valeur par défaut
   sed -i.bak 's/^S3_BUCKET=$/S3_BUCKET=elium-blobs/' "$ENV_FILE.tmp" 2>/dev/null || true
@@ -312,8 +402,7 @@ deploy_drive() {
 
   # Lancement
   hr; info "Construction et démarrage de la pile Docker (peut prendre quelques minutes)…"
-  local profile=(); [ "$STORAGE" = "s3" ] && profile=(--profile s3)
-  $DC "${profile[@]}" up -d --build
+  compose_up_stack
 
   # Santé
   info "Vérification de l'état de l'API…"
@@ -377,7 +466,7 @@ deploy_drive() {
 run_suite() {
   command -v node >/dev/null 2>&1 || die "Node.js 20+ requis pour la suite web. Voir INSTALL.md."
   info "Installation des dépendances de la suite (web-studio)…"
-  ( cd web-studio && npm install --no-audit --no-fund )
+  ( cd web-studio && npm ci --no-audit --no-fund )
   info "Construction…"
   ( cd web-studio && npm run build )
   ok "Suite construite. Lancement de l'aperçu sur http://localhost:3100 (Ctrl+C pour arrêter)."
@@ -394,9 +483,12 @@ do_update() {
   if command -v git >/dev/null 2>&1 && [ -d .git ]; then
     info "git pull…"; git pull --ff-only || warn "git pull ignoré (arbre modifié ou hors dépôt)."
   fi
-  local profile=(); [ "$(read_env STORAGE_DRIVER)" = "s3" ] && profile=(--profile s3)
+  ensure_env_secrets
+  # Les sauvegardes comptent : pas de mise à jour manuelle sans filet non plus.
+  local dump; dump="$(backup_db_preupdate)" || die "Sauvegarde de la base impossible — mise à jour ABANDONNÉE (la pile n'a pas été redémarrée)."
+  ok "Base sauvegardée avant mise à jour : $dump"
   info "Reconstruction + redémarrage…"
-  $DC "${profile[@]}" up -d --build
+  compose_up_stack
   set_env_var ELIUM_VERSION "$(repo_version)"
   ok "Pile mise à jour (migrations ré-appliquées, idempotentes)."
 }
@@ -481,10 +573,34 @@ do_self_update() {
   fi
 
   local prev; prev="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
-  local profile=(); [ "$(read_env STORAGE_DRIVER)" = "s3" ] && profile=(--profile s3)
 
+  # Images signées : le manifeste (signé Ed25519) porte les références épinglées par digest des
+  # images construites et signées (cosign) par le workflow de publication. Absentes (manifeste
+  # ancien) => construction sur place, comme avant.
+  local new_api new_web old_api old_web
+  new_api="$(manifest_field "$tmp/latest.json" serverImage || true)"
+  new_web="$(manifest_field "$tmp/latest.json" webImage || true)"
+  old_api="$(read_env ELIUM_API_IMAGE)"; old_web="$(read_env ELIUM_WEB_IMAGE)"
+  if [ -n "$new_api" ] && [ -n "$new_web" ]; then
+    case "$new_api$new_web" in
+      ghcr.io/*@sha256:*ghcr.io/*@sha256:*) : ;;
+      *) warn "Références d'images invalides dans le manifeste — abandon."; ulog "skip: bad image refs"; return 0 ;;
+    esac
+    if ! verify_image_cosign "$new_api" || ! verify_image_cosign "$new_web"; then
+      warn "Signature cosign des images invalide — abandon (sécurité)."; ulog "skip: cosign verification failed"; return 0
+    fi
+  fi
+
+  # Sauvegarde OBLIGATOIRE : si elle échoue, on s'arrête AVANT toute modification.
   info "Sauvegarde de la base avant migration…"
-  backup_db_preupdate || warn "Sauvegarde DB préalable échouée (on continue)."
+  local dump schema_before schema_after
+  if ! dump="$(backup_db_preupdate)"; then
+    warn "Sauvegarde de la base IMPOSSIBLE — mise à jour ABANDONNÉE (rien n'a été modifié)."
+    ulog "ABORT: pre-update backup failed (no change made)"
+    return 1
+  fi
+  schema_before="$(sed -n 's/^schema_version=//p' "${dump%.sql.gz}.meta" | head -n1)"
+  ulog "backup ok: $dump (schema ${schema_before:-?})"
 
   info "Bascule sur $remote_ver ($(printf '%.12s' "$target"))…"
   git -C "$SCRIPT_DIR" checkout -q master 2>/dev/null || true
@@ -492,9 +608,13 @@ do_self_update() {
     warn "Bascule git échouée."; ulog "fail: reset $target"; return 0
   fi
   set_env_var ELIUM_VERSION "$remote_ver"
+  ensure_env_secrets
+  if [ -n "$new_api" ] && [ -n "$new_web" ]; then
+    set_env_var ELIUM_API_IMAGE "$new_api"; set_env_var ELIUM_WEB_IMAGE "$new_web"
+  fi
 
-  info "Reconstruction + redémarrage de la pile…"
-  if $DC "${profile[@]}" up -d --build && wait_health; then
+  info "Redémarrage de la pile…"
+  if compose_up_stack && wait_health; then
     hr; ok "${bold}Mise à jour appliquée : $remote_ver.${rst} (migrations idempotentes rejouées)"
     ulog "success -> $remote_ver ($target)"
     prune_update_backups
@@ -504,9 +624,26 @@ do_self_update() {
   # ---------- Rollback automatique ----------
   hr; warn "Health-check en échec après mise à jour — RETOUR à ${cur_ver:-la version précédente}."
   ulog "health failed after $remote_ver -> rollback to $prev"
+  schema_after="$(db_schema_version)"
   git -C "$SCRIPT_DIR" reset --hard -q "$prev" 2>/dev/null || true
   set_env_var ELIUM_VERSION "${cur_ver:-dev}"
-  if $DC "${profile[@]}" up -d --build && wait_health; then
+  # Images précédentes (digest) ou construction locale si on n'en utilisait pas.
+  if [ -n "$old_api" ] && [ -n "$old_web" ]; then
+    set_env_var ELIUM_API_IMAGE "$old_api"; set_env_var ELIUM_WEB_IMAGE "$old_web"
+  else
+    set_env_var ELIUM_API_IMAGE ""; set_env_var ELIUM_WEB_IMAGE ""
+  fi
+  # Des migrations ont tourné (la version de schéma a bougé) : le code précédent ne sait pas lire
+  # le nouveau schéma — on restaure AUSSI la base depuis le dump pris juste avant.
+  if [ -n "$schema_after" ] && [ "$schema_after" != "$schema_before" ]; then
+    warn "Des migrations avaient été appliquées (${schema_before:-?} → $schema_after) : restauration de la base."
+    ulog "restoring DB from $dump (schema $schema_after -> ${schema_before:-?})"
+    if ! restore_db_dump "$dump"; then
+      ulog "DB RESTORE FAILED — manual intervention required (dump: $dump)"
+      die "Restauration de la base en échec — intervention requise. Dump : $dump (voir $UPDATE_LOG)"
+    fi
+  fi
+  if compose_up_stack && wait_health; then
     warn "Rollback réussi — ${cur_ver:-version précédente} rétablie. Détails : $UPDATE_LOG"
     ulog "rollback ok -> ${cur_ver:-?}"
     return 0
@@ -538,6 +675,20 @@ auto_update_enable() {
   local interval; interval="$(read_env UPDATE_INTERVAL_MIN)"; [ -n "$interval" ] || interval="30"
   if _have_systemd; then
     info "Installation du timer systemd ($SYSTEMD_UNIT, toutes les ${interval} min)…"
+    # Utilisateur d'exécution : PLUS root. Le propriétaire du dépôt s'il n'est pas root, sinon un
+    # compte système dédié `elium-update` (membre du groupe docker, propriétaire du dépôt).
+    # Le groupe docker équivaut à un accès root à la machine : le gain est de ne pas exécuter
+    # git/openssl/curl (surface réseau) en root, et d'enfermer le service (voir les options ci-dessous).
+    local run_user; run_user="$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || echo root)"
+    if [ "$run_user" = "root" ]; then
+      run_user="elium-update"
+      if ! id "$run_user" >/dev/null 2>&1; then
+        _sudo useradd --system --home-dir "$SCRIPT_DIR" --no-create-home --shell /usr/sbin/nologin "$run_user"
+      fi
+      _sudo chown -R "$run_user":"$run_user" "$SCRIPT_DIR"
+    fi
+    if getent group docker >/dev/null 2>&1; then _sudo usermod -aG docker "$run_user" || true
+    else warn "Groupe docker introuvable : l'utilisateur $run_user ne pourra peut-être pas piloter Docker."; fi
     _sudo tee "/etc/systemd/system/${SYSTEMD_UNIT}.service" >/dev/null <<EOF
 [Unit]
 Description=Elium Drive — mise à jour automatique (signée Ed25519)
@@ -546,9 +697,23 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=${run_user}
+SupplementaryGroups=docker
 WorkingDirectory=${SCRIPT_DIR}
 ExecStart=/usr/bin/env bash ${SCRIPT_DIR}/install.sh self-update
 Nice=10
+# Durcissement : aucun privilège supplémentaire, /usr et /etc en lecture seule, /tmp privé,
+# noyau et modules inaccessibles. (ProtectSystem=strict est évité : il pourrait gêner l'accès à la
+# socket Docker et à l'écriture de backups/ selon les installations.)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 EOF
     _sudo tee "/etc/systemd/system/${SYSTEMD_UNIT}.timer" >/dev/null <<EOF
 [Unit]
@@ -640,7 +805,7 @@ do_backup() {
   backend="$(blob_backend)"
 
   info "Sauvegarde Postgres…"
-  $DC exec -T db pg_dump -U elium elium | gzip > "$out/elium-db-$ts.sql.gz"
+  $DC exec -T db pg_dump -U elium --clean --if-exists elium | gzip > "$out/elium-db-$ts.sql.gz"
 
   case "$backend" in
     s3-minio)
@@ -662,6 +827,8 @@ do_backup() {
   printf 'backend=%s\n' "$backend" > "$out/elium-blobs-$ts.meta"
 
   ok "Sauvegardes écrites dans $out (base + blobs, chiffrés E2E ; backend : $backend)."
+  # Copie hors machine optionnelle (BACKUP_RCLONE_REMOTE=<remote>:<chemin> dans .env).
+  offsite_push "$ts" || true
   warn "Conservez-les sur un support chiffré. Sans les clés côté clients, elles restent illisibles (zéro-connaissance)."
 }
 
@@ -681,6 +848,13 @@ do_restore() {
   [ -n "$ts" ] || die "Usage : bash install.sh restore <timestamp> (voir les fichiers backups/elium-db-<timestamp>.sql.gz)."
 
   local db_file="$out/elium-db-$ts.sql.gz" blobs_file="$out/elium-blobs-$ts.tar.gz" meta_file="$out/elium-blobs-$ts.meta"
+  # Sauvegarde absente en local (serveur reconstruit après sinistre) : on la récupère du remote.
+  local remote; remote="${BACKUP_RCLONE_REMOTE:-$(read_env BACKUP_RCLONE_REMOTE)}"
+  if [ ! -f "$db_file" ] && [ -n "$remote" ] && command -v rclone >/dev/null 2>&1; then
+    info "Sauvegarde $ts absente en local — récupération depuis $remote…"
+    mkdir -p "$out"
+    rclone copy "$remote" "$out" --include "elium-*-$ts.*" || warn "Récupération depuis $remote échouée."
+  fi
   [ -f "$db_file" ]    || die "Sauvegarde base introuvable : $db_file"
   [ -f "$blobs_file" ] || die "Sauvegarde blobs introuvable : $blobs_file"
   # Backend d'origine de la sauvegarde (marqueur écrit par do_backup). Absent

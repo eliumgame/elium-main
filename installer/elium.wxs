@@ -2,28 +2,53 @@
 <!--
   Elium v4 — Installeur Windows MSI (WiX Toolset 3.x)
 
-  Produit un .msi professionnel :
-    - installation par machine dans Program Files\Elium (dossier modifiable)
+  UNE source, DEUX produits (variable de précompilation Scope, candle -dScope=...) :
+    perMachine (défaut)  Elium-X.Y.Z-Setup.msi
+        installation pour tous les utilisateurs dans Program Files\Elium (droits administrateur)
+    perUser              Elium-User-X.Y.Z.msi
+        installation SANS droits administrateur dans %LOCALAPPDATA%\Programs\Elium, raccourcis et
+        associations de fichiers dans le profil de l'utilisateur ; mêmes fonctions que la version
+        « machine ». UpgradeCode différent : les deux produits sont indépendants (n'installez
+        qu'un seul des deux ; voir installer/README.md).
+
+  Commun aux deux :
     - assistant en français : Bienvenue, Licence, Dossier, Installation, Fin
     - raccourcis Menu Démarrer + Bureau, icône de marque
-    - association des fichiers .elium (double-clic -> ouverture dans l'app)
+    - association des fichiers .elium (double-clic -> ouverture dans l'app) et .eliumupdate
+      (double-clic -> mise à jour hors ligne signée)
     - case « Lancer Elium » en fin d'installation
     - mises à niveau majeures propres (remplace l'ancienne version)
+    - la DÉSINSTALLATION nettoie les mises à jour téléchargées dans %LOCALAPPDATA%\Elium
+      (web\, bin\, assets\, tmp\ : interface et lanceurs mis à jour) mais JAMAIS les données de
+      l'utilisateur (profil navigateur WebProfile\, coffre local, réglages) ; pas de nettoyage
+      lors d'une mise à niveau (sinon on supprimerait la mise à jour qu'on vient d'appliquer).
 
   Compilation : installer\build_msi.bat  (candle + light, extensions UI/Util)
   Pré-requis : staging\Elium.exe (PyInstaller) et assets générés
                (.venv\Scripts\python.exe installer\make_msi_assets.py)
 -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
 
   <?define Version = "4.9.0" ?>
   <?define Publisher = "Elium Authors" ?>
   <?define AppUrl = "https://github.com/eliumgame/elium-main" ?>
-  <!-- UpgradeCode : NE JAMAIS CHANGER (identité du produit entre versions). -->
-  <?define UpgradeCode = "26104BBE-D1BC-41CB-B215-9D2D9C5CC667" ?>
+
+  <?ifndef Scope ?>
+    <?define Scope = "perMachine" ?>
+  <?endif?>
+  <?if $(var.Scope) = perUser ?>
+    <!-- UpgradeCode de la variante PAR UTILISATEUR : NE JAMAIS CHANGER. -->
+    <?define UpgradeCode = "9F0C6E52-3B3E-4C0D-8E57-6B8D2A4F71C3" ?>
+    <?define ProductName = "Elium (installation utilisateur)" ?>
+  <?else?>
+    <!-- UpgradeCode : NE JAMAIS CHANGER (identité du produit entre versions). -->
+    <?define UpgradeCode = "26104BBE-D1BC-41CB-B215-9D2D9C5CC667" ?>
+    <?define ProductName = "Elium" ?>
+  <?endif?>
 
   <Product Id="*"
-           Name="Elium"
+           Name="$(var.ProductName)"
            Language="1036"
            Codepage="1252"
            Version="$(var.Version)"
@@ -32,7 +57,7 @@
 
     <Package InstallerVersion="500"
              Compressed="yes"
-             InstallScope="perMachine"
+             InstallScope="$(var.Scope)"
              Description="Elium $(var.Version) — éditeur de documents .elium signés, local-first"
              Comments="Installe Elium (application autonome : aucun pré-requis)" />
 
@@ -45,7 +70,11 @@
     <Property Id="ARPPRODUCTICON" Value="elium.ico" />
     <Property Id="ARPURLINFOABOUT" Value="$(var.AppUrl)" />
     <!-- Fiche complète dans « Applications installées » (Windows 10/11) : ce que
-         beaucoup d'installeurs laissent vide, réduisant l'entrée à un nom nu. -->
+         beaucoup d'installeurs laissent vide, réduisant l'entrée à un nom nu.
+         NB : la « version » affichée est celle de l'installeur (la BASE installée). Les mises à
+         jour téléchargées ensuite par l'application vivent dans %LOCALAPPDATA%\Elium ; la version
+         réellement active est affichée dans l'application (pied de l'accueil), et, pour la variante
+         par utilisateur, recopiée dans l'entrée « Applications installées » (updater.sync_arp_version). -->
     <Property Id="ARPCOMMENTS"
               Value="Suite bureautique locale-first : documents, tableur, présentations, PDF et signature électronique — chiffrés et scellés au format .elium. Aucune donnée envoyée en ligne sans action explicite." />
     <Property Id="ARPHELPLINK" Value="$(var.AppUrl)#readme" />
@@ -70,52 +99,134 @@
       </Publish>
     </UI>
 
+    <!-- Désinstallation : dossiers de mises à jour téléchargées à retirer (jamais lors d'une mise à
+         niveau, jamais WebProfile\ ni les réglages). Chemins fixés à l'exécution. -->
+    <SetProperty Id="ELIUM_UPD_WEB" Value="[LocalAppDataFolder]Elium\web" Before="CostFinalize" Sequence="execute">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</SetProperty>
+    <SetProperty Id="ELIUM_UPD_BIN" Value="[LocalAppDataFolder]Elium\bin" Before="CostFinalize" Sequence="execute">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</SetProperty>
+    <SetProperty Id="ELIUM_UPD_ASSETS" Value="[LocalAppDataFolder]Elium\assets" Before="CostFinalize" Sequence="execute">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</SetProperty>
+    <SetProperty Id="ELIUM_UPD_TMP" Value="[LocalAppDataFolder]Elium\tmp" Before="CostFinalize" Sequence="execute">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</SetProperty>
+
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="Elium">
-
-          <!-- Application autonome (Python + crypto + Web Studio embarqués). -->
-          <Component Id="MainExecutable" Guid="6A0A2B0B-0D1A-4552-9C1F-D51C429AE1FE">
-            <File Id="EliumExe" Source="staging\Elium.exe" KeyPath="yes">
-              <Shortcut Id="StartMenuShortcut"
-                        Directory="ProgramMenuFolder"
-                        Name="Elium"
-                        Description="Éditeur de documents .elium signés"
-                        WorkingDirectory="INSTALLFOLDER"
-                        Icon="elium.ico"
-                        Advertise="yes" />
-              <Shortcut Id="DesktopShortcut"
-                        Directory="DesktopFolder"
-                        Name="Elium"
-                        Description="Éditeur de documents .elium signés"
-                        WorkingDirectory="INSTALLFOLDER"
-                        Icon="elium.ico"
-                        Advertise="yes" />
-            </File>
-
-            <!-- Association .elium : double-clic dans l'Explorateur -> Elium. -->
-            <ProgId Id="Elium.Document" Description="Document Elium" Icon="EliumIco" IconIndex="0">
-              <Extension Id="elium" ContentType="application/x-elium">
-                <Verb Id="open" Command="Ouvrir" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
-              </Extension>
-            </ProgId>
-          </Component>
-
-          <!-- Icône de marque installée (DefaultIcon de l'association .elium). -->
-          <Component Id="BrandIcon" Guid="DD873A03-1F0A-415A-BBB6-CB9E0B01ED5E">
-            <File Id="EliumIco" Source="..\brand\elium.ico" KeyPath="yes" />
-          </Component>
-
+      <?if $(var.Scope) = perUser ?>
+        <Directory Id="LocalAppDataFolder">
+          <Directory Id="ProgramsRootFolder" Name="Programs">
+            <Directory Id="INSTALLFOLDER" Name="Elium">
+              <Component Id="MainExecutable" Guid="6A0A2B0B-0D1A-4552-9C1F-D51C429AE1FE">
+                <File Id="EliumExe" Source="staging\Elium.exe">
+                  <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Elium"
+                            Description="Éditeur de documents .elium signés" WorkingDirectory="INSTALLFOLDER"
+                            Icon="elium.ico" />
+                  <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Elium"
+                            Description="Éditeur de documents .elium signés" WorkingDirectory="INSTALLFOLDER"
+                            Icon="elium.ico" />
+                </File>
+                <!-- Associations dans le profil de l'utilisateur (aucun droit administrateur). -->
+                <ProgId Id="Elium.Document" Description="Document Elium" Icon="EliumIco" IconIndex="0">
+                  <Extension Id="elium" ContentType="application/x-elium">
+                    <Verb Id="open" Command="Ouvrir" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
+                  </Extension>
+                </ProgId>
+                <ProgId Id="Elium.Update" Description="Mise à jour Elium (hors ligne)" Icon="EliumIco" IconIndex="0">
+                  <Extension Id="eliumupdate" ContentType="application/x-elium-update">
+                    <Verb Id="open" Command="Appliquer la mise à jour" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
+                  </Extension>
+                </ProgId>
+                <RegistryValue Root="HKCU" Key="Software\Elium" Name="InstalledUser" Type="integer" Value="1" KeyPath="yes" />
+                <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+              </Component>
+              <Component Id="BrandIcon" Guid="DD873A03-1F0A-415A-BBB6-CB9E0B01ED5E">
+                <RegistryValue Root="HKCU" Key="Software\Elium" Name="BrandIcon" Type="integer" Value="1" KeyPath="yes" />
+                <File Id="EliumIco" Source="..\brand\elium.ico" />
+              </Component>
+            </Directory>
+            <Component Id="ProgramsRootCleanup" Guid="3C7A5D0E-6B3D-4F8C-9A21-0E4B7D1C85A9">
+              <RegistryValue Root="HKCU" Key="Software\Elium" Name="ProgramsRoot" Type="integer" Value="1" KeyPath="yes" />
+              <RemoveFolder Id="RemoveProgramsRoot" On="uninstall" />
+            </Component>
+          </Directory>
+          <Directory Id="ELIUMDATADIR" Name="Elium">
+            <Component Id="UpdateOverlayCleanup" Guid="B1E5C7A2-4D90-4A6B-8F3E-2D6C9A0B7E14">
+              <RegistryValue Root="HKCU" Key="Software\Elium" Name="Overlay" Type="integer" Value="1" KeyPath="yes" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_WEB" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_BIN" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_ASSETS" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_TMP" />
+              <!-- Retire le dossier Elium\ lui-même SEULEMENT s'il est vide (jamais WebProfile\ ni les réglages). -->
+              <RemoveFolder Id="RemoveEliumDataDir" On="uninstall" />
+            </Component>
+          </Directory>
         </Directory>
-      </Directory>
+      <?else?>
+        <Directory Id="ProgramFiles64Folder">
+          <Directory Id="INSTALLFOLDER" Name="Elium">
+
+            <!-- Application autonome (Python + crypto + Web Studio embarqués). -->
+            <Component Id="MainExecutable" Guid="6A0A2B0B-0D1A-4552-9C1F-D51C429AE1FE">
+              <File Id="EliumExe" Source="staging\Elium.exe" KeyPath="yes">
+                <Shortcut Id="StartMenuShortcut"
+                          Directory="ProgramMenuFolder"
+                          Name="Elium"
+                          Description="Éditeur de documents .elium signés"
+                          WorkingDirectory="INSTALLFOLDER"
+                          Icon="elium.ico"
+                          Advertise="yes" />
+                <Shortcut Id="DesktopShortcut"
+                          Directory="DesktopFolder"
+                          Name="Elium"
+                          Description="Éditeur de documents .elium signés"
+                          WorkingDirectory="INSTALLFOLDER"
+                          Icon="elium.ico"
+                          Advertise="yes" />
+              </File>
+
+              <!-- Association .elium : double-clic dans l'Explorateur -> Elium. -->
+              <ProgId Id="Elium.Document" Description="Document Elium" Icon="EliumIco" IconIndex="0">
+                <Extension Id="elium" ContentType="application/x-elium">
+                  <Verb Id="open" Command="Ouvrir" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
+                </Extension>
+              </ProgId>
+              <!-- Association .eliumupdate : double-clic -> mise à jour hors ligne (signature vérifiée). -->
+              <ProgId Id="Elium.Update" Description="Mise à jour Elium (hors ligne)" Icon="EliumIco" IconIndex="0">
+                <Extension Id="eliumupdate" ContentType="application/x-elium-update">
+                  <Verb Id="open" Command="Appliquer la mise à jour" TargetFile="EliumExe" Argument="&quot;%1&quot;" />
+                </Extension>
+              </ProgId>
+            </Component>
+
+            <!-- Icône de marque installée (DefaultIcon de l'association .elium). -->
+            <Component Id="BrandIcon" Guid="DD873A03-1F0A-415A-BBB6-CB9E0B01ED5E">
+              <File Id="EliumIco" Source="..\brand\elium.ico" KeyPath="yes" />
+            </Component>
+
+          </Directory>
+        </Directory>
+        <!-- Nettoyage des mises à jour téléchargées (profil de l'utilisateur qui désinstalle). -->
+        <Directory Id="LocalAppDataFolder">
+          <Directory Id="ELIUMDATADIR" Name="Elium">
+            <Component Id="UpdateOverlayCleanup" Guid="B1E5C7A2-4D90-4A6B-8F3E-2D6C9A0B7E14">
+              <RegistryValue Root="HKCU" Key="Software\Elium" Name="Overlay" Type="integer" Value="1" KeyPath="yes" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_WEB" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_BIN" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_ASSETS" />
+              <util:RemoveFolderEx On="uninstall" Property="ELIUM_UPD_TMP" />
+              <!-- Retire le dossier Elium\ lui-même SEULEMENT s'il est vide (jamais WebProfile\ ni les réglages). -->
+              <RemoveFolder Id="RemoveEliumDataDir" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      <?endif?>
       <Directory Id="ProgramMenuFolder" />
       <Directory Id="DesktopFolder" />
     </Directory>
 
     <Feature Id="Complete" Title="Elium" Level="1" AllowAdvertise="no" Display="expand"
-             Description="Elium complet : Documents, Tableur, Présentations, PDF et Parapheur électronique dans une seule application autonome, avec les raccourcis Menu Démarrer/Bureau et l'association du format .elium.">
+             Description="Elium complet : Documents, Tableur, Présentations, PDF et Parapheur électronique dans une seule application autonome, avec les raccourcis Menu Démarrer/Bureau et l'association des formats .elium et .eliumupdate.">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="BrandIcon" />
+      <ComponentRef Id="UpdateOverlayCleanup" />
+      <?if $(var.Scope) = perUser ?>
+        <ComponentRef Id="ProgramsRootCleanup" />
+      <?endif?>
     </Feature>
 
   </Product>

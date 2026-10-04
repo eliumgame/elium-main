@@ -16,6 +16,7 @@ import type { PDFDocument, PDFPage } from "pdf-lib";
 import { PDFArray } from "pdf-lib";
 import type { PdfEngine } from "../core/engine";
 import { renderToCanvas } from "../core/render";
+import { reportError } from "../../ui/crash-log";
 import type { Rect, Rotation } from "../core/coords";
 import { round, viewToPs } from "../core/coords";
 import { PageResources, Painter, encodeFontText } from "./painter";
@@ -80,6 +81,8 @@ export interface OcrOptions {
   skipPagesWithText: boolean;
   onProgress?: (info: { page: number; total: number; stage: string; ratio: number }) => void;
   signal?: AbortSignal;
+  /** Results of an interrupted run, by 0-based page index: those pages are not recognised again. */
+  resume?: ReadonlyMap<number, OcrPageResult>;
 }
 
 export const DEFAULT_OCR: OcrOptions = {
@@ -87,6 +90,49 @@ export const DEFAULT_OCR: OcrOptions = {
   dpi: 300,
   skipPagesWithText: true,
 };
+
+
+/**
+ * Workers to run in parallel: one per spare core (the page is rasterised on the
+ * main thread meanwhile), at most 4 (each holds a language model, ~100 MB), and
+ * never more than there are pages. Fewer on low-memory devices.
+ */
+export function ocrWorkerCount(pages: number, hardware = 2, deviceMemoryGb?: number): number {
+  let n = Math.max(1, Math.min(4, Math.floor(hardware) - 1));
+  if (deviceMemoryGb !== undefined && deviceMemoryGb <= 4) n = Math.min(n, 2);
+  return Math.max(1, Math.min(n, pages));
+}
+
+/**
+ * A scanned blank page (or a blank verso) has almost no dark pixel: skipping it
+ * saves several seconds of recognition each. Samples a grid of pixels of an
+ * RGBA buffer; `ink` is the share of dark samples under which the page is blank.
+ */
+export function isBlankPixels(rgba: ArrayLike<number>, width: number, height: number, ink = 0.0005): boolean {
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 400));
+  let dark = 0;
+  let total = 0;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const i = (y * width + x) * 4;
+      const lum = 0.299 * rgba[i]! + 0.587 * rgba[i + 1]! + 0.114 * rgba[i + 2]!;
+      if (lum < 160) dark++;
+      total++;
+    }
+  }
+  return total > 0 && dark / total < ink;
+}
+
+function canvasIsBlank(canvas: HTMLCanvasElement | OffscreenCanvas): boolean {
+  try {
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+    if (!ctx) return false;
+    const { width, height } = canvas;
+    return isBlankPixels(ctx.getImageData(0, 0, width, height).data, width, height);
+  } catch {
+    return false; // can't tell: recognise it
+  }
+}
 
 const base = () => (import.meta.env.BASE_URL ?? "/").replace(/\/?$/, "/");
 
@@ -134,9 +180,12 @@ interface TesseractLine {
 }
 
 export class OcrCancelled extends Error {
-  constructor() {
+  /** Pages already recognised when the run stopped: kept so the run can be resumed. */
+  readonly partial: OcrPageResult[];
+  constructor(partial: OcrPageResult[] = []) {
     super("Reconnaissance interrompue.");
     this.name = "OcrCancelled";
+    this.partial = partial;
   }
 }
 
@@ -157,23 +206,46 @@ export async function recognise(engine: PdfEngine, options: Partial<OcrOptions> 
     throw new Error(`Modèle de langue absent de l'application : ${names}.`);
   }
 
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker(languages.join("+"), 1, {
-    ...tesseractPaths(),
-    logger: (m: { status?: string; progress?: number }) => {
-      opts.onProgress?.({ page: 0, total: indices.length, stage: m.status ?? "", ratio: m.progress ?? 0 });
-    },
-  });
-  // Interrupting stops the recognition in progress, not only the next page.
-  const stop = () => void worker.terminate().catch(() => {});
+  const { createWorker, createScheduler } = await import("tesseract.js");
+  const poolSize = ocrWorkerCount(
+    indices.length,
+    typeof navigator !== "undefined" ? navigator.hardwareConcurrency : 2,
+    typeof navigator !== "undefined" ? (navigator as { deviceMemory?: number }).deviceMemory : undefined,
+  );
+  let done = 0;
+  const scheduler = createScheduler();
+  // Interrupting stops the recognitions in progress, not only the next page.
+  const stop = () => void scheduler.terminate().catch((e) => reportError("pdf.ocr.terminate", e));
   opts.signal?.addEventListener("abort", stop);
 
-  const out: OcrPageResult[] = [];
+  const out: OcrPageResult[] = new Array(indices.length);
+  const inflight = new Set<Promise<void>>();
+  let failure: unknown;
   try {
+    const workers = await Promise.all(
+      Array.from({ length: poolSize }, () =>
+        createWorker(languages.join("+"), 1, {
+          ...tesseractPaths(),
+          logger: (m: { status?: string; progress?: number }) => {
+            opts.onProgress?.({ page: done, total: indices.length, stage: m.status ?? "", ratio: m.progress ?? 0 });
+          },
+        }),
+      ),
+    );
+    for (const w of workers) scheduler.addWorker(w);
+
     for (let i = 0; i < indices.length; i++) {
-      if (opts.signal?.aborted) throw new OcrCancelled();
-      const index = indices[i];
+      if (opts.signal?.aborted) throw new OcrCancelled(out.filter(Boolean));
+      if (failure) throw failure;
+      const index = indices[i]!;
       if (index < 0 || index >= engine.pageCount) continue;
+      const earlier = opts.resume?.get(index);
+      if (earlier) {
+        out[i] = earlier;
+        done++;
+        opts.onProgress?.({ page: done, total: indices.length, stage: "déjà reconnue", ratio: 1 });
+        continue;
+      }
       // Real geometry (the engine may still hold an estimate for this page).
       const info = await engine.pageInfo(index);
       const empty = (): OcrPageResult => ({
@@ -185,48 +257,62 @@ export async function recognise(engine: PdfEngine, options: Partial<OcrOptions> 
         rotation: info.rotate,
         size: { w: info.w, h: info.h },
       });
+      const finish = (r: OcrPageResult, stage: string) => {
+        out[i] = r;
+        done++;
+        opts.onProgress?.({ page: done, total: indices.length, stage, ratio: 1 });
+      };
 
       if (opts.skipPagesWithText) {
         const tc = await engine.text(index);
         const chars = tc.items.reduce((n, it) => n + (it.str?.length ?? 0), 0);
         if (chars > 120) {
-          out.push(empty());
-          opts.onProgress?.({ page: i + 1, total: indices.length, stage: "texte déjà présent", ratio: 1 });
+          finish(empty(), "texte déjà présent");
           continue;
         }
       }
 
-      opts.onProgress?.({ page: i + 1, total: indices.length, stage: "rendu", ratio: 0 });
+      // Bounded window: at most one page waiting per worker, so memory stays flat.
+      while (inflight.size >= poolSize) await Promise.race(inflight);
+      if (failure) throw failure;
+
+      opts.onProgress?.({ page: done + 1, total: indices.length, stage: "rendu", ratio: 0 });
       const proxy = await engine.page(index);
       // Rendered as displayed (its /Rotate applied): Tesseract reads upright text.
       const scale = Math.min(opts.dpi / 72, Math.sqrt(MAX_PIXELS / Math.max(1, info.w * info.h)));
       const canvas = await renderToCanvas(proxy, { scale, rotation: info.rotate });
-
-      opts.onProgress?.({ page: i + 1, total: indices.length, stage: "reconnaissance", ratio: 0.3 });
-      let data: { text?: string; confidence?: number; blocks?: unknown[] };
-      try {
-        data = (await worker.recognize(canvas, {}, { blocks: true, text: true })).data as unknown as typeof data;
-      } catch (e) {
-        if (opts.signal?.aborted) throw new OcrCancelled();
-        throw e;
+      if (canvasIsBlank(canvas)) {
+        finish(empty(), "page blanche ignorée");
+        continue;
       }
-      const lines = collectLines(data)
-        .map((l) => toLine(l, scale))
-        .filter((l): l is OcrLine => !!l);
-      const r = empty();
-      r.lines = lines;
-      r.words = lines.flatMap((l) => l.words);
-      r.text = data.text ?? "";
-      r.confidence = data.confidence ?? 0;
-      out.push(r);
-      opts.onProgress?.({ page: i + 1, total: indices.length, stage: "terminé", ratio: 1 });
+
+      const job: Promise<void> = (async () => {
+        const data = (await scheduler.addJob("recognize", canvas, {}, { blocks: true, text: true }))
+          .data as unknown as { text?: string; confidence?: number; blocks?: unknown[] };
+        const lines = collectLines(data)
+          .map((l) => toLine(l, scale))
+          .filter((l): l is OcrLine => !!l);
+        const r = empty();
+        r.lines = lines;
+        r.words = lines.flatMap((l) => l.words);
+        r.text = data.text ?? "";
+        r.confidence = data.confidence ?? 0;
+        finish(r, "terminé");
+      })()
+        .catch((e) => {
+          failure ??= opts.signal?.aborted ? new OcrCancelled(out.filter(Boolean)) : e;
+        })
+        .finally(() => void inflight.delete(job));
+      inflight.add(job);
     }
-    if (opts.signal?.aborted) throw new OcrCancelled();
+    await Promise.all(inflight);
+    if (opts.signal?.aborted) throw new OcrCancelled(out.filter(Boolean));
+    if (failure) throw failure;
   } finally {
     opts.signal?.removeEventListener("abort", stop);
-    await worker.terminate().catch(() => {});
+    await scheduler.terminate().catch((e) => reportError("pdf.ocr.terminate", e));
   }
-  return out;
+  return out.filter(Boolean);
 }
 
 /** Tesseract 6 nests lines under blocks → paragraphs. */

@@ -1828,3 +1828,14 @@
   gap: 12px;
   color: var(--text-soft);
 }
+
+.dc-chpw {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.dc-chpw input {
+  flex: 1 1 200px;
+  min-width: 0;
+}

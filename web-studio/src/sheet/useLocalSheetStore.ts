@@ -36,6 +36,8 @@ import { renameSheetRefs, indexToCol } from "./formula";
 import { loadWorkbook, saveWorkbook } from "./sheet-store";
 import type { SheetStore } from "./store";
 import { reportError } from "../ui/crash-log";
+import type { VaultSecret } from "../crypto/local-vault";
+import { isWorkbookPristine } from "../workspace/pristine";
 
 const cellRef = (c: number, r: number) => indexToCol(c) + (r + 1);
 
@@ -61,7 +63,23 @@ export interface LocalSheetStore extends SheetStore {
   loadError?: string;
 }
 
-export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
+/**
+ * Persistance d'un classeur de l'espace de travail : son identifiant, le secret du
+ * coffre (chiffrement au repos) et un rappel appelé après chaque enregistrement.
+ * Sans cet objet, le classeur historique unique « current » est utilisé.
+ */
+export interface SheetPersist {
+  id: string;
+  secret?: VaultSecret;
+  /** Nouvel élément : un classeur resté vierge n'est pas enregistré (pas d'élément vide dans la bibliothèque). */
+  isNew?: boolean;
+  onSaved?: (wb: Workbook, size: number) => void;
+}
+
+export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): LocalSheetStore {
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  const persistId = persist?.id;
   const {
     value: wb,
     set,
@@ -86,19 +104,28 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (initial) return;
-    loadWorkbook()
+    loadWorkbook(persistId, persistRef.current?.secret)
       .then((w) => reset(w ?? computeInitialWorkbook()))
       .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initial, persistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Autosauvegarde débouncée à chaque changement du classeur.
   useEffect(() => {
     if (initial || loadError) return;
+    const p = persistRef.current;
     const t = setTimeout(() => {
-      saveWorkbook(wb).catch((err) => reportError("sheet-autosave", err));
+      // Nouvel élément resté vierge : rien à enregistrer tant que rien n'a été saisi.
+      if (p?.isNew && !savedOnce.current && isWorkbookPristine(wb)) return;
+      saveWorkbook(wb, p?.id, p?.secret)
+        .then(() => {
+          savedOnce.current = true;
+          p?.onSaved?.(wb, JSON.stringify(wb).length);
+        })
+        .catch((err) => reportError("sheet-autosave", err));
     }, 300);
     return () => clearTimeout(t);
   }, [wb, initial, loadError]);
+  const savedOnce = useRef(false);
 
   const wbRef = useRef(wb);
   wbRef.current = wb;

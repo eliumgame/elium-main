@@ -37,6 +37,8 @@ export interface DraftDoc {
   page?: PageSettings; // plaintext page settings — only when NOT protected
   docx?: Uint8Array; // ready-to-use Word export — only when NOT protected
   enc?: string; // base64 salt+iv+ciphertext of { doc, page } — only when protected
+  /** Aperçu d'une ligne du début du texte — seulement quand le brouillon n'est PAS chiffré. */
+  preview?: string;
 }
 
 /**
@@ -82,6 +84,8 @@ export async function buildDraftRecord(input: {
   doc: ProseMirrorNode;
   page: PageSettings;
   docx?: Uint8Array;
+  /** Aperçu du texte (ignoré pour un brouillon chiffré : il ne doit rien révéler). */
+  preview?: string;
   secret?: VaultSecret;
 }): Promise<DraftDoc> {
   if (!hasVaultSecret(input.secret)) {
@@ -94,6 +98,7 @@ export async function buildDraftRecord(input: {
       doc: input.doc,
       page: input.page,
       docx: input.docx,
+      preview: input.preview,
       size: input.docx?.length ?? 0,
     };
   }

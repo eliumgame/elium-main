@@ -130,7 +130,8 @@ export const PDF_IDS_SPEC: DbSpec = {
 
 /**
  * Espace de travail : catalogue des éléments, dossiers, index de recherche,
- * méta (drapeaux de migration, récents, préférences synchronisées) et poignées
+ * méta (drapeaux de migration, récents, préférences synchronisées), journal
+ * d'annulation du remplacement global et poignées
  * de fichiers (File System Access).
  */
 export const WORKSPACE_SPEC: DbSpec = {
@@ -145,6 +146,7 @@ export const WORKSPACE_SPEC: DbSpec = {
         db.ensureStore("search");
         db.ensureStore("meta");
         db.ensureStore("handles");
+        db.ensureStore("undo");
       },
     },
   ],

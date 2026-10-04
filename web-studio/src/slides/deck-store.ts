@@ -19,36 +19,34 @@
  * unlocked with the wrong password. Fixed to follow the SAME convention as
  * those two files: throw an explicit error instead (see resolveDeckRecord).
  */
-import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import { hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 import type { Deck } from "./model";
-
 import { openMigrated } from "../format/idb-migrate";
 import { SLIDES_SPEC } from "../format/db-specs";
+import { idbKv } from "../workspace/kv";
+import { createJsonStore, type JsonRecord } from "../workspace/record-store";
+
 const STORE = "decks";
-const CURRENT = "current";
+export const LEGACY_DECK_ID = "current";
+
+const LOCKED = "Cette présentation est chiffrée — mot de passe requis.";
+
+/** Ouvre la base des présentations (migrations jouées à l'ouverture). */
+export function openDecksDb(): Promise<IDBDatabase> {
+  return openMigrated(SLIDES_SPEC);
+}
+
+/** Plusieurs présentations par base (un élément de l'espace de travail chacune). */
+export const deckStore = createJsonStore<Deck>(idbKv<JsonRecord>(SLIDES_SPEC, STORE), {
+  field: "deck",
+  lockedMessage: LOCKED,
+});
 
 interface DeckRecord {
   id: string;
   vaultProtected: boolean;
   deck?: Deck; // plaintext — only when NOT vault-protected
   enc?: string; // encrypted deck — only when vault-protected
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return openMigrated(SLIDES_SPEC);
-}
-
-function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = fn(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
-      }),
-  );
 }
 
 /**
@@ -70,21 +68,16 @@ export async function resolveDeckRecord(
   if (!rec) return undefined;
   if (!("vaultProtected" in rec)) return rec.deck; // legacy record, predates the vault
   if (!rec.vaultProtected) return rec.deck;
-  if (!hasVaultSecret(secret)) throw new Error("Cette présentation est chiffrée — mot de passe requis.");
-  return decryptAtRest<Deck>(rec.enc!, secret!);
+  if (!hasVaultSecret(secret)) throw new Error(LOCKED);
+  return deckStore.resolve(rec as JsonRecord, secret);
 }
 
-/** Loads the autosaved deck. Returns `undefined` when there is none, or on a
- *  legacy pre-vault record (kept plaintext rather than discarded, still
- *  readable as-is). See {@link resolveDeckRecord} for the vault-protected case. */
-export async function loadDeck(secret?: VaultSecret): Promise<Deck | undefined> {
-  const rec = await run<DeckRecord | { id: string; deck: Deck } | undefined>("readonly", (s) => s.get(CURRENT));
-  return resolveDeckRecord(rec, secret);
+/** Loads a deck (by default the legacy single "current" deck). Returns `undefined` when there is none.
+ *  See {@link resolveDeckRecord} for the vault-protected case. */
+export async function loadDeck(secret?: VaultSecret, id: string = LEGACY_DECK_ID): Promise<Deck | undefined> {
+  return deckStore.load(id, secret);
 }
 
-export async function saveDeck(deck: Deck, secret?: VaultSecret): Promise<void> {
-  const record: DeckRecord = hasVaultSecret(secret)
-    ? { id: CURRENT, vaultProtected: true, enc: await encryptAtRest(deck, secret!) }
-    : { id: CURRENT, vaultProtected: false, deck };
-  await run("readwrite", (s) => s.put(record));
+export async function saveDeck(deck: Deck, secret?: VaultSecret, id: string = LEGACY_DECK_ID): Promise<void> {
+  await deckStore.save(id, deck, secret);
 }

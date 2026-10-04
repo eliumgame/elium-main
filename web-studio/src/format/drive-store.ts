@@ -164,6 +164,36 @@ export async function deleteDriveDoc(id: string): Promise<void> {
   await run("readwrite", (s) => s.delete(id));
 }
 
+/** Clés de tous les documents de la bibliothèque (sans rien déchiffrer). */
+export async function listDriveKeys(): Promise<string[]> {
+  return (await run<IDBValidKey[]>("readonly", (s) => s.getAllKeys())).map(String);
+}
+
+/** Taille et date d'un document, sans déchiffrer. */
+export async function driveDocInfo(id: string): Promise<{ size: number; updatedAt: string; vaultProtected: boolean } | undefined> {
+  const rec = await run<DriveDoc | undefined>("readonly", (s) => s.get(id));
+  return rec ? { size: rec.size, updatedAt: rec.savedAt, vaultProtected: rec.vaultProtected } : undefined;
+}
+
+/** Supprime plusieurs documents dans une seule transaction. */
+export async function deleteDriveDocs(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(STORE, "readwrite");
+    t.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    t.onerror = t.onabort = () => {
+      db.close();
+      reject(t.error ?? new Error("Transaction annulée"));
+    };
+    const store = t.objectStore(STORE);
+    for (const id of ids) store.delete(id);
+  });
+}
+
 /**
  * Re-encrypt every entry from `from` to `to` — used when the vault is enabled
  * for the first time (`from` undefined), its password changes (both set), or

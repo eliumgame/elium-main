@@ -1,37 +1,37 @@
 /**
- * Local persistence for the spreadsheet workbook (IndexedDB, this browser).
- * v1 keeps a single current workbook. Saving spreadsheets into encrypted/signed
- * .elium containers (content/sheet.json) is a follow-up needing format support.
+ * Persistance locale des classeurs (IndexedDB, ce navigateur).
+ *
+ * Plusieurs classeurs par base, un par élément de l'espace de travail
+ * (voir workspace/). La clé historique « current » (v1 : un seul classeur)
+ * reste lisible ; `workspace/legacy-import.ts` la déplace en premier élément.
+ * Quand le coffre local est actif, chaque classeur est chiffré au repos
+ * (même schéma que les présentations et la bibliothèque).
  */
 import type { Workbook } from "./model";
-
 import { openMigrated } from "../format/idb-migrate";
 import { SHEETS_SPEC } from "../format/db-specs";
-const STORE = "workbooks";
-const CURRENT = "current";
+import { idbKv } from "../workspace/kv";
+import { createJsonStore, type JsonRecord } from "../workspace/record-store";
+import type { VaultSecret } from "../crypto/local-vault";
 
-function openDb(): Promise<IDBDatabase> {
+const STORE = "workbooks";
+export const LEGACY_WORKBOOK_ID = "current";
+
+/** Ouvre la base des classeurs (conservé pour les appelants qui veulent migrer sans lire). */
+export function openSheetsDb(): Promise<IDBDatabase> {
   return openMigrated(SHEETS_SPEC);
 }
 
-function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = fn(t.objectStore(STORE));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-        t.oncomplete = () => db.close();
-      }),
-  );
+export const sheetStore = createJsonStore<Workbook>(idbKv<JsonRecord>(SHEETS_SPEC, STORE), {
+  field: "wb",
+  lockedMessage: "Ce classeur est chiffré — mot de passe du coffre requis.",
+});
+
+/** Charge un classeur (par défaut l'ancien classeur unique « current »). */
+export async function loadWorkbook(id: string = LEGACY_WORKBOOK_ID, secret?: VaultSecret): Promise<Workbook | undefined> {
+  return sheetStore.load(id, secret);
 }
 
-export async function loadWorkbook(): Promise<Workbook | undefined> {
-  const rec = await run<{ id: string; wb: Workbook } | undefined>("readonly", (s) => s.get(CURRENT));
-  return rec?.wb;
-}
-
-export async function saveWorkbook(wb: Workbook): Promise<void> {
-  await run("readwrite", (s) => s.put({ id: CURRENT, wb }));
+export async function saveWorkbook(wb: Workbook, id: string = LEGACY_WORKBOOK_ID, secret?: VaultSecret): Promise<void> {
+  await sheetStore.save(id, wb, secret);
 }

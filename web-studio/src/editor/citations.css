@@ -41,3 +41,16 @@
 .sources__page {
   width: 150px;
 }
+
+/* Boîte « Sources » : champs en police du corps (la police mono est réservée aux jetons/données). */
+.modal-card select.settings__input,
+.sources__form .settings__input,
+.sources__page {
+  font-family: inherit;
+  font-size: 13px;
+}
+@media (max-width: 720px) {
+  .sources__page {
+    width: 100%;
+  }
+}

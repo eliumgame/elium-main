@@ -30,3 +30,67 @@
   max-width: 520px;
   margin: 0 auto;
 }
+
+/* Graphique insérable (boîte « Insérer un graphique ») : les contrôles du panneau d’options,
+   partagé avec le Tableur, prennent l’habillage des champs du système. */
+.modal-card .chartopt {
+  background: var(--surface-2, var(--el-surface-2));
+  padding: 12px;
+  gap: 10px 12px;
+}
+.modal-card .chartopt label {
+  gap: 4px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.modal-card .chartopt select,
+.modal-card .chartopt input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]) {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm, 7px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+.modal-card .chartopt select:focus,
+.modal-card .chartopt input:focus,
+.chartdata__grid input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--el-ring);
+}
+.modal-card .chartopt input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+.chartdata {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.chartdata__grid input {
+  width: 104px;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.chartdata__grid th input {
+  font-weight: 700;
+}
+.chartdata__actions {
+  flex-wrap: wrap;
+}
+.chartdata__preview {
+  overflow: hidden;
+}
+@media (max-width: 720px) {
+  .modal-card .chartopt {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -3640,3 +3640,24 @@
     min-height: 50px;
   }
 }
+@media (max-width: 640px) {
+  .elx-ribbon--docs .elx-density-toggle {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .elx-ribbon--docs .elx-density-toggle__label {
+    display: none;
+  }
+  .elx-ribbon--docs .elx-tab {
+    padding: 10px 12px 9px;
+  }
+}
+/* Les groupes « optionnels » ne disparaissent plus sur écran étroit (Filigrane, Renvois,
+   Index, Comparer, Statistiques deviendraient inatteignables) : le ruban défile, chevrons à l’appui. */
+@container editor (max-width: 700px) {
+  .elx-ribbon--docs .elx-ribbon__body .elx-group--optional {
+    display: flex;
+  }
+}

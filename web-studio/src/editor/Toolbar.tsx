@@ -609,7 +609,7 @@ export default function Toolbar({
             aria-pressed={density === "full"}
           >
             <SlidersHorizontal size={13} />
-            {density === "essential" ? "Toutes les commandes" : "Essentiel"}
+            <span className="elx-density-toggle__label">{density === "essential" ? "Toutes les commandes" : "Essentiel"}</span>
           </button>
         </div>
 

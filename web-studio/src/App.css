@@ -5982,3 +5982,23 @@
     height: 40px;
   }
 }
+
+/* Pied de boîte de dialogue : sur écran étroit, les boutons passent à la ligne au lieu de déborder. */
+@media (max-width: 720px) {
+  .modal-foot {
+    flex-wrap: wrap;
+  }
+  .modal-foot > .eb {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
+/* Cases à cocher / boutons radio des boîtes de dialogue : couleur d’accent du thème. */
+.modal-card input[type="checkbox"],
+.modal-card input[type="radio"],
+.inspector input[type="checkbox"],
+.inspector input[type="radio"] {
+  accent-color: var(--primary);
+}

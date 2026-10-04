@@ -4,6 +4,8 @@
    sur les jetons `--el-*` de la charte (tokens.css, chargé globalement). */
 
 .det-page {
+  --det-col: 820px;
+  --det-gutter: max(clamp(16px, 4vw, 48px), calc((100% - var(--det-col)) / 2));
   position: absolute;
   inset: 0;
   display: flex;
@@ -14,16 +16,21 @@
 }
 
 .det-header {
+  /* Même gouttière que la colonne de contenu (--det-col) : retour, titre et
+     description s'alignent sur le contenu au lieu de flotter à gauche. */
   display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 14px 28px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px var(--det-gutter) 16px;
   background: var(--el-surface);
   border-bottom: 1px solid var(--el-border);
   flex: none;
 }
 .det-header__back {
   flex: none;
+  margin-inline-start: -10px;
+  color: var(--el-text-soft);
 }
 .det-header__titles {
   display: flex;
@@ -37,13 +44,14 @@
   font-weight: var(--el-fw-heavy);
   letter-spacing: var(--el-ls-tight);
   color: var(--el-text);
+  overflow-wrap: anywhere;
 }
 .det-header__subtitle {
   margin: 0;
   font-size: var(--el-fs-sm);
   line-height: var(--el-lh-base);
   color: var(--el-text-soft);
-  max-width: 80ch;
+  max-width: 72ch;
 }
 
 .det-body {
@@ -53,12 +61,14 @@
 }
 
 .det-upload,
+.det-batch,
 .det-ready,
 .det-progress,
 .det-report {
-  max-width: 760px;
+  max-width: calc(var(--det-col) + 2 * clamp(16px, 4vw, 48px));
   margin: 0 auto;
-  padding: 32px clamp(20px, 4vw, 48px) 96px;
+  padding: 28px clamp(16px, 4vw, 48px) 40px;
+  box-sizing: border-box;
 }
 
 /* --- Dépôt de fichier --------------------------------------------------- */
@@ -107,7 +117,17 @@
 }
 .det-dropzone__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .det-dropzone__card {
+    padding: 28px 18px;
+  }
+  .det-dropzone__actions > * {
+    flex: 1 1 100%;
+  }
 }
 
 .visually-hidden {
@@ -567,7 +587,14 @@
 }
 .det-batch__scroll {
   overflow: auto;
+  max-width: 100%;
   max-height: 60vh;
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-md);
+  background: var(--el-surface);
+}
+.det-batch__table {
+  min-width: 560px;
 }
 .det-batch__table {
   width: 100%;
@@ -578,7 +605,7 @@
 .det-batch__table td {
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.3));
+  border-bottom: 1px solid var(--el-border);
   vertical-align: top;
 }
 .det-batch__note {
@@ -586,12 +613,44 @@
   opacity: 0.8;
 }
 .det-trust-wrap {
-  margin-top: 16px;
+  width: min(var(--det-col), calc(100% - 2 * clamp(16px, 4vw, 48px)));
+  margin: 0 auto 64px;
+  background: var(--el-surface);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-lg);
+  box-sizing: border-box;
 }
 .det-trust-wrap summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--el-fw-bold);
+  padding: 14px 18px;
+  min-height: 28px;
+  border-radius: var(--el-radius-lg);
+  color: var(--el-text);
+}
+.det-trust-wrap[open] summary {
+  border-bottom: 1px solid var(--el-border);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.det-trust {
+  padding: 14px 18px 18px;
+  font-size: var(--el-fs-sm);
+  line-height: var(--el-lh-base);
+  color: var(--el-text-soft);
+}
+.det-trust h3 {
+  margin: 0 0 6px;
+  font-size: var(--el-fs-lg);
+  color: var(--el-text);
+}
+.det-trust p {
+  margin: 0 0 10px;
 }
 .det-trust ul {
+  margin: 0 0 12px;
   padding-left: 18px;
+}
+.det-trust code {
+  overflow-wrap: anywhere;
 }

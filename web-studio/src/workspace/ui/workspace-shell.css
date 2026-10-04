@@ -478,7 +478,7 @@
   padding: 0 1px;
   border-radius: 3px;
   background: var(--el-amber-200);
-  color: #1f2937;
+  color: var(--el-slate-800);
 }
 .ws-ins {
   margin-left: 2px;
@@ -1004,15 +1004,44 @@
   overflow-y: auto;
   padding-right: 6px;
 }
+/* Étroit : les catégories passent en une rangée défilante (elles occupaient
+   plus de la moitié de la fenêtre) et seul le contenu défile en dessous. */
 @media (max-width: 720px) {
   .settings-shell {
-    height: auto;
-    max-height: 68vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: min(560px, 72dvh);
+    min-height: 0;
+  }
+  .settings-shell__side {
+    flex: none;
+    min-width: 0;
+  }
+  .settings-shell__nav {
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .settings-shell__nav > li {
+    flex: none;
+  }
+  .settings-shell__item {
+    width: auto;
+    white-space: nowrap;
+    min-height: 32px;
+    border: 1px solid var(--el-border);
+  }
+  .settings-shell__item.is-active {
+    border-color: var(--el-primary);
   }
   .settings-shell > :last-child {
-    overflow-y: visible;
-    padding-right: 0;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
   }
 }
 
@@ -1072,4 +1101,47 @@
   box-shadow:
     0 0 0 1px var(--doc-sheet-edge),
     0 14px 34px rgba(0, 0, 0, 0.55);
+}
+
+/* ==========================================================================
+   Plancher de taille des cibles (WCAG 2.2 — 2.5.8) pour la coque, les réglages,
+   le Détecteur, la Documentation, le Drive (connexion) et la palette.
+   >= 28 px par défaut, 24 px en densité compacte. Les éditeurs (rubans, barres
+   d'état) ont leurs propres règles et ne sont PAS touchés ici.
+   ========================================================================== */
+:root {
+  --ws-target: 28px;
+}
+[data-density="compact"] {
+  --ws-target: 24px;
+}
+:is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app, .cmdk-overlay, .cmdk)
+  :is(
+    select,
+    input:not([type]),
+    input[type="text"],
+    input[type="search"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="url"]
+  ) {
+  min-height: var(--ws-target);
+  box-sizing: border-box;
+}
+:is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app, .cmdk-overlay, .cmdk)
+  :is(input[type="checkbox"], input[type="radio"]) {
+  width: 18px;
+  height: 18px;
+  margin: 3px;
+  flex: none;
+  accent-color: var(--el-primary);
+}
+:is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app) input[type="range"] {
+  min-height: var(--ws-target);
+  accent-color: var(--el-primary);
+}
+:is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app) label:has(> input[type="checkbox"]),
+:is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app) label:has(> input[type="radio"]) {
+  min-height: var(--ws-target);
 }

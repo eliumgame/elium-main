@@ -102,6 +102,9 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
           <button className="eb eb--sm eb--ghost" onClick={onHome}>
             <Home size={16} /> Accueil
           </button>
+          <span className="dc-auth__logo dc-auth__logo--compact">
+            <Cloud size={18} /> Elium Drive
+          </span>
           <button
             className="eb eb--sm eb--ghost"
             onClick={() => setServerOpen((o) => !o)}

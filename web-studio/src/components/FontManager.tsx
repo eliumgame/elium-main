@@ -213,12 +213,12 @@ export default function FontManager({ onClose }: { onClose: () => void }) {
               if (e.dataTransfer.files.length) void onFiles(e.dataTransfer.files);
             }}
           >
-            <p className="muted">
+            <p className="muted fontdrop__text">
               Glissez ici des fichiers <code>.ttf</code>, <code>.otf</code>, <code>.woff</code> ou <code>.woff2</code>,
               ou choisissez-les. Chaque police reste disponible après redémarrage et apparaît dans les sélecteurs de
               police des Documents, du Tableur, des Présentations et du PDF.
             </p>
-            <div className="settings__row">
+            <div className="fontdrop__actions">
               <Button size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>
                 <Upload size={15} /> Choisir des fichiers…
               </Button>

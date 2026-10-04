@@ -186,10 +186,11 @@
   flex-shrink: 0;
   margin-top: 1px;
 }
+/* « info » = bleu de marque (le cyan sortait de la palette Elium). */
 .alert--info {
-  background: var(--info-bg);
-  color: var(--info);
-  border-color: var(--info);
+  background: var(--el-primary-50);
+  color: var(--el-primary-text);
+  border-color: color-mix(in srgb, var(--el-primary) 38%, transparent);
 }
 .alert--success {
   background: var(--success-bg);
@@ -3422,9 +3423,9 @@
   display: inline-block;
   font-size: 0.8em;
   line-height: 1;
-  color: var(--el-amber-700, #b45309);
-  background: var(--el-amber-50, #fffbeb);
-  border: 1px solid var(--el-amber-200, #fde68a);
+  color: var(--el-amber-700);
+  background: var(--el-amber-50);
+  border: 1px solid var(--el-amber-200);
   border-radius: 3px;
   padding: 0 2px;
   margin: 0 1px;
@@ -3794,9 +3795,9 @@
   border-style: solid;
 }
 .mm-field.is-used {
-  background: var(--el-green-50, #f0fdf4);
-  color: var(--el-green-700, #15803d);
-  border-color: var(--el-green-200, #bbf7d0);
+  background: var(--el-green-50);
+  color: var(--el-green-700);
+  border-color: var(--el-green-200);
   border-style: solid;
 }
 .mm-nav {
@@ -3846,9 +3847,9 @@
 }
 .elium-mergefield--preview {
   color: var(--text);
-  background: var(--el-green-50, #f0fdf4);
+  background: var(--el-green-50);
   border-style: solid;
-  border-color: var(--el-green-200, #bbf7d0);
+  border-color: var(--el-green-200);
 }
 .ProseMirror-selectednode.elium-mergefield {
   outline: 2px solid var(--primary);
@@ -5377,13 +5378,13 @@
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--primary-50, #eff6ff);
+  background: var(--primary-50);
   color: var(--primary);
   font-size: 11.5px;
   font-weight: 600;
 }
 .proof__chip:hover {
-  background: var(--danger, #dc2626);
+  background: var(--danger);
   color: #fff;
   border-color: transparent;
 }
@@ -5489,7 +5490,7 @@
   border: 1px solid transparent;
 }
 .proof__fix {
-  background: var(--primary-50, #eff6ff);
+  background: var(--primary-50);
   color: var(--primary);
 }
 .proof__fix:hover {
@@ -5909,10 +5910,10 @@
   font-weight: 600;
 }
 .trackpop__item--accept {
-  color: var(--success, #16a34a);
+  color: var(--success);
 }
 .trackpop__item--accept:hover {
-  background: var(--success, #16a34a);
+  background: var(--success);
   color: #fff;
 }
 .trackpop__item--reject {

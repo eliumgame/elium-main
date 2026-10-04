@@ -43,18 +43,10 @@ import {
   EliumRecipientKeyRequired,
   type IntegrityVerdict,
 } from "./format/elium-package";
-import {
-  loadRecipientPublic,
-  hasRecipientKey,
-  generateAndStoreRecipientKey,
-  unlockRecipientKey,
-  forgetRecipientKey,
-  type RecipientPublic,
-} from "./crypto/recipient-key-store";
+import { useKeyring, KeyringContext, type KeyringController } from "./crypto/use-keyring";
 import { verifyJournal, type JournalVerdict } from "./format/journal";
 import { profileOf } from "./format/profiles";
-import { randomId, fromHex, nowIso } from "./format/canonical";
-import { strToU8, strFromU8 } from "fflate";
+import { randomId, nowIso } from "./format/canonical";
 import { verifyProof, createProof } from "./sign/proof";
 import { type SealVerdict } from "./sign/seal";
 import { checkSealPin, pinSeal, repinSeal, type SealPinCheck } from "./sign/seal-pinning";
@@ -65,6 +57,7 @@ import {
   untrustContact as storeUntrustContact,
   migrateLegacyTrustedKey,
   type TrustedContact,
+  type TrustOptions,
 } from "./sign/trust-book";
 import { importToDoc } from "./format/importers";
 import { fontResources, syncEmbeddedFonts } from "./format/embedded-fonts";
@@ -77,18 +70,8 @@ import { putDraft, getDraft, resolveDraft, type DraftContent } from "./format/dr
 import { reencryptParapheurVault } from "./format/parapheur-store";
 import { isVaultConfigured, setVaultPassword, verifyVaultPassword, removeVaultConfig } from "./format/vault-store";
 import { hasVaultSecret, type VaultSecret } from "./crypto/local-vault";
-import { generateIdentity as genId, type EliumIdentity } from "./sign/keys";
-import {
-  loadStoredIdentity,
-  saveStoredIdentity,
-  encryptPrivateKey,
-  buildKeyFile,
-  keyFileName,
-  parseKeyFile,
-  restoreFromKeyFile,
-  identityFromPrivateHex,
-  copyText,
-} from "./sign/identity-store";
+import { type EliumIdentity } from "./sign/keys";
+import { identityFromPrivateHex, copyText } from "./sign/identity-store";
 import { EliumCryptoEngine } from "./crypto/elium-crypto";
 import { exportHtml, exportMarkdown, exportText, exportPdf, exportProofReport, downloadBlob } from "./export/exporters";
 import type { Template } from "./editor/templates";
@@ -170,13 +153,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  // The private key is NEVER kept in clear at rest. localStorage holds only the
-  // public key, fingerprint, and an Argon2id/AES-GCM-encrypted private key blob.
-  // The plaintext key lives in memory only after an explicit unlock.
-  const [identity, setIdentity] = useState<EliumIdentity | null>(() => {
-    const s = loadStoredIdentity();
-    return s ? { publicKeyHex: s.publicKeyHex, fingerprint: s.fingerprint } : null;
-  });
+  // Les clés (identité Ed25519, clé de réception P-256) vivent dans le trousseau
+  // unifié (crypto/keyring.ts, IndexedDB `elium-keys`) : jamais en clair au repos ;
+  // la clé privée n'existe en mémoire qu'après déverrouillage et disparaît au
+  // verrouillage (manuel ou par inactivité). `identity` / `recipientPublic` plus
+  // bas en sont des vues dérivées — cf. useKeyring() après askPassword.
   // Carnet de clés de confiance (name→clé) — remplace l'ancienne clé unique.
   const [trustBook, setTrustBook] = useState<TrustedContact[]>(() => loadTrustBook());
   const [attributions, setAttributions] = useState<Record<string, string>>({}); // sigId → nom du contact
@@ -190,7 +171,6 @@ export default function App() {
   // Multi-recipient: recipient public keys this document is encrypted FOR (save),
   // and this user's own recipient public key (to receive).
   const [recipients, setRecipients] = useState<string[]>([]);
-  const [recipientPublic, setRecipientPublic] = useState<RecipientPublic | null>(() => loadRecipientPublic());
 
   const setTheme = useCallback((t: Theme) => {
     persistTheme(t);
@@ -202,20 +182,25 @@ export default function App() {
     void migrateLegacyTrustedKey().then(() => setTrustBook(loadTrustBook()));
   }, []);
 
-  const forgetIdentity = useCallback(() => {
-    localStorage.removeItem("elium_identity");
-    setIdentity(null);
-    setToast("Identité oubliée");
+  // Le contrôleur du trousseau est créé plus bas (il a besoin d'askPassword) ;
+  // ce ref permet aux callbacks définis avant lui de l'utiliser sans dépendance instable.
+  const keyringRef = useRef<KeyringController | null>(null);
+
+  const forgetIdentity = useCallback(async () => {
+    // Suppression avec sauvegarde obligatoire proposée (cf. use-keyring.tsx removeKey).
+    const kr = keyringRef.current;
+    const id = kr?.entries.find((e) => e.type === "identity-ed25519" && e.status === "active");
+    if (kr && id) await kr.removeKey(id.id);
   }, []);
 
   const clearLocalStorage = useCallback(() => {
-    localStorage.removeItem("elium_identity");
+    void keyringRef.current?.forgetAll();
     localStorage.removeItem("elium_trusted_key"); // legacy (migré vers le carnet)
     localStorage.removeItem("elium_trust_book");
+    localStorage.removeItem("elium_trust_revocations");
+    localStorage.removeItem("elium_keyring_idle_min");
     localStorage.removeItem("elium_theme");
     localStorage.removeItem("elium_seal_pins");
-    forgetRecipientKey();
-    setRecipientPublic(null);
     // Also purge the IndexedDB stores (Drive library, app autosaves, version
     // history, parapheur, drafts, vault) — otherwise "données effacées" leaves them behind.
     for (const db of [
@@ -226,6 +211,7 @@ export default function App() {
       "elium-parapheur",
       "elium-drafts",
       "elium-vault",
+      "elium-keys",
     ]) {
       try {
         indexedDB.deleteDatabase(db);
@@ -234,7 +220,6 @@ export default function App() {
       }
     }
     keyfileRef.current = undefined;
-    setIdentity(null);
     setTrustBook([]);
     setSettingsOpen(false);
     vaultPromptedRef.current = false;
@@ -264,6 +249,19 @@ export default function App() {
     },
     [askSecret],
   );
+
+  // Trousseau unifié (identité + clé de réception) : verrouillage manuel/auto qui
+  // purge aussi le fichier-clé gardé en mémoire pour les ré-enregistrements.
+  const keyring = useKeyring({
+    askPassword,
+    notify: setToast,
+    onLock: () => {
+      keyfileRef.current = undefined;
+    },
+  });
+  keyringRef.current = keyring;
+  const identity: EliumIdentity | null = keyring.identity;
+  const recipientPublic = keyring.recipientPublic;
 
   // --- Local vault (opt-in app-wide passphrase for Drive/Parapheur at rest) --
   // "none" = never configured (default, unchanged behaviour); "locked" = configured
@@ -478,9 +476,9 @@ export default function App() {
 
   // Carnet : approuver une clé (de sceau ou de preuve) sous un nom, ou la retirer.
   const trustContact = useCallback(
-    async (name: string, publicKeyHex: string) => {
+    async (name: string, publicKeyHex: string, opts?: TrustOptions) => {
       try {
-        setTrustBook(await storeTrustContact(name, publicKeyHex));
+        setTrustBook(await storeTrustContact(name, publicKeyHex, opts));
         if (file) await recompute(file);
         setToast(`Clé approuvée comme « ${name.trim() || "Sans nom"} »`);
       } catch (e) {
@@ -498,27 +496,12 @@ export default function App() {
     [file, recompute],
   );
 
-  // Returns the in-memory private key, decrypting the stored blob on demand.
+  // Returns the in-memory private key, unlocking the keyring on demand (ONE
+  // password unlocks identity + recipient keys; auto-lock after idle).
   const ensurePrivateKey = useCallback(async (): Promise<string | null> => {
-    if (identity?.privateKeyHex) return identity.privateKeyHex;
-    const saved = localStorage.getItem("elium_identity");
-    const enc = saved ? (JSON.parse(saved).enc as string | undefined) : undefined;
-    if (!enc) {
-      setError("Aucune clé privée déverrouillable. Générez une nouvelle identité.");
-      return null;
-    }
-    const pass = await askPassword("Déverrouiller votre clé de signature", "enter");
-    if (!pass) return null;
-    try {
-      const { payload } = await EliumCryptoEngine.decodeContainer(fromHex(enc), pass);
-      const privateKeyHex = strFromU8(payload);
-      setIdentity((cur) => (cur ? { ...cur, privateKeyHex } : cur));
-      return privateKeyHex;
-    } catch {
-      setError("Mot de passe de la clé incorrect.");
-      return null;
-    }
-  }, [identity, askPassword]);
+    // La session du trousseau fait foi (jamais un `identity` périmé capturé avant un verrouillage).
+    return (await keyringRef.current?.ensureIdentityPrivate()) ?? null;
+  }, []);
 
   // Spreadsheet/presentation apps opened from a .elium (marker-node payload).
   const [appView, setAppView] = useState<{ kind: "sheet" | "slides" | "pdf"; data: unknown } | null>(null);
@@ -623,20 +606,17 @@ export default function App() {
         } catch (e) {
           if (e instanceof EliumRecipientKeyRequired) {
             // Document encrypted for recipients: unlock our recipient key.
-            if (!hasRecipientKey()) {
+            if (!keyringRef.current?.recipientPublic) {
               setError(
                 "Ce document est chiffré pour des destinataires. Générez d'abord votre clé de réception (Sécurité).",
               );
               return;
             }
-            const got = await askSecret(
-              `Mot de passe de votre clé de réception pour « ${uploaded.name} »`,
-              "enter",
-              false,
-            );
-            if (!got) return;
-            const recipientKey = await unlockRecipientKey(got.password);
-            result = await readEliumPackage(bytes, { recipientKey });
+            // Une seule invite déverrouille le trousseau ; la clé active puis les clés
+            // RETIRÉES (rotation) sont essayées (kid de l'enveloppe).
+            const recipientKeys = await keyringRef.current.recipientKeypairs();
+            if (!recipientKeys) return;
+            result = await readEliumPackage(bytes, { recipientKeys });
           } else if (e instanceof EliumPasswordRequired) {
             const got = await askSecret(`Mot de passe pour « ${uploaded.name} »`, "enter", true);
             if (!got) return;
@@ -787,18 +767,19 @@ export default function App() {
   }, []);
 
   // Generate this user's recipient key (so others can encrypt documents to them).
+  // La génération force une sauvegarde immédiate (sans elle, vider le navigateur
+  // rend à jamais illisibles les documents chiffrés pour cette clé).
   const generateRecipientKey = useCallback(async () => {
-    const got = await askSecret("Définir un mot de passe pour protéger votre clé de réception", "set", false);
-    if (!got) return;
-    const pub = await generateAndStoreRecipientKey(got.password);
-    setRecipientPublic(pub);
-    setToast("Clé de réception générée. Partagez votre clé publique pour recevoir des documents chiffrés.");
-  }, [askSecret]);
+    if (await keyringRef.current?.createRecipientKey()) {
+      setToast("Clé de réception générée. Partagez votre clé publique pour recevoir des documents chiffrés.");
+    }
+  }, []);
 
-  const forgetMyRecipientKey = useCallback(() => {
-    forgetRecipientKey();
-    setRecipientPublic(null);
-    setToast("Clé de réception oubliée");
+  // « Oublier » = suppression avec invite de sauvegarde obligatoire (cf. removeKey).
+  const forgetMyRecipientKey = useCallback(async () => {
+    const kr = keyringRef.current;
+    const r = kr?.entries.find((e) => e.type === "recipient-p256" && e.status === "active");
+    if (kr && r) await kr.removeKey(r.id);
   }, []);
 
   /** Replace the document's own named styles (Styles manager). */
@@ -839,72 +820,37 @@ export default function App() {
   }, []);
 
   const generateIdentity = useCallback(async () => {
-    try {
-      // genId() can throw if the Ed25519/hash wiring fails to initialise —
-      // surface it instead of the button silently doing nothing.
-      const id = await genId();
-      const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
-      if (!pass) return;
-      // Encrypt the private key with Argon2id + AES-256-GCM before it ever touches disk.
-      const enc = await encryptPrivateKey(id.privateKeyHex!, pass);
-      saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
-      setIdentity(id);
+    // L'identité est dérivée du secret maître du trousseau (créé au premier usage,
+    // protégé par UN mot de passe). Les erreurs sont remontées par le contrôleur.
+    if (await keyringRef.current?.createIdentity()) {
       // Open the backup modal right away: without an export, the key only lives
       // in this browser's storage and a profile reset destroys it for good.
       setBackupOpen("generated");
-    } catch (e) {
-      setError(`Échec de la génération de l'identité : ${msg(e)}`);
     }
-  }, [askPassword]);
+  }, []);
 
+  // Sauvegarde .eliumkey v2 : TOUTES les clés (signature + réception), un seul fichier.
   const exportIdentityFile = useCallback(() => {
-    const stored = loadStoredIdentity();
-    if (!stored?.enc) {
-      setError("Aucune sauvegarde exportable : régénérez ou importez d'abord une clé.");
-      return;
-    }
-    const json = JSON.stringify(buildKeyFile(stored), null, 2);
-    downloadBlob(keyFileName(stored.fingerprint), "application/json", strToU8(json));
-    setToast("Sauvegarde .eliumkey téléchargée");
+    void keyringRef.current?.exportBackup();
   }, []);
 
   const importIdentityFromFile = useCallback(
-    async (text: string): Promise<boolean> => {
-      try {
-        const stored = parseKeyFile(text);
-        const pass = await askPassword("Mot de passe de la clé sauvegardée", "enter");
-        if (!pass) return false;
-        const id = await restoreFromKeyFile(stored, pass);
-        saveStoredIdentity(stored);
-        setIdentity(id);
-        setToast("Identité restaurée depuis la sauvegarde");
-        return true;
-      } catch (e) {
-        setError(msg(e));
-        return false;
-      }
-    },
-    [askPassword],
+    async (text: string): Promise<boolean> => (await keyringRef.current?.importBackupText(text)) ?? false,
+    [],
   );
 
-  const importIdentityFromHex = useCallback(
-    async (hex: string): Promise<boolean> => {
-      try {
-        const id = await identityFromPrivateHex(hex);
-        const pass = await askPassword("Définir un mot de passe pour protéger votre clé privée", "set");
-        if (!pass) return false;
-        const enc = await encryptPrivateKey(id.privateKeyHex, pass);
-        saveStoredIdentity({ publicKeyHex: id.publicKeyHex, fingerprint: id.fingerprint, enc });
-        setIdentity(id);
-        setToast("Clé privée importée et chiffrée");
-        return true;
-      } catch (e) {
-        setError(msg(e));
-        return false;
-      }
-    },
-    [askPassword],
-  );
+  const importIdentityFromHex = useCallback(async (hex: string): Promise<boolean> => {
+    try {
+      const id = await identityFromPrivateHex(hex);
+      const ok =
+        (await keyringRef.current?.importRawIdentity(id.privateKeyHex, id.publicKeyHex, id.fingerprint)) ?? false;
+      if (ok) setToast("Clé privée importée et chiffrée");
+      return ok;
+    } catch (e) {
+      setError(msg(e));
+      return false;
+    }
+  }, []);
 
   const changeProfile = useCallback(
     async (p: EliumProfile) => {
@@ -1223,7 +1169,10 @@ export default function App() {
       // Only prompt for a credential when we have NONE: a keyfile (e.g. from
       // opening an eliumkey-protected doc) or recipient encryption is already
       // enough, so editing + re-saving such a file must not nag for a password.
-      if (encrypted && !useRecipients && !pwd && !keyfileRef.current) {
+      // Le fichier-clé est purgé au verrouillage du trousseau : un document qui l'exige
+      // le redemande, au lieu de se ré-enregistrer silencieusement sans ce 2e facteur.
+      const keyfileLost = !!file.manifest.protection.keyfileRequired && !keyfileRef.current;
+      if (encrypted && !useRecipients && ((!pwd && !keyfileRef.current) || keyfileLost)) {
         const got = await askSecret("Protéger le document (mot de passe et/ou fichier-clé)", "set", true);
         if (!got) return;
         pwd = got.password;
@@ -1461,7 +1410,7 @@ export default function App() {
     );
   }
 
-  return (
+  const ui = (
     <div className="app">
       {vaultState === "checking" ? (
         <div className="vault-gate" aria-hidden="true" />
@@ -1471,8 +1420,8 @@ export default function App() {
             <Lock size={28} />
             <h1>Coffre local verrouillé</h1>
             <p>
-              Ce poste a un coffre local configuré pour protéger la bibliothèque et le Parapheur. Déverrouillez-le pour
-              continuer.
+              Ce poste a un coffre local configuré pour protéger la bibliothèque et le Parapheur. Déverrouillez-le
+              pour continuer.
             </p>
             <Button onClick={() => void unlockVault()}>Déverrouiller</Button>
             <button type="button" className="vault-gate__forgot" onClick={() => void resetVault()}>
@@ -1627,8 +1576,8 @@ export default function App() {
       {error && <Toast tone="danger" message={error} onClose={() => setError(null)} />}
       {toast && <Toast tone="success" message={toast} onClose={() => setToast(null)} />}
       {/* Le mot de passe est validé et sa boîte de dialogue se referme AVANT que
-          le chiffrement/déchiffrement (Argon2id) ne s'exécute — sans ce repère,
-          les ~200 ms qui suivent ne montrent rien du tout. */}
+        le chiffrement/déchiffrement (Argon2id) ne s'exécute — sans ce repère,
+        les ~200 ms qui suivent ne montrent rien du tout. */}
       {busy && (
         <div className="busy-indicator" role="status" aria-live="polite">
           <Loader2 size={14} className="icon-spin" /> Traitement en cours…
@@ -1636,4 +1585,5 @@ export default function App() {
       )}
     </div>
   );
+  return <KeyringContext.Provider value={keyring}>{ui}</KeyringContext.Provider>;
 }

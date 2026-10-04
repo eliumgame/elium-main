@@ -212,8 +212,7 @@ jobs:
           cat pytest.log
           if [ $code -ne 0 ]; then
             # Les journaux ne sont lisibles qu'une fois connecté : on republie la fin en annotation (publique).
-            msg=$(grep -E 'FAILED|ERROR|Error|assert' pytest.log | head -c 3500 | sed ':a;N;$!ba;s/%/%25/g;s///g;s/
-/%0A/g')
+            msg=$(grep -E 'FAILED|ERROR|Error|assert' pytest.log | head -c 3500 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
             echo "::error title=pytest::${msg}"
           fi
           exit $code

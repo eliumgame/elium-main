@@ -579,7 +579,7 @@ export default function Toolbar({
   return (
     <div role="region" aria-label="Barre d'outils de mise en forme">
       <div
-        className={`elx-ribbon ${density === "essential" ? "elx-ribbon--essential" : ""}`}
+        className={`elx-ribbon elx-ribbon--docs ${density === "essential" ? "elx-ribbon--essential" : ""}`}
         role="toolbar"
         aria-label="Mise en forme"
       >
@@ -1019,7 +1019,7 @@ export default function Toolbar({
                     <Indent size={17} />
                   </Cmd>
                   <select
-                    className="elx-select elx-select--size"
+                    className="elx-select elx-select--size elx-select--lh"
                     title="Interligne"
                     aria-label="Interligne"
                     value={editor.getAttributes("paragraph").lineHeight ?? ""}

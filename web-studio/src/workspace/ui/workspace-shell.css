@@ -1058,12 +1058,18 @@
 }
 
 /* Thème sombre : la feuille doit se détacher du bureau (elle avait la même teinte). */
-:root[data-theme="dark"] .editor-scroll {
-  background: #090c12;
+:root[data-theme="dark"] {
+  --doc-desk: #090c12;
+  --doc-sheet: #1b2232;
+  --doc-sheet-edge: #33405f;
 }
-:root[data-theme="dark"] .elium-page:not(.elium-page--stacked) {
-  background: #1b2232;
+:root[data-theme="dark"] .editor-scroll {
+  background: var(--doc-desk);
+}
+:root[data-theme="dark"] .elium-page:not(.elium-page--stacked),
+:root[data-theme="dark"] .elium-sheet {
+  background: var(--doc-sheet);
   box-shadow:
-    0 0 0 1px #2b3550,
+    0 0 0 1px var(--doc-sheet-edge),
     0 14px 34px rgba(0, 0, 0, 0.55);
 }

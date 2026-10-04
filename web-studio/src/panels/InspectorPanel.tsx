@@ -40,9 +40,25 @@ interface Props {
   onToggle: () => void;
   /** Display name stamped on new replies in the comments panel. */
   commentAuthor?: string;
+  /** Tiroir superposé (écran étroit) : pas de poignée de redimensionnement. */
+  drawer?: boolean;
+  /** Largeur courante (px) et rappel de redimensionnement (écran large). */
+  width?: number;
+  onWidthChange?: (w: number) => void;
+  widthRange?: [number, number];
 }
 
-export default function InspectorPanel({ studio, editor, open, onToggle, commentAuthor }: Props) {
+export default function InspectorPanel({
+  studio,
+  editor,
+  open,
+  onToggle,
+  commentAuthor,
+  drawer = false,
+  width,
+  onWidthChange,
+  widthRange = [280, 560],
+}: Props) {
   const [active, setActive] = useState<PanelId>("signatures");
   const activeLabel = TABS.find((t) => t.id === active)?.label ?? "";
 
@@ -77,7 +93,43 @@ export default function InspectorPanel({ studio, editor, open, onToggle, comment
   }
 
   return (
-    <aside className="inspector">
+    <aside className={`inspector${drawer ? " inspector--drawer" : ""}`} aria-label="Panneau latéral">
+      {!drawer && onWidthChange && width != null && (
+        <div
+          className="inspector__resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionner le panneau latéral"
+          aria-valuemin={widthRange[0]}
+          aria-valuemax={widthRange[1]}
+          aria-valuenow={width}
+          tabIndex={0}
+          title="Glisser pour redimensionner (double-clic : largeur par défaut)"
+          onDoubleClick={() => onWidthChange(340)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") onWidthChange(width + 24);
+            else if (e.key === "ArrowRight") onWidthChange(width - 24);
+            else return;
+            e.preventDefault();
+          }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = width;
+            const target = e.currentTarget;
+            target.setPointerCapture(e.pointerId);
+            const move = (ev: PointerEvent) => onWidthChange(startW + (startX - ev.clientX));
+            const up = () => {
+              target.removeEventListener("pointermove", move);
+              target.removeEventListener("pointerup", up);
+              target.removeEventListener("pointercancel", up);
+            };
+            target.addEventListener("pointermove", move);
+            target.addEventListener("pointerup", up);
+            target.addEventListener("pointercancel", up);
+          }}
+        />
+      )}
       <div className="inspector__header">
         <span className="inspector__title">{activeLabel}</span>
         <button

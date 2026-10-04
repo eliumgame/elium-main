@@ -2827,9 +2827,9 @@
   display: flex;
   align-items: stretch;
   flex: none;
-  height: 26px;
+  height: 34px;
   padding: 0 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-muted);
   background: var(--surface-2);
   border-top: 1px solid var(--border);
@@ -2894,12 +2894,12 @@
 .statusbar__btn {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   align-self: center;
   border: 0;
   background: none;
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -2916,15 +2916,18 @@
   cursor: default;
 }
 .statusbar__slider {
-  width: 84px;
+  width: 104px;
+  height: 28px;
   accent-color: var(--primary);
   margin: 0 2px;
+  cursor: pointer;
 }
 .statusbar__select {
-  height: 20px;
+  height: 28px;
+  min-width: 84px;
   align-self: center;
-  padding: 0 4px;
-  font-size: 11px;
+  padding: 0 6px;
+  font-size: 12px;
   font-family: inherit;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2969,8 +2972,16 @@
     display: none;
   }
   .statusbar {
-    height: 22px;
-    font-size: 11px;
+    height: 28px;
+    font-size: 11.5px;
+  }
+  .statusbar__btn,
+  .statusbar__select,
+  .statusbar__slider {
+    height: 24px;
+  }
+  .statusbar__btn {
+    width: 24px;
   }
 }
 /* Le repli VERTICAL du ruban vit dans workspace.css, où sont ses règles de
@@ -5898,4 +5909,76 @@
 }
 .elium-break-pending--merge {
   border-top: 1px dashed var(--el-danger);
+}
+
+/* ======================================================================
+   DOCUMENTS — panneau latéral : redimensionnable (large) / tiroir (étroit)
+   ====================================================================== */
+.studio__body > .inspector {
+  position: relative;
+  width: var(--inspector-w, 340px);
+  min-width: 0;
+}
+.inspector__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+}
+.inspector__resize:hover,
+.inspector__resize:focus-visible {
+  outline: none;
+  background: linear-gradient(90deg, transparent 2px, var(--el-primary) 2px, var(--el-primary) 4px, transparent 4px);
+}
+.studio__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--el-text) 42%, transparent);
+}
+@media (max-width: 1099px) {
+  .studio__body > .inspector,
+  .studio__body > .studio__outline {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 6;
+    max-width: none;
+    resize: none;
+    box-shadow: var(--shadow-lg);
+  }
+  .studio__body > .inspector {
+    right: 0;
+    width: min(380px, 92vw);
+  }
+  .studio__body > .studio__outline {
+    left: 0;
+    flex: none;
+    width: min(320px, 88vw);
+  }
+  .inspector__content {
+    overflow-x: hidden;
+  }
+}
+@media (max-width: 720px) {
+  /* Pas de place pour un rail de 46 px : le bouton « panneau latéral » est dans le menu « Plus d’actions ». */
+  .inspector-rail {
+    display: none;
+  }
+  .inspector__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .inspector__tab {
+    flex: 1 0 44px;
+    min-height: 44px;
+  }
+  .inspector__close {
+    width: 40px;
+    height: 40px;
+  }
 }

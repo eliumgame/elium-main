@@ -169,5 +169,3 @@ jeton de session).
   la phrase de récupération restent portables, par conception.
 - Elle ne protège pas contre un logiciel malveillant qui s'exécute **sous votre
   compte Windows** : DPAPI déchiffre pour ce compte.
-
----

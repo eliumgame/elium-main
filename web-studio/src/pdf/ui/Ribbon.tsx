@@ -9,6 +9,7 @@ import {
   type StampDef,
 } from "../model/stamps";
 import { useRibbonScroll } from "../../ui/useRibbonScroll";
+import { useFixedPopovers } from "../../ui/useFixedPopovers";
 import {
   ArrowRight,
   ChevronLeft,
@@ -363,6 +364,9 @@ export default function Ribbon(p: RibbonProps) {
   const shapeTool = ["square", "circle", "line", "arrow", "polygon", "polyline", "cloud", "ink"].includes(p.tool);
   const markupTool = ["highlight", "underline", "strikeout", "squiggly"].includes(p.tool);
   const { ref: bodyRef, edges, nudge, sync } = useRibbonScroll();
+  const ribbonRoot = useRef<HTMLDivElement>(null);
+  // Les panneaux déroulants sortent du ruban qui défile (sinon rognés).
+  useFixedPopovers(ribbonRoot);
   // Another tab, other commands: what overflows changes.
   useEffect(() => {
     sync();
@@ -389,7 +393,7 @@ export default function Ribbon(p: RibbonProps) {
   };
 
   return (
-    <div className="pdfx-ribbon" role="region" aria-label="Barre d'outils PDF">
+    <div className="pdfx-ribbon" ref={ribbonRoot} role="region" aria-label="Barre d'outils PDF">
       <div className="pdfx-tabs" role="tablist" aria-label="Onglets du ruban" onKeyDown={onTabKey}>
         {RIBBON_TABS.map((t) => (
           <button

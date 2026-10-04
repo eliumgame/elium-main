@@ -266,6 +266,30 @@
   height: 34px;
 }
 
+/* Inspecteur : les curseurs rétrécissent (la valeur « 100 % » n'est plus rognée),
+   les champs atteignent 28 px de haut. */
+.pdfx-inspector__body {
+  overflow-x: hidden;
+}
+.pdfx-insp-inline {
+  min-width: 0;
+}
+.pdfx-insp-inline input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+.pdfx-insp-row {
+  min-height: 30px;
+}
+.pdfx-insp-row :is(input[type="text"], input[type="url"], input[type="number"], select) {
+  height: 28px;
+}
+.pdfx-insp-row input[type="color"] {
+  width: 38px;
+  height: 28px;
+}
+
 /* Formulaires des dialogues : sous 640 px le libellé passe au-dessus du champ. */
 @media (max-width: 640px) {
   .pdfx-form__row {
@@ -291,19 +315,6 @@
 /* Bibliothèque de tampons : un panneau du ruban ne peut pas sortir de l'écran. */
 .pdfx-stampmenu__panel {
   border: 1px solid var(--x-chrome-line);
-}
-@container editor (max-width: 640px) {
-  .pdfx-stampmenu {
-    position: static;
-  }
-  .pdfx-stampmenu__panel {
-    position: fixed;
-    top: 134px;
-    left: 8px;
-    right: 8px;
-    width: auto;
-    max-height: calc(100% - 150px);
-  }
 }
 
 /* La zone de lecture ne déborde jamais : ses enfants (panneaux, barres d'options)

@@ -51,6 +51,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useRibbonScroll } from "../ui/useRibbonScroll";
+import { useFixedPopovers } from "../ui/useFixedPopovers";
 import { fontCss, allFontNames, DEFAULT_FONT } from "../ui/fonts";
 import { importFontFiles } from "../ui/font-library";
 import { useFontsVersion } from "../ui/useFonts";
@@ -203,6 +204,8 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [dataToolsOpen, setDataToolsOpen] = useState<null | "find" | "dedupe" | "split">(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const { ref: ribbonRef, edges: ribbonEdges, nudge: ribbonNudge } = useRibbonScroll();
+  const ribbonRoot = useRef<HTMLDivElement>(null);
+  useFixedPopovers(ribbonRoot);
   const fontsVersion = useFontsVersion();
   const [fontTick, setFontTick] = useState(0);
 
@@ -960,7 +963,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
       {/* Barre de mise en forme (masquée en lecture seule) */}
       {canWrite && (
-        <div className="elx-ribbon" role="region" aria-label="Barre de mise en forme">
+        <div className="elx-ribbon" ref={ribbonRoot} role="region" aria-label="Barre de mise en forme">
           {/* Le ruban défile quand il ne tient pas : chevrons + dégradés disent de quel côté il reste des commandes. */}
           <div
             className={`elx-ribbon__scroller${ribbonEdges.left ? " has-left" : ""}${ribbonEdges.right ? " has-right" : ""}`}

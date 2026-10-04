@@ -6,6 +6,7 @@
  * lives here; deck data + mutations live in the store. Shell-specific chrome
  * (page vs. modal, export buttons, connection status/peers) is injected via props.
  */
+import { useFontsVersion } from "../ui/useFonts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Home,
@@ -166,6 +167,7 @@ export interface SlidesEditorChrome {
 }
 
 export default function SlidesEditor({ store, chrome }: { store: DeckStore; chrome: SlidesEditorChrome }) {
+  useFontsVersion(); // re-rend quand une police personnelle est ajoutée/retirée
   const dialogs = useDialogs();
   const { deck, active: activeIdx, canWrite } = store;
   const [presenting, setPresenting] = useState(false);

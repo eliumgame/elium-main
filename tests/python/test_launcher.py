@@ -701,3 +701,106 @@ def test_single_instance_second_acquire_is_refused():
         assert second.stdout.strip() == "False"
     finally:
         first.kill()
+
+
+# --------------------------------------------------------------------------- #
+# Relais « polices en ligne » : liste blanche fermée
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("url", [
+    "https://api.fontsource.org/v1/fonts",
+    "https://api.fontsource.org/v1/fonts/lobster",
+    "https://cdn.jsdelivr.net/fontsource/fonts/lobster@latest/latin-400-normal.woff2",
+])
+def test_font_url_allowed(url):
+    assert elium_launcher._font_url_allowed(url)
+
+
+@pytest.mark.parametrize("url", [
+    "http://api.fontsource.org/v1/fonts",                      # pas https
+    "https://evil.example/v1/fonts",                           # autre hôte
+    "https://api.fontsource.org.evil.example/v1/fonts",        # hôte déguisé
+    "https://api.fontsource.org@evil.example/v1/fonts",        # identifiants / confusion d'hôte
+    "https://api.fontsource.org:8443/v1/fonts",                # port explicite
+    "https://api.fontsource.org/v1/fonts?x=1",                 # requête
+    "https://api.fontsource.org/v1/fonts#frag",                # fragment
+    "https://api.fontsource.org/v2/anything",                  # hors préfixe
+    "https://api.fontsource.org/v1/fonts/../../admin",         # remontée de chemin
+    "https://cdn.jsdelivr.net/npm/some-package/evil.js",       # autre dépôt du CDN
+    "https://cdn.jsdelivr.net/fontsource/fonts/x@latest/a.js", # extension non police
+    "file:///c:/windows/win.ini",
+    "https://127.0.0.1/v1/fonts",
+    "",
+])
+def test_font_url_refused(url):
+    assert not elium_launcher._font_url_allowed(url)
+
+
+def test_font_fetch_refuses_before_any_network(monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError("aucune connexion ne doit être tentée")
+
+    monkeypatch.setattr(elium_launcher.socket, "create_connection", boom)
+    monkeypatch.setattr(elium_launcher.socket, "getaddrinfo", boom)
+    with pytest.raises(ValueError):
+        elium_launcher._font_fetch("https://evil.example/font.woff2")
+
+
+def _font_relay_call(monkeypatch, body: bytes, length=None, fetch=None):
+    if fetch is not None:
+        monkeypatch.setattr(elium_launcher, "_font_fetch", fetch)
+    server_end, client_end = socket.socketpair()
+    client_end.sendall(body)
+    out: dict = {}
+
+    class _H:
+        headers = {"Content-Length": str(len(body) if length is None else length)}
+        connection = server_end
+        rfile = server_end.makefile("rb")
+
+        def send_error(self, code, _m=""):
+            out["error"] = code
+
+        def _serve_bytes(self, data, ctype):
+            out["data"], out["ctype"] = data, ctype
+
+    try:
+        elium_launcher.QuietHandler._handle_font_relay(_H())
+    finally:
+        server_end.close()
+        client_end.close()
+    return out
+
+
+def test_font_relay_returns_allowed_bytes(monkeypatch):
+    seen = []
+    out = _font_relay_call(
+        monkeypatch,
+        b'{"url": "https://api.fontsource.org/v1/fonts"}',
+        fetch=lambda url: seen.append(url) or (b"[]", "application/json"),
+    )
+    assert out == {"data": b"[]", "ctype": "application/json"}
+    assert seen == ["https://api.fontsource.org/v1/fonts"]
+
+
+def test_font_relay_rejects_foreign_url_without_fetching(monkeypatch):
+    called = []
+    out = _font_relay_call(
+        monkeypatch, b'{"url": "https://evil.example/x.woff2"}', fetch=lambda u: called.append(u)
+    )
+    assert out == {"error": 403}
+    assert called == []
+
+
+def test_font_relay_rejects_bad_bodies(monkeypatch):
+    assert _font_relay_call(monkeypatch, b"not json")["error"] == 400
+    assert _font_relay_call(monkeypatch, b"", length=0)["error"] == 400
+    assert _font_relay_call(monkeypatch, b"x" * 3000)["error"] == 400
+
+
+def test_font_relay_maps_network_failure_to_502(monkeypatch):
+    def fail(_url):
+        raise OSError("réseau coupé")
+
+    out = _font_relay_call(monkeypatch, b'{"url": "https://api.fontsource.org/v1/fonts"}', fetch=fail)
+    assert out == {"error": 502}

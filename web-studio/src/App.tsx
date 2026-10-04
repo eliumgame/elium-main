@@ -212,6 +212,7 @@ export default function App() {
       "elium-drafts",
       "elium-vault",
       "elium-keys",
+      "elium-fonts",
     ]) {
       try {
         indexedDB.deleteDatabase(db);

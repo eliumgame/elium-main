@@ -22,6 +22,7 @@ import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import Ruler from "./Ruler";
 import ProofingPanel from "./ProofingPanel";
+import A11yPanel from "./A11yPanel";
 import ProofPopover from "./ProofPopover";
 import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofingExtension";
 import TrackChangePopover from "./TrackChangePopover";
@@ -276,6 +277,7 @@ export default function RichEditor({
   // et elle mange de la hauteur utile sur un petit écran.
   const [rulerVisible, setRulerVisible] = useState(false);
   const [proofingOpen, setProofingOpen] = useState(false);
+  const [a11yOpen, setA11yOpen] = useState(false);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fitWidth");
   const [manualZoom, setManualZoom] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -513,6 +515,8 @@ export default function RichEditor({
           onOpenTheme={() => setDialog("theme")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
+          a11yOpen={a11yOpen}
+          onToggleA11y={() => setA11yOpen((v) => !v)}
           onOpenWatermark={() => setDialog("watermark")}
           rulerVisible={rulerVisible}
           onToggleRuler={() => setRulerVisible((v) => !v)}
@@ -671,6 +675,7 @@ export default function RichEditor({
         {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
           dedans : il doit rester visible pendant qu'on parcourt le document. */}
         {editor && proofingOpen && <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />}
+        {editor && a11yOpen && <A11yPanel editor={editor} onClose={() => setA11yOpen(false)} />}
       </main>
 
       <EditorStatusBar

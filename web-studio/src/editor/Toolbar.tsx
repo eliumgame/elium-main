@@ -63,6 +63,7 @@ import {
   Baseline,
   Droplets,
   SpellCheck,
+  Accessibility,
   Frame,
   AlignStartVertical,
   AlignCenterVertical,
@@ -169,6 +170,9 @@ interface ToolbarProps {
   /** Volet du correcteur. */
   proofingOpen?: boolean;
   onToggleProofing?: () => void;
+  /** Volet du vérificateur d'accessibilité. */
+  a11yOpen?: boolean;
+  onToggleA11y?: () => void;
   onOpenWatermark?: () => void;
   /** Règle graduée : visible et bascule. */
   rulerVisible?: boolean;
@@ -381,6 +385,8 @@ export default function Toolbar({
   onToggleRuler,
   proofingOpen,
   onToggleProofing,
+  a11yOpen,
+  onToggleA11y,
   gridVisible,
   gridSnap,
   onToggleGrid,
@@ -1552,6 +1558,15 @@ export default function Toolbar({
                     onClick={() => onToggleProofing?.()}
                   >
                     <SpellCheck size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Accessibilité"
+                    title="Vérifier l'accessibilité : textes alternatifs, titres, tableaux, contrastes"
+                    active={!!a11yOpen}
+                    onClick={() => onToggleA11y?.()}
+                  >
+                    <Accessibility size={19} />
                   </Cmd>
                 </Group>
                 <Group title="Analyse" optional>

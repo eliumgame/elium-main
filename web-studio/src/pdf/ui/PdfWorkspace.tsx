@@ -163,7 +163,7 @@ import {
   type AnnotExtras,
   type RawAnnotation,
 } from "../ops/import-annots";
-import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage } from "../ops/ocr";
+import { recognise, writeOcrLayer, hasLocalModels, type OcrLanguage, type OcrPageResult, OcrCancelled } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
@@ -576,6 +576,9 @@ export default function PdfWorkspace({
   );
   const [localModels, setLocalModels] = useState(false);
   const ocrAbort = useRef<AbortController | null>(null);
+  /** Pages recognised by an interrupted run (of THIS file's bytes): the next run resumes from them. */
+  const ocrPartial = useRef<{ bytes: Uint8Array; pages: Map<number, OcrPageResult> } | null>(null);
+  const [ocrResumable, setOcrResumable] = useState(0);
   const [hasForm, setHasForm] = useState(false);
   /** Tint the form fields (Acrobat's « Surligner les champs »), remembered per browser. */
   const [fieldHighlight, setFieldHighlight] = useState(() => {
@@ -6906,6 +6909,11 @@ export default function PdfWorkspace({
           localModels={localModels}
           running={ocrRunning}
           progress={ocrProgress}
+          resumable={ocrResumable}
+          onDiscardResume={() => {
+            ocrPartial.current = null;
+            setOcrResumable(0);
+          }}
           onCancel={() => {
             ocrAbort.current?.abort();
             setOcrRunning(false);
@@ -6938,7 +6946,10 @@ export default function PdfWorkspace({
                 skipPagesWithText: v.skipPagesWithText,
                 signal: abort.signal,
                 onProgress: setOcrProgress,
+                resume: ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : undefined,
               });
+              ocrPartial.current = null;
+              setOcrResumable(0);
               const words = results.reduce((n, r) => n + r.words.length, 0);
               const suspects = results.reduce((n, r) => n + r.words.filter((w) => w.suspect).length, 0);
               if (!words) {
@@ -6990,8 +7001,22 @@ export default function PdfWorkspace({
               );
             } catch (e) {
               setOcrRunning(false);
-              if (e instanceof Error && e.name === "OcrCancelled") {
-                toast("info", "Reconnaissance interrompue", "Le document n'a pas été modifié.");
+              if (e instanceof OcrCancelled) {
+                const kept = new Map(
+                  ocrPartial.current?.bytes === bytesRef.current ? ocrPartial.current.pages : [],
+                );
+                for (const r of e.partial) if (r.words.length) kept.set(r.page, r);
+                if (bytesRef.current && kept.size) {
+                  ocrPartial.current = { bytes: bytesRef.current, pages: kept };
+                  setOcrResumable(kept.size);
+                }
+                toast(
+                  "info",
+                  "Reconnaissance interrompue",
+                  kept.size
+                    ? `Le document n'a pas été modifié. ${kept.size} page(s) déjà reconnue(s) sont conservées : relancez pour reprendre.`
+                    : "Le document n'a pas été modifié.",
+                );
                 return;
               }
               toast("danger", "La reconnaissance a échoué.", e instanceof Error ? e.message : undefined);

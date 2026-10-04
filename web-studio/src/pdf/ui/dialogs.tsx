@@ -1291,6 +1291,8 @@ export function OcrDialog({
   localModels,
   running,
   progress,
+  resumable = 0,
+  onDiscardResume,
   onConfirm,
   onCancel,
   onClose,
@@ -1299,6 +1301,9 @@ export function OcrDialog({
   localModels: boolean;
   running: boolean;
   progress: { page: number; total: number; stage: string; ratio: number } | null;
+  /** Pages kept from an interrupted run: the next run resumes from them. */
+  resumable?: number;
+  onDiscardResume?: () => void;
   onConfirm: (v: { languages: OcrLanguage[]; dpi: number; range: string; skipPagesWithText: boolean }) => void;
   onCancel: () => void;
   onClose: () => void;
@@ -1327,7 +1332,7 @@ export function OcrDialog({
               disabled={!languages.length}
               onClick={() => onConfirm({ languages, dpi, range, skipPagesWithText: skip })}
             >
-              Lancer
+              {resumable ? "Reprendre" : "Lancer"}
             </button>
           </>
         )
@@ -1339,12 +1344,25 @@ export function OcrDialog({
           <p>
             Page {progress?.page ?? 0} / {progress?.total ?? 0} — {progress?.stage ?? "préparation"}
           </p>
+          <p className="muted" role="status" aria-live="polite">
+            {progress && progress.total
+              ? `${Math.round((progress.page / progress.total) * 100)} % des pages traitées`
+              : ""}
+          </p>
           <div className="pdfx-bar">
             <span style={{ width: `${Math.round((progress?.ratio ?? 0) * 100)}%` }} />
           </div>
         </div>
       ) : (
         <div className="pdfx-form">
+          {resumable > 0 && (
+            <p role="status" className="pdfx-form__lead">
+              {resumable} page(s) déjà reconnue(s) lors d'une exécution interrompue : elles ne seront pas refaites.{" "}
+              <button className="eb eb--ghost eb--sm" onClick={onDiscardResume}>
+                Tout recommencer
+              </button>
+            </p>
+          )}
           <p className="pdfx-form__lead">
             Ajoute un calque de texte invisible aligné sur l'image : la page reste identique, mais devient
             sélectionnable et cherchable.

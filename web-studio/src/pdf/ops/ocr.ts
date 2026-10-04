@@ -81,6 +81,8 @@ export interface OcrOptions {
   skipPagesWithText: boolean;
   onProgress?: (info: { page: number; total: number; stage: string; ratio: number }) => void;
   signal?: AbortSignal;
+  /** Results of an interrupted run, by 0-based page index: those pages are not recognised again. */
+  resume?: ReadonlyMap<number, OcrPageResult>;
 }
 
 export const DEFAULT_OCR: OcrOptions = {
@@ -178,9 +180,12 @@ interface TesseractLine {
 }
 
 export class OcrCancelled extends Error {
-  constructor() {
+  /** Pages already recognised when the run stopped: kept so the run can be resumed. */
+  readonly partial: OcrPageResult[];
+  constructor(partial: OcrPageResult[] = []) {
     super("Reconnaissance interrompue.");
     this.name = "OcrCancelled";
+    this.partial = partial;
   }
 }
 
@@ -230,10 +235,17 @@ export async function recognise(engine: PdfEngine, options: Partial<OcrOptions> 
     for (const w of workers) scheduler.addWorker(w);
 
     for (let i = 0; i < indices.length; i++) {
-      if (opts.signal?.aborted) throw new OcrCancelled();
+      if (opts.signal?.aborted) throw new OcrCancelled(out.filter(Boolean));
       if (failure) throw failure;
       const index = indices[i]!;
       if (index < 0 || index >= engine.pageCount) continue;
+      const earlier = opts.resume?.get(index);
+      if (earlier) {
+        out[i] = earlier;
+        done++;
+        opts.onProgress?.({ page: done, total: indices.length, stage: "déjà reconnue", ratio: 1 });
+        continue;
+      }
       // Real geometry (the engine may still hold an estimate for this page).
       const info = await engine.pageInfo(index);
       const empty = (): OcrPageResult => ({
@@ -288,13 +300,13 @@ export async function recognise(engine: PdfEngine, options: Partial<OcrOptions> 
         finish(r, "terminé");
       })()
         .catch((e) => {
-          failure ??= opts.signal?.aborted ? new OcrCancelled() : e;
+          failure ??= opts.signal?.aborted ? new OcrCancelled(out.filter(Boolean)) : e;
         })
         .finally(() => void inflight.delete(job));
       inflight.add(job);
     }
     await Promise.all(inflight);
-    if (opts.signal?.aborted) throw new OcrCancelled();
+    if (opts.signal?.aborted) throw new OcrCancelled(out.filter(Boolean));
     if (failure) throw failure;
   } finally {
     opts.signal?.removeEventListener("abort", stop);

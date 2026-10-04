@@ -44,7 +44,10 @@ import {
   Grid3x3,
   Eraser,
 } from "lucide-react";
-import { fontCss, allFontNames, registerCustomFont, DEFAULT_FONT } from "../ui/fonts";
+import { fontCss, allFontNames, DEFAULT_FONT } from "../ui/fonts";
+import { importFontFiles } from "../ui/font-library";
+import { useFontsVersion } from "../ui/useFonts";
+import { FONT_ACCEPT } from "../format/embedded-fonts";
 import { useDialogs } from "../ui/dialogs";
 import { createCalc, indexToCol, isError, quoteSheetName, FUNCTIONS } from "./formula";
 import { formatValue, NUM_FORMATS } from "./format";
@@ -178,6 +181,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [validationOpen, setValidationOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
   const [pivotOpen, setPivotOpen] = useState(false);
+  const fontsVersion = useFontsVersion();
   const [fontTick, setFontTick] = useState(0);
 
   const editingRef = useRef(false);
@@ -464,13 +468,19 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     applyStyle({ border: { top: THIN_BORDER, right: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER } });
   const clearBorder = () => applyStyle({ border: undefined });
   const importFont = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+    const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
-    if (!f) return;
-    const name = f.name.replace(/\.(ttf|otf)$/i, "");
-    registerCustomFont(name, new Uint8Array(await f.arrayBuffer()));
+    if (!files.length) return;
+    const out = await importFontFiles(files);
     setFontTick((t) => t + 1);
-    applyStyle({ fontFamily: name });
+    const first = out.added[0] ?? out.duplicates[0];
+    if (first) applyStyle({ fontFamily: first });
+    if (out.rejected.length) {
+      await dialogs.alert({
+        title: "Police non importée",
+        message: out.rejected.map((r) => `${r.file} — ${r.reason}`).join("\n"),
+      });
+    }
   };
   const clearRange = () => store.clearRange(active, selRect);
 
@@ -852,7 +862,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
 
             <Group title="Police">
               <select
-                key={`ff-${fontTick}`}
+                key={`ff-${fontTick}-${fontsVersion}`}
                 className="elx-select elx-select--font"
                 title="Police"
                 aria-label="Police"
@@ -870,7 +880,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 title="Importer une police (.ttf/.otf)"
                 onClick={() => fontInputRef.current?.click()}
               />
-              <input ref={fontInputRef} type="file" accept=".ttf,.otf" hidden onChange={importFont} />
+              <input ref={fontInputRef} type="file" accept={FONT_ACCEPT} multiple hidden onChange={importFont} />
               <select
                 className="elx-select elx-select--size"
                 title="Taille de police"

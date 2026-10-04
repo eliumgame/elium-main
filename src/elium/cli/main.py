@@ -5,6 +5,7 @@ import os
 import sys
 import uuid
 
+from elium.cli import keys as keys_cli
 from elium.core.container import EliumContainer
 from elium.core.exceptions import EliumError, EliumFormatError, EliumSecurityError
 from elium.crypto.primitives import load_private_key, load_public_key
@@ -24,6 +25,19 @@ from elium.format.package import (
 )
 from elium.format.profiles import PROFILES, VALID_PROFILES
 from elium.format.proof import create_proof, verify_proof
+
+
+def _recipient_key(args: argparse.Namespace) -> str | None:
+    """Clé privée de réception : depuis le trousseau (--recipient-kid, recommandé) ou,
+    en repli DÉPRÉCIÉ, passée en clair sur la ligne de commande (--recipient-key)."""
+    kid = getattr(args, "recipient_kid", None)
+    if kid:
+        return keys_cli.load_private(kid)
+    raw = getattr(args, "recipient_key", None)
+    if raw:
+        keys_cli.warn_deprecated_private_arg("--recipient-key")
+    return raw
+
 
 # --- Legacy v3 container -------------------------------------------------
 
@@ -123,7 +137,7 @@ def cmd_doc_open(args: argparse.Namespace) -> None:
     with open(args.file, "rb") as f:
         blob = f.read()
     password = args.password
-    rkey = getattr(args, "recipient_key", None)
+    rkey = _recipient_key(args)
     try:
         result = read_elium(blob, password=password, recipient_private_hex=rkey)
     except EliumPasswordRequired:
@@ -159,7 +173,7 @@ def cmd_doc_verify(args: argparse.Namespace) -> None:
     with open(args.file, "rb") as f:
         blob = f.read()
     password = args.password
-    rkey = getattr(args, "recipient_key", None)
+    rkey = _recipient_key(args)
     try:
         result = read_elium(blob, password=password, recipient_private_hex=rkey, trusted_key_hex=args.trusted)
     except EliumPasswordRequired:
@@ -210,7 +224,7 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
     with open(args.file, "rb") as f:
         blob = f.read()
     password = args.password
-    rkey = getattr(args, "recipient_key", None)
+    rkey = _recipient_key(args)
     keyfile = None
     if getattr(args, "keyfile", None):
         with open(args.keyfile, "rb") as f:
@@ -320,6 +334,7 @@ def cmd_doc_sign(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="elium", description="Elium — format documentaire & conteneur sécurisé")
     sub = parser.add_subparsers(dest="command", required=True)
+    keys_cli.register(sub)
 
     p = sub.add_parser("create", help="[legacy] Créer un conteneur chiffré .elium (v3)")
     p.add_argument("--input", required=True)
@@ -353,7 +368,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p.add_argument("--password")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
-                   help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
+                   help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
+    p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
+                   help="Clé de réception du trousseau (`elium keys list`) ; le mot de passe est demandé sans écho")
     p.add_argument("--text", action="store_true", help="Afficher le contenu texte")
     p.set_defaults(func=cmd_doc_open)
 
@@ -366,7 +383,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--password", help="Mot de passe (documents chiffrés)")
     p.add_argument("--keyfile", help="Fichier-clé (documents protégés par keyfile)")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
-                   help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
+                   help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
+    p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
+                   help="Clé de réception du trousseau (`elium keys list`) ; le mot de passe est demandé sans écho")
     p.add_argument("--seal-key", dest="seal_key",
                    help="Fichier avec la clé privée Ed25519 (hex) pour re-sceller le document")
     p.add_argument("--output", help="Fichier de sortie (défaut : réécrit le fichier d'entrée)")
@@ -376,7 +395,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p.add_argument("--password")
     p.add_argument("--recipient-key", dest="recipient_key", metavar="PRIVHEX",
-                   help="Clé privée P-256 (hex) de réception, pour un document multi-destinataires")
+                   help="[DÉPRÉCIÉ] Clé privée P-256 (hex) en clair en argument ; préférez --recipient-kid")
+    p.add_argument("--recipient-kid", dest="recipient_kid", metavar="KID",
+                   help="Clé de réception du trousseau (`elium keys list`) ; le mot de passe est demandé sans écho")
     p.add_argument("--trusted", help="Clé publique de confiance (hex) pour l'attribution")
     p.add_argument("--report", help="Écrire un rapport de preuve JSON")
     p.set_defaults(func=cmd_doc_verify)

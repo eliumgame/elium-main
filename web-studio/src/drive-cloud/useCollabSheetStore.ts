@@ -226,6 +226,19 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     const ys = sheetAt(s);
     if (ys) SM.reconcileSheet(ydoc, ys, fillRangePure(SM.sheetSnapshot(ys), src, to));
   };
+  const transformSheet = (s: number, fn: (sh: SheetData) => SheetData) => {
+    const ys = sheetAt(s);
+    if (ys) SM.reconcileSheet(ydoc, ys, fn(SM.sheetSnapshot(ys)));
+  };
+  // Une transformation de classeur ne touche que les cellules des feuilles existantes : on réconcilie feuille par feuille.
+  const transformWorkbook = (fn: (w: Workbook) => Workbook) => {
+    const snap: Workbook = { sheets: ySheets.toArray().map((ys) => SM.sheetSnapshot(ys)), active: 0 };
+    const next = fn(snap);
+    next.sheets.forEach((sh, i) => {
+      const ys = sheetAt(i);
+      if (ys && sh !== snap.sheets[i]) SM.reconcileSheet(ydoc, ys, sh);
+    });
+  };
   const growSheet = (s: number, key: "rows" | "cols", by: number) => {
     const ys = sheetAt(s);
     if (ys) SM.growSheet(ydoc, ys, key, by);
@@ -349,6 +362,8 @@ export function useCollabSheetStore({ api, nodeId, nodeKey, user, refetchKey }: 
     renameSheet,
     removeSheet,
     replaceWorkbook,
+    transformSheet,
+    transformWorkbook,
     addSheetFromData,
     setCell,
     clearRange,

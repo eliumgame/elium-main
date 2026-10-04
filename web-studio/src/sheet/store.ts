@@ -64,6 +64,10 @@ export interface SheetStore {
   deleteCol(s: number, at: number): void;
   sortRange(s: number, key: number, region: Rect, dir: 1 | -1, displayOf: (c: number, r: number) => string): void;
   fillRange(s: number, src: Rect, to: { c: number; r: number }): void;
+  /** Applique une transformation pure à la feuille `s` (outils de données, tables…) : identique en local et en collab. */
+  transformSheet(s: number, fn: (sh: SheetData) => SheetData): void;
+  /** Applique une transformation pure à tout le classeur (rechercher/remplacer sur toutes les feuilles). */
+  transformWorkbook(fn: (wb: Workbook) => Workbook): void;
   /** Agrandit la feuille (boutons collab « + Lignes / + Colonnes »). Optionnel. */
   growSheet?(s: number, key: "rows" | "cols", by: number): void;
 

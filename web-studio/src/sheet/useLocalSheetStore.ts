@@ -261,6 +261,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
   // sheet), discarding the import. Mirrors replaceDeck() in
   // useLocalDeckStore.ts, which already uses `reset()` for the same reason.
   const replaceWorkbook = (next: Workbook) => reset(next);
+  const transformSheet = (s: number, fn: (sh: SheetData) => SheetData) => patchSheet(s, fn);
+  const transformWorkbook = (fn: (w: Workbook) => Workbook) => set((w) => fn(w));
   const addSheetFromData = (data: SheetData): number => {
     const index = wbRef.current.sheets.length;
     set((w) => ({ ...w, sheets: [...w.sheets, data], active: w.sheets.length }));
@@ -279,6 +281,8 @@ export function useLocalSheetStore(initial?: Workbook): LocalSheetStore {
     removeSheet,
     replaceWorkbook,
     addSheetFromData,
+    transformSheet,
+    transformWorkbook,
     setCell,
     clearRange,
     applyStyle,

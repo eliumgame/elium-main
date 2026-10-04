@@ -27,6 +27,7 @@ import {
   PaintBucket,
   Sigma,
   BarChart3,
+  Search,
   ArrowUpNarrowWide,
   ArrowDownNarrowWide,
   Filter,
@@ -52,6 +53,7 @@ import { useDialogs } from "../ui/dialogs";
 import { createCalc, indexToCol, isError, quoteSheetName, FUNCTIONS } from "./formula";
 import { formatValue, NUM_FORMATS } from "./format";
 import SheetChart from "./SheetChart";
+import DataToolsModal from "./DataToolsModal";
 import ChartOptionsPanel, { CHART_TYPE_LABELS } from "./ChartOptionsPanel";
 import { expandForMerges, pageJump, rowOffsets, scrollTopToReveal, spacers, windowFor } from "./virtual";
 import CondFormatModal from "./CondFormatModal";
@@ -183,6 +185,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [validationOpen, setValidationOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
   const [pivotOpen, setPivotOpen] = useState(false);
+  const [dataToolsOpen, setDataToolsOpen] = useState<null | "find" | "dedupe" | "split">(null);
   const fontsVersion = useFontsVersion();
   const [fontTick, setFontTick] = useState(0);
 
@@ -1075,6 +1078,11 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 active={!!sheet?.filter}
                 onClick={applyFilter}
               />
+              <Cmd
+                icon={<Search size={15} />}
+                title="Outils de données : rechercher/remplacer (regex), doublons, texte en colonnes"
+                onClick={() => setDataToolsOpen("find")}
+              />
             </Group>
 
             <Group title="Affichage">
@@ -1512,6 +1520,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         />
       )}
 
+      {dataToolsOpen && (
+        <DataToolsModal
+          store={store}
+          active={active}
+          rect={selRect}
+          rangeLabel={rangeLabel}
+          initialTab={dataToolsOpen}
+          onClose={() => setDataToolsOpen(null)}
+        />
+      )}
       {pivotOpen && (
         <PivotModal
           headers={pivotHeaders()}

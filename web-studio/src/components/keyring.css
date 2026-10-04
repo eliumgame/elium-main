@@ -94,7 +94,7 @@
   font-size: 13px;
 }
 .keyring__checklist li.is-done svg {
-  color: var(--el-green-600, #16a34a);
+  color: var(--el-green-600);
 }
 .keyring__sub {
   display: flex;

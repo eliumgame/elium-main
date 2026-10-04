@@ -3559,8 +3559,16 @@
    lignes inégales. */
 .fontdrop__actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+.fontdrop__actions > :first-child {
+  grid-column: 1 / -1;
+}
+@media (max-width: 420px) {
+  .fontdrop__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .fontdrop__actions .eb {
   justify-content: center;

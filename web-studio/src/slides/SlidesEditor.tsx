@@ -99,6 +99,8 @@ import SlideCanvas, { themeDefaultBg } from "./canvas";
 import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
+import SlideSorter from "./SlideSorter";
+import { firstPlayableFrom, nextPlayable } from "./sections";
 import type { DeckPeer, DeckStore } from "./store";
 import "./slides.css";
 
@@ -382,24 +384,31 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   // --- presenter step navigation (reveals element animations, then advances) ---
   const stepsOf = (i: number) => maxStep(deck.slides[i]?.anims);
   const goNext = () => {
+    // Les diapositives masquées sont sautées en diaporama.
+    const nx = nextPlayable(deck.slides, presentIdx, 1);
     if (presentStep < stepsOf(presentIdx)) setPresentStep(presentStep + 1);
-    else if (presentIdx < deck.slides.length - 1) {
-      setPresentIdx(presentIdx + 1);
+    else if (nx !== null) {
+      setPresentIdx(nx);
       setPresentStep(0);
     }
   };
   const goPrev = () => {
+    const pv = nextPlayable(deck.slides, presentIdx, -1);
     if (presentStep > 0) setPresentStep(presentStep - 1);
-    else if (presentIdx > 0) {
-      const p = presentIdx - 1;
-      setPresentIdx(p);
-      setPresentStep(stepsOf(p));
+    else if (pv !== null) {
+      setPresentIdx(pv);
+      setPresentStep(stepsOf(pv));
     }
   };
   const startPresent = () => {
-    prevIdxRef.current = activeIdx;
+    const from = firstPlayableFrom(deck.slides, activeIdx);
+    if (from === null) {
+      void dialogs.alert({ title: "Aucune diapositive à projeter", message: "Toutes les diapositives sont masquées." });
+      return;
+    }
+    prevIdxRef.current = from;
     setMorphFrom(null);
-    setPresentIdx(activeIdx);
+    setPresentIdx(from);
     setPresentStep(0);
     setPresenting(true);
   };
@@ -1287,6 +1296,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               >
                 <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
                   <span className="slide-thumb__num">{i + 1}</span>
+                  {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
                   <span className="sv-thumb__canvas">
                     <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={90 / REF_H} />
                   </span>
@@ -1375,7 +1385,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 )}
               </div>
               <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>
-                <GalleryVerticalEnd size={13} /> Gérer
+                <GalleryVerticalEnd size={13} /> Trieuse
               </button>
             </div>
           )}
@@ -1535,7 +1545,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
 
       {managerOpen && (
         <Modal
-          title="Gérer les diapositives"
+          title="Trieuse de diapositives"
           onClose={() => setManagerOpen(false)}
           wide
           footer={
@@ -1544,47 +1554,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             </Button>
           }
         >
-          <div className="sv-manager">
-            {deck.slides.map((s, i) => (
-              <div key={s.id} className={`sv-manager__row ${i === activeIdx ? "is-active" : ""}`}>
-                <button
-                  className="sv-manager__preview"
-                  title="Aller à cette diapositive"
-                  onClick={() => {
-                    store.setActive(i);
-                    setManagerOpen(false);
-                  }}
-                >
-                  <span className="sv-manager__num">{i + 1}</span>
-                  <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={160 / REF_H} />
-                </button>
-                <div className="sv-manager__actions">
-                  <button className="icon-btn" title="Monter" disabled={i === 0} onClick={() => store.moveSlide(i, -1)}>
-                    <ArrowUp size={15} />
-                  </button>
-                  <button
-                    className="icon-btn"
-                    title="Descendre"
-                    disabled={i === deck.slides.length - 1}
-                    onClick={() => store.moveSlide(i, 1)}
-                  >
-                    <ArrowDown size={15} />
-                  </button>
-                  <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
-                    <Copy size={15} />
-                  </button>
-                  <button
-                    className="icon-btn icon-btn--danger"
-                    title="Supprimer"
-                    disabled={deck.slides.length <= 1}
-                    onClick={() => store.removeSlide(i)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <SlideSorter store={store} theme={theme} onClose={() => setManagerOpen(false)} />
         </Modal>
       )}
 
@@ -1595,8 +1565,8 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           const steps = maxStep(cur?.anims);
           const reveal = revealAt(curEls, cur?.anims, presentStep);
           const trans = cur ? (cur.transition ?? deck.transition ?? "none") : "none";
-          const atStart = presentIdx === 0 && presentStep === 0;
-          const atEnd = presentIdx === deck.slides.length - 1 && presentStep >= steps;
+          const atStart = nextPlayable(deck.slides, presentIdx, -1) === null && presentStep === 0;
+          const atEnd = nextPlayable(deck.slides, presentIdx, 1) === null && presentStep >= steps;
           const presentScale =
             (typeof window !== "undefined" ? (Math.min(window.innerWidth * 0.9, 1100) * 9) / 16 : 620) / REF_H;
           const morphing = morphFrom != null && !!deck.slides[morphFrom];

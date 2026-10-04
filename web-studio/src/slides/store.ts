@@ -53,6 +53,12 @@ export interface DeckStore {
   duplicateSlide(i: number): void;
   /** Patch the active slide (notes, background, layout…). `commit` gates undo history. */
   patchSlide(patch: Partial<Slide>, commit?: boolean): void;
+  /** Patch the slide at index `i` (sorter: hide/show, layout…), without changing the active slide. */
+  patchSlideAt(i: number, patch: Partial<Slide>): void;
+  /** Move slide `from` so it ends at index `to` (drag & drop in the sorter). Keeps section anchors coherent. */
+  reorderSlide(from: number, to: number): void;
+  /** Replace the slide list wholesale after a bulk reorder (move a whole section). */
+  setSlideOrder(ids: string[]): void;
 
   // --- element operations (act on the active slide) ---
   updateEl(id: string, patch: Partial<SlideElement>, commit?: boolean): void;

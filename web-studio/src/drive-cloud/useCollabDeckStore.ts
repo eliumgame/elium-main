@@ -17,13 +17,20 @@ import {
   blankSlide,
   emptySlide,
   newSlideId,
-  newElementId,
   type Deck,
   type Slide,
   type SlideElement,
+  type SlideMaster,
+  type SlideSection,
   type SlideTheme,
   type SlideTransition,
 } from "../slides/model";
+import {
+  cloneSlide,
+  normalizeSections,
+  removeSlideKeepingSections,
+  reorderSlide as reorderSlideList,
+} from "../slides/sections";
 import {
   slideToY,
   yToSlide,
@@ -63,6 +70,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const [slides, setSlides] = useState<Slide[]>([]);
   const [theme, setTheme] = useState<SlideTheme>("light");
   const [transition, setTransition] = useState<SlideTransition>("fade");
+  const [sections, setSections] = useState<SlideSection[] | undefined>(undefined);
+  const [master, setMaster] = useState<SlideMaster | undefined>(undefined);
   const [active, setActiveState] = useState(0);
   const [peers, setPeers] = useState<DeckPeer[]>([]);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
@@ -92,6 +101,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     setSlides(arr ? arr.toArray().map(yToSlide) : []);
     setTheme((deckMap.get("theme") as SlideTheme) ?? "light");
     setTransition((deckMap.get("transition") as SlideTransition) ?? "fade");
+    setSections((deckMap.get("sections") as SlideSection[] | undefined) ?? undefined);
+    setMaster((deckMap.get("master") as SlideMaster | undefined) ?? undefined);
   };
 
   useEffect(() => {
@@ -213,6 +224,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     ydoc.transact(() => {
       if (patch.theme !== undefined) deckMap.set("theme", patch.theme);
       if (patch.transition !== undefined) deckMap.set("transition", patch.transition);
+      if ("sections" in patch) deckMap.set("sections", patch.sections ?? []);
+      if ("master" in patch && patch.master) deckMap.set("master", patch.master);
     });
   };
   // Whole-document replacement (file import): must clear undo history, not
@@ -243,6 +256,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
       );
       deckMap.set("theme", d.theme ?? "light");
       deckMap.set("transition", d.transition ?? "fade");
+      deckMap.set("sections", d.sections ?? []);
+      if (d.master) deckMap.set("master", d.master);
     });
     undoMgr.clear();
     setActiveState(0);
@@ -271,38 +286,84 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     ydoc.transact(() => ySlides().insert(activeRef.current + 1, [slideToY(slide)]));
     setActiveState((a) => a + 1);
   };
+  const currentSections = (): SlideSection[] | undefined =>
+    (deckMap.get("sections") as SlideSection[] | undefined) ?? undefined;
   const removeSlide = (i: number) => {
     if (!writable) return;
     const arr = ySlides();
     if (arr.length <= 1) return;
-    ydoc.transact(() => arr.delete(i, 1));
-    setActiveState((a) => Math.max(0, Math.min(a, arr.length - 2)));
-  };
-  const moveSlide = (i: number, dir: -1 | 1) => {
-    if (!writable) return;
-    const j = i + dir;
-    const arr = ySlides();
-    if (j < 0 || j >= arr.length) return;
-    const s = yToSlide(arr.get(i));
+    const list = arr.toArray().map(yToSlide);
+    const r = removeSlideKeepingSections(list, currentSections(), i);
     ydoc.transact(() => {
       arr.delete(i, 1);
-      arr.insert(j, [slideToY(s)]);
+      if (currentSections()) deckMap.set("sections", r.sections);
     });
+    setActiveState((a) => Math.max(0, Math.min(a, arr.length - 1)));
+  };
+  /** Déplace la diapositive `from` vers `to` (ré-insertion d'une copie sérialisée) en gardant les ancres de sections cohérentes. */
+  const reorderSlide = (from: number, to: number) => {
+    if (!writable) return;
+    const arr = ySlides();
+    if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return;
+    const list = arr.toArray().map(yToSlide);
+    const activeId = list[activeRef.current]?.id;
+    const r = reorderSlideList(list, currentSections(), from, to);
+    ydoc.transact(() => {
+      arr.delete(from, 1);
+      arr.insert(to, [slideToY(list[from]!)]);
+      if (currentSections()) deckMap.set("sections", r.sections);
+    });
+    setActiveState(Math.max(0, r.slides.findIndex((s) => s.id === activeId)));
+  };
+  const moveSlide = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= ySlides().length) return;
+    reorderSlide(i, j);
     setActiveState(j);
+  };
+  const setSlideOrder = (ids: string[]) => {
+    if (!writable) return;
+    const arr = ySlides();
+    const list = arr.toArray().map(yToSlide);
+    const byId = new Map(list.map((s) => [s.id, s]));
+    const ordered = ids.map((id) => byId.get(id)).filter((s): s is Slide => !!s);
+    if (ordered.length !== list.length) return;
+    const activeId = list[activeRef.current]?.id;
+    ydoc.transact(() => {
+      arr.delete(0, arr.length);
+      arr.push(ordered.map(slideToY));
+      if (currentSections()) deckMap.set("sections", normalizeSections(ordered, currentSections()));
+    });
+    setActiveState(Math.max(0, ordered.findIndex((s) => s.id === activeId)));
+  };
+  const patchSlideAt = (i: number, patch: Partial<Slide>) => {
+    if (!writable) return;
+    const m = slideAt(i);
+    if (!m) return;
+    ydoc.transact(() => {
+      for (const [k, v] of Object.entries(patch)) {
+        if (k === "elements" || k === "shapes") continue;
+        if (v === undefined || v === false) m.delete(k);
+        else if (SLIDE_TEXT_FIELDS.has(k) && typeof v === "string") syncYText(ensureYText(m, k), v);
+        else m.set(k, v as unknown);
+      }
+    });
   };
   const duplicateSlide = (i: number) => {
     if (!writable) return;
-    const s = yToSlide(ySlides().get(i));
-    const dup: Slide = {
-      ...s,
-      id: newSlideId(),
-      elements: (s.elements ?? []).map((e) => ({ ...e, id: newElementId(), morphKey: e.morphKey ?? e.id })),
-    };
+    const dup = cloneSlide(yToSlide(ySlides().get(i)));
     ydoc.transact(() => ySlides().insert(i + 1, [slideToY(dup)]));
     setActiveState(i + 1);
   };
 
-  const deck: Deck = { slides, active, theme, transition };
+  const deck: Deck = {
+    slides,
+    active,
+    theme,
+    transition,
+    ...(sections ? { sections } : {}),
+    ...(master ? { master } : {}),
+  };
 
   return {
     deck,
@@ -318,6 +379,9 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
     moveSlide,
     duplicateSlide,
     patchSlide,
+    patchSlideAt,
+    reorderSlide,
+    setSlideOrder,
     updateEl,
     addEl,
     removeEl,

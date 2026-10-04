@@ -37,13 +37,44 @@ export interface Shape {
 export const REF_W = 1280;
 export const REF_H = 720;
 
-export type ElementType = "text" | "shape" | "image" | "table" | "chart";
+export type ElementType = "text" | "shape" | "image" | "table" | "chart" | "media" | "diagram";
 /** Chart kinds — mirrors the Tableur `ChartType` so a slide chart reuses SheetChart. */
 export type ChartKind = "bar" | "line" | "pie";
+/** Fusion de cellules : la cellule (r,c) occupe rs lignes × cs colonnes ; les cellules couvertes sont ignorées. */
+export interface TableMerge {
+  r: number;
+  c: number;
+  rs: number;
+  cs: number;
+}
+export type TableStyleName = "plain" | "banded" | "grid" | "accent";
 export interface TableData {
   rows: number;
   cols: number;
   cells: string[][];
+  merges?: TableMerge[];
+  /** Style de tableau : lignes alternées, quadrillage, en-tête coloré… (défaut : "banded"). */
+  style?: TableStyleName;
+  headerRow?: boolean; // 1re ligne = en-tête (défaut : oui)
+  firstCol?: boolean; // 1re colonne en gras
+}
+/** Média audio/vidéo intégré (data URL) : lecture hors ligne, rognage, lecture au clic. */
+export interface MediaData {
+  kind: "audio" | "video";
+  src: string; // data URL (embarqué dans le .elium)
+  mime: string;
+  name?: string;
+  trimStart?: number; // secondes
+  trimEnd?: number; // secondes (0/absent = jusqu'à la fin)
+  autoplay?: boolean; // démarre dès l'apparition de la diapositive en diaporama ; sinon au clic
+  loop?: boolean;
+}
+export type DiagramKind = "process" | "cycle" | "hierarchy" | "list";
+/** Diagramme de type SmartArt : généré à partir d'un plan (une ligne par nœud, retrait = niveau). */
+export interface DiagramData {
+  kind: DiagramKind;
+  outline: string;
+  colors?: string[];
 }
 export interface ChartData {
   kind: ChartKind;
@@ -74,6 +105,8 @@ export interface SlideElement {
    *  Duplicating a slide preserves it (while minting a fresh `id`), so a
    *  duplicate-then-nudge morph pairs elements even though ids differ. */
   morphKey?: string;
+  /** Élément issu d'un espace réservé de la disposition (titre, corps, pied de page, numéro). */
+  ph?: PlaceholderKind;
   // text
   html?: string; // rich text (sanitised HTML)
   fontSize?: number; // px at REF_H reference height
@@ -93,6 +126,8 @@ export interface SlideElement {
   // table / chart (reuse the Tableur engine)
   table?: TableData;
   chart?: ChartData;
+  media?: MediaData;
+  diagram?: DiagramData;
 }
 
 /** Entrance-animation effects available per element. */
@@ -130,6 +165,51 @@ export interface Slide {
   anims?: SlideAnim[]; // element animations
   /** Diapositive masquée : ignorée en diaporama/présentateur, conservée dans l'éditeur et l'export. */
   hidden?: boolean;
+  /** Disposition du masque (deck.master.layouts[].id) appliquée à cette diapositive. */
+  layoutId?: string;
+}
+
+/** Section de présentation : commence à la diapositive `startSlideId` et court jusqu'à la section suivante. */
+export interface SlideSection {
+  id: string;
+  name: string;
+  startSlideId: string;
+  collapsed?: boolean;
+}
+
+/** Rôle d'un espace réservé de disposition (placeholder). */
+export type PlaceholderKind = "title" | "body" | "footer" | "slideNumber";
+
+/** Espace réservé d'une disposition : géométrie en % du canevas + style de texte. */
+export interface LayoutPlaceholder {
+  id: string;
+  kind: PlaceholderKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fontSize: number; // px à REF_H
+  align: "left" | "center" | "right";
+  valign: "top" | "middle" | "bottom";
+  bold?: boolean;
+}
+export interface SlideLayoutDef {
+  id: string;
+  name: string;
+  placeholders: LayoutPlaceholder[];
+  background?: string;
+}
+/** Masque des diapositives : thème (polices/couleurs) + dispositions réutilisables. */
+export interface SlideMaster {
+  name: string;
+  fontHeading: string;
+  fontBody: string;
+  colorTitle: string;
+  colorBody: string;
+  colorAccent: string;
+  background: string;
+  footerText: string;
+  layouts: SlideLayoutDef[];
 }
 
 export interface Deck {
@@ -137,6 +217,8 @@ export interface Deck {
   active: number;
   theme?: SlideTheme;
   transition?: SlideTransition; // default entrance transition for the deck
+  sections?: SlideSection[];
+  master?: SlideMaster;
 }
 
 export function newSlideId(): string {

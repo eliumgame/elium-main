@@ -2,7 +2,7 @@
 # PyInstaller est ÉPINGLÉ : certaines versions du bootloader ont été associées à des pics de
 # faux positifs antivirus (Windows Defender). Ne bumper qu'après vérification.
 -r runtime.in
-pyinstaller==6.21.0
+pyinstaller==6.22.3
 pytest>=7.0
 # SBOM CycloneDX des dépendances Python embarquées (étape « SBOM Python » du workflow de release).
 cyclonedx-bom

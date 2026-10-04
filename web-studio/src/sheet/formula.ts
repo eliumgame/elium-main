@@ -18,6 +18,7 @@
  * LET / LAMBDA (direct call, via LET, or passed to MAP…) are supported through
  * a scope carried by the resolver. Matrix functions live in formula-dyn.ts.
  */
+import { expandStructuredRefs, type TableDef } from "./tables";
 import { DYN_FUNCS, ARRAY_RETURNING, dynFunction, isMat, toMat, type Matrix } from "./formula-dyn";
 
 export type CellError = { error: string };
@@ -1837,6 +1838,8 @@ export function createCalc(
    * matriciel prennent leurs valeurs, ou l'ancre affiche #SPILL! si une cellule est occupée.
    */
   refsOf?: (ctx: string | null) => Iterable<string>,
+  /** Tableaux nommés du classeur + nom de la feuille active : active les références structurées (Tableau1[Col]). */
+  structured?: { tables: TableDef[]; sheet: string },
 ) {
   const cache = new Map<string, CellValue>();
   const visiting = new Set<string>();
@@ -1849,9 +1852,16 @@ export function createCalc(
   const rawIn = (ctx: string | null, ref: string): string | undefined =>
     ctx === null ? getRaw(ref) : cross?.getSheetRaw(ctx, ref);
 
-  const bodyOf = (raw: string): string => (names ? applyNamedRanges(raw.slice(1), names) : raw.slice(1));
-  function astOf(raw: string): Node {
-    const body = bodyOf(raw);
+  const bodyOf = (raw: string, ctx: string | null, ref: string): string => {
+    let b = raw.slice(1);
+    if (structured?.tables.length) {
+      const p = parseRef(ref.toUpperCase());
+      b = expandStructuredRefs(b, structured.tables, ctx ?? structured.sheet, p ? p.row : null);
+    }
+    return names ? applyNamedRanges(b, names) : b;
+  };
+  function astOf(raw: string, ctx: string | null, ref: string): Node {
+    const body = bodyOf(raw, ctx, ref);
     let n = parsed.get(body);
     if (!n) {
       n = parseFormula(tokenize(body));
@@ -1872,7 +1882,7 @@ export function createCalc(
       const p = parseRef(ref.toUpperCase());
       if (!p) continue;
       try {
-        if (!producesArray(astOf(raw))) continue;
+        if (!producesArray(astOf(raw, ctx, ref))) continue;
       } catch {
         continue;
       }
@@ -1941,7 +1951,7 @@ export function createCalc(
           if (region) return region;
           return isError(first) ? null : [[first]];
         };
-        const v = evalV(astOf(raw), resolve);
+        const v = evalV(astOf(raw, ctx, ref), resolve);
         if (isLam(v)) return { error: "#CALC" };
         if (isMat(v)) {
           if (v.m.length === 1 && v.m[0].length === 1) return v.m[0][0];

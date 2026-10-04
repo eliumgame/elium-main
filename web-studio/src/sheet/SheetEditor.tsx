@@ -54,6 +54,7 @@ import { createCalc, indexToCol, isError, quoteSheetName, FUNCTIONS } from "./fo
 import { formatValue, NUM_FORMATS } from "./format";
 import SheetChart from "./SheetChart";
 import DataToolsModal from "./DataToolsModal";
+import { tableDefs, tableCellLook } from "./tables";
 import ChartOptionsPanel, { CHART_TYPE_LABELS } from "./ChartOptionsPanel";
 import { expandForMerges, pageJump, rowOffsets, scrollTopToReveal, spacers, windowFor } from "./virtual";
 import CondFormatModal from "./CondFormatModal";
@@ -225,6 +226,7 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       nameMap.size ? (name: string) => nameMap.get(name) : undefined,
       // Énumération des cellules non vides : active le débordement des formules tableau.
       (ctx) => Object.keys((ctx === null ? cur : byName[ctx])?.cells ?? {}),
+      { tables: tableDefs(wb.sheets), sheet: cur?.name ?? "" },
     );
   }, [wb, active]);
   // Une cellule vide recouverte par un résultat matriciel (spill) affiche sa valeur calculée.
@@ -1337,12 +1339,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           .join(" ");
                         const showHandle = canWrite && c === c1 && r === r1 && !editing;
                         const cf = condFmt(c, r);
+                        const look = tableCellLook(sheet, c, r);
                         const cellStyle: React.CSSProperties = {
-                          fontWeight: cf.fontWeight ?? (st?.bold ? 700 : undefined),
+                          fontWeight: cf.fontWeight ?? (st?.bold || look?.header ? 700 : undefined),
                           fontStyle: st?.italic ? "italic" : undefined,
                           textAlign: st?.align,
-                          color: cf.color ?? st?.color,
-                          background: cf.background ?? st?.fill,
+                          color: cf.color ?? st?.color ?? (look?.header ? "#ffffff" : undefined),
+                          background:
+                            cf.background ??
+                            st?.fill ??
+                            (look?.header ? look.color : look?.band ? `${look.color}1f` : undefined),
                           fontFamily: st?.fontFamily ? fontCss(st.fontFamily) : undefined,
                           fontSize: st?.fontSize ? `${st.fontSize}px` : undefined,
                           borderTop: borderCss(st?.border?.top),

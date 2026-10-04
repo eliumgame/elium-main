@@ -28,6 +28,7 @@ import {
   type BorderSide,
   type BorderStyle,
   type NamedRange,
+  type SheetTable,
 } from "./model";
 
 function parseXml(bytes: Uint8Array | undefined): Document | null {
@@ -847,6 +848,34 @@ function parseSheetComments(zip: Record<string, Uint8Array>, sheetPath: string):
   return out;
 }
 
+/** Tableaux nommés (xl/tables/tableN.xml) d'une feuille, via ses relations de type …/table. */
+function parseSheetTables(zip: Record<string, Uint8Array>, sheetPath: string): SheetTable[] {
+  const relsDoc = parseXml(zip[relsPathOf(sheetPath)]);
+  if (!relsDoc) return [];
+  const out: SheetTable[] = [];
+  const rels = relsDoc.getElementsByTagName("Relationship");
+  for (let i = 0; i < rels.length; i++) {
+    if (!(rels[i].getAttribute("Type") ?? "").endsWith("/table")) continue;
+    const target = rels[i].getAttribute("Target");
+    if (!target) continue;
+    const doc = parseXml(zip[resolvePath(sheetPath.replace(/\/[^/]+$/, ""), target)]);
+    const el = doc?.getElementsByTagName("table")[0];
+    const ref = el?.getAttribute("ref");
+    const name = el?.getAttribute("displayName") || el?.getAttribute("name");
+    const r = ref ? parseRangeRef(ref) : null;
+    if (!el || !r || !name) continue;
+    const info = doc!.getElementsByTagName("tableStyleInfo")[0];
+    out.push({
+      id: newId("tbl"),
+      name,
+      ...r,
+      banded: info ? info.getAttribute("showRowStripes") !== "0" : true,
+      ...(Number(el.getAttribute("totalsRowCount")) > 0 ? { totals: true } : {}),
+    });
+  }
+  return out;
+}
+
 /** Resolve a worksheet's drawing → chart parts into ChartSpecs (empty when the sheet has no drawing). */
 function parseSheetCharts(zip: Record<string, Uint8Array>, sheetPath: string, sheetDoc: Document): ChartSpec[] {
   const drawingRid = sheetDoc.getElementsByTagName("drawing")[0]?.getAttribute("r:id");
@@ -1036,8 +1065,10 @@ export function importXlsx(bytes: Uint8Array): Workbook {
     if (!doc) return sh;
     const charts = parseSheetCharts(zip, path, doc);
     const notes = parseSheetComments(zip, path);
+    const tables = parseSheetTables(zip, path);
     return {
       ...sh,
+      ...(tables.length ? { tables } : {}),
       ...(charts.length ? { charts } : {}),
       ...(Object.keys(notes).length ? { notes } : {}),
     };

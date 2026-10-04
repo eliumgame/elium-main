@@ -30,6 +30,8 @@ import { zipSync, strToU8 } from "fflate";
 import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
 import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
+import { formulaForFile } from "./xlsx-formula";
+import { tableDefs } from "./tables";
 import type {
   Workbook,
   SheetData,
@@ -262,7 +264,7 @@ function cellXml(key: string, raw: string, s: number, literal = false): string {
   const sAttr = s ? ` s="${s}"` : "";
   const text = xmlSafeText(raw);
   if (!literal && text.startsWith("=") && text.length <= MAX_FORMULA) {
-    return `<c r="${key}"${sAttr}><f>${xe(text.slice(1))}</f></c>`;
+    return `<c r="${key}"${sAttr}><f>${xe(formulaForFile(text.slice(1)))}</f></c>`;
   }
   if (isNumeric(text)) {
     return `<c r="${key}"${sAttr}><v>${xe(text.trim())}</v></c>`;
@@ -527,7 +529,7 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
 /** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
 const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
 
-function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false): string {
+function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false, tableRIds: string[] = []): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
@@ -574,6 +576,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
     condFormattingXml(sheet.condFormats, styles) +
     dataValidationXml(sheet.validations) +
     (hasDrawing ? `<drawing r:id="rId1"/>` : "") +
+    (tableRIds.length ? `<tableParts count="${tableRIds.length}">${tableRIds.map((id) => `<tablePart r:id="${id}"/>`).join("")}</tableParts>` : "") +
     `</worksheet>`
   );
 }
@@ -646,6 +649,9 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
   const names = sanitizeNames(wb.sheets);
   const files: Record<string, Uint8Array> = {};
   let chartCounter = 0;
+  let tableCounter = 0;
+  const tableParts: string[] = [];
+  const allTables = tableDefs(wb.sheets);
 
   // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
   // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
@@ -655,7 +661,11 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
     const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0, opts.literalText));
+    const relBase = (charts.length ? 1 : 0) + (notesXml ? 1 : 0);
+    const sheetTables = (sheet.tables ?? []).map((t, k) => ({ t, rId: `rId${relBase + k + 1}`, n: ++tableCounter }));
+    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(
+      sheetXml(sheet, styles, charts.length > 0, opts.literalText, sheetTables.map((x) => x.rId)),
+    );
 
     const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {
@@ -673,6 +683,21 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
       files[`xl/comments${i + 1}.xml`] = strToU8(notesXml);
       sheetRels.push({ id: `rId${sheetRels.length + 1}`, type: T.comments, target: `../comments${i + 1}.xml` });
       commentSheets.push(i);
+    }
+    for (const { t, rId, n } of sheetTables) {
+      const def = allTables.find((d) => d.id === t.id)!;
+      const ref = `${colLetters(t.c0)}${t.r0 + 1}:${colLetters(t.c1)}${t.r1 + 1}`;
+      const cols = def.headers.map((h, k) => `<tableColumn id="${k + 1}" name="${xe(h)}"/>`).join("");
+      files[`xl/tables/table${n}.xml`] = strToU8(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+          `<table xmlns="${NS}" id="${n}" name="${xe(t.name)}" displayName="${xe(t.name)}" ref="${ref}" ${t.totals ? 'totalsRowCount="1"' : 'totalsRowShown="0"'}>` +
+          `<autoFilter ref="${colLetters(t.c0)}${t.r0 + 1}:${colLetters(t.c1)}${(t.totals ? t.r1 - 1 : t.r1) + 1}"/>` +
+          `<tableColumns count="${def.headers.length}">${cols}</tableColumns>` +
+          `<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="${t.banded === false ? 0 : 1}" showColumnStripes="0"/>` +
+          `</table>`,
+      );
+      sheetRels.push({ id: rId, type: `${REL}/table`, target: `../tables/table${n}.xml` });
+      tableParts.push(`<Override PartName="/xl/tables/table${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
     }
     if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
   });
@@ -736,6 +761,7 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
     drawingOverrides +
     chartOverrides +
+    tableParts.join("") +
     commentsOverrides;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +

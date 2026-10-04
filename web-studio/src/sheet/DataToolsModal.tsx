@@ -4,8 +4,9 @@ import { useState } from "react";
 import SheetModal from "./SheetModal";
 import { findAll, removeDuplicates, replaceAll, textToColumns, type FindMatch, type Rect } from "./datatools";
 import type { SheetStore } from "./store";
+import { addTable, removeTable, tableDefs, validTableName } from "./tables";
 
-type Tab = "dedupe" | "split" | "find";
+type Tab = "dedupe" | "split" | "find" | "tables";
 
 const DELIMS: { id: string; label: string; ch: string }[] = [
   { id: "comma", label: "Virgule", ch: "," },
@@ -66,6 +67,22 @@ export default function DataToolsModal({
   const [allSheets, setAllSheets] = useState(true);
   const [matches, setMatches] = useState<FindMatch[]>([]);
 
+  const sheetData = store.wb.sheets[active];
+  const allTableNames = tableDefs(store.wb.sheets).map((t) => t.name);
+  const createTable = () => {
+    if (rect.r1 <= rect.r0) return fail("Sélectionnez au moins deux lignes : la première sert d'en-têtes.");
+    store.transformSheet(active, (sh) => addTable(sh, rect, allTableNames));
+    say("Tableau créé : utilisez Tableau1[Colonne] ou Tableau1[@Colonne] dans les formules.");
+  };
+  const renameTable = (id: string, name: string, old: string) => {
+    const e = validTableName(name, allTableNames, old);
+    if (e) return fail(e);
+    store.transformSheet(active, (sh) => ({
+      ...sh,
+      tables: (sh.tables ?? []).map((t) => (t.id === id ? { ...t, name } : t)),
+    }));
+    say(`Tableau renommé en « ${name} » (les formules existantes ne sont pas réécrites).`);
+  };
   const runDedupe = () => {
     const cols = keyCols.map((on, i) => (on ? rect.c0 + i : -1)).filter((c) => c >= 0);
     if (!cols.length) return fail("Cochez au moins une colonne.");
@@ -154,6 +171,7 @@ export default function DataToolsModal({
             ["find", "Rechercher / remplacer"],
             ["dedupe", "Supprimer les doublons"],
             ["split", "Texte en colonnes"],
+            ["tables", "Tableaux nommés"],
           ] as [Tab, string][]
         ).map(([id, label]) => (
           <button
@@ -230,6 +248,54 @@ export default function DataToolsModal({
               {matches.length > 200 && <li className="elx-empty">… et {matches.length - 200} autres</li>}
             </ul>
           )}
+        </section>
+      )}
+
+      {tab === "tables" && (
+        <section className="dcx-modal__section">
+          <p className="elx-empty">
+            Un tableau nommé donne des références lisibles (Tableau1[Prix]) qui suivent ses colonnes, et des lignes
+            alternées. La première ligne de la sélection ({rangeLabel}) devient la ligne d'en-têtes.
+          </p>
+          <div className="dtools__actions">
+            <button className="elx-mini elx-mini--primary" onClick={createTable} disabled={!writable}>
+              Créer un tableau depuis la sélection
+            </button>
+          </div>
+          <ul className="dtools__list" aria-label="Tableaux de la feuille">
+            {(sheetData?.tables ?? []).map((t) => (
+              <li key={t.id}>
+                <input
+                  aria-label={`Nom du tableau ${t.name}`}
+                  defaultValue={t.name}
+                  disabled={!writable}
+                  onBlur={(e) => e.target.value !== t.name && renameTable(t.id, e.target.value, t.name)}
+                />{" "}
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={t.banded !== false}
+                    disabled={!writable}
+                    onChange={(e) =>
+                      store.transformSheet(active, (sh) => ({
+                        ...sh,
+                        tables: (sh.tables ?? []).map((x) => (x.id === t.id ? { ...x, banded: e.target.checked } : x)),
+                      }))
+                    }
+                  />{" "}
+                  Lignes alternées
+                </label>{" "}
+                <button
+                  className="elx-mini"
+                  disabled={!writable}
+                  onClick={() => store.transformSheet(active, (sh) => removeTable(sh, t.id))}
+                >
+                  Supprimer (garde les données)
+                </button>
+              </li>
+            ))}
+            {!(sheetData?.tables ?? []).length && <li className="elx-empty">Aucun tableau sur cette feuille.</li>}
+          </ul>
         </section>
       )}
 

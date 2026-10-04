@@ -28,6 +28,7 @@ import type { SheetData, Workbook } from "../../sheet/model";
 import { DEFAULT_COL_W } from "../../sheet/model";
 import { createCalc, indexToCol, isError, type CellValue } from "../../sheet/formula";
 import { formatValue } from "../../sheet/format";
+import { tableDefs } from "../../sheet/tables";
 import { FontBook, sanitiseForFont } from "./fonts";
 import type { OcrLine } from "./ocr";
 import { createSourceKind, type CreateSourceKind } from "./create-kinds";
@@ -390,6 +391,7 @@ export function sheetToHtml(wb: Workbook, index: number): { html: string; width:
     { getSheetRaw: (name, ref) => byName[name]?.cells[ref], hasSheet: (name) => name in byName },
     names.size ? (name: string) => names.get(name) : undefined,
     (ctx) => Object.keys((ctx === null ? sheet : byName[ctx])?.cells ?? {}),
+    { tables: tableDefs(wb.sheets), sheet: sheet.name },
   );
   const shown = (ref: string): { text: string; value: CellValue } => {
     if ((sheet.cells[ref] == null || sheet.cells[ref] === "") && calc.spillAnchor(ref) === null) return { text: "", value: "" };

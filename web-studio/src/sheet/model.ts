@@ -135,6 +135,22 @@ export interface MergeRect {
   r1: number;
 }
 
+/** Tableau nommé (liste Excel) : en-têtes sur la ligne r0, données de r0+1 à r1 (ou r1-1 avec ligne de totaux). */
+export interface SheetTable {
+  id: string;
+  name: string;
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number;
+  /** Lignes alternées colorées (défaut : oui). */
+  banded?: boolean;
+  /** Dernière ligne = totaux. */
+  totals?: boolean;
+  /** Couleur d'accent de l'en-tête (#rrggbb). */
+  color?: string;
+}
+
 export interface SheetData {
   name: string;
   rows: number;
@@ -150,6 +166,7 @@ export interface SheetData {
   rowHeights?: Record<number, number>; // row index -> height px (default ROW_H)
   notes?: Record<string, string>; // "A1" -> cell comment text (Excel's classic "notes", not threaded comments)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling
+  tables?: SheetTable[]; // tableaux nommés (références structurées Tableau1[Colonne])
 }
 
 export function newId(prefix: string): string {

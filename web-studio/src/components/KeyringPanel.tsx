@@ -223,6 +223,20 @@ export default function KeyringPanel({ compact = false }: { compact?: boolean })
         )}
       </div>
 
+      {k.osProtectionAvailable && (
+        <label className="secure-toggle">
+          <input type="checkbox" checked={k.osProtected} onChange={(e) => void k.setOsProtection(e.target.checked)} />
+          <span>
+            <strong>Protéger avec Windows</strong>
+            <span className="muted">
+              {" "}
+              — ajoute une couche liée à votre compte Windows sur cet ordinateur, EN PLUS du mot de passe. Illisible sur
+              une autre machine : gardez votre phrase de récupération.
+            </span>
+          </span>
+        </label>
+      )}
+
       <section className="keyring__recovery" aria-labelledby="keyring-recovery-title">
         <h4 id="keyring-recovery-title" className="settings__title">
           <LifeBuoy size={15} /> Préparation à la récupération

@@ -42,6 +42,7 @@ import {
   rotateIdentityKey,
   rotateRecipientKey,
   setKeyExpiry,
+  setOsProtection,
   type KeyEntry,
   type KeyringStore,
   type MasterRecord,
@@ -62,6 +63,7 @@ import {
   type PrfAuthenticator,
 } from "./keyring-passkeys";
 import { rpIdFromOrigin } from "../drive-cloud/prf-unlock";
+import { createLauncherKeystore, osKeystoreAvailable } from "./os-keystore";
 import { encryptPrivateKey } from "../sign/identity-store";
 import { fingerprintOf } from "../sign/keys";
 import { KEY_SUITES } from "./keyfile-v2";
@@ -89,6 +91,10 @@ export interface KeyringController {
   identity: EliumIdentity | null;
   recipientPublic: { publicHex: string; fingerprint: string } | null;
   passkeySupported: boolean;
+  /** Le lanceur expose Windows DPAPI (couche optionnelle). */
+  osProtectionAvailable: boolean;
+  osProtected: boolean;
+  setOsProtection(on: boolean): Promise<boolean>;
 
   lock(): void;
   unlock(): Promise<boolean>;
@@ -163,6 +169,17 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       }),
     [],
   );
+
+  // Couche optionnelle « Protéger avec Windows » (lanceur de bureau uniquement).
+  const os = useMemo(() => createLauncherKeystore(), []);
+  const [osAvailable, setOsAvailable] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void osKeystoreAvailable(os).then((ok) => alive && setOsAvailable(ok));
+    return () => {
+      alive = false;
+    };
+  }, [os]);
 
   const [loaded, setLoaded] = useState(false);
   const [entries, setEntries] = useState<KeyEntry[]>([]);
@@ -241,7 +258,7 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       if (!pass) return false;
       let res: UnlockResult;
       try {
-        res = await session.unlockWithPassword(store, pass);
+        res = await session.unlockWithPassword(store, pass, os);
       } catch (e) {
         depsRef.current.notify(msg(e));
         return false;
@@ -597,7 +614,7 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       if (!old) return false;
       const next = await depsRef.current.askPassword("Nouveau mot de passe du trousseau", "set");
       if (!next) return false;
-      const res = await changeKeyringPassword(store, old, next);
+      const res = await changeKeyringPassword(store, old, next, os);
       await refresh();
       depsRef.current.notify(
         res.skipped.length
@@ -792,6 +809,22 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       identity,
       recipientPublic,
       passkeySupported: auth.supported(),
+      osProtectionAvailable: osAvailable,
+      osProtected: !!master?.osLayer,
+      setOsProtection: async (on: boolean) => {
+        try {
+          if (!os) return false;
+          // Le secret maître doit exister : on le crée (mot de passe) si besoin.
+          if (!(await getMasterRecord(store)) && !(await ensureMaster())) return false;
+          await setOsProtection(store, os, on);
+          await refresh();
+          depsRef.current.notify(on ? "Trousseau protégé par Windows (en plus du mot de passe)" : "Protection Windows retirée");
+          return true;
+        } catch (e) {
+          fail("keyring.os", e);
+          return false;
+        }
+      },
       lock: () => session.lock(),
       unlock: () => unlockInteractive(),
       setIdleMinutes,
@@ -822,7 +855,7 @@ export function useKeyring(deps: KeyringControllerDeps): KeyringController {
       unlockWithPasskey: unlockWithPasskeyAction,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loaded, entries, master, checklist, tick, idleMinutes, identity, recipientPublic, auth, session, store],
+    [loaded, entries, master, checklist, tick, idleMinutes, identity, recipientPublic, auth, session, store, os, osAvailable],
   );
 }
 

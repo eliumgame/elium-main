@@ -1007,6 +1007,64 @@ CSP_DIRECTIVES: "tuple[str, ...]" = (
 CONTENT_SECURITY_POLICY = "; ".join(CSP_DIRECTIVES)
 
 
+# --- Magasin de clés du système (Windows DPAPI, optionnel) -----------------------
+# Ne remplace rien : le web ajoute cette couche SEULEMENT si l'utilisateur active
+# « Protéger avec Windows ». Les données restent déchiffrables uniquement par CE
+# compte Windows sur CETTE machine (CryptProtectData, portée utilisateur courant).
+_KEYSTORE_MAX = 4096
+_KEYSTORE_ENTROPY = b"elium-keystore/v1"
+
+
+def keystore_available() -> bool:
+    return sys.platform == "win32"
+
+
+def _dpapi_call(data: bytes, protect: bool) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    def blob(b: bytes) -> "tuple[DATA_BLOB, object]":
+        buf = ctypes.create_string_buffer(b, len(b))
+        return DATA_BLOB(len(b), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), buf
+
+    crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    src, _keep1 = blob(data)
+    ent, _keep2 = blob(_KEYSTORE_ENTROPY)
+    out = DATA_BLOB()
+    CRYPTPROTECT_UI_FORBIDDEN = 0x1
+    if protect:
+        ok = crypt32.CryptProtectData(
+            ctypes.byref(src), "Elium", ctypes.byref(ent), None, None, CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(out)
+        )
+    else:
+        ok = crypt32.CryptUnprotectData(
+            ctypes.byref(src), None, ctypes.byref(ent), None, None, CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(out)
+        )
+    if not ok:
+        raise OSError(f"DPAPI a échoué (code {ctypes.GetLastError()})")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        kernel32.LocalFree(ctypes.cast(out.pbData, ctypes.c_void_p))
+
+
+def keystore_wrap(data: bytes) -> bytes:
+    if not keystore_available():
+        raise OSError("DPAPI indisponible")
+    return _dpapi_call(data, True)
+
+
+def keystore_unwrap(data: bytes) -> bytes:
+    if not keystore_available():
+        raise OSError("DPAPI indisponible")
+    return _dpapi_call(data, False)
+
+
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Serveur HTTP silencieux pour le Web Studio (+ fichier ouvert via Explorer)."""
 
@@ -1155,6 +1213,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         if clean == "/__tsa__":
             self._handle_tsa_relay()
             return
+        if clean in ("/__keystore__/wrap", "/__keystore__/unwrap"):
+            self._handle_keystore(clean.rsplit("/", 1)[1])
+            return
         if clean == "/__update__/start":
             status = {"state": "idle"}
             if updater is not None:
@@ -1247,6 +1308,40 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(502, "Serveur d'horodatage injoignable")
             return
         self._serve_bytes(reply, "application/timestamp-reply")
+
+    def _handle_keystore(self, op: str) -> None:
+        """Couche OPTIONNELLE de protection par le magasin du système : enveloppe
+        (`wrap`) / ouvre (`unwrap`) un petit secret avec Windows DPAPI (portée
+        utilisateur courant). Corps et réponse = octets bruts. 501 hors Windows."""
+        if not keystore_available():
+            self.send_error(501, "Magasin de clés du système indisponible sur cette plateforme")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if not 0 < length <= _KEYSTORE_MAX:
+            self.send_error(400, "Demande invalide")
+            return
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(5)
+        try:
+            body = self.rfile.read(length)
+        except OSError:
+            body = b""
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if len(body) != length:
+            self.close_connection = True
+            self.send_error(400, "Demande invalide")
+            return
+        try:
+            out = keystore_wrap(body) if op == "wrap" else keystore_unwrap(body)
+        except Exception as e:  # DPAPI : autre utilisateur / blob corrompu
+            _log_launcher(f"POST /__keystore__/{op}: {e}")
+            self.send_error(422, "Opération refusée par le magasin du système")
+            return
+        self._serve_bytes(out, "application/octet-stream")
 
     def _handle_font_relay(self) -> None:
         """POST {"url": …} → octets du catalogue / de la police (liste blanche fermée)."""

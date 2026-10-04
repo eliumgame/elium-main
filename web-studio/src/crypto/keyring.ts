@@ -24,6 +24,7 @@ import { recipientFingerprint } from "./recipients";
 import { fingerprintOf } from "../sign/keys";
 import { createSuccession, type SuccessionCert } from "../sign/succession";
 import { KEY_SUITES, type BundleKey, type BundleKeyMeta } from "./keyfile-v2";
+import type { OsKeystore } from "./os-keystore";
 
 export const KEYRING_DB = "elium-keys";
 export const LEGACY_IDENTITY_KEY = "elium_identity";
@@ -316,9 +317,34 @@ export interface MasterRecord {
   nextIndex: { ed: number; p256: number };
   phraseVerifiedAt?: string;
   sharesExportedAt?: string;
+  /** `passwordWrap` est ré-enveloppé par le magasin du système (Windows DPAPI via le lanceur). */
+  osLayer?: boolean;
 }
 
 const MASTER_META = "master";
+
+/** Lit l'enveloppe mot de passe en retirant, si besoin, la couche du système. */
+export async function readPasswordWrap(rec: MasterRecord, os?: OsKeystore | null): Promise<string | undefined> {
+  if (!rec.passwordWrap) return undefined;
+  if (!rec.osLayer) return rec.passwordWrap;
+  if (!os) {
+    throw new KeyringError(
+      "Ce trousseau est protégé par Windows : il ne s'ouvre que dans l'application de bureau, avec ce compte Windows. Utilisez la phrase de récupération ailleurs.",
+    );
+  }
+  return os.unwrap(rec.passwordWrap);
+}
+
+/** Active/désactive la couche « Protéger avec Windows » (le mot de passe reste exigé). */
+export async function setOsProtection(store: KeyringStore, os: OsKeystore, on: boolean): Promise<void> {
+  const rec = await store.getMeta<MasterRecord>(MASTER_META);
+  if (!rec?.passwordWrap) throw new KeyringError("Créez d'abord le secret maître du trousseau.");
+  if (!!rec.osLayer === on) return;
+  const plain = await readPasswordWrap(rec, os);
+  const next: MasterRecord = { ...rec, passwordWrap: on ? await os.wrap(plain!) : plain!, osLayer: on };
+  if (!on) delete next.osLayer;
+  await store.setMeta(MASTER_META, next);
+}
 
 export const getMasterRecord = (store: KeyringStore) => store.getMeta<MasterRecord>(MASTER_META);
 export const putMasterRecord = (store: KeyringStore, r: MasterRecord) => store.setMeta(MASTER_META, r);

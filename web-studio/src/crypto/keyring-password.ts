@@ -6,7 +6,15 @@
  * « un mot de passe par clé » : toute clé héritée qui s'ouvre avec l'ancien mot
  * de passe passe sous le nouveau ; les autres sont signalées (`skipped`).
  */
-import { KeyringError, getMasterRecord, putMasterRecord, unwrapMasterWithPassword, wrapMasterWithPassword } from "./keyring";
+import {
+  KeyringError,
+  getMasterRecord,
+  putMasterRecord,
+  readPasswordWrap,
+  unwrapMasterWithPassword,
+  wrapMasterWithPassword,
+} from "./keyring";
+import type { OsKeystore } from "./os-keystore";
 import type { KeyEntry, KeyringStore } from "./keyring";
 import { decryptPrivateKey, encryptPrivateKey } from "../sign/identity-store";
 
@@ -14,6 +22,7 @@ export async function changeKeyringPassword(
   store: KeyringStore,
   oldPassword: string,
   newPassword: string,
+  os?: OsKeystore | null,
 ): Promise<{ rewrapped: string[]; skipped: string[]; masterRewrapped: boolean }> {
   if (!newPassword) throw new KeyringError("Le nouveau mot de passe ne peut pas être vide.");
   const entries = await store.getAll();
@@ -23,11 +32,13 @@ export async function changeKeyringPassword(
   if (record?.passwordWrap) {
     let master: Uint8Array;
     try {
-      master = await unwrapMasterWithPassword(record.passwordWrap, oldPassword);
-    } catch {
+      master = await unwrapMasterWithPassword((await readPasswordWrap(record, os))!, oldPassword);
+    } catch (e) {
+      if (e instanceof KeyringError && record.osLayer) throw e;
       throw new KeyringError("Ancien mot de passe incorrect.");
     }
     newWrap = await wrapMasterWithPassword(master, newPassword);
+    if (record.osLayer && os) newWrap = await os.wrap(newWrap); // la couche Windows est conservée
     master.fill(0);
   }
 

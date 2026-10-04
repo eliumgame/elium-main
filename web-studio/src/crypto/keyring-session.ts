@@ -10,7 +10,15 @@
  *
  * Aucune dépendance au DOM : le planificateur est injectable (tests).
  */
-import { KeyringError, getMasterRecord, unwrapMasterWithPassword, type KeyEntry, type KeyringStore } from "./keyring";
+import {
+  KeyringError,
+  getMasterRecord,
+  readPasswordWrap,
+  unwrapMasterWithPassword,
+  type KeyEntry,
+  type KeyringStore,
+} from "./keyring";
+import type { OsKeystore } from "./os-keystore";
 import { deriveEd25519, deriveP256 } from "./keyring-derive";
 import { decryptPrivateKey } from "../sign/identity-store";
 
@@ -142,13 +150,15 @@ export class KeyringSession {
    * héritée qui se déchiffre avec ce même mot de passe. Les clés héritées
    * protégées par un autre mot de passe sont listées dans `failed`.
    */
-  async unlockWithPassword(store: KeyringStore, password: string): Promise<UnlockResult> {
+  async unlockWithPassword(store: KeyringStore, password: string, os?: OsKeystore | null): Promise<UnlockResult> {
     const entries = await store.getAll();
     const record = await getMasterRecord(store);
     let master: Uint8Array | null = null;
     if (record?.passwordWrap) {
+      // Couche Windows éventuelle : son échec (autre compte) est une erreur explicite, pas un « mauvais mot de passe ».
+      const wrap = await readPasswordWrap(record, os);
       try {
-        master = await unwrapMasterWithPassword(record.passwordWrap, password);
+        master = await unwrapMasterWithPassword(wrap!, password);
       } catch {
         master = null;
       }

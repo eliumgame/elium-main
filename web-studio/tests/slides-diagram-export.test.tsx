@@ -47,7 +47,11 @@ describe("diagrammes — export PPTX et CRDT", () => {
   });
   it("le plan survit à l'aller-retour Yjs (élément plat)", () => {
     const sl = deckWith("cycle", "A\nB").slides[0]!;
-    expect(yToSlide(slideToY(sl)).elements![0]!.diagram).toEqual({ kind: "cycle", outline: "A\nB" });
+    const doc = new Y.Doc();
+    const m = slideToY(sl);
+    doc.getMap("deck").set("slide", m);
+    expect(yToSlide(m).elements![0]!.diagram).toEqual({ kind: "cycle", outline: "A
+B" });
   });
   it("PPTX → relecture : le diagramme devient des formes ordinaires (le plan n'est pas dans le fichier)", () => {
     const back = importPptx(deckToPptx(deckWith("process", "A\nB")));

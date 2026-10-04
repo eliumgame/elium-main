@@ -1,4 +1,8 @@
 /** Spreadsheet workbook model (in-memory; persisted locally via sheet-store). */
+import type { PrintSetup } from "./print";
+import type { PivotObject } from "./pivot-object";
+export type { PrintSetup } from "./print";
+export type { PivotObject } from "./pivot-object";
 // "custom" preserves an Excel format code our fixed categories can't represent
 // (e.g. "mm:ss", a currency other than EUR, a custom accounting format): the
 // RAW code round-trips (see CellStyle.customFmt) even though on-screen
@@ -31,7 +35,37 @@ export interface CellStyle {
   border?: CellBorder;
 }
 
-export type ChartType = "bar" | "line" | "pie";
+export type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "combo";
+
+export type ChartGrouping = "clustered" | "stacked" | "percent";
+export type ChartLegendPos = "none" | "top" | "bottom" | "right";
+export type ChartAxisFormat = "general" | "int" | "decimal" | "percent" | "currency";
+export interface ChartTrendline {
+  type: "linear" | "poly" | "avg";
+  order?: number; // poly : 2 à 6
+  period?: number; // avg : moyenne mobile sur n points
+  series?: number; // indice de la série (défaut 0)
+}
+/** Options avancées d'un graphique (toutes facultatives ; défaut = rendu historique). */
+export interface ChartOptions {
+  grouping?: ChartGrouping; // barres/aires : groupées, empilées, empilées 100 %
+  horizontal?: boolean; // barres horizontales
+  legend?: ChartLegendPos;
+  dataLabels?: boolean;
+  xTitle?: string;
+  yTitle?: string;
+  y2Title?: string;
+  yMin?: number;
+  yMax?: number;
+  yFormat?: ChartAxisFormat;
+  trendline?: ChartTrendline;
+  /** Type de chaque série d'un graphique « combo » (barres + courbes). */
+  seriesTypes?: ("bar" | "line")[];
+  /** Indices des séries portées par l'axe secondaire (combo). */
+  secondary?: number[];
+  smooth?: boolean;
+  colors?: string[];
+}
 
 export interface ChartSpec {
   id: string;
@@ -41,6 +75,7 @@ export interface ChartSpec {
   c1: number;
   r1: number; // source range
   title?: string;
+  opts?: ChartOptions;
 }
 
 export type CondOp =
@@ -93,6 +128,8 @@ export interface DataValidation {
   v1?: string; // threshold / lower bound
   v2?: string; // upper bound (between / notBetween)
   list?: string[]; // allowed values (type = "list")
+  /** Plage source de la liste (« Feuille2!A1:A10 » ou « A1:A10 ») : si présente, les valeurs sont relues à chaque usage. */
+  listRef?: string;
   allowBlank?: boolean; // empty cells pass (default true)
 }
 
@@ -102,6 +139,22 @@ export interface MergeRect {
   r0: number;
   c1: number;
   r1: number;
+}
+
+/** Tableau nommé (liste Excel) : en-têtes sur la ligne r0, données de r0+1 à r1 (ou r1-1 avec ligne de totaux). */
+export interface SheetTable {
+  id: string;
+  name: string;
+  c0: number;
+  r0: number;
+  c1: number;
+  r1: number;
+  /** Lignes alternées colorées (défaut : oui). */
+  banded?: boolean;
+  /** Dernière ligne = totaux. */
+  totals?: boolean;
+  /** Couleur d'accent de l'en-tête (#rrggbb). */
+  color?: string;
 }
 
 export interface SheetData {
@@ -119,6 +172,9 @@ export interface SheetData {
   rowHeights?: Record<number, number>; // row index -> height px (default ROW_H)
   notes?: Record<string, string>; // "A1" -> cell comment text (Excel's classic "notes", not threaded comments)
   freeze?: { rows: number; cols: number }; // leading rows/columns frozen (sticky) while scrolling
+  tables?: SheetTable[]; // tableaux nommés (références structurées Tableau1[Colonne])
+  pivot?: PivotObject; // cette feuille est un tableau croisé dynamique persistant (définition + résultat)
+  print?: PrintSetup; // mise en page d'impression (zone, titres répétés, sauts de page, échelle…)
 }
 
 export function newId(prefix: string): string {

@@ -22,6 +22,7 @@ import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
 import { hasMixedGeometry, sectionGeometry, splitSections } from "./sections";
 import Ruler from "./Ruler";
 import ProofingPanel from "./ProofingPanel";
+import A11yPanel from "./A11yPanel";
 import ProofPopover from "./ProofPopover";
 import { loadProofingPrefs, onProofRequest, type ProofRequest } from "./proofingExtension";
 import TrackChangePopover from "./TrackChangePopover";
@@ -30,6 +31,12 @@ import SymbolModal from "./SymbolModal";
 import ThemeModal from "./ThemeModal";
 import EquationModal from "./EquationModal";
 import { onEquationEditRequest, type EquationEditRequest } from "./equationExtension";
+import { onChartEditRequest, type ChartEditRequest } from "./chartExtension";
+import ChartModal from "./ChartModal";
+import SourcesModal from "./SourcesModal";
+import "./page-decor.css";
+import { PageBorders, LineNumbers } from "./PageDecorLayers";
+import { normalizeBackground, normalizeBorder, normalizeLineNumbering } from "./pageDecor";
 import WatermarkModal from "./WatermarkModal";
 import GridModal from "./GridModal";
 import ShapeFormatModal from "./ShapeFormatModal";
@@ -222,6 +229,8 @@ export default function RichEditor({
   // equationExtension.ts).
   const [equationEdit, setEquationEdit] = useState<EquationEditRequest | null>(null);
   useEffect(() => onEquationEditRequest(setEquationEdit), []);
+  const [chartEdit, setChartEdit] = useState<ChartEditRequest | null>(null);
+  useEffect(() => onChartEditRequest(setChartEdit), []);
 
   // Publish the document's own named styles to the style commands. Kept out of
   // the extension options so editing a style does not rebuild the editor.
@@ -260,6 +269,8 @@ export default function RichEditor({
     | "caption"
     | "symbol"
     | "equation"
+    | "chart"
+    | "sources"
     | "theme"
     | "watermark"
     | "grid"
@@ -276,6 +287,7 @@ export default function RichEditor({
   // et elle mange de la hauteur utile sur un petit écran.
   const [rulerVisible, setRulerVisible] = useState(false);
   const [proofingOpen, setProofingOpen] = useState(false);
+  const [a11yOpen, setA11yOpen] = useState(false);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fitWidth");
   const [manualZoom, setManualZoom] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -510,9 +522,13 @@ export default function RichEditor({
           onOpenCaption={() => setDialog("caption")}
           onOpenSymbol={() => setDialog("symbol")}
           onOpenEquation={() => setDialog("equation")}
+          onOpenChart={() => setDialog("chart")}
+          onOpenSources={() => setDialog("sources")}
           onOpenTheme={() => setDialog("theme")}
           proofingOpen={proofingOpen}
           onToggleProofing={() => setProofingOpen((v) => !v)}
+          a11yOpen={a11yOpen}
+          onToggleA11y={() => setA11yOpen((v) => !v)}
           onOpenWatermark={() => setDialog("watermark")}
           rulerVisible={rulerVisible}
           onToggleRuler={() => setRulerVisible((v) => !v)}
@@ -594,6 +610,10 @@ export default function RichEditor({
                     watermarkCss(documentModel.watermark as never, pageWidthMm, pageHeightMm) || undefined,
                   backgroundRepeat: "repeat-y",
                   backgroundPosition: "top center",
+                  // Couleur de fond de la page (réglage de page) ; sections mixtes : portée par chaque feuille.
+                  ...(normalizeBackground(page.background) && !mixedGeometry
+                    ? { backgroundColor: normalizeBackground(page.background) }
+                    : {}),
                 }}
               >
                 {/* Mixed sections: the container is transparent and each page is drawn
@@ -612,6 +632,7 @@ export default function RichEditor({
                             top: `${p.top}px`,
                             height: `${p.height}px`,
                             width: `${g.widthMm}mm`,
+                            ...(normalizeBackground(page.background) ? { background: normalizeBackground(page.background) } : {}),
                             left: `${((widest - g.widthMm) / 2) * CSS_PX_PER_MM - baseMargins.left * CSS_PX_PER_MM}px`,
                           }}
                         />
@@ -631,6 +652,19 @@ export default function RichEditor({
                       backgroundPosition: gridLayer.backgroundPosition,
                       backgroundSize: gridLayer.backgroundSize,
                     }}
+                  />
+                )}
+                {normalizeBorder(page.pageBorder) && (
+                  <PageBorders border={normalizeBorder(page.pageBorder)!} pages={plan?.pages ?? null} widthMm={pageWidthMm} />
+                )}
+                {editor && normalizeLineNumbering(page.lineNumbers) && (
+                  <LineNumbers
+                    editor={editor}
+                    pageRef={pageRef}
+                    cfg={normalizeLineNumbering(page.lineNumbers)!}
+                    pages={plan?.pages ?? null}
+                    zoom={zoom}
+                    marginLeftPx={baseMargins.left * CSS_PX_PER_MM}
                   />
                 )}
                 {/* Header/footer of the FIRST section (the sheet the reader starts on);
@@ -671,6 +705,7 @@ export default function RichEditor({
         {/* Le volet du correcteur est à DROITE de la zone de défilement, pas
           dedans : il doit rester visible pendant qu'on parcourt le document. */}
         {editor && proofingOpen && <ProofingPanel editor={editor} onClose={() => setProofingOpen(false)} />}
+        {editor && a11yOpen && <A11yPanel editor={editor} onClose={() => setA11yOpen(false)} />}
       </main>
 
       <EditorStatusBar
@@ -705,6 +740,11 @@ export default function RichEditor({
       {editor && dialog === "caption" && <CaptionModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "symbol" && <SymbolModal editor={editor} onClose={() => setDialog(null)} />}
       {editor && dialog === "equation" && <EquationModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "chart" && <ChartModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && dialog === "sources" && <SourcesModal editor={editor} onClose={() => setDialog(null)} />}
+      {editor && chartEdit && (
+        <ChartModal editor={editor} editingPos={chartEdit.pos} initial={chartEdit.data} onClose={() => setChartEdit(null)} />
+      )}
       {dialog === "theme" && (
         <ThemeModal
           activeTheme={documentModel.theme}

@@ -11,14 +11,15 @@ import {
   emptyDeck,
   emptySlide,
   blankSlide,
-  newSlideId,
-  newElementId,
   withElements,
   type Deck,
   type Slide,
   type SlideElement,
+  type SlideMaster,
 } from "./model";
 import { loadDeck, saveDeck } from "./deck-store";
+import { applyMasterToDeck } from "./master";
+import { reorderSlide as reorderSlideList, removeSlideKeepingSections, cloneSlide, normalizeSections } from "./sections";
 import type { VaultSecret } from "../crypto/local-vault";
 import type { DeckStore } from "./store";
 import { reportError } from "../ui/crash-log";
@@ -173,27 +174,66 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
   const removeSlide = (i: number) =>
     set((d) => {
       if (d.slides.length <= 1) return d;
-      const slides = d.slides.filter((_, idx) => idx !== i);
-      return { ...d, slides, active: Math.max(0, Math.min(d.active, slides.length - 1)) };
+      const r = removeSlideKeepingSections(d.slides, d.sections, i);
+      return {
+        ...d,
+        slides: r.slides,
+        ...(d.sections ? { sections: r.sections } : {}),
+        active: Math.max(0, Math.min(d.active, r.slides.length - 1)),
+      };
     });
   const moveSlide = (i: number, dir: -1 | 1) =>
     set((d) => {
       const j = i + dir;
       if (j < 0 || j >= d.slides.length) return d;
-      const slides = d.slides.slice();
-      [slides[i], slides[j]] = [slides[j]!, slides[i]!];
-      return { ...d, slides, active: j };
+      const r = reorderSlideList(d.slides, d.sections, i, j);
+      return { ...d, slides: r.slides, ...(d.sections ? { sections: r.sections } : {}), active: j };
     });
   const duplicateSlide = (i: number) =>
     set((d) => {
       const slides = d.slides.slice();
-      const orig = withElements(slides[i]!);
-      slides.splice(i + 1, 0, {
-        ...orig,
-        id: newSlideId(),
-        elements: orig.elements!.map((e) => ({ ...e, id: newElementId(), morphKey: e.morphKey ?? e.id })),
-      });
+      slides.splice(i + 1, 0, cloneSlide(slides[i]!));
       return { ...d, slides, active: i + 1 };
+    });
+  const patchSlideAt = (i: number, patch: Partial<Slide>) =>
+    set((d) => {
+      if (!d.slides[i]) return d;
+      const slides = d.slides.slice();
+      slides[i] = { ...slides[i]!, ...patch };
+      return { ...d, slides };
+    });
+  const replaceSlideAt = (i: number, slide: Slide) =>
+    set((d) => {
+      if (!d.slides[i]) return d;
+      const slides = d.slides.slice();
+      slides[i] = withElements(slide);
+      return { ...d, slides };
+    });
+  const applyMaster = (master: SlideMaster) => set((d) => applyMasterToDeck(d, master));
+  const reorderSlide = (from: number, to: number) =>
+    set((d) => {
+      const activeId = d.slides[d.active]?.id;
+      const r = reorderSlideList(d.slides, d.sections, from, to);
+      if (r.slides === d.slides) return d;
+      return {
+        ...d,
+        slides: r.slides,
+        ...(d.sections ? { sections: r.sections } : {}),
+        active: Math.max(0, r.slides.findIndex((s) => s.id === activeId)),
+      };
+    });
+  const setSlideOrder = (ids: string[]) =>
+    set((d) => {
+      const byId = new Map(d.slides.map((s) => [s.id, s]));
+      const slides = ids.map((id) => byId.get(id)).filter((s): s is Slide => !!s);
+      if (slides.length !== d.slides.length) return d;
+      const activeId = d.slides[d.active]?.id;
+      return {
+        ...d,
+        slides,
+        ...(d.sections ? { sections: normalizeSections(slides, d.sections) } : {}),
+        active: Math.max(0, slides.findIndex((s) => s.id === activeId)),
+      };
     });
 
   return {
@@ -211,6 +251,11 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
     moveSlide,
     duplicateSlide,
     patchSlide,
+    patchSlideAt,
+    replaceSlideAt,
+    applyMaster,
+    reorderSlide,
+    setSlideOrder,
     updateEl,
     addEl,
     removeEl,

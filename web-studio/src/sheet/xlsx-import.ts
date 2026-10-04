@@ -10,6 +10,9 @@
  */
 import { unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
+import { readChartOptions } from "./chart-ooxml";
+import { mergePrint, readPrintElements, readPrintNames } from "./xlsx-print";
+import { readListRange } from "./validation";
 import {
   emptySheet,
   newId,
@@ -24,10 +27,10 @@ import {
   type ValidationType,
   type MergeRect,
   type ChartSpec,
-  type ChartType,
   type BorderSide,
   type BorderStyle,
   type NamedRange,
+  type SheetTable,
 } from "./model";
 
 function parseXml(bytes: Uint8Array | undefined): Document | null {
@@ -35,15 +38,37 @@ function parseXml(bytes: Uint8Array | undefined): Document | null {
   return new DOMParser().parseFromString(strFromU8(bytes), "application/xml");
 }
 
+/** Décode les échappements OOXML `_xHHHH_` (ex. `_x000D_`) ; `_x005F_` désigne un « _ » littéral. */
+export function decodeOoxmlEscapes(s: string): string {
+  if (!s.includes("_x")) return s;
+  return s.replace(/_x([0-9A-Fa-f]{4})_/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
+}
+
 function textOf(el: Element): string {
-  // Concatenate every <t> descendant (handles rich-text runs); else textContent.
+  // Concatenate every <t> descendant (handles rich-text runs) EXCEPT the
+  // phonetic guide (<rPh>, furigana) which Excel stores next to the real text;
+  // else textContent.
   const ts = el.getElementsByTagName("t");
   if (ts.length) {
     let s = "";
-    for (let i = 0; i < ts.length; i++) s += ts[i].textContent ?? "";
-    return s;
+    for (let i = 0; i < ts.length; i++) {
+      let inPhonetic = false;
+      for (let p: Element | null = ts[i].parentElement; p && p !== el; p = p.parentElement) {
+        if (p.localName === "rPh") {
+          inPhonetic = true;
+          break;
+        }
+      }
+      if (!inPhonetic) s += ts[i].textContent ?? "";
+    }
+    return decodeOoxmlEscapes(s);
   }
-  return el.textContent ?? "";
+  return decodeOoxmlEscapes(el.textContent ?? "");
+}
+
+/** Excel >= 2010 écrit les fonctions récentes avec un préfixe de compatibilité (`_xlfn.`, `_xlws.`) : on le retire. */
+export function stripXlfnPrefixes(formula: string): string {
+  return formula.replace(/\b_xlfn\.(?:_xlws\.)?|\b_xlws\./g, "");
 }
 
 function parseSharedStrings(zip: Record<string, Uint8Array>): string[] {
@@ -251,6 +276,7 @@ interface ParsedStyles {
   numFmts: Map<number, string>;
   dxfs: ParsedDxf[];
   theme: string[];
+  date1904?: boolean;
 }
 
 // The subset of ECMA-376 built-in numFmt codes (§18.8.30) common enough to
@@ -706,7 +732,8 @@ function parseValidations(doc: Document, sheetName: string, cells: Record<string
             .map((s) => s.trim())
             .filter(Boolean)
         : resolveListRange(raw, sheetName, cells);
-      if (list.length) out.push({ ...base, type: "list", list });
+      const isRange = !raw.startsWith('"') && /^['A-Za-z0-9_$ ]*!?\$?[A-Za-z]+\$?\d+(:\$?[A-Za-z]+\$?\d+)?$/.test(raw.trim());
+      if (list.length || isRange) out.push({ ...base, type: "list", list, ...(isRange ? { listRef: raw.trim().replace(/\$/g, "") } : {}) });
       continue;
     }
     const vType: ValidationType | undefined =
@@ -733,7 +760,7 @@ function parseValidations(doc: Document, sheetName: string, cells: Record<string
 // ── native charts (DrawingML, via the sheet's drawing relationship) ────────
 
 /** Every `<c:cat>`/`<c:val>` cell-range formula in the chart, in document order (one `<c:val>` per series). */
-function allFormulaRefs(doc: Document, tag: "cat" | "val"): string[] {
+function allFormulaRefs(doc: Document, tag: "cat" | "val" | "xVal" | "yVal"): string[] {
   const els = doc.getElementsByTagName(`c:${tag}`);
   const out: string[] = [];
   for (let i = 0; i < els.length; i++) {
@@ -759,12 +786,6 @@ function chartTitle(doc: Document): string | undefined {
   const v = doc.getElementsByTagName("c:tx")[0]?.getElementsByTagName("c:v")[0]?.textContent;
   return v?.trim() ? v : undefined;
 }
-function chartKind(doc: Document): ChartType {
-  if (doc.getElementsByTagName("c:pieChart").length) return "pie";
-  if (doc.getElementsByTagName("c:lineChart").length) return "line";
-  return "bar";
-}
-
 /**
  * Parse a `<c:chartSpace>` part back into a ChartSpec (inverse of xlsx-export.ts's
  * `chartXml`). Reads EVERY `<c:val>` (one per `<c:ser>`, i.e. every series, not
@@ -773,8 +794,8 @@ function chartKind(doc: Document): ChartType {
  * column immediately followed by one contiguous column per series.
  */
 function parseChartSpec(doc: Document): ChartSpec | null {
-  const catRefs = allFormulaRefs(doc, "cat");
-  const valRefs = allFormulaRefs(doc, "val");
+  const catRefs = allFormulaRefs(doc, "cat").length ? allFormulaRefs(doc, "cat") : allFormulaRefs(doc, "xVal");
+  const valRefs = allFormulaRefs(doc, "val").length ? allFormulaRefs(doc, "val") : allFormulaRefs(doc, "yVal");
   const cat = catRefs[0] ? parseRangeRef(catRefs[0]) : null;
   const vals = valRefs.map(parseRangeRef).filter((v): v is NonNullable<typeof v> => v !== null);
   if (!vals.length && !cat) return null; // pure literal chart (no cell refs) — can't recover a source range
@@ -788,7 +809,14 @@ function parseChartSpec(doc: Document): ChartSpec | null {
     r1: Math.max(...rowsOf.map((v) => v.r1)),
   };
   const title = chartTitle(doc);
-  return { id: newId("chart"), type: chartKind(doc), ...rect, ...(title ? { title } : {}) };
+  const read = readChartOptions(doc);
+  return {
+    id: newId("chart"),
+    type: read.type,
+    ...rect,
+    ...(title ? { title } : {}),
+    ...(read.opts ? { opts: read.opts } : {}),
+  };
 }
 
 /**
@@ -819,6 +847,34 @@ function parseSheetComments(zip: Record<string, Uint8Array>, sheetPath: string):
     const ref = comments[i].getAttribute("ref");
     const text = textOf(comments[i]);
     if (ref && text) out[ref.toUpperCase()] = text;
+  }
+  return out;
+}
+
+/** Tableaux nommés (xl/tables/tableN.xml) d'une feuille, via ses relations de type …/table. */
+function parseSheetTables(zip: Record<string, Uint8Array>, sheetPath: string): SheetTable[] {
+  const relsDoc = parseXml(zip[relsPathOf(sheetPath)]);
+  if (!relsDoc) return [];
+  const out: SheetTable[] = [];
+  const rels = relsDoc.getElementsByTagName("Relationship");
+  for (let i = 0; i < rels.length; i++) {
+    if (!(rels[i].getAttribute("Type") ?? "").endsWith("/table")) continue;
+    const target = rels[i].getAttribute("Target");
+    if (!target) continue;
+    const doc = parseXml(zip[resolvePath(sheetPath.replace(/\/[^/]+$/, ""), target)]);
+    const el = doc?.getElementsByTagName("table")[0];
+    const ref = el?.getAttribute("ref");
+    const name = el?.getAttribute("displayName") || el?.getAttribute("name");
+    const r = ref ? parseRangeRef(ref) : null;
+    if (!el || !r || !name) continue;
+    const info = doc!.getElementsByTagName("tableStyleInfo")[0];
+    out.push({
+      id: newId("tbl"),
+      name,
+      ...r,
+      banded: info ? info.getAttribute("showRowStripes") !== "0" : true,
+      ...(Number(el.getAttribute("totalsRowCount")) > 0 ? { totals: true } : {}),
+    });
   }
   return out;
 }
@@ -906,7 +962,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
     }
     const f = c.getElementsByTagName("f")[0];
     if (f && f.textContent) {
-      sh.cells[upref] = "=" + f.textContent;
+      sh.cells[upref] = "=" + stripXlfnPrefixes(f.textContent);
       continue;
     }
     if (f && f.getAttribute("t") === "shared" && pos) {
@@ -920,7 +976,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
         const dCol = pos.col - master.col;
         const dRow = pos.row - master.row;
         const shifted = rewriteRefs(master.formula, (col, row) => ({ col: col + dCol, row: row + dRow }), true);
-        sh.cells[upref] = "=" + shifted;
+        sh.cells[upref] = "=" + stripXlfnPrefixes(shifted);
         continue;
       }
     }
@@ -939,8 +995,19 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
       sh.cells[upref] = shared[idx] ?? "";
     } else if (t === "str") {
       sh.cells[upref] = textOf(c);
+    } else if (t === "b") {
+      sh.cells[upref] = v.textContent.trim() === "1" ? "TRUE" : "FALSE";
+    } else if (t === "e") {
+      sh.cells[upref] = v.textContent.trim();
     } else {
-      sh.cells[upref] = v.textContent;
+      let val = v.textContent;
+      // Classeur en base 1904 (Mac historique) : on ramène les dates à la base 1900.
+      if (ps.date1904 && sAttr) {
+        const fmt = styles[upref]?.fmt;
+        const n = Number(val);
+        if ((fmt === "date" || fmt === "datetime") && Number.isFinite(n)) val = String(n + 1462);
+      }
+      sh.cells[upref] = val;
     }
   }
   sh.cols = maxCol + 1;
@@ -961,6 +1028,8 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   if (validations.length) sh.validations = validations;
   const filter = parseAutoFilter(doc);
   if (filter) sh.filter = filter;
+  const printEls = readPrintElements(doc);
+  if (printEls) sh.print = mergePrint(null, printEls);
 
   return sh;
 }
@@ -969,12 +1038,21 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
 function parseDefinedNames(wb: Document | null): NamedRange[] {
   if (!wb) return [];
   const out: NamedRange[] = [];
+  const seen = new Set<string>();
   const els = wb.getElementsByTagName("definedName");
-  for (let i = 0; i < els.length; i++) {
-    const name = els[i].getAttribute("name");
-    const ref = els[i].textContent?.trim();
-    // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, …) — not user-facing.
-    if (name && ref && !name.startsWith("_xlnm")) out.push({ name, ref });
+  // Deux passes : les noms de portée classeur d'abord, puis les noms locaux à
+  // une feuille qui ne font pas doublon (notre modèle n'a qu'une portée).
+  for (const local of [false, true]) {
+    for (let i = 0; i < els.length; i++) {
+      const isLocal = els[i].hasAttribute("localSheetId");
+      if (isLocal !== local) continue;
+      const name = els[i].getAttribute("name");
+      const ref = els[i].textContent?.trim();
+      // Skip Excel's own reserved/hidden names (_xlnm.Print_Area, ...) — not user-facing.
+      if (!name || !ref || name.startsWith("_xlnm") || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      out.push({ name, ref });
+    }
   }
   return out;
 }
@@ -986,13 +1064,16 @@ export function importXlsx(bytes: Uint8Array): Workbook {
   const ps = parseStylesXml(zip, theme);
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
   const wb = parseXml(zip["xl/workbook.xml"]);
+  ps.date1904 = wb?.getElementsByTagName("workbookPr")[0]?.getAttribute("date1904") === "1";
 
   const withSheetExtras = (path: string, sh: SheetData, doc: Document | null): SheetData => {
     if (!doc) return sh;
     const charts = parseSheetCharts(zip, path, doc);
     const notes = parseSheetComments(zip, path);
+    const tables = parseSheetTables(zip, path);
     return {
       ...sh,
+      ...(tables.length ? { tables } : {}),
       ...(charts.length ? { charts } : {}),
       ...(Object.keys(notes).length ? { notes } : {}),
     };
@@ -1021,6 +1102,33 @@ export function importXlsx(bytes: Uint8Array): Workbook {
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
+  // Listes de validation liées à une plage : on ne garde que celles dont la feuille cible existe, et on relit leurs valeurs.
+  {
+    const tmp: Workbook = { sheets, active: 0 };
+    sheets.forEach((sh, i) => {
+      if (!sh.validations?.some((v) => v.listRef)) return;
+      const kept = sh.validations
+        .filter((v) => {
+          if (!v.listRef) return true;
+          const bang = v.listRef.lastIndexOf("!");
+          const name = bang >= 0 ? v.listRef.slice(0, bang).trim().replace(/^'|'$/g, "").replace(/''/g, "'") : sh.name;
+          return sheets.some((x) => x.name === name);
+        })
+        .map((v) => (v.listRef ? { ...v, list: readListRange(tmp, v.listRef, sh.name) } : v));
+      sheets[i] = { ...sh, ...(kept.length ? { validations: kept } : { validations: undefined }) };
+    });
+  }
+  if (wb) {
+    // Zone d'impression et titres à imprimer : noms définis locaux à une feuille.
+    const els = wb.getElementsByTagName("definedName");
+    for (let i = 0; i < els.length; i++) {
+      const n = els[i].getAttribute("name");
+      const idx = Number(els[i].getAttribute("localSheetId"));
+      if ((n !== "_xlnm.Print_Area" && n !== "_xlnm.Print_Titles") || !Number.isInteger(idx) || !sheets[idx]) continue;
+      const part = readPrintNames(els[i].textContent ?? "", n === "_xlnm.Print_Area" ? "area" : "titles");
+      sheets[idx] = { ...sheets[idx]!, print: mergePrint(sheets[idx]!.print ?? null, part) };
+    }
+  }
   const names = parseDefinedNames(wb);
   return { sheets, active: 0, ...(names.length ? { names } : {}) };
 }

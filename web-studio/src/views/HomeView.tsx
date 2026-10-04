@@ -26,6 +26,7 @@ import {
   Command,
 } from "lucide-react";
 import { TEMPLATES, type Template } from "../editor/templates";
+import TemplateGallery from "../editor/TemplateGallery";
 import { IMPORT_ACCEPT } from "../format/importers";
 import { listDrafts, deleteDraft, type DraftEntry } from "../format/drafts-store";
 import { listPdfDrafts, type PdfDraftEntry } from "../pdf/model/recovery";
@@ -632,14 +633,7 @@ export default function HomeView(p: HomeViewProps) {
 
         <section className="home__section">
           <h2 className="home__section-title">{t("home.templates")}</h2>
-          <div className="template-grid">
-            {TEMPLATES.map((tpl) => (
-              <button key={tpl.id} className="template-card" onClick={() => setPendingTemplate(tpl)}>
-                <div className="template-card__label">{tpl.label}</div>
-                <div className="template-card__desc">{tpl.description}</div>
-              </button>
-            ))}
-          </div>
+          <TemplateGallery onPick={(tpl) => setPendingTemplate(tpl)} />
         </section>
 
         <VersionFooter />

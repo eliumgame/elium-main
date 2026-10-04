@@ -51,6 +51,8 @@ import { ParagraphFormat } from "./paragraphFormat";
 import { NamedStyles } from "./styleExtension";
 import { Caption, TableOfFigures } from "./captionExtension";
 import { Equation } from "./equationExtension";
+import { DocChart } from "./chartExtension";
+import { Citation, Bibliography } from "./citationExtension";
 import { Search } from "./Search";
 import { Insertion, Deletion, TrackChanges } from "./TrackChanges";
 import { Pagination, type PaginationOptions } from "./Pagination";
@@ -120,6 +122,9 @@ export function buildExtensions(
     Caption,
     TableOfFigures,
     Equation,
+    DocChart,
+    Citation,
+    Bibliography,
     Comment,
     Insertion,
     Deletion,

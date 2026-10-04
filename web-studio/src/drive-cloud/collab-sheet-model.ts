@@ -42,6 +42,9 @@ import { indexToCol } from "../sheet/formula";
 import type {
   CellStyle,
   ChartSpec,
+  SheetTable,
+  PrintSetup,
+  PivotObject,
   CondRule,
   DataValidation,
   MergeRect,
@@ -77,6 +80,7 @@ export function newYSheet(name: string, rows = 20, cols = 8): YSheet {
   ys.set("condFormats", new Y.Map());
   ys.set("validations", new Y.Map());
   ys.set("charts", new Y.Map());
+  ys.set("tables", new Y.Map());
   return ys;
 }
 
@@ -94,6 +98,7 @@ export function ensureSheetStructures(ys: YSheet): void {
   if (!(ys.get("condFormats") instanceof Y.Map)) ys.set("condFormats", new Y.Map());
   if (!(ys.get("validations") instanceof Y.Map)) ys.set("validations", new Y.Map());
   if (!(ys.get("charts") instanceof Y.Map)) ys.set("charts", new Y.Map());
+  if (!(ys.get("tables") instanceof Y.Map)) ys.set("tables", new Y.Map());
 }
 
 const asMap = <V>(ys: YSheet, key: string): Y.Map<V> | undefined => {
@@ -123,9 +128,12 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   const condFormats = [...(asMap<CondRule>(ys, "condFormats")?.values() ?? [])].map((r) => ({ ...r }));
   const validations = [...(asMap<DataValidation>(ys, "validations")?.values() ?? [])].map((v) => ({ ...v }));
   const charts = [...(asMap<ChartSpec>(ys, "charts")?.values() ?? [])].map((c) => ({ ...c }));
+  const tables = [...(asMap<SheetTable>(ys, "tables")?.values() ?? [])].map((t) => ({ ...t }));
 
   const freeze = ys.get("freeze") as { rows: number; cols: number } | undefined;
   const filter = ys.get("filter") as { col: number; query: string } | undefined;
+  const print = ys.get("print") as PrintSetup | undefined;
+  const pivot = ys.get("pivot") as PivotObject | undefined;
 
   const out: SheetData = {
     name: String(ys.get("name") ?? "Feuille"),
@@ -141,8 +149,11 @@ export function sheetSnapshot(ys: YSheet): SheetData {
   if (condFormats.length) out.condFormats = condFormats;
   if (validations.length) out.validations = validations;
   if (charts.length) out.charts = charts;
+  if (tables.length) out.tables = tables;
   if (freeze && (freeze.rows > 0 || freeze.cols > 0)) out.freeze = { ...freeze };
   if (filter && filter.query) out.filter = { ...filter };
+  if (print) out.print = JSON.parse(JSON.stringify(print)) as PrintSetup;
+  if (pivot) out.pivot = JSON.parse(JSON.stringify(pivot)) as PivotObject;
   return out;
 }
 
@@ -293,11 +304,18 @@ export function reconcileSheet(ydoc: Y.Doc, ys: YSheet, target: SheetData): void
     reconcileMap(asMap<CondRule>(ys, "condFormats")!, new Map((target.condFormats ?? []).map((r) => [r.id, r])));
     reconcileMap(asMap<DataValidation>(ys, "validations")!, new Map((target.validations ?? []).map((v) => [v.id, v])));
     reconcileMap(asMap<ChartSpec>(ys, "charts")!, new Map((target.charts ?? []).map((c) => [c.id, c])));
+    reconcileMap(asMap<SheetTable>(ys, "tables")!, new Map((target.tables ?? []).map((t) => [t.id, t])));
 
     if (target.freeze && (target.freeze.rows > 0 || target.freeze.cols > 0)) ys.set("freeze", { ...target.freeze });
     else ys.delete("freeze");
     if (target.filter && target.filter.query) ys.set("filter", { ...target.filter });
     else ys.delete("filter");
+    if (target.print) {
+      if (JSON.stringify(ys.get("print")) !== JSON.stringify(target.print)) ys.set("print", JSON.parse(JSON.stringify(target.print)));
+    } else ys.delete("print");
+    if (target.pivot) {
+      if (JSON.stringify(ys.get("pivot")) !== JSON.stringify(target.pivot)) ys.set("pivot", JSON.parse(JSON.stringify(target.pivot)));
+    } else ys.delete("pivot");
   });
 }
 

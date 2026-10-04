@@ -129,6 +129,8 @@ export function slideToY(s: Slide): YMap {
   m.set("transition", s.transition ?? "");
   if (s.background != null) m.set("background", s.background);
   if (s.anims && s.anims.length) m.set("anims", s.anims);
+  if (s.hidden) m.set("hidden", true);
+  if (s.layoutId) m.set("layoutId", s.layoutId);
   const shapes = new Y.Array<YMap>();
   shapes.push((s.shapes ?? []).map(shapeToY));
   m.set("shapes", shapes);
@@ -145,6 +147,9 @@ export function yToSlide(m: YMap): Slide {
   if (bg) base.background = bg;
   const anims = m.get("anims") as SlideAnim[] | undefined;
   if (anims && anims.length) base.anims = anims;
+  if (m.get("hidden") === true) base.hidden = true;
+  const layoutId = m.get("layoutId") as string | undefined;
+  if (layoutId) base.layoutId = layoutId;
   const elsArr = m.get("elements") as Y.Array<YMap> | undefined;
   base.elements = elsArr && elsArr.length > 0 ? elsArr.toArray().map(yToEl) : elementsOf(base);
   return base;

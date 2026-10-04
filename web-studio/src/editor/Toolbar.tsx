@@ -43,6 +43,7 @@ import {
   X,
   Type,
   BarChart3,
+  BookMarked,
   PanelLeft,
   PanelRight,
   Search,
@@ -63,6 +64,7 @@ import {
   Baseline,
   Droplets,
   SpellCheck,
+  Accessibility,
   Frame,
   AlignStartVertical,
   AlignCenterVertical,
@@ -165,10 +167,15 @@ interface ToolbarProps {
   onOpenCaption?: () => void;
   onOpenSymbol?: () => void;
   onOpenEquation?: () => void;
+  onOpenChart?: () => void;
+  onOpenSources?: () => void;
   onOpenTheme?: () => void;
   /** Volet du correcteur. */
   proofingOpen?: boolean;
   onToggleProofing?: () => void;
+  /** Volet du vérificateur d'accessibilité. */
+  a11yOpen?: boolean;
+  onToggleA11y?: () => void;
   onOpenWatermark?: () => void;
   /** Règle graduée : visible et bascule. */
   rulerVisible?: boolean;
@@ -375,12 +382,16 @@ export default function Toolbar({
   onOpenCaption,
   onOpenSymbol,
   onOpenEquation,
+  onOpenChart,
+  onOpenSources,
   onOpenTheme,
   onOpenWatermark,
   rulerVisible,
   onToggleRuler,
   proofingOpen,
   onToggleProofing,
+  a11yOpen,
+  onToggleA11y,
   gridVisible,
   gridSnap,
   onToggleGrid,
@@ -1090,6 +1101,12 @@ export default function Toolbar({
                   <Cmd title="Insérer une équation" onClick={() => onOpenEquation?.()}>
                     <FunctionSquare size={17} />
                   </Cmd>
+                  <Cmd title="Insérer un graphique (données modifiables, exporté en graphique Word)" onClick={() => onOpenChart?.()}>
+                    <BarChart3 size={17} />
+                  </Cmd>
+                  <Cmd title="Sources, citations et bibliographie (APA, MLA, ISO 690)" onClick={() => onOpenSources?.()}>
+                    <BookMarked size={17} />
+                  </Cmd>
                 </Group>
                 <Group title="Ornements" optional>
                   <Dropdown
@@ -1552,6 +1569,15 @@ export default function Toolbar({
                     onClick={() => onToggleProofing?.()}
                   >
                     <SpellCheck size={19} />
+                  </Cmd>
+                  <Cmd
+                    big
+                    label="Accessibilité"
+                    title="Vérifier l'accessibilité : textes alternatifs, titres, tableaux, contrastes"
+                    active={!!a11yOpen}
+                    onClick={() => onToggleA11y?.()}
+                  >
+                    <Accessibility size={19} />
                   </Cmd>
                 </Group>
                 <Group title="Analyse" optional>

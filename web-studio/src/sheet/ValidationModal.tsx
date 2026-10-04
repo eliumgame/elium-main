@@ -33,6 +33,7 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
   const [v1, setV1] = useState("");
   const [v2, setV2] = useState("");
   const [listText, setListText] = useState("");
+  const [listRefText, setListRefText] = useState("");
   const [allowBlank, setAllowBlank] = useState(true);
 
   const needs = VALIDATION_OPS.find((o) => o.value === op)?.needs ?? 1;
@@ -43,14 +44,20 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
         .split(/[\n,;]/)
         .map((s) => s.trim())
         .filter(Boolean);
-      if (!list.length) return;
-      onAdd({ type: "list", list, allowBlank });
+      const ref = listRefText.trim();
+      if (ref) {
+        onAdd({ type: "list", list: [], listRef: ref, allowBlank });
+      } else {
+        if (!list.length) return;
+        onAdd({ type: "list", list, allowBlank });
+      }
     } else {
       onAdd({ type, op, v1: v1 || undefined, v2: needs >= 2 ? v2 || undefined : undefined, allowBlank });
     }
     setV1("");
     setV2("");
     setListText("");
+    setListRefText("");
   };
 
   const placeholder = type === "date" ? "aaaa-mm-jj" : type === "textLength" ? "longueur" : "valeur";
@@ -97,14 +104,24 @@ export default function ValidationModal({ rangeLabel, validations, onAdd, onRemo
         </div>
 
         {type === "list" ? (
-          <textarea
-            className="elx-input"
-            rows={3}
-            value={listText}
-            onChange={(e) => setListText(e.target.value)}
-            placeholder="Valeurs autorisées, séparées par des virgules ou des retours à la ligne"
-            style={{ width: "100%", marginTop: 8, resize: "vertical" }}
-          />
+          <>
+            <input
+              className="elx-input"
+              value={listRefText}
+              onChange={(e) => setListRefText(e.target.value)}
+              aria-label="Plage source de la liste"
+              placeholder="Ou plage source : Feuille2!A1:A10 (la liste suit les cellules)"
+              style={{ width: "100%", marginTop: 8 }}
+            />
+            <textarea
+              className="elx-input"
+              rows={3}
+              value={listText}
+              onChange={(e) => setListText(e.target.value)}
+              placeholder="Valeurs autorisées, séparées par des virgules ou des retours à la ligne"
+              style={{ width: "100%", marginTop: 8, resize: "vertical" }}
+            />
+          </>
         ) : (
           <div className="dcx-inline" style={{ marginTop: 8 }}>
             <input

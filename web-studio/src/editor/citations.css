@@ -1,0 +1,43 @@
+.elium-citation {
+  color: var(--primary, #1d4ed8);
+  cursor: default;
+}
+.elium-bibliography {
+  margin-top: 24px;
+}
+.elium-bibliography__title {
+  font-size: 1.2em;
+}
+.elium-bibliography__entry {
+  padding-left: 2em;
+  text-indent: -2em;
+  margin: 0.4em 0;
+}
+.elium-bibliography__empty {
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
+.sources__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.sources__item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.sources__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.sources__page {
+  width: 150px;
+}

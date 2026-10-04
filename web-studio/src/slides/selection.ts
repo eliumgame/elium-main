@@ -144,6 +144,8 @@ const TYPE_LABEL: Record<SlideElement["type"], string> = {
   image: "Image",
   table: "Tableau",
   chart: "Graphique",
+  media: "Média",
+  diagram: "Diagramme",
 };
 
 const plainText = (html: string) =>

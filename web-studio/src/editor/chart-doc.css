@@ -1,0 +1,32 @@
+.elium-doc-chart {
+  margin: 12px 0;
+  text-align: center;
+  cursor: pointer;
+}
+.elium-doc-chart svg {
+  max-width: 100%;
+  height: auto;
+}
+.ProseMirror-selectednode.elium-doc-chart {
+  outline: 2px solid var(--primary, #2563eb);
+}
+.chartdata__grid {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.chartdata__grid input {
+  width: 90px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 4px;
+  font: inherit;
+}
+.chartdata__actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.chartdata__preview {
+  max-width: 520px;
+  margin: 0 auto;
+}

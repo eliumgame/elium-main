@@ -15,6 +15,7 @@ import SheetEditor from "../sheet/SheetEditor";
 import { useDialogs } from "../ui/dialogs";
 import { useI18n } from "../i18n";
 import { createCalc, indexToCol } from "../sheet/formula";
+import { tableDefs } from "../sheet/tables";
 import { formatValue } from "../sheet/format";
 import { rowVisible as filterRowVisible } from "../sheet/filter";
 import { workbookToXlsx } from "../sheet/xlsx-export";
@@ -75,9 +76,11 @@ export default function SheetView({
       (ref) => sheet.cells[ref],
       crossSheets,
       nameMap.size ? (name: string) => nameMap.get(name) : undefined,
+      (ctx) => Object.keys((ctx === null ? sheet : wb.sheets.find((s) => s.name === ctx))?.cells ?? {}),
+      { tables: tableDefs(wb.sheets), sheet: sheet.name },
     );
     const cellDisplay = (ref: string) =>
-      sheet.cells[ref] != null ? formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref)) : "";
+      sheet.cells[ref] != null || c.spillAnchor(ref) !== null ?formatValue(c.valueOf(ref), sheet.styles?.[ref]?.fmt, c.display(ref)) : "";
     const rowVis = (r: number) => filterRowVisible(sheet.filter, (col, rr) => cellDisplay(cellRef(col, rr)), r);
     const lines: string[] = [];
     for (let r = 0; r < sheet.rows; r++) {

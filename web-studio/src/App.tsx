@@ -605,7 +605,7 @@ export default function App() {
   const onCreate = useCallback(
     async (tpl: Template, profile: EliumProfile = "standard") => {
       const { title, doc } = tpl.build();
-      const f = await createEliumFile({ title, profile, doc });
+      const f = await createEliumFile({ title, profile, doc, page: tpl.page });
       // Préférences d'édition : police / taille par défaut des NOUVEAUX documents (style « Normal »).
       const { defaultFont, defaultFontSize } = getPrefs();
       if (defaultFont || defaultFontSize) {
@@ -660,11 +660,12 @@ export default function App() {
         // Import Word .docx as a new editable document (binary).
         const ext = uploaded.name.toLowerCase().split(".").pop() ?? "";
         if (ext === "docx") {
-          const { title, doc } = docxToDoc(new Uint8Array(await uploaded.arrayBuffer()));
+          const { title, doc, page } = docxToDoc(new Uint8Array(await uploaded.arrayBuffer()));
           const f = await createEliumFile({
             title: title || uploaded.name.replace(/\.docx$/i, ""),
             profile: "standard",
             doc,
+            page,
           });
           setPassword("");
           await loadFile(f, { contentIntact: true, unchecked: true });

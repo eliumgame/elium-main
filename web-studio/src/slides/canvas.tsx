@@ -5,8 +5,13 @@
  * elements can be selected, moved, resized (8 handles), rotated, and text can be
  * edited in place; smart guides snap to the slide centre, edges and a light grid.
  */
+import "./master.css";
+import { playbackSrc } from "./media";
+import { cellClass, isCovered, mergeAt } from "./table";
+import { layoutDiagram, nodeFontPx, type DEdge, type DNode } from "./diagram";
+import { isPromptOnly, withSlideNumber } from "./master";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Slide, SlideElement, SlideTheme, ShapeKind } from "./model";
+import { REF_H, REF_W, type Slide, type SlideElement, type SlideTheme, type ShapeKind } from "./model";
 import type { RevealState } from "./playback";
 import {
   selectionAfterClick,
@@ -142,18 +147,26 @@ export interface SlideCanvasProps {
   onCanvasContext?: (e: React.MouseEvent) => void;
   /** Presenter playback: hides not-yet-revealed elements, animates entering ones. */
   reveal?: RevealState;
+  /** Numéro de cette diapositive (remplace le jeton ‹#› des espaces réservés « numéro »). */
+  slideNumber?: number;
+  /** Projection : les médias sont lisibles (et démarrent seuls si « lecture automatique »). */
+  playMedia?: boolean;
 }
 
 /** A table cell — mirrors the text element's focus-guarded contentEditable so
  *  typing never resets the caret while remote/state updates flow in. */
 function TableCell({
   value,
-  head,
+  cls,
+  rowSpan,
+  colSpan,
   editing,
   onChange,
 }: {
   value: string;
-  head: boolean;
+  cls: string;
+  rowSpan?: number;
+  colSpan?: number;
   editing: boolean;
   onChange: (t: string) => void;
 }) {
@@ -165,7 +178,9 @@ function TableCell({
   return (
     <td
       ref={ref}
-      className={`ce-td ${head ? "ce-td--head" : ""}`}
+      className={`ce-td ${cls}`}
+      rowSpan={rowSpan}
+      colSpan={colSpan}
       contentEditable={editing}
       suppressContentEditableWarning
       onInput={editing ? (e) => onChange((e.currentTarget as HTMLElement).innerText) : undefined}
@@ -173,15 +188,94 @@ function TableCell({
   );
 }
 
+/** Diagramme SmartArt : recalculé depuis son plan à chaque rendu (toujours modifiable). */
+export function DiagramView({ d, scale, w, h }: { d: NonNullable<SlideElement["diagram"]>; scale: number; w: number; h: number }) {
+  const lay = layoutDiagram(d.kind, d.outline, d.colors);
+  const byId = new Map<number, DNode>(lay.nodes.map((n) => [n.id, n]));
+  const boxW = (w / 100) * REF_W;
+  const boxH = (h / 100) * REF_H;
+  const edgePath = (e: DEdge): string | null => {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    if (!a || !b) return null;
+    if (e.kind === "line") {
+      const x1 = a.x + a.w / 2;
+      const y1 = a.y + a.h;
+      const x2 = b.x + b.w / 2;
+      const y2 = b.y;
+      const my = (y1 + y2) / 2;
+      return `M${x1},${y1} L${x1},${my} L${x2},${my} L${x2},${y2}`;
+    }
+    return `M${a.x + a.w / 2},${a.y + a.h / 2} L${b.x + b.w / 2},${b.y + b.h / 2}`;
+  };
+  return (
+    <div className="ce-diagram" role="img" aria-label={`Diagramme (${lay.nodes.length} éléments) : ${lay.nodes.map((n) => n.text).join(", ")}`}>
+      <svg className="ce-diagram__edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <marker id="dg-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#64748b" />
+          </marker>
+        </defs>
+        {lay.edges.map((e, i) => {
+          const p = edgePath(e);
+          return p ? <path key={i} d={p} fill="none" stroke="#64748b" strokeWidth={2} vectorEffect="non-scaling-stroke" markerEnd={e.kind === "arrow" ? "url(#dg-arrow)" : undefined} /> : null;
+        })}
+      </svg>
+      {lay.nodes.map((n) => (
+        <div
+          key={n.id}
+          className={`ce-diagram__node ${n.round ? "is-round" : ""}`}
+          style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%`, background: n.color, fontSize: nodeFontPx(n, boxH, boxW) * scale }}
+        >
+          <span>{n.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Audio/vidéo : lecteur en projection, vignette partout ailleurs (miniatures, éditeur). */
+function MediaView({ m, play }: { m: NonNullable<SlideElement["media"]>; play: boolean }) {
+  const ref = useRef<HTMLMediaElement>(null);
+  if (!play)
+    return (
+      <div className="ce-media-ph" role="img" aria-label={`${m.kind === "video" ? "Vidéo" : "Audio"}${m.name ? ` : ${m.name}` : ""}`}>
+        <span aria-hidden="true">{m.kind === "video" ? "▶" : "♪"}</span>
+        <span className="ce-media-ph__name">{m.name ?? (m.kind === "video" ? "Vidéo" : "Audio")}</span>
+      </div>
+    );
+  const common = {
+    ref: ref as never,
+    src: playbackSrc(m),
+    controls: true,
+    loop: !!m.loop,
+    autoPlay: !!m.autoplay,
+    preload: "auto" as const,
+    onClick: (e: React.MouseEvent) => e.stopPropagation(), // un clic sur le lecteur ne fait pas avancer le diaporama
+    onTimeUpdate: () => {
+      const el = ref.current;
+      if (el && m.trimEnd && m.trimEnd > 0 && el.currentTime >= m.trimEnd) {
+        if (m.loop) el.currentTime = m.trimStart ?? 0;
+        else el.pause();
+      }
+    },
+  };
+  return m.kind === "video" ? <video className="ce-media" {...common} /> : <audio className="ce-media ce-media--audio" {...common} />;
+}
+
 /** Renders one element (read-only or as part of the editable surface). */
 function ElementView({
   el,
   scale,
+  slideNumber,
+  playMedia,
   editing,
   onEditInput,
   onCellEdit,
 }: {
   el: SlideElement;
+  slideNumber?: number;
+  playMedia?: boolean;
   scale: number;
   editing: boolean;
   onEditInput?: (html: string) => void;
@@ -213,21 +307,34 @@ function ElementView({
       <div className="ce-imgph">Image</div>
     );
   }
+  if (el.type === "diagram" && el.diagram) {
+    return <DiagramView d={el.diagram} scale={scale} w={el.w} h={el.h} />;
+  }
+  if (el.type === "media" && el.media) {
+    return <MediaView m={el.media} play={!!playMedia} />;
+  }
   if (el.type === "table" && el.table) {
     return (
       <table className="ce-table" style={{ fontSize: (el.fontSize ?? 18) * scale, color: el.color }}>
         <tbody>
           {el.table.cells.map((row, r) => (
             <tr key={r}>
-              {row.map((cell, c) => (
-                <TableCell
-                  key={c}
-                  value={cell}
-                  head={r === 0}
-                  editing={editing}
-                  onChange={(t) => onCellEdit?.(r, c, t)}
-                />
-              ))}
+              {row.map((cell, c) => {
+                const t = el.table!;
+                if (isCovered(t, r, c)) return null; // masquée par une fusion
+                const m = mergeAt(t, r, c);
+                return (
+                  <TableCell
+                    key={c}
+                    value={cell}
+                    cls={cellClass(t, r, c)}
+                    rowSpan={m && m.rs > 1 ? m.rs : undefined}
+                    colSpan={m && m.cs > 1 ? m.cs : undefined}
+                    editing={editing}
+                    onChange={(txt) => onCellEdit?.(r, c, txt)}
+                  />
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -267,7 +374,13 @@ function ElementView({
       />
     );
   }
-  return <div className="ce-text" style={style} dangerouslySetInnerHTML={{ __html: el.html ?? "" }} />;
+  return (
+    <div
+      className={`ce-text${isPromptOnly(el) ? " ce-text--prompt" : ""}`}
+      style={style}
+      dangerouslySetInnerHTML={{ __html: withSlideNumber(el.html, slideNumber) }}
+    />
+  );
 }
 
 export default function SlideCanvas({
@@ -283,6 +396,8 @@ export default function SlideCanvas({
   onElementContext,
   onCanvasContext,
   reveal,
+  slideNumber,
+  playMedia,
 }: SlideCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -560,7 +675,7 @@ export default function SlideCanvas({
         }
       }}
     >
-      {elements.map((elm) => {
+      {(editable ? elements : elements.filter((e) => !isPromptOnly(e))).map((elm) => {
         const selected = editable && selSet.has(elm.id);
         const editing = editingId === elm.id;
         const hidden = reveal?.hidden.has(elm.id) ?? false;
@@ -603,6 +718,8 @@ export default function SlideCanvas({
           >
             <ElementView
               el={elm}
+              slideNumber={slideNumber}
+              playMedia={playMedia}
               scale={scale}
               editing={editing}
               onEditInput={(html) => onChange?.(elm.id, { html }, false)}

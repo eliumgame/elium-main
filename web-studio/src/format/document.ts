@@ -68,6 +68,7 @@ export async function createEliumFile(opts: {
   title?: string;
   profile?: EliumProfile;
   doc?: ProseMirrorNode;
+  page?: Partial<PageSettings>;
 }): Promise<EliumFile> {
   const title = opts.title ?? "Document sans titre";
   const profile = opts.profile ?? "standard";
@@ -79,7 +80,7 @@ export async function createEliumFile(opts: {
 
   return {
     manifest: baseManifest(title, profile),
-    document: createDocumentModel(opts.doc),
+    document: createDocumentModel(opts.doc, opts.page),
     signatures: [],
     resources: new Map(),
     resourceIndex: [],

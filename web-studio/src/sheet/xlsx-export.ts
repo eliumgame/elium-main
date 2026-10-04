@@ -29,6 +29,10 @@
 import { zipSync, strToU8 } from "fflate";
 import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
+import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
+import { formulaForFile } from "./xlsx-formula";
+import { printDefinedNames, printXml, sheetPrXml } from "./xlsx-print";
+import { tableDefs } from "./tables";
 import type {
   Workbook,
   SheetData,
@@ -49,6 +53,7 @@ const CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types";
 const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"; // rel types base
 const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+// (le XML d'un graphique est produit par chart-ooxml.ts)
 const XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
 
 const xe = escapeXmlText;
@@ -260,7 +265,7 @@ function cellXml(key: string, raw: string, s: number, literal = false): string {
   const sAttr = s ? ` s="${s}"` : "";
   const text = xmlSafeText(raw);
   if (!literal && text.startsWith("=") && text.length <= MAX_FORMULA) {
-    return `<c r="${key}"${sAttr}><f>${xe(text.slice(1))}</f></c>`;
+    return `<c r="${key}"${sAttr}><f>${xe(formulaForFile(text.slice(1)))}</f></c>`;
   }
   if (isNumeric(text)) {
     return `<c r="${key}"${sAttr}><v>${xe(text.trim())}</v></c>`;
@@ -427,6 +432,12 @@ function dataValidationXml(rules: DataValidation[] | undefined): string {
     .map((v) => {
       const sqref = rangeRef(v.c0, v.r0, v.c1, v.r1);
       const allowBlank = v.allowBlank === false ? 0 : 1;
+      if (v.type === "list" && v.listRef) {
+        return (
+          `<dataValidation type="list" allowBlank="${allowBlank}" showInputMessage="1" showErrorMessage="1" sqref="${sqref}">` +
+          `<formula1>${xe(v.listRef)}</formula1></dataValidation>`
+        );
+      }
       if (v.type === "list") {
         const items = (v.list ?? []).map((s) => s.replace(/"/g, "'")).join(",");
         return (
@@ -482,60 +493,19 @@ function chartValueCols(chart: ChartSpec): number[] {
 function chartXml(chart: ChartSpec, sheetNameQuoted: string): string {
   const oneCol = chart.c0 === chart.c1;
   const valCols = chartValueCols(chart);
-  const catRef = oneCol ? null : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
-  const catXml = catRef ? `<c:cat><c:strRef><c:f>${xe(catRef)}</c:f></c:strRef></c:cat>` : "";
-  const AX_CAT = 111111111,
-    AX_VAL = 222222222;
-
-  /** One `<c:ser>` per value column — series 0 is named after the chart title
-   * (kept exactly as before for the single-series case), later ones after
-   * their column letter, so the legend can tell them apart. */
-  const seriesXml = (lineMarkers: boolean): string =>
-    valCols
-      .map((col, i) => {
-        const valRef = `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`;
-        const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-        const name = i === 0 ? chart.title : `Colonne ${colLetters(col)}`;
-        const head = `<c:idx val="${i}"/><c:order val="${i}"/>${name ? `<c:tx><c:v>${xe(name)}</c:v></c:tx>` : ""}`;
-        const marker = lineMarkers ? `<c:marker><c:symbol val="circle"/></c:marker>` : "";
-        const smooth = lineMarkers ? `<c:smooth val="0"/>` : "";
-        return `<c:ser>${head}${marker}${catXml}${valXml}${smooth}</c:ser>`;
-      })
-      .join("");
-
-  const axes =
-    `<c:catAx><c:axId val="${AX_CAT}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX_VAL}"/></c:catAx>` +
-    `<c:valAx><c:axId val="${AX_VAL}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="${AX_CAT}"/></c:valAx>`;
-
-  let plot: string;
-  if (chart.type === "pie") {
-    // Pie charts vary colour BY POINT, not by series, and Excel doesn't give
-    // multiple pie series a meaningful rendering — only the first value column
-    // is charted (unchanged single-series behaviour for this chart type).
-    const valRef = `${sheetNameQuoted}!${absRangeRef(valCols[0]!, chart.r0, chart.r1)}`;
-    const valXml = `<c:val><c:numRef><c:f>${xe(valRef)}</c:f></c:numRef></c:val>`;
-    const head = `<c:idx val="0"/><c:order val="0"/>${chart.title ? `<c:tx><c:v>${xe(chart.title)}</c:v></c:tx>` : ""}`;
-    plot = `<c:pieChart><c:varyColors val="1"/><c:ser>${head}${catXml}${valXml}</c:ser></c:pieChart>`;
-  } else if (chart.type === "line") {
-    plot =
-      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${seriesXml(true)}` +
-      `<c:marker val="1"/><c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:lineChart>${axes}`;
-  } else {
-    plot =
-      `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${seriesXml(false)}` +
-      `<c:axId val="${AX_CAT}"/><c:axId val="${AX_VAL}"/></c:barChart>${axes}`;
-  }
-
-  const title = chart.title
-    ? `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${xe(chart.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`
-    : `<c:autoTitleDeleted val="1"/>`;
-
-  return (
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<c:chartSpace xmlns:c="${C_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">` +
-    `<c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>` +
-    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`
-  );
+  const catRef = oneCol ? undefined : `${sheetNameQuoted}!${absRangeRef(chart.c0, chart.r0, chart.r1)}`;
+  const n = chart.r1 - chart.r0 + 1;
+  // One `<c:ser>` per value column — series 0 is named after the chart title (kept as before for the
+  // single-series case), later ones after their column letter, so the legend can tell them apart.
+  // A pie charts only the first column.
+  const cols = chart.type === "pie" ? valCols.slice(0, 1) : valCols;
+  const series: OoxmlSeries[] = cols.map((col, i) => ({
+    name: i === 0 ? chart.title : `Colonne ${colLetters(col)}`,
+    catRef,
+    valRef: `${sheetNameQuoted}!${absRangeRef(col, chart.r0, chart.r1)}`,
+    ...(chart.type === "scatter" ? (catRef ? { xRef: catRef } : { xvals: Array.from({ length: n }, (_, k) => k + 1) }) : {}),
+  }));
+  return chartSpaceXml({ type: chart.type, title: chart.title, opts: chart.opts, series });
 }
 
 /** xl/drawings/drawingN.xml — one graphicFrame per chart, stacked below `baseRow`. */
@@ -566,7 +536,7 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
 /** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
 const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
 
-function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false): string {
+function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, literal = false, tableRIds: string[] = []): string {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
@@ -604,6 +574,7 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<worksheet xmlns="${NS}" xmlns:r="${R_NS}">` +
+    sheetPrXml(sheet.print) +
     `<dimension ref="${dim}"/>` +
     sheetViewsXml(sheet.freeze) +
     colsXml(sheet.colWidths) +
@@ -612,7 +583,9 @@ function sheetXml(sheet: SheetData, styles: StyleTable, hasDrawing: boolean, lit
     mergeCellsXml(sheet.merges) +
     condFormattingXml(sheet.condFormats, styles) +
     dataValidationXml(sheet.validations) +
+    printXml(sheet.print) +
     (hasDrawing ? `<drawing r:id="rId1"/>` : "") +
+    (tableRIds.length ? `<tableParts count="${tableRIds.length}">${tableRIds.map((id) => `<tablePart r:id="${id}"/>`).join("")}</tableParts>` : "") +
     `</worksheet>`
   );
 }
@@ -635,9 +608,9 @@ function sanitizeNames(sheets: SheetData[]): string[] {
 }
 
 /** <definedNames> (§18.2.6) — one <definedName> per workbook-scoped named range; omitted when there are none. */
-function definedNamesBlock(names: NamedRange[] | undefined): string {
-  if (!names || !names.length) return "";
-  const body = names.map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("");
+function definedNamesBlock(names: NamedRange[] | undefined, extra = ""): string {
+  if ((!names || !names.length) && !extra) return "";
+  const body = (names ?? []).map((n) => `<definedName name="${xe(n.name)}">${xe(n.ref)}</definedName>`).join("") + extra;
   return `<definedNames>${body}</definedNames>`;
 }
 
@@ -685,6 +658,9 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
   const names = sanitizeNames(wb.sheets);
   const files: Record<string, Uint8Array> = {};
   let chartCounter = 0;
+  let tableCounter = 0;
+  const tableParts: string[] = [];
+  const allTables = tableDefs(wb.sheets);
 
   // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
   // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
@@ -694,7 +670,11 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
     const chartRIds = charts.map((_, ci) => `rId${ci + 1}`);
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(sheetXml(sheet, styles, charts.length > 0, opts.literalText));
+    const relBase = (charts.length ? 1 : 0) + (notesXml ? 1 : 0);
+    const sheetTables = (sheet.tables ?? []).map((t, k) => ({ t, rId: `rId${relBase + k + 1}`, n: ++tableCounter }));
+    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(
+      sheetXml(sheet, styles, charts.length > 0, opts.literalText, sheetTables.map((x) => x.rId)),
+    );
 
     const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {
@@ -713,6 +693,21 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
       sheetRels.push({ id: `rId${sheetRels.length + 1}`, type: T.comments, target: `../comments${i + 1}.xml` });
       commentSheets.push(i);
     }
+    for (const { t, rId, n } of sheetTables) {
+      const def = allTables.find((d) => d.id === t.id)!;
+      const ref = `${colLetters(t.c0)}${t.r0 + 1}:${colLetters(t.c1)}${t.r1 + 1}`;
+      const cols = def.headers.map((h, k) => `<tableColumn id="${k + 1}" name="${xe(h)}"/>`).join("");
+      files[`xl/tables/table${n}.xml`] = strToU8(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+          `<table xmlns="${NS}" id="${n}" name="${xe(t.name)}" displayName="${xe(t.name)}" ref="${ref}" ${t.totals ? 'totalsRowCount="1"' : 'totalsRowShown="0"'}>` +
+          `<autoFilter ref="${colLetters(t.c0)}${t.r0 + 1}:${colLetters(t.c1)}${(t.totals ? t.r1 - 1 : t.r1) + 1}"/>` +
+          `<tableColumns count="${def.headers.length}">${cols}</tableColumns>` +
+          `<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="${t.banded === false ? 0 : 1}" showColumnStripes="0"/>` +
+          `</table>`,
+      );
+      sheetRels.push({ id: rId, type: `${REL}/table`, target: `../tables/table${n}.xml` });
+      tableParts.push(`<Override PartName="/xl/tables/table${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
+    }
     if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
   });
   files["xl/styles.xml"] = strToU8(styles.toXml());
@@ -721,7 +716,8 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
   const sheetTags = names
     .map((name, i) => `<sheet name="${xe(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join("");
-  const definedNamesXml = definedNamesBlock(wb.names);
+  const printNames = wb.sheets.map((sh, i) => printDefinedNames(i, names[i]!, sh.print)).join("");
+  const definedNamesXml = definedNamesBlock(wb.names, printNames);
   files["xl/workbook.xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<workbook xmlns="${NS}" xmlns:r="${R_NS}">` +
@@ -775,6 +771,7 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
     drawingOverrides +
     chartOverrides +
+    tableParts.join("") +
     commentsOverrides;
   files["[Content_Types].xml"] = strToU8(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}">` +

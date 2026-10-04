@@ -100,6 +100,31 @@ import SlideCanvas, { themeDefaultBg } from "./canvas";
 import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
+import SlideSorter from "./SlideSorter";
+import MasterEditor from "./MasterEditor";
+import HandoutsDialog from "./HandoutsDialog";
+import DiagramDialog from "./DiagramDialog";
+import {
+  TABLE_STYLES,
+  deleteCol as tDeleteCol,
+  deleteRow as tDeleteRow,
+  insertCol as tInsertCol,
+  insertRow as tInsertRow,
+  mergeCells,
+  tableFromTsv,
+  unmergeAt,
+} from "./table";
+import {
+  MEDIA_ACCEPT,
+  clampTrim,
+  formatTime,
+  mediaKindOf,
+  newMediaElement,
+  playbackSrc,
+  validateMediaFile,
+} from "./media";
+import { applyLayout, defaultMaster, resetSlide } from "./master";
+import { firstPlayableFrom, nextPlayable } from "./sections";
 import type { DeckPeer, DeckStore } from "./store";
 import "./slides.css";
 
@@ -198,14 +223,19 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const [hasClipboard, setHasClipboard] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [masterOpen, setMasterOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [diagramDlg, setDiagramDlg] = useState<null | "new" | "edit">(null);
   const [bgC1, setBgC1] = useState("#2563eb");
   const [bgC2, setBgC2] = useState("#1e3a8a");
   const [bgAngle, setBgAngle] = useState(160);
   const [stageRef, scale] = useScale();
   const imgRef = useRef<HTMLInputElement>(null);
   const pptxRef = useRef<HTMLInputElement>(null);
+  const mediaRef = useRef<HTMLInputElement>(null);
 
   const active = deck.slides[activeIdx];
+  const withEl = (sl: Slide): Slide => ({ ...sl, elements: sl.elements ?? elementsOf(sl) });
   const elements = active ? (active.elements ?? elementsOf(active)) : [];
   const selId = selIds.length ? selIds[selIds.length - 1]! : null; // primary = last selected (drives the format toolbar)
   const sel = elements.find((e) => e.id === selId) ?? null;
@@ -278,6 +308,26 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     rd.onload = () => addEl(newImageElement(rd.result as string));
     rd.readAsDataURL(file);
   };
+  const onMedia = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const problem = validateMediaFile(file);
+    if (problem) {
+      void dialogs.alert({ title: "Média non inséré", message: problem });
+      return;
+    }
+    const rd = new FileReader();
+    rd.onerror = () => void dialogs.alert({ title: "Média non inséré", message: "Le fichier n'a pas pu être lu." });
+    rd.onload = () => {
+      const src = String(rd.result);
+      const mime = file.type || (/^data:([^;]+);/.exec(src)?.[1] ?? "");
+      const kind = mediaKindOf(mime, file.name);
+      if (!kind) return;
+      addEl(newMediaElement({ kind, src, mime, name: file.name }));
+    };
+    rd.readAsDataURL(file);
+  };
   const onImportPptx = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -319,30 +369,47 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     store.patchSlide({ anims: (active?.anims ?? []).filter((a) => a.elementId !== id) }, true);
 
   // --- table + chart element editing ---
-  const patchTable = (
-    mut: (
-      cells: string[][],
-      t: NonNullable<SlideElement["table"]>,
-    ) => { rows: number; cols: number; cells: string[][] },
-  ) => {
+  // Les opérations passent par slides/table.ts : les fusions, le style et les options du tableau restent cohérents.
+  const setTable = (next: NonNullable<SlideElement["table"]>) => sel && store.updateEl(sel.id, { table: next }, true);
+  const addRow = () => sel?.table && setTable(tInsertRow(sel.table, sel.table.rows));
+  const delRow = () => sel?.table && setTable(tDeleteRow(sel.table, sel.table.rows - 1));
+  const addCol = () => sel?.table && setTable(tInsertCol(sel.table, sel.table.cols));
+  const delCol = () => sel?.table && setTable(tDeleteCol(sel.table, sel.table.cols - 1));
+  // plage de fusion saisie (1-based) dans la barre d'outils
+  const [mergeRange, setMergeRange] = useState({ r0: 1, c0: 1, r1: 2, c1: 2 });
+  const doMerge = () => {
     if (!sel?.table) return;
-    const t = sel.table;
-    const next = mut(
-      t.cells.map((r) => r.slice()),
-      t,
+    const next = mergeCells(
+      sel.table,
+      { r: mergeRange.r0 - 1, c: mergeRange.c0 - 1 },
+      { r: mergeRange.r1 - 1, c: mergeRange.c1 - 1 },
     );
-    store.updateEl(sel.id, { table: next }, true);
+    if (next === sel.table) {
+      void dialogs.alert({
+        title: "Fusion impossible",
+        message: "Indiquez une plage d'au moins deux cellules située dans le tableau.",
+      });
+      return;
+    }
+    setTable(next);
   };
-  const addRow = () =>
-    patchTable((cells, t) => ({ rows: t.rows + 1, cols: t.cols, cells: [...cells, Array(t.cols).fill("")] }));
-  const delRow = () =>
-    patchTable((cells, t) => (t.rows <= 1 ? t : { rows: t.rows - 1, cols: t.cols, cells: cells.slice(0, -1) }));
-  const addCol = () =>
-    patchTable((cells, t) => ({ rows: t.rows, cols: t.cols + 1, cells: cells.map((r) => [...r, ""]) }));
-  const delCol = () =>
-    patchTable((cells, t) =>
-      t.cols <= 1 ? t : { rows: t.rows, cols: t.cols - 1, cells: cells.map((r) => r.slice(0, -1)) },
-    );
+  const doUnmerge = () => sel?.table && setTable(unmergeAt(sel.table, mergeRange.r0 - 1, mergeRange.c0 - 1));
+  const [tsvOpen, setTsvOpen] = useState(false);
+  const [tsvText, setTsvText] = useState("");
+  const applyTsv = () => {
+    const t = tableFromTsv(tsvText);
+    if (!t) {
+      void dialogs.alert({
+        title: "Collage vide",
+        message: "Copiez une plage de cellules dans le Tableur, puis collez-la ici.",
+      });
+      return;
+    }
+    if (sel?.table) setTable({ ...t, style: sel.table.style ?? t.style });
+    else addEl({ ...newTableElement(), table: t });
+    setTsvOpen(false);
+    setTsvText("");
+  };
 
   const setChart = (patch: Partial<ChartData>) => {
     if (!sel?.chart) return;
@@ -384,24 +451,31 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   // --- presenter step navigation (reveals element animations, then advances) ---
   const stepsOf = (i: number) => maxStep(deck.slides[i]?.anims);
   const goNext = () => {
+    // Les diapositives masquées sont sautées en diaporama.
+    const nx = nextPlayable(deck.slides, presentIdx, 1);
     if (presentStep < stepsOf(presentIdx)) setPresentStep(presentStep + 1);
-    else if (presentIdx < deck.slides.length - 1) {
-      setPresentIdx(presentIdx + 1);
+    else if (nx !== null) {
+      setPresentIdx(nx);
       setPresentStep(0);
     }
   };
   const goPrev = () => {
+    const pv = nextPlayable(deck.slides, presentIdx, -1);
     if (presentStep > 0) setPresentStep(presentStep - 1);
-    else if (presentIdx > 0) {
-      const p = presentIdx - 1;
-      setPresentIdx(p);
-      setPresentStep(stepsOf(p));
+    else if (pv !== null) {
+      setPresentIdx(pv);
+      setPresentStep(stepsOf(pv));
     }
   };
   const startPresent = () => {
-    prevIdxRef.current = activeIdx;
+    const from = firstPlayableFrom(deck.slides, activeIdx);
+    if (from === null) {
+      void dialogs.alert({ title: "Aucune diapositive à projeter", message: "Toutes les diapositives sont masquées." });
+      return;
+    }
+    prevIdxRef.current = from;
     setMorphFrom(null);
-    setPresentIdx(activeIdx);
+    setPresentIdx(from);
     setPresentStep(0);
     setPresenting(true);
   };
@@ -704,6 +778,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const isShape = sel?.type === "shape";
   const isTable = sel?.type === "table";
   const isChart = sel?.type === "chart";
+  const isMedia = sel?.type === "media" && !!sel.media;
   const peers = store.presence?.peers;
   // Grouped once per render instead of re-filtering `peers` inside the per-slide
   // rail loop below (was O(slides × peers) per render).
@@ -741,6 +816,54 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         )}
         <div className="sheet-bar__spacer" />
         {chrome.statusNode}
+        {canWrite && active && (
+          <>
+            <select
+              className="tool-select tool-select--sm"
+              aria-label="Disposition de la diapositive"
+              title="Disposition de la diapositive (espaces réservés du masque)"
+              value={active.layoutId ?? ""}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                store.replaceSlideAt(
+                  activeIdx,
+                  applyLayout(withEl(active), deck.master ?? defaultMaster(), e.target.value),
+                );
+              }}
+            >
+              <option value="">Disposition…</option>
+              {(deck.master ?? defaultMaster()).layouts.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="eb eb--sm eb--outline"
+              title="Réinitialiser la diapositive (replace les espaces réservés selon sa disposition)"
+              disabled={!active.layoutId}
+              onClick={() =>
+                store.replaceSlideAt(activeIdx, resetSlide(withEl(active), deck.master ?? defaultMaster()))
+              }
+            >
+              Réinitialiser
+            </button>
+            <button
+              className="eb eb--sm eb--outline"
+              title="Modifier le masque et les dispositions"
+              onClick={() => setMasterOpen(true)}
+            >
+              <LayoutTemplate size={14} /> Masque
+            </button>
+          </>
+        )}
+        <button
+          className="eb eb--sm eb--outline"
+          title="Imprimer : documents (1 à 9 par page), pages de notes, export PDF"
+          onClick={() => setPrintOpen(true)}
+        >
+          <Copy size={14} /> Imprimer
+        </button>
         {canWrite && (
           <button
             className="eb eb--sm eb--outline"
@@ -828,6 +951,28 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             <ImageIcon size={15} /> Image
           </button>
           <input ref={imgRef} type="file" accept="image/*" hidden onChange={onImage} />
+          <button
+            className="eb eb--sm eb--ghost"
+            title="Insérer un diagramme (processus, cycle, hiérarchie, liste) depuis un plan"
+            onClick={() => setDiagramDlg("new")}
+          >
+            <Group size={15} /> Diagramme
+          </button>
+          <button
+            className="eb eb--sm eb--ghost"
+            title="Insérer un son ou une vidéo (embarqué, lisible hors ligne)"
+            onClick={() => mediaRef.current?.click()}
+          >
+            <MonitorPlay size={15} /> Média
+          </button>
+          <input
+            ref={mediaRef}
+            type="file"
+            accept={MEDIA_ACCEPT}
+            hidden
+            onChange={onMedia}
+            aria-label="Fichier audio ou vidéo"
+          />
           <button className="eb eb--sm eb--ghost" onClick={() => addEl(newTableElement())}>
             <TableIcon size={15} /> Tableau
           </button>
@@ -1043,8 +1188,129 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               <button className="eb eb--sm eb--ghost" title="Supprimer la dernière colonne" onClick={delCol}>
                 <MinusIcon size={13} /> Col.
               </button>
+              <label className="sv-tbl-field">
+                Style
+                <select
+                  className="tool-select tool-select--sm"
+                  value={sel!.table!.style ?? "banded"}
+                  onChange={(e) =>
+                    setTable({ ...sel!.table!, style: e.target.value as NonNullable<SlideElement["table"]>["style"] })
+                  }
+                >
+                  {TABLE_STYLES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="sv-tbl-check">
+                <input
+                  type="checkbox"
+                  checked={sel!.table!.headerRow !== false}
+                  onChange={(e) => setTable({ ...sel!.table!, headerRow: e.target.checked })}
+                />{" "}
+                En-tête
+              </label>
+              <label className="sv-tbl-check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.table!.firstCol}
+                  onChange={(e) => setTable({ ...sel!.table!, firstCol: e.target.checked })}
+                />{" "}
+                1re colonne
+              </label>
+              <span className="sv-tbl-merge" role="group" aria-label="Fusionner des cellules">
+                {(["r0", "c0", "r1", "c1"] as const).map((k, i) => (
+                  <input
+                    key={k}
+                    type="number"
+                    min={1}
+                    aria-label={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                    title={["Ligne de début", "Colonne de début", "Ligne de fin", "Colonne de fin"][i]}
+                    value={mergeRange[k]}
+                    onChange={(e) => setMergeRange({ ...mergeRange, [k]: Math.max(1, Number(e.target.value) || 1) })}
+                  />
+                ))}
+                <button className="eb eb--sm eb--ghost" onClick={doMerge}>
+                  Fusionner
+                </button>
+                <button className="eb eb--sm eb--ghost" onClick={doUnmerge}>
+                  Séparer
+                </button>
+              </span>
+              <button
+                className="eb eb--sm eb--ghost"
+                title="Remplacer le contenu par une plage copiée depuis le Tableur"
+                onClick={() => setTsvOpen(true)}
+              >
+                Coller du Tableur
+              </button>
               <span className="sv-anim-hint">Double-cliquez une cellule pour l'éditer</span>
             </>
+          )}
+          {sel?.type === "diagram" && (
+            <button className="eb eb--sm eb--ghost" onClick={() => setDiagramDlg("edit")}>
+              Modifier le diagramme
+            </button>
+          )}
+          {isMedia && (
+            <div className="sv-media-bar" role="group" aria-label="Options du média">
+              {sel!.media!.kind === "video" ? (
+                <video className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+              ) : (
+                <audio className="sv-media-bar__preview" controls preload="metadata" src={playbackSrc(sel!.media!)} />
+              )}
+              <label>
+                Début (s)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sel!.media!.trimStart ?? 0}
+                  onChange={(e) =>
+                    store.updateEl(sel!.id, {
+                      media: { ...sel!.media!, ...clampTrim(Number(e.target.value), sel!.media!.trimEnd) },
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Fin (s, 0 = jusqu'à la fin)
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sel!.media!.trimEnd ?? 0}
+                  onChange={(e) =>
+                    store.updateEl(sel!.id, {
+                      media: { ...sel!.media!, ...clampTrim(sel!.media!.trimStart, Number(e.target.value)) },
+                    })
+                  }
+                />
+              </label>
+              <label className="sv-media-bar__check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.media!.autoplay}
+                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, autoplay: e.target.checked } })}
+                />
+                Lecture automatique
+              </label>
+              <label className="sv-media-bar__check">
+                <input
+                  type="checkbox"
+                  checked={!!sel!.media!.loop}
+                  onChange={(e) => store.updateEl(sel!.id, { media: { ...sel!.media!, loop: e.target.checked } })}
+                />
+                Boucle
+              </label>
+              <span className="sv-anim-hint">
+                Lecture : {formatTime(sel!.media!.trimStart ?? 0)}
+                {sel!.media!.trimEnd ? ` → ${formatTime(sel!.media!.trimEnd)}` : " → fin"}. Au clic sur le lecteur en
+                diaporama, sauf lecture automatique.
+              </span>
+            </div>
           )}
           {isChart && sel!.chart && (
             <div className="sv-menu">
@@ -1289,8 +1555,15 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
               >
                 <button className="slide-thumb__preview sv-thumb" onClick={() => store.setActive(i)}>
                   <span className="slide-thumb__num">{i + 1}</span>
+                  {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
                   <span className="sv-thumb__canvas">
-                    <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={90 / REF_H} />
+                    <SlideCanvas
+                      slide={s}
+                      elements={s.elements ?? elementsOf(s)}
+                      theme={theme}
+                      scale={90 / REF_H}
+                      slideNumber={i + 1}
+                    />
                   </span>
                   {here.map((p, k) => (
                     <span key={k} className="dc-slides__peerdot" style={{ background: p.color }} title={p.name} />
@@ -1377,7 +1650,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 )}
               </div>
               <button className="eb eb--sm eb--ghost" onClick={() => setManagerOpen(true)}>
-                <GalleryVerticalEnd size={13} /> Gérer
+                <GalleryVerticalEnd size={13} /> Trieuse
               </button>
             </div>
           )}
@@ -1392,6 +1665,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                 elements={elements}
                 theme={theme}
                 scale={scale}
+                slideNumber={activeIdx + 1}
                 editable={canWrite}
                 selectedIds={selIds}
                 onSelectionChange={setSelIds}
@@ -1535,9 +1809,59 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
         </Modal>
       )}
 
+      {tsvOpen && (
+        <Modal
+          title="Coller une plage du Tableur"
+          onClose={() => setTsvOpen(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setTsvOpen(false)}>
+                Annuler
+              </Button>
+              <Button onClick={applyTsv}>Utiliser ces données</Button>
+            </>
+          }
+        >
+          <textarea
+            className="settings__input"
+            rows={8}
+            autoFocus
+            aria-label="Cellules copiées depuis le Tableur"
+            placeholder="Copiez des cellules dans le Tableur (Ctrl+C) puis collez-les ici (Ctrl+V)."
+            value={tsvText}
+            onChange={(e) => setTsvText(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </Modal>
+      )}
+      {diagramDlg && (
+        <DiagramDialog
+          initial={diagramDlg === "edit" ? sel?.diagram : undefined}
+          onSave={(d) => {
+            if (diagramDlg === "edit" && sel) store.updateEl(sel.id, { diagram: d }, true);
+            else
+              addEl({
+                id: newElementId(),
+                type: "diagram",
+                x: 12,
+                y: 18,
+                w: 76,
+                h: 62,
+                rotation: 0,
+                opacity: 1,
+                diagram: d,
+              });
+          }}
+          onClose={() => setDiagramDlg(null)}
+        />
+      )}
+      {printOpen && <HandoutsDialog deck={deck} title={chrome.title} onClose={() => setPrintOpen(false)} />}
+      {masterOpen && (
+        <MasterEditor master={deck.master} onApply={(m) => store.applyMaster(m)} onClose={() => setMasterOpen(false)} />
+      )}
       {managerOpen && (
         <Modal
-          title="Gérer les diapositives"
+          title="Trieuse de diapositives"
           onClose={() => setManagerOpen(false)}
           wide
           footer={
@@ -1546,47 +1870,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
             </Button>
           }
         >
-          <div className="sv-manager">
-            {deck.slides.map((s, i) => (
-              <div key={s.id} className={`sv-manager__row ${i === activeIdx ? "is-active" : ""}`}>
-                <button
-                  className="sv-manager__preview"
-                  title="Aller à cette diapositive"
-                  onClick={() => {
-                    store.setActive(i);
-                    setManagerOpen(false);
-                  }}
-                >
-                  <span className="sv-manager__num">{i + 1}</span>
-                  <SlideCanvas slide={s} elements={s.elements ?? elementsOf(s)} theme={theme} scale={160 / REF_H} />
-                </button>
-                <div className="sv-manager__actions">
-                  <button className="icon-btn" title="Monter" disabled={i === 0} onClick={() => store.moveSlide(i, -1)}>
-                    <ArrowUp size={15} />
-                  </button>
-                  <button
-                    className="icon-btn"
-                    title="Descendre"
-                    disabled={i === deck.slides.length - 1}
-                    onClick={() => store.moveSlide(i, 1)}
-                  >
-                    <ArrowDown size={15} />
-                  </button>
-                  <button className="icon-btn" title="Dupliquer" onClick={() => store.duplicateSlide(i)}>
-                    <Copy size={15} />
-                  </button>
-                  <button
-                    className="icon-btn icon-btn--danger"
-                    title="Supprimer"
-                    disabled={deck.slides.length <= 1}
-                    onClick={() => store.removeSlide(i)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <SlideSorter store={store} theme={theme} onClose={() => setManagerOpen(false)} />
         </Modal>
       )}
 
@@ -1597,8 +1881,8 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
           const steps = maxStep(cur?.anims);
           const reveal = revealAt(curEls, cur?.anims, presentStep);
           const trans = cur ? (cur.transition ?? deck.transition ?? "none") : "none";
-          const atStart = presentIdx === 0 && presentStep === 0;
-          const atEnd = presentIdx === deck.slides.length - 1 && presentStep >= steps;
+          const atStart = nextPlayable(deck.slides, presentIdx, -1) === null && presentStep === 0;
+          const atEnd = nextPlayable(deck.slides, presentIdx, 1) === null && presentStep >= steps;
           const presentScale =
             (typeof window !== "undefined" ? (Math.min(window.innerWidth * 0.9, 1100) * 9) / 16 : 620) / REF_H;
           const morphing = morphFrom != null && !!deck.slides[morphFrom];
@@ -1625,7 +1909,15 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                         onDone={() => setMorphFrom(null)}
                       />
                     ) : (
-                      <SlideCanvas slide={cur} elements={curEls} theme={theme} reveal={reveal} scale={presentScale} />
+                      <SlideCanvas
+                        slide={cur}
+                        elements={curEls}
+                        theme={theme}
+                        reveal={reveal}
+                        scale={presentScale}
+                        slideNumber={presentIdx + 1}
+                        playMedia
+                      />
                     )}
                   </div>
                 )}

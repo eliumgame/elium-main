@@ -12,6 +12,32 @@ export interface ValidationResult {
 }
 
 /** Is cell (c, r) inside the rule's range? */
+import { parseRef, expandRange } from "./formula";
+import type { Workbook } from "./model";
+
+/** Valeurs non vides d'une plage « Feuille!A1:A9 » / « A1:A9 » (ordre ligne par ligne) ; [] si illisible. */
+export function readListRange(wb: Workbook, listRef: string, currentSheet: string): string[] {
+  const bang = listRef.lastIndexOf("!");
+  const sheetName = bang >= 0 ? listRef.slice(0, bang).trim().replace(/^'|'$/g, "").replace(/''/g, "'") : currentSheet;
+  const sheet = wb.sheets.find((s) => s.name === sheetName);
+  if (!sheet) return [];
+  const [a, b2] = (bang >= 0 ? listRef.slice(bang + 1) : listRef).replace(/\$/g, "").toUpperCase().split(":");
+  if (!a || !parseRef(a) || (b2 && !parseRef(b2))) return [];
+  let refs: string[];
+  try {
+    refs = expandRange(a, b2 ?? a);
+  } catch {
+    return [];
+  }
+  return refs.map((r) => sheet.cells[r] ?? "").filter((v) => v !== "" && !v.startsWith("="));
+}
+
+/** Règles de liste dont les valeurs viennent d'une plage : la liste est relue dans le classeur courant. */
+export function withLiveLists(rules: DataValidation[] | undefined, wb: Workbook, currentSheet: string): DataValidation[] | undefined {
+  if (!rules?.some((r) => r.type === "list" && r.listRef)) return rules;
+  return rules.map((r) => (r.type === "list" && r.listRef ? { ...r, list: readListRange(wb, r.listRef, currentSheet) } : r));
+}
+
 export function inValidation(v: DataValidation, c: number, r: number): boolean {
   return c >= v.c0 && c <= v.c1 && r >= v.r0 && r <= v.r1;
 }

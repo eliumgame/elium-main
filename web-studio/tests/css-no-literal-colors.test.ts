@@ -36,11 +36,6 @@ const ALLOW: { file: string; fragment: string; why: string }[] = [
     fragment: "#1b2232",
     why: "feuille de page de l'éditeur en thème sombre",
   },
-  {
-    file: "workspace/ui/workspace-shell.css",
-    fragment: "#2b3550",
-    why: "liseré de la feuille de page de l'éditeur en thème sombre",
-  },
 ];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/;

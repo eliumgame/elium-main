@@ -27,6 +27,8 @@ import {
   PaintBucket,
   Sigma,
   BarChart3,
+  Printer,
+  SplitSquareVertical,
   Search,
   ArrowUpNarrowWide,
   ArrowDownNarrowWide,
@@ -54,6 +56,8 @@ import { createCalc, indexToCol, isError, quoteSheetName, FUNCTIONS } from "./fo
 import { formatValue, NUM_FORMATS } from "./format";
 import SheetChart from "./SheetChart";
 import DataToolsModal from "./DataToolsModal";
+import PrintDialog from "./PrintDialog";
+import { paginate } from "./print";
 import { tableDefs, tableCellLook } from "./tables";
 import ChartOptionsPanel, { CHART_TYPE_LABELS } from "./ChartOptionsPanel";
 import { expandForMerges, pageJump, rowOffsets, scrollTopToReveal, spacers, windowFor } from "./virtual";
@@ -186,6 +190,8 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   const [validationOpen, setValidationOpen] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
   const [pivotOpen, setPivotOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [breakPreview, setBreakPreview] = useState(false);
   const [dataToolsOpen, setDataToolsOpen] = useState<null | "find" | "dedupe" | "split">(null);
   const fontsVersion = useFontsVersion();
   const [fontTick, setFontTick] = useState(0);
@@ -340,6 +346,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     return s;
   };
 
+  const printPlan = useMemo(
+    () =>
+      breakPreview && sheet
+        ? paginate(sheet, sheet.print, { hidden: hiddenRows ? (r) => hiddenRows[r] === 1 : undefined })
+        : null,
+    [breakPreview, sheet, hiddenRows],
+  );
   useEffect(() => {
     const el = gridRef.current;
     if (!el) return;
@@ -1081,6 +1094,17 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                 onClick={applyFilter}
               />
               <Cmd
+                icon={<Printer size={15} />}
+                title="Mise en page et impression (PDF)"
+                onClick={() => setPrintOpen(true)}
+              />
+              <Cmd
+                icon={<SplitSquareVertical size={15} />}
+                title="Aperçu des sauts de page"
+                active={breakPreview}
+                onClick={() => setBreakPreview((v) => !v)}
+              />
+              <Cmd
                 icon={<Search size={15} />}
                 title="Outils de données : rechercher/remplacer (regex), doublons, texte en colonnes"
                 onClick={() => setDataToolsOpen("find")}
@@ -1340,6 +1364,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                         const showHandle = canWrite && c === c1 && r === r1 && !editing;
                         const cf = condFmt(c, r);
                         const look = tableCellLook(sheet, c, r);
+                        const outOfArea =
+                          !!printPlan &&
+                          (c < printPlan.area.c0 ||
+                            c > printPlan.area.c1 ||
+                            r < printPlan.area.r0 ||
+                            r > printPlan.area.r1);
                         const cellStyle: React.CSSProperties = {
                           fontWeight: cf.fontWeight ?? (st?.bold || look?.header ? 700 : undefined),
                           fontStyle: st?.italic ? "italic" : undefined,
@@ -1359,6 +1389,11 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                           ...stickyStyle(c, r),
                         };
                         // Surbrillance du pair par-dessus (préserve la bordure de figeage éventuelle).
+                        if (printPlan) {
+                          if (outOfArea) cellStyle.opacity = 0.4;
+                          if (printPlan.rowBreakAfter.has(r)) cellStyle.borderBottom = "2px dashed #2563eb";
+                          if (printPlan.colBreakAfter.has(c)) cellStyle.borderRight = "2px dashed #2563eb";
+                        }
                         if (peer)
                           cellStyle.boxShadow = `inset 0 0 0 2px ${peer.color}${cellStyle.boxShadow ? ", " + cellStyle.boxShadow : ""}`;
                         return (
@@ -1526,6 +1561,16 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
         />
       )}
 
+      {printOpen && (
+        <PrintDialog
+          store={store}
+          active={active}
+          sel={sel}
+          rect={selRect}
+          hidden={hiddenRows ? (r) => hiddenRows[r] === 1 : undefined}
+          onClose={() => setPrintOpen(false)}
+        />
+      )}
       {dataToolsOpen && (
         <DataToolsModal
           store={store}

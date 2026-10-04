@@ -378,7 +378,12 @@ const BORDER_CSS: Record<string, string> = {
 };
 
 /** One sheet's used range as an HTML table: column widths, row heights, merges, styles, values as displayed. */
-export function sheetToHtml(wb: Workbook, index: number): { html: string; width: number } | null {
+export function sheetToHtml(
+  wb: Workbook,
+  index: number,
+  /** Page d'impression : lignes/colonnes à rendre (indices 0-based, dans l'ordre), quadrillage et en-têtes imprimés. */
+  sel?: { rows: number[]; cols: number[]; gridlines?: boolean; headings?: boolean },
+): { html: string; width: number } | null {
   const sheet = wb.sheets[index];
   if (!sheet) return null;
   const range = usedRange(sheet);
@@ -405,13 +410,22 @@ export function sheetToHtml(wb: Workbook, index: number): { html: string; width:
     for (let r = m.r0; r <= m.r1; r++)
       for (let c = m.c0; c <= m.c1; c++) if (r !== m.r0 || c !== m.c0) covered.add(cellRef(c, r));
   }
-  const widths = Array.from({ length: range.cols }, (_, c) => Math.max(8, sheet.colWidths?.[c] ?? DEFAULT_COL_W));
-  const width = widths.reduce((a, b) => a + b, 0);
+  const rowList = sel?.rows ?? Array.from({ length: range.rows }, (_, r) => r);
+  const colList = sel?.cols ?? Array.from({ length: range.cols }, (_, c) => c);
+  const rowSet = new Set(rowList);
+  const colSet = new Set(colList);
+  const headW = sel?.headings ? 34 : 0;
+  const widths = colList.map((c) => Math.max(8, sheet.colWidths?.[c] ?? DEFAULT_COL_W));
+  const width = widths.reduce((a, b) => a + b, 0) + headW;
   const rows: string[] = [];
-  for (let r = 0; r < range.rows; r++) {
+  if (sel?.headings)
+    rows.push(
+      `<tr class="xs-head"><td></td>${colList.map((c) => `<td>${indexToCol(c)}</td>`).join("")}</tr>`,
+    );
+  for (const r of rowList) {
     const h = sheet.rowHeights?.[r] ?? SHEET_ROW_PX;
-    const cells: string[] = [];
-    for (let c = 0; c < range.cols; c++) {
+    const cells: string[] = sel?.headings ? [`<td class="xs-head">${r + 1}</td>`] : [];
+    for (const c of colList) {
       const ref = cellRef(c, r);
       if (covered.has(ref)) continue;
       const st = sheet.styles?.[ref] ?? {};
@@ -435,7 +449,17 @@ export function sheetToHtml(wb: Workbook, index: number): { html: string; width:
       const runsOver =
         text && !numeric && align !== "center" && align !== "right" && !spans.has(ref) && !sheet.cells[next];
       if (runsOver) css.push("overflow:visible");
-      const span = spans.get(ref);
+      let span = spans.get(ref);
+      // Sur une page d'impression, une fusion coupée par la page perd son étendue (le contenu reste dans sa cellule).
+      if (span && sel) {
+        const m = (sheet.merges ?? []).find((x) => x.c0 === c && x.r0 === r);
+        if (m) {
+          let whole = true;
+          for (let rr = m.r0; rr <= m.r1 && whole; rr++) if (!rowSet.has(rr)) whole = false;
+          for (let cc = m.c0; cc <= m.c1 && whole; cc++) if (!colSet.has(cc)) whole = false;
+          if (!whole) span = undefined;
+        }
+      }
       const attrs = span
         ? `${span.cs > 1 ? ` colspan="${span.cs}"` : ""}${span.rs > 1 ? ` rowspan="${span.rs}"` : ""}`
         : "";
@@ -443,17 +467,19 @@ export function sheetToHtml(wb: Workbook, index: number): { html: string; width:
     }
     rows.push(`<tr style="height:${h}px">${cells.join("")}</tr>`);
   }
-  const cols = widths.map((w) => `<col style="width:${w}px">`).join("");
-  const html = `<table class="xs-t" style="width:${width}px"><colgroup>${cols}</colgroup><tbody>${rows.join("")}</tbody></table>`;
+  const cols = (headW ? [`<col style="width:${headW}px">`] : []).concat(widths.map((w) => `<col style="width:${w}px">`)).join("");
+  const html = `<table class="xs-t${sel?.gridlines ? " xs-grid" : ""}" style="width:${width}px"><colgroup>${cols}</colgroup><tbody>${rows.join("")}</tbody></table>`;
   return { html, width };
 }
 
-const SHEET_CSS = `body{font-family:Calibri,Carlito,Arial,sans-serif;font-size:11pt;color:#000}
+export const SHEET_CSS = `body{font-family:Calibri,Carlito,Arial,sans-serif;font-size:11pt;color:#000}
 .xs{margin:0 0 12px}
 .xs + .xs{break-before:page}
 .xs-name{font-size:9pt;font-weight:600;color:#475569;margin:0 0 6px}
 .xs-t{border-collapse:collapse;table-layout:fixed}
 .xs-t td{padding:1px 4px;white-space:nowrap;overflow:hidden;vertical-align:bottom;line-height:1.2}
+.xs-grid td{border:1px solid #d0d7de}
+.xs-head{background:#f1f5f9;color:#475569;text-align:center;font-size:8pt}
 .xs-empty{color:#64748b;font-style:italic}`;
 
 /**

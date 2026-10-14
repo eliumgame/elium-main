@@ -11,7 +11,7 @@ ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
-FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17 AS runtime
+FROM caddy:2.11-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS runtime
 # Ne tourne PLUS en root : le serveur statique écoute sur 8080 (port > 1024, aucune capacité
 # nécessaire) ; le caddy de bordure (docker-compose) fait le 80/443. Caddy écrit son état dans /tmp.
 COPY --from=build /app/dist /usr/share/caddy

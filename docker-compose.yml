@@ -66,7 +66,7 @@ services:
     healthcheck:
       # wget ships with BusyBox in the node:alpine base image, no extra
       # package required.
-      test: ["CMD", "wget", "-qO-", "http://localhost:8787/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -134,7 +134,8 @@ services:
       - "443:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # Caddy refuse « email » sans argument : une valeur factice évite l'échec au démarrage quand aucun e-mail n'est fourni.
+      ACME_EMAIL: ${ACME_EMAIL:-noreply@localhost.invalid}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

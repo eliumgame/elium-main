@@ -114,6 +114,8 @@ async function main(): Promise<void> {
     password: "elium",
     port: pgPort,
     persistent: false,
+    // Windows : l'encodage par défaut (WIN1252) refuse les « → » des migrations ; CI Linux = UTF8.
+    initdbFlags: ["--encoding=UTF8", "--locale=C"],
     onLog: () => {},
     onError: () => {},
   });

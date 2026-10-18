@@ -96,6 +96,7 @@ export const enCommands: Record<keyof typeof frCommands, string> = {
   "cmd.search_workspace": "Search the whole workspace",
   "cmd.go_docs": "Open the documentation",
   "cmd.go_detector": "Open the Detector",
+  "cmd.go_passport": "Open the E4 Professional Passport (BTS GPME)",
   "cmd.go_drive": "Open the enterprise Drive",
   "cmd.new_doc": "New document",
   "cmd.new_sheet": "New spreadsheet",

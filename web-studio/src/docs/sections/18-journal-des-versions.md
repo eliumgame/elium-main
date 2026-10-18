@@ -2,6 +2,12 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.12.0 — Passeport professionnel E4 (BTS Gestion de la PME)
+
+- Nouveau module **Passeport professionnel E4**, qui remplace le classeur Excel à macros du CRCOM : fiches de situation professionnelle, transfert vers le passeport, passeport synoptique, référentiel (4 domaines, 22 activités, 102 tâches), contexte commercial, stages et suivi du dossier.
+- Fiche d'analyse générée en Word à partir du **modèle officiel**, et en PDF ; passeport synoptique Word (paysage) et PDF ; dossier complet PDF ; sauvegarde JSON.
+- Données enregistrées localement, **chiffrées par le coffre local** quand il est actif.
+
 ### Version 4.10.0 — la refonte « hors ligne d'abord »
 
 Plus de quatre-vingts changements depuis la 4.9.0. Ils se regroupent ainsi.

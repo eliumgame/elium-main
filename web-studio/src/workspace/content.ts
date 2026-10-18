@@ -25,6 +25,7 @@ import type { Deck } from "../slides/model";
 import { Catalog } from "./catalog";
 import { reencryptDriveVault } from "../format/drive-store";
 import { reencryptParapheurVault } from "../format/parapheur-store";
+import { reencryptPassportVault } from "../passport/store";
 import type { VaultParticipant } from "./vault-sync";
 import type { ContentIO } from "./backup-io";
 import { idbKv } from "./kv";
@@ -248,6 +249,7 @@ export function vaultParticipants(catalog: Catalog): VaultParticipant[] {
   return [
     { name: "bibliothèque", reencrypt: reencryptDriveVault },
     { name: "Parapheur", reencrypt: reencryptParapheurVault },
+    { name: "passeport", reencrypt: reencryptPassportVault },
     { name: "classeurs", reencrypt: (a, b) => sheetStore.reencrypt(a, b) },
     { name: "présentations", reencrypt: (a, b) => deckStore.reencrypt(a, b) },
     { name: "PDF", reencrypt: (a, b) => pdfStore.reencrypt(a, b) },

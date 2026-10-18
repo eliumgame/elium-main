@@ -13,6 +13,7 @@ const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // pub
 const SignLinkView = lazy(() => import("./drive-cloud/ui/SignLinkView")); // public sign-request opener (Approche A)
 const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
 const DetectorView = lazy(() => import("./detector/ui/DetectorView")); // analyse IA/plagiat, hors bundle principal
+const PassportView = lazy(() => import("./passport/ui/PassportView")); // passeport E4 BTS GPME, hors bundle principal
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
 import type { Deck } from "./slides/model";
@@ -273,6 +274,7 @@ export default function App() {
       "elium-sheets",
       "elium-slides",
       "elium-parapheur",
+      "elium-passeport",
       "elium-drafts",
       "elium-vault",
       "elium-keys",
@@ -1122,6 +1124,13 @@ export default function App() {
         group: "nav",
         keywords: "aide documentation manuel",
         run: () => setMode("documentation"),
+      },
+      {
+        id: "nav.passport",
+        label: t("cmd.go_passport"),
+        group: "nav",
+        keywords: "bts gpme e4 situation professionnelle fiche analyse",
+        run: () => setMode("passport"),
       },
       {
         id: "nav.detector",
@@ -2077,6 +2086,10 @@ export default function App() {
         <Suspense fallback={<div className="pdf-loading">{t("app.loading_docs")}</div>}>
           <DocumentationView onHome={() => setMode("home")} />
         </Suspense>
+      ) : mode === "passport" ? (
+        <Suspense fallback={<div className="pdf-loading">{t("app.loading_passport")}</div>}>
+          <PassportView onHome={() => setMode("home")} vaultSecret={vaultSecret} />
+        </Suspense>
       ) : mode === "detector" ? (
         <Suspense fallback={<div className="pdf-loading">{t("app.loading_detector")}</div>}>
           <DetectorView onHome={() => setMode("home")} />
@@ -2103,6 +2116,7 @@ export default function App() {
           onOpenDriveCloud={() => setMode("drive-cloud")}
           onOpenDocumentation={() => setMode("documentation")}
           onOpenDetector={() => setMode("detector")}
+          onOpenPassport={() => setMode("passport")}
           onOpenPalette={() => setPaletteOpen(true)}
           onRecoverDraft={recoverDraft}
           onDownloadDraft={downloadDraft}

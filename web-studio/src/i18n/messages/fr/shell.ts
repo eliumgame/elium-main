@@ -8,6 +8,7 @@ export const frShell = {
   "app.loading_drive": "Chargement du Drive entreprise…",
   "app.loading_docs": "Chargement de la documentation…",
   "app.loading_detector": "Chargement du Détecteur…",
+  "app.loading_passport": "Chargement du Passeport…",
   "app.loading_editor": "Chargement de l'éditeur…",
 
   "vault.gate_title": "Coffre local verrouillé",
@@ -100,6 +101,9 @@ export const frShell = {
   "home.drive.desc":
     "Stockez, partagez et collaborez à plusieurs — chiffré de bout en bout, rôles & permissions détaillés.",
   "home.drive.meta": "Multi-utilisateurs",
+  "home.passport.title": "Passeport professionnel E4",
+  "home.passport.desc":
+    "BTS Gestion de la PME : fiches de situation professionnelle, passeport synoptique, référentiel, fiches d'analyse Word/PDF et suivi complet du dossier E4.",
   "home.detector.title": "Détecteur",
   "home.detector.desc":
     "Analyse un document (.elium, .docx, .pdf) à la recherche de signaux de rédaction par IA, d'anomalies de mise en forme/métadonnées/images — et, en option, de plagiat sur le web.",

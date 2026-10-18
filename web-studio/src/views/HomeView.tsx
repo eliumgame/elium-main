@@ -18,6 +18,7 @@ import {
   Cloud,
   Users,
   BookOpen,
+  GraduationCap,
   ScanSearch,
   Search,
   Clock,
@@ -75,6 +76,7 @@ export interface HomeViewProps {
   onOpenDriveCloud: () => void;
   onOpenDocumentation: () => void;
   onOpenDetector: () => void;
+  onOpenPassport: () => void;
   onOpenPalette: () => void;
   /** Incrémenté par le raccourci « Nouveau document » : ouvre le choix du niveau de protection. */
   newDocSignal?: number;
@@ -574,6 +576,23 @@ export default function HomeView(p: HomeViewProps) {
             </span>
             <span className="home__drive-cta__meta">
               <Users size={16} /> {t("home.drive.meta")}
+            </span>
+            <span className="app-tile__go">
+              <ArrowRight size={18} />
+            </span>
+          </button>
+        </section>
+
+        <section className="home__section">
+          <button className="home__drive-cta home__drive-cta--detector" onClick={p.onOpenPassport}>
+            <span className="home__drive-cta__icon">
+              <GraduationCap size={28} />
+            </span>
+            <span className="home__drive-cta__body">
+              <span className="home__drive-cta__title">
+                {t("home.passport.title")} <span className="home__pill">{t("home.new")}</span>
+              </span>
+              <span className="home__drive-cta__desc">{t("home.passport.desc")}</span>
             </span>
             <span className="app-tile__go">
               <ArrowRight size={18} />

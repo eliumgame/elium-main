@@ -10,6 +10,7 @@ export const enShell: Record<keyof typeof frShell, string> = {
   "app.loading_drive": "Loading the enterprise Drive…",
   "app.loading_docs": "Loading the documentation…",
   "app.loading_detector": "Loading the Detector…",
+  "app.loading_passport": "Loading the Passport…",
   "app.loading_editor": "Loading the editor…",
 
   "vault.gate_title": "Local vault locked",
@@ -99,6 +100,9 @@ export const enShell: Record<keyof typeof frShell, string> = {
   "home.drive.title": "Encrypted enterprise Drive",
   "home.drive.desc": "Store, share and collaborate with others — end-to-end encrypted, detailed roles & permissions.",
   "home.drive.meta": "Multi-user",
+  "home.passport.title": "E4 Professional Passport",
+  "home.passport.desc":
+    "BTS Gestion de la PME (French business degree): professional situation sheets, summary passport, competency framework, Word/PDF analysis sheets and full E4 file tracking.",
   "home.detector.title": "Detector",
   "home.detector.desc":
     "Analyses a document (.elium, .docx, .pdf) for signs of AI writing, formatting/metadata/image anomalies — and, optionally, plagiarism on the web.",

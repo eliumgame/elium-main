@@ -2088,7 +2088,11 @@ export default function App() {
         </Suspense>
       ) : mode === "passport" ? (
         <Suspense fallback={<div className="pdf-loading">{t("app.loading_passport")}</div>}>
-          <PassportView onHome={() => setMode("home")} vaultSecret={vaultSecret} />
+          <PassportView
+            onHome={() => setMode("home")}
+            onOpenDrive={() => setMode("drive-cloud")}
+            vaultSecret={vaultSecret}
+          />
         </Suspense>
       ) : mode === "detector" ? (
         <Suspense fallback={<div className="pdf-loading">{t("app.loading_detector")}</div>}>

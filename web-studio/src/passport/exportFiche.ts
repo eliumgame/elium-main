@@ -130,8 +130,11 @@ export function ficheFileName(h: Holder, s: Situation, ext: string): string {
 
 export const PRINT_CSS = `
 @page { size: A4; margin: 14mm; }
+html { color-scheme: light; background: #fff; }
 * { box-sizing: border-box; }
-body { font: 10.5pt/1.4 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+body { font: 10.5pt/1.4 Arial, Helvetica, sans-serif; color: #111; background: #fff; margin: 0; padding: 4mm; }
+@media print { body { padding: 0; } }
+td { color: #111; }
 h1 { font-size: 13pt; margin: 0 0 2mm; } h2 { font-size: 11pt; margin: 0; }
 .head { display: flex; justify-content: space-between; gap: 8mm; border-bottom: 2px solid #1a3a6e; padding-bottom: 3mm; margin-bottom: 4mm; }
 .meta { font-size: 9.5pt; color: #333; }

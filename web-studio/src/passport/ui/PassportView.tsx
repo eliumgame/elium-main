@@ -42,16 +42,29 @@ import SituationEditor from "./SituationEditor";
 import SituationsList from "./SituationsList";
 import { ContexteTab, StagesTab } from "./ContexteStagesTabs";
 import { usePassport } from "./usePassport";
+import { DriveProvider } from "../../drive-cloud/session";
+import DriveSyncSection from "./DriveSyncSection";
+import FileSyncSection from "./FileSyncSection";
 import "./PassportView.css";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 interface Props {
   onHome: () => void;
+  onOpenDrive?: () => void;
   vaultSecret?: VaultSecret;
 }
 
-export default function PassportView({ onHome, vaultSecret }: Props) {
+/** Le fournisseur Drive permet la sauvegarde sur serveur ; sans serveur ni connexion, le module reste 100 % local. */
+export default function PassportView(props: Props) {
+  return (
+    <DriveProvider>
+      <PassportScreen {...props} />
+    </DriveProvider>
+  );
+}
+
+function PassportScreen({ onHome, onOpenDrive, vaultSecret }: Props) {
   const { data, status, saveStatus, update, replace } = usePassport(vaultSecret);
   const { prompt, confirm, alert } = useDialogs();
   const [tab, setTab] = useState<TabId>("dashboard");
@@ -199,7 +212,12 @@ export default function PassportView({ onHome, vaultSecret }: Props) {
 
   const importFile = async (f: File) => {
     await guard("import", async () => {
-      const parsed = normalizePassport(parseBackup(await f.text()));
+      let parsed: PassportData | null = null;
+      try {
+        parsed = normalizePassport(parseBackup(await f.text()));
+      } catch {
+        parsed = null; // JSON illisible : même message que pour un fichier d'un autre format
+      }
       if (!parsed)
         return void (await alert({
           title: "Fichier non reconnu",
@@ -264,6 +282,20 @@ export default function PassportView({ onHome, vaultSecret }: Props) {
             onBackup={() => downloadBlob(`Passeport_GPME_${stem}.json`, "application/json", backupJson(data))}
             onImport={(f) => void importFile(f)}
             onReset={() => void reset()}
+            extra={
+              <>
+                <FileSyncSection data={data} />
+                <DriveSyncSection
+                  data={data}
+                  onRestore={async (next) => {
+                    await replace(next);
+                    setEditing(null);
+                    setNotice("Passeport restauré depuis le Drive.");
+                  }}
+                  onOpenDrive={onOpenDrive}
+                />
+              </>
+            }
           />
         )}
         {tab === "situations" &&

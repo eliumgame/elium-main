@@ -54,14 +54,20 @@ export function synopticRows(data: Pick<PassportData, "situations">): SynopticRo
   return rows;
 }
 
+/** AAAA-MM-JJ → JJ/MM/AAAA (le reste est laissé tel quel). */
+export const fmtDate = (iso: string): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+};
+
 const holderName = (data: PassportData) => `${data.holder.nom.toUpperCase()} ${data.holder.prenom}`.trim();
 const teachers = (data: PassportData) => [data.holder.enseignant1, data.holder.enseignant2].filter(Boolean);
 
 // -------------------------------------------------------------------- HTML/PDF
 
 const SYNOPTIC_CSS = `
-@page { size: A4 landscape; margin: 10mm; }
-.syn { font-size: 7.5pt; }
+@page land { size: A4 landscape; margin: 10mm; }
+.syn { page: land; font-size: 7.5pt; }
 .syn h1 { font-size: 12pt; margin: 0 0 2mm; }
 .syn .id { display: flex; justify-content: space-between; gap: 6mm; margin-bottom: 2mm; }
 .syn .att { border: 1px solid #555; padding: 2mm 3mm; margin-bottom: 3mm; display: flex; justify-content: space-between; gap: 6mm; }
@@ -99,7 +105,7 @@ export function synopticBody(data: PassportData): string {
   }${h.academie ? ` (académie de ${esc(h.academie)})` : ""}</div></div>
 <div class="att"><div>L'équipe pédagogique${teachers(data).length ? ` (${teachers(data).map(esc).join(", ")})` : ""} atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.${
     data.visa.date
-      ? `<br><b>Visé le ${esc(data.visa.date)}</b>${data.visa.note ? ` — ${esc(data.visa.note)}` : ""}`
+      ? `<br><b>Visé le ${esc(fmtDate(data.visa.date))}</b>${data.visa.note ? ` — ${esc(data.visa.note)}` : ""}`
       : ""
   }</div><div style="min-width:60mm">Signatures des enseignants<br>et cachet de l'établissement<br><br><br></div></div>
 <table><thead><tr><th>Activités</th><th>Compétences</th>${MODALITES.map((m) => `<th>${esc(m.short)}</th>`).join("")}<th>Tâches des activités</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -120,8 +126,7 @@ export function dossierHtml(data: PassportData, onlyValidated: boolean): string 
     .sort((a, b) => a.id - b.id)
     .map((s) => `<section style="page-break-before:always">${ficheBody(data.holder, s)}</section>`)
     .join("");
-  const css = `${SYNOPTIC_CSS.replace(/@page \{[^}]*\}/, "")}`;
-  return wrapHtml(`Dossier E4 ${holderName(data)}`, css, synopticBody(data) + fiches);
+  return wrapHtml(`Dossier E4 ${holderName(data)}`, SYNOPTIC_CSS, synopticBody(data) + fiches);
 }
 
 export function stageHtml(data: PassportData, st: Stage): string {
@@ -132,7 +137,7 @@ export function stageHtml(data: PassportData, st: Stage): string {
 <div class="meta">À remettre au stagiaire à l'issue du stage</div></div></div>
 <div class="band">Organisme d'accueil</div><table>${row("Nom ou dénomination sociale", st.organisme)}${row("Secteur d'activité", st.secteur)}${row("Adresse", st.adresse)}</table>
 <div class="band">Le stagiaire</div><table>${row("Nom et prénom", `${h.nom.toUpperCase()} ${h.prenom}`.trim())}${row("Étudiant en BTS Gestion de la PME au sein de", h.etablissement)}</table>
-<div class="band">Durée du stage</div><table>${row("Dates de début et de fin", st.debut || st.fin ? `Du ${st.debut || "…"} au ${st.fin || "…"}` : "")}${row("Durée totale (semaines)", st.semaines)}</table>
+<div class="band">Durée du stage</div><table>${row("Dates de début et de fin", st.debut || st.fin ? `Du ${fmtDate(st.debut) || "…"} au ${fmtDate(st.fin) || "…"}` : "")}${row("Durée totale (semaines)", st.semaines)}</table>
 <div class="band">Missions confiées au stagiaire</div><table>${row("Missions relevant de l'épreuve E4 (Gérer les relations avec les clients et les fournisseurs)", st.missionsE4)}${row("Missions relevant de la sous-épreuve E51 (Participer à la gestion des risques de la PME)", st.missionsE51)}</table>
 <div class="band">Gratification</div><table>${row("Montant total versé au stagiaire (€)", st.gratification)}</table>
 <p style="font-size:8.5pt">La durée totale du stage est appréciée en tenant compte de la présence effective du stagiaire dans l'organisme (art. L.124-18 du code de l'éducation). Chaque période au moins égale à 7 heures de présence consécutives ou non équivaut à un jour de stage, et chaque période d'au moins 22 jours de présence à un mois.</p>
@@ -249,7 +254,7 @@ export function buildSynopticDocx(data: PassportData): Uint8Array {
       { size: 18 },
     ) +
     par(
-      `L'équipe pédagogique${teachers(data).length ? ` (${teachers(data).join(", ")})` : ""} atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.${data.visa.date ? `\nVisé le ${data.visa.date}${data.visa.note ? ` — ${data.visa.note}` : ""}` : ""}\nSignatures des enseignants et cachet de l'établissement :`,
+      `L'équipe pédagogique${teachers(data).length ? ` (${teachers(data).join(", ")})` : ""} atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.${data.visa.date ? `\nVisé le ${fmtDate(data.visa.date)}${data.visa.note ? ` — ${data.visa.note}` : ""}` : ""}\nSignatures des enseignants et cachet de l'établissement :`,
       { size: 16 },
     ) +
     par("", { size: 16 });

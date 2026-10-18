@@ -1,5 +1,5 @@
 /** Tableau de bord : identité du candidat, avancement du dossier E4, statistiques et gestion des données. */
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { CheckCircle2, Circle, Download, Plus, RotateCcw, Upload } from "lucide-react";
 import { Badge, Button } from "../../ui/components";
 import { MODALITES, dossierChecklist, dossierProgress, passportStats } from "../model";
@@ -15,6 +15,8 @@ interface Props {
   onBackup: () => void;
   onImport: (file: File) => void;
   onReset: () => void;
+  /** Section supplémentaire (sauvegarde serveur), affichée avant la sauvegarde locale. */
+  extra?: ReactNode;
 }
 
 const HOLDER_FIELDS: { key: keyof Holder; label: string; placeholder?: string; wide?: boolean }[] = [
@@ -134,6 +136,8 @@ export default function Dashboard(p: Props) {
           </Button>
         </div>
       </section>
+
+      {p.extra}
 
       <section className="pp-card">
         <h3>Sauvegarde des données</h3>

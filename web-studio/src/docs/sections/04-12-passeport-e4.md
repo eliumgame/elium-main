@@ -7,8 +7,19 @@ la tuile de l'accueil ou la palette de commandes.
 
 Le passeport est enregistré **automatiquement sur l'appareil** (IndexedDB `elium-passeport`).
 Si le coffre local est actif, tout son contenu (identité, situations, stages) est
-**chiffré au repos**, comme le Parapheur. Exportez régulièrement une sauvegarde JSON :
-l'effacement des données du navigateur supprime le passeport.
+**chiffré au repos**, comme le Parapheur. L'effacement des données du navigateur
+supprime ce passeport local : activez l'une des sauvegardes ci-dessous.
+
+### Passeport E4 : sauvegardes automatiques
+
+| Sauvegarde | Où | Détail |
+|---|---|---|
+| Fichier sur le PC | Application de bureau et navigateurs Chromium | Vous choisissez un fichier une fois ; Elium le réécrit 2 secondes après chaque modification. Il est en JSON **non chiffré**. Après un redémarrage, le navigateur peut demander de confirmer l'accès (bouton « Réactiver ») |
+| Drive entreprise | Serveur | Fichier `Passeport-BTS-GPME.json` **chiffré de bout en bout** à la racine du Drive, versionné par le serveur. Manuelle ou automatique (20 secondes après la dernière modification). Un conflit (fichier modifié ailleurs) propose de restaurer ou d'écraser |
+| Export manuel | Téléchargement | Sauvegarde JSON réimportable depuis le tableau de bord |
+
+Avec un serveur Elium, c'est la sauvegarde sur le Drive qui permet de retrouver son
+passeport depuis un autre appareil.
 
 ### Passeport E4 : les six onglets
 
@@ -60,8 +71,9 @@ retirer du passeport dégrise ses tâches.
 
 ### Passeport E4 : limites connues
 
-- Le passeport est **local** : il n'est pas synchronisé entre appareils. Utilisez la
-  sauvegarde JSON pour le déplacer.
+- Sans sauvegarde sur le Drive, le passeport reste **local** à ce navigateur. La
+  sauvegarde sur le Drive n'est pas une édition collaborative : un seul passeport par
+  personne, sans fusion automatique.
 - L'export PDF passe par la boîte d'impression du navigateur ; les fenêtres
   contextuelles doivent être autorisées.
 - Les signatures et le cachet de l'établissement se posent sur la version imprimée :

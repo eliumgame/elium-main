@@ -7,6 +7,8 @@
 - Nouveau module **Passeport professionnel E4**, qui remplace le classeur Excel à macros du CRCOM : fiches de situation professionnelle, transfert vers le passeport, passeport synoptique, référentiel (4 domaines, 22 activités, 102 tâches), contexte commercial, stages et suivi du dossier.
 - Fiche d'analyse générée en Word à partir du **modèle officiel**, et en PDF ; passeport synoptique Word (paysage) et PDF ; dossier complet PDF ; sauvegarde JSON.
 - Données enregistrées localement, **chiffrées par le coffre local** quand il est actif.
+- Sauvegardes automatiques du passeport : **fichier choisi sur le PC** (application de bureau) et **Drive entreprise** (chiffré de bout en bout, utile avec un serveur).
+- 4.12.1 : exports PDF lisibles en thème sombre, synoptique en paysage dans le dossier complet, dates au format français.
 
 ### Version 4.10.0 — la refonte « hors ligne d'abord »
 

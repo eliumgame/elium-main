@@ -8,6 +8,7 @@
 - Fiche d'analyse générée en Word à partir du **modèle officiel**, et en PDF ; passeport synoptique Word (paysage) et PDF ; dossier complet PDF ; sauvegarde JSON.
 - Données enregistrées localement, **chiffrées par le coffre local** quand il est actif.
 - Sauvegardes automatiques du passeport : **fichier choisi sur le PC** (application de bureau) et **Drive entreprise** (chiffré de bout en bout, utile avec un serveur).
+- 4.12.2 : le Passeport peut déverrouiller lui-même la session du Drive (mot de passe) pour sauvegarder sur le serveur ; fermeture d'un document collaboratif sans erreur d'awareness.
 - 4.12.1 : exports PDF lisibles en thème sombre, synoptique en paysage dans le dossier complet, dates au format français.
 
 ### Version 4.10.0 — la refonte « hors ligne d'abord »

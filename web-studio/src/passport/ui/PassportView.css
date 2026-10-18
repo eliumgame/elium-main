@@ -679,3 +679,12 @@
     position: static;
   }
 }
+
+.pp-unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pp-unlock__input {
+  max-width: 320px;
+}

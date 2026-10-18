@@ -42,6 +42,7 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
     };
   }, [d.api, d.keys, d.user, d.currentOrg, d.roleIdByKey]);
 
+  const [pw, setPw] = useState("");
   const [auto, setAuto] = useState(false);
   const [link, setLink] = useState<DriveLink | null>(null);
   const [res, setRes] = useState<Result>({ kind: "idle" });
@@ -127,16 +128,43 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
         navigateur.
       </p>
       {!ctx ? (
-        <Alert tone="info">
-          {d.status === "locked"
-            ? "Votre session Drive est verrouillée : déverrouillez-la dans le Drive entreprise pour sauvegarder."
-            : "Vous n'êtes pas connecté au Drive entreprise."}{" "}
-          {onOpenDrive && (
-            <Button size="sm" variant="outline" onClick={onOpenDrive}>
-              Ouvrir le Drive entreprise
-            </Button>
-          )}
-        </Alert>
+        d.status === "locked" ? (
+          <form
+            className="pp-unlock"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (pw) void d.unlock(pw).then(() => setPw(""));
+            }}
+          >
+            <p className="pp-note">
+              Votre session Drive est verrouillée (les clés ne sont jamais conservées). Saisissez votre mot de passe
+              pour sauvegarder le passeport.
+            </p>
+            <div className="pp-actions">
+              <input
+                className="pp-input pp-unlock__input"
+                type="password"
+                autoComplete="current-password"
+                aria-label="Mot de passe du Drive"
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+              />
+              <Button type="submit" disabled={!pw || d.busy}>
+                Déverrouiller
+              </Button>
+            </div>
+            {d.error && <Alert tone="danger">{d.error}</Alert>}
+          </form>
+        ) : (
+          <Alert tone="info">
+            Vous n'êtes pas connecté au Drive entreprise.{" "}
+            {onOpenDrive && (
+              <Button size="sm" variant="outline" onClick={onOpenDrive}>
+                Ouvrir le Drive entreprise
+              </Button>
+            )}
+          </Alert>
+        )
       ) : (
         <>
           <p className="pp-note">

@@ -167,7 +167,10 @@ export class EncryptedCollabChannel {
   async sendAwareness(payload: unknown): Promise<void> {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     const enc = await encryptContent(this.nodeKey, new TextEncoder().encode(JSON.stringify(payload)));
-    this.ws.send(JSON.stringify({ type: "awareness", payload: { c: toHex(enc.ciphertext), n: enc.nonceHex } }));
+    // Le socket peut avoir été fermé pendant le chiffrement (fermeture du document) : relire avant d'écrire.
+    const ws = this.ws;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "awareness", payload: { c: toHex(enc.ciphertext), n: enc.nonceHex } }));
   }
 
   close(): void {

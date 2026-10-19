@@ -2,6 +2,11 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.13.0 — sauvegarde de l'espace de travail dans le Drive
+
+- Tout l'espace de travail local (documents, tableurs, présentations, PDF) peut être envoyé dans le Drive entreprise, à la demande ou automatiquement, puis restauré. Session Drive désormais partagée dans toute l'application.
+- Le PDF de la fiche d'analyse du Passeport reprend la mise en page du modèle officiel (recto/verso).
+
 ### Version 4.12.0 — Passeport professionnel E4 (BTS Gestion de la PME)
 
 - Nouveau module **Passeport professionnel E4**, qui remplace le classeur Excel à macros du CRCOM : fiches de situation professionnelle, transfert vers le passeport, passeport synoptique, référentiel (4 domaines, 22 activités, 102 tâches), contexte commercial, stages et suivi du dossier.

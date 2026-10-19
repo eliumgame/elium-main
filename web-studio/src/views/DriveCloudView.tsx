@@ -27,7 +27,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
-import { DriveProvider, useDrive } from "../drive-cloud/session";
+import { useDrive } from "../drive-cloud/session";
 import AuthPanel from "../drive-cloud/ui/AuthPanel";
 import DriveBrowser from "../drive-cloud/ui/DriveBrowser";
 import MembersPanel from "../drive-cloud/ui/MembersPanel";
@@ -362,9 +362,6 @@ function Shell({ onHome }: { onHome: () => void }) {
 }
 
 export default function DriveCloudView({ onHome }: { onHome: () => void }) {
-  return (
-    <DriveProvider>
-      <Shell onHome={onHome} />
-    </DriveProvider>
-  );
+  // La session Drive est fournie une seule fois, à la racine (main.tsx), et partagée avec le reste de l'application.
+  return <Shell onHome={onHome} />;
 }

@@ -42,7 +42,6 @@ import SituationEditor from "./SituationEditor";
 import SituationsList from "./SituationsList";
 import { ContexteTab, StagesTab } from "./ContexteStagesTabs";
 import { usePassport } from "./usePassport";
-import { DriveProvider } from "../../drive-cloud/session";
 import DriveSyncSection from "./DriveSyncSection";
 import FileSyncSection from "./FileSyncSection";
 import "./PassportView.css";
@@ -55,16 +54,7 @@ interface Props {
   vaultSecret?: VaultSecret;
 }
 
-/** Le fournisseur Drive permet la sauvegarde sur serveur ; sans serveur ni connexion, le module reste 100 % local. */
-export default function PassportView(props: Props) {
-  return (
-    <DriveProvider>
-      <PassportScreen {...props} />
-    </DriveProvider>
-  );
-}
-
-function PassportScreen({ onHome, onOpenDrive, vaultSecret }: Props) {
+export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props) {
   const { data, status, saveStatus, update, replace } = usePassport(vaultSecret);
   const { prompt, confirm, alert } = useDialogs();
   const [tab, setTab] = useState<TabId>("dashboard");

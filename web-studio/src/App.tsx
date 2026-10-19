@@ -13,6 +13,7 @@ const OpenLinkView = lazy(() => import("./drive-cloud/ui/OpenLinkView")); // pub
 const SignLinkView = lazy(() => import("./drive-cloud/ui/SignLinkView")); // public sign-request opener (Approche A)
 const DocumentationView = lazy(() => import("./docs/DocumentationView")); // doc unique in-app (hors bundle principal)
 const DetectorView = lazy(() => import("./detector/ui/DetectorView")); // analyse IA/plagiat, hors bundle principal
+import DriveAutoBackup from "./components/DriveAutoBackup";
 const PassportView = lazy(() => import("./passport/ui/PassportView")); // passeport E4 BTS GPME, hors bundle principal
 const PresenterView = lazy(() => import("./slides/PresenterView")); // 2nd-screen speaker window
 import type { Workbook } from "./sheet/model";
@@ -2135,6 +2136,9 @@ export default function App() {
           <StudioView key={`${editorKey}-${editable}`} studio={studio} />
         </Suspense>
       )}
+
+      {/* Sauvegarde continue de l'espace de travail dans le Drive (si activée dans Réglages → Sauvegarde). */}
+      <DriveAutoBackup ws={ws} getSecret={() => vaultSecretRef.current} />
 
       {settingsOpen && (
         <SettingsModal

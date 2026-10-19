@@ -48,7 +48,7 @@ export interface WorkspaceSettingsBridge {
   indexedCount: number;
 }
 
-function makeDeps(b: WorkspaceSettingsBridge): BackupDeps {
+export function makeBackupDeps(b: Pick<WorkspaceSettingsBridge, "ws" | "getSecret" | "appVersion">): BackupDeps {
   return {
     catalog: b.ws.catalog,
     contents: createContentIO(b.getSecret),
@@ -67,6 +67,8 @@ function makeDeps(b: WorkspaceSettingsBridge): BackupDeps {
     rewriteDoc: duplicateEliumBytes,
   };
 }
+
+const makeDeps = makeBackupDeps;
 
 export function BackupSection({ bridge }: { bridge: WorkspaceSettingsBridge }) {
   const { t } = useI18n();
@@ -260,7 +262,7 @@ export function RestoreSection({ bridge }: { bridge: WorkspaceSettingsBridge }) 
   );
 }
 
-function RestoreDialog({
+export function RestoreDialog({
   bridge,
   backup,
   onClose,

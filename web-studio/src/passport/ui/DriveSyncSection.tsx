@@ -7,7 +7,7 @@ import { reportError } from "../../ui/crash-log";
 import type { OpsCtx } from "../../drive-cloud/ops";
 import { useDrive } from "../../drive-cloud/session";
 import {
-  DriveConflict,
+  isConflict,
   pullPassport,
   pushPassport,
   readAuto,
@@ -68,7 +68,7 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
       setLink(l);
       setRes({ kind: "ok", message: "Passeport enregistré dans le Drive." });
     } catch (e) {
-      if (e instanceof DriveConflict || (e instanceof Error && e.name === "DriveConflict"))
+      if (isConflict(e))
         setRes({
           kind: "conflict",
           message: "Un passeport plus récent (ou d'un autre appareil) existe déjà dans le Drive.",

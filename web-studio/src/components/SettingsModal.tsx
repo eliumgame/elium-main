@@ -37,6 +37,7 @@ import {
   TrashSettingsSection,
   type WorkspaceSettingsBridge,
 } from "./settings/WorkspaceSection";
+import DriveBackupSection from "./settings/DriveBackupSection";
 import UpdatesPanel from "./UpdatesPanel";
 import PortSettings from "./PortSettings";
 import { SectionCard } from "./settings/parts";
@@ -146,7 +147,14 @@ export default function SettingsModal(p: SettingsProps) {
       case "shortcuts_list":
         return <ShortcutsSection />;
       case "ws_backup":
-        return ws ? <BackupSection bridge={ws} /> : unavailable(id);
+        return ws ? (
+          <>
+            <BackupSection bridge={ws} />
+            <DriveBackupSection bridge={ws} />
+          </>
+        ) : (
+          unavailable(id)
+        );
       case "ws_restore":
         return ws ? <RestoreSection bridge={ws} /> : unavailable(id);
       case "ws_trash":

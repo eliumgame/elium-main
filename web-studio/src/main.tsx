@@ -2,6 +2,7 @@ import * as React from "react";
 import * as ReactDOM from "react-dom/client";
 import App from "./App";
 import { DialogsProvider } from "./ui/dialogs";
+import { DriveProvider } from "./drive-cloud/session";
 import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
@@ -23,7 +24,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
       <DialogsProvider>
-        <App />
+        <DriveProvider>
+          <App />
+        </DriveProvider>
       </DialogsProvider>
     </ErrorBoundary>
   </React.StrictMode>,

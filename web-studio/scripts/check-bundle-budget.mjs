@@ -57,7 +57,10 @@ const ALTERNATIVES = [
 // chaque module (Tableur, Présentations, éditeur).
 // 6,8 Mo → 7,0 Mo : documentation intégrée réécrite pour la 4.10 (~230 Ko de Markdown dans
 // le chunk DocumentationView, chargé seulement à l'ouverture de la page Documentation).
-const TOTAL_JS_BUDGET_BYTES = 7_000_000;
+// 7,0 Mo → 7,1 Mo : module Passeport E4 (chunk à la demande, ~40 Ko avec le modèle Word embarqué) et
+// sauvegarde de l'espace de travail dans le Drive (fournisseur de session Drive désormais à la racine,
+// +~50 Ko dans le bundle principal).
+const TOTAL_JS_BUDGET_BYTES = 7_100_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

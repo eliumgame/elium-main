@@ -102,6 +102,16 @@ irrécupérable** : le réinitialiser supprime aussi ces contenus.
 - Un **rappel de sauvegarde** (7, 14 ou 30 jours) peut être activé.
 - Limites de lecture : 256 Mo par entrée, 50 000 entrées.
 
+### Sauvegarde de l'espace de travail dans le Drive
+
+Avec un serveur Elium, Réglages → Espace de travail → Sauvegarde propose d'envoyer **tout l'espace de travail** (documents, tableurs, présentations, PDF et dossiers) dans le Drive entreprise.
+
+- C'est la même archive `.elium-workspace` que la sauvegarde manuelle, déposée à la racine du Drive sous le nom « Espace-de-travail-Elium.elium-workspace ». Le Drive la chiffre de bout en bout et le serveur en garde les versions successives. Les clés et l'identité de l'appareil n'y sont jamais incluses.
+- **Sur demande** : « Sauvegarder maintenant » et « Restaurer depuis le Drive » (la restauration passe par le même dialogue que la restauration d'un fichier, avec choix en cas de conflit).
+- **Automatique** : en cochant « Sauvegarder automatiquement », l'archive est renvoyée une minute après la dernière modification d'un élément, tant que la session Drive est déverrouillée. Elle l'est avec le mot de passe du Drive, saisi dans cette même section ; les clés ne sont jamais conservées, il faut donc la redéverrouiller après chaque rechargement de la page.
+- Si une sauvegarde plus récente existe dans le Drive (autre appareil), l'envoi s'arrête : on peut la consulter ou l'écraser. L'automatique reste suspendu jusqu'à une action manuelle.
+- Chaque envoi renvoie l'archive entière : avec de gros PDF, préférez la sauvegarde manuelle espacée.
+
 ### Ouvrir et enregistrer en place
 
 Dans l'application de bureau et les navigateurs Chromium, **Ouvrir…** (Ctrl+O) et

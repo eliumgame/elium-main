@@ -151,6 +151,9 @@ async function appendText(
   }
 }
 
+/** Au-delà, l'assemblage dans le navigateur devient trop lourd : l'annexe est signalée mais pas recopiée. */
+const MAX_INLINE_BYTES = 12 * 1024 * 1024;
+
 export async function appendAnnexes(
   doc: PDFDocument,
   fonts: Fonts,
@@ -160,9 +163,29 @@ export async function appendAnnexes(
   let n = 0;
   for (const a of s.annexes) {
     n++;
+    // Laisse respirer l'interface entre deux annexes (l'assemblage d'un gros PDF bloque le fil principal).
+    await new Promise((r) => setTimeout(r, 0));
     const bytes = bytesOf(a.id);
     if (!bytes) {
-      cover(doc, fonts, s, a, n, "Fichier introuvable sur cet appareil : il n'a pas pu être intégré.");
+      cover(
+        doc,
+        fonts,
+        s,
+        a,
+        n,
+        "Fichier introuvable sur cet appareil, ou trop volumineux (plus de 12 Mo) : il n'a pas été intégré au PDF.",
+      );
+      continue;
+    }
+    if (bytes.length > MAX_INLINE_BYTES) {
+      cover(
+        doc,
+        fonts,
+        s,
+        a,
+        n,
+        `Fichier trop volumineux (${frSize(bytes.length)}) pour être intégré au dossier PDF : joignez-le séparément.`,
+      );
       continue;
     }
     const isPdf = a.mime === "application/pdf" || /\.pdf$/i.test(a.name);

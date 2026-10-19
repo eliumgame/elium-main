@@ -4,6 +4,7 @@
 
 ### Version 4.15.0 — Passeport E4 : annexes, import et analyse des fiches
 
+- 4.15.1 : dossier complet plus robuste — annexes de plus de 12 Mo signalées par un intercalaire au lieu d'être recopiées, interface laissée libre pendant l'assemblage, et repli automatique sans annexes si l'une d'elles est illisible.
 - Retour au **tableau du passeport** d'origine ; les colonnes portent le nom **SP** de chaque fiche (SP1, SP2…, modifiable) au lieu de « GRCF ».
 - **Annexes** : joignez les fichiers de votre choix (PDF, images, Word…) à chaque fiche ; elles sont chiffrées avec le coffre local, ajoutées au dossier PDF et publiées dans le Drive.
 - **Importation de fiches** (Word, PDF, texte) avec compte rendu rubrique par rubrique, et **analyse** de chaque fiche (complétude, cohérence des activités cochées, lisibilité).

@@ -215,6 +215,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     const m = new Map<string, Uint8Array>();
     for (const s of sits)
       for (const a of s.annexes) {
+        if (a.size > 12 * 1024 * 1024) continue; // trop lourd pour l'assemblage dans le navigateur : signalé par une page d'intercalaire
         const b = await getAnnexe(a.id, vaultSecret).catch(() => undefined);
         if (b) m.set(a.id, b);
       }
@@ -478,17 +479,26 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
               )
             }
             onDossier={() =>
-              void guard("pdf", async () =>
-                downloadBlob(
-                  `Dossier_E4_${stem}.pdf`,
-                  "application/pdf",
-                  await buildDossierPdf(data, await loadFonts(), {
-                    allDomains,
-                    onlyValidated: true,
+              void guard("pdf", async () => {
+                const fonts = await loadFonts();
+                const opts = { allDomains, onlyValidated: true };
+                let bytes: Uint8Array;
+                try {
+                  bytes = await buildDossierPdf(data, fonts, {
+                    ...opts,
                     annexes: await loadAllAnnexes(data.situations.filter((s) => s.transfer)),
-                  }),
-                ),
-              )
+                  });
+                } catch (e) {
+                  // Une annexe illisible ne doit pas empêcher d'obtenir le dossier : on le refait sans les annexes.
+                  reportError("passeport.dossier-annexes", e);
+                  bytes = await buildDossierPdf(data, fonts, opts);
+                  await alert({
+                    title: "Dossier généré sans les annexes",
+                    message: "Une annexe n'a pas pu être intégrée au PDF. Le dossier est téléchargé sans annexes.",
+                  });
+                }
+                downloadBlob(`Dossier_E4_${stem}.pdf`, "application/pdf", bytes);
+              })
             }
             allDomains={allDomains}
             onAllDomains={setAllDomains}

@@ -226,7 +226,10 @@ export function buildSynopticDocx(data: PassportData, opts: SynopticOptions = {}
 // ------------------------------------------------------------- sauvegarde JSON
 
 export function backupJson(data: PassportData): string {
-  return JSON.stringify({ format: "elium-passeport-gpme", exportedAt: new Date().toISOString(), data }, null, 2);
+  // Les octets des annexes ne sont pas dans la sauvegarde JSON (taille) : on n'en garde pas non plus la description,
+  // pour ne pas restaurer des annexes fantômes sur un autre appareil. Elles se publient séparément dans le Drive.
+  const lean = { ...data, situations: data.situations.map((s) => ({ ...s, annexes: [] })) };
+  return JSON.stringify({ format: "elium-passeport-gpme", exportedAt: new Date().toISOString(), data: lean }, null, 2);
 }
 
 /** Lit une sauvegarde `backupJson` (ou un PassportData nu). */

@@ -36,7 +36,11 @@ export interface DocToPublish {
 }
 
 /** Liste des documents à publier (sans les construire : `build` est appelé à l'envoi). */
-export function docsToPublish(data: PassportData, fonts: Awaited<ReturnType<typeof loadFonts>>): DocToPublish[] {
+export function docsToPublish(
+  data: PassportData,
+  fonts: Awaited<ReturnType<typeof loadFonts>>,
+  loadAnnexe?: (id: string) => Promise<Uint8Array | undefined>,
+): DocToPublish[] {
   const who = whoLabel(data);
   const sits = [...data.situations].sort((a, b) => a.id - b.id);
   const fiche = (s: Situation) =>
@@ -75,6 +79,20 @@ export function docsToPublish(data: PassportData, fonts: Awaited<ReturnType<type
       build: async () => buildFicheDocx(data.holder, s),
     });
   }
+  if (loadAnnexe)
+    for (const s of sits)
+      s.annexes.forEach((a, i) =>
+        out.push({
+          name: clean(`Annexe ${i + 1} — ${spLabel(s.id)} — ${a.name}`),
+          mime: a.mime || "application/octet-stream",
+          slot: `pp-annexe-${a.id}`,
+          build: async () => {
+            const bytes = await loadAnnexe(a.id);
+            if (!bytes) throw new Error(`Annexe « ${a.name} » introuvable sur cet appareil.`);
+            return bytes;
+          },
+        }),
+      );
   return out;
 }
 
@@ -86,10 +104,11 @@ export async function publishPassportDocs(
   ctx: OpsCtx,
   data: PassportData,
   onProgress?: (done: number, total: number, name: string) => void,
+  loadAnnexe?: (id: string) => Promise<Uint8Array | undefined>,
 ): Promise<{ folder: string; count: number }> {
   const fonts = await loadFonts();
   const folderId = await ensureRootFolder(ctx, docsFolderName(data));
-  const docs = docsToPublish(data, fonts);
+  const docs = docsToPublish(data, fonts, loadAnnexe);
   let done = 0;
   for (const d of docs) {
     onProgress?.(done, docs.length, d.name);

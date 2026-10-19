@@ -9,7 +9,6 @@ import type {
   ContexteItem,
   Holder,
   Modalite,
-  Nature,
   PassportData,
   RefActivity,
   RefDomain,
@@ -178,6 +177,7 @@ export function emptyPassport(now = new Date().toISOString()): PassportData {
     situations: [],
     contexte: emptyContexte(),
     stages: [],
+    expectedSituations: DEFAULT_EXPECTED_SITUATIONS,
     parcours: { voie: "scolaire", requiredWeeks: DEFAULT_REQUIRED_WEEKS },
     solutions: {},
     visa: { date: "", note: "" },
@@ -190,6 +190,9 @@ export function emptyPassport(now = new Date().toISOString()): PassportData {
  * 12, 14 semaines selon le « positionnement réglementaire » du candidat) — elle est donc modifiable et à confirmer.
  */
 export const DEFAULT_REQUIRED_WEEKS = 12;
+
+/** Nombre de fiches de situation visé par défaut (modifiable) : une par activité du domaine 1. */
+export const DEFAULT_EXPECTED_SITUATIONS = 6;
 
 export const VOIES: { id: Voie; label: string; requiredHint: string }[] = [
   {
@@ -335,6 +338,7 @@ export function newSituation(id: number, now = new Date()): Situation {
     activityIds: [],
     taskIds: [],
     code: "",
+    annexes: [],
     intitule: "",
     lieuPeriodeDuree: "",
     cadre: "",
@@ -371,6 +375,7 @@ export function duplicateSituation(src: Situation, newId: number, now = new Date
     relue: false,
     remarques: "",
     code: "",
+    annexes: [],
     transfer: undefined,
   };
 }
@@ -478,22 +483,16 @@ export interface PassportMark {
   code: string;
 }
 
-const NATURE_PREFIX: Record<Nature, string> = { grcf: "GRCF ", orale: "CO", ecrite: "CE" };
-
 /**
- * Identifiant(s) d'une situation dans le passeport. Saisi à la main (« GRCF 2 ; CE2 »), sinon déduit :
- * une nature + son rang parmi les situations de même nature, par numéro de fiche (GRCF 1, CO1, CE1…).
+ * Identifiant(s) d'une situation dans le passeport : son nom de fiche (« SP2 »). Peut être remplacé à la main sur la
+ * fiche (« SP2 ; SP5 », « Vente 1 »…).
  */
-export function situationCodes(s: Situation, all: Pick<Situation, "id" | "natures">[]): string[] {
+export function situationCodes(s: Pick<Situation, "id" | "code">, _all?: unknown): string[] {
   const manual = (s.code ?? "")
     .split(";")
     .map((x) => x.trim())
     .filter(Boolean);
-  if (manual.length) return manual;
-  return s.natures.map((n) => {
-    const rank = all.filter((o) => o.natures.includes(n) && o.id <= s.id).length;
-    return `${NATURE_PREFIX[n]}${rank || 1}`;
-  });
+  return manual.length ? manual : [spLabel(s.id)];
 }
 
 /** Contenu des cases du passeport : activité × modalité → situations validées. */
@@ -627,6 +626,8 @@ export interface ChecklistItem {
   label: string;
   ok: boolean;
   detail?: string;
+  /** Part réalisée, de 0 à 1 (sert à l'avancement global : une fiche sur six ne vaut pas « fait »). */
+  ratio: number;
   /** Onglet où corriger. */
   tab?: "dashboard" | "situations" | "passport" | "referentiel" | "contexte" | "stages";
 }
@@ -645,52 +646,60 @@ export function dossierChecklist(data: PassportData): ChecklistItem[] {
   )
     .filter(([k]) => !h[k].trim())
     .map(([, l]) => l);
-  const validated = data.situations.filter((s) => s.transfer);
+  const N = Math.max(1, data.expectedSituations || DEFAULT_EXPECTED_SITUATIONS);
+  const frac = (n: number, d = N) => Math.max(0, Math.min(1, d ? n / d : 0));
+  const validated = data.situations.filter((s) => s.transfer && !isStale(s));
   const stale = data.situations.filter((s) => isStale(s));
+  const written = data.situations.filter((s) => completion(s) >= 100);
   const cov = activityCoverage(data).filter((c) => isE4Activity(c.activity.id));
+  const covered = cov.filter((c) => c.situations.length > 0);
   const uncovered = cov.filter((c) => c.situations.length === 0).map((c) => c.activity.id);
   const ctxDone = data.contexte.filter((c) => c.done).length;
   const ctxTotal = CONTEXTE_ITEMS.length;
-  const incomplete = data.situations.filter((s) => completion(s) < 100).length;
   const reviewed = data.situations.filter((s) => s.relue).length;
   const withAttestation = data.stages.filter((s) => s.attestationRecue).length;
   const stages = stageSummary(data);
+  const scolaire = data.parcours.voie === "scolaire";
   return [
     {
       id: "holder",
       label: "Identification du candidat complète",
       ok: missingHolder.length === 0,
+      ratio: frac(5 - missingHolder.length, 5),
       detail: missingHolder.length ? `Manque : ${missingHolder.join(", ")}` : undefined,
       tab: "dashboard",
     },
     {
       id: "situations",
-      label: "Au moins une situation professionnelle rédigée",
-      ok: data.situations.length > 0,
-      tab: "situations",
-    },
-    {
-      id: "validated",
-      label: "Situations validées dans le passeport",
-      ok: validated.length > 0 && stale.length === 0,
-      detail: stale.length
-        ? `${stale.length} fiche(s) modifiée(s) depuis leur transfert (${stale.map((s) => spLabel(s.id)).join(", ")})`
-        : validated.length === 0
-          ? "Aucune situation validée"
-          : `${validated.length} / ${data.situations.length} situation(s) validée(s)`,
+      label: `Fiches de situation créées (${N} attendues)`,
+      ok: data.situations.length >= N,
+      ratio: frac(data.situations.length),
+      detail: `${data.situations.length} / ${N}`,
       tab: "situations",
     },
     {
       id: "complete",
-      label: "Toutes les fiches complètement rédigées",
-      ok: data.situations.length > 0 && incomplete === 0,
-      detail: incomplete ? `${incomplete} fiche(s) à compléter` : undefined,
+      label: "Fiches complètement rédigées",
+      ok: written.length >= N,
+      ratio: frac(written.length),
+      detail: `${written.length} / ${N}`,
+      tab: "situations",
+    },
+    {
+      id: "validated",
+      label: "Fiches validées dans le passeport",
+      ok: validated.length >= N && stale.length === 0,
+      ratio: frac(validated.length),
+      detail: stale.length
+        ? `${stale.length} fiche(s) modifiée(s) depuis leur transfert (${stale.map((s) => spLabel(s.id)).join(", ")})`
+        : `${validated.length} / ${N}`,
       tab: "situations",
     },
     {
       id: "coverage",
       label: "Les 6 activités E4 (1.1 à 1.6) couvertes au moins une fois",
       ok: uncovered.length === 0,
+      ratio: frac(covered.length, cov.length),
       detail: uncovered.length ? `Non couvertes : ${uncovered.join(", ")}` : undefined,
       tab: "passport",
     },
@@ -698,47 +707,50 @@ export function dossierChecklist(data: PassportData): ChecklistItem[] {
       id: "contexte",
       label: "Contexte commercial présenté (12 éléments)",
       ok: ctxDone === ctxTotal,
+      ratio: frac(ctxDone, ctxTotal),
       detail: `${ctxDone} / ${ctxTotal}`,
       tab: "contexte",
     },
     {
       id: "stages",
-      label:
-        data.parcours.voie === "scolaire"
-          ? `Périodes en entreprise : ${stages.required} semaines à réaliser`
-          : "Périodes en entreprise renseignées (stage, alternance ou activité salariée)",
-      ok: data.parcours.voie === "scolaire" ? data.stages.length > 0 && stages.remaining === 0 : data.stages.length > 0,
-      detail:
-        data.parcours.voie === "scolaire"
-          ? `${stages.totalWeeks} / ${stages.required} semaines${stages.remaining ? ` — il en manque ${stages.remaining}` : ""}`
-          : `${stages.totalWeeks} semaine(s) saisie(s)`,
+      label: scolaire
+        ? `Périodes en entreprise : ${stages.required} semaines à réaliser`
+        : "Périodes en entreprise renseignées (stage, alternance ou activité salariée)",
+      ok: scolaire ? data.stages.length > 0 && stages.remaining === 0 : data.stages.length > 0,
+      ratio: scolaire ? frac(stages.totalWeeks, stages.required) : data.stages.length ? 1 : 0,
+      detail: scolaire
+        ? `${stages.totalWeeks} / ${stages.required} semaines${stages.remaining ? ` — il en manque ${stages.remaining}` : ""}`
+        : `${stages.totalWeeks} semaine(s) saisie(s)`,
       tab: "stages",
     },
     {
       id: "attestations",
       label: "Justificatif reçu pour chaque période (attestation, certificat ou contrat)",
       ok: data.stages.length > 0 && withAttestation === data.stages.length,
+      ratio: data.stages.length ? frac(withAttestation, data.stages.length) : 0,
       detail: data.stages.length ? `${withAttestation} / ${data.stages.length} reçu(s)` : "Aucune période saisie",
       tab: "stages",
     },
     {
       id: "review",
       label: "Fiches relues par l'équipe pédagogique",
-      ok: data.situations.length > 0 && reviewed === data.situations.length,
-      detail: data.situations.length ? `${reviewed} / ${data.situations.length}` : undefined,
+      ok: reviewed >= N,
+      ratio: frac(reviewed),
+      detail: `${reviewed} / ${N}`,
       tab: "situations",
     },
     {
       id: "visa",
       label: "Passeport visé par l'équipe pédagogique",
       ok: !!data.visa.date,
+      ratio: data.visa.date ? 1 : 0,
       tab: "passport",
     },
   ];
 }
 
 export function dossierProgress(items: ChecklistItem[]): number {
-  return items.length ? Math.round((items.filter((i) => i.ok).length / items.length) * 100) : 0;
+  return items.length ? Math.round((items.reduce((a, i) => a + i.ratio, 0) / items.length) * 100) : 0;
 }
 
 // --------------------------------------------------------------- statistiques
@@ -809,6 +821,23 @@ function normSituation(raw: unknown): Situation | null {
     taskIds: strList(r.taskIds, (t) => TASK_BY_ID.has(t)),
     relue: bool(r.relue),
     code: str(r.code),
+    annexes: (Array.isArray(r.annexes) ? r.annexes : []).flatMap((x: unknown) => {
+      if (!x || typeof x !== "object") return [];
+      const o = x as Record<string, unknown>;
+      const id = str(o.id);
+      return id
+        ? [
+            {
+              id,
+              name: str(o.name, "annexe"),
+              mime: str(o.mime),
+              size: num(o.size, 0),
+              addedAt: str(o.addedAt),
+              note: str(o.note),
+            },
+          ]
+        : [];
+    }),
   };
   for (const k of [
     "intitule",
@@ -895,6 +924,7 @@ export function normalizePassport(raw: unknown): PassportData | null {
     situations,
     contexte,
     stages,
+    expectedSituations: Math.max(1, Math.min(30, Math.floor(num(r.expectedSituations, DEFAULT_EXPECTED_SITUATIONS)))),
     parcours: (() => {
       const pc = (r.parcours && typeof r.parcours === "object" ? r.parcours : {}) as Record<string, unknown>;
       return {

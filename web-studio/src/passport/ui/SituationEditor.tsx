@@ -1,6 +1,7 @@
 /** Éditeur d'une fiche de situation professionnelle (équivalent d'une feuille « Fiche SPxx » du classeur). */
 import { useMemo } from "react";
-import { ArrowLeft, Copy, FileDown, Printer, Send, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Copy, Download, Eye, FileDown, Paperclip, Printer, Send, Trash2, Undo2 } from "lucide-react";
+import { useRef } from "react";
 import { Alert, Badge, Button } from "../../ui/components";
 import {
   CONDITIONS,
@@ -19,7 +20,8 @@ import {
   toggleTask,
   transferIssues,
 } from "../model";
-import type { Condition, Modalite, Nature, Situation } from "../types";
+import type { Annexe, Condition, Holder, Modalite, Nature, Situation } from "../types";
+import { LEVEL_LABEL, analyseSituation, type Level } from "../analyse";
 
 interface Props {
   situation: Situation;
@@ -31,7 +33,15 @@ interface Props {
   onPdf: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  holder: Holder;
+  onAddAnnexes: (files: File[]) => void;
+  onRemoveAnnexe: (a: Annexe) => void;
+  onOpenAnnexe: (a: Annexe, download: boolean) => void;
 }
+
+const fmtSize = (n: number) =>
+  n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`;
+const previewable = (a: Annexe) => /^(image\/|application\/pdf|text\/)/.test(a.mime);
 
 type TextKey =
   | "intitule"
@@ -65,6 +75,8 @@ export default function SituationEditor(p: Props) {
   const set = (patch: Partial<Situation>) =>
     p.onChange((cur) => ({ ...cur, ...patch, modifiedAt: new Date().toISOString() }));
   const state = situationState(s);
+  const analysis = useMemo(() => analyseSituation(s, { holder: p.holder }), [s, p.holder]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const issues = useMemo(() => transferIssues(s), [s]);
   const pct = completion(s);
 
@@ -150,6 +162,45 @@ export default function SituationEditor(p: Props) {
         </Alert>
       )}
 
+      <details className="pp-card pp-analyse" open={analysis.score < 100}>
+        <summary>
+          <b>Analyse de la fiche</b>
+          <Badge accent={analysis.score >= 80 ? "success" : analysis.score >= 50 ? "warning" : "danger"}>
+            {analysis.score} %
+          </Badge>
+          <span className="pp-note">
+            {analysis.stats.words} mots · phrases de {analysis.stats.avgSentence} mots en moyenne · rubrique la plus
+            longue : {analysis.stats.longestRubric || "—"}
+          </span>
+        </summary>
+        <p className="pp-note">
+          Repères de rédaction calculés sur le texte (longueur par rubrique, cohérence des activités cochées,
+          répétitions, lisibilité) : ce n'est pas une note d'examen.
+        </p>
+        <ul className="pp-findings">
+          {analysis.findings
+            .filter((f) => f.level !== "ok")
+            .map((f, k) => (
+              <li key={k} className={`is-${f.level}`}>
+                <span className="pp-findings__lvl">{LEVEL_LABEL[f.level as Level]}</span>
+                <b>{f.rubric}</b> — {f.message}
+              </li>
+            ))}
+          {analysis.findings.every((f) => f.level === "ok") && (
+            <li className="is-ok">Aucune remarque : la fiche est complète et cohérente.</li>
+          )}
+        </ul>
+        {analysis.suggestedActivities.length > 0 && (
+          <div className="pp-actions">
+            {analysis.suggestedActivities.map((id) => (
+              <Button key={id} size="sm" variant="outline" onClick={() => p.onChange((cur) => toggleActivity(cur, id))}>
+                Cocher l'activité {id}
+              </Button>
+            ))}
+          </div>
+        )}
+      </details>
+
       <section className="pp-card">
         <h3>Identification de la situation professionnelle</h3>
         <div className="pp-grid">
@@ -217,12 +268,12 @@ export default function SituationEditor(p: Props) {
           <input
             className="pp-input"
             value={s.code}
-            placeholder={`${s.natures.map((n) => ({ grcf: "GRCF 1", orale: "CO1", ecrite: "CE1" })[n]).join(" ; ")} (déduit si vide)`}
+            placeholder={`${spLabel(s.id)} (par défaut)`}
             onChange={(e) => set({ code: e.target.value })}
           />
           <span className="pp-field__hint">
-            Ce qui s'écrit dans les cases du passeport, ex. « GRCF 2 » ou « GRCF 2 ; CE2 » (GRCF, communication orale
-            CO, communication écrite CE). Laissez vide pour qu'Elium le déduise de la nature et du rang de la fiche.
+            Ce qui s'écrit dans les cases du passeport : par défaut le nom de la fiche (« {spLabel(s.id)} »). Saisissez
+            un autre nom au besoin, ou plusieurs séparés par « ; ».
           </span>
         </label>
         <fieldset className="pp-checks">
@@ -330,6 +381,79 @@ export default function SituationEditor(p: Props) {
           rows: 5,
           hint: "Qu'avez-vous appris et en quoi avez-vous progressé ?",
         })}
+      </section>
+
+      <section className="pp-card">
+        <h3>
+          <Paperclip size={16} aria-hidden="true" /> Annexes de la situation
+        </h3>
+        <p className="pp-note">
+          Joignez les pièces qui prouvent la situation : captures, devis, courriels, tableaux, extraits de logiciel…
+          tous les types de fichiers sont acceptés (40 Mo maximum chacun). Elles restent chiffrées sur cet appareil si
+          le coffre local est actif, et s'ajoutent à la suite de la fiche dans le dossier complet (PDF, images et textes
+          intégrés ; les autres types sont signalés).
+        </p>
+        <div className="pp-actions">
+          <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}>
+            <Paperclip size={14} /> Ajouter des annexes…
+          </Button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (files.length) p.onAddAnnexes(files);
+            }}
+          />
+        </div>
+        {s.annexes.length === 0 ? (
+          <p className="pp-note">Aucune annexe pour l'instant.</p>
+        ) : (
+          <ol className="pp-annexes">
+            {s.annexes.map((a, i) => (
+              <li key={a.id}>
+                <span className="pp-annexes__n">Annexe {i + 1}</span>
+                <span className="pp-annexes__body">
+                  <b>{a.name}</b>
+                  <small>
+                    {a.mime || "fichier"} · {fmtSize(a.size)}
+                  </small>
+                  <input
+                    className="pp-input"
+                    aria-label={`Légende de l'annexe ${i + 1}`}
+                    placeholder="Légende (facultatif)"
+                    value={a.note}
+                    onChange={(e) =>
+                      p.onChange((cur) => ({
+                        ...cur,
+                        annexes: cur.annexes.map((x) => (x.id === a.id ? { ...x, note: e.target.value } : x)),
+                      }))
+                    }
+                  />
+                </span>
+                <span className="pp-annexes__actions">
+                  {previewable(a) && (
+                    <Button size="sm" variant="ghost" onClick={() => p.onOpenAnnexe(a, false)} title="Ouvrir">
+                      <Eye size={14} />
+                      <span className="pp-sr">Ouvrir {a.name}</span>
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => p.onOpenAnnexe(a, true)} title="Télécharger">
+                    <Download size={14} />
+                    <span className="pp-sr">Télécharger {a.name}</span>
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => p.onRemoveAnnexe(a)} title="Retirer">
+                    <Trash2 size={14} />
+                    <span className="pp-sr">Retirer {a.name}</span>
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
 
       <section className="pp-card">

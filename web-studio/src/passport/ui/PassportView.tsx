@@ -35,7 +35,9 @@ import {
   untransferSituation,
 } from "../model";
 import { safeStem } from "../print";
-import type { Holder, PassportData, Situation } from "../types";
+import { importFicheFile, type ImportedFiche } from "../ficheImport";
+import { AnnexeLockedError, deleteAnnexe, getAnnexe, pruneAnnexes, putAnnexe, readAnnexeFile } from "../annexes";
+import type { Annexe, Holder, PassportData, Situation } from "../types";
 import Dashboard, { type TabId } from "./Dashboard";
 import PassportTab from "./PassportTab";
 import ReferentielTab from "./ReferentielTab";
@@ -150,6 +152,129 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     setEditing(n);
   };
 
+  /** Remplace tout le passeport (import, Drive) en gardant les annexes de ce poste pour les fiches de même numéro. */
+  const adoptData = async (next: PassportData) => {
+    const keepByNumber = new Map(data.situations.map((s) => [s.id, s.annexes]));
+    const merged: PassportData = {
+      ...next,
+      situations: next.situations.map((s) => ({ ...s, annexes: keepByNumber.get(s.id) ?? [] })),
+    };
+    await replace(merged);
+    await pruneAnnexes(new Set(merged.situations.flatMap((s) => s.annexes.map((a) => a.id)))).catch(() => undefined);
+  };
+
+  const addAnnexes = (sid: number, files: File[]) =>
+    guard("annexes", async () => {
+      const added: Annexe[] = [];
+      for (const f of files) {
+        const { meta, bytes } = await readAnnexeFile(f);
+        await putAnnexe(meta.id, bytes, vaultSecret);
+        added.push(meta);
+      }
+      editSituation(sid, (s) => ({ ...s, annexes: [...s.annexes, ...added] }));
+      setNotice(`${added.length} annexe(s) ajoutée(s) à ${spLabel(sid)}.`);
+    });
+
+  const removeAnnexe = async (sid: number, a: Annexe) => {
+    const ok = await confirm({
+      title: "Retirer cette annexe ?",
+      message: a.name,
+      confirmLabel: "Retirer",
+      danger: true,
+    });
+    if (!ok) return;
+    await guard("annexes", async () => {
+      await deleteAnnexe(a.id);
+      editSituation(sid, (s) => ({ ...s, annexes: s.annexes.filter((x) => x.id !== a.id) }));
+    });
+  };
+
+  const openAnnexe = (a: Annexe, download: boolean) =>
+    guard("annexes", async () => {
+      const bytes = await getAnnexe(a.id, vaultSecret).catch((e) => {
+        if (e instanceof AnnexeLockedError) throw e;
+        return undefined;
+      });
+      if (!bytes)
+        return void (await alert({
+          title: "Annexe introuvable",
+          message: "Ce fichier n'est plus enregistré sur cet appareil.",
+        }));
+      if (download) return downloadBlob(a.name, a.mime || "application/octet-stream", bytes);
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: a.mime || "application/octet-stream" }));
+      if (!window.open(url, "_blank"))
+        await alert({
+          title: "Fenêtre bloquée",
+          message: "Autorisez les fenêtres contextuelles pour ouvrir l'annexe.",
+        });
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    });
+
+  /** Octets de toutes les annexes (pour le dossier PDF). Les introuvables sont simplement absentes. */
+  const loadAllAnnexes = async (sits: Situation[]): Promise<Map<string, Uint8Array>> => {
+    const m = new Map<string, Uint8Array>();
+    for (const s of sits)
+      for (const a of s.annexes) {
+        const b = await getAnnexe(a.id, vaultSecret).catch(() => undefined);
+        if (b) m.set(a.id, b);
+      }
+    return m;
+  };
+
+  /** Importe des fiches (Word, PDF, texte) : une nouvelle situation par fichier, puis un compte rendu rubrique par rubrique. */
+  const importFiches = async (files: File[]) => {
+    const lines: string[] = [];
+    const taken = new Set(data.situations.map((s) => s.id));
+    const created: Situation[] = [];
+    let holderPatch: Partial<Holder> = {};
+    for (const f of files) {
+      let imp: ImportedFiche;
+      try {
+        imp = await importFicheFile(f);
+      } catch (e) {
+        lines.push(`✗ ${f.name} — ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      const id =
+        imp.number && !taken.has(imp.number) ? imp.number : nextSituationId([...taken].map((x) => ({ id: x })));
+      taken.add(id);
+      const sit: Situation = {
+        ...imp.situation,
+        id,
+        createdAt: new Date().toISOString(),
+        modifiedAt: new Date().toISOString(),
+      };
+      created.push(sit);
+      holderPatch = { ...imp.holder, ...holderPatch };
+      const renumbered = imp.number && imp.number !== id ? ` (numéro ${imp.number} déjà pris)` : "";
+      lines.push(
+        `✓ ${f.name} → ${spLabel(id)}${renumbered} : ${imp.report.found.length} rubrique(s) reprise(s)` +
+          (imp.report.missing.length ? `, à compléter : ${imp.report.missing.join(", ")}` : "") +
+          imp.report.warnings.map((w) => `\n   ⚠ ${w}`).join(""),
+      );
+    }
+    if (created.length) {
+      const fill = Object.fromEntries(
+        Object.entries(holderPatch).filter(([k]) => !String(data.holder[k as keyof Holder] ?? "").trim()),
+      ) as Partial<Holder>;
+      update((d) => ({
+        ...d,
+        holder: { ...d.holder, ...fill },
+        situations: [...d.situations, ...created].sort((a, b) => a.id - b.id),
+      }));
+      setTab("situations");
+      setEditing(created.length === 1 ? created[0].id : null);
+    }
+    await alert({
+      title: created.length ? `${created.length} fiche(s) importée(s)` : "Aucune fiche importée",
+      message:
+        lines.join("\n") +
+        (created.length
+          ? "\n\nRelisez chaque fiche : l'import lit le texte, pas la mise en forme, et ne transfère rien au passeport."
+          : ""),
+    });
+  };
+
   const remove = async (id: number) => {
     const s = data.situations.find((x) => x.id === id);
     if (!s) return;
@@ -163,6 +288,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     });
     if (!ok) return;
     update((d) => ({ ...d, situations: d.situations.filter((x) => x.id !== id) }));
+    for (const a of s.annexes) void deleteAnnexe(a.id).catch(() => undefined);
     if (editing === id) setEditing(null);
     setNotice(`${spLabel(id)} supprimée.`);
   };
@@ -217,7 +343,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
         danger: true,
       });
       if (!ok) return;
-      await replace(parsed);
+      await adoptData(parsed);
       setEditing(null);
       setNotice("Sauvegarde importée.");
     });
@@ -232,6 +358,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     });
     if (!ok) return;
     await replace(emptyPassport());
+    await pruneAnnexes(new Set()).catch(() => undefined);
     setEditing(null);
     setNotice("Passeport réinitialisé.");
   };
@@ -269,17 +396,19 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
             onBackup={() => downloadBlob(`Passeport_GPME_${stem}.json`, "application/json", backupJson(data))}
             onImport={(f) => void importFile(f)}
             onReset={() => void reset()}
+            onExpected={(n) => update((d) => ({ ...d, expectedSituations: n }))}
             extra={
               <>
                 <FileSyncSection data={data} />
                 <DriveSyncSection
                   data={data}
                   onRestore={async (next) => {
-                    await replace(next);
+                    await adoptData(next);
                     setEditing(null);
                     setNotice("Passeport restauré depuis le Drive.");
                   }}
                   onOpenDrive={onOpenDrive}
+                  loadAnnexe={(id) => getAnnexe(id, vaultSecret)}
                 />
               </>
             }
@@ -308,6 +437,10 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
               }
               onDuplicate={() => void duplicate(sit.id)}
               onDelete={() => void remove(sit.id)}
+              holder={data.holder}
+              onAddAnnexes={(files) => void addAnnexes(sit.id, files)}
+              onRemoveAnnexe={(a) => void removeAnnexe(sit.id, a)}
+              onOpenAnnexe={(a, dl) => void openAnnexe(a, dl)}
             />
           ) : (
             <SituationsList
@@ -317,6 +450,8 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
               onDuplicate={(id) => void duplicate(id)}
               onDelete={(id) => void remove(id)}
               onTransfer={(id) => void transfer(id)}
+              onImport={(files) => void importFiches(files)}
+              holder={data.holder}
               onDocx={(id) => void docx(id)}
             />
           ))}
@@ -347,7 +482,11 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
                 downloadBlob(
                   `Dossier_E4_${stem}.pdf`,
                   "application/pdf",
-                  await buildDossierPdf(data, await loadFonts(), { allDomains, onlyValidated: true }),
+                  await buildDossierPdf(data, await loadFonts(), {
+                    allDomains,
+                    onlyValidated: true,
+                    annexes: await loadAllAnnexes(data.situations.filter((s) => s.transfer)),
+                  }),
                 ),
               )
             }

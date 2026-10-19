@@ -60,7 +60,8 @@ const ALTERNATIVES = [
 // 7,0 Mo → 7,1 Mo : module Passeport E4 (chunk à la demande, ~40 Ko avec le modèle Word embarqué) et
 // sauvegarde de l'espace de travail dans le Drive (fournisseur de session Drive désormais à la racine,
 // +~50 Ko dans le bundle principal).
-const TOTAL_JS_BUDGET_BYTES = 7_100_000;
+// 7,1 Mo → 7,2 Mo : Passeport E4 — annexes, import et analyse des fiches, PDF fidèles (polices Carlito, moteur pdf-lib).
+const TOTAL_JS_BUDGET_BYTES = 7_200_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

@@ -201,6 +201,12 @@ export function drawFiche(doc: PDFDocument, fonts: Fonts, h: Holder, s: Situatio
   const c = cur.c;
   const sz = (t: string, size: number, bold = false) => width(bold ? fonts.bold : fonts.reg, size, t);
   void sz;
+  // Métadonnées invisibles : l'ordre de lecture des cases varie d'un extracteur à l'autre, celles-ci sont sans ambiguïté.
+  c.hiddenText(
+    `ELIUMFICHE;sp=${s.id};mod=${s.modalite};cond=${s.condition};nat=${s.natures.join(",")};act=${s.activityIds.join(",")};`,
+    30,
+    20,
+  );
 
   // --- en-tête
   c.text(`BTS Gestion de la PME - Session ${h.session}`, 297.7, 62.4, { font: "bold", size: 12, align: "center" });

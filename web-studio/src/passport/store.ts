@@ -6,6 +6,7 @@
 import { decryptAtRest, encryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 import { PASSPORT_SPEC } from "../format/db-specs";
 import { openMigrated } from "../format/idb-migrate";
+import { reencryptAnnexes } from "./annexes";
 import { normalizePassport } from "./model";
 import type { PassportData } from "./types";
 
@@ -70,10 +71,7 @@ export async function deletePassport(): Promise<void> {
 }
 
 /** Rechiffrement quand le coffre est activé / changé / désactivé (un seul enregistrement → atomique). */
-export async function reencryptPassportVault(
-  from: VaultSecret | undefined,
-  to: VaultSecret | undefined,
-): Promise<void> {
+async function reencryptPassportRecord(from: VaultSecret | undefined, to: VaultSecret | undefined): Promise<void> {
   const rec = await run<StoredPassport | undefined>("readonly", (s) => s.get(KEY));
   if (!rec) return;
   let data: PassportData | null;
@@ -83,4 +81,18 @@ export async function reencryptPassportVault(
   } else data = normalizePassport(rec.data);
   if (!data) return;
   await write(data, to);
+}
+
+/** Passeport ET annexes : en cas d'échec sur les annexes, le passeport est ramené sous son ancien secret. */
+export async function reencryptPassportVault(
+  from: VaultSecret | undefined,
+  to: VaultSecret | undefined,
+): Promise<void> {
+  await reencryptPassportRecord(from, to);
+  try {
+    await reencryptAnnexes(from, to);
+  } catch (e) {
+    await reencryptPassportRecord(to, from).catch(() => undefined);
+    throw e;
+  }
 }

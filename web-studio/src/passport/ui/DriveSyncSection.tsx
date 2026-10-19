@@ -15,13 +15,15 @@ interface Props {
   data: PassportData;
   onRestore: (data: PassportData) => Promise<void>;
   onOpenDrive?: () => void;
+  /** Lit les octets d'une annexe (pour les publier dans le Drive avec les documents). */
+  loadAnnexe?: (id: string) => Promise<Uint8Array | undefined>;
 }
 
 const AUTO_DELAY_MS = 20_000;
 
 type Result = { kind: "idle" | "busy" | "ok" | "error" | "conflict"; message?: string };
 
-export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props) {
+export default function DriveSyncSection({ data, onRestore, onOpenDrive, loadAnnexe }: Props) {
   const d = useDrive();
   const { confirm } = useDialogs();
   const ctx = useMemo<OpsCtx | null>(() => {
@@ -85,8 +87,12 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
     if (!ctx) return;
     setDocs({ kind: "busy", message: "Préparation…" });
     try {
-      const r = await publishPassportDocs(ctx, dataRef.current, (done, total, name) =>
-        setDocs({ kind: "busy", message: name ? `Envoi ${done + 1}/${total} — ${name}` : "Terminé" }),
+      const r = await publishPassportDocs(
+        ctx,
+        dataRef.current,
+        (done, total, name) =>
+          setDocs({ kind: "busy", message: name ? `Envoi ${done + 1}/${total} — ${name}` : "Terminé" }),
+        loadAnnexe,
       );
       setDocs({
         kind: "ok",

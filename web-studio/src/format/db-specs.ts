@@ -33,7 +33,10 @@ export const PARAPHEUR_SPEC: DbSpec = {
 /** Passeport professionnel BTS GPME (E4) : un seul enregistrement « main ». */
 export const PASSPORT_SPEC: DbSpec = {
   name: "elium-passeport",
-  steps: [{ version: 1, label: "Passeport professionnel", up: (db) => void db.ensureStore("passport") }],
+  steps: [
+    { version: 1, label: "Passeport professionnel", up: (db) => void db.ensureStore("passport") },
+    { version: 2, label: "Annexes des fiches de situation", up: (db) => void db.ensureStore("annexes") },
+  ],
 };
 
 export const VAULT_SPEC: DbSpec = {

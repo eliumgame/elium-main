@@ -85,6 +85,13 @@ L'onglet « Stages et alternance » suit toutes les périodes en entreprise : **
 
 Dans le Drive entreprise, le Passeport est sauvegardé de deux façons. Le fichier `Passeport-BTS-GPME.json` est la **sauvegarde technique** (pour restaurer). Le bouton « Publier les documents (PDF + Word) dans le Drive » crée en plus le dossier « Passeport E4 — NOM Prénom » avec les **vrais documents** : passeport synoptique (PDF et Word), dossier complet, et chaque fiche d'analyse (PDF et Word). Chaque publication ajoute une version au fichier. La case « Publier aussi les documents à chaque sauvegarde automatique » les tient à jour.
 
+### Passeport E4 : annexes, import et analyse des fiches
+
+- **Annexes** : dans une fiche, section « Annexes », ajoutez les fichiers voulus (40 Mo au maximum chacun). Ils restent sur cet appareil, chiffrés quand le coffre local est actif, ne sont pas dans la sauvegarde JSON, sont ajoutés au dossier PDF (fiches transférées) et publiés dans le Drive avec les documents.
+- **Importer des fiches** : le bouton de la liste des situations lit des fichiers Word, PDF, texte ou .elium et crée une fiche par fichier. Un compte rendu indique les rubriques reprises et celles à compléter. L'import lit le texte et les cases cochées lisibles ; un PDF fait par un autre outil, ou par une ancienne version d'Elium, n'a pas de cases lisibles : vérifiez-les.
+- **Analyse** : chaque fiche reçoit un score et des remarques (rubriques vides ou courtes, nature et enjeux, activités évoquées mais non cochées, période, lisibilité). Ce sont des repères de rédaction, pas une note d'examen.
+- **Avancement** : fiches créées, complètes et validées sont comptées par rapport au nombre de fiches attendues (6 par défaut, modifiable dans le suivi).
+
 ### Passeport E4 : limites connues
 
 - Sans sauvegarde sur le Drive, le passeport reste **local** à ce navigateur. La

@@ -244,8 +244,29 @@ export class Canvas {
     });
   }
 
+  /** Texte invisible (opacité 0) : ne change rien à l'aspect, mais reste lisible par un extracteur de texte. */
+  hiddenText(str: string, x: number, baseline: number): void {
+    this.page.drawText(str, {
+      x,
+      y: this.y(baseline),
+      size: 1,
+      font: this.fonts.arial,
+      color: rgb(1, 1, 1),
+      opacity: 0,
+    });
+  }
+
   /** Case à cocher vectorielle (☐ / ☒), bas de la case sur la ligne de base. */
   checkbox(x: number, baseline: number, checked: boolean, size = 6.6): void {
+    // Marqueur invisible « [x] » / « [ ] » : il rend l'état de la case lisible quand Elium relit ce PDF (import de fiche).
+    this.page.drawText(checked ? "[x]" : "[ ]", {
+      x: x - 9,
+      y: this.y(baseline),
+      size: 1,
+      font: this.fonts.arial,
+      color: rgb(1, 1, 1),
+      opacity: 0,
+    });
     const top = baseline - size + 0.4;
     this.page.drawRectangle({
       x,

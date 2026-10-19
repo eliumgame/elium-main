@@ -44,6 +44,17 @@ export interface TransferSnapshot {
   taskIds: string[];
 }
 
+/** Fichier joint à une fiche de situation (les octets sont dans `annexes.ts`). */
+export interface Annexe {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  addedAt: string; // ISO
+  /** Légende libre affichée dans le dossier. */
+  note: string;
+}
+
 export interface Situation {
   /** Numéro de la fiche : 5 → « SP5 ». */
   id: number;
@@ -61,10 +72,11 @@ export interface Situation {
   activityIds: string[];
   taskIds: string[];
   /**
-   * Identifiant(s) de la situation dans le passeport, séparés par « ; » (ex. « GRCF 2 ; CE2 »).
-   * Vide : déduit de la nature et du rang (GRCF 1, CO1, CE1…).
+   * Identifiant(s) de la situation dans le passeport, séparés par « ; ». Vide : le nom de la fiche (« SP2 »).
    */
   code: string;
+  /** Annexes jointes à la fiche. */
+  annexes: Annexe[];
 
   // Présentation et contexte
   intitule: string;
@@ -144,6 +156,8 @@ export interface PassportData {
   situations: Situation[];
   contexte: ContexteItem[];
   stages: Stage[];
+  /** Nombre de fiches de situation à produire (sert à l'avancement du dossier ; à confirmer avec l'équipe pédagogique). */
+  expectedSituations: number;
   /** Parcours et durée de stage à réaliser (à confirmer auprès de l'établissement : positionnement réglementaire). */
   parcours: { voie: Voie; requiredWeeks: number };
   /** « Solutions logicielles et fonctionnalités » du passeport, par activité (clé « 1.2 »). */

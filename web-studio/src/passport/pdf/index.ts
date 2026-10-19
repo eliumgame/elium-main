@@ -3,6 +3,7 @@ import type { SynopticOptions } from "../exportPasseport";
 import type { Holder, PassportData, Situation } from "../types";
 import { drawFiche } from "./pdfFiche";
 import { loadCarlito, newDoc, type FontBytes } from "./pdfKit";
+import { appendAnnexes } from "./pdfAnnexes";
 import { drawSynoptic } from "./pdfSynoptic";
 
 export { buildFichePdf } from "./pdfFiche";
@@ -15,7 +16,7 @@ export { loadCarlito, type FontBytes };
 export async function buildDossierPdf(
   data: PassportData,
   fontBytes: FontBytes | null,
-  opts: SynopticOptions & { onlyValidated?: boolean } = {},
+  opts: SynopticOptions & { onlyValidated?: boolean; annexes?: Map<string, Uint8Array> } = {},
 ): Promise<Uint8Array> {
   const { doc, fonts } = await newDoc(fontBytes);
   doc.setTitle(`Dossier E4 — ${data.holder.prenom} ${data.holder.nom}`.trim());
@@ -25,7 +26,10 @@ export async function buildDossierPdf(
     .filter((s) => !opts.onlyValidated || s.transfer)
     .sort((a, b) => a.id - b.id);
   const h: Holder = data.holder;
-  for (const s of sits) drawFiche(doc, fonts, h, s);
+  for (const s of sits) {
+    drawFiche(doc, fonts, h, s);
+    if (opts.annexes && s.annexes.length) await appendAnnexes(doc, fonts, s, (id) => opts.annexes!.get(id));
+  }
   return doc.save();
 }
 

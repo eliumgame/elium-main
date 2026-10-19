@@ -6,6 +6,7 @@ import {
   completion,
   coveredTasks,
   dossierChecklist,
+  dossierProgress,
   duplicateSituation,
   emptyPassport,
   isStale,
@@ -28,6 +29,8 @@ import { CONTEXTE_ANNEXE_LABELS } from "./pdf/pdfContexte";
 import { buildFicheDocx, fillTemplateXml, ficheValues } from "./exportFiche";
 import { activityLabelOf, backupJson, buildSynopticDocx, parseBackup, synopticRows } from "./exportPasseport";
 import { PDFDocument } from "pdf-lib";
+import { analyseSituation } from "./analyse";
+import { importFicheFile, parseFicheText } from "./ficheImport";
 import { readFileSync } from "node:fs";
 import { buildAttestationPdf, buildContextePdf, buildDossierPdf, buildFichePdf, buildSynopticPdf } from "./pdf";
 import { woffToSfnt } from "./pdf/woff";
@@ -108,8 +111,8 @@ describe("passeport synoptique", () => {
 
   it("place chaque situation validée à l'intersection activité × modalité, triée par numéro", () => {
     const cells = passportCells(data);
-    expect(cells.get("1.2|pme")).toEqual([{ spId: 2, period: "Mars 2025", code: "GRCF 2" }]);
-    expect(cells.get("1.2|avant")).toEqual([{ spId: 1, period: "Septembre 2025", code: "GRCF 1" }]);
+    expect(cells.get("1.2|pme")).toEqual([{ spId: 2, period: "Mars 2025", code: "SP2" }]);
+    expect(cells.get("1.2|avant")).toEqual([{ spId: 1, period: "Septembre 2025", code: "SP1" }]);
     expect(cells.get("1.2|etablissement")).toBeUndefined();
   });
 
@@ -132,19 +135,15 @@ describe("passeport synoptique", () => {
     const items = dossierChecklist(data);
     expect(items.find((i) => i.id === "coverage")!.ok).toBe(false);
     expect(items.find((i) => i.id === "holder")!.ok).toBe(false);
-    expect(items.find((i) => i.id === "validated")!.ok).toBe(true);
+    const val = items.find((i) => i.id === "validated")!;
+    expect(val.ok).toBe(false); // 2 fiches validées sur 6 attendues
+    expect(val.ratio).toBeCloseTo(2 / 6, 5);
   });
 
-  it("les identifiants (GRCF n, CE n, CO n) sont déduits de la nature et du rang, ou saisis", () => {
-    const two = [
-      { ...filled(1), natures: ["grcf"] as Situation["natures"] },
-      { ...filled(2), natures: ["grcf", "ecrite"] as Situation["natures"] },
-      { ...filled(3), natures: ["orale"] as Situation["natures"] },
-    ];
-    expect(situationCodes(two[0], two)).toEqual(["GRCF 1"]);
-    expect(situationCodes(two[1], two)).toEqual(["GRCF 2", "CE1"]);
-    expect(situationCodes(two[2], two)).toEqual(["CO1"]);
-    expect(situationCodes({ ...two[0], code: "GRCF 3 ; CE2" }, two)).toEqual(["GRCF 3", "CE2"]);
+  it("l'identifiant d'une situation est son nom de fiche (SPn), ou celui saisi à la main", () => {
+    expect(situationCodes(filled(2))).toEqual(["SP2"]);
+    expect(situationCodes({ ...filled(3), code: "Vente 1 ; SP9" })).toEqual(["Vente 1", "SP9"]);
+    expect(situationCodes({ ...filled(4), code: "  " })).toEqual(["SP4"]);
   });
 
   it("le synoptique reprend le modèle officiel : domaine 1 par défaut, identifiants par modalité, solutions par activité", () => {
@@ -154,8 +153,8 @@ describe("passeport synoptique", () => {
     expect(rows[0].activityLabel).toBe("Activité_1.1._Recherche_de_clientèle_et_contact");
     const r12 = rows.find((r) => r.activity.id === "1.2" && r.first)!;
     expect(r12.solutions).toBe("Ypariéo ; Excel");
-    expect(r12.marks.pme).toBe("GRCF 2");
-    expect(r12.marks.avant).toBe("GRCF 1");
+    expect(r12.marks.pme).toBe("SP2");
+    expect(r12.marks.avant).toBe("SP1");
     expect(synopticRows(data, { allDomains: true })).toHaveLength(102);
     expect(activityLabelOf(REFERENTIEL[0].activities[4])).toBe(
       "Activité_1.5._Suivi_et_contrôle_des_opérations_d_achats_et_d_investissement_de_la_PME",
@@ -165,7 +164,7 @@ describe("passeport synoptique", () => {
   it("le Word synoptique est produit (paysage, bande jaune verticale)", () => {
     const files = unzipSync(buildSynopticDocx(data));
     const doc = strFromU8(files["word/document.xml"]);
-    expect(doc).toContain("GRCF 1");
+    expect(doc).toContain("SP1");
     expect(doc).toContain('w:orient="landscape"');
     expect(doc).toContain("FFFF00");
     expect(doc).toContain("btLr");
@@ -354,5 +353,133 @@ describe("attestation de stage et contexte commercial en PDF", () => {
     d.contexte[0] = { id: "identite", done: true, notes: "SARL Exemple, 12 salariés.\n".repeat(60) };
     const pdf = await PDFDocument.load(await buildContextePdf(d, fonts));
     expect(pdf.getPageCount()).toBeGreaterThanOrEqual(2); // notes longues : passage à la page suivante
+  });
+});
+
+describe("avancement du dossier", () => {
+  it("une seule fiche sur six ne fait pas 70 % : l'avancement suit le nombre de fiches attendues", () => {
+    const d = emptyPassport();
+    d.holder = { ...d.holder, nom: "A", prenom: "B", numeroCandidat: "1", session: "2027", etablissement: "X" };
+    d.contexte = d.contexte.map((c) => ({ ...c, done: true }));
+    d.stages = [{ ...newStage("s"), semaines: "12", attestationRecue: true }];
+    const one = transferSituation({ ...filled(1), analyse: "x", contribution: "x" })!;
+    d.situations = [one];
+    const items = dossierChecklist(d);
+    const sit = items.find((i) => i.id === "situations")!;
+    expect(d.expectedSituations).toBe(6);
+    expect(sit.ratio).toBeCloseTo(1 / 6, 5);
+    expect(sit.ok).toBe(false);
+    const pct = dossierProgress(items);
+    expect(pct).toBeLessThan(70);
+    // les six fiches créées, rédigées et validées font monter la part « fiches »
+    d.situations = [1, 2, 3, 4, 5, 6].map((i) => transferSituation({ ...filled(i), analyse: "x", contribution: "x" })!);
+    expect(dossierProgress(dossierChecklist(d))).toBeGreaterThan(pct);
+    d.expectedSituations = 1;
+    expect(dossierChecklist({ ...d, situations: [one] }).find((i) => i.id === "situations")!.ok).toBe(true);
+  });
+});
+
+describe("import et analyse des fiches", () => {
+  const holder = { ...emptyPassport().holder, nom: "Sihl", prenom: "Ludovic", numeroCandidat: "0123", session: "2027" };
+  const base = (): Situation => ({
+    ...filled(3),
+    modalite: "pme",
+    condition: "accompagnee",
+    mois: 3,
+    annee: 2026,
+    natures: ["grcf", "ecrite"],
+    activityIds: ["1.2", "1.6"],
+    intitule: "Relance des factures impayées",
+    lieuPeriodeDuree: "SARL Exemple, Paris — mars 2026 — 2 semaines",
+    cadre: "L'entreprise vend des fournitures de bureau à 300 clients professionnels.",
+    problemeGestion: "Réduire les retards de paiement sans dégrader la relation client.",
+    problemeEcrit: "Rédiger des relances graduées.",
+    acteurs: "Le gérant, la comptable, les clients.",
+    objectif: "Ramener le délai moyen de règlement à 45 jours.",
+    conditions: "Processus comptable : facture, échéancier, relance à J+10.",
+    ressources: "PGI, modèles de courriers.",
+    solutions: "Sage 100 ; Excel",
+    productions: "Tableau de suivi des impayés, trois courriers de relance.",
+    ecrits: "Courriers de relance",
+    oraux: "Appel téléphonique de relance",
+    analyse: "J'ai analysé les retards.\nPuis j'ai relancé.",
+    contribution: "J'ai appris à relancer avec tact.",
+  });
+
+  function same(imp: Situation, src: Situation) {
+    for (const k of [
+      "intitule",
+      "lieuPeriodeDuree",
+      "cadre",
+      "problemeGestion",
+      "problemeEcrit",
+      "acteurs",
+      "objectif",
+      "conditions",
+      "ressources",
+      "solutions",
+      "productions",
+      "ecrits",
+      "oraux",
+      "contribution",
+    ] as const)
+      expect(imp[k].replace(/\s+/g, " ")).toBe(src[k].replace(/\s+/g, " "));
+    expect(imp.analyse.replace(/\s+/g, " ")).toBe(src.analyse.replace(/\s+/g, " "));
+  }
+
+  it("relit une fiche Word produite par Elium (champs, cases cochées, numéro)", async () => {
+    const src = base();
+    const file = new File([buildFicheDocx(holder, src) as BlobPart], "fiche.docx");
+    const imp = await importFicheFile(file);
+    expect(imp.number).toBe(3);
+    same(imp.situation, src);
+    expect(imp.situation.modalite).toBe("pme");
+    expect(imp.situation.condition).toBe("accompagnee");
+    expect(imp.situation.activityIds).toEqual(["1.2", "1.6"]);
+    expect([...imp.situation.natures].sort()).toEqual(["ecrite", "grcf"]);
+    expect(imp.situation.mois).toBe(3);
+    expect(imp.situation.annee).toBe(2026);
+    expect(imp.holder.nom).toBe("SIHL");
+    expect(imp.report.missing).toEqual([]);
+  });
+
+  it("signale les rubriques manquantes et refuse un fichier vide", async () => {
+    const imp = parseFicheText(
+      "Fiche d'analyse de situation professionnelle\nIntitulé de la situation professionnelle\nMon titre\n",
+    );
+    expect(imp.situation.intitule).toBe("Mon titre");
+    expect(imp.report.missing).toContain("Analyse de la situation");
+    expect(imp.report.warnings.join(" ")).toContain("Peu d'intitulés");
+    await expect(importFicheFile(new File([""], "vide.txt"))).rejects.toThrow(/aucun texte/);
+  });
+
+  it("l'analyse repère les rubriques vides, les natures sans enjeu et les activités évoquées mais non cochées", () => {
+    const ok = analyseSituation(
+      {
+        ...base(),
+        analyse: "J'ai ".repeat(130),
+        contribution: "J'ai appris ".repeat(30),
+        cadre: "mot ".repeat(40),
+        acteurs: "mot ".repeat(20),
+        objectif: "mot ".repeat(12),
+        conditions: "mot ".repeat(20),
+        ressources: "mot ".repeat(10),
+        productions: "mot ".repeat(8),
+        problemeEcrit: "mot ".repeat(20),
+        problemeGestion: "mot ".repeat(20),
+      },
+      { holder },
+    );
+    expect(ok.score).toBeGreaterThan(70);
+    const bad = analyseSituation(
+      { ...newSituation(1), natures: ["orale"], cadre: "Une relance de facture et la TVA." },
+      { holder },
+    );
+    expect(bad.score).toBeLessThan(40);
+    const msgs = bad.findings.map((x) => `${x.rubric}: ${x.message}`).join("\n");
+    expect(msgs).toContain("Rubrique vide");
+    expect(msgs).toContain("Nature cochée mais enjeu non rédigé");
+    expect(msgs).toContain("Aucune activité concernée");
+    expect(bad.suggestedActivities).toEqual(expect.arrayContaining(["1.2", "1.6"]));
   });
 });

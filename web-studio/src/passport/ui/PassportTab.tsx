@@ -1,9 +1,9 @@
-/** Passeport professionnel : tableau synoptique (même structure que le passeport officiel), solutions logicielles par activité, visa. */
-import { useMemo, useState } from "react";
+/** Passeport professionnel : tableau synoptique activités × modalités, tâches grisées, solutions logicielles, visa. */
+import { Fragment, useMemo } from "react";
 import { Download, FileDown, FileText } from "lucide-react";
 import { Alert, Button } from "../../ui/components";
-import { MODALITES } from "../model";
-import { synopticRows, type SynopticRow } from "../exportPasseport";
+import { MODALITES, REFERENTIEL, passportCells } from "../model";
+import { synopticRows } from "../exportPasseport";
 import type { PassportData } from "../types";
 
 interface Props {
@@ -22,38 +22,31 @@ interface Props {
 
 export default function PassportTab(p: Props) {
   const { data } = p;
-  const [pending, setPending] = useState(false);
   const rows = useMemo(() => synopticRows(data, { allDomains: p.allDomains }), [data, p.allDomains]);
+  const cells = useMemo(() => passportCells(data), [data]);
   const validated = data.situations.filter((s) => s.transfer).length;
   const h = data.holder;
-  const wrapAction = (fn: () => void) => () => {
-    setPending(true);
-    try {
-      fn();
-    } finally {
-      setTimeout(() => setPending(false), 600);
-    }
-  };
+  const domains = p.allDomains ? REFERENTIEL : REFERENTIEL.slice(0, 1);
 
   return (
     <div className="pp-passport">
       <div className="pp-passport__bar">
         <div>
-          <h2>BTS GESTION DE LA PME — SESSION {h.session || "…"} — PASSEPORT PROFESSIONNEL</h2>
+          <h2>BTS Gestion de la PME — Session {h.session || "…"} — Passeport professionnel</h2>
           <p className="pp-note">
             {[h.nom.toUpperCase(), h.prenom].filter(Boolean).join(" ") || "Candidat non renseigné"}
-            {h.numeroCandidat ? ` — N° ${h.numeroCandidat}` : " — numéro de candidat à compléter"} · {validated}{" "}
-            situation(s) validée(s) sur {data.situations.length}
+            {h.numeroCandidat ? ` — N° ${h.numeroCandidat}` : ""} · {validated} situation(s) validée(s) sur{" "}
+            {data.situations.length}
           </p>
         </div>
         <div className="pp-passport__actions">
-          <Button size="sm" onClick={wrapAction(p.onPdf)} disabled={pending}>
-            <FileText size={14} /> PDF (A4 paysage)
+          <Button size="sm" onClick={p.onDocx}>
+            <FileDown size={14} /> Word (paysage)
           </Button>
-          <Button size="sm" variant="outline" onClick={wrapAction(p.onDocx)} disabled={pending}>
-            <FileDown size={14} /> Word
+          <Button size="sm" variant="outline" onClick={p.onPdf}>
+            <FileText size={14} /> PDF
           </Button>
-          <Button size="sm" variant="outline" onClick={wrapAction(p.onDossier)} disabled={pending}>
+          <Button size="sm" variant="outline" onClick={p.onDossier}>
             <Download size={14} /> Dossier complet (PDF)
           </Button>
         </div>
@@ -66,96 +59,106 @@ export default function PassportTab(p: Props) {
         </Alert>
       )}
 
-      <div className="pp-passport__opts">
-        <label className="pp-check">
-          <input type="checkbox" checked={p.allDomains} onChange={(e) => p.onAllDomains(e.target.checked)} /> Afficher
-          et exporter aussi les domaines 2 à 4 (E51, ressources humaines, soutien) — le document de l'épreuve E4 ne
-          reprend que le domaine 1
-        </label>
-        <Button size="sm" variant="ghost" onClick={p.onPrefillSolutions}>
-          Reprendre les solutions logicielles des fiches
-        </Button>
-      </div>
+      <label className="pp-check">
+        <input type="checkbox" checked={p.allDomains} onChange={(e) => p.onAllDomains(e.target.checked)} /> Afficher et
+        exporter aussi les domaines 2 à 4 (le document de l'épreuve E4 ne reprend que le domaine 1)
+      </label>
 
       <div className="pp-tablewrap" tabIndex={0} role="region" aria-label="Tableau du passeport professionnel">
         <table className="pp-syn">
           <thead>
             <tr>
-              <th rowSpan={2} className="pp-syn__bandh" aria-label="Domaine" />
-              <th rowSpan={2} className="pp-syn__left">
-                ACTIVITÉS ▸
-              </th>
-              <th rowSpan={2}>SOLUTIONS LOGICIELLES ET FONCTIONNALITÉS</th>
-              <th rowSpan={2}>
-                SITUATIONS VÉCUES OU OBSERVÉES ▸<br />
-                COMPÉTENCES ▾
-              </th>
+              <th scope="col">Activités</th>
+              <th scope="col">Compétences</th>
               {MODALITES.map((m) => (
-                <th key={m.id}>{m.label}</th>
+                <th key={m.id} scope="col">
+                  {m.short}
+                </th>
               ))}
-              <th rowSpan={2}>Tâches des activités</th>
-            </tr>
-            <tr>
-              <th colSpan={4}>Périodes (Situations Professionnelles)</th>
+              <th scope="col">Tâches des activités</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r: SynopticRow) => (
-              <tr key={r.taskId}>
+            {rows.map((r) => (
+              <Fragment key={r.taskId}>
                 {r.firstOfDomain && (
-                  <td rowSpan={r.domainSpan} className="pp-syn__band">
-                    <div>
+                  <tr>
+                    <td className="pp-syn__dom" colSpan={7}>
                       DOMAINE D’ACTIVITÉS {r.domainId} : {r.domainTitle}
-                    </div>
-                  </td>
+                    </td>
+                  </tr>
                 )}
-                {r.first && (
-                  <>
-                    <td rowSpan={r.span} className="pp-syn__act">
-                      {r.activityLabel}
-                    </td>
-                    <td rowSpan={r.span} className="pp-syn__sol">
-                      <textarea
-                        className="pp-input pp-textarea"
-                        rows={Math.min(6, Math.max(2, r.span))}
-                        aria-label={`Solutions logicielles — activité ${r.activity.id}`}
-                        placeholder="Logiciels et fonctionnalités mobilisés…"
-                        value={r.solutions}
-                        onChange={(e) => p.onSolutions(r.activity.id, e.target.value)}
-                      />
-                    </td>
-                    <td rowSpan={r.span} className="pp-syn__comp">
-                      {r.activity.competence}
-                    </td>
-                    {MODALITES.map((m) => (
-                      <td key={m.id} rowSpan={r.span} className={`pp-syn__mark ${r.marks[m.id] ? "has" : ""}`}>
-                        {r.marks[m.id]}
+                <tr>
+                  {r.first && (
+                    <>
+                      <td rowSpan={r.span} className="pp-syn__act">
+                        Activité {r.activity.id} — {r.activity.title}
                       </td>
-                    ))}
-                  </>
-                )}
-                <td className={r.sps.length ? "pp-syn__task is-done" : "pp-syn__task"}>
-                  T.{r.taskId}. {r.taskLabel}
-                  {r.sps.length > 0 && (
-                    <span className="pp-syn__sps">
-                      {r.sps.map((id) => (
-                        <button key={id} className="pp-chip" onClick={() => p.onOpenSituation(id)}>
-                          SP{id}
-                        </button>
-                      ))}
-                    </span>
+                      <td rowSpan={r.span}>{r.activity.competence}</td>
+                      {MODALITES.map((m) => {
+                        const marks = cells.get(`${r.activity.id}|${m.id}`) ?? [];
+                        return (
+                          <td key={m.id} rowSpan={r.span} className={`pp-syn__mark ${marks.length ? "has" : ""}`}>
+                            {marks.map((x) => (
+                              <div key={`${x.spId}`}>
+                                {x.code} – {x.period}
+                              </div>
+                            ))}
+                          </td>
+                        );
+                      })}
+                    </>
                   )}
-                </td>
-              </tr>
+                  <td className={r.sps.length ? "pp-syn__task is-done" : "pp-syn__task"}>
+                    <b>T.{r.taskId}</b> {r.taskLabel}
+                    {r.sps.length > 0 && (
+                      <span className="pp-syn__sps">
+                        {r.sps.map((id) => (
+                          <button key={id} className="pp-chip" onClick={() => p.onOpenSituation(id)}>
+                            SP{id}
+                          </button>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="pp-note">
-        Les identifiants (« GRCF 2 ; CE2 ») viennent des fiches validées : saisissez-les sur chaque fiche (rubrique
-        Identification) ou laissez Elium les déduire de la nature et du rang. Les tâches grisées sont réalisées dans au
-        moins une situation validée.
-      </p>
+      <p className="pp-note">Les tâches grisées ont été réalisées dans au moins une situation validée.</p>
+
+      <section className="pp-card">
+        <h3>Solutions logicielles et fonctionnalités</h3>
+        <p className="pp-note">
+          Une rubrique du passeport officiel : pour chaque activité, les logiciels et fonctionnalités mobilisés. Elle
+          figure dans le PDF et le Word du passeport.
+        </p>
+        <div className="pp-grid">
+          {domains.flatMap((d) =>
+            d.activities.map((a) => (
+              <label key={a.id} className="pp-field">
+                <span className="pp-field__label">
+                  Activité {a.id} — {a.title}
+                </span>
+                <textarea
+                  className="pp-input pp-textarea"
+                  rows={2}
+                  value={data.solutions[a.id] ?? ""}
+                  placeholder="Logiciels et fonctionnalités mobilisés…"
+                  onChange={(e) => p.onSolutions(a.id, e.target.value)}
+                />
+              </label>
+            )),
+          )}
+        </div>
+        <div className="pp-actions">
+          <Button size="sm" variant="outline" onClick={p.onPrefillSolutions}>
+            Reprendre les solutions logicielles des fiches
+          </Button>
+        </div>
+      </section>
 
       <section className="pp-card">
         <h3>Visa de l'équipe pédagogique</h3>

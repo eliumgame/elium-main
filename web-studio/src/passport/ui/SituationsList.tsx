@@ -1,10 +1,11 @@
 /** Liste des fiches de situation (gestion du passeport : ajouter, copier, supprimer, transférer). */
-import { useState } from "react";
-import { ClipboardList, Copy, FileDown, Plus, Send, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ClipboardList, Copy, FileDown, FileUp, Plus, Send, Trash2 } from "lucide-react";
 import { Badge, Button, EmptyState } from "../../ui/components";
 import { MODALITES, STATE_LABEL, completion, periodLabel, situationState, spLabel } from "../model";
 import type { Situation } from "../types";
 import { STATE_ACCENT } from "./SituationEditor";
+import { analyseAll } from "../analyse";
 
 interface Props {
   situations: Situation[];
@@ -14,12 +15,20 @@ interface Props {
   onDelete: (id: number) => void;
   onTransfer: (id: number) => void;
   onDocx: (id: number) => void;
+  onImport: (files: File[]) => void;
+  /** Passeport entier : sert à l'analyse (session, période). */
+  holder: import("../types").Holder;
 }
 
 type Filter = "all" | "todo" | "validated";
 
 export default function SituationsList(p: Props) {
   const [filter, setFilter] = useState<Filter>("all");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const analysis = useMemo(
+    () => analyseAll({ situations: p.situations, holder: p.holder } as never),
+    [p.situations, p.holder],
+  );
   const [q, setQ] = useState("");
   const rows = [...p.situations]
     .sort((a, b) => a.id - b.id)
@@ -37,6 +46,21 @@ export default function SituationsList(p: Props) {
         <Button onClick={p.onNew}>
           <Plus size={16} /> Nouvelle situation
         </Button>
+        <Button variant="outline" onClick={() => fileInput.current?.click()}>
+          <FileUp size={16} /> Importer des fiches…
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          accept=".docx,.pdf,.txt,.md,.elium"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) p.onImport(files);
+          }}
+        />
         <input
           className="pp-input pp-list__search"
           type="search"
@@ -57,11 +81,17 @@ export default function SituationsList(p: Props) {
         </select>
       </div>
 
+      {p.situations.length > 0 && (
+        <p className="pp-note">
+          Analyse de la rédaction : <b>{analysis.average} %</b> en moyenne sur {p.situations.length} fiche(s) —
+          complétude, cohérence des activités cochées et lisibilité (ouvrez une fiche pour le détail).
+        </p>
+      )}
       {p.situations.length === 0 ? (
         <EmptyState
           icon={<ClipboardList size={28} />}
           title="Aucune situation professionnelle"
-          hint="Créez une fiche pour chaque situation vécue ou observée, puis transférez-la vers le passeport."
+          hint="Créez une fiche pour chaque situation vécue ou observée, ou importez des fiches existantes (Word, PDF), puis transférez-les vers le passeport."
         />
       ) : rows.length === 0 ? (
         <EmptyState title="Aucune fiche ne correspond" />
@@ -89,6 +119,17 @@ export default function SituationsList(p: Props) {
                     </span>
                   </span>
                   <Badge accent={STATE_ACCENT[st]}>{STATE_LABEL[st]}</Badge>
+                  <Badge
+                    accent={
+                      (analysis.byId.get(s.id)?.score ?? 0) >= 80
+                        ? "success"
+                        : (analysis.byId.get(s.id)?.score ?? 0) >= 50
+                          ? "warning"
+                          : "danger"
+                    }
+                  >
+                    Analyse {analysis.byId.get(s.id)?.score ?? 0} %
+                  </Badge>
                 </button>
                 <div className="pp-sit__actions">
                   {(st === "a-valider" || st === "a-retransferer" || st === "a-completer") && (

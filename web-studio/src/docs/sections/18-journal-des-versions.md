@@ -2,6 +2,14 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.15.0 — Passeport E4 : annexes, import et analyse des fiches
+
+- Retour au **tableau du passeport** d'origine ; les colonnes portent le nom **SP** de chaque fiche (SP1, SP2…, modifiable) au lieu de « GRCF ».
+- **Annexes** : joignez les fichiers de votre choix (PDF, images, Word…) à chaque fiche ; elles sont chiffrées avec le coffre local, ajoutées au dossier PDF et publiées dans le Drive.
+- **Importation de fiches** (Word, PDF, texte) avec compte rendu rubrique par rubrique, et **analyse** de chaque fiche (complétude, cohérence des activités cochées, lisibilité).
+- **Avancement** corrigé : calculé par rapport au nombre de fiches attendues (6 par défaut, modifiable) ; une fiche sur six ne donne plus 70 %.
+- L'import relit les cases cochées des contrôles Word, des champs de formulaire et des symboles Wingdings ; les PDF produits par cette version portent des métadonnées invisibles pour une relecture exacte.
+
 ### Version 4.14.0 — Passeport E4 fidèle aux documents officiels
 
 - 4.14.1 : attestation de stage (annexe III-3) reproduite en PDF d'après le formulaire officiel ; contexte commercial en PDF avec les douze éléments de l'annexe V-3.

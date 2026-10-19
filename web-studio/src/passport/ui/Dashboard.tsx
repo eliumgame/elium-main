@@ -15,6 +15,7 @@ interface Props {
   onBackup: () => void;
   onImport: (file: File) => void;
   onReset: () => void;
+  onExpected: (n: number) => void;
   /** Section supplémentaire (sauvegarde serveur), affichée avant la sauvegarde locale. */
   extra?: ReactNode;
 }
@@ -114,6 +115,21 @@ export default function Dashboard(p: Props) {
             <span>tâches du référentiel</span>
           </div>
         </div>
+        <label className="pp-field" style={{ maxWidth: 320 }}>
+          <span className="pp-field__label">Nombre de fiches de situation à produire</span>
+          <input
+            className="pp-input"
+            type="number"
+            min={1}
+            max={30}
+            value={data.expectedSituations}
+            onChange={(e) => p.onExpected(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+          />
+          <span className="pp-field__hint">
+            Sert à l'avancement du dossier : une fiche sur {data.expectedSituations} ne compte que pour une part du
+            suivi.
+          </span>
+        </label>
         <h4>Situations par modalité de réalisation</h4>
         <ul className="pp-bars">
           {MODALITES.map((m) => (

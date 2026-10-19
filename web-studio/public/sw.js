@@ -51,6 +51,8 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return; // don't touch cross-origin
   // Endpoints dynamiques du lanceur de bureau (/__update__, /__open__ …) : jamais en cache.
   if (url.pathname.startsWith("/__")) return;
+  // Identité du build + dernière version publiée : toujours frais (jamais servis depuis le cache).
+  if (url.pathname === "/release.json") return;
 
   if (req.mode === "navigate") {
     event.respondWith(

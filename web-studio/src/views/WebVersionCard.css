@@ -1,0 +1,98 @@
+/* Carte « version du site + installation Windows » de l'accueil hébergé. Jetons --el-* uniquement. */
+.web-version {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  background: var(--el-surface);
+  border: 1px solid var(--el-border);
+  border-radius: var(--el-radius-lg);
+}
+.web-version__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.web-version__head svg {
+  color: var(--el-primary);
+}
+.web-version__head .home__section-title {
+  margin: 0;
+}
+.web-version__build {
+  padding: 1px 8px;
+  font-size: var(--el-fs-xs);
+  color: var(--el-text-soft);
+  background: var(--el-surface-3);
+  border-radius: 999px;
+}
+.web-version__meta,
+.web-version__hint {
+  margin: 0;
+  font-size: var(--el-fs-sm);
+  line-height: var(--el-lh-base);
+  color: var(--el-text-soft);
+}
+.web-version__notes summary {
+  cursor: pointer;
+  font-weight: var(--el-fw-semibold);
+  font-size: var(--el-fs-sm);
+}
+.web-version__notes ul {
+  margin: 8px 0 0;
+  padding-inline-start: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--el-fs-sm);
+  line-height: var(--el-lh-base);
+}
+.web-version__install {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--el-border);
+}
+.web-version__install h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--el-fs-md);
+  font-weight: var(--el-fw-semibold);
+}
+.web-version__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.web-version__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.web-version__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: var(--el-fs-sm);
+  font-weight: var(--el-fw-semibold);
+  color: var(--el-primary-contrast);
+  background: var(--el-primary-btn);
+  border-radius: var(--el-radius-md);
+  text-decoration: none;
+}
+.web-version__btn:hover {
+  background: var(--el-primary-hover);
+}
+.web-version__btn:focus-visible {
+  outline: 2px solid var(--el-primary);
+  outline-offset: 2px;
+}

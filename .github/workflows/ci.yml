@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   python-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ['3.9', '3.11', '3.12', '3.13']
@@ -44,7 +44,7 @@ jobs:
       run: python scripts/pip_audit_gate.py requirements/dev.txt
 
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Syntaxe + shellcheck (install.sh, logique de déploiement non testable unitairement)
@@ -54,7 +54,7 @@ jobs:
         shellcheck --severity=warning install.sh
 
   compose-config:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: docker compose config (secrets obligatoires, interpolation valide)
@@ -65,7 +65,7 @@ jobs:
         POSTGRES_PASSWORD=x TOKEN_SECRET=y CORS_ORIGINS=http://localhost S3_SECRET_KEY=z REDIS_PASSWORD=w docker compose config >/dev/null
 
   web-studio-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Set up Node.js
@@ -112,7 +112,7 @@ jobs:
       run: node scripts/audit-gate.mjs
 
   server-checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
     - name: Set up Node.js
@@ -141,7 +141,7 @@ jobs:
       run: npm audit --omit=dev --audit-level=high
 
   server-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Intégration lourde (Postgres embarqué + Fastify réel). Repassé bloquant le
     # 2026-08-18 après avoir vérifié 5/5 exécutions vertes (3 runs CI Ubuntu réels
     # dont un après la migration Fastify v5, + 2 runs locaux Windows), 136/136

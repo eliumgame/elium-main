@@ -1,10 +1,15 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import pdfjsAssets from "./scripts/pdfjs-assets-plugin.ts";
 import tesseractAssets from "./scripts/tesseract-assets-plugin.ts";
 
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
+
 export default defineConfig({
+  // Version précise de CE build (affichée sur l'accueil du site hébergé, voir views/WebVersionCard.tsx).
+  define: { __ELIUM_VERSION__: JSON.stringify(pkg.version) },
   // pdfjsAssets : publie wasm/cmaps/polices standard/ICC de pdf.js sous dist/pdfjs/
   // (servis depuis node_modules en dev) — voir scripts/pdfjs-assets-plugin.ts.
   // tesseractAssets : worker et cœur WebAssembly de l'OCR sous dist/tesseract/ (hors ligne).

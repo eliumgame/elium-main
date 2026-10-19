@@ -37,6 +37,7 @@ import { reportError } from "../ui/crash-log";
 import { useI18n, type MessageKey } from "../i18n";
 import { usePrefs, setPrefs, backupReminderDue } from "../settings/prefs";
 import VersionFooter from "./VersionFooter";
+import WebVersionCard from "./WebVersionCard";
 import SecurityLevelPicker from "../components/SecurityLevelPicker";
 import Sidebar, { type ShellView } from "../workspace/ui/Sidebar";
 import Library, { type LibraryHandlers, type SortState, type ViewMode } from "../workspace/ui/Library";
@@ -654,6 +655,8 @@ export default function HomeView(p: HomeViewProps) {
           <h2 className="home__section-title">{t("home.templates")}</h2>
           <TemplateGallery onPick={(tpl) => setPendingTemplate(tpl)} />
         </section>
+
+        <WebVersionCard />
 
         <VersionFooter />
       </>

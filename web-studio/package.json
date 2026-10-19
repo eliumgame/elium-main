@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run gen:assets && vite",
     "gen:assets": "node scripts/gen-fonts.mjs",
-    "build": "npm run gen:assets && tsc && vite build && node scripts/gen-precache.mjs",
+    "build": "npm run gen:assets && tsc && vite build && node scripts/gen-precache.mjs && node scripts/gen-release-info.mjs",
     "check:bundle-budget": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "test": "vitest run",

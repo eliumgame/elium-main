@@ -6,15 +6,7 @@ import { useDialogs } from "../../ui/dialogs";
 import { reportError } from "../../ui/crash-log";
 import type { OpsCtx } from "../../drive-cloud/ops";
 import { useDrive } from "../../drive-cloud/session";
-import {
-  isConflict,
-  pullPassport,
-  pushPassport,
-  readAuto,
-  readLink,
-  writeAuto,
-  type DriveLink,
-} from "../drive-sync";
+import { isConflict, pullPassport, pushPassport, readAuto, readLink, writeAuto, type DriveLink } from "../drive-sync";
 import type { PassportData } from "../types";
 
 interface Props {

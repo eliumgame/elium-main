@@ -5,6 +5,7 @@
 ### Version 4.13.0 — sauvegarde de l'espace de travail dans le Drive
 
 - Tout l'espace de travail local (documents, tableurs, présentations, PDF) peut être envoyé dans le Drive entreprise, à la demande ou automatiquement, puis restauré. Session Drive désormais partagée dans toute l'application.
+- L'accueil du site hébergé affiche la version précise d'Elium, les notes de mise à jour et propose d'installer l'application Windows (MSI).
 - Le PDF de la fiche d'analyse du Passeport reprend la mise en page du modèle officiel (recto/verso).
 
 ### Version 4.12.0 — Passeport professionnel E4 (BTS Gestion de la PME)

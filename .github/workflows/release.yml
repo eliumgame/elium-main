@@ -57,7 +57,7 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write   # seulement pour pousser le commit de bump automatique
       actions: read     # lire le résultat de « Elium CI » sur le commit visé
@@ -303,7 +303,7 @@ jobs:
     # Ed25519 : l'auto-update du VPS tire EXACTEMENT ces octets.
     needs: gate
     if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -362,7 +362,7 @@ jobs:
   publish:
     needs: [gate, build, images]
     if: needs.gate.outputs.ok == 'true' && needs.gate.outputs.exists != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write       # créer la release + ses assets
       id-token: write       # attestation de provenance (OIDC)

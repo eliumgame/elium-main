@@ -10,16 +10,9 @@ import { downloadBlob } from "../../export/exporters";
 import { Alert, Badge, Button, Tabs } from "../../ui/components";
 import { useDialogs } from "../../ui/dialogs";
 import { reportError } from "../../ui/crash-log";
-import { buildFicheDocx, ficheFileName, ficheHtml } from "../exportFiche";
-import {
-  backupJson,
-  buildSynopticDocx,
-  contexteHtml,
-  dossierHtml,
-  parseBackup,
-  stageHtml,
-  synopticHtml,
-} from "../exportPasseport";
+import { buildFicheDocx, ficheFileName } from "../exportFiche";
+import { buildDossierPdf, buildFichePdf, buildSynopticPdf, loadFonts } from "../pdf";
+import { backupJson, buildSynopticDocx, contexteHtml, parseBackup, stageHtml } from "../exportPasseport";
 import {
   dossierProgress,
   dossierChecklist,
@@ -27,6 +20,7 @@ import {
   emptyPassport,
   newSituation,
   nextSituationId,
+  prefillSolutions,
   normalizePassport,
   spLabel,
   transferIssues,
@@ -60,6 +54,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
   const [tab, setTab] = useState<TabId>("dashboard");
   const [editing, setEditing] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [allDomains, setAllDomains] = useState(false);
 
   useEffect(() => {
     if (!notice) return;
@@ -246,7 +241,7 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
     { id: "passport", label: "Passeport" },
     { id: "referentiel", label: "Référentiel" },
     { id: "contexte", label: "Contexte commercial" },
-    { id: "stages", label: `Stages (${data.stages.length})` },
+    { id: "stages", label: `Stages et alternance (${data.stages.length})` },
   ];
   const openSituation = (id: number) => {
     setTab("situations");
@@ -300,7 +295,15 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
                 setNotice(`${spLabel(sit.id)} retirée du passeport.`);
               }}
               onDocx={() => void docx(sit.id)}
-              onPdf={() => void print(ficheHtml(data.holder, sit))}
+              onPdf={() =>
+                void guard("pdf", async () => {
+                  downloadBlob(
+                    ficheFileName(data.holder, sit, "pdf"),
+                    "application/pdf",
+                    await buildFichePdf(data.holder, sit, await loadFonts()),
+                  );
+                })
+              }
               onDuplicate={() => void duplicate(sit.id)}
               onDelete={() => void remove(sit.id)}
             />
@@ -321,11 +324,35 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
             onVisa={(visa) => update((d) => ({ ...d, visa }))}
             onDocx={() =>
               void guard("synoptic", () =>
-                downloadBlob(`Passeport_professionnel_${stem}.docx`, DOCX_MIME, buildSynopticDocx(data)),
+                downloadBlob(
+                  `Passeport_professionnel_${stem}.docx`,
+                  DOCX_MIME,
+                  buildSynopticDocx(data, { allDomains }),
+                ),
               )
             }
-            onPdf={() => void print(synopticHtml(data))}
-            onDossier={() => void print(dossierHtml(data, true))}
+            onPdf={() =>
+              void guard("pdf", async () =>
+                downloadBlob(
+                  `Passeport_professionnel_${stem}.pdf`,
+                  "application/pdf",
+                  await buildSynopticPdf(data, await loadFonts(), { allDomains }),
+                ),
+              )
+            }
+            onDossier={() =>
+              void guard("pdf", async () =>
+                downloadBlob(
+                  `Dossier_E4_${stem}.pdf`,
+                  "application/pdf",
+                  await buildDossierPdf(data, await loadFonts(), { allDomains, onlyValidated: true }),
+                ),
+              )
+            }
+            allDomains={allDomains}
+            onAllDomains={setAllDomains}
+            onSolutions={(id, text) => update((d) => ({ ...d, solutions: { ...d.solutions, [id]: text } }))}
+            onPrefillSolutions={() => update((d) => ({ ...d, solutions: prefillSolutions(d) }))}
             onOpenSituation={openSituation}
           />
         )}
@@ -339,7 +366,8 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
         )}
         {tab === "stages" && (
           <StagesTab
-            stages={data.stages}
+            data={data}
+            onParcours={(parcours) => update((d) => ({ ...d, parcours }))}
             onChange={(stages) => update((d) => ({ ...d, stages }))}
             onPrint={(st) => void print(stageHtml(data, st))}
           />

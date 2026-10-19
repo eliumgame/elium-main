@@ -9,13 +9,16 @@ import type {
   ContexteItem,
   Holder,
   Modalite,
+  Nature,
   PassportData,
   RefActivity,
   RefDomain,
   RefTask,
   Situation,
   Stage,
+  StageType,
   TransferSnapshot,
+  Voie,
 } from "./types";
 
 export { REFERENTIEL };
@@ -175,13 +178,125 @@ export function emptyPassport(now = new Date().toISOString()): PassportData {
     situations: [],
     contexte: emptyContexte(),
     stages: [],
+    parcours: { voie: "scolaire", requiredWeeks: DEFAULT_REQUIRED_WEEKS },
+    solutions: {},
     visa: { date: "", note: "" },
+  };
+}
+
+/**
+ * Durée de stage la plus souvent indiquée pour le BTS GPME en voie scolaire : 12 semaines, dont 6 consécutives en fin
+ * de 1re année et au moins 4 consécutives en 2e année. Ce n'est PAS une valeur garantie : les sources divergent (8, 10,
+ * 12, 14 semaines selon le « positionnement réglementaire » du candidat) — elle est donc modifiable et à confirmer.
+ */
+export const DEFAULT_REQUIRED_WEEKS = 12;
+
+export const VOIES: { id: Voie; label: string; requiredHint: string }[] = [
+  {
+    id: "scolaire",
+    label: "Voie scolaire (formation initiale)",
+    requiredHint: "12 semaines en général (6 en fin de 1re année + au moins 4 consécutives en 2e année)",
+  },
+  {
+    id: "apprentissage",
+    label: "Apprentissage (alternance)",
+    requiredHint: "Pas de stage distinct : les périodes en entreprise du contrat en tiennent lieu",
+  },
+  {
+    id: "professionnalisation",
+    label: "Contrat de professionnalisation (alternance)",
+    requiredHint: "Pas de stage distinct : les périodes en entreprise du contrat en tiennent lieu",
+  },
+  {
+    id: "salarie",
+    label: "Candidat salarié (activité professionnelle)",
+    requiredHint: "Stage non obligatoire : certificats ou contrats de travail à la place de l'attestation de stage",
+  },
+];
+
+export const STAGE_TYPES: { id: StageType; label: string; proof: string }[] = [
+  { id: "stage", label: "Stage", proof: "Attestation de stage (annexe III-3)" },
+  {
+    id: "alternance",
+    label: "Alternance (période en entreprise)",
+    proof: "Contrat d'alternance + attestation ou certificat de l'employeur",
+  },
+  { id: "emploi", label: "Activité salariée", proof: "Certificat de travail ou contrat de travail" },
+];
+
+const DAY = 86_400_000;
+
+/** Durée d'une période en semaines (champ « semaines » s'il est saisi, sinon calculée sur les dates, arrondie au dixième). */
+export function stageWeeks(st: Pick<Stage, "debut" | "fin" | "semaines">): number {
+  const typed = Number(String(st.semaines).replace(",", "."));
+  if (Number.isFinite(typed) && typed > 0) return typed;
+  const a = Date.parse(st.debut);
+  const b = Date.parse(st.fin);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 0;
+  return Math.round((((b - a) / DAY + 1) / 7) * 10) / 10;
+}
+
+export interface StageSummary {
+  totalWeeks: number;
+  byType: Record<StageType, number>;
+  /** Semaines en 1re / 2e année du cycle (selon la session) ; le reste (hors cycle ou sans date) est à part. */
+  year1: number;
+  year2: number;
+  other: number;
+  /** Plus longue période de 2e année (semaines) : l'exigence habituelle est d'au moins 4 consécutives. */
+  longestYear2: number;
+  required: number;
+  remaining: number;
+  /** Éléments de preuve attendus mais non reçus. */
+  missingProofs: number;
+}
+
+/** Année du cycle d'une période : 1 ou 2 selon la session (examen en juin de l'année « session »), 0 si hors cycle ou sans date. */
+export function cycleYear(st: Pick<Stage, "debut">, session: string): 0 | 1 | 2 {
+  const y = Number(session);
+  const d = Date.parse(st.debut);
+  if (!Number.isFinite(y) || !Number.isFinite(d)) return 0;
+  const sep = (year: number) => Date.UTC(year, 8, 1);
+  if (d >= sep(y - 1) && d < sep(y) + 10 * DAY) return 2;
+  if (d >= sep(y - 2) && d < sep(y - 1)) return 1;
+  return 0;
+}
+
+export function stageSummary(data: Pick<PassportData, "stages" | "parcours" | "holder">): StageSummary {
+  const byType: Record<StageType, number> = { stage: 0, alternance: 0, emploi: 0 };
+  let year1 = 0;
+  let year2 = 0;
+  let other = 0;
+  let longestYear2 = 0;
+  for (const st of data.stages) {
+    const w = stageWeeks(st);
+    byType[st.type] += w;
+    const y = cycleYear(st, data.holder.session);
+    if (y === 1) year1 += w;
+    else if (y === 2) {
+      year2 += w;
+      longestYear2 = Math.max(longestYear2, w);
+    } else other += w;
+  }
+  const totalWeeks = Math.round((byType.stage + byType.alternance + byType.emploi) * 10) / 10;
+  const required = data.parcours.voie === "scolaire" ? Math.max(0, data.parcours.requiredWeeks) : 0;
+  return {
+    totalWeeks,
+    byType,
+    year1: Math.round(year1 * 10) / 10,
+    year2: Math.round(year2 * 10) / 10,
+    other: Math.round(other * 10) / 10,
+    longestYear2,
+    required,
+    remaining: Math.max(0, Math.round((required - totalWeeks) * 10) / 10),
+    missingProofs: data.stages.filter((s) => !s.attestationRecue).length,
   };
 }
 
 export function newStage(id: string): Stage {
   return {
     id,
+    type: "stage",
     organisme: "",
     secteur: "",
     adresse: "",
@@ -219,6 +334,7 @@ export function newSituation(id: number, now = new Date()): Situation {
     natures: ["grcf"],
     activityIds: [],
     taskIds: [],
+    code: "",
     intitule: "",
     lieuPeriodeDuree: "",
     cadre: "",
@@ -254,6 +370,7 @@ export function duplicateSituation(src: Situation, newId: number, now = new Date
     natures: [...src.natures],
     relue: false,
     remarques: "",
+    code: "",
     transfer: undefined,
   };
 }
@@ -357,6 +474,26 @@ export function isStale(s: Situation): boolean {
 export interface PassportMark {
   spId: number;
   period: string;
+  /** Identifiant affiché dans le passeport (« GRCF 2 ; CE2 »). */
+  code: string;
+}
+
+const NATURE_PREFIX: Record<Nature, string> = { grcf: "GRCF ", orale: "CO", ecrite: "CE" };
+
+/**
+ * Identifiant(s) d'une situation dans le passeport. Saisi à la main (« GRCF 2 ; CE2 »), sinon déduit :
+ * une nature + son rang parmi les situations de même nature, par numéro de fiche (GRCF 1, CO1, CE1…).
+ */
+export function situationCodes(s: Situation, all: Pick<Situation, "id" | "natures">[]): string[] {
+  const manual = (s.code ?? "")
+    .split(";")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (manual.length) return manual;
+  return s.natures.map((n) => {
+    const rank = all.filter((o) => o.natures.includes(n) && o.id <= s.id).length;
+    return `${NATURE_PREFIX[n]}${rank || 1}`;
+  });
 }
 
 /** Contenu des cases du passeport : activité × modalité → situations validées. */
@@ -369,7 +506,7 @@ export function passportCells(data: Pick<PassportData, "situations">): Map<strin
     for (const actId of t.activityIds) {
       const key = `${actId}|${t.modalite}`;
       const list = cells.get(key) ?? [];
-      list.push({ spId: s.id, period: periodLabel(t) });
+      list.push({ spId: s.id, period: periodLabel(t), code: situationCodes(s, ordered).join(" ; ") });
       cells.set(key, list);
     }
   }
@@ -408,6 +545,29 @@ export function activityCoverage(data: Pick<PassportData, "situations">): Activi
     tasksCovered: activity.tasks.filter((t) => tasks.has(t.id)).length,
     tasksTotal: activity.tasks.length,
   }));
+}
+
+/**
+ * « Solutions logicielles et fonctionnalités » du passeport, par activité : reprend, pour chaque activité,
+ * les lignes des rubriques « solutions » des situations validées qui la touchent (sans doublon) — sans
+ * jamais écraser ce qui a déjà été saisi pour l'activité.
+ */
+export function prefillSolutions(data: Pick<PassportData, "situations" | "solutions">): Record<string, string> {
+  const out = { ...data.solutions };
+  for (const a of ALL_ACTIVITIES) {
+    if ((out[a.id] ?? "").trim()) continue;
+    const parts: string[] = [];
+    for (const s of [...data.situations].sort((x, y) => x.id - y.id)) {
+      if (!s.transfer?.activityIds.includes(a.id)) continue;
+      for (const piece of s.solutions
+        .split(/[\n;]+/)
+        .map((x) => x.trim())
+        .filter(Boolean))
+        if (!parts.some((q) => q.toLowerCase() === piece.toLowerCase())) parts.push(piece);
+    }
+    if (parts.length) out[a.id] = parts.join(" ; ");
+  }
+  return out;
 }
 
 // -------------------------------------------------------------- avancement
@@ -494,6 +654,7 @@ export function dossierChecklist(data: PassportData): ChecklistItem[] {
   const incomplete = data.situations.filter((s) => completion(s) < 100).length;
   const reviewed = data.situations.filter((s) => s.relue).length;
   const withAttestation = data.stages.filter((s) => s.attestationRecue).length;
+  const stages = stageSummary(data);
   return [
     {
       id: "holder",
@@ -542,9 +703,22 @@ export function dossierChecklist(data: PassportData): ChecklistItem[] {
     },
     {
       id: "stages",
-      label: "Attestation de stage (ou certificat de travail) pour chaque période",
+      label:
+        data.parcours.voie === "scolaire"
+          ? `Périodes en entreprise : ${stages.required} semaines à réaliser`
+          : "Périodes en entreprise renseignées (stage, alternance ou activité salariée)",
+      ok: data.parcours.voie === "scolaire" ? data.stages.length > 0 && stages.remaining === 0 : data.stages.length > 0,
+      detail:
+        data.parcours.voie === "scolaire"
+          ? `${stages.totalWeeks} / ${stages.required} semaines${stages.remaining ? ` — il en manque ${stages.remaining}` : ""}`
+          : `${stages.totalWeeks} semaine(s) saisie(s)`,
+      tab: "stages",
+    },
+    {
+      id: "attestations",
+      label: "Justificatif reçu pour chaque période (attestation, certificat ou contrat)",
       ok: data.stages.length > 0 && withAttestation === data.stages.length,
-      detail: data.stages.length ? `${withAttestation} / ${data.stages.length} reçue(s)` : "Aucune période saisie",
+      detail: data.stages.length ? `${withAttestation} / ${data.stages.length} reçu(s)` : "Aucune période saisie",
       tab: "stages",
     },
     {
@@ -634,6 +808,7 @@ function normSituation(raw: unknown): Situation | null {
     activityIds: strList(r.activityIds, (a) => ACTIVITY_BY_ID.has(a)),
     taskIds: strList(r.taskIds, (t) => TASK_BY_ID.has(t)),
     relue: bool(r.relue),
+    code: str(r.code),
   };
   for (const k of [
     "intitule",
@@ -707,6 +882,7 @@ export function normalizePassport(raw: unknown): PassportData | null {
     const st = newStage(str(o.id, `st-${i + 1}`));
     for (const k of Object.keys(st) as (keyof Stage)[]) {
       if (k === "attestationRecue") st[k] = bool(o[k]);
+      else if (k === "type") st[k] = STAGE_TYPES.some((x) => x.id === o[k]) ? (o[k] as StageType) : "stage";
       else (st[k] as string) = str(o[k], st[k] as string);
     }
     return [st];
@@ -719,6 +895,18 @@ export function normalizePassport(raw: unknown): PassportData | null {
     situations,
     contexte,
     stages,
+    parcours: (() => {
+      const pc = (r.parcours && typeof r.parcours === "object" ? r.parcours : {}) as Record<string, unknown>;
+      return {
+        voie: VOIES.some((x) => x.id === pc.voie) ? (pc.voie as Voie) : "scolaire",
+        requiredWeeks: Math.max(0, Math.min(60, num(pc.requiredWeeks, DEFAULT_REQUIRED_WEEKS))),
+      };
+    })(),
+    solutions: Object.fromEntries(
+      Object.entries(
+        (r.solutions && typeof r.solutions === "object" ? r.solutions : {}) as Record<string, unknown>,
+      ).flatMap(([k, val]) => (ACTIVITY_BY_ID.has(k) && typeof val === "string" && val.trim() ? [[k, val]] : [])),
+    ),
     visa: { date: str(v.date), note: str(v.note) },
   };
 }

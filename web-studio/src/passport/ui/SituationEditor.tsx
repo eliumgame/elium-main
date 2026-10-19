@@ -212,6 +212,19 @@ export default function SituationEditor(p: Props) {
             />
           </label>
         </div>
+        <label className="pp-field">
+          <span className="pp-field__label">Identifiant dans le passeport</span>
+          <input
+            className="pp-input"
+            value={s.code}
+            placeholder={`${s.natures.map((n) => ({ grcf: "GRCF 1", orale: "CO1", ecrite: "CE1" })[n]).join(" ; ")} (déduit si vide)`}
+            onChange={(e) => set({ code: e.target.value })}
+          />
+          <span className="pp-field__hint">
+            Ce qui s'écrit dans les cases du passeport, ex. « GRCF 2 » ou « GRCF 2 ; CE2 » (GRCF, communication orale
+            CO, communication écrite CE). Laissez vide pour qu'Elium le déduise de la nature et du rang de la fiche.
+          </span>
+        </label>
         <fieldset className="pp-checks">
           <legend>Nature de la situation (enjeux traités)</legend>
           {NATURES.map((n) => (

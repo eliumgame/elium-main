@@ -2,11 +2,14 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.14.0 — Passeport E4 fidèle aux documents officiels
+
+- Passeport E4 : les PDF (fiche d'analyse, passeport synoptique, dossier complet) sont générés par Elium et reprennent la mise en page des documents officiels ; identifiants de situation (GRCF/CE/CO) et solutions logicielles par activité ; stages, alternance et activité salariée avec décompte des semaines (durée à confirmer) ; publication des vrais documents (PDF et Word) dans le Drive.
+
 ### Version 4.13.0 — sauvegarde de l'espace de travail dans le Drive
 
 - Tout l'espace de travail local (documents, tableurs, présentations, PDF) peut être envoyé dans le Drive entreprise, à la demande ou automatiquement, puis restauré. Session Drive désormais partagée dans toute l'application.
 - L'accueil du site hébergé affiche la version précise d'Elium, les notes de mise à jour et propose d'installer l'application Windows (MSI).
-- Le PDF de la fiche d'analyse du Passeport reprend la mise en page du modèle officiel (recto/verso).
 
 ### Version 4.12.0 — Passeport professionnel E4 (BTS Gestion de la PME)
 

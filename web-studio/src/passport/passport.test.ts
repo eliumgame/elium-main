@@ -13,6 +13,10 @@ import {
   nextSituationId,
   normalizePassport,
   passportCells,
+  situationCodes,
+  newStage,
+  stageSummary,
+  stageWeeks,
   passportStats,
   situationState,
   toggleActivity,
@@ -20,8 +24,12 @@ import {
   transferSituation,
 } from "./model";
 import { buildFicheDocx, fillTemplateXml, ficheHtml, ficheValues } from "./exportFiche";
-import { backupJson, buildSynopticDocx, parseBackup, synopticHtml, synopticRows } from "./exportPasseport";
-import type { PassportData, Situation } from "./types";
+import { activityLabelOf, backupJson, buildSynopticDocx, parseBackup, synopticRows } from "./exportPasseport";
+import { PDFDocument } from "pdf-lib";
+import { readFileSync } from "node:fs";
+import { buildDossierPdf, buildFichePdf, buildSynopticPdf } from "./pdf";
+import { woffToSfnt } from "./pdf/woff";
+import type { PassportData, Situation, Stage } from "./types";
 
 function filled(id: number): Situation {
   let s = newSituation(id, new Date("2025-03-10T10:00:00Z"));
@@ -98,8 +106,8 @@ describe("passeport synoptique", () => {
 
   it("place chaque situation validée à l'intersection activité × modalité, triée par numéro", () => {
     const cells = passportCells(data);
-    expect(cells.get("1.2|pme")).toEqual([{ spId: 2, period: "Mars 2025" }]);
-    expect(cells.get("1.2|avant")).toEqual([{ spId: 1, period: "Septembre 2025" }]);
+    expect(cells.get("1.2|pme")).toEqual([{ spId: 2, period: "Mars 2025", code: "GRCF 2" }]);
+    expect(cells.get("1.2|avant")).toEqual([{ spId: 1, period: "Septembre 2025", code: "GRCF 1" }]);
     expect(cells.get("1.2|etablissement")).toBeUndefined();
   });
 
@@ -125,15 +133,58 @@ describe("passeport synoptique", () => {
     expect(items.find((i) => i.id === "validated")!.ok).toBe(true);
   });
 
-  it("les exports synoptiques sont produits (HTML + Word)", () => {
-    expect(synopticRows(data).filter((r) => r.kind === "task")).toHaveLength(102);
-    const html = synopticHtml(data);
-    expect(html).toContain("SP2 – Mars 2025");
+  it("les identifiants (GRCF n, CE n, CO n) sont déduits de la nature et du rang, ou saisis", () => {
+    const two = [
+      { ...filled(1), natures: ["grcf"] as Situation["natures"] },
+      { ...filled(2), natures: ["grcf", "ecrite"] as Situation["natures"] },
+      { ...filled(3), natures: ["orale"] as Situation["natures"] },
+    ];
+    expect(situationCodes(two[0], two)).toEqual(["GRCF 1"]);
+    expect(situationCodes(two[1], two)).toEqual(["GRCF 2", "CE1"]);
+    expect(situationCodes(two[2], two)).toEqual(["CO1"]);
+    expect(situationCodes({ ...two[0], code: "GRCF 3 ; CE2" }, two)).toEqual(["GRCF 3", "CE2"]);
+  });
+
+  it("le synoptique reprend le modèle officiel : domaine 1 par défaut, identifiants par modalité, solutions par activité", () => {
+    const rows = synopticRows({ ...data, solutions: { "1.2": "Ypariéo ; Excel" } });
+    expect(rows).toHaveLength(29); // 29 tâches du domaine 1
+    expect(rows[0].firstOfDomain).toBe(true);
+    expect(rows[0].activityLabel).toBe("Activité_1.1._Recherche_de_clientèle_et_contact");
+    const r12 = rows.find((r) => r.activity.id === "1.2" && r.first)!;
+    expect(r12.solutions).toBe("Ypariéo ; Excel");
+    expect(r12.marks.pme).toBe("GRCF 2");
+    expect(r12.marks.avant).toBe("GRCF 1");
+    expect(synopticRows(data, { allDomains: true })).toHaveLength(102);
+    expect(activityLabelOf(REFERENTIEL[0].activities[4])).toBe(
+      "Activité_1.5._Suivi_et_contrôle_des_opérations_d_achats_et_d_investissement_de_la_PME",
+    );
+  });
+
+  it("le Word synoptique est produit (paysage, bande jaune verticale)", () => {
     const files = unzipSync(buildSynopticDocx(data));
     const doc = strFromU8(files["word/document.xml"]);
-    expect(doc).toContain("SP1 – Septembre 2025");
+    expect(doc).toContain("GRCF 1");
     expect(doc).toContain('w:orient="landscape"');
-    expect((doc.match(/<w:tr[ >]/g) ?? []).length).toBe(102 + 4 + 1);
+    expect(doc).toContain("FFFF00");
+    expect(doc).toContain("btLr");
+  });
+
+  it("les PDF sont des PDF valides : fiche (2 pages), synoptique, dossier", async () => {
+    const f = (n: string) => woffToSfnt(new Uint8Array(readFileSync(`src/passport/pdf/fonts/${n}`)));
+    const fonts = { regular: f("carlito-latin-400-normal.woff"), bold: f("carlito-latin-700-normal.woff") };
+    const holder = { ...emptyPassport().holder, nom: "Dupont", prenom: "Léa" };
+    const long = { ...filled(1), analyse: "mot ".repeat(2500), cadre: "ligne\nsuivante ".repeat(80) };
+    const fiche = await buildFichePdf(holder, long, fonts);
+    expect(strFromU8(fiche.slice(0, 5))).toBe("%PDF-");
+    const reread = await PDFDocument.load(fiche);
+    expect(reread.getPageCount()).toBeGreaterThanOrEqual(3); // texte long : la rubrique passe à la page suivante
+    const syn = await buildSynopticPdf({ ...data, holder }, fonts);
+    expect((await PDFDocument.load(syn)).getPageCount()).toBeGreaterThanOrEqual(1);
+    const dossier = await buildDossierPdf({ ...data, holder }, fonts, { onlyValidated: true });
+    const n = (await PDFDocument.load(dossier)).getPageCount();
+    expect(n).toBeGreaterThanOrEqual(1 + 2 * 2); // synoptique + 2 fiches validées (recto + verso)
+    // sans polices Carlito : repli Helvetica, sans erreur
+    expect((await PDFDocument.load(await buildFichePdf(holder, filled(1), null))).getPageCount()).toBe(2);
   });
 });
 
@@ -201,5 +252,73 @@ describe("sauvegarde / import", () => {
     expect(dirty.situations[0].activityIds).toEqual(["1.1"]);
     expect(dirty.situations[0].mois).toBe(12);
     expect(normalizePassport("n'importe quoi")).toBeNull();
+  });
+});
+
+describe("périodes en entreprise (stage, alternance, activité salariée)", () => {
+  const base = () => {
+    const d = emptyPassport();
+    d.holder.session = "2027";
+    return d;
+  };
+  const st = (over: Partial<Stage>): Stage => ({ ...newStage("x"), ...over });
+
+  it("durée : champ saisi, sinon calculée sur les dates", () => {
+    expect(stageWeeks(st({ semaines: "6" }))).toBe(6);
+    expect(stageWeeks(st({ semaines: "2,5" }))).toBe(2.5);
+    expect(stageWeeks(st({ debut: "2026-05-04", fin: "2026-06-12" }))).toBe(5.7); // 40 jours
+    expect(stageWeeks(st({ debut: "2026-06-12", fin: "2026-05-04" }))).toBe(0);
+    expect(stageWeeks(st({}))).toBe(0);
+  });
+
+  it("répartit par nature et par année du cycle, et compte ce qu'il reste", () => {
+    const d = base();
+    d.stages = [
+      st({ id: "a", type: "stage", debut: "2026-05-04", fin: "2026-06-12", semaines: "6" }), // 1re année (session 2027)
+      st({ id: "b", type: "stage", debut: "2027-02-01", fin: "2027-03-05", semaines: "4" }), // 2e année
+      st({ id: "c", type: "alternance", debut: "2027-03-08", fin: "2027-03-19", semaines: "2" }), // 2e année
+      st({ id: "d", type: "emploi", debut: "", fin: "", semaines: "1" }), // sans date
+    ];
+    const s = stageSummary(d);
+    expect(s.totalWeeks).toBe(13);
+    expect(s.byType).toEqual({ stage: 10, alternance: 2, emploi: 1 });
+    expect(s.year1).toBe(6);
+    expect(s.year2).toBe(6);
+    expect(s.longestYear2).toBe(4);
+    expect(s.other).toBe(1);
+    expect(s.required).toBe(12);
+    expect(s.remaining).toBe(0);
+    d.parcours.requiredWeeks = 14;
+    expect(stageSummary(d).remaining).toBe(1);
+  });
+
+  it("alternance / salarié : aucune durée de stage exigée", () => {
+    const d = base();
+    d.parcours.voie = "apprentissage";
+    d.stages = [st({ type: "alternance", semaines: "30", attestationRecue: true })];
+    const s = stageSummary(d);
+    expect(s.required).toBe(0);
+    expect(s.remaining).toBe(0);
+    const items = dossierChecklist(d);
+    expect(items.find((i) => i.id === "stages")!.ok).toBe(true);
+    expect(items.find((i) => i.id === "attestations")!.ok).toBe(true);
+  });
+
+  it("liste de contrôle voie scolaire : il manque des semaines", () => {
+    const d = base();
+    d.stages = [st({ semaines: "5" })];
+    const it = dossierChecklist(d).find((i) => i.id === "stages")!;
+    expect(it.ok).toBe(false);
+    expect(it.detail).toContain("il en manque 7");
+  });
+
+  it("l'import réapplique les valeurs par défaut et rejette les natures inconnues", () => {
+    const back = normalizePassport({
+      situations: [],
+      stages: [{ id: "z", type: "bizarre", semaines: "3" }],
+      parcours: { voie: "inconnue", requiredWeeks: 999 },
+    })!;
+    expect(back.stages[0].type).toBe("stage");
+    expect(back.parcours).toEqual({ voie: "scolaire", requiredWeeks: 60 });
   });
 });

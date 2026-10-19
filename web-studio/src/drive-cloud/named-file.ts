@@ -6,6 +6,7 @@
  */
 import {
   DriveConflict,
+  createFolder,
   downloadFile,
   listFolder,
   saveNewVersion,
@@ -60,8 +61,8 @@ export function writeAuto(slot: string, w: Who, on: boolean): void {
   }
 }
 
-async function findRemote(ctx: OpsCtx, name: string): Promise<DriveEntry | null> {
-  const entries = await listFolder(ctx, null);
+async function findRemote(ctx: OpsCtx, name: string, parentId: string | null = null): Promise<DriveEntry | null> {
+  const entries = await listFolder(ctx, parentId);
   return entries.find((e) => e.kind === "file" && e.name === name && !e.trashedAt) ?? null;
 }
 
@@ -74,23 +75,31 @@ export async function pushNamedFile(
   slot: string,
   name: string,
   bytes: Uint8Array,
-  opts: { force?: boolean; mime?: string } = {},
+  opts: { force?: boolean; mime?: string; parentId?: string | null } = {},
 ): Promise<DriveLink> {
+  const parentId = opts.parentId ?? null;
   const known = readLink(slot, ctx);
   let nodeId = known?.nodeId;
-  if (!nodeId) nodeId = (await findRemote(ctx, name))?.id;
+  if (!nodeId) nodeId = (await findRemote(ctx, name, parentId))?.id;
   const base = known && known.nodeId === nodeId ? known.modifiedAt : undefined;
-  const node = nodeId
-    ? await saveNewVersion(ctx, nodeId, bytes, {
+  const upload = () =>
+    uploadFile(ctx, parentId, new File([bytes as BlobPart], name, { type: opts.mime ?? "application/octet-stream" }));
+  let node;
+  if (nodeId) {
+    try {
+      node = await saveNewVersion(ctx, nodeId, bytes, {
         // Sans lien local (autre navigateur) on n'écrase pas aveuglément un fichier existant.
         expectedModifiedAt: opts.force ? undefined : (base ?? "__unknown__"),
         force: opts.force,
-      })
-    : await uploadFile(
-        ctx,
-        null,
-        new File([bytes as BlobPart], name, { type: opts.mime ?? "application/octet-stream" }),
-      );
+      });
+    } catch (e) {
+      if (isConflict(e) || !known) throw e;
+      // Le fichier lié a disparu (supprimé, corbeille vidée) : on le recrée plutôt que d'échouer.
+      writeLink(slot, ctx, null);
+      const remote = await findRemote(ctx, name, parentId);
+      node = remote ? await saveNewVersion(ctx, remote.id, bytes, { force: true }) : await upload();
+    }
+  } else node = await upload();
   const link: DriveLink = { nodeId: node.id, modifiedAt: node.modifiedAt, syncedAt: new Date().toISOString() };
   writeLink(slot, ctx, link);
   return link;
@@ -112,3 +121,10 @@ export async function pullNamedFile(
 
 export const isConflict = (e: unknown): boolean =>
   e instanceof DriveConflict || (e instanceof Error && e.name === "DriveConflict");
+
+/** Dossier à la racine du Drive portant ce nom (créé au besoin). Renvoie son identifiant. */
+export async function ensureRootFolder(ctx: OpsCtx, name: string): Promise<string> {
+  const entries = await listFolder(ctx, null);
+  const hit = entries.find((e) => e.kind === "folder" && e.name === name && !e.trashedAt);
+  return hit ? hit.id : (await createFolder(ctx, null, name)).id;
+}

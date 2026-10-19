@@ -1,12 +1,14 @@
 /** Sauvegarde du passeport dans le Drive entreprise (serveur) : manuelle ou automatique. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Cloud, Download, Upload } from "lucide-react";
+import { Cloud, Download, FileText, Upload } from "lucide-react";
 import { Alert, Button } from "../../ui/components";
 import { useDialogs } from "../../ui/dialogs";
 import { reportError } from "../../ui/crash-log";
 import type { OpsCtx } from "../../drive-cloud/ops";
 import { useDrive } from "../../drive-cloud/session";
 import { isConflict, pullPassport, pushPassport, readAuto, readLink, writeAuto, type DriveLink } from "../drive-sync";
+import { readAuto as readAutoFlag, writeAuto as writeAutoFlag } from "../../drive-cloud/named-file";
+import { docsFolderName, publishPassportDocs } from "../drive-docs";
 import type { PassportData } from "../types";
 
 interface Props {
@@ -35,6 +37,8 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
   }, [d.api, d.keys, d.user, d.currentOrg, d.roleIdByKey]);
 
   const [pw, setPw] = useState("");
+  const [docsAuto, setDocsAuto] = useState(false);
+  const [docs, setDocs] = useState<Result>({ kind: "idle" });
   const [auto, setAuto] = useState(false);
   const [link, setLink] = useState<DriveLink | null>(null);
   const [res, setRes] = useState<Result>({ kind: "idle" });
@@ -46,6 +50,8 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
   useEffect(() => {
     if (!ctx) return;
     setAuto(readAuto(ctx));
+    setDocsAuto(readAutoFlag("passport-docs", ctx));
+    setDocs({ kind: "idle" });
     setLink(readLink(ctx));
     setRes({ kind: "idle" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ctx change = changement de compte / d'organisation
@@ -59,6 +65,7 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
       const l = await pushPassport(ctx, dataRef.current, { force });
       setLink(l);
       setRes({ kind: "ok", message: "Passeport enregistré dans le Drive." });
+      if (readAutoFlag("passport-docs", ctx)) void publishDocs();
     } catch (e) {
       if (isConflict(e))
         setRes({
@@ -71,6 +78,23 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
       }
     } finally {
       busy.current = false;
+    }
+  };
+
+  const publishDocs = async () => {
+    if (!ctx) return;
+    setDocs({ kind: "busy", message: "Préparation…" });
+    try {
+      const r = await publishPassportDocs(ctx, dataRef.current, (done, total, name) =>
+        setDocs({ kind: "busy", message: name ? `Envoi ${done + 1}/${total} — ${name}` : "Terminé" }),
+      );
+      setDocs({
+        kind: "ok",
+        message: `${r.count} document(s) (PDF et Word) publiés dans le dossier « ${r.folder} » du Drive.`,
+      });
+    } catch (e) {
+      reportError("passeport.drive.docs", e);
+      setDocs({ kind: "error", message: e instanceof Error ? e.message : String(e) });
     }
   };
 
@@ -185,6 +209,32 @@ export default function DriveSyncSection({ data, onRestore, onOpenDrive }: Props
             />
             Synchroniser automatiquement après chaque modification
           </label>
+          <div className="pp-docs">
+            <p className="pp-note">
+              Le fichier ci-dessus est la sauvegarde technique du passeport (JSON, pour le restaurer). Les{" "}
+              <b>documents eux-mêmes</b> — passeport synoptique, fiches d'analyse, dossier complet, en PDF et Word — se
+              publient dans un dossier du Drive : « {docsFolderName(data)} ».
+            </p>
+            <div className="pp-actions">
+              <Button variant="outline" onClick={() => void publishDocs()} disabled={docs.kind === "busy"}>
+                <FileText size={16} /> Publier les documents (PDF + Word) dans le Drive
+              </Button>
+            </div>
+            <label className="pp-check">
+              <input
+                type="checkbox"
+                checked={docsAuto}
+                onChange={(e) => {
+                  setDocsAuto(e.target.checked);
+                  writeAutoFlag("passport-docs", ctx, e.target.checked);
+                }}
+              />
+              Publier aussi les documents à chaque sauvegarde automatique
+            </label>
+            {docs.kind === "busy" && <p className="pp-note">{docs.message}</p>}
+            {docs.kind === "ok" && <Alert tone="success">{docs.message}</Alert>}
+            {docs.kind === "error" && <Alert tone="danger">{docs.message}</Alert>}
+          </div>
           {res.kind === "busy" && <p className="pp-note">Synchronisation en cours…</p>}
           {res.kind === "ok" && <Alert tone="success">{res.message}</Alert>}
           {res.kind === "error" && <Alert tone="danger">{res.message}</Alert>}

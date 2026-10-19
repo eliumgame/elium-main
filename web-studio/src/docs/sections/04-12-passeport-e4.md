@@ -60,22 +60,37 @@ retirer du passeport dégrise ses tâches.
 
 ### Passeport E4 : exports
 
+Les PDF sont **générés par Elium** (ce ne sont plus des impressions du navigateur) : leur mise en page reprend celle des documents officiels, mesurée sur le rendu Word du modèle `ficheAnalyseSPVierge.docx` et sur un passeport officiel rempli.
+
 | Export | Format | Détail |
 |---|---|---|
-| Fiche d'analyse | Word (.docx) | Le **modèle officiel** `ficheAnalyseSPVierge.docx` est embarqué et rempli balise par balise : mise en page identique à celle du classeur |
-| Fiche d'analyse | PDF | Impression par le navigateur (« Enregistrer en PDF ») |
-| Passeport synoptique | Word paysage, PDF | Tâches grisées, situations à l'intersection activité × modalité, visa et zone de signature |
-| Dossier complet | PDF | Passeport synoptique suivi des fiches d'analyse validées |
-| Contexte commercial, attestation de stage | PDF | Documents pré-remplis à imprimer |
+| Fiche d'analyse | PDF | Recto (identification, enjeux, rubriques) et verso « ANALYSE » à libellés verticaux, mêmes cadres, bandeaux gris, polices et cotes que le modèle. Les rubriques s'agrandissent avec le texte et passent à la page suivante |
+| Fiche d'analyse | Word (.docx) | Le **modèle officiel** est embarqué et rempli balise par balise |
+| Passeport synoptique | PDF A4 paysage, Word | Titre, identité, attestation de l'équipe pédagogique, bande verticale jaune du domaine, activités, solutions logicielles, compétences, identifiants par modalité (« GRCF 2 ; CE2 »), tâches grisées si réalisées. Par défaut le domaine 1 (épreuve E4) ; une case ajoute les domaines 2 à 4 |
+| Dossier complet | PDF | Passeport synoptique suivi de toutes les fiches validées |
+| Contexte commercial, attestation de stage | PDF (impression) | Documents pré-remplis |
 | Sauvegarde | JSON | Réimportable ; remplace le passeport actuel après confirmation |
+
+**Identifiants des situations.** Chaque case du passeport affiche l'identifiant de la situation : saisi sur la fiche (rubrique Identification, « GRCF 2 ; CE2 »), sinon déduit de la nature et du rang (GRCF 1, CO1, CE1…). **Solutions logicielles** : un texte par activité, saisi dans l'onglet Passeport ; « Reprendre les solutions logicielles des fiches » le préremplit sans écraser ce qui est déjà écrit.
+
+### Passeport E4 : stages, alternance et activité salariée
+
+L'onglet « Stages et alternance » suit toutes les périodes en entreprise : **stage**, **alternance** (apprentissage ou contrat de professionnalisation) et **activité salariée**. Chaque période a ses dates, sa durée en semaines (saisie, sinon calculée sur les dates), ses missions E4 et E51 et son justificatif (attestation de stage, contrat et certificat de l'employeur, certificat de travail).
+
+- **Voie scolaire** : le nombre de semaines à réaliser est un champ modifiable, **12 par défaut** (le plus souvent indiqué : 6 consécutives en fin de 1re année et au moins 4 consécutives en 2e année). Les sources publiées ne concordent pas (8, 10, 12 ou 14 semaines selon le positionnement réglementaire du candidat, la session et l'établissement) : **Elium ne fixe pas la durée officielle**, saisissez celle que votre établissement vous donne. Le décompte, par type et par année du cycle, indique combien de semaines il reste.
+- **Apprentissage, professionnalisation, candidat salarié** : pas de stage distinct ; les périodes en entreprise et leurs justificatifs fournissent les situations.
+
+### Passeport E4 : documents dans le Drive
+
+Dans le Drive entreprise, le Passeport est sauvegardé de deux façons. Le fichier `Passeport-BTS-GPME.json` est la **sauvegarde technique** (pour restaurer). Le bouton « Publier les documents (PDF + Word) dans le Drive » crée en plus le dossier « Passeport E4 — NOM Prénom » avec les **vrais documents** : passeport synoptique (PDF et Word), dossier complet, et chaque fiche d'analyse (PDF et Word). Chaque publication ajoute une version au fichier. La case « Publier aussi les documents à chaque sauvegarde automatique » les tient à jour.
 
 ### Passeport E4 : limites connues
 
 - Sans sauvegarde sur le Drive, le passeport reste **local** à ce navigateur. La
   sauvegarde sur le Drive n'est pas une édition collaborative : un seul passeport par
   personne, sans fusion automatique.
-- L'export PDF passe par la boîte d'impression du navigateur ; les fenêtres
-  contextuelles doivent être autorisées.
+- Le PDF de la fiche reprend la mise en page du modèle mesurée sur le rendu Word ; les polices sont Carlito (mêmes métriques que Calibri) et Helvetica (Arial). Le PDF peut différer d'un pixel d'un rendu Word.
+- Les documents préremplis « contexte commercial » et « attestation de stage » passent encore par la boîte d'impression du navigateur.
 - Les signatures et le cachet de l'établissement se posent sur la version imprimée :
   le visa saisi dans l'onglet Passeport n'est pas une signature électronique.
 - Le référentiel et le modèle de fiche sont ceux du classeur CRCOM fourni

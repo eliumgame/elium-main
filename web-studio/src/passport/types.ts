@@ -60,6 +60,11 @@ export interface Situation {
   natures: Nature[];
   activityIds: string[];
   taskIds: string[];
+  /**
+   * Identifiant(s) de la situation dans le passeport, séparés par « ; » (ex. « GRCF 2 ; CE2 »).
+   * Vide : déduit de la nature et du rang (GRCF 1, CO1, CE1…).
+   */
+  code: string;
 
   // Présentation et contexte
   intitule: string;
@@ -109,9 +114,15 @@ export interface ContexteItem {
   notes: string;
 }
 
-/** Une période de stage / d'activité professionnelle (attestation, annexe III-3). */
+/** Nature d'une période en entreprise. */
+export type StageType = "stage" | "alternance" | "emploi";
+/** Parcours du candidat : détermine ce qui est attendu côté périodes en entreprise. */
+export type Voie = "scolaire" | "apprentissage" | "professionnalisation" | "salarie";
+
+/** Une période en entreprise : stage, alternance ou activité salariée (attestation, annexe III-3). */
 export interface Stage {
   id: string;
+  type: StageType;
   organisme: string;
   secteur: string;
   adresse: string;
@@ -133,6 +144,10 @@ export interface PassportData {
   situations: Situation[];
   contexte: ContexteItem[];
   stages: Stage[];
+  /** Parcours et durée de stage à réaliser (à confirmer auprès de l'établissement : positionnement réglementaire). */
+  parcours: { voie: Voie; requiredWeeks: number };
+  /** « Solutions logicielles et fonctionnalités » du passeport, par activité (clé « 1.2 »). */
+  solutions: Record<string, string>;
   /** Validation par l'équipe pédagogique (visa du passeport synoptique). */
   visa: { date: string; note: string };
 }

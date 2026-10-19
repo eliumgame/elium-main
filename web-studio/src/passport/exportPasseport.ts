@@ -4,57 +4,84 @@
  * sauvegarde JSON complète (réimportable).
  */
 import { strToU8, zipSync } from "fflate";
-import { FICHE_CSS, PRINT_CSS, ficheBody } from "./exportFiche";
-import { CONTEXTE_ITEMS, MODALITES, REFERENTIEL, coveredTasks, passportCells, spLabel } from "./model";
+import { FICHE_CSS, PRINT_CSS } from "./exportFiche";
+import { CONTEXTE_ITEMS, MODALITES, REFERENTIEL, coveredTasks, passportCells } from "./model";
 import { esc, escMultiline } from "./print";
 import type { Modalite, PassportData, RefActivity, Stage } from "./types";
 
 // ------------------------------------------------------------ données communes
 
-export type SynopticRow =
-  | { kind: "domain"; title: string }
-  | {
-      kind: "task";
-      activity: RefActivity;
-      /** Première ligne de l'activité (porte les cellules fusionnées). */
-      first: boolean;
-      span: number;
-      taskId: string;
-      taskLabel: string;
-      /** Situations validées qui mobilisent cette tâche (grisée si non vide). */
-      sps: number[];
-      marks: Record<Modalite, string[]>;
-    };
+export interface SynopticOptions {
+  /** Tous les domaines du référentiel (E51, RH, soutien) ; par défaut seul le domaine 1 (épreuve E4). */
+  allDomains?: boolean;
+}
+
+export interface SynopticRow {
+  domainId: string;
+  domainTitle: string;
+  /** Première ligne du domaine : porte la bande verticale. */
+  firstOfDomain: boolean;
+  /** Nombre total de lignes (tâches) du domaine. */
+  domainSpan: number;
+  activity: RefActivity;
+  /** Libellé officiel de l'activité (« Activité_1.1._Recherche_de_clientèle_et_contact »). */
+  activityLabel: string;
+  /** Première ligne de l'activité (porte les cellules fusionnées). */
+  first: boolean;
+  span: number;
+  taskId: string;
+  taskLabel: string;
+  /** Situations validées qui mobilisent cette tâche (grisée si non vide). */
+  sps: number[];
+  /** « Solutions logicielles et fonctionnalités » saisies pour l'activité. */
+  solutions: string;
+  /** Identifiants des situations par modalité (« GRCF 2 ; CE2 »). */
+  marks: Record<Modalite, string>;
+}
+
+/** Libellé de l'activité tel qu'il apparaît dans le passeport officiel (underscores du classeur). */
+export const activityLabelOf = (a: RefActivity): string => `Activité_${a.id}._${a.title.replace(/[\s’']+/g, "_")}`;
 
 /** Lignes du passeport synoptique : une par tâche, activités regroupées par domaine. */
-export function synopticRows(data: Pick<PassportData, "situations">): SynopticRow[] {
+export function synopticRows(
+  data: Pick<PassportData, "situations"> & { solutions?: Record<string, string> },
+  opts: SynopticOptions = {},
+): SynopticRow[] {
   const cells = passportCells(data);
   const tasks = coveredTasks(data);
   const rows: SynopticRow[] = [];
-  for (const d of REFERENTIEL) {
-    rows.push({ kind: "domain", title: `DOMAINE D’ACTIVITÉS ${d.id} : ${d.title}` });
+  for (const d of opts.allDomains ? REFERENTIEL : REFERENTIEL.slice(0, 1)) {
+    const domainSpan = d.activities.reduce((n, a) => n + a.tasks.length, 0);
+    let firstOfDomain = true;
     for (const a of d.activities) {
-      const marks = {} as Record<Modalite, string[]>;
-      for (const m of MODALITES)
-        marks[m.id] = (cells.get(`${a.id}|${m.id}`) ?? []).map((x) => `${spLabel(x.spId)} – ${x.period}`);
-      a.tasks.forEach((t, i) =>
+      const marks = {} as Record<Modalite, string>;
+      for (const m of MODALITES) {
+        const codes = (cells.get(`${a.id}|${m.id}`) ?? []).flatMap((x) => x.code.split(" ; "));
+        marks[m.id] = [...new Set(codes)].join(" ; ");
+      }
+      a.tasks.forEach((t, i) => {
         rows.push({
-          kind: "task",
+          domainId: d.id,
+          domainTitle: d.title,
+          firstOfDomain,
+          domainSpan,
           activity: a,
+          activityLabel: activityLabelOf(a),
           first: i === 0,
           span: a.tasks.length,
           taskId: t.id,
           taskLabel: t.label,
           sps: tasks.get(t.id) ?? [],
+          solutions: data.solutions?.[a.id] ?? "",
           marks,
-        }),
-      );
+        });
+        firstOfDomain = false;
+      });
     }
   }
   return rows;
 }
 
-/** AAAA-MM-JJ → JJ/MM/AAAA (le reste est laissé tel quel). */
 export const fmtDate = (iso: string): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
@@ -65,68 +92,8 @@ const teachers = (data: PassportData) => [data.holder.enseignant1, data.holder.e
 
 // -------------------------------------------------------------------- HTML/PDF
 
-const SYNOPTIC_CSS = `
-@page land { size: A4 landscape; margin: 10mm; }
-.syn { page: land; font-size: 7.5pt; }
-.syn h1 { font-size: 12pt; margin: 0 0 2mm; }
-.syn .id { display: flex; justify-content: space-between; gap: 6mm; margin-bottom: 2mm; }
-.syn .att { border: 1px solid #555; padding: 2mm 3mm; margin-bottom: 3mm; display: flex; justify-content: space-between; gap: 6mm; }
-.syn table { margin: 0; }
-.syn th { width: auto; font-size: 7.5pt; text-align: center; }
-.syn td { padding: 1mm 1.5mm; font-size: 7.5pt; }
-.syn tr { page-break-inside: avoid; }
-.syn td.dom { background: #1a3a6e; color: #fff; font-weight: bold; }
-.syn td.act { background: #f3f5fa; font-weight: bold; }
-.syn td.mark { text-align: center; background: #e9f6ec; font-weight: bold; }
-.syn td.grey, .syn td.task.grey { background: #c8c8c8; }
-`;
-
-export function synopticBody(data: PassportData): string {
-  const h = data.holder;
-  const rows = synopticRows(data)
-    .map((r) => {
-      if (r.kind === "domain") return `<tr><td class="dom" colspan="7">${esc(r.title)}</td></tr>`;
-      const act = r.first
-        ? `<td class="act" rowspan="${r.span}">${esc(`Activité ${r.activity.id} — ${r.activity.title}`)}</td><td rowspan="${r.span}">${esc(
-            r.activity.competence,
-          )}</td>` +
-          MODALITES.map((m) => `<td class="mark" rowspan="${r.span}">${r.marks[m.id].map(esc).join("<br>")}</td>`).join(
-            "",
-          )
-        : "";
-      return `<tr>${act}<td class="task${r.sps.length ? " grey" : ""}">T.${esc(r.taskId)} ${esc(r.taskLabel)}${
-        r.sps.length ? ` <b>(${r.sps.map(spLabel).join(", ")})</b>` : ""
-      }</td></tr>`;
-    })
-    .join("");
-  return `<div class="syn"><div class="id"><div><h1>BTS Gestion de la PME — Session ${esc(h.session)} — Passeport professionnel</h1>
-<b>${esc(holderName(data) || "Candidat")}</b> — N° de candidat : ${esc(h.numeroCandidat)}<br>${esc(h.etablissement)}${
-    h.ville ? `, ${esc(h.ville)}` : ""
-  }${h.academie ? ` (académie de ${esc(h.academie)})` : ""}</div></div>
-<div class="att"><div>L'équipe pédagogique${teachers(data).length ? ` (${teachers(data).map(esc).join(", ")})` : ""} atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.${
-    data.visa.date
-      ? `<br><b>Visé le ${esc(fmtDate(data.visa.date))}</b>${data.visa.note ? ` — ${esc(data.visa.note)}` : ""}`
-      : ""
-  }</div><div style="min-width:60mm">Signatures des enseignants<br>et cachet de l'établissement<br><br><br></div></div>
-<table><thead><tr><th>Activités</th><th>Compétences</th>${MODALITES.map((m) => `<th>${esc(m.short)}</th>`).join("")}<th>Tâches des activités</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
 function wrapHtml(title: string, css: string, body: string): string {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}${FICHE_CSS}${css}</style></head><body>${body}</body></html>`;
-}
-
-export function synopticHtml(data: PassportData): string {
-  return wrapHtml(`Passeport professionnel ${holderName(data)}`, SYNOPTIC_CSS, synopticBody(data));
-}
-
-/** Synoptique + fiches d'analyse validées (ou toutes) dans un seul document imprimable. */
-export function dossierHtml(data: PassportData, onlyValidated: boolean): string {
-  const fiches = data.situations
-    .filter((s) => !onlyValidated || s.transfer)
-    .sort((a, b) => a.id - b.id)
-    .map((s) => `<section style="page-break-before:always">${ficheBody(data.holder, s)}</section>`)
-    .join("");
-  return wrapHtml(`Dossier E4 ${holderName(data)}`, SYNOPTIC_CSS, synopticBody(data) + fiches);
 }
 
 export function stageHtml(data: PassportData, st: Stage): string {
@@ -213,53 +180,84 @@ function docxPackage(body: string, landscape: boolean): Uint8Array {
 const BORDERS =
   '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="555555"/><w:left w:val="single" w:sz="4" w:color="555555"/><w:bottom w:val="single" w:sz="4" w:color="555555"/><w:right w:val="single" w:sz="4" w:color="555555"/><w:insideH w:val="single" w:sz="4" w:color="555555"/><w:insideV w:val="single" w:sz="4" w:color="555555"/></w:tblBorders>';
 
-/** Document synoptique au format Word (paysage, tâches grisées). */
-export function buildSynopticDocx(data: PassportData): Uint8Array {
+/** Document synoptique au format Word (A4 paysage) : même structure que le PDF et le passeport officiel. */
+export function buildSynopticDocx(data: PassportData, opts: SynopticOptions = {}): Uint8Array {
   const h = data.holder;
-  const W = [2300, 2300, 1350, 1350, 1350, 1350, 5700]; // total 15700
+  const W = [400, 2700, 1500, 1000, 800, 1000, 800, 1300, 6204]; // total 15704
+  const TOTAL = W.reduce((a, b) => a + b, 0);
   const grid = `<w:tblGrid>${W.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>`;
+  const span = (from: number, n: number) => W.slice(from, from + n).reduce((a, b) => a + b, 0);
+  const hc = (txt: string, i: number, o: { n?: number; vm?: "restart" | "continue"; left?: boolean } = {}) =>
+    cell(txt ? par(txt, { bold: true, center: !o.left, size: 13 }) : "", span(i, o.n ?? 1), {
+      span: o.n,
+      vmerge: o.vm,
+    });
   const head =
     "<w:tr>" +
-    ["Activités", "Compétences", ...MODALITES.map((m) => m.short), "Tâches des activités"]
-      .map((t, i) => cell(par(t, { bold: true, center: true }), W[i], { fill: "E8EDF5" }))
-      .join("") +
+    hc("", 0, { vm: "restart" }) +
+    hc("", 1) +
+    hc("", 2) +
+    hc("SITUATIONS VÉCUES OU OBSERVÉES ▸", 3) +
+    hc("Avant la formation", 4) +
+    hc("Pendant la formation en établissement", 5) +
+    hc("Pendant la formation dans une PME", 6) +
+    hc("Pendant la formation dans une organisation", 7) +
+    hc("Tâches des activités", 8, { vm: "restart" }) +
+    "</w:tr><w:tr>" +
+    hc("", 0, { vm: "continue" }) +
+    hc("ACTIVITÉS ▸", 1, { left: true }) +
+    hc("SOLUTIONS LOGICIELLES ET FONCTIONNALITÉS", 2) +
+    hc("COMPÉTENCES ▾", 3) +
+    hc("Périodes (Situations Professionnelles)", 4, { n: 4 }) +
+    hc("", 8, { vm: "continue" }) +
     "</w:tr>";
-  const body = synopticRows(data)
+  const band = (r: SynopticRow, first: boolean) =>
+    first
+      ? `<w:tc><w:tcPr><w:tcW w:w="${W[0]}" w:type="dxa"/><w:vMerge w:val="restart"/><w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/><w:textDirection w:val="btLr"/><w:vAlign w:val="center"/></w:tcPr>${par(`DOMAINE D’ACTIVITÉS ${r.domainId} : ${r.domainTitle}`, { bold: true, center: true, size: 12 })}</w:tc>`
+      : `<w:tc><w:tcPr><w:tcW w:w="${W[0]}" w:type="dxa"/><w:vMerge/><w:shd w:val="clear" w:color="auto" w:fill="FFFF00"/></w:tcPr><w:p/></w:tc>`;
+  const body = synopticRows(data, opts)
     .map((r) => {
-      if (r.kind === "domain")
-        return `<w:tr>${cell(par(r.title, { bold: true, color: "FFFFFF" }), 15700, { span: 7, fill: "1A3A6E" })}</w:tr>`;
       const vm = r.first ? "restart" : "continue";
       const lead = [
-        cell(r.first ? par(`Activité ${r.activity.id} — ${r.activity.title}`, { bold: true }) : "", W[0], {
-          vmerge: vm,
-          fill: "F3F5FA",
-        }),
-        cell(r.first ? par(r.activity.competence) : "", W[1], { vmerge: vm }),
-        ...MODALITES.map((m, i) => {
-          const txt = r.marks[m.id].join("\n");
-          return cell(r.first && txt ? par(txt, { bold: true, center: true }) : "", W[2 + i], {
-            vmerge: vm,
-            fill: txt ? "E9F6EC" : undefined,
-          });
-        }),
+        cell(r.first ? par(r.activityLabel, { size: 12 }) : "", W[1], { vmerge: vm }),
+        cell(r.first && r.solutions.trim() ? par(r.solutions, { size: 16 }) : "", W[2], { vmerge: vm }),
+        cell(r.first ? par(r.activity.competence, { size: 11 }) : "", W[3], { vmerge: vm }),
+        ...MODALITES.map((m, i) =>
+          cell(r.first && r.marks[m.id] ? par(r.marks[m.id], { size: 16 }) : "", W[4 + i], { vmerge: vm }),
+        ),
       ].join("");
-      const label = `T.${r.taskId} ${r.taskLabel}${r.sps.length ? ` (${r.sps.map(spLabel).join(", ")})` : ""}`;
-      return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${lead}${cell(par(label), W[6], { fill: r.sps.length ? "C8C8C8" : undefined })}</w:tr>`;
+      const label = `T.${r.taskId}. ${r.taskLabel}`;
+      return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${band(r, r.firstOfDomain)}${lead}${cell(par(label, { size: 11 }), W[8], { fill: r.sps.length ? "D9D9D9" : undefined })}</w:tr>`;
     })
     .join("");
-  const intro =
-    par(`BTS Gestion de la PME — Session ${h.session} — Passeport professionnel`, { bold: true, size: 26 }) +
-    par(
-      `${holderName(data) || "Candidat"} — N° de candidat : ${h.numeroCandidat}\n${[h.etablissement, h.ville].filter(Boolean).join(", ")}${h.academie ? ` (académie de ${h.academie})` : ""}`,
-      { size: 18 },
-    ) +
-    par(
-      `L'équipe pédagogique${teachers(data).length ? ` (${teachers(data).join(", ")})` : ""} atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.${data.visa.date ? `\nVisé le ${fmtDate(data.visa.date)}${data.visa.note ? ` — ${data.visa.note}` : ""}` : ""}\nSignatures des enseignants et cachet de l'établissement :`,
-      { size: 16 },
-    ) +
-    par("", { size: 16 });
+  const idTable =
+    `<w:tbl><w:tblPr><w:tblW w:w="${TOTAL}" w:type="dxa"/>${BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="400"/><w:gridCol w:w="${TOTAL - 400 - W[8]}"/><w:gridCol w:w="${W[8]}"/></w:tblGrid>` +
+    `<w:tr>${cell("", 400)}${cell(par(`BTS GESTION DE LA PME - SESSION ${h.session} - PASSEPORT PROFESSIONNEL`, { bold: true, center: true, size: 24 }), TOTAL - 400, { span: 2 })}</w:tr>` +
+    `<w:tr>${cell("", 400)}${cell(par("NOM et Prénom du titulaire du passeport :", { bold: true, center: true, size: 18 }), TOTAL - 400 - W[8])}${cell(par("Numéro du candidat :", { bold: true, center: true, size: 16 }), W[8])}</w:tr></w:tbl>` +
+    par(`${holderName(data)}\t\t\t${h.numeroCandidat.trim() || "À compléter"}`, { size: 18 }) +
+    `<w:tbl><w:tblPr><w:tblW w:w="${TOTAL}" w:type="dxa"/>${BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="400"/><w:gridCol w:w="${TOTAL - 400 - W[8]}"/><w:gridCol w:w="${W[8]}"/></w:tblGrid>` +
+    `<w:tr>${cell("", 400)}${cell(
+      par("L'équipe pédagogique représentée par les enseignants, en lycée ou centre de formation :", {
+        bold: true,
+        center: true,
+        size: 18,
+      }) +
+        (teachers(data).length ? par(teachers(data).join(", "), { center: true, size: 17 }) : "") +
+        par(
+          "atteste que le titulaire de ce passeport professionnel a bien effectué, en formation, les activités et missions présentées dans ce tableau.",
+          { bold: true, center: true, size: 18 },
+        ) +
+        (data.visa.date
+          ? par(`Visé le ${fmtDate(data.visa.date)}${data.visa.note ? ` — ${data.visa.note}` : ""}`, {
+              center: true,
+              size: 16,
+            })
+          : ""),
+      TOTAL - 400 - W[8],
+    )}${cell(par("Signatures des enseignants de l'équipe pédagogique\net cachet de l'établissement", { bold: true, center: true, size: 18 }), W[8])}</w:tr></w:tbl>` +
+    par("", { size: 10 });
   return docxPackage(
-    `${intro}<w:tbl><w:tblPr><w:tblW w:w="15700" w:type="dxa"/>${BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr>${grid}${head}${body}</w:tbl>`,
+    `${idTable}<w:tbl><w:tblPr><w:tblW w:w="${TOTAL}" w:type="dxa"/>${BORDERS}<w:tblLayout w:type="fixed"/></w:tblPr>${grid}${head}${body}</w:tbl>`,
     true,
   );
 }

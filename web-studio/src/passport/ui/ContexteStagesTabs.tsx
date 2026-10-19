@@ -166,11 +166,12 @@ export function StagesTab({
           {sum.missingProofs > 0 && <li>{sum.missingProofs} justificatif(s) à obtenir.</li>}
         </ul>
         <Alert tone="warning" title="Durée à confirmer">
-          La durée exacte dépend de votre situation (positionnement réglementaire, session, voie) : les sources publiées
-          indiquent le plus souvent 12 semaines en voie scolaire — dont 6 consécutives en fin de 1re année et au moins 4
-          consécutives en 2e année — mais d'autres valeurs (8, 10, 14) existent. Elium ne la fixe pas : saisissez celle
-          de votre établissement. En alternance ou comme salarié, il n'y a pas de stage distinct ; les périodes en
-          entreprise et leurs justificatifs fournissent les situations.
+          L'annexe III-3 officielle (session 2024) parle de « 12 semaines de stage réglementaires » ; les sources
+          publiées précisent 6 semaines consécutives en fin de 1re année et au moins 4 consécutives en 2e année.
+          D'autres valeurs (8, 10, 14) apparaissent selon le positionnement réglementaire du candidat, la session et
+          l'établissement : Elium garde 12 par défaut mais ne l'impose pas — saisissez la durée que votre établissement
+          vous donne. En alternance ou comme salarié, il n'y a pas de stage distinct ; les périodes en entreprise et
+          leurs justificatifs fournissent les situations.
         </Alert>
       </section>
 
@@ -236,9 +237,15 @@ export function StagesTab({
                 />
                 {tp.proof} reçu
               </label>
-              <Button size="sm" variant="outline" onClick={() => onPrint(st)}>
-                <Printer size={14} /> Préparer l'attestation (PDF)
-              </Button>
+              {st.type === "stage" ? (
+                <Button size="sm" variant="outline" onClick={() => onPrint(st)}>
+                  <Printer size={14} /> Préparer l'attestation de stage (PDF)
+                </Button>
+              ) : (
+                <span className="pp-note">
+                  Pas d'attestation de stage : contrat et certificat de l'employeur à la place.
+                </span>
+              )}
               <Button size="sm" variant="danger" onClick={() => onChange(stages.filter((s) => s.id !== st.id))}>
                 <Trash2 size={14} /> Supprimer
               </Button>

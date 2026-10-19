@@ -14,6 +14,7 @@ import {
   normalizePassport,
   passportCells,
   situationCodes,
+  CONTEXTE_ITEMS,
   newStage,
   stageSummary,
   stageWeeks,
@@ -23,11 +24,12 @@ import {
   toggleTask,
   transferSituation,
 } from "./model";
-import { buildFicheDocx, fillTemplateXml, ficheHtml, ficheValues } from "./exportFiche";
+import { CONTEXTE_ANNEXE_LABELS } from "./pdf/pdfContexte";
+import { buildFicheDocx, fillTemplateXml, ficheValues } from "./exportFiche";
 import { activityLabelOf, backupJson, buildSynopticDocx, parseBackup, synopticRows } from "./exportPasseport";
 import { PDFDocument } from "pdf-lib";
 import { readFileSync } from "node:fs";
-import { buildDossierPdf, buildFichePdf, buildSynopticPdf } from "./pdf";
+import { buildAttestationPdf, buildContextePdf, buildDossierPdf, buildFichePdf, buildSynopticPdf } from "./pdf";
 import { woffToSfnt } from "./pdf/woff";
 import type { PassportData, Situation, Stage } from "./types";
 
@@ -226,7 +228,6 @@ describe("fiche d'analyse Word (modèle officiel)", () => {
 
   it("valeurs de balises et HTML d'impression", () => {
     expect(ficheValues(holder, s).Prob3).toBe("☐");
-    expect(ficheHtml(holder, s)).toContain("Situation &lt;7&gt; &amp; « test »");
     expect(
       fillTemplateXml("<w:p><w:r><w:t>&lt;</w:t></w:r><w:r><w:t>X</w:t></w:r><w:r><w:t>&gt; fin</w:t></w:r></w:p>", {
         X: "ok",
@@ -320,5 +321,38 @@ describe("périodes en entreprise (stage, alternance, activité salariée)", () 
     })!;
     expect(back.stages[0].type).toBe("stage");
     expect(back.parcours).toEqual({ voie: "scolaire", requiredWeeks: 60 });
+  });
+});
+
+describe("attestation de stage et contexte commercial en PDF", () => {
+  const f = (n: string) => woffToSfnt(new Uint8Array(readFileSync(`src/passport/pdf/fonts/${n}`)));
+  const fonts = { regular: f("carlito-latin-400-normal.woff"), bold: f("carlito-latin-700-normal.woff") };
+
+  it("l'attestation tient sur une page A4, remplie ou vide, avec des valeurs très longues", async () => {
+    const h = { ...emptyPassport().holder, nom: "Sihl", prenom: "Ludovic", etablissement: "Lycée Exemple" };
+    const st = {
+      ...newStage("a"),
+      organisme: "SARL " + "Très longue raison sociale ".repeat(12),
+      missionsE4: "mot ".repeat(400),
+      debut: "2026-05-04",
+      fin: "2026-06-12",
+    };
+    const full = await PDFDocument.load(await buildAttestationPdf(h, st, "2026", fonts));
+    expect(full.getPageCount()).toBe(1);
+    expect(full.getPage(0).getSize()).toEqual({ width: 595.32, height: 841.92 });
+    expect(
+      (
+        await PDFDocument.load(await buildAttestationPdf(emptyPassport().holder, newStage("b"), "2026", null))
+      ).getPageCount(),
+    ).toBe(1);
+  });
+
+  it("le contexte commercial reprend les 12 éléments de l'annexe V-3, dans l'ordre", async () => {
+    expect(CONTEXTE_ANNEXE_LABELS).toHaveLength(12);
+    expect(CONTEXTE_ANNEXE_LABELS).toHaveLength(CONTEXTE_ITEMS.length);
+    const d = emptyPassport();
+    d.contexte[0] = { id: "identite", done: true, notes: "SARL Exemple, 12 salariés.\n".repeat(60) };
+    const pdf = await PDFDocument.load(await buildContextePdf(d, fonts));
+    expect(pdf.getPageCount()).toBeGreaterThanOrEqual(2); // notes longues : passage à la page suivante
   });
 });

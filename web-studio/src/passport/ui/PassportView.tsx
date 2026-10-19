@@ -11,8 +11,15 @@ import { Alert, Badge, Button, Tabs } from "../../ui/components";
 import { useDialogs } from "../../ui/dialogs";
 import { reportError } from "../../ui/crash-log";
 import { buildFicheDocx, ficheFileName } from "../exportFiche";
-import { buildDossierPdf, buildFichePdf, buildSynopticPdf, loadFonts } from "../pdf";
-import { backupJson, buildSynopticDocx, contexteHtml, parseBackup, stageHtml } from "../exportPasseport";
+import {
+  buildAttestationPdf,
+  buildContextePdf,
+  buildDossierPdf,
+  buildFichePdf,
+  buildSynopticPdf,
+  loadFonts,
+} from "../pdf";
+import { backupJson, buildSynopticDocx, parseBackup } from "../exportPasseport";
 import {
   dossierProgress,
   dossierChecklist,
@@ -27,7 +34,7 @@ import {
   transferSituation,
   untransferSituation,
 } from "../model";
-import { printHtml, safeStem } from "../print";
+import { safeStem } from "../print";
 import type { Holder, PassportData, Situation } from "../types";
 import Dashboard, { type TabId } from "./Dashboard";
 import PassportTab from "./PassportTab";
@@ -187,11 +194,6 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
       downloadBlob(ficheFileName(data.holder, s, "docx"), DOCX_MIME, buildFicheDocx(data.holder, s));
       setNotice(`Fiche d'analyse ${spLabel(id)} générée (Word).`);
     });
-
-  const print = async (html: string) => {
-    if (!printHtml(html))
-      await alert({ title: "Fenêtre bloquée", message: "Autorisez les fenêtres contextuelles pour exporter en PDF." });
-  };
 
   const stem = safeStem([data.holder.nom, data.holder.prenom].filter(Boolean).join("_") || "candidat");
 
@@ -361,7 +363,15 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
           <ContexteTab
             items={data.contexte}
             onChange={(contexte) => update((d: PassportData) => ({ ...d, contexte }))}
-            onPrint={() => void print(contexteHtml(data))}
+            onPrint={() =>
+              void guard("pdf", async () =>
+                downloadBlob(
+                  `Contexte_commercial_${stem}.pdf`,
+                  "application/pdf",
+                  await buildContextePdf(data, await loadFonts()),
+                ),
+              )
+            }
           />
         )}
         {tab === "stages" && (
@@ -369,7 +379,15 @@ export default function PassportView({ onHome, onOpenDrive, vaultSecret }: Props
             data={data}
             onParcours={(parcours) => update((d) => ({ ...d, parcours }))}
             onChange={(stages) => update((d) => ({ ...d, stages }))}
-            onPrint={(st) => void print(stageHtml(data, st))}
+            onPrint={(st) =>
+              void guard("pdf", async () =>
+                downloadBlob(
+                  `Attestation_de_stage_${stem}.pdf`,
+                  "application/pdf",
+                  await buildAttestationPdf(data.holder, st, data.holder.session, await loadFonts()),
+                ),
+              )
+            }
           />
         )}
       </div>

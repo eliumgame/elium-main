@@ -8,7 +8,17 @@
  */
 import fontkit from "@pdf-lib/fontkit";
 import { woffToSfnt } from "./woff";
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, degrees, rgb } from "pdf-lib";
+import {
+  LineCapStyle,
+  PDFDocument,
+  PDFFont,
+  PDFNumber,
+  PDFOperator,
+  PDFPage,
+  StandardFonts,
+  degrees,
+  rgb,
+} from "pdf-lib";
 
 export const A4_PORTRAIT: [number, number] = [595.32, 841.92];
 export const A4_LANDSCAPE: [number, number] = [841.92, 595.32];
@@ -24,7 +34,14 @@ export interface Fonts {
   bold: PDFFont;
   /** Arial → Helvetica (métriques identiques). */
   arial: PDFFont;
+  arialBold: PDFFont;
+  arialBoldItalic: PDFFont;
+  /** Times New Roman (annexes en police à empattements). */
+  times: PDFFont;
+  timesBold: PDFFont;
 }
+
+export type FontKey = "reg" | "bold" | "arial" | "arialBold" | "arialBoldItalic" | "times" | "timesBold";
 
 /** Polices Carlito (WOFF, licence OFL) embarquées avec l'application : mêmes métriques que Calibri. */
 export async function loadCarlito(): Promise<FontBytes | null> {
@@ -42,19 +59,26 @@ export async function loadCarlito(): Promise<FontBytes | null> {
 
 export async function embedFonts(doc: PDFDocument, bytes: FontBytes | null): Promise<Fonts> {
   const arial = await doc.embedFont(StandardFonts.Helvetica);
+  const std = {
+    arial,
+    arialBold: await doc.embedFont(StandardFonts.HelveticaBold),
+    arialBoldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
+    times: await doc.embedFont(StandardFonts.TimesRoman),
+    timesBold: await doc.embedFont(StandardFonts.TimesRomanBold),
+  };
   if (bytes) {
     try {
       doc.registerFontkit(fontkit);
       return {
+        ...std,
         reg: await doc.embedFont(bytes.regular, { subset: true }),
         bold: await doc.embedFont(bytes.bold, { subset: true }),
-        arial,
       };
     } catch {
       /* police illisible : repli sur Helvetica */
     }
   }
-  return { reg: arial, bold: await doc.embedFont(StandardFonts.HelveticaBold), arial };
+  return { ...std, reg: arial, bold: std.arialBold };
 }
 
 /** Caractères que WinAnsi (Helvetica) ne sait pas écrire : remplacés plutôt que de faire échouer l'export. */
@@ -123,6 +147,19 @@ export class Canvas {
     this.page.drawRectangle({ x: x0, y: this.y(y1), width: x1 - x0, height: y1 - y0, color: rgb(...color) });
   }
 
+  /** Rectangle à fond blanc et contour noir. */
+  rect(x: number, y: number, w: number, h: number, thickness = 0.5): void {
+    this.page.drawRectangle({
+      x,
+      y: this.y(y + h),
+      width: w,
+      height: h,
+      color: rgb(1, 1, 1),
+      borderColor: rgb(0, 0, 0),
+      borderWidth: thickness,
+    });
+  }
+
   /** Trait horizontal d'épaisseur `t`, centré sur y. */
   h(y: number, x0: number, x1: number, t = 0.5): void {
     this.page.drawRectangle({ x: x0, y: this.y(y) - t / 2, width: x1 - x0, height: t, color: rgb(0, 0, 0) });
@@ -133,24 +170,48 @@ export class Canvas {
     this.page.drawRectangle({ x: x - t / 2, y: this.y(y1), width: t, height: y1 - y0, color: rgb(0, 0, 0) });
   }
 
-  /** Texte dont la LIGNE DE BASE est à `baseline`, ancré à gauche, au centre ou à droite de `x`. */
+  /** Texte dont la LIGNE DE BASE est à `baseline`, ancré à gauche, au centre ou à droite de `x`. Renvoie sa largeur. */
   text(
     s: string,
     x: number,
     baseline: number,
     o: {
-      font?: "reg" | "bold" | "arial";
+      font?: FontKey;
       size: number;
       align?: "left" | "center" | "right";
       color?: [number, number, number];
+      /** Étirement horizontal (0,82 ≈ Arial Narrow). */
+      hscale?: number;
     },
-  ): void {
+  ): number {
     const font = this.fonts[o.font ?? "reg"];
     const t = sanitize(s, font);
-    if (!t) return;
-    const w = font.widthOfTextAtSize(t, o.size);
+    if (!t) return 0;
+    const k = o.hscale ?? 1;
+    const w = font.widthOfTextAtSize(t, o.size) * k;
     const px = o.align === "center" ? x - w / 2 : o.align === "right" ? x - w : x;
+    if (k !== 1) this.page.pushOperators(PDFOperator.of("Tz" as never, [PDFNumber.of(k * 100)]));
     this.page.drawText(t, { x: px, y: this.y(baseline), size: o.size, font, color: rgb(...(o.color ?? [0, 0, 0])) });
+    if (k !== 1) this.page.pushOperators(PDFOperator.of("Tz" as never, [PDFNumber.of(100)]));
+    return w;
+  }
+
+  /** Points de conduite (« ……… ») de x0 à x1, sur la ligne de base. */
+  dots(x0: number, x1: number, baseline: number): void {
+    this.page.drawLine({
+      start: { x: x0, y: this.y(baseline) + 0.6 },
+      end: { x: x1, y: this.y(baseline) + 0.6 },
+      thickness: 0.75,
+      dashArray: [0.05, 2.15],
+      lineCap: LineCapStyle.Round,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  /** Largeur d'un texte avec étirement (même mesure que `text`). */
+  measure(s: string, o: { font?: FontKey; size: number; hscale?: number }): number {
+    const font = this.fonts[o.font ?? "reg"];
+    return font.widthOfTextAtSize(sanitize(s, font), o.size) * (o.hscale ?? 1);
   }
 
   /** Texte lu de bas en haut (libellés verticaux) : `x` = ligne de base, `yStart` = bas du texte. */

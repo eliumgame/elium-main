@@ -7,6 +7,8 @@ import { drawSynoptic } from "./pdfSynoptic";
 
 export { buildFichePdf } from "./pdfFiche";
 export { buildSynopticPdf } from "./pdfSynoptic";
+export { buildAttestationPdf } from "./pdfAttestation";
+export { buildContextePdf } from "./pdfContexte";
 export { loadCarlito, type FontBytes };
 
 /** Passeport synoptique + fiches d'analyse (validées, ou toutes) dans un seul PDF. */

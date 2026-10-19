@@ -4,10 +4,8 @@
  * sauvegarde JSON complète (réimportable).
  */
 import { strToU8, zipSync } from "fflate";
-import { FICHE_CSS, PRINT_CSS } from "./exportFiche";
-import { CONTEXTE_ITEMS, MODALITES, REFERENTIEL, coveredTasks, passportCells } from "./model";
-import { esc, escMultiline } from "./print";
-import type { Modalite, PassportData, RefActivity, Stage } from "./types";
+import { MODALITES, REFERENTIEL, coveredTasks, passportCells } from "./model";
+import type { Modalite, PassportData, RefActivity } from "./types";
 
 // ------------------------------------------------------------ données communes
 
@@ -91,43 +89,6 @@ const holderName = (data: PassportData) => `${data.holder.nom.toUpperCase()} ${d
 const teachers = (data: PassportData) => [data.holder.enseignant1, data.holder.enseignant2].filter(Boolean);
 
 // -------------------------------------------------------------------- HTML/PDF
-
-function wrapHtml(title: string, css: string, body: string): string {
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}${FICHE_CSS}${css}</style></head><body>${body}</body></html>`;
-}
-
-export function stageHtml(data: PassportData, st: Stage): string {
-  const h = data.holder;
-  const row = (l: string, v: string) =>
-    `<tr><th>${esc(l)}</th><td class="txt">${v ? escMultiline(v) : "&nbsp;"}</td></tr>`;
-  const body = `<div class="head"><div><h1>ATTESTATION DE STAGE</h1><h2>BTS Gestion de la PME — unités U4 et U51</h2>
-<div class="meta">À remettre au stagiaire à l'issue du stage</div></div></div>
-<div class="band">Organisme d'accueil</div><table>${row("Nom ou dénomination sociale", st.organisme)}${row("Secteur d'activité", st.secteur)}${row("Adresse", st.adresse)}</table>
-<div class="band">Le stagiaire</div><table>${row("Nom et prénom", `${h.nom.toUpperCase()} ${h.prenom}`.trim())}${row("Étudiant en BTS Gestion de la PME au sein de", h.etablissement)}</table>
-<div class="band">Durée du stage</div><table>${row("Dates de début et de fin", st.debut || st.fin ? `Du ${fmtDate(st.debut) || "…"} au ${fmtDate(st.fin) || "…"}` : "")}${row("Durée totale (semaines)", st.semaines)}</table>
-<div class="band">Missions confiées au stagiaire</div><table>${row("Missions relevant de l'épreuve E4 (Gérer les relations avec les clients et les fournisseurs)", st.missionsE4)}${row("Missions relevant de la sous-épreuve E51 (Participer à la gestion des risques de la PME)", st.missionsE51)}</table>
-<div class="band">Gratification</div><table>${row("Montant total versé au stagiaire (€)", st.gratification)}</table>
-<p style="font-size:8.5pt">La durée totale du stage est appréciée en tenant compte de la présence effective du stagiaire dans l'organisme (art. L.124-18 du code de l'éducation). Chaque période au moins égale à 7 heures de présence consécutives ou non équivaut à un jour de stage, et chaque période d'au moins 22 jours de présence à un mois.</p>
-<p>Fait à ……………………… le ………………………<br><br>Nom, fonction et signature du représentant de l'organisme d'accueil${st.representant ? ` : ${esc(st.representant)}` : ""}</p>`;
-  return wrapHtml("Attestation de stage", "", body);
-}
-
-export function contexteHtml(data: PassportData): string {
-  const h = data.holder;
-  const items = CONTEXTE_ITEMS.map((c, i) => {
-    const it = data.contexte.find((x) => x.id === c.id);
-    return `<div class="band">${i + 1}. ${esc(c.label)} ${it?.done ? "☒" : "☐"}</div><table><tr><td class="txt">${
-      it?.notes ? escMultiline(it.notes) : "&nbsp;"
-    }</td></tr></table>`;
-  }).join("");
-  return wrapHtml(
-    "Contexte commercial",
-    "",
-    `<div class="head"><div><h1>BTS Gestion de la PME — Session ${esc(h.session)}</h1><h2>E4 — Présentation du contexte commercial</h2></div><div class="meta"><b>${esc(
-      holderName(data),
-    )}</b><br>N° de candidat : ${esc(h.numeroCandidat)}</div></div>${items}`,
-  );
-}
 
 // ------------------------------------------------------------------ Word (.docx)
 

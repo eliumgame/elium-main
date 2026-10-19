@@ -4,6 +4,7 @@
 
 ### Version 4.14.0 — Passeport E4 fidèle aux documents officiels
 
+- 4.14.1 : attestation de stage (annexe III-3) reproduite en PDF d'après le formulaire officiel ; contexte commercial en PDF avec les douze éléments de l'annexe V-3.
 - Passeport E4 : les PDF (fiche d'analyse, passeport synoptique, dossier complet) sont générés par Elium et reprennent la mise en page des documents officiels ; identifiants de situation (GRCF/CE/CO) et solutions logicielles par activité ; stages, alternance et activité salariée avec décompte des semaines (durée à confirmer) ; publication des vrais documents (PDF et Word) dans le Drive.
 
 ### Version 4.13.0 — sauvegarde de l'espace de travail dans le Drive

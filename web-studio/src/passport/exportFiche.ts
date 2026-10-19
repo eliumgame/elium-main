@@ -6,7 +6,7 @@
  */
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { FICHE_TEMPLATE_B64 } from "./ficheTemplate";
-import { MODALITES, MOIS, activityById, spLabel } from "./model";
+import { MOIS, activityById, spLabel } from "./model";
 import { esc, escMultiline } from "./print";
 import type { Holder, Situation } from "./types";
 
@@ -129,7 +129,7 @@ export function ficheFileName(h: Holder, s: Situation, ext: string): string {
 // ------------------------------------------------------------------- HTML/PDF
 
 export const PRINT_CSS = `
-@page { size: A4; margin: 14mm; }
+@page { size: A4; margin: 18mm 15mm; }
 html { color-scheme: light; background: #fff; }
 * { box-sizing: border-box; }
 body { font: 10.5pt/1.4 Arial, Helvetica, sans-serif; color: #111; background: #fff; margin: 0; padding: 4mm; }
@@ -149,55 +149,90 @@ th.full { width: auto; }
 .band { background: #1a3a6e; color: #fff; padding: 1.5mm 3mm; font-weight: bold; margin: 0 0 2mm; }
 `;
 
-/** Contenu HTML d'une fiche (sans <html>) — réutilisé par le dossier complet. */
+export const FICHE_CSS = `
+.fiche { font: 8.5pt/1.25 Arial, Helvetica, sans-serif; color: #000; }
+.fiche .ttl { text-align: center; font: bold 11pt Calibri, Carlito, Arial, sans-serif; margin: 0; }
+.fiche .ttl2 { text-align: center; font: bold 10pt Calibri, Carlito, Arial, sans-serif; margin: 0 0 1mm; }
+.fiche .ident { display: flex; justify-content: space-between; gap: 6mm; margin: 0 0 2mm; }
+.fiche .ident > div { border: 1px solid #000; border-radius: 1.5mm; text-align: center; padding: 0.5mm 2mm 1mm; font: 9pt Calibri, Carlito, Arial, sans-serif; }
+.fiche .ident > div:first-child { flex: 1 1 62%; }
+.fiche .ident > div:last-child { flex: 1 1 33%; }
+.fiche .ident b { display: block; font-size: 9.5pt; }
+.fiche table { width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed; }
+.fiche td, .fiche th { border: 1px solid #7f7f7f; padding: 0.35mm 1.4mm; vertical-align: top; text-align: left; font-weight: normal; width: auto; background: none; }
+.fiche .grey { background: #d9d9d9; text-align: center; }
+.fiche .bigttl { font: bold 13pt Calibri, Carlito, Arial, sans-serif; text-align: center; padding: 1.2mm; background: #d9d9d9; }
+.fiche .lbl { font: bold 8.5pt Calibri, Carlito, Arial, sans-serif; vertical-align: middle; }
+.fiche .mid { text-align: center; font: bold 9pt Calibri, Carlito, Arial, sans-serif; vertical-align: middle; }
+.fiche .sub { font: bold 8.5pt Calibri, Carlito, Arial, sans-serif; border-bottom: 0; }
+.fiche .opt { border-top: 0; border-bottom: 0; padding-top: 0; padding-bottom: 0; line-height: 1.15; font: 8pt/1.15 Arial, Helvetica, sans-serif; }
+.fiche .opt.last { border-bottom: 1px solid #7f7f7f; }
+.fiche .cb { font-family: "Segoe UI Symbol", "MS Gothic", "DejaVu Sans", Arial, sans-serif; margin: 0; display: inline; }
+.fiche .acts td { font-size: 7.3pt; line-height: 1.2; }
+.fiche .head3 { font: bold 9pt Calibri, Carlito, Arial, sans-serif; text-align: center; }
+.fiche .nat { text-align: center; font: 9pt Calibri, Carlito, Arial, sans-serif; }
+.fiche .val { min-height: 6mm; }
+.fiche .verso { page-break-before: always; }
+.fiche .rot { writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; font: bold 8.5pt Calibri, Carlito, Arial, sans-serif; width: 8mm; padding: 1mm 0; }
+.fiche tr { page-break-inside: avoid; }
+`;
+
+/** Contenu HTML d'une fiche (sans <html>) — mise en page calquée sur le modèle officiel (annexe V-4, recto/verso). */
 export function ficheBody(h: Holder, s: Situation): string {
   const v = ficheValues(h, s);
-  const cb = (k: string, label: string) => `<span class="cb">${v[k]} ${esc(label)}</span>`;
+  const t = (x: string) => (x ? escMultiline(x) : "&nbsp;");
+  const cb = (k: string, label: string) => `<span class="cb">${v[k]}</span> ${esc(label)}`;
   const row = (label: string, value: string) =>
-    `<tr><th>${esc(label)}</th><td class="txt">${value ? escMultiline(value) : "&nbsp;"}</td></tr>`;
+    `<tr><td class="lbl">${esc(label)}</td><td colspan="2" class="val">${t(value)}</td></tr>`;
   const acts = ["1.1", "1.2", "1.3", "1.4", "1.5", "1.6"]
-    .map((id, i) => `<div>${v[`ACT${i + 1}`]} Activité ${id} ${esc(activityById(id)?.title ?? "")}</div>`)
+    .map(
+      (id, i) =>
+        `<div><span class="cb">${v[`ACT${i + 1}`]}</span>&nbsp; Activité ${id} ${esc(activityById(id)?.title ?? "")}</div>`,
+    )
     .join("");
-  const mod = MODALITES.find((m) => m.id === s.modalite)?.label ?? "";
-  return `<div class="head"><div><h1>BTS Gestion de la PME — Session ${esc(h.session)}</h1>
-<h2>E4 — Gérer les relations avec les clients et les fournisseurs</h2>
-<div class="meta"><b>Fiche d'analyse de situation professionnelle</b> ${esc(spLabel(s.id))}</div></div>
-<div class="meta"><b>${esc(h.nom.toUpperCase())} ${esc(h.prenom)}</b><br>N° de candidat : ${esc(h.numeroCandidat)}</div></div>
-<table><tr><th class="full">Nature : ${cb("Prob1", "GRCF")}${cb("Prob2", "Communication orale")}${cb("Prob3", "Communication écrite")}</th></tr></table>
-<div class="band">Identification de la situation professionnelle</div>
+  return `<div class="fiche">
+<p class="ttl">BTS Gestion de la PME - Session ${esc(h.session)}</p>
+<p class="ttl2">E4 - Gérer les relations avec les clients et les fournisseurs</p>
+<div class="ident"><div>NOM et prénom du candidat<b>${esc(h.nom.toUpperCase())} ${esc(h.prenom)}</b></div><div>Numéro de candidat<b>${esc(h.numeroCandidat)}</b></div></div>
 <table>
-<tr><th>Identification</th><td>${esc(v.IdSP)}</td></tr>
-<tr><th>Modalité de réalisation</th><td>${cb("MOD1", "Avant la formation")}${cb("MOD2", "Pendant la formation en établissement")}${cb("MOD3", "Pendant la formation en milieu professionnel")}<br><small>(${esc(mod)})</small></td></tr>
-<tr><th>Période de réalisation</th><td>${esc(v.MoisSP)} ${esc(v.AnneeSP)}${s.duree ? ` — ${esc(s.duree)}` : ""}</td></tr>
-<tr><th>Condition de réalisation</th><td>${cb("COND1", "En autonomie")}${cb("COND2", "Accompagnée")}${cb("COND3", "En observation")}</td></tr>
-<tr><th>Activités concernées</th><td class="acts">${acts}</td></tr>
-</table>
-<div class="band">Présentation et contexte</div>
-<table>
+<colgroup><col style="width:21%"><col style="width:14%"><col style="width:65%"></colgroup>
+<tr><td colspan="3" class="bigttl">Fiche d’analyse de situation professionnelle</td></tr>
+<tr><td colspan="3" style="padding:0"><table><tr><td class="nat" style="width:33%">${cb("Prob1", "GRCF")}</td><td class="nat" style="width:34%">${cb("Prob2", "Communication orale")}</td><td class="nat">${cb("Prob3", "Communication écrite")}</td></tr></table></td></tr>
+<tr><td class="lbl" rowspan="4">Identification de la situation professionnelle</td><td class="mid" rowspan="4">${esc(v.IdSP)}</td><td class="sub">Modalité de réalisation</td></tr>
+<tr><td class="opt">${cb("MOD1", "Avant la formation")}</td></tr>
+<tr><td class="opt">${cb("MOD2", "Pendant la formation en établissement")}</td></tr>
+<tr><td class="opt last">${cb("MOD3", "Pendant la formation en milieu professionnel")}</td></tr>
+<tr><td class="lbl" rowspan="4">Période de réalisation</td><td class="mid" rowspan="4">${esc(v.MoisSP)}<br>${esc(v.AnneeSP)}</td><td class="sub">Condition de réalisation</td></tr>
+<tr><td class="opt">${cb("COND1", "En autonomie")}</td></tr>
+<tr><td class="opt">${cb("COND2", "Accompagnée")}</td></tr>
+<tr><td class="opt last">${cb("COND3", "En observation")}</td></tr>
+<tr class="acts"><td class="lbl">Activités concernées</td><td colspan="2">${acts}</td></tr>
 ${row("Intitulé de la situation professionnelle", s.intitule)}
 ${row("Lieu, période et durée de réalisation", s.lieuPeriodeDuree)}
-${row("Cadre de la situation professionnelle", s.cadre)}
-${row("Problème de gestion soulevé et enjeux — de GRCF", s.problemeGestion)}
-${row("— de communication orale", s.problemeOral)}
-${row("— de communication écrite", s.problemeEcrit)}
+${row("Cadre de la Situation professionnelle", s.cadre)}
+<tr><td colspan="3" class="grey sub" style="border-bottom:1px solid #7f7f7f">Problème de gestion soulevé et enjeux de la situation</td></tr>
+<tr><td colspan="3" style="padding:0"><table><tr><td class="head3 grey" style="width:33%">De GRCF</td><td class="head3 grey" style="width:34%">De communication orale</td><td class="head3 grey">De communication écrite</td></tr>
+<tr><td class="val" style="height:12mm">${t(s.problemeGestion)}</td><td class="val">${t(s.problemeOral)}</td><td class="val">${t(s.problemeEcrit)}</td></tr></table></td></tr>
 ${row("Acteurs et relation entre les acteurs", s.acteurs)}
 ${row("Objectif", s.objectif)}
-${row("Conditions de réalisation : contraintes, processus et organisation comptable, environnement numérique", s.conditions)}
+${row("Conditions de réalisation : contraintes dont le processus et organisation comptable, environnement numérique", s.conditions)}
 ${row("Ressources à disposition", s.ressources)}
 ${row("Solutions logicielles choisies et fonctionnalités mobilisées", s.solutions)}
 ${row("Productions réalisées", s.productions)}
-${row("Écrits professionnels produits", s.ecrits)}
+${row("Ecrits professionnels produits", s.ecrits)}
 ${row("Oraux professionnels", s.oraux)}
 </table>
-<div class="analyse"><div class="band">Analyse</div>
-<table>
-<tr><th class="full">Analyse de la situation</th></tr><tr><td class="txt" style="min-height:90mm">${s.analyse ? escMultiline(s.analyse) : "&nbsp;"}</td></tr>
-<tr><th class="full">Contribution de la situation professionnelle à la professionnalisation</th></tr><tr><td class="txt" style="min-height:60mm">${s.contribution ? escMultiline(s.contribution) : "&nbsp;"}</td></tr>
-</table></div>`;
+<div class="verso"><table>
+<colgroup><col style="width:8mm"><col></colgroup>
+<tr><td colspan="2" class="bigttl" style="font-size:11pt;padding:0.8mm">ANALYSE</td></tr>
+<tr><td class="rot">Analyse de la situation</td><td style="height:46mm">${t(s.analyse)}</td></tr>
+<tr><td class="rot">Contribution de la situation professionnelle à la professionnalisation</td><td style="height:109mm">${t(s.contribution)}</td></tr>
+</table></div>
+</div>`;
 }
 
 export function ficheHtml(h: Holder, s: Situation): string {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(
     ficheFileName(h, s, "pdf"),
-  )}</title><style>${PRINT_CSS}</style></head><body>${ficheBody(h, s)}</body></html>`;
+  )}</title><style>${PRINT_CSS}${FICHE_CSS}</style></head><body>${ficheBody(h, s)}</body></html>`;
 }

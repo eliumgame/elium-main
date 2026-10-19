@@ -4,7 +4,7 @@
  * sauvegarde JSON complète (réimportable).
  */
 import { strToU8, zipSync } from "fflate";
-import { PRINT_CSS, ficheBody } from "./exportFiche";
+import { FICHE_CSS, PRINT_CSS, ficheBody } from "./exportFiche";
 import { CONTEXTE_ITEMS, MODALITES, REFERENTIEL, coveredTasks, passportCells, spLabel } from "./model";
 import { esc, escMultiline } from "./print";
 import type { Modalite, PassportData, RefActivity, Stage } from "./types";
@@ -112,7 +112,7 @@ export function synopticBody(data: PassportData): string {
 }
 
 function wrapHtml(title: string, css: string, body: string): string {
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}${css}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}${FICHE_CSS}${css}</style></head><body>${body}</body></html>`;
 }
 
 export function synopticHtml(data: PassportData): string {

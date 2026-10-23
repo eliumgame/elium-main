@@ -121,9 +121,9 @@ export function useLocalDeckStore(initial?: Deck, vaultSecret?: VaultSecret, per
     const p = persistRef.current;
     if (p?.isNew && !savedOnce.current && isDeckPristine(d)) return;
     try {
-      await saveDeck(d, secretRef.current, p?.id);
+      const size = await saveDeck(d, secretRef.current, p?.id);
       savedOnce.current = true;
-      p?.onSaved?.(d, JSON.stringify(d).length);
+      p?.onSaved?.(d, size);
     } catch (err) {
       reportError("deck-autosave", err);
     }

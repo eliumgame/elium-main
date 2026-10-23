@@ -25,6 +25,7 @@ import { openMigrated } from "../format/idb-migrate";
 import { SLIDES_SPEC } from "../format/db-specs";
 import { idbKv } from "../workspace/kv";
 import { createJsonStore, type JsonRecord } from "../workspace/record-store";
+import { stringifyDeckCooperative } from "./coop-deck";
 
 const STORE = "decks";
 export const LEGACY_DECK_ID = "current";
@@ -40,6 +41,7 @@ export function openDecksDb(): Promise<IDBDatabase> {
 export const deckStore = createJsonStore<Deck>(idbKv<JsonRecord>(SLIDES_SPEC, STORE), {
   field: "deck",
   lockedMessage: LOCKED,
+  serialize: (deck) => stringifyDeckCooperative(deck as Deck),
 });
 
 interface DeckRecord {
@@ -78,6 +80,6 @@ export async function loadDeck(secret?: VaultSecret, id: string = LEGACY_DECK_ID
   return deckStore.load(id, secret);
 }
 
-export async function saveDeck(deck: Deck, secret?: VaultSecret, id: string = LEGACY_DECK_ID): Promise<void> {
-  await deckStore.save(id, deck, secret);
+export async function saveDeck(deck: Deck, secret?: VaultSecret, id: string = LEGACY_DECK_ID): Promise<number> {
+  return deckStore.save(id, deck, secret);
 }

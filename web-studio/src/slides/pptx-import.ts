@@ -35,7 +35,7 @@ import {
   type SlideMaster,
 } from "./model";
 import { defaultMaster } from "./master";
-import { mimeFromExt } from "./media";
+import { MAX_MEDIA_BYTES, mimeFromExt } from "./media";
 
 const PRST_TO_KIND: Record<string, ShapeKind> = {
   rect: "rect",
@@ -598,9 +598,83 @@ interface ParseCtx {
   cx: number;
   cy: number;
   rels: Map<string, string>;
-  media: Record<string, Uint8Array>;
+  media: MediaSource;
   inherit: InheritCtx;
   onWarning?: (label: string) => void;
+}
+
+/** Plafonds de l'import .pptx (octets). Au-delà : refus net (fichier) ou média ignoré avec message. */
+export const PPTX_MAX_FILE_BYTES = 400 * 1024 * 1024;
+/** Taille décompressée maximale des parties XML (garde contre les bombes zip). */
+export const PPTX_MAX_XML_BYTES = 120 * 1024 * 1024;
+/** Total des médias distincts embarqués dans le deck (un média utilisé N fois compte une fois). */
+export const PPTX_MAX_TOTAL_MEDIA_BYTES = 256 * 1024 * 1024;
+
+export interface PptxImportOptions {
+  /** Appelé pour chaque motif de média laissé de côté : trop gros, ou plafond total atteint. */
+  onSkipped?: (message: string) => void;
+}
+
+/** Erreur d'import dont le message est destiné à l'utilisateur. */
+export class PptxImportError extends Error {}
+
+const mo = (n: number) => `${Math.round(n / 1048576)} Mo`;
+
+/** Accès paresseux au contenu du zip : seules les parties XML sont décompressées d'emblée. */
+class MediaSource {
+  private readonly uris = new Map<string, string | null>();
+  private total = 0;
+  private skippedBig = 0;
+  private skippedCap = 0;
+  constructor(
+    private readonly bytes: Uint8Array,
+    private readonly sizes: Map<string, number>,
+    private readonly eager: Record<string, Uint8Array>,
+    private readonly opts: PptxImportOptions,
+  ) {}
+
+  /** Octets d'une partie quelconque (décompressée à la demande). */
+  get(path: string): Uint8Array | undefined {
+    const hit = this.eager[path];
+    if (hit) return hit;
+    if (!this.sizes.has(path)) return undefined;
+    return unzipSync(this.bytes, { filter: (f) => f.name === path })[path];
+  }
+
+  /** data: URL d'un média ; encodé UNE fois par chemin, même s'il sert sur N diapositives. */
+  dataUri(path: string, mime: string): string | undefined {
+    const cached = this.uris.get(path);
+    if (cached !== undefined) return cached ?? undefined;
+    const size = this.sizes.get(path);
+    let uri: string | null = null;
+    if (size !== undefined) {
+      if (size > MAX_MEDIA_BYTES) {
+        this.skippedBig++;
+      } else if (this.total + size > PPTX_MAX_TOTAL_MEDIA_BYTES) {
+        this.skippedCap++;
+      } else {
+        const b = this.get(path);
+        if (b) {
+          this.total += size;
+          uri = `data:${mime};base64,${base64(b)}`;
+        }
+      }
+    }
+    this.uris.set(path, uri);
+    return uri ?? undefined;
+  }
+
+  /** Messages de synthèse, à émettre une fois l'import terminé. */
+  report(): void {
+    if (this.skippedBig)
+      this.opts.onSkipped?.(
+        `${this.skippedBig} média(s) dépassent ${mo(MAX_MEDIA_BYTES)} et n'ont pas été importés (images, audio ou vidéo trop lourds).`,
+      );
+    if (this.skippedCap)
+      this.opts.onSkipped?.(
+        `Plafond de ${mo(PPTX_MAX_TOTAL_MEDIA_BYTES)} de médias atteint : ${this.skippedCap} média(s) n'ont pas été importés.`,
+      );
+  }
 }
 
 function phOf(block: string): { type?: string; idx?: string } | null {
@@ -617,10 +691,10 @@ function parseMediaPic(block: string, pc: ParseCtx, g: Geom): SlideElement | nul
   const target = pc.rels.get(embed ?? m[2]!) ?? pc.rels.get(m[2]!);
   if (!target) return null;
   const path = resolveMedia(target);
-  const bytes = pc.media[path];
-  if (!bytes) return null;
   const ext = path.split(".").pop() ?? "";
   const mime = mimeFromExt(ext);
+  const mediaSrc = pc.media.dataUri(path, mime);
+  if (!mediaSrc) return null;
   const st = /<p14:trim\b[^>]*\bst="(\d+)"/.exec(block)?.[1];
   const end = /<p14:trim\b[^>]*\bend="(\d+)"/.exec(block)?.[1];
   const name = attr(/<p:cNvPr\b[^>]*>/.exec(block)?.[0] ?? "", "descr") || undefined;
@@ -629,7 +703,7 @@ function parseMediaPic(block: string, pc: ParseCtx, g: Geom): SlideElement | nul
       type: "media",
       media: {
         kind: m[1] as "audio" | "video",
-        src: `data:${mime};base64,${base64(bytes)}`,
+        src: mediaSrc,
         mime,
         ...(name ? { name } : {}),
         ...(st ? { trimStart: Number(st) / 1000 } : {}),
@@ -651,8 +725,7 @@ function parsePic(block: string, pc: ParseCtx, tf: Tf): SlideElement | null {
     const target = pc.rels.get(rId);
     if (target) {
       const path = resolveMedia(target);
-      const bytes = pc.media[path];
-      if (bytes) src = `data:${mimeOf(path)};base64,${base64(bytes)}`;
+      src = pc.media.dataUri(path, mimeOf(path));
     }
   }
   if (!src) return null;
@@ -834,7 +907,7 @@ function parseGraphicFrame(block: string, pc: ParseCtx, tf: Tf): SlideElement | 
   if (/<c:chart\b/.test(block)) {
     const rId = attr(/<c:chart\b[^>]*\/?>/.exec(block)?.[0] ?? "", "r:id");
     const target = rId ? pc.rels.get(rId) : undefined;
-    const bytes = target ? pc.media[resolveMedia(target)] : undefined;
+    const bytes = target ? pc.media.get(resolveMedia(target)) : undefined;
     if (!bytes) return null;
     const { data, unsupportedLabel } = parseChart(strFromU8(bytes));
     if (unsupportedLabel) {
@@ -946,9 +1019,11 @@ function mimeOf(path: string): string {
           : "application/octet-stream";
 }
 function base64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
-  return typeof btoa !== "undefined" ? btoa(bin) : Buffer.from(bytes).toString("base64");
+  if (typeof btoa === "undefined") return Buffer.from(bytes).toString("base64");
+  // Par blocs : une concaténation octet par octet est quadratique sur une image de plusieurs Mo.
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 0x6000) parts.push(String.fromCharCode(...bytes.subarray(i, i + 0x6000)));
+  return btoa(parts.join(""));
 }
 
 function parseRels(xml: string | undefined): Map<string, string> {
@@ -1019,7 +1094,41 @@ function bgOf(xml: string, theme: ThemeCtx): string | undefined {
  *  (aire/nuage de points/radar/boursier/surface/combiné — no Élium equivalent),
  *  so the caller can surface an explicit warning instead of the chart being
  *  silently mislabeled or dropped. */
-export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => void): Deck {
+export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => void, opts: PptxImportOptions = {}): Deck {
+  const g = importCore(bytes, onWarning, opts);
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Même import, mais rend la main au navigateur entre les diapositives (aucune tâche longue). */
+export async function importPptxAsync(
+  bytes: Uint8Array,
+  onWarning?: (label: string) => void,
+  opts: PptxImportOptions = {},
+): Promise<Deck> {
+  const g = importCore(bytes, onWarning, opts);
+  let slice = performance.now();
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+    if (performance.now() - slice > 30) {
+      await new Promise<void>((res) => setTimeout(res, 0));
+      slice = performance.now();
+    }
+  }
+}
+
+function* importCore(
+  bytes: Uint8Array,
+  onWarning: ((label: string) => void) | undefined,
+  opts: PptxImportOptions,
+): Generator<void, Deck> {
+  if (bytes.length > PPTX_MAX_FILE_BYTES)
+    throw new PptxImportError(
+      `Ce fichier fait ${mo(bytes.length)} : au-delà de ${mo(PPTX_MAX_FILE_BYTES)}, l'import est refusé.`,
+    );
   const seen = new Set<string>();
   const warnOnce = onWarning
     ? (label: string) => {
@@ -1028,7 +1137,27 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
         onWarning(label);
       }
     : undefined;
-  const zip = unzipSync(bytes);
+  // 1er passage : annuaire du zip sans rien décompresser (tailles) ; 2e : seules les parties XML.
+  const sizes = new Map<string, number>();
+  let xmlBytes = 0;
+  const isXml = (n: string) => /\.(xml|rels)$/i.test(n);
+  try {
+    unzipSync(bytes, {
+      filter: (f) => {
+        sizes.set(f.name, f.originalSize);
+        if (isXml(f.name)) xmlBytes += f.originalSize;
+        return false;
+      },
+    });
+  } catch {
+    throw new PptxImportError("Ce fichier n'est pas une présentation PowerPoint (.pptx) lisible.");
+  }
+  if (xmlBytes > PPTX_MAX_XML_BYTES)
+    throw new PptxImportError(
+      `Le contenu de cette présentation est trop volumineux (${mo(xmlBytes)} de texte et de mise en page).`,
+    );
+  const zip = unzipSync(bytes, { filter: (f) => isXml(f.name) });
+  const media = new MediaSource(bytes, sizes, zip, opts);
   const text = (path: string | undefined): string | undefined =>
     path && zip[path] ? strFromU8(zip[path]!) : undefined;
 
@@ -1143,15 +1272,16 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
   }
 
   const slides: Slide[] = [];
-  slidePaths.forEach((path) => {
+  for (const path of slidePaths) {
+    yield;
     const xml = text(path);
-    if (!xml) return;
+    if (!xml) continue;
     const relsXml = text(relsOf(path));
     const rels = parseRels(relsXml);
     const layoutTarget = relOfType(relsXml, "/slideLayout");
     const inherit = inheritFor(layoutTarget ? resolveFrom(path, layoutTarget) : undefined);
     const spTree = /<p:spTree\b[^>]*>([\s\S]*)<\/p:spTree>/.exec(xml)?.[1] ?? "";
-    const elements = parseSpTree(spTree, { cx, cy, rels, media: zip, inherit, onWarning: warnOnce });
+    const elements = parseSpTree(spTree, { cx, cy, rels, media, inherit, onWarning: warnOnce });
     const bg = bgOf(xml, inherit.theme) ?? inherit.bg;
     const notesTarget = relOfType(relsXml, "/notesSlide");
     const notes = notesTarget ? parseNotes(text(resolveFrom(path, notesTarget)) ?? "") : "";
@@ -1182,7 +1312,8 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
       ...(attr(sld, "show") === "0" ? { hidden: true } : {}),
       ...(layoutId ? { layoutId } : {}),
     });
-  });
+  }
+  media.report();
 
   if (!slides.length)
     slides.push({ id: newSlideId(), title: "", body: "", bodyHtml: "", layout: "blank", elements: [] });
@@ -1190,6 +1321,14 @@ export function importPptx(bytes: Uint8Array, onWarning?: (label: string) => voi
 }
 
 /** Convenience wrapper for a File from an <input type="file">. */
-export async function importPptxFile(file: File, onWarning?: (label: string) => void): Promise<Deck> {
-  return importPptx(new Uint8Array(await file.arrayBuffer()), onWarning);
+export async function importPptxFile(
+  file: File,
+  onWarning?: (label: string) => void,
+  opts: PptxImportOptions = {},
+): Promise<Deck> {
+  if (file.size > PPTX_MAX_FILE_BYTES)
+    throw new PptxImportError(
+      `Ce fichier fait ${mo(file.size)} : au-delà de ${mo(PPTX_MAX_FILE_BYTES)}, l'import est refusé.`,
+    );
+  return importPptxAsync(new Uint8Array(await file.arrayBuffer()), onWarning, opts);
 }

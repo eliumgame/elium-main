@@ -95,9 +95,10 @@ import {
 } from "./model";
 import { ANIM_EFFECTS, ANIM_TRIGGERS, revealAt, maxStep } from "./playback";
 import { SLIDE_TEMPLATES, GRADIENT_PRESETS, SOLID_PRESETS, gradientCss } from "./templates";
-import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
-import { importPptxFile } from "./pptx-import";
+import { makeDelta, PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
+import { importPptxFile, PptxImportError } from "./pptx-import";
 import SlideCanvas, { themeDefaultBg } from "./canvas";
+import SlideThumb from "./SlideThumb";
 import { CtxMenu, ToolbarPopover, type MenuEntry } from "./ActionMenu";
 import { cloneElements } from "./selection";
 import MorphCanvas from "./MorphCanvas";
@@ -340,18 +341,29 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     if (!file || !store.replaceDeck) return;
     try {
       const unsupportedCharts: string[] = [];
-      store.replaceDeck(await importPptxFile(file, (label) => unsupportedCharts.push(label)));
+      const skipped: string[] = [];
+      store.replaceDeck(
+        await importPptxFile(file, (label) => unsupportedCharts.push(label), { onSkipped: (m) => skipped.push(m) }),
+      );
       setSelId(null);
-      if (unsupportedCharts.length) {
-        void dialogs.alert({
-          title: "Graphiques non importés",
-          message:
-            `Ce PowerPoint contient des graphiques de type ${unsupportedCharts.map((l) => `« ${l} »`).join(", ")} ` +
+      const notes: string[] = [];
+      if (unsupportedCharts.length)
+        notes.push(
+          `Ce PowerPoint contient des graphiques de type ${unsupportedCharts.map((l) => `« ${l} »`).join(", ")} ` +
             "qu'Élium ne sait pas encore reproduire (bar/ligne/camembert uniquement). Ils n'ont pas été importés.",
+        );
+      notes.push(...skipped);
+      if (notes.length)
+        void dialogs.alert({
+          title: unsupportedCharts.length && !skipped.length ? "Graphiques non importés" : "Import incomplet",
+          message: notes.join("\n\n"),
         });
-      }
-    } catch {
-      /* ignore an unreadable / invalid .pptx */
+    } catch (err) {
+      void dialogs.alert({
+        title: "Import PowerPoint impossible",
+        message:
+          err instanceof PptxImportError ? err.message : "Ce fichier n'a pas pu être lu comme présentation .pptx.",
+      });
     }
   };
   const cmd = (c: string, v?: string) => {
@@ -494,8 +506,27 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
   const navRef = useRef<{ next: () => void; prev: () => void }>({ next: () => {}, prev: () => {} });
   navRef.current = { next: goNext, prev: goPrev };
 
-  const bcDeck = () =>
+  // Diapositives déjà envoyées à la fenêtre orateur : on n'envoie ensuite que celles qui changent.
+  const sentRef = useRef(new Map<string, Slide>());
+  const sentMetaRef = useRef("");
+  const bcDeck = () => {
+    sentRef.current = new Map(deck.slides.map((s) => [s.id, s] as const));
+    sentMetaRef.current = `${theme}|${chrome.title}`;
     chanRef.current?.postMessage({ type: "deck", slides: deck.slides, theme, title: chrome.title } as PresenterMsg);
+  };
+  const bcDelta = () => {
+    const d = makeDelta(sentRef.current, deck.slides);
+    const meta = `${theme}|${chrome.title}`;
+    if (!d && meta === sentMetaRef.current) return;
+    sentMetaRef.current = meta;
+    chanRef.current?.postMessage({
+      type: "delta",
+      ids: d ? d.ids : deck.slides.map((s) => s.id),
+      changed: d ? d.changed : [],
+      theme,
+      title: chrome.title,
+    } as PresenterMsg);
+  };
   const bcPos = (present: boolean) =>
     chanRef.current?.postMessage({
       type: "pos",
@@ -568,7 +599,9 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presenterOn]);
   useEffect(() => {
-    if (presenterOn) bcDeck();
+    if (!presenterOn) return;
+    const t = setTimeout(bcDelta, 120); // regroupe les frappes ; n'envoie que les diapositives modifiées
+    return () => clearTimeout(t);
   }, [presenterOn, deck.slides, theme]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (presenterOn) bcPos(presenting);
@@ -1588,13 +1621,7 @@ export default function SlidesEditor({ store, chrome }: { store: DeckStore; chro
                       <span className="slide-thumb__num">{i + 1}</span>
                       {s.hidden && <span className="slide-thumb__hiddenmark">Masquée</span>}
                       <span className="sv-thumb__canvas">
-                        <SlideCanvas
-                          slide={s}
-                          elements={s.elements ?? elementsOf(s)}
-                          theme={theme}
-                          scale={90 / REF_H}
-                          slideNumber={i + 1}
-                        />
+                        <SlideThumb slide={s} theme={theme} scale={90 / REF_H} slideNumber={i + 1} />
                       </span>
                       {here.map((p, k) => (
                         <span key={k} className="dc-slides__peerdot" style={{ background: p.color }} title={p.name} />

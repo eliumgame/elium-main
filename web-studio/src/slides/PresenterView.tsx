@@ -10,7 +10,7 @@ import { Timer, ChevronLeft, ChevronRight, MonitorPlay } from "lucide-react";
 import SlideCanvas from "./canvas";
 import { elementsOf, REF_H, type Slide, type SlideTheme } from "./model";
 import { revealAt, maxStep } from "./playback";
-import { PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
+import { applyDelta, PRESENTER_CHANNEL, type PresenterMsg } from "./presenter-sync";
 import "./slides.css";
 
 function useMeasureScale(): [React.RefObject<HTMLDivElement>, number] {
@@ -39,6 +39,7 @@ export default function PresenterView() {
   const [ended, setEnded] = useState(false);
   const [now, setNow] = useState<number>(() => Date.now());
   const chan = useRef<BroadcastChannel | null>(null);
+  const slidesRef = useRef<Slide[]>([]);
 
   const nav = (dir: "next" | "prev") => chan.current?.postMessage({ type: "nav", dir } as PresenterMsg);
 
@@ -49,10 +50,19 @@ export default function PresenterView() {
     ch.onmessage = (e: MessageEvent) => {
       const m = e.data as PresenterMsg;
       if (m.type === "deck") {
+        slidesRef.current = m.slides;
         setSlides(m.slides);
         setTheme(m.theme);
         setTitle(m.title);
         setEnded(false);
+      } else if (m.type === "delta") {
+        const next = applyDelta(slidesRef.current, m);
+        if (next) {
+          slidesRef.current = next;
+          setSlides(next);
+          setTheme(m.theme);
+          setTitle(m.title);
+        } else ch.postMessage({ type: "ready" } as PresenterMsg); // diapositive inconnue : redemander le deck entier
       } else if (m.type === "pos") {
         setIdx(m.idx);
         setStep(m.step);

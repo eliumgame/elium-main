@@ -4,6 +4,7 @@
  * bibliothèque d'éléments vides à chaque clic sur « Nouveau ».
  */
 import type { Workbook } from "../sheet/model";
+import { estimateDeckChars } from "../slides/coop-deck";
 import { emptyDeck, withElements, type Deck } from "../slides/model";
 
 export function isWorkbookPristine(wb: Workbook): boolean {
@@ -31,5 +32,8 @@ function stripIds(v: unknown): unknown {
 const normalize = (d: Deck) => JSON.stringify(stripIds({ ...d, slides: d.slides.map(withElements) }));
 
 export function isDeckPristine(deck: Deck): boolean {
-  return normalize(deck) === normalize(emptyDeck());
+  const empty = emptyDeck();
+  // Sorties rapides : un deck vierge est minuscule — inutile de sérialiser un deck volumineux pour le savoir.
+  if (deck.slides.length !== empty.slides.length || estimateDeckChars(deck) > 50_000) return false;
+  return normalize(deck) === normalize(empty);
 }

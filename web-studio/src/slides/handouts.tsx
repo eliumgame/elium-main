@@ -29,7 +29,13 @@ export async function handoutsHtml(
   const slots = slotsFor(o.mode, size);
   const k = (w: number) => w / REF_W;
   const markup = new Map<number, string>();
+  let sliceStart = performance.now();
   for (const i of plan.keep) {
+    // Deck de centaines de diapositives : rendre la main au navigateur entre deux tranches de ~30 ms.
+    if (performance.now() - sliceStart > 30) {
+      await new Promise<void>((r) => setTimeout(r, 0));
+      sliceStart = performance.now();
+    }
     const slide = deck.slides[i]!;
     const elements = await Promise.all(
       elementsOf(slide).map(async (e) => (e.html ? { ...e, html: await renameStyles(e.html) } : e)),

@@ -8,7 +8,7 @@
  * editor's percentage coordinates to EMU on a 16:9 stage. Opens cleanly in
  * PowerPoint, LibreOffice Impress and Google Slides.
  */
-import { zipSync, strToU8 } from "fflate";
+import { zipSync, strToU8, type Zippable } from "fflate";
 import type {
   Deck,
   Slide,
@@ -54,12 +54,26 @@ function themeColors(theme: SlideTheme): { bg: string; title: string; body: stri
   return { bg: "FFFFFF", title: "0F172A", body: "334155" };
 }
 
+/** base64 → octets. Passe par le décodeur natif quand il existe (nettement plus rapide que atob + boucle). */
+function b64ToBytes(b64: string): Uint8Array {
+  const native = (Uint8Array as unknown as { fromBase64?: (s: string) => Uint8Array }).fromBase64;
+  if (native) {
+    try {
+      return native.call(Uint8Array, b64);
+    } catch {
+      /* base64 imparfait : retomber sur atob, plus tolérant */
+    }
+  }
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; ext: string } | null {
   const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl);
   if (!m) return null;
-  const bin = atob(m[2]);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bytes = b64ToBytes(m[2]);
   const mime = m[1];
   const ext = mime.includes("png") ? "png" : mime.includes("gif") ? "gif" : "jpeg";
   return { bytes, ext };
@@ -467,12 +481,13 @@ function elementXml(
     const mm = el.media;
     const m = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(mm.src);
     if (!m) return null;
-    const bin = atob(m[2]!);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const { ext } = mediaExt(mm.mime || m[1]!);
-    const name = `media${media.length + 1}.${ext}`;
-    media.push({ name, bytes });
+    let name = _mediaNames.get(mm.src);
+    if (!name) {
+      name = `media${media.length + 1}.${ext}`;
+      media.push({ name, bytes: b64ToBytes(m[2]!) });
+      _mediaNames.set(mm.src, name);
+    }
     const link = addSlideRel(`../media/${name}`, mm.kind === "video" ? T.video : T.audio);
     const embed = addSlideRel(`../media/${name}`, T.msMedia);
     const poster = addImage(POSTER_PNG, media);
@@ -753,6 +768,8 @@ function slideXml(
 let _slideRels: { rId: string; target: string; type: string }[] = [];
 // Chart parts collected across the whole deck (global names chart1.xml, …).
 let _charts: { name: string; xml: string }[] = [];
+/** Médias déjà décodés pour l'export en cours (clé : data URL) → nom du fichier dans le zip. */
+let _mediaNames = new Map<string, string>();
 /** Vignette d'affiche d'un média (PNG 1×1 sombre, étirée) : PowerPoint exige une image d'aperçu. */
 const POSTER_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -762,10 +779,15 @@ function addSlideRel(target: string, type: string): string {
   return rId;
 }
 function addImage(dataUrl: string, media: { name: string; bytes: Uint8Array }[]): string | null {
-  const dec = dataUrlToBytes(dataUrl);
-  if (!dec) return null;
-  const name = `image${media.length + 1}.${dec.ext}`; // global monotonic name
-  media.push({ name, bytes: dec.bytes });
+  // Une même image sur N diapositives n'est décodée et stockée qu'une fois.
+  let name = _mediaNames.get(dataUrl);
+  if (!name) {
+    const dec = dataUrlToBytes(dataUrl);
+    if (!dec) return null;
+    name = `image${media.length + 1}.${dec.ext}`; // global monotonic name
+    media.push({ name, bytes: dec.bytes });
+    _mediaNames.set(dataUrl, name);
+  }
   const rId = `rId${_slideRels.length + 2}`; // rId1 is the layout (per-slide)
   _slideRels.push({ rId, target: `../media/${name}`, type: T.image });
   return rId;
@@ -1021,8 +1043,9 @@ function notesSlideXml(text: string): string {
 export function deckToPptx(deck: Deck): Uint8Array {
   _slideRels = [];
   _charts = [];
+  _mediaNames = new Map();
   const media: { name: string; bytes: Uint8Array }[] = [];
-  const files: Record<string, Uint8Array> = {};
+  const files: Zippable = {};
   const n = deck.slides.length;
   const master = deck.master ?? defaultMaster();
   const layouts = master.layouts;
@@ -1074,7 +1097,8 @@ export function deckToPptx(deck: Deck): Uint8Array {
   for (const m of media) {
     if (seen.has(m.name)) continue;
     seen.add(m.name);
-    files[`ppt/media/${m.name}`] = m.bytes;
+    // PNG/JPEG/GIF/audio/vidéo sont déjà compressés : les stocker tels quels évite un deflate de plusieurs Mo.
+    files[`ppt/media/${m.name}`] = /\.svg$/i.test(m.name) ? m.bytes : [m.bytes, { level: 0 }];
   }
 
   // Presentation part.

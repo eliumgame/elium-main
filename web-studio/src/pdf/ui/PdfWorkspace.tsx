@@ -47,7 +47,8 @@ import { isEmptyValue, sameFormValue } from "../core/forms/values";
 import { loadViewerLib } from "../core/viewer/lib";
 import { fitScale } from "../core/viewer/layout";
 import { buildRuns, groupLines, quadsForCharRange, quadsFromSelection, selectionTextIn } from "../core/text";
-import { DEFAULT_SEARCH_OPTIONS, search as runSearch, type SearchHit } from "../core/search";
+import { DEFAULT_SEARCH_OPTIONS, type SearchHit } from "../core/search";
+import { searchAsync, RegexTooComplexError } from "../worker/search-client";
 import * as D from "../model/doc";
 import type {
   Annot,
@@ -159,7 +160,6 @@ import type { FdfPageBox } from "../ops/fdfcomments";
 import {
   hasImportableAnnots,
   importPageAnnots,
-  resolveAnnotExtras,
   withExtras,
   type AnnotExtras,
   type RawAnnotation,
@@ -173,6 +173,7 @@ import {
   OcrCancelled,
 } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
+import { resolveAnnotExtrasAsync } from "../worker/pdf-worker-client";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";
@@ -733,7 +734,9 @@ export default function PdfWorkspace({
       // /Name, /NM, /RC, redaction overlay…) needs a separate walk of the
       // source bytes with pdf-lib — only when there is something to import.
       const extras = raws.size
-        ? await resolveAnnotExtras(next.bytes, next.password).catch(() => new Map<number, Map<string, AnnotExtras>>())
+        ? await resolveAnnotExtrasAsync(next.bytes, next.password).catch(
+            () => new Map<number, Map<string, AnnotExtras>>(),
+          )
         : null;
       if (gen !== shownGeneration.current) return null;
 
@@ -1847,13 +1850,25 @@ export default function PdfWorkspace({
       }
       const texts = await ensureText();
       if (run !== searchRun.current) return;
-      const raw = runSearch(texts, query, {
-        ...DEFAULT_SEARCH_OPTIONS,
-        caseSensitive: searchState.caseSensitive,
-        wholeWord: searchState.wholeWord,
-        regex: searchState.regex,
-        ignoreDiacritics: searchState.ignoreDiacritics,
-      });
+      let raw: SearchHit[];
+      try {
+        raw = await searchAsync(texts, query, {
+          ...DEFAULT_SEARCH_OPTIONS,
+          caseSensitive: searchState.caseSensitive,
+          wholeWord: searchState.wholeWord,
+          regex: searchState.regex,
+          ignoreDiacritics: searchState.ignoreDiacritics,
+        });
+      } catch (e) {
+        if (run === searchRun.current && e instanceof RegexTooComplexError) {
+          setHits([]);
+          setHitQuads(new Map());
+          setSearchState((s) => ({ ...s, index: -1 }));
+          toast("warning", e.message);
+        }
+        return;
+      }
+      if (run !== searchRun.current) return;
       // The document as it is now: its pages' order, not the file's; nothing
       // from a deleted page (a duplicated page answers once, where it first is).
       const at = new Map<number, number>();
@@ -1883,6 +1898,7 @@ export default function PdfWorkspace({
       pages,
       goTo,
       currentStore,
+      toast,
     ],
   );
 
@@ -7488,12 +7504,14 @@ export default function PdfWorkspace({
               const { REDACT_PATTERNS } = await import("../ops/redactpatterns");
               const preset = v.preset ? REDACT_PATTERNS.find((p) => p.id === v.preset) : undefined;
               // A pattern's check keeps only real numbers (a key, Luhn), trimmed to their valid part.
-              const found = runSearch(texts, v.query, {
-                caseSensitive: v.caseSensitive,
-                wholeWord: v.wholeWord,
-                regex: v.regex,
-                ignoreDiacritics: true,
-              }).flatMap((h) => {
+              const found = (
+                await searchAsync(texts, v.query, {
+                  caseSensitive: v.caseSensitive,
+                  wholeWord: v.wholeWord,
+                  regex: v.regex,
+                  ignoreDiacritics: true,
+                })
+              ).flatMap((h) => {
                 if (!preset?.validRange) return [h];
                 const r = preset.validRange(texts[h.page].slice(h.start, h.end));
                 return r ? [{ ...h, start: h.start + r.start, end: h.start + r.start + r.length }] : [];

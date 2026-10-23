@@ -237,6 +237,22 @@ export function digest(hash: HashName, data: Uint8Array): Uint8Array {
   }
 }
 
+/**
+ * Empreinte d'un fichier entier (plusieurs dizaines de Mo à signer ou vérifier) : `crypto.subtle`
+ * (natif, hors du fil JS) quand il existe ; le hachage noble synchrone n'est que le repli.
+ */
+export async function digestAsync(hash: HashName, data: Uint8Array): Promise<Uint8Array> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    try {
+      return new Uint8Array(await subtle.digest(hash, data as BufferSource));
+    } catch {
+      /* repli ci-dessous */
+    }
+  }
+  return digest(hash, data);
+}
+
 function pdfDate(d: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
   return `D:${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
@@ -1086,7 +1102,7 @@ export async function signPdfWith(
   covered.set(out.subarray(gtAbs), ltAbs);
   const cms = await buildCms(
     m,
-    digest(m.hash, covered),
+    await digestAsync(m.hash, covered),
     opts.tsaUrl ? tsaClient(opts.tsaUrl, opts.tsaFetch) : undefined,
   );
   const hex = hexOf(cms).toUpperCase();

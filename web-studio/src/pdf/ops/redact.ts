@@ -9,6 +9,7 @@
  * are unlinked, and only then is the opaque box painted on top.
  */
 
+import { yieldToMain } from "../../workers/yield";
 import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, decodePDFRawStream } from "pdf-lib";
 import type { PDFDocument, PDFObject, PDFPage } from "pdf-lib";
 import type { Mat, Op, Operand } from "../core/contentstream";
@@ -938,6 +939,7 @@ async function redactImage(
   };
 
   if (filters.length === 1 && filters[0] === "/DCTDecode") {
+    await yieldToMain();
     const rgba = await decodeJpeg(xo.getContents());
     if (!rgba || rgba.width !== W || rgba.height !== H) return null;
     const px = new Uint8Array(W * H * 3);
@@ -960,6 +962,7 @@ async function redactImage(
   const comps = mask ? 1 : componentsOf(d.lookup(PDFName.of("ColorSpace")), doc);
   if (!bpc || !comps || ![1, 2, 4, 8, 16].includes(bpc)) return null;
   const rowBytes = Math.ceil((W * comps * bpc) / 8);
+  await yieldToMain();
   let data: Uint8Array;
   try {
     data = filters.length ? decodePDFRawStream(xo).decode() : xo.getContents().slice();
@@ -969,6 +972,7 @@ async function redactImage(
   const parms = d.lookup(PDFName.of("DecodeParms"));
   const pred = parms instanceof PDFDict ? parms.lookup(PDFName.of("Predictor")) : undefined;
   const predictor = pred instanceof PDFNumber ? pred.asNumber() : 1;
+  await yieldToMain();
   if (predictor >= 10) data = unPng(data, rowBytes, Math.max(1, Math.ceil((comps * bpc) / 8)), H);
   else if (predictor !== 1) return null;
   if (data.length < rowBytes * H) return null;

@@ -377,6 +377,22 @@ const BORDER_CSS: Record<string, string> = {
   double: "3px double",
 };
 
+/** Plafonds de la mise en page d'une feuille en PDF (une seule table HTML, formules recalculées cellule par cellule). */
+export const MAX_PDF_SHEET_ROWS = 20_000;
+export const MAX_PDF_SHEET_CELLS = 400_000;
+
+/** Refuse, avec un message clair, une feuille trop grande pour tenir en un PDF sans figer l'interface. */
+export function assertSheetPrintable(sheet: SheetData): void {
+  const range = usedRange(sheet);
+  if (!range) return;
+  if (range.rows > MAX_PDF_SHEET_ROWS || range.rows * range.cols > MAX_PDF_SHEET_CELLS)
+    throw new Error(
+      `La feuille « ${sheet.name} » est trop grande pour être convertie en PDF (${range.rows.toLocaleString("fr-FR")} lignes × ${range.cols} colonnes ; ` +
+        `maximum ${MAX_PDF_SHEET_ROWS.toLocaleString("fr-FR")} lignes et ${MAX_PDF_SHEET_CELLS.toLocaleString("fr-FR")} cellules). ` +
+        "Réduisez la zone utilisée ou exportez une plage plus petite.",
+    );
+}
+
 /** One sheet's used range as an HTML table: column widths, row heights, merges, styles, values as displayed. */
 export function sheetToHtml(
   wb: Workbook,
@@ -491,6 +507,7 @@ export const SHEET_CSS = `body{font-family:Calibri,Carlito,Arial,sans-serif;font
 export function workbookSource(wb: Workbook, name: string, orientation?: CreateOrientation): HtmlSource {
   const sections: string[] = [];
   let widest = 0;
+  for (const sheet of wb.sheets) assertSheetPrintable(sheet);
   wb.sheets.forEach((sheet, i) => {
     const t = sheetToHtml(wb, i);
     if (!t) return;
@@ -881,6 +898,9 @@ export async function sourceToHtml(
   }
 }
 
+/** Texte, Markdown ou HTML : au-delà, la mesure mot par mot de la mise en page dépasserait la minute. */
+export const MAX_TEXT_PDF_BYTES = 25 * 1048576;
+
 /**
  * Make a PDF of a Word, Excel, PowerPoint, HTML, text, Markdown or Elium file.
  * Runs in the browser (the pages are laid out and drawn by it). Throws with a
@@ -894,6 +914,10 @@ export async function createPdfFromFile(file: File, opts: CreatePdfOptions = {})
   const name = `${baseName(file.name)}.pdf`;
   opts.onProgress?.({ done: 0, total: 1, stage: "Lecture du fichier…" });
   if (kind === "text") {
+    if (bytes.length > MAX_TEXT_PDF_BYTES)
+      throw new Error(
+        `Ce fichier texte est trop volumineux pour être converti en PDF (${Math.round(bytes.length / 1048576)} Mo, maximum ${MAX_TEXT_PDF_BYTES / 1048576} Mo).`,
+      );
     const title = baseName(file.name);
     const pdf = await textToPdfDocument(decodeText(bytes), title, opts.orientation);
     const pageCount = (await PDFDocument.load(pdf, { updateMetadata: false })).getPageCount();

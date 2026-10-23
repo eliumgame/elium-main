@@ -24,6 +24,7 @@
 
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFPage, PDFRef, PDFString } from "pdf-lib";
 import type { PDFObject } from "pdf-lib";
+import { createYielder, yieldToMain } from "../../workers/yield";
 import type { Rect } from "../core/coords";
 import type {
   Annot,
@@ -359,7 +360,9 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
 
   step("Ouverture du document", 0.02);
   const buildBytes = input.base ?? input.source;
+  await yieldToMain();
   const work = await openWorking(buildBytes, opts.password);
+  await yieldToMain();
   const { doc } = work;
   const sourcePageCount = doc.getPageCount();
 
@@ -394,7 +397,9 @@ export async function savePdf(input: SaveInput): Promise<SaveResult> {
   if (input.transform) await input.transform(doc, report);
 
   step("Écriture du fichier", 0.92);
+  await yieldToMain();
   await doc.flush();
+  await yieldToMain();
   let bytes: Uint8Array;
   let next: DiskState;
 
@@ -598,7 +603,9 @@ async function applyState(
   }
 
   step("Application des modifications de contenu", 0.2);
+  const tick = createYielder();
   for (const [index, { page, model }] of targets.entries()) {
+    await tick();
     const frame = pageFrame(page);
     const where = `page ${index + 1}`;
 
@@ -723,6 +730,7 @@ async function applyState(
   // the area is not written back (its replies and pop-up go with it).
   const underRedaction = opts.applyRedactions ? annotsUnderRedaction(state.annots) : new Set<string>();
   for (const { page, model } of targets) {
+    await tick();
     const frame = pageFrame(page);
     const ctx: PaintContext = {
       doc,
@@ -903,6 +911,7 @@ async function applyState(
   };
   const plan = planMarks(state, targets.length);
   for (let i = 0; i < targets.length; i++) {
+    await tick();
     const { page } = targets[i];
     if (state.stripMarks) stripPageMarks(doc, page);
     await decoratePage(page, pageFrame(page), i, state, plan, decorateCtx);

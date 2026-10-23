@@ -421,12 +421,26 @@ export function revisionCount(bytes: Uint8Array): number {
  * (ordinary approval signatures allow any incremental update).
  */
 export function certificationLevel(bytes: Uint8Array): 1 | 2 | 3 | null {
-  const text = latin1(bytes, 0, bytes.length);
-  const re = /\/TransformMethod\s*\/DocMDP/g;
-  let m: RegExpExecArray | null;
+  // Pas de conversion du fichier entier en chaîne : on repère « DocMDP » avec le balayage natif
+  // d'un octet rare, et on ne décode en texte que les fenêtres autour des occurrences.
+  const needle = "DocMDP";
   let level: 1 | 2 | 3 | null = null;
-  while ((m = re.exec(text))) {
-    const around = text.slice(Math.max(0, m.index - 600), m.index + 600);
+  for (let at = bytes.indexOf(0x4d /* M */); at >= 0; at = bytes.indexOf(0x4d, at + 1)) {
+    const i = at - 3; // « DocMDP » : le M est en 4e position
+    if (i < 0 || i + needle.length > bytes.length) continue;
+    let hit = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (bytes[i + j] !== needle.charCodeAt(j)) {
+        hit = false;
+        break;
+      }
+    }
+    if (!hit) continue;
+    const lead = latin1(bytes, Math.max(0, i - 200), i + needle.length);
+    const tm = /\/TransformMethod\s*\/DocMDP$/.exec(lead);
+    if (!tm) continue;
+    const start = Math.max(0, i - 200) + tm.index;
+    const around = latin1(bytes, Math.max(0, start - 600), start + 600);
     const params = /\/TransformParams\s*<<([\s\S]*?)>>/.exec(around);
     const p = params ? /\/P\s+([123])\b/.exec(params[1]) : null;
     const found = (p ? parseInt(p[1], 10) : 2) as 1 | 2 | 3; // ISO 32000: /P defaults to 2

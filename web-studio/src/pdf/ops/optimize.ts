@@ -22,6 +22,7 @@ import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream 
 import type { PDFDocument, PDFObject } from "pdf-lib";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { canvasToBlob } from "../core/render";
+import { createYielder } from "../../workers/yield";
 import { unPng } from "./redact";
 import { withoutExif } from "./imagefile";
 
@@ -212,7 +213,9 @@ export async function optimiseDocument(
     if (m instanceof PDFRef) masks.add(m.toString());
   }
 
+  const tick = createYielder();
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    await tick();
     if (!(obj instanceof PDFStream)) continue;
     if (masks.has(ref.toString())) continue;
     const dict = (obj as unknown as { dict: PDFDict }).dict;

@@ -28,6 +28,9 @@ export default defineConfig({
       },
     },
   },
+  // Workers en modules ES : un worker qui charge des modules à la demande (pdf-lib…) ne peut pas être
+  // empaqueté en IIFE (« UMD and IIFE output formats are not supported for code-splitting builds »).
+  worker: { format: "es" },
   build: {
     target: "esnext",
     rollupOptions: {

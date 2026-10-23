@@ -61,7 +61,11 @@ const ALTERNATIVES = [
 // sauvegarde de l'espace de travail dans le Drive (fournisseur de session Drive désormais à la racine,
 // +~50 Ko dans le bundle principal).
 // 7,1 Mo → 7,2 Mo : Passeport E4 — annexes, import et analyse des fiches, PDF fidèles (polices Carlito, moteur pdf-lib).
-const TOTAL_JS_BUDGET_BYTES = 7_200_000;
+// 7,2 Mo → 8,2 Mo : garde-fous anti-gel (4.16 → 4.26) — lecteur XLSX en flux, Workers (import XLSX,
+// images PDF du Détecteur ~430 Ko dont une copie du moteur, pdf-lib, recherche), helper Worker commun, portail
+// du propriétaire, stockage en fichiers locaux, caches et découpages coopératifs. Les Workers ne chargent
+// qu'à la demande ; à surveiller : le worker d'images du Détecteur embarque son propre moteur.
+const TOTAL_JS_BUDGET_BYTES = 8_200_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

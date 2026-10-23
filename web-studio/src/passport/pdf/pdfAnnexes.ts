@@ -153,6 +153,8 @@ async function appendText(
 
 /** Au-delà, l'assemblage dans le navigateur devient trop lourd : l'annexe est signalée mais pas recopiée. */
 const MAX_INLINE_BYTES = 12 * 1024 * 1024;
+/** Total cumulé des annexes recopiées : au-delà, les suivantes sont seulement signalées. */
+const MAX_TOTAL_INLINE_BYTES = 48 * 1024 * 1024;
 
 export async function appendAnnexes(
   doc: PDFDocument,
@@ -161,6 +163,7 @@ export async function appendAnnexes(
   bytesOf: (id: string) => Uint8Array | undefined,
 ): Promise<void> {
   let n = 0;
+  let inlined = 0;
   for (const a of s.annexes) {
     n++;
     // Laisse respirer l'interface entre deux annexes (l'assemblage d'un gros PDF bloque le fil principal).
@@ -188,6 +191,18 @@ export async function appendAnnexes(
       );
       continue;
     }
+    if (inlined + bytes.length > MAX_TOTAL_INLINE_BYTES) {
+      cover(
+        doc,
+        fonts,
+        s,
+        a,
+        n,
+        `Total des annexes trop volumineux pour le dossier PDF (plus de ${MAX_TOTAL_INLINE_BYTES / 1048576} Mo) : joignez ce fichier séparément.`,
+      );
+      continue;
+    }
+    inlined += bytes.length;
     const isPdf = a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
     const isImg = /^image\/(png|jpe?g)$/.test(a.mime) || /\.(png|jpe?g)$/i.test(a.name);
     const isTxt = /^text\//.test(a.mime) || /\.(txt|csv|md)$/i.test(a.name);

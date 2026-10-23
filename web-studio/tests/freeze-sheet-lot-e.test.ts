@@ -200,3 +200,13 @@ describe("relecture coopérative d'un gros classeur", () => {
     expect(await parseJsonCooperative<{ a: number }>('{"a":1}')).toEqual({ a: 1 });
   });
 });
+
+describe("recherche : expressions régulières à backtracking", () => {
+  it("refuse les quantificateurs imbriqués, accepte les motifs ordinaires", async () => {
+    const { buildPattern } = await import("../src/sheet/datatools");
+    expect("error" in buildPattern({ find: "(a+)+$", regex: true } as never)).toBe(true);
+    expect("error" in buildPattern({ find: "(x*)*", regex: true } as never)).toBe(true);
+    expect("error" in buildPattern({ find: "^[a-z]+\d{2}$", regex: true } as never)).toBe(false);
+    expect("error" in buildPattern({ find: "(ab)+c", regex: true } as never)).toBe(false);
+  });
+});

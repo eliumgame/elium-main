@@ -176,9 +176,17 @@ export interface FindMatch {
   text: string;
 }
 
+/** Groupe contenant un quantificateur, lui-même répété : source classique de backtracking catastrophique. */
+const NESTED_QUANTIFIER = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*{]/;
+
 /** Construit le motif ; renvoie un message d'erreur français si l'expression régulière est invalide. */
 export function buildPattern(o: FindOptions): { re: RegExp } | { error: string } {
   if (!o.find) return { error: "Saisissez un texte à rechercher." };
+  if (o.regex && NESTED_QUANTIFIER.test(o.find))
+    return {
+      error:
+        "Cette expression régulière (quantificateurs imbriqués comme « (a+)+ ») peut bloquer l'application : simplifiez-la.",
+    };
   const src = o.regex ? o.find : o.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   try {
     const body = o.wholeCell ? `^(?:${src})$` : src;

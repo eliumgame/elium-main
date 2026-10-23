@@ -14,6 +14,7 @@
  * Separate database from the version history store to avoid IndexedDB version
  * coordination between the two independent features.
  */
+import { readProjected } from "./idb-cursor";
 import {
   encryptAtRest,
   decryptAtRest,
@@ -118,9 +119,14 @@ export async function putDriveDoc(
  * click, etc.).
  */
 export async function listDriveDocs(vaultSecret?: VaultSecret): Promise<ResolvedDriveEntry[]> {
-  const all = await run<DriveDoc[]>("readonly", (s) => s.getAll());
+  // Par curseur, sans les octets : seules les métadonnées de chaque document sont conservées.
+  const all = await readProjected<DriveDoc, Omit<DriveDoc, "bytes" | "encBytes">>(
+    openDb,
+    STORE,
+    ({ bytes: _bytes, encBytes: _encBytes, ...meta }) => meta,
+  );
   const out: ResolvedDriveEntry[] = [];
-  for (const { bytes: _bytes, encBytes: _encBytes, ...meta } of all) {
+  for (const meta of all) {
     if (!meta.vaultProtected) {
       out.push({ ...meta, title: meta.title!, profile: meta.profile! });
       continue;

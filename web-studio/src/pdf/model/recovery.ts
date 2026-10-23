@@ -37,6 +37,7 @@ import type { FsFileHandle } from "../core/destination";
 import type { PdfState } from "./types";
 
 import { openMigrated } from "../../format/idb-migrate";
+import { readProjected } from "../../format/idb-cursor";
 import { PDF_RECOVERY_SPEC } from "../../format/db-specs";
 const STORE = "drafts";
 const SOURCES = "sources";
@@ -272,19 +273,19 @@ export async function deletePdfDraft(id: string): Promise<void> {
 
 /** Drafts, newest first (metadata only — kept sources live in another store and are never read here). */
 export async function listPdfDrafts(): Promise<PdfDraftEntry[]> {
-  const all = await run<PdfDraft[]>(STORE, "readonly", (s) => s.getAll());
-  return all
-    .map(
-      ({ state: _s, sealed: _x, enc: _e, source: _src, sourceEnc: _se, ...meta }) => (
-        void _s,
-        void _x,
-        void _e,
-        void _src,
-        void _se,
-        meta
-      ),
-    )
-    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  const all = await readProjected<PdfDraft, PdfDraftEntry>(
+    openDb,
+    STORE,
+    ({ state: _s, sealed: _x, enc: _e, source: _src, sourceEnc: _se, ...meta }) => (
+      void _s,
+      void _x,
+      void _e,
+      void _src,
+      void _se,
+      meta
+    ),
+  );
+  return all.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
 /** True when a state carries edits worth recovering (not just a freshly opened file). */

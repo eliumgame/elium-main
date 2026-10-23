@@ -18,6 +18,7 @@ import type { EliumProfile, PageSettings, ProseMirrorNode } from "./types";
 import { encryptAtRest, decryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
 
 import { openMigrated } from "./idb-migrate";
+import { readProjected } from "./idb-cursor";
 import { DRAFTS_SPEC } from "./db-specs";
 const STORE = "drafts";
 
@@ -124,14 +125,16 @@ export async function putDraft(input: Parameters<typeof buildDraftRecord>[0]): P
 
 /** All draft entries (metadata only — never the encrypted or plaintext content), newest first. */
 export async function listDrafts(): Promise<DraftEntry[]> {
-  const all = await run<DraftDoc[]>("readonly", (s) => s.getAll());
-  return all
-    .map(({ doc: _doc, page: _page, docx: _docx, enc: _enc, ...meta }) => ({
+  const all = await readProjected<DraftDoc, DraftEntry>(
+    openDb,
+    STORE,
+    ({ doc: _doc, page: _page, docx: _docx, enc: _enc, ...meta }) => ({
       ...meta,
       legacy: typeof meta.protected !== "boolean",
       protected: !!meta.protected,
-    }))
-    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    }),
+  );
+  return all.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
 export async function getDraft(id: string): Promise<DraftDoc | undefined> {

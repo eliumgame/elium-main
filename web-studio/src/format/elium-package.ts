@@ -124,6 +124,26 @@ const MAX_JSON_DEPTH = 200; // refuse un JSON pathologiquement imbriqué
 
 export class EliumPackageError extends Error {}
 
+const mo = (n: number) => `${Math.ceil(n / 1048576)} Mo`;
+
+/**
+ * Refuse à l'ÉCRITURE ce que le lecteur refuserait à la relecture (protection anti-bombe) : sans cela
+ * un gros PDF (le base64 ajoute un tiers) s'enregistrerait, puis ne se rouvrirait plus.
+ */
+export function assertEliumEntrySize(name: string, bytes: number): void {
+  if (bytes > MAX_ENTRY_BYTES)
+    throw new EliumPackageError(
+      `Ce document est trop volumineux pour le format .elium : « ${name} » fait ${mo(bytes)} (maximum ${mo(MAX_ENTRY_BYTES)} par élément ; ` +
+        "pour un PDF, comptez environ 96 Mo de fichier d'origine). Enregistrez-le plutôt au format PDF.",
+    );
+}
+function assertEliumTotalSize(bytes: number): void {
+  if (bytes > MAX_TOTAL_BYTES)
+    throw new EliumPackageError(
+      `Ce document est trop volumineux pour le format .elium (${mo(bytes)} décompressés, maximum ${mo(MAX_TOTAL_BYTES)}).`,
+    );
+}
+
 /** Garde de profondeur JSON (ignore les crochets à l'intérieur des chaînes),
  *  miroir de `_json_depth_ok` en Python. Défend `JSON.parse` contre une
  *  structure pathologiquement imbriquée AVANT de la parser. */
@@ -260,6 +280,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
           } satisfies SecureEnvelope),
         )
       : strToU8(JSON.stringify(file.document));
+    assertEliumEntrySize("contenu", payload.length);
     if (useRecipients) {
       // Recipient envelope replaces the password container as the body cipher.
       // secure_max cascades a ChaCha20-Poly1305 layer here too, same as the
@@ -279,6 +300,7 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
     }
   } else {
     contentBytes = strToU8(JSON.stringify(file.document));
+    assertEliumEntrySize("contenu", contentBytes.length);
   }
 
   const contentHash = await sha256Hex(contentBytes);
@@ -318,8 +340,14 @@ export async function writeEliumPackage(file: EliumFile, opts: WriteOptions = {}
   for (const res of resIndex) {
     const bytes = file.resources.get(res.id);
     // Ressources (PNG/JPEG/polices) déjà compressées → STORED (gain CPU/taille).
-    if (bytes) files[`resources/${res.id}`] = [bytes, { level: 0 }];
+    if (bytes) {
+      assertEliumEntrySize(`resources/${res.id}`, bytes.length);
+      files[`resources/${res.id}`] = [bytes, { level: 0 }];
+    }
   }
+  let total = 0;
+  for (const v of Object.values(files)) total += (Array.isArray(v) ? v[0] : v).length;
+  assertEliumTotalSize(total);
 
   return zipSync(files as Record<string, Uint8Array>);
 }

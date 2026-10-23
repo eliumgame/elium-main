@@ -7,8 +7,8 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Eye, EyeOff, FolderPlus, Trash2 } from "lucide-react";
 import "./sorter.css";
-import SlideCanvas from "./canvas";
-import { elementsOf, REF_H, type SlideTheme } from "./model";
+import SlideThumb from "./SlideThumb";
+import { REF_H, type SlideTheme } from "./model";
 import {
   addSectionAt,
   hiddenCount,
@@ -151,9 +151,8 @@ export default function SlideSorter({
                         >
                           <span className="slide-thumb__num">{i + 1}</span>
                           {s.hidden && <span className="sorter__badge">Masquée</span>}
-                          <SlideCanvas
+                          <SlideThumb
                             slide={s}
-                            elements={s.elements ?? elementsOf(s)}
                             theme={theme}
                             scale={THUMB_W / (REF_H * (16 / 9))}
                             slideNumber={i + 1}

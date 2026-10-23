@@ -1019,6 +1019,11 @@
 }
 
 /* --- Rail thumbnails ------------------------------------------------------ */
+.lazy-thumb {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
 .sv-thumb {
   display: flex;
   align-items: center;

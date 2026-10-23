@@ -2,6 +2,14 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.23.0 — anti-gel lot C (PDF, Détecteur, format)
+
+- **Helper Worker commun** (`web-studio/src/workers/`) : progression, annulation, délai maximal, plafond d'entrée et repli en ligne, pour que chaque module sorte ses calculs lourds du fil principal.
+- **PDF** : la recherche par expression régulière tourne dans un Worker terminé au-delà de 2,5 s (un motif catastrophique comme `(a+)+$` figeait l'onglet ; il affiche maintenant un message clair) ; lecture des annotations enrichies à l'ouverture dans un Worker ; l'enregistrement, le caviardage et l'optimisation cèdent la main entre les pages et les images ; signature et détection de certification sans conversion du fichier entier en texte ; conversion en PDF plafonnée (feuilles de plus de 20 000 lignes, texte de plus de 25 Mo) avec message explicite.
+- **Format .elium** : un document trop gros est refusé à l'enregistrement avec un message clair, au lieu d'être écrit puis refusé à la réouverture.
+- **Stockage** : les listes de la bibliothèque, des brouillons et des reprises lisent les métadonnées par curseur, sans charger les octets de tous les documents.
+- **Détecteur** : l'extraction des images d'un PDF se fait dans un Worker réellement interrompable ; plafonds pour les .docx (taille et bombe de décompression) ; empreintes C2PA natives ; découpe en phrases en temps linéaire.
+
 ### Version 4.21.1 — reprise automatique après une mise à jour
 
 - Une page restée ouverte pendant une mise à jour ne montre plus « Elium a rencontré un problème » (« Failed to fetch dynamically imported module ») au prochain module ouvert : Elium recharge tout seul, une fois ; les autosauvegardes sont conservées.

@@ -16,7 +16,14 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { LIST_SCHEMES, schemeById } from "./listSchemes";
-import { collectTargets, newAnchorId, referenceLabel, type RefDisplay, type RefTarget } from "./crossref";
+import {
+  collectTargets,
+  targetsByAnchor,
+  newAnchorId,
+  referenceLabel,
+  type RefDisplay,
+  type RefTarget,
+} from "./crossref";
 import { buildIndex } from "./indexing";
 import { sectionBreakLabelFor, type SectionBreakKind } from "./sections";
 
@@ -468,8 +475,7 @@ export const CrossReference = Node.create({
       const render = (current: PMNode) => {
         const id = String(current.attrs.targetId ?? "");
         const display = String(current.attrs.display ?? "text") as RefDisplay;
-        const targets = collectTargets(editor.state.doc);
-        const target = targets.find((t) => t.anchorId === id);
+        const target = targetsByAnchor(editor.state.doc).get(id);
         dom.href = `#${id}`;
         dom.setAttribute("data-crossref-target", id);
         if (!target) {

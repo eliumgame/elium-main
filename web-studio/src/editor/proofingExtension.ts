@@ -12,7 +12,9 @@
  */
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { touchedTextblocks, updateDecorations, type BlockRef } from "./incremental-decos";
 import { checkText, type IssueKind, type ProofIssue } from "./proofing";
 import { embeddedDictionary, listDictionary, mergeDictionaries, type DictLang, type SpellChecker } from "./dict";
 
@@ -349,7 +351,30 @@ export function collectIssues(doc: {
   return out;
 }
 
-const proofingKey = new PluginKey("eliumProofing");
+const proofingKey = new PluginKey<DecorationSet>("eliumProofing");
+
+/** Les soulignements d'un bloc de texte, en coordonnées absolues. */
+function blockDecorations(block: BlockRef): Decoration[] {
+  if (!state.enabled || SKIP_BLOCKS.has(block.node.type.name)) return [];
+  const text = block.node.textContent;
+  if (!text) return [];
+  return issuesFor(block.node, text).map((issue) =>
+    Decoration.inline(block.pos + 1 + issue.from, block.pos + 1 + issue.to, {
+      class: `elium-proof elium-proof--${issue.kind}`,
+      title: issue.message,
+    }),
+  );
+}
+
+function fullDecorations(doc: PMNode): DecorationSet {
+  const decos = collectIssues(doc as never).map((issue) =>
+    Decoration.inline(issue.docFrom, issue.docTo, {
+      class: `elium-proof elium-proof--${issue.kind}`,
+      title: issue.message,
+    }),
+  );
+  return DecorationSet.create(doc, decos);
+}
 
 // --- Correction au clic droit ---------------------------------------------
 
@@ -385,6 +410,19 @@ export const Proofing = Extension.create({
     return [
       new Plugin({
         key: proofingKey,
+        // Les soulignements vivent dans l'état du plugin : une frappe ne recalcule que le(s) bloc(s)
+        // touché(s) et reporte le reste par `map` (voir incremental-decos.ts). Un simple changement
+        // de sélection ne coûte plus rien. Réglage modifié ou changement massif : reconstruction.
+        state: {
+          init: (_config, editorState) => fullDecorations(editorState.doc),
+          apply(tr, set, _old, newState) {
+            if (tr.getMeta(proofingKey) !== undefined) return fullDecorations(newState.doc);
+            if (!tr.docChanged) return set;
+            const blocks = touchedTextblocks(tr, (n) => SKIP_BLOCKS.has(n.type.name));
+            if (!blocks) return fullDecorations(newState.doc);
+            return updateDecorations(set, tr, blocks, blockDecorations);
+          },
+        },
         // Les décorations ne sont recalculées que lorsqu'un nouvel état apparaît.
         // Charger un dictionnaire, ignorer un mot ou couper une règle ne modifie
         // QUE de l'état externe : sans cette transaction vide, le volet listerait
@@ -422,15 +460,7 @@ export const Proofing = Extension.create({
               return true;
             },
           },
-          decorations: (editorState) => {
-            const decos = collectIssues(editorState.doc as never).map((issue) =>
-              Decoration.inline(issue.docFrom, issue.docTo, {
-                class: `elium-proof elium-proof--${issue.kind}`,
-                title: issue.message,
-              }),
-            );
-            return DecorationSet.create(editorState.doc, decos);
-          },
+          decorations: (editorState) => proofingKey.getState(editorState),
         },
       }),
     ];

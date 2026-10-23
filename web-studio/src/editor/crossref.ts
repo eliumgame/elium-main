@@ -13,6 +13,7 @@
  * reference keeps pointing at the right object when content is reordered.
  */
 
+import { memoByDoc } from "./doc-memo";
 import { noteMarker } from "./notes";
 import type { ProseMirrorNode } from "../format/types";
 
@@ -208,11 +209,25 @@ interface PMLike {
 
 /** Collect referenceable targets from a live ProseMirror document (real positions). */
 export function collectTargets(doc: PMLike): RefTarget[] {
-  return scanTargets((visit) => {
-    doc.descendants((node, pos) => {
-      visit(node.type.name, node.attrs ?? {}, node.textContent ?? "", pos);
-      return true;
-    });
+  return memoByDoc(doc, "targets", () =>
+    scanTargets((visit) => {
+      doc.descendants((node, pos) => {
+        const name = node.type.name;
+        // textContent reparcourt tout le sous-arbre : on ne le demande que là où le scanner s'en sert.
+        const text = name === "heading" || name === "figure" || name === "caption" ? node.textContent : "";
+        visit(name, node.attrs ?? {}, text ?? "", pos);
+        return true;
+      });
+    }),
+  );
+}
+
+/** Cibles indexées par identifiant d'ancre (un seul index par document). */
+export function targetsByAnchor(doc: PMLike): Map<string, RefTarget> {
+  return memoByDoc(doc, "targetsByAnchor", () => {
+    const m = new Map<string, RefTarget>();
+    for (const t of collectTargets(doc)) if (!m.has(t.anchorId)) m.set(t.anchorId, t);
+    return m;
   });
 }
 

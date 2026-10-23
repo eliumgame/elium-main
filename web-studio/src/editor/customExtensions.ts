@@ -7,6 +7,7 @@
  *   - Figure              : image with editable caption + alignment/wrapping
  *   - Comment             : inline annotation mark (id/author/text/resolved/replies)
  */
+import { memoByDoc } from "./doc-memo";
 import { Extension, Mark, Node, mergeAttributes } from "@tiptap/core";
 import type { Node as PMNode, MarkType } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
@@ -192,13 +193,17 @@ export const TableOfContents = Node.create({
       dom.contentEditable = "false";
 
       const render = () => {
-        const items: { level: number; text: string; pos: number }[] = [];
-        editor.state.doc.descendants((node, pos) => {
-          if (node.type.name === "heading") {
-            const level = Number(node.attrs.level) || 1;
-            if (level <= 3) items.push({ level, text: node.textContent || "Sans titre", pos });
-          }
-          return true;
+        const doc = editor.state.doc;
+        const items = memoByDoc(doc, "tocItems", () => {
+          const out: { level: number; text: string; pos: number }[] = [];
+          doc.descendants((node, pos) => {
+            if (node.type.name === "heading") {
+              const level = Number(node.attrs.level) || 1;
+              if (level <= 3) out.push({ level, text: node.textContent || "Sans titre", pos });
+            }
+            return true;
+          });
+          return out;
         });
 
         dom.replaceChildren();

@@ -12,6 +12,7 @@
  * (or all of them) with the page each sits on.
  */
 
+import { memoByDoc } from "./doc-memo";
 import type { ProseMirrorNode } from "../format/types";
 
 /** Labels offered by default; a caption may carry any other string. */
@@ -79,12 +80,15 @@ interface PMLike {
 
 /** Captions of a live document, with real positions. */
 export function collectCaptions(doc: PMLike): CaptionEntry[] {
-  return scanCaptions((visit) => {
-    doc.descendants((node, pos) => {
-      visit(node.type.name, node.attrs ?? {}, node.textContent ?? "", pos);
-      return true;
-    });
-  });
+  return memoByDoc(doc, "captions", () =>
+    scanCaptions((visit) => {
+      doc.descendants((node, pos) => {
+        const name = node.type.name;
+        visit(name, node.attrs ?? {}, name === "caption" ? (node.textContent ?? "") : "", pos);
+        return true;
+      });
+    }),
+  );
 }
 
 function jsonText(node: ProseMirrorNode): string {

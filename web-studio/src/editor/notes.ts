@@ -13,6 +13,8 @@
  * périmé ne soit stocké.
  */
 
+import { memoByDoc } from "./doc-memo";
+
 /** Les deux familles de notes. */
 export type NoteKind = "footnote" | "endnote";
 
@@ -146,12 +148,14 @@ function scanNotes(
 
 /** Notes d'une famille dans un document vivant, avec leurs vraies positions. */
 export function collectNotes(doc: PMLike, kind: NoteKind): NoteEntry[] {
-  return scanNotes(kind, (visit) => {
-    doc.descendants((node, pos) => {
-      visit(node.type.name, node.attrs ?? {}, pos);
-      return true;
-    });
-  });
+  return memoByDoc(doc, `notes:${kind}`, () =>
+    scanNotes(kind, (visit) => {
+      doc.descendants((node, pos) => {
+        visit(node.type.name, node.attrs ?? {}, pos);
+        return true;
+      });
+    }),
+  );
 }
 
 /** Notes d'une famille dans un document JSON (les positions valent -1). */

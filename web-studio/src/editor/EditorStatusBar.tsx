@@ -2,14 +2,43 @@ import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Minus, Plus, Maximize2 } from "lucide-react";
 import type { PageInfo } from "./Pagination";
+import { memoByDoc } from "./doc-memo";
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS, stepZoom, zoomLabel, type ZoomMode } from "./zoom";
 
-/** Counts words in a plain-text string (whitespace-separated, Unicode-friendly). */
-function countWords(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\s+/).length;
+/**
+ * Counts words in a plain-text string (whitespace-separated, Unicode-friendly).
+ * Une seule passe, sans tableau intermédiaire : `trim().split(/\s+/)` allouait un élément par
+ * mot sur chaque frappe, soit des centaines de milliers de chaînes sur un long document.
+ */
+export function countWords(text: string): number {
+  let words = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    // Mêmes séparateurs que \s : espaces ASCII, NBSP, séparateurs Unicode, BOM.
+    const space =
+      c === 32 ||
+      (c >= 9 && c <= 13) ||
+      c === 0xa0 ||
+      c === 0x1680 ||
+      (c >= 0x2000 && c <= 0x200a) ||
+      c === 0x2028 ||
+      c === 0x2029 ||
+      c === 0x202f ||
+      c === 0x205f ||
+      c === 0x3000 ||
+      c === 0xfeff;
+    if (space) inWord = false;
+    else if (!inWord) {
+      inWord = true;
+      words++;
+    }
+  }
+  return words;
 }
+
+/** Délai de calme avant de recompter tout le document (ms). */
+const TOTALS_QUIET_MS = 250;
 
 interface Stats {
   words: number;
@@ -59,13 +88,25 @@ export default function EditorStatusBar({
 
   useEffect(() => {
     if (!editor) return;
-    const update = () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Totaux du document : mémoïsés par document (un seul calcul même si plusieurs événements
+    // arrivent) et différés pendant la frappe — recompter 500 000 caractères à chaque touche
+    // figeait les longs documents. Le total rattrape la frappe après un court temps de calme.
+    const totals = () => {
       // A destroyed editor can still receive one last effect (StrictMode's
       // double-mount, or the remount App performs after loading a file) and its
       // schema is gone by then. The status bar must never be what takes the app
       // down, so it bails out rather than reading a dead editor.
       if (editor.isDestroyed) return;
-      const text = editor.getText({ blockSeparator: "\n" });
+      const doc = editor.state.doc;
+      const t = memoByDoc(doc, "stats", () => {
+        const text = editor.getText({ blockSeparator: "\n" });
+        return { words: countWords(text), chars: text.length };
+      });
+      setStats((prev) => (prev.words === t.words && prev.chars === t.chars ? prev : { ...prev, ...t }));
+    };
+    const selection = () => {
+      if (editor.isDestroyed) return;
       const { from, to, empty } = editor.state.selection;
       let selWords = 0;
       let selChars = 0;
@@ -74,14 +115,23 @@ export default function EditorStatusBar({
         selChars = selText.length;
         selWords = countWords(selText);
       }
-      setStats({ words: countWords(text), chars: text.length, selWords, selChars });
+      setStats((prev) =>
+        prev.selWords === selWords && prev.selChars === selChars ? prev : { ...prev, selWords, selChars },
+      );
     };
-    update();
-    editor.on("update", update);
-    editor.on("selectionUpdate", update);
+    const onUpdate = () => {
+      selection();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(totals, TOTALS_QUIET_MS);
+    };
+    totals();
+    selection();
+    editor.on("update", onUpdate);
+    editor.on("selectionUpdate", selection);
     return () => {
-      editor.off("update", update);
-      editor.off("selectionUpdate", update);
+      if (timer) clearTimeout(timer);
+      editor.off("update", onUpdate);
+      editor.off("selectionUpdate", selection);
     };
   }, [editor]);
 

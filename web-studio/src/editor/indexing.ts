@@ -8,6 +8,7 @@
  * DOM and is unit-testable.
  */
 
+import { memoByDoc } from "./doc-memo";
 import type { ProseMirrorNode } from "../format/types";
 
 export interface IndexSubEntry {
@@ -116,12 +117,15 @@ interface PMLike {
 
 /** Build the index from a live ProseMirror document, with real page numbers. */
 export function buildIndex(doc: PMLike, pageOf: PageOf | null): IndexGroup[] {
-  const raws: Raw[] = [];
-  doc.descendants((node, pos) => {
-    if (node.type.name === "indexEntry") {
-      raws.push({ term: String(node.attrs.term ?? ""), sub: String(node.attrs.sub ?? ""), pos });
-    }
-    return true;
+  const raws = memoByDoc(doc, "indexRaws", () => {
+    const out: Raw[] = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name === "indexEntry") {
+        out.push({ term: String(node.attrs.term ?? ""), sub: String(node.attrs.sub ?? ""), pos });
+      }
+      return true;
+    });
+    return out;
   });
   return group(raws, pageOf);
 }

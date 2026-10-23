@@ -16,6 +16,7 @@ import SectionBreakModal from "./SectionBreakModal";
 import CompareModal from "./CompareModal";
 import MailMergeModal from "./MailMergeModal";
 import { ensureListSchemeStyles } from "./listSchemeStyles";
+import { createDocSync, setActiveDocSync } from "./doc-sync";
 import { setMergePreview, setPageResolver } from "./wordExtensions";
 import { setStyleRegistry } from "./styleExtension";
 import { clampZoom, resolveZoom, stepZoom, type ZoomMode } from "./zoom";
@@ -54,7 +55,7 @@ import type {
 import { pageSizeOf } from "../format/pageSizes";
 import {
   CSS_PX_PER_MM,
-  pageAt,
+  createPageResolver,
   type PageMetrics,
   type PageInfo,
   type PagePlan,
@@ -172,6 +173,18 @@ export default function RichEditor({
     },
   }).current;
 
+  // La remontée du document vers App est regroupée (voir doc-sync.ts) : un getJSON complet et un
+  // re-rendu d'App à chaque touche figeaient les longs documents.
+  const editorRef = useRef<Editor | null>(null);
+  const onDocChangeRef = useRef(onDocChange);
+  onDocChangeRef.current = onDocChange;
+  const docSync = useRef(
+    createDocSync(
+      () => editorRef.current!.getJSON() as ProseMirrorNode,
+      (d) => onDocChangeRef.current(d),
+    ),
+  ).current;
+
   const editor = useEditor(
     {
       extensions: buildExtensions({
@@ -189,10 +202,38 @@ export default function RichEditor({
       editorProps: { attributes: { class: "elium-prose" } },
       // Le CRDT est la source du contenu collaboratif ; remonter chaque frappe
       // vers un modèle local n'aurait rien à mettre à jour.
-      onUpdate: collab ? undefined : ({ editor }) => onDocChange(editor.getJSON() as ProseMirrorNode),
+      onUpdate: collab ? undefined : () => docSync.schedule(),
     },
     [],
   );
+
+  useEffect(() => {
+    editorRef.current = editor;
+    if (!editor || collab) return;
+    const offActive = setActiveDocSync(docSync);
+    const flush = () => void docSync.flush();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) flush();
+    };
+    editor.on("blur", flush);
+    window.addEventListener("pointerdown", flush, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", flush);
+    return () => {
+      editor.off("blur", flush);
+      window.removeEventListener("pointerdown", flush, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", flush);
+      offActive();
+      try {
+        docSync.flush();
+      } catch {
+        /* éditeur déjà détruit : rien à remonter */
+      }
+    };
+  }, [editor, collab, docSync]);
 
   // Expose the editor instance to sibling panels (e.g. the comments panel).
   useEffect(() => {
@@ -242,9 +283,15 @@ export default function RichEditor({
   // plan — the same numbers the reader sees in the status bar.
   useEffect(() => {
     if (!editor) return;
+    let cached: { plan: unknown; doc: unknown; at: (pos: number) => number } | null = null;
     setPageResolver((pos) => {
       const plan = planRef.current;
-      return plan ? pageAt(plan, editor.state, pos) : 1;
+      if (!plan) return 1;
+      const doc = editor.state.doc;
+      if (!cached || cached.plan !== plan || cached.doc !== doc) {
+        cached = { plan, doc, at: createPageResolver(plan, editor.state) };
+      }
+      return cached.at(pos);
     });
     return () => {
       setPageResolver(null);
@@ -800,6 +847,7 @@ export default function RichEditor({
               .focus()
               .setContent(merged as never)
               .run();
+            docSync.cancel();
             onDocChange(editor.getJSON() as ProseMirrorNode);
           }}
           onClose={() => setDialog(null)}
@@ -814,6 +862,7 @@ export default function RichEditor({
               .focus()
               .setContent(merged as never)
               .run();
+            docSync.cancel();
             onDocChange(editor.getJSON() as ProseMirrorNode);
           }}
           onClose={() => setDialog(null)}

@@ -240,6 +240,35 @@ export function pageAt(plan: PagePlan, state: EditorState, pos: number): number 
   return plan.pageStartByPos.get(start) ?? 1;
 }
 
+/**
+ * Variante de `pageAt` pour de nombreuses requêtes sur le même plan et le même document : les
+ * déplacements des blocs de premier niveau sont relevés une fois, puis chaque position se
+ * résout par dichotomie (au lieu d'un parcours de tous les blocs par renvoi ou entrée d'index).
+ */
+export function createPageResolver(plan: PagePlan, state: EditorState): (pos: number) => number {
+  const offsets: number[] = [];
+  const ends: number[] = [];
+  state.doc.forEach((node, offset) => {
+    offsets.push(offset);
+    ends.push(offset + node.nodeSize);
+  });
+  return (pos) => {
+    let lo = 0;
+    let hi = offsets.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid]! <= pos) {
+        found = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    // Même sémantique que pageAt : hors de tout bloc, le début reste 0.
+    const start = found >= 0 && pos < ends[found]! ? offsets[found]! : 0;
+    return plan.pageStartByPos.get(start) ?? 1;
+  };
+}
+
 const paginationKey = new PluginKey<DecorationSet>("eliumPagination");
 
 function measureBlocks(view: EditorView): MeasuredBlock[] {
@@ -247,8 +276,17 @@ function measureBlocks(view: EditorView): MeasuredBlock[] {
   // Section index advances at every top-level `sectionBreak`, mirroring
   // `sectionIndexByBlock` in sections.ts (kept in step by that shared rule).
   let section = 0;
-  view.state.doc.forEach((node, offset) => {
-    const dom = view.nodeDOM(offset) as HTMLElement | null;
+  // `view.nodeDOM(pos)` parcourt les enfants linéairement : appelé pour chaque bloc, c'est un coût
+  // quadratique sur un long document. Les blocs sont les enfants directs de l'éditeur, hors
+  // séparateurs de page ; si le compte ne colle pas (autre widget), on retombe sur nodeDOM.
+  const doc = view.state.doc;
+  const direct: Element[] = [];
+  for (const el of Array.from(view.dom.children)) if (!el.classList.contains("elium-page-gap")) direct.push(el);
+  const byIndex = direct.length === doc.childCount;
+  let blockIndex = 0;
+  doc.forEach((node, offset) => {
+    const dom = (byIndex ? direct[blockIndex] : view.nodeDOM(offset)) as HTMLElement | null;
+    blockIndex += 1;
     const height = dom && dom.nodeType === 1 ? dom.offsetHeight : 0;
     const isSectionBreak = node.type.name === "sectionBreak";
     if (isSectionBreak) section += 1;

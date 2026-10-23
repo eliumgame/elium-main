@@ -32,10 +32,10 @@ export interface DraftDoc {
   profile: EliumProfile; // restored on recovery so protection isn't silently dropped
   protected: boolean;
   updatedAt: string; // ISO
-  size: number; // .docx byte length (unprotected) or ciphertext byte length (protected)
+  size: number; // estimated plaintext size (unprotected) or ciphertext byte length (protected)
   doc?: ProseMirrorNode; // plaintext snapshot — only when NOT protected
   page?: PageSettings; // plaintext page settings — only when NOT protected
-  docx?: Uint8Array; // ready-to-use Word export — only when NOT protected
+  docx?: Uint8Array; // legacy: Word export pre-built by older versions — only when NOT protected (no longer written)
   enc?: string; // base64 salt+iv+ciphertext of { doc, page } — only when protected
   /** Aperçu d'une ligne du début du texte — seulement quand le brouillon n'est PAS chiffré. */
   preview?: string;
@@ -84,6 +84,8 @@ export async function buildDraftRecord(input: {
   doc: ProseMirrorNode;
   page: PageSettings;
   docx?: Uint8Array;
+  /** Taille estimée (octets) affichée dans la liste ; à défaut, celle du .docx fourni. */
+  size?: number;
   /** Aperçu du texte (ignoré pour un brouillon chiffré : il ne doit rien révéler). */
   preview?: string;
   secret?: VaultSecret;
@@ -99,7 +101,7 @@ export async function buildDraftRecord(input: {
       page: input.page,
       docx: input.docx,
       preview: input.preview,
-      size: input.docx?.length ?? 0,
+      size: input.size ?? input.docx?.length ?? 0,
     };
   }
   const enc = await encryptAtRest({ doc: input.doc, page: input.page } satisfies DraftContent, input.secret!);

@@ -102,6 +102,8 @@ import { docToDocx, docxToDoc } from "./format/docx";
 import { reportError } from "./ui/crash-log";
 import { fetchLauncherFile, watchLauncherInbox } from "./desktop/launcher-bridge";
 import { putDriveDoc } from "./format/drive-store";
+import { flushPendingDocChange } from "./editor/doc-sync";
+import { draftSizeEstimate } from "./format/draft-size";
 import { putDraft, getDraft, resolveDraft, deleteDraft, type DraftContent } from "./format/drafts-store";
 import { isVaultConfigured, setVaultPassword, verifyVaultPassword, removeVaultConfig } from "./format/vault-store";
 import { hasVaultSecret, type VaultSecret } from "./crypto/local-vault";
@@ -1554,7 +1556,10 @@ export default function App() {
   // user picks a protected profile but hasn't saved yet, even though the "Protégé"
   // badge is already showing. `needsSecret` below honours the profile the
   // instant it's chosen, not just the last-persisted protection state.
-  const lastDraftJson = useRef<string>("");
+  // Clé de changement du dernier brouillon écrit. Le document est comparé par identité (chaque
+  // changement d'édition en produit un nouveau) : un JSON.stringify complet à chaque rendu
+  // figeait les gros documents (images base64 comprises).
+  const lastDraft = useRef<{ t: string; d: unknown; p: boolean; s: boolean } | null>(null);
   useEffect(() => {
     if (mode !== "studio" || !file || file.manifest.protection.locked) return;
     const secret: VaultSecret = { password, keyfile: keyfileRef.current };
@@ -1564,15 +1569,19 @@ export default function App() {
     // change alone (no text edit) still triggers a rewrite — turning a
     // previously plaintext draft into an encrypted one as soon as a secret is
     // available, instead of leaving the stale plaintext record untouched.
-    const docJson = JSON.stringify({
+    const key = {
       t: file.manifest.title,
-      d: file.document.doc,
+      d: file.document.doc as unknown,
       p: needsSecret,
       s: hasVaultSecret(secret),
-    });
-    if (docJson === lastDraftJson.current) return;
+    };
+    const last = lastDraft.current;
+    if (last && last.t === key.t && last.d === key.d && last.p === key.p && last.s === key.s) return;
     const snapshot = file; // capture
-    const handle = window.setTimeout(() => {
+    let cancelled = false;
+    let idle: number | undefined;
+    const write = () => {
+      if (cancelled) return;
       void (async () => {
         try {
           await putDraft({
@@ -1582,18 +1591,29 @@ export default function App() {
             updatedAt: new Date().toISOString(),
             doc: snapshot.document.doc,
             page: snapshot.document.page,
-            docx: needsSecret ? undefined : docToDocx(snapshot),
+            // Le .docx de récupération est reconstruit à la demande (downloadDraft) : le zipper à
+            // chaque cycle bloquait le fil principal, et personne ne relisait cette copie.
+            size: needsSecret ? undefined : draftSizeEstimate(snapshot.document.doc),
             preview: needsSecret ? undefined : previewOf(docText(snapshot.document.doc)),
             secret: needsSecret ? secret : undefined,
           });
-          lastDraftJson.current = docJson;
+          lastDraft.current = key;
         } catch (e) {
           // L'enregistrement automatique ne doit jamais interrompre la frappe — mais l'échec est journalisé, pas avalé.
           reportError("draft-autosave", e);
         }
       })();
+    };
+    const handle = window.setTimeout(() => {
+      // Hors frappe : le travail (parcours du texte, clonage IndexedDB) attend un temps mort.
+      if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(write, { timeout: 4000 });
+      else write();
     }, getPrefs().autosaveSeconds * 1000);
-    return () => window.clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+      if (idle !== undefined) window.cancelIdleCallback?.(idle);
+    };
   }, [file, mode, password, prefs.autosaveSeconds]);
 
   // Restore a document from an auto-saved draft. Prompts for the password/keyfile
@@ -1621,7 +1641,7 @@ export default function App() {
         f.manifest.docId = d.id; // reuse the stored draft's key so further autosaves update the same record
         f.document.page = content.page;
         docHandleRef.current = undefined;
-        lastDraftJson.current = JSON.stringify({ t: d.title, d: content.doc });
+        lastDraft.current = null;
         setPassword(secret?.password ?? "");
         keyfileRef.current = secret?.keyfile;
         await loadFile(f, { contentIntact: true, unchecked: true });
@@ -1680,7 +1700,10 @@ export default function App() {
   const saveDoc = useCallback(
     async (forcePick: boolean) => {
       if (!file) return;
-      const key = docKeyOf(file.manifest);
+      // Les dernières frappes ne sont peut-être pas encore remontées (voir editor/doc-sync.ts).
+      const pendingDoc = flushPendingDocChange();
+      const cur = pendingDoc ? { ...file, document: { ...file.document, doc: pendingDoc } } : file;
+      const key = docKeyOf(cur.manifest);
       let handle: FsFileHandle | undefined;
       let target: "disk" | "download" = "download";
       try {
@@ -1692,10 +1715,10 @@ export default function App() {
           forcePick,
         });
         if (plan.kind === "request_then_write" && handle && !(await ensurePermission(handle))) {
-          handle = (await pickSaveHandle(file.manifest.title)) ?? undefined;
+          handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
           if (!handle) return;
         } else if (plan.kind === "pick") {
-          handle = (await pickSaveHandle(file.manifest.title)) ?? undefined;
+          handle = (await pickSaveHandle(cur.manifest.title)) ?? undefined;
           if (!handle) return; // annulé
         }
         if (plan.kind !== "download") target = "disk";
@@ -1706,7 +1729,7 @@ export default function App() {
       }
       setBusy(true);
       try {
-        const encrypted = profileOf(file.manifest.profile).encrypted;
+        const encrypted = profileOf(cur.manifest.profile).encrypted;
         const useRecipients = encrypted && recipients.length > 0;
         let pwd = password;
         // Only prompt for a credential when we have NONE: a keyfile (e.g. from
@@ -1714,7 +1737,7 @@ export default function App() {
         // enough, so editing + re-saving such a file must not nag for a password.
         // Le fichier-clé est purgé au verrouillage du trousseau : un document qui l'exige
         // le redemande, au lieu de se ré-enregistrer silencieusement sans ce 2e facteur.
-        const keyfileLost = !!file.manifest.protection.keyfileRequired && !keyfileRef.current;
+        const keyfileLost = !!cur.manifest.protection.keyfileRequired && !keyfileRef.current;
         if (encrypted && !useRecipients && ((!pwd && !keyfileRef.current) || keyfileLost)) {
           const got = await askSecret("Protéger le document (mot de passe et/ou fichier-clé)", "set", true);
           if (!got) return;
@@ -1726,7 +1749,7 @@ export default function App() {
         // and one document.modified into the journal, THEN seal — so the seal covers
         // the new journal. Queuing (rather than logging live) keeps a viewed sealed
         // document's seal intact until this save re-anchors it.
-        const f1 = await recordSave(file, pendingJournalRef.current);
+        const f1 = await recordSave(cur, pendingJournalRef.current);
         pendingJournalRef.current = [];
         // Carry the binaries of any imported font the text actually uses, so the
         // document renders in its own typefaces on a machine that lacks them.
@@ -1774,7 +1797,7 @@ export default function App() {
           );
           // Le contenu est maintenant dans la bibliothèque : le brouillon de récupération n'a plus lieu d'être.
           await deleteDraft(docKeyOf(f2.manifest)).catch((e) => reportError("draft-cleanup", e));
-          lastDraftJson.current = "";
+          lastDraft.current = null;
         } catch (e) {
           reportError("library-mirror", e);
         }

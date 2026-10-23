@@ -11,6 +11,7 @@
  * n'y entrent QUE sur demande explicite.
  */
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { unzipCooperative, zipCooperative } from "../format/coop-zip";
 import type { ContentStoreId, WorkFolder, WorkItem } from "./types";
 
 export const BACKUP_FORMAT = "elium-workspace";
@@ -54,6 +55,8 @@ export const contentKey = (store: ContentStoreId, id: string) => `${store}/${id}
 
 const MAX_ENTRY_BYTES = 256 * 1024 * 1024;
 const MAX_ENTRIES = 50_000;
+/** Plafond cumulé du contenu décompressé d'une sauvegarde : au-delà, la restauration saturerait la mémoire. */
+export const MAX_BACKUP_TOTAL_BYTES = 1024 * 1024 * 1024;
 
 const enc = (s: string) => encodeURIComponent(s);
 const dec = (s: string) => decodeURIComponent(s);
@@ -65,7 +68,7 @@ export function pickKeys(source: Record<string, string | null>, allowed: readonl
   return out;
 }
 
-export function encodeBackup(snap: BackupSnapshot, opts: { includeSecrets: boolean }): Uint8Array {
+function backupFiles(snap: BackupSnapshot, opts: { includeSecrets: boolean }): Record<string, Uint8Array> {
   const manifest: BackupManifest = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -85,8 +88,17 @@ export function encodeBackup(snap: BackupSnapshot, opts: { includeSecrets: boole
   };
   if (opts.includeSecrets) files["secrets.json"] = strToU8(JSON.stringify(snap.secrets));
   for (const [key, bytes] of snap.contents) files[`content/${key.split("/").map(enc).join("/")}`] = bytes;
-  // Les contenus sont déjà compressés (.elium, PDF) ou du JSON volumineux : niveau modéré.
-  return zipSync(files, { level: 4 });
+  return files;
+}
+
+// Les contenus sont déjà compressés (.elium, PDF) ou du JSON volumineux : niveau modéré.
+export function encodeBackup(snap: BackupSnapshot, opts: { includeSecrets: boolean }): Uint8Array {
+  return zipSync(backupFiles(snap, opts), { level: 4 });
+}
+
+/** Même archive que {@link encodeBackup}, compressée par tranches (n'immobilise pas l'interface). */
+export function encodeBackupAsync(snap: BackupSnapshot, opts: { includeSecrets: boolean }): Promise<Uint8Array> {
+  return zipCooperative(backupFiles(snap, opts), 4);
 }
 
 export class BackupFormatError extends Error {}
@@ -143,23 +155,49 @@ export function cleanFolder(v: unknown): WorkFolder | null {
   };
 }
 
+/** Filtre d'extraction : borne le nombre d'entrées, leur taille et le total décompressé. */
+function entryGuard(): (f: { originalSize: number }) => boolean {
+  let count = 0;
+  let total = 0;
+  return (f) => {
+    if (++count > MAX_ENTRIES) throw new BackupFormatError("Archive invalide : trop d'entrées.");
+    if (f.originalSize > MAX_ENTRY_BYTES) throw new BackupFormatError("Archive invalide : entrée trop volumineuse.");
+    total += f.originalSize;
+    if (total > MAX_BACKUP_TOTAL_BYTES)
+      throw new BackupFormatError(
+        "Cette sauvegarde est trop volumineuse pour être restaurée d'un bloc (plus de 1 Go de contenu) : restaurez-la en plusieurs sauvegardes plus petites.",
+      );
+    return true;
+  };
+}
+
 /** Lit et VALIDE une archive (jamais de confiance aveugle : le fichier peut venir de n'importe où). */
 export function decodeBackup(bytes: Uint8Array): { manifest: BackupManifest; snapshot: BackupSnapshot } {
   let files: Record<string, Uint8Array>;
   try {
-    let count = 0;
-    files = unzipSync(bytes, {
-      filter: (f) => {
-        if (++count > MAX_ENTRIES) throw new BackupFormatError("Archive invalide : trop d'entrées.");
-        if (f.originalSize > MAX_ENTRY_BYTES)
-          throw new BackupFormatError("Archive invalide : entrée trop volumineuse.");
-        return true;
-      },
-    });
+    files = unzipSync(bytes, { filter: entryGuard() });
   } catch (e) {
     if (e instanceof BackupFormatError) throw e;
     throw new BackupFormatError("Ce fichier n'est pas une sauvegarde Elium lisible.");
   }
+  return parseBackupFiles(files);
+}
+
+/** Même lecture que {@link decodeBackup}, par lots d'entrées avec pauses (n'immobilise pas l'interface). */
+export async function decodeBackupAsync(
+  bytes: Uint8Array,
+): Promise<{ manifest: BackupManifest; snapshot: BackupSnapshot }> {
+  let files: Record<string, Uint8Array>;
+  try {
+    files = await unzipCooperative(bytes, entryGuard());
+  } catch (e) {
+    if (e instanceof BackupFormatError) throw e;
+    throw new BackupFormatError("Ce fichier n'est pas une sauvegarde Elium lisible.");
+  }
+  return parseBackupFiles(files);
+}
+
+function parseBackupFiles(files: Record<string, Uint8Array>): { manifest: BackupManifest; snapshot: BackupSnapshot } {
   const m = parseJson(files, "manifest.json");
   if (!isObj(m) || m.format !== BACKUP_FORMAT)
     throw new BackupFormatError("Ce fichier n'est pas une sauvegarde d'espace de travail Elium.");

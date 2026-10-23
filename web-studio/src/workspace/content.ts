@@ -21,6 +21,7 @@ import { deleteWorkflow } from "../format/parapheur-store";
 import { LEGACY_WORKBOOK_ID, sheetStore } from "../sheet/sheet-store";
 import { LEGACY_DECK_ID, deckStore } from "../slides/deck-store";
 import type { Workbook } from "../sheet/model";
+import { parseJsonCooperative, stringifyWorkbookCooperative } from "../sheet/coop-json";
 import type { Deck } from "../slides/model";
 import { Catalog } from "./catalog";
 import { reencryptDriveVault } from "../format/drive-store";
@@ -104,6 +105,11 @@ export function createContentIO(
 ): Record<"drive" | "sheets" | "slides" | "pdfs", ContentIO> {
   const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
   const parse = <T>(b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)) as T;
+  // Classeurs volumineux : sérialisation / relecture par tranches (un JSON.stringify/parse d'un bloc figerait l'interface).
+  const sheetBytes = async (wb: Workbook): Promise<Uint8Array> => {
+    const big = await stringifyWorkbookCooperative(wb);
+    return big ? new Uint8Array(await big.arrayBuffer()) : json(wb);
+  };
   return {
     drive: {
       async read(item) {
@@ -126,10 +132,15 @@ export function createContentIO(
     sheets: {
       async read(item) {
         const wb = await sheetStore.load(item.id, getSecret());
-        return wb ? json(wb) : undefined;
+        return wb ? sheetBytes(wb) : undefined;
       },
       write: async (item, bytes) =>
-        void (await sheetStore.save(item.id, parse<Workbook>(bytes), getSecret(), item.modifiedAt)),
+        void (await sheetStore.save(
+          item.id,
+          await parseJsonCooperative<Workbook>(new TextDecoder().decode(bytes)),
+          getSecret(),
+          item.modifiedAt,
+        )),
     },
     slides: {
       async read(item) {

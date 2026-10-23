@@ -22,10 +22,30 @@ export function foldChar(ch: string): string {
   return ch;
 }
 
+/** Les caractères hors ASCII se répètent beaucoup dans un texte : leur pliage est mémorisé. */
+const foldCache = new Map<string, string>();
+const FOLD_CACHE_MAX = 20_000;
+const NON_ASCII = /[\u0080-\uffff]/;
+
 export function foldText(s: string): string {
-  let out = "";
-  for (let i = 0; i < s.length; i++) out += foldChar(s[i]!);
-  return out;
+  // Texte ASCII (le cas courant) : minuscule native, un caractère pour un caractère.
+  if (!NON_ASCII.test(s)) return s.toLowerCase();
+  const out: string[] = new Array<string>(s.length);
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (ch.charCodeAt(0) < 128) {
+      out[i] = ch.toLowerCase();
+      continue;
+    }
+    let f = foldCache.get(ch);
+    if (f === undefined) {
+      f = foldChar(ch);
+      if (foldCache.size >= FOLD_CACHE_MAX) foldCache.clear();
+      foldCache.set(ch, f);
+    }
+    out[i] = f;
+  }
+  return out.join("");
 }
 
 /** Mots de la requête : lettres/chiffres, pliés, sans doublon. */

@@ -13,6 +13,7 @@
  * depuis l'analyse n'est jamais écrasé ; un document signé ou scellé n'est
  * touché que sur demande explicite (la modification invalide signatures et sceau).
  */
+import { makeBreather } from "../format/coop-zip";
 import {
   decryptAtRest,
   decryptBytesAtRest,
@@ -213,6 +214,9 @@ export interface DocScan {
   error?: string;
 }
 
+/** Au-delà, un document n'est pas analysé (il serait décompressé et parcouru d'un bloc). */
+const MAX_SCAN_DOC_BYTES = 40 * 1024 * 1024;
+
 export async function scanDocuments(
   items: WorkItem[],
   opts: ReplaceOptions,
@@ -222,6 +226,7 @@ export async function scanDocuments(
   const docs = items.filter((i) => i.kind === "doc" && i.contentStore === "drive" && !i.trashedAt && !i.locked);
   const out: DocScan[] = [];
   let done = 0;
+  const breathe = makeBreather();
   for (const item of docs) {
     const base = {
       itemId: item.id,
@@ -236,6 +241,15 @@ export async function scanDocuments(
       if (!file) {
         out.push({ ...base, status: "error", error: "Introuvable dans la bibliothèque." });
       } else {
+        if (file.bytes.length > MAX_SCAN_DOC_BYTES) {
+          out.push({
+            ...base,
+            status: "error",
+            error: `Document trop volumineux pour la recherche (plus de ${MAX_SCAN_DOC_BYTES / 1048576} Mo).`,
+          });
+          onProgress?.(++done, docs.length);
+          continue;
+        }
         const parsed = await deps.parse(file.bytes);
         const matches = findInDoc(parsed.doc, opts);
         if (matches.length)
@@ -253,6 +267,7 @@ export async function scanDocuments(
       else out.push({ ...base, status: "error", error: e instanceof Error ? e.message : String(e) });
     }
     onProgress?.(++done, docs.length);
+    await breathe(); // une analyse de centaines de documents ne doit pas figer l'interface
   }
   return out;
 }

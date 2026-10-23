@@ -286,11 +286,13 @@ describe("indexation incrémentale", () => {
     expect(store.snapshot()).toHaveLength(3); // tout est bien sur disque
   });
 
-  it("avec le coffre : un seul enregistrement chiffré, jamais de texte en clair sur disque", async () => {
+  it("avec le coffre : un enregistrement scellé par élément, jamais de texte en clair sur disque", async () => {
     const s = setup({ secret: { password: "coffre" } });
     await s.indexer.sync([item({ id: "a", title: "Confidentiel" })]);
     const records = s.store.snapshot();
-    expect(records.map((r) => r.id)).toEqual([VAULT_BUNDLE_ID]);
+    expect(records.map((r) => r.id)).toEqual(["a"]);
+    expect(records[0]!.sealed).toBeDefined();
+    expect(records[0]!.text).toBeUndefined();
     expect(JSON.stringify(records)).not.toContain("Confidentiel");
     expect(JSON.stringify(records)).not.toContain("contenu de");
     // Redémarrage avec le bon secret : l'index revient sans ré-extraction.
@@ -330,7 +332,40 @@ describe("indexation incrémentale", () => {
     s.secretRef.current = { password: "coffre" };
     await s.indexer.reset();
     await s.indexer.sync([item({ id: "a", title: "Public" })]);
-    expect(s.store.snapshot().map((r) => r.id)).toEqual([VAULT_BUNDLE_ID]);
+    const after = s.store.snapshot();
+    expect(after.map((r) => r.id)).toEqual(["a"]);
+    expect(after[0]!.sealed).toBeDefined();
+    expect(after[0]!.text).toBeUndefined();
+  });
+
+  it("migre l'ancien paquet unique du coffre vers des enregistrements par élément", async () => {
+    const secret = { password: "coffre" };
+    const { encryptAtRest } = await import("../src/crypto/local-vault");
+    const store = memoryKv<IndexRecord>([
+      {
+        id: VAULT_BUNDLE_ID,
+        vaultProtected: true,
+        enc: await encryptAtRest(
+          [{ id: "a", rev: revOf(item({ id: "a" })), title: "Ancien", text: "texte d'avant" }],
+          secret,
+        ),
+      },
+    ]);
+    const calls: string[] = [];
+    const index = new SearchIndex();
+    const ix = new SearchIndexer({
+      store,
+      index,
+      getSecret: () => secret,
+      yieldNow: async () => {},
+      extract: async (i) => (calls.push(i.id), "x"),
+    });
+    await ix.sync([item({ id: "a" })]);
+    expect(calls).toEqual([]); // relu depuis l'ancien paquet, pas ré-extrait
+    expect(index.search("avant")).toHaveLength(1);
+    const records = store.snapshot();
+    expect(records.map((r) => r.id)).toEqual(["a"]);
+    expect(records[0]!.sealed).toBeDefined();
   });
 
   it("ignore les éléments verrouillés et la corbeille, et expose la progression", async () => {

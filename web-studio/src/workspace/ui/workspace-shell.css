@@ -1145,3 +1145,12 @@
 :is(.ws-shell, .modal-overlay, .det-page, .doc-page, .dc-auth, .dc-app) label:has(> input[type="radio"]) {
   min-height: var(--ws-target);
 }
+
+/* Rendu progressif de la bibliothèque : repère de fin de liste (déclenche le montage de la tranche suivante). */
+.ws-more {
+  grid-column: 1 / -1;
+  padding: 12px;
+  text-align: center;
+  color: var(--el-text-muted, inherit);
+  font-size: 12px;
+}

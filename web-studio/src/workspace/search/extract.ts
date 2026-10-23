@@ -17,13 +17,19 @@ import { pdfStore } from "../pdf-store";
 import type { WorkItem } from "../types";
 import { capText, deckText, docText, sheetText } from "./text";
 
+/** Au-delà, le classeur n'est pas indexé pour la recherche. */
+const MAX_INDEXED_WORKBOOK_BYTES = 4 * 1024 * 1024;
+
 /** Texte d'un .elium d'après son contenu (document, ou tableur/présentation exporté dans un .elium). */
 export async function eliumBytesText(bytes: Uint8Array): Promise<string> {
   try {
     const { file } = await readEliumPackage(bytes, {});
     const first: ProseMirrorNode | undefined = file.document.doc?.content?.[0];
     if (first && (first.type === "eliumSheet" || first.type === "eliumSlides")) {
-      const data = JSON.parse(String(first.attrs?.data ?? "null")) as Workbook | Deck | null;
+      const raw = String(first.attrs?.data ?? "null");
+      // Même plafond que pour les classeurs du magasin : un énorme JSON n'est pas relu ni parcouru d'un bloc.
+      if (raw.length > MAX_INDEXED_WORKBOOK_BYTES) return "";
+      const data = JSON.parse(raw) as Workbook | Deck | null;
       if (!data) return "";
       return first.type === "eliumSheet" ? sheetText(data as Workbook) : deckText(data as Deck);
     }
@@ -48,9 +54,6 @@ export async function pdfBytesText(bytes: Uint8Array): Promise<string> {
     engine?.destroy();
   }
 }
-
-/** Au-delà, le classeur n'est pas indexé pour la recherche. */
-const MAX_INDEXED_WORKBOOK_BYTES = 4 * 1024 * 1024;
 
 export async function extractItemText(item: WorkItem, secret: VaultSecret | undefined): Promise<string> {
   switch (item.contentStore) {

@@ -12,8 +12,9 @@ import {
   SECRET_KEYS,
   SETTINGS_KEYS,
   contentKey,
-  decodeBackup,
-  encodeBackup,
+  MAX_BACKUP_TOTAL_BYTES,
+  decodeBackupAsync,
+  encodeBackupAsync,
   pickKeys,
   type BackupManifest,
   type BackupSnapshot,
@@ -44,6 +45,7 @@ export interface BackupDeps {
 }
 
 export class VaultLockedError extends Error {}
+export class BackupTooLargeError extends Error {}
 
 export async function collectSnapshot(deps: BackupDeps, opts: { includeSecrets: boolean }): Promise<BackupSnapshot> {
   const { items, folders } = await deps.catalog.load();
@@ -52,9 +54,16 @@ export async function collectSnapshot(deps: BackupDeps, opts: { includeSecrets: 
       "Le coffre local est verrouillé : déverrouillez-le pour sauvegarder l'espace de travail.",
     );
   const contents = new Map<string, Uint8Array>();
+  let total = 0;
   for (const item of items) {
     const bytes = await deps.contents[item.contentStore].read(item);
-    if (bytes) contents.set(contentKey(item.contentStore, item.id), bytes);
+    if (!bytes) continue;
+    total += bytes.length;
+    if (total > MAX_BACKUP_TOTAL_BYTES)
+      throw new BackupTooLargeError(
+        "L'espace de travail dépasse 1 Go : la sauvegarde d'un bloc saturerait la mémoire. Mettez des éléments à la corbeille ou exportez-les séparément.",
+      );
+    contents.set(contentKey(item.contentStore, item.id), bytes);
   }
   const all = (keys: readonly string[]) => Object.fromEntries(keys.map((k) => [k, deps.storage.get(k)]));
   return {
@@ -179,7 +188,7 @@ export async function packBackup(
   snap: BackupSnapshot,
   opts: { includeSecrets: boolean; password?: string },
 ): Promise<Uint8Array> {
-  const zip = encodeBackup(snap, { includeSecrets: opts.includeSecrets });
+  const zip = await encodeBackupAsync(snap, { includeSecrets: opts.includeSecrets });
   if (!opts.password) return zip;
   return EliumCryptoEngine.encodeContainer(zip, opts.password, "espace.zip");
 }
@@ -188,7 +197,7 @@ export async function openBackup(
   bytes: Uint8Array,
   password?: string,
 ): Promise<{ manifest: BackupManifest; snapshot: BackupSnapshot }> {
-  if (isPlainBackup(bytes)) return decodeBackup(bytes);
+  if (isPlainBackup(bytes)) return decodeBackupAsync(bytes);
   if (!password) throw new BackupPasswordRequired();
   let payload: Uint8Array;
   try {
@@ -196,5 +205,5 @@ export async function openBackup(
   } catch {
     throw new BackupPasswordWrong();
   }
-  return decodeBackup(payload); // une archive illisible lève BackupFormatError, distincte d'un mauvais mot de passe
+  return decodeBackupAsync(payload); // une archive illisible lève BackupFormatError, distincte d'un mauvais mot de passe
 }

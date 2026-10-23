@@ -3,7 +3,7 @@
  * liste, sélection multiple (clic, Ctrl/Maj, cases à cocher), glisser-déposer
  * vers les dossiers, actions par élément et sur la sélection.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -112,6 +112,9 @@ export function splitSelection(sel: SelectionState): { itemIds: string[]; folder
   };
 }
 
+/** Nombre d'éléments montés par tranche (rendu progressif). */
+const PAGE = 300;
+
 export default function Library(p: LibraryProps) {
   const { t, tn, fmt } = useI18n();
   const sorted = useMemo(
@@ -123,6 +126,27 @@ export default function Library(p: LibraryProps) {
       ),
     [p.items, p.kindFilter, p.sort],
   );
+  // Rendu progressif : au-delà de PAGE éléments, la suite n'est montée qu'au défilement (des milliers de
+  // cartes d'un coup figent l'interface). La sélection, le tri et le raccourci « tout sélectionner »
+  // travaillent toujours sur la liste complète.
+  const scopeKey = `${p.title}|${p.path?.map((f) => f.id).join("/") ?? ""}|${p.viewMode}`;
+  const [paged, setPaged] = useState({ key: scopeKey, n: PAGE });
+  const limit = paged.key === scopeKey ? paged.n : PAGE;
+  const visible = limit >= sorted.length ? sorted : sorted.slice(0, limit);
+  const hasMore = visible.length < sorted.length;
+  const sentinel = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!hasMore || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setPaged({ key: scopeKey, n: limit + PAGE });
+      },
+      { rootMargin: "800px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, limit, scopeKey]);
   const order = useMemo(
     () => [...p.folders.map((f) => folderSel(f.id)), ...sorted.map((i) => itemSel(i.id))],
     [p.folders, sorted],
@@ -471,7 +495,7 @@ export default function Library(p: LibraryProps) {
               </div>
             );
           })}
-          {sorted.map((it) => {
+          {visible.map((it) => {
             const id = itemSel(it.id);
             return (
               <div
@@ -514,6 +538,17 @@ export default function Library(p: LibraryProps) {
               </div>
             );
           })}
+          {hasMore && (
+            <div
+              ref={(el) => {
+                sentinel.current = el;
+              }}
+              className="ws-more"
+              role="status"
+            >
+              {visible.length} / {sorted.length}…
+            </div>
+          )}
         </div>
       ) : (
         <table className="ws-table">
@@ -578,7 +613,7 @@ export default function Library(p: LibraryProps) {
                 </tr>
               );
             })}
-            {sorted.map((it) => {
+            {visible.map((it) => {
               const id = itemSel(it.id);
               return (
                 <tr
@@ -626,6 +661,20 @@ export default function Library(p: LibraryProps) {
                 </tr>
               );
             })}
+            {hasMore && (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="ws-more"
+                  role="status"
+                  ref={(el) => {
+                    sentinel.current = el;
+                  }}
+                >
+                  {visible.length} / {sorted.length}…
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       )}

@@ -402,46 +402,64 @@ export function parseFicheText(raw: string, sourceName = "fiche"): ImportedFiche
 }
 
 /** Lit un fichier (docx, pdf, elium, txt, md) et en fait une fiche. */
+/** Au-delà, la fiche .docx n'est pas décompressée pour la conversion des cases (le lecteur applique ses propres plafonds). */
+const MAX_CHECKBOX_SCAN_BYTES = 40 * 1024 * 1024;
+/** Taille maximale de word/document.xml examiné pour les cases. */
+const MAX_DOCUMENT_XML = 24 * 1024 * 1024;
+
 /**
  * Word garde ses cases dans des contrôles (w14:checkbox), des champs de formulaire hérités ou des symboles Wingdings,
  * que la conversion en texte efface : on les remplace d'abord par ☒ / ☐ dans le XML.
  */
 export async function withReadableCheckboxes(file: File): Promise<File> {
+  // Fiche démesurée : on ne la décompresse pas ici (le lecteur du Détecteur applique ses propres plafonds).
+  if (file.size > MAX_CHECKBOX_SCAN_BYTES) return file;
   try {
-    const { unzipSync, zipSync, strFromU8, strToU8 } = await import("fflate");
-    const files = unzipSync(new Uint8Array(await file.arrayBuffer()));
-    const doc = files["word/document.xml"];
+    const { unzipSync, strFromU8, strToU8 } = await import("fflate");
+    const { unzipCooperative, zipCooperative } = await import("../format/coop-zip");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // 1. Seul document.xml est extrait pour voir si le fichier contient des cases à convertir (le cas général : non).
+    const doc = unzipSync(bytes, {
+      filter: (f) => f.name === "word/document.xml" && f.originalSize <= MAX_DOCUMENT_XML,
+    })["word/document.xml"];
     if (!doc) return file;
+    const probe = strFromU8(doc);
+    if (!probe.includes("<w14:checkbox") && !probe.includes("<w:checkBox>") && !probe.includes("<w:sym")) return file;
     const run = (c: boolean) => `<w:r><w:t>${c ? "☒" : "☐"}</w:t></w:r>`;
     const on = (v: string | undefined) => v === undefined || /^(1|true|on)$/i.test(v);
-    let x = strFromU8(doc);
+    let x = probe;
     const before = x;
     // 1. contrôles de contenu « case à cocher »
-    x = x.replace(/<w:sdt>(?:(?!<w:sdt>)[\s\S])*?<\/w:sdt>/g, (m) => {
-      if (!m.includes("<w14:checkbox")) return m;
-      const v = /<w14:checked(?=[\s/>])[^>]*w14:val="([^"]*)"/.exec(m)?.[1];
-      return run(v !== undefined && on(v));
-    });
+    if (x.includes("<w14:checkbox"))
+      x = x.replace(/<w:sdt>(?:(?!<w:sdt>)[\s\S])*?<\/w:sdt>/g, (m) => {
+        if (!m.includes("<w14:checkbox")) return m;
+        const v = /<w14:checked(?=[\s/>])[^>]*w14:val="([^"]*)"/.exec(m)?.[1];
+        return run(v !== undefined && on(v));
+      });
     // 2. champs de formulaire hérités (FORMCHECKBOX)
-    x = x.replace(
-      /<w:r(?:\s[^>]*)?>(?:(?!<\/w:r>)[\s\S])*?<w:ffData>(?:(?!<\/w:ffData>)[\s\S])*?<w:checkBox>[\s\S]*?<\/w:ffData>[\s\S]*?<\/w:r>/g,
-      (m) => {
-        const cb = /<w:checkBox>([\s\S]*?)<\/w:checkBox>/.exec(m)?.[1] ?? "";
-        const chk = /<w:checked(?=[\s/>])(?:[^>]*w:val="([^"]*)")?[^>]*\/>/.exec(cb);
-        const def = /<w:default(?=[\s/>])[^>]*w:val="([^"]*)"/.exec(cb)?.[1];
-        return run(chk ? on(chk[1]) : def !== undefined && on(def));
-      },
-    );
+    if (x.includes("<w:checkBox>"))
+      x = x.replace(
+        /<w:r(?:\s[^>]*)?>(?:(?!<\/w:r>)[\s\S])*?<w:ffData>(?:(?!<\/w:ffData>)[\s\S])*?<w:checkBox>[\s\S]*?<\/w:ffData>[\s\S]*?<\/w:r>/g,
+        (m) => {
+          const cb = /<w:checkBox>([\s\S]*?)<\/w:checkBox>/.exec(m)?.[1] ?? "";
+          const chk = /<w:checked(?=[\s/>])(?:[^>]*w:val="([^"]*)")?[^>]*\/>/.exec(cb);
+          const def = /<w:default(?=[\s/>])[^>]*w:val="([^"]*)"/.exec(cb)?.[1];
+          return run(chk ? on(chk[1]) : def !== undefined && on(def));
+        },
+      );
     // 3. symboles Wingdings
-    x = x.replace(/<w:sym(?=\s)[^>]*w:char="([0-9A-Fa-f]{4})"[^>]*\/>/g, (_m, ch: string) => {
-      const c = ch.toUpperCase();
-      if (["F0FE", "F0FD", "F0FC", "F078", "F0FB"].includes(c)) return "<w:t>☒</w:t>";
-      if (["F0A8", "F06F", "F0A3", "F071"].includes(c)) return "<w:t>☐</w:t>";
-      return _m;
-    });
+    if (x.includes("<w:sym"))
+      x = x.replace(/<w:sym(?=\s)[^>]*w:char="([0-9A-Fa-f]{4})"[^>]*\/>/g, (_m, ch: string) => {
+        const c = ch.toUpperCase();
+        if (["F0FE", "F0FD", "F0FC", "F078", "F0FB"].includes(c)) return "<w:t>☒</w:t>";
+        if (["F0A8", "F06F", "F0A3", "F071"].includes(c)) return "<w:t>☐</w:t>";
+        return _m;
+      });
     if (x === before) return file;
+    // 2. Des cases ont été converties : on relit tout le paquet et on le recompresse par tranches.
+    const files = await unzipCooperative(bytes);
     files["word/document.xml"] = strToU8(x);
-    return new File([zipSync(files) as BlobPart], file.name, { type: file.type });
+    return new File([(await zipCooperative(files, 6)) as BlobPart], file.name, { type: file.type });
   } catch {
     return file;
   }

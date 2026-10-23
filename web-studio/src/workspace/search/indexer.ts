@@ -7,14 +7,22 @@
  * Persistance (IndexedDB `elium-workspace`, table `search`) :
  *  - sans coffre : un enregistrement par élément (texte en clair — le contenu
  *    de ces éléments est lui-même stocké en clair sur ce poste) ;
- *  - avec coffre : UN SEUL enregistrement chiffré (`enc`) contenant tout l'index.
- *    Le texte n'est donc jamais écrit en clair, et on ne paie qu'un déchiffrement
- *    au démarrage (pas un par élément). Les éléments protégés ne sont indexés
- *    que coffre déverrouillé.
+ *  - avec coffre : un enregistrement SCELLÉ par élément (`sealed`, AES-GCM, clé Argon2id
+ *    dérivée une fois par session). Le texte n'est jamais écrit en clair, et chaque
+ *    modification ne ré-encrypte que les éléments touchés (l'ancien format — un seul
+ *    enregistrement `enc` pour tout l'index — est relu puis migré). Les éléments
+ *    protégés ne sont indexés que coffre déverrouillé.
  * L'index est une donnée DÉRIVÉE : changer le mot de passe du coffre ou une
  * lecture impossible le vide et le reconstruit, rien d'autre.
  */
-import { decryptAtRest, encryptAtRest, hasVaultSecret, type VaultSecret } from "../../crypto/local-vault";
+import {
+  decryptAtRest,
+  hasVaultSecret,
+  openSealedBytes,
+  sealBytesAtRest,
+  type SealedBytes,
+  type VaultSecret,
+} from "../../crypto/local-vault";
 import type { KvStore } from "../kv";
 import type { WorkItem } from "../types";
 import { SearchIndex, type IndexEntry } from "./index";
@@ -24,9 +32,12 @@ export interface IndexRecord {
   rev?: string;
   title?: string;
   text?: string;
-  /** Présent seulement sur l'enregistrement unique du coffre. */
+  /** Enregistrement du coffre (scellé par élément, ou ancien paquet unique `enc`). */
   vaultProtected?: boolean;
+  /** Ancien format : tout l'index chiffré dans un seul enregistrement (`VAULT_BUNDLE_ID`). */
   enc?: string;
+  /** Entrée d'index scellée (JSON de `{ rev, title, text }`). */
+  sealed?: SealedBytes;
 }
 
 export const VAULT_BUNDLE_ID = "__vault_bundle__";
@@ -52,6 +63,8 @@ export interface IndexerDeps {
 }
 
 const PERSIST_EVERY = 20;
+/** Durée maximale (ms) de repliage de texte avant de rendre la main au navigateur lors du chargement. */
+const LOAD_SLICE_MS = 8;
 
 export class SearchIndexer {
   private generation = 0;
@@ -72,23 +85,55 @@ export class SearchIndexer {
     const records = await this.d.store.getAll();
     const secret = this.d.getSecret();
     const bundle = records.find((r) => r.id === VAULT_BUNDLE_ID);
+    // Remplissage de l'index par tranches : replier le texte de centaines d'éléments d'un bloc figeait l'interface.
+    let last = performance.now();
+    const set = async (e: IndexEntry) => {
+      this.d.index.set(e);
+      if (performance.now() - last >= LOAD_SLICE_MS) {
+        await this.d.yieldNow();
+        last = performance.now();
+      }
+    };
     if (this.mode() === "vault") {
-      if (bundle?.enc && hasVaultSecret(secret)) {
-        try {
-          const entries = await decryptAtRest<IndexEntry[]>(bundle.enc, secret);
-          for (const e of entries) this.d.index.set(e);
-        } catch {
-          await this.d.store.delete(VAULT_BUNDLE_ID); // mauvais secret / corrompu : on reconstruira
+      const stale: string[] = [];
+      if (hasVaultSecret(secret)) {
+        for (const r of records) {
+          if (r.id === VAULT_BUNDLE_ID || !r.sealed) continue;
+          try {
+            const body = JSON.parse(new TextDecoder().decode(await openSealedBytes(r.sealed, secret))) as {
+              rev: string;
+              title: string;
+              text: string;
+            };
+            await set({ id: r.id, rev: body.rev, title: body.title, text: body.text });
+          } catch {
+            stale.push(r.id); // mauvais secret / corrompu : supprimé, il sera reconstruit
+          }
+        }
+        // Ancien paquet unique : relu, puis migré vers des enregistrements par élément.
+        if (bundle?.enc) {
+          try {
+            const entries = await decryptAtRest<IndexEntry[]>(bundle.enc, secret);
+            for (const e of entries) {
+              await set(e);
+              this.dirty.set(e.id, e);
+            }
+          } catch {
+            /* paquet illisible : abandonné (supprimé plus bas), l'index sera reconstruit */
+          }
         }
       }
+      if (bundle && this.dirty.size === 0) stale.push(VAULT_BUNDLE_ID); // illisible ou vide : abandonné
       // Entrées en clair d'avant l'activation du coffre : jamais conservées en clair.
-      const plain = records.filter((r) => r.id !== VAULT_BUNDLE_ID);
-      if (plain.length) await this.d.store.deleteMany(plain.map((r) => r.id));
+      for (const r of records) if (r.id !== VAULT_BUNDLE_ID && !r.sealed) stale.push(r.id);
+      if (stale.length) await this.d.store.deleteMany([...new Set(stale)]);
+      if (this.dirty.size) await this.persist(); // migration : l'ancien paquet est supprimé à la fin de persist()
     } else {
-      if (bundle) await this.d.store.delete(VAULT_BUNDLE_ID); // illisible sans le coffre
+      const stale = records.filter((r) => r.sealed || r.id === VAULT_BUNDLE_ID).map((r) => r.id); // illisibles sans le coffre
+      if (stale.length) await this.d.store.deleteMany(stale);
       for (const r of records) {
-        if (r.id === VAULT_BUNDLE_ID || r.rev === undefined) continue;
-        this.d.index.set({ id: r.id, rev: r.rev, title: r.title ?? "", text: r.text ?? "" });
+        if (r.sealed || r.id === VAULT_BUNDLE_ID || r.rev === undefined) continue;
+        await set({ id: r.id, rev: r.rev, title: r.title ?? "", text: r.text ?? "" });
       }
     }
     this.loadedWith = this.mode();
@@ -110,20 +155,24 @@ export class SearchIndexer {
 
   /** Écrit sur disque tout ce qui est en attente (remplacements et suppressions). */
   private async persist(): Promise<void> {
-    if (this.mode() === "vault") {
-      const secret = this.d.getSecret()!;
-      const all: IndexEntry[] = [];
-      for (const id of this.d.index.ids()) {
-        const e = this.d.index.get(id);
-        if (e) all.push(e);
-      }
-      await this.d.store.put({ id: VAULT_BUNDLE_ID, vaultProtected: true, enc: await encryptAtRest(all, secret) });
-    } else {
-      if (this.gone.size) await this.d.store.deleteMany([...this.gone]);
-      if (this.dirty.size)
+    if (this.gone.size) await this.d.store.deleteMany([...this.gone]);
+    if (this.dirty.size) {
+      if (this.mode() === "vault") {
+        const secret = this.d.getSecret()!;
+        const enc = new TextEncoder();
+        const records: IndexRecord[] = [];
+        for (const e of this.dirty.values()) {
+          const body = enc.encode(JSON.stringify({ rev: e.rev, title: e.title, text: e.text }));
+          records.push({ id: e.id, vaultProtected: true, sealed: await sealBytesAtRest(body, secret) });
+        }
+        await this.d.store.putMany(records);
+        // L'ancien paquet unique (chiffré avec le même secret) est devenu redondant.
+        await this.d.store.delete(VAULT_BUNDLE_ID);
+      } else {
         await this.d.store.putMany(
           [...this.dirty.values()].map((e) => ({ id: e.id, rev: e.rev, title: e.title, text: e.text })),
         );
+      }
     }
     this.dirty.clear();
     this.gone.clear();

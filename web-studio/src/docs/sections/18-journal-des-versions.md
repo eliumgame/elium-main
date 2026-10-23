@@ -2,6 +2,13 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.24.0 — anti-gel lot D (Présentations et collaboration Drive)
+
+- **Miniatures** : la rampe et la trieuse ne redessinent plus que les diapositives modifiées, ne montent que celles proches de l'écran (par petites tranches) et plus rien quand le panneau est replié.
+- **Deck collaboratif** : chaque mise à jour distante ne reconvertit que la diapositive touchée ; le rattrapage du journal à l'ouverture d'un document collaboratif s'applique en une seule transaction (un seul rendu) et rend la main au navigateur pendant le déchiffrement.
+- **Import PowerPoint** : seules les parties XML sont décompressées d'emblée, chaque image n'est encodée qu'une fois, avec plafonds (fichier 400 Mo, média 40 Mo, total 256 Mo) et messages clairs ; l'analyse rend la main entre les diapositives. Sur un deck témoin de 300 diapositives (72 Mo), l'import prend ~7 s sans gel notable.
+- **Enregistrement automatique** : sérialisation du deck par diapositive avec cache (seules les diapositives modifiées coûtent), fenêtre orateur mise à jour par delta, export PPTX sans recompression ni doublons de médias, documents imprimés par tranches.
+
 ### Version 4.23.0 — anti-gel lot C (PDF, Détecteur, format)
 
 - **Helper Worker commun** (`web-studio/src/workers/`) : progression, annulation, délai maximal, plafond d'entrée et repli en ligne, pour que chaque module sorte ses calculs lourds du fil principal.

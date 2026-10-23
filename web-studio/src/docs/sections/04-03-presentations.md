@@ -58,7 +58,7 @@ A4 uniquement.
 |---|---|
 | Formes, texte riche, images, tableaux, notes, diapositives masquées | Disposition et masque hérités, couleurs du thème, groupes, tableaux, notes, diapositives masquées |
 | Graphiques natifs : barres, courbe, camembert | Graphiques natifs |
-| Masque et dispositions, médias, schémas en formes | Dégradés simplifiés, SmartArt et médias **ignorés** |
+| Masque et dispositions, médias, schémas en formes | Dégradés simplifiés et SmartArt **ignorés** ; médias importés (plafond 40 Mo par média, 256 Mo au total, fichier 400 Mo maximum — les médias écartés sont signalés) |
 
 ### Raccourcis de l'éditeur
 

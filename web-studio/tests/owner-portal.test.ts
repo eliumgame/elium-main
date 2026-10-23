@@ -70,9 +70,20 @@ describe("DriveApi.sitePolicy", () => {
   it("renvoie la politique quand le serveur répond", async () => {
     const real = globalThis.fetch;
     try {
-      const policy = { deployed: true, bootstrapped: true, signupMode: "invite", mfaPolicy: "required", passwordMinLength: 12, backupRequired: true, siteName: "Acme" };
+      const policy = {
+        deployed: true,
+        bootstrapped: true,
+        signupMode: "invite",
+        mfaPolicy: "required",
+        passwordMinLength: 12,
+        backupRequired: true,
+        siteName: "Acme",
+      };
       globalThis.fetch = (async () => new Response(JSON.stringify(policy), { status: 200 })) as typeof fetch;
-      expect(await new DriveApi({ baseUrl: base }).sitePolicy()).toMatchObject({ signupMode: "invite", passwordMinLength: 12 });
+      expect(await new DriveApi({ baseUrl: base }).sitePolicy()).toMatchObject({
+        signupMode: "invite",
+        passwordMinLength: 12,
+      });
     } finally {
       globalThis.fetch = real;
     }

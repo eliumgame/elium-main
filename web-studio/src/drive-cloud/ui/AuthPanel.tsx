@@ -34,7 +34,10 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
   const policy = d.policy ?? null;
   const minLen = policy?.passwordMinLength ?? 8;
   const canRegister =
-    !policy || !policy.bootstrapped || policy.signupMode === "open" || (policy.signupMode === "invite" && !!d.pendingInvite);
+    !policy ||
+    !policy.bootstrapped ||
+    policy.signupMode === "open" ||
+    (policy.signupMode === "invite" && !!d.pendingInvite);
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>(d.pendingInvite ? "register" : "login");
   const [serverOpen, setServerOpen] = useState(false);
@@ -291,15 +294,15 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
                   <LogIn size={15} /> Connexion
                 </button>
                 {canRegister && (
-                <button
-                  className={mode === "register" ? "is-active" : ""}
-                  onClick={() => {
-                    setMode("register");
-                    d.clearError();
-                  }}
-                >
-                  <UserPlus size={15} /> Créer un compte
-                </button>
+                  <button
+                    className={mode === "register" ? "is-active" : ""}
+                    onClick={() => {
+                      setMode("register");
+                      d.clearError();
+                    }}
+                  >
+                    <UserPlus size={15} /> Créer un compte
+                  </button>
                 )}
               </div>
               {!canRegister && policy && (

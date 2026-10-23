@@ -66,7 +66,8 @@ export default function DriveAutoBackup({
   }, []);
 
   useEffect(() => {
-    if (!ctx || !sig || !(required || readAuto(WORKSPACE_SLOT, ctx)) || stopped.current || sig === lastPushed.current) return;
+    if (!ctx || !sig || !(required || readAuto(WORKSPACE_SLOT, ctx)) || stopped.current || sig === lastPushed.current)
+      return;
     const id = setTimeout(() => {
       const deps = makeBackupDeps({ ws: wsRef.current, getSecret: secretRef.current, appVersion });
       const status = (kind: string, message?: string) =>

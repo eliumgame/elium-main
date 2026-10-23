@@ -14,8 +14,9 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import BinaryIO
 
 ALLOWED_DIRS = ("Documents", "Classeurs", "Presentations", "PDF", "Passeport", "Sauvegardes", "_elium")
 ALLOWED_EXTS = (".elium", ".json", ".pdf", ".vault", ".elium-workspace")
@@ -177,7 +178,7 @@ class LocalFiles:
         shutil.move(str(target), str(dest))
         return True
 
-    def purge_trash(self, now: "float | None" = None) -> int:
+    def purge_trash(self, now: float | None = None) -> int:
         trash = self.root / TRASH_DIR
         if not trash.is_dir():
             return 0

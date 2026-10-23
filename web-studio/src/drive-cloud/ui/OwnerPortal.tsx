@@ -58,7 +58,8 @@ export function formatBytes(n: number): string {
 function splitBytes(value: number | null): { n: string; u: number } {
   if (value == null) return { n: "", u: 1 };
   for (let i = UNITS.length - 1; i >= 0; i--) {
-    if (value >= UNITS[i]!.factor && value % UNITS[i]!.factor === 0) return { n: String(value / UNITS[i]!.factor), u: i };
+    if (value >= UNITS[i]!.factor && value % UNITS[i]!.factor === 0)
+      return { n: String(value / UNITS[i]!.factor), u: i };
   }
   return { n: String(Math.round((value / UNITS[0]!.factor) * 100) / 100), u: 0 };
 }
@@ -147,8 +148,16 @@ function Toggle({
 
 const SIGNUP_CHOICES: { key: SignupMode; title: string; desc: string }[] = [
   { key: "open", title: "Ouverte", desc: "Toute personne peut créer un compte et obtient un espace Drive privé." },
-  { key: "invite", title: "Sur invitation", desc: "Seules les personnes que vous invitez (onglet Invitations) peuvent s'inscrire." },
-  { key: "closed", title: "Fermée", desc: "Personne ne peut s'inscrire. Les comptes existants continuent de fonctionner." },
+  {
+    key: "invite",
+    title: "Sur invitation",
+    desc: "Seules les personnes que vous invitez (onglet Invitations) peuvent s'inscrire.",
+  },
+  {
+    key: "closed",
+    title: "Fermée",
+    desc: "Personne ne peut s'inscrire. Les comptes existants continuent de fonctionner.",
+  },
 ];
 
 export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLink) => void }) {
@@ -292,8 +301,8 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
               ))}
             </select>
             <span className="muted dc-portal__hint">
-              « Éditeur » = membre simple : il crée et modifie ses propres fichiers dans son espace privé, sans voir ceux
-              des autres.
+              « Éditeur » = membre simple : il crée et modifie ses propres fichiers dans son espace privé, sans voir
+              ceux des autres.
             </span>
           </label>
           <Toggle
@@ -521,7 +530,9 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
               max={128}
               value={draft.passwordMinLength}
               data-testid="password-min"
-              onChange={(e) => set("passwordMinLength", Math.min(128, Math.max(8, Math.floor(Number(e.target.value) || 8))))}
+              onChange={(e) =>
+                set("passwordMinLength", Math.min(128, Math.max(8, Math.floor(Number(e.target.value) || 8))))
+              }
             />
             <span className="muted dc-portal__hint">
               Appliquée à la création et au changement de mot de passe. Le chiffrement est de bout en bout : le serveur
@@ -546,7 +557,12 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
 
       {(section === "access" || section === "storage" || section === "security") && (
         <div className="dc-portal__savebar">
-          <button className="eb eb--primary" disabled={!dirty || busy} onClick={() => void save()} data-testid="portal-save">
+          <button
+            className="eb eb--primary"
+            disabled={!dirty || busy}
+            onClick={() => void save()}
+            data-testid="portal-save"
+          >
             <Save size={15} /> Enregistrer les réglages
           </button>
           {dirty && <span className="muted">Modifications non enregistrées</span>}

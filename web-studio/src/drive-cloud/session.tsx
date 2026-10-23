@@ -673,6 +673,13 @@ export function DriveProvider({ children }: { children: ReactNode }) {
         });
         await refreshOrgs();
         await selectOrg(org.id);
+        // Le créateur du premier Drive en devient le propriétaire : sans ce rafraîchissement,
+        // le Portail du propriétaire n'apparaîtrait qu'après une reconnexion.
+        try {
+          setIsOwner((await api.siteMe()).isOwner);
+        } catch {
+          /* hors site déployé */
+        }
       } catch (e) {
         setError(messageOf(e));
         throw e;

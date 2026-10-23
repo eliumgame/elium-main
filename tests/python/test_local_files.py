@@ -144,7 +144,10 @@ def test_foreign_origin_and_rebinding_host_are_refused(server):
     assert _call(server, "POST", "/__files__/write?p=Documents/a.elium", b"x", token=None)[0] == 403
 
 
-@pytest.mark.parametrize("p", ["../x.elium", "Documents/..%2Fx.elium", "Documents/x.exe", "C:%2Fx.elium", "Documents/CON.elium"])
+@pytest.mark.parametrize(
+    "p",
+    ["../x.elium", "Documents/..%2Fx.elium", "Documents/x.exe", "C:%2Fx.elium", "Documents/CON.elium"],
+)
 def test_http_traversal_is_400(server, p):
     assert _call(server, "POST", f"/__files__/write?p={p}", b"x")[0] == 400
     assert _call(server, "GET", f"/__files__/read?p={p}")[0] == 400

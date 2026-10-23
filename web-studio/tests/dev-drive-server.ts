@@ -48,6 +48,8 @@ async function main(): Promise<void> {
     password: "elium",
     port: PG_PORT,
     persistent: true,
+    // Sans cela, initdb prend l'encodage de la machine (WIN1252 sous Windows) et les migrations échouent.
+    initdbFlags: ["--encoding=UTF8", "--locale=C"],
     onLog: () => {},
     onError: (e: unknown) => console.error("[pg]", e),
   });

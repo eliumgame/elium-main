@@ -206,7 +206,7 @@ describe("recherche : expressions régulières à backtracking", () => {
     const { buildPattern } = await import("../src/sheet/datatools");
     expect("error" in buildPattern({ find: "(a+)+$", regex: true } as never)).toBe(true);
     expect("error" in buildPattern({ find: "(x*)*", regex: true } as never)).toBe(true);
-    expect("error" in buildPattern({ find: "^[a-z]+\d{2}$", regex: true } as never)).toBe(false);
+    expect("error" in buildPattern({ find: "^[a-z]+[0-9]{2}$", regex: true } as never)).toBe(false);
     expect("error" in buildPattern({ find: "(ab)+c", regex: true } as never)).toBe(false);
   });
 });

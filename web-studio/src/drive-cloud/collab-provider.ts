@@ -47,6 +47,13 @@ export class EncryptedYjsProvider {
       onRemoteUpdate: (update) => {
         Y.applyUpdate(this.doc, update, "remote");
       },
+      // Rattrapage : tout le journal dans UNE transaction Yjs (un seul événement d'observation,
+      // donc une seule transaction ProseMirror / un seul rendu au lieu d'un par mise à jour).
+      onBacklog: (updates) => {
+        this.doc.transact(() => {
+          for (const u of updates) Y.applyUpdate(this.doc, u, "remote");
+        }, "remote");
+      },
       onAwareness: (payload) => {
         const p = payload as { u?: string };
         if (p?.u) {

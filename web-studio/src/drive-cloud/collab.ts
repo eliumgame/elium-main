@@ -14,6 +14,11 @@ import { toHex, fromHex } from "../format/canonical";
 export interface CollabHandlers {
   onReady?: (canWrite: boolean) => void;
   onRemoteUpdate?: (update: Uint8Array, author: string | null, seq: number | null) => void;
+  /**
+   * Journal de rattrapage complet, déchiffré, d'un seul bloc. S'il est fourni, il remplace les appels
+   * `onRemoteUpdate` du rattrapage : l'appelant l'applique en UNE transaction (un seul rendu éditeur).
+   */
+  onBacklog?: (updates: Uint8Array[]) => void;
   onAwareness?: (payload: unknown, from: string) => void;
   onStatus?: (status: "connecting" | "open" | "closed" | "revoked") => void;
   /** A new peer joined the room — re-broadcast local presence so they see us. */
@@ -51,15 +56,24 @@ export class EncryptedCollabChannel {
 
   private async catchUp(): Promise<void> {
     const { updates } = await this.api.getCollabUpdates(this.nodeId, this.lastSeq);
+    const batch: Uint8Array[] = [];
+    let sliceStart = performance.now();
     for (const u of updates) {
       this.lastSeq = Math.max(this.lastSeq, u.seq);
       try {
         const plain = await decryptContent(this.nodeKey, u.nonce, fromHex(u.ciphertext));
-        this.handlers.onRemoteUpdate?.(plain, u.author, u.seq);
+        if (this.handlers.onBacklog) batch.push(plain);
+        else this.handlers.onRemoteUpdate?.(plain, u.author, u.seq);
       } catch {
         /* skip an update we cannot decrypt (should not happen with the right key) */
       }
+      // Journal de milliers d'entrées : rendre la main au navigateur entre deux tranches de ~40 ms.
+      if (performance.now() - sliceStart > 40) {
+        await new Promise<void>((r) => setTimeout(r, 0));
+        sliceStart = performance.now();
+      }
     }
+    if (batch.length) this.handlers.onBacklog?.(batch);
   }
 
   private open(): void {

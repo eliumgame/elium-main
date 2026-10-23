@@ -38,17 +38,43 @@ function sortDeep(value: unknown): unknown {
   return value;
 }
 
+const HEX_BYTE: string[] = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+/** Hex en minuscules. Table d'octets + assemblage par blocs : un gros update (plusieurs Mo) ne fige pas l'interface. */
 export function toHex(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0");
-  return s;
+  const n = bytes.length;
+  if (n <= 4096) {
+    let s = "";
+    for (let i = 0; i < n; i++) s += HEX_BYTE[bytes[i]];
+    return s;
+  }
+  const parts: string[] = [];
+  const chunk = new Array<string>(8192);
+  for (let i = 0; i < n; i += 8192) {
+    const end = Math.min(n, i + 8192);
+    chunk.length = end - i;
+    for (let j = i; j < end; j++) chunk[j - i] = HEX_BYTE[bytes[j]];
+    parts.push(chunk.join(""));
+  }
+  return parts.join("");
+}
+
+function hexNibble(c: number): number {
+  if (c >= 48 && c <= 57) return c - 48;
+  if (c >= 97 && c <= 102) return c - 87;
+  if (c >= 65 && c <= 70) return c - 55;
+  return -1;
 }
 
 export function fromHex(hex: string): Uint8Array {
   const clean = hex.trim();
   if (clean.length % 2 !== 0) throw new Error("Invalid hex string");
   const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  for (let i = 0; i < out.length; i++) {
+    const hi = hexNibble(clean.charCodeAt(i * 2));
+    const lo = hexNibble(clean.charCodeAt(i * 2 + 1));
+    out[i] = hi >= 0 && lo >= 0 ? (hi << 4) | lo : parseInt(clean.substr(i * 2, 2), 16);
+  }
   return out;
 }
 

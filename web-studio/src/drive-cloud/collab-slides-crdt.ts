@@ -156,6 +156,45 @@ export function yToSlide(m: YMap): Slide {
 }
 
 /**
+ * Lecture incrémentale du deck : conserve la dernière `Slide` convertie par Y.Map de diapositive.
+ * `invalidate(events)` (événements d'un `observeDeep` du Y.Map du deck) ne marque « sale » que les
+ * diapositives touchées ; `read` ne reconvertit que celles-là et renvoie la MÊME référence pour les
+ * autres — les miniatures mémoïsées n'ont alors rien à re-rendre. Un événement qu'on ne sait pas
+ * rattacher à une diapositive (hors tableau `slides`) n'invalide rien.
+ */
+export class SlideReader {
+  private cache = new WeakMap<YMap, Slide>();
+  private last: Slide[] = [];
+
+  invalidate(events: ReadonlyArray<Y.YEvent<Y.AbstractType<unknown>>>, slidesArr: Y.Array<YMap> | undefined): void {
+    if (!slidesArr) return;
+    for (const ev of events) {
+      let t: Y.AbstractType<unknown> | null = ev.target;
+      while (t && t.parent !== slidesArr) t = t.parent as Y.AbstractType<unknown> | null;
+      if (t) this.cache.delete(t as YMap);
+    }
+  }
+
+  read(slidesArr: Y.Array<YMap> | undefined): Slide[] {
+    if (!slidesArr) return (this.last = this.last.length ? [] : this.last);
+    const maps = slidesArr.toArray();
+    let same = maps.length === this.last.length;
+    const out = maps.map((m, i) => {
+      let sl = this.cache.get(m);
+      if (!sl) {
+        sl = yToSlide(m);
+        this.cache.set(m, sl);
+      }
+      if (sl !== this.last[i]) same = false;
+      return sl;
+    });
+    // Aucune diapositive modifiée ni déplacée : même tableau, donc aucun re-rendu en aval.
+    if (same) return this.last;
+    return (this.last = out);
+  }
+}
+
+/**
  * Return the slide's `elements` Y.Array, creating and seeding it from the legacy
  * fixed-layout content the first time (persists the migration). Must run inside a
  * ydoc.transact.

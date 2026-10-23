@@ -34,6 +34,7 @@ import {
 } from "../slides/sections";
 import {
   slideToY,
+  SlideReader,
   yToSlide,
   ensureElementsY,
   elToY,
@@ -97,9 +98,10 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
   const ySlides = (): Y.Array<YMap> => deckMap.get("slides") as Y.Array<YMap>;
   const slideAt = (i: number): YMap | undefined => ySlides()?.get(i);
 
+  const [reader] = useState(() => new SlideReader());
   const refresh = () => {
     const arr = deckMap.get("slides") as Y.Array<YMap> | undefined;
-    setSlides(arr ? arr.toArray().map(yToSlide) : []);
+    setSlides(reader.read(arr));
     setTheme((deckMap.get("theme") as SlideTheme) ?? "light");
     setTransition((deckMap.get("transition") as SlideTransition) ?? "fade");
     setSections((deckMap.get("sections") as SlideSection[] | undefined) ?? undefined);
@@ -108,7 +110,8 @@ export function useCollabDeckStore({ api, nodeId, nodeKey, user, refetchKey }: C
 
   useEffect(() => {
     let alive = true;
-    const obs = () => {
+    const obs = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
+      reader.invalidate(events, deckMap.get("slides") as Y.Array<YMap> | undefined);
       if (alive) refresh();
     };
     deckMap.observeDeep(obs);

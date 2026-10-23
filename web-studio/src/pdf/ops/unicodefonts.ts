@@ -55,19 +55,34 @@ export const STANDARD_STYLES: Record<FontStyle, StandardFonts> = {
 
 const fontBytes = new Map<string, Promise<Uint8Array | null>>();
 
+/** Dans un Worker (pas de `document`) : navigateur quand même, avec le dossier des polices standard donné par le fil principal. */
+const inWorkerScope =
+  typeof document === "undefined" &&
+  typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined";
+let workerStandardFontUrl: string | null = null;
+export function setStandardFontDataUrl(url: string | null): void {
+  workerStandardFontUrl = url;
+}
+
 /** Bytes of a Liberation face (null when unavailable). */
 export function liberationBytes(style: FontStyle, family: UnicodeFamily = "sans"): Promise<Uint8Array | null> {
   const file = `${FAMILY_PREFIX[family]}-${STYLE_SUFFIX[style]}.ttf`;
   let p = fontBytes.get(file);
   if (!p) {
     p = (async () => {
-      const inBrowser = typeof document !== "undefined";
+      const inBrowser = typeof document !== "undefined" || inWorkerScope;
       if (inBrowser && family !== "sans") {
         const res = await fetch(BUNDLED[file]);
         return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
       }
       // Loaded on demand: keeps pdf.js out of what imports this module (forms.ts, tests).
-      const urls = inBrowser ? (await import("../core/assets")).pdfjsAssetUrls() : null;
+      const urls = inWorkerScope
+        ? workerStandardFontUrl
+          ? { standardFontDataUrl: workerStandardFontUrl }
+          : null
+        : inBrowser
+          ? (await import("../core/assets")).pdfjsAssetUrls()
+          : null;
       if (urls) {
         const res = await fetch(`${urls.standardFontDataUrl}${file}`);
         if (!res.ok) return null;

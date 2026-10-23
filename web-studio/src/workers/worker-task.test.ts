@@ -9,7 +9,10 @@ class FakeWorker {
   constructor() {
     FakeWorker.last = this;
   }
-  postMessage() {}
+  posted: unknown[] = [];
+  postMessage(m: unknown) {
+    this.posted.push(m);
+  }
   terminate() {
     this.terminated = true;
   }
@@ -64,6 +67,9 @@ describe("runWorkerTask", () => {
     const seen: string[] = [];
     const p = runWorkerTask({ ...base, create: mk, onProgress: (x) => seen.push(x.label) });
     const w = FakeWorker.last!;
+    expect(w.posted).toHaveLength(0); // rien n'est envoyé avant « prêt »
+    w.emit({ type: "ready" });
+    expect(w.posted).toHaveLength(1);
     w.emit({ type: "progress", fraction: 0.3, label: "étape" });
     w.emit({ type: "result", value: 42 });
     expect(await p).toBe(42);
@@ -94,6 +100,7 @@ describe("runWorkerTask", () => {
   it("erreur du Worker : message et nom conservés", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     const p = runWorkerTask({ ...base, create: mk });
+    FakeWorker.last!.emit({ type: "ready" });
     FakeWorker.last!.emit({ type: "error", message: "PDF illisible", name: "PdfError" });
     await expect(p).rejects.toMatchObject({ message: "PDF illisible", name: "PdfError" });
   });
@@ -103,5 +110,37 @@ describe("runWorkerTask", () => {
     const p = runWorkerTask({ ...base, create: mk });
     FakeWorker.last!.onerror?.({ message: "refusé" } as ErrorEvent);
     expect(await p).toBe(2);
+  });
+
+  it("Worker qui ne se déclare jamais prêt : repli en ligne après le délai de démarrage", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("Worker", FakeWorker);
+    const p = runWorkerTask({ ...base, create: mk, startTimeoutMs: 1000 });
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(await p).toBe(2);
+    expect(FakeWorker.last!.terminated).toBe(true);
+  });
+
+  it("Worker réutilisé : conservé après succès, déjà prêt, terminé après annulation", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    let kept: Worker | null = null;
+    const reuse = { get: () => kept, set: (w: Worker | null) => (kept = w) };
+    const p1 = runWorkerTask({ ...base, create: mk, reuse });
+    const w = FakeWorker.last!;
+    w.emit({ type: "ready" });
+    w.emit({ type: "result", value: 1 });
+    expect(await p1).toBe(1);
+    expect(w.terminated).toBe(false);
+    expect(kept).toBe(w as unknown as Worker);
+    const p2 = runWorkerTask({ ...base, create: mk, reuse });
+    expect(w.posted).toHaveLength(2); // pas d'attente de « prêt » la 2e fois
+    w.emit({ type: "result", value: 2 });
+    expect(await p2).toBe(2);
+    const c = new AbortController();
+    const p3 = runWorkerTask({ ...base, create: mk, reuse, signal: c.signal });
+    c.abort();
+    await expect(p3).rejects.toMatchObject({ name: "AbortError" });
+    expect(w.terminated).toBe(true);
+    expect(kept).toBeNull();
   });
 });

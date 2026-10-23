@@ -16,6 +16,7 @@
  * no network, CSP-safe.
  */
 
+import { yieldToMain } from "../../workers/yield";
 import type { Rect, Size } from "../core/coords";
 import type { PdfEngine, TextContentLike } from "../core/engine";
 import { pdfjs } from "../core/pdfjs";
@@ -225,6 +226,7 @@ export async function compareVisual(
     try {
       const [a, b] = [await opts.render(left, li, scale), await opts.render(right, ri, scale)];
       const mask = [...pg.leftText, ...pg.rightText].map((r) => grow(scaleRect(r, scale), 1));
+      await yieldToMain(); // le rendu des deux pages et la différence ne forment pas une seule tâche
       regions = diffBitmaps(a, b, { ...opts, mask }).map((r) => scaleRect(r, 1 / scale));
     } finally {
       left.releasePageResources?.(li);

@@ -618,12 +618,45 @@ async function repairOneObjectStream(
 }
 
 /** Where each object is (last) defined in the file: "num gen" → byte offset. */
-function objectOffsets(bytes: Uint8Array): Map<string, number> {
+export function objectOffsets(bytes: Uint8Array): Map<string, number> {
+  // Balayage binaire (pas de chaîne latin1 de la taille du fichier) : on repère « obj » avec indexOf natif
+  // puis on relit en arrière « <num> <gén> », comme le faisait /(?:^|[\s>\]])(\d{1,10})\s+(\d{1,5})\s+obj/.
   const out = new Map<string, number>();
-  let text = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const re = /(?:^|[\s>\]])(\d{1,10})\s+(\d{1,5})\s+obj\b/g;
-  for (let m: RegExpExecArray | null; (m = re.exec(text));) out.set(`${+m[1]!} ${+m[2]!} R`, m.index);
+  const isWs = (b: number) => b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09 || b === 0x0c || b === 0x00;
+  const isDigit = (b: number | undefined) => b !== undefined && b >= 0x30 && b <= 0x39;
+  const isWord = (b: number | undefined) =>
+    b !== undefined && (isDigit(b) || (b >= 0x41 && b <= 0x5a) || (b >= 0x61 && b <= 0x7a) || b === 0x5f);
+  for (let at = bytes.indexOf(0x6f); at >= 0; at = bytes.indexOf(0x6f, at + 1)) {
+    if (bytes[at + 1] !== 0x62 || bytes[at + 2] !== 0x6a || isWord(bytes[at + 3])) continue; // « obj » + 
+    let k = at - 1;
+    let ws = 0;
+    while (k >= 0 && isWs(bytes[k]!)) {
+      k--;
+      ws++;
+    }
+    if (!ws) continue;
+    let e = k;
+    while (k >= 0 && isDigit(bytes[k])) k--;
+    const genLen = e - k;
+    if (genLen < 1 || genLen > 5) continue;
+    const gen = +String.fromCharCode(...bytes.subarray(k + 1, e + 1));
+    let ws2 = 0;
+    while (k >= 0 && isWs(bytes[k]!)) {
+      k--;
+      ws2++;
+    }
+    if (!ws2) continue;
+    e = k;
+    while (k >= 0 && isDigit(bytes[k])) k--;
+    const numLen = e - k;
+    if (numLen < 1 || numLen > 10) continue;
+    // Début de ligne, ou précédé d'un blanc, de « > » ou de « ] » : sinon le nombre est la fin d'un plus long.
+    const before = k >= 0 ? bytes[k]! : -1;
+    if (!(before === -1 || isWs(before) || before === 0x3e || before === 0x5d)) continue;
+    const num = +String.fromCharCode(...bytes.subarray(k + 1, e + 1));
+    // L'index renvoyé est celui du séparateur de tête (comme m.index de l'expression d'origine), 0 au début du fichier.
+    out.set(`${num} ${gen} R`, before === -1 ? 0 : k);
+  }
   return out;
 }
 

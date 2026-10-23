@@ -36,4 +36,5 @@ export function serveWorkerTask<Req, Res>(
       });
     }
   };
+  send({ type: "ready" });
 }

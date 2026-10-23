@@ -43,8 +43,43 @@ export function imageSize(src: string): Promise<{ width: number; height: number 
   });
 }
 
+/** Mis à vrai quand une image n'a pas pu être transcodée dans un Worker (SVG…) : l'appelant relance sur le fil principal. */
+let workerTranscodeFailed = false;
+export function takeWorkerTranscodeFailure(): boolean {
+  const v = workerTranscodeFailed;
+  workerTranscodeFailed = false;
+  return v;
+}
+
+/** Variante sans DOM (Worker) : createImageBitmap + OffscreenCanvas. */
+async function toPngDataUrlInWorker(src: string, maxSide: number): Promise<string> {
+  try {
+    if (typeof OffscreenCanvas === "undefined") throw new Error("OffscreenCanvas indisponible");
+    const parsed = parseDataUrl(src);
+    if (!parsed || /svg/.test(parsed.mime)) throw new Error("format non décodable hors du fil principal");
+    const bitmap = await createImageBitmap(new Blob([parsed.bytes as BlobPart], { type: parsed.mime }));
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height, 1));
+    const canvas = new OffscreenCanvas(
+      Math.max(1, Math.round(bitmap.width * scale)),
+      Math.max(1, Math.round(bitmap.height * scale)),
+    );
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas indisponible");
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const out = new Uint8Array(await (await canvas.convertToBlob({ type: PNG })).arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+    return `data:${PNG};base64,${btoa(bin)}`;
+  } catch (e) {
+    workerTranscodeFailed = true;
+    throw e;
+  }
+}
+
 /** Re-encode any browser-decodable image as a PNG data URL. */
 export async function toPngDataUrl(src: string, maxSide = 4096): Promise<string> {
+  if (typeof document === "undefined") return toPngDataUrlInWorker(src, maxSide);
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const el = new Image();
     el.onload = () => resolve(el);

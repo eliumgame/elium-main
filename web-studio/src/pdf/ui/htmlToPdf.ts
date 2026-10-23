@@ -21,6 +21,7 @@
  */
 
 import { customFontFilename, customFontNames, getCustomFont } from "../../ui/fonts";
+import { createYielder } from "../../workers/yield";
 import { fontFaceCss, fontExtension } from "../../format/embedded-fonts";
 import {
   contentBoxPx,
@@ -285,7 +286,8 @@ const FORCED = new Set(["page", "left", "right", "recto", "verso", "always"]);
 const ATOMIC = new Set(["img", "svg", "canvas", "video", "tr", "hr", "picture", "math"]);
 const SKIP_TEXT = new Set(["style", "script", "title", "desc", "noscript", "template", "option"]);
 
-function measure(layout: Layout, pageHeightPx: number): Measured {
+async function measure(layout: Layout, pageHeightPx: number): Promise<Measured> {
+  const tick = createYielder(); // la mesure mot par mot d'un long document se fait par tranches de ~12 ms
   const { doc, win } = layout;
   const body = doc.body;
   const bodyRect = body.getBoundingClientRect();
@@ -316,6 +318,7 @@ function measure(layout: Layout, pageHeightPx: number): Measured {
     let bottom = r0.bottom - oy;
     const walker = doc.createTreeWalker(block, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     for (let node: Node | null = block; node; node = walker.nextNode()) {
+      await tick();
       if (node.nodeType === 1) {
         const el = node as Element;
         const s = cs(el);
@@ -576,7 +579,7 @@ export async function renderHtmlSource(src: HtmlSource, opts: RenderOptions = {}
         if (w > content.width + 1) el.style.zoom = String(Math.max(0.2, content.width / w));
       }
     }
-    const m = measure(layout, content.height);
+    const m = await measure(layout, content.height);
     const plans: PagePlan[] = [];
     if (fixed) {
       for (const el of doc.querySelectorAll<HTMLElement>(`.${FIXED_PAGE_CLASS}`)) {

@@ -82,10 +82,7 @@ import {
 } from "../ops/export";
 import {
   DEFAULT_BUILD,
-  buildPdf,
   fullRewriteReasons,
-  readDiskState,
-  savePdf,
   type BuildOptions,
   type BuildReport,
   type DiskState,
@@ -174,6 +171,11 @@ import {
 } from "../ops/ocr";
 import type { SavedSignature } from "../ops/sign";
 import { resolveAnnotExtrasAsync } from "../worker/pdf-worker-client";
+import {
+  buildPdfAuto as buildPdf,
+  readDiskStateAuto as readDiskState,
+  savePdfAuto as savePdf,
+} from "../worker/pdf-save-client";
 import AnnotLayer from "./AnnotLayer";
 import ContentEditLayer, { type EditingInfo } from "./ContentEditLayer";
 import ContentEditPreview from "./ContentEditPreview";

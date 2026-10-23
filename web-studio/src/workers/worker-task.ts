@@ -18,6 +18,7 @@ export interface TaskContext {
 }
 
 export type WorkerMessage<Res> =
+  | { type: "ready" }
   | { type: "progress"; fraction: number; label: string }
   | { type: "result"; value: Res }
   | { type: "error"; message: string; name?: string };
@@ -46,9 +47,19 @@ export interface WorkerTaskOptions<Req, Res> {
   limitMessage?: string;
   /** Force l'exécution sur le fil appelant. */
   forceInline?: boolean;
+  /**
+   * Worker réutilisable (tâches à état : le Worker garde des données d'un appel à l'autre). Sur succès le
+   * Worker est conservé ; sur annulation, délai ou erreur il est terminé et `set(null)` est appelé.
+   */
+  reuse?: { get(): Worker | null; set(w: Worker | null): void };
+  /** Délai pour que le Worker se déclare prêt (chargement des modules) ; au-delà : repli en ligne. Défaut 20 s. */
+  startTimeoutMs?: number;
   /** Libellé du message d'annulation. */
   abortMessage?: string;
 }
+
+/** Workers ayant déjà annoncé qu'ils écoutent (un Worker réutilisé n'a pas à le refaire). */
+const readyWorkers = new WeakSet<Worker>();
 
 /** Vrai quand un vrai Worker peut être créé (faux sous jsdom/vitest). */
 export const workersAvailable = (): boolean => typeof Worker !== "undefined";
@@ -70,12 +81,18 @@ export function runWorkerTask<Req, Res>(opts: WorkerTaskOptions<Req, Res>): Prom
     let worker: Worker | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
-    const finish = (fn: () => void) => {
+    const finish = (fn: () => void, keep = false) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      worker?.terminate();
+      if (worker && keep && opts.reuse) {
+        worker.onmessage = null;
+        worker.onerror = null;
+      } else {
+        worker?.terminate();
+        opts.reuse?.set(null);
+      }
       worker = null;
       fn();
     };
@@ -96,7 +113,8 @@ export function runWorkerTask<Req, Res>(opts: WorkerTaskOptions<Req, Res>): Prom
     if (opts.forceInline || !workersAvailable()) return runInline();
     let gotMessage = false;
     try {
-      worker = opts.create();
+      worker = opts.reuse?.get() ?? opts.create();
+      opts.reuse?.set(worker);
     } catch {
       return runInline(); // CSP ou plateforme sans Worker module
     }
@@ -110,11 +128,31 @@ export function runWorkerTask<Req, Res>(opts: WorkerTaskOptions<Req, Res>): Prom
         ms,
       );
     }
+    const post = () => {
+      try {
+        worker?.postMessage(opts.request, opts.transfer ?? []);
+      } catch (e) {
+        finish(() => reject(e));
+      }
+    };
+    let startTimer: ReturnType<typeof setTimeout> | undefined;
+    const fallBack = () => {
+      if (settled || gotMessage) return;
+      worker?.terminate();
+      opts.reuse?.set(null);
+      worker = null;
+      runInline();
+    };
     worker.onmessage = (ev: MessageEvent<WorkerMessage<Res>>) => {
       gotMessage = true;
       const d = ev.data;
-      if (d.type === "progress") ctx.progress(d.fraction, d.label);
-      else if (d.type === "result") finish(() => resolve(d.value));
+      if (d.type === "ready") {
+        // Un module Worker perd les messages envoyés avant la fin de son chargement : on n'envoie qu'après « prêt ».
+        if (startTimer) clearTimeout(startTimer);
+        if (worker) readyWorkers.add(worker);
+        post();
+      } else if (d.type === "progress") ctx.progress(d.fraction, d.label);
+      else if (d.type === "result") finish(() => resolve(d.value), true);
       else {
         const err = new Error(d.message);
         if (d.name) err.name = d.name;
@@ -125,16 +163,16 @@ export function runWorkerTask<Req, Res>(opts: WorkerTaskOptions<Req, Res>): Prom
       ev.preventDefault?.();
       if (!gotMessage && !settled) {
         // Le Worker n'a jamais démarré (chargement refusé) : repli en ligne, sans erreur visible.
-        worker?.terminate();
-        worker = null;
-        return runInline();
+        if (startTimer) clearTimeout(startTimer);
+        return fallBack();
       }
       finish(() => reject(new Error(ev.message || "Le calcul en arrière-plan a échoué.")));
     };
-    try {
-      worker.postMessage(opts.request, opts.transfer ?? []);
-    } catch (e) {
-      finish(() => reject(e));
+    if (readyWorkers.has(worker)) {
+      gotMessage = true;
+      post();
+    } else {
+      startTimer = setTimeout(fallBack, opts.startTimeoutMs ?? 20_000);
     }
   });
 }

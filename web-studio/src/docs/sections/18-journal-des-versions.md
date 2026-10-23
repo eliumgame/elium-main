@@ -2,6 +2,10 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.21.1 — reprise automatique après une mise à jour
+
+- Une page restée ouverte pendant une mise à jour ne montre plus « Elium a rencontré un problème » (« Failed to fetch dynamically imported module ») au prochain module ouvert : Elium recharge tout seul, une fois ; les autosauvegardes sont conservées.
+
 ### Version 4.21.0 — garde-fous anti-gel (lot E : Tableur, espace de travail, Passeport)
 
 - **Tableur** : le moteur de formules conserve l'analyse des formules d'une modification à l'autre (plus de ré-analyse de tout le classeur à chaque frappe) ; l'import d'un CSV (désormais jusqu'à 64 Mo), l'export .xlsx et la relecture d'un gros classeur enregistré se font par tranches ; le filtre d'une grande feuille se calcule en arrière-plan ; le calcul des champs calculés d'un tableau croisé et l'indicateur « à actualiser » sont allégés (désactivé au-delà de 200 000 cellules source) ; les règles de mise en forme conditionnelle d'étendue (échelle de couleurs, extrêmes, doublons) sont limitées à 250 000 cellules, avec un message ; MIN/MAX ne plantent plus au-delà de ~100 000 valeurs.

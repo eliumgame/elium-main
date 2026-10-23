@@ -1,5 +1,6 @@
 import * as React from "react";
 import { clearCrashLog, formatCrashLog, reportError } from "./crash-log";
+import { isChunkLoadError, reloadForNewVersion } from "./chunk-recovery";
 import { t } from "../i18n";
 
 interface State {
@@ -16,6 +17,8 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   state: State = { error: null, copied: false };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
+    // Mise à jour pendant que la page était ouverte : on recharge tout seul (une fois) au lieu d'afficher l'erreur.
+    if (isChunkLoadError(error)) reloadForNewVersion();
     return { error };
   }
 

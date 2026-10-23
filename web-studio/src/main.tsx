@@ -8,6 +8,7 @@ import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
 import { installLongTaskWatcher } from "./ui/long-tasks";
+import { installChunkRecovery } from "./ui/chunk-recovery";
 import { installA11yEnhancers } from "./ui/a11y-enhancers";
 import { loadUserFonts } from "./ui/font-library";
 import "./index.css";
@@ -20,6 +21,7 @@ applyTheme(getTheme());
 applyPrefsToDocument(getPrefs());
 installGlobalCrashHandlers();
 installLongTaskWatcher();
+installChunkRecovery();
 installA11yEnhancers();
 void loadUserFonts(); // polices personnelles conservées → registre → sélecteurs
 

@@ -34,10 +34,12 @@ export function hasVaultSecret(secret?: VaultSecret): secret is VaultSecret {
   return !!secret && ((secret.password ?? "") !== "" || !!secret.keyfile);
 }
 
-function toB64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s);
+/** Base64 par blocs : concaténer un caractère par octet figeait l'onglet dès ~10 Mo. */
+export function toB64(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  const STEP = 0x8000;
+  for (let i = 0; i < bytes.length; i += STEP) parts.push(String.fromCharCode(...bytes.subarray(i, i + STEP)));
+  return btoa(parts.join(""));
 }
 
 function fromB64(b64: string): Uint8Array {

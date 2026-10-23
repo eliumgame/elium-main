@@ -106,7 +106,7 @@ function parseJson(files: Record<string, Uint8Array>, name: string): unknown {
 const STORES: ContentStoreId[] = ["drive", "sheets", "slides", "pdfs"];
 const KINDS = ["doc", "sheet", "slides", "pdf"];
 
-function cleanItem(v: unknown): WorkItem | null {
+export function cleanItem(v: unknown): WorkItem | null {
   if (!isObj(v) || typeof v.id !== "string" || typeof v.title !== "string") return null;
   if (!KINDS.includes(v.kind as string) || !STORES.includes(v.contentStore as ContentStoreId)) return null;
   const iso = (x: unknown, fb: string) => (typeof x === "string" && !Number.isNaN(Date.parse(x)) ? x : fb);
@@ -130,7 +130,7 @@ function cleanItem(v: unknown): WorkItem | null {
   };
 }
 
-function cleanFolder(v: unknown): WorkFolder | null {
+export function cleanFolder(v: unknown): WorkFolder | null {
   if (!isObj(v) || typeof v.id !== "string" || typeof v.name !== "string") return null;
   return {
     id: v.id,

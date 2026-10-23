@@ -29,6 +29,7 @@ a = Analysis(
     datas=[(WEB, "web")],  # embarque le Web Studio sous _MEIPASS/web
     hiddenimports=[
         "updater",  # module d'auto-update (installer/updater.py)
+        "local_files",  # stockage en fichiers locaux (installer/local_files.py)
         "elium", "elium.core", "elium.core.container", "elium.core.exceptions",
         "elium.crypto", "elium.crypto.primitives",
         "elium.format", "elium.format.canonical", "elium.format.document",

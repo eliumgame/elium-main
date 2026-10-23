@@ -32,7 +32,31 @@
  * tronquée est ignorée (try/catch par image), jamais une exception qui
  * interromprait l'analyse du document entier.
  */
-import { unzlibSync } from "fflate";
+import { Unzlib } from "fflate";
+
+/** Plafond de texte décompressé d'un chunk PNG zTXt/iTXt : au-delà, c'est une bombe de décompression, pas une métadonnée. */
+const MAX_TEXT_CHUNK_BYTES = 1024 * 1024;
+
+/** Décompression zlib bornée : entrée par petites tranches, abandon dès que la sortie dépasse le plafond. */
+function unzlibCapped(data: Uint8Array, max = MAX_TEXT_CHUNK_BYTES): Uint8Array {
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  const u = new Unzlib((chunk) => {
+    size += chunk.length;
+    if (size <= max) parts.push(chunk);
+  });
+  const STEP = 256; // une tranche gonfle d'au plus ~1000x : la sortie reste bornée avant chaque contrôle
+  for (let i = 0; i < data.length && size <= max; i += STEP)
+    u.push(data.subarray(i, i + STEP), i + STEP >= data.length);
+  if (size > max) throw new Error("Chunk PNG décompressé trop volumineux");
+  const out = new Uint8Array(size);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
 import type { C2paReport } from "./c2pa/verify";
 import type { DocumentMetadata, Finding, ImageModel, SignalSeverity } from "./types";
 
@@ -369,7 +393,7 @@ function readPngChunks(bytes: Uint8Array): PngChunk[] {
   return chunks;
 }
 
-function decodePngTextChunk(chunk: PngChunk): { keyword: string; text: string } | undefined {
+export function decodePngTextChunk(chunk: PngChunk): { keyword: string; text: string } | undefined {
   if (chunk.type === "tEXt") {
     const nul = chunk.data.indexOf(0);
     if (nul < 0) return undefined;
@@ -383,7 +407,7 @@ function decodePngTextChunk(chunk: PngChunk): { keyword: string; text: string } 
     if (nul < 0 || nul + 2 > chunk.data.length) return undefined;
     const keyword = bytesToLatin1(chunk.data.subarray(0, nul));
     try {
-      return { keyword, text: bytesToLatin1(unzlibSync(chunk.data.subarray(nul + 2))) };
+      return { keyword, text: bytesToLatin1(unzlibCapped(chunk.data.subarray(nul + 2))) };
     } catch {
       return undefined;
     }
@@ -399,7 +423,7 @@ function decodePngTextChunk(chunk: PngChunk): { keyword: string; text: string } 
     if (translatedEnd < 0) return undefined;
     const rest = chunk.data.subarray(translatedEnd + 1);
     try {
-      const raw = compressionFlag === 1 ? unzlibSync(rest) : rest;
+      const raw = compressionFlag === 1 ? unzlibCapped(rest) : rest;
       return { keyword, text: utf8Decode(raw) };
     } catch {
       return undefined;

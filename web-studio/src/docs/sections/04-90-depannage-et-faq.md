@@ -106,3 +106,7 @@ Exportez régulièrement avec la sauvegarde `.elium-workspace`.
 **Comment signaler un bogue ?** Copiez le journal d'incidents (Réglages,
 Confidentialité & données) après l'avoir relu, et le contenu de `update.log` s'il
 s'agit d'une mise à jour.
+
+### L'interface s'est figée un moment
+
+Elium note chaque blocage de plus de 200 ms dans le **journal d'incidents** (Réglages), sous la source « gel » avec la vue concernée. Joignez ce journal si vous signalez un ralentissement.

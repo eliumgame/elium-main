@@ -6,6 +6,7 @@ import { DriveProvider } from "./drive-cloud/session";
 import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
+import { installLongTaskWatcher } from "./ui/long-tasks";
 import { installA11yEnhancers } from "./ui/a11y-enhancers";
 import { loadUserFonts } from "./ui/font-library";
 import "./index.css";
@@ -17,6 +18,7 @@ import { applyPrefsToDocument, getPrefs } from "./settings/prefs";
 applyTheme(getTheme());
 applyPrefsToDocument(getPrefs());
 installGlobalCrashHandlers();
+installLongTaskWatcher();
 installA11yEnhancers();
 void loadUserFonts(); // polices personnelles conservées → registre → sélecteurs
 

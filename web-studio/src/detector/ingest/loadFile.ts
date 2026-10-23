@@ -107,7 +107,7 @@ export async function loadDocumentModel(file: File, opts: LoadFileOptions = {}):
 function extractDocxMetadata(bytes: Uint8Array, title: string): DocumentMetadata {
   const metadata: DocumentMetadata = { sourceFormat: "docx", title };
   try {
-    const zip = unzipSync(bytes);
+    const zip = unzipSync(bytes, { filter: (f) => f.name === "docProps/core.xml" || f.name === "docProps/app.xml" });
     const core = zip["docProps/core.xml"];
     if (core) {
       const xml = strFromU8(core);

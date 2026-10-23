@@ -186,6 +186,9 @@ function Cmd({
   );
 }
 
+/** Taille maximale d'un CSV importé (la lecture CSV est synchrone). */
+const MAX_CSV_BYTES = 30 * 1024 * 1024;
+
 export default function SheetEditor({ store, chrome }: { store: SheetStore; chrome: SheetEditorChrome }) {
   const { wb, active, canWrite, collaborative } = store;
   const dialogs = useDialogs();
@@ -786,6 +789,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     if (!file || !store.replaceWorkbook) return;
     if (!file.name.toLowerCase().endsWith(".csv")) {
       void runXlsxImport(file);
+      return;
+    }
+    if (file.size > MAX_CSV_BYTES) {
+      void dialogs.alert({
+        title: "Fichier CSV trop volumineux",
+        message: `Ce CSV pèse ${Math.round(file.size / 1048576)} Mo : au-delà de ${MAX_CSV_BYTES / 1048576} Mo, son import figerait l'application. Découpez-le, ou ouvrez-le dans Excel et enregistrez-le en .xlsx (l'import XLSX gère les très gros fichiers).`,
+      });
       return;
     }
     try {

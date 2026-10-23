@@ -23,7 +23,7 @@ from pathlib import Path
 CODE_HASH_PLACEHOLDER = "__BUILD_CODE_HASH__"
 
 # Fichiers dont le contenu définit le comportement natif figé dans l'exe.
-_LAUNCHER_FILES = ["installer/elium_launcher.py", "installer/updater.py"]
+_LAUNCHER_FILES = ["installer/elium_launcher.py", "installer/updater.py", "installer/local_files.py"]
 
 # Motif de la constante à neutraliser dans updater.py avant hachage.
 _BUILD_HASH_RE = re.compile(r'^BUILD_CODE_HASH = "[^"]*"', re.MULTILINE)

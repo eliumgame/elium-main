@@ -38,6 +38,12 @@ try:
 except Exception:  # pragma: no cover - défensif
     updater = None  # type: ignore
 
+# Stockage en fichiers locaux (Documents\Elium) : même tolérance.
+try:
+    import local_files  # type: ignore
+except Exception:  # pragma: no cover - défensif
+    local_files = None  # type: ignore
+
 
 # --------------------------------------------------------------------------- #
 # Anti-CSRF sur les routes d'état (démarrage/redémarrage de mise à jour, rollback)
@@ -1203,6 +1209,59 @@ def keystore_unwrap(data: bytes) -> bytes:
     return _dpapi_call(data, False)
 
 
+# --------------------------------------------------------------------------- #
+# Stockage en fichiers locaux : /__files__/info|list|read (GET), write|remove (POST).
+# Mêmes garde-fous que les routes d'état (jeton de session + Origin/Host), sur
+# TOUTES les routes y compris la lecture ; le dossier est restreint à la racine
+# (local_files.LocalFiles) et le client ne fournit jamais un chemin du disque.
+# --------------------------------------------------------------------------- #
+_FILES_RATE_WINDOW_S = 10.0
+_FILES_RATE_MAX_CALLS = 600
+_files_rate_hits: "list[float]" = []
+_files_rate_lock = threading.Lock()
+_files_store: "object | None" = None
+_files_store_lock = threading.Lock()
+
+
+def _files_rate_limited() -> bool:
+    import time as _time
+
+    now = _time.monotonic()
+    with _files_rate_lock:
+        while _files_rate_hits and now - _files_rate_hits[0] > _FILES_RATE_WINDOW_S:
+            _files_rate_hits.pop(0)
+        if len(_files_rate_hits) >= _FILES_RATE_MAX_CALLS:
+            return True
+        _files_rate_hits.append(now)
+        return False
+
+
+def _files_root() -> Path:
+    custom = _load_launcher_config().get("files_dir")
+    if isinstance(custom, str) and custom.strip() and os.path.isabs(custom):
+        return Path(custom)
+    return local_files.default_root()  # type: ignore[union-attr]
+
+
+def get_local_files():
+    """Instance LocalFiles du processus (racine créée au premier usage) ; None si
+    le module est absent ou la racine inaccessible."""
+    global _files_store
+    if local_files is None:
+        return None
+    with _files_store_lock:
+        if _files_store is None:
+            try:
+                store = local_files.LocalFiles(_files_root())
+                store.ensure_root()
+                store.purge_trash()
+                _files_store = store
+            except Exception as e:
+                _log_launcher(f"get_local_files: dossier de travail inaccessible ({e})")
+                return None
+        return _files_store
+
+
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     """Serveur HTTP silencieux pour le Web Studio (+ fichier ouvert via Explorer)."""
 
@@ -1297,6 +1356,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     _log_launcher(f"GET /__releases__: list_releases() a échoué ({e})")
             self._serve_bytes(json.dumps({"releases": releases}).encode("utf-8"), "application/json; charset=utf-8")
             return
+        if clean.startswith("/__files__/"):
+            self._handle_files("GET", clean[len("/__files__/"):])
+            return
         if clean == "/__ports__":
             port = self.server.server_address[1]
             info = {
@@ -1349,6 +1411,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(403, "Requête non autorisée (jeton de session ou origine invalide)")
             return
         clean = self.path.split("?", 1)[0]
+        if clean.startswith("/__files__/"):
+            self._handle_files("POST", clean[len("/__files__/"):])
+            return
         if clean == "/__fetch_font__":
             # Limiteur dédié : télécharger une famille enchaîne plusieurs requêtes.
             if _font_rate_limited():
@@ -1487,6 +1552,55 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(502, "Serveur d'horodatage injoignable")
             return
         self._serve_bytes(reply, "application/timestamp-reply")
+
+    def _handle_files(self, method: str, op: str) -> None:
+        """API de fichiers locaux (voir local_files.py). Jeton + Origin/Host exigés
+        pour GET comme pour POST ; réponses JSON sauf `read` (octets bruts)."""
+        port = self.server.server_address[1]
+        if not _is_authorized_state_request(
+            self.headers.get("X-Elium-Token"), self.headers.get("Origin"), self.headers.get("Host"), port
+        ):
+            self.send_error(403, "Requête non autorisée (jeton de session ou origine invalide)")
+            return
+        if _files_rate_limited():
+            self.send_error(429, "Trop de requêtes — patientez quelques secondes")
+            return
+        store = get_local_files()
+        if store is None:
+            self.send_error(503, "Stockage de fichiers local indisponible")
+            return
+        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+        rel = (qs.get("p", [""])[0] or "")
+
+        def reply(obj) -> None:
+            self._serve_bytes(json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
+
+        try:
+            if method == "GET" and op == "info":
+                reply({"enabled": True, "root": str(store.root), "maxBytes": local_files.MAX_FILE_BYTES})
+            elif method == "GET" and op == "list":
+                reply({"files": store.list()})
+            elif method == "GET" and op == "read":
+                self._serve_bytes(store.read(rel), "application/octet-stream")
+            elif method == "POST" and op == "write":
+                try:
+                    length = int(self.headers.get("Content-Length") or "0")
+                except ValueError:
+                    length = -1
+                store.write_stream(rel, self.rfile, length)
+                reply({"ok": True})
+            elif method == "POST" and op == "remove":
+                reply({"ok": True, "removed": store.remove(rel, hard=(qs.get("hard", [""])[0] == "1"))})
+            else:
+                self.send_error(404, "Route inconnue")
+        except local_files.PathRefused as e:
+            self.send_error(400, f"Chemin refusé : {e}")
+        except FileNotFoundError:
+            self.send_error(404, "Fichier introuvable")
+        except OSError as e:
+            _log_launcher(f"/__files__/{op}: {e}")
+            self.close_connection = True
+            self.send_error(500, "Erreur d'écriture ou de lecture")
 
     def _handle_keystore(self, op: str) -> None:
         """Couche OPTIONNELLE de protection par le magasin du système : enveloppe

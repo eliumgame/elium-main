@@ -46,6 +46,12 @@ export function reportError(source: string, err: unknown): void {
   write([...read(), { at: new Date().toISOString(), source, message: clip(e.message) ?? "", stack: clip(e.stack) }]);
 }
 
+/** Note au journal sans bruit console (ni console.error) : incident de performance, pas une erreur. */
+export function logIncident(source: string, message: string): void {
+  console.warn(`[elium:${source}]`, message);
+  write([...read(), { at: new Date().toISOString(), source, message: clip(message) ?? "" }]);
+}
+
 function safeJson(v: unknown): string {
   try {
     return JSON.stringify(v) ?? String(v);

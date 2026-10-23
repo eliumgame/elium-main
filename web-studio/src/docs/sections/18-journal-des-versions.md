@@ -2,6 +2,13 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.17.0 — garde-fous anti-gel (lot A)
+
+- **Veille des tâches longues** : toute interface figée plus de 200 ms est notée dans le journal d'incidents local (source « gel », avec la vue en cours) ; rien ne quitte l'appareil.
+- **Coffre local** : l'encodage base64 se fait par blocs ; avec le coffre actif, enregistrer un gros PDF ou document ne fige plus l'onglet.
+- **Détecteur** : lecture des métadonnées d'un .docx sans tout décompresser ; protection contre les « bombes de décompression » dans les métadonnées PNG.
+- **Tableur** : un CSV de plus de 30 Mo est refusé avec un message clair (à enregistrer en .xlsx, qui gère les très gros fichiers).
+
 ### Version 4.16.0 — import Excel en flux, sans aucun gel
 
 - Tableur : l'import d'un .xlsx tourne désormais dans un Worker (lecture en flux), avec barre de progression et bouton Annuler ; l'onglet reste fluide même sur un classeur de 45 Mo et 745 000 lignes (plus longue tâche mesurée : ~60 ms au lieu de ~17 s).

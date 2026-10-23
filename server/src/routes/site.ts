@@ -207,7 +207,13 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         userId,
       ]);
       if (!mem) throw notFound("Utilisateur introuvable dans ce Drive.");
-      const targetIsOwner = (await queryOne<{ ok: boolean }>(`SELECT owner_user_id = $2 AS ok FROM organizations WHERE id = $1`, [orgId, userId]))?.ok === true;
+      const targetIsOwner =
+        (
+          await queryOne<{ ok: boolean }>(`SELECT owner_user_id = $2 AS ok FROM organizations WHERE id = $1`, [
+            orgId,
+            userId,
+          ])
+        )?.ok === true;
       if ((b.suspended !== undefined || b.roleId !== undefined) && targetIsOwner) {
         throw conflict("Le propriétaire du Drive ne peut être ni suspendu ni rétrogradé.");
       }
@@ -219,7 +225,11 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         ]);
         if (!role) throw badRequest("Rôle invalide pour ce Drive.");
         if (role.key === "owner") throw badRequest("Utilisez le transfert de propriété pour désigner un propriétaire.");
-        await query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [orgId, userId, b.roleId]);
+        await query(`UPDATE memberships SET role_id = $3 WHERE org_id = $1 AND user_id = $2`, [
+          orgId,
+          userId,
+          b.roleId,
+        ]);
         await audit(orgId, actor.id, "member.role.assign", "membership", mem.id, { userId, roleId: b.roleId }, req.ip);
       }
       if (b.quotaBytes !== undefined) {

@@ -288,4 +288,10 @@ export function startHousekeeping(app: FastifyInstance): () => void {
 
 // Exportées pour les tests (server/tests/housekeeping.test.ts) : chaque étape
 // se teste indépendamment sans devoir attendre l'intervalle de 15 min.
-export { sweepEphemeralTables, purgeOrphanedTrashBlobs, purgeOldVersions, sweepScheduledKeyRotation, TRASH_BLOB_RETENTION_DAYS };
+export {
+  sweepEphemeralTables,
+  purgeOrphanedTrashBlobs,
+  purgeOldVersions,
+  sweepScheduledKeyRotation,
+  TRASH_BLOB_RETENTION_DAYS,
+};

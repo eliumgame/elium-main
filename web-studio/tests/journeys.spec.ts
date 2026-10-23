@@ -49,6 +49,11 @@ function trackPageHealth(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  // Aucune API Drive dans ces parcours : on répond à la sonde du site déployé (/api/site/policy) par « non déployé ».
+  // Sans cela le proxy de dev renvoie une 500 que le navigateur journalise comme erreur console.
+  await page.route("**/api/site/policy", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ deployed: false }) }),
+  );
   // Chromium expose l'API File System Access : « Enregistrer » ouvrirait alors un sélecteur de fichier
   // natif, que Playwright ne pilote pas. Les parcours testent le repli par téléchargement (navigateurs
   // sans l'API, PWA) ; l'écriture en place est couverte par les tests unitaires de planSave.

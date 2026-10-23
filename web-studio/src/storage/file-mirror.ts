@@ -16,13 +16,7 @@ import type { VaultSecret } from "../crypto/local-vault";
 import { decryptAtRest, encryptAtRest, hasVaultSecret, openSealedBytes, sealBytesAtRest } from "../crypto/local-vault";
 import type { Catalog } from "../workspace/catalog";
 import { cleanFolder, cleanItem, contentKey, planBackupRestore, type BackupSnapshot } from "../workspace/backup";
-import {
-  collectSnapshot,
-  packBackup,
-  restoreSnapshot,
-  type ContentIO,
-  type KeyValueIO,
-} from "../workspace/backup-io";
+import { collectSnapshot, packBackup, restoreSnapshot, type ContentIO, type KeyValueIO } from "../workspace/backup-io";
 import type { ContentStoreId, WorkFolder, WorkItem } from "../workspace/types";
 import type { FileBackend } from "./persistence";
 
@@ -110,7 +104,6 @@ const dec = (b: Uint8Array) => new TextDecoder().decode(b);
 
 export function safeTitle(t: string): string {
   const s = t
-    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -182,7 +175,11 @@ export class FileMirror {
   async start(): Promise<{ restored: number }> {
     this.status({ state: "syncing" });
     const { cat, blocked } = await this.readCatalogFile();
-    if (blocked) {
+    // Fichiers scellés mais coffre retiré sur cette machine : si l'espace local a des données, il fait foi
+    // (les anciens fichiers scellés restent en place) ; sinon on ne touche à rien.
+    const localHasItems = () => this.deps.catalog.load().then((c) => c.items.length > 0);
+    const supersede = !!blocked && !hasVaultSecret(this.deps.getSecret()) && (await localHasItems());
+    if (blocked && !supersede) {
       this.status({ state: "blocked", message: blocked });
       return { restored: 0 };
     }

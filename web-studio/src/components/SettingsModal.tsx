@@ -38,6 +38,7 @@ import {
   type WorkspaceSettingsBridge,
 } from "./settings/WorkspaceSection";
 import DriveBackupSection from "./settings/DriveBackupSection";
+import LocalFilesNote from "./settings/LocalFilesNote";
 import UpdatesPanel from "./UpdatesPanel";
 import PortSettings from "./PortSettings";
 import { SectionCard } from "./settings/parts";
@@ -149,6 +150,7 @@ export default function SettingsModal(p: SettingsProps) {
       case "ws_backup":
         return ws ? (
           <>
+            <LocalFilesNote status={ws.ws.mirrorStatus} />
             <BackupSection bridge={ws} />
             <DriveBackupSection bridge={ws} />
           </>

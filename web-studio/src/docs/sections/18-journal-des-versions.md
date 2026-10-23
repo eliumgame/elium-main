@@ -2,6 +2,14 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.18.0 — travaux enregistrés en fichiers (application Windows)
+
+- L'application Windows miroite désormais vos documents, tableurs, présentations, PDF et passeport dans `Documents\Elium`, en plus de la base du navigateur : un changement de port ou un effacement des données ne fait plus perdre de travail (réimport automatique au démarrage, sans écraser).
+- Copie de sécurité complète au premier lancement ; fichiers retirés conservés 30 jours dans `.corbeille`.
+- Avec le coffre local, rien n'est écrit en clair sur le disque (fichiers scellés).
+- API locale du lanceur protégée par jeton de session, contrôle d'origine et confinement des chemins.
+- Site : demande de stockage persistant au navigateur.
+
 ### Version 4.17.0 — garde-fous anti-gel (lot A)
 
 - **Veille des tâches longues** : toute interface figée plus de 200 ms est notée dans le journal d'incidents local (source « gel », avec la vue en cours) ; rien ne quitte l'appareil.

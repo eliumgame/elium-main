@@ -78,7 +78,10 @@ export async function launcherFilesBackend(fetchFn: typeof fetch = fetch): Promi
       );
     },
     async remove(p, opts) {
-      await must(await call(`remove?p=${q(p)}${opts?.hard ? "&hard=1" : ""}`, { method: "POST", body: "" }), "suppression");
+      await must(
+        await call(`remove?p=${q(p)}${opts?.hard ? "&hard=1" : ""}`, { method: "POST", body: "" }),
+        "suppression",
+      );
     },
   };
 }

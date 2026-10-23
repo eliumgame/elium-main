@@ -120,9 +120,36 @@ Dans l'application de bureau et les navigateurs Chromium, **Ouvrir…** (Ctrl+O)
 si besoin. **Enregistrer sous…** est Ctrl+Maj+S. Sans cette API (Firefox, Safari),
 Elium télécharge le fichier.
 
+### Fichiers locaux (application Windows)
+
+Dans l'application Windows, vos travaux sont **aussi enregistrés en fichiers** dans
+`Documents\Elium` (dossier modifiable par la clé `files_dir` du fichier
+`%LocalAppData%\Elium\launcher-config.json`). IndexedDB reste le cache de travail
+des modules ; le dossier en est le **miroir durable** : si l'adresse locale
+change (port occupé) ou si les données du navigateur sont effacées, Elium
+**réimporte au démarrage** les éléments présents en fichiers et absents de la base.
+La restauration ne fait qu'**ajouter** : elle n'écrase jamais.
+
+| Dossier | Contenu |
+|---|---|
+| `Documents\` | documents `.elium` (octets du format v2, ouvrables par double-clic) |
+| `Classeurs\`, `Presentations\` | modèles `.classeur.json` / `.presentation.json` |
+| `PDF\` | fichiers PDF |
+| `Passeport\` | passeport professionnel E4 |
+| `Sauvegardes\` | copie de sécurité `avant-migration-AAAA-MM-JJ.elium-workspace` |
+| `_elium\`, `.corbeille\` | catalogue et état ; fichiers retirés (purgés après 30 jours) |
+
+- **1er lancement** : une copie de sécurité complète est écrite avant le premier miroir ; rien n'est supprimé de la base.
+- **Coffre local actif** : rien n'est écrit en clair. Contenus, catalogue et passeport sont scellés (extension `.vault`, nom réduit à l'identifiant). Les restaurer exige le coffre déverrouillé avec le même mot de passe. Activer le coffre après coup remplace les copies en clair, effacées définitivement.
+- **Sécurité de l'accès** : le lanceur n'accepte les requêtes de fichiers qu'avec le jeton de la session (présent seulement dans la page servie), depuis l'origine de l'application ; les chemins sont logiques, validés (dossiers et extensions autorisés, noms Windows interdits) et confinés au dossier de travail.
+- **Sur le site** : pas de fichiers ; Elium demande au navigateur un **stockage persistant** pour limiter l'éviction des données.
+- L'état du miroir s'affiche dans Réglages, Sauvegarde.
+
+Limites : les circuits du Parapheur voyagent dans le `.elium` (pas de fichier séparé) ; les réglages du Détecteur ne sont pas miroités ; un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement s'il manque dans la base.
+
 ### Limites connues de l'espace de travail
 
-- Tout est **local à ce profil** et à son adresse (voir Dépannage et FAQ : changement de port). Aucune synchronisation entre PC.
+- Le travail vit dans la base de ce profil et, dans l'application Windows, dans `Documents\Elium` (voir ci-dessus). Aucune synchronisation entre PC.
 - La recherche n'a pas de syntaxe avancée et plafonne à 200 résultats.
 - Le remplacement en lot ne traite pas les tableurs et les PDF.
 - La sauvegarde ne contient pas l'historique de versions locales.

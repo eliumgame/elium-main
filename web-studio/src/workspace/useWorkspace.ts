@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VaultSecret } from "../crypto/local-vault";
 import { reportError } from "../ui/crash-log";
 import { createWorkspaceService } from "./content";
+import type { FileMirror, MirrorStatus } from "../storage/file-mirror";
+import { startStorage } from "../storage/runtime";
 import type { RegisterInput, WorkspaceService } from "./service";
 import type { Catalog } from "./catalog";
 import type { WorkFolder, WorkItem } from "./types";
@@ -19,6 +21,8 @@ export interface WorkspaceApi {
   folders: WorkFolder[];
   service: WorkspaceService;
   catalog: Catalog;
+  /** État du miroir en fichiers locaux (app Windows) ; null sur le site. */
+  mirrorStatus: MirrorStatus | null;
   currentFolderId: string | null;
   setCurrentFolderId: (id: string | null) => void;
   refresh: () => Promise<void>;
@@ -53,6 +57,8 @@ export function useWorkspace(opts: {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [folders, setFolders] = useState<WorkFolder[]>([]);
   const [ready, setReady] = useState(false);
+  const [mirrorStatus, setMirrorStatus] = useState<MirrorStatus | null>(null);
+  const mirrorRef = useRef<FileMirror | null>(null);
   const [currentFolderId, setCurrentFolderIdState] = useState<string | null>(null);
 
   const setCurrentFolderId = useCallback((id: string | null) => {
@@ -65,6 +71,7 @@ export function useWorkspace(opts: {
       const data = await service.load();
       setItems(data.items);
       setFolders(data.folders);
+      mirrorRef.current?.schedule(); // chaque changement du catalogue (sauvegarde, renommage…) → miroir en fichiers
       // Le dossier courant a pu disparaître (corbeille, suppression) : retour à la racine.
       const cur = folderRef.current;
       if (cur && !data.folders.some((f) => f.id === cur && !f.trashedAt)) {
@@ -87,6 +94,14 @@ export function useWorkspace(opts: {
         await service.importLegacy();
         await service.reconcile();
         await service.purgeExpired();
+        // App Windows : réimporte d'abord ce qui n'est qu'en fichiers, puis miroite ; site : stockage persistant.
+        mirrorRef.current?.dispose();
+        const { mirror } = await startStorage({
+          catalog,
+          getSecret: () => secretRef.current,
+          onStatus: (s) => alive && setMirrorStatus(s),
+        });
+        mirrorRef.current = mirror;
       } catch (e) {
         reportError("workspace-startup", e);
         onErrorRef.current(e instanceof Error ? e.message : String(e));
@@ -98,7 +113,16 @@ export function useWorkspace(opts: {
     return () => {
       alive = false;
     };
-  }, [opts.enabled, secretKey, service, refresh]);
+  }, [opts.enabled, secretKey, service, catalog, refresh]);
+
+  // Fermeture / masquage de la fenêtre : on pousse tout de suite le dernier état vers les fichiers.
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === "hidden") void mirrorRef.current?.flush();
+    };
+    document.addEventListener("visibilitychange", flush);
+    return () => document.removeEventListener("visibilitychange", flush);
+  }, []);
 
   const run = useCallback(
     async <T>(label: string, fn: (s: WorkspaceService) => Promise<T>): Promise<T | undefined> => {
@@ -140,6 +164,7 @@ export function useWorkspace(opts: {
 
   return {
     ready,
+    mirrorStatus,
     items,
     folders,
     service,

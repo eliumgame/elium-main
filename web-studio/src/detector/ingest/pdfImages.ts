@@ -1,12 +1,13 @@
 /**
  * Extraction des images JPEG (DCTDecode) d'un PDF avec pdf-lib — sans DOM ni pdf.js, donc exécutable
- * dans un Worker terminable (voir pdf-images.worker.ts) : un PDF qui rend `PDFDocument.load` très long
+ * dans un Worker terminable (voir pdf/worker/pdf-lib.worker.ts) : un PDF qui rend `PDFDocument.load` très long
  * ne fige plus l'interface et peut être abandonné pour de bon.
  */
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
 import type { ImageModel } from "../types";
 
 export interface PdfImagesRequest {
+  op: "pdfImages";
   bytes: Uint8Array;
   pageCount: number;
 }

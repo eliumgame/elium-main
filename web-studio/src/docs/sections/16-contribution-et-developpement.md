@@ -163,4 +163,4 @@ Aucune opération ne doit figer l'interface plus de 100 ms. Le helper commun `we
 - Pour les boucles qui ne peuvent pas aller dans un Worker (DOM, canvas), `workers/yield.ts` fournit `yieldToMain()` et `createYielder()` (cession coopérative à budget).
 - Lectures IndexedDB : `format/idb-cursor.ts` (`readProjected`) lit par curseur en ne gardant que les métadonnées, sans charger les octets de tous les documents.
 
-Exemples : recherche par expression régulière du module PDF (`pdf/worker/search-client.ts`, Worker terminé au-delà de 2,5 s), lecture des annotations enrichies (`pdf/worker/pdf-worker-client.ts`), extraction des images du Détecteur (`detector/ingest/pdf-images.worker.ts`).
+Exemples : recherche par expression régulière du module PDF (`pdf/worker/search-client.ts`, Worker terminé au-delà de 2,5 s), lecture des annotations enrichies (`pdf/worker/pdf-worker-client.ts`), extraction des images du Détecteur (`detector/ingest/pdfImages.ts`, exécuté par le Worker pdf-lib unique `pdf/worker/pdf-lib.worker.ts`, qui sert aussi l'enregistrement et la lecture des PDF (`pdf-save-client.ts`)).

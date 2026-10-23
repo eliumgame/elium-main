@@ -65,7 +65,9 @@ const ALTERNATIVES = [
 // images PDF du Détecteur ~430 Ko dont une copie du moteur, pdf-lib, recherche), helper Worker commun, portail
 // du propriétaire, stockage en fichiers locaux, caches et découpages coopératifs. Les Workers ne chargent
 // qu'à la demande ; à surveiller : le worker d'images du Détecteur embarque son propre moteur.
-const TOTAL_JS_BUDGET_BYTES = 8_200_000;
+// 8,2 Mo → 9,7 Mo : le Worker pdf-lib (enregistrement, lecture et analyse des PDF hors du fil principal) embarque
+// sa propre copie de pdf-lib et du code d'enregistrement (~1,25 Mo). Chargé à la demande, jamais au démarrage.
+const TOTAL_JS_BUDGET_BYTES = 9_700_000;
 
 function fmtKiB(bytes) {
   return `${(bytes / 1024).toFixed(1)} KiB`;

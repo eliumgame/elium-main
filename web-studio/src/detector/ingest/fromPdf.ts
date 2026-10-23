@@ -163,8 +163,8 @@ async function extractImages(bytes: Uint8Array, pageCount: number): Promise<Imag
   const copy = bytes.slice();
   try {
     return await runWorkerTask<PdfImagesRequest, ImageExtractionResult>({
-      create: () => new Worker(new URL("./pdf-images.worker.ts", import.meta.url), { type: "module" }),
-      request: { bytes: copy, pageCount },
+      create: () => new Worker(new URL("../../pdf/worker/pdf-lib.worker.ts", import.meta.url), { type: "module" }),
+      request: { op: "pdfImages", bytes: copy, pageCount },
       transfer: [copy.buffer],
       inline: (r) => withTimeout(extractPdfImages(bytes, r.pageCount), IMAGE_EXTRACTION_TIMEOUT_MS),
       timeoutMs: IMAGE_EXTRACTION_TIMEOUT_MS,

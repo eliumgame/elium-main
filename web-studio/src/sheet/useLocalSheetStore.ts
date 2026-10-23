@@ -117,9 +117,9 @@ export function useLocalSheetStore(initial?: Workbook, persist?: SheetPersist): 
       // Nouvel élément resté vierge : rien à enregistrer tant que rien n'a été saisi.
       if (p?.isNew && !savedOnce.current && isWorkbookPristine(wb)) return;
       saveWorkbook(wb, p?.id, p?.secret)
-        .then(() => {
+        .then((size) => {
           savedOnce.current = true;
-          p?.onSaved?.(wb, JSON.stringify(wb).length);
+          p?.onSaved?.(wb, size);
         })
         .catch((err) => reportError("sheet-autosave", err));
     }, 300);

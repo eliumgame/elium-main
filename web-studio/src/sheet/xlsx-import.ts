@@ -10,6 +10,8 @@
  */
 import { Unzip, UnzipInflate, unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
+import { runStreamImport, type SheetMsg, type StreamMsg, type StreamOptions } from "./xlsx-stream";
+import { decodeOoxmlEscapes, stripXlfnPrefixes } from "./xlsx-text";
 import { readChartOptions } from "./chart-ooxml";
 import { mergePrint, readPrintElements, readPrintNames } from "./xlsx-print";
 import { readListRange } from "./validation";
@@ -38,11 +40,7 @@ function parseXml(bytes: Uint8Array | undefined): Document | null {
   return new DOMParser().parseFromString(strFromU8(bytes), "application/xml");
 }
 
-/** Décode les échappements OOXML `_xHHHH_` (ex. `_x000D_`) ; `_x005F_` désigne un « _ » littéral. */
-export function decodeOoxmlEscapes(s: string): string {
-  if (!s.includes("_x")) return s;
-  return s.replace(/_x([0-9A-Fa-f]{4})_/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
-}
+export { decodeOoxmlEscapes, stripXlfnPrefixes };
 
 function textOf(el: Element): string {
   // Concatenate every <t> descendant (handles rich-text runs) EXCEPT the
@@ -64,11 +62,6 @@ function textOf(el: Element): string {
     return decodeOoxmlEscapes(s);
   }
   return decodeOoxmlEscapes(el.textContent ?? "");
-}
-
-/** Excel >= 2010 écrit les fonctions récentes avec un préfixe de compatibilité (`_xlfn.`, `_xlws.`) : on le retire. */
-export function stripXlfnPrefixes(formula: string): string {
-  return formula.replace(/\b_xlfn\.(?:_xlws\.)?|\b_xlws\./g, "");
 }
 
 function parseSharedStrings(zip: Record<string, Uint8Array>): string[] {
@@ -939,6 +932,26 @@ function collectSharedFormulas(cells: HTMLCollectionOf<Element>): Map<number, Sh
   return table;
 }
 
+/** Tout ce qui n'est pas une cellule : fusions, largeurs, figeage, mises en forme conditionnelles, validations, filtre, impression. */
+function applySheetExtras(sh: SheetData, doc: Document, name: string, ps: ParsedStyles): void {
+  const merges = parseMerges(doc);
+  if (merges.length) sh.merges = merges;
+  const colWidths = parseColWidths(doc);
+  if (Object.keys(colWidths).length) sh.colWidths = colWidths;
+  const rowHeights = parseRowHeights(doc);
+  if (Object.keys(rowHeights).length) sh.rowHeights = rowHeights;
+  const freeze = parseFreeze(doc);
+  if (freeze) sh.freeze = freeze;
+  const condFormats = parseCondFormats(doc, ps);
+  if (condFormats.length) sh.condFormats = condFormats;
+  const validations = parseValidations(doc, name, sh.cells);
+  if (validations.length) sh.validations = validations;
+  const filter = parseAutoFilter(doc);
+  if (filter) sh.filter = filter;
+  const printEls = readPrintElements(doc);
+  if (printEls) sh.print = mergePrint(null, printEls);
+}
+
 function parseSheet(doc: Document | null, shared: string[], name: string, ps: ParsedStyles): SheetData {
   const sh = emptySheet(name);
   if (!doc) return sh;
@@ -1015,24 +1028,7 @@ function parseSheet(doc: Document | null, shared: string[], name: string, ps: Pa
   sh.cols = maxCol + 1;
   sh.rows = maxRow + 1;
   if (Object.keys(styles).length) sh.styles = styles;
-
-  const merges = parseMerges(doc);
-  if (merges.length) sh.merges = merges;
-  const colWidths = parseColWidths(doc);
-  if (Object.keys(colWidths).length) sh.colWidths = colWidths;
-  const rowHeights = parseRowHeights(doc);
-  if (Object.keys(rowHeights).length) sh.rowHeights = rowHeights;
-  const freeze = parseFreeze(doc);
-  if (freeze) sh.freeze = freeze;
-  const condFormats = parseCondFormats(doc, ps);
-  if (condFormats.length) sh.condFormats = condFormats;
-  const validations = parseValidations(doc, name, sh.cells);
-  if (validations.length) sh.validations = validations;
-  const filter = parseAutoFilter(doc);
-  if (filter) sh.filter = filter;
-  const printEls = readPrintElements(doc);
-  if (printEls) sh.print = mergePrint(null, printEls);
-
+  applySheetExtras(sh, doc, name, ps);
   return sh;
 }
 
@@ -1102,23 +1098,18 @@ export function readSheetHead(bytes: Uint8Array, name: string, cap: number): { x
   return { xml, keptRows: (xml.match(/<row[\s>]/g) ?? []).length };
 }
 
-export function importXlsx(bytes: Uint8Array, onNotice?: (n: XlsxImportNotice) => void): Workbook {
-  const oversized = new Map<string, number>();
-  const zip = unzipSync(bytes, {
-    filter: (f) => {
-      if (/^xl\/worksheets\/[^/]+\.xml$/.test(f.name) && f.originalSize > MAX_SHEET_XML_BYTES) {
-        oversized.set(f.name, f.originalSize);
-        return false;
-      }
-      return !/^xl\/(calcChain\.xml|externalLinks\/)/.test(f.name);
-    },
-  });
-  for (const [path, originalBytes] of oversized) {
-    const { xml, keptRows } = readSheetHead(bytes, path, MAX_SHEET_XML_BYTES);
-    zip[path] = new TextEncoder().encode(xml);
-    onNotice?.({ sheetPath: path, originalBytes, keptRows });
-  }
-  const shared = parseSharedStrings(zip);
+/** Résout une feuille : son contenu (cellules + extras) et le document XML d'où lire dessins, graphiques et liens. */
+type SheetResolver = (path: string, name: string, ps: ParsedStyles) => { sh: SheetData; doc: Document | null };
+
+/**
+ * Assemble le classeur à partir des petites parties du paquet (`zip`) et d'un résolveur de feuilles :
+ * identique pour l'import par DOM (sync) et pour l'import en flux (Worker).
+ */
+function buildWorkbook(
+  zip: Record<string, Uint8Array>,
+  fallbackSheetPaths: string[],
+  resolve: SheetResolver,
+): Workbook {
   const theme = parseThemeColors(zip);
   const ps = parseStylesXml(zip, theme);
   const rels = relTargets(parseXml(zip["xl/_rels/workbook.xml.rels"]));
@@ -1146,18 +1137,16 @@ export function importXlsx(bytes: Uint8Array, onNotice?: (n: XlsxImportNotice) =
       const rid = sheetEls[i].getAttribute("r:id") || sheetEls[i].getAttribute("id");
       const target = rid ? rels[rid] : undefined;
       const path = target ? resolvePath("xl", target) : `xl/worksheets/sheet${i + 1}.xml`;
-      const doc = parseXml(zip[path]);
-      sheets.push(withSheetExtras(path, parseSheet(doc, shared, name, ps), doc));
+      const r = resolve(path, name, ps);
+      sheets.push(withSheetExtras(path, r.sh, r.doc));
     }
   }
   // Fallback: no workbook.xml mapping — read sheet files directly.
   if (sheets.length === 0) {
-    const names = Object.keys(zip)
-      .filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k))
-      .sort();
+    const names = fallbackSheetPaths.filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort();
     names.forEach((k, i) => {
-      const doc = parseXml(zip[k]);
-      sheets.push(withSheetExtras(k, parseSheet(doc, shared, `Feuille ${i + 1}`, ps), doc));
+      const r = resolve(k, `Feuille ${i + 1}`, ps);
+      sheets.push(withSheetExtras(k, r.sh, r.doc));
     });
   }
   if (sheets.length === 0) sheets.push(emptySheet("Feuille 1"));
@@ -1190,4 +1179,215 @@ export function importXlsx(bytes: Uint8Array, onNotice?: (n: XlsxImportNotice) =
   }
   const names = parseDefinedNames(wb);
   return { sheets, active: 0, ...(names.length ? { names } : {}) };
+}
+
+/**
+ * Import synchrone par DOM (petits classeurs, tests). Sur un gros classeur, préférer
+ * `importXlsxAsync` : lecture en flux dans un Worker, sans figer l'interface.
+ */
+export function importXlsx(bytes: Uint8Array, onNotice?: (n: XlsxImportNotice) => void): Workbook {
+  const oversized = new Map<string, number>();
+  const zip = unzipSync(bytes, {
+    filter: (f) => {
+      if (/^xl\/worksheets\/[^/]+\.xml$/.test(f.name) && f.originalSize > MAX_SHEET_XML_BYTES) {
+        oversized.set(f.name, f.originalSize);
+        return false;
+      }
+      return !/^xl\/(calcChain\.xml|externalLinks\/)/.test(f.name);
+    },
+  });
+  for (const [path, originalBytes] of oversized) {
+    const { xml, keptRows } = readSheetHead(bytes, path, MAX_SHEET_XML_BYTES);
+    zip[path] = new TextEncoder().encode(xml);
+    onNotice?.({ sheetPath: path, originalBytes, keptRows });
+  }
+  const shared = parseSharedStrings(zip);
+  return buildWorkbook(zip, Object.keys(zip), (path, name, ps) => {
+    const doc = parseXml(zip[path]);
+    return { sh: parseSheet(doc, shared, name, ps), doc };
+  });
+}
+
+// ── import en flux (Worker) ─────────────────────────────────────────────────
+
+/** Informations sur une feuille importée en flux, pour proposer une autre plage quand elle a été tronquée. */
+export interface ImportedSheetInfo {
+  name: string;
+  path: string;
+  /** Lignes annoncées par la feuille (`<dimension>`), 0 si inconnu. */
+  totalRows: number;
+  /** Première et dernière lignes lues (numérotation Excel). */
+  firstRow: number;
+  lastRow: number;
+  /** Cellules importées. */
+  cells: number;
+  /** Vrai quand la feuille continue après `lastRow` (plafond atteint ou fin de plage). */
+  truncated: boolean;
+  skipped: boolean;
+  originalBytes: number;
+}
+
+export interface XlsxImportResult {
+  workbook: Workbook;
+  sheets: ImportedSheetInfo[];
+}
+
+export interface XlsxImportAsyncOptions extends StreamOptions {
+  onProgress?: (p: { fraction: number; label: string }) => void;
+  signal?: AbortSignal;
+  /** Exécute le flux sur le fil appelant (tests, navigateur sans Worker). */
+  inline?: boolean;
+}
+
+interface SheetAcc {
+  cells: Record<string, string>;
+  styles: Record<string, CellStyle>;
+  maxCol: number;
+  maxRow: number;
+  nStyles: number;
+}
+
+/** Import d'un .xlsx sans jamais bloquer l'interface : lecture en flux dans un Worker, lots de cellules, annulable. */
+export function importXlsxAsync(
+  source: Uint8Array | File,
+  opts: XlsxImportAsyncOptions = {},
+): Promise<XlsxImportResult> {
+  const { onProgress, signal, inline, ...streamOpts } = opts;
+  return new Promise<XlsxImportResult>((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Import annulé", "AbortError"));
+    let worker: Worker | null = null;
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      worker?.terminate();
+      fn();
+    };
+    const onAbort = () => finish(() => reject(new DOMException("Import annulé", "AbortError")));
+    signal?.addEventListener("abort", onAbort);
+
+    let zip: Record<string, Uint8Array> = {};
+    let sheetPaths: string[] = [];
+    let ps: ParsedStyles | null = null;
+    const accs = new Map<string, SheetAcc>();
+    const done = new Map<string, SheetMsg>();
+    const xfCache = new Map<number, CellStyle | null>();
+
+    const acc = (path: string): SheetAcc => {
+      let a = accs.get(path);
+      if (!a) accs.set(path, (a = { cells: {}, styles: {}, maxCol: 7, maxRow: 19, nStyles: 0 }));
+      return a;
+    };
+    const styleOf = (idx: number): CellStyle | null => {
+      let st = xfCache.get(idx);
+      if (st === undefined) {
+        const built = ps ? xfToCellStyle(idx, ps) : {};
+        st = Object.keys(built).length ? built : null;
+        xfCache.set(idx, st);
+      }
+      return st;
+    };
+
+    const onMessage = (m: StreamMsg) => {
+      try {
+        if (m.type === "progress") onProgress?.(m);
+        else if (m.type === "meta") {
+          zip = m.zip;
+          sheetPaths = m.sheetPaths;
+          const wb = parseXml(zip["xl/workbook.xml"]);
+          ps = parseStylesXml(zip, parseThemeColors(zip));
+          ps.date1904 = wb?.getElementsByTagName("workbookPr")[0]?.getAttribute("date1904") === "1";
+        } else if (m.type === "cells") {
+          const a = acc(m.path);
+          const n = m.vals.length;
+          for (let i = 0; i < n; i++) {
+            const col = m.cols[i]!;
+            const row = m.rows[i]!;
+            if (col > a.maxCol) a.maxCol = col;
+            if (row > a.maxRow) a.maxRow = row;
+            const ref = `${indexToCol(col)}${row + 1}`;
+            const sIdx = m.styles[i]!;
+            const st = sIdx ? styleOf(sIdx) : null;
+            if (st) {
+              a.styles[ref] = st;
+              a.nStyles++;
+            }
+            let val = m.vals[i];
+            if (val == null) continue;
+            if (ps?.date1904 && m.kinds[i] && st && (st.fmt === "date" || st.fmt === "datetime")) {
+              const num = Number(val);
+              if (Number.isFinite(num)) val = String(num + 1462);
+            }
+            a.cells[ref] = val;
+          }
+        } else if (m.type === "sheet") done.set(m.path, m);
+      } catch (e) {
+        finish(() => reject(e));
+      }
+    };
+
+    const assemble = (): XlsxImportResult => {
+      const infos: ImportedSheetInfo[] = [];
+      const workbook = buildWorkbook(zip, sheetPaths, (path, name, stylesParsed) => {
+        const sh = emptySheet(name);
+        const msg = done.get(path);
+        if (!msg) return { sh, doc: null };
+        const a = acc(path);
+        infos.push({
+          name,
+          path,
+          totalRows: msg.totalRows,
+          firstRow: msg.firstRow,
+          lastRow: msg.lastRow,
+          cells: msg.cells,
+          truncated: msg.truncated,
+          skipped: msg.skipped,
+          originalBytes: msg.originalBytes,
+        });
+        if (msg.skipped) return { sh, doc: null };
+        sh.cells = a.cells;
+        sh.cols = a.maxCol + 1;
+        sh.rows = a.maxRow + 1;
+        if (a.nStyles) sh.styles = a.styles;
+        const doc = parseXml(new TextEncoder().encode(`${msg.rootOpen}${msg.head}${msg.tail ?? ""}</worksheet>`));
+        if (doc) applySheetExtras(sh, doc, name, stylesParsed);
+        if (msg.rowHeights.length) {
+          const rh: Record<number, number> = {};
+          for (const [r, pt] of msg.rowHeights) rh[r] = ptToPx(pt);
+          sh.rowHeights = rh;
+        }
+        return { sh, doc: msg.tail == null ? null : doc };
+      });
+      return { workbook, sheets: infos };
+    };
+
+    const onDone = () => finish(() => resolve(assemble()));
+    const onError = (e: unknown) => finish(() => reject(e instanceof Error ? e : new Error(String(e))));
+
+    const start = async () => {
+      const bytes = source instanceof Uint8Array ? source : new Uint8Array(await source.arrayBuffer());
+      if (settled) return;
+      if (inline || typeof Worker === "undefined") {
+        try {
+          runStreamImport(bytes, streamOpts, onMessage);
+          onDone();
+        } catch (e) {
+          onError(e);
+        }
+        return;
+      }
+      worker = new Worker(new URL("./xlsx-import.worker.ts", import.meta.url), { type: "module" });
+      worker.onmessage = (ev: MessageEvent<StreamMsg | { type: "done" } | { type: "error"; message: string }>) => {
+        const d = ev.data;
+        if (d.type === "done") onDone();
+        else if (d.type === "error") onError(new Error(d.message));
+        else onMessage(d);
+      };
+      worker.onerror = (ev) => onError(new Error(ev.message || "Le lecteur de classeur a échoué."));
+      const copy = source instanceof Uint8Array ? bytes.slice() : bytes; // un Uint8Array fourni par l'appelant reste utilisable
+      worker.postMessage({ bytes: copy, opts: streamOpts }, [copy.buffer]);
+    };
+    start().catch(onError);
+  });
 }

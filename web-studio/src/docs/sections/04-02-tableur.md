@@ -82,7 +82,7 @@ un PDF page par page, avec une couche de texte. La mise en page est lue et
 | Format | Conservé | Perdu |
 |---|---|---|
 | XLSX, export | Valeurs, formules, styles, fusions, mises en forme conditionnelles, validations, tailles, volets figés, filtre simple, notes, graphiques, tableaux nommés, noms définis, mise en page | La définition du tableau croisé (exporté en valeurs), les débordements natifs |
-| XLSX, import | Idem, plus formules partagées, dates 1904 | Tableaux croisés Excel, images, formules matricielles `t="array"` |
+| XLSX, import | Idem, plus formules partagées, dates 1904, lecture en flux des gros fichiers (voir ci-dessous) | Tableaux croisés Excel, images, formules matricielles `t="array"` |
 | CSV, import | Séparateur virgule, point-virgule ou tabulation détecté ; feuille « Importé » ; tout reste en texte | Types |
 | CSV, export | Valeurs **affichées** de la feuille active, lignes visibles | Formules, autres feuilles |
 
@@ -94,6 +94,24 @@ virtualisées. Un classeur neuf est dimensionné selon l'écran ; les boutons
 « Ajouter des lignes » (+10) et « Ajouter des colonnes » (+4) l'agrandissent. Pour
 le XLSX, une cellule de texte est limitée à 32 767 caractères et une formule à
 8 192.
+
+### Importer un très gros classeur Excel
+
+L'import XLSX ne fige jamais l'onglet : le fichier est lu **en flux dans un Worker**
+(lecteur SAX maison, sans DOM), par lots de cellules, avec une **barre de progression**
+et un bouton **Annuler** (le classeur ouvert reste intact). Sur un fichier de 45 Mo
+(745 000 lignes, 413 Mo de XML décompressé), la plus longue tâche du fil principal
+mesurée est de l'ordre de 60 ms.
+
+Le modèle mémoire du Tableur ne supporte pas des millions de cellules : chaque feuille
+est donc plafonnée à **250 000 cellules** (400 000 pour l'ensemble du classeur). Quand une
+feuille dépasse, Elium importe son début puis ouvre la fenêtre « Classeur très volumineux » :
+vous y choisissez, feuille par feuille, de l'**importer ou non**, la **plage de lignes** à lire
+(« de la ligne 11 530 à la ligne 23 058 ») et de **garder la ligne 1** (en-têtes) en haut. Le fichier est
+relu sans bloquer l'application, ce qui permet d'atteindre n'importe quelle partie d'un classeur
+géant, plage après plage. Pour une feuille tronquée, les fusions, mises en forme conditionnelles
+et validations situées après la plage ne sont pas lues. Les classeurs volumineux ne sont pas
+indexés par la recherche de l'espace de travail.
 
 ### Raccourcis
 

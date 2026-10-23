@@ -8,6 +8,7 @@
  * (même schéma que les présentations et la bibliothèque).
  */
 import type { Workbook } from "./model";
+import { stringifyWorkbookCooperative } from "./coop-json";
 import { openMigrated } from "../format/idb-migrate";
 import { SHEETS_SPEC } from "../format/db-specs";
 import { idbKv } from "../workspace/kv";
@@ -25,6 +26,7 @@ export function openSheetsDb(): Promise<IDBDatabase> {
 export const sheetStore = createJsonStore<Workbook>(idbKv<JsonRecord>(SHEETS_SPEC, STORE), {
   field: "wb",
   lockedMessage: "Ce classeur est chiffré — mot de passe du coffre requis.",
+  serialize: (wb) => stringifyWorkbookCooperative(wb as Workbook),
 });
 
 /** Charge un classeur (par défaut l'ancien classeur unique « current »). */
@@ -35,6 +37,10 @@ export async function loadWorkbook(
   return sheetStore.load(id, secret);
 }
 
-export async function saveWorkbook(wb: Workbook, id: string = LEGACY_WORKBOOK_ID, secret?: VaultSecret): Promise<void> {
-  await sheetStore.save(id, wb, secret);
+export async function saveWorkbook(
+  wb: Workbook,
+  id: string = LEGACY_WORKBOOK_ID,
+  secret?: VaultSecret,
+): Promise<number> {
+  return sheetStore.save(id, wb, secret);
 }

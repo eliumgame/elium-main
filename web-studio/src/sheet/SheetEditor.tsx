@@ -77,7 +77,9 @@ import { buildCondFormatter } from "./condformat";
 import { buildValidator, validationAt, withLiveLists } from "./validation";
 import { isCovered, spanAt } from "./merges";
 import { rowVisible as filterRowVisible } from "./filter";
-import { importXlsx, type XlsxImportNotice } from "./xlsx-import";
+import { importXlsxAsync, type ImportedSheetInfo } from "./xlsx-import";
+import type { SheetWindow } from "./xlsx-stream";
+import { XlsxProgressModal, XlsxRangeModal } from "./XlsxImportModals";
 import { csvToWorkbook } from "./csv";
 import {
   newId,
@@ -742,28 +744,52 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   };
 
   // --- import XLSX / CSV (mutation → dans le document, local comme collab) ---
+  // XLSX : lecture en flux dans un Worker (jamais de gel), progression, annulation, et
+  // choix d'une autre plage de lignes pour les feuilles trop grandes pour le modèle en mémoire.
+  const [importUi, setImportUi] = useState<{ name: string; fraction: number; label: string } | null>(null);
+  const [rangeAsk, setRangeAsk] = useState<ImportedSheetInfo[] | null>(null);
+  const importCtl = useRef<AbortController | null>(null);
+  const importFileRef = useRef<File | null>(null);
+
+  const runXlsxImport = async (file: File, windows?: Record<string, SheetWindow>) => {
+    const ctl = new AbortController();
+    importCtl.current = ctl;
+    setRangeAsk(null);
+    setImportUi({ name: file.name, fraction: 0, label: "Ouverture…" });
+    try {
+      const { workbook, sheets } = await importXlsxAsync(file, {
+        windows,
+        signal: ctl.signal,
+        onProgress: (p) => setImportUi({ name: file.name, ...p }),
+      });
+      store.replaceWorkbook?.(workbook);
+      setSel({ c: 0, r: 0 });
+      setAnchor({ c: 0, r: 0 });
+      importFileRef.current = file;
+      const big = sheets.filter((x) => x.truncated || x.skipped);
+      if (big.length) setRangeAsk(big);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError"))
+        void dialogs.alert({
+          title: "Import impossible",
+          message: `Le fichier n'a pas pu être lu${e instanceof Error && e.message ? ` (${e.message})` : ""}. Le classeur actuel est intact.`,
+        });
+    } finally {
+      importCtl.current = null;
+      setImportUi(null);
+    }
+  };
+
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !store.replaceWorkbook) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      void runXlsxImport(file);
+      return;
+    }
     try {
-      const notices: XlsxImportNotice[] = [];
-      const next = file.name.toLowerCase().endsWith(".csv")
-        ? csvToWorkbook(await file.text())
-        : importXlsx(new Uint8Array(await file.arrayBuffer()), (n) => notices.push(n));
-      store.replaceWorkbook(next);
-      if (notices.length)
-        void dialogs.alert({
-          title: "Classeur très volumineux : import partiel",
-          message:
-            notices
-              .map(
-                (n) =>
-                  `${Math.round(n.originalBytes / 1048576)} Mo de données dans une feuille : seules les ${n.keptRows.toLocaleString("fr-FR")} premières lignes ont été importées.`,
-              )
-              .join("\n") +
-            "\n\nPour travailler sur l'ensemble, filtrez ou découpez le fichier dans Excel avant de l'importer.",
-        });
+      store.replaceWorkbook(csvToWorkbook(await file.text()));
       setSel({ c: 0, r: 0 });
       setAnchor({ c: 0, r: 0 });
     } catch {
@@ -1682,6 +1708,22 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
           onAdd={addValidation}
           onRemove={removeValidation}
           onClose={() => setValidationOpen(false)}
+        />
+      )}
+
+      {importUi && (
+        <XlsxProgressModal
+          fileName={importUi.name}
+          fraction={importUi.fraction}
+          label={importUi.label}
+          onCancel={() => importCtl.current?.abort()}
+        />
+      )}
+      {rangeAsk && (
+        <XlsxRangeModal
+          sheets={rangeAsk}
+          onClose={() => setRangeAsk(null)}
+          onApply={(w) => importFileRef.current && void runXlsxImport(importFileRef.current, w)}
         />
       )}
 

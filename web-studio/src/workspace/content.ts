@@ -128,14 +128,16 @@ export function createContentIO(
         const wb = await sheetStore.load(item.id, getSecret());
         return wb ? json(wb) : undefined;
       },
-      write: (item, bytes) => sheetStore.save(item.id, parse<Workbook>(bytes), getSecret(), item.modifiedAt),
+      write: async (item, bytes) =>
+        void (await sheetStore.save(item.id, parse<Workbook>(bytes), getSecret(), item.modifiedAt)),
     },
     slides: {
       async read(item) {
         const d = await deckStore.load(item.id, getSecret());
         return d ? json(d) : undefined;
       },
-      write: (item, bytes) => deckStore.save(item.id, parse<Deck>(bytes), getSecret(), item.modifiedAt),
+      write: async (item, bytes) =>
+        void (await deckStore.save(item.id, parse<Deck>(bytes), getSecret(), item.modifiedAt)),
     },
     pdfs: {
       async read(item) {

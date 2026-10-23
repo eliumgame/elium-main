@@ -85,12 +85,12 @@ async function deriveKeyPbkdf2(secret: string, salt: Uint8Array): Promise<Crypto
 
 /** Encrypt an arbitrary JSON-serializable value. Returns a versioned JSON
  *  envelope `{"v":2,"d":base64(salt(16)||iv(12)||ct)}` (Argon2id). */
-export async function encryptAtRest(value: unknown, secret: VaultSecret): Promise<string> {
+export async function encryptAtRest(value: unknown, secret: VaultSecret, json?: string): Promise<string> {
   const s = await secretString(secret);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKeyArgon2(s, salt);
-  const pt = new TextEncoder().encode(JSON.stringify(value));
+  const pt = new TextEncoder().encode(json ?? JSON.stringify(value));
   const ct = new Uint8Array(
     await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as unknown as BufferSource }, key, pt),
   );

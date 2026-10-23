@@ -865,8 +865,8 @@ export async function sourceToHtml(
     case "html":
       return htmlSource(decodeText(bytes), name, opts.orientation);
     case "xlsx": {
-      const { importXlsx } = await import("../../sheet/xlsx-import");
-      return workbookSource(importXlsx(bytes), name, opts.orientation);
+      const { importXlsxAsync } = await import("../../sheet/xlsx-import");
+      return workbookSource((await importXlsxAsync(bytes)).workbook, name, opts.orientation);
     }
     case "pptx": {
       const { deckSource } = await import("../ui/slidesHtml");

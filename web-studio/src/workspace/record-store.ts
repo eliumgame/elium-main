@@ -18,6 +18,8 @@ export interface JsonRecord {
   updatedAt?: string;
   /** Taille approximative du contenu sérialisé (octets), pour l'affichage. */
   size?: number;
+  /** Contenu volumineux, déjà sérialisé (voir `JsonStoreOptions.serialize`) : évite le clone structuré d'un énorme objet. */
+  json?: string | Blob;
   [field: string]: unknown;
 }
 
@@ -26,6 +28,11 @@ export interface JsonStoreOptions {
   field: string;
   /** Message d'erreur quand le contenu est chiffré et qu'aucun secret n'est fourni. */
   lockedMessage: string;
+  /**
+   * Sérialisation JSON coopérative (rend la main au navigateur par tranches) pour les contenus
+   * volumineux : renvoie `null` quand le contenu est petit et que le chemin habituel suffit.
+   */
+  serialize?: (value: unknown) => Promise<Blob | null>;
 }
 
 export function createJsonStore<T>(kv: KvStore<JsonRecord>, opts: JsonStoreOptions) {
@@ -34,15 +41,28 @@ export function createJsonStore<T>(kv: KvStore<JsonRecord>, opts: JsonStoreOptio
   /** Résout un enregistrement (pur hors déchiffrement). Lève s'il est chiffré et indéchiffrable. */
   async function resolve(rec: JsonRecord | undefined, secret?: VaultSecret): Promise<T | undefined> {
     if (!rec) return undefined;
-    if (!rec.vaultProtected) return rec[field] as T | undefined; // y compris l'ancien format d'avant le coffre
+    if (!rec.vaultProtected) {
+      // y compris l'ancien format d'avant le coffre
+      if (rec.json) return JSON.parse(typeof rec.json === "string" ? rec.json : await rec.json.text()) as T;
+      return rec[field] as T | undefined;
+    }
     if (!hasVaultSecret(secret) || !rec.enc) throw new Error(lockedMessage);
     return decryptAtRest<T>(rec.enc, secret);
   }
 
   async function build(id: string, value: T, secret: VaultSecret | undefined, now: string): Promise<JsonRecord> {
-    const size = JSON.stringify(value).length;
-    return hasVaultSecret(secret)
-      ? { id, vaultProtected: true, enc: await encryptAtRest(value, secret), updatedAt: now, size }
+    const big = opts.serialize ? await opts.serialize(value) : null;
+    const size = big ? big.size : JSON.stringify(value).length;
+    if (hasVaultSecret(secret))
+      return {
+        id,
+        vaultProtected: true,
+        enc: await encryptAtRest(value, secret, big ? await big.text() : undefined),
+        updatedAt: now,
+        size,
+      };
+    return big
+      ? { id, vaultProtected: false, json: big, updatedAt: now, size }
       : { id, vaultProtected: false, [field]: value, updatedAt: now, size };
   }
 
@@ -52,8 +72,11 @@ export function createJsonStore<T>(kv: KvStore<JsonRecord>, opts: JsonStoreOptio
     async load(id: string, secret?: VaultSecret): Promise<T | undefined> {
       return resolve(await kv.get(id), secret);
     },
-    async save(id: string, value: T, secret?: VaultSecret, now = new Date().toISOString()): Promise<void> {
-      await kv.put(await build(id, value, secret, now));
+    /** Enregistre et renvoie la taille sérialisée (octets approximatifs). */
+    async save(id: string, value: T, secret?: VaultSecret, now = new Date().toISOString()): Promise<number> {
+      const rec = await build(id, value, secret, now);
+      await kv.put(rec);
+      return rec.size ?? 0;
     },
     keys: () => kv.keys(),
     async info(id: string): Promise<{ size: number; updatedAt?: string } | undefined> {

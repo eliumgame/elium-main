@@ -2,6 +2,12 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.16.0 — import Excel en flux, sans aucun gel
+
+- Tableur : l'import d'un .xlsx tourne désormais dans un Worker (lecture en flux), avec barre de progression et bouton Annuler ; l'onglet reste fluide même sur un classeur de 45 Mo et 745 000 lignes (plus longue tâche mesurée : ~60 ms au lieu de ~17 s).
+- Les très grandes feuilles sont plafonnées pour ménager la mémoire ; une fenêtre permet de choisir la plage de lignes (avec ou sans la ligne d'en-têtes) ou d'ignorer une feuille, et de relire le fichier à la demande.
+- L'enregistrement local d'un gros classeur se fait par tranches (plus de blocage de plusieurs secondes juste après l'import).
+
 ### Version 4.15.2 — import Excel de très gros classeurs
 
 - Tableur : un classeur dont une feuille dépasse 32 Mo de données (des centaines de milliers de lignes) ne fige plus l'application. Elium en lit le début, puis prévient du nombre de lignes importées ; les liens externes et la chaîne de calcul, inutiles à l'import, ne sont plus décompressés.

@@ -49,6 +49,9 @@ export async function pdfBytesText(bytes: Uint8Array): Promise<string> {
   }
 }
 
+/** Au-delà, le classeur n'est pas indexé pour la recherche. */
+const MAX_INDEXED_WORKBOOK_BYTES = 4 * 1024 * 1024;
+
 export async function extractItemText(item: WorkItem, secret: VaultSecret | undefined): Promise<string> {
   switch (item.contentStore) {
     case "drive": {
@@ -56,6 +59,8 @@ export async function extractItemText(item: WorkItem, secret: VaultSecret | unde
       return doc ? eliumBytesText(doc.bytes) : "";
     }
     case "sheets": {
+      // Un classeur énorme (plusieurs Mo sérialisés) n'est pas indexé : le relire et le reparcourir figerait l'interface.
+      if (((await sheetStore.info(item.id))?.size ?? 0) > MAX_INDEXED_WORKBOOK_BYTES) return "";
       const wb = await sheetStore.load(item.id, secret);
       return wb ? sheetText(wb) : "";
     }

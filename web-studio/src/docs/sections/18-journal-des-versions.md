@@ -2,6 +2,12 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.21.0 — garde-fous anti-gel (lot E : Tableur, espace de travail, Passeport)
+
+- **Tableur** : le moteur de formules conserve l'analyse des formules d'une modification à l'autre (plus de ré-analyse de tout le classeur à chaque frappe) ; l'import d'un CSV (désormais jusqu'à 64 Mo), l'export .xlsx et la relecture d'un gros classeur enregistré se font par tranches ; le filtre d'une grande feuille se calcule en arrière-plan ; le calcul des champs calculés d'un tableau croisé et l'indicateur « à actualiser » sont allégés (désactivé au-delà de 200 000 cellules source) ; les règles de mise en forme conditionnelle d'étendue (échelle de couleurs, extrêmes, doublons) sont limitées à 250 000 cellules, avec un message ; MIN/MAX ne plantent plus au-delà de ~100 000 valeurs.
+- **Espace de travail** : l'index de recherche se charge sans geler l'interface (pliage du texte ~6 fois plus rapide) ; avec le coffre, chaque élément est scellé séparément au lieu de ré-encrypter tout l'index (l'ancien format est migré) ; sauvegarde et restauration par flux avec plafond global de 1 Go ; la bibliothèque affiche ses éléments par tranches de 300 au défilement ; le rechercher/remplacer ignore les documents de plus de 40 Mo.
+- **Passeport** : l'import d'une fiche .docx ne décompresse plus le fichier quand il ne contient aucune case à convertir.
+
 ### Version 4.20.0 — code d'activation et jauge de stockage réel
 
 - **Code d'activation à usage unique** : au premier démarrage d'un Drive neuf, le serveur génère un code (12 caractères, 60 bits) affiché dans ses journaux et exigé pour créer le compte propriétaire puis le Drive. Il est consommé à la création du Drive, expire après 72 h (réglable) et les essais sont limités.

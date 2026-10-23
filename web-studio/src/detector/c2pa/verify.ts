@@ -125,17 +125,25 @@ function readManifests(store: Uint8Array): Manifest[] {
 
 // ---- Hachage ---------------------------------------------------------------
 
-function hashBytes(alg: string, data: Uint8Array): Uint8Array {
-  switch (alg.toLowerCase().replace("-", "")) {
-    case "sha256":
-      return sha256(data);
-    case "sha384":
-      return sha384(data);
-    case "sha512":
-      return sha512(data);
-    default:
-      throw new Error(`algorithme de hachage non pris en charge : ${alg}`);
+const SUBTLE_HASH: Record<string, string> = { sha256: "SHA-256", sha384: "SHA-384", sha512: "SHA-512" };
+
+/**
+ * Empreinte d'une image entière (des dizaines de Mo) : `crypto.subtle.digest` — natif, hors fil
+ * principal — quand il existe ; le hachage noble (synchrone) ne sert que de repli.
+ */
+async function hashBytes(alg: string, data: Uint8Array): Promise<Uint8Array> {
+  const key = alg.toLowerCase().replace("-", "");
+  const name = SUBTLE_HASH[key];
+  if (!name) throw new Error(`algorithme de hachage non pris en charge : ${alg}`);
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    try {
+      return new Uint8Array(await subtle.digest(name, data as BufferSource));
+    } catch {
+      /* repli ci-dessous */
+    }
   }
+  return key === "sha256" ? sha256(data) : key === "sha384" ? sha384(data) : sha512(data);
 }
 
 const eq = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -369,7 +377,7 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
       }
       try {
         const alg = (mapGet(ref, "alg") as string | undefined) ?? claimAlg;
-        if (!eq(hashBytes(alg, target.node.payload), hash)) {
+        if (!eq(await hashBytes(alg, target.node.payload), hash)) {
           ok = false;
           invalid.push(`Le contenu de l'assertion « ${baseLabel(label)} » ne correspond plus à son empreinte.`);
         }
@@ -393,7 +401,7 @@ export async function verifyC2pa(bytes: Uint8Array, opts: VerifyC2paOptions = {}
       const alg = (mapGet(hardBinding.data, "alg") as string | undefined) ?? claimAlg;
       const expected = asBytes(mapGet(hardBinding.data, "hash"));
       if (!expected) throw new Error("empreinte absente");
-      const got = hashBytes(alg, withoutExclusions(bytes, ex));
+      const got = await hashBytes(alg, withoutExclusions(bytes, ex));
       report.bindingValid = eq(got, expected);
       if (!report.bindingValid)
         invalid.push(

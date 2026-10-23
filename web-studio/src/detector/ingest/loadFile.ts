@@ -7,6 +7,7 @@
  * telles quelles : c'est l'appelant (l'UI) qui sait proposer une invite et
  * relancer avec le mot de passe.
  */
+import { yieldToMain } from "../../workers/yield";
 import { strFromU8, unzipSync } from "fflate";
 import { docxToDoc } from "../../format/docx";
 import {
@@ -61,6 +62,37 @@ export function detectFileKind(name: string, bytes: Uint8Array): DetectorFileKin
 
 export class UnsupportedFileError extends Error {}
 
+/** Plafonds de l'analyse d'un .docx (elle décompresse et parcourt tout le document sur le fil principal). */
+export const MAX_DOCX_BYTES = 80 * 1024 * 1024;
+export const MAX_DOCX_UNZIPPED_BYTES = 400 * 1024 * 1024;
+
+/**
+ * Refuse, avec un message clair, un .docx trop gros ou une bombe de décompression, AVANT de le décompresser :
+ * la taille décompressée se lit dans l'annuaire du zip sans rien inflater (le filtre écarte tout).
+ */
+export function assertDocxWithinLimits(bytes: Uint8Array, maxUnzipped = MAX_DOCX_UNZIPPED_BYTES): void {
+  const mo = (n: number) => `${Math.round(n / 1048576)} Mo`;
+  if (bytes.length > MAX_DOCX_BYTES)
+    throw new Error(
+      `Ce fichier .docx est trop volumineux pour l'analyse (${mo(bytes.length)}, maximum ${mo(MAX_DOCX_BYTES)}).`,
+    );
+  let total = 0;
+  try {
+    unzipSync(bytes, {
+      filter: (f) => {
+        total += f.originalSize;
+        return false;
+      },
+    });
+  } catch {
+    return; // zip illisible : docxToDoc le signalera lui-même
+  }
+  if (total > maxUnzipped)
+    throw new Error(
+      `Ce fichier .docx contient trop de données une fois décompressé (${mo(total)}, maximum ${mo(maxUnzipped)}).`,
+    );
+}
+
 export async function loadDocumentModel(file: File, opts: LoadFileOptions = {}): Promise<DocumentModel> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const kind = detectFileKind(file.name, bytes);
@@ -71,6 +103,8 @@ export async function loadDocumentModel(file: File, opts: LoadFileOptions = {}):
   }
 
   if (kind === "docx") {
+    assertDocxWithinLimits(bytes);
+    await yieldToMain(); // l'analyse du .docx est synchrone : on cède la main avant de l'entamer
     const { title, doc } = docxToDoc(bytes);
     const { paragraphs, images } = documentModelFromProseMirrorDoc(doc, "docx");
     return { paragraphs, images, metadata: extractDocxMetadata(bytes, title) };

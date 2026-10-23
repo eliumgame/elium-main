@@ -35,11 +35,12 @@
  * l'analyse ne reste jamais bloquée indéfiniment sur cette seule étape —
  * au pire on perd les signaux image, jamais l'analyse entière.
  */
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
 import { PdfEngine } from "../../pdf/core/engine";
 import { buildRuns, groupBlocks, groupLines } from "../../pdf/core/text";
 import type { TextBlock } from "../../pdf/core/text";
 import type { DocumentMetadata, ImageModel, ParagraphModel, RunFormat } from "../types";
+import { runWorkerTask } from "../../workers/worker-task";
+import { extractPdfImages, type PdfImagesRequest } from "./pdfImages";
 
 export interface PdfIngestResult {
   paragraphs: ParagraphModel[];
@@ -153,87 +154,22 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 interface ImageExtractionResult {
   images: ImageModel[];
-  /** Compté avant tout filtrage sur le flux DCTDecode — cf. constat détecteur
-   *  sur les images non-JPEG collées dans un PDF (PNG, etc.) jamais soumises
-   *  à la vérification C2PA/EXIF, jusqu'ici sans aucun avertissement. */
   skippedNonJpeg: number;
 }
 
 async function extractImages(bytes: Uint8Array, pageCount: number): Promise<ImageExtractionResult> {
-  const images: ImageModel[] = [];
-  let skippedNonJpeg = 0;
-  let doc: PDFDocument;
+  // Le PDF est analysé dans un Worker : `PDFDocument.load` est synchrone et ne peut pas être interrompu
+  // sur le fil principal ; ici le délai TERMINE le Worker (le rapport se fait alors sans signaux image).
+  const copy = bytes.slice();
   try {
-    // ignoreEncryption: un PDF chiffré n'est de toute façon pas exploitable
-    // par pdf-lib (il ne déchiffre pas les flux) — sans cette option `load`
-    // lèverait avant même qu'on ait la chance de le constater nous-mêmes et
-    // de simplement renvoyer une liste d'images vide. Le timeout couvre le cas
-    // (mesuré sur un document réel) où ce parsing devient disproportionnellement
-    // lent — mieux vaut un rapport sans signaux image qu'une analyse qui ne
-    // se termine jamais.
-    doc = await withTimeout(
-      PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }),
-      IMAGE_EXTRACTION_TIMEOUT_MS,
-    );
+    return await runWorkerTask<PdfImagesRequest, ImageExtractionResult>({
+      create: () => new Worker(new URL("./pdf-images.worker.ts", import.meta.url), { type: "module" }),
+      request: { bytes: copy, pageCount },
+      transfer: [copy.buffer],
+      inline: (r) => withTimeout(extractPdfImages(bytes, r.pageCount), IMAGE_EXTRACTION_TIMEOUT_MS),
+      timeoutMs: IMAGE_EXTRACTION_TIMEOUT_MS,
+    });
   } catch {
-    return { images, skippedNonJpeg };
+    return { images: [], skippedNonJpeg: 0 };
   }
-  const pages = Math.min(pageCount, doc.getPageCount());
-  for (let i = 0; i < pages; i++) {
-    try {
-      skippedNonJpeg += extractPageImages(doc, i, images);
-    } catch {
-      // Page structurellement inexploitable (résolution de référence
-      // cassée, etc.) : on saute ses images, le reste du document continue.
-    }
-  }
-  return { images, skippedNonJpeg };
-}
-
-/** Renvoie le nombre d'XObjects Image rencontrés sur cette page dont le
- *  filtre n'est pas DCTDecode (donc ignorés) — voir `ImageExtractionResult`. */
-function extractPageImages(doc: PDFDocument, pageIndex: number, images: ImageModel[]): number {
-  let skippedNonJpeg = 0;
-  const page = doc.getPage(pageIndex);
-  const xobjects = page.node.Resources()?.lookup(PDFName.of("XObject"));
-  if (!(xobjects instanceof PDFDict)) return skippedNonJpeg;
-  for (const name of xobjects.keys()) {
-    try {
-      const stream = xobjects.lookup(name);
-      if (!(stream instanceof PDFRawStream)) continue;
-      const dict = stream.dict;
-      const subtype = dict.lookup(PDFName.of("Subtype"));
-      if (!(subtype instanceof PDFName) || subtype.asString().replace(/^\//, "") !== "Image") continue;
-      if (!isDctEncoded(dict)) {
-        skippedNonJpeg++;
-        continue;
-      }
-      const jpegBytes = stream.getContents(); // raw, undecoded — the JPEG itself
-      if (!jpegBytes.length) continue;
-      const image: ImageModel = { index: images.length, bytes: jpegBytes, mime: "image/jpeg", pageIndex };
-      const width = numberAttr(dict, "Width");
-      const height = numberAttr(dict, "Height");
-      if (width != null) image.width = width;
-      if (height != null) image.height = height;
-      images.push(image);
-    } catch {
-      // Un XObject individuel mal formé ne doit pas priver le reste de la
-      // page de ses images.
-    }
-  }
-  return skippedNonJpeg;
-}
-
-function isDctEncoded(dict: PDFDict): boolean {
-  const filter = dict.lookup(PDFName.of("Filter"));
-  if (filter instanceof PDFName) return filter.asString().replace(/^\//, "") === "DCTDecode";
-  if (filter instanceof PDFArray) {
-    return filter.asArray().some((f) => f instanceof PDFName && f.asString().replace(/^\//, "") === "DCTDecode");
-  }
-  return false;
-}
-
-function numberAttr(dict: PDFDict, key: string): number | undefined {
-  const value = dict.lookup(PDFName.of(key));
-  return value instanceof PDFNumber ? value.asNumber() : undefined;
 }

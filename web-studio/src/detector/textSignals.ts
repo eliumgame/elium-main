@@ -78,13 +78,15 @@ const ABBREVIATIONS = new Set([
   "tél",
 ]);
 
+const LOOKBEHIND = 32;
+
 /**
  * Découpe un texte en phrases sur `. ! ? …`, en ignorant loosement les points
  * d'abréviation et d'initiale ("J. K. Rowling") : un point suivi d'une lettre
  * collée (nombre décimal, URL) n'est jamais une frontière, et un point précédé
  * d'une abréviation connue ou d'une lettre seule ne l'est pas non plus.
  */
-function splitSentences(text: string): string[] {
+export function splitSentences(text: string): string[] {
   const t = text.trim();
   if (!t) return [];
   const out: string[] = [];
@@ -95,7 +97,9 @@ function splitSentences(text: string): string[] {
     const end = m.index + m[0].length;
     const after = t[end];
     if (after !== undefined && !/\s/.test(after)) continue;
-    const before = t.slice(start, m.index);
+    // Fenêtre bornée : aucune abréviation ne dépasse quelques lettres, et relire tout le segment
+    // depuis `start` rendait un long paragraphe sans frontière quadratique.
+    const before = t.slice(Math.max(start, m.index - LOOKBEHIND), m.index);
     const lastWordMatch = before.match(/[\p{L}]+$/u);
     const lastWord = lastWordMatch ? lastWordMatch[0] : "";
     const isAbbreviation = lastWord.length > 0 && ABBREVIATIONS.has(lastWord.toLowerCase());

@@ -152,3 +152,15 @@ elium doc-verify doc.elium --report preuve.json
 ```
 
 Passer une clé privée en argument (`--recipient-key`) est **déprécié** : elle reste dans l'historique du shell. Préférez le trousseau (`elium keys generate`, puis `--recipient-kid`). Le dossier du trousseau est `~/.elium/keys`, ou celui de la variable `ELIUM_KEYS_DIR`.
+
+
+## Tâches lourdes hors du fil principal
+
+Aucune opération ne doit figer l'interface plus de 100 ms. Le helper commun `web-studio/src/workers/` généralise le schéma de l'import XLSX :
+
+- `runWorkerTask({ create, request, inline, … })` (`worker-task.ts`) lance un Worker module, relaie la progression (`onProgress`), l'annulation (`signal` : le Worker est terminé net), un délai maximal (`timeoutMs`) et un plafond d'entrée (`inputBytes`/`maxInputBytes`, message clair). Sans Worker (tests jsdom), ou si le Worker ne démarre pas, la même tâche s'exécute en ligne (`inline`).
+- `serveWorkerTask(handler)` (`worker-host.ts`) est le côté Worker : un fichier `*.worker.ts` de trois lignes. Le Worker se crée avec `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })`, littéral à l'endroit de l'appel pour que Vite l'emballe.
+- Pour les boucles qui ne peuvent pas aller dans un Worker (DOM, canvas), `workers/yield.ts` fournit `yieldToMain()` et `createYielder()` (cession coopérative à budget).
+- Lectures IndexedDB : `format/idb-cursor.ts` (`readProjected`) lit par curseur en ne gardant que les métadonnées, sans charger les octets de tous les documents.
+
+Exemples : recherche par expression régulière du module PDF (`pdf/worker/search-client.ts`, Worker terminé au-delà de 2,5 s), lecture des annotations enrichies (`pdf/worker/pdf-worker-client.ts`), extraction des images du Détecteur (`detector/ingest/pdf-images.worker.ts`).

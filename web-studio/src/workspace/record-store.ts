@@ -9,6 +9,7 @@
  * que l'autosauvegarde ne l'écrase pas par un contenu vierge.
  */
 import { decryptAtRest, encryptAtRest, hasVaultSecret, type VaultSecret } from "../crypto/local-vault";
+import { parseJsonCooperative } from "../sheet/coop-json";
 import type { KvStore } from "./kv";
 
 export interface JsonRecord {
@@ -43,11 +44,11 @@ export function createJsonStore<T>(kv: KvStore<JsonRecord>, opts: JsonStoreOptio
     if (!rec) return undefined;
     if (!rec.vaultProtected) {
       // y compris l'ancien format d'avant le coffre
-      if (rec.json) return JSON.parse(typeof rec.json === "string" ? rec.json : await rec.json.text()) as T;
+      if (rec.json) return parseJsonCooperative<T>(typeof rec.json === "string" ? rec.json : await rec.json.text());
       return rec[field] as T | undefined;
     }
     if (!hasVaultSecret(secret) || !rec.enc) throw new Error(lockedMessage);
-    return decryptAtRest<T>(rec.enc, secret);
+    return decryptAtRest<T>(rec.enc, secret, parseJsonCooperative);
   }
 
   async function build(id: string, value: T, secret: VaultSecret | undefined, now: string): Promise<JsonRecord> {

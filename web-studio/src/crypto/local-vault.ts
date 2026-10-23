@@ -105,7 +105,12 @@ export async function encryptAtRest(value: unknown, secret: VaultSecret, json?: 
 
 /** Decrypt a value produced by {@link encryptAtRest}. Accepts the v2 Argon2id
  *  envelope AND legacy PBKDF2 blobs (raw base64) written before this change. */
-export async function decryptAtRest<T>(stored: string, secret: VaultSecret): Promise<T> {
+export async function decryptAtRest<T>(
+  stored: string,
+  secret: VaultSecret,
+  /** Analyse du clair (défaut : `JSON.parse`) ; une version coopérative évite de figer l'UI sur un gros contenu. */
+  parse: (text: string) => Promise<T> | T = (t) => JSON.parse(t) as T,
+): Promise<T> {
   const s = await secretString(secret);
   let b64 = stored;
   let deriveKey = deriveKeyPbkdf2; // legacy par défaut
@@ -122,7 +127,7 @@ export async function decryptAtRest<T>(stored: string, secret: VaultSecret): Pro
   const ct = bin.slice(28);
   const key = await deriveKey(s, salt);
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as unknown as BufferSource }, key, ct);
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(pt))) as T;
+  return parse(new TextDecoder().decode(new Uint8Array(pt)));
 }
 
 /**

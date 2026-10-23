@@ -20,6 +20,7 @@
  */
 import { expandStructuredRefs, type TableDef } from "./tables";
 import { DYN_FUNCS, ARRAY_RETURNING, dynFunction, isMat, toMat, type Matrix } from "./formula-dyn";
+import { minOf, maxOf } from "./numeric";
 
 export type CellError = { error: string };
 export type CellValue = number | string | boolean | CellError;
@@ -1284,11 +1285,11 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
     }
     case "MIN": {
       const ns = nums(args);
-      return ns.length ? Math.min(...ns) : 0;
+      return ns.length ? minOf(ns) : 0;
     }
     case "MAX": {
       const ns = nums(args);
-      return ns.length ? Math.max(...ns) : 0;
+      return ns.length ? maxOf(ns) : 0;
     }
     case "COUNT":
       return nums(args).length;
@@ -1946,6 +1947,33 @@ export interface CrossSheet {
  * sheet. The cache/cycle key is `context + ref`, so the same address on two
  * sheets stays distinct.
  */
+/**
+ * Cache d'AST partagé entre les instances de `createCalc` : le corps d'une formule (après
+ * résolution des noms et références structurées) donne toujours le même arbre, qu'on recrée le
+ * moteur à chaque édition. Sans lui, chaque frappe re-tokenisait et ré-analysait toutes les
+ * formules du classeur. Borné pour ne pas retenir indéfiniment des classeurs fermés.
+ */
+const AST_CACHE_MAX = 200_000;
+const MAYBE_ARRAY = /[:(#{]/;
+const astCache = new Map<string, Node>();
+/** « Cette formule peut-elle déborder ? » mémorisé par nœud (l'analyse est purement syntaxique). */
+const arrayShape = new WeakMap<Node, boolean>();
+function producesArrayCached(n: Node): boolean {
+  let v = arrayShape.get(n);
+  if (v === undefined) {
+    v = producesArray(n);
+    arrayShape.set(n, v);
+  }
+  return v;
+}
+/** Vide le cache d'AST (tests). */
+export function clearAstCache(): void {
+  astCache.clear();
+}
+export function astCacheSize(): number {
+  return astCache.size;
+}
+
 export function createCalc(
   getRaw: (ref: string) => string | undefined,
   cross?: CrossSheet,
@@ -1961,7 +1989,6 @@ export function createCalc(
 ) {
   const cache = new Map<string, CellValue>();
   const visiting = new Set<string>();
-  const parsed = new Map<string, Node>();
   // Débordement : ctx → (cellule → valeur) ; ancre (ctx + ref) → matrice complète.
   const spillCells = new Map<string, Map<string, { v: CellValue; anchor: string }>>();
   const spillRegions = new Map<string, CellValue[][]>();
@@ -1980,10 +2007,11 @@ export function createCalc(
   };
   function astOf(raw: string, ctx: string | null, ref: string): Node {
     const body = bodyOf(raw, ctx, ref);
-    let n = parsed.get(body);
+    let n = astCache.get(body);
     if (!n) {
       n = parseFormula(tokenize(body));
-      parsed.set(body, n);
+      if (astCache.size >= AST_CACHE_MAX) astCache.clear();
+      astCache.set(body, n);
     }
     return n;
   }
@@ -1994,16 +2022,20 @@ export function createCalc(
     if (spillReady.has(k)) return;
     spillReady.add(k);
     const candidates: { ref: string; col: number; row: number }[] = [];
+    // Sans noms ni tableaux structurés, une formule sans « : », « ( », « # » ni « { » ne peut pas produire
+    // de matrice (ni plage, ni appel, ni débordement, ni constante matricielle) : inutile de l'analyser.
+    const quick = !names && !structured?.tables.length;
     for (const ref of refsOf(ctx)) {
       const raw = rawIn(ctx, ref);
       if (!raw || raw[0] !== "=") continue;
-      const p = parseRef(ref.toUpperCase());
-      if (!p) continue;
+      if (quick && !MAYBE_ARRAY.test(raw)) continue;
       try {
-        if (!producesArray(astOf(raw, ctx, ref))) continue;
+        if (!producesArrayCached(astOf(raw, ctx, ref))) continue;
       } catch {
         continue;
       }
+      const p = parseRef(ref.toUpperCase());
+      if (!p) continue;
       candidates.push({ ref: ref.toUpperCase(), ...p });
     }
     candidates.sort((a, b) => a.row - b.row || a.col - b.col);

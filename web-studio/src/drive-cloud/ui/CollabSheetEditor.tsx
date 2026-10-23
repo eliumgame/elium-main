@@ -11,7 +11,7 @@ import type { DriveApi } from "../api";
 import SheetEditor from "../../sheet/SheetEditor";
 import { useCollabSheetStore } from "../useCollabSheetStore";
 import { initialsOf } from "../presence-colors";
-import { workbookToXlsx } from "../../sheet/xlsx-export";
+import { workbookToXlsxAsync } from "../../sheet/xlsx-export";
 import { downloadBlob } from "../../export/exporters";
 
 export default function CollabSheetEditor({
@@ -44,13 +44,13 @@ export default function CollabSheetEditor({
           : "Hors ligne";
   const uniquePeers = [...new Map(peers.map((p) => [p.name + p.color, p])).values()];
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
     if (!store.wb.sheets.length) return;
     const base = (title || "classeur").replace(/\.[^.]+$/, "");
     downloadBlob(
       `${base}.xlsx`,
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      workbookToXlsx(store.wb),
+      await workbookToXlsxAsync(store.wb),
     );
   };
 

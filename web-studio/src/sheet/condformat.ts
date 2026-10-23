@@ -175,6 +175,21 @@ function computeDuplicateMatches(rule: CondRule, getText: (c: number, r: number)
  * whole-range "top10"/"duplicate" match sets are precomputed once; later
  * rules override earlier ones on overlap.
  */
+/**
+ * Aire maximale (en cases) sur laquelle on précalcule une règle d'étendue (échelle de couleurs,
+ * top/bottom N, doublons) : au-delà, chaque modification reparcourait toute la plage et figeait
+ * la grille. Les règles « simples » (cellule par cellule) n'ont pas de plafond.
+ */
+export const COND_RANGE_MAX_CELLS = 250_000;
+
+const ruleArea = (r: CondRule): number => (r.r1 - r.r0 + 1) * (r.c1 - r.c0 + 1);
+const isRangeRule = (r: CondRule): boolean => r.op === "colorScale" || r.op === "top10" || r.op === "duplicate";
+
+/** Règles d'étendue dont la plage dépasse le plafond (non appliquées). */
+export function oversizedCondRules(rules: CondRule[] | undefined): CondRule[] {
+  return (rules ?? []).filter((r) => isRangeRule(r) && ruleArea(r) > COND_RANGE_MAX_CELLS);
+}
+
 export function buildCondFormatter(
   rules: CondRule[] | undefined,
   getValue: (c: number, r: number) => CellValue,
@@ -184,6 +199,7 @@ export function buildCondFormatter(
   const stats = new Map<string, { min: number; max: number }>();
   const rangeMatches = new Map<string, Set<string>>();
   for (const rule of rules) {
+    if (isRangeRule(rule) && ruleArea(rule) > COND_RANGE_MAX_CELLS) continue;
     if (rule.op === "colorScale") {
       let min = Infinity,
         max = -Infinity;

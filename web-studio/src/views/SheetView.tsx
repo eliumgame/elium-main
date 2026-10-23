@@ -18,7 +18,7 @@ import { createCalc, indexToCol } from "../sheet/formula";
 import { tableDefs } from "../sheet/tables";
 import { formatValue } from "../sheet/format";
 import { rowVisible as filterRowVisible } from "../sheet/filter";
-import { workbookToXlsx } from "../sheet/xlsx-export";
+import { workbookToXlsxAsync } from "../sheet/xlsx-export";
 import { downloadBlob } from "../export/exporters";
 import type { Workbook } from "../sheet/model";
 import type { VaultSecret } from "../crypto/local-vault";
@@ -101,11 +101,11 @@ export default function SheetView({
     );
   };
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
     downloadBlob(
       `${sync.title || "classeur"}.xlsx`,
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      workbookToXlsx(store.wb),
+      await workbookToXlsxAsync(store.wb),
     );
   };
 

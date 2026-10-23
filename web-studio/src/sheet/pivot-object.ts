@@ -77,20 +77,34 @@ export function evalCalcField(
 ): number | null {
   const body = formula.trim().replace(/^=/, "");
   let bad = false;
+  // Le corps de la formule référence des cellules fictives (A2, B2…) au lieu d'embarquer les valeurs
+  // de la ligne : le texte reste identique d'une ligne à l'autre, donc l'AST est analysé une seule fois
+  // (cache de `createCalc`) au lieu d'une fois par ligne source.
   const expr = body.replace(/\[([^\]]+)\]/g, (_m, name: string) => {
     const i = headers.findIndex((h) => h.trim().toLowerCase() === name.trim().toLowerCase());
     if (i < 0) {
       bad = true;
       return "0";
     }
-    const v = row[i];
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) ? `(${n})` : "0";
+    return `(${indexToCol(i)}2)`;
   });
   if (bad) return null;
-  const c = createCalc((ref) => (ref === "A1" ? `=${expr}` : undefined));
-  const out = c.valueOf("A1");
+  const c = createCalc((ref) => {
+    if (ref === "AAA1") return `=${expr}`;
+    const m = /^([A-Z]+)2$/.exec(ref);
+    if (!m) return undefined;
+    const v = row[colIndexOf(m[1]!)];
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? String(n) : "0";
+  });
+  const out = c.valueOf("AAA1");
   return typeof out === "number" && Number.isFinite(out) ? out : null;
+}
+
+function colIndexOf(letters: string): number {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
 }
 
 /** Champs de la source : en-têtes de la plage (vides → « ColonneN ») puis champs calculés. */
@@ -102,6 +116,7 @@ export function sourceHeaders(headers: string[], calc?: CalcField[]): string[] {
 export function readSource(
   wb: Workbook,
   src: PivotObject["source"],
+  opts: { headersOnly?: boolean } = {},
 ): { headers: string[]; rows: (string | number | boolean | null)[][] } | null {
   const idx = wb.sheets.findIndex((s) => s.name === src.sheet);
   const sheet = wb.sheets[idx];
@@ -123,6 +138,7 @@ export function readSource(
   const headers: string[] = [];
   for (let c = src.c0; c <= src.c1; c++) headers.push(String(val(c, src.r0) ?? ""));
   const rows: (string | number | boolean | null)[][] = [];
+  if (opts.headersOnly) return { headers, rows };
   for (let r = src.r0 + 1; r <= src.r1; r++) {
     const row: (string | number | boolean | null)[] = [];
     for (let c = src.c0; c <= src.c1; c++) row.push(val(c, r));
@@ -216,11 +232,30 @@ export function applyPivotResult(old: SheetData, built: SheetData, p: PivotObjec
   };
 }
 
+/** Au-delà de ce nombre de cases source, « à actualiser » n'est plus évalué automatiquement (le calcul figerait l'interface). */
+export const PIVOT_STALE_MAX_CELLS = 200_000;
+
+/** L'indicateur « à actualiser » peut-il être calculé sans geler l'interface ? */
+export function pivotStaleCheckable(sh: SheetData | undefined): boolean {
+  const s = sh?.pivot?.source;
+  if (!s) return true;
+  return (s.r1 - s.r0 + 1) * (s.c1 - s.c0 + 1) <= PIVOT_STALE_MAX_CELLS;
+}
+
+function sameCells(a: Record<string, string>, b: Record<string, string>): boolean {
+  let n = 0;
+  for (const k in a) {
+    if (b[k] !== a[k]) return false;
+    n++;
+  }
+  return n === Object.keys(b).length;
+}
+
 /** Le résultat actuel de la feuille est-il différent d'un recalcul ? (sert à signaler « à actualiser ») */
 export function pivotIsStale(wb: Workbook, sheetIndex: number): boolean {
   const sh = wb.sheets[sheetIndex];
   if (!sh?.pivot) return false;
   const b = buildPivot(wb, sh.pivot, sh.name);
   if ("error" in b) return true;
-  return JSON.stringify(b.sheet.cells) !== JSON.stringify(sh.cells);
+  return !sameCells(b.sheet.cells, sh.cells);
 }

@@ -8,6 +8,7 @@
  */
 import { indexToCol } from "./formula";
 import { emptySheet, type SheetData } from "./model";
+import { minOf, maxOf } from "./numeric";
 
 export type PivotAgg = "sum" | "count" | "avg" | "min" | "max";
 
@@ -79,9 +80,9 @@ function aggregate(agg: PivotAgg, values: number[], count: number): number {
     case "avg":
       return values.reduce((a, b) => a + b, 0) / values.length;
     case "min":
-      return Math.min(...values);
+      return minOf(values);
     case "max":
-      return Math.max(...values);
+      return maxOf(values);
   }
 }
 

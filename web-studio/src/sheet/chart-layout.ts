@@ -6,6 +6,7 @@
  * réutilisent les mêmes options. Aucune dépendance à React ni au DOM.
  */
 import type { ChartAxisFormat, ChartOptions, ChartTrendline, ChartType } from "./model";
+import { minOf, maxOf } from "./numeric";
 
 export interface ChartSeries {
   label: string;
@@ -354,8 +355,8 @@ export function layoutChart(inp: ChartLayoutInput): ChartLayout {
 
   // abscisses
   const xs = xIsNumeric ? xNums : first.map((_, i) => i);
-  const xMin = xIsNumeric ? Math.min(...xs) : 0;
-  const xMax = xIsNumeric ? Math.max(...xs) : n - 1;
+  const xMin = xIsNumeric ? minOf(xs) : 0;
+  const xMax = xIsNumeric ? maxOf(xs) : n - 1;
   const xAxis = xIsNumeric ? niceTicks(xMin, xMax) : null;
   const xPix = (x: number): number => {
     if (xIsNumeric && xAxis) return left + ((x - xAxis.min) / (xAxis.max - xAxis.min || 1)) * plotW;

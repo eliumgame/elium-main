@@ -1,11 +1,12 @@
 /** Volet latéral du tableau croisé dynamique persistant : champs, agrégation, dates, champs calculés, actualisation. */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PIVOT_AGGS, type PivotAgg } from "./pivot";
 import {
   DATE_GROUP_LABELS,
   applyPivotResult,
   buildPivot,
   pivotIsStale,
+  pivotStaleCheckable,
   readSource,
   sourceHeaders,
   type CalcField,
@@ -31,9 +32,20 @@ export default function PivotPanel({
   const [err, setErr] = useState("");
   const [calcName, setCalcName] = useState("");
   const [calcFormula, setCalcFormula] = useState("");
-  const src = useMemo(() => readSource(store.wb, p.source), [store.wb, p.source]);
+  // Seuls les en-têtes sont nécessaires ici : relire toute la source à chaque modification figeait les gros classeurs.
+  const src = useMemo(() => readSource(store.wb, p.source, { headersOnly: true }), [store.wb, p.source]);
   const headers = useMemo(() => sourceHeaders(src?.headers ?? [], p.calcFields), [src, p.calcFields]);
-  const stale = useMemo(() => pivotIsStale(store.wb, active), [store.wb, active]);
+  // « À actualiser » : recalcul différé (après une pause de frappe), jamais sur une très grosse source.
+  const checkable = pivotStaleCheckable(sheet);
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    if (!checkable) {
+      setStale(false);
+      return;
+    }
+    const t = setTimeout(() => setStale(pivotIsStale(store.wb, active)), 400);
+    return () => clearTimeout(t);
+  }, [store.wb, active, checkable]);
 
   /** Applique une nouvelle définition : recalcule le résultat et le range dans cette feuille. */
   const commit = (next: PivotObject) => {
@@ -80,6 +92,12 @@ export default function PivotPanel({
         {p.source.r0 + 1}:{indexToCol(p.source.c1)}
         {p.source.r1 + 1}
       </p>
+      {!checkable && (
+        <p role="status" className="pivotpanel__stale">
+          Source très volumineuse : l'indicateur « à actualiser » est désactivé. Utilisez « Actualiser » après vos
+          modifications.
+        </p>
+      )}
       {stale && (
         <p role="status" className="pivotpanel__stale">
           La source a changé depuis le dernier calcul.

@@ -73,14 +73,15 @@ import ValidationModal from "./ValidationModal";
 import NamedRangesModal from "./NamedRangesModal";
 import PivotModal from "./PivotModal";
 import type { PivotConfig } from "./pivot";
-import { buildCondFormatter } from "./condformat";
+import { COND_RANGE_MAX_CELLS, buildCondFormatter, oversizedCondRules } from "./condformat";
 import { buildValidator, validationAt, withLiveLists } from "./validation";
 import { isCovered, spanAt } from "./merges";
 import { rowVisible as filterRowVisible } from "./filter";
 import { importXlsxAsync, type ImportedSheetInfo } from "./xlsx-import";
 import type { SheetWindow } from "./xlsx-stream";
 import { XlsxProgressModal, XlsxRangeModal } from "./XlsxImportModals";
-import { csvToWorkbook } from "./csv";
+import { csvToWorkbookAsync } from "./csv";
+import { SYNC_ROWS_MAX, hiddenRowsCooperative } from "./coop-rows";
 import {
   newId,
   type CellStyle,
@@ -186,8 +187,8 @@ function Cmd({
   );
 }
 
-/** Taille maximale d'un CSV importé (la lecture CSV est synchrone). */
-const MAX_CSV_BYTES = 30 * 1024 * 1024;
+/** Taille maximale d'un CSV importé (lecture par tranches, mais tout le contenu tient en mémoire). */
+const MAX_CSV_BYTES = 64 * 1024 * 1024;
 
 export default function SheetEditor({ store, chrome }: { store: SheetStore; chrome: SheetEditorChrome }) {
   const { wb, active, canWrite, collaborative } = store;
@@ -284,6 +285,17 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
       ),
     [sheet, calc], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // Règles d'étendue sur une plage énorme : non appliquées (elles figeraient la grille) — on le dit une fois.
+  const warnedCond = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = oversizedCondRules(sheet?.condFormats).filter((r) => !warnedCond.current.has(r.id));
+    if (!fresh.length) return;
+    for (const r of fresh) warnedCond.current.add(r.id);
+    void dialogs.alert({
+      title: "Mise en forme conditionnelle limitée",
+      message: `Une règle « échelle de couleurs / valeurs extrêmes / doublons » porte sur plus de ${COND_RANGE_MAX_CELLS.toLocaleString("fr-FR")} cellules : elle n'est pas appliquée, car elle figerait l'application. Réduisez sa plage.`,
+    });
+  }, [sheet?.condFormats, dialogs]);
   // Les listes déroulantes liées à une plage (listRef) sont relues dans le classeur à chaque changement.
   const liveValidations = useMemo(
     () => withLiveLists(sheet?.validations, wb, sheet?.name ?? ""),
@@ -319,12 +331,30 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
   // Seules les lignes visibles (+ marge) sont rendues ; le reste est remplacé par deux lignes d'espacement.
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(640);
-  const hiddenRows = useMemo(() => {
-    if (!sheet?.filter) return null;
+  // Petite feuille : calcul immédiat. Grande feuille : par tranches (le masque précédent reste affiché
+  // le temps du recalcul) pour qu'une édition ne fige jamais la grille.
+  const filterSync = !!sheet?.filter && sheet.rows <= SYNC_ROWS_MAX;
+  const syncHidden = useMemo(() => {
+    if (!filterSync || !sheet) return null;
     const out = new Uint8Array(sheet.rows);
     for (let r = 0; r < sheet.rows; r++) out[r] = rowVisible(r) ? 0 : 1;
     return out;
-  }, [sheet, calc]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sheet, calc, filterSync]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [asyncHidden, setAsyncHidden] = useState<Uint8Array | null>(null);
+  useEffect(() => {
+    if (!sheet?.filter || filterSync) {
+      setAsyncHidden(null);
+      return;
+    }
+    let dead = false;
+    void hiddenRowsCooperative(sheet.rows, rowVisible, () => dead).then((m) => {
+      if (m && !dead) setAsyncHidden(m);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [sheet, calc, filterSync]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hiddenRows = sheet?.filter ? (filterSync ? syncHidden : asyncHidden) : null;
   const offsets = useMemo(
     () => rowOffsets(sheet?.rows ?? 0, shownRowHeight, hiddenRows ? (r) => hiddenRows[r] === 1 : undefined),
     [sheet?.rows, sheet?.rowHeights, hiddenRows, rowResizePreview], // eslint-disable-line react-hooks/exhaustive-deps
@@ -794,12 +824,12 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     if (file.size > MAX_CSV_BYTES) {
       void dialogs.alert({
         title: "Fichier CSV trop volumineux",
-        message: `Ce CSV pèse ${Math.round(file.size / 1048576)} Mo : au-delà de ${MAX_CSV_BYTES / 1048576} Mo, son import figerait l'application. Découpez-le, ou ouvrez-le dans Excel et enregistrez-le en .xlsx (l'import XLSX gère les très gros fichiers).`,
+        message: `Ce CSV pèse ${Math.round(file.size / 1048576)} Mo : au-delà de ${MAX_CSV_BYTES / 1048576} Mo, son import saturerait la mémoire. Découpez-le, ou ouvrez-le dans Excel et enregistrez-le en .xlsx (l'import XLSX gère les très gros fichiers).`,
       });
       return;
     }
     try {
-      store.replaceWorkbook(csvToWorkbook(await file.text()));
+      store.replaceWorkbook(await csvToWorkbookAsync(await file.text()));
       setSel({ c: 0, r: 0 });
       setAnchor({ c: 0, r: 0 });
     } catch {

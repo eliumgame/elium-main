@@ -27,6 +27,7 @@
  *                    to reference live cell ranges instead of literal data
  */
 import { zipSync, strToU8 } from "fflate";
+import { makeBreather, zipCooperative } from "../format/coop-zip";
 import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
 import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
@@ -540,18 +541,24 @@ function sheetDrawingXml(chartRIds: string[], baseRow: number): string {
 /** Row height: px → Excel's "points" unit (96dpi heuristic, inverse of xlsx-import.ts's `ptToPx`). */
 const pxToPt = (px: number): number => Math.max(0, Math.round(px * 0.75 * 100) / 100);
 
-function sheetXml(
+/** Pas de coopération : toutes les `YIELD_EVERY` unités de travail, le générateur rend la main (voir `workbookToXlsxAsync`). */
+const YIELD_EVERY = 4000;
+
+function* sheetXml(
   sheet: SheetData,
   styles: StyleTable,
   hasDrawing: boolean,
   literal = false,
   tableRIds: string[] = [],
-): string {
+): Generator<void, string> {
   // Group non-empty cells by row.
   const byRow = new Map<number, { key: string; col: number; raw: string; s: number }[]>();
   let maxCol = Math.max(0, sheet.cols - 1);
   let maxRow = Math.max(1, sheet.rows);
-  for (const [key, raw] of Object.entries(sheet.cells)) {
+  let tick = 0;
+  for (const key in sheet.cells) {
+    if (++tick % (YIELD_EVERY * 5) === 0) yield;
+    const raw = sheet.cells[key];
     if (raw === "" || raw == null) continue;
     const pos = parseKey(key);
     if (!pos) continue;
@@ -567,19 +574,19 @@ function sheetXml(
   // keys are 0-based (row index, like `colWidths`), hence the +1/-1 below.
   const rowKeys = new Set<number>(byRow.keys());
   for (const k of Object.keys(sheet.rowHeights ?? {})) rowKeys.add(Number(k) + 1);
-  const rows = [...rowKeys]
-    .sort((a, b) => a - b)
-    .map((r) => {
-      const list = byRow.get(r) ?? [];
-      const cells = list
-        .sort((a, b) => a.col - b.col)
-        .map((c) => cellXml(c.key, c.raw, c.s, literal))
-        .join("");
-      const customH = sheet.rowHeights?.[r - 1];
-      const htAttr = customH != null ? ` ht="${pxToPt(customH)}" customHeight="1"` : "";
-      return `<row r="${r}"${htAttr}>${cells}</row>`;
-    })
-    .join("");
+  const rowParts: string[] = [];
+  for (const r of [...rowKeys].sort((a, b) => a - b)) {
+    if (rowParts.length % YIELD_EVERY === YIELD_EVERY - 1) yield;
+    const list = byRow.get(r) ?? [];
+    const cells = list
+      .sort((a, b) => a.col - b.col)
+      .map((c) => cellXml(c.key, c.raw, c.s, literal))
+      .join("");
+    const customH = sheet.rowHeights?.[r - 1];
+    const htAttr = customH != null ? ` ht="${pxToPt(customH)}" customHeight="1"` : "";
+    rowParts.push(`<row r="${r}"${htAttr}>${cells}</row>`);
+  }
+  const rows = rowParts.join("");
   const dim = `A1:${colLetters(maxCol)}${maxRow}`;
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -666,7 +673,8 @@ export interface XlsxExportOptions {
   literalText?: boolean;
 }
 
-export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint8Array {
+/** Construit tous les fichiers du paquet ; rend la main (`yield`) régulièrement pour la version coopérative. */
+function* xlsxFiles(wb: Workbook, opts: XlsxExportOptions): Generator<void, Record<string, Uint8Array>> {
   const styles = createStyleTable();
   const names = sanitizeNames(wb.sheets);
   const files: Record<string, Uint8Array> = {};
@@ -678,7 +686,8 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
   // Worksheets (+ per-sheet drawing/chart parts). Serialize sheets first so the
   // shared style table (fonts/fills/borders/dxfs) is fully populated before toXml().
   const commentSheets: number[] = []; // sheet indices that got a comments part (for Content_Types)
-  wb.sheets.forEach((sheet, i) => {
+  for (let i = 0; i < wb.sheets.length; i++) {
+    const sheet = wb.sheets[i]!;
     const charts = sheet.charts ?? [];
     const notesXml = commentsXml(sheet.notes);
     const sheetNameQ = quoteSheetName(names[i]!);
@@ -686,7 +695,7 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
     const relBase = (charts.length ? 1 : 0) + (notesXml ? 1 : 0);
     const sheetTables = (sheet.tables ?? []).map((t, k) => ({ t, rId: `rId${relBase + k + 1}`, n: ++tableCounter }));
     files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(
-      sheetXml(
+      yield* sheetXml(
         sheet,
         styles,
         charts.length > 0,
@@ -694,6 +703,7 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
         sheetTables.map((x) => x.rId),
       ),
     );
+    yield;
 
     const sheetRels: { id: string; type: string; target: string }[] = [];
     if (charts.length) {
@@ -730,7 +740,7 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
       );
     }
     if (sheetRels.length) files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = strToU8(RELS(sheetRels));
-  });
+  }
   files["xl/styles.xml"] = strToU8(styles.toXml());
 
   // Workbook + its relationships.
@@ -802,5 +812,29 @@ export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint
       `</Types>`,
   );
 
-  return zipSync(files, { level: 6 });
+  return files;
+}
+
+/** Exporte le classeur en .xlsx. Synchrone : pour de gros classeurs, préférer {@link workbookToXlsxAsync}. */
+export function workbookToXlsx(wb: Workbook, opts: XlsxExportOptions = {}): Uint8Array {
+  const gen = xlsxFiles(wb, opts);
+  let step = gen.next();
+  while (!step.done) step = gen.next();
+  return zipSync(step.value, { level: 6 });
+}
+
+/**
+ * Même paquet que {@link workbookToXlsx}, mais construit et compressé par tranches en rendant la
+ * main au navigateur : exporter un classeur de plusieurs centaines de milliers de cases ne fige plus
+ * l'interface (le XML est produit par un générateur, la compression passe par `Zip`/`ZipDeflate` en flux).
+ */
+export async function workbookToXlsxAsync(wb: Workbook, opts: XlsxExportOptions = {}): Promise<Uint8Array> {
+  const breathe = makeBreather();
+  const gen = xlsxFiles(wb, opts);
+  let step = gen.next();
+  while (!step.done) {
+    await breathe();
+    step = gen.next();
+  }
+  return zipCooperative(step.value, 6, breathe);
 }

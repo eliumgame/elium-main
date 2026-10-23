@@ -2,6 +2,13 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.25.0 — Documents : publipostage, import Word et recherche sans gel
+
+- **Publipostage** : fusion par tranches (l'interface reste réactive, avec compteur), plafonnée à 200 enregistrements par document fusionné — au-delà, un message invite à fusionner par lots. Les champs utilisés ne sont plus recalculés à chaque rendu de la fenêtre.
+- **Import .docx** : fichier plafonné à 200 Mo, texte à 48 Mo, images à 12 Mo chacune (80 Mo cumulés) ; les médias ne sont décompressés qu'à la demande, une image reprise plusieurs fois n'est encodée qu'une fois, et les images écartées sont signalées par un message.
+- **Recherche** : résultats surlignés plafonnés à 2 000 (« Tout remplacer » reste exhaustif) ; plus de recalcul quand seul le curseur bouge ; une expression régulière à quantificateurs imbriqués (du type `(a+)+`) est refusée au lieu de figer l'onglet.
+- Suivi des modifications et styles de tableau : décorations calculées une seule fois par état du document.
+
 ### Version 4.24.0 — anti-gel lot D (Présentations et collaboration Drive)
 
 - **Miniatures** : la rampe et la trieuse ne redessinent plus que les diapositives modifiées, ne montent que celles proches de l'écran (par petites tranches) et plus rien quand le panneau est replié.

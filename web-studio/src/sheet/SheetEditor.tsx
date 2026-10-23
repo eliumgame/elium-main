@@ -77,7 +77,7 @@ import { buildCondFormatter } from "./condformat";
 import { buildValidator, validationAt, withLiveLists } from "./validation";
 import { isCovered, spanAt } from "./merges";
 import { rowVisible as filterRowVisible } from "./filter";
-import { importXlsx } from "./xlsx-import";
+import { importXlsx, type XlsxImportNotice } from "./xlsx-import";
 import { csvToWorkbook } from "./csv";
 import {
   newId,
@@ -747,10 +747,23 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     e.target.value = "";
     if (!file || !store.replaceWorkbook) return;
     try {
+      const notices: XlsxImportNotice[] = [];
       const next = file.name.toLowerCase().endsWith(".csv")
         ? csvToWorkbook(await file.text())
-        : importXlsx(new Uint8Array(await file.arrayBuffer()));
+        : importXlsx(new Uint8Array(await file.arrayBuffer()), (n) => notices.push(n));
       store.replaceWorkbook(next);
+      if (notices.length)
+        void dialogs.alert({
+          title: "Classeur très volumineux : import partiel",
+          message:
+            notices
+              .map(
+                (n) =>
+                  `${Math.round(n.originalBytes / 1048576)} Mo de données dans une feuille : seules les ${n.keptRows.toLocaleString("fr-FR")} premières lignes ont été importées.`,
+              )
+              .join("\n") +
+            "\n\nPour travailler sur l'ensemble, filtrez ou découpez le fichier dans Excel avant de l'importer.",
+        });
       setSel({ c: 0, r: 0 });
       setAnchor({ c: 0, r: 0 });
     } catch {

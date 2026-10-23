@@ -2,6 +2,10 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.15.2 — import Excel de très gros classeurs
+
+- Tableur : un classeur dont une feuille dépasse 32 Mo de données (des centaines de milliers de lignes) ne fige plus l'application. Elium en lit le début, puis prévient du nombre de lignes importées ; les liens externes et la chaîne de calcul, inutiles à l'import, ne sont plus décompressés.
+
 ### Version 4.15.0 — Passeport E4 : annexes, import et analyse des fiches
 
 - 4.15.1 : dossier complet plus robuste — annexes de plus de 12 Mo signalées par un intercalaire au lieu d'être recopiées, interface laissée libre pendant l'assemblage, et repli automatique sans annexes si l'une d'elles est illisible.

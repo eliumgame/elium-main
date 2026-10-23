@@ -8,7 +8,7 @@
  * so a workbook survives an export → re-import round trip, and reopening an
  * external .xlsx keeps its formatting instead of silently dropping it.
  */
-import { unzipSync, strFromU8 } from "fflate";
+import { Unzip, UnzipInflate, unzipSync, strFromU8 } from "fflate";
 import { parseRef, rewriteRefs, indexToCol } from "./formula";
 import { readChartOptions } from "./chart-ooxml";
 import { mergePrint, readPrintElements, readPrintNames } from "./xlsx-print";
@@ -1059,8 +1059,65 @@ function parseDefinedNames(wb: Document | null): NamedRange[] {
   return out;
 }
 
-export function importXlsx(bytes: Uint8Array): Workbook {
-  const zip = unzipSync(bytes);
+/** Au-delà de cette taille décompressée, une feuille n'est lue que partiellement (un DOM de plusieurs millions de cellules fige l'onglet). */
+export const MAX_SHEET_XML_BYTES = 32 * 1024 * 1024;
+
+export interface XlsxImportNotice {
+  sheetPath: string;
+  /** Taille décompressée de la feuille d'origine, en octets. */
+  originalBytes: number;
+  /** Nombre de lignes conservées. */
+  keptRows: number;
+}
+
+/** Début d'une feuille : décompresse en flux et s'arrête dès `cap` octets, puis referme le XML proprement après la dernière ligne complète. */
+export function readSheetHead(bytes: Uint8Array, name: string, cap: number): { xml: string; keptRows: number } {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const u = new Unzip();
+  u.register(UnzipInflate);
+  u.onfile = (f) => {
+    if (f.name !== name) return;
+    f.ondata = (err, d) => {
+      if (err) return;
+      chunks.push(d);
+      size += d.length;
+      if (size >= cap) f.terminate();
+    };
+    f.start();
+  };
+  // Entrée par tranches : une seule poussée décompresserait tout le fichier avant qu'on puisse s'arrêter.
+  const STEP = 128 * 1024;
+  for (let i = 0; i < bytes.length && size < cap; i += STEP)
+    u.push(bytes.subarray(i, i + STEP), i + STEP >= bytes.length);
+  const all = new Uint8Array(size);
+  let o = 0;
+  for (const c of chunks) {
+    all.set(c, o);
+    o += c.length;
+  }
+  let xml = strFromU8(all);
+  const cut = xml.lastIndexOf("</row>");
+  xml = (cut >= 0 ? xml.slice(0, cut + 6) : xml) + "</sheetData></worksheet>";
+  return { xml, keptRows: (xml.match(/<row[\s>]/g) ?? []).length };
+}
+
+export function importXlsx(bytes: Uint8Array, onNotice?: (n: XlsxImportNotice) => void): Workbook {
+  const oversized = new Map<string, number>();
+  const zip = unzipSync(bytes, {
+    filter: (f) => {
+      if (/^xl\/worksheets\/[^/]+\.xml$/.test(f.name) && f.originalSize > MAX_SHEET_XML_BYTES) {
+        oversized.set(f.name, f.originalSize);
+        return false;
+      }
+      return !/^xl\/(calcChain\.xml|externalLinks\/)/.test(f.name);
+    },
+  });
+  for (const [path, originalBytes] of oversized) {
+    const { xml, keptRows } = readSheetHead(bytes, path, MAX_SHEET_XML_BYTES);
+    zip[path] = new TextEncoder().encode(xml);
+    onNotice?.({ sheetPath: path, originalBytes, keptRows });
+  }
   const shared = parseSharedStrings(zip);
   const theme = parseThemeColors(zip);
   const ps = parseStylesXml(zip, theme);

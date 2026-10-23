@@ -177,6 +177,34 @@ function bytesToBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
 }
 
+/**
+ * Image embarquée sous forme d'URI `data:`, encodée UNE fois par fichier du .docx : un logo repris
+ * sur chaque page n'est plus ré-encodé (ni dupliqué en mémoire) à chaque occurrence.
+ */
+const dataUriCache = new WeakMap<object, Map<string, string>>();
+function mediaDataUri(zip: object, path: string, mime: string, bytes: Uint8Array): string {
+  let perZip = dataUriCache.get(zip);
+  if (!perZip) dataUriCache.set(zip, (perZip = new Map()));
+  let uri = perZip.get(path);
+  if (uri === undefined) {
+    uri = `data:${mime};base64,${bytesToBase64(bytes)}`;
+    perZip.set(path, uri);
+  }
+  return uri;
+}
+
+/** Plafonds d'import : un .docx au-delà est refusé ou délesté de ses images, avec un message clair. */
+export const DOCX_LIMITS = {
+  /** Taille du fichier .docx lui-même. */
+  fileBytes: 200 * 1024 * 1024,
+  /** `word/document.xml` décompressé (le texte ; analysé en arbre mémoire x5 à x10). */
+  documentXmlBytes: 48 * 1024 * 1024,
+  /** Une image. */
+  imageBytes: 12 * 1024 * 1024,
+  /** Cumul des images conservées. */
+  mediaTotalBytes: 80 * 1024 * 1024,
+};
+
 function base64ToBytes(b64: string): Uint8Array {
   if (typeof atob === "function") {
     const bin = atob(b64);
@@ -1812,7 +1840,7 @@ function inlineFromParagraph(
           const mime = EXT_MIME[ext] ?? "image/png";
           figure = {
             type: "figure",
-            attrs: { src: `data:${mime};base64,${bytesToBase64(bytes)}`, alt: "", align: "center", width: "" },
+            attrs: { src: mediaDataUri(zip, path, mime, bytes), alt: "", align: "center", width: "" },
             content: [],
           };
         }
@@ -2372,7 +2400,7 @@ export function normalizeWordXml(xml: string): string {
   return xml
     .replace(/(<\/mc:Choice>)\s*<mc:Fallback\b[\s\S]*?<\/mc:Fallback>/g, "$1")
     .replace(/<\/?mc:(?:AlternateContent|Choice)\b[^>]*>/g, "")
-    .replace(/<w:sdtPr\b[\s\S]*?<\/w:sdtPr>|<w:sdtEndPr\b[\s\S]*?<\/w:sdtEndPr>|<w:sdtPr\b[^>]*\/>/g, "")
+    .replace(/<w:sdtPr\b[^>]*\/>|<w:sdtPr\b[\s\S]*?<\/w:sdtPr>|<w:sdtEndPr\b[\s\S]*?<\/w:sdtEndPr>/g, "")
     .replace(/<\/?w:(?:sdt|sdtContent|smartTag|customXml)\b[^>]*>/g, "");
 }
 
@@ -2487,10 +2515,52 @@ function readPage(
 }
 
 /** Parse a .docx byte array into a title + ProseMirror document node (+ réglages de page). */
-export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorNode; page?: Partial<PageSettings> } {
-  const zip = unzipSync(bytes);
+export function docxToDoc(bytes: Uint8Array): {
+  title: string;
+  doc: ProseMirrorNode;
+  page?: Partial<PageSettings>;
+  /** Éléments écartés à l'import (images trop volumineuses…), à montrer à l'utilisateur. */
+  warnings?: string[];
+} {
+  if (bytes.length > DOCX_LIMITS.fileBytes) {
+    throw new Error(
+      `Fichier .docx trop volumineux (${Math.round(bytes.length / 1048576)} Mo, maximum ${DOCX_LIMITS.fileBytes / 1048576} Mo).`,
+    );
+  }
+  // Les médias ne sont décompressés que s'ils respectent les plafonds : décompresser tout le
+  // fichier d'office figeait l'onglet (et saturait la mémoire) sur un document très illustré.
+  let mediaTotal = 0;
+  let skippedImages = 0;
+  let xmlTooBig = false;
+  const zip = unzipSync(bytes, {
+    filter: (f) => {
+      if (f.name === "word/document.xml" && f.originalSize > DOCX_LIMITS.documentXmlBytes) {
+        xmlTooBig = true;
+        return false;
+      }
+      if (!f.name.startsWith("word/media/")) return true;
+      if (f.originalSize > DOCX_LIMITS.imageBytes || mediaTotal + f.originalSize > DOCX_LIMITS.mediaTotalBytes) {
+        skippedImages += 1;
+        return false;
+      }
+      mediaTotal += f.originalSize;
+      return true;
+    },
+  });
+  if (xmlTooBig) {
+    throw new Error(
+      `Le texte de ce .docx est trop volumineux pour être importé (plus de ${DOCX_LIMITS.documentXmlBytes / 1048576} Mo de contenu).`,
+    );
+  }
   const docRaw = zip["word/document.xml"];
   if (!docRaw) throw new Error("Fichier .docx invalide : word/document.xml introuvable.");
+  const warnings: string[] = [];
+  if (skippedImages) {
+    const many = skippedImages > 1;
+    warnings.push(
+      `${skippedImages} image${many ? "s" : ""} trop volumineuse${many ? "s" : ""} (ou en excédent) ${many ? "n'ont" : "n'a"} pas été importée${many ? "s" : ""} (maximum ${DOCX_LIMITS.imageBytes / 1048576} Mo par image).`,
+    );
+  }
 
   const rels = relTargets(zip);
   const numFmt = parseNumbering(zip);
@@ -2630,6 +2700,7 @@ export function docxToDoc(bytes: Uint8Array): { title: string; doc: ProseMirrorN
   const bgNorm = bgColor && /^[0-9a-f]{6}$/i.test(bgColor) ? normalizeBackground(`#${bgColor}`) : undefined;
   if (bgNorm && bgNorm !== "#ffffff") page.background = bgNorm;
   return {
+    warnings: warnings.length ? warnings : undefined,
     title,
     doc: { type: "doc", content: content.length ? content : [{ type: "paragraph" }] },
     ...(Object.keys(page).length ? { page } : {}),

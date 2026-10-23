@@ -238,3 +238,38 @@ export function mergeCombined(doc: ProseMirrorNode, data: MergeData, opts: Merge
   });
   return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
 }
+
+/**
+ * Nombre maximal d'enregistrements fusionnés dans UN document : au-delà, l'éditeur (non
+ * virtualisé) porterait des milliers de pages. L'utilisateur fusionne alors par lots.
+ */
+export const MAX_COMBINED_RECORDS = 200;
+
+const SLICE_MS = 12;
+const nextTurn = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/**
+ * Comme `mergeCombined`, mais rend la main au navigateur entre deux enregistrements dès qu'une
+ * tranche dépasse ~12 ms : l'interface reste réactive pendant la fusion. Même résultat.
+ */
+export async function mergeCombinedAsync(
+  doc: ProseMirrorNode,
+  data: MergeData,
+  opts: MergeAllOptions = {},
+  onProgress?: (done: number, total: number) => void,
+): Promise<ProseMirrorNode> {
+  const indices = (opts.selected ?? data.records.map((_, i) => i)).filter((i) => i >= 0 && i < data.records.length);
+  const content: ProseMirrorNode[] = [];
+  let last = performance.now();
+  for (let k = 0; k < indices.length; k++) {
+    const merged = applyMerge(doc, data.records[indices[k]!]!, opts);
+    if (k > 0) content.push({ type: "pageBreak" });
+    content.push(...(merged.content ?? []));
+    if (performance.now() - last >= SLICE_MS) {
+      onProgress?.(k + 1, indices.length);
+      await nextTurn();
+      last = performance.now();
+    }
+  }
+  return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
+}

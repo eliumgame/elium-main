@@ -77,7 +77,9 @@ export default function FindReplaceBar({ editor, canReplace, startWithReplace, o
           value={term}
           onChange={(e) => setTerm(e.target.value)}
         />
-        <span className="find-bar__count">{total > 0 ? `${position} / ${total}` : term ? "Aucun" : ""}</span>
+        <span className="find-bar__count">
+          {total > 0 ? `${position} / ${total}${s?.truncated ? "+" : ""}` : term ? "Aucun" : ""}
+        </span>
         <button type="button" className="icon-btn" title="Précédent (Maj+Entrée)" onClick={prev} disabled={total === 0}>
           <ArrowUp size={16} />
         </button>

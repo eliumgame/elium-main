@@ -27,9 +27,19 @@ export interface SearchPluginState {
   term: string;
   options: SearchOptions;
   current: number; // index into matches, -1 when none
+  /** Résultats navigables et surlignés, plafonnés à `MAX_SEARCH_MATCHES`. */
   matches: SearchMatch[];
+  /** Vrai quand le document contient plus de résultats que le plafond. */
+  truncated: boolean;
   decorations: DecorationSet;
 }
+
+/**
+ * Plafond des résultats surlignés : un terme courant (« e ») sur un long document produisait
+ * des centaines de milliers de décorations, recalculées à chaque frappe. « Tout remplacer »
+ * ne dépend pas de ce plafond (il relit le document en entier).
+ */
+export const MAX_SEARCH_MATCHES = 2000;
 
 interface SearchMeta {
   term?: string;
@@ -56,8 +66,18 @@ export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Une expression à quantificateurs imbriqués (`(a+)+`, `(.*)*`…) peut demander un temps
+ * exponentiel sur un long paragraphe et figer l'onglet sans moyen de l'interrompre : on la
+ * refuse (aucun résultat) plutôt que de risquer le gel.
+ */
+export function isRiskyRegex(pattern: string): boolean {
+  return /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\d*\})/.test(pattern);
+}
+
 export function buildRegex(term: string, opts: SearchOptions): RegExp | null {
   if (!term) return null;
+  if (opts.useRegex && isRiskyRegex(term)) return null;
   try {
     const pattern = opts.useRegex ? term : escapeRegex(term);
     return new RegExp(pattern, opts.caseSensitive ? "g" : "gi");
@@ -66,11 +86,17 @@ export function buildRegex(term: string, opts: SearchOptions): RegExp | null {
   }
 }
 
-export function findMatches(doc: PMNode, term: string, opts: SearchOptions): SearchMatch[] {
+export function findMatches(
+  doc: PMNode,
+  term: string,
+  opts: SearchOptions,
+  limit = Number.POSITIVE_INFINITY,
+): SearchMatch[] {
   const re = buildRegex(term, opts);
   if (!re) return [];
   const matches: SearchMatch[] = [];
   doc.descendants((node, pos) => {
+    if (matches.length >= limit) return false;
     if (!node.isText || !node.text) return true;
     const text = node.text;
     re.lastIndex = 0;
@@ -82,6 +108,7 @@ export function findMatches(doc: PMNode, term: string, opts: SearchOptions): Sea
       }
       const from = pos + m.index;
       matches.push({ from, to: from + m[0].length });
+      if (matches.length >= limit) break;
     }
     return true;
   });
@@ -104,6 +131,7 @@ function emptyState(): SearchPluginState {
     options: { caseSensitive: false, useRegex: false },
     current: -1,
     matches: [],
+    truncated: false,
     decorations: DecorationSet.empty,
   };
 }
@@ -133,9 +161,16 @@ export const Search = Extension.create({
             if (meta?.term !== undefined) term = meta.term;
             if (meta?.options !== undefined) options = meta.options;
 
+            // Ni le document, ni la requête, ni le résultat courant ne bougent (simple déplacement
+            // du curseur) : rien à recalculer, les décorations existantes restent valables.
+            if (!tr.docChanged && !paramsChanged && meta?.current === undefined) return value;
+
             let matches = value.matches;
+            let truncated = value.truncated;
             if (tr.docChanged || paramsChanged) {
-              matches = findMatches(newState.doc, term, options);
+              matches = findMatches(newState.doc, term, options, MAX_SEARCH_MATCHES + 1);
+              truncated = matches.length > MAX_SEARCH_MATCHES;
+              if (truncated) matches = matches.slice(0, MAX_SEARCH_MATCHES);
             }
 
             if (matches.length === 0) {
@@ -145,7 +180,14 @@ export const Search = Extension.create({
               current = ((requested % matches.length) + matches.length) % matches.length; // wrap
             }
 
-            return { term, options, current, matches, decorations: decorate(newState.doc, matches, current) };
+            return {
+              term,
+              options,
+              current,
+              matches,
+              truncated,
+              decorations: decorate(newState.doc, matches, current),
+            };
           },
         },
         props: {
@@ -222,9 +264,11 @@ export const Search = Extension.create({
           const s = searchPluginKey.getState(state);
           if (!s || s.matches.length === 0) return false;
           if (dispatch) {
+            // Tous les résultats, pas seulement les surlignés (plafonnés).
+            const all = s.truncated ? findMatches(state.doc, s.term, s.options) : s.matches;
             // Replace from last to first so earlier positions stay valid.
-            for (let i = s.matches.length - 1; i >= 0; i--) {
-              const m = s.matches[i];
+            for (let i = all.length - 1; i >= 0; i--) {
+              const m = all[i]!;
               tr.insertText(replacement, m.from, m.to);
             }
             dispatch(tr);

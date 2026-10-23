@@ -2,7 +2,15 @@ import { useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Upload, Users } from "lucide-react";
 import { Modal, Button, Field, Alert, EmptyState } from "../ui/components";
-import { mergeCombined, missingFields, parseDataSource, recordLabel, usedFields, type MergeData } from "./mailmerge";
+import {
+  MAX_COMBINED_RECORDS,
+  mergeCombinedAsync,
+  missingFields,
+  parseDataSource,
+  recordLabel,
+  usedFields,
+  type MergeData,
+} from "./mailmerge";
 import { setMergePreview } from "./wordExtensions";
 import type { ProseMirrorNode } from "../format/types";
 
@@ -35,7 +43,10 @@ export default function MailMergeModal({
   const [previewing, setPreviewing] = useState(false);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
 
-  const docJson = editor.getJSON() as ProseMirrorNode;
+  // Le document est lu une fois à l'ouverture : getJSON() renvoie un objet neuf à chaque appel,
+  // ce qui rendait les useMemo ci-dessous inopérants (re-parcours complet à chaque rendu).
+  const [docJson] = useState(() => editor.getJSON() as ProseMirrorNode);
+  const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
   const used = useMemo(() => usedFields(docJson), [docJson]);
   const missing = useMemo(() => (data.records.length ? missingFields(docJson, data) : []), [docJson, data]);
 
@@ -75,19 +86,31 @@ export default function MailMergeModal({
     onClose();
   };
 
-  const mergeAllRecords = () => {
-    const merged = mergeCombined(docJson, data, { selected });
-    setMergePreview(null);
-    onMerged(merged, selected.length);
-    onClose();
+  const runMerge = async (indices: number[]) => {
+    if (indices.length > MAX_COMBINED_RECORDS) {
+      setError(
+        `Trop d'enregistrements pour un seul document (${indices.length}, maximum ${MAX_COMBINED_RECORDS}). ` +
+          "Décochez une partie des enregistrements et fusionnez par lots.",
+      );
+      return;
+    }
+    setError("");
+    setBusy({ done: 0, total: indices.length });
+    try {
+      const merged = await mergeCombinedAsync(docJson, data, { selected: indices }, (done, total) =>
+        setBusy({ done, total }),
+      );
+      setMergePreview(null);
+      onMerged(merged, indices.length);
+      onClose();
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const mergeOne = () => {
-    const merged = mergeCombined(docJson, data, { selected: [current] });
-    setMergePreview(null);
-    onMerged(merged, 1);
-    onClose();
-  };
+  const mergeAllRecords = () => void runMerge(selected);
+
+  const mergeOne = () => void runMerge([current]);
 
   const toggleExcluded = (i: number) => {
     setExcluded((prev) => {
@@ -110,11 +133,13 @@ export default function MailMergeModal({
           <Button variant="ghost" onClick={closeAndReset}>
             Fermer
           </Button>
-          <Button variant="outline" onClick={mergeOne} disabled={!record}>
+          <Button variant="outline" onClick={mergeOne} disabled={!record || !!busy}>
             Fusionner cet enregistrement
           </Button>
-          <Button onClick={mergeAllRecords} disabled={!selected.length}>
-            Fusionner {selected.length || ""} enregistrement{selected.length > 1 ? "s" : ""}
+          <Button onClick={mergeAllRecords} disabled={!selected.length || !!busy}>
+            {busy
+              ? `Fusion… ${busy.done}/${busy.total}`
+              : `Fusionner ${selected.length || ""} enregistrement${selected.length > 1 ? "s" : ""}`}
           </Button>
         </>
       }

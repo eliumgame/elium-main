@@ -41,6 +41,7 @@
  * like typing over a selection (`handleTextInput` below). `compare.ts`
  * remains the supported way to review a large external change word-by-word.
  */
+import { memoByDoc } from "./doc-memo";
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import type { EditorState } from "@tiptap/pm/state";
@@ -580,47 +581,51 @@ export const TrackChanges = Extension.create<{ author: string }>({
             });
             return false; // never steal the click: cursor placement still happens
           },
-          decorations(state) {
-            const decos: Decoration[] = [];
-            state.doc.descendants((node, pos) => {
-              const tb = (node.attrs as { trackBreak?: TrackBreak | null }).trackBreak;
-              if (!tb) return;
-              decos.push(
-                Decoration.widget(
-                  pos + 1,
-                  () => {
-                    const el = document.createElement("span");
-                    el.className = `elium-break-marker elium-break-marker--${tb.kind}`;
-                    el.contentEditable = "false";
-                    el.textContent = "¶";
-                    el.title =
-                      tb.kind === "split"
-                        ? `Saut de paragraphe ajouté${tb.author ? ` par ${tb.author}` : ""} — clic pour accepter/refuser`
-                        : `Fusion de paragraphes proposée${tb.author ? ` par ${tb.author}` : ""} — clic pour accepter/refuser`;
-                    el.addEventListener("mousedown", (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    });
-                    el.addEventListener("click", (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      requestListener?.({
-                        x: e.clientX,
-                        y: e.clientY,
-                        kind: tb.kind,
-                        pos,
-                        author: tb.author,
-                        ts: tb.ts,
+          // Par document : un simple déplacement du curseur ne reconstruit plus l'ensemble, et le
+          // parcours ne descend plus dans le texte des blocs de texte (seul le bloc porte la marque).
+          decorations: (state) =>
+            memoByDoc(state.doc, "trackBreakDecos", () => {
+              const decos: Decoration[] = [];
+              state.doc.descendants((node, pos) => {
+                const tb = (node.attrs as { trackBreak?: TrackBreak | null }).trackBreak;
+                if (!tb) return !node.isTextblock;
+                decos.push(
+                  Decoration.widget(
+                    pos + 1,
+                    () => {
+                      const el = document.createElement("span");
+                      el.className = `elium-break-marker elium-break-marker--${tb.kind}`;
+                      el.contentEditable = "false";
+                      el.textContent = "¶";
+                      el.title =
+                        tb.kind === "split"
+                          ? `Saut de paragraphe ajouté${tb.author ? ` par ${tb.author}` : ""} — clic pour accepter/refuser`
+                          : `Fusion de paragraphes proposée${tb.author ? ` par ${tb.author}` : ""} — clic pour accepter/refuser`;
+                      el.addEventListener("mousedown", (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                       });
-                    });
-                    return el;
-                  },
-                  { side: -1 },
-                ),
-              );
-            });
-            return decos.length ? DecorationSet.create(state.doc, decos) : null;
-          },
+                      el.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        requestListener?.({
+                          x: e.clientX,
+                          y: e.clientY,
+                          kind: tb.kind,
+                          pos,
+                          author: tb.author,
+                          ts: tb.ts,
+                        });
+                      });
+                      return el;
+                    },
+                    { side: -1 },
+                  ),
+                );
+                return !node.isTextblock;
+              });
+              return decos.length ? DecorationSet.create(state.doc, decos) : null;
+            }),
         },
       }),
     ];

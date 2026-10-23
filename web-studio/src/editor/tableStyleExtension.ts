@@ -10,6 +10,7 @@
  * Le tri réordonne les vrais nœuds de ligne, avec toute leur mise en forme :
  * `sortRowOrder` ne rend qu'une permutation d'indices, précisément pour cela.
  */
+import { memoByDoc } from "./doc-memo";
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -187,42 +188,46 @@ export const TableStyles = Extension.create({
           // Les trames sont des DÉCORATIONS : elles se recalculent à chaque
           // transaction depuis la position des lignes, donc insérer ou supprimer
           // une ligne réattribue les bandes sans toucher au document.
-          decorations: (state) => {
-            const decos: Decoration[] = [];
-            state.doc.descendants((node, pos) => {
-              if (node.type.name !== "table") return true;
-              const style = tableStyleById(node.attrs.tableStyle ?? DEFAULT_TABLE_STYLE);
-              // Rien n'est décoré sur le TABLEAU : sa vue de nœud (tableau
-              // redimensionnable) reconstruit son `<table>` et ignore les
-              // attributs de décoration. Le style et l'ajustement voyagent donc
-              // en classes sur les lignes, que le CSS remonte avec `:has()`.
-              const fit = normalizeFit(node.attrs.tableFit);
-              let hasHeader = false;
-              node.forEach((row, _o, index) => {
-                if (index !== 0) return;
-                row.forEach((cell) => {
-                  if (cell.type.name === "tableHeader") hasHeader = true;
-                });
-              });
-              node.forEach((row, offset, index) => {
-                const rowPos = pos + 1 + offset;
-                const classes = rowClasses(style, index, hasHeader);
-                if (fit !== "auto") classes.push(`tfit-${fit}`);
-                if (classes.length) {
-                  decos.push(Decoration.node(rowPos, rowPos + row.nodeSize, { class: classes.join(" ") }));
-                }
-                if (style.band === "cols") {
-                  row.forEach((cell, cellOffset, cellIndex) => {
-                    if (!isBandedColumn(style, cellIndex)) return;
-                    const cellPos = rowPos + 1 + cellOffset;
-                    decos.push(Decoration.node(cellPos, cellPos + cell.nodeSize, { class: "is-banded-col" }));
+          // Mémoïsé par document (un déplacement du curseur ne refait rien) ; le parcours ne descend
+          // pas dans le texte des paragraphes, qui ne contient jamais de tableau.
+          decorations: (state) =>
+            memoByDoc(state.doc, "tableStyleDecos", () => {
+              const decos: Decoration[] = [];
+              state.doc.descendants((node, pos) => {
+                if (node.isTextblock) return false;
+                if (node.type.name !== "table") return true;
+                const style = tableStyleById(node.attrs.tableStyle ?? DEFAULT_TABLE_STYLE);
+                // Rien n'est décoré sur le TABLEAU : sa vue de nœud (tableau
+                // redimensionnable) reconstruit son `<table>` et ignore les
+                // attributs de décoration. Le style et l'ajustement voyagent donc
+                // en classes sur les lignes, que le CSS remonte avec `:has()`.
+                const fit = normalizeFit(node.attrs.tableFit);
+                let hasHeader = false;
+                node.forEach((row, _o, index) => {
+                  if (index !== 0) return;
+                  row.forEach((cell) => {
+                    if (cell.type.name === "tableHeader") hasHeader = true;
                   });
-                }
+                });
+                node.forEach((row, offset, index) => {
+                  const rowPos = pos + 1 + offset;
+                  const classes = rowClasses(style, index, hasHeader);
+                  if (fit !== "auto") classes.push(`tfit-${fit}`);
+                  if (classes.length) {
+                    decos.push(Decoration.node(rowPos, rowPos + row.nodeSize, { class: classes.join(" ") }));
+                  }
+                  if (style.band === "cols") {
+                    row.forEach((cell, cellOffset, cellIndex) => {
+                      if (!isBandedColumn(style, cellIndex)) return;
+                      const cellPos = rowPos + 1 + cellOffset;
+                      decos.push(Decoration.node(cellPos, cellPos + cell.nodeSize, { class: "is-banded-col" }));
+                    });
+                  }
+                });
+                return true;
               });
-              return true;
-            });
-            return DecorationSet.create(state.doc, decos);
-          },
+              return DecorationSet.create(state.doc, decos);
+            }),
         },
       }),
     ];

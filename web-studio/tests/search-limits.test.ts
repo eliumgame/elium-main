@@ -26,7 +26,8 @@ describe("recherche — plafonds et regex dangereuses", () => {
 
   it("refuse les quantificateurs imbriqués, accepte les expressions ordinaires", () => {
     for (const bad of ["(a+)+$", "(.*)*x", "([a-z]+)*", "(a*){2,}"]) expect(isRiskyRegex(bad), bad).toBe(true);
-    for (const ok of ["(ab)+", "a+b*", String.raw`\d{3}-\d+`, "(foo|bar)", "[(+*]+"]) expect(isRiskyRegex(ok), ok).toBe(false);
+    for (const ok of ["(ab)+", "a+b*", String.raw`\d{3}-\d+`, "(foo|bar)", "[(+*]+"])
+      expect(isRiskyRegex(ok), ok).toBe(false);
     expect(buildRegex("(a+)+$", { ...opts, useRegex: true })).toBeNull();
     expect(buildRegex("a+", { ...opts, useRegex: true })).not.toBeNull();
   });

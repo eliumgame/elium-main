@@ -153,6 +153,9 @@ export const config = {
   site: {
     singleDrive: env("SINGLE_DRIVE", "false") === "true",
     ownerEmail: env("OWNER_EMAIL", "").trim().toLowerCase(),
+    // Code d'activation imposé (sinon généré au démarrage et affiché dans les journaux).
+    activationCode: env("ACTIVATION_CODE", "").trim(),
+    activationTtlHours: num("ACTIVATION_TTL_HOURS", 72),
     defaults: {
       signupMode: env("SIGNUP_MODE", "open") as "open" | "closed" | "invite",
       defaultRoleKey: env("DEFAULT_ROLE_KEY", "editor"),

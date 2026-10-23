@@ -67,7 +67,7 @@ export interface DriveSession {
   pendingInvite: string | null;
   busy: boolean;
   error: string | null;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string, activationCode?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   /** Connexion SANS mot de passe via clé d'accès (WebAuthn 1er facteur + PRF). */
   loginWithPasskey: () => Promise<void>;
@@ -96,7 +96,9 @@ export interface DriveSession {
   logout: () => Promise<void>;
   refreshOrgs: () => Promise<void>;
   selectOrg: (orgId: string) => Promise<void>;
-  createOrg: (name: string, slug: string) => Promise<void>;
+  createOrg: (name: string, slug: string, activationCode?: string) => Promise<void>;
+  /** Code d'activation saisi à l'inscription du propriétaire (réutilisé à la création du Drive). */
+  activationCode: string;
   clearError: () => void;
   /** Politique du site déployé ; `undefined` = sonde en cours, `null` = pas de serveur Drive (mode local). */
   policy: SitePolicy | null | undefined;
@@ -138,6 +140,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [policy, setPolicy] = useState<SitePolicy | null | undefined>(undefined);
   const [isOwner, setIsOwner] = useState(false);
+  const [activationCode, setActivationCode] = useState("");
   const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
 
   // Snapshot needed to unlock keys with the password after a reload.
@@ -273,13 +276,14 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (email: string, password: string, displayName: string) => {
+    async (email: string, password: string, displayName: string, activationCode?: string) => {
       setBusy(true);
+      if (activationCode) setActivationCode(activationCode);
       setError(null);
       try {
         const { payload, keys: k, masterKey } = await buildRegistration(email.trim(), password, displayName.trim());
         masterKeyRef.current = masterKey;
-        const res = await api.register(payload, inviteRef.current ?? undefined);
+        const res = await api.register(payload, inviteRef.current ?? undefined, activationCode?.trim() || undefined);
         api.setTokens({
           accessToken: res.accessToken,
           accessTokenExpiresAt: res.accessTokenExpiresAt,
@@ -655,7 +659,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   }, [api]);
 
   const createOrg = useCallback(
-    async (name: string, slug: string) => {
+    async (name: string, slug: string, code?: string) => {
       if (!keys) throw new Error("Session verrouillée.");
       setBusy(true);
       setError(null);
@@ -670,7 +674,9 @@ export function DriveProvider({ children }: { children: ReactNode }) {
           slug: slug.trim(),
           orgPublicHex: orgKp.publicHex,
           wrappedOrgPrivate,
+          ...((code ?? activationCode).trim() ? { activationCode: (code ?? activationCode).trim() } : {}),
         });
+        setActivationCode("");
         await refreshOrgs();
         await selectOrg(org.id);
         // Le créateur du premier Drive en devient le propriétaire : sans ce rafraîchissement,
@@ -739,6 +745,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     refreshOrgs,
     selectOrg,
     createOrg,
+    activationCode,
     clearError: () => setError(null),
     policy,
     isOwner,

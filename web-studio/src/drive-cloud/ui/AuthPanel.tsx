@@ -39,6 +39,8 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
     policy.signupMode === "open" ||
     (policy.signupMode === "invite" && !!d.pendingInvite);
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const [activation, setActivation] = useState("");
+  const needsCode = !!policy?.activationRequired && !policy.bootstrapped;
   const [mode, setMode] = useState<Mode>(d.pendingInvite ? "register" : "login");
   const [serverOpen, setServerOpen] = useState(false);
   const [serverUrl, setServerUrl] = useState(getConfiguredApiBase());
@@ -65,7 +67,7 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
           return;
         }
         setLocalErr(null);
-        await d.register(email, password, displayName);
+        await d.register(email, password, displayName, needsCode ? activation : undefined);
       }
     } catch {
       /* surfaced via d.error */
@@ -322,6 +324,25 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="Prénom Nom"
                     />
+                  </label>
+                )}
+                {mode === "register" && needsCode && (
+                  <label className="field">
+                    <span className="field__label">Code d'activation</span>
+                    <input
+                      className="input"
+                      value={activation}
+                      onChange={(e) => setActivation(e.target.value)}
+                      placeholder="XXXX-XXXX-XXXX"
+                      autoComplete="off"
+                      spellCheck={false}
+                      required
+                      data-testid="activation-code"
+                    />
+                    <span className="muted">
+                      Premier démarrage de ce Drive : le code est affiché dans les journaux du serveur (
+                      <code>docker compose logs api</code>). Il ne sert qu'une fois.
+                    </span>
                   </label>
                 )}
                 <label className="field">

@@ -6,6 +6,7 @@ import { migrate } from "./db/migrate.js";
 import { storage } from "./storage/adapter.js";
 import { startHousekeeping } from "./lib/housekeeping.js";
 import { closeBackplane } from "./collab/backplane.js";
+import { ensureActivationCode } from "./lib/activation.js";
 
 async function main(): Promise<void> {
   if (process.env.RUN_MIGRATIONS !== "false") {
@@ -13,6 +14,23 @@ async function main(): Promise<void> {
   }
   const app = await buildApp();
   await app.listen({ port: config.port, host: config.host });
+
+  // Déploiement neuf (aucune organisation) : code d'activation à usage unique, affiché ici.
+  try {
+    const code = await ensureActivationCode();
+    if (code) {
+      app.log.warn(
+        `\n==============================================================\n` +
+          `  CODE D'ACTIVATION DU DRIVE : ${code}\n` +
+          `  À saisir sur le site pour créer le compte propriétaire.\n` +
+          `  Usage unique, valable ${config.site.activationTtlHours} h (redémarrer le serveur en génère un nouveau).\n` +
+          `==============================================================`,
+      );
+    }
+  } catch (err) {
+    app.log.error({ err }, "Génération du code d'activation impossible");
+    throw err;
+  }
 
   // Ménage périodique des tables éphémères (défis/sessions/invitations expirés).
   const stopHousekeeping = startHousekeeping(app);

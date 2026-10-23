@@ -114,6 +114,8 @@ export type SignupMode = "open" | "closed" | "invite";
 export interface SitePolicy {
   deployed: true;
   bootstrapped: boolean;
+  /** Un code d'activation (affiché dans les journaux du serveur) est exigé pour créer le Drive. */
+  activationRequired?: boolean;
   signupMode: SignupMode;
   mfaPolicy: "optional" | "required";
   passwordMinLength: number;
@@ -131,8 +133,24 @@ export interface SiteSettings {
   passwordMinLength: number;
   membersCanCreateSpaces: boolean;
   siteName: string;
+  diskMarginPercent: number;
+  diskMarginBytes: number;
 }
+export type SiteDisk =
+  | { available: false; reason: string }
+  | {
+      available: true;
+      totalBytes: number;
+      freeBytes: number;
+      marginBytes: number;
+      allocatedQuotaBytes: number | null;
+      quotaUnlimited: boolean;
+      overAllocated: boolean;
+      low: boolean;
+      critical: boolean;
+    };
 export interface SiteAdminSettings {
+  disk: SiteDisk;
   orgId: string;
   orgName: string;
   settings: SiteSettings;
@@ -281,9 +299,9 @@ export class DriveApi {
   }
 
   // === Auth ================================================================
-  register(payload: RegistrationPayload, inviteToken?: string) {
+  register(payload: RegistrationPayload, inviteToken?: string, activationCode?: string) {
     return this.json<LoginResult>("POST", "/auth/register", {
-      body: inviteToken ? { ...payload, inviteToken } : payload,
+      body: { ...payload, ...(inviteToken ? { inviteToken } : {}), ...(activationCode ? { activationCode } : {}) },
       auth: false,
     });
   }
@@ -442,7 +460,13 @@ export class DriveApi {
   }
 
   // === Organizations =======================================================
-  createOrg(body: { name: string; slug: string; orgPublicHex: string; wrappedOrgPrivate: WrappedKey }) {
+  createOrg(body: {
+    name: string;
+    slug: string;
+    orgPublicHex: string;
+    wrappedOrgPrivate: WrappedKey;
+    activationCode?: string;
+  }) {
     return this.json<{ org: { id: string; name: string; slug: string; orgPublicHex: string }; roles: RoleDef[] }>(
       "POST",
       "/orgs",

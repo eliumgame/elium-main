@@ -23,7 +23,7 @@ import {
   Crown,
 } from "lucide-react";
 import { useDrive } from "../session";
-import type { SiteAdminSettings, SiteSettings, SiteUser, SignupMode } from "../api";
+import type { SiteAdminSettings, SiteDisk, SiteSettings, SiteUser, SignupMode } from "../api";
 import MembersPanel from "./MembersPanel";
 
 export type PortalLink = "recovery" | "sso" | "roles" | "audit";
@@ -160,6 +160,41 @@ const SIGNUP_CHOICES: { key: SignupMode; title: string; desc: string }[] = [
   },
 ];
 
+/** Jauge du disque réel du serveur (ou raison pour laquelle elle est absente). */
+export function DiskGauge({ disk }: { disk: SiteDisk }) {
+  if (!disk.available) {
+    return (
+      <p className="muted" data-testid="disk-unavailable">
+        <HardDrive size={14} /> Espace disque non affiché : {disk.reason}
+      </p>
+    );
+  }
+  const used = Math.max(0, disk.totalBytes - disk.freeBytes);
+  const pct = disk.totalBytes ? Math.min(100, Math.round((used / disk.totalBytes) * 100)) : 0;
+  return (
+    <div className="dc-portal__disk" data-testid="disk-gauge">
+      <p>
+        Disque du serveur : <b>{formatBytes(disk.freeBytes)} libres</b> sur {formatBytes(disk.totalBytes)} ({pct} %
+        occupé). Les envois sont refusés sous <b>{formatBytes(disk.marginBytes)}</b> libres.
+      </p>
+      <div
+        className={`dc-portal__bar ${disk.critical ? "is-critical" : disk.low ? "is-low" : ""}`}
+        role="img"
+        aria-label={`Disque occupé à ${pct} %`}
+      >
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <p className="muted dc-portal__hint">
+        Quotas alloués :{" "}
+        {disk.allocatedQuotaBytes == null
+          ? "illimités pour certains utilisateurs (aucune somme calculable)"
+          : formatBytes(disk.allocatedQuotaBytes)}
+        .
+      </p>
+    </div>
+  );
+}
+
 export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLink) => void }) {
   const d = useDrive();
   const [section, setSection] = useState<Section>("access");
@@ -259,6 +294,25 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
           </button>
         ))}
       </nav>
+
+      {data.disk.available && data.disk.critical && (
+        <p className="dc-error" role="alert" data-testid="disk-critical">
+          Disque presque plein ({formatBytes(data.disk.freeBytes)} libres) : les envois de fichiers sont refusés tant
+          que de l'espace n'est pas libéré. Libérez de la place ou agrandissez le disque du serveur.
+        </p>
+      )}
+      {data.disk.available && !data.disk.critical && data.disk.low && (
+        <p className="dc-portal__warn" role="alert" data-testid="disk-low">
+          Le disque approche de sa limite ({formatBytes(data.disk.freeBytes)} libres). Pensez à libérer de l'espace.
+        </p>
+      )}
+      {data.disk.available && data.disk.overAllocated && (
+        <p className="dc-portal__warn" role="alert" data-testid="disk-overallocated">
+          Sur-allocation : la somme des quotas ({formatBytes(data.disk.allocatedQuotaBytes ?? 0)}) dépasse la capacité
+          du disque ({formatBytes(data.disk.totalBytes)}). Les envois seront refusés avant que tous les quotas soient
+          atteints.
+        </p>
+      )}
 
       {msg && (
         <p className={msg.tone === "ok" ? "dc-portal__ok" : "dc-error"} role="status" data-testid="portal-msg">
@@ -441,6 +495,30 @@ export default function OwnerPortal({ onNavigate }: { onNavigate?: (t: PortalLin
           <h2>
             <HardDrive size={18} /> Stockage
           </h2>
+          <DiskGauge disk={data.disk} />
+          <div className="dc-portal__row">
+            <label className="field dc-portal__field">
+              <span className="field__label">Marge de sécurité du disque (% du disque)</span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={50}
+                value={draft.diskMarginPercent}
+                data-testid="disk-margin-percent"
+                onChange={(e) =>
+                  set("diskMarginPercent", Math.min(50, Math.max(0, Math.floor(Number(e.target.value) || 0))))
+                }
+              />
+            </label>
+            <BytesField
+              label="… ou volume minimal libre"
+              value={draft.diskMarginBytes}
+              onChange={(v) => set("diskMarginBytes", v ?? 0)}
+              hint="Le plus grand des deux s'applique : au-dessous, les envois sont refusés (erreur 507) pour ne jamais saturer le disque et la base."
+              testId="disk-margin-bytes"
+            />
+          </div>
           <p>
             Utilisé : <b>{formatBytes(data.usedBytes)}</b>
             {globalQuota ? ` sur ${formatBytes(globalQuota)} (${usedPct} %)` : " (aucune limite globale)"} ·{" "}

@@ -2,6 +2,12 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.20.0 — code d'activation et jauge de stockage réel
+
+- **Code d'activation à usage unique** : au premier démarrage d'un Drive neuf, le serveur génère un code (12 caractères, 60 bits) affiché dans ses journaux et exigé pour créer le compte propriétaire puis le Drive. Il est consommé à la création du Drive, expire après 72 h (réglable) et les essais sont limités.
+- **Jauge de stockage réel** dans le portail : espace libre et total du disque du serveur, quotas alloués, alertes de proximité de la limite et de sur-allocation.
+- **Garde-fou disque** : les envois sont refusés (erreur 507) sous une marge de sécurité réglable (le plus grand de 5 % du disque et 2 Go par défaut), pour ne jamais saturer le disque ni la base.
+
 ### Version 4.18.0 — travaux enregistrés en fichiers (application Windows)
 
 - L'application Windows miroite désormais vos documents, tableurs, présentations, PDF et passeport dans `Documents\Elium`, en plus de la base du navigateur : un changement de port ou un effacement des données ne fait plus perdre de travail (réimport automatique au démarrage, sans écraser).

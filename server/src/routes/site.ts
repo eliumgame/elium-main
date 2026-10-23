@@ -18,10 +18,13 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { config } from "../config.js";
 import { query, queryOne, withTx } from "../db/pool.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, conflict, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
+import { isActivationRequired } from "../lib/activation.js";
+import { diskMarginBytes, getDiskStats } from "../lib/disk.js";
 import {
   getSiteState,
   invalidateSiteSettings,
@@ -31,10 +34,47 @@ import {
   requireSiteOwner,
   saveSiteSettings,
   siteSettingsSchema,
+  type SiteSettings,
   userUsageBytes,
 } from "../lib/site-settings.js";
 
 const idParam = z.object({ userId: z.string().uuid() });
+
+/** Jauge de stockage réel + allocation des quotas (null si pas de disque local à mesurer). */
+async function diskReport(orgId: string, settings: SiteSettings) {
+  const stats = await getDiskStats();
+  if (!stats) {
+    return {
+      available: false as const,
+      reason:
+        config.storage.driver === "fs"
+          ? "L'espace disque n'a pas pu être mesuré sur ce serveur."
+          : "Le stockage est externe (S3) : il n'y a pas de disque local à mesurer ; surveillez-le chez votre fournisseur.",
+    };
+  }
+  const m = await queryOne<{ n: number | string; nodef: number | string; sum: number | string }>(
+    `SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE quota_bytes IS NULL) AS nodef,
+            COALESCE(SUM(quota_bytes), 0) AS sum
+       FROM memberships WHERE org_id = $1 AND status = 'active'`,
+    [orgId],
+  );
+  const nodef = Number(m?.nodef ?? 0);
+  const unlimited = nodef > 0 && settings.perUserQuotaBytes == null;
+  const allocated = unlimited ? null : Number(m?.sum ?? 0) + nodef * (settings.perUserQuotaBytes ?? 0);
+  const margin = diskMarginBytes(stats.totalBytes, settings);
+  return {
+    available: true as const,
+    totalBytes: stats.totalBytes,
+    freeBytes: stats.freeBytes,
+    marginBytes: margin,
+    allocatedQuotaBytes: allocated,
+    quotaUnlimited: unlimited,
+    overAllocated: allocated != null && allocated > stats.totalBytes,
+    // « Proche de la limite » : moins de deux marges libres. « Critique » : sous la marge (envois refusés).
+    low: stats.freeBytes < margin * 2,
+    critical: stats.freeBytes < margin,
+  };
+}
 
 export default async function siteRoutes(app: FastifyInstance): Promise<void> {
   // --- Public : politique du site -----------------------------------------
@@ -44,6 +84,8 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
       deployed: true,
       // Pas encore de Drive : le premier compte créé en sera le propriétaire.
       bootstrapped: !!orgId,
+      // Code d'activation exigé pour créer le premier compte / le Drive.
+      activationRequired: await isActivationRequired(),
       signupMode: settings.signupMode,
       mfaPolicy: settings.mfaPolicy,
       passwordMinLength: settings.passwordMinLength,
@@ -87,9 +129,11 @@ export default async function siteRoutes(app: FastifyInstance): Promise<void> {
         `SELECT key, name FROM roles WHERE org_id = $1 AND key <> 'owner' ORDER BY name`,
         [orgId],
       );
+      const disk = await diskReport(orgId, settings);
       return {
         orgId,
         orgName: org?.name ?? "",
+        disk,
         settings,
         globalQuotaBytes: org?.storage_quota_bytes != null ? Number(org.storage_quota_bytes) : null,
         usedBytes: Number(used?.used ?? 0),

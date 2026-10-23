@@ -15,6 +15,7 @@ import { kickRoom, notifyOrg } from "../collab/relay.js";
 import { config } from "../config.js";
 import { ApiError } from "../lib/errors.js";
 import { assertUserQuota, getSiteSettings } from "../lib/site-settings.js";
+import { assertDiskSpace } from "../lib/disk.js";
 import type { Readable } from "node:stream";
 
 const hexBytes = z.string().regex(/^[0-9a-f]*$/); // hex-encoded bytea
@@ -566,6 +567,9 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       if (!body || typeof body.pipe !== "function")
         throw badRequest("Corps binaire attendu (application/octet-stream).");
 
+      // Disque presque plein : refus AVANT d'écrire (taille annoncée), puis re-contrôle sur la taille réelle.
+      await assertDiskSpace(Number(req.headers["content-length"]) || 0);
+
       // Stream straight to storage (no full buffering); size is enforced + tallied.
       const store = storage();
       const key = store.newKey();
@@ -575,6 +579,13 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       } catch (err) {
         await store.delete(key).catch(() => {});
         if (err instanceof Error && err.message === "payload_too_large") throw tooLarge();
+        throw err;
+      }
+
+      try {
+        await assertDiskSpace(size);
+      } catch (err) {
+        await store.delete(key).catch(() => {});
         throw err;
       }
 

@@ -57,11 +57,11 @@ interface TestUser {
   password: string;
 }
 
-async function newUser(base: string, email: string, name: string): Promise<TestUser> {
+async function newUser(base: string, email: string, name: string, activationCode?: string): Promise<TestUser> {
   const api = new DriveApi({ baseUrl: base });
   const password = `Motdepasse!42-${name}`;
   const { payload, keys } = await buildRegistration(email, password, name);
-  const res = await api.register(payload);
+  const res = await api.register(payload, undefined, activationCode);
   api.setTokens({
     accessToken: res.accessToken,
     accessTokenExpiresAt: res.accessTokenExpiresAt,
@@ -121,7 +121,11 @@ async function main(): Promise<void> {
   const { query, closePool } = await import("../../server/src/db/pool");
   const { purgeOldVersions } = await import("../../server/src/lib/housekeeping");
   const { totpNow } = await import("../../server/src/lib/totp");
+  const { ensureActivationCode, resetActivationLimits } = await import("../../server/src/lib/activation");
+  const { setStatfsForTests } = await import("../../server/src/lib/disk");
   await migrate();
+  // Premier démarrage d'un déploiement neuf : le serveur génère le code d'activation (affiché dans ses journaux).
+  const activationCode = (await ensureActivationCode())!;
   const app = await buildApp();
   await app.listen({ port: 0, host: "127.0.0.1" });
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}/api`;
@@ -135,7 +139,7 @@ async function main(): Promise<void> {
     const pol0 = await anon.sitePolicy();
     ok(
       "politique publique lisible sans compte, Drive pas encore créé",
-      pol0?.deployed === true && pol0.bootstrapped === false,
+      pol0?.deployed === true && pol0.bootstrapped === false && pol0.activationRequired === true,
       JSON.stringify(pol0),
     );
 
@@ -146,17 +150,69 @@ async function main(): Promise<void> {
       403,
     );
 
-    const boss = await newUser(base, "boss@acme.fr", "Boss");
+    ok(
+      "le code d'activation généré a le bon format (12 caractères groupés)",
+      /^[A-HJKMNP-Z2-9]{4}(-[A-HJKMNP-Z2-9]{4}){2}$/.test(activationCode),
+      activationCode,
+    );
+    const bossReg = await buildRegistration("boss@acme.fr", "Motdepasse!42-Boss", "Boss");
+    await expectStatus("propriétaire attendu SANS code d'activation : refusé", anon.register(bossReg.payload), 403);
+    await expectStatus(
+      "propriétaire attendu avec un MAUVAIS code : refusé",
+      anon.register(bossReg.payload, undefined, "AAAA-AAAA-AAAA"),
+      403,
+    );
+    // Force brute : au bout de 5 échecs, l'adresse est bloquée (429) même avec le bon code.
+    for (let i = 0; i < 3; i++) await anon.register(bossReg.payload, undefined, "BBBB-BBBB-BBBB").catch(() => {});
+    await expectStatus(
+      "force brute : 6e essai bloqué (429)",
+      anon.register(bossReg.payload, undefined, "CCCC-CCCC-CCCC"),
+      429,
+    );
+    await expectStatus(
+      "force brute : même le bon code est bloqué pendant le verrouillage",
+      anon.register(bossReg.payload, undefined, activationCode),
+      429,
+    );
+    resetActivationLimits();
+    const bossRes = await anon.register(bossReg.payload, undefined, activationCode.toLowerCase().replace(/-/g, " "));
+    ok("avec le bon code (saisie tolérante : minuscules, espaces) : compte propriétaire créé", !!bossRes.user.id);
+    const boss: TestUser = {
+      api: new DriveApi({ baseUrl: base }),
+      keys: bossReg.keys,
+      user: bossRes.user,
+      password: "Motdepasse!42-Boss",
+    };
+    boss.api.setTokens({
+      accessToken: bossRes.accessToken,
+      accessTokenExpiresAt: bossRes.accessTokenExpiresAt,
+      refreshToken: bossRes.refreshToken,
+    });
     const orgKp = await generateRecipientKeypair();
     const wrappedOrgPrivate = JSON.parse(
       dec.decode(await encryptForRecipients(fromHex(orgKp.privateHex), [boss.keys.recipient.publicHex])),
     ) as Record<string, unknown>;
+    await expectStatus(
+      "créer le Drive sans code d'activation : refusé",
+      boss.api.createOrg({ name: "ACME", slug: "acme", orgPublicHex: orgKp.publicHex, wrappedOrgPrivate }),
+      403,
+    );
     const created = await boss.api.createOrg({
       name: "ACME",
       slug: "acme",
       orgPublicHex: orgKp.publicHex,
       wrappedOrgPrivate,
+      activationCode,
     });
+    const consumed = await query<{ consumed_at: string | null }>(
+      `SELECT consumed_at FROM site_activation WHERE id = 1`,
+    );
+    ok("le code est consommé à la création du Drive (usage unique)", consumed[0]?.consumed_at != null);
+    const pol1b = await anon.sitePolicy();
+    ok(
+      "la politique n'exige plus de code une fois le Drive créé",
+      pol1b?.activationRequired === false && pol1b.bootstrapped === true,
+    );
     const org = created.org;
     const roleIdByKey: Record<string, string> = Object.fromEntries(created.roles.map((r: RoleDef) => [r.key, r.id]));
     ok("le propriétaire crée l'organisation du site", !!org.id);
@@ -390,6 +446,65 @@ async function main(): Promise<void> {
       body: JSON.stringify({ refreshToken: a2b.getTokens()!.refreshToken }),
     });
     ok("le propriétaire peut révoquer toutes les sessions d'un utilisateur", r3.status === 401);
+
+    // =========================================================================
+    section("Jauge de stockage réel et garde-fou disque");
+    const alice2 = await login(base, "alice@acme.fr", alice.password);
+    const ctxA2: ops.OpsCtx = { ...ctxA, api: alice2.api };
+    const GB = 1024 ** 3;
+    const fakeDisk = (totalGb: number, freeGb: number) =>
+      setStatfsForTests(async () => ({ blocks: (totalGb * GB) / 4096, bsize: 4096, bavail: (freeGb * GB) / 4096 }));
+    fakeDisk(100, 60);
+    let adm = await boss.api.getSiteSettings();
+    ok(
+      "jauge : espace libre/total du disque et marge (max 5 % ou 2 Go) exposés",
+      adm.disk.available === true &&
+        adm.disk.totalBytes === 100 * GB &&
+        adm.disk.freeBytes === 60 * GB &&
+        adm.disk.marginBytes === 5 * GB &&
+        !adm.disk.critical &&
+        !adm.disk.low,
+      JSON.stringify(adm.disk),
+    );
+    fakeDisk(100, 8);
+    adm = await boss.api.getSiteSettings();
+    ok(
+      "disque proche de la limite : alerte « low » sans blocage",
+      adm.disk.available && adm.disk.low && !adm.disk.critical,
+      JSON.stringify(adm.disk),
+    );
+    fakeDisk(100, 3);
+    adm = await boss.api.getSiteSettings();
+    ok("disque sous la marge : alerte « critical »", adm.disk.available && adm.disk.critical);
+    const small = new File([enc.encode("petit") as unknown as BlobPart], "refus-disque.txt");
+    const refused = await ops
+      .uploadFile(ctxA2, aliceSpace.id, small)
+      .then(() => null)
+      .catch((e) => e);
+    ok(
+      "envoi refusé (507) quand l'espace libre passe sous la marge",
+      refused instanceof ApiError && refused.status === 507,
+      String(refused),
+    );
+    await boss.api.putSiteSettings({ ...s, diskMarginPercent: 1, diskMarginBytes: 0 }, null);
+    await ops.uploadFile(ctxA2, aliceSpace.id, small);
+    ok("marge réglable : abaissée à 1 %, l'envoi repasse", true);
+    await boss.api.putSiteSettings({ ...s }, null);
+    fakeDisk(100, 60);
+    await boss.api.putSiteSettings({ ...s, perUserQuotaBytes: 1024 * GB }, null);
+    adm = await boss.api.getSiteSettings();
+    ok(
+      "sur-allocation signalée quand la somme des quotas dépasse le disque",
+      adm.disk.available && adm.disk.overAllocated && (adm.disk.allocatedQuotaBytes ?? 0) > 100 * GB,
+      JSON.stringify(adm.disk),
+    );
+    await boss.api.putSiteSettings({ ...s, perUserQuotaBytes: null }, null);
+    adm = await boss.api.getSiteSettings();
+    ok(
+      "quotas illimités : pas de somme, pas de fausse alerte",
+      adm.disk.available && adm.disk.quotaUnlimited && !adm.disk.overAllocated,
+    );
+    setStatfsForTests(null);
 
     // =========================================================================
     section("Sauvegarde obligatoire publiée");

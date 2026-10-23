@@ -100,6 +100,8 @@ function CreateOrgCard() {
   const dialogs = useDialogs();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const needsCode = !!d.policy?.activationRequired && !d.policy.bootstrapped;
+  const [code, setCode] = useState(d.activationCode);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const s = (slug || name)
@@ -108,7 +110,7 @@ function CreateOrgCard() {
       .replace(/^-+|-+$/g, "")
       .slice(0, 60);
     try {
-      await d.createOrg(name, s);
+      await d.createOrg(name, s, needsCode ? code : undefined);
     } catch (err) {
       await dialogs.alert({
         title: "Création impossible",
@@ -141,6 +143,21 @@ function CreateOrgCard() {
             <span className="field__label">Identifiant (slug)</span>
             <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="ma-societe" />
           </label>
+          {needsCode && (
+            <label className="field">
+              <span className="field__label">Code d'activation</span>
+              <input
+                className="input"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="XXXX-XXXX-XXXX"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                data-testid="activation-code-org"
+              />
+            </label>
+          )}
           {d.error && <p className="dc-error">{d.error}</p>}
           <button className="eb eb--primary eb--block" disabled={d.busy || !name.trim()}>
             <Plus size={16} /> Créer l'organisation

@@ -14,6 +14,7 @@ import { query, queryOne } from "../db/pool.js";
 import { forbidden, insufficientStorage } from "./errors.js";
 import { sha256Hex } from "./crypto-server.js";
 import { hasWebauthn } from "./webauthn.js";
+import { isActivationRequired, verifyActivation } from "./activation.js";
 
 export const siteSettingsSchema = z.object({
   /** open = inscription libre ; invite = sur invitation du propriétaire ; closed = personne ne s'inscrit. */
@@ -36,6 +37,9 @@ export const siteSettingsSchema = z.object({
   membersCanCreateSpaces: z.boolean(),
   /** Nom affiché sur l'écran de connexion. */
   siteName: z.string().max(80),
+  /** Marge de sécurité disque : envois refusés sous le plus grand de X % du disque et de N octets libres. */
+  diskMarginPercent: z.number().int().min(0).max(50),
+  diskMarginBytes: z.number().int().min(0),
 });
 export type SiteSettings = z.infer<typeof siteSettingsSchema>;
 
@@ -53,6 +57,8 @@ export function defaultSiteSettings(): SiteSettings {
     // Drive partagé (un VPS = un Drive) : chaque membre a son espace privé par défaut.
     membersCanCreateSpaces: config.site.singleDrive,
     siteName: "",
+    diskMarginPercent: 5,
+    diskMarginBytes: 2 * 1024 ** 3,
   };
 }
 
@@ -150,9 +156,15 @@ export async function requireSiteOwner(userId: string): Promise<string> {
  *  - Sinon : selon `signupMode` ; « invite » exige un jeton d'invitation valide
  *    émis pour cet e-mail.
  */
-export async function assertSignupAllowed(email: string, inviteToken?: string): Promise<void> {
+export async function assertSignupAllowed(
+  email: string,
+  inviteToken?: string,
+  boot: { activationCode?: string; ip?: string } = {},
+): Promise<void> {
   const { orgId, settings } = await getSiteState();
   if (!orgId) {
+    // Amorçage : code d'activation (s'il est provisionné) ET, si défini, OWNER_EMAIL.
+    if (await isActivationRequired()) await verifyActivation(boot.activationCode, boot.ip ?? "");
     const owner = config.site.ownerEmail;
     if (owner && owner !== email.trim().toLowerCase()) {
       throw forbidden("Ce Drive n'attend pas encore son propriétaire : seul le compte prévu peut s'inscrire.");

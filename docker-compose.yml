@@ -50,6 +50,9 @@ services:
       # l'inscription du premier compte (le propriétaire) à cette adresse.
       SINGLE_DRIVE: ${SINGLE_DRIVE:-true}
       OWNER_EMAIL: ${OWNER_EMAIL:-}
+      # Code d'activation à usage unique du premier démarrage (vide = généré et affiché dans les journaux).
+      ACTIVATION_CODE: ${ACTIVATION_CODE:-}
+      ACTIVATION_TTL_HOURS: ${ACTIVATION_TTL_HOURS:-72}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env (your site origin, e.g. https://drive.example.com)}
       # Storage: "fs" (blobs volume) by default, or "s3" to use the MinIO service
       # below (start it with: docker compose --profile s3 up -d).

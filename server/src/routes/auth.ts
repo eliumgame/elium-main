@@ -97,6 +97,8 @@ const registerSchema = z.object({
   bindingProof: hex(128),
   // Jeton d'invitation (mode « sur invitation » du portail du propriétaire).
   inviteToken: z.string().min(10).max(200).optional(),
+  // Code d'activation du déploiement (création du premier compte propriétaire).
+  activationCode: z.string().max(64).optional(),
 });
 
 // Same bounds as the client decoders (core/container.py, crypto/kdf-profiles.ts).
@@ -160,7 +162,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // --- Register ------------------------------------------------------------
   app.post("/register", rl(20), async (req) => {
     const b = registerSchema.parse(req.body);
-    await assertSignupAllowed(b.email, b.inviteToken);
+    await assertSignupAllowed(b.email, b.inviteToken, { activationCode: b.activationCode, ip: req.ip });
 
     // Convention Elium : l'empreinte est sha256 des OCTETS BRUTS de la clé
     // publique (voir web-studio/src/sign/keys.ts), pas de sa représentation hex.

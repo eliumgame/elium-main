@@ -19,7 +19,7 @@ const PG_PORT = Number(process.env.DEV_PG_PORT ?? 54321);
 const API_PORT = Number(process.env.PORT ?? 8787);
 // Données persistantes sous le dossier du projet (ignoré par git) : les comptes
 // et documents survivent aux redémarrages, indispensable pour tester le collab.
-const DATA_ROOT = join(process.cwd(), ".dev-drive");
+const DATA_ROOT = process.env.DEV_DRIVE_DIR ?? join(process.cwd(), ".dev-drive");
 const PG_DIR = join(DATA_ROOT, "pg");
 const BLOB_DIR = join(DATA_ROOT, "blobs");
 
@@ -71,6 +71,12 @@ async function main(): Promise<void> {
   await migrate();
   console.log("[dev-drive] Migrations appliquées.");
 
+  // Drive neuf : code d'activation à usage unique, comme au premier démarrage du vrai serveur.
+  const { ensureActivationCode } = await import("../../server/src/lib/activation");
+  const activation = await ensureActivationCode();
+  if (activation) console.log(`
+  CODE D'ACTIVATION : ${activation}
+`);
   const app = await buildApp();
   await app.listen({ port: API_PORT, host: "127.0.0.1" });
   console.log(`\n  ✅  API Drive prête → http://127.0.0.1:${API_PORT}/api`);

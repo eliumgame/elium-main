@@ -19,7 +19,8 @@ import { SYSTEM_ROLE_TEMPLATES } from "../rbac/roles.js";
 import { sha256Hex, randomToken } from "../lib/crypto-server.js";
 import { badRequest, notFound, conflict, forbidden } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
-import { assertCanCreateOrg, claimSiteOrg } from "../lib/site-settings.js";
+import { assertCanCreateOrg, claimSiteOrg, getSiteState } from "../lib/site-settings.js";
+import { consumeActivation, isActivationRequired, verifyActivation } from "../lib/activation.js";
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
@@ -36,6 +37,8 @@ const createSchema = z.object({
     .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "Slug invalide (minuscules, chiffres, tirets)."),
   orgPublicHex: hex(130),
   wrappedOrgPrivate: envelope,
+  // Code d'activation : exigé pour créer le Drive d'un déploiement neuf.
+  activationCode: z.string().max(64).optional(),
 });
 
 /** Validate a role belongs to this org (or is a global template). Throws 400. */
@@ -78,6 +81,8 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
 
     const existing = await queryOne(`SELECT id FROM organizations WHERE slug = $1`, [b.slug]);
     if (existing) throw conflict("Ce slug d'organisation est déjà utilisé.");
+    const bootstrapping = !(await getSiteState()).orgId && (await isActivationRequired());
+    if (bootstrapping) await verifyActivation(b.activationCode, req.ip);
 
     const result = await withTx(async (c) => {
       // 1) Organization.
@@ -123,6 +128,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
     });
 
     await claimSiteOrg(result.org.id as string);
+    if (bootstrapping) await consumeActivation();
     await audit(
       result.org.id as string,
       user.id,

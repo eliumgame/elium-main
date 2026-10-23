@@ -18,6 +18,13 @@
 - **Jauge de stockage réel** dans le portail : espace libre et total du disque du serveur, quotas alloués, alertes de proximité de la limite et de sur-allocation.
 - **Garde-fou disque** : les envois sont refusés (erreur 507) sous une marge de sécurité réglable (le plus grand de 5 % du disque et 2 Go par défaut), pour ne jamais saturer le disque ni la base.
 
+### Version 4.22.0 — Documents : plus de gel en tapant dans un long document
+
+- La frappe n'est plus répercutée à chaque touche vers le reste de l'application : la remontée est regroupée et vidée avant tout enregistrement, clic ou raccourci. L'enregistrement automatique (brouillon de récupération) ne sérialise plus le document entier à chaque changement et ne fabrique plus de .docx : la copie Word reste téléchargeable depuis l'écran d'accueil, reconstruite à la demande.
+- Renvois, notes, légendes, table des matières et index : un seul balayage du document par modification (au lieu d'un par élément) ; les numéros de page se résolvent par dichotomie.
+- Correcteur : les soulignements sont mis à jour seulement dans le paragraphe modifié. Barre d'état : totaux de mots et de caractères recalculés après un court temps de calme. Pagination : mesure des blocs en temps linéaire.
+- Mesure sur un document témoin d'environ 250 pages (notes, renvois, index, images) : la plus longue tâche pendant la frappe passe de 1,7 s à 0,11 s.
+
 ### Version 4.18.0 — travaux enregistrés en fichiers (application Windows)
 
 - L'application Windows miroite désormais vos documents, tableurs, présentations, PDF et passeport dans `Documents\Elium`, en plus de la base du navigateur : un changement de port ou un effacement des données ne fait plus perdre de travail (réimport automatique au démarrage, sans écraser).

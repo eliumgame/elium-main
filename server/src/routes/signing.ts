@@ -33,7 +33,7 @@ import { audit } from "../lib/audit.js";
 import { notifyOrg } from "../collab/relay.js";
 
 const hex = (v: string) => Buffer.from(v, "hex");
-const envelope = z.record(z.unknown()); // recipients envelope (opaque)
+const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
 interface PartyRow {
   party_id: string;

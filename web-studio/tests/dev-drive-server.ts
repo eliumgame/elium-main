@@ -74,7 +74,8 @@ async function main(): Promise<void> {
   // Drive neuf : code d'activation à usage unique, comme au premier démarrage du vrai serveur.
   const { ensureActivationCode } = await import("../../server/src/lib/activation");
   const activation = await ensureActivationCode();
-  if (activation) console.log(`
+  if (activation)
+    console.log(`
   CODE D'ACTIVATION : ${activation}
 `);
   const app = await buildApp();

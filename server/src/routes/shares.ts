@@ -23,7 +23,7 @@ import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom } from "../collab/relay.js";
 
-const envelope = z.record(z.unknown()); // recipients envelope (opaque)
+const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
 /** bytea Buffer -> hex string for JSON, or "" / null when absent. */
 function toHex(v: unknown): string {

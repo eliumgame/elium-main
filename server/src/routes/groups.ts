@@ -14,7 +14,7 @@ import { authenticate, requireUser, requireOrgPerm } from "../middleware/auth.js
 import { badRequest, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 
-const envelope = z.record(z.unknown()); // recipients envelope (opaque JSON)
+const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
 const memberInputSchema = z.object({
   userId: z.string().uuid(),

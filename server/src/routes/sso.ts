@@ -46,7 +46,7 @@ const ssoConfigSchema = z
     issuer: z.string().min(1).max(512),
     clientId: z.string().min(1).max(512),
     // Keys may be supplied inline (static) and/or fetched from a jwksUri.
-    jwks: z.array(z.record(z.unknown())).max(10).optional(),
+    jwks: z.array(z.record(z.string(), z.unknown())).max(10).optional(),
     jwksUri: z.string().url().max(1024).refine(isSafeJwksUrl, "jwksUri doit être https et non privée.").optional(),
     allowedDomains: z.array(z.string().max(253)).max(50).optional(),
   })
@@ -142,7 +142,7 @@ export default async function ssoRoutes(app: FastifyInstance): Promise<void> {
     const b = z
       .object({
         defaultRoleKey: z.string().min(1).max(64),
-        groupRoleMap: z.record(z.string().min(1).max(64)).optional(),
+        groupRoleMap: z.record(z.string(), z.string().min(1).max(64)).optional(),
       })
       .parse(req.body);
     const actor = requireUser(req);

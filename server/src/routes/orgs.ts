@@ -24,7 +24,7 @@ import { consumeActivation, isActivationRequired, verifyActivation } from "../li
 
 const hex = (len?: number) =>
   len ? z.string().regex(new RegExp(`^[0-9a-f]{${len}}$`)) : z.string().regex(/^[0-9a-f]+$/);
-const envelope = z.record(z.unknown()); // recipients envelope (opaque JSON)
+const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque JSON)
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -408,7 +408,7 @@ export default async function orgRoutes(app: FastifyInstance): Promise<void> {
   // --- Settings: manage -----------------------------------------------------
   app.patch("/:orgId/settings", async (req) => {
     const { orgId } = z.object({ orgId: z.string().uuid() }).parse(req.params);
-    const b = z.object({ settings: z.record(z.unknown()) }).parse(req.body);
+    const b = z.object({ settings: z.record(z.string(), z.unknown()) }).parse(req.body);
     const actor = requireUser(req);
     await requireOrgPerm(req, orgId, "org.settings.manage");
 

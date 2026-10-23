@@ -19,7 +19,7 @@ import { assertDiskSpace } from "../lib/disk.js";
 import type { Readable } from "node:stream";
 
 const hexBytes = z.string().regex(/^[0-9a-f]*$/); // hex-encoded bytea
-const envelope = z.record(z.unknown()); // recipients envelope (opaque)
+const envelope = z.record(z.string(), z.unknown()); // recipients envelope (opaque)
 
 const keyShareSchema = z.object({
   principalType: z.enum(["user", "group", "org"]),

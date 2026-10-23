@@ -64,7 +64,7 @@ const lookupSchema = z
 
 const patchMeSchema = z.object({
   displayName: z.string().max(120).optional(),
-  keyBundle: z.record(z.unknown()).optional(),
+  keyBundle: z.record(z.string(), z.unknown()).optional(),
   // Password change: the new login verifier (auth-sign public key) + a proof of
   // possession (signature over the email by the new key).
   authSignPublicHex: z
@@ -76,7 +76,7 @@ const patchMeSchema = z.object({
     .regex(/^[0-9a-f]{128}$/)
     .optional(),
   kdfSalt: z.string().min(8).max(256).optional(),
-  kdfParams: z.record(z.unknown()).optional(),
+  kdfParams: z.record(z.string(), z.unknown()).optional(),
 });
 
 function currentSessionHash(header: string | string[] | undefined): string | null {

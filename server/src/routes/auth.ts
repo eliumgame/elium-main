@@ -90,8 +90,8 @@ const registerSchema = z.object({
   authSignPublicHex: hex(64),
   authSignProof: hex(128),
   kdfSalt: z.string().min(8).max(256),
-  kdfParams: z.record(z.unknown()).default({}),
-  keyBundle: z.record(z.unknown()),
+  kdfParams: z.record(z.string(), z.unknown()).default({}),
+  keyBundle: z.record(z.string(), z.unknown()),
   // Ed25519 signature over `email|ed25519PublicHex|p256PublicHex`, proving the
   // client controls the identity private key it is registering.
   bindingProof: hex(128),
@@ -118,7 +118,7 @@ const changePasswordSchema = z.object({
   newAuthSignProof: hex(128),
   newKdfSalt: z.string().min(8).max(256),
   newKdfParams: kdfParamsSchema,
-  newKeyBundle: z.record(z.unknown()),
+  newKeyBundle: z.record(z.string(), z.unknown()),
 });
 
 function userDto(u: {
@@ -489,7 +489,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   //  connaissance). Les cérémonies de connexion consomment le mfaToken émis par
   //  /login/verify, exactement comme /login/mfa.
   // =========================================================================
-  const responseSchema = z.object({ response: z.record(z.unknown()), name: z.string().max(64).optional() });
+  const responseSchema = z.object({ response: z.record(z.string(), z.unknown()), name: z.string().max(64).optional() });
 
   // Enrôlement — options (authentifié)
   app.post("/webauthn/register/options", { preHandler: authenticate }, async (req) => {
@@ -544,7 +544,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // Connexion — vérification du 2e facteur → libère le keyBundle + la session
   app.post("/webauthn/login/verify", rl(20), async (req) => {
-    const b = z.object({ mfaToken: z.string().min(10), response: z.record(z.unknown()) }).parse(req.body);
+    const b = z.object({ mfaToken: z.string().min(10), response: z.record(z.string(), z.unknown()) }).parse(req.body);
     const userId = verifyScopedToken(b.mfaToken, MFA_LOGIN_PURPOSE);
     if (!userId) throw unauthorized("Session de connexion expirée, recommencez.");
     if (!(await verifyAuthentication(userId, b.response as never))) {
@@ -582,7 +582,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/webauthn/assert/verify", rl(20), async (req) => {
-    const b = z.object({ challengeId: z.string().uuid(), response: z.record(z.unknown()) }).parse(req.body);
+    const b = z.object({ challengeId: z.string().uuid(), response: z.record(z.string(), z.unknown()) }).parse(req.body);
     const challenge = await consumeLoginChallenge(b.challengeId);
     if (!challenge) throw unauthorized("Défi de connexion expiré, recommencez.");
     const userId = await verifyDiscoverableAuthentication(b.response as never, challenge);

@@ -142,6 +142,24 @@ export const config = {
   // (un pair révoqué connecté ailleurs est bien éjecté, le rate-limit n'est plus
   // contournable en répartissant les requêtes). Ex. "redis://127.0.0.1:6379".
   redisUrl: env("REDIS_URL", ""),
+
+  // Portail du propriétaire — valeurs de DÉPART (les réglages enregistrés en base
+  // depuis l'interface les remplacent, voir lib/site-settings.ts) et réglages de
+  // déploiement qui ne se changent pas depuis l'interface :
+  //  - SINGLE_DRIVE : un déploiement = un Drive unique (une seule organisation) ;
+  //  - OWNER_EMAIL  : si défini, seul ce compte peut s'inscrire tant que le Drive
+  //    n'a pas de propriétaire (empêche qu'un inconnu prenne la main entre le
+  //    déploiement et la création du compte propriétaire).
+  site: {
+    singleDrive: env("SINGLE_DRIVE", "false") === "true",
+    ownerEmail: env("OWNER_EMAIL", "").trim().toLowerCase(),
+    defaults: {
+      signupMode: env("SIGNUP_MODE", "open") as "open" | "closed" | "invite",
+      defaultRoleKey: env("DEFAULT_ROLE_KEY", "editor"),
+      mfaPolicy: env("MFA_POLICY", "optional") as "optional" | "required",
+      passwordMinLength: num("PASSWORD_MIN_LENGTH", 8),
+    },
+  },
 } as const;
 
 export type Config = typeof config;

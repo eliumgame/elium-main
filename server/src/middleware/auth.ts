@@ -6,7 +6,8 @@
 import type { FastifyRequest } from "fastify";
 import { verifyAccessToken } from "../lib/tokens.js";
 import { queryOne } from "../db/pool.js";
-import { unauthorized, forbidden, notFound } from "../lib/errors.js";
+import { mfaEnrollmentRequired } from "../lib/site-settings.js";
+import { unauthorized, forbidden, notFound, ApiError } from "../lib/errors.js";
 import {
   loadOrgContext,
   orgHasPermission,
@@ -29,6 +30,9 @@ declare module "fastify" {
   }
 }
 
+/** Routes accessibles avant l'enrôlement 2FA quand elle est obligatoire. */
+const MFA_EXEMPT = ["/api/auth/", "/api/site/policy", "/api/site/me", "/api/users/me"];
+
 /** preHandler: require a valid Bearer access token; attach req.user. */
 export async function authenticate(req: FastifyRequest): Promise<void> {
   const header = req.headers.authorization;
@@ -36,11 +40,27 @@ export async function authenticate(req: FastifyRequest): Promise<void> {
   const claims = verifyAccessToken(header.slice("Bearer ".length).trim());
   if (!claims) throw unauthorized("Jeton invalide ou expiré.");
 
-  const user = await queryOne<{ id: string; fingerprint: string; email: string; display_name: string; status: string }>(
-    `SELECT id, fingerprint, email, display_name, status FROM users WHERE id = $1`,
-    [claims.sub],
-  );
+  const user = await queryOne<{
+    id: string;
+    fingerprint: string;
+    email: string;
+    display_name: string;
+    status: string;
+  }>(`SELECT id, fingerprint, email, display_name, status FROM users WHERE id = $1`, [claims.sub]);
   if (!user || user.status !== "active") throw unauthorized("Compte introuvable ou désactivé.");
+
+  // 2FA obligatoire (portail du propriétaire) : un compte sans second facteur ne
+  // peut atteindre que de quoi EN ACTIVER UN (auth/*, sessions, compte).
+  const url = req.url.split("?")[0] ?? "";
+  if (!MFA_EXEMPT.some((p) => url.startsWith(p))) {
+    if (await mfaEnrollmentRequired(user.id)) {
+      throw new ApiError(
+        403,
+        "mfa_enrollment_required",
+        "Le propriétaire de ce Drive impose la vérification en deux étapes : activez-la pour continuer.",
+      );
+    }
+  }
   req.user = { id: user.id, fingerprint: user.fingerprint, email: user.email, displayName: user.display_name };
 }
 

@@ -3,6 +3,7 @@ import * as ReactDOM from "react-dom/client";
 import App from "./App";
 import { DialogsProvider } from "./ui/dialogs";
 import { DriveProvider } from "./drive-cloud/session";
+import SiteGate from "./drive-cloud/ui/SiteGate";
 import { applyTheme, getTheme } from "./ui/theme";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./ui/crash-log";
@@ -27,7 +28,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <ErrorBoundary>
       <DialogsProvider>
         <DriveProvider>
-          <App />
+          <SiteGate>
+            <App />
+          </SiteGate>
         </DriveProvider>
       </DialogsProvider>
     </ErrorBoundary>

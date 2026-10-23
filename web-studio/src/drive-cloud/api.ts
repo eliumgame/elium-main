@@ -100,6 +100,63 @@ export interface SignRequestDto {
   parties: SignParty[];
 }
 
+export interface DeviceSession {
+  id: string;
+  userAgent: string;
+  ip: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  expiresAt: string;
+  current: boolean;
+}
+
+export type SignupMode = "open" | "closed" | "invite";
+export interface SitePolicy {
+  deployed: true;
+  bootstrapped: boolean;
+  signupMode: SignupMode;
+  mfaPolicy: "optional" | "required";
+  passwordMinLength: number;
+  backupRequired: boolean;
+  siteName: string;
+}
+export interface SiteSettings {
+  signupMode: SignupMode;
+  defaultRoleKey: string;
+  perUserQuotaBytes: number | null;
+  backupRequired: boolean;
+  versionRetentionDays: number;
+  trashRetentionDays: number;
+  mfaPolicy: "optional" | "required";
+  passwordMinLength: number;
+  membersCanCreateSpaces: boolean;
+  siteName: string;
+}
+export interface SiteAdminSettings {
+  orgId: string;
+  orgName: string;
+  settings: SiteSettings;
+  globalQuotaBytes: number | null;
+  usedBytes: number;
+  versionCount: number;
+  roles: { key: string; name: string }[];
+}
+export interface SiteUser {
+  userId: string;
+  email: string;
+  displayName: string;
+  suspended: boolean;
+  roleId: string;
+  roleKey: string;
+  quotaBytes: number | null;
+  usedBytes: number;
+  mfa: boolean;
+  activeSessions: number;
+  lastSeenAt: string | null;
+  joinedAt: string;
+  isOwner: boolean;
+}
+
 export class DriveApi {
   private baseUrl: string;
   private tokens: Tokens | null;
@@ -195,10 +252,10 @@ export class DriveApi {
   private async json<T>(
     method: string,
     path: string,
-    opts: { body?: unknown; query?: Query; auth?: boolean; retry?: boolean } = {},
+    opts: { body?: unknown; query?: Query; auth?: boolean; retry?: boolean; headers?: Record<string, string> } = {},
   ): Promise<T> {
     const auth = opts.auth ?? true;
-    const headers: Record<string, string> = { ...(auth ? this.authHeaders() : {}) };
+    const headers: Record<string, string> = { ...(auth ? this.authHeaders() : {}), ...(opts.headers ?? {}) };
     if (opts.body !== undefined) headers["content-type"] = "application/json";
     let res: Response;
     try {
@@ -224,8 +281,11 @@ export class DriveApi {
   }
 
   // === Auth ================================================================
-  register(payload: RegistrationPayload) {
-    return this.json<LoginResult>("POST", "/auth/register", { body: payload, auth: false });
+  register(payload: RegistrationPayload, inviteToken?: string) {
+    return this.json<LoginResult>("POST", "/auth/register", {
+      body: inviteToken ? { ...payload, inviteToken } : payload,
+      auth: false,
+    });
   }
   prelogin(email: string) {
     return this.json<PreloginResult>("POST", "/auth/prelogin", { body: { email }, auth: false });
@@ -332,8 +392,50 @@ export class DriveApi {
   updateMe(patch: Record<string, unknown>) {
     return this.json<{ user: PublicUser }>("PATCH", "/users/me", { body: patch });
   }
+  /** Appareils connectés ; `current` marque celui-ci (reconnu à son jeton de rafraîchissement). */
   listSessions() {
-    return this.json<{ sessions: unknown[] }>("GET", "/users/me/sessions");
+    return this.json<{ sessions: DeviceSession[] }>("GET", "/users/me/sessions", { headers: this.refreshHeader() });
+  }
+  revokeOtherSessions() {
+    return this.json<{ ok: boolean; revoked: number }>("POST", "/users/me/sessions/revoke-others", {
+      body: {},
+      headers: this.refreshHeader(),
+    });
+  }
+  private refreshHeader(): Record<string, string> {
+    const rt = this.tokens?.refreshToken;
+    return rt ? { "x-refresh-token": rt } : {};
+  }
+
+  // === Portail du propriétaire (/api/site) =================================
+  /** Politique publique du site ; `null` si ce n'est pas un site Drive déployé. */
+  async sitePolicy(): Promise<SitePolicy | null> {
+    try {
+      const res = await fetch(this.url("/site/policy"), { headers: { accept: "application/json" } });
+      if (!res.ok) return null;
+      const body = (await res.json()) as Partial<SitePolicy>;
+      return body && body.deployed === true ? (body as SitePolicy) : null;
+    } catch {
+      return null; // pas d'API (app bureau, dev sans serveur) → mode local
+    }
+  }
+  siteMe() {
+    return this.json<{ orgId: string | null; isOwner: boolean; mfaEnrollmentRequired?: boolean }>("GET", "/site/me");
+  }
+  getSiteSettings() {
+    return this.json<SiteAdminSettings>("GET", "/site/admin/settings");
+  }
+  putSiteSettings(settings: SiteSettings, globalQuotaBytes: number | null) {
+    return this.json<{ ok: boolean }>("PUT", "/site/admin/settings", { body: { settings, globalQuotaBytes } });
+  }
+  siteUsers() {
+    return this.json<{ defaultQuotaBytes: number | null; users: SiteUser[] }>("GET", "/site/admin/users");
+  }
+  patchSiteUser(userId: string, patch: { suspended?: boolean; roleId?: string; quotaBytes?: number | null }) {
+    return this.json<{ ok: boolean }>("PATCH", `/site/admin/users/${userId}`, { body: patch });
+  }
+  revokeUserSessions(userId: string) {
+    return this.json<{ ok: boolean }>("POST", `/site/admin/users/${userId}/revoke-sessions`, { body: {} });
   }
   revokeSession(id: string) {
     return this.json<{ ok: boolean }>("DELETE", `/users/me/sessions/${id}`);

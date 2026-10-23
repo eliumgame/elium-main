@@ -46,6 +46,10 @@ services:
       PORT: "8787"
       DATABASE_URL: postgres://elium:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/elium
       TOKEN_SECRET: ${TOKEN_SECRET:?Set a strong TOKEN_SECRET in .env}
+      # Portail du propriétaire : un déploiement = un Drive ; OWNER_EMAIL (optionnel) réserve
+      # l'inscription du premier compte (le propriétaire) à cette adresse.
+      SINGLE_DRIVE: ${SINGLE_DRIVE:-true}
+      OWNER_EMAIL: ${OWNER_EMAIL:-}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env (your site origin, e.g. https://drive.example.com)}
       # Storage: "fs" (blobs volume) by default, or "s3" to use the MinIO service
       # below (start it with: docker compose --profile s3 up -d).

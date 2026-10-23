@@ -4,9 +4,9 @@ import { useDrive } from "../session";
 import { reportError } from "../../ui/crash-log";
 
 /** Valide le formulaire (pur, testé) ; renvoie un message d'erreur FR ou null. */
-export function validatePasswordChange(current: string, next: string, confirm: string): string | null {
+export function validatePasswordChange(current: string, next: string, confirm: string, minLen = 8): string | null {
   if (!current) return "Saisissez votre mot de passe actuel.";
-  if (next.length < 8) return "Le nouveau mot de passe doit comporter au moins 8 caractères.";
+  if (next.length < minLen) return `Le nouveau mot de passe doit comporter au moins ${minLen} caractères.`;
   if (next === current) return "Le nouveau mot de passe doit différer de l'actuel.";
   if (next !== confirm) return "La confirmation ne correspond pas.";
   return null;
@@ -28,7 +28,7 @@ export default function ChangePasswordSection() {
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    const problem = validatePasswordChange(current, next, confirm);
+    const problem = validatePasswordChange(current, next, confirm, d.policy?.passwordMinLength ?? 8);
     setDone(false);
     if (problem) return setErr(problem);
     setBusy(true);

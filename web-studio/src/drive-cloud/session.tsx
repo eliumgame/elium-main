@@ -6,7 +6,7 @@
  * again to unlock the keys.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DriveApi, ApiError } from "./api";
+import { DriveApi, ApiError, type SitePolicy } from "./api";
 import {
   buildRegistration,
   buildPasswordChange,
@@ -98,6 +98,14 @@ export interface DriveSession {
   selectOrg: (orgId: string) => Promise<void>;
   createOrg: (name: string, slug: string) => Promise<void>;
   clearError: () => void;
+  /** Politique du site déployé ; `undefined` = sonde en cours, `null` = pas de serveur Drive (mode local). */
+  policy: SitePolicy | null | undefined;
+  /** Propriétaire du déploiement (accès au portail). */
+  isOwner: boolean;
+  /** Le Drive impose la 2FA et ce compte n'en a pas : enrôlement obligatoire avant tout usage. */
+  mfaEnrollRequired: boolean;
+  /** Recharge propriétaire / politique / organisations (après activation de la 2FA, changement de réglage…). */
+  refreshSite: () => Promise<void>;
 }
 
 const Ctx = createContext<DriveSession | null>(null);
@@ -128,6 +136,9 @@ export function DriveProvider({ children }: { children: ReactNode }) {
   const [pendingInvite, setPendingInvite] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<SitePolicy | null | undefined>(undefined);
+  const [isOwner, setIsOwner] = useState(false);
+  const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
 
   // Snapshot needed to unlock keys with the password after a reload.
   const snapshotRef = useRef<Persisted["snapshot"] | null>(null);
@@ -201,6 +212,18 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       setUser(u);
       setKeys(k);
       setStatus("authenticated");
+      // Portail : suis-je propriétaire ? la 2FA est-elle imposée et me manque-t-elle ?
+      // (sans second facteur, le serveur refuse tout sauf l'enrôlement.)
+      let enrollRequired = false;
+      try {
+        const me = await api.siteMe();
+        setIsOwner(me.isOwner);
+        enrollRequired = (me as { mfaEnrollmentRequired?: boolean }).mfaEnrollmentRequired === true;
+      } catch {
+        setIsOwner(false);
+      }
+      setMfaEnrollRequired(enrollRequired);
+      if (enrollRequired) return;
       // If arriving via an invite link, join that organization first.
       let joinedOrgId: string | undefined;
       if (inviteRef.current) {
@@ -256,7 +279,7 @@ export function DriveProvider({ children }: { children: ReactNode }) {
       try {
         const { payload, keys: k, masterKey } = await buildRegistration(email.trim(), password, displayName.trim());
         masterKeyRef.current = masterKey;
-        const res = await api.register(payload);
+        const res = await api.register(payload, inviteRef.current ?? undefined);
         api.setTokens({
           accessToken: res.accessToken,
           accessTokenExpiresAt: res.accessTokenExpiresAt,
@@ -597,7 +620,38 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     setCurrentOrgId(null);
     setRoles([]);
     setLockedEmail(null);
+    setIsOwner(false);
+    setMfaEnrollRequired(false);
     setStatus("anonymous");
+  }, [api]);
+
+  const refreshSite = useCallback(async () => {
+    try {
+      setPolicy(await api.sitePolicy());
+    } catch {
+      /* conserve l'ancienne politique */
+    }
+    if (!user) return;
+    try {
+      const me = await api.siteMe();
+      setIsOwner(me.isOwner);
+      const need = (me as { mfaEnrollmentRequired?: boolean }).mfaEnrollmentRequired === true;
+      setMfaEnrollRequired(need);
+      if (!need) await refreshOrgs();
+    } catch {
+      /* hors site déployé */
+    }
+  }, [api, user, refreshOrgs]);
+
+  // Sonde du serveur Drive au démarrage : présent ⇒ site déployé (garde d'authentification).
+  useEffect(() => {
+    let alive = true;
+    void api.sitePolicy().then((p) => {
+      if (alive) setPolicy(p);
+    });
+    return () => {
+      alive = false;
+    };
   }, [api]);
 
   const createOrg = useCallback(
@@ -679,6 +733,10 @@ export function DriveProvider({ children }: { children: ReactNode }) {
     selectOrg,
     createOrg,
     clearError: () => setError(null),
+    policy,
+    isOwner,
+    mfaEnrollRequired,
+    refreshSite,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

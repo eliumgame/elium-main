@@ -14,7 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool.js";
 import { authenticate, requireUser } from "../middleware/auth.js";
-import { verifyEd25519 } from "../lib/crypto-server.js";
+import { verifyEd25519, sha256Hex } from "../lib/crypto-server.js";
 import { notFound, badRequest, ApiError } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { accountDeletionBlockers, eraseAccount, AccountDeletionBlocked } from "../lib/account-deletion.js";
@@ -78,6 +78,11 @@ const patchMeSchema = z.object({
   kdfSalt: z.string().min(8).max(256).optional(),
   kdfParams: z.record(z.unknown()).optional(),
 });
+
+function currentSessionHash(header: string | string[] | undefined): string | null {
+  const raw = Array.isArray(header) ? header[0] : header;
+  return raw && raw.length >= 10 ? sha256Hex(raw) : null;
+}
 
 export default async function userRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", authenticate);
@@ -165,15 +170,22 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
       created_at: string;
       expires_at: string;
       revoked_at: string | null;
+      last_seen_at: string | null;
+      refresh_token_hash: string;
     }>(
-      `SELECT id, user_agent, ip, created_at, expires_at, revoked_at
+      `SELECT id, user_agent, ip, created_at, expires_at, revoked_at, last_seen_at, refresh_token_hash
          FROM sessions
-        WHERE user_id = $1
+        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
         ORDER BY created_at DESC`,
       [user.id],
     );
+    // L'appareil courant se reconnaît à son jeton de rafraîchissement (en-tête,
+    // jamais en query string) : on compare des empreintes, le jeton n'est pas stocké.
+    const current = currentSessionHash(req.headers["x-refresh-token"]);
     return {
       sessions: rows.map((s) => ({
+        current: current !== null && s.refresh_token_hash === current,
+        lastSeenAt: s.last_seen_at,
         id: s.id,
         userAgent: s.user_agent,
         ip: s.ip,
@@ -182,6 +194,21 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
         revokedAt: s.revoked_at,
       })),
     };
+  });
+
+  // --- Revoke every OTHER session (« déconnecter mes autres appareils ») ----
+  app.post("/me/sessions/revoke-others", async (req) => {
+    const user = requireUser(req);
+    const current = currentSessionHash(req.headers["x-refresh-token"]);
+    if (!current) throw badRequest("Jeton de session courant manquant.");
+    const rows = await query<{ id: string }>(
+      `UPDATE sessions SET revoked_at = now()
+        WHERE user_id = $1 AND revoked_at IS NULL AND refresh_token_hash <> $2
+        RETURNING id`,
+      [user.id, current],
+    );
+    await audit(null, user.id, "session.revoke_others", "user", user.id, { count: rows.length }, req.ip);
+    return { ok: true, revoked: rows.length };
   });
 
   // --- Revoke one of own sessions ------------------------------------------

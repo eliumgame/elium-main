@@ -26,6 +26,7 @@ import versionRoutes from "./routes/versions.js";
 import ssoRoutes from "./routes/sso.js";
 import scimRoutes from "./routes/scim.js";
 import tsaRoutes from "./routes/tsa.js";
+import siteRoutes from "./routes/site.js";
 import { registerCollab } from "./collab/relay.js";
 import { createRateLimitRedis, getBackplaneHealth } from "./collab/backplane.js";
 
@@ -139,6 +140,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   }));
 
   await app.register(authRoutes, { prefix: "/api/auth" });
+  await app.register(siteRoutes, { prefix: "/api/site" });
   await app.register(userRoutes, { prefix: "/api/users" });
   await app.register(orgRoutes, { prefix: "/api/orgs" });
   await app.register(roleRoutes, { prefix: "/api/orgs" });

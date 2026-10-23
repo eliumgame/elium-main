@@ -13,6 +13,8 @@ import { storage } from "../storage/adapter.js";
 import { audit } from "../lib/audit.js";
 import { kickRoom, notifyOrg } from "../collab/relay.js";
 import { config } from "../config.js";
+import { ApiError } from "../lib/errors.js";
+import { assertUserQuota, getSiteSettings } from "../lib/site-settings.js";
 import type { Readable } from "node:stream";
 
 const hexBytes = z.string().regex(/^[0-9a-f]*$/); // hex-encoded bytea
@@ -128,7 +130,15 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
       const parent = await requireNodePerm(req, b.parentId, "node.create");
       if (parent.orgId !== b.orgId) throw badRequest("Organisation incohérente avec le parent.");
     } else {
-      await requireOrgPerm(req, b.orgId, "space.create");
+      // Racine du Drive : `space.create`, ou — par défaut sur un Drive partagé — tout
+      // membre actif peut ouvrir SON espace privé (réglage du portail du propriétaire).
+      try {
+        await requireOrgPerm(req, b.orgId, "space.create");
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.statusCode !== 403) throw err;
+        if (!(await getSiteSettings()).membersCanCreateSpaces) throw err;
+        await requireMembership(req, b.orgId);
+      }
     }
 
     // The creator must retain access to their own node.
@@ -595,6 +605,9 @@ export default async function nodeRoutes(app: FastifyInstance): Promise<void> {
         if (quota != null && used + size > Number(quota)) {
           throw insufficientStorage(`Quota atteint : ${used + size} octets requis pour ${Number(quota)} alloués.`);
         }
+        // Quota personnel (portail du propriétaire) : imputé au propriétaire du nœud.
+        const { rows: own } = await c.query(`SELECT owner_user_id FROM nodes WHERE id = $1`, [id]);
+        if (own[0]?.owner_user_id) await assertUserQuota(access.orgId, own[0].owner_user_id as string, size);
         const { rows: vrows } = await c.query(
           `SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM node_versions WHERE node_id = $1`,
           [id],

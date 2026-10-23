@@ -21,6 +21,7 @@ import { authenticate, requireUser } from "../middleware/auth.js";
 import { badRequest, unauthorized, conflict, notFound } from "../lib/errors.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
+import { assertSignupAllowed, autoJoinSiteOrg } from "../lib/site-settings.js";
 import {
   hasWebauthn,
   listCredentials,
@@ -94,6 +95,8 @@ const registerSchema = z.object({
   // Ed25519 signature over `email|ed25519PublicHex|p256PublicHex`, proving the
   // client controls the identity private key it is registering.
   bindingProof: hex(128),
+  // Jeton d'invitation (mode « sur invitation » du portail du propriétaire).
+  inviteToken: z.string().min(10).max(200).optional(),
 });
 
 // Same bounds as the client decoders (core/container.py, crypto/kdf-profiles.ts).
@@ -157,6 +160,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
   // --- Register ------------------------------------------------------------
   app.post("/register", rl(20), async (req) => {
     const b = registerSchema.parse(req.body);
+    await assertSignupAllowed(b.email, b.inviteToken);
 
     // Convention Elium : l'empreinte est sha256 des OCTETS BRUTS de la clé
     // publique (voir web-studio/src/sign/keys.ts), pas de sa représentation hex.
@@ -200,6 +204,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
       ],
     );
     if (!row) throw badRequest("Création du compte impossible.");
+    await autoJoinSiteOrg(row.id);
 
     const session = await issueSession(app, row.id, row.fingerprint, req.headers["user-agent"] ?? "", req.ip);
     await audit(null, row.id, "auth.register", "user", row.id, {}, req.ip);
@@ -355,7 +360,7 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
 
     // Rotate the refresh token.
     const rotated = newRefreshToken();
-    await query(`UPDATE sessions SET refresh_token_hash = $1, expires_at = $2 WHERE id = $3`, [
+    await query(`UPDATE sessions SET refresh_token_hash = $1, expires_at = $2, last_seen_at = now() WHERE id = $3`, [
       rotated.hash,
       rotated.expiresAt,
       s.id,

@@ -25,6 +25,7 @@ import {
   X,
   Circle,
   CheckCircle2,
+  Crown,
 } from "lucide-react";
 import "../drive-cloud/drive-cloud.css";
 import { useDrive } from "../drive-cloud/session";
@@ -38,9 +39,10 @@ import AuditPanel from "../drive-cloud/ui/AuditPanel";
 import SecurityPanel from "../drive-cloud/ui/SecurityPanel";
 import SsoScimPanel from "../drive-cloud/ui/SsoScimPanel";
 import RecoveryPanel from "../drive-cloud/ui/RecoveryPanel";
+import OwnerPortal from "../drive-cloud/ui/OwnerPortal";
 import { useDialogs } from "../ui/dialogs";
 
-type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso" | "recovery";
+type Tab = "files" | "members" | "groups" | "roles" | "trash" | "audit" | "security" | "sso" | "recovery" | "portal";
 
 // `perm` (optional) gates a tab behind an org permission; tabs without it are
 // always shown (the server still enforces access when a panel loads).
@@ -73,6 +75,12 @@ const NAV: { key: Tab; label: string; subtitle: string; icon: React.ReactNode; p
     label: "Sécurité",
     subtitle: "Vérification en deux étapes (2FA)",
     icon: <ShieldCheck size={18} />,
+  },
+  {
+    key: "portal",
+    label: "Portail du propriétaire",
+    subtitle: "Inscription, quotas, sauvegarde, sécurité et utilisateurs du Drive",
+    icon: <Crown size={18} />,
   },
   {
     key: "sso",
@@ -275,7 +283,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
     return new Set(role?.permissions ?? []);
   }, [d.roles, d.currentOrg?.roleId]);
   const can = (p: string) => d.currentOrg?.roleKey === "owner" || perms.has(p);
-  const nav = NAV.filter((n) => !n.perm || can(n.perm));
+  const nav = NAV.filter((n) => (!n.perm || can(n.perm)) && (n.key !== "portal" || d.isOwner));
 
   return (
     <div className="dc-app">
@@ -341,6 +349,7 @@ function Workspace({ onHome }: { onHome: () => void }) {
               {tab === "security" && <SecurityPanel />}
               {tab === "sso" && <SsoScimPanel />}
               {tab === "recovery" && <RecoveryPanel />}
+              {tab === "portal" && d.isOwner && <OwnerPortal onNavigate={setTab} />}
             </main>
           </>
         )}

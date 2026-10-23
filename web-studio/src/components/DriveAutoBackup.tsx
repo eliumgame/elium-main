@@ -48,6 +48,8 @@ export default function DriveAutoBackup({
   wsRef.current = ws;
   const secretRef = useRef(getSecret);
   secretRef.current = getSecret;
+  // Sauvegarde imposée par le propriétaire du Drive (portail) : l'option locale est ignorée.
+  const required = d.policy?.backupRequired === true;
   const lastPushed = useRef("");
   const stopped = useRef(false); // un conflit suspend l'automatique jusqu'à une action manuelle
 
@@ -64,7 +66,7 @@ export default function DriveAutoBackup({
   }, []);
 
   useEffect(() => {
-    if (!ctx || !sig || !readAuto(WORKSPACE_SLOT, ctx) || stopped.current || sig === lastPushed.current) return;
+    if (!ctx || !sig || !(required || readAuto(WORKSPACE_SLOT, ctx)) || stopped.current || sig === lastPushed.current) return;
     const id = setTimeout(() => {
       const deps = makeBackupDeps({ ws: wsRef.current, getSecret: secretRef.current, appVersion });
       const status = (kind: string, message?: string) =>
@@ -88,7 +90,7 @@ export default function DriveAutoBackup({
         });
     }, DELAY_MS);
     return () => clearTimeout(id);
-  }, [ctx, sig, appVersion, tick]);
+  }, [ctx, sig, appVersion, tick, required]);
 
   return null;
 }

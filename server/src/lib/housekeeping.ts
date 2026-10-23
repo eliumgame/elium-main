@@ -17,6 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { query } from "../db/pool.js";
 import { storage } from "../storage/adapter.js";
 import { audit } from "./audit.js";
+import { getSiteSettings } from "./site-settings.js";
 import { orgRotationPreconditionMet, flagOrgKeyRotationDue } from "../routes/orgs.js";
 
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000; // 15 min
@@ -86,10 +87,17 @@ interface TrashedNodeRow {
 
 async function purgeOrphanedTrashBlobs(app: FastifyInstance): Promise<void> {
   let candidates: TrashedNodeRow[];
+  let retentionDays = TRASH_BLOB_RETENTION_DAYS;
+  try {
+    const d = (await getSiteSettings()).trashRetentionDays;
+    if (Number.isInteger(d) && d > 0) retentionDays = d;
+  } catch {
+    /* défaut */
+  }
   try {
     candidates = await query<TrashedNodeRow>(
       `SELECT id, org_id, kind, content_ref FROM nodes
-        WHERE trashed_at IS NOT NULL AND trashed_at < now() - interval '${TRASH_BLOB_RETENTION_DAYS} days'
+        WHERE trashed_at IS NOT NULL AND trashed_at < now() - interval '${retentionDays} days'
         ORDER BY trashed_at ASC
         LIMIT ${TRASH_PURGE_BATCH_LIMIT}`,
     );
@@ -127,7 +135,7 @@ async function purgeOrphanedTrashBlobs(app: FastifyInstance): Promise<void> {
         "node.purge.auto",
         node.kind,
         node.id,
-        { reason: "trash-retention", retentionDays: TRASH_BLOB_RETENTION_DAYS, blobsPurged: refs.size },
+        { reason: "trash-retention", retentionDays, blobsPurged: refs.size },
         "",
       );
       purged++;
@@ -219,6 +227,34 @@ async function sweepScheduledKeyRotation(app: FastifyInstance): Promise<void> {
   }
 }
 
+// ============================================================================
+// Rétention des anciennes versions (réglage « portail du propriétaire »).
+// `versionRetentionDays` > 0 : les versions NON courantes plus vieilles que N
+// jours sont supprimées (ligne puis blob). La version courante d'un fichier n'est
+// jamais touchée ; avec 0 (défaut) rien n'est supprimé. C'est ce qui borne la
+// croissance des sauvegardes automatiques (une nouvelle version à chaque envoi).
+const VERSION_PURGE_BATCH_LIMIT = 500;
+
+async function purgeOldVersions(app: FastifyInstance): Promise<void> {
+  const days = (await getSiteSettings()).versionRetentionDays;
+  if (!days || days <= 0) return;
+  const rows = await query<{ id: string; content_ref: string }>(
+    `DELETE FROM node_versions v
+      WHERE v.id IN (
+        SELECT v2.id FROM node_versions v2
+          JOIN nodes n ON n.id = v2.node_id
+         WHERE v2.created_at < now() - ($1::int * interval '1 day')
+           AND n.current_version_id IS DISTINCT FROM v2.id
+         ORDER BY v2.created_at ASC
+         LIMIT ${VERSION_PURGE_BATCH_LIMIT})
+      RETURNING v.id, v.content_ref`,
+    [days],
+  );
+  const store = storage();
+  for (const r of rows) await store.delete(r.content_ref).catch(() => {});
+  if (rows.length) app.log.debug({ purged: rows.length, days }, "housekeeping: rétention des versions");
+}
+
 async function sweepOnce(app: FastifyInstance): Promise<void> {
   await sweepEphemeralTables(app);
   // Chacune de ces étapes journalise et avale ses propres erreurs ; l'appel
@@ -228,6 +264,11 @@ async function sweepOnce(app: FastifyInstance): Promise<void> {
     await purgeOrphanedTrashBlobs(app);
   } catch (err) {
     app.log.warn({ err }, "housekeeping: purge des blobs orphelins échouée (ignorée)");
+  }
+  try {
+    await purgeOldVersions(app);
+  } catch (err) {
+    app.log.warn({ err }, "housekeeping: rétention des versions échouée (ignorée)");
   }
   try {
     await sweepScheduledKeyRotation(app);
@@ -247,4 +288,4 @@ export function startHousekeeping(app: FastifyInstance): () => void {
 
 // Exportées pour les tests (server/tests/housekeeping.test.ts) : chaque étape
 // se teste indépendamment sans devoir attendre l'intervalle de 15 min.
-export { sweepEphemeralTables, purgeOrphanedTrashBlobs, sweepScheduledKeyRotation, TRASH_BLOB_RETENTION_DAYS };
+export { sweepEphemeralTables, purgeOrphanedTrashBlobs, purgeOldVersions, sweepScheduledKeyRotation, TRASH_BLOB_RETENTION_DAYS };

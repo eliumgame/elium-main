@@ -22,6 +22,7 @@ import {
 import { useDrive } from "../session";
 import { prepareLogin, signLoginChallenge } from "../account";
 import ChangePasswordSection from "./ChangePasswordSection";
+import DevicesSection from "./DevicesSection";
 import { makeQrDataUrl } from "../../sign/qr";
 import type { MfaStatus } from "../types";
 
@@ -54,16 +55,23 @@ export default function SecurityPanel() {
   const [delBusy, setDelBusy] = useState(false);
 
   const reload = useCallback(async () => {
+    let factor = false;
     try {
-      setStatus(await d.api.mfaStatus());
+      const st = await d.api.mfaStatus();
+      setStatus(st);
+      factor = st.enabled;
     } catch {
       setStatus(null);
     }
     try {
-      setPasskeys((await d.api.webauthnCredentials()).credentials);
+      const creds = (await d.api.webauthnCredentials()).credentials;
+      setPasskeys(creds);
+      factor = factor || creds.length > 0;
     } catch {
       setPasskeys([]);
     }
+    // 2FA imposée par le propriétaire : dès qu'un facteur existe, on débloque l'accès.
+    if (factor && d.mfaEnrollRequired) void d.refreshSite();
   }, [d.api]);
 
   useEffect(() => {
@@ -491,6 +499,8 @@ export default function SecurityPanel() {
         </div>
         {unlockMsg && <p className="dc-security__unlock-msg muted">{unlockMsg}</p>}
       </div>
+
+      <DevicesSection />
 
       <ChangePasswordSection />
 

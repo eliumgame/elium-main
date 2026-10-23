@@ -35,6 +35,7 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
 
   const [pw, setPw] = useState("");
   const [auto, setAuto] = useState(false);
+  const required = d.policy?.backupRequired === true;
   const [link, setLink] = useState<DriveLink | null>(null);
   const [res, setRes] = useState<Result>({ kind: "idle" });
   const [pending, setPending] = useState<{ manifest: BackupManifest; snapshot: BackupSnapshot } | null>(null);
@@ -163,7 +164,8 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
           <label className="settings__row">
             <input
               type="checkbox"
-              checked={auto}
+              checked={auto || required}
+              disabled={required}
               onChange={(e) => {
                 setAuto(e.target.checked);
                 writeAuto(WORKSPACE_SLOT, ctx, e.target.checked);
@@ -171,6 +173,7 @@ export default function DriveBackupSection({ bridge }: { bridge: WorkspaceSettin
               }}
             />
             Sauvegarder automatiquement une minute après chaque modification
+            {required && <span className="muted"> — imposé par le propriétaire de ce Drive</span>}
           </label>
           {res.kind === "busy" && <p className="muted">Synchronisation en cours…</p>}
           {res.kind === "ok" && <Alert tone="success">{res.message}</Alert>}

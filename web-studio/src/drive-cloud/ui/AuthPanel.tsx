@@ -28,8 +28,14 @@ import { reportError } from "../../ui/crash-log";
 
 type Mode = "login" | "register";
 
-export default function AuthPanel({ onHome }: { onHome: () => void }) {
+export default function AuthPanel({ onHome, gated = false }: { onHome?: () => void; gated?: boolean }) {
   const d = useDrive();
+  // Politique du site déployé : qui peut s'inscrire, longueur du mot de passe.
+  const policy = d.policy ?? null;
+  const minLen = policy?.passwordMinLength ?? 8;
+  const canRegister =
+    !policy || !policy.bootstrapped || policy.signupMode === "open" || (policy.signupMode === "invite" && !!d.pendingInvite);
+  const [localErr, setLocalErr] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>(d.pendingInvite ? "register" : "login");
   const [serverOpen, setServerOpen] = useState(false);
   const [serverUrl, setServerUrl] = useState(getConfiguredApiBase());
@@ -51,6 +57,11 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
       else if (mode === "login") await d.login(email, password);
       else {
         if (password !== confirm) return;
+        if (password.length < minLen) {
+          setLocalErr(`Le mot de passe doit comporter au moins ${minLen} caractères.`);
+          return;
+        }
+        setLocalErr(null);
         await d.register(email, password, displayName);
       }
     } catch {
@@ -99,19 +110,27 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
 
       <main className="dc-auth__panel">
         <div className="dc-auth__panel-top">
-          <button className="eb eb--sm eb--ghost" onClick={onHome}>
-            <Home size={16} /> Accueil
-          </button>
+          {gated || !onHome ? (
+            <span />
+          ) : (
+            <button className="eb eb--sm eb--ghost" onClick={onHome}>
+              <Home size={16} /> Accueil
+            </button>
+          )}
           <span className="dc-auth__logo dc-auth__logo--compact">
-            <Cloud size={18} /> Elium Drive
+            <Cloud size={18} /> {policy?.siteName || "Elium Drive"}
           </span>
-          <button
-            className="eb eb--sm eb--ghost"
-            onClick={() => setServerOpen((o) => !o)}
-            title="Configurer le serveur Drive"
-          >
-            <Server size={15} /> Serveur
-          </button>
+          {gated ? (
+            <span />
+          ) : (
+            <button
+              className="eb eb--sm eb--ghost"
+              onClick={() => setServerOpen((o) => !o)}
+              title="Configurer le serveur Drive"
+            >
+              <Server size={15} /> Serveur
+            </button>
+          )}
         </div>
 
         {serverOpen && (
@@ -271,6 +290,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                 >
                   <LogIn size={15} /> Connexion
                 </button>
+                {canRegister && (
                 <button
                   className={mode === "register" ? "is-active" : ""}
                   onClick={() => {
@@ -280,7 +300,15 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                 >
                   <UserPlus size={15} /> Créer un compte
                 </button>
+                )}
               </div>
+              {!canRegister && policy && (
+                <p className="muted" data-testid="signup-closed">
+                  {policy.signupMode === "invite"
+                    ? "L'inscription se fait sur invitation : demandez un lien au propriétaire de ce Drive."
+                    : "Les inscriptions sont fermées sur ce Drive."}
+                </p>
+              )}
               <form onSubmit={submit} className="dc-auth__form">
                 {mode === "register" && (
                   <label className="field">
@@ -312,7 +340,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={8}
+                    minLength={mode === "register" ? minLen : undefined}
                     autoComplete={mode === "login" ? "current-password" : "new-password"}
                   />
                 </label>
@@ -337,7 +365,7 @@ export default function AuthPanel({ onHome }: { onHome: () => void }) {
                     </p>
                   </>
                 )}
-                {d.error && <p className="dc-error">{d.error}</p>}
+                {(localErr || d.error) && <p className="dc-error">{localErr || d.error}</p>}
                 <button
                   className="eb eb--primary eb--block"
                   disabled={d.busy || (mode === "register" && password !== confirm)}

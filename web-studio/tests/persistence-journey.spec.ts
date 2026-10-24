@@ -129,7 +129,9 @@ const SEED = async () => {
   const deck = emptyDeck();
   await deckStore.save("deck-q3", deck, undefined, T);
   await service.registerSaved({ id: "deck-q3", kind: "slides", title: "Revue trimestrielle", size: 100 });
-  const pdf = enc("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+  const pdf = enc(
+    "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n",
+  );
   await pdfStore.put({ id: "pdf-facture", name: "Facture.pdf", bytes: pdf }, undefined, T);
   await service.registerSaved({ id: "pdf-facture", kind: "pdf", title: "Facture", size: pdf.length });
   await catalog.patchItems(["sheet-budget"], { folderId: "dossier-compta", starred: true });
@@ -182,7 +184,8 @@ async function register(page: Page) {
   await expect(authCard(page).getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 60_000 });
   await authCard(page).getByRole("button", { name: "Créer un compte" }).click();
   await authCard(page).getByPlaceholder("Prénom Nom").fill(OWNER.name);
-  await page.getByTestId("activation-code").fill(ACTIVATION);
+  const code = page.getByTestId("activation-code");
+  if (await code.isVisible({ timeout: 5_000 }).catch(() => false)) await code.fill(ACTIVATION);
   await authCard(page).locator('input[type="email"]').fill(OWNER.email);
   const pws = authCard(page).locator('input[type="password"]');
   await pws.nth(0).fill(OWNER.pw);

@@ -1553,6 +1553,25 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         self._serve_bytes(reply, "application/timestamp-reply")
 
+    def _discard_body(self, limit: int = 1 << 20) -> None:
+        """Évacue le corps d'une requête refusée (petit) pour que le client lise bien la
+        réponse d'erreur ; un gros corps n'est pas lu : on ferme la connexion."""
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        if 0 < length <= limit:
+            previous = self.connection.gettimeout()
+            self.connection.settimeout(5)
+            try:
+                self.rfile.read(length)
+            except OSError:
+                self.close_connection = True
+            finally:
+                self.connection.settimeout(previous)
+        elif length > limit:
+            self.close_connection = True
+
     def _handle_files(self, method: str, op: str) -> None:
         """API de fichiers locaux (voir local_files.py). Jeton + Origin/Host exigés
         pour GET comme pour POST ; réponses JSON sauf `read` (octets bruts)."""
@@ -1594,6 +1613,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "Route inconnue")
         except local_files.PathRefused as e:
+            if method == "POST":
+                self._discard_body()
             self.send_error(400, f"Chemin refusé : {e}")
         except FileNotFoundError:
             self.send_error(404, "Fichier introuvable")

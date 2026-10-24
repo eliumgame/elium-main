@@ -37,11 +37,19 @@ const EXTS: Record<ContentStoreId, string> = {
   pdfs: ".pdf",
 };
 
-/** Donnée hors espace de travail à miroiter (ex. passeport E4) : un seul fichier. */
+/**
+ * Donnée hors catalogue à miroiter : un seul fichier (passeport, brouillons, versions, polices, réglages…).
+ * `merge` : restaurée à chaque démarrage par fusion (le plus récent gagne, voir `applyExtra`), sinon seulement
+ * si le magasin local est vide. `watch: "dirty"` : relue seulement après `markDirty(id)` (magasins lourds).
+ */
 export interface MirrorExtra {
   id: string;
-  dir: "Passeport";
+  dir: "Passeport" | "Annexes";
   name: string;
+  /** Extension en clair (défaut `.json`) ; scellé : toujours `.vault`. */
+  ext?: string;
+  merge?: boolean;
+  watch?: "poll" | "dirty";
   read(): Promise<Uint8Array | undefined>;
   write(bytes: Uint8Array): Promise<void>;
   isEmpty(): Promise<boolean>;
@@ -134,6 +142,9 @@ export class FileMirror {
   private sawItems = false;
   private protectedIds = new Set<string>();
   private extraHashes = new Map<string, string>();
+  /** Extras « dirty » : déjà présents en fichier (empreinte du fichier) ; relus seulement si signalés. */
+  private extraWritten = new Map<string, string>();
+  private extraDirty = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -249,19 +260,67 @@ export class FileMirror {
     const after = new Set((await this.deps.catalog.load()).items.map((i) => i.id));
     this.protectedIds = new Set(file.items.filter((i) => !after.has(i.id)).map((i) => i.id));
     if (after.size > 0) this.sawItems = true;
+    await this.restoreExtras(secret);
+    return items.filter((i) => after.has(i.id)).length;
+  }
+
+  private appliedKey = "elium_mirror_applied_v1";
+  private applied(): Record<string, string> {
+    try {
+      return JSON.parse(this.deps.storage.get(this.appliedKey) ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  private extraBase(extra: MirrorExtra) {
+    return `${extra.dir}/${extra.name}`;
+  }
+  private extraFile(extra: MirrorExtra, sealed: boolean) {
+    return `${this.extraBase(extra)}${sealed ? ".vault" : (extra.ext ?? ".json")}`;
+  }
+
+  /** Réimporte les extras présents en fichiers (fusion par date, jamais d'écrasement du plus récent). */
+  private async restoreExtras(secret: VaultSecret | undefined): Promise<void> {
+    const { backend } = this.deps;
+    const applied = this.applied();
     for (const extra of this.deps.extras ?? []) {
       try {
-        const base = `${extra.dir}/${extra.name}`;
-        const sealedBytes = await backend.read(`${base}.vault`);
-        const plainBytes = sealedBytes ? undefined : await backend.read(`${base}.json`);
-        if (!(await extra.isEmpty())) continue;
-        if (plainBytes) await extra.write(plainBytes);
-        else if (sealedBytes && hasVaultSecret(secret)) await extra.write(await openFromDisk(sealedBytes, secret));
+        const sealedBytes = await backend.read(this.extraFile(extra, true));
+        const plainBytes = sealedBytes ? undefined : await backend.read(this.extraFile(extra, false));
+        const raw = sealedBytes ?? plainBytes;
+        if (!raw) continue;
+        const sha = await sha256Hex(raw);
+        const empty = await extra.isEmpty();
+        // Même fichier déjà appliqué et magasin non vidé depuis : rien à refaire.
+        if (applied[extra.id] === sha && !empty) {
+          this.extraWritten.set(extra.id, sha);
+          continue;
+        }
+        if (!extra.merge && !empty) continue;
+        let bytes = raw;
+        if (sealedBytes) {
+          if (!hasVaultSecret(secret)) continue;
+          bytes = await openFromDisk(sealedBytes, secret);
+        }
+        await extra.write(bytes);
+        applied[extra.id] = sha;
+        // Pas d'`extraWritten` : le local peut être plus récent que le fichier, le 1er passage le réécrit fusionné.
       } catch {
-        /* meilleur effort */
+        /* meilleur effort : un extra illisible ne bloque ni les autres ni le miroir */
       }
     }
-    return items.filter((i) => after.has(i.id)).length;
+    try {
+      this.deps.storage.set(this.appliedKey, JSON.stringify(applied));
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+
+  /** Signale qu'un extra « dirty » a changé (relu au prochain passage). */
+  markDirty(id: string): void {
+    this.extraDirty.add(id);
+    this.schedule();
   }
 
   private catalogJson(c: CatalogFile): string {
@@ -345,19 +404,32 @@ export class FileMirror {
     }
     this.prev = cat;
 
+    const applied = this.applied();
     for (const extra of this.deps.extras ?? []) {
       try {
+        const dirty = this.extraDirty.has(extra.id);
+        if (extra.watch === "dirty" && !dirty && this.extraWritten.has(extra.id) && !sealedChanged) continue;
+        this.extraDirty.delete(extra.id);
         const bytes = await extra.read();
         if (!bytes) continue;
         const h = await sha256Hex(bytes);
         if (this.extraHashes.get(extra.id) === h && !sealedChanged) continue;
-        const base = `${extra.dir}/${extra.name}`;
-        await backend.write(sealed ? `${base}.vault` : `${base}.json`, await toDisk(bytes));
-        if (sealedChanged) await backend.remove(sealed ? `${base}.json` : `${base}.vault`, { hard: true });
+        const disk = await toDisk(bytes);
+        await backend.write(this.extraFile(extra, sealed), disk);
+        if (sealedChanged) await backend.remove(this.extraFile(extra, !sealed), { hard: true });
         this.extraHashes.set(extra.id, h);
+        const fileSha = await sha256Hex(disk);
+        this.extraWritten.set(extra.id, fileSha);
+        applied[extra.id] = fileSha; // ce que l'on vient d'écrire est déjà dans la base
       } catch (e) {
+        this.extraDirty.add(extra.id);
         errors.push(`${extra.id} : ${msg(e)}`);
       }
+    }
+    try {
+      this.deps.storage.set(this.appliedKey, JSON.stringify(applied));
+    } catch {
+      /* stockage indisponible */
     }
 
     if (errors.length) this.status({ state: "error", message: errors.slice(0, 3).join(" ; ") });
@@ -379,7 +451,14 @@ export class FileMirror {
     return this.chain as Promise<void>;
   }
 
+  private disposers: (() => void)[] = [];
+  /** Enregistre un nettoyage exécuté à `dispose()` (écouteurs, etc.). */
+  onDispose(fn: () => void): void {
+    this.disposers.push(fn);
+  }
+
   dispose(): void {
     clearTimeout(this.timer);
+    for (const fn of this.disposers.splice(0)) fn();
   }
 }

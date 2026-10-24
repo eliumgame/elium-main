@@ -136,6 +136,7 @@ La restauration ne fait qu'**ajouter** : elle n'écrase jamais.
 | `Classeurs\`, `Presentations\` | modèles `.classeur.json` / `.presentation.json` |
 | `PDF\` | fichiers PDF |
 | `Passeport\` | passeport professionnel E4 |
+| `Annexes\` | brouillons de récupération (Documents et PDF), historique de versions, polices importées, annexes du passeport, circuits Parapheur (`*.elium-extra`), réglages (`reglages.json`) |
 | `Sauvegardes\` | copie de sécurité `avant-migration-AAAA-MM-JJ.elium-workspace` |
 | `_elium\`, `.corbeille\` | catalogue et état ; fichiers retirés (purgés après 30 jours) |
 
@@ -145,7 +146,9 @@ La restauration ne fait qu'**ajouter** : elle n'écrase jamais.
 - **Sur le site** : pas de fichiers ; Elium demande au navigateur un **stockage persistant** pour limiter l'éviction des données.
 - L'état du miroir s'affiche dans Réglages, Sauvegarde.
 
-Limites : les circuits du Parapheur voyagent dans le `.elium` (pas de fichier séparé) ; les réglages du Détecteur ne sont pas miroités ; un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement s'il manque dans la base.
+**Cache vidé ?** Au prochain lancement, tout revient automatiquement depuis `Documents\Elium` (éléments, brouillons, historique, polices, réglages), sans fenêtre de confirmation. Si un même enregistrement existe des deux côtés, **le plus récent gagne** et le plus ancien ne remplace jamais le plus récent ; les réglages locaux déjà présents ne sont pas écrasés. Les clés privées et identités ne sont **jamais** écrites dans ce dossier.
+
+Limites : les réglages du Détecteur ne sont pas miroités ; un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement s'il manque dans la base.
 
 ### Limites connues de l'espace de travail
 

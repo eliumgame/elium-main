@@ -18,8 +18,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
-ALLOWED_DIRS = ("Documents", "Classeurs", "Presentations", "PDF", "Passeport", "Sauvegardes", "_elium")
-ALLOWED_EXTS = (".elium", ".json", ".pdf", ".vault", ".elium-workspace")
+ALLOWED_DIRS = ("Documents", "Classeurs", "Presentations", "PDF", "Passeport", "Annexes", "Sauvegardes", "_elium")
+ALLOWED_EXTS = (".elium", ".json", ".pdf", ".vault", ".elium-workspace", ".elium-extra")
 MAX_FILE_BYTES = 512 * 1024 * 1024
 MAX_NAME_LEN = 200
 TRASH_DIR = ".corbeille"

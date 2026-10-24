@@ -161,3 +161,16 @@ def test_hard_remove_leaves_nothing_in_trash(store):
     store.write("Documents/a.elium", b"clair")
     assert store.remove("Documents/a.elium", hard=True) is True
     assert not (store.root / ".corbeille").exists() and store.list() == []
+
+
+def test_annexes_dir_accepts_extra_and_vault_but_nothing_else(store):
+    store.write("Annexes/brouillons.elium-extra", b"zip")
+    store.write("Annexes/polices.vault", b"v")
+    store.write("Annexes/reglages.json", b"{}")
+    assert [e["p"] for e in store.list()] == [
+        "Annexes/brouillons.elium-extra", "Annexes/polices.vault", "Annexes/reglages.json",
+    ]
+    with pytest.raises(local_files.PathRefused):
+        store.write("Annexes/script.bat", b"x")
+    with pytest.raises(local_files.PathRefused):
+        store.write("Annexes/Sous/dossier.elium-extra", b"x")

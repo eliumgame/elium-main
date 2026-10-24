@@ -234,6 +234,21 @@ describe("sauvegarde incrémentale", () => {
     expect(all.some((i) => i.title.includes("(restauré)"))).toBe(true);
   });
 
+  it("espace local vidé après une sauvegarde : rien n'est poussé, la détection est relancée", async () => {
+    const drive = memoryDrive();
+    const d = device(drive);
+    markReady(d.env);
+    await d.catalog.upsertItems([item("d1")]);
+    d.contents.drive.map.set("d1", enc("un"));
+    await syncOnce(d.env);
+    const indexBefore = [...drive.files.values()].find((f) => f.entry.name === "_index.json")!.bytes.length;
+    const empty = device(drive);
+    empty.env.store.save(d.getState()); // même état que l'ancien appareil, mais catalogue vide (données effacées)
+    expect(await syncOnce(empty.env)).toBeNull();
+    expect(empty.getState().ready).toBe(false);
+    expect([...drive.files.values()].find((f) => f.entry.name === "_index.json")!.bytes.length).toBe(indexBefore);
+  });
+
   it("détecte une ancienne archive monolithique", async () => {
     const drive = memoryDrive();
     const a = device(drive);

@@ -277,6 +277,11 @@ export default function App() {
       "elium_recent_commands",
     ])
       localStorage.removeItem(k);
+    // État de synchronisation Drive effacé avec les données : au prochain démarrage l'espace vide n'est jamais
+    // poussé par-dessus la sauvegarde (le Drive est sondé et la restauration proposée).
+    for (const k of Object.keys(localStorage))
+      if (k.startsWith("elium_drive_sync_v1:") || k.startsWith("elium_drive_link:") || k === "elium_sync_dirty_v1")
+        localStorage.removeItem(k);
     // Also purge the IndexedDB stores (Drive library, app autosaves, version
     // history, parapheur, drafts, vault) — otherwise "données effacées" leaves them behind.
     for (const db of [

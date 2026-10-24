@@ -295,6 +295,8 @@ test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, 
   await a.getByTitle("Accueil").first().click();
   await expectHome(a);
 
+  // Mesure ciblée : seule la sauvegarde (hors chargement des éditeurs en mode dev) ne doit pas bloquer l'interface.
+  await watchLongTasks(a);
   const since = new Date().toISOString();
   await a.evaluate(async () => (await import("/src/workspace/sync-controller.ts")).flushNow());
   await waitSynced(a, since);

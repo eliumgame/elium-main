@@ -1,7 +1,16 @@
 /** Adaptateur du moteur de sauvegarde incrémentale (workspace/drive-sync.ts) sur les opérations réelles du Drive. */
 import { LEGACY_FILE, SYNC_FOLDER, type RemoteEntry, type SyncRemote, type SyncState } from "../workspace/drive-sync";
 import { emptyState } from "../workspace/drive-sync";
-import { downloadFile, listFolder, renameNode, saveNewVersion, uploadFile, type DriveEntry, type OpsCtx } from "./ops";
+import {
+  decryptEntries,
+  downloadFile,
+  listFolder,
+  renameNode,
+  saveNewVersion,
+  uploadFile,
+  type DriveEntry,
+  type OpsCtx,
+} from "./ops";
 import { ensureRootFolder } from "./named-file";
 
 const stateKey = (w: Pick<OpsCtx, "userId" | "orgId">) => `elium_drive_sync_v1:${w.userId}:${w.orgId}`;
@@ -62,8 +71,14 @@ export function opsRemote(ctx: OpsCtx): SyncRemote {
       if (e) await renameNode(ctx, e, name);
     },
     async download(entry) {
-      const e = known.get(entry.id);
-      if (!e) throw new Error("Fichier de sauvegarde introuvable dans le Drive.");
+      let e = known.get(entry.id);
+      if (!e) {
+        // Nœud non listé par cette instance (contexte de session recréé) : relu avec ses clés.
+        const { node, myWrappedKey } = await ctx.api.getNode(entry.id);
+        e = (await decryptEntries(ctx, [{ ...node, myWrappedKey }]))[0];
+        if (!e) throw new Error("Fichier de sauvegarde introuvable dans le Drive.");
+        known.set(entry.id, e);
+      }
       return (await downloadFile(ctx, e)).bytes;
     },
     async findLegacy() {

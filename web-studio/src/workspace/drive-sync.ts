@@ -184,6 +184,13 @@ export async function syncOnce(
   const { items, folders } = await env.deps.catalog.load();
   if (items.some((i) => i.locked) || folders.some((f) => f.locked))
     throw new VaultLockedError("Le coffre local est verrouillé : déverrouillez-le pour sauvegarder.");
+  // Garde-fou : un espace local VIDE alors que des éléments étaient déjà sauvegardés (données effacées, coffre
+  // réinitialisé) ne doit jamais devenir la version du Drive : on repasse par la détection / restauration.
+  if (items.length === 0 && Object.keys(state.items).length > 0) {
+    state.ready = false;
+    env.store.save(state);
+    return null;
+  }
   const report: SyncReport = { items: 0, pieces: 0, skippedLocked: 0, failed: [] };
   const folderId = state.folderId ?? (state.folderId = await env.remote.ensureFolder());
   env.store.save(state);

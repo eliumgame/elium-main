@@ -82,10 +82,14 @@ const RETRY_MS = 30_000;
 
 const yieldNow = () => new Promise<void>((r) => setTimeout(r, 0));
 
+// L'adaptateur retient les nœuds listés (clés de déchiffrement) : une seule instance par contexte de session.
+let remoteCache: { ctx: OpsCtx; remote: ReturnType<typeof opsRemote> } | null = null;
+
 function makeEnv(c: Config): SyncEnv | null {
   if (!c.ctx) return null;
+  if (!remoteCache || remoteCache.ctx !== c.ctx) remoteCache = { ctx: c.ctx, remote: opsRemote(c.ctx) };
   return {
-    remote: opsRemote(c.ctx),
+    remote: remoteCache.remote,
     store: localSyncStore(c.ctx),
     deps: c.getDeps(),
     extras: {
@@ -205,7 +209,13 @@ async function run(_reason: string, opts: { only?: string[]; piecesToo?: boolean
   running = (async () => {
     try {
       const rep = await syncOnce(env, opts);
-      if (rep?.failed.length) {
+      if (rep === null) {
+        // Espace réconcilié « perdu » (garde-fou) : nouvelle détection au lieu d'écraser le Drive.
+        running = null;
+        void reconcile();
+        return;
+      }
+      if (rep.failed.length) {
         ok = false;
         set({ phase: "error", message: `${rep.failed[0]!.name} : ${rep.failed[0]!.message}` });
         scheduleRetry();

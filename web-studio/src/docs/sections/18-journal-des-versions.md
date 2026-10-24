@@ -2,6 +2,16 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.28.0 — aucun travail perdu : sauvegarde Drive incrémentale et restauration automatique
+
+- **« Enregistrer » ne perd plus rien** : si le navigateur refuse l'écriture sur le disque (permission, contexte non sécurisé), le document est tout de même enregistré dans la bibliothèque et dans le Drive, une copie est téléchargée et un message clair en français remplace l'erreur technique (Documents, PDF, archive de l'espace de travail).
+- **Bouton « Enregistrer dans le Drive »** dans les Documents, le Tableur, les Présentations et le PDF : envoi immédiat, chiffré de bout en bout et versionné. Un « Enregistrer » normal pousse aussi vers le Drive quand la sauvegarde automatique est active.
+- **Sauvegarde incrémentale** dans le dossier « Sauvegarde Elium » du Drive : un fichier par élément, seul ce qui change est renvoyé. Elle couvre désormais aussi les brouillons de récupération, l'historique de versions, les polices importées, le passeport (et ses annexes), les circuits du Parapheur, les dossiers, favoris, étiquettes, corbeille et réglages. Les clés privées et identités ne sont jamais envoyées.
+- **Sur un site déployé, la sauvegarde automatique est activée par défaut** (obligatoire quand le propriétaire l'impose) ; une pastille d'état toujours visible indique « enregistré », « en attente » ou « hors ligne » ; les modifications en attente partent au retour du réseau, à la reconnexion et à la fermeture de la page.
+- **Appareil neuf ou cache effacé** : dès la connexion, la restauration est proposée avec un choix explicite en cas de conflit (garder les deux, remplacer, garder le local) ; rien n'est envoyé tant que vous n'avez pas choisi, et un espace vide ne remplace jamais une sauvegarde existante.
+- **Portail du propriétaire** : colonne « Dernière sauvegarde » par utilisateur, avec alerte au-delà de deux jours quand la sauvegarde est imposée.
+- Parcours de persistance testé de bout en bout dans un vrai navigateur (`npm run test:e2e:persistence`).
+
 ### Version 4.27.1 — correctif de sécurité (2FA)
 
 - **Contournement de la 2FA corrigé** : le jeton intermédiaire délivré après le mot de passe (en attente du code de vérification) n'est plus accepté comme jeton d'accès. Mettez à jour votre serveur ; aucune action n'est nécessaire côté utilisateurs.

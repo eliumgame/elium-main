@@ -102,3 +102,23 @@ describe("refresh tokens", () => {
     expect(hashToken("value")).toBe(sha256Hex("value"));
   });
 });
+
+describe("un jeton à usage limité n'est jamais un jeton d'accès (contournement de la 2FA)", () => {
+  it("verifyAccessToken refuse le mfaToken émis après le mot de passe", () => {
+    const mfaToken = issueScopedToken("user-1", "mfa-login");
+    expect(verifyAccessToken(mfaToken)).toBeNull();
+  });
+  it("refuse tout jeton à usage limité, quel que soit son objectif", () => {
+    for (const purpose of ["mfa-login", "webauthn-login", "reset"]) {
+      expect(verifyAccessToken(issueScopedToken("user-1", purpose))).toBeNull();
+    }
+  });
+  it("accepte toujours un vrai jeton d'accès", () => {
+    const { token } = issueAccessToken("user-1", "fp");
+    expect(verifyAccessToken(token)?.sub).toBe("user-1");
+  });
+  it("un jeton d'accès n'est pas accepté comme jeton à usage limité", () => {
+    const { token } = issueAccessToken("user-1", "fp");
+    expect(verifyScopedToken(token, "mfa-login")).toBeNull();
+  });
+});

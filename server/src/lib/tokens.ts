@@ -40,9 +40,15 @@ export function verifyAccessToken(token: string): AccessTokenClaims | null {
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AccessTokenClaims;
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AccessTokenClaims & {
+      purpose?: unknown;
+    };
     if (typeof claims.exp !== "number" || claims.exp < Math.floor(Date.now() / 1000)) return null;
     if (typeof claims.sub !== "string") return null;
+    // Un jeton à usage limité (étape MFA de la connexion, challenges WebAuthn…) est signé avec la MÊME clé :
+    // il ne doit JAMAIS être accepté comme jeton d'accès (sinon le mot de passe seul contournerait la 2FA).
+    if (claims.purpose !== undefined) return null;
+    if (typeof claims.fpr !== "string") return null;
     return claims;
   } catch {
     return null;

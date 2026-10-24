@@ -2,6 +2,10 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.27.1 — correctif de sécurité (2FA)
+
+- **Contournement de la 2FA corrigé** : le jeton intermédiaire délivré après le mot de passe (en attente du code de vérification) n'est plus accepté comme jeton d'accès. Mettez à jour votre serveur ; aucune action n'est nécessaire côté utilisateurs.
+
 ### Version 4.27.0 — protections contre l'auto-blocage et réinitialisation de mot de passe
 
 - **Imposer la 2FA ne peut plus vous enfermer dehors par inadvertance** : le portail demande une confirmation explicite (application et codes de secours en lieu sûr) ET un code valide saisi à l'instant (ré-authentification, vérifiée par le serveur).

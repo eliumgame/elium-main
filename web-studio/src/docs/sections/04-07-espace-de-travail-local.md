@@ -148,6 +148,8 @@ La restauration ne fait qu'**ajouter** : elle n'écrase jamais.
 
 **Cache vidé ?** Au prochain lancement, tout revient automatiquement depuis `Documents\Elium` (éléments, brouillons, historique, polices, réglages), sans fenêtre de confirmation. Si un même enregistrement existe des deux côtés, **le plus récent gagne** et le plus ancien ne remplace jamais le plus récent ; les réglages locaux déjà présents ne sont pas écrasés. Les clés privées et identités ne sont **jamais** écrites dans ce dossier.
 
+**Utiliser un Drive d'entreprise depuis l'application Windows.** Par défaut le lanceur interdit à la page tout accès réseau externe (CSP `connect-src 'self'`). Quand vous saisissez l'URL de votre serveur dans Drive, Serveur, Elium déclare **cette seule origine** au lanceur (route protégée par le jeton de session) : elle est ajoutée à `connect-src` (et son équivalent WebSocket) et la page se recharge une fois. Seul `https` est accepté (`http` uniquement en boucle locale, pour un essai) ; aucune autre directive n'est élargie. Le serveur doit autoriser l'origine de l'application (`CORS_ORIGINS=http://127.0.0.1:<port>`) : épinglez le port dans Réglages pour qu'elle reste stable.
+
 Limites : les réglages du Détecteur ne sont pas miroités ; un fichier modifié à la main n'est pris en compte qu'au démarrage et seulement s'il manque dans la base.
 
 ### Limites connues de l'espace de travail

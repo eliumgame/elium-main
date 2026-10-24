@@ -16,6 +16,7 @@ import hmac
 import http.server
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -1150,6 +1151,58 @@ CSP_DIRECTIVES: "tuple[str, ...]" = (
 )
 CONTENT_SECURITY_POLICY = "; ".join(CSP_DIRECTIVES)
 
+# --------------------------------------------------------------------------- #
+# Drive depuis l'app Windows : la CSP `connect-src 'self'` interdit tout accès réseau externe.
+# Pour utiliser un serveur Drive d'entreprise, l'utilisateur déclare SON origine (une seule,
+# https — ou http en boucle locale pour un essai) ; elle est ajoutée à `connect-src` (et son
+# équivalent WebSocket) au prochain chargement de page. Rien d'autre n'est ouvert, et la
+# déclaration exige le jeton de session (une page tierce ne peut pas l'élargir).
+# Le serveur Drive doit autoriser l'origine de l'app (CORS_ORIGINS=http://127.0.0.1:<port>) :
+# épingler le port dans Réglages pour qu'elle reste stable.
+# --------------------------------------------------------------------------- #
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "[::1]")
+
+
+def normalize_drive_origin(raw: object) -> "str | None":
+    """Origine canonique `scheme://hôte[:port]` d'un serveur Drive, ou None si refusée
+    (autre schéma que https — http seulement en boucle locale —, identifiants, chemin,
+    requête, caractères de contrôle ou d'injection dans une directive CSP)."""
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not value or len(value) > 253 or not re.fullmatch(r"[A-Za-z0-9:/.\-\[\]]+", value):
+        return None
+    try:
+        u = urllib.parse.urlsplit(value)
+        host = u.hostname
+        port = u.port
+    except ValueError:
+        return None
+    if u.scheme not in ("https", "http") or not host or u.username or u.password:
+        return None
+    if u.path not in ("", "/") or u.query or u.fragment:
+        return None
+    hostname = f"[{host}]" if ":" in host else host
+    if u.scheme == "http" and hostname not in _LOOPBACK_HOSTS:
+        return None
+    return f"{u.scheme}://{hostname}" + (f":{port}" if port else "")
+
+
+def _drive_origin() -> "str | None":
+    return normalize_drive_origin(_load_launcher_config().get("drive_origin"))
+
+
+def content_security_policy() -> str:
+    """CSP servie : la constante stricte, + l'origine du Drive déclarée (connect-src seulement)."""
+    origin = _drive_origin()
+    if not origin:
+        return CONTENT_SECURITY_POLICY
+    ws = ("wss" if origin.startswith("https") else "ws") + origin[origin.index("://"):]
+    return CONTENT_SECURITY_POLICY.replace(
+        "connect-src 'self' data: blob:", f"connect-src 'self' data: blob: {origin} {ws}", 1
+    )
+
+
 
 # --- Magasin de clés du système (Windows DPAPI, optionnel) -----------------------
 # Ne remplace rien : le web ajoute cette couche SEULEMENT si l'utilisateur active
@@ -1306,7 +1359,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         # Détail et justification de chaque directive : CSP_DIRECTIVES ci-dessus.
-        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        self.send_header("Content-Security-Policy", content_security_policy())
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
@@ -1358,6 +1411,11 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         if clean.startswith("/__files__/"):
             self._handle_files("GET", clean[len("/__files__/"):])
+            return
+        if clean == "/__drive_origin__":
+            self._serve_bytes(
+                json.dumps({"origin": _drive_origin()}).encode("utf-8"), "application/json; charset=utf-8"
+            )
             return
         if clean == "/__ports__":
             port = self.server.server_address[1]
@@ -1426,6 +1484,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
         if clean == "/__ports__/set":
             self._handle_set_port()
+            return
+        if clean == "/__drive_origin__":
+            self._handle_drive_origin()
             return
         if clean == "/__tsa__":
             self._handle_tsa_relay()
@@ -1734,6 +1795,35 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(502, "Téléchargement impossible (hors ligne ?)")
             return
         self._serve_bytes(data, ctype)
+
+    def _handle_drive_origin(self) -> None:
+        """Déclare (ou efface, `origin` absent/null) l'origine du serveur Drive autorisée par la
+        CSP. Corps JSON minuscule ; prise en compte au prochain chargement de page."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            length = 0
+        if length > _MAX_SET_PORT_BODY:
+            self.close_connection = True
+            self.send_error(413, "Corps de requête trop volumineux")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length) if length > 0 else b"{}")
+        except Exception:
+            payload = {}
+        raw = payload.get("origin") if isinstance(payload, dict) else None
+        cfg = _load_launcher_config()
+        if raw in (None, ""):
+            cfg.pop("drive_origin", None)
+            origin = None
+        else:
+            origin = normalize_drive_origin(raw)
+            if origin is None:
+                self.send_error(400, "Origine refusée : https://hôte[:port] attendu (http seulement en local)")
+                return
+            cfg["drive_origin"] = origin
+        _save_launcher_config(cfg)
+        self._serve_bytes(json.dumps({"ok": True, "origin": origin}).encode("utf-8"), "application/json; charset=utf-8")
 
     def _handle_set_port(self) -> None:
         """Épingle un port pour les PROCHAINS lancements (le serveur déjà lié sur

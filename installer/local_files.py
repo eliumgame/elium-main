@@ -74,7 +74,7 @@ def validate_logical_path(p: str) -> tuple[str, str]:
         raise PathRefused("nom de fichier invalide")
     if _FORBIDDEN_CHARS.search(name) or name != name.strip() or name.endswith("."):
         raise PathRefused("caractère interdit dans le nom")
-    if name.split(".", 1)[0].upper() in _RESERVED:
+    if name.split(".", 1)[0].rstrip(" ").upper() in _RESERVED:
         raise PathRefused("nom réservé par Windows")
     if not name.lower().endswith(ALLOWED_EXTS):
         raise PathRefused("extension non autorisée")

@@ -7,11 +7,13 @@
 import type { VaultSecret } from "../crypto/local-vault";
 import { loadPassport, savePassport } from "../passport/store";
 import type { Catalog } from "../workspace/catalog";
-import { SETTINGS_KEYS, pickKeys } from "../workspace/backup";
+import { pickKeys } from "../workspace/backup";
+import { SYNC_SETTINGS_KEYS as SETTINGS_KEYS } from "../workspace/drive-sync";
 import { createContentIO } from "../workspace/content";
 import { EXTRA_PIECES, applyExtra, dumpExtra, packRecords, unpackRecords, type ExtraPiece } from "../workspace/extras";
 import { DIRTY_EVENT } from "../workspace/sync-dirty";
 import { FileMirror, type MirrorExtra, type MirrorStatus } from "./file-mirror";
+import { syncDriveOrigin } from "./drive-origin";
 import { detectPersistence, requestPersistentStorage } from "./persistence";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -119,6 +121,8 @@ export async function startStorage(opts: {
     void requestPersistentStorage();
     return { mirror: null, restored: 0 };
   }
+  // App Windows : autorise l'origine du serveur Drive saisie par l'utilisateur dans la CSP (rechargement unique).
+  if ((await syncDriveOrigin()) === "reloaded") return { mirror: null, restored: 0 };
   const mirror = new FileMirror({
     backend: p.backend,
     catalog: opts.catalog,

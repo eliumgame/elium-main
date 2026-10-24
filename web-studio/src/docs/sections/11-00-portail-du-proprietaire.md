@@ -98,6 +98,12 @@ Menu **Sécurité** :
 - **Clés d'accès** (passkeys) comme second facteur ou pour déverrouiller les données.
 - **Appareils et sessions** : navigateur, adresse, dernière activité ; révocation d'une session ou de **tous les autres appareils**. Un jeton d'accès déjà émis reste valable jusqu'à 15 minutes au plus ; il n'est plus renouvelable.
 - **Changement de mot de passe** (il révoque les autres sessions).
+- **Confirmation d'identité** : ajouter ou retirer une clé d'accès, et configurer le SSO/SCIM, exigent de ressaisir votre mot de passe (et un code de vérification si la 2FA est active). Le serveur délivre alors un jeton de 5 minutes ; un jeton de connexion volé ne suffit donc pas à poser une porte dérobée durable. Le profil (`PATCH /users/me`) ne modifie plus que le nom affiché : clés et mot de passe passent exclusivement par « Changer de mot de passe ».
+
+### Droits : plafond de privilège et identité
+
+- On **n'attribue jamais un rôle plus puissant que le sien** (invitation comme changement de rôle), jamais le rôle *propriétaire* (transfert de propriété uniquement), jamais son propre rôle, et on ne touche pas au rôle d'un membre plus puissant que soi : un gestionnaire ne peut donc pas se faire administrateur.
+- La **configuration SSO et SCIM est réservée au propriétaire** de l'organisation, avec confirmation d'identité. Un rôle *propriétaire* ne peut pas être attribué par un annuaire. Après une connexion SSO, un compte qui a une 2FA locale reçoit encore le défi de second facteur : un fournisseur d'identité faux ou compromis ne contourne pas la 2FA.
 
 ### Tests
 

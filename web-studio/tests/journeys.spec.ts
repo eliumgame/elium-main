@@ -189,6 +189,24 @@ test.describe("Parcours utilisateur — gestes réels", () => {
     health.assertClean("Tableur");
   });
 
+  test("Tableur — la frappe directe dans la grille garde son premier caractère", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Tableur" }).click();
+    await page.locator(".sheet-grid-wrap").waitFor();
+    const cell = (c: number, r: number) =>
+      page.locator(`.sheet-grid tbody tr[aria-rowindex="${r + 2}"] td[aria-colindex="${c + 2}"]`);
+    await cell(0, 0).click();
+    await page.keyboard.type("Bonjour");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("=1+2");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("12,5");
+    await page.keyboard.press("Enter");
+    await expect(cell(0, 0)).toHaveText("Bonjour");
+    await expect(cell(0, 1)).toHaveText("3");
+    await expect(cell(1, 1)).toHaveText("12,5");
+  });
+
   test("Présentations — ouverture sans erreur", async ({ page }) => {
     const health = trackPageHealth(page);
     await page.goto("/");

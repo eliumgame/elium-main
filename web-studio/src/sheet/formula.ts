@@ -1639,10 +1639,15 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       return Math.floor(n0(args));
     case "SIGN":
       return Math.sign(n0(args));
-    case "CEILING":
-      return Math.ceil(n0(args));
-    case "FLOOR":
-      return Math.floor(n0(args));
+    case "CEILING": {
+      const sig = args[1] ? n0(args, 1) : 1;
+      return sig === 0 ? 0 : Math.ceil(n0(args) / sig) * sig;
+    }
+    case "FLOOR": {
+      const sig = args[1] ? n0(args, 1) : 1;
+      if (sig === 0) throw new FormulaError("#DIV/0");
+      return Math.floor(n0(args) / sig) * sig;
+    }
     case "ROUND": {
       const x = n0(args, 0);
       const d = args[1] ? n0(args, 1) : 0;
@@ -1702,6 +1707,23 @@ function applyFunction(name: string, args: CellValue[][], shapes: (RangeShape | 
       return s0(args).toLowerCase();
     case "TRIM":
       return s0(args).trim().replace(/\s+/g, " ");
+    case "VALUE": {
+      const t = s0(args).trim().replace(",", ".");
+      const n = Number(t);
+      if (t === "" || Number.isNaN(n)) throw new FormulaError("#VALUE");
+      return n;
+    }
+    case "REPT": {
+      const n = Math.trunc(n0(args, 1));
+      if (n < 0 || n * s0(args).length > 100_000) throw new FormulaError("#VALUE");
+      return s0(args).repeat(n);
+    }
+    case "SWITCH": {
+      const key = args[0]?.[0] ?? "";
+      for (let a = 1; a + 1 < args.length; a += 2) if (looseEq(key, args[a]?.[0] ?? "")) return args[a + 1]?.[0] ?? "";
+      if (args.length % 2 === 0) return args[args.length - 1]?.[0] ?? ""; // valeur par défaut
+      throw new FormulaError("#N/A");
+    }
     case "TEXTJOIN": {
       const delim = s0(args, 0);
       const ignoreEmpty = args[1] ? truthy(args[1][0]) : true;
@@ -1748,8 +1770,8 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "ROUND", sig: "ROUND(n; déc)", desc: "Arrondi", cat: "Maths" },
   { name: "ROUNDUP", sig: "ROUNDUP(n; déc)", desc: "Arrondi supérieur", cat: "Maths" },
   { name: "ROUNDDOWN", sig: "ROUNDDOWN(n; déc)", desc: "Arrondi inférieur", cat: "Maths" },
-  { name: "CEILING", sig: "CEILING(n)", desc: "Arrondi à l'entier sup.", cat: "Maths" },
-  { name: "FLOOR", sig: "FLOOR(n)", desc: "Arrondi à l'entier inf.", cat: "Maths" },
+  { name: "CEILING", sig: "CEILING(n; [multiple])", desc: "Arrondi au multiple supérieur", cat: "Maths" },
+  { name: "FLOOR", sig: "FLOOR(n; [multiple])", desc: "Arrondi au multiple inférieur", cat: "Maths" },
   { name: "EXP", sig: "EXP(n)", desc: "Exponentielle", cat: "Maths" },
   { name: "LN", sig: "LN(n)", desc: "Logarithme népérien", cat: "Maths" },
   { name: "LOG", sig: "LOG(n; base)", desc: "Logarithme", cat: "Maths" },
@@ -1782,6 +1804,7 @@ export const FUNCTIONS: FnDoc[] = [
   },
   { name: "IF", sig: "IF(test; si_vrai; si_faux)", desc: "Condition", cat: "Logique" },
   { name: "IFS", sig: "IFS(test1; val1; …)", desc: "Premier test vrai", cat: "Logique" },
+  { name: "SWITCH", sig: "SWITCH(expr; val1; res1; …; [défaut])", desc: "Résultat selon la valeur", cat: "Logique" },
   { name: "IFERROR", sig: "IFERROR(valeur; si_erreur)", desc: "Remplace une erreur par une valeur", cat: "Logique" },
   { name: "IFNA", sig: "IFNA(valeur; si_na)", desc: "Remplace #N/A par une valeur", cat: "Logique" },
   { name: "AND", sig: "AND(a; b; …)", desc: "ET logique", cat: "Logique" },
@@ -1799,6 +1822,8 @@ export const FUNCTIONS: FnDoc[] = [
   { name: "UPPER", sig: "UPPER(texte)", desc: "Majuscules", cat: "Texte" },
   { name: "LOWER", sig: "LOWER(texte)", desc: "Minuscules", cat: "Texte" },
   { name: "TRIM", sig: "TRIM(texte)", desc: "Supprime les espaces superflus", cat: "Texte" },
+  { name: "VALUE", sig: "VALUE(texte)", desc: "Convertit un texte en nombre", cat: "Texte" },
+  { name: "REPT", sig: "REPT(texte; n)", desc: "Répète un texte n fois", cat: "Texte" },
   { name: "SUBSTITUTE", sig: "SUBSTITUTE(texte; ancien; nouveau; [n])", desc: "Remplace du texte", cat: "Texte" },
   { name: "FIND", sig: "FIND(cherché; texte; [début])", desc: "Position (sensible à la casse)", cat: "Texte" },
   { name: "SEARCH", sig: "SEARCH(cherché; texte; [début])", desc: "Position (insensible à la casse)", cat: "Texte" },

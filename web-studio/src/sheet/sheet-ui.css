@@ -50,6 +50,10 @@
   flex-direction: column;
   gap: 2px;
   min-width: 200px;
+  /* Jamais plus large que l'écran, et défilant si la liste est longue (fenêtres étroites, mobile). */
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
   padding: 6px;
   background: var(--el-surface);
   border: 1px solid var(--el-border);

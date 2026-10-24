@@ -574,9 +574,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
     setSel({ c, r });
     if (!extend) setAnchor({ c, r });
   };
+  // Édition amorcée par une frappe : le caractère saisi est déjà dans le brouillon, le curseur doit rester après lui
+  // (le sélectionner le ferait écraser par la frappe suivante).
+  const seededEditRef = useRef(false);
   const startEdit = (initialChar?: string) => {
     if (!canWrite) return;
     setDraft(initialChar !== undefined ? initialChar : (sheet?.cells[activeRef] ?? ""));
+    seededEditRef.current = initialChar !== undefined;
     setAnchor(sel);
     editingRef.current = true;
     setEditing(true);
@@ -1520,7 +1524,13 @@ export default function SheetEditor({ store, chrome }: { store: SheetStore; chro
                                   list={listId}
                                   onChange={(e) => setDraft(e.target.value)}
                                   onKeyDown={onEditKeyDown}
-                                  onFocus={(e) => e.target.select()}
+                                  onFocus={(e) => {
+                                    if (seededEditRef.current) {
+                                      seededEditRef.current = false;
+                                      const n = e.target.value.length;
+                                      e.target.setSelectionRange(n, n);
+                                    } else e.target.select();
+                                  }}
                                   onBlur={commitEdit}
                                   onPaste={onPaste}
                                 />

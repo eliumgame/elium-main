@@ -119,6 +119,9 @@ function notifyOrgLocal(orgId: string): void {
   }
 }
 
+/** Taille d'une page de rattrapage (le client boucle tant que `hasMore`). */
+export const COLLAB_PAGE_SIZE = 5000;
+
 export async function registerCollab(app: FastifyInstance): Promise<void> {
   // Backplane multi-instance (no-op sans REDIS_URL). Les messages venus d'AUTRES
   // instances sont re-délivrés aux peers LOCAUX (from=null pour un broadcast).
@@ -336,14 +339,20 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
     const nodeId = (req.params as { nodeId: string }).nodeId;
     const user = requireUser(req);
     const access = await requireNodePerm(req, nodeId, "node.acl.manage");
-    const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown };
+    const body = (req.body ?? {}) as { ciphertext?: unknown; nonce?: unknown; upToSeq?: unknown };
     const ct = typeof body.ciphertext === "string" ? body.ciphertext : "";
     const nonce = typeof body.nonce === "string" ? body.nonce : "";
     if (!/^[0-9a-f]+$/i.test(ct) || !/^[0-9a-f]{24}$/i.test(nonce)) {
       throw badRequest("Snapshot invalide (ciphertext/nonce hex attendus).");
     }
+    // Le snapshot ne remplace QUE ce que le client a réellement lu et intégré : jusqu'à
+    // `upToSeq` inclus. Une mise à jour arrivée entre-temps (id supérieur) est conservée.
+    const upToSeq = body.upToSeq;
+    if (typeof upToSeq !== "number" || !Number.isSafeInteger(upToSeq) || upToSeq < 0) {
+      throw badRequest("upToSeq (dernier numéro de séquence intégré au snapshot) est requis.");
+    }
     const seq = await withTx(async (c) => {
-      await c.query(`DELETE FROM collab_updates WHERE node_id = $1`, [nodeId]);
+      await c.query(`DELETE FROM collab_updates WHERE node_id = $1 AND id <= $2`, [nodeId, upToSeq]);
       const { rows } = await c.query(
         `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
            VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -372,10 +381,14 @@ export async function registerCollab(app: FastifyInstance): Promise<void> {
            FROM collab_updates
           WHERE node_id = $1 AND id > $2
           ORDER BY id ASC
-          LIMIT 5000`,
+          LIMIT ${COLLAB_PAGE_SIZE + 1}`,
       [nodeId, since],
     );
+    // Une ligne de plus que la page : sait-on s'il en reste, sans second aller-retour.
+    const hasMore = rows.length > COLLAB_PAGE_SIZE;
+    if (hasMore) rows.length = COLLAB_PAGE_SIZE;
     return {
+      hasMore,
       updates: rows.map((r) => ({
         seq: r.id,
         ciphertext: Buffer.from(r.update_ciphertext).toString("hex"),

@@ -35,6 +35,29 @@ export interface CollabHandlers {
   refetchKey?: () => Promise<Uint8Array | null>;
 }
 
+/** Taille de page du serveur, utilisée si une réponse ancienne n'indique pas `hasMore`. */
+const COLLAB_PAGE_FALLBACK = 5000;
+
+/**
+ * Lit TOUT le journal chiffré d'un nœud, page après page. Renvoie les mises à jour et le dernier
+ * numéro de séquence lu (pour une compaction qui ne supprime que ce qui a été lu).
+ */
+export async function readAllCollabUpdates(
+  api: Pick<DriveApi, "getCollabUpdates">,
+  nodeId: string,
+): Promise<{ updates: { seq: number; ciphertext: string; nonce: string; author: string | null }[]; lastSeq: number }> {
+  const all: { seq: number; ciphertext: string; nonce: string; author: string | null }[] = [];
+  let since = 0;
+  for (;;) {
+    const page = await api.getCollabUpdates(nodeId, since);
+    all.push(...page.updates);
+    const last = page.updates.length ? Math.max(...page.updates.map((u) => u.seq)) : since;
+    const more = page.hasMore ?? page.updates.length >= COLLAB_PAGE_FALLBACK;
+    if (!more || last <= since) return { updates: all, lastSeq: Math.max(since, last) };
+    since = last;
+  }
+}
+
 export class EncryptedCollabChannel {
   private ws: WebSocket | null = null;
   private lastSeq = 0;
@@ -55,9 +78,26 @@ export class EncryptedCollabChannel {
   }
 
   private async catchUp(): Promise<void> {
-    const { updates } = await this.api.getCollabUpdates(this.nodeId, this.lastSeq);
     const batch: Uint8Array[] = [];
     let sliceStart = performance.now();
+    // Le serveur renvoie le journal PAR PAGES : on boucle jusqu'à la fin, sinon un document de
+    // plus d'une page diverge silencieusement.
+    for (;;) {
+      const page = await this.api.getCollabUpdates(this.nodeId, this.lastSeq);
+      const before = this.lastSeq;
+      sliceStart = await this.replayPage(page.updates, batch, sliceStart);
+      const more = page.hasMore ?? page.updates.length >= COLLAB_PAGE_FALLBACK;
+      if (!more || this.lastSeq === before) break; // finie, ou aucun progrès (garde anti-boucle)
+    }
+    if (batch.length) this.handlers.onBacklog?.(batch);
+  }
+
+  private async replayPage(
+    updates: { seq: number; ciphertext: string; nonce: string; author: string | null }[],
+    batch: Uint8Array[],
+    sliceStartIn: number,
+  ): Promise<number> {
+    let sliceStart = sliceStartIn;
     for (const u of updates) {
       this.lastSeq = Math.max(this.lastSeq, u.seq);
       try {
@@ -73,7 +113,7 @@ export class EncryptedCollabChannel {
         sliceStart = performance.now();
       }
     }
-    if (batch.length) this.handlers.onBacklog?.(batch);
+    return sliceStart;
   }
 
   private open(): void {

@@ -382,6 +382,53 @@ async function main(): Promise<void> {
     await boss.api.putSiteSettings(s, null);
 
     // =========================================================================
+    section("Journal collab : plus de 5000 mises à jour (pagination et compaction sûre)");
+    await query(`DELETE FROM collab_updates WHERE node_id = $1`, [notes.id]);
+    await query(
+      `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
+       SELECT $1, decode('aa', 'hex'), decode('000000000000000000000000', 'hex'), $2 FROM generate_series(1, 5300)`,
+      [notes.id, alice.user.id],
+    );
+    const { readAllCollabUpdates } = await import("../src/drive-cloud/collab");
+    const page1 = await boss.api.getCollabUpdates(notes.id, 0);
+    ok("1re page : 5000 mises à jour et hasMore = true", page1.updates.length === 5000 && page1.hasMore === true);
+    const all = await readAllCollabUpdates(boss.api, notes.id);
+    ok(
+      "lecture complète paginée : 5300 mises à jour, aucune perdue ni dupliquée",
+      all.updates.length === 5300 && new Set(all.updates.map((u) => u.seq)).size === 5300,
+    );
+    const firstPageLast = page1.updates[4999]!.seq;
+    // Une mise à jour arrive APRÈS la lecture (id > lastSeq) : la compaction ne doit pas l'effacer.
+    const lateRow = await query<{ id: number }>(
+      `INSERT INTO collab_updates (node_id, update_ciphertext, update_nonce, author_user_id)
+       VALUES ($1, decode('bb','hex'), decode('000000000000000000000000','hex'), $2) RETURNING id`,
+      [notes.id, alice.user.id],
+    );
+    await expectStatus(
+      "compaction sans upToSeq : refusée (aucune suppression à l'aveugle)",
+      fetch(`${base}/collab/${notes.id}/compact`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${boss.api.getTokens()!.accessToken}` },
+        body: JSON.stringify({ ciphertext: "cc", nonce: "000000000000000000000000" }),
+      }).then(async (r) => {
+        if (!r.ok) throw new ApiError(r.status, "x", "x");
+      }),
+      400,
+    );
+    await boss.api.compactCollab(notes.id, "cc", "000000000000000000000000", all.lastSeq);
+    const left = await query<{ id: number; c: string }>(
+      `SELECT id, encode(update_ciphertext,'hex') AS c FROM collab_updates WHERE node_id = $1 ORDER BY id`,
+      [notes.id],
+    );
+    ok(
+      "compaction : seul ce qui a été lu est remplacé (la mise à jour tardive est conservée)",
+      left.length === 2 && left[0]!.id === lateRow[0]!.id && left[0]!.c === "bb" && left[1]!.c === "cc",
+      JSON.stringify(left.map((l) => l.c)),
+    );
+    ok("la 2e page du rattrapage existait bien (> 5000)", firstPageLast < all.lastSeq);
+    await query(`DELETE FROM collab_updates WHERE node_id = $1`, [notes.id]);
+
+    // =========================================================================
     section("Rôle, suspension, réactivation");
     await boss.api.patchSiteUser(carol.user.id, { roleId: roleIdByKey["viewer"]! });
     ok(

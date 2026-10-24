@@ -810,10 +810,13 @@ export class DriveApi {
     if (res.status === 401 && (await this.tryRefresh())) res = await doFetch();
     if (!res.ok) return this.parseError(res);
   }
-  /** Replace a node's collab update log with one snapshot (rotation follow-up). */
-  compactCollab(nodeId: string, ciphertextHex: string, nonceHex: string) {
+  /**
+   * Replace the collab update log UP TO `upToSeq` (inclusive) with one snapshot
+   * (rotation follow-up). Updates with a higher seq are kept by the server.
+   */
+  compactCollab(nodeId: string, ciphertextHex: string, nonceHex: string, upToSeq: number) {
     return this.json<{ seq: number }>("POST", `/collab/${nodeId}/compact`, {
-      body: { ciphertext: ciphertextHex, nonce: nonceHex },
+      body: { ciphertext: ciphertextHex, nonce: nonceHex, upToSeq },
     });
   }
   createLink(
@@ -937,6 +940,8 @@ export class DriveApi {
   getCollabUpdates(nodeId: string, since = 0) {
     return this.json<{
       updates: { seq: number; ciphertext: string; nonce: string; author: string | null; createdAt: string }[];
+      /** Il reste des mises à jour après cette page (rattrapage paginé). */
+      hasMore?: boolean;
     }>("GET", `/collab/${nodeId}/updates`, { query: { since } });
   }
   /** WebSocket URL for the encrypted collaboration room. */

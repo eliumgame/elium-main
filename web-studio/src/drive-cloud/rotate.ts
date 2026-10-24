@@ -20,6 +20,7 @@
 import * as Y from "yjs";
 import type { OpsCtx, DriveEntry } from "./ops";
 import { listFolder, nodeKeyFrom } from "./ops";
+import { readAllCollabUpdates } from "./collab";
 import {
   generateNodeKey,
   wrapNodeKeyFor,
@@ -187,7 +188,7 @@ export async function rotateNode(
     // 5. Collab log → ONE snapshot under the new key; the relay then kicks the
     //    room so every peer reconnects and re-fetches its wrapped key.
     if (entry.appKind?.startsWith("collab-")) {
-      const { updates } = await ctx.api.getCollabUpdates(entry.id, 0);
+      const { updates, lastSeq } = await readAllCollabUpdates(ctx.api, entry.id);
       if (updates.length) {
         const doc = new Y.Doc();
         for (const u of updates) {
@@ -200,7 +201,8 @@ export async function rotateNode(
         const snapshot = Y.encodeStateAsUpdate(doc);
         doc.destroy();
         const encSnap = await encryptContent(newKey, snapshot);
-        await ctx.api.compactCollab(entry.id, toHex(encSnap.ciphertext), encSnap.nonceHex);
+        // Ne supprime que ce qui a été lu et intégré (jusqu'à lastSeq), jamais le reste du journal.
+        await ctx.api.compactCollab(entry.id, toHex(encSnap.ciphertext), encSnap.nonceHex, lastSeq);
       }
     }
   }

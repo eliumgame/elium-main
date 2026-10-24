@@ -12,7 +12,12 @@ import { totpNow } from "../../server/src/lib/totp";
  */
 
 const OWNER = { name: "Propriétaire", email: "owner@example.test", pw: "Motdepasse!42-Owner" };
-const MEMBER = { name: "Membre", email: "membre@example.test", pw: "Motdepasse!42-Membre", pw2: "Motdepasse!77-Nouveau" };
+const MEMBER = {
+  name: "Membre",
+  email: "membre@example.test",
+  pw: "Motdepasse!42-Membre",
+  pw2: "Motdepasse!77-Nouveau",
+};
 const ACTIVATION = "AAAA-BBBB-CCCC";
 
 const authCard = (page: Page) => page.locator(".dc-auth__card");
@@ -91,7 +96,9 @@ test("parcours de connexion complet", async ({ page }) => {
   await expect(page.getByTestId("activation-code-org")).toHaveValue(ACTIVATION);
   await page.getByPlaceholder("Ma société").fill("Demo SARL");
   await page.getByRole("button", { name: "Créer l'organisation" }).click();
-  await expect(page.locator(".dc-nav").getByRole("button", { name: "Portail du propriétaire" })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator(".dc-nav").getByRole("button", { name: "Portail du propriétaire" })).toBeVisible({
+    timeout: 60_000,
+  });
 
   // --- Déconnexion, mauvais mot de passe, connexion sans 2FA -----------------
   await logoutFromDrive(page);
@@ -225,7 +232,10 @@ test("parcours de connexion complet", async ({ page }) => {
   await openDrive(page);
   await driveNav(page, "Portail du propriétaire");
   await page.getByTestId("portal-tab-users").click();
-  await page.getByTestId(`user-row-${MEMBER.email}`).getByRole("button", { name: /Suspendre/ }).click();
+  await page
+    .getByTestId(`user-row-${MEMBER.email}`)
+    .getByRole("button", { name: /Suspendre/ })
+    .click();
   await expect(page.getByTestId(`user-row-${MEMBER.email}`)).toContainText("suspendu");
   await logoutFromDrive(page);
   await login(page, MEMBER.email, MEMBER.pw2);

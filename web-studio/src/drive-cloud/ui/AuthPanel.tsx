@@ -221,15 +221,20 @@ export default function AuthPanel({ onHome, gated = false }: { onHome?: () => vo
                   <button className="eb eb--primary eb--block" disabled={d.busy || mfaCode.trim().length < 6}>
                     <ShieldCheck size={16} /> Vérifier
                   </button>
-                  <button type="button" className="dc-auth__switch" onClick={() => setNoApp((v) => !v)} data-testid="mfa-noapp">
+                  <button
+                    type="button"
+                    className="dc-auth__switch"
+                    onClick={() => setNoApp((v) => !v)}
+                    data-testid="mfa-noapp"
+                  >
                     Je n'ai plus mon application
                   </button>
                   {noApp && (
                     <p className="muted" data-testid="mfa-noapp-help">
                       Saisissez l'un de vos <b>codes de secours</b> (format <code>abcd-efgh</code>) dans le champ
                       ci-dessus : chacun ne sert qu'une fois. Plus de codes de secours ? Demandez au propriétaire du
-                      Drive de vous aider ; s'il s'agit du propriétaire, une procédure de secours existe sur le
-                      serveur (voir la documentation, « Portail du propriétaire »).
+                      Drive de vous aider ; s'il s'agit du propriétaire, une procédure de secours existe sur le serveur
+                      (voir la documentation, « Portail du propriétaire »).
                     </p>
                   )}
                 </form>

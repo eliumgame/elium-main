@@ -36,7 +36,12 @@ export default function SiteGate({ children }: { children: ReactNode }) {
   // Lien de réinitialisation de mot de passe (?reset=…) : page dédiée, sans compte.
   const resetToken = resetTokenFromSearch(typeof window === "undefined" ? "" : window.location.search);
   if (resetToken) {
-    if (d.policy === undefined) return <div className="dc-loading" role="status">Chargement…</div>;
+    if (d.policy === undefined)
+      return (
+        <div className="dc-loading" role="status">
+          Chargement…
+        </div>
+      );
     return <ResetPasswordPage token={resetToken} />;
   }
   if (isPublicEntry(typeof window === "undefined" ? "" : window.location.search)) return <>{children}</>;

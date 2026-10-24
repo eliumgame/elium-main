@@ -521,7 +521,11 @@ async function main(): Promise<void> {
 
     // =========================================================================
     section("Réinitialisation de mot de passe par le propriétaire");
-    await expectStatus("le propriétaire ne peut pas se réinitialiser lui-même par ce lien", boss.api.createPasswordReset(boss.user.id), 409);
+    await expectStatus(
+      "le propriétaire ne peut pas se réinitialiser lui-même par ce lien",
+      boss.api.createPasswordReset(boss.user.id),
+      409,
+    );
     await expectStatus("un membre ne peut pas générer de lien", carol.api.createPasswordReset(alice.user.id), 403);
     const rst = await boss.api.createPasswordReset(alice.user.id);
     const rinfo = await anon.resetInfo(rst.token);
@@ -530,27 +534,57 @@ async function main(): Promise<void> {
     const newPw = "NouveauMotdepasse!77-Alice";
     const newReg = await buildRegistration("alice@acme.fr", newPw, "Alice");
     const wrongMail = await buildRegistration("intrus@acme.fr", newPw, "Intrus");
-    await expectStatus("clés destinées à une autre adresse : refusées", anon.resetComplete(rst.token, wrongMail.payload), 400);
+    await expectStatus(
+      "clés destinées à une autre adresse : refusées",
+      anon.resetComplete(rst.token, wrongMail.payload),
+      400,
+    );
     await anon.resetComplete(rst.token, newReg.payload);
     ok("réinitialisation menée à bien avec de nouvelles clés", true);
-    await expectStatus("lien à usage unique : le réutiliser est refusé", anon.resetComplete(rst.token, newReg.payload), 404);
+    await expectStatus(
+      "lien à usage unique : le réutiliser est refusé",
+      anon.resetComplete(rst.token, newReg.payload),
+      404,
+    );
     await expectStatus("l'ancien mot de passe ne fonctionne plus", login(base, "alice@acme.fr", alice.password), 401);
     const nl = await login(base, "alice@acme.fr", newPw);
     ok("le nouveau mot de passe ouvre le compte", !!(nl.res as { accessToken?: string }).accessToken);
     const ctxA3: ops.OpsCtx = { ...ctxA, api: nl.api, keys: newReg.keys };
     const notes3 = (await ops.listFolder(ctxA3, aliceSpace.id).catch(() => [])).find((e) => e.name === "notes.txt");
-    const unreadable = notes3 ? await ops.downloadFile(ctxA3, notes3).then(() => false).catch(() => true) : true;
+    const unreadable = notes3
+      ? await ops
+          .downloadFile(ctxA3, notes3)
+          .then(() => false)
+          .catch(() => true)
+      : true;
     ok("avant rétablissement : les anciens fichiers privés d'Alice sont illisibles (nouvelles clés)", unreadable);
     const bossCtx = { api: boss.api, orgId: org.id, orgPublicHex: org.orgPublicHex, adminKeys: boss.keys.recipient };
-    const restoredCount = await restoreOwnedNodes(bossCtx, { userId: alice.user.id, publicHex: newReg.keys.recipient.publicHex }, roleIdByKey["owner"]!);
+    const restoredCount = await restoreOwnedNodes(
+      bossCtx,
+      { userId: alice.user.id, publicHex: newReg.keys.recipient.publicHex },
+      roleIdByKey["owner"]!,
+    );
     ok("le propriétaire rétablit ses accès via la clé d'organisation", restoredCount >= 2, String(restoredCount));
     const notes4 = (await ops.listFolder(ctxA3, aliceSpace.id)).find((e) => e.name === "notes.txt")!;
-    ok("après rétablissement : Alice relit son fichier avec ses nouvelles clés", dec.decode((await ops.downloadFile(ctxA3, notes4)).bytes) === "v3");
+    ok(
+      "après rétablissement : Alice relit son fichier avec ses nouvelles clés",
+      dec.decode((await ops.downloadFile(ctxA3, notes4)).bytes) === "v3",
+    );
     const exp = await boss.api.createPasswordReset(alice.user.id);
-    await query(`UPDATE password_resets SET expires_at = now() - interval '1 minute' WHERE user_id = $1`, [alice.user.id]);
+    await query(`UPDATE password_resets SET expires_at = now() - interval '1 minute' WHERE user_id = $1`, [
+      alice.user.id,
+    ]);
     await expectStatus("lien expiré : refusé", anon.resetInfo(exp.token), 404);
-    const rAudits = new Set((await query<{ action: string }>(`SELECT action FROM audit_log WHERE action LIKE '%password_reset%'`)).map((a) => a.action));
-    ok("génération et validation du lien sont journalisées", rAudits.has("site.user.password_reset") && rAudits.has("auth.password_reset.complete"), [...rAudits].join(","));
+    const rAudits = new Set(
+      (await query<{ action: string }>(`SELECT action FROM audit_log WHERE action LIKE '%password_reset%'`)).map(
+        (a) => a.action,
+      ),
+    );
+    ok(
+      "génération et validation du lien sont journalisées",
+      rAudits.has("site.user.password_reset") && rAudits.has("auth.password_reset.complete"),
+      [...rAudits].join(","),
+    );
 
     // =========================================================================
     section("2FA obligatoire");
@@ -561,8 +595,18 @@ async function main(): Promise<void> {
     );
     const setup = await boss.api.mfaSetup();
     const enabled = await boss.api.mfaEnable(totpNow(setup.secret));
-    await expectStatus("imposer la 2FA SANS code (ré-authentification) : refusé", boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null), 403, "mfa_proof_required");
-    await expectStatus("imposer la 2FA avec un MAUVAIS code : refusé", boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null, "000000"), 403, "mfa_proof_invalid");
+    await expectStatus(
+      "imposer la 2FA SANS code (ré-authentification) : refusé",
+      boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null),
+      403,
+      "mfa_proof_required",
+    );
+    await expectStatus(
+      "imposer la 2FA avec un MAUVAIS code : refusé",
+      boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null, "000000"),
+      403,
+      "mfa_proof_invalid",
+    );
     ok("la politique n'a pas changé après ces refus", (await anon.sitePolicy())?.mfaPolicy === "optional");
     await boss.api.putSiteSettings({ ...s, mfaPolicy: "required" }, null, totpNow(setup.secret));
     ok("2FA imposée (le propriétaire a la sienne)", (await anon.sitePolicy())?.mfaPolicy === "required");
@@ -590,15 +634,33 @@ async function main(): Promise<void> {
     const viaBackup = await new DriveApi({ baseUrl: base }).loginMfa(blr.mfaToken!, bc.toUpperCase().replace("-", " "));
     ok("un code de secours (saisie tolérante : majuscules, espace) ouvre la session", !!viaBackup.accessToken);
     const bl2 = await login(base, "boss@acme.fr", boss.password);
-    await expectStatus("le même code de secours ne sert qu'une fois", new DriveApi({ baseUrl: base }).loginMfa((bl2.res as { mfaToken: string }).mfaToken, bc), 401);
-    await expectStatus("un mauvais code est refusé avec un message clair", new DriveApi({ baseUrl: base }).loginMfa((bl2.res as { mfaToken: string }).mfaToken, "zzzz-zzzz"), 401);
+    await expectStatus(
+      "le même code de secours ne sert qu'une fois",
+      new DriveApi({ baseUrl: base }).loginMfa((bl2.res as { mfaToken: string }).mfaToken, bc),
+      401,
+    );
+    await expectStatus(
+      "un mauvais code est refusé avec un message clair",
+      new DriveApi({ baseUrl: base }).loginMfa((bl2.res as { mfaToken: string }).mfaToken, "zzzz-zzzz"),
+      401,
+    );
 
     // Le propriétaire a perdu application ET codes : procédure de secours en ligne de commande (côté serveur).
     const outcome = await resetOwnerAccess("boss@acme.fr");
-    ok("secours : 2FA retirée et politique remise à facultative", outcome.hadTotp && outcome.policyReset && (await anon.sitePolicy())?.mfaPolicy === "optional");
+    ok(
+      "secours : 2FA retirée et politique remise à facultative",
+      outcome.hadTotp && outcome.policyReset && (await anon.sitePolicy())?.mfaPolicy === "optional",
+    );
     const bl3 = await login(base, "boss@acme.fr", boss.password);
-    ok("secours : le propriétaire se reconnecte avec son seul mot de passe", !!(bl3.res as { accessToken?: string }).accessToken);
-    const stillValid = await fetch(`${base}/auth/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refreshToken: boss.api.getTokens()!.refreshToken }) });
+    ok(
+      "secours : le propriétaire se reconnecte avec son seul mot de passe",
+      !!(bl3.res as { accessToken?: string }).accessToken,
+    );
+    const stillValid = await fetch(`${base}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refreshToken: boss.api.getTokens()!.refreshToken }),
+    });
     ok("secours : les anciennes sessions du propriétaire ont été révoquées", stillValid.status === 401);
     const ra = await query<{ action: string }>(`SELECT action FROM audit_log WHERE action = 'owner.access.reset'`);
     ok("secours : l'opération est inscrite au journal d'audit", ra.length === 1);

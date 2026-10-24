@@ -67,7 +67,6 @@ export default function SecurityPanel() {
     } catch {
       setPasskeys([]);
     }
-
   }, [d.api]);
 
   useEffect(() => {

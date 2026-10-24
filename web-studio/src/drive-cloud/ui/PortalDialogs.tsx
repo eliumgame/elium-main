@@ -119,10 +119,11 @@ export function PasswordResetDialog({
             propriétaire — après que vous les avez rétablis (bouton « Rétablir ses accès »).
           </p>
           <p>
-            <b>Ce qui change :</b> le chiffrement de bout en bout lie ses clés à son mot de passe. Un nouveau jeu de clés
-            est créé : <b>ses anciens fichiers privés ne sont pas lisibles</b> tant que vous ne les avez pas rétablis avec
-            la clé d'organisation (recouvrement). Les éléments partagés par d'autres, ses équipes et ses anciennes
-            signatures ne sont pas rétablis automatiquement. Toutes ses sessions s'arrêtent à la validation du lien.
+            <b>Ce qui change :</b> le chiffrement de bout en bout lie ses clés à son mot de passe. Un nouveau jeu de
+            clés est créé : <b>ses anciens fichiers privés ne sont pas lisibles</b> tant que vous ne les avez pas
+            rétablis avec la clé d'organisation (recouvrement). Les éléments partagés par d'autres, ses équipes et ses
+            anciennes signatures ne sont pas rétablis automatiquement. Toutes ses sessions s'arrêtent à la validation du
+            lien.
           </p>
           {error && <p className="dc-error">{error}</p>}
           <div className="dc-portal__links">
@@ -137,7 +138,13 @@ export function PasswordResetDialog({
       ) : (
         <>
           <p>Transmettez ce lien à {user.email} par un canal sûr. Il ne sera plus affiché.</p>
-          <input className="input" readOnly value={link} onFocus={(e) => e.currentTarget.select()} data-testid="reset-link" />
+          <input
+            className="input"
+            readOnly
+            value={link}
+            onFocus={(e) => e.currentTarget.select()}
+            data-testid="reset-link"
+          />
           <div className="dc-portal__links">
             <button
               className="eb eb--primary"
@@ -183,7 +190,8 @@ export function RestoreAccessDialog({
         <>
           <p>
             <LifeBuoy size={16} /> Avec la clé d'organisation, les fichiers et dossiers dont {user.email} est
-            propriétaire sont ré-enveloppés pour ses clés actuelles (à faire après une réinitialisation de mot de passe).
+            propriétaire sont ré-enveloppés pour ses clés actuelles (à faire après une réinitialisation de mot de
+            passe).
           </p>
           <p className="muted">
             Les éléments qui lui ont été partagés par d'autres se rétablissent un par un dans « Recouvrement ».
@@ -201,7 +209,8 @@ export function RestoreAccessDialog({
       ) : (
         <>
           <p data-testid="restore-result">
-            <Check size={16} /> {result} élément{result > 1 ? "s" : ""} rétabli{result > 1 ? "s" : ""} pour {user.email}.
+            <Check size={16} /> {result} élément{result > 1 ? "s" : ""} rétabli{result > 1 ? "s" : ""} pour {user.email}
+            .
           </p>
           <button className="eb eb--primary" onClick={onClose}>
             Fermer

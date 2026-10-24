@@ -11,13 +11,13 @@ import { defineConfig } from "@playwright/test";
  * Lancer : `npm run test:e2e:persistence`.
  */
 process.env.PERSIST_E2E_DIR ??= mkdtempSync(join(tmpdir(), "elium-persist-e2e-"));
-const API_PORT = Number(process.env.PERSIST_API_PORT ?? 8793);
-const WEB_PORT = Number(process.env.PERSIST_WEB_PORT ?? 3193);
+const API_PORT = Number(process.env.PERSIST_API_PORT ?? 8797);
+const WEB_PORT = Number(process.env.PERSIST_WEB_PORT ?? 3197);
 
 export default defineConfig({
   testDir: "./tests",
   testMatch: /persistence-journey\.spec\.ts/,
-  timeout: 900_000,
+  timeout: 420_000,
   retries: 0,
   workers: 1,
   reporter: "list",
@@ -34,7 +34,7 @@ export default defineConfig({
       timeout: 240_000,
       env: {
         DEV_DRIVE_DIR: process.env.PERSIST_E2E_DIR,
-        DEV_PG_PORT: String(Number(process.env.PERSIST_PG_PORT ?? 54398)),
+        DEV_PG_PORT: String(Number(process.env.PERSIST_PG_PORT ?? 54399)),
         PORT: String(API_PORT),
         ACTIVATION_CODE: "AAAA-BBBB-CCCC",
         CORS_ORIGINS: `http://localhost:${WEB_PORT}`,

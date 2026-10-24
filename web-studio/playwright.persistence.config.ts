@@ -37,6 +37,8 @@ export default defineConfig({
         DEV_PG_PORT: String(Number(process.env.PERSIST_PG_PORT ?? 54399)),
         PORT: String(API_PORT),
         ACTIVATION_CODE: "AAAA-BBBB-CCCC",
+        SINGLE_DRIVE: "true",
+        OWNER_EMAIL: "owner@example.test",
         CORS_ORIGINS: `http://localhost:${WEB_PORT}`,
       },
     },

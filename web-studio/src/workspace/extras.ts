@@ -11,7 +11,14 @@
  */
 import { strFromU8, strToU8 } from "fflate";
 import { unzipCooperative, zipCooperative } from "../format/coop-zip";
-import { DRAFTS_SPEC, PARAPHEUR_SPEC, PASSPORT_SPEC, PDF_RECOVERY_SPEC, VERSIONS_SPEC } from "../format/db-specs";
+import {
+  DRAFTS_SPEC,
+  PARAPHEUR_SPEC,
+  PASSPORT_SPEC,
+  PDF_IDS_SPEC,
+  PDF_RECOVERY_SPEC,
+  VERSIONS_SPEC,
+} from "../format/db-specs";
 import { openMigrated, type DbSpec } from "../format/idb-migrate";
 
 export interface ExtraStoreSpec {
@@ -73,6 +80,16 @@ export const EXTRA_PIECES: ExtraPiece[] = [
     stores: [
       { name: "passport", merge: "keyed", onlyIfEmpty: true },
       { name: "annexes", merge: "keyed" },
+    ],
+  },
+  {
+    // Signatures et initiales manuscrites + identités de confiance. Les identités PRIVÉES (`ids`) en sont exclues.
+    piece: "marques-pdf",
+    label: "Signatures manuscrites et identités de confiance (PDF)",
+    open: fromSpec(PDF_IDS_SPEC),
+    stores: [
+      { name: "marks", merge: "keyed" },
+      { name: "trusted", merge: "keyed" },
     ],
   },
   {

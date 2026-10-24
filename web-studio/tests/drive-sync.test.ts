@@ -286,6 +286,34 @@ describe("pièces annexes : encodage et fusion", () => {
     expect(out.passport).toEqual([{ id: "main", data: { a: 1 } }]);
   });
 
+  it("chaque module a sa pièce : passeport (annexes binaires), polices, signatures manuscrites, circuits, PDF récupérés", async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 1, 2]);
+    const out = await unpackRecords(
+      await packRecords({
+        passport: [{ id: "main", updatedAt: "t", vaultProtected: false, data: { holder: { nom: "Dupont" } } }],
+        annexes: [{ id: "a1", vaultProtected: false, bytes: png }],
+        fonts: [{ name: "Marianne", bytes: png, addedAt: "t" }],
+        marks: [{ id: "m1", kind: "signature", dataUrl: "data:image/png;base64,AA" }],
+        workflows: [{ docKey: "d", createdAt: "t", vaultProtected: false, parties: [{ id: "p" }] }],
+        sources: [{ id: "s", protected: false, bytes: png }],
+      }),
+    );
+    expect(Array.from((out.annexes![0] as { bytes: Uint8Array }).bytes)).toEqual(Array.from(png));
+    expect(Array.from((out.fonts![0] as { bytes: Uint8Array }).bytes)).toEqual(Array.from(png));
+    expect(out.marks![0]).toMatchObject({ id: "m1" });
+    expect(out.workflows![0]).toMatchObject({ docKey: "d" });
+    expect(Array.from((out.sources![0] as { bytes: Uint8Array }).bytes)).toEqual(Array.from(png));
+  });
+
+  it("les identités privées du PDF ne font partie d'aucune pièce ; la clé API du Détecteur reste sur l'appareil", async () => {
+    const { EXTRA_PIECES } = await import("../src/workspace/extras");
+    const { SYNC_SETTINGS_KEYS } = await import("../src/workspace/drive-sync");
+    const stores = EXTRA_PIECES.flatMap((p) => p.stores.map((s) => s.name));
+    expect(stores).not.toContain("ids");
+    expect(SYNC_SETTINGS_KEYS).toContain("elium-detector-search-provider");
+    expect(SYNC_SETTINGS_KEYS as readonly string[]).not.toContain("elium-detector-search-api-key");
+  });
+
   it("brouillons : le plus récent gagne, les inconnus sont ajoutés", () => {
     const keyOf = (v: unknown) => (v as { id: string }).id;
     const local = [{ id: "a", updatedAt: "2026-01-02" }];

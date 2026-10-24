@@ -49,6 +49,10 @@ export const SYNC_SETTINGS_KEYS = [
   "elium.pdf.customStamps",
   "elium-editor-density",
   "elium_view_mode",
+  // Détecteur : signaux désactivés, moteur de recherche, confiance C2PA (la clé API de recherche reste sur l'appareil).
+  "elium-detector-disabled-signals",
+  "elium-detector-search-provider",
+  "elium.detector.c2paTrust.v1",
 ] as const;
 
 export interface RemoteEntry {

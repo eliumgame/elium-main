@@ -15,6 +15,9 @@ import { test, expect, type Browser, type Page } from "@playwright/test";
  */
 
 const OWNER = { name: "Propriétaire", email: "owner@example.test", pw: "Motdepasse!42-Owner" };
+const MEMBER = { name: "Membre", email: "membre@example.test", pw: "Motdepasse!42-Membre" };
+/** Compte utilisé par le parcours en cours (propriétaire, puis simple membre). */
+let WHO = OWNER;
 const ACTIVATION = "AAAA-BBBB-CCCC";
 const authCard = (page: Page) => page.locator(".dc-auth__card");
 
@@ -173,25 +176,36 @@ const SEED = async () => {
       tx.onerror = () => rej(tx.error);
     };
   });
+  const { saveMark } = await import("/src/pdf/ui/identities.ts");
+  await saveMark({
+    id: "marque-1",
+    kind: "signature",
+    createdAt: T,
+    name: "Ma signature",
+    dataUrl: "data:image/png;base64,AAAA",
+  } as never);
+  localStorage.setItem("elium-detector-search-provider", "bing");
+  localStorage.setItem("elium-detector-disabled-signals", JSON.stringify(["x"]));
   const { markDirty } = await import("/src/workspace/sync-dirty.ts");
   markDirty("polices");
   localStorage.setItem("elium.citation.style", "apa");
   localStorage.setItem("elium.bibliography.sources.v1", JSON.stringify([{ id: "s1", title: "Source test" }]));
 };
 
-async function register(page: Page) {
+async function register(page: Page, createOrg: boolean) {
   await page.goto("/");
   await expect(authCard(page).getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 60_000 });
   await authCard(page).getByRole("button", { name: "Créer un compte" }).click();
-  await authCard(page).getByPlaceholder("Prénom Nom").fill(OWNER.name);
+  await authCard(page).getByPlaceholder("Prénom Nom").fill(WHO.name);
   const code = page.getByTestId("activation-code");
   if (await code.isVisible({ timeout: 5_000 }).catch(() => false)) await code.fill(ACTIVATION);
-  await authCard(page).locator('input[type="email"]').fill(OWNER.email);
+  await authCard(page).locator('input[type="email"]').fill(WHO.email);
   const pws = authCard(page).locator('input[type="password"]');
-  await pws.nth(0).fill(OWNER.pw);
-  await pws.nth(1).fill(OWNER.pw);
+  await pws.nth(0).fill(WHO.pw);
+  await pws.nth(1).fill(WHO.pw);
   await authCard(page).getByRole("button", { name: "Créer le compte" }).click();
   await expectHome(page);
+  if (!createOrg) return;
   await page.getByText("Drive entreprise chiffré").first().click();
   await expect(page.locator(".dc-app")).toBeVisible({ timeout: 60_000 });
   await page.getByPlaceholder("Ma société").fill("Demo SARL");
@@ -206,11 +220,11 @@ async function unlockOrLogin(page: Page) {
   const login = authCard(page).getByRole("button", { name: "Connexion" });
   await expect(locked.or(login)).toBeVisible({ timeout: 60_000 });
   if (await locked.isVisible()) {
-    await authCard(page).locator('input[type="password"]').fill(OWNER.pw);
+    await authCard(page).locator('input[type="password"]').fill(WHO.pw);
     await authCard(page).getByRole("button", { name: "Déverrouiller" }).click();
   } else {
-    await authCard(page).locator('input[type="email"]').fill(OWNER.email);
-    await authCard(page).locator('input[type="password"]').first().fill(OWNER.pw);
+    await authCard(page).locator('input[type="email"]').fill(WHO.email);
+    await authCard(page).locator('input[type="password"]').first().fill(WHO.pw);
     await authCard(page).locator("form button.eb--primary").first().click();
   }
   await expectHome(page);
@@ -255,13 +269,11 @@ async function freshContext(browser: Browser) {
   return { ctx, page };
 }
 
-test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, restauration sur navigateur vierge", async ({
-  browser,
-}) => {
+async function journey(browser: Browser, createOrg: boolean) {
   // ----- Appareil A -----
   const A = await freshContext(browser);
   const a = A.page;
-  await register(a);
+  await register(a, createOrg);
 
   // Contenu semé dans tous les modules, puis rechargement (l'application relit ses magasins).
   await a.goto("/");
@@ -365,4 +377,16 @@ test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, 
   await A.ctx.close();
   await B.ctx.close();
   await C.ctx.close();
+}
+
+test("propriétaire : rien ne se perd (disque refusé, sauvegarde Drive, restauration automatique)", async ({
+  browser,
+}) => {
+  WHO = OWNER;
+  await journey(browser, true);
+});
+
+test("simple membre : même parcours, même résultat", async ({ browser }) => {
+  WHO = MEMBER;
+  await journey(browser, false);
 });

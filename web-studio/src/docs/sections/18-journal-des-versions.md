@@ -2,6 +2,11 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.28.2 — sauvegarde : derniers trous comblés, testée avec un compte membre
+
+- **Ajouts à la sauvegarde Drive** : signatures et initiales manuscrites du PDF et identités de confiance (les identités privées de signature restent sur l'appareil), ainsi que les réglages du Détecteur (signaux désactivés, moteur de recherche, confiance C2PA ; la clé API de recherche n'est jamais envoyée). Les sources bibliographiques et tampons PDF personnalisés étaient déjà inclus ; les annexes du Passeport et les polices sont restaurées avec le reste.
+- **Testé de bout en bout avec un propriétaire ET un simple membre** (navigateur vierge, reconnexion, contenu identique sans interaction) : Documents (enregistré et brouillon), Tableur, Présentations, PDF, Passeport, dossiers, favoris, étiquettes, corbeille, historique de versions, polices.
+
 ### Version 4.28.1 — restauration automatique sur un appareil vide
 
 - **Appareil vide = restauration sans question** : après connexion sur un navigateur ou un appareil sans aucun élément, dossier ni brouillon, votre espace est restauré automatiquement (bandeau de progression puis résumé), puis la sauvegarde automatique reprend. Le comportement est le même à chaque fois.

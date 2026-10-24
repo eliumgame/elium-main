@@ -16,6 +16,7 @@ import { reportError } from "../../ui/crash-log";
 
 import { openMigrated } from "../../format/idb-migrate";
 import { PDF_IDS_SPEC } from "../../format/db-specs";
+import { markDirty } from "../../workspace/sync-dirty";
 const STORE = "ids";
 const TRUST = "trusted";
 const MARKS = "marks";
@@ -92,10 +93,12 @@ export async function addTrusted(name: string, cert: Uint8Array): Promise<void> 
   const existing = await listTrusted();
   if (existing.some((t) => sameBytes(t.cert, cert))) return;
   await run(TRUST, "readwrite", (s) => s.put({ id: newId(), name, cert, added: Date.now() }));
+  markDirty("marques-pdf");
 }
 
 export async function removeTrusted(id: string): Promise<void> {
   await run(TRUST, "readwrite", (s) => s.delete(id));
+  markDirty("marques-pdf");
 }
 
 /** Certificates a verification trusts: the user's list and their own IDs. */
@@ -116,10 +119,12 @@ export async function listSavedMarks(): Promise<SavedSignature[]> {
 
 export async function saveMark(mark: SavedSignature): Promise<void> {
   await run(MARKS, "readwrite", (s) => s.put(mark)).catch((e) => reportError("pdf.marks.save", e));
+  markDirty("marques-pdf");
 }
 
 export async function removeMark(id: string): Promise<void> {
   await run(MARKS, "readwrite", (s) => s.delete(id)).catch((e) => reportError("pdf.marks.remove", e));
+  markDirty("marques-pdf");
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

@@ -175,6 +175,15 @@ describe("sauvegarde incrémentale", () => {
     expect(d.dirty.size).toBe(0);
   });
 
+  it("pièces annexes déjà présentes avant la sauvegarde incrémentale : envoyées au premier passage sans être signalées", async () => {
+    const drive = memoryDrive();
+    const d = device(drive);
+    markReady(d.env);
+    d.extraRecords.set("drafts", [{ id: "ancien", updatedAt: T }]); // aucun markDirty
+    await syncOnce(d.env);
+    expect([...drive.files.values()].some((f) => f.entry.name === "_brouillons.elium-extra")).toBe(true);
+  });
+
   it("aller-retour : un appareil vierge retrouve tout à l'identique", async () => {
     const drive = memoryDrive();
     const a = device(drive);

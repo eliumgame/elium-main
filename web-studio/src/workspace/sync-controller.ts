@@ -47,6 +47,8 @@ export interface SyncStatus {
   auto: boolean;
   required: boolean;
   probe?: RemoteProbe;
+  /** Restauration automatique (appareil vide) terminée : résumé affiché dans un bandeau. */
+  restored?: { summary: string; reload: boolean };
 }
 
 let status: SyncStatus = { phase: "off", pending: 0, auto: false, required: false };
@@ -162,10 +164,45 @@ export async function reconcile(): Promise<void> {
       if (c.auto || c.required) request("première sauvegarde");
       return;
     }
-    set({ phase: "needs-restore", probe, message: undefined });
+    set({ phase: "checking", probe, message: undefined });
+    // Appareil vide (rien à perdre ni à fusionner) : restauration automatique, sans question.
+    if (await localIsEmpty(env)) {
+      set({ phase: "syncing", message: "Restauration de votre espace…" });
+      try {
+        const r = await restoreFromProbe("keep_both");
+        const parts = [
+          `${r.added + r.replaced} élément(s)`,
+          r.extras ? `${r.extras} brouillon(s), version(s), police(s) ou fiche(s) annexe(s)` : "",
+        ].filter(Boolean);
+        set({
+          restored: {
+            summary: `Votre espace a été restauré : ${parts.join(", ")}.`,
+            reload: r.settingsApplied > 0 || r.extras > 0,
+          },
+        });
+      } catch (e) {
+        fail(e, "auto-restore");
+        set({ phase: "needs-restore", probe });
+      }
+    } else set({ phase: "needs-restore" });
   } catch (e) {
     fail(e, "reconcile");
   }
+}
+
+/** Aucun élément, dossier ni brouillon local : rien à perdre ni à fusionner. */
+async function localIsEmpty(env: SyncEnv): Promise<boolean> {
+  const { items, folders } = await env.deps.catalog.load();
+  if (items.length || folders.length) return false;
+  for (const piece of ["brouillons", "brouillons-pdf"]) {
+    const spec = EXTRA_PIECES.find((p) => p.piece === piece);
+    if (spec && Object.values(await dumpExtra(spec)).some((l) => l.length)) return false;
+  }
+  return true;
+}
+
+export function dismissRestored(): void {
+  set({ restored: undefined });
 }
 
 function fail(e: unknown, where: string): void {

@@ -12,6 +12,7 @@ import type { ConflictChoice } from "../workspace/backup";
 import { planBackupRestore } from "../workspace/backup";
 import {
   dismissRestorePrompt,
+  dismissRestored,
   flushNow,
   restoreFromProbe,
   saveItemToDrive,
@@ -28,8 +29,42 @@ export function DriveSyncUi({ ws }: { ws: WorkspaceApi }) {
   return (
     <>
       <SyncPill />
+      <RestoredBanner ws={ws} />
       <RestorePrompt ws={ws} />
     </>
+  );
+}
+
+/** Bandeau de la restauration automatique d'un appareil vide : progression puis résumé. */
+function RestoredBanner({ ws }: { ws: WorkspaceApi }) {
+  const s = useSyncStatus();
+  useEffect(() => {
+    const on = () => void ws.refresh();
+    window.addEventListener("elium-workspace-restored", on);
+    return () => window.removeEventListener("elium-workspace-restored", on);
+  }, [ws]);
+  const restoring = s.phase === "syncing" && s.message?.startsWith("Restauration");
+  if (!restoring && !s.restored) return null;
+  return (
+    <div className="sync-banner" role="status" data-testid="restore-banner">
+      {restoring ? (
+        <>
+          <Loader2 size={14} className="icon-spin" aria-hidden="true" /> {s.message}
+        </>
+      ) : (
+        <>
+          <Check size={14} aria-hidden="true" /> {s.restored!.summary}
+          {s.restored!.reload && (
+            <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+              Recharger pour appliquer les réglages
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={dismissRestored}>
+            OK
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 

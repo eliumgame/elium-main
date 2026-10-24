@@ -267,6 +267,8 @@ test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, 
   await a.goto("/");
   await unlockOrLogin(a);
   await a.evaluate(SEED);
+  // Comme un brouillon créé AVANT la mise à jour : aucune pièce signalée « modifiée », elles doivent partir quand même.
+  await a.evaluate(() => localStorage.removeItem("elium_sync_dirty_v1"));
   await a.reload();
   await unlockOrLogin(a);
   await watchLongTasks(a);
@@ -318,17 +320,17 @@ test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, 
   const b = B.page;
   await b.goto("/");
   await unlockOrLogin(b);
-  const dialog = b.getByRole("dialog");
-  await expect(dialog).toContainText("Une sauvegarde existe dans votre Drive", { timeout: 120_000 });
-  // Rien n'est envoyé tant que l'utilisateur n'a pas tranché (jamais d'écrasement silencieux).
-  expect((await syncStatus(b)).phase).toBe("needs-restore");
-  await b.getByTestId("restore-apply").click();
-  await expect(b.getByRole("dialog").getByText("Espace de travail restauré")).toBeVisible({ timeout: 180_000 });
-  await b.getByRole("dialog").getByRole("button").last().click();
-  // Les réglages / polices restaurés proposent un rechargement.
-  const reloadDlg = b.getByRole("dialog").filter({ hasText: "Recharger Elium" });
-  if (await reloadDlg.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await reloadDlg.getByRole("button", { name: "Recharger maintenant" }).click();
+  // Appareil VIDE : restauration automatique, sans fenêtre ni clic, avec bandeau de résumé.
+  const banner = b.getByTestId("restore-banner");
+  await expect(banner).toContainText("restauré", { timeout: 180_000 });
+  await expect(b.getByText("Une sauvegarde existe dans votre Drive")).toHaveCount(0);
+  const restoredDrafts = await b.evaluate(async () => {
+    const m = await import("/src/format/drafts-store.ts");
+    return (await m.listDrafts()).map((d) => d.id);
+  });
+  expect(restoredDrafts).toContain("brouillon-1"); // brouillon antérieur, jamais signalé « modifié »
+  if (await banner.getByRole("button", { name: /Recharger/ }).isVisible()) {
+    await banner.getByRole("button", { name: /Recharger/ }).click();
     await unlockOrLogin(b);
   }
   const snapB = await b.evaluate(SNAPSHOT);
@@ -340,6 +342,27 @@ test("rien ne se perd : enregistrement refusé par le disque, sauvegarde Drive, 
   await waitSynced(b, since2);
   expect((await syncStatus(b)).phase).toBe("idle");
 
+  // ----- Appareil C : NON vide et différent du Drive = vrai conflit → fenêtre, envoi en pause -----
+  const C = await freshContext(browser);
+  const c = C.page;
+  await c.goto("/");
+  await expect(authCard(c).getByRole("button", { name: "Connexion" })).toBeVisible({ timeout: 60_000 });
+  await c.evaluate(async () => {
+    const { createWorkspaceService } = await import("/src/workspace/content.ts");
+    const { sheetStore } = await import("/src/sheet/sheet-store.ts");
+    const { emptyWorkbook } = await import("/src/sheet/model.ts");
+    const { service } = createWorkspaceService(
+      () => undefined,
+      () => null,
+    );
+    await sheetStore.save("sheet-local", emptyWorkbook(), undefined, "2026-10-21T10:00:00.000Z");
+    await service.registerSaved({ id: "sheet-local", kind: "sheet", title: "Travail local", size: 50 });
+  });
+  await unlockOrLogin(c);
+  await expect(c.getByRole("dialog")).toContainText("Une sauvegarde existe dans votre Drive", { timeout: 120_000 });
+  expect((await syncStatus(c)).phase).toBe("needs-restore");
+
   await A.ctx.close();
   await B.ctx.close();
+  await C.ctx.close();
 });

@@ -2,6 +2,12 @@
 
 > Dernière version publiée : **4.10.0**, étiquetée le 4 octobre 2026. Ce journal est reconstruit à partir de l'historique Git et des étiquettes de version. L'historique complet des nouveautés depuis votre version est aussi affiché par la carte de mise à jour de l'application.
 
+### Version 4.28.1 — restauration automatique sur un appareil vide
+
+- **Appareil vide = restauration sans question** : après connexion sur un navigateur ou un appareil sans aucun élément, dossier ni brouillon, votre espace est restauré automatiquement (bandeau de progression puis résumé), puis la sauvegarde automatique reprend. Le comportement est le même à chaque fois.
+- **Appareil non vide et différent du Drive** : seule situation où une fenêtre s'ouvre (garder les deux, remplacer, garder le local, ou repartir à neuf) ; l'envoi reste en pause tant que vous n'avez pas choisi. Un espace vide n'est jamais envoyé par-dessus une sauvegarde non vide.
+- **Brouillons et autres données antérieures à la 4.28** (brouillons, versions, polices, passeport, circuits déjà présents sur l'appareil) sont envoyés au Drive dès la première sauvegarde.
+
 ### Version 4.28.0 — aucun travail perdu : sauvegarde Drive incrémentale et restauration automatique
 
 - **« Enregistrer » ne perd plus rien** : si le navigateur refuse l'écriture sur le disque (permission, contexte non sécurisé), le document est tout de même enregistré dans la bibliothèque et dans le Drive, une copie est téléchargée et un message clair en français remplace l'erreur technique (Documents, PDF, archive de l'espace de travail).

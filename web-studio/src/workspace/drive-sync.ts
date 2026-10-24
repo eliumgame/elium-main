@@ -244,15 +244,24 @@ export async function syncOnce(
   );
   const sj = JSON.stringify(settings);
   await putPiece(env, folderId, SETTINGS_FILE, "reglages", strToU8(sj), hashString(sj), report);
-  // Pièces annexes signalées modifiées.
-  for (const piece of env.dirty.list()) {
+  // Pièces annexes signalées modifiées, et celles jamais envoyées (données antérieures à la sauvegarde incrémentale).
+  const never = env.extras.pieces.map((p) => p.piece).filter((p) => !env.store.load().pieces[p]);
+  for (const piece of [...new Set([...env.dirty.list(), ...never])]) {
     const spec = env.extras.pieces.find((p) => p.piece === piece);
     if (!spec) {
       env.dirty.clear(piece);
       continue;
     }
     try {
-      const bytes = await env.extras.pack(await env.extras.dump(spec));
+      const records = await env.extras.dump(spec);
+      if (!Object.values(records).some((l) => l.length) && !env.store.load().pieces[piece]) {
+        const s = env.store.load();
+        s.pieces[piece] = { node: "", sig: "empty" }; // rien à envoyer pour l'instant : n'est plus réexaminée
+        env.store.save(s);
+        env.dirty.clear(piece);
+        continue;
+      }
+      const bytes = await env.extras.pack(records);
       await putPiece(env, folderId, pieceFileName(piece), piece, bytes, undefined, report);
       env.dirty.clear(piece);
     } catch (e) {

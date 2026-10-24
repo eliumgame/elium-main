@@ -22,3 +22,20 @@ export function maxOf(values: readonly number[]): number {
   }
   return m;
 }
+
+const FR_NUMBER = /^[+-]?(?:\d+|[1-9]\d{0,2}(?:[   ]\d{3})+)(?:,\d+)?$/;
+
+/**
+ * Nombre saisi dans une cellule (non formule) : « 12.5 » comme avant, mais aussi la saisie française
+ * « 12,5 » et « 1 234,5 » (espaces fines ou insécables en séparateur de milliers). `null` si ce n'est
+ * pas un nombre (la cellule reste du texte).
+ */
+export function parseCellNumber(raw: string): number | null {
+  const t = raw.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  if (!Number.isNaN(n)) return n;
+  if (!FR_NUMBER.test(t)) return null;
+  const v = Number(t.replace(/[   ]/g, "").replace(",", "."));
+  return Number.isNaN(v) ? null : v;
+}

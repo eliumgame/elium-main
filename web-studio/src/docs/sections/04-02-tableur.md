@@ -6,7 +6,7 @@ automatiquement.
 
 ### Formules
 
-107 fonctions sont reconnues : maths, statistiques, recherche, logique, texte,
+110 fonctions sont reconnues : maths, statistiques, recherche, logique, texte,
 dates, finance (PMT, NPV, IRR) et tableaux. Les références vers d'autres feuilles
 et les opérateurs `&`, `^`, `%` sont pris en charge.
 

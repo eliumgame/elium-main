@@ -20,7 +20,7 @@
  */
 import { expandStructuredRefs, type TableDef } from "./tables";
 import { DYN_FUNCS, ARRAY_RETURNING, dynFunction, isMat, toMat, type Matrix } from "./formula-dyn";
-import { minOf, maxOf } from "./numeric";
+import { minOf, maxOf, parseCellNumber } from "./numeric";
 
 export type CellError = { error: string };
 export type CellValue = number | string | boolean | CellError;
@@ -2137,8 +2137,8 @@ export function createCalc(
         return { error: e instanceof FormulaError && e.message ? e.message : "#ERR" };
       }
     }
-    const n = Number(raw);
-    return raw.trim() !== "" && !Number.isNaN(n) ? n : raw;
+    const n = parseCellNumber(raw);
+    return n !== null ? n : raw;
   }
 
   /**
@@ -2187,6 +2187,11 @@ export function createCalc(
     const v = valueOf(null, ref);
     if (isError(v)) return v.error;
     if (typeof v === "boolean") return v ? "VRAI" : "FAUX";
+    // Nombre saisi avec une virgule décimale : on garde l'écriture de l'utilisateur.
+    if (typeof v === "number") {
+      const raw = rawIn(null, ref);
+      if (raw && raw[0] !== "=" && raw.includes(",")) return raw.trim();
+    }
     if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e10) / 1e10);
     return v;
   }

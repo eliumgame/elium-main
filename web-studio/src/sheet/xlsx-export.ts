@@ -30,6 +30,7 @@ import { zipSync, strToU8 } from "fflate";
 import { makeBreather, zipCooperative } from "../format/coop-zip";
 import { escapeXmlText, xmlSafeText } from "../format/xml-text";
 import { quoteSheetName } from "./formula";
+import { parseCellNumber } from "./numeric";
 import { chartSpaceXml, type OoxmlSeries } from "./chart-ooxml";
 import { formulaForFile } from "./xlsx-formula";
 import { printDefinedNames, printXml, sheetPrXml } from "./xlsx-print";
@@ -271,6 +272,9 @@ function cellXml(key: string, raw: string, s: number, literal = false): string {
   if (isNumeric(text)) {
     return `<c r="${key}"${sAttr}><v>${xe(text.trim())}</v></c>`;
   }
+  // Saisie française (« 12,5 », « 1 234,5 ») : écrite comme un vrai nombre.
+  const fr = /,/.test(text) ? parseCellNumber(text) : null;
+  if (fr !== null) return `<c r="${key}"${sAttr}><v>${fr}</v></c>`;
   return `<c r="${key}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xe(clip(text, MAX_CELL_TEXT))}</t></is></c>`;
 }
 

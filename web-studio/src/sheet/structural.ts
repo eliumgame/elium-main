@@ -16,6 +16,7 @@
 import { indexToCol, parseRef, rewriteRefs, type RefMap } from "./formula";
 import { visibleRowsInRange } from "./filter";
 import type { CellStyle, SheetData } from "./model";
+import { parseCellNumber } from "./numeric";
 
 type Pos = { c: number; r: number };
 export type Rect = { c0: number; c1: number; r0: number; r1: number };
@@ -208,7 +209,7 @@ export function sortRange(
   }
   // Sauter une ligne d'en-tête (libellé non numérique au-dessus de données numériques).
   let start = R0;
-  const isNum = (x: string) => x !== "" && !Number.isNaN(Number(x));
+  const isNum = (x: string) => parseCellNumber(x) !== null;
   if (R1 > R0) {
     const k0 = sheet.cells[cellRef(key, R0)] ?? "";
     if (k0 !== "" && !isNum(k0) && isNum(sheet.cells[cellRef(key, R0 + 1)] ?? "")) start = R0 + 1;
@@ -226,10 +227,9 @@ export function sortRange(
     return { key: sheet.cells[cellRef(key, r)] ?? "", row, st };
   });
   snap.sort((a, b) => {
-    const an = Number(a.key),
-      bn = Number(b.key);
-    const bothNum = a.key !== "" && b.key !== "" && !Number.isNaN(an) && !Number.isNaN(bn);
-    return (bothNum ? an - bn : a.key.localeCompare(b.key, "fr")) * dir;
+    const an = parseCellNumber(a.key),
+      bn = parseCellNumber(b.key);
+    return (an !== null && bn !== null ? an - bn : a.key.localeCompare(b.key, "fr")) * dir;
   });
   rowsIdx.forEach((r, i) => {
     for (let c = C0; c <= C1; c++) {
@@ -259,8 +259,7 @@ export function fillRange(sheet: SheetData, src: Rect, to: Pos): SheetData {
   const styles = { ...(sheet.styles ?? {}) };
   const num = (raw?: string): number | null => {
     if (raw == null || raw === "") return null;
-    const n = Number(raw);
-    return Number.isNaN(n) ? null : n;
+    return parseCellNumber(raw);
   };
   const put = (
     c: number,

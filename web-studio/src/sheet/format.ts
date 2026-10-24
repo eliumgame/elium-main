@@ -1,6 +1,7 @@
 /** Number-format rendering for spreadsheet cells (fr-FR). */
 import { isError, type CellValue } from "./formula";
 import type { NumFmt } from "./model";
+import { parseCellNumber } from "./numeric";
 
 const nf = (opts: Intl.NumberFormatOptions) => new Intl.NumberFormat("fr-FR", opts);
 
@@ -51,8 +52,8 @@ export function formatValue(v: CellValue, fmt: NumFmt | undefined, fallback: str
   if (!fmt || fmt === "general") return fallback;
   if (typeof v === "number") return formatNumber(v, fmt);
   if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    if (!Number.isNaN(n)) return formatNumber(n, fmt);
+    const n = parseCellNumber(v);
+    if (n !== null) return formatNumber(n, fmt);
   }
   return fallback;
 }
